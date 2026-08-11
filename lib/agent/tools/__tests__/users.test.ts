@@ -181,48 +181,6 @@ describe("user authoring tools", () => {
 		});
 	});
 
-	it("honors predeclared identities while retaining server-minted defaults", async () => {
-		const harness = makeHarness(emptyDoc());
-		const propertyUuid = testUuid("declared-worker-property");
-		const userTypeUuid = testUuid("declared-user-type");
-		const personaUuid = testUuid("declared-persona");
-
-		const property = await harness.runTool(addUserPropertiesTool, {
-			properties: [
-				{
-					userPropertyUuid: propertyUuid,
-					slug: "program",
-					label: "Program",
-				},
-			],
-		});
-		const role = await harness.runTool(addUserTypesTool, {
-			userTypes: [
-				{
-					userTypeUuid,
-					name: "Coordinator",
-					values: [{ userPropertyUuid: propertyUuid, value: "coord" }],
-				},
-			],
-		});
-		const persona = await harness.runTool(addPersonasTool, {
-			personas: [
-				{
-					personaUuid,
-					name: "Amina",
-					userTypeUuid,
-				},
-			],
-		});
-
-		expect(property.result).toMatchObject({ uuids: [propertyUuid] });
-		expect(role.result).toMatchObject({ uuids: [userTypeUuid] });
-		expect(persona.result).toMatchObject({ uuids: [personaUuid] });
-		expect(harness.currentDoc().personas?.[personaUuid]?.userTypeUuid).toBe(
-			userTypeUuid,
-		);
-	});
-
 	it("uses null only as an explicit clear and keeps omitted slots unchanged", async () => {
 		const nullableHarness = makeHarness(emptyDoc());
 		const nullableAdd = await nullableHarness.runTool(addUserPropertiesTool, {

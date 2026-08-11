@@ -37,22 +37,14 @@ export interface DesignProgressPanelProps {
 	readonly view: DesignProgressView;
 	/** Recovery actions mutate the design/app and are editor-only. */
 	readonly canRecover?: boolean;
-	readonly onContinue?: () => void;
 }
 
 export function DesignProgressStatus({
 	view,
 	canRecover = false,
-	onContinue,
 }: DesignProgressPanelProps) {
 	if (!view.active || view.stageLabel === null) return null;
-	return (
-		<StageLine
-			view={view}
-			canRecover={canRecover}
-			{...(onContinue !== undefined && { onContinue })}
-		/>
-	);
+	return <StageLine view={view} canRecover={canRecover} />;
 }
 
 export function DesignProgressDetails({ view }: DesignProgressPanelProps) {
@@ -97,11 +89,9 @@ export function DesignProgressDetails({ view }: DesignProgressPanelProps) {
 function StageLine({
 	view,
 	canRecover,
-	onContinue,
 }: {
 	readonly view: DesignProgressView;
 	readonly canRecover: boolean;
-	readonly onContinue?: () => void;
 }) {
 	const halted = view.stage === "failed" || view.stage === "incomplete";
 	const canAcceptPartial =
@@ -110,12 +100,6 @@ function StageLine({
 		view.materialized &&
 		view.committedSliceNames.length > 0 &&
 		view.designSessionId !== null;
-	const canContinue =
-		canRecover &&
-		view.stage === "incomplete" &&
-		!view.materialized &&
-		view.designSessionId !== null &&
-		onContinue !== undefined;
 	const [accepting, startAccepting] = useTransition();
 	const [acceptError, setAcceptError] = useState<string | null>(null);
 	const acceptPartial = () => {
@@ -187,16 +171,6 @@ function StageLine({
 					<p className="mt-0.5 text-xs leading-5 text-nova-text-secondary">
 						{view.failure}
 					</p>
-				)}
-				{canContinue && (
-					<Button
-						type="button"
-						variant="outline"
-						className="mt-2"
-						onClick={onContinue}
-					>
-						Continue build
-					</Button>
 				)}
 				{canAcceptPartial && (
 					<div className="mt-2 flex flex-col items-start gap-1.5">

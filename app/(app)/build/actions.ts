@@ -27,10 +27,10 @@ import { log } from "@/lib/logger";
 /**
  * The one-shot creation receipt, byte-identical in shape to the
  * `data-app-materialized` frame the chat route emits when a design build's
- * accepted Blueprint commits.
+ * first meaningful workflow commits.
  *
  * Nova has exactly two ways an app is born — `explicit-blank` (this action)
- * and `reviewed-candidate` (materialization), and both hand the client the same
+ * and `design-slice` (materialization) — and both hand the client the same
  * thing: identity, the Project capability the SERVER resolved (never one the
  * client asserted), the exact sequence-1 blueprint with its canonical
  * digest, and the cursor multiplayer must start from. Keeping one shape is

@@ -62,7 +62,6 @@ const RUN = "run-1";
 async function lineage(): Promise<ChangeSetLineage> {
 	const seeded = await h.seedDesignLineage();
 	return {
-		purpose: "slice",
 		designSessionId: seeded.designSessionId,
 		designRevisionId: seeded.designRevisionId,
 		designRevisionDigest: seeded.designRevisionDigest,

@@ -43,14 +43,8 @@ import {
 export function creditGateDecision(input: {
 	rawMessages: readonly UIMessage[];
 	existingApp: boolean;
-	/** Explicit recovery starts a fresh run while preserving the failed turn's
-	 *  assistant message. It therefore charges and claims like a new generation
-	 *  even though the transcript does not end in a user message. The route
-	 *  separately proves this control targets a failed pre-app session. */
-	explicitRedrive?: boolean;
 }): { chargeable: boolean; preflightCost: number } {
-	const chargeable =
-		input.explicitRedrive === true || isChargeableTurn(input.rawMessages);
+	const chargeable = isChargeableTurn(input.rawMessages);
 	// A non-chargeable continuation costs nothing: no reservation, no debit. The
 	// amount is only meaningful when `chargeable` is true. Spelled with the rate
 	// constants directly, NOT `chargeAmount(...)`: its parameter is `appReady`,

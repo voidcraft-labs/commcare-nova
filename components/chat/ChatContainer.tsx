@@ -47,7 +47,6 @@ import {
 	messageMetadataSchema,
 	type NovaUIMessage,
 } from "@/lib/chat/attachmentRefs";
-import { trimInterruptedRecoveryHistory } from "@/lib/chat/interruptedRecovery";
 import { NovaChatTransport } from "@/lib/chat/novaChatTransport";
 import type { ReconcilerContextValue } from "@/lib/collab/context";
 import { useReconcilerContext } from "@/lib/collab/context";
@@ -151,24 +150,6 @@ export function chatRequestIsRedrive(
 	body: Record<string, unknown> | undefined,
 ): boolean {
 	return trigger === "regenerate-message" || body?.redrive === true;
-}
-
-/** Explicit candidate recovery keeps completed question answers while making
- * an interrupted browser adopt the same shortened transcript the server will
- * use. A settled candidate failure keeps its transcript unchanged. */
-export function requestDesignBuildContinuation(args: {
-	messages: readonly NovaUIMessage[];
-	interrupted: boolean;
-	replaceMessages: (messages: NovaUIMessage[]) => void;
-	send: (
-		message: undefined,
-		options: { body: { redrive: true } },
-	) => Promise<void>;
-}): Promise<void> {
-	if (args.interrupted) {
-		args.replaceMessages(trimInterruptedRecoveryHistory(args.messages));
-	}
-	return args.send(undefined, { body: { redrive: true } });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -419,7 +400,6 @@ export function authoritativeThreadActivationOptions(
 		holderNonce: thread.holder_nonce,
 		resume,
 		redrive,
-		...(thread.resume_interrupted === true && { interrupted: true }),
 		buildResume: (resume || redrive) && buildUnfinished,
 		/* The thread's design lineage rides every activation so the sends it
 		 * feeds keep addressing the session scope. */
@@ -1252,11 +1232,6 @@ export function ChatContainer({
 			? initialThread.thread_id
 			: null,
 	);
-	/** Whether the open thread's next explicit recovery must discard a dead
-	 * run's partial assistant suffix before the replacement stream begins. */
-	const interruptedRecoveryRef = useRef(
-		initialThread?.resume_interrupted === true,
-	);
 	/** One-shot per activation: healAfterResume may itself detect the dead
 	 *  marker (its refetch runs after a resume/re-drive closed unanswered) and
 	 *  trigger ONE more re-drive: this latch keeps a re-drive that keeps
@@ -1308,7 +1283,6 @@ export function ChatContainer({
 				resume?: boolean;
 				buildResume?: boolean;
 				redrive?: boolean;
-				interrupted?: boolean;
 				designSessionId?: string | null;
 			},
 		): Chat<NovaUIMessage> => {
@@ -1317,7 +1291,6 @@ export function ChatContainer({
 			designSessionIdRef.current = opts?.designSessionId ?? undefined;
 			pendingResumeRef.current = opts?.resume ? init.threadId : null;
 			pendingRedriveRef.current = opts?.redrive ? init.threadId : null;
-			interruptedRecoveryRef.current = !!opts?.interrupted;
 			pendingBuildResumeRef.current = !!opts?.buildResume;
 			/* A different conversation is a different design: its stage, outline,
 			 * and slice progress belong to the run that streamed them. Re-open a
@@ -1664,9 +1637,6 @@ export function ChatContainer({
 	useEffect(() => {
 		if (pendingRedriveRef.current !== chat.id) return;
 		pendingRedriveRef.current = null;
-		/* `regenerate()` performs the whole-message interrupted rewind itself;
-		 * do not let a later explicit Continue repeat the prefix projection. */
-		interruptedRecoveryRef.current = false;
 		resumeHealRef.current = chat.id;
 		void regenerate();
 	}, [chat, regenerate]);
@@ -2087,27 +2057,6 @@ export function ChatContainer({
 		[addToolOutput, scopeEpoch],
 	);
 
-	const handleContinueBuild = useCallback(() => {
-		const session = sessionStoreRef.current?.getState();
-		if (
-			!chatGenerationCanWrite(
-				session,
-				scopeEpoch,
-				threadHydrationStateRef.current,
-			)
-		)
-			return;
-		autoResendFatalStrikesRef.current = 0;
-		const interrupted = interruptedRecoveryRef.current;
-		interruptedRecoveryRef.current = false;
-		void requestDesignBuildContinuation({
-			messages: messagesRef.current,
-			interrupted,
-			replaceMessages: setMessages,
-			send: sendMessage,
-		});
-	}, [scopeEpoch, sendMessage, setMessages]);
-
 	const handleCreateStarterApp = useCallback(() => {
 		if (agentEngagedRef.current || creatingStarterAppRef.current) return;
 		const session = sessionStoreRef.current?.getState();
@@ -2221,8 +2170,6 @@ export function ChatContainer({
 		designProgress,
 		status,
 	);
-	const designBuildLocked =
-		designProgress.active && designProgress.stage !== "ready";
 
 	return (
 		<ChatSidebar
@@ -2239,7 +2186,6 @@ export function ChatContainer({
 			}
 			composerBusy={creatingStarterApp || threadScopeReloading}
 			interactionBlocked={threadScopeReloading}
-			designBuildLocked={designBuildLocked}
 			interactionBlockedRecovery={
 				threadScopeHydrationFailed
 					? {
@@ -2274,11 +2220,7 @@ export function ChatContainer({
 			}
 			designProgressStatus={
 				designProgressOwnsStatus ? (
-					<DesignProgressStatus
-						view={designProgress}
-						canRecover={!readOnly}
-						onContinue={handleContinueBuild}
-					/>
+					<DesignProgressStatus view={designProgress} canRecover={!readOnly} />
 				) : undefined
 			}
 			generationPaused={

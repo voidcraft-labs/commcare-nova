@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -16,7 +16,6 @@ import {
 	expectedProjectIdForChatRequest,
 	mergeRetainedUserTextSuffix,
 	parseAppMaterializationReceipt,
-	requestDesignBuildContinuation,
 	retireProjectAttachmentRefs,
 } from "./ChatContainer";
 
@@ -27,63 +26,6 @@ describe("interrupted-turn request routing", () => {
 			true,
 		);
 		expect(chatRequestIsRedrive("submit-message", undefined)).toBe(false);
-	});
-
-	it("rewinds an interrupted saved design in the browser before continuing", async () => {
-		const send = vi.fn(async () => {});
-		const replaceMessages = vi.fn();
-		const messages = [
-			{
-				id: "user-1",
-				role: "user",
-				parts: [{ type: "text", text: "Build an intake app" }],
-			},
-			{
-				id: "assistant-1",
-				role: "assistant",
-				parts: [
-					{
-						type: "tool-askQuestions",
-						toolCallId: "ask-1",
-						state: "output-available",
-						input: { questions: [] },
-						output: { answers: ["Nurses"] },
-					},
-					{ type: "step-start" },
-					{ type: "text", text: "unfinished work" },
-				],
-			},
-		] as NovaUIMessage[];
-
-		await requestDesignBuildContinuation({
-			messages,
-			interrupted: true,
-			replaceMessages,
-			send,
-		});
-
-		expect(replaceMessages).toHaveBeenCalledWith([
-			messages[0],
-			{ ...messages[1], parts: messages[1].parts.slice(0, 1) },
-		]);
-		expect(send).toHaveBeenCalledWith(undefined, {
-			body: { redrive: true },
-		});
-	});
-
-	it("keeps a settled candidate failure's browser transcript intact", async () => {
-		const send = vi.fn(async () => {});
-		const replaceMessages = vi.fn();
-
-		await requestDesignBuildContinuation({
-			messages: [],
-			interrupted: false,
-			replaceMessages,
-			send,
-		});
-
-		expect(replaceMessages).not.toHaveBeenCalled();
-		expect(send).toHaveBeenCalledOnce();
 	});
 });
 

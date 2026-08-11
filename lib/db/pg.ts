@@ -558,14 +558,13 @@ export interface AppDeploymentResourcesTable {
  */
 export interface DesignChangeSetsTable {
 	id: string;
-	purpose: ColumnType<string, string | undefined, string>;
 	design_session_id: string;
-	design_revision_id: string | null;
-	design_revision_digest: string | null;
-	build_plan_id: string | null;
-	build_plan_digest: string | null;
-	slice_id: string | null;
-	attempt_id: string | null;
+	design_revision_id: string;
+	design_revision_digest: string;
+	build_plan_id: string;
+	build_plan_digest: string;
+	slice_id: string;
+	attempt_id: string;
 	kind: string;
 	app_id: string | null;
 	proposed_app_id: string | null;
@@ -866,60 +865,8 @@ export interface DesignSessionsTable {
 	last_error_type: string | null;
 	active_design_revision_id: string | null;
 	active_build_plan_id: string | null;
-	active_candidate_change_set_id: ColumnType<
-		string | null,
-		string | null | undefined,
-		string | null
-	>;
-	active_candidate_checkpoint_id: ColumnType<
-		string | null,
-		string | null | undefined,
-		string | null
-	>;
-	active_candidate_review_id: ColumnType<
-		string | null,
-		string | null | undefined,
-		string | null
-	>;
-	candidate_phase: ColumnType<
-		string | null,
-		string | null | undefined,
-		string | null
-	>;
 	created_at: Timestamp;
 	updated_at: Timestamp;
-}
-
-/** Immutable checkpoints over the private Blueprint workspace. */
-export interface DesignCandidateCheckpointsTable {
-	id: string;
-	design_session_id: string;
-	change_set_id: string;
-	parent_checkpoint_id: string | null;
-	lifecycle: string;
-	workspace_revision: BigIntColumn;
-	step_count: BigIntColumn;
-	candidate_digest: string;
-	source_package_digest: string;
-	brief_digest: string;
-	brief: JSONColumnType<Record<string, unknown>>;
-	created_by_run_id: string;
-	created_at: Timestamp;
-}
-
-/** Fresh-context review or focused verification of one exact checkpoint. */
-export interface DesignCandidateReviewsTable {
-	id: string;
-	design_session_id: string;
-	checkpoint_id: string;
-	review_kind: string;
-	candidate_digest: string;
-	artifact_digest: string;
-	producer_model: string;
-	prompt_version: string;
-	created_by_run_id: string;
-	payload: JSONColumnType<Record<string, unknown>>;
-	created_at: Timestamp;
 }
 
 /** Committed design provenance — intent → implementation coordinate. */
@@ -1053,8 +1000,6 @@ export interface AppDatabase {
 	design_orchestration_events: DesignOrchestrationEventsTable;
 	design_slice_attempts: DesignSliceAttemptsTable;
 	design_external_action_receipts: DesignExternalActionReceiptsTable;
-	design_candidate_checkpoints: DesignCandidateCheckpointsTable;
-	design_candidate_reviews: DesignCandidateReviewsTable;
 	thread_media_refs: ThreadMediaRefsTable;
 }
 

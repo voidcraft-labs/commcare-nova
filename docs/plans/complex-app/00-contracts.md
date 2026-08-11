@@ -53,8 +53,8 @@ suffix or atomically establishes an explicit fold horizon whose earlier rows
 remain opaque audit history. A horizon expected to support later replay owns an
 immutable, complete Project-bearing persisted baseline keyed to its exact app
 sequence; a reload boundary by itself is never treated as reconstructable
-state. App birth is a CLOSED two-owner vocabulary: `explicit-blank |
-reviewed-candidate`. Both owners share one genesis writer with identical
+state. App birth is a CLOSED two-owner vocabulary — `explicit-blank |
+design-slice` — and both owners share one genesis writer with identical
 admission: the construction batch reduces from the canonical empty Blueprint,
 passes the absolute gate and full export readiness, and its complete
 immutable result is recorded atomically as the sequence-`1` genesis baseline
@@ -63,9 +63,9 @@ rows, and an intentionally empty attributed `fold-baseline` app change. The
 construction batch is not replay history. `explicit-blank` (the builder's
 "blank app" action and MCP `create_app`) is born as the canonical starter: a
 real nonblank name (`Untitled` when none was supplied), one survey module,
-one survey form, and one text question. `reviewed-candidate` is a chat build's
-materialization: the app is born as its complete independently reviewed
-Blueprint, with the run's holder and credit reservation transferred from the
+one survey form, and one text question. `design-slice` is a chat build's
+materialization: the app is born as its design's first meaningful reviewed
+workflow, with the run's holder and credit reservation transferred from the
 design session onto the app row in the same transaction. Every birth hands
 its surface the one strict activation receipt (identity, Project capability,
 the exact sequence-`1` blueprint, its canonical digest, and — on the blank
@@ -331,44 +331,60 @@ These decisions are closed unless the project owner explicitly reopens them.
 ### Reviewed design and atomic construction
 
 Chat builds begin as Project-scoped design sessions, not app rows. One session
-builds one app in the current Project. If a request asks for multiple apps or
-Project spaces, the author asks which single app to build. Media requirements
-may be recorded as setup work, but the author never claims it can generate
-audio, images, or other asset bytes.
+builds one app in the current Project. Its source packages, lean Design
+Contracts, independent reviews, dispositions, and server-derived build plans
+are immutable, strict-parsed, digest-bound artifacts. They are non-executable:
+Preview, export, deployment, collaboration, and ordinary app reads consume only
+canonical Blueprint revisions. Direct builder and MCP mutations remain immediate
+canonical edits and never require design metadata.
 
-The design is one executable private `BlueprintDoc` candidate plus a short
-purpose brief. The author builds it through the same high-level semantic tools
-used for ordinary Nova authoring. The model names newly created Blueprint
-entities with private handles; the server mints and binds canonical UUIDs. The
-model never authors raw mutations, change-set revisions, provenance, intent
-coverage, or a second abstract requirements graph.
+The Design Contract records purpose, actors, records and properties,
+end-to-end workflows, lists, access, navigation, external requirements,
+decisions, assumptions, and unresolved questions once. It does not maintain a
+parallel claim/fact/rule/transition/scenario/ownership graph. Important or
+critical independent-review findings cite their affected sources or design
+elements; advisory observations do not create traceability work.
 
-Every candidate append, phase transition, review write, recovery, and
-materialization authorizes the exact live `(run_id, holder_nonce)` carrier,
-holder actor, and current Project membership in the same transaction as the
-write. Before materialization the session is owner-private and that carrier is
-the locked design-session row. After materialization it is the locked
-Project-shared app row reached through the session's immutable mapping.
+Every holder-owned design-artifact, orchestration, or slice-attempt write
+authorizes the exact live `(run_id, holder_nonce)` carrier, holder actor, and
+current Project membership in the same transaction as the write. Before
+materialization the session is owner-private and that carrier is the locked
+design-session row; afterward it is the locked Project-shared app row reached
+through the session's immutable materialization mapping. Artifact selection additionally
+proves that the accepted revision and build plan belong to the same session and
+that the plan targets that revision.
 
-The independent reviewer receives a fresh context containing the complete
-exact candidate. A blocking review opens a targeted correction against those
-findings, followed by focused verification of the resulting exact candidate.
-Nonblocking findings are recorded without forcing another authoring pass. A
-blocking verification freezes the candidate. Only the explicit recovery action
-may reopen it for another correction; ordinary user messages cannot redirect
-or redrive construction.
+A build plan is active only while its accepted revision remains the artifact
+head and its source-package digest matches the current turn. Later user content
+reopens reviewed design work; the historical plan stays immutable but cannot
+drive execution.
 
-Acceptance binds the same change set, workspace revision, canonical digest,
-review, and verification. Materialization replays those exact durable steps,
-re-proves lookup, media, organization, runtime-schema, and export-readiness
-integrity, and writes the complete candidate as canonical sequence `1` in one
-transaction. The session holder and credit reservation transfer onto the app
-row in that transaction. Preview, export, deployment, collaboration, and
-ordinary app reads never consume the private candidate.
+A persisted build plan is derived deterministically from the accepted
+workflows. It has one workflow-complete slice per workflow, stable construction
+groups, exactly one materialization root, and no model-authored ownership
+choices. The root has no prerequisite slices and directly owns the complete
+first export-ready app.
+External actions are separate from Blueprint effects. Current plan admission
+allows `manual-setup` and `after-slice`; new-plan insertion rejects blocking
+`before-*` timings until a typed durable receipt producer is registered, while
+the persisted schema remains able to read the full timing vocabulary. The
+orchestrator retains the fail-closed exact receipt verifier at the consumer
+boundary. Every mutation-bearing staged step names the slice-owned construction
+groups it implements. Canonical commit proves complete group coverage from
+those steps,
+derives implementation coordinates from the admitted mutations, and writes the
+exact `running -> committed` slice-attempt transition, committed-slice receipt,
+and provenance beside the Blueprint revision in one transaction.
 
-Discarding a pre-app design abandons its open change set, clears thread
-stream-holder markers, releases any unsettled hold, and marks the session
-abandoned in one transaction.
+Discarding a pre-app design abandons open change sets, supersedes running slice
+attempts, clears thread stream-holder markers, releases any unsettled hold, and
+marks the session abandoned in one transaction.
+
+Materialization applies the same lookup, media, organization, runtime-schema,
+and export-readiness integrity as every later canonical commit. Once sequence
+`1` exists, it remains reachable even if a later slice fails: the design-session
+recovery URL resolves to the authoritative app, and the app is a usable earlier
+valid revision rather than a discarded partial build.
 
 ### One Postgres system
 

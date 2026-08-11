@@ -18,13 +18,10 @@
  * workflow commits — always before `data-done`.
  */
 
-import type { UIMessage } from "ai";
 import type { Insertable, Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appendOrchestrationEvent } from "@/lib/agent/build/orchestratorState";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import { trimInterruptedRecoveryHistory } from "@/lib/chat/interruptedRecovery";
 import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
 import {
 	createPerTestAppDb,
@@ -95,17 +92,7 @@ const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "chat_design_" });
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
 
-function buildRequest(
-	args: {
-		designSessionId?: string;
-		redrive?: boolean;
-		messages?: readonly {
-			id: string;
-			role: "user" | "assistant";
-			parts: readonly { type: "text"; text: string }[];
-		}[];
-	} = {},
-): Request {
+function buildRequest(args: { designSessionId?: string } = {}): Request {
 	return new Request("http://localhost/api/chat", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -115,8 +102,7 @@ function buildRequest(
 			...(args.designSessionId
 				? { designSessionId: args.designSessionId }
 				: {}),
-			...(args.redrive ? { redrive: true } : {}),
-			messages: args.messages ?? [
+			messages: [
 				{
 					id: "u1",
 					role: "user",
@@ -288,109 +274,6 @@ afterEach(async () => {
 });
 
 describe("design-session build turns", () => {
-	it("rewinds an interrupted continuation to its last answered question", () => {
-		const user: UIMessage = {
-			id: "u1",
-			role: "user",
-			parts: [{ type: "text", text: "build an intake app" }],
-		};
-		const answered = {
-			type: "tool-askQuestions",
-			toolCallId: "ask-1",
-			state: "output-available",
-			input: { questions: [] },
-			output: { answers: ["Nurses"] },
-		} as const;
-		const assistant = {
-			id: "a1",
-			role: "assistant",
-			parts: [
-				{ type: "step-start" },
-				answered,
-				{ type: "step-start" },
-				{ type: "text", text: "unfinished work" },
-			],
-		} as UIMessage;
-
-		expect(trimInterruptedRecoveryHistory([user, assistant])).toEqual([
-			user,
-			{ ...assistant, parts: assistant.parts.slice(0, 2) },
-		]);
-		expect(
-			trimInterruptedRecoveryHistory([
-				user,
-				{
-					id: "a2",
-					role: "assistant",
-					parts: [{ type: "text", text: "unfinished first response" }],
-				},
-			]),
-		).toEqual([user]);
-	});
-
-	it("refuses an unrelated message after durable candidate work has begun", async () => {
-		runBuildOrchestrationMock.mockImplementation(async (args) => {
-			args.meter?.track({ inputTokens: 10, outputTokens: 5 });
-			args.writer.write({ type: "start", messageId: args.responseMessageId });
-			args.writer.write({ type: "finish" });
-			return { kind: "awaiting-input", pauseOwned: true };
-		});
-		const first = await POST(buildRequest());
-		await first.text();
-		const session = await sessionRow();
-		if (session.run_id === null || session.run_holder_nonce === null) {
-			throw new Error("paused build did not retain its holder");
-		}
-		await appendOrchestrationEvent({
-			designSessionId: session.id,
-			runId: session.run_id,
-			holderNonce: session.run_holder_nonce,
-			actorUserId: USER,
-			expectedProjectId: PROJECT,
-			state: {
-				kind: "awaiting-user-questions",
-				designSessionId: session.id,
-				designRevisionId: null,
-			},
-			expectedHead: null,
-		});
-
-		const redirected = await POST(
-			buildRequest({ designSessionId: session.id }),
-		);
-		expect(redirected.status).toBe(409);
-		expect(await redirected.json()).toEqual({
-			error:
-				"This app is still being prepared. Continue the saved build, or answer the question Nova asked.",
-			type: "generation_in_progress",
-		});
-		const falseRecovery = await POST(
-			buildRequest({
-				designSessionId: session.id,
-				redrive: true,
-				messages: [
-					{
-						id: "u1",
-						role: "user",
-						parts: [{ type: "text", text: "build me a case tracking app" }],
-					},
-					{
-						id: "paused-assistant",
-						role: "assistant",
-						parts: [{ type: "text", text: "Please answer this question." }],
-					},
-				],
-			}),
-		);
-		expect(falseRecovery.status).toBe(409);
-		expect(await falseRecovery.json()).toEqual({
-			error:
-				"This saved build is not waiting for recovery. Refresh to continue from its current state.",
-			type: "generation_in_progress",
-		});
-		expect(runBuildOrchestrationMock).toHaveBeenCalledOnce();
-	}, 30_000);
-
 	it("hides an unmaterialized session from Project co-members before touching its thread", async () => {
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
 			args.meter?.track({ inputTokens: 10, outputTokens: 5 });
@@ -572,247 +455,6 @@ describe("design-session build turns", () => {
 		expect((thread.messages as { role: string }[]).map((m) => m.role)).toEqual([
 			"user",
 		]);
-	}, 30_000);
-
-	it("an explicit re-drive preserves an assistant-ending transcript and freshly reclaims a failed pre-app session", async () => {
-		let attempt = 0;
-		runBuildOrchestrationMock.mockImplementation(async (args) => {
-			attempt += 1;
-			if (attempt === 1) {
-				await appendOrchestrationEvent({
-					designSessionId: args.designSessionId,
-					runId: args.runId,
-					holderNonce: args.holderNonce,
-					actorUserId: USER,
-					expectedProjectId: PROJECT,
-					state: {
-						kind: "failed",
-						failureId: "447ac27e-0d00-4f5a-b4ae-c7b23d3e093f",
-						recoverable: true,
-						errorType: "internal",
-					},
-					expectedHead: null,
-				});
-			}
-			args.writer.write({ type: "start", messageId: args.responseMessageId });
-			args.writer.write({ type: "finish" });
-			return {
-				kind: "failed",
-				errorType: "internal",
-				message: "The design pipeline could not finish.",
-				recoverable: true,
-				appId: null,
-			};
-		});
-
-		const first = await POST(buildRequest());
-		await first.text();
-		const failedSession = await sessionRow();
-		expect(failedSession.run_id).toBeNull();
-
-		const redrive = await POST(
-			buildRequest({
-				designSessionId: failedSession.id,
-				redrive: true,
-				messages: [
-					{
-						id: "u1",
-						role: "user",
-						parts: [{ type: "text", text: "build me a case tracking app" }],
-					},
-					{
-						id: "saved-assistant-state",
-						role: "assistant",
-						parts: [{ type: "text", text: "I saved the design work so far." }],
-					},
-				],
-			}),
-		);
-		expect(redrive.status).toBe(200);
-		await redrive.text();
-		expect(runBuildOrchestrationMock).toHaveBeenCalledTimes(2);
-		expect(runBuildOrchestrationMock.mock.calls[1]?.[0]).toMatchObject({
-			designSessionId: failedSession.id,
-			redrive: true,
-			messages: [
-				{
-					id: "u1",
-					role: "user",
-					parts: [{ type: "text", text: "build me a case tracking app" }],
-				},
-			],
-		});
-	}, 30_000);
-
-	it("refuses an assistant-ending re-drive after a non-recoverable orchestration failure", async () => {
-		runBuildOrchestrationMock.mockImplementation(async (args) => {
-			await appendOrchestrationEvent({
-				designSessionId: args.designSessionId,
-				runId: args.runId,
-				holderNonce: args.holderNonce,
-				actorUserId: USER,
-				expectedProjectId: PROJECT,
-				state: {
-					kind: "failed",
-					failureId: "b6daa3d0-6aa1-4382-9864-d3b344b210b7",
-					recoverable: false,
-					errorType: "candidate-publish-rejected",
-				},
-				expectedHead: null,
-			});
-			args.writer.write({ type: "start", messageId: args.responseMessageId });
-			args.writer.write({ type: "finish" });
-			return {
-				kind: "failed",
-				errorType: "candidate-publish-rejected",
-				message: "The saved candidate cannot be published.",
-				recoverable: false,
-				appId: null,
-			};
-		});
-
-		const first = await POST(buildRequest());
-		await first.text();
-		const failedSession = await sessionRow();
-		const redrive = await POST(
-			buildRequest({
-				designSessionId: failedSession.id,
-				redrive: true,
-				messages: [
-					{
-						id: "u1",
-						role: "user",
-						parts: [{ type: "text", text: "build me a case tracking app" }],
-					},
-					{
-						id: "failed-assistant",
-						role: "assistant",
-						parts: [{ type: "text", text: "This failed permanently." }],
-					},
-				],
-			}),
-		);
-		expect(redrive.status).toBe(409);
-		const userEndingRedrive = await POST(
-			buildRequest({
-				designSessionId: failedSession.id,
-				redrive: true,
-			}),
-		);
-		expect(userEndingRedrive.status).toBe(409);
-		expect(runBuildOrchestrationMock).toHaveBeenCalledOnce();
-	}, 30_000);
-
-	it("admits a user-ending auto-redrive when the durable thread proves interruption before a failed head", async () => {
-		runBuildOrchestrationMock.mockImplementation(async (args) => {
-			args.writer.write({ type: "start", messageId: args.responseMessageId });
-			args.writer.write({ type: "finish" });
-			return {
-				kind: "failed",
-				errorType: "internal",
-				message: "The process stopped before recording its failure.",
-				recoverable: false,
-				appId: null,
-			};
-		});
-
-		const first = await POST(buildRequest());
-		await first.text();
-		const failedSession = await sessionRow();
-		const stored = await threadRow();
-		await appDb
-			.updateTable("threads")
-			.set({
-				active_stream_id: "23f8eefa-985d-4af8-9592-f0b6d03ac127",
-				messages: JSON.stringify([
-					...(stored.messages as UIMessage[]),
-					{
-						id: "dead-partial",
-						role: "assistant",
-						parts: [{ type: "text", text: "unfinished response" }],
-					},
-				]),
-				updated_at: new Date().toISOString(),
-			})
-			.where("thread_id", "=", THREAD)
-			.execute();
-
-		const redrive = await POST(
-			buildRequest({
-				designSessionId: failedSession.id,
-				redrive: true,
-			}),
-		);
-		expect(redrive.status).toBe(200);
-		await redrive.text();
-		expect(runBuildOrchestrationMock).toHaveBeenCalledTimes(2);
-		expect(runBuildOrchestrationMock.mock.calls[1]?.[0]).toMatchObject({
-			designSessionId: failedSession.id,
-			redrive: true,
-			messages: [
-				{
-					id: "u1",
-					role: "user",
-					parts: [{ type: "text", text: "build me a case tracking app" }],
-				},
-			],
-		});
-	}, 30_000);
-
-	it("admits an interrupted recoverable head before failure settlement records its error", async () => {
-		let attempt = 0;
-		runBuildOrchestrationMock.mockImplementation(async (args) => {
-			attempt += 1;
-			if (attempt === 1) {
-				await appendOrchestrationEvent({
-					designSessionId: args.designSessionId,
-					runId: args.runId,
-					holderNonce: args.holderNonce,
-					actorUserId: USER,
-					expectedProjectId: PROJECT,
-					state: {
-						kind: "failed",
-						failureId: "2b22fe0e-033c-45d1-8443-e14785068e03",
-						recoverable: true,
-						errorType: "internal",
-					},
-					expectedHead: null,
-				});
-			}
-			args.writer.write({ type: "start", messageId: args.responseMessageId });
-			args.writer.write({ type: "finish" });
-			return {
-				kind: "failed",
-				errorType: "internal",
-				message: "The design pipeline could not finish.",
-				recoverable: true,
-				appId: null,
-			};
-		});
-
-		const first = await POST(buildRequest());
-		await first.text();
-		const failedSession = await sessionRow();
-		await appDb
-			.updateTable("design_sessions")
-			.set({ last_error_type: null })
-			.where("id", "=", failedSession.id)
-			.execute();
-		await appDb
-			.updateTable("threads")
-			.set({
-				active_stream_id: "87a22a0d-2ac9-45f5-897a-f790ad77e273",
-				updated_at: new Date().toISOString(),
-			})
-			.where("thread_id", "=", THREAD)
-			.execute();
-
-		const redrive = await POST(
-			buildRequest({ designSessionId: failedSession.id, redrive: true }),
-		);
-		expect(redrive.status).toBe(200);
-		await redrive.text();
-		expect(runBuildOrchestrationMock).toHaveBeenCalledTimes(2);
 	}, 30_000);
 
 	it("a completed build lands data-app-materialized before data-done and settles under the transferred holder", async () => {

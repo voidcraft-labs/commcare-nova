@@ -73,10 +73,6 @@ interface ChatSidebarProps {
 	/** Keep the mounted transcript/draft but make tool + thread interactions
 	 * inert while its Project-bound attachment refs are re-authorized. */
 	interactionBlocked?: boolean;
-	/** A reviewed build owns this conversation until it finishes or asks a
-	 * question. Keeps the transcript readable while preventing an unrelated
-	 * message or duplicate chat from redirecting the durable candidate. */
-	designBuildLocked?: boolean;
 	/** Durable recovery shown when an interaction block cannot clear itself. */
 	interactionBlockedRecovery?: {
 		readonly title: string;
@@ -180,7 +176,6 @@ export function ChatSidebar({
 	startFromScratch,
 	composerBusy,
 	interactionBlocked = false,
-	designBuildLocked = false,
 	interactionBlockedRecovery,
 	messages,
 	status,
@@ -366,11 +361,11 @@ export function ChatSidebar({
 	}, [activeThreadId, openingThreadId]);
 
 	const handleNewChat = useCallback(() => {
-		if (interactionBlocked || designBuildLocked) return;
+		if (interactionBlocked) return;
 		setThreadListOpen(false);
 		setOpeningThreadId(null);
 		onNewChat?.();
-	}, [designBuildLocked, interactionBlocked, onNewChat]);
+	}, [interactionBlocked, onNewChat]);
 
 	const pendingAnswerRef = useRef<((text: string) => void) | null>(null);
 
@@ -426,7 +421,6 @@ export function ChatSidebar({
 	// Sending returns attention to the conversation, so the thread list closes.
 	const handleSend = useCallback(
 		(message: { text: string; attachments?: AttachmentRef[] }) => {
-			if (designBuildLocked && pendingAnswerRef.current === null) return;
 			setThreadListOpen(false);
 			if (pendingAnswerRef.current) {
 				pendingAnswerRef.current(message.text);
@@ -436,7 +430,7 @@ export function ChatSidebar({
 			}
 			scrollToLatest();
 		},
-		[designBuildLocked, markLocalSend, onSend, scrollToLatest],
+		[markLocalSend, onSend, scrollToLatest],
 	);
 
 	// An answered question starts the same outgoing-message status as the composer
@@ -554,11 +548,7 @@ export function ChatSidebar({
 									<Button
 										type="button"
 										onClick={handleNewChat}
-										disabled={
-											interactionBlocked ||
-											designBuildLocked ||
-											openingThreadId !== null
-										}
+										disabled={interactionBlocked || openingThreadId !== null}
 										variant="ghost"
 										className="justify-start"
 									>
@@ -792,7 +782,6 @@ export function ChatSidebar({
 						disabled={
 							isLoading ||
 							(isGenerating && !generationPaused) ||
-							(designBuildLocked && activeQuestionCount === 0) ||
 							composerBusy ||
 							readOnly ||
 							accessPhase !== "authorized"

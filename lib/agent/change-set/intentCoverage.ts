@@ -3,7 +3,7 @@ import type { ImplementationCoordinate } from "@/lib/agent/design/projection/coo
 import type { IntentProvenanceRow } from "@/lib/db/canonicalCommitSidecars";
 import type { Mutation } from "@/lib/doc/types";
 import type { Uuid } from "@/lib/domain/uuid";
-import type { ChangeSetStep, SliceDesignChangeSet } from "./types";
+import type { ChangeSetStep, DesignChangeSet } from "./types";
 
 export interface ProvenIntentCoverage {
 	readonly owningIntentIds: readonly DesignId[];
@@ -13,7 +13,7 @@ export interface ProvenIntentCoverage {
 /** Prove exact construction-group coverage from durable mutation-bearing steps.
  * `intentIds` is the retained private-storage field name. */
 export function proveIntentCoverage(args: {
-	readonly changeSet: SliceDesignChangeSet;
+	readonly changeSet: DesignChangeSet;
 	readonly steps: readonly ChangeSetStep[];
 	readonly expectedOwningIntentIds: readonly DesignId[];
 	readonly appId: string;

@@ -167,8 +167,6 @@ function classifyIdentity(
 	}
 	if (property === "userPropertyUuid") return "worker-property";
 	if (property === "userTypeUuid") return "user-type";
-	if (property === "personaUuid") return "persona";
-	if (property === "locationPropertyUuid") return "location-property";
 	if (
 		property === "levelUuid" ||
 		property === "levelUuids" ||

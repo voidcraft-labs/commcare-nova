@@ -84,9 +84,6 @@ describe("design progress wire", () => {
 			parseDesignPulse(envelope({ phase: "review", chars: 1200 }), SESSION),
 		).toEqual({ phase: "review", chars: 1200 });
 		expect(
-			parseDesignPulse(envelope({ phase: "build", chars: 0 }), SESSION),
-		).toEqual({ phase: "build", chars: 0 });
-		expect(
 			parseDesignPulse(envelope({ phase: "compile", chars: 1 }), SESSION),
 		).toBeNull();
 		expect(

@@ -46,24 +46,6 @@ export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 		.strict(),
 	z
 		.object({
-			kind: z.literal("reviewing-candidate"),
-			designSessionId: z.string().uuid(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("revising-candidate"),
-			designSessionId: z.string().uuid(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("publishing-candidate"),
-			designSessionId: z.string().uuid(),
-		})
-		.strict(),
-	z
-		.object({
 			kind: z.literal("awaiting-user"),
 			designSessionId: z.string().uuid(),
 			/** The revision whose blocking open questions paused the build —

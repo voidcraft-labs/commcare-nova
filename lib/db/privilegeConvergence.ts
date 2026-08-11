@@ -173,8 +173,6 @@ const RUNTIME_APPEND_ONLY_TABLES = [
 	"design_build_plans",
 	"design_orchestration_events",
 	"design_artifact_workspace_steps",
-	"design_candidate_checkpoints",
-	"design_candidate_reviews",
 ] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { DesignProgressView } from "@/lib/session/designProgressStore";
 import { DesignProgressStatus } from "./DesignProgressPanel";
@@ -50,45 +50,6 @@ describe("DesignProgressStatus", () => {
 		);
 
 		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-	});
-
-	it("offers one explicit continuation for a saved pre-app candidate", () => {
-		const onContinue = vi.fn();
-		render(
-			<DesignProgressStatus
-				view={{
-					...view,
-					stage: "incomplete",
-					stageLabel: "Stopped before it finished",
-					working: false,
-					failure: "Your saved design can continue.",
-				}}
-				canRecover
-				onContinue={onContinue}
-			/>,
-		);
-
-		fireEvent.click(screen.getByRole("button", { name: "Continue build" }));
-		expect(onContinue).toHaveBeenCalledOnce();
-		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-	});
-
-	it("does not offer continuation for a terminal pre-app failure", () => {
-		render(
-			<DesignProgressStatus
-				view={{
-					...view,
-					stage: "failed",
-					stageLabel: "This build cannot continue",
-					working: false,
-					failure: "Start a new design to make a different app.",
-				}}
-				canRecover
-				onContinue={vi.fn()}
-			/>,
-		);
-
-		expect(screen.queryByRole("button", { name: "Continue build" })).toBeNull();
 	});
 
 	it("hides all recovery actions from viewers", () => {

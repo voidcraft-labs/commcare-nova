@@ -1,350 +1,821 @@
-# Reviewed executable app design
+# Valid revisions, reviewed design
 
 ## Current architecture and the two remaining units
 
-Nova turns one conversation into one high-quality app in the current Project.
-The design is the executable private `BlueprintDoc` itself. The Solutions
-Architect builds that candidate with Nova's ordinary semantic tools, an
-independent reviewer checks the exact candidate, and the accepted digest
-materializes as the app's complete canonical sequence 1.
+Nova turns one user request into one app in the current Project. It first
+records the product meaning in a lean, non-executable Design Contract, checks
+that design independently, derives a deterministic workflow build plan, and
+constructs each workflow inside a private Atomic Change Set. Only a complete,
+valid canonical Blueprint revision becomes visible.
 
-There is no parallel requirements graph, Design Contract, traceability matrix,
-BuildPlan, workflow-slice translation, or model-authored mutation/commit
-protocol in this path. A small `DesignBriefV1` records only the user-facing
-objective, consequential decisions, external requirements, unsupported work,
-and genuinely open questions. It does not duplicate the app.
+The primary product goal is a high-quality app that reflects what the user
+asked for. Design artifacts exist only when they improve that result, make a
+failure recoverable, or let Nova make an honest completion claim. The design
+layer is not a requirements-management product and does not mirror the same
+meaning across claim, fact, rule, transition, scenario, ownership, and lowering
+tables.
 
-The foundation is complete through the reviewed initial build. Two units
+The current foundation is complete through initial reviewed builds. Two units
 remain, in order:
 
-1. **Unit F: completion truth and Design history.** Bind a compact completion
-   report to the exact accepted candidate and canonical app revision, and show
-   a safe read-only history of what Nova designed, reviewed, built, and left as
-   external setup.
-2. **Unit G: reviewed edits and high-level MCP.** Reuse the same private
-   Blueprint candidate, exact review, and atomic commit method for substantial
-   edits and for clients that want Nova to run the reviewed workflow on their
-   behalf.
+1. **Unit F: completion truth and Design history.** Verify the built app against
+   the accepted workflow design, run one grounded quality review, correct real
+   issues through ordinary valid slices, and persist an honest completion
+   report.
+2. **Unit G: reviewed edits and high-level MCP.** Reuse the same design,
+   projection, conformance, and change-set machinery for substantial edits and
+   for clients that want the reviewed workflow rather than direct mutation
+   tools.
 
-This file is the present-tense architecture and the implementation contract
-for those two units.
+This file describes the present architecture plus those two remaining units.
+It is not a rollout log.
 
-## 1. Product boundaries
+## 1. Product and authority boundaries
 
-### 1.1 One app state
+### 1.1 One canonical app state
 
-An app is one canonical `BlueprintDoc`. Preview, export, deployment, case
-schema, collaboration, the visual builder, the ordinary chat editor, and MCP
-all consume canonical revisions.
+An app is still one canonical `BlueprintDoc`. Preview, export, deployment,
+case-store schema, collaboration, the builder, and direct MCP tools consume
+only canonical revisions.
 
-A reviewed build has one additional private state space: an open Atomic Change
-Set whose replayed mutations derive a private Blueprint candidate. It cannot
-render, export, stream to peers, write case data, or become visible in the
-builder. The existing validator and canonical transaction kernel remain the
-only way a visible app revision can exist.
+Two private state spaces support a reviewed build:
 
-The accepted checkpoint is not a second app document. It records the private
-workspace revision, exact Blueprint digest, source-package digest, brief, and
-review lineage. Materialization replays the durable mutations and proves that
-the resulting digest is the accepted digest.
+- the Design Contract, which may be incomplete while it is being authored but
+  cannot execute;
+- an Atomic Change Set, which may contain an incomplete private candidate but
+  cannot render, export, stream to peers, or write case data.
 
-### 1.2 One app and the current Project
+Only the existing canonical admission and transaction kernel can create a
+visible app revision. There is no Blueprint draft mode, finishing operation,
+alternate validity regime, or model override of the validator.
 
-One design session creates exactly one app in the current Project. Nova cannot
-create, select, or switch Projects or CommCare HQ project spaces. When a
-request asks for multiple apps, the initial author phase asks which single app
-to build.
+### 1.2 One app and one Project
 
-External resources stay explicit:
+A design session creates exactly one app in the current Project. Nova cannot
+create or choose Projects or CommCare HQ project spaces. If the request asks
+for multiple apps, the design agent asks which single app to build rather than
+pretending that one session can produce several.
 
-- Nova may attach media already authorized in the current Project.
-- Nova cannot record, synthesize, upload, or claim to have created image,
-  audio, video, document, or other media bytes.
-- Places, lookup rows, workers, HQ configuration, build/release work, and
-  deployment remain separately authorized resources or human prerequisites.
-- Private candidate tools may read those resources through exact Project
-  gates but may not perform unrelated external writes.
+External assets and resources are explicit boundaries:
 
-### 1.3 Direct editors stay direct
+- Nova may reference media that already exists in the current Project.
+- Nova cannot record, synthesize, validate, or upload audio or other media from
+  the design loop.
+- Lookup data, places, workers, HQ rules, build/release work, and deployment
+  steps remain separately authorized resources or human prerequisites.
+- A private change set has no external-write capability.
 
-The visual builder, ordinary app edit agent, and existing shared MCP tools
+### 1.3 Direct editors remain direct
+
+The visual builder, the ordinary app edit agent, and existing shared MCP tools
 continue to commit valid canonical changes immediately. They do not require a
-reviewed design session or completion report.
+Design Contract. Missing or stale design metadata never makes a valid app
+uneditable, unpreviewable, or unexportable.
 
-The explicit blank-app action and MCP `create_app` continue to create the
-minimal valid starter app immediately. They do not enter this reviewed build.
+The explicit **Start with a blank app** action and MCP `create_app` still create
+the minimal valid Survey, Form, and Question app immediately. They do not enter
+the reviewed conversational build flow.
 
-## 2. Reviewed initial build
+## 2. Current reviewed-build flow
 
 ```text
 user request and authorized attachments
                 |
                 v
-      owner-private design session
-  thread, holder, credits, stream recovery
+       owner-private design session
+  thread, stream, holder, credits, recovery
                 |
                 v
-      durable private Blueprint candidate
- ordinary high-level tools + private handles
+        author phase: lean contract
+ bounded durable stages plus one finalizer
                 |
                 v
-       exact candidate checkpoint
-                |
-                v
-      independent exact-Blueprint review
+        fresh independent review
                 |
         +-------+-------+
         |               |
-      clean         material findings
+      clean         blocking findings
         |               |
         |               v
-        |      targeted candidate correction
-        |               |
-        |               v
-        |        focused verification
+        |        targeted revision phase
         |               |
         +-------+-------+
                 |
                 v
-       exact accepted checkpoint
+      accepted contract revision
                 |
                 v
-  atomic canonical sequence-1 materialization
+  deterministic workflow build plan
+                |
+                v
+     one private change set per slice
+                |
+                v
+ canonical sequence 1, then later revisions
 ```
 
-The server advances this method from durable state. Transcript prose never
-decides whether the candidate exists, whether review happened, which digest is
-accepted, or whether the app materialized.
+The design method advances through durable server state. Model prose and
+transcript recollection do not decide whether a draft exists, whether review
+happened, whether a revision is accepted, which plan is active, or which slice
+committed.
 
-### 2.1 Source package
+## 3. Lean Design Contract v1
 
-The source package is the bounded, authorized projection of user messages,
-answered question rounds, attachments, images, and platform constraints. It is
-digest-sealed and insert-only. The private candidate checkpoint records the
-exact package digest it implements.
+`lib/agent/design/contract.ts` is the authority. The schema remains version 1
+because this is the first shipped contract.
 
-Attachments are extracted once and reused. The original user-visible thread
-remains intact; model compaction changes only model context, not stored source
-or chat history.
+### 3.1 Root shape
 
-### 2.2 Candidate authoring
+The contract records:
 
-The author is the build Solutions Architect at Sol xhigh. It receives:
+- `charter`
+- `actors`
+- `records`
+- `workflows`
+- `lists`
+- `access`
+- `navigation`
+- `externalRequirements`
+- `decisions`
+- `assumptions`
+- `openQuestions`
 
-- the source package;
-- the exact current private Blueprint summary;
-- current validation findings;
-- durable private handles;
-- an independent review only during a correction phase.
+It does not record source-claim mirrors, confidence scores, separate fact or
+rule graphs, transition tables, standalone acceptance-scenario matrices,
+intent ownership, implementation coordinates, or a model-authored build plan.
 
-It calls the same high-level Nova tools used by normal authoring:
-`updateApp`, `generateSchema`, `createModule`, `createForm`, complete field and
-case-operation tools, list/search tools, users, organization, automations,
-lookup reads, and authorized media attachment tools. Granular staging,
-mutation envelopes, revision numbers, commit calls, provenance bookkeeping,
-and artifact protocols are not model vocabulary.
+Source references remain in the authorized source package. The independent
+review is the only design artifact that attributes an important conclusion to
+specific source evidence.
 
-`stageModule` and `stageForm` are not mounted. Complete `createModule` and
-`createForm` calls are preferred because a coherent workflow is admitted as
-one valid semantic operation.
+### 3.2 Charter
 
-### 2.3 Identity
+The charter fixes the session boundary and overall product:
 
-The model names new app objects with short candidate-local handles such as
-`@registration` and `@client_name`. The server binds each handle once to a
-canonical UUID and persists the binding with the staged request. Every
-Blueprint entity family the candidate can create is handle-capable, including
-worker properties, roles, personas, organization levels, place properties,
-automations, and their nested items.
+- app name and objective;
+- exactly one app;
+- the current Project;
+- every included workflow exactly once;
+- explicitly excluded workflows;
+- offline-first, online-first, mixed, or undecided delivery context;
+- the initial useful workflow.
 
-Canonical tool schemas accept an optional predeclared identity and retain
-server-minted defaults on direct surfaces. Candidate-facing schemas require
-the identity slot and widen it to `{ "handle": "@name" }`. The candidate
-never invents or manages UUIDs. Model-visible tool results and recovered state
-project durable handles back over authored UUIDs.
+The initial workflow becomes the materialization root. The graph validator
+proves that it exists, belongs to the included workflow set, and has no
+workflow prerequisite.
 
-Locations, media assets, lookup tables/columns/rows, and other resources that
-already exist outside the private candidate keep their real authorized
-identity. A handle cannot pretend that an external resource exists.
+### 3.3 Actors and records
 
-### 2.4 Validity while authoring
+An actor records only the information needed to design usable work:
 
-Every semantic tool runs through the shared implementation and validator. A
-step may leave findings only when later steps in the same private candidate
-can resolve them; no intermediate candidate is canonical. `finishCandidate`
-can checkpoint only when the exact current workspace is non-empty, all
-external reads are current, and the ordinary whole-document and export gates
-pass.
+- name;
+- goals;
+- responsibilities;
+- work context;
+- constraints.
 
-Rejected and wire-invalid tool calls are diagnostics, not a recovery strategy.
-The production benchmark requires zero such calls. Tool schemas, descriptions,
-handles, and complete operations must make the intended call valid the first
-time.
+An actor is not a Blueprint user type or Preview persona. Runtime bindings are
+implementation provenance.
 
-Case-type retirement is batch-exclusive for canonical app edits because it can
-migrate saved rows. The private genesis candidate has no app or case rows, so
-review corrections may retire an unused case type and continue authoring in the
-same candidate.
+A record owns its properties. Each property records:
 
-### 2.5 Design brief
+- name and meaning;
+- data shape;
+- sensitivity;
+- optional required condition;
+- allowed values for a choice property.
 
-`DesignBriefV1` stores only:
+Properties are declared once under their record. Writer and reader relations
+are derived from workflows and lists rather than copied into the property.
+
+### 3.4 Workflows
+
+A workflow is the main unit of design and construction. It records one
+task-complete user outcome:
+
+- actors, goal, and trigger;
+- optional current record context;
+- prerequisite workflows and plain-language prerequisites;
+- inputs, including form-only inputs when nothing persists;
+- workflow-local decisions and outcomes;
+- record effects: create, update, close, link, or reassign;
+- property writes and unanswered-value behavior;
+- readback that confirms or supports the next decision;
+- exception paths;
+- external requirements;
+- concrete preconditions, action, and expected-result examples.
+
+Workflow-local handles identify inputs, decisions, and effects without adding
+global Design IDs for every nested item. They are semantic names inside one
+workflow, not Blueprint identities.
+
+### 3.5 Lists, access, and navigation
+
+A list records the record type, actors, purpose, filters, sort intent, scan
+properties, detail properties, search properties, selection workflow, and
+empty-state meaning.
+
+Access records actor capabilities over record, workflow, list, or navigation
+targets. Conditions and location scope describe both the intended user
+experience and the data boundary. Hidden navigation alone is never described
+as a security boundary.
+
+Navigation groups workflows and lists around user purpose. Parent navigation
+is acyclic.
+
+### 3.6 External requirements, decisions, assumptions, and questions
+
+An external requirement names what is outside Blueprint construction, which
+workflows depend on it, when it is needed, and whether construction truly has
+to wait. Runtime or deployment setup is non-blocking only when every included
+workflow can still be authored as a valid, reachable, useful app. Every
+controlled choice has either at least two distinct real inline values or the
+semantic name of a lookup table and value/label columns that already exist in
+the current Project; the executor resolves their current identities. Missing
+values, an unevidenced lookup claim, or another absent reference remains
+construction-blocking when it would require empty, one-value, duplicate, or
+invented placeholder choices, or an always-hidden workflow. The design instead
+obtains the real values, names the existing lookup, chooses a supported
+alternative, or defers that workflow. The persisted v1 reader stays compatible
+with earlier artifacts, while contract finalization and deterministic plan
+derivation enforce this construction proof for new work.
+
+A decision stores the selected decision and its rationale. It does not preserve
+an option matrix when the discarded alternatives have no ongoing product
+value.
+
+An assumption states what Nova is relying on and what changes if it is wrong.
+
+An open question states its structural impact, whether it blocks, and the
+contract elements it can change. A blocking question cannot float without an
+affected element.
+
+### 3.7 Deterministic graph checks
+
+`lib/agent/design/graph.ts::validateDesignGraph` runs inside the contract
+schema parse. It proves at least:
+
+- global Design ID uniqueness;
+- kind-compatible reference closure;
+- actor, record, property, workflow, list, access, and navigation references;
+- acyclic record, navigation, and workflow dependencies;
+- workflow-local handle uniqueness;
+- form-only inputs declare a data shape;
+- effects write only properties of their target record;
+- readback and list properties belong to the record being read;
+- access targets exist;
+- unsupported promises block affected construction;
+- the charter includes every workflow exactly once;
+- blocking questions name affected elements.
+
+The contract schema is not the Blueprint validator. It checks design
+coherence, not executable wire validity.
+
+## 4. Design authoring and independent review
+
+### 4.1 Phase-specific model contexts
+
+The runner uses distinct model phases:
+
+- `author`
+- `review`
+- `revision`
+- `awaiting-input`
+
+Each phase creates a fresh model context with only the tools legal for that
+phase. A terminal phase tool ends that model stream. The outer server runner
+then advances from durable ancestry and begins the next phase without requiring
+another user message.
+
+This prevents a compacted or very long authoring context from also having to
+remember reviewer and revision protocol state.
+
+### 4.2 Bounded durable workspaces
+
+Authoring and revision use:
+
+- `stageContract` or `stageRevision`;
+- `inspectDesignWorkspace`;
+- `submitContract` or `submitRevision`.
+
+A stage changes the root or one coherent collection and carries the exact
+expected workspace revision. New global elements may use readable handles such
+as `{ "handle": "@register_client" }`. The server deterministically resolves
+each handle to a stable Design ID for that session before the persisted schema
+parses. Persisted artifacts remain UUID-only.
+
+Each stage is bounded to 32 item changes and 48 KiB. Successful stages are
+durable. A rejected finalization leaves every accepted stage intact, so the
+model corrects only the affected items and necessary cross-dependencies.
+
+There is no plan workspace. The model neither stages nor submits a plan.
+
+### 4.3 Exact state after resume and compaction
+
+The complete visible `UIMessage[]` transcript remains durable. Provider
+compaction is only a model-context projection.
+
+After a compatible compaction checkpoint, Nova removes stale server-state
+packets and appends one fresh exact packet containing:
+
+- the legal next phase;
+- resolved answers and source outline;
+- open review findings;
+- the current workspace revision and counts;
+- the exact current candidate;
+- the immutable reviewed parent during revision.
+
+The durable workspace is authority. The model never has to reconstruct a large
+contract from a lossy summary. Narrow inspection remains available for
+exceptional lookups.
+
+### 4.4 Independent review
+
+`requestReview` runs a stateless fresh-context structured reviewer. It receives
+only:
+
+- the exact authorized source package;
+- the exact proposed contract;
+- the capability and platform-constraint catalog.
+
+It receives no author hidden reasoning, prior reviewer prose, mutation tools,
+or canonical authority.
+
+A finding records:
+
+- category;
+- severity;
+- basis;
+- disposition class;
+- claim;
+- affected contract elements;
+- proposed resolution when useful;
+- evidence references only for critical or important findings.
+
+Advisories carry no citations. Heuristics cannot be critical. Platform findings
+cite a known platform constraint. Only design corrections at critical or
+important severity, plus unresolved user decisions, block acceptance.
+External, runtime, deployment, and advisory observations remain visible
+context but do not force a pointless design rewrite.
+
+### 4.5 Revision and review depth
+
+A revision workspace begins from the immutable reviewed parent. It upserts or
+removes only affected items and persists one disposition for each blocking
+finding. Unchanged content stays in place.
+
+One second review occurs only when the first revision:
+
+- leaves critical risk unresolved;
+- follows a first review with at least two critical findings; or
+- changes architecture in response to critical feedback.
+
+Complexity alone does not trigger a second review. There is no third automatic
+review loop.
+
+Sensitivity may be lowered only when an accepted correction explicitly names
+the affected property. A revision cannot silently downgrade sensitive data.
+
+### 4.6 Complexity and user expectation
+
+Complexity is deterministic over workflow shape. It assigns `compact`,
+`standard`, or `extended` and persists the component readings with the
+contract envelope. It controls process budgets and the conservative user time
+estimate:
+
+- compact: about 30 minutes;
+- standard: about an hour;
+- extended: about 90 minutes.
+
+It never changes validity or grants model authority.
+
+## 5. Deterministic BuildPlan v1
+
+`lib/agent/design/buildPlan.ts::deriveBuildPlan` is a compiler pass over one
+accepted contract revision. The plan is not model-authored.
+
+### 5.1 Slices
+
+The compiler creates exactly one slice per workflow in topological order.
+
+Each slice records:
+
+- workflow identity, name, and goal;
+- prerequisite slice identities derived from workflow prerequisites;
+- construction groups;
+- related external actions;
+- risk;
+- role.
+
+The charter's initial workflow is the only `materialization-root`. Other
+workflows are ordinary unless a future deterministic rule identifies a truly
+exclusive operation.
+
+External actions remain separate from Blueprint effects. New-plan admission
+allows manual setup and after-slice readiness, but rejects blocking before-root
+or before-slice actions until a typed durable receipt producer exists. An
+unresolved construction dependency stays linked to a blocking user question,
+so an accepted design cannot be mistaken for a plan the executor can start.
+
+### 5.2 Construction groups
+
+Construction groups are the executor's small coverage vocabulary. Current
+group kinds are:
+
+- data and people;
+- workflow;
+- lists and search;
+- access and navigation.
+
+Every constructible top-level design element belongs to exactly one group:
+
+- actors;
+- records and properties;
+- workflows;
+- lists;
+- access policies;
+- navigation.
+
+External requirements remain related external actions and execution context.
+They are not construction groups because they do not require Blueprint
+mutations. Persisted v1 plans that contain an all-external group remain
+readable, but that group is not executable work or commit coverage.
+
+Ownership is assigned deterministically to the earliest workflow that creates,
+writes, exposes, or protects the element. This is enough to prove that each
+slice implemented its real units of work without forcing the model to cite
+every nested design object on every tool call.
+
+Decisions and assumptions inform the materialization-root execution brief but
+are not separate construction work.
+
+### 5.3 Plan checks
+
+The persisted plan proves:
+
+- one slice per workflow;
+- one materialization root;
+- an acyclic prerequisite graph;
+- unique slice and group identities;
+- every group belongs to its slice workflow;
+- every constructible contract element appears in exactly one group;
+- every referenced element still exists in the accepted contract;
+- every external action corresponds to an external requirement.
+
+Stable slice, group, and action IDs derive from the accepted revision digest.
+A crash between acceptance and plan insertion is recovered by deriving the
+same plan again and inserting it through the normal authority boundary.
+
+## 6. Slice execution and Atomic Change Sets
+
+### 6.1 Immutable execution brief
+
+Each executor receives one exact brief containing:
+
+- the one-app charter;
+- its workflow and prerequisite workflow summaries;
+- the actors, records, lists, access, navigation, and external requirements it
+  needs;
+- root decisions and assumptions when relevant;
+- its construction-group IDs;
+- the capability boundary and platform constraints;
+- exact accepted revision and plan digests.
+
+The brief contains no source documents, author reasoning, traceability matrix,
+or model plan.
+
+### 6.2 Compiler worker
+
+The slice executor is a bounded compiler, not a designer. It receives:
+
+- shared read operations over the private candidate;
+- `readBatch` for up to four related reads;
+- `stageBatch` for one ordered construction group;
+- `inspectChangeSet`;
+- `commitChangeSet`;
+- `reportExecutionBlocker`.
+
+It receives no external-effect, app-lifecycle, user-message, or direct canonical
+commit authority.
+
+Every mutating operation names one or more `constructionGroupIds`. The server
+strips that executor-only field before the original shared tool schema parses.
+Durable mutation-bearing steps must collectively cover every group in the
+slice before commit.
+
+The existing database columns retain their historical `intent_*` names, but
+their v1 semantic value in this pipeline is a construction-group ID. Unit F
+must read them through the construction-group plan and must not restore a
+per-element attribution matrix.
+
+### 6.3 Handles and batch efficiency
+
+The executor uses private readable handles for entities created inside a
+change set. The server resolves handles before original tool-schema and
+mutation admission. Handles never enter Blueprint, app history, MCP, export,
+or deployment.
+
+`stageBatch` runs ordinary Nova operations serially. A rejected operation stops
+the batch before that operation while preserving the accepted prefix. The next
+batch corrects only the failed operation and its dependent suffix.
+
+Complete `createModule` and `createForm` operations are preferred when the
+accepted workflow already specifies the complete structure. `stageModule` and
+`stageForm` exist only for a genuine dependency or call-size boundary. There is
+no one-field-at-a-time fallback strategy. Field assembly is atomic across
+`addFields`, `createForm`, and `createModule`: if any requested field cannot be
+assembled or admitted, the entire call is rejected and no returned identity
+can name an omitted field.
+
+### 6.4 Coverage and provenance
+
+At commit, the server proves coverage from durable mutation-bearing steps. It
+does not copy every group from the plan into the receipt as if the model had
+implemented it.
+
+Mutation-derived implementation coordinates are persisted beside the canonical
+revision. The current coordinate vocabulary includes app, module, form, field,
+case-list column, case operation, user type, persona, organization level,
+location property, automation, case property, and external action.
+
+Unit F joins:
 
 ```text
-schemaVersion: 1
-appName
-objective
-decisions[]
-externalRequirements[]
-unsupportedRequests[]
-openQuestions[]
+contract element -> deterministic construction group -> committed group
+                 -> mutation-derived implementation coordinates
 ```
 
-The Blueprint holds modules, forms, fields, records, writes, lists, search,
-access/navigation, users, organization, and automations. The brief never
-restates those structures and contains no source citations or requirement
-attribution matrix.
+This provides useful verification without asking the design agent to maintain
+the same mapping manually.
 
-### 2.6 Independent review and correction
+### 6.5 Commit and materialization
 
-The reviewer is a fresh Sol xhigh structured call over:
+`commitChangeSet` is only a request. The server independently proves current
+holder, Project membership, artifact lineage, workspace revision, read sets,
+coverage, validator state, and canonical replay.
 
-- the exact source package;
-- the exact private Blueprint JSON and digest;
-- the brief;
-- platform constraints;
-- for focused verification, the findings that required the correction.
+After the executor has requested validation, a fully accepted correction may
+consume its final model step. At that exact step boundary the server re-runs
+the same current-read, coverage, and validator proofs and may commit the clean
+candidate directly. It never infers completion before the executor enters
+validation, after a stopped batch, or from a partial accepted prefix. The model
+step budget therefore bounds reasoning without discarding already complete,
+fully proved work merely for lack of a final mechanical commit call.
 
-It evaluates workflow coherence, requirement coverage, data modeling,
-frontline usability, access/privacy, capability boundaries, avoidable
-complexity, and external readiness. Findings name human-readable Blueprint
-objects or stable paths. Missing traceability paperwork is never a finding.
+The sequence-one materialization transaction creates the first useful,
+export-ready app and transfers the exact holder and unsettled reservation from
+the design session to the app. Later slices use the normal app-locked canonical
+kernel.
 
-Critical and important findings block acceptance. Advisory findings do not.
-The author changes the same private Blueprint and preserves correct work;
-there is no whole-design resubmission. A corrected digest receives focused
-verification rather than another open-ended review.
+The exact running slice attempt, change-set transition, committed-slice
+receipt, and implementation provenance commit with the canonical revision or
+not at all.
 
-If focused verification still blocks, the candidate freezes and nothing is
-published. The explicit **Continue build** control may reopen that exact
-blocked checkpoint for one more targeted correction and verification. An
-ordinary chat message cannot redirect the build. Correction phases cannot ask
-new user questions; only the initial author phase may pause on a genuinely
-blocking question.
+### 6.6 Blockers and terminal behavior
 
-### 2.7 Exact transactional state
+An executor reports evidence when implementation appears to require changed
+meaning. A fresh architect may:
 
-`design_sessions` carries the active candidate change set, checkpoint, review,
-and one durable phase:
+- give construction guidance;
+- require a reviewed contract revision;
+- ask the user for a missing decision;
+- declare the accepted meaning unsupported.
 
-- `authoring`
-- `reviewing`
-- `revising`
-- `blocked`
-- `accepted`
+The build plan itself is deterministic and cannot be repaired by the model.
+A local tool-schema rejection is normally a construction problem, not a reason
+to rewrite product intent.
 
-Candidate steps may append only in `authoring` or `revising`. A draft
-checkpoint freezes the exact workspace in `reviewing`. A blocking review
-moves to `revising` or `blocked`. Acceptance requires the exact active digest
-and its required non-blocking review.
+Budgets cover model steps, staged requests, blocker resolutions, commit and
+rebase attempts, and absolute wall time. The same deadline reaches awaited
+provider work and database transactions. A deterministic failure closes the
+exact plan, slice, model, prompt, and brief combination. Sending another user
+message does not reroll unchanged work.
 
-Every write reauthorizes the exact live `(runId, holderNonce)`, actor, and
-current Project membership while holding the session authority carrier. A
-stale process cannot append, review, select, accept, or materialize state.
+## 7. Recovery, UI, and user trust
 
-### 2.8 Compaction and recovery
+### 7.1 Durable recovery
 
-OpenAI server-side compaction is enabled before the long-context price tier.
-Nova keeps the complete visible transcript while replaying the provider's
-opaque compaction checkpoint and later suffix to the model.
+Before materialization, the design-session row owns the build holder,
+reservation, transcript, stream, artifacts, and recovery URL. After
+materialization, the session maps immutably to the app and holder authority
+delegates to the app row.
 
-After compaction, the server removes stale private-state messages and injects
-a fresh summary derived from the durable workspace, including current
-structures, handles, findings, and active review. Tool transcripts are not
-authority and do not need to survive verbatim.
+Stage requests and design workspace operations are idempotent by tool-call ID,
+input digest, and expected revision. Lost responses return the stored receipt.
+Process death rehydrates from durable artifacts and steps.
 
-A process restart reopens the same change set, replays admitted steps and
-handle bindings, reads the active checkpoint/review/phase, and continues from
-that state. Request IDs make a lost tool response idempotent. Materialization
-is also idempotent: a lost response reconstructs the sequence-1 receipt from
-the canonical fold.
+### 7.2 What the user sees
 
-### 2.9 Atomic materialization
+Before materialization the user sees:
 
-The accepted private candidate materializes in one transaction:
+- the conversation;
+- one truthful status line directly above the composer;
+- a compact reviewed-design outline;
+- questions when needed;
+- resume and discard controls;
+- no app tree or Preview.
 
-- exact session holder and Project membership are reauthorized;
-- the change set and accepted checkpoint are locked and digest-matched;
-- all admitted mutations replay from the canonical empty base;
-- whole-document validity and export readiness run again;
-- organization, media, lookup, and case-schema integrity run;
-- the app row, entity rows, references, case schema, fold baseline, and
-  sequence-1 change are written;
-- the candidate changes from open to committed;
-- the session holder and reservation transfer to the new app.
+Internal contract, review, and revision tool parts remain in durable model
+history but never render in chat. Technical validation errors and model-only
+success instructions stay internal. The outline does not show finding counts
+or severity labels.
 
-All writes commit together or none do. The first visible app is complete and
-valid; no partial workflow is exposed for editing.
+After materialization, the builder installs the complete sequence-one snapshot
+atomically, promotes the URL, starts collaboration at sequence one, and keeps
+visual authoring read-only until the initial plan completes or the user accepts
+an interrupted partial build. The central progress card stays on Build while
+construction is active.
 
-### 2.10 User experience and observability
+A later slice failure never hides or invalidates an earlier materialized app.
+The user may use the valid committed portion without being told that unbuilt
+work completed.
 
-While a reviewed build is active, the transcript remains readable and the
-builder remains read-only. New chat, arbitrary sends, and direct app edits are
-disabled. Initial questions temporarily enable the answer UI. A stopped
-pre-app build shows one **Continue build** action, not repeated generic retry
-cards.
+### 7.3 User-language rule
 
-The status line stays next to the composer and names only user-meaningful
-phases: designing, reviewing, improving, building, waiting for an answer,
-ready, or stopped. Private tools, schemas, validation internals, review counts,
-severity language, model instructions, UUIDs, and reasoning are not rendered
-as chat content.
+Nova speaks about the user's workflow, not its implementation protocol. It may
+say that it is understanding the work, improving the design, checking the
+design, or building a workflow. It does not expose schemas, IDs, validator
+codes, tool names, internal review counts, or private staging mechanics.
 
-Structured diagnostics record model usage, cache reads/writes, compaction,
-phase duration, tool name, input size, duration, and accepted/rejected outcome.
-They do not log customer-authored display names or private model content.
+Long-running work receives brief contextual updates in Nova's voice. Time
+expectations use the assigned deterministic effort level and lean toward the
+longer side.
 
-The representative complex-app browser benchmark is quality-first and must:
+## 8. Persistence and operational invariants
 
-- finish from one user run without manual tool retries;
-- produce zero wire-invalid or rejected candidate calls;
-- preserve the full requested app, not merely materialize a subset;
-- exercise review and any correction on exact saved state;
-- remain under the $15 estimated model-cost target;
-- leave enough diagnostics to explain every failure before another paid run.
+The current foundation owns:
 
-## 3. Unit F: completion truth and Design history
+- design sessions;
+- source packages;
+- contract revisions;
+- reviews and dispositions;
+- deterministic build plans;
+- design artifact workspaces;
+- orchestration events;
+- slice attempts and committed receipts;
+- change sets, requests, steps, stage ranges, and handles;
+- external-action receipts;
+- implementation provenance;
+- target-polymorphic threads, stream chunks, and run summaries;
+- exact thread media references.
 
-### 3.1 Goal
+All authoritative JSON is selected as text, parsed through
+`parsePersistedJsonText`, strict-parsed through the current schema, and digest
+verified. Artifact and event tables are append-only where their lifecycle
+allows. Row locks are taken only on mutable authority carriers.
 
-Unit F makes Nova's final claim durable and inspectable without adding another
-translation or model loop. The independently reviewed candidate is already the
-exact executable app; materialization proves the canonical sequence-1 digest
-matches it. Completion therefore attests that chain instead of reconstructing
-requirements from names or asking another model to review the same document.
+Every correctness-bearing write reauthorizes the live holder and current
+Project membership inside the transaction. IDs are selectors, never
+capabilities. Foreign and missing IDs fail opaquely.
 
-### 3.2 Deterministic completion projection
+Logs and Sentry receive safe codes, opaque identities, counts, durations,
+model usage, and digests. They do not receive customer design text, source
+bodies, transcripts, model prompts, raw tool payloads, private mutations, or
+holder nonces. Admin-authorized run inspection may expose the deliberately
+persisted reasoning summaries used for quality diagnosis.
 
-Add a compact deterministic projection over:
+## 9. Unit F: conformance, quality, correction, and Design history
 
-- source-package identity and safe source labels;
-- accepted candidate checkpoint and brief;
-- full review and any focused verifications;
-- canonical app ID, sequence, and snapshot digest;
-- ordinary validator and export-readiness verdicts;
-- current external-resource readiness;
-- external requirements, unsupported requests, and open questions.
+### 9.1 Goal
 
-The projection reads repository state only. It performs no model inference,
-does not invent historical intent, and does not require intent attribution,
-construction groups, slice receipts, or implementation coordinates. Exact
-candidate-to-canonical digest equality is the implementation proof for an
-initial build.
+Unit F answers one question before Nova says the initial build is complete:
 
-### 3.3 Completion report
+> Does the current canonical app implement the accepted workflows well enough
+> to make that claim honestly?
 
-Persist one immutable `design_completion_reports` row bound to the projection
-version and digest. Its status is one of:
+It does not add another validity gate. A conformance finding may block Nova's
+completion message and trigger a corrective valid slice. It never blocks use of
+an already valid app or a direct builder/MCP edit.
+
+### 9.2 Deterministic implementation projection
+
+Add `lib/agent/design/projection/` readers that project the current canonical
+app into a compact semantic view:
+
+- app and navigation;
+- record catalog and relationships;
+- forms as workflow transactions;
+- captured inputs;
+- writes and case effects;
+- lists, search, and readback surfaces;
+- actor/user-type/persona bindings;
+- external setup requirements;
+- stable implementation coordinates.
+
+Inputs are only deterministic repository data:
+
+- canonical `BlueprintDoc` at an exact sequence and snapshot digest;
+- effective case-type catalog;
+- reference index;
+- user, organization, list, search, automation, and setup state;
+- committed slice receipts;
+- construction-group provenance.
+
+The projection performs no model inference and invents no historical intent.
+Its schema and digest version independently.
+
+### 9.3 Conformance from workflow semantics
+
+Compare the projection directly with the lean contract:
+
+- each accepted workflow has a reachable entry point;
+- expected inputs are captured once in the correct workflow;
+- persisted inputs write the intended record properties;
+- form-only inputs are not falsely reported as stored;
+- record effects exist with the correct source, target, condition, and writes;
+- create effects are not duplicated by both registration and a second create
+  operation;
+- readback and lists expose the properties needed for the next decision;
+- prerequisite workflow order is reachable;
+- actor access and navigation are represented at every required layer;
+- location-scoped designs pair user-facing gates with ownership and search
+  filtering rather than treating hidden menus as security;
+- external requirements are reported with their real readiness state;
+- deferred or unsupported work is not described as implemented;
+- every required construction group has a current committed receipt and at
+  least one still-resolving implementation coordinate.
+
+The first rules should be few and high-signal. Do not recreate a generic
+requirement traceability matrix. A rule documents its exact proof, severity,
+false-positive boundary, and whether it may block completion.
+
+### 9.4 Initial finding vocabulary
+
+Initial deterministic codes should cover:
+
+- missing committed construction group;
+- provenance pointing to a missing coordinate;
+- workflow with no reachable entry point;
+- workflow input missing or duplicated;
+- expected property write missing or type-incompatible;
+- record effect missing or duplicated;
+- readback/list missing a needed property;
+- list with no usable selection or monitoring purpose;
+- actor binding, access, or navigation missing;
+- external requirement unsatisfied;
+- deferred work reported as implemented;
+- redundant identity-only hidden writer;
+- stale generated setup guidance.
+
+The redundant-writer rule begins advisory. It may become corrective only after
+supported-runtime parity tests prove blank, relevance, repeat, and update
+semantics.
+
+### 9.5 Sequence-bound report
+
+Persist one immutable conformance report bound to:
+
+- design session, accepted contract revision, and plan digests;
+- app ID, sequence, and snapshot digest;
+- projection version and digest;
+- deterministic rule version;
+- deterministic findings;
+- optional quality-review artifact.
+
+A newer app sequence makes the report stale by comparison. No row is updated
+and no direct editor consults the stale report.
+
+### 9.6 Grounded quality review
+
+After deterministic analysis, run one fresh-context structured reviewer over:
+
+- the authorized source projection;
+- accepted lean contract and dispositions;
+- deterministic plan and committed receipts;
+- exact implementation projection;
+- deterministic findings;
+- unresolved external requirements;
+- relevant platform constraints.
+
+It evaluates workflow coherence, worker effort, navigation, scanability,
+read/write fit, access fit, unnecessary complexity, unsupported additions,
+assumption handling, and setup honesty.
+
+It receives no executor reasoning or raw chat narrative. A model heuristic
+cannot be critical. A critical finding requires deterministic proof, exact
+source support, or a versioned platform constraint. Findings do not carry a
+numeric confidence score.
+
+### 9.7 Bounded correction
+
+The orchestrator dispositions each blocking implementation finding. Accepted
+corrections become new server-derived correction slices and execute through
+ordinary Atomic Change Sets.
+
+Create a new reviewed contract revision only when the correction changes user
+meaning, record relationships, access, or an external promise. An
+implementation defect should not churn the Design Contract.
+
+Run one correction round by default. A second is allowed only for grounded
+critical findings introduced or left unresolved. Exhaustion produces an
+honest incomplete result, not an unbounded retry loop.
+
+### 9.8 Completion report
+
+Persist one immutable completion report bound to the exact current design,
+plan, app sequence, snapshot, and conformance report.
+
+Statuses:
 
 - `complete`
 - `complete-with-external-setup`
@@ -352,171 +823,243 @@ version and digest. Its status is one of:
 
 Nova may say complete only when:
 
-- the session has an accepted candidate;
-- its required review chain has no blocking finding;
-- the canonical app at the reported sequence has the accepted digest;
-- the ordinary absolute gate and export readiness pass;
-- no candidate change set remains open;
-- no open question remains;
-- every external requirement is either satisfied or named in the
-  `complete-with-external-setup` result;
-- unsupported requests are never described as built.
+- every planned workflow slice has a current committed receipt;
+- every construction group has current mutation-derived provenance;
+- no unresolved critical design or conformance finding remains;
+- every workflow acceptance example has a structural path;
+- no open change set remains;
+- the current canonical app passes the ordinary absolute gate and export
+  readiness;
+- no construction-critical external action remains.
 
-A newer canonical sequence makes the report stale by exact comparison. Stale
-or incomplete reports never block use, preview, export, or direct editing of a
-valid app.
+`complete-with-external-setup` names the exact runtime, HQ, deployment, media,
+lookup, place, or worker steps still required. `incomplete` leaves every valid
+committed revision usable.
 
-### 3.4 Read-only Design history
+### 9.9 Read-only Design history
 
 Add a read-only Design surface showing safe projections of:
 
-- the objective and consequential decisions;
-- what app revision was independently reviewed;
-- user-relevant review resolutions without counts or severity theater;
-- external setup, unsupported requests, and open questions;
-- completion status and whether it is current for the app.
+- accepted charter, actors, records, and workflows;
+- decisions, assumptions, open or deferred items;
+- review status and user-relevant resolutions;
+- planned workflows and committed sequences;
+- current/stale conformance status;
+- external setup;
+- completion status.
 
 Do not show raw source bodies, private tool calls, mutation payloads, internal
-IDs, model prompts, model reasoning, or technical validator messages. Source
-attachments remain separately authorized.
+IDs, confidence scores, or model reasoning. Source links remain separately
+authorized.
 
-### 3.5 Persistence and authority
+### 9.10 Persistence
 
-Unit F adds only `design_completion_reports`. Rows are insert-only,
-exact-parsed, digest-bound, and Project-authorized through their design session
-and app. Include privileges, probes, Project movement, deletion/retention,
+Unit F adds exactly:
+
+- `design_conformance_reports`
+- `design_completion_reports`
+
+Both are immutable, exact-parsed, digest-bound lineage. Update runtime types,
+privileges, probes, Project movement, soft/physical delete, retention,
 inspection, and migration tests in the same unit.
 
-### 3.6 Unit F acceptance
+### 9.11 Unit F acceptance
 
-- The report proves accepted-candidate digest equals canonical snapshot digest.
-- Sequence N reports are stale at N+1.
-- No model call is required to attest an unchanged accepted candidate.
-- External setup and unsupported work are stated honestly.
-- Design history is useful to a user and reveals no private machinery.
-- Direct builder, chat-edit, and MCP mutations ignore completion reports.
+- Projection is deterministic and digest-stable.
+- A report for sequence N is stale at N+1.
+- Names alone do not prove implementation.
+- Construction-group provenance resolves through the deterministic plan to
+  contract elements.
+- Model-only heuristics cannot become critical blockers.
+- A grounded critical finding prevents a false completion claim but not valid
+  app use.
+- Corrections are ordinary valid slices and are bounded.
+- External setup is explicit.
+- Design history is read-only and privacy-safe.
+- Direct human and MCP edits do not consult conformance reports.
 
-## 4. Unit G: reviewed edits and high-level MCP
+## 10. Unit G: reviewed edits and high-level MCP
 
-### 4.1 Goal
+### 10.1 Goal
 
-Unit G gives substantial app changes the same quality, review, recovery, and
-atomicity as the initial build while preserving immediate direct editors.
+Unit G gives substantial app edits the same design quality and recovery
+properties as initial builds while preserving immediate direct editors.
 
-### 4.2 Reviewed edit candidate
+Unit G depends on Unit F's projection, provenance readers, conformance
+vocabulary, correction path, and completion reports.
 
-A reviewed edit creates `design_sessions(mode = 'edit', app_id = ...)` bound to
-the app's exact edit holder, Project, base sequence, and snapshot digest. Its
-private Atomic Change Set starts from that canonical Blueprint rather than the
-empty base.
+### 10.2 Edit authority
 
-The user request and current app projection form the source package. The
-Solutions Architect edits the private Blueprint with the same ordinary tools
-and handles, records a small amendment brief, checkpoints, receives exact
-independent review, corrects if needed, and atomically commits the accepted
-digest as one canonical revision.
+A reviewed edit creates a `design_sessions(mode = 'edit', app_id = ...)`
+artifact and orchestration scope. The app row remains the only run, credit,
+holder, mutation, and Project authority.
 
-An edit design session never owns a second holder or credit reservation. Every
-stage, checkpoint, review, and commit proves the exact app holder and current
-Project membership.
+An edit design session never owns a second holder or reservation. Every stage,
+artifact, attempt, and commit proves the exact app edit holder and fresh Project
+membership.
 
-### 4.3 Amendment brief and reconciliation
+### 10.3 Design amendment
 
-The amendment brief records only:
+Create an immutable amendment bound to:
 
-- the requested outcome;
-- consequential decisions;
-- affected user workflows in plain language;
-- external or destructive consequences;
-- unsupported work and open questions.
+- the user's new source-grounded request;
+- current app sequence and snapshot digest;
+- current deterministic implementation projection;
+- current accepted design revision when one exists;
+- affected workflows and elements;
+- proposed additions, changes, and removals;
+- external and destructive consequences;
+- rationale.
 
-Before authoring, compare the exact current Blueprint with the reviewed edit's
-base. Human, builder, direct MCP, migration, or another agent may have changed
-the app. Unmapped implementation is valid current state, not corruption.
+Classify the work as:
 
-If the base changed before the first private mutation, restart from the new
-base. Once mutations exist, missing targets, changed kinds, removed anchors,
-Project movement, or semantic conflicts stop with a structured conflict. The
-model never retargets by name or similarity.
+- intent change;
+- implementation correction;
+- external-setup only.
 
-Apps without prior reviewed history begin from the deterministic current
-Blueprint plus the new source-grounded request. Nova may describe what exists
-but never fabricates original rationale or discarded alternatives.
+Only intent change creates and independently reviews a new Design Contract
+revision. Implementation correction reuses accepted meaning.
 
-### 4.4 Destructive and external work
+### 10.4 Reconciliation
 
-A destructive edit names the affected app structures, case/data consequences,
-external consequences, and any confirmation or exclusive-schema requirement.
-External destructive actions remain separate confirmed workflows and never
-stage inside the private Blueprint candidate.
+Before planning, compare the current canonical projection with current design
+lineage and provenance. Human, builder, direct MCP, migration, or prior agent
+changes may have made an older report stale.
 
-### 4.5 High-level MCP
+Unmapped implementation is context, not invalid state. The model may describe
+possible intent only as inferred from Blueprint and cannot overwrite
+source-grounded accepted meaning without a reviewed amendment.
 
-Keep every existing shared MCP tool immediate and canonical. Add a separate
-reviewed workflow that operates in product terms, for example:
+### 10.5 Apps without design lineage
 
-- `start_reviewed_app_change`
-- `get_reviewed_app_change`
-- `submit_reviewed_app_answers`
-- `execute_reviewed_app_change`
-- `get_app_design_history`
-- `abandon_reviewed_app_change`
+Derive a `RecoveredDesignSnapshot` only from the deterministic implementation
+projection. It may describe observable actors, records, workflow surfaces,
+lists, and navigation, but it must state that original rationale, omitted
+requirements, and discarded alternatives are unknown.
 
-Names are finalized with the MCP implementation, but the contract is fixed:
-clients receive closed states such as awaiting input, designing, reviewing,
-ready to commit, complete, incomplete, or conflicted. They receive safe
-projections and durable session IDs, never private steps, holder nonces,
-source bodies, UUID-minting duties, model prompts, or reasoning.
+The recovered snapshot is not an accepted Design Contract. The user's new
+request is the first source-grounded amendment.
 
-Every mutating call has a request ID and exact input digest. Identical replay
-returns the original result; reuse with different input rejects. The server
-owns session, app, run, holder, checkpoint, review, and commit identities.
+### 10.6 Destructive work and concurrency
 
-Do not expose public begin/stage/commit change-set primitives. That protocol is
-private implementation machinery, not a user or MCP product surface.
+A removal names affected design elements, implementation coordinates,
+case/data consequences, external consequences, and whether confirmation or an
+exclusive schema operation is required.
 
-### 4.6 Unit G acceptance
+External destructive actions remain separate confirmed workflows. They never
+stage inside an Atomic Change Set.
 
-- Reviewed edits reuse the direct Blueprint candidate rather than a parallel
-  contract or slice plan.
-- The app row remains the sole edit holder and reservation authority.
-- Existing app meaning is never inferred beyond observable Blueprint state.
+Every edit change set records the exact base sequence and digest. Clean replay
+may merge over unrelated concurrent edits. Missing targets, changed kinds,
+removed anchors, Project movement, or semantic conflicts return structured
+conflicts. The model never retargets by name or similarity.
+
+### 10.7 High-level MCP
+
+Keep every existing direct shared MCP tool immediate and canonical. Add a
+separate reviewed workflow surface:
+
+- `start_design_session`
+- `get_design_session`
+- `get_design_contract`
+- `get_design_review`
+- `submit_design_answers`
+- `execute_design_session`
+- `get_design_conformance`
+- `abandon_design_session`
+
+High-level calls return closed states such as awaiting input, design ready,
+building, complete, or incomplete. They return projections and artifact IDs,
+not private change-set steps, holder nonces, source bodies, or model reasoning.
+
+Every mutating call requires a request ID and exact input digest. A replay
+returns the original result. Reuse with different input rejects. The server
+owns session, app, run, holder, artifact, stage, and commit identities.
+
+Do not expose a generic public `begin_change_set` or granular staging
+transaction in this unit. That would require a separate lease, discovery,
+rebase, retention, and crash-recovery contract.
+
+### 10.8 Unit G acceptance
+
+- Edit design sessions own no holder or reservation.
+- Legacy rationale is never fabricated.
+- Intent changes produce reviewed contract revisions.
+- Implementation corrections do not churn the contract.
+- Current canonical state remains rebase authority.
+- Direct builder and MCP mutations remain immediate.
+- High-level MCP retries cannot duplicate sessions, runs, stages, or apps.
+- Questions are resumable and stale-answer safe.
 - Concurrent semantic conflicts stop without name guessing.
-- The accepted edit commits atomically as one valid canonical revision.
-- Direct builder, ordinary chat edits, and direct MCP tools remain immediate.
-- High-level MCP replay cannot duplicate sessions, runs, checkpoints, or
-  canonical commits.
-- Questions and blocked review continuations are durable and stale-answer safe.
 
-## 5. Verification and delivery discipline
+## 11. Verification and delivery discipline
 
-The maintained foundation tests cover:
+### 11.1 Maintained foundation checks
 
-- exact holder and Project reauthorization on every durable write;
-- idempotent staging and handle binding;
-- checkpoint/review phase transitions and digest lineage;
-- review-blocked correction and explicit continuation;
-- atomic sequence-1 materialization and replay;
-- whole-document, export, organization, media, lookup, and case-schema gates;
-- compaction state reinjection;
-- UI locking, question pauses, status placement, and continuation;
-- prompt/model/cache/usage configuration;
-- absence of model-authored UUID and commit protocols.
+Every remaining unit keeps the current guarantees covered by focused and
+integration tests:
 
-Unit F adds completion-report, staleness, authorization, deletion, and Design
-history tests. Unit G adds edit-base conflicts, atomic commit, destructive
-confirmation, MCP idempotency, and multi-process recovery tests.
+- exact artifact parsing, lineage, and digest checks;
+- design graph closure and review grounding;
+- deterministic plan derivation;
+- workspace revision and request idempotency;
+- handle resolution before original schema admission;
+- change-set replay and coverage;
+- external read-set fences;
+- canonical sidecar atomicity;
+- sequence-one materialization fault matrix;
+- holder, credit, transcript, stream, Project move, and recovery behavior;
+- canonical-only UI activation and collaboration;
+- no customer content in operational logs.
 
-Each unit includes migrations, runtime types, privilege convergence, scripts,
-docs, focused tests, changed tests, scoped leak checks, typecheck, frozen-SHA
-`codex review`, review fixes, and PR delivery. Paid schema or browser/model
-benchmarks require explicit approval.
+### 11.2 Unit F verification
 
-## 6. Final product principle
+Add tests for:
 
-Nova spends model work where it improves the app: understanding the user's
-workflow, authoring the real executable Blueprint, and independently reviewing
-that exact result. Durable state makes those calls recoverable; deterministic
-code owns identity, authority, validation, publication, and completion truth.
-The user receives one complete app, honest setup guidance, and no obligation
-to understand Nova's internal machinery.
+- projection determinism and coordinate resolution;
+- every initial conformance rule, including false-positive boundaries;
+- construction group to element to coordinate joins;
+- report freshness at exact sequence and digest;
+- quality-review grounding and severity limits;
+- correction bounds and contract-revision classification;
+- completion status and external setup;
+- Design history authorization, privacy, accessibility, and staleness;
+- migration, runtime privileges, probes, move, deletion, and retention;
+- browser journey through completed and honestly incomplete builds.
+
+### 11.3 Unit G verification
+
+Add tests for:
+
+- app-holder-only edit authority;
+- amendment classification;
+- current-app reconciliation;
+- recovered snapshots without invented rationale;
+- destructive consequence and confirmation policy;
+- concurrent clean replay and semantic conflicts;
+- high-level MCP idempotency, pause, resume, and privacy;
+- unchanged direct MCP behavior.
+
+### 11.4 Delivery order
+
+Deliver Unit F before Unit G. Each unit includes code, migration, tests,
+present-tense subtree contracts, public documentation for behavior that
+exists, operational inspection, and any copied `nova-plugin` model-facing
+contract in the same PR.
+
+Use one final shape. Do not ship feature-flagged dual readers, compatibility
+aliases, temporary persistence dialects, or an inactive public API. Run a fresh
+independent review against one frozen SHA and fix findings before landing.
+
+## 12. Final product principle
+
+> **Valid revisions, reviewed design.** Nova records the minimum durable design
+> meaning needed to build and verify a good app. The independent reviewer
+> improves that meaning. The server derives construction work. Private
+> workspaces make long work recoverable. Only the existing canonical gate makes
+> app state real.
+
+CommCare's module, form, and field hierarchy is the output grammar, not the
+design method. Traceability exists only where it buys product truth: review
+cites important evidence, construction groups prove committed work, and Unit F
+checks workflow meaning against the canonical implementation.

@@ -60,9 +60,6 @@ export function deriveDesignBuildStage(
 	if (
 		session.last_error_type !== null &&
 		(state.kind === "designing" ||
-			state.kind === "reviewing-candidate" ||
-			state.kind === "revising-candidate" ||
-			state.kind === "publishing-candidate" ||
 			state.kind === "planning" ||
 			state.kind === "executing-slice")
 	) {
@@ -71,12 +68,6 @@ export function deriveDesignBuildStage(
 	switch (state.kind) {
 		case "designing":
 			return "designing";
-		case "reviewing-candidate":
-			return "reviewing-design";
-		case "revising-candidate":
-			return "revising-design";
-		case "publishing-candidate":
-			return "building";
 		case "awaiting-user":
 		case "awaiting-user-questions":
 			return "needs-input";
@@ -115,7 +106,7 @@ export function progressEnvelope<T>(
 	};
 }
 
-/** Compatibility projection for persisted pre-candidate progress frames: no
+/** The safe outline card (§15.3) — a projection, never the raw contract: no
  *  source excerpts, no attachment bodies, no reasoning, no private steps,
  *  no implementation UUIDs. */
 export interface DesignOutlineProjection {
@@ -151,9 +142,9 @@ export function deriveDesignOutline(
 
 /** The design phases a pulse can name: the live "a model call is
  *  streaming right now" signal. `design` is the loop itself (reasoning,
- *  talk, candidate construction streaming); `review` is the independent
- *  reviewer's call; `revise` is focused candidate correction. `plan` remains
- *  readable for persisted pre-candidate frames. Each maps
+ *  talk, a contract submission streaming); `review` is the independent
+ *  reviewer's one-shot call (the loop's one silent stretch); `revise` and
+ *  `plan` are the loop streaming those submissions' arguments. Each maps
  *  onto one §15.2 stage, which is what makes the pulse a truthful stage
  *  source: the SERVER names the phase whose call is delivering tokens; the
  *  client only displays the latest. */
@@ -162,7 +153,6 @@ export const DESIGN_PULSE_PHASES = [
 	"review",
 	"revise",
 	"plan",
-	"build",
 ] as const;
 export type DesignPulsePhase = (typeof DESIGN_PULSE_PHASES)[number];
 
@@ -241,7 +231,7 @@ export function createDesignPulseEmitter(
 /* ------------------------------------------------------------------ */
 
 /**
- * Compatibility sub-step labels for a legacy contract submission. Strict-mode
+ * Sub-step labels for a streaming submission's top-level keys. Strict-mode
  * constrained decoding pins property order to schema order, so the keys of
  * a contract appear in a known sequence as the tool call's input
  * streams, so watching the accumulated text for them yields honest sub-steps.
@@ -309,7 +299,7 @@ export function createSubmissionStepNarrator(
 	};
 }
 
-/** Compatibility payload for persisted pre-candidate plan frames. */
+/** The plan summary frame's payload — counts and names only. */
 export interface BuildPlanSummaryProjection {
 	readonly sliceCount: number;
 	readonly sliceNames: readonly string[];

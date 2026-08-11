@@ -85,13 +85,11 @@ import type {
 	DesignChangeSet,
 	StoredStageRequest,
 } from "./types";
-import { effectiveBatchExclusiveKind } from "./types";
 
 // ── Row parsing ────────────────────────────────────────────────────
 
 const CHANGE_SET_COLUMNS = [
 	"id",
-	"purpose",
 	"design_session_id",
 	"design_revision_id",
 	"design_revision_digest",
@@ -158,12 +156,6 @@ function requireDigest(value: string | null, context: string): string {
 }
 
 function parseChangeSetRow(row: ChangeSetRow): DesignChangeSet {
-	const purpose = requireText(row.purpose, "design_change_sets.purpose");
-	if (purpose !== "slice" && purpose !== "design-candidate") {
-		throw new ChangeSetIntegrityError(
-			`design_change_sets.purpose holds unknown value "${purpose}".`,
-		);
-	}
 	const kind = requireText(row.kind, "design_change_sets.kind");
 	if (!CHANGE_SET_KINDS.has(kind as ChangeSetKind)) {
 		throw new ChangeSetIntegrityError(
@@ -184,12 +176,33 @@ function parseChangeSetRow(row: ChangeSetRow): DesignChangeSet {
 			`design_change_sets.exclusive_kind holds unknown value "${row.exclusive_kind}".`,
 		);
 	}
-	const common = {
+	return {
 		id: requireText(row.id, "design_change_sets.id"),
 		designSessionId: requireText(
 			row.design_session_id,
 			"design_change_sets.design_session_id",
 		),
+		designRevisionId: requireText(
+			row.design_revision_id,
+			"design_change_sets.design_revision_id",
+		),
+		designRevisionDigest: requireDigest(
+			row.design_revision_digest,
+			"design_change_sets.design_revision_digest",
+		),
+		buildPlanId: requireText(
+			row.build_plan_id,
+			"design_change_sets.build_plan_id",
+		),
+		buildPlanDigest: requireDigest(
+			row.build_plan_digest,
+			"design_change_sets.build_plan_digest",
+		),
+		sliceId: requireText(
+			row.slice_id,
+			"design_change_sets.slice_id",
+		) as DesignId,
+		attemptId: requireText(row.attempt_id, "design_change_sets.attempt_id"),
 		kind: kind as ChangeSetKind,
 		appId: row.app_id,
 		proposedAppId: row.proposed_app_id,
@@ -234,55 +247,6 @@ function parseChangeSetRow(row: ChangeSetRow): DesignChangeSet {
 		committedSnapshotDigest: row.committed_snapshot_digest,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
-	};
-	if (purpose === "design-candidate") {
-		if (
-			row.design_revision_id !== null ||
-			row.design_revision_digest !== null ||
-			row.build_plan_id !== null ||
-			row.build_plan_digest !== null ||
-			row.slice_id !== null ||
-			row.attempt_id !== null
-		) {
-			throw new ChangeSetIntegrityError(
-				"A design-candidate change set cannot carry slice lineage.",
-			);
-		}
-		return {
-			...common,
-			purpose,
-			designRevisionId: null,
-			designRevisionDigest: null,
-			buildPlanId: null,
-			buildPlanDigest: null,
-			sliceId: null,
-			attemptId: null,
-		};
-	}
-	return {
-		...common,
-		purpose,
-		designRevisionId: requireText(
-			row.design_revision_id,
-			"design_change_sets.design_revision_id",
-		),
-		designRevisionDigest: requireDigest(
-			row.design_revision_digest,
-			"design_change_sets.design_revision_digest",
-		),
-		buildPlanId: requireText(
-			row.build_plan_id,
-			"design_change_sets.build_plan_id",
-		),
-		buildPlanDigest: requireDigest(
-			row.build_plan_digest,
-			"design_change_sets.build_plan_digest",
-		),
-		sliceId: requireText(
-			row.slice_id,
-			"design_change_sets.slice_id",
-		) as DesignId,
-		attemptId: requireText(row.attempt_id, "design_change_sets.attempt_id"),
 	};
 }
 
@@ -811,7 +775,6 @@ export async function beginAppEditChangeSet(
 				.insertInto("design_change_sets")
 				.values({
 					id,
-					purpose: "slice",
 					design_session_id: args.lineage.designSessionId,
 					design_revision_id: args.lineage.designRevisionId,
 					design_revision_digest: args.lineage.designRevisionDigest,
@@ -873,7 +836,6 @@ export async function beginGenesisChangeSet(
 				.insertInto("design_change_sets")
 				.values({
 					id,
-					purpose: "slice",
 					design_session_id: args.lineage.designSessionId,
 					design_revision_id: args.lineage.designRevisionId,
 					design_revision_digest: args.lineage.designRevisionDigest,
@@ -906,146 +868,6 @@ export async function beginGenesisChangeSet(
 			return created;
 		}),
 	);
-}
-
-/** Open the one private Blueprint candidate owned by a live design session.
- * The candidate is the design, so it deliberately carries no parallel
- * contract, plan, slice, or executor-attempt lineage. */
-export async function beginDesignCandidateChangeSet(args: {
-	readonly designSessionId: string;
-	readonly proposedAppId: string;
-	readonly projectId: string;
-	readonly baseSnapshotDigest: string;
-	readonly ownerUserId: string;
-	readonly ownerRunId: string;
-	readonly holderNonce: string;
-}): Promise<DesignChangeSet> {
-	const id = crypto.randomUUID();
-	return withAppTx(async (tx) => {
-		const carrier = await assertDesignSessionRunAuthorityInTransaction(tx, {
-			designSessionId: args.designSessionId,
-			actorUserId: args.ownerUserId,
-			expectedProjectId: args.projectId,
-			holder: {
-				mode: "build",
-				runId: args.ownerRunId,
-				nonce: args.holderNonce,
-			},
-		});
-		if (carrier.appId !== null) {
-			throw new ChangeSetScopeLostError(
-				"This design session has already materialized an app.",
-			);
-		}
-		const session = await tx
-			.selectFrom("design_sessions")
-			.select([
-				"proposed_app_id",
-				"active_candidate_change_set_id",
-				"candidate_phase",
-			])
-			.where("id", "=", args.designSessionId)
-			.executeTakeFirst();
-		if (session?.proposed_app_id !== args.proposedAppId) {
-			throw new ChangeSetScopeLostError(
-				"The design session no longer names this proposed app.",
-			);
-		}
-		const existing = await tx
-			.selectFrom("design_change_sets")
-			.select("id")
-			.where("design_session_id", "=", args.designSessionId)
-			.where("purpose", "=", "design-candidate")
-			.where("status", "=", "open")
-			.forUpdate()
-			.executeTakeFirst();
-		if (existing !== undefined) {
-			if (session.active_candidate_change_set_id !== existing.id) {
-				throw new ChangeSetIntegrityError(
-					"The design session points at a different private app candidate.",
-				);
-			}
-			if (session.candidate_phase === null) {
-				throw new ChangeSetIntegrityError(
-					"The private app candidate has no durable authoring phase.",
-				);
-			}
-			const rebound = await tx
-				.updateTable("design_change_sets")
-				.set({
-					owner_user_id: args.ownerUserId,
-					owner_run_id: args.ownerRunId,
-					updated_at: new Date(),
-				})
-				.where("id", "=", existing.id)
-				.where("purpose", "=", "design-candidate")
-				.where("status", "=", "open")
-				.executeTakeFirst();
-			if (!updatedExactlyOne(rebound)) {
-				throw new ChangeSetScopeLostError(
-					"The private app candidate changed while this run was resuming it.",
-				);
-			}
-			const resumed = await loadChangeSet(existing.id, tx);
-			if (
-				resumed === undefined ||
-				resumed.purpose !== "design-candidate" ||
-				resumed.proposedAppId !== args.proposedAppId ||
-				resumed.baseProjectId !== args.projectId ||
-				resumed.baseSnapshotDigest !== args.baseSnapshotDigest
-			) {
-				throw new ChangeSetIntegrityError(
-					"The durable private candidate no longer matches this design session's base.",
-				);
-			}
-			return resumed;
-		}
-		await tx
-			.insertInto("design_change_sets")
-			.values({
-				id,
-				purpose: "design-candidate",
-				design_session_id: args.designSessionId,
-				design_revision_id: null,
-				design_revision_digest: null,
-				build_plan_id: null,
-				build_plan_digest: null,
-				slice_id: null,
-				attempt_id: null,
-				kind: "genesis",
-				app_id: null,
-				proposed_app_id: args.proposedAppId,
-				base_seq: null,
-				base_project_id: args.projectId,
-				base_snapshot_digest: args.baseSnapshotDigest,
-				exclusive_kind: null,
-				owner_user_id: args.ownerUserId,
-				owner_run_id: args.ownerRunId,
-				status: "open",
-				committed_seq: null,
-				committed_batch_id: null,
-				committed_snapshot_digest: null,
-			})
-			.execute();
-		await tx
-			.updateTable("design_sessions")
-			.set({
-				active_candidate_change_set_id: id,
-				active_candidate_checkpoint_id: null,
-				active_candidate_review_id: null,
-				candidate_phase: "authoring",
-				updated_at: new Date(),
-			})
-			.where("id", "=", args.designSessionId)
-			.execute();
-		const created = await loadChangeSet(id, tx);
-		if (created === undefined) {
-			throw new ChangeSetIntegrityError(
-				`Design candidate ${id} vanished inside its creation transaction.`,
-			);
-		}
-		return created;
-	});
 }
 
 /**
@@ -1232,22 +1054,6 @@ async function stageInTransaction(
 		}
 		throw new ChangeSetRequestIdCollisionError();
 	}
-	if (changeSet.purpose === "design-candidate") {
-		const session = await tx
-			.selectFrom("design_sessions")
-			.select(["active_candidate_change_set_id", "candidate_phase"])
-			.where("id", "=", changeSet.designSessionId)
-			.executeTakeFirst();
-		if (
-			session?.active_candidate_change_set_id !== changeSet.id ||
-			(session.candidate_phase !== "authoring" &&
-				session.candidate_phase !== "revising")
-		) {
-			throw new ChangeSetScopeLostError(
-				"This private app candidate is not currently open for authoring.",
-			);
-		}
-	}
 
 	if (args.expectedRevision !== changeSet.revision) {
 		throw new ChangeSetWorkspaceRevisionStaleError(
@@ -1280,15 +1086,6 @@ async function stageInTransaction(
 			})
 			.execute();
 		return { replayed: false, receipt };
-	}
-	const effectiveExclusive = effectiveBatchExclusiveKind(
-		changeSet.purpose,
-		outcome.mutations,
-	);
-	if (outcome.exclusiveKind !== effectiveExclusive) {
-		throw new ChangeSetIntegrityError(
-			`Change set ${args.changeSetId} declared exclusive kind ${String(outcome.exclusiveKind)} for a batch whose effective kind is ${String(effectiveExclusive)}.`,
-		);
 	}
 
 	/* The batch-exclusive fence, authoritative under the lock: an exclusive

@@ -25,7 +25,6 @@ import {
 	turnRetryDelayMs,
 } from "@/lib/agent";
 import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
-import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
@@ -35,7 +34,6 @@ import {
 } from "@/lib/chat/compaction";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { SEED_STEPS_CHUNK_TYPE } from "@/lib/chat/hydratedStepFilter";
-import { trimInterruptedRecoveryHistory } from "@/lib/chat/interruptedRecovery";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
@@ -89,7 +87,6 @@ import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchema
 import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
 import {
 	clawBackThreadResponse,
-	loadThread,
 	mergeThreadTurnMessages,
 	persistResponseSnapshot,
 	resolveThreadStream,
@@ -202,10 +199,6 @@ export async function POST(req: Request) {
 		);
 	}
 	const messages = messagesResult.messages;
-	/* Most turns use the admitted client history directly. Explicit recovery
-	 * replaces it below with the server's clawed-back transcript before any
-	 * fold, persistence, source-package, or model consumer can observe it. */
-	let runMessages = messages;
 
 	// Validate our fields (apiKey, blueprint, etc.)
 	const parsed = chatRequestSchema.safeParse(body);
@@ -228,6 +221,7 @@ export async function POST(req: Request) {
 			{ status: 400 },
 		);
 	}
+
 	// Reject an over-length typed message: defense in depth behind the
 	// composer's own send gate (both read MAX_CHAT_MESSAGE_CHARS, so they can't
 	// disagree). Only the new turn's typed text counts; attachments ride as
@@ -259,14 +253,12 @@ export async function POST(req: Request) {
 	const userId = keyResult.session.user.id;
 
 	/* The credit-gate decision for this POST. Computed from the RAW `messages`
-	 * array. The last message's ROLE is the ordinary charge signal (a fresh
-	 * instruction ends with `user`; an answered-askQuestions auto-resend ends
-	 * with `assistant` and rides free). An explicit re-drive is the one override:
-	 * it preserves an assistant-ending failed transcript while starting a fresh
-	 * chargeable claim. Any future transform of the history the SA receives must
-	 * not feed back into this read. (`validateChatMessages` only validates +
-	 * types the array; it does not reorder or trim, so `messages` here is still
-	 * the raw history.)
+	 * array. The last message's ROLE is the charge signal (a fresh instruction
+	 * ends with `user`; an answered-askQuestions auto-resend ends with
+	 * `assistant` and rides free), so any future transform of the history the
+	 * SA receives must not feed back into this read. (`validateChatMessages`
+	 * only validates + types the array; it does not reorder or trim, so
+	 * `messages` here is still the raw history.)
 	 *
 	 * `preflightCost` feeds only the advisory fast-fail balance read below:
 	 * the build rate for a new build (checked before `createApp` can mint an
@@ -277,7 +269,6 @@ export async function POST(req: Request) {
 	const { chargeable, preflightCost } = creditGateDecision({
 		rawMessages: messages,
 		existingApp: parsed.data.appId !== undefined,
-		explicitRedrive: parsed.data.redrive === true,
 	});
 	/* A holder nonce is a per-CLAIM capability, never thread attribution. A
 	 * chargeable instruction/redrive always gets a fresh server value even if a
@@ -401,113 +392,6 @@ export async function POST(req: Request) {
 				);
 			}
 			throw err;
-		}
-	}
-	/* `redrive` is a client control, not authority. Every pre-app design-session
-	 * re-drive, whether the client ends on a user message after reload or keeps
-	 * an assistant message in the same tab, must prove one of two durable states:
-	 * a recoverable failed orchestration head, or a genuinely interrupted thread
-	 * whose process died before it could append a failed head. A durable
-	 * non-recoverable head always wins over an old interruption marker.
-	 *
-	 * The failed-turn protocol clawed the durable transcript back to completed
-	 * units. Reload that exact history as the run input so same-tab suffix parts
-	 * cannot be re-authored through the fold, source package, or model prompt. */
-	if (
-		parsed.data.redrive === true &&
-		presentedDesignSession !== undefined &&
-		presentedDesignSession.app_id === null
-	) {
-		const recoveryHead = await readOrchestrationHead(presentedDesignSession.id);
-		let storedThread: Awaited<ReturnType<typeof loadThread>>;
-		try {
-			storedThread = await loadThread(
-				{ kind: "design-session", designSessionId: presentedDesignSession.id },
-				threadId,
-				userId,
-			);
-		} catch (err) {
-			log.error("[chat] recovery transcript read failed", err, {
-				designSessionId: presentedDesignSession.id,
-				threadId,
-			});
-			return Response.json(
-				{
-					error:
-						"Couldn't load this saved conversation. Refresh and try again shortly.",
-					type: "internal",
-				},
-				{ status: 503 },
-			);
-		}
-		const interrupted = storedThread?.resume_interrupted === true;
-		const recoverableFailure =
-			recoveryHead?.state.kind === "failed" &&
-			recoveryHead.state.recoverable === true &&
-			(presentedDesignSession.last_error_type !== null || interrupted);
-		const interruptedBeforeFailure =
-			recoveryHead?.state.kind !== "failed" && interrupted;
-		if (
-			presentedDesignSession.state !== "active" ||
-			storedThread === null ||
-			(!recoverableFailure && !interruptedBeforeFailure)
-		) {
-			return Response.json(
-				{
-					error:
-						"This saved build is not waiting for recovery. Refresh to continue from its current state.",
-					type: "generation_in_progress",
-				},
-				{ status: 409 },
-			);
-		}
-		const storedMessages = validateChatMessages(storedThread.messages);
-		if (!storedMessages.ok) {
-			log.error(
-				"[chat] stored recovery transcript failed admission",
-				undefined,
-				{
-					designSessionId: presentedDesignSession.id,
-					threadId,
-					error: storedMessages.error,
-				},
-			);
-			return Response.json(
-				{
-					error:
-						"Couldn't load this saved conversation. Refresh and try again shortly.",
-					type: "internal",
-				},
-				{ status: 503 },
-			);
-		}
-		runMessages = interrupted
-			? trimInterruptedRecoveryHistory(storedMessages.messages)
-			: storedMessages.messages;
-	}
-	/* Once reviewed construction has begun, the durable candidate owns the
-	 * conversation. A normal new instruction cannot redirect it mid-build or
-	 * turn a failure into an implicit redesign. The only continuations are an
-	 * askQuestions tool result (non-chargeable) or the explicit durable
-	 * re-drive control. This gate runs before claim/reservation writes. */
-	if (
-		presentedDesignSession !== undefined &&
-		presentedDesignSession.state === "active" &&
-		chargeable &&
-		parsed.data.redrive !== true
-	) {
-		const orchestrationHead = await readOrchestrationHead(
-			presentedDesignSession.id,
-		);
-		if (orchestrationHead !== null) {
-			return Response.json(
-				{
-					error:
-						"This app is still being prepared. Continue the saved build, or answer the question Nova asked.",
-					type: "generation_in_progress",
-				},
-				{ status: 409 },
-			);
 		}
 	}
 
@@ -1325,7 +1209,7 @@ export async function POST(req: Request) {
 			 * it. Raw, not the sanitized `validated` copy: the sanitizers strip
 			 * load-bearing reasoning `providerMetadata` that must survive in
 			 * the stored transcript. */
-			const trailingIncoming = runMessages.at(-1);
+			const trailingIncoming = messages.at(-1);
 			const foldSeed =
 				trailingIncoming?.role === "assistant" ? trailingIncoming : undefined;
 			/* The turn's response message id, minted HERE for a fresh turn (a
@@ -1356,7 +1240,7 @@ export async function POST(req: Request) {
 				 * message (the SDK ignores a trailing user message), so a
 				 * continuation's snapshots grow the SAME message id the client
 				 * grows. */
-				originalMessages: runMessages,
+				originalMessages: messages,
 				/* The fold's producer is the tee in `DurableStreamWriter`; this
 				 * execute only parks the writer and holds the stream open until
 				 * finalize resolves `foldClosed`. */
@@ -1846,7 +1730,7 @@ export async function POST(req: Request) {
 						await mergeThreadTurnMessages({
 							target,
 							threadId,
-							messages: runMessages,
+							messages,
 							expectedProjectId: projectId,
 						});
 					} catch (err) {
@@ -2299,7 +2183,7 @@ export async function POST(req: Request) {
 						streamId,
 						holderNonce,
 						threadType: appReady ? "edit" : "build",
-						messages: runMessages,
+						messages,
 						expectedProjectId: projectId,
 						/* A re-drive claim removes its dead predecessor's trailing
 						 * partial assistant message — the death-case claw-back (the
@@ -2336,9 +2220,9 @@ export async function POST(req: Request) {
 				/* ── The design-build turn ─────────────────────────────────────
 				 *
 				 * A design-session run never mounts the SA: the server-owned
-				 * BUILD ORCHESTRATOR is the whole method: one private executable
-				 * Blueprint candidate → independent review/correction → atomic
-				 * materialization. This branch owns its terminal mapping onto
+				 * BUILD ORCHESTRATOR is the whole method — source package →
+				 * bounded design pipeline → slice executor → materialization →
+				 * later slices — and this branch owns its terminal mapping onto
 				 * the run/credit machinery. It returns before the SA seed below;
 				 * edit-shaped turns continue on the SA path unchanged — including
 				 * a serialize-wait that admitted as BUILD but won its claim as an
@@ -2351,7 +2235,7 @@ export async function POST(req: Request) {
 					 * ignores browser disconnects (it drains server-side), so
 					 * nothing fires this mid-run; aborting when the branch settles
 					 * cancels any model call a throw left in flight, and the
-					 * orchestrator's own model/deadline bounds remain the primary
+					 * orchestrator's own step/slice budgets remain the primary
 					 * runaway bound. */
 					const orchestrationAbort = new AbortController();
 					try {
@@ -2364,15 +2248,26 @@ export async function POST(req: Request) {
 							runId: effectiveRunId,
 							holderNonce,
 							threadId,
-							messages: runMessages,
+							messages,
 							responseMessageId,
 							writer,
 							apiKey: keyResult.apiKey,
 							meter: usage,
 							signal: orchestrationAbort.signal,
 							materializedAppId: design.materialized ? appId : null,
-							redrive: parsed.data.redrive === true,
 							deps: {
+								logCommittedStages: (receipt, envelopes) => {
+									for (const envelope of envelopes) {
+										try {
+											ctx.emitConversation({
+												type: "assistant-text",
+												text: `Committed ${envelope.toolName}${envelope.stageName ? ` (${envelope.stageName})` : ""} at sequence ${receipt.seq}.`,
+											});
+										} catch {
+											/* Event logging never fails the run. */
+										}
+									}
+								},
 								/* The design agent's step fan-out: per-step usage on the
 								 * accumulator (steps count as steps), tool-call/result and
 								 * reasoning-summary conversation events, all through the
@@ -2384,7 +2279,8 @@ export async function POST(req: Request) {
 										DESIGN_AUTHOR_MODEL,
 										"design-author",
 									),
-								/* Reasoning summaries from the independent reviewer land
+								/* Reasoning summaries from the calls that never touch a
+								 * thread (the independent reviewer, executor steps) land
 								 * beside the run's other events, joined to artifacts by
 								 * run id. Never fatal. */
 								onReasoningSummary: (text) => {
@@ -2407,12 +2303,36 @@ export async function POST(req: Request) {
 										/* Event logging never fails the run. */
 									}
 								},
+								onExecutorToolOutcome: (event) => {
+									try {
+										ctx.emitConversation({
+											type: "executor-tool-outcome",
+											...event,
+										});
+									} catch {
+										/* Event logging never fails the run. */
+									}
+								},
+								/* A transient design-turn fault being redriven renders as
+								 * a RECOVERABLE warning with the real classified type, the
+								 * same admin-inspect breadcrumb as an SA turn retry. */
+								onRecoverableRetry: (classified) => {
+									ctx.emitError(
+										{
+											...classified,
+											message: TURN_RETRY_MESSAGE,
+											recoverable: true,
+										},
+										"route:design-turn-retry",
+										{ runContinues: true },
+									);
+								},
 							},
 						});
 						if (outcome.kind === "completed") {
 							/* The finishing moves, in the build arm's exact order:
-							 * converge case-store schemas for the accepted candidate,
-							 * flip `generating → complete` while settling the
+							 * converge case-store schemas for anything later slices
+							 * added, flip `generating → complete` while settling the
 							 * kept charge, then emit `data-done` so the client's
 							 * reconciler adopts the final canonical snapshot. */
 							const finalApp = await loadApp(outcome.appId);
@@ -2511,8 +2431,8 @@ export async function POST(req: Request) {
 					} catch (error) {
 						/* An orchestration throw: infrastructure or lost scope. The
 						 * settle must target whichever row holds the run NOW — a throw
-						 * AFTER this run materialized has already transferred the
-						 * holder + reservation to
+						 * AFTER this run materialized (a later-slice fault on a fresh
+						 * build) has already transferred the holder + reservation to
 						 * the APP row, so the admission-time `design.materialized`
 						 * binding is stale; settling the session there is a no-op that
 						 * strands the app `generating` with an unsettled charge until
@@ -2605,7 +2525,7 @@ export async function POST(req: Request) {
 				 * message (pre-resolve): the resolved extract bodies are large and live
 				 * durably on the asset, so re-inlining them in the log adds bloat, not
 				 * value. */
-				const lastMessage = runMessages.at(-1);
+				const lastMessage = messages.at(-1);
 				if (lastMessage?.role === "user") {
 					const text = lastMessage.parts
 						.filter(isTextUIPart)
@@ -2727,7 +2647,7 @@ export async function POST(req: Request) {
 					 * days now, and a resumed conversation the SA can't see isn't a
 					 * conversation. A cold-cache turn pays one cache re-write: the
 					 * price of the chat behaving like a chat. */
-					const messagesToSend = runMessages;
+					const messagesToSend = messages;
 
 					/* Resolve attachment references into model-ready content BEFORE the SA.
 					 * The composer sends asset-id refs in message metadata; this appends,

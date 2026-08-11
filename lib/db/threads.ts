@@ -45,7 +45,6 @@
  * under plain tsx, where the marker throws); nothing here is a Server
  * Action, so no client-callable RPC surface exists.
  */
-import { isDeepStrictEqual } from "node:util";
 import type { UIMessage } from "ai";
 import { type ExpressionBuilder, sql, type Transaction } from "kysely";
 import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
@@ -482,12 +481,10 @@ export function mergeTranscript(
  * stored copy forever — so the re-drive claim removes it explicitly: only the
  * TRAILING stored message, only an assistant one, only when the incoming
  * history no longer carries its id, and only while the row STILL holds a
- * live-stream marker (the standing proof of an unrecovered interruption;
+ * live-stream marker (the standing proof of an unrecovered interruption —
  * without it, the client flag alone could delete an answer a completed
- * successor already finished). For an answered-question continuation, the
- * incoming message can instead be an exact shorter prefix of the stored
- * message: that prefix is the completed answer boundary and replaces only
- * the dead run's later parts. The fresh run grows from that baseline.
+ * successor already finished). The fresh run's response is the turn's only
+ * durable answer.
  *
  * Incoming history is ADMITTED, not trusted (`admissibleHistory`): a client
  * copy of a message the server clawed back is refused (deleted ids) or capped
@@ -625,28 +622,13 @@ export async function upsertThreadTurn(args: {
 		 * back on a later send. */
 		if (args.redrive && existing.active_stream_id !== null) {
 			const trailing = stored.at(-1);
-			if (trailing?.id && trailing.role === "assistant") {
-				const incoming = args.messages.find((m) => m.id === trailing.id);
-				const trailingParts = trailing.parts ?? [];
-				if (incoming === undefined) {
-					stored = stored.slice(0, -1);
-					clawedBackIds = withClawedBackId(clawedBackIds, trailing.id);
-				} else if (
-					incoming.role === "assistant" &&
-					incoming.parts.length < trailingParts.length &&
-					incoming.parts.every((part, index) =>
-						isDeepStrictEqual(part, trailingParts[index]),
-					)
-				) {
-					stored = [
-						...stored.slice(0, -1),
-						preserveStoredThreadAttachments(
-							trailing,
-							incoming,
-						) as StoredMessage,
-					];
-					clawedBackIds = withClawedBackId(clawedBackIds, trailing.id);
-				}
+			if (
+				trailing?.id &&
+				trailing.role === "assistant" &&
+				!args.messages.some((m) => m.id === trailing.id)
+			) {
+				stored = stored.slice(0, -1);
+				clawedBackIds = withClawedBackId(clawedBackIds, trailing.id);
 			}
 		}
 		const merged = mergeTranscript(

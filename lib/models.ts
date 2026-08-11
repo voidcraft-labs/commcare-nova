@@ -134,11 +134,13 @@ export const DESIGN_AUTHOR_MODEL = "gpt-5.6-sol";
 /** The independent reviewer remains the highest-quality fresh-context role. */
 export const DESIGN_REVIEWER_MODEL = "gpt-5.6-sol";
 
-/** Retained for the dormant slice executor; production candidate construction
- * uses DESIGN_AUTHOR_MODEL. */
+/** The slice executor uses the highest-quality model for translating each
+ * accepted, server-gated brief into a complete canonical change set. */
 export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-sol";
 
-/** Retained for the dormant slice executor configuration. */
+/** Construction is bounded by an accepted brief, exact group coverage, and
+ * the canonical validator. Xhigh gives Sol the reasoning room to produce
+ * complete semantic batches within those fixed architectural boundaries. */
 export const DESIGN_EXECUTOR_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",
 };
@@ -146,8 +148,8 @@ export const DESIGN_EXECUTOR_REASONING: { effort: ReasoningEffort } = {
 /** Backward-compatible name for the design author/planner role. */
 export const DESIGN_MODEL = DESIGN_AUTHOR_MODEL;
 
-/** The candidate author builds the complete executable Blueprint through
- * semantic tools at the same quality-first ceiling as an SA build. */
+/** The design agent drafts, dispositions, and plans the whole contract in
+ * one growing context: the same quality-first ceiling as an SA build. */
 export const DESIGN_AUTHOR_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",
 };

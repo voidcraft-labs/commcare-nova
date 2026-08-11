@@ -27,7 +27,6 @@ export type ChangeSetExclusiveKind = "renameCaseProperties" | "retireCaseType";
  * the digests are proven equal at stage and commit time regardless.
  */
 export interface ChangeSetLineage {
-	readonly purpose: "slice";
 	readonly designSessionId: string;
 	readonly designRevisionId: string;
 	readonly designRevisionDigest: string;
@@ -37,22 +36,8 @@ export interface ChangeSetLineage {
 	readonly attemptId: string;
 }
 
-/** A reviewed-app candidate is the design: it has no parallel contract,
- * build-plan, slice, or executor-attempt identity. The exact private
- * workspace revision/digest is checkpointed separately when review begins. */
-export interface DesignCandidateLineage {
-	readonly purpose: "design-candidate";
-	readonly designSessionId: string;
-	readonly designRevisionId: null;
-	readonly designRevisionDigest: null;
-	readonly buildPlanId: null;
-	readonly buildPlanDigest: null;
-	readonly sliceId: null;
-	readonly attemptId: null;
-}
-
 /** The parsed authority row. */
-export type DesignChangeSet = (ChangeSetLineage | DesignCandidateLineage) & {
+export interface DesignChangeSet extends ChangeSetLineage {
 	readonly id: string;
 	readonly kind: ChangeSetKind;
 	/** Present exactly on app-edit sets. */
@@ -74,12 +59,7 @@ export type DesignChangeSet = (ChangeSetLineage | DesignCandidateLineage) & {
 	readonly committedSnapshotDigest: string | null;
 	readonly createdAt: Date;
 	readonly updatedAt: Date;
-};
-
-export type SliceDesignChangeSet = Extract<
-	DesignChangeSet,
-	{ readonly purpose: "slice" }
->;
+}
 
 /** One admitted staged step, parsed. */
 export interface ChangeSetStep {
@@ -160,20 +140,4 @@ export function batchExclusiveKind(
 		if (mutation.kind === "retireCaseType") return "retireCaseType";
 	}
 	return null;
-}
-
-/**
- * The exclusivity carried by a durable change-set step. Case-type retirement
- * remains isolated for canonical slice edits because it can migrate saved
- * rows. A reviewed genesis candidate has no app or case rows yet, so its
- * retirement is an ordinary amendable step in the one private workspace.
- */
-export function effectiveBatchExclusiveKind(
-	purpose: "slice" | "design-candidate",
-	mutations: AdmittedMutationBatch,
-): ChangeSetExclusiveKind | null {
-	const exclusive = batchExclusiveKind(mutations);
-	return purpose === "design-candidate" && exclusive === "retireCaseType"
-		? null
-		: exclusive;
 }

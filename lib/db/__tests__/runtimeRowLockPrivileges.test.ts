@@ -210,8 +210,6 @@ describe("runtime row-lock privilege contract", () => {
 			"design_build_plans",
 			"design_orchestration_events",
 			"design_artifact_workspace_steps",
-			"design_candidate_checkpoints",
-			"design_candidate_reviews",
 			"case_schema_index_deletions",
 			"media_asset_refs",
 			"app_location_references",

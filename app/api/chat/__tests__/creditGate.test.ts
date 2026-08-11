@@ -36,14 +36,4 @@ describe("creditGateDecision", () => {
 			}),
 		).toEqual({ chargeable: false, preflightCost: 0 });
 	});
-
-	it("charges an explicit re-drive while preserving an assistant-ending transcript", () => {
-		expect(
-			creditGateDecision({
-				rawMessages: [message("user"), message("assistant")],
-				existingApp: false,
-				explicitRedrive: true,
-			}),
-		).toEqual({ chargeable: true, preflightCost: 100 });
-	});
 });

@@ -80,27 +80,6 @@ describe("shared creation handle declarations", () => {
 
 	it("binds organization and automation identities without model-minted UUIDs", () => {
 		expect(
-			declarations("addUserProperties", {
-				properties: [{ userPropertyUuid: { handle: "@worker_role" } }],
-			}),
-		).toEqual([{ handle: "@worker_role", entityKind: "worker_property" }]);
-		expect(
-			declarations("addUserTypes", {
-				userTypes: [{ userTypeUuid: { handle: "@supervisor" } }],
-			}),
-		).toEqual([{ handle: "@supervisor", entityKind: "user_type" }]);
-		expect(
-			declarations("addPersonas", {
-				personas: [{ personaUuid: { handle: "@field_worker" } }],
-			}),
-		).toEqual([{ handle: "@field_worker", entityKind: "persona" }]);
-		expect(
-			declarations("addLocationProperties", {
-				properties: [{ locationPropertyUuid: { handle: "@facility_code" } }],
-			}),
-		).toEqual([{ handle: "@facility_code", entityKind: "location_property" }]);
-
-		expect(
 			declarations("addOrganizationLevels", {
 				levels: [{ uuid: { handle: "@district" } }],
 			}),
@@ -215,11 +194,7 @@ describe("shared creation handle declarations", () => {
 			"addCaseListColumns",
 			"addSearchInputs",
 			"addCaseOperations",
-			"addUserProperties",
-			"addUserTypes",
-			"addPersonas",
 			"addOrganizationLevels",
-			"addLocationProperties",
 			"addAutomations",
 			"updateAutomation",
 			"editField",

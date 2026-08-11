@@ -196,7 +196,7 @@ edges; missing/foreign targets share one opaque error.
 
 `apps.ts` is the authoritative protocol for existing-app writes, and
 `appGenesis.ts` is the ONE closed birth owner (`explicit-blank |
-reviewed-candidate`): `prepareGenesisCandidate` reduces the construction batch from
+design-slice`): `prepareGenesisCandidate` reduces the construction batch from
 the canonical empty Blueprint (`lib/doc/scaffolds.ts::emptyBlueprintDoc`, the
 one spelling both genesis and change-set base loading share) exactly once
 outside the retryable transaction, and `writePreparedGenesisInTransaction`
@@ -209,9 +209,9 @@ case schemas (`applySchemaChangePhaseA` at synced seq 1; concurrent index
 work drains post-commit off `index_pending_seq`), and inserts entity rows,
 the sequence-one `fold-baseline` change, and immutable baseline atomically.
 `createExplicitBlankApp` (the builder action + MCP `create_app`) births the
-canonical survey starter `complete`; the reviewed-candidate arm is
+canonical survey starter `complete`; the design-slice arm is
 `lib/agent/change-set/materializeGenesis.ts`, which replays the genesis
-candidate's exact accepted durable steps and transfers the design session's holder +
+change set's committed steps and transfers the design session's holder +
 reservation onto the app row in that same transaction. Every
 `commitGuardedBatch`, `appendSyntheticBatch`, and `commitAppProjectMove`
 transaction declares lookup writer v1 from the shared runtime manifest. Ordinary
@@ -474,8 +474,9 @@ transition, and then invokes holder-free operator recovery. Live holders wait;
 stale holders without an exact identity fail closed for operator inspection.
 
 Discard is one cleanup transaction after its owner/busy checks: refund the
-unsettled reservation, abandon open change sets, clear thread stream-holder
-markers, clear session authority, and mark the session `abandoned`.
+unsettled reservation, abandon open change sets, supersede running slice
+attempts, clear thread stream-holder markers, clear session authority, and
+mark the session `abandoned`.
 
 **`chat_stream_chunks` is the live-stream catch-up log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
@@ -838,34 +839,44 @@ to serialize its ledgers); `design_change_set_requests` / `_steps` /
 `app_change_intents` are append-only runtime DML — never row-locked, never
 updated, never streamed (no NOTIFY channel exists for them; nothing here may
 poke realtime). Step mutations, receipts, read sets, and persisted construction
-group ids are authoritative persisted JSON: `::text` reads through
-`persistedJson.ts` + strict schemas only. A `design-candidate` set is
-foreign-key-bound to its design session and proposed app and has no design
-revision, plan, slice, or attempt identity. The older `slice` purpose retains
-its foreign-key-bound lineage for persisted compatibility but is not mounted
-by the production reviewed-build path. A Project
+group ids are
+authoritative persisted JSON: `::text` reads through `persistedJson.ts` +
+strict schemas only. `design_session_id`, design revision, build plan, and
+attempt identities are foreign-key-bound to the durable design/orchestration
+tables. A Project
 move deliberately does NOT re-tenant change-set rows: `base_project_id` is
 captured base scope, an open set strands terminally (its commit rejects),
 and committed lineage is app-keyed. The runtime contract lives in
 `lib/agent/change-set/CLAUDE.md`.
 
-**Reviewed-build state is the executable candidate record, not app history.**
-`design_candidate_briefs` holds the short one-app purpose brief.
-`design_candidate_reviews` is immutable, strict-parsed, digest-bound reviewer
-evidence. `design_candidate_checkpoints` binds a candidate change-set revision
-and canonical digest to `reviewing`, `revising`, `blocked`, or `accepted`.
-`design_sessions.active_candidate_change_set_id`, `candidate_phase`, and
-`accepted_candidate_checkpoint_id` form the row-locked phase authority. The
-private Blueprint itself is reconstructed from the candidate change set's
-append-only steps; no parallel document snapshot or abstract plan is stored.
-Every author/review/recovery/materialization transaction locks and authorizes
-the exact live session holder plus current Project membership. The detailed
-protocol lives in `lib/agent/design/CLAUDE.md` and
-`lib/agent/change-set/CLAUDE.md`.
+**The design-artifact tables are the pipeline's durable record, not app
+history.** `design_source_packages`, `design_revisions`, `design_reviews`,
+`design_review_dispositions`, and `design_build_plans` are all append-only
+runtime DML — insert-only artifacts, never row-locked, never updated,
+never streamed. Every JSONB envelope/payload is authoritative persisted
+JSON: `::text` reads through `persistedJson.ts` + the exact producer
+schemas, with the canonical-JS artifact digest re-verified on every read.
+`design_session_id` is bound to `design_sessions(id)`. The read/write
+boundary and
+integrity rules live in `lib/agent/design/artifactStore.ts`
+(`lib/agent/design/CLAUDE.md` is the contract).
 
-The older source-package, design-revision, disposition, build-plan, and
-artifact-workspace tables remain readable persisted compatibility state. They
-are not written or selected by the production reviewed-build path.
+`design_artifact_workspaces` is the private mutable authoring carrier for one
+contract, revision, or plan candidate; `design_artifact_workspace_steps` is
+its append-only operation ledger. Every open/read/stage/finalize transaction
+locks and authorizes the exact live design-session/app holder plus current
+Project membership before touching the workspace. The operation ledger is
+never row-locked. A stage is idempotent only for the same provider
+`tool_call_id` and input digest, advances an exact expected revision, and is
+invisible to app history and user surfaces. Finalization validates the replayed
+candidate and changes `open → finalized` in the same transaction that inserts
+the immutable artifact; lineage binds the exact source package plus immutable
+base/reviews. A source-package change rebinds same-phase/base/review work only
+when content-free projection digests prove a byte-identical prefix extension;
+different or missing source and different immutable ancestry supersede the open
+workspace. Per-call and cumulative per-POST bounds prevent runaway work
+without a persistent stage cliff that could strand a candidate after final
+validation.
 
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
