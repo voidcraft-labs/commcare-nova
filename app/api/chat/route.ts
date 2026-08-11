@@ -222,6 +222,8 @@ export async function POST(req: Request) {
 			{ status: 400 },
 		);
 	}
+	const explicitRecoveryRedrive =
+		parsed.data.redrive === true && messages.at(-1)?.role !== "user";
 
 	// Reject an over-length typed message: defense in depth behind the
 	// composer's own send gate (both read MAX_CHAT_MESSAGE_CHARS, so they can't
@@ -254,12 +256,14 @@ export async function POST(req: Request) {
 	const userId = keyResult.session.user.id;
 
 	/* The credit-gate decision for this POST. Computed from the RAW `messages`
-	 * array. The last message's ROLE is the charge signal (a fresh instruction
-	 * ends with `user`; an answered-askQuestions auto-resend ends with
-	 * `assistant` and rides free), so any future transform of the history the
-	 * SA receives must not feed back into this read. (`validateChatMessages`
-	 * only validates + types the array; it does not reorder or trim, so
-	 * `messages` here is still the raw history.)
+	 * array. The last message's ROLE is the ordinary charge signal (a fresh
+	 * instruction ends with `user`; an answered-askQuestions auto-resend ends
+	 * with `assistant` and rides free). An explicit re-drive is the one override:
+	 * it preserves an assistant-ending failed transcript while starting a fresh
+	 * chargeable claim. Any future transform of the history the SA receives must
+	 * not feed back into this read. (`validateChatMessages` only validates +
+	 * types the array; it does not reorder or trim, so `messages` here is still
+	 * the raw history.)
 	 *
 	 * `preflightCost` feeds only the advisory fast-fail balance read below:
 	 * the build rate for a new build (checked before `createApp` can mint an
@@ -270,6 +274,7 @@ export async function POST(req: Request) {
 	const { chargeable, preflightCost } = creditGateDecision({
 		rawMessages: messages,
 		existingApp: parsed.data.appId !== undefined,
+		explicitRedrive: parsed.data.redrive === true,
 	});
 	/* A holder nonce is a per-CLAIM capability, never thread attribution. A
 	 * chargeable instruction/redrive always gets a fresh server value even if a
@@ -394,6 +399,27 @@ export async function POST(req: Request) {
 			}
 			throw err;
 		}
+	}
+	/* `redrive` is a client control, not authority. A user-ending automatic
+	 * re-drive is already an ordinary chargeable turn. The assistant-ending
+	 * form belongs only to Continue build, after a recoverable pre-app failure
+	 * has released its holder. Prove that state before letting the flag bypass
+	 * the in-progress instruction gate or claim a paused session as fresh work. */
+	if (
+		explicitRecoveryRedrive &&
+		(presentedDesignSession === undefined ||
+			presentedDesignSession.state !== "active" ||
+			presentedDesignSession.app_id !== null ||
+			presentedDesignSession.last_error_type === null)
+	) {
+		return Response.json(
+			{
+				error:
+					"This saved build is not waiting for recovery. Refresh to continue from its current state.",
+				type: "generation_in_progress",
+			},
+			{ status: 409 },
+		);
 	}
 	/* Once reviewed construction has begun, the durable candidate owns the
 	 * conversation. A normal new instruction cannot redirect it mid-build or

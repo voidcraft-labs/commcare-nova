@@ -93,7 +93,17 @@ const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "chat_design_" });
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
 
-function buildRequest(args: { designSessionId?: string } = {}): Request {
+function buildRequest(
+	args: {
+		designSessionId?: string;
+		redrive?: boolean;
+		messages?: readonly {
+			id: string;
+			role: "user" | "assistant";
+			parts: readonly { type: "text"; text: string }[];
+		}[];
+	} = {},
+): Request {
 	return new Request("http://localhost/api/chat", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -103,7 +113,8 @@ function buildRequest(args: { designSessionId?: string } = {}): Request {
 			...(args.designSessionId
 				? { designSessionId: args.designSessionId }
 				: {}),
-			messages: [
+			...(args.redrive ? { redrive: true } : {}),
+			messages: args.messages ?? [
 				{
 					id: "u1",
 					role: "user",
@@ -311,6 +322,30 @@ describe("design-session build turns", () => {
 				"This app is still being prepared. Continue the saved build, or answer the question Nova asked.",
 			type: "generation_in_progress",
 		});
+		const falseRecovery = await POST(
+			buildRequest({
+				designSessionId: session.id,
+				redrive: true,
+				messages: [
+					{
+						id: "u1",
+						role: "user",
+						parts: [{ type: "text", text: "build me a case tracking app" }],
+					},
+					{
+						id: "paused-assistant",
+						role: "assistant",
+						parts: [{ type: "text", text: "Please answer this question." }],
+					},
+				],
+			}),
+		);
+		expect(falseRecovery.status).toBe(409);
+		expect(await falseRecovery.json()).toEqual({
+			error:
+				"This saved build is not waiting for recovery. Refresh to continue from its current state.",
+			type: "generation_in_progress",
+		});
 		expect(runBuildOrchestrationMock).toHaveBeenCalledOnce();
 	}, 30_000);
 
@@ -495,6 +530,51 @@ describe("design-session build turns", () => {
 		expect((thread.messages as { role: string }[]).map((m) => m.role)).toEqual([
 			"user",
 		]);
+	}, 30_000);
+
+	it("an explicit re-drive preserves an assistant-ending transcript and freshly reclaims a failed pre-app session", async () => {
+		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			args.writer.write({ type: "start", messageId: args.responseMessageId });
+			args.writer.write({ type: "finish" });
+			return {
+				kind: "failed",
+				errorType: "internal",
+				message: "The design pipeline could not finish.",
+				recoverable: true,
+				appId: null,
+			};
+		});
+
+		const first = await POST(buildRequest());
+		await first.text();
+		const failedSession = await sessionRow();
+		expect(failedSession.run_id).toBeNull();
+
+		const redrive = await POST(
+			buildRequest({
+				designSessionId: failedSession.id,
+				redrive: true,
+				messages: [
+					{
+						id: "u1",
+						role: "user",
+						parts: [{ type: "text", text: "build me a case tracking app" }],
+					},
+					{
+						id: "saved-assistant-state",
+						role: "assistant",
+						parts: [{ type: "text", text: "I saved the design work so far." }],
+					},
+				],
+			}),
+		);
+		expect(redrive.status).toBe(200);
+		await redrive.text();
+		expect(runBuildOrchestrationMock).toHaveBeenCalledTimes(2);
+		expect(runBuildOrchestrationMock.mock.calls[1]?.[0]).toMatchObject({
+			designSessionId: failedSession.id,
+			redrive: true,
+		});
 	}, 30_000);
 
 	it("a completed build lands data-app-materialized before data-done and settles under the transferred holder", async () => {
