@@ -119,6 +119,38 @@ import { isFatalStreamErrorChunk } from "./streamFailure";
  * misread as a 5-minute cap that does not exist here. */
 export const maxDuration = 300;
 
+/** Reconstruct the completed input boundary of a run whose process died.
+ * A fresh turn's partial assistant message disappears whole. An answered
+ * question continuation keeps the same assistant message id across runs, so
+ * preserve its parts through the last durable answer and discard only the
+ * later partial work. `upsertThreadTurn` recognizes this exact-prefix rewind
+ * under the dead stream marker and installs it as the durable baseline. */
+export function trimInterruptedRecoveryHistory<T extends UIMessage>(
+	messages: readonly T[],
+): T[] {
+	const trailing = messages.at(-1);
+	if (trailing?.role !== "assistant") return [...messages];
+	let lastAnsweredQuestion = -1;
+	for (const [index, part] of trailing.parts.entries()) {
+		if (
+			part.type === "tool-askQuestions" &&
+			"state" in part &&
+			part.state === "output-available"
+		) {
+			lastAnsweredQuestion = index;
+		}
+	}
+	if (lastAnsweredQuestion < 0) return messages.slice(0, -1);
+	if (lastAnsweredQuestion === trailing.parts.length - 1) return [...messages];
+	return [
+		...messages.slice(0, -1),
+		{
+			...trailing,
+			parts: trailing.parts.slice(0, lastAnsweredQuestion + 1),
+		} as T,
+	];
+}
+
 /* Serialize-with-wait poll cadence + ceiling. A conflicting SA request opens
  * its SSE stream and polls `claimRun` every `CLAIM_WAIT_POLL_MS` until the
  * holder releases, up to `CLAIM_WAIT_MAX_MS`; past that it emits a friendly
@@ -439,13 +471,13 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
+		const interrupted = storedThread?.resume_interrupted === true;
 		const recoverableFailure =
 			recoveryHead?.state.kind === "failed" &&
 			recoveryHead.state.recoverable === true &&
-			presentedDesignSession.last_error_type !== null;
+			(presentedDesignSession.last_error_type !== null || interrupted);
 		const interruptedBeforeFailure =
-			recoveryHead?.state.kind !== "failed" &&
-			storedThread?.resume_interrupted === true;
+			recoveryHead?.state.kind !== "failed" && interrupted;
 		if (
 			presentedDesignSession.state !== "active" ||
 			storedThread === null ||
@@ -480,7 +512,9 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
-		runMessages = storedMessages.messages;
+		runMessages = interrupted
+			? trimInterruptedRecoveryHistory(storedMessages.messages)
+			: storedMessages.messages;
 	}
 	/* Once reviewed construction has begun, the durable candidate owns the
 	 * conversation. A normal new instruction cannot redirect it mid-build or

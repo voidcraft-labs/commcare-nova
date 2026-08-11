@@ -18,6 +18,7 @@
  * workflow commits — always before `data-done`.
  */
 
+import type { UIMessage } from "ai";
 import type { Insertable, Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendOrchestrationEvent } from "@/lib/agent/build/orchestratorState";
@@ -82,7 +83,7 @@ vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 	materializeCaseStoreSchemas: vi.fn(async () => undefined),
 }));
 
-const { POST } = await import("../route");
+const { POST, trimInterruptedRecoveryHistory } = await import("../route");
 
 const USER = "user-design-1";
 const PROJECT = "project-design-1";
@@ -286,6 +287,46 @@ afterEach(async () => {
 });
 
 describe("design-session build turns", () => {
+	it("rewinds an interrupted continuation to its last answered question", () => {
+		const user: UIMessage = {
+			id: "u1",
+			role: "user",
+			parts: [{ type: "text", text: "build an intake app" }],
+		};
+		const answered = {
+			type: "tool-askQuestions",
+			toolCallId: "ask-1",
+			state: "output-available",
+			input: { questions: [] },
+			output: { answers: ["Nurses"] },
+		} as const;
+		const assistant = {
+			id: "a1",
+			role: "assistant",
+			parts: [
+				{ type: "step-start" },
+				answered,
+				{ type: "step-start" },
+				{ type: "text", text: "unfinished work" },
+			],
+		} as UIMessage;
+
+		expect(trimInterruptedRecoveryHistory([user, assistant])).toEqual([
+			user,
+			{ ...assistant, parts: assistant.parts.slice(0, 2) },
+		]);
+		expect(
+			trimInterruptedRecoveryHistory([
+				user,
+				{
+					id: "a2",
+					role: "assistant",
+					parts: [{ type: "text", text: "unfinished first response" }],
+				},
+			]),
+		).toEqual([user]);
+	});
+
 	it("refuses an unrelated message after durable candidate work has begun", async () => {
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
 			args.meter?.track({ inputTokens: 10, outputTokens: 5 });
@@ -677,10 +718,19 @@ describe("design-session build turns", () => {
 		const first = await POST(buildRequest());
 		await first.text();
 		const failedSession = await sessionRow();
+		const stored = await threadRow();
 		await appDb
 			.updateTable("threads")
 			.set({
 				active_stream_id: "23f8eefa-985d-4af8-9592-f0b6d03ac127",
+				messages: JSON.stringify([
+					...(stored.messages as UIMessage[]),
+					{
+						id: "dead-partial",
+						role: "assistant",
+						parts: [{ type: "text", text: "unfinished response" }],
+					},
+				]),
 				updated_at: new Date().toISOString(),
 			})
 			.where("thread_id", "=", THREAD)
@@ -698,7 +748,70 @@ describe("design-session build turns", () => {
 		expect(runBuildOrchestrationMock.mock.calls[1]?.[0]).toMatchObject({
 			designSessionId: failedSession.id,
 			redrive: true,
+			messages: [
+				{
+					id: "u1",
+					role: "user",
+					parts: [{ type: "text", text: "build me a case tracking app" }],
+				},
+			],
 		});
+	}, 30_000);
+
+	it("admits an interrupted recoverable head before failure settlement records its error", async () => {
+		let attempt = 0;
+		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			attempt += 1;
+			if (attempt === 1) {
+				await appendOrchestrationEvent({
+					designSessionId: args.designSessionId,
+					runId: args.runId,
+					holderNonce: args.holderNonce,
+					actorUserId: USER,
+					expectedProjectId: PROJECT,
+					state: {
+						kind: "failed",
+						failureId: "2b22fe0e-033c-45d1-8443-e14785068e03",
+						recoverable: true,
+						errorType: "internal",
+					},
+					expectedHead: null,
+				});
+			}
+			args.writer.write({ type: "start", messageId: args.responseMessageId });
+			args.writer.write({ type: "finish" });
+			return {
+				kind: "failed",
+				errorType: "internal",
+				message: "The design pipeline could not finish.",
+				recoverable: true,
+				appId: null,
+			};
+		});
+
+		const first = await POST(buildRequest());
+		await first.text();
+		const failedSession = await sessionRow();
+		await appDb
+			.updateTable("design_sessions")
+			.set({ last_error_type: null })
+			.where("id", "=", failedSession.id)
+			.execute();
+		await appDb
+			.updateTable("threads")
+			.set({
+				active_stream_id: "87a22a0d-2ac9-45f5-897a-f790ad77e273",
+				updated_at: new Date().toISOString(),
+			})
+			.where("thread_id", "=", THREAD)
+			.execute();
+
+		const redrive = await POST(
+			buildRequest({ designSessionId: failedSession.id, redrive: true }),
+		);
+		expect(redrive.status).toBe(200);
+		await redrive.text();
+		expect(runBuildOrchestrationMock).toHaveBeenCalledTimes(2);
 	}, 30_000);
 
 	it("a completed build lands data-app-materialized before data-done and settles under the transferred holder", async () => {

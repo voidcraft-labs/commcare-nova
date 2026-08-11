@@ -456,6 +456,66 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 		expect(row.clawed_back_ids).toEqual(["a-dead"]);
 	});
 
+	it("a re-drive rewinds a continued assistant message to its exact completed prefix", async () => {
+		const { target, threadId, streamId, runId } =
+			await seedThread("redrive-prefix");
+		const completed = {
+			id: "a-continued",
+			role: "assistant",
+			parts: [
+				{ type: "step-start" },
+				{
+					type: "tool-askQuestions",
+					toolCallId: "ask-1",
+					state: "output-available",
+					input: { questions: [] },
+					output: { answers: ["Nurses"] },
+				},
+			],
+		} as UIMessage;
+		await persistResponseSnapshot({
+			target,
+			threadId,
+			streamId,
+			expectedProjectId: PROJECT,
+			responseMessage: {
+				...completed,
+				parts: [
+					...completed.parts,
+					{ type: "step-start" },
+					{ type: "text", text: "unfinished continuation" },
+				],
+			},
+			clearMarker: false,
+		});
+		await upsertThreadTurn({
+			target,
+			threadId,
+			runId,
+			streamId: "stream-redrive-prefix",
+			holderNonce: NONCE,
+			threadType: "build",
+			messages: [userMsg("m1", "question"), completed],
+			expectedProjectId: PROJECT,
+			redrive: true,
+		});
+
+		const row = await h
+			.db()
+			.selectFrom("threads")
+			.select(["messages", "active_stream_id", "clawed_back_ids"])
+			.where("thread_id", "=", threadId)
+			.executeTakeFirstOrThrow();
+		const messages = row.messages as UIMessage[];
+		expect(messages.map((message) => message.id)).toEqual([
+			"m1",
+			"a-continued",
+		]);
+		expect(messages[1]).toEqual(completed);
+		expect(row.active_stream_id).toBe("stream-redrive-prefix");
+		expect(row.clawed_back_ids).toEqual([]);
+	});
+
 	it("bailed-history merge lands real state without touching identity or marker", async () => {
 		const { target, threadId, streamId } = await seedThread("bail");
 		expect(
