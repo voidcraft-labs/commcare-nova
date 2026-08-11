@@ -36,6 +36,7 @@ import { proseText } from "@/lib/domain/prose";
 
 import { conversationPayloadSchema } from "@/lib/log/types";
 import { log } from "@/lib/logger";
+import { MODEL_DEFAULT } from "@/lib/models";
 import type { GenerationContext } from "../generationContext";
 import { makeMinimalDoc, makeTestContext } from "./fixtures";
 
@@ -874,7 +875,7 @@ describe("GenerationContext.handleAgentStep", () => {
 			 * separator for log readers decomposing per-step billing. */
 			{
 				type: "step-usage",
-				model: "gpt-5.6-sol",
+				model: MODEL_DEFAULT,
 				pricingTier: "short",
 				inputTokens: 100,
 				outputTokens: 50,
@@ -925,7 +926,7 @@ describe("GenerationContext.handleAgentStep", () => {
 		const payload = (call[0] as { payload: unknown }).payload;
 		expect(payload).toEqual({
 			type: "step-usage",
-			model: "gpt-5.6-sol",
+			model: MODEL_DEFAULT,
 			pricingTier: "short",
 			inputTokens: 10,
 			outputTokens: 5,

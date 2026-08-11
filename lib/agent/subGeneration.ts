@@ -331,8 +331,8 @@ export async function generateObjectWith<T>(opts: {
  * `onProgress` fires per streamed chunk with its character count.
  *
  * Built on `streamText` + `Output.object`, NOT `streamObject`, on purpose: the
- * summarizer runs at high reasoning effort, where MOST of the wall-clock is silent
- * reasoning before any output token — `streamObject` exposes only the output text,
+ * summarizer may spend most of the wall-clock before any output token —
+ * `streamObject` exposes only the output text,
  * so progress wouldn't start until the very end. `streamText`'s `stream`
  * carries `reasoning-delta` parts too (with OpenAI `reasoningSummary`), so progress
  * tracks the reasoning phase as well — which is where the time actually goes.

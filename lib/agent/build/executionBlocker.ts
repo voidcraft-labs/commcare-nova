@@ -9,7 +9,11 @@ import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
-import { DESIGN_AUTHOR_MODEL, reasoningProviderOptions } from "@/lib/models";
+import {
+	DESIGN_AUTHOR_MODEL,
+	DESIGN_AUTHOR_REASONING,
+	reasoningProviderOptions,
+} from "@/lib/models";
 import { renderBriefMessage, type SliceExecutionBrief } from "./executionBrief";
 
 export const executionBlockerSchema = z
@@ -99,7 +103,7 @@ export async function resolveExecutionBlocker(
 			JSON.stringify(args.diagnostics),
 		].join("\n\n"),
 		maxOutputTokens: 12_000,
-		providerOptions: reasoningProviderOptions("high"),
+		providerOptions: reasoningProviderOptions(DESIGN_AUTHOR_REASONING.effort),
 		signal,
 	});
 	const artifactResult = toArtifactResult(result, signal);

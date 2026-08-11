@@ -3,28 +3,17 @@
  *
  * Every LLM call goes straight to OpenAI through `@ai-sdk/openai` (the
  * Responses API) with the ONE server credential, `OPENAI_API_KEY`. Model ids
- * are OpenAI's own (e.g. "gpt-5.6-sol"); swapping a constant here switches
+ * are OpenAI's own (e.g. "gpt-5.6-luna"); swapping a constant here switches
  * the model on every surface that uses it.
  */
 
 import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 
-/**
- * Reasoning effort levels for OpenAI reasoning models (GPT-5.6 family) —
- * exactly the values the API accepts for these models (verified against the
- * wire's own error enumeration; there is no `max` tier here). `xhigh` is the
- * quality-first ceiling.
- */
-export type ReasoningEffort =
-	| "none"
-	| "minimal"
-	| "low"
-	| "medium"
-	| "high"
-	| "xhigh";
+export type ReasoningEffort = NonNullable<
+	OpenAIResponsesProviderOptions["reasoningEffort"]
+>;
 
-/** Fallback model for GenerationContext methods when no model is specified. */
-export const MODEL_DEFAULT = "gpt-5.6-sol";
+export const MODEL_DEFAULT = "gpt-5.6-luna";
 
 /**
  * Ask OpenAI's server-side context management to compact before the 272k-token
@@ -100,47 +89,24 @@ export function reasoningProviderOptions(
 	};
 }
 
-/** Model ID for the Solutions Architect agent building a NEW app. */
-export const SA_BUILD_MODEL = "gpt-5.6-sol";
+export const SA_BUILD_MODEL = "gpt-5.6-luna";
 
-/** Model ID for the Solutions Architect agent editing an EXISTING app.
- * Same model as builds, at a lower reasoning effort (`SA_EDIT_REASONING`):
- * per the intelligence-per-cost leaderboards, every terra effort tier is
- * dominated by sol or luna at a lower price, so terra holds no SA role —
- * edits buy their savings through effort, not a weaker model. One model
- * across both roles also keeps a thread's reasoning items replayable:
- * encrypted reasoning is model-bound, so a build→edit continuation never
- * crosses models mid-thread. */
-export const SA_EDIT_MODEL = "gpt-5.6-sol";
+export const SA_EDIT_MODEL = "gpt-5.6-luna";
 
-/** Reasoning effort for the Solutions Architect building a NEW app —
- * the quality-first ceiling; a ground-up design is the hardest call site. */
 export const SA_BUILD_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",
 };
 
-/** Reasoning effort for the Solutions Architect editing an EXISTING app —
- * edits are narrower than a ground-up build, so they run medium effort. */
 export const SA_EDIT_REASONING: { effort: ReasoningEffort } = {
-	effort: "medium",
+	effort: "xhigh",
 };
 
-/** Model ID for the design method's calls: the design agent loop and the
- * independent reviewer both run the SA build model. The design IS the
- * hardest half of a ground-up build, and one model keeps pricing and
- * behavior aligned with the SA it feeds. */
-export const DESIGN_AUTHOR_MODEL = "gpt-5.6-sol";
+export const DESIGN_AUTHOR_MODEL = "gpt-5.6-luna";
 
-/** The independent reviewer remains the highest-quality fresh-context role. */
-export const DESIGN_REVIEWER_MODEL = "gpt-5.6-sol";
+export const DESIGN_REVIEWER_MODEL = "gpt-5.6-luna";
 
-/** The slice executor uses the highest-quality model for translating each
- * accepted, server-gated brief into a complete canonical change set. */
-export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-sol";
+export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-luna";
 
-/** Construction is bounded by an accepted brief, exact group coverage, and
- * the canonical validator. Xhigh gives Sol the reasoning room to produce
- * complete semantic batches within those fixed architectural boundaries. */
 export const DESIGN_EXECUTOR_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",
 };
@@ -148,15 +114,10 @@ export const DESIGN_EXECUTOR_REASONING: { effort: ReasoningEffort } = {
 /** Backward-compatible name for the design author/planner role. */
 export const DESIGN_MODEL = DESIGN_AUTHOR_MODEL;
 
-/** The design agent drafts, dispositions, and plans the whole contract in
- * one growing context: the same quality-first ceiling as an SA build. */
 export const DESIGN_AUTHOR_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",
 };
 
-/** The independent reviewer is the one fresh set of eyes and the last
- * gate before a build spends money on the design: supervisor-shaped
- * review earns the same ceiling as drafting. */
 export const DESIGN_REVIEWER_REASONING: { effort: ReasoningEffort } = {
 	effort: "xhigh",
 };

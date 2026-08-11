@@ -147,25 +147,8 @@ export const EXTRACT_MAX_BYTES = 4 * 1024 * 1024;
 
 // ── Summarizer model + provider options ──────────────────────────────────
 
-/**
- * The official document summarizer: OpenAI GPT-5.6 Luna, on the same
- * `OPENAI_API_KEY` credential as every other model. Extraction is a platform
- * feature, so a missing key fails loud rather than silently degrading. The
- * preview script reuses the same id + options so what it tests matches
- * production.
- */
 export const CONDENSER_MODEL = "gpt-5.6-luna";
 
-/**
- * Provider options for the summarizer — the canonical reasoning literal
- * (`lib/models.ts::reasoningProviderOptions`) at `xhigh`. Extraction is
- * mostly silent reasoning before any output token, so the streamed
- * reasoning summaries the literal enables ARE the live progress —
- * without them the feed (`streamObjectWith`) stays dark for the whole
- * reasoning phase. A PDF rides as a native file block the model reads
- * directly — there is no rasterization dial to set. Reasoning depth is
- * the cost lever here — see `EXTRACT_MAX_OUTPUT_TOKENS`.
- */
 export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions =
 	reasoningProviderOptions("xhigh");
 

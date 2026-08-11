@@ -1053,12 +1053,24 @@ export class GenerationContext
 			pricingTier: pricingTierForInput(usage.inputTokens ?? 0),
 			inputTokens: usage.inputTokens ?? 0,
 			outputTokens: usage.outputTokens ?? 0,
-			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
-			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-			finishReason: step.finishReason,
-			rawFinishReason: step.rawFinishReason,
-			stepTimeMs: step.performance?.stepTimeMs,
-			responseTimeMs: step.performance?.responseTimeMs,
+			...(usage.inputTokenDetails?.cacheReadTokens !== undefined && {
+				cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,
+			}),
+			...(usage.inputTokenDetails?.cacheWriteTokens !== undefined && {
+				cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens,
+			}),
+			...(step.finishReason !== undefined && {
+				finishReason: step.finishReason,
+			}),
+			...(step.rawFinishReason !== undefined && {
+				rawFinishReason: step.rawFinishReason,
+			}),
+			...(step.performance?.stepTimeMs !== undefined && {
+				stepTimeMs: step.performance.stepTimeMs,
+			}),
+			...(step.performance?.responseTimeMs !== undefined && {
+				responseTimeMs: step.performance.responseTimeMs,
+			}),
 			...(step.toolCalls !== undefined && step.toolCalls.length > 0
 				? { toolCallIds: step.toolCalls.map((call) => call.toolCallId) }
 				: {}),

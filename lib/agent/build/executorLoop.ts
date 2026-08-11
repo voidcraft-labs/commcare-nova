@@ -382,7 +382,7 @@ function carriesPromptCacheBreakpoint(message: ModelMessage): boolean {
  */
 export function productionExecutorStep(
 	model: LanguageModel,
-	reasoningEffort: ReasoningEffort = "high",
+	reasoningEffort: ReasoningEffort = "xhigh",
 	promptCacheKey?: string,
 ): ExecutorStepFn {
 	return async ({ system, messages, tools: definitions, signal }) => {
