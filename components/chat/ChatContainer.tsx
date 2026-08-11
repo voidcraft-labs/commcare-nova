@@ -152,6 +152,18 @@ export function chatRequestIsRedrive(
 	return trigger === "regenerate-message" || body?.redrive === true;
 }
 
+/** Explicit candidate recovery re-sends the current transcript unchanged.
+ * `regenerate()` cannot do this job because it removes the trailing assistant
+ * message, which is also where answered askQuestions output is stored. */
+export function requestDesignBuildContinuation(
+	send: (
+		message: undefined,
+		options: { body: { redrive: true } },
+	) => Promise<void>,
+): Promise<void> {
+	return send(undefined, { body: { redrive: true } });
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /** The one structural read of "the trailing assistant message's parts",
@@ -2057,6 +2069,20 @@ export function ChatContainer({
 		[addToolOutput, scopeEpoch],
 	);
 
+	const handleContinueBuild = useCallback(() => {
+		const session = sessionStoreRef.current?.getState();
+		if (
+			!chatGenerationCanWrite(
+				session,
+				scopeEpoch,
+				threadHydrationStateRef.current,
+			)
+		)
+			return;
+		autoResendFatalStrikesRef.current = 0;
+		void requestDesignBuildContinuation(sendMessage);
+	}, [scopeEpoch, sendMessage]);
+
 	const handleCreateStarterApp = useCallback(() => {
 		if (agentEngagedRef.current || creatingStarterAppRef.current) return;
 		const session = sessionStoreRef.current?.getState();
@@ -2226,7 +2252,7 @@ export function ChatContainer({
 					<DesignProgressStatus
 						view={designProgress}
 						canRecover={!readOnly}
-						onContinue={() => void regenerate()}
+						onContinue={handleContinueBuild}
 					/>
 				) : undefined
 			}

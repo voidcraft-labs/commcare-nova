@@ -28,6 +28,10 @@ renderable, exportable, collaborative, or externally writable.
   handle grammar and identity-family classification. Every Blueprint entity a
   candidate can create is handle-eligible. Locations, media, lookup resources,
   and other state outside the candidate remain canonical-only.
+- Case-type retirement stays batch-exclusive for canonical slice edits. In a
+  reviewed genesis candidate there are no app or case rows to migrate, so a
+  retirement remains an ordinary amendable step and later corrections may
+  continue in the same private workspace.
 - `runtime.ts` and `baseLoader.ts` rehydrate the exact candidate from its base
   and stored steps. No second document snapshot is persisted.
 - `diagnostics.ts` runs the same whole-document and export-readiness logic over

@@ -134,11 +134,14 @@ function candidateHost(args: CandidateLoopRunnerArgs): ChangeSetWorkspaceHost {
 			nonce: args.holderNonce,
 			source: "chat",
 		},
-		conversionImpact: async () => {
-			throw new Error(
-				"A new app has no saved case rows, so there is no conversion impact to preview.",
-			);
-		},
+		/* Genesis has no saved case rows. A field-kind correction therefore has
+		 * an exact empty impact rather than requiring fictional data-loss consent. */
+		conversionImpact: async () => ({
+			totalWithValue: 0,
+			uncastable: 0,
+			alreadyHeld: 0,
+			samples: [],
+		}),
 		lookupDefinitions: (tableIds) =>
 			readToolLookupDefinitions(lookupScope, tableIds),
 		lookupCatalog: () => readToolLookupCatalog(lookupScope),

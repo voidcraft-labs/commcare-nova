@@ -161,3 +161,19 @@ export function batchExclusiveKind(
 	}
 	return null;
 }
+
+/**
+ * The exclusivity carried by a durable change-set step. Case-type retirement
+ * remains isolated for canonical slice edits because it can migrate saved
+ * rows. A reviewed genesis candidate has no app or case rows yet, so its
+ * retirement is an ordinary amendable step in the one private workspace.
+ */
+export function effectiveBatchExclusiveKind(
+	purpose: "slice" | "design-candidate",
+	mutations: AdmittedMutationBatch,
+): ChangeSetExclusiveKind | null {
+	const exclusive = batchExclusiveKind(mutations);
+	return purpose === "design-candidate" && exclusive === "retireCaseType"
+		? null
+		: exclusive;
+}

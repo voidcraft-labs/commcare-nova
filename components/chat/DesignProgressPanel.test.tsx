@@ -73,6 +73,24 @@ describe("DesignProgressStatus", () => {
 		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
 	});
 
+	it("does not offer continuation for a terminal pre-app failure", () => {
+		render(
+			<DesignProgressStatus
+				view={{
+					...view,
+					stage: "failed",
+					stageLabel: "This build cannot continue",
+					working: false,
+					failure: "Start a new design to make a different app.",
+				}}
+				canRecover
+				onContinue={vi.fn()}
+			/>,
+		);
+
+		expect(screen.queryByRole("button", { name: "Continue build" })).toBeNull();
+	});
+
 	it("hides all recovery actions from viewers", () => {
 		render(
 			<DesignProgressStatus

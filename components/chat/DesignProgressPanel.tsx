@@ -112,7 +112,7 @@ function StageLine({
 		view.designSessionId !== null;
 	const canContinue =
 		canRecover &&
-		halted &&
+		view.stage === "incomplete" &&
 		!view.materialized &&
 		view.designSessionId !== null &&
 		onContinue !== undefined;

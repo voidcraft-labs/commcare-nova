@@ -181,6 +181,11 @@ The production benchmark requires zero such calls. Tool schemas, descriptions,
 handles, and complete operations must make the intended call valid the first
 time.
 
+Case-type retirement is batch-exclusive for canonical app edits because it can
+migrate saved rows. The private genesis candidate has no app or case rows, so
+review corrections may retire an unused case type and continue authoring in the
+same candidate.
+
 ### 2.5 Design brief
 
 `DesignBriefV1` stores only:

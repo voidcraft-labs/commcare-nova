@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -16,6 +16,7 @@ import {
 	expectedProjectIdForChatRequest,
 	mergeRetainedUserTextSuffix,
 	parseAppMaterializationReceipt,
+	requestDesignBuildContinuation,
 	retireProjectAttachmentRefs,
 } from "./ChatContainer";
 
@@ -26,6 +27,16 @@ describe("interrupted-turn request routing", () => {
 			true,
 		);
 		expect(chatRequestIsRedrive("submit-message", undefined)).toBe(false);
+	});
+
+	it("continues a saved design without trimming its answered-question message", async () => {
+		const send = vi.fn(async () => {});
+
+		await requestDesignBuildContinuation(send);
+
+		expect(send).toHaveBeenCalledWith(undefined, {
+			body: { redrive: true },
+		});
 	});
 });
 

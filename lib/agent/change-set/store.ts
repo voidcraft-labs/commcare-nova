@@ -85,6 +85,7 @@ import type {
 	DesignChangeSet,
 	StoredStageRequest,
 } from "./types";
+import { effectiveBatchExclusiveKind } from "./types";
 
 // ── Row parsing ────────────────────────────────────────────────────
 
@@ -1279,6 +1280,15 @@ async function stageInTransaction(
 			})
 			.execute();
 		return { replayed: false, receipt };
+	}
+	const effectiveExclusive = effectiveBatchExclusiveKind(
+		changeSet.purpose,
+		outcome.mutations,
+	);
+	if (outcome.exclusiveKind !== effectiveExclusive) {
+		throw new ChangeSetIntegrityError(
+			`Change set ${args.changeSetId} declared exclusive kind ${String(outcome.exclusiveKind)} for a batch whose effective kind is ${String(effectiveExclusive)}.`,
+		);
 	}
 
 	/* The batch-exclusive fence, authoritative under the lock: an exclusive

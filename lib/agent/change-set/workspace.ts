@@ -88,9 +88,9 @@ import {
 	stageChangeSetRequest,
 } from "./store";
 import {
-	batchExclusiveKind,
 	type ChangeSetStep,
 	type DesignChangeSet,
+	effectiveBatchExclusiveKind,
 } from "./types";
 
 export interface ChangeSetExecutionCheckpoint {
@@ -759,7 +759,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		/* The batch-exclusive fence — person-readable rejections here; the
 		 * store repeats both checks as loud integrity backstops under its
 		 * lock. */
-		const exclusive = batchExclusiveKind(args.mutations);
+		const exclusive = effectiveBatchExclusiveKind(
+			this.changeSet.purpose,
+			args.mutations,
+		);
 		if (this.changeSet.exclusiveKind !== null) {
 			return reject(
 				"EXCLUSIVE_SET_CLOSED",

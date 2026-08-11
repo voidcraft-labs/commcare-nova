@@ -14,6 +14,7 @@ import { asDesignId } from "@/lib/agent/design/ids";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { commitGuardedBatch } from "@/lib/db/apps";
+import { createAndClaimDesignSessionRun } from "@/lib/db/designSessions";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -37,6 +38,7 @@ import { CHANGE_SET_TOOL_REGISTRY } from "../registry";
 import { changeSetHandleSchema } from "../schemas";
 import {
 	beginAppEditChangeSet,
+	beginDesignCandidateChangeSet,
 	beginGenesisChangeSet,
 	loadChangeSet,
 	loadChangeSetSteps,
@@ -675,9 +677,23 @@ describe("private staging isolation", () => {
 		expect(!notAlone.ok && notAlone.error).toContain("batch-exclusive");
 
 		/* A set already holding its exclusive step admits nothing further.
-		 * (The exclusive step itself is seeded through the store — a REAL
-		 * rename needs a case-typed base app, which is the rename suite's
-		 * territory; the fence under test here is the closed-set arm.) */
+		 * Seed a real catalog property so the stored rename also replays over
+		 * the base when the workspace reopens. */
+		await commitGuardedBatch({
+			appId: app.appId,
+			batchId: crypto.randomUUID(),
+			mutations: admitMutationBatch([
+				{ kind: "declareCaseType", caseType: "client" },
+				{
+					kind: "addCaseProperty",
+					caseType: "client",
+					property: { name: "old_name", label: proseText("Old name") },
+				},
+			]),
+			actorUserId: ACTOR,
+			kind: "autosave",
+			expectedProjectId: PROJECT,
+		});
 		const second = await openWorkspace(app.appId);
 		await stageChangeSetRequest({
 			changeSetId: second.changeSet.id,
@@ -690,7 +706,10 @@ describe("private staging isolation", () => {
 			outcome: {
 				kind: "stage",
 				mutations: admitMutationBatch([
-					{ kind: "setAppName", name: "Exclusive placeholder" },
+					{
+						kind: "renameCaseProperties",
+						renames: [{ caseType: "client", from: "old_name", to: "new_name" }],
+					},
 				]),
 				stageSlices: [],
 				handles: [],
@@ -723,6 +742,71 @@ describe("private staging isolation", () => {
 });
 
 describe("genesis staging", () => {
+	it("keeps no-data case-type retirement amendable in a reviewed candidate", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const claimed = await createAndClaimDesignSessionRun({
+			projectId: PROJECT,
+			actorUserId: ACTOR,
+			runId: RUN,
+			cost: 100,
+		});
+		const changeSet = await beginDesignCandidateChangeSet({
+			designSessionId: claimed.designSessionId,
+			proposedAppId: claimed.proposedAppId,
+			projectId: PROJECT,
+			baseSnapshotDigest: emptyGenesisBase(claimed.proposedAppId).digest,
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+			holderNonce: claimed.holderNonce,
+		});
+		const workspace = await ChangeSetMutationWorkspace.open(
+			{
+				...host,
+				chatRunHolder: {
+					mode: "build",
+					runId: RUN,
+					nonce: claimed.holderNonce,
+					source: "chat",
+				},
+			},
+			changeSet.id,
+		);
+
+		await workspace.invoke({
+			toolName: "declareCaseType-test",
+			requestId: "candidate-declare",
+			input: { caseType: "visit" },
+			execute: (ctx) =>
+				ctx.applyBatch({
+					mutations: [{ kind: "declareCaseType", caseType: "visit" }],
+				}),
+		});
+		await workspace.invoke({
+			toolName: "retireCaseType-test",
+			requestId: "candidate-retire",
+			input: { caseType: "visit" },
+			execute: (ctx) =>
+				ctx.applyBatch({
+					mutations: [{ kind: "retireCaseType", caseType: "visit" }],
+				}),
+		});
+		const afterRetirement = await workspace.invoke({
+			toolName: "setAppName-test",
+			requestId: "candidate-after-retire",
+			input: { name: "Still amendable" },
+			execute: (ctx) =>
+				ctx.applyBatch({
+					mutations: [{ kind: "setAppName", name: "Still amendable" }],
+				}),
+		});
+
+		expect(afterRetirement.ok).toBe(true);
+		expect(workspace.currentSnapshot().doc.caseTypes).toBeNull();
+		expect(workspace.currentSnapshot().doc.appName).toBe("Still amendable");
+		expect((await loadChangeSet(changeSet.id))?.exclusiveKind).toBeNull();
+		expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(3);
+	});
+
 	it("stages automation writes against the honest revision-zero place snapshot", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
 		const proposedAppId = crypto.randomUUID();
