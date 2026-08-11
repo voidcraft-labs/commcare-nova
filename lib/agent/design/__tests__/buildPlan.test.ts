@@ -142,4 +142,28 @@ describe("deterministic build planning", () => {
 			"no registered completion producer",
 		);
 	});
+
+	it("keeps non-blocking workflow readiness out of construction gating", () => {
+		const contract = cloneContract(makeContract());
+		contract.externalRequirements.push({
+			id: ids.externalSetup,
+			name: "Worker setup",
+			kind: "runtime-readiness",
+			description: "Configure the worker role before people run this workflow.",
+			relatedWorkflowIds: [ids.taskRegister],
+			timing: "before-workflow",
+			blocksConstruction: false,
+		});
+		contract.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "e".repeat(64) },
+			planId: ids.planId,
+		});
+		expect(plan.externalActions[0]).toMatchObject({
+			timing: "after-slice",
+			requiredFor: "runtime",
+		});
+		expect(newPlanAdmissionMessages(plan)).toEqual([]);
+	});
 });

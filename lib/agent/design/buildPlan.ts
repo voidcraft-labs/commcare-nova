@@ -540,14 +540,13 @@ export function deriveBuildPlan(args: {
 			id: stableId(revision.digest, "external-action", requirement.id),
 			requirementId: requirement.id,
 			kind: requirement.kind,
-			timing:
-				requirement.timing === "before-construction"
+			timing: requirement.blocksConstruction
+				? requirement.timing === "before-construction"
 					? "before-materialization"
-					: requirement.timing === "before-workflow"
-						? "before-slice"
-						: requirement.timing === "before-runtime"
-							? "after-slice"
-							: "manual-setup",
+					: "before-slice"
+				: requirement.timing === "before-deployment"
+					? "manual-setup"
+					: "after-slice",
 			requiredFor: requirement.blocksConstruction
 				? "construction"
 				: requirement.timing === "before-deployment"
