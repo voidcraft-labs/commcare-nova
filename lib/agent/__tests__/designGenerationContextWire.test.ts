@@ -64,6 +64,46 @@ afterEach(() => {
 });
 
 describe("design structured-call wire body", () => {
+	it("meters recovered durable usage without invoking the ordinary live sink", () => {
+		const meter = {
+			track: vi.fn(),
+			trackDurable: vi.fn(),
+		};
+		const ctx = makeContext(meter);
+		const usage = {
+			inputTokens: 100,
+			outputTokens: 25,
+			totalTokens: 125,
+			inputTokenDetails: {
+				noCacheTokens: 60,
+				cacheReadTokens: 40,
+				cacheWriteTokens: 0,
+			},
+			outputTokenDetails: { textTokens: 15, reasoningTokens: 10 },
+		};
+		const identity = { contextId: "context-1", stepKey: "step-1" };
+
+		ctx.trackDurableSubGeneration(usage, identity, "gpt-5.6-luna", {
+			step: true,
+			phase: "design-author",
+		});
+
+		expect(meter.track).not.toHaveBeenCalled();
+		expect(meter.trackDurable).toHaveBeenCalledWith(
+			identity,
+			expect.objectContaining({
+				inputTokens: 100,
+				outputTokens: 25,
+				cacheReadTokens: 40,
+			}),
+			{
+				step: true,
+				model: "gpt-5.6-luna",
+				phase: "design-author",
+			},
+		);
+	});
+
 	it("streams a store:false + STRICT json_schema request carrying the projection, reasoning options, and the abort signal", async () => {
 		let captured: CapturedRequest | null = null;
 		vi.stubGlobal("fetch", async (_url: unknown, init?: RequestInit) => {

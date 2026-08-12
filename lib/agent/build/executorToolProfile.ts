@@ -1,10 +1,11 @@
-/** Slice-local projection of the private authoring surface.
+/** Slice-local authorization policy for the private authoring surface.
  *
  * The accepted plan names Blueprint areas, not tools. This is the single
  * exhaustive lowering table from those semantic areas to the read and
- * mutation operations the executor may see. Correction operations live in
- * the same area as creation, so a slice can repair its own work without
- * receiving unrelated lookup, media, organization, or automation families.
+ * mutation operations the server admits for that slice. Correction operations
+ * live in the same area as creation. The provider-facing batch grammar stays
+ * immutable across slices; this profile remains the execution brief and hard
+ * dispatch allowlist.
  */
 
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
@@ -151,3 +152,16 @@ export function deriveExecutorToolProfile(
 		mutationTools,
 	};
 }
+
+/** One immutable provider-facing executor grammar. A slice's derived profile
+ * remains the server-enforced authorization policy and brief vocabulary; it
+ * never changes which operation arms are sent to the model. */
+export const STABLE_EXECUTOR_TOOL_PROFILE: ExecutorToolProfile = {
+	blueprintAreas: Object.keys(READS_BY_AREA) as BlueprintArea[],
+	readTools: Array.from(CHANGE_SET_TOOL_REGISTRY.entries())
+		.filter(([, entry]) => entry.policy.effect === "read-blueprint")
+		.map(([name]) => name),
+	mutationTools: Array.from(CHANGE_SET_TOOL_REGISTRY.entries())
+		.filter(([, entry]) => entry.policy.effect === "mutate-blueprint")
+		.map(([name]) => name),
+};

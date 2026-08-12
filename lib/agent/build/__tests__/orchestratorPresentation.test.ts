@@ -10,7 +10,7 @@ import {
 
 describe("reviewed-build presentation", () => {
 	it("versions the durable-handle executor dialect and requests complete creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v2");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v3");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` operation");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"Use `stageModule` / `stageForm` when a real dependency or call-size boundary requires",

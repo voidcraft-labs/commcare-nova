@@ -128,6 +128,7 @@ export const HOSTNAME_ALLOWLIST = {
 		"/api/chat",
 		"/api/compile",
 		"/api/commcare",
+		"/api/design-sessions",
 		"/api/log",
 		"/api/media",
 		/* Sentry browser-event tunnel (`tunnelRoute` in next.config.ts) — not a

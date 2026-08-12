@@ -11,8 +11,8 @@ export { classifyError, MESSAGES } from "./errorClassifier";
 export { GenerationContext, logWarnings } from "./generationContext";
 // prompts — the per-turn app-state message an edit turn appends to the end
 // of its prompt (the system prompt itself is static; the SA factory renders
-// it internally), and the stable-prefix cache-breakpoint marker the route
-// applies to the converted history.
+// it internally). The route adds one request-local cache boundary before the
+// volatile app-state tail without mutating the stored transcript.
 export { buildAppStateMessage, markStablePrefixBoundary } from "./prompts";
 // resolveAttachments — server-side resolution of chat attachment refs. The
 // composer sends asset-id refs in message metadata; the chat route calls

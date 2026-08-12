@@ -6,7 +6,7 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v1",
+	agent: "design-agent-v2",
 	reviewer: "design-reviewer-v1",
 	planner: "design-plan-v1",
 } as const;
@@ -54,11 +54,11 @@ Keep semantic information beside the workflow it belongs to. An input, decision,
 
 ## Identity
 
-Use readable handles wherever a staging schema permits an identity object, for example {"handle":"@register_client"}. A handle begins with @ and contains lowercase letters, digits, underscores, or hyphens. Reuse the same handle for every reference to that element in the staged contract. The server mints the stable identity. In a revision, existing elements already have stable identities in the exact state packet; reuse those values and use handles only for new elements. Never invent a raw UUID.
+Use readable handles wherever a staging schema permits an identity object, for example {"handle":"@register_client"}. A handle begins with @ and contains lowercase letters, digits, underscores, or hyphens. Declare it in the element's own identity slot before referencing it, or declare and reference it in the same stage. Reuse the same handle for every reference to that element. The server binds the handle durably and mints the stable identity. Exact state and inspection project every known identity back through its handle, including during revision; keep using that symbol. A raw UUID is accepted only for an identity already proven in the immutable base or current workspace. Never invent one.
 
 ## How to work
 
-The server gives each durable phase a fresh context and mounts only the tools legal in that phase. The final state packet is exact and authoritative. Work from it instead of reconstructing prior private tool calls.
+The server keeps one append-only private context through authoring, review orchestration, revision, and user-question resumes. Its tool grammar is immutable; durable gates decide which calls are legal in the current phase. Exact state packets and tool results accumulate in that context. Work from them instead of reconstructing prior private calls.
 
 1. Read the person's request and the capability boundary. Ask only questions whose answers materially change app structure, workflow meaning, record relationships, access, or a promise Nova might not support. Use free text when there are no real options.
 2. For every real user message, including an answer returned from askQuestions, make your first visible output one short acknowledgement before extended reasoning or a tool call. Do not acknowledge a generated session-state message. Keep the update natural and do not narrate implementation details or alarming internal risk language.

@@ -18,9 +18,11 @@ import {
 } from "@/lib/agent/build/executionBrief";
 import {
 	buildExecutorTools,
+	type ExecutorConversationContext,
 	type ExecutorStepFn,
 	type ExecutorToolOutcomeEvent,
 	type ExecutorWorkspace,
+	recoverCommittedExecutorToolResult,
 	renderExecutorWorkspaceSummary,
 	runSliceExecutor,
 	type SliceCommitResult,
@@ -31,6 +33,7 @@ import {
 	ChangeSetStagingRejectedError,
 } from "@/lib/agent/change-set/errors";
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
+import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import {
 	fixtureValue,
 	ids,
@@ -353,6 +356,7 @@ function run(args: {
 	onUsage?: Parameters<typeof runSliceExecutor>[0]["onUsage"];
 	resolveBlocker?: Parameters<typeof runSliceExecutor>[0]["resolveBlocker"];
 	onToolOutcome?: Parameters<typeof runSliceExecutor>[0]["onToolOutcome"];
+	context?: ExecutorConversationContext;
 }) {
 	const plan = makeBuildPlan();
 	const slice = plan.slices[0];
@@ -379,6 +383,7 @@ function run(args: {
 		...(args.onToolOutcome !== undefined && {
 			onToolOutcome: args.onToolOutcome,
 		}),
+		...(args.context !== undefined && { context: args.context }),
 	});
 }
 
@@ -403,7 +408,59 @@ function toolResults(
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("runSliceExecutor — the one-call law", () => {
-	it("pins the immutable brief as the cache prefix before the volatile checkpoint", async () => {
+	it("carries one exact append-only context across workflow slices", async () => {
+		const plan = makeBuildPlan();
+		const firstSlice = fixtureValue(plan.slices[0], "first slice");
+		const secondSlice = fixtureValue(plan.slices[1], "second slice");
+		const firstBrief = deriveSliceExecutionBrief({
+			contract: makeContract(),
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+			plan,
+			sliceId: firstSlice.id,
+		});
+		const secondBrief = deriveSliceExecutionBrief({
+			contract: makeContract(),
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+			plan,
+			sliceId: secondSlice.id,
+		});
+		const context: ExecutorConversationContext = { messages: [] };
+		const first = scriptedStep([{ text: "" }]);
+		await runSliceExecutor({
+			workspace: fakeWorkspace(),
+			brief: firstBrief,
+			budget: budgetForSlice(firstSlice),
+			step: first.step,
+			context,
+			contextScopeKey: "attempt-1",
+			commit: async () => {
+				throw new Error("empty protocol must not commit");
+			},
+			signal: new AbortController().signal,
+		});
+		const exactFirstTranscript = structuredClone(context.messages);
+		const second = scriptedStep([{ text: "" }]);
+		await runSliceExecutor({
+			workspace: fakeWorkspace(),
+			brief: secondBrief,
+			budget: budgetForSlice(secondSlice),
+			step: second.step,
+			context,
+			contextScopeKey: "attempt-2",
+			commit: async () => {
+				throw new Error("empty protocol must not commit");
+			},
+			signal: new AbortController().signal,
+		});
+		const secondOpening = fixtureValue(second.seen[0], "second slice opening");
+		expect(secondOpening.slice(0, exactFirstTranscript.length)).toEqual(
+			exactFirstTranscript,
+		);
+		expect(JSON.stringify(secondOpening)).toContain(secondBrief.workflow.name);
+		expect(JSON.stringify(secondOpening)).toContain(firstBrief.workflow.name);
+	});
+
+	it("keeps the exact prior turn as the next request prefix", async () => {
 		const { step, seen } = scriptedStep([
 			{
 				calls: [
@@ -421,12 +478,14 @@ describe("runSliceExecutor — the one-call law", () => {
 
 		const first = seen[0] ?? [];
 		const second = seen[1] ?? [];
-		expect(JSON.stringify(first[0])).toContain("promptCacheBreakpoint");
-		expect(JSON.stringify(first[1])).not.toContain("promptCacheBreakpoint");
-		expect(first[0]).toEqual(second[0]);
+		expect(JSON.stringify(first)).not.toContain("promptCacheBreakpoint");
+		expect(second.slice(0, first.length)).toEqual(first);
+		expect(toolResults(second).map((result) => result.toolCallId)).toEqual([
+			"stage",
+		]);
 	});
 
-	it("keeps consecutive read results together until a mutation refreshes the checkpoint", async () => {
+	it("keeps every read and mutation result in the append-only transcript", async () => {
 		const workspace = fakeWorkspace({
 			stage: async ({ toolName }) =>
 				toolName === "getModule" || toolName === "getForm"
@@ -474,7 +533,7 @@ describe("runSliceExecutor — the one-call law", () => {
 		).toEqual(["module", "form"]);
 		expect(
 			toolResults(seen[3] ?? []).map((result) => result.toolCallId),
-		).toEqual(["stage"]);
+		).toEqual(["module", "form", "stage"]);
 	});
 
 	it("reads several related structures in one model step", async () => {
@@ -564,13 +623,13 @@ describe("runSliceExecutor — the one-call law", () => {
 			code: "no-tool-call",
 			message: expect.stringContaining("three consecutive steps"),
 		});
-		/* The checkpoint carries only the latest nudge, not a growing transcript. */
+		/* Both nudges remain part of the ordinary growing transcript. */
 		const nudges = (seen[2] ?? []).filter(
 			(message) =>
 				message.role === "user" &&
 				JSON.stringify(message.content).includes("exactly one tool call"),
 		);
-		expect(nudges).toHaveLength(1);
+		expect(nudges).toHaveLength(2);
 	});
 });
 
@@ -1086,6 +1145,7 @@ describe("runSliceExecutor — commit is a request", () => {
 	});
 
 	it("returns a rebase conflict so the orchestrator can restart from a fresh base", async () => {
+		const context: ExecutorConversationContext = { messages: [] };
 		const workspace = fakeWorkspace({ inspect: async () => diagnostics() });
 		const commit = vi.fn(
 			async (): Promise<SliceCommitResult> => ({
@@ -1097,14 +1157,18 @@ describe("runSliceExecutor — commit is a request", () => {
 			{ calls: [{ toolCallId: "a", toolName: "commitChangeSet" }] },
 		]);
 
-		expect(await run({ workspace, step, commit })).toEqual({
+		expect(await run({ workspace, step, commit, context })).toEqual({
 			kind: "rebase-conflict",
 			report: { steps: ["s1"] },
 		});
 		expect(commit).toHaveBeenCalledTimes(1);
+		expect(toolResults(context.messages).at(-1)?.value).toMatchObject({
+			report: { steps: ["s1"] },
+		});
 	});
 
 	it("ends an append-only attempt when inspection finds a stale external read", async () => {
+		const context: ExecutorConversationContext = { messages: [] };
 		const stale = [
 			{
 				dependency: {
@@ -1124,13 +1188,17 @@ describe("runSliceExecutor — commit is a request", () => {
 			{ calls: [{ toolCallId: "a", toolName: "inspectChangeSet" }] },
 		]);
 
-		expect(await run({ workspace, step })).toEqual({
+		expect(await run({ workspace, step, context })).toEqual({
 			kind: "read-set-stale",
+			stale,
+		});
+		expect(toolResults(context.messages).at(-1)?.value).toMatchObject({
 			stale,
 		});
 	});
 
 	it("returns a commit-time stale read so the orchestrator can restart", async () => {
+		const context: ExecutorConversationContext = { messages: [] };
 		const stale = [{ kind: "lookup-definition", state: "stale" }];
 		const workspace = fakeWorkspace({ inspect: async () => diagnostics() });
 		const commit = vi.fn(
@@ -1143,11 +1211,14 @@ describe("runSliceExecutor — commit is a request", () => {
 			{ calls: [{ toolCallId: "a", toolName: "commitChangeSet" }] },
 		]);
 
-		expect(await run({ workspace, step, commit })).toEqual({
+		expect(await run({ workspace, step, commit, context })).toEqual({
 			kind: "read-set-stale",
 			stale,
 		});
 		expect(commit).toHaveBeenCalledTimes(1);
+		expect(toolResults(context.messages).at(-1)?.value).toMatchObject({
+			stale,
+		});
 	});
 
 	it("projects bounded diagnostics for inspectChangeSet", async () => {
@@ -1243,6 +1314,13 @@ describe("runSliceExecutor — commit is a request", () => {
 
 describe("runSliceExecutor — architect blocker resolution", () => {
 	it("lets the server-owned architect classify a valid compiler report", async () => {
+		const persisted: string[] = [];
+		const context: ExecutorConversationContext = {
+			messages: [],
+			append: async (appendKey) => {
+				persisted.push(appendKey);
+			},
+		};
 		const { step } = scriptedStep([
 			{
 				calls: [
@@ -1258,6 +1336,7 @@ describe("runSliceExecutor — architect blocker resolution", () => {
 		const outcome = await run({
 			workspace: fakeWorkspace(),
 			step,
+			context,
 			resolveBlocker: async () => ({
 				kind: "ask-user",
 				question: "Which workflow should be available first?",
@@ -1273,6 +1352,10 @@ describe("runSliceExecutor — architect blocker resolution", () => {
 				options: [],
 			},
 		});
+		expect(persisted.at(-1)).toMatch(/:tool:a$/);
+		expect(toolResults(context.messages)).toEqual([
+			expect.objectContaining({ toolCallId: "a" }),
+		]);
 	});
 
 	it("returns an error and keeps going on an invalid blocker report", async () => {
@@ -1557,7 +1640,7 @@ describe("runSliceExecutor — budgets", () => {
 		const plan = makeBuildPlan();
 		const slice = fixtureValue(plan.slices[0], "first slice");
 		const step = vi.fn<ExecutorStepFn>();
-		const claim = vi.fn(async () => true);
+		const claim = vi.fn(async () => "claimed" as const);
 		const budget = { ...budgetForSlice(slice), maxModelSteps: 3 };
 		const outcome = await runSliceExecutor({
 			workspace: fakeWorkspace(),
@@ -1600,7 +1683,7 @@ describe("runSliceExecutor — budgets", () => {
 		const commit = vi.fn(
 			async (): Promise<SliceCommitResult> => ({ kind: "committed", receipt }),
 		);
-		const claim = vi.fn(async () => true);
+		const claim = vi.fn(async () => "claimed" as const);
 		const step = vi.fn<ExecutorStepFn>();
 
 		await expect(
@@ -1632,6 +1715,7 @@ describe("runSliceExecutor — budgets", () => {
 		expect(claim).toHaveBeenCalledWith(
 			"commitAttempts",
 			budget.maxCommitAttempts,
+			expect.stringMatching(/^commit-boundary:/),
 		);
 		expect(commit).toHaveBeenCalledOnce();
 	});
@@ -1674,7 +1758,7 @@ describe("runSliceExecutor — budgets", () => {
 						validationRequested: false,
 						eligible: false,
 					},
-					claim: vi.fn(async () => true),
+					claim: vi.fn(async () => "claimed" as const),
 					checkpointFinalization,
 				},
 				step,
@@ -1726,7 +1810,7 @@ describe("runSliceExecutor — budgets", () => {
 						validationRequested: true,
 						eligible: true,
 					},
-					claim: vi.fn(async () => true),
+					claim: vi.fn(async () => "claimed" as const),
 					checkpointFinalization,
 				},
 				step: vi.fn<ExecutorStepFn>(),
@@ -1752,7 +1836,7 @@ describe("runSliceExecutor — budgets", () => {
 		const commit = vi.fn(
 			async (): Promise<SliceCommitResult> => ({ kind: "committed", receipt }),
 		);
-		const claim = vi.fn(async () => true);
+		const claim = vi.fn(async () => "claimed" as const);
 
 		await expect(
 			runSliceExecutor({
@@ -1789,6 +1873,7 @@ describe("runSliceExecutor — budgets", () => {
 		expect(claim).toHaveBeenCalledWith(
 			"commitAttempts",
 			budget.maxCommitAttempts,
+			expect.stringMatching(/^commit-boundary:/),
 		);
 		expect(commit).toHaveBeenCalledOnce();
 	});
@@ -1864,6 +1949,203 @@ describe("runSliceExecutor — budgets", () => {
 });
 
 describe("runSliceExecutor — plumbing", () => {
+	it("replays a durable unanswered tool call without another provider request", async () => {
+		const scopeKey = "attempt-recovery";
+		const input = batchInput("stageModule");
+		const response: ModelMessage = {
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "durable-stage-call",
+					toolName: "stageBatch",
+					input,
+				},
+			],
+		};
+		const responseKey = `step:${scopeKey}:1:response`;
+		const context: ExecutorConversationContext = {
+			messages: [response],
+			items: [{ appendKey: responseKey, message: response }],
+			appendKeys: new Set([responseKey]),
+			completedStepKeys: new Set([`${scopeKey}:1`]),
+		};
+		const workspace = fakeWorkspace();
+		const providerStep = vi.fn<ExecutorStepFn>(() => {
+			throw new Error("recovery must not call the provider");
+		});
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+		const budget = {
+			...budgetForSlice(slice),
+			maxModelSteps: 1,
+			maxStagedRequests: 1,
+		};
+		const claim = vi.fn(async () => "replayed" as const);
+
+		const outcome = await runSliceExecutor({
+			workspace,
+			brief: brief(),
+			budget,
+			budgetLedger: {
+				deadlineAt: Date.now() + budget.maxWallClockMs,
+				spent: {
+					modelSteps: 1,
+					stagedRequests: 1,
+					commitAttempts: 0,
+					blockerReports: 0,
+				},
+				finalizationCheckpoint: {
+					validationRequested: false,
+					eligible: false,
+				},
+				claim,
+				checkpointFinalization: vi.fn(async () => undefined),
+			},
+			context,
+			contextScopeKey: scopeKey,
+			step: providerStep,
+			commit: async () => {
+				throw new Error("recovered stage call must not commit");
+			},
+			signal: new AbortController().signal,
+		});
+
+		expect(outcome.kind).toBe("budget-exhausted");
+		expect(providerStep).not.toHaveBeenCalled();
+		expect(claim).toHaveBeenCalledWith(
+			"stagedRequests",
+			1,
+			`stage:${scopeKey}:1:durable-stage-call:0`,
+		);
+		expect(workspace.staged).toEqual([
+			expect.objectContaining({
+				requestId: "durable-stage-call:0",
+				toolName: "stageModule",
+			}),
+		]);
+		expect(toolResults(context.messages)).toEqual([
+			expect.objectContaining({ toolCallId: "durable-stage-call" }),
+		]);
+	});
+
+	it("does not purchase a second architect decision for a claimed unanswered blocker", async () => {
+		const scopeKey = "attempt-blocker-recovery";
+		const response: ModelMessage = {
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "durable-blocker-call",
+					toolName: "reportExecutionBlocker",
+					input: VALID_BLOCKER,
+				},
+			],
+		};
+		const responseKey = `step:${scopeKey}:1:response`;
+		const context: ExecutorConversationContext = {
+			messages: [response],
+			items: [{ appendKey: responseKey, message: response }],
+			appendKeys: new Set([responseKey]),
+			completedStepKeys: new Set([`${scopeKey}:1`]),
+		};
+		const resolver = vi.fn(async () => ({
+			kind: "continue" as const,
+			guidance: "Do not call this resolver again.",
+		}));
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+		const budget = { ...budgetForSlice(slice), maxModelSteps: 1 };
+
+		await expect(
+			runSliceExecutor({
+				workspace: fakeWorkspace(),
+				brief: brief(),
+				budget,
+				budgetLedger: {
+					deadlineAt: Date.now() + budget.maxWallClockMs,
+					spent: {
+						modelSteps: 1,
+						stagedRequests: 0,
+						commitAttempts: 0,
+						blockerReports: 1,
+					},
+					finalizationCheckpoint: {
+						validationRequested: false,
+						eligible: false,
+					},
+					claim: vi.fn(async () => "replayed" as const),
+					checkpointFinalization: vi.fn(async () => undefined),
+				},
+				context,
+				contextScopeKey: scopeKey,
+				step: vi.fn<ExecutorStepFn>(),
+				resolveBlocker: resolver,
+				commit: async () => {
+					throw new Error("recovered blocker must not commit");
+				},
+				signal: new AbortController().signal,
+			}),
+		).resolves.toMatchObject({
+			kind: "protocol-failure",
+			code: "architect-decision-response-lost",
+		});
+		expect(resolver).not.toHaveBeenCalled();
+	});
+
+	it("pairs a durable commit receipt with its unanswered original call", () => {
+		const attemptId = "attempt-committed";
+		const response: ModelMessage = {
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "durable-commit-call",
+					toolName: "commitChangeSet",
+					input: {},
+				},
+			],
+		};
+		const context: ExecutorConversationContext = {
+			messages: [response],
+			items: [{ appendKey: `step:${attemptId}:4:response`, message: response }],
+		};
+		const receipt = {
+			id: "receipt-1",
+			designSessionId: "design-session-1",
+			designRevisionId: ids.revisionId,
+			designRevisionDigest: "a".repeat(64),
+			buildPlanId: ids.planId,
+			buildPlanDigest: "b".repeat(64),
+			sliceId: fixtureValue(makeBuildPlan().slices[0], "first slice").id,
+			attemptId,
+			changeSetId: "change-set-1",
+			appId: "app-1",
+			seq: 2,
+			batchId: "batch-1",
+			committedSnapshotDigest: "c".repeat(64),
+			owningIntentIds: [TEST_CONSTRUCTION_GROUP_ID],
+			mutationCount: 1,
+			committedAt: new Date("2026-08-12T00:00:00.000Z"),
+		} satisfies CommittedSliceReceipt;
+
+		const recovered = recoverCommittedExecutorToolResult({
+			context,
+			attemptId,
+			receipt,
+		});
+
+		expect(recovered?.appendKey).toBe(
+			`step:${attemptId}:4:tool:durable-commit-call`,
+		);
+		expect(toolResults(recovered === null ? [] : [recovered.message])).toEqual([
+			{
+				toolCallId: "durable-commit-call",
+				value: expect.objectContaining({ committed: true }),
+			},
+		]);
+	});
+
 	it("meters every returned provider step", async () => {
 		const usage = {
 			inputTokens: 11,
@@ -1891,6 +2173,82 @@ describe("runSliceExecutor — plumbing", () => {
 		});
 
 		expect(seen).toEqual([usage]);
+	});
+
+	it("does not meter a response whose completion evidence failed to persist", async () => {
+		const usage = {
+			inputTokens: 13,
+			outputTokens: 5,
+			totalTokens: 18,
+		} as never;
+		const seen: unknown[] = [];
+		const durabilityOrder: string[] = [];
+		const step: ExecutorStepFn = async () => ({
+			toolCalls: [],
+			text: "Observed response",
+			usage,
+			responseMessages: [{ role: "assistant", content: "Observed response" }],
+		});
+
+		await expect(
+			run({
+				workspace: fakeWorkspace(),
+				step,
+				onUsage: (reported) => seen.push(reported),
+				context: {
+					messages: [],
+					append: async (appendKey) => {
+						durabilityOrder.push(appendKey);
+					},
+					recordStep: async (_stepKey, event) => {
+						if (event.eventKind === "completed") {
+							durabilityOrder.push("completed");
+							throw new Error("completed ledger unavailable");
+						}
+					},
+				},
+			}),
+		).rejects.toThrow("completed ledger unavailable");
+		expect(seen).toEqual([]);
+		expect(durabilityOrder.slice(-2)).toEqual([
+			`step:ephemeral:${brief().slice.id}:1:response`,
+			"completed",
+		]);
+	});
+
+	it("refreshes the candidate after every distinct compaction boundary", async () => {
+		const context: ExecutorConversationContext = { messages: [] };
+		let modelStep = 0;
+		const step: ExecutorStepFn = async () => {
+			modelStep += 1;
+			return {
+				toolCalls: [],
+				text: "",
+				usage: undefined,
+				responseMessages: [
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "custom",
+								kind: "openai.compaction",
+								value: `checkpoint-${modelStep}`,
+							},
+						],
+					},
+				],
+			};
+		};
+
+		const outcome = await run({ workspace: fakeWorkspace(), step, context });
+
+		expect(outcome.kind).toBe("protocol-failure");
+		const refreshKeys = [...(context.appendKeys ?? [])].filter((key) =>
+			key.startsWith("compaction-candidate:"),
+		);
+		expect(refreshKeys).toHaveLength(2);
+		expect(refreshKeys[0]).toContain(":1:");
+		expect(refreshKeys[1]).toContain(":2:");
 	});
 
 	it("opens with a stable brief followed by the current workspace state", async () => {

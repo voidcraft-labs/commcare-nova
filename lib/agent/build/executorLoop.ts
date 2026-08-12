@@ -46,10 +46,17 @@ import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import type { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
 import { designIdSchema } from "@/lib/agent/design/ids";
-import { markStablePrefixBoundary } from "@/lib/agent/prompts";
+import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
+import {
+	modelMessagesContainCompaction,
+	projectModelHistoryFromNewestCompaction,
+} from "@/lib/chat/compaction";
 import type { AppMaterializationReceipt } from "@/lib/db/appGenesis";
+import type { DurableUsageIdentity } from "@/lib/db/usage";
 import { type ReasoningEffort, reasoningProviderOptions } from "@/lib/models";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type {
+	SliceAttemptBudgetClaimResult,
 	SliceAttemptBudgetCounter,
 	SliceAttemptBudgetSpent,
 	SliceExecutionBudget,
@@ -61,6 +68,7 @@ import {
 } from "./executionBlocker";
 import { renderBriefMessage, type SliceExecutionBrief } from "./executionBrief";
 import { EXECUTOR_SYSTEM } from "./executorPrompt";
+import { STABLE_EXECUTOR_TOOL_PROFILE } from "./executorToolProfile";
 import {
 	executorCatalogDefaultHandleIssue,
 	executorCreationHandleIssue,
@@ -76,6 +84,38 @@ export type ExecutorWorkspace = Pick<
 	ChangeSetMutationWorkspace,
 	"stageDispatch" | "inspect" | "currentSnapshot" | "currentExecutionCheckpoint"
 >;
+
+/** Caller-owned transcript for one accepted build. The orchestrator passes the
+ * same object through every slice so a workflow boundary appends a new brief
+ * instead of starting another model context. */
+export interface ExecutorConversationContext {
+	readonly contextId?: string;
+	messages: ModelMessage[];
+	items?: Array<{ readonly appendKey: string; readonly message: ModelMessage }>;
+	appendKeys?: Set<string>;
+	completedStepKeys?: Set<string>;
+	append?: (
+		appendKey: string,
+		messages: readonly ModelMessage[],
+	) => Promise<void>;
+	recordStep?: (
+		stepKey: string,
+		event:
+			| { readonly eventKind: "started"; readonly requestDigest: string }
+			| {
+					readonly eventKind: "completed";
+					readonly responseDigest: string;
+					readonly usage?: Record<string, unknown>;
+			  },
+	) => Promise<void>;
+	completeStep?: (args: {
+		readonly appendKey: string;
+		readonly messages: readonly ModelMessage[];
+		readonly stepKey: string;
+		readonly responseDigest: string;
+		readonly usage?: Record<string, unknown>;
+	}) => Promise<void>;
+}
 
 /** One model step: the messages in, the model's tool calls and text out. The
  *  loop supplies no `execute`; dispatch is the loop's own job. */
@@ -261,10 +301,11 @@ function stageBatchSchema(allowedTools: readonly string[]): JSONSchema7 {
 	};
 }
 
-/** The complete mounted tool definitions for one slice: its projected batch
- *  operations plus the three server-owned change-set controls. */
+/** The immutable mounted tool definitions for every slice: complete batch
+ * grammar plus the three server-owned change-set controls. Slice-specific
+ * authorization remains in the brief and dispatch checks. */
 export function buildExecutorTools(
-	brief: SliceExecutionBrief,
+	_brief?: SliceExecutionBrief,
 ): Record<string, { description: string; inputSchema: JSONSchema7 }> {
 	const tools: Record<
 		string,
@@ -273,12 +314,12 @@ export function buildExecutorTools(
 	tools[READ_BATCH_TOOL] = {
 		description:
 			"Read up to four related current Blueprint structures in one step. Use this when one construction decision needs several views such as a form, its module, case operations, and worker schema. Reads run serially and never mutate the candidate.",
-		inputSchema: readBatchSchema(brief.toolProfile.readTools),
+		inputSchema: readBatchSchema(STABLE_EXECUTOR_TOOL_PROFILE.readTools),
 	};
 	tools[STAGE_BATCH_TOOL] = {
 		description:
 			"Stage one ordered semantic group. Operations run serially, each is durably idempotent, and execution stops at the first rejected operation while preserving every earlier admitted operation.",
-		inputSchema: stageBatchSchema(brief.toolProfile.mutationTools),
+		inputSchema: stageBatchSchema(STABLE_EXECUTOR_TOOL_PROFILE.mutationTools),
 	};
 	for (const [name, definition] of Object.entries(SERVER_TOOLS)) {
 		tools[name] = {
@@ -287,33 +328,6 @@ export function buildExecutorTools(
 		};
 	}
 	return tools;
-}
-
-function carriesPromptCacheBreakpoint(message: ModelMessage): boolean {
-	const hasBreakpoint = (providerOptions: unknown): boolean => {
-		if (providerOptions === null || typeof providerOptions !== "object") {
-			return false;
-		}
-		const openai = (providerOptions as { openai?: unknown }).openai;
-		return (
-			openai !== null &&
-			typeof openai === "object" &&
-			"promptCacheBreakpoint" in openai
-		);
-	};
-	if (
-		hasBreakpoint(
-			(message as ModelMessage & { providerOptions?: unknown }).providerOptions,
-		)
-	) {
-		return true;
-	}
-	return (
-		Array.isArray(message.content) &&
-		message.content.some((part) =>
-			hasBreakpoint((part as { providerOptions?: unknown }).providerOptions),
-		)
-	);
 }
 
 // ── The production step ──────────────────────────────────────────────
@@ -341,11 +355,7 @@ export function productionExecutorStep(
 		const result = await generateText({
 			model,
 			system,
-			messages:
-				promptCacheKey !== undefined &&
-				!messages.some(carriesPromptCacheBreakpoint)
-					? markStablePrefixBoundary(messages)
-					: messages,
+			messages: projectModelHistoryFromNewestCompaction(messages),
 			tools: Object.fromEntries(
 				Object.entries(definitions).map(([name, definition]) => [
 					name,
@@ -412,6 +422,111 @@ function toolMessage(
 
 function userMessage(text: string): ModelMessage {
 	return { role: "user", content: [{ type: "text", text }] };
+}
+
+interface PendingExecutorStep {
+	readonly modelStep: number;
+	readonly stepKey: string;
+	readonly responseMessages: ModelMessage[];
+	readonly toolCalls: Array<{
+		readonly toolCallId: string;
+		readonly toolName: string;
+		readonly input: unknown;
+	}>;
+}
+
+/** Find the earliest provider response in one attempt whose function call has
+ * no matching output yet. Context items retain the append key that binds the
+ * response to its exact slice attempt and paid model step; scanning only the
+ * flattened transcript would make a prior slice's crash indistinguishable
+ * from the currently running one. */
+function pendingExecutorStep(
+	context: ExecutorConversationContext,
+	scopeKey: string,
+): PendingExecutorStep | null {
+	const prefix = `step:${scopeKey}:`;
+	const suffix = ":response";
+	const responses = new Map<
+		string,
+		{ modelStep: number; messages: ModelMessage[] }
+	>();
+	for (const item of context.items ?? []) {
+		if (!item.appendKey.startsWith(prefix) || !item.appendKey.endsWith(suffix))
+			continue;
+		const encodedStep = item.appendKey.slice(
+			prefix.length,
+			item.appendKey.length - suffix.length,
+		);
+		if (!/^\d+$/.test(encodedStep)) continue;
+		const modelStep = Number(encodedStep);
+		if (!Number.isSafeInteger(modelStep) || modelStep < 1) continue;
+		const group = responses.get(item.appendKey) ?? { modelStep, messages: [] };
+		group.messages.push(item.message);
+		responses.set(item.appendKey, group);
+	}
+	const answered = new Set<string>();
+	for (const message of context.messages) {
+		if (message.role !== "tool") continue;
+		for (const part of message.content) {
+			if (part.type === "tool-result") answered.add(part.toolCallId);
+		}
+	}
+	for (const [, response] of [...responses].sort(
+		([, left], [, right]) => left.modelStep - right.modelStep,
+	)) {
+		const toolCalls = response.messages.flatMap((message) => {
+			if (message.role !== "assistant" || typeof message.content === "string")
+				return [];
+			return message.content.flatMap((part) =>
+				part.type === "tool-call" && !answered.has(part.toolCallId)
+					? [
+							{
+								toolCallId: part.toolCallId,
+								toolName: part.toolName,
+								input: part.input,
+							},
+						]
+					: [],
+			);
+		});
+		if (toolCalls.length > 0) {
+			return {
+				modelStep: response.modelStep,
+				stepKey: `${scopeKey}:${response.modelStep}`,
+				responseMessages: response.messages,
+				toolCalls,
+			};
+		}
+	}
+	return null;
+}
+
+/** Pair a commit call whose canonical transaction succeeded before its model
+ * output was persisted. The caller appends this before any later slice brief
+ * or provider request. */
+export function recoverCommittedExecutorToolResult(args: {
+	readonly context: ExecutorConversationContext;
+	readonly attemptId: string;
+	readonly receipt: CommittedSliceReceipt;
+}): { readonly appendKey: string; readonly message: ModelMessage } | null {
+	const pending = pendingExecutorStep(args.context, args.attemptId);
+	if (pending === null) return null;
+	if (
+		pending.toolCalls.length !== 1 ||
+		pending.toolCalls[0]?.toolName !== COMMIT_TOOL
+	) {
+		throw new Error(
+			`Committed slice attempt ${args.attemptId} has a pending non-commit executor call.`,
+		);
+	}
+	const call = pending.toolCalls[0];
+	return {
+		appendKey: `step:${args.attemptId}:${pending.modelStep}:tool:${call.toolCallId}`,
+		message: toolMessage(call.toolCallId, call.toolName, {
+			committed: true,
+			receipt: args.receipt,
+		}),
+	};
 }
 
 /**
@@ -516,12 +631,6 @@ function resultHasError(result: unknown): boolean {
 
 const CONTINUE_NUDGE =
 	"Continue with exactly one tool call. Stage every remaining construction group before inspecting; once none remain, inspect once and commit if it reports no findings.";
-
-/* One-call read discipline sometimes needs several current structures together
- * (for example a module, a form, and its operations). Keep only this small
- * volatile working set; durable mutations, handles, and group coverage still
- * come exclusively from the freshly rendered workspace checkpoint. */
-const RECENT_READ_TURN_LIMIT = 4;
 
 const INVENTORY_MODULE_LIMIT = 12;
 const INVENTORY_FORM_LIMIT = 24;
@@ -652,24 +761,18 @@ export function renderExecutorWorkspaceSummary(
 	return lines.join("\n");
 }
 
-function executorCheckpoint(
+function executorSliceStartMessages(
 	brief: SliceExecutionBrief,
 	workspace: ExecutorWorkspace,
 ): ModelMessage[] {
-	const stableBrief = markStablePrefixBoundary([
+	return [
 		userMessage(
 			[
 				"## Accepted execution brief",
-				"This is the exact accepted slice. It is immutable for this attempt.",
+				"This is the exact current slice in the ongoing accepted build. It is immutable for this attempt.",
 				renderBriefMessage(brief),
 			].join("\n\n"),
 		),
-	])[0];
-	if (stableBrief === undefined) {
-		throw new Error("The executor's accepted brief could not be rendered.");
-	}
-	return [
-		stableBrief,
 		userMessage(
 			[
 				"## Current authoritative private candidate",
@@ -680,6 +783,18 @@ function executorCheckpoint(
 	];
 }
 
+function isExecutorCandidateMessage(message: ModelMessage): boolean {
+	if (message.role !== "user") return false;
+	const text =
+		typeof message.content === "string"
+			? message.content
+			: message.content
+					.filter((part) => part.type === "text")
+					.map((part) => part.text)
+					.join("");
+	return text.startsWith("## Current authoritative private candidate");
+}
+
 // ── The loop ─────────────────────────────────────────────────────────
 
 export async function runSliceExecutor(args: {
@@ -687,6 +802,10 @@ export async function runSliceExecutor(args: {
 	brief: SliceExecutionBrief;
 	budget: SliceExecutionBudget;
 	step: ExecutorStepFn;
+	/** One append-only context shared by every slice in this accepted build. */
+	context?: ExecutorConversationContext;
+	/** Stable durable identity for this slice attempt's context appends. */
+	contextScopeKey?: string;
 	/**
 	 * Server-owned commit: the loop calls it only after `inspect()` shows
 	 * `canCommit` (the model's `commitChangeSet` call is a REQUEST, never
@@ -708,7 +827,11 @@ export async function runSliceExecutor(args: {
 			readonly validationRequested: boolean;
 			readonly eligible: boolean;
 		};
-		claim(counter: SliceAttemptBudgetCounter, limit: number): Promise<boolean>;
+		claim(
+			counter: SliceAttemptBudgetCounter,
+			limit: number,
+			claimKey: string,
+		): Promise<SliceAttemptBudgetClaimResult>;
 		checkpointFinalization(args: {
 			readonly validationRequested: boolean;
 			readonly eligible: boolean;
@@ -723,7 +846,7 @@ export async function runSliceExecutor(args: {
 	onReasoning?: (text: string) => void;
 	/** Meter spent provider usage as soon as an awaited response returns and
 	 * before the post-await deadline decision. */
-	onUsage?: (usage: LanguageModelUsage) => void;
+	onUsage?: (usage: LanguageModelUsage, identity: DurableUsageIdentity) => void;
 	onToolCall?: (call: {
 		readonly modelStep: number;
 		readonly toolName: string;
@@ -753,8 +876,8 @@ export async function runSliceExecutor(args: {
 	let stagedRequests = args.budgetLedger?.spent.stagedRequests ?? 0;
 	let commitAttempts = args.budgetLedger?.spent.commitAttempts ?? 0;
 	let blockerReports = args.budgetLedger?.spent.blockerReports ?? 0;
+	const ephemeralBudgetClaims = new Map<string, SliceAttemptBudgetCounter>();
 	let consecutiveEmptySteps = 0;
-	let recentReadTurns: ModelMessage[][] = [];
 	/* Once the model asks for validation it has declared construction complete.
 	 * A later fully accepted repair batch may consume the final model step while
 	 * leaving an already clean candidate. The server may finish that exact
@@ -775,25 +898,12 @@ export async function runSliceExecutor(args: {
 		});
 	};
 
-	const withCheckpoint = (...tail: ModelMessage[]): ModelMessage[] => [
-		...executorCheckpoint(brief, workspace),
-		...recentReadTurns.flat(),
-		...tail,
-	];
-	const rememberReadTurn = (turn: ModelMessage[]): void => {
-		recentReadTurns = [...recentReadTurns, turn].slice(-RECENT_READ_TURN_LIMIT);
-		messages = withCheckpoint();
-	};
-	const replaceWorkingTurn = (turn: ModelMessage[]): void => {
-		recentReadTurns = [];
-		messages = [...executorCheckpoint(brief, workspace), ...turn];
-	};
-
 	const spent = () => ({ modelSteps, stagedRequests });
 	const claimBudget = async (
 		counter: SliceAttemptBudgetCounter,
 		limit: number,
-	): Promise<boolean> => {
+		claimKey: string,
+	): Promise<SliceAttemptBudgetClaimResult> => {
 		const used =
 			counter === "modelSteps"
 				? modelSteps
@@ -802,18 +912,29 @@ export async function runSliceExecutor(args: {
 					: counter === "commitAttempts"
 						? commitAttempts
 						: blockerReports;
-		if (used >= limit) return false;
-		if (
-			args.budgetLedger !== undefined &&
-			!(await args.budgetLedger.claim(counter, limit))
-		) {
-			return false;
+		let result: SliceAttemptBudgetClaimResult;
+		if (args.budgetLedger !== undefined) {
+			result = await args.budgetLedger.claim(counter, limit, claimKey);
+		} else {
+			const existing = ephemeralBudgetClaims.get(claimKey);
+			if (existing !== undefined) {
+				if (existing !== counter) {
+					throw new Error(
+						`Budget claim ${claimKey} was reused for ${counter} after ${existing}.`,
+					);
+				}
+				return "replayed";
+			}
+			if (used >= limit) return "exhausted";
+			ephemeralBudgetClaims.set(claimKey, counter);
+			result = "claimed";
 		}
+		if (result !== "claimed") return result;
 		if (counter === "modelSteps") modelSteps += 1;
 		else if (counter === "stagedRequests") stagedRequests += 1;
 		else if (counter === "commitAttempts") commitAttempts += 1;
 		else blockerReports += 1;
-		return true;
+		return "claimed";
 	};
 	const exhausted = (): SliceExecutionOutcome => ({
 		kind: "budget-exhausted",
@@ -861,7 +982,13 @@ export async function runSliceExecutor(args: {
 		) {
 			return undefined;
 		}
-		if (!(await claimBudget("commitAttempts", budget.maxCommitAttempts)))
+		if (
+			(await claimBudget(
+				"commitAttempts",
+				budget.maxCommitAttempts,
+				`commit-boundary:${args.contextScopeKey ?? brief.slice.id}:${modelSteps}`,
+			)) === "exhausted"
+		)
 			return exhausted();
 		args.onProgress?.("committing");
 		let result: SliceCommitResult;
@@ -907,12 +1034,84 @@ export async function runSliceExecutor(args: {
 		return undefined;
 	};
 
-	let messages: ModelMessage[] = executorCheckpoint(brief, workspace);
+	const context = args.context ?? { messages: [] };
+	const appendKeys = context.appendKeys ?? new Set<string>();
+	context.appendKeys = appendKeys;
+	const contextItems = context.items ?? [];
+	context.items = contextItems;
+	const completedStepKeys = context.completedStepKeys ?? new Set<string>();
+	context.completedStepKeys = completedStepKeys;
+	let messages: ModelMessage[] = [...context.messages];
+	let persistence = Promise.resolve();
+	const adoptMessages = (
+		appendKey: string,
+		tail: readonly ModelMessage[],
+	): void => {
+		if (appendKeys.has(appendKey)) return;
+		appendKeys.add(appendKey);
+		messages = [...messages, ...tail];
+		context.messages = messages;
+		contextItems.push(...tail.map((message) => ({ appendKey, message })));
+	};
+	const appendMessages = (appendKey: string, ...tail: ModelMessage[]): void => {
+		if (appendKeys.has(appendKey)) return;
+		adoptMessages(appendKey, tail);
+		if (context.append !== undefined) {
+			persistence = persistence.then(() => context.append?.(appendKey, tail));
+		}
+	};
+	const scopeKey = args.contextScopeKey ?? `ephemeral:${brief.slice.id}`;
+	const compactionBoundaryOrdinal = (): number => {
+		let count = 0;
+		const visit = (value: unknown): void => {
+			if (Array.isArray(value)) {
+				for (const item of value) visit(item);
+				return;
+			}
+			if (value === null || typeof value !== "object") return;
+			const record = value as Record<string, unknown>;
+			if (record.type === "custom" && record.kind === "openai.compaction") {
+				count += 1;
+				return;
+			}
+			for (const nested of Object.values(record)) visit(nested);
+		};
+		visit(messages);
+		return count;
+	};
+	const [briefMessage, candidateMessage] = executorSliceStartMessages(
+		brief,
+		workspace,
+	);
+	if (briefMessage !== undefined) {
+		appendMessages(`slice-brief:${scopeKey}`, briefMessage);
+	}
+	if (candidateMessage !== undefined) {
+		appendMessages(
+			`candidate:${scopeKey}:${canonicalJsonDigest(candidateMessage)}`,
+			candidateMessage,
+		);
+	}
 
 	args.onProgress?.("building");
 
 	try {
 		for (;;) {
+			await persistence;
+			const compacted = projectModelHistoryFromNewestCompaction(messages);
+			if (
+				modelMessagesContainCompaction(messages) &&
+				!compacted.some(isExecutorCandidateMessage)
+			) {
+				const freshCandidate = executorSliceStartMessages(brief, workspace)[1];
+				if (freshCandidate !== undefined) {
+					appendMessages(
+						`compaction-candidate:${scopeKey}:${compactionBoundaryOrdinal()}:${canonicalJsonDigest(freshCandidate)}`,
+						freshCandidate,
+					);
+					await persistence;
+				}
+			}
 			if (signal.aborted) {
 				return {
 					kind: "protocol-failure",
@@ -920,39 +1119,117 @@ export async function runSliceExecutor(args: {
 					message: "This slice attempt was cancelled before it finished.",
 				};
 			}
-			if (modelSteps >= budget.maxModelSteps) {
-				const finalized = await finalizeCleanCandidateAtStepBoundary();
-				return finalized ?? exhausted();
-			}
 			if (Date.now() >= deadlineAt || deadline.signal.aborted)
 				return exhausted();
-			if (!(await claimBudget("modelSteps", budget.maxModelSteps))) {
-				const finalized = await finalizeCleanCandidateAtStepBoundary();
-				return finalized ?? exhausted();
-			}
 
 			let step: Awaited<ReturnType<ExecutorStepFn>>;
-			try {
-				step = await awaitWithAbort(
-					args.step({
-						system: EXECUTOR_SYSTEM,
-						messages,
-						tools,
-						signal: boundedSignal,
-					}),
-					boundedSignal,
-				);
-			} catch (error) {
-				/* The provider observes the deadline-bound signal while it is awaited.
-				 * Convert only OUR deadline abort to the durable budget outcome; caller
-				 * cancellation keeps its existing abort semantics. */
-				if (deadlineExceeded()) return exhausted();
-				throw error;
+			let stepKey: string;
+			const pending = pendingExecutorStep(context, scopeKey);
+			if (pending !== null) {
+				/* The paid response is durable but its function output is not. Resume
+				 * the ORIGINAL model step and dispatch its original call identity. The
+				 * workspace request ledger makes replay idempotent; no provider request
+				 * and no second model-step charge occurs. */
+				if (modelSteps > pending.modelStep) {
+					throw new Error(
+						`Executor attempt ${scopeKey} has an unanswered step ${pending.modelStep} behind durable budget step ${modelSteps}.`,
+					);
+				}
+				modelSteps = pending.modelStep;
+				stepKey = pending.stepKey;
+				step = {
+					toolCalls: pending.toolCalls,
+					text: "",
+					usage: undefined,
+					responseMessages: pending.responseMessages,
+				};
+				if (!completedStepKeys.has(stepKey)) {
+					if (context.completeStep !== undefined) {
+						throw new Error(
+							`Executor response ${stepKey} is durable without its atomic completion evidence.`,
+						);
+					}
+					await context.recordStep?.(stepKey, {
+						eventKind: "completed",
+						responseDigest: durableModelValueDigest(pending.responseMessages),
+					});
+					completedStepKeys.add(stepKey);
+				}
+			} else {
+				if (modelSteps >= budget.maxModelSteps) {
+					const finalized = await finalizeCleanCandidateAtStepBoundary();
+					return finalized ?? exhausted();
+				}
+				if (
+					(await claimBudget(
+						"modelSteps",
+						budget.maxModelSteps,
+						`model:${scopeKey}:${modelSteps + 1}`,
+					)) === "exhausted"
+				) {
+					const finalized = await finalizeCleanCandidateAtStepBoundary();
+					return finalized ?? exhausted();
+				}
+				stepKey = `${scopeKey}:${modelSteps}`;
+				await context.recordStep?.(stepKey, {
+					eventKind: "started",
+					requestDigest: durableModelValueDigest(
+						projectModelHistoryFromNewestCompaction(messages),
+					),
+				});
+				try {
+					step = await awaitWithAbort(
+						args.step({
+							system: EXECUTOR_SYSTEM,
+							messages,
+							tools,
+							signal: boundedSignal,
+						}),
+						boundedSignal,
+					);
+				} catch (error) {
+					/* The provider observes the deadline-bound signal while it is awaited.
+					 * Convert only OUR deadline abort to the durable budget outcome; caller
+					 * cancellation keeps its existing abort semantics. */
+					if (deadlineExceeded()) return exhausted();
+					throw error;
+				}
+				const responseKey = `step:${scopeKey}:${modelSteps}:response`;
+				const responseDigest = durableModelValueDigest(step.responseMessages);
+				const persistedUsage =
+					step.usage === undefined
+						? undefined
+						: (JSON.parse(JSON.stringify(step.usage)) as Record<
+								string,
+								unknown
+							>);
+				if (context.completeStep !== undefined) {
+					await persistence;
+					await context.completeStep({
+						appendKey: responseKey,
+						messages: step.responseMessages,
+						stepKey,
+						responseDigest,
+						...(persistedUsage !== undefined && { usage: persistedUsage }),
+					});
+					adoptMessages(responseKey, step.responseMessages);
+				} else {
+					appendMessages(responseKey, ...step.responseMessages);
+					await persistence;
+					await context.recordStep?.(stepKey, {
+						eventKind: "completed",
+						responseDigest,
+						...(persistedUsage !== undefined && { usage: persistedUsage }),
+					});
+				}
+				completedStepKeys.add(stepKey);
+				if (step.usage) {
+					args.onUsage?.(step.usage, {
+						contextId: context.contextId ?? scopeKey,
+						stepKey,
+					});
+				}
 			}
-			/* Meter an observed response before deciding that it arrived too late.
-			 * A provider that ignores abort stays detached after the deadline, with
-			 * no callback allowed to mutate a finalized run accumulator later. */
-			if (step.usage) args.onUsage?.(step.usage);
 			if (Date.now() >= deadlineAt || deadline.signal.aborted)
 				return exhausted();
 			/* Eligibility belongs only to an action accepted in THIS model step.
@@ -971,8 +1248,8 @@ export async function runSliceExecutor(args: {
 							"The executor produced three consecutive steps with no tool call. Its work product is tool calls; prose cannot stage or commit anything.",
 					};
 				}
-				messages = withCheckpoint(
-					...step.responseMessages,
+				appendMessages(
+					`step:${scopeKey}:${modelSteps}:empty`,
 					userMessage(CONTINUE_NUDGE),
 				);
 				continue;
@@ -981,8 +1258,8 @@ export async function runSliceExecutor(args: {
 
 			if (step.toolCalls.length > 1) {
 				/* §13.6.3: execute none, answer every call deterministically. */
-				messages = withCheckpoint(
-					...step.responseMessages,
+				appendMessages(
+					`step:${scopeKey}:${modelSteps}:multi-call`,
 					...step.toolCalls.map((call) =>
 						toolMessage(
 							call.toolCallId,
@@ -1016,33 +1293,25 @@ export async function runSliceExecutor(args: {
 				toolName: call.toolName,
 				workspaceRevision: workspace.currentSnapshot().revision,
 			});
-			const answer = (
-				value: unknown,
-				options: { readonly rememberRead?: boolean } = {},
-			): void => {
-				const turn = [
-					...step.responseMessages,
+			const answer = (value: unknown): void => {
+				appendMessages(
+					`step:${scopeKey}:${modelSteps}:tool:${call.toolCallId}`,
 					toolMessage(call.toolCallId, call.toolName, value),
-				];
-				if (options.rememberRead === true) rememberReadTurn(turn);
-				else replaceWorkingTurn(turn);
+				);
 			};
 
 			if (call.toolName === READ_BATCH_TOOL) {
 				const parsed = readBatchEnvelopeSchema.safeParse(call.input);
 				if (!parsed.success) {
 					await toolOutcome("wire-invalid", "READ_BATCH_ENVELOPE_INVALID");
-					answer(
-						{
-							error: `The read batch shape is invalid: ${parsed.error.issues
-								.map(
-									(issue) =>
-										`${issue.path.join(".") || "(root)"}: ${issue.message}`,
-								)
-								.join("; ")}`,
-						},
-						{ rememberRead: true },
-					);
+					answer({
+						error: `The read batch shape is invalid: ${parsed.error.issues
+							.map(
+								(issue) =>
+									`${issue.path.join(".") || "(root)"}: ${issue.message}`,
+							)
+							.join("; ")}`,
+					});
 					continue;
 				}
 				const completed: Array<{
@@ -1146,20 +1415,17 @@ export async function runSliceExecutor(args: {
 						};
 					}
 				}
-				answer(
-					{
-						completed,
-						...(failed === null
-							? { status: "completed" }
-							: {
-									status: "stopped",
-									failed,
-									unattemptedCount:
-										parsed.data.operations.length - failed.index - 1,
-								}),
-					},
-					{ rememberRead: true },
-				);
+				answer({
+					completed,
+					...(failed === null
+						? { status: "completed" }
+						: {
+								status: "stopped",
+								failed,
+								unattemptedCount:
+									parsed.data.operations.length - failed.index - 1,
+							}),
+				});
 				continue;
 			}
 
@@ -1206,7 +1472,13 @@ export async function runSliceExecutor(args: {
 						};
 						break;
 					}
-					if (!(await claimBudget("stagedRequests", budget.maxStagedRequests)))
+					if (
+						(await claimBudget(
+							"stagedRequests",
+							budget.maxStagedRequests,
+							`stage:${scopeKey}:${modelSteps}:${call.toolCallId}:${index}`,
+						)) === "exhausted"
+					)
 						return exhausted();
 					try {
 						if (Date.now() >= deadlineAt || deadline.signal.aborted)
@@ -1350,6 +1622,7 @@ export async function runSliceExecutor(args: {
 					const stale = staleExternalReads(diagnostics);
 					if (stale.length > 0) {
 						await toolOutcome("stage-rejected", "READ_SET_STALE");
+						answer({ error: "The inspected read set is stale.", stale });
 						return { kind: "read-set-stale", stale };
 					}
 					await toolOutcome(
@@ -1360,9 +1633,7 @@ export async function runSliceExecutor(args: {
 							? "VALIDATOR_FINDINGS"
 							: "INSPECTION_CLEAN",
 					);
-					answer(projectDiagnostics(diagnostics, brief), {
-						rememberRead: true,
-					});
+					answer(projectDiagnostics(diagnostics, brief));
 				} catch (error) {
 					if (deadlineExceeded()) return exhausted();
 					throw error;
@@ -1390,6 +1661,7 @@ export async function runSliceExecutor(args: {
 				const stale = staleExternalReads(diagnostics);
 				if (stale.length > 0) {
 					await toolOutcome("stage-rejected", "READ_SET_STALE");
+					answer({ error: "The commit read set is stale.", stale });
 					return { kind: "read-set-stale", stale };
 				}
 				const remainingIntents = remainingConstructionGroupIds(
@@ -1416,7 +1688,13 @@ export async function runSliceExecutor(args: {
 					});
 					continue;
 				}
-				if (!(await claimBudget("commitAttempts", budget.maxCommitAttempts)))
+				if (
+					(await claimBudget(
+						"commitAttempts",
+						budget.maxCommitAttempts,
+						`commit:${scopeKey}:${modelSteps}:${call.toolCallId}`,
+					)) === "exhausted"
+				)
 					return exhausted();
 				args.onProgress?.("committing");
 				let result: SliceCommitResult;
@@ -1433,6 +1711,7 @@ export async function runSliceExecutor(args: {
 								"committed",
 								"CHANGE_SET_COMMITTED_AT_DEADLINE",
 							);
+							answer({ committed: true, receipt: reconciled.receipt });
 							return { kind: "committed", receipt: reconciled.receipt };
 						}
 						return exhausted();
@@ -1441,6 +1720,7 @@ export async function runSliceExecutor(args: {
 				}
 				if (result.kind === "committed") {
 					await toolOutcome("committed", "CHANGE_SET_COMMITTED");
+					answer({ committed: true, receipt: result.receipt });
 					return { kind: "committed", receipt: result.receipt };
 				}
 				if (result.kind === "gate-rejected") {
@@ -1451,6 +1731,11 @@ export async function runSliceExecutor(args: {
 				}
 				if (result.kind === "rebase-conflict") {
 					await toolOutcome("stage-rejected", "REBASE_CONFLICT");
+					answer({
+						error:
+							"The canonical base changed and this append-only attempt must be superseded.",
+						report: result.report,
+					});
 					/* Admitted steps are append-only. A semantic conflict cannot be
 					 * repaired by appending after the invalid step because replay would
 					 * still execute it. The orchestrator owns bounded supersession and
@@ -1458,6 +1743,10 @@ export async function runSliceExecutor(args: {
 					return { kind: "rebase-conflict", report: result.report };
 				}
 				await toolOutcome("stage-rejected", "READ_SET_STALE");
+				answer({
+					error: "The commit read set became stale.",
+					stale: result.stale,
+				});
 				/* External dependencies are part of immutable staged steps. Appending a
 				 * new read cannot erase the stale dependency, so the orchestrator must
 				 * supersede this attempt and reconstruct from a fresh snapshot. */
@@ -1478,14 +1767,25 @@ export async function runSliceExecutor(args: {
 					});
 					continue;
 				}
-				if (
-					!(await claimBudget("blockerReports", budget.maxBlockerResolutions))
-				) {
+				const blockerClaim = await claimBudget(
+					"blockerReports",
+					budget.maxBlockerResolutions,
+					`blocker:${scopeKey}:${modelSteps}:${call.toolCallId}`,
+				);
+				if (blockerClaim === "exhausted") {
 					return {
 						kind: "protocol-failure",
 						code: "blocker-resolution-budget-exhausted",
 						message:
 							"The compiler exhausted its bounded architect-resolution budget without reaching a safe construction.",
+					};
+				}
+				if (blockerClaim === "replayed") {
+					return {
+						kind: "protocol-failure",
+						code: "architect-decision-response-lost",
+						message:
+							"A paid architect decision was observed before process replacement, but its durable result was not recorded. The attempt stopped instead of purchasing or inventing a second decision.",
 					};
 				}
 				let diagnostics: ReturnType<typeof projectDiagnostics>;
@@ -1524,9 +1824,12 @@ export async function runSliceExecutor(args: {
 				if (decision.kind === "continue") {
 					await toolOutcome("accepted", "ARCHITECT_CONTINUE");
 					answer({ decision: "continue", guidance: decision.guidance });
+					await persistence;
 					continue;
 				}
 				await toolOutcome("accepted", "ARCHITECT_DECISION");
+				answer({ decision });
+				await persistence;
 				return { kind: "architect-decision", decision };
 			}
 
@@ -1536,6 +1839,7 @@ export async function runSliceExecutor(args: {
 			});
 		}
 	} finally {
+		await persistence;
 		clearTimeout(deadlineTimer);
 	}
 }

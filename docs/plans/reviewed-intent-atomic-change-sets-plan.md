@@ -274,22 +274,32 @@ coherence, not executable wire validity.
 
 ## 4. Design authoring and independent review
 
-### 4.1 Phase-specific model contexts
+### 4.1 One append-only design context
 
-The runner uses distinct model phases:
+The runner uses distinct semantic phases:
 
 - `author`
 - `review`
 - `revision`
 - `awaiting-input`
 
-Each phase creates a fresh model context with only the tools legal for that
-phase. A terminal phase tool ends that model stream. The outer server runner
-then advances from durable ancestry and begins the next phase without requiring
-another user message.
-
-This prevents a compacted or very long authoring context from also having to
-remember reviewer and revision protocol state.
+All phases share one tenant-scoped append-only model context and the same seven
+provider tool definitions. Durable gates decide which operations are legal.
+A terminal phase tool advances ancestry, and the runner appends the next exact
+state without requiring another user message or rebuilding the prompt. Complete
+responses and client-side question answers are durably appended; payload-free
+step events bracket each provider call for recovery diagnostics. Recovery scans
+the complete browser transcript and appends every user turn absent from the
+private context rather than assuming only the newest turn can be missing.
+If a deployment genuinely changes the pinned model, prompt, tool schema, or
+context format, Nova preserves that context immutably and starts one explicit
+successor generation. The successor reseeds from the complete visible
+transcript and durable workspace; it never rewrites the old provider contract
+in place or strands the design session on a permanent compatibility error.
+Provider-call spend is recovered across the complete immutable generation
+chain, so the successor cannot reset the design step budget. Server-only
+question-card provenance remains readable across that chain even though the
+successor model context reseeds its messages.
 
 ### 4.2 Bounded durable workspaces
 
@@ -300,36 +310,60 @@ Authoring and revision use:
 - `submitContract` or `submitRevision`.
 
 A stage changes the root or one coherent collection and carries the exact
-expected workspace revision. New global elements may use readable handles such
-as `{ "handle": "@register_client" }`. The server deterministically resolves
-each handle to a stable Design ID for that session before the persisted schema
-parses. Persisted artifacts remain UUID-only.
+expected workspace revision. Every new global element uses a readable handle
+such as `{ "handle": "@register_client" }`, declared before its references or
+in the same stage. The server transactionally binds it in a session-scoped
+ledger and resolves it before the persisted schema parses. Invented raw UUID
+declarations and undeclared handles are rejected. Persisted artifacts remain
+UUID-only, while exact model state projects known IDs back through handles.
 
 Each stage is bounded to 32 item changes and 48 KiB. Successful stages are
 durable. A rejected finalization leaves every accepted stage intact, so the
 model corrects only the affected items and necessary cross-dependencies.
 Before a contract or revision stage enters the ledger, Nova replays it and
 proves that every declared design element still has a globally unique identity.
-Reference closure waits for finalization because an incomplete workspace may
-legitimately point at a later stage.
+References may target declarations already bound by an earlier stage or a
+declaration in the same stage; they cannot point speculatively at future work.
 
 Finalization rejections carry a validation stage and payload-free diagnostic
 fingerprints. A later stage or changed fingerprint is progress; an exact repeat
 stops after two attempts and any third rejection stops honestly as an internal
 design defect. When every construction issue is an authored open question, the
-server instead restricts the next model step to `askQuestions` with the exact
-questions, at most five per round. Those user decisions do not consume the
-model-repair budget.
+server appends the exact required questions and refuses further design staging
+until an `askQuestions` round, at most five questions, is answered. Those user
+decisions do not consume the model-repair budget. Server-only durable append
+keys bind the exact batch's question ids, structural scope, related elements,
+prose, and accepted tool-call id, so identical later prose or an incomplete
+model-authored subset cannot unlock staging. The authorization remains valid
+while bounded stages consume the batch's answered prefix. A clean response
+that omits the required call receives internal correction guidance and is
+redriven without changing the provider tool grammar or asking the user to
+resend. If process replacement preserves a question call but its user-facing
+card never committed, redrive first appends an explicit interrupted tool result
+and derives the still-current questions again. It never sends an unmatched
+function call to the provider or mistakes the closure for a user answer.
 
 There is no plan workspace. The model neither stages nor submits a plan.
 
 ### 4.3 Exact state after resume and compaction
 
-The complete visible `UIMessage[]` transcript remains durable. Provider
-compaction is only a model-context projection.
+The complete visible `UIMessage[]` transcript and the private design/executor
+`ModelMessage[]` contexts remain durable. Provider compaction is the only legal
+model-history prefix replacement within one compatible context generation.
+Completed provider-step usage is durable beside the exact response. A
+replacement process registers every same-run completion in its fresh meter
+before reusing the response. The persistent `(context, step)` usage-account
+ledger admits each contribution exactly once, in the same transaction as the
+run summary and monthly dollar total; overlapping POSTs and process replacement
+therefore need no timestamp watermark. Already finalized turns and context
+retained from another instruction do not move or duplicate that instruction's
+cost. Recovery registers historical usage without replaying live step events,
+and a zero-cost credit refund requires the successful accounting transaction's
+authoritative cumulative run total.
 
-After a compatible compaction checkpoint, Nova removes stale server-state
-packets and appends one fresh exact packet containing:
+After a compatible compaction checkpoint, Nova preserves the retained suffix
+and appends a fresh exact state packet when the suffix does not already carry
+one. Ordinary phase transitions also append current state. The packet contains:
 
 - the legal next phase;
 - resolved answers and source outline;
@@ -338,9 +372,10 @@ packets and appends one fresh exact packet containing:
 - the exact current candidate;
 - the immutable reviewed parent during revision.
 
-The durable workspace is authority. The model never has to reconstruct a large
-contract from a lossy summary. Narrow inspection remains available for
-exceptional lookups.
+The durable workspace is authority. The model retains normal conversational
+continuity, while a compaction checkpoint is a lossy prefix replacement rather
+than a hand-built phase reset. Narrow inspection remains available for exact
+lookups.
 
 ### 4.4 Independent review
 
@@ -511,11 +546,14 @@ The slice executor is a bounded compiler, not a designer. It receives:
 - `reportExecutionBlocker`.
 
 Only `readBatch`, `stageBatch`, `inspectChangeSet`, `commitChangeSet`, and
-`reportExecutionBlocker` are top-level tools. Each batch schema contains only
-the shared operations relevant to the slice's Blueprint areas, including the
-correction operations for those areas. It receives no unrelated lookup,
-media, organization, automation, external-effect, app-lifecycle, user-message,
-or direct canonical commit authority.
+`reportExecutionBlocker` are top-level tools. Their provider definitions and
+batch operation unions are immutable across the accepted plan, preserving one
+cacheable context. The slice brief contains the narrower operation profile and
+the server enforces it as a hard dispatch allowlist, including the correction
+operations for that slice. Unrelated lookup, media, organization, automation,
+external-effect, app-lifecycle, user-message, and direct canonical commit
+authority remain unavailable even though stable batch schemas describe their
+ordinary authoring arms.
 
 Every mutating operation names one or more `constructionGroupIds`. The server
 strips that executor-only field before the original shared tool schema parses.
@@ -646,7 +684,11 @@ Budgets cover model steps, staged requests, blocker resolutions, commit and
 rebase attempts, and absolute wall time. The same deadline reaches awaited
 provider work and database transactions. Each attempt durably claims model,
 staging, blocker, and commit spend before starting that work and retains its
-original wall-clock start, so infrastructure recovery grants no new budget. A
+original wall-clock start. Every sub-budget claim has a stable operation key;
+replaying that exact operation reuses the existing claim instead of charging a
+second unit, while infrastructure recovery grants no new budget. A paid
+architect blocker result is appended before execution continues, and a result
+lost before that durable write stops instead of purchasing a second decision. A
 validation/finalization checkpoint survives on the same attempt row. Each run
 id is appended to that attempt before the run can spend model work, so a
 replacement holder never erases cost-evidence provenance. A post-COMMIT

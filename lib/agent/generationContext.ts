@@ -71,7 +71,10 @@ import {
 } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
-import type { DesignBuildCostPhase } from "@/lib/db/usage";
+import type {
+	DesignBuildCostPhase,
+	DurableUsageIdentity,
+} from "@/lib/db/usage";
 import { pricingTierForInput, type UsageAccumulator } from "@/lib/db/usage";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -202,6 +205,8 @@ interface GenerationContextOptions {
  */
 export interface AgentStep {
 	usage?: LanguageModelUsage;
+	/** Exact persisted response identity for recovery-safe usage accounting. */
+	durableUsageIdentity?: DurableUsageIdentity;
 	text?: string;
 	reasoningText?: string;
 	toolCalls?: Array<{
@@ -1032,15 +1037,26 @@ export class GenerationContext
 		if (!usage) return;
 
 		/* Outer agent step — increments stepCount on the run summary. */
-		this.usage.track(
-			{
-				inputTokens: usage.inputTokens ?? 0,
-				outputTokens: usage.outputTokens ?? 0,
-				cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
-				cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-			},
-			{ step: true, model, ...(phase !== undefined && { phase }) },
-		);
+		const normalizedUsage = {
+			inputTokens: usage.inputTokens ?? 0,
+			outputTokens: usage.outputTokens ?? 0,
+			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+		};
+		const usageOptions = {
+			step: true,
+			model,
+			...(phase !== undefined && { phase }),
+		};
+		if (step.durableUsageIdentity !== undefined) {
+			this.usage.trackDurable(
+				step.durableUsageIdentity,
+				normalizedUsage,
+				usageOptions,
+			);
+		} else {
+			this.usage.track(normalizedUsage, usageOptions);
+		}
 
 		/* Per-step usage annotation — the same numbers the accumulator just
 		 * folded into the run aggregate, preserved per step on the event log

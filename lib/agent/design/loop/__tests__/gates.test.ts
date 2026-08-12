@@ -218,10 +218,18 @@ describe("DesignRepairTracker", () => {
 			stage: "schema",
 			fingerprints: ["duplicate"],
 		});
-		tracker.requireUserQuestions(["Which threshold applies?", ""]);
-		expect(tracker.requiredUserQuestions()).toEqual([
-			"Which threshold applies?",
+		const question = {
+			id: did(9100),
+			question: "Which threshold applies?",
+			structuralImpact: "local" as const,
+			blocking: true,
+			relatedElementIds: [did(1)],
+		};
+		tracker.requireUserQuestions([
+			question,
+			{ ...question, id: did(9101), question: "" },
 		]);
+		expect(tracker.requiredUserQuestions()).toEqual([question]);
 		expect(tracker.fatalError()).toBeUndefined();
 	});
 });

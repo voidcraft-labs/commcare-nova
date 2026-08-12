@@ -14,6 +14,7 @@
 import type { OpenAIProvider } from "@ai-sdk/openai";
 import type { LanguageModel, LanguageModelUsage } from "ai";
 import {
+	meterDurableSubGenerationUsage,
 	meterSubGenerationUsage,
 	runStructuredWith,
 	type StructuredModelRunArgs,
@@ -23,7 +24,10 @@ import {
 import { createNovaOpenAI } from "@/lib/agent/openaiProvider";
 import type { SubGenerationObjectResult } from "@/lib/agent/subGeneration";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
-import type { DesignBuildCostPhase } from "@/lib/db/usage";
+import type {
+	DesignBuildCostPhase,
+	DurableUsageIdentity,
+} from "@/lib/db/usage";
 
 export interface DesignGenerationContextOptions {
 	/** Server-shared OpenAI API key — the one credential behind every model
@@ -73,6 +77,28 @@ export class DesignGenerationContext implements StructuredModelRunContext {
 				...(this.usagePhase !== undefined && { phase: this.usagePhase }),
 			});
 		}
+	}
+
+	/** Register a response recovered from the durable model-step ledger without
+	 * replaying its live conversation-event fan-out. The usage accumulator's
+	 * `(context, step)` account makes repeated recovery exact-once. */
+	trackDurableSubGeneration(
+		usage: LanguageModelUsage,
+		identity: DurableUsageIdentity,
+		model: string,
+		opts: {
+			readonly step?: boolean;
+			readonly phase?: DesignBuildCostPhase;
+		} = {},
+	): void {
+		if (!this.meter) return;
+		meterDurableSubGenerationUsage(this.meter, identity, usage, {
+			model,
+			...(opts.step !== undefined && { step: opts.step }),
+			...((opts.phase ?? this.usagePhase) !== undefined && {
+				phase: opts.phase ?? this.usagePhase,
+			}),
+		});
 	}
 
 	async runStructured<T>(

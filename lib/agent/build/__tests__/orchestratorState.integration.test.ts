@@ -511,16 +511,27 @@ describe("slice attempts", () => {
 				attemptId: first.attempt.id,
 				counter: "modelSteps",
 				limit: 2,
+				claimKey: "model:attempt:1",
 			}),
-		).resolves.toBe(true);
+		).resolves.toBe("claimed");
+		await expect(
+			claimSliceAttemptBudget({
+				...oldArgs,
+				attemptId: first.attempt.id,
+				counter: "modelSteps",
+				limit: 1,
+				claimKey: "model:attempt:1",
+			}),
+		).resolves.toBe("replayed");
 		await expect(
 			claimSliceAttemptBudget({
 				...oldArgs,
 				attemptId: first.attempt.id,
 				counter: "stagedRequests",
 				limit: 2,
+				claimKey: "stage:attempt:1:0",
 			}),
-		).resolves.toBe(true);
+		).resolves.toBe("claimed");
 		await checkpointSliceAttemptFinalization({
 			...oldArgs,
 			attemptId: first.attempt.id,
@@ -573,8 +584,9 @@ describe("slice attempts", () => {
 				attemptId: first.attempt.id,
 				counter: "modelSteps",
 				limit: 1,
+				claimKey: "model:attempt:2",
 			}),
-		).resolves.toBe(false);
+		).resolves.toBe("exhausted");
 		await expect(
 			claimSliceAttemptBudget({
 				...oldArgs,
@@ -583,8 +595,9 @@ describe("slice attempts", () => {
 				attemptId: first.attempt.id,
 				counter: "modelSteps",
 				limit: 2,
+				claimKey: "model:attempt:2",
 			}),
-		).resolves.toBe(true);
+		).resolves.toBe("claimed");
 		expect(
 			await h
 				.db()

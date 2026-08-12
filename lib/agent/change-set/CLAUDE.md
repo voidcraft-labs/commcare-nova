@@ -175,10 +175,21 @@ gate, and integrity services every other write uses.
    the current delegated holder. A deterministic failure instead abandons the
    set and permanently closes that exact plan/slice. Recovery reuses a bound
    open set only when its actor/run owner matches the current holder.
-9. Executor recovery reconstructs its bounded checkpoint from the current
-   candidate plus durable construction-group coverage, handle bindings, and
-   the latest staged-or-no-op finalization marker. Conversation or tool-call
-   transcripts are never needed to decide what already staged.
+9. Executor recovery proves staged authority from the current candidate,
+   durable construction-group coverage, handle bindings, and the latest
+   staged-or-no-op finalization marker. Separately, its exact append-only model
+   transcript survives process replacement and continues across every workflow
+   slice. Each returned provider response and its usage-bearing payload-free
+   completed-step event commit atomically. Recovery replays any unanswered tool call under its
+   original call id before another provider request. Each staged operation,
+   commit, and blocker request has an idempotent durable sub-budget claim, so
+   replay cannot consume a second unit. A paid blocker result is durably
+   appended before execution continues; a response lost before that write
+   stops rather than purchasing another decision. A canonical commit receipt
+   supplies the lost commit output before a later slice begins. Every compaction
+   boundary receives its own current candidate checkpoint. The transcript
+   preserves reasoning continuity but never decides what committed or already
+   staged.
 
 ## Tests
 

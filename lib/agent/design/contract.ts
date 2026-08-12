@@ -606,21 +606,37 @@ export function designConstructionIssues(
  * represented by one authored open question. A mixed set still belongs to
  * model repair, so it deliberately returns null rather than hiding the
  * non-question defects behind a user pause. */
+export function designConstructionQuestionRequirements(
+	contract: AppDesignContract,
+	issues: readonly DesignConstructionIssue[] = designConstructionIssues(
+		contract,
+	),
+): OpenQuestion[] | null {
+	const questions = issues.flatMap((issue) => {
+		const [collection, index] = issue.path;
+		if (collection !== "openQuestions" || typeof index !== "number") return [];
+		const question = contract.openQuestions[index];
+		return question?.question.trim() ? [{ ...question }] : [];
+	});
+	return questions.length === issues.length && questions.length > 0
+		? questions
+		: null;
+}
+
+/** Customer-facing text projection of construction question requirements.
+ * Server protocol code must retain the identity-bearing requirements above so
+ * two questions with identical prose cannot inherit one another's answers. */
 export function designConstructionQuestions(
 	contract: AppDesignContract,
 	issues: readonly DesignConstructionIssue[] = designConstructionIssues(
 		contract,
 	),
 ): string[] | null {
-	const questions = issues.flatMap((issue) => {
-		const [collection, index] = issue.path;
-		if (collection !== "openQuestions" || typeof index !== "number") return [];
-		const question = contract.openQuestions[index]?.question.trim();
-		return question ? [question] : [];
-	});
-	return questions.length === issues.length && questions.length > 0
-		? questions
-		: null;
+	return (
+		designConstructionQuestionRequirements(contract, issues)?.map((question) =>
+			question.question.trim(),
+		) ?? null
+	);
 }
 
 /** Every stable semantic identity carried by a contract. */

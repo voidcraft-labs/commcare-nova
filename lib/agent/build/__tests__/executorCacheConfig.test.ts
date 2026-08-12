@@ -24,7 +24,7 @@ describe("productionExecutorStep cache configuration", () => {
 		});
 	});
 
-	it("pairs the per-session key and options with a stable-prefix marker", async () => {
+	it("pairs the per-session key and options with the unchanged message prefix", async () => {
 		const messages: ModelMessage[] = [
 			{
 				role: "user",
@@ -52,52 +52,9 @@ describe("productionExecutorStep cache configuration", () => {
 			promptCacheOptions: { mode: "implicit", ttl: "30m" },
 			parallelToolCalls: false,
 		});
-		expect(request.messages[0].content[0].providerOptions).toEqual({
-			openai: { promptCacheBreakpoint: { mode: "explicit" } },
-		});
-		/* Marker projection is immutable: the growing loop transcript itself
-		 * remains byte-identical for its next step. */
-		expect(messages[0]).toEqual({
-			role: "user",
-			content: [{ type: "text", text: "accepted slice brief" }],
-		});
-	});
-
-	it("keeps an existing brief breakpoint ahead of the volatile checkpoint", async () => {
-		const messages: ModelMessage[] = [
-			{
-				role: "user",
-				content: [
-					{
-						type: "text",
-						text: "accepted slice brief",
-						providerOptions: {
-							openai: { promptCacheBreakpoint: { mode: "explicit" } },
-						},
-					},
-				],
-			},
-			{
-				role: "user",
-				content: [{ type: "text", text: "current private candidate" }],
-			},
-		];
-		const step = productionExecutorStep(
-			{} as LanguageModel,
-			"high",
-			"nova:design-executor:session-1",
+		expect(request.messages).toEqual(messages);
+		expect(JSON.stringify(request.messages)).not.toContain(
+			"promptCacheBreakpoint",
 		);
-		await step({
-			system: "static executor",
-			messages,
-			tools: {},
-			signal: new AbortController().signal,
-		});
-
-		const request = generateTextMock.mock.calls[0]?.[0];
-		expect(request.messages[0].content[0].providerOptions).toEqual({
-			openai: { promptCacheBreakpoint: { mode: "explicit" } },
-		});
-		expect(request.messages[1].content[0].providerOptions).toBeUndefined();
 	});
 });

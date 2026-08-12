@@ -19,7 +19,7 @@
  * offline; the production defaults wire the real loop and executor.
  */
 
-import type { UIMessage, UIMessageChunk } from "ai";
+import type { ModelMessage, UIMessage, UIMessageChunk } from "ai";
 import { emptyGenesisBase } from "@/lib/agent/change-set/baseLoader";
 import {
 	type CommittedStageEnvelope,
@@ -68,7 +68,7 @@ import {
 	readToolLookupDefinitions,
 } from "@/lib/agent/lookupContext";
 import {
-	meterSubGenerationUsage,
+	meterDurableSubGenerationUsage,
 	type SubGenerationUsageMeter,
 } from "@/lib/agent/modelRunContext";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -116,9 +116,12 @@ import {
 	type SliceExecutionBrief,
 } from "./executionBrief";
 import {
+	buildExecutorTools,
+	type ExecutorConversationContext,
 	type ExecutorStepFn,
 	type ExecutorToolOutcomeEvent,
 	productionExecutorStep,
+	recoverCommittedExecutorToolResult,
 	runSliceExecutor,
 	type SliceExecutionOutcome,
 } from "./executorLoop";
@@ -127,6 +130,13 @@ import {
 	assertRequiredExternalActionsSatisfied,
 	ExternalActionRequiredError,
 } from "./externalActions";
+import {
+	appendDesignModelContext,
+	completeDesignModelStep,
+	openDesignModelContext,
+	recordDesignModelStepEvent,
+	recoverableCompletedModelSteps,
+} from "./modelContextStore";
 import {
 	appendOrchestrationEvent,
 	type OrchestrationHead,
@@ -530,6 +540,115 @@ export async function runBuildOrchestration(
 
 		/* ── Execute slices ─────────────────────────────────────────── */
 		const contract = revision.envelope.payload;
+		const modelContextAuthority = {
+			actorUserId: args.actorUserId,
+			runId: args.runId,
+			holderNonce: args.holderNonce,
+			expectedProjectId: args.projectId,
+		};
+		const persistedExecutorContext = await openDesignModelContext({
+			designSessionId: args.designSessionId,
+			kind: "executor",
+			modelId: DESIGN_EXECUTOR_MODEL,
+			promptVersion: EXECUTOR_PROMPT_VERSION,
+			toolsetDigest: canonicalJsonDigest(buildExecutorTools()),
+			contextVersion: MODEL_CONTEXT_VERSION,
+			authority: modelContextAuthority,
+		});
+		/* Executor responses are reused across process replacement. Rehydrate the
+		 * usage written beside those exact responses into this run's fresh meter;
+		 * unrelated prior instructions can remain in the context lineage without
+		 * being charged twice. */
+		if (args.meter !== undefined) {
+			for (const completed of recoverableCompletedModelSteps(
+				persistedExecutorContext.completedSteps,
+				args.runId,
+			)) {
+				meterDurableSubGenerationUsage(
+					args.meter,
+					{
+						contextId: completed.contextId,
+						stepKey: completed.stepKey,
+					},
+					completed.usage,
+					{
+						step: true,
+						model: DESIGN_EXECUTOR_MODEL,
+						phase: "build-executor",
+					},
+				);
+			}
+		}
+		const executorContext: ExecutorConversationContext = {
+			contextId: persistedExecutorContext.id,
+			messages: [...persistedExecutorContext.messages],
+			items: persistedExecutorContext.items.map((item) => ({ ...item })),
+			appendKeys: new Set(persistedExecutorContext.appendKeys),
+			completedStepKeys: new Set(persistedExecutorContext.completedStepKeys),
+			append: async (appendKey, messages) => {
+				await appendDesignModelContext({
+					designSessionId: args.designSessionId,
+					contextId: persistedExecutorContext.id,
+					appendKey,
+					messages,
+					authority: modelContextAuthority,
+				});
+			},
+			recordStep: async (stepKey, event) => {
+				await recordDesignModelStepEvent({
+					designSessionId: args.designSessionId,
+					contextId: persistedExecutorContext.id,
+					stepKey,
+					event,
+					authority: modelContextAuthority,
+				});
+			},
+			completeStep: async (completion) => {
+				await completeDesignModelStep({
+					designSessionId: args.designSessionId,
+					contextId: persistedExecutorContext.id,
+					...completion,
+					authority: modelContextAuthority,
+				});
+			},
+		};
+		const appendExecutorContext = async (
+			appendKey: string,
+			messages: readonly ModelMessage[],
+		): Promise<void> => {
+			if (executorContext.appendKeys?.has(appendKey)) return;
+			await executorContext.append?.(appendKey, messages);
+			executorContext.appendKeys?.add(appendKey);
+			executorContext.messages = [...executorContext.messages, ...messages];
+			executorContext.items?.push(
+				...messages.map((message) => ({ appendKey, message })),
+			);
+		};
+		/* Close the canonical-commit/response crash gap before another slice is
+		 * allowed to run. The receipt is server-derived and idempotently appended
+		 * even when the model-facing commit result was lost with the process. */
+		for (const receipt of await readCommittedSliceReceiptsForPlan(plan.id)) {
+			const recoveredResult = recoverCommittedExecutorToolResult({
+				context: executorContext,
+				attemptId: receipt.attemptId,
+				receipt,
+			});
+			if (recoveredResult !== null) {
+				await appendExecutorContext(recoveredResult.appendKey, [
+					recoveredResult.message,
+				]);
+			}
+			await appendExecutorContext(`commit-receipt:${receipt.attemptId}`, [
+				{
+					role: "user",
+					content: [
+						"## Durable slice commit receipt",
+						"The server committed this exact accepted slice. Continue from this canonical state; do not reconstruct its work.",
+						JSON.stringify(receipt),
+					].join("\n\n"),
+				},
+			]);
+		}
 		for (;;) {
 			const ordered = orderSlicesForExecution(plan.envelope.payload);
 			const committedSlices = await committedSliceIds(plan.id);
@@ -645,10 +764,21 @@ export async function runBuildOrchestration(
 						isGenesis,
 						appId,
 						budget,
+						executorContext,
 					});
 					heartbeat();
 					if (outcome.kind === "committed") {
 						const receipt = outcome.receipt;
+						await appendExecutorContext(`commit-receipt:${attempt.id}`, [
+							{
+								role: "user",
+								content: [
+									"## Durable slice commit receipt",
+									"The server committed this exact accepted slice. Continue from this canonical state; do not reconstruct its work.",
+									JSON.stringify(receipt),
+								].join("\n\n"),
+							},
+						]);
 						if (isGenesis) {
 							const materialization = receipt as AppMaterializationReceipt;
 							appId = materialization.appId;
@@ -1239,6 +1369,7 @@ async function executeOneSlice(
 		isGenesis: boolean;
 		appId: string | null;
 		budget: ReturnType<typeof budgetForSlice>;
+		executorContext: ExecutorConversationContext;
 	},
 ): Promise<SliceExecutionOutcome> {
 	const lookupScope = {
@@ -1333,6 +1464,8 @@ async function executeOneSlice(
 			workspace,
 			brief: slice.brief,
 			budget: slice.budget,
+			context: slice.executorContext,
+			contextScopeKey: slice.attempt.id,
 			step: deps.executorStep,
 			resolveBlocker: (blockerArgs) =>
 				deps.resolveBlocker({
@@ -1357,12 +1490,13 @@ async function executeOneSlice(
 					slice.attempt.startedAt.getTime() + slice.budget.maxWallClockMs,
 				spent: slice.attempt.budgetSpent,
 				finalizationCheckpoint: slice.attempt.finalizationCheckpoint,
-				claim: (counter, limit) =>
+				claim: (counter, limit, claimKey) =>
 					claimSliceAttemptBudget({
 						designSessionId: args.designSessionId,
 						attemptId: slice.attempt.id,
 						counter,
 						limit,
+						claimKey,
 						actorUserId: args.actorUserId,
 						runId: args.runId,
 						holderNonce: args.holderNonce,
@@ -1381,9 +1515,10 @@ async function executeOneSlice(
 			},
 			signal: args.signal,
 			...(args.meter !== undefined && {
-				onUsage: (usage) =>
-					meterSubGenerationUsage(
+				onUsage: (usage, identity) =>
+					meterDurableSubGenerationUsage(
 						args.meter as SubGenerationUsageMeter,
+						identity,
 						usage,
 						{
 							step: true,

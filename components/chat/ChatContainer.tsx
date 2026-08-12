@@ -496,6 +496,35 @@ export function expectedProjectIdForChatRequest(session: {
 	return session.appId === undefined ? session.projectId : undefined;
 }
 
+export type ThreadResumeHealTarget =
+	| { readonly kind: "app"; readonly id: string }
+	| { readonly kind: "design-session"; readonly id: string };
+
+/** Resolve the authoritative transcript endpoint after a reconnect closes.
+ * Pre-app design threads have no app id yet, but are no less durable: their
+ * design-session identity is the read scope until materialization. */
+export function threadResumeHealTarget(
+	appId: string | undefined,
+	designSessionId: string | undefined,
+): ThreadResumeHealTarget | null {
+	return appId
+		? { kind: "app", id: appId }
+		: designSessionId
+			? { kind: "design-session", id: designSessionId }
+			: null;
+}
+
+export function threadResumeHealPath(
+	target: ThreadResumeHealTarget,
+	threadId: string,
+): string {
+	const targetPath =
+		target.kind === "app"
+			? `/api/apps/${encodeURIComponent(target.id)}`
+			: `/api/design-sessions/${encodeURIComponent(target.id)}`;
+	return `${targetPath}/threads/${encodeURIComponent(threadId)}`;
+}
+
 export interface AppMaterializationActivation {
 	readonly eventVersion: 1;
 	readonly designSessionId: string | null;
@@ -1768,8 +1797,12 @@ export function ChatContainer({
 	 * row now holds. */
 	const healAfterResume = useCallback(async () => {
 		const start = sessionStoreRef.current?.getState();
-		if (!start?.appId || start.accessPhase !== "authorized") return;
-		const appId = start.appId;
+		if (start?.accessPhase !== "authorized") return;
+		const target = threadResumeHealTarget(
+			start.appId,
+			designSessionIdRef.current,
+		);
+		if (target === null) return;
 		const readEpoch = start.scopeEpoch;
 		const controller = new AbortController();
 		activeThreadReadsRef.current.add(controller);
@@ -1779,17 +1812,32 @@ export function ChatContainer({
 				!controller.signal.aborted &&
 				current?.accessPhase === "authorized" &&
 				current.scopeEpoch === readEpoch &&
-				current.appId === appId
+				(target.kind === "app"
+					? current.appId === target.id
+					: current.appId === undefined &&
+						designSessionIdRef.current === target.id)
 			);
 		};
 		try {
-			const res = await fetch(
-				`/api/apps/${appId}/threads/${encodeURIComponent(chat.id)}`,
-				{ cache: "no-store", signal: controller.signal },
-			);
+			const res = await fetch(threadResumeHealPath(target, chat.id), {
+				cache: "no-store",
+				signal: controller.signal,
+			});
 			if (!res.ok || !ownsRead()) return;
-			const { thread } = (await res.json()) as { thread: LoadedThreadDoc };
+			const { thread, materializedAppId } = (await res.json()) as {
+				thread: LoadedThreadDoc;
+				materializedAppId?: string | null;
+			};
 			if (!ownsRead()) return;
+			/* A pre-app run may have materialized and finished between the RSC
+			 * page read and this post-resume heal. The app page is now the only
+			 * complete authority: it hydrates the canonical Blueprint as well as
+			 * this session-targeted thread, so do not leave the user in an
+			 * app-less shell with merely the recovered transcript. */
+			if (target.kind === "design-session" && materializedAppId) {
+				window.location.replace(`/build/${materializedAppId}`);
+				return;
+			}
 			/* A LIVE marker here means another session's run owns this thread
 			 * right now: the shape a lost re-drive race leaves behind (this
 			 * send bailed clean while the winner streams). Attach to it: swap in

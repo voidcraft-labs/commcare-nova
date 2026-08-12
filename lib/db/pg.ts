@@ -720,6 +720,16 @@ export interface DesignSliceAttemptsTable {
 	updated_at: Timestamp;
 }
 
+/** One idempotency fence for a slice attempt's externally meaningful budget
+ * unit. Replaying the same executor call reuses this row instead of spending
+ * another unit. */
+export interface DesignSliceAttemptBudgetClaimsTable {
+	attempt_id: string;
+	claim_key: string;
+	counter: string;
+	created_at: Timestamp;
+}
+
 export interface DesignExternalActionReceiptsTable {
 	id: string;
 	design_session_id: string;
@@ -731,6 +741,69 @@ export interface DesignExternalActionReceiptsTable {
 	outcome: string;
 	evidence: JSONColumnType<Record<string, unknown>>;
 	completed_at: Timestamp;
+}
+
+/** One immutable provider-contract generation and mutable append ordinal per
+ * long-lived reviewed-design role. The item table owns model-visible bytes;
+ * a linked successor is inserted only when that provider contract changes. */
+export interface DesignModelContextsTable {
+	id: string;
+	design_session_id: string;
+	context_kind: string;
+	generation: number;
+	supersedes_context_id: string | null;
+	model_id: string;
+	prompt_version: string;
+	toolset_digest: string;
+	context_version: string;
+	revision: BigIntColumn;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+/** Exact append-only ModelMessages. These are tenant data, not operational
+ * logs; payload-free logging remains a separate boundary. */
+export interface DesignModelContextItemsTable {
+	context_id: string;
+	ordinal: BigIntColumn;
+	append_key: string;
+	append_index: number;
+	item_digest: string;
+	message: JSONColumnType<Record<string, unknown>, string, never>;
+	created_by_run_id: string;
+	created_at: Timestamp;
+}
+
+/** Payload-free, append-only request lifecycle evidence for one model step. */
+export interface DesignModelStepsTable {
+	context_id: string;
+	step_key: string;
+	event_kind: string;
+	event_digest: string;
+	request_digest: string | null;
+	response_digest: string | null;
+	usage: JSONColumnType<Record<string, unknown> | null, string | null, never>;
+	created_by_run_id: string;
+	created_at: Timestamp;
+}
+
+export interface DesignModelStepUsageAccountsTable {
+	context_id: string;
+	step_key: string;
+	event_kind: string;
+	run_id: string;
+	accounted_at: Timestamp;
+}
+
+export interface DesignIdentityHandlesTable {
+	design_session_id: string;
+	handle: string;
+	design_id: string;
+	entity_kind: string;
+	workspace_id: string;
+	tool_call_id: string;
+	created_by_run_id: string;
+	created_at: Timestamp;
 }
 
 /**
@@ -1013,7 +1086,13 @@ export interface AppDatabase {
 	design_sessions: DesignSessionsTable;
 	design_orchestration_events: DesignOrchestrationEventsTable;
 	design_slice_attempts: DesignSliceAttemptsTable;
+	design_slice_attempt_budget_claims: DesignSliceAttemptBudgetClaimsTable;
 	design_external_action_receipts: DesignExternalActionReceiptsTable;
+	design_model_contexts: DesignModelContextsTable;
+	design_model_context_items: DesignModelContextItemsTable;
+	design_model_steps: DesignModelStepsTable;
+	design_model_step_usage_accounts: DesignModelStepUsageAccountsTable;
+	design_identity_handles: DesignIdentityHandlesTable;
 	thread_media_refs: ThreadMediaRefsTable;
 }
 

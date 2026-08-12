@@ -269,9 +269,9 @@ export function createSolutionsArchitect(
 			// The canonical reasoning literal
 			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the
 			// streamed reasoning summaries the live-thinking feed needs, plus
-			// the SA's per-app prompt-cache configuration (key + options; the
-			// route's `markStablePrefixBoundary` marker is the third piece of
-			// the documented triple — see the helper's doc).
+			// the SA's stable per-app cache affinity (key + options). The route adds
+			// one request-local explicit boundary before its volatile state tail;
+			// that metadata does not alter the model-visible transcript.
 			return {
 				messages: projectModelHistoryFromNewestCompaction(messages),
 				providerOptions: reasoningProviderOptions(SA_EDIT_REASONING.effort, {

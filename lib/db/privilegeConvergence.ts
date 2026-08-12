@@ -150,6 +150,7 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"design_slice_attempts",
 	"design_external_action_receipts",
 	"design_artifact_workspaces",
+	"design_model_contexts",
 	...Object.values(AUTH_TABLE_NAMES),
 	"auth_oauth_grant_revocation",
 ] as const;
@@ -173,6 +174,11 @@ const RUNTIME_APPEND_ONLY_TABLES = [
 	"design_build_plans",
 	"design_orchestration_events",
 	"design_artifact_workspace_steps",
+	"design_model_context_items",
+	"design_model_steps",
+	"design_model_step_usage_accounts",
+	"design_identity_handles",
+	"design_slice_attempt_budget_claims",
 ] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a

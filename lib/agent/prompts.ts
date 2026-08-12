@@ -639,78 +639,56 @@ export function buildAppStateMessage(doc: BlueprintDoc): ModelMessage | null {
 }
 
 /**
- * Mark the stable-prefix boundary with an explicit prompt-cache breakpoint —
- * how a turn's cache entry survives the NEXT turn's changed tail.
+ * Mark the deepest stable history boundary for OpenAI's explicit prompt cache.
  *
- * GPT-5.6's cache is breakpoint-based: implicit mode writes ONE automatic
- * entry on the latest message, so each turn's only entry covers the full
- * prompt including the volatile tail (the app-state message, the model's
- * new response) — and the next turn, which diverges before that boundary,
- * matches nothing and reads zero. Implicit mode also HONORS explicit
- * breakpoints, so placing one marker at the deepest point that replays
- * byte-identically next turn gives every turn an entry the next turn can
- * actually read.
+ * This annotates a request-local copy; it does not mutate the stored transcript
+ * or change any model-visible token. The marker tells the provider where to
+ * write a reusable cache entry before the fresh app-state tail. On the next
+ * POST the marker may move forward, but the earlier token prefix remains
+ * identical and can read the entry written by the preceding request.
  *
- * Placement: the FINAL user message of the (pre-app-state) history — the
- * deepest byte-stable point, because the next turn replays this turn's own
- * user message verbatim and only the volatile tail follows it. Crucially,
- * this makes the FIRST post of a thread markable: a lone opening message IS
- * the final user message, so turn 1 writes a full prefix entry and turn 2
- * reads it. (The previous before-the-last-user placement left a fresh
- * thread's first TWO turns with nothing to read — live-measured on prod as
- * four consecutive 0%-cached first steps across a fresh build + fresh edit
- * thread.) The markable set is dictated by the Responses wire (verified in
- * `@ai-sdk/openai`'s input converter): only system/developer messages,
- * user-message text/file parts, and content-typed tool outputs carry
- * `prompt_cache_breakpoint` — assistant `output_text` items and Nova's
- * json-typed tool results have no slot for it, so a marker placed there
- * would silently vanish from the request. A continuation prompt ending in
- * assistant/tool messages therefore walks back to its nearest user message.
- *
- * Mechanics: the marker rides part-level `providerOptions` on the boundary
- * message's last text part. Returns a new array — the input and its
- * messages are not mutated.
+ * Responses can carry the marker on system messages and user text/file parts,
+ * but not on assistant output text or Nova's JSON tool results. Walk backward
+ * to the nearest markable user item, falling back to the system message.
  */
 export function markStablePrefixBoundary(
 	messages: ModelMessage[],
 ): ModelMessage[] {
-	const BREAKPOINT = {
+	const breakpoint = {
 		openai: { promptCacheBreakpoint: { mode: "explicit" as const } },
 	};
-	// Walk backward from the end to the nearest message the wire can mark.
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const msg = messages[i];
-		if (!msg) continue;
-		if (msg.role === "system") {
-			// System content is a plain string; the provider accepts the
-			// breakpoint as message-level providerOptions here.
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message === undefined) continue;
+		if (message.role === "system") {
 			const marked = [...messages];
-			marked[i] = { ...msg, providerOptions: BREAKPOINT };
+			marked[index] = { ...message, providerOptions: breakpoint };
 			return marked;
 		}
-		if (msg.role !== "user") continue;
-		if (typeof msg.content === "string") {
+		if (message.role !== "user") continue;
+		if (typeof message.content === "string") {
 			const marked = [...messages];
-			marked[i] = {
-				...msg,
+			marked[index] = {
+				...message,
 				content: [
-					{ type: "text", text: msg.content, providerOptions: BREAKPOINT },
+					{ type: "text", text: message.content, providerOptions: breakpoint },
 				],
 			} as ModelMessage;
 			return marked;
 		}
-		const last = msg.content[msg.content.length - 1];
-		if (last && (last.type === "text" || last.type === "file")) {
-			const marked = [...messages];
-			marked[i] = {
-				...msg,
-				content: [
-					...msg.content.slice(0, -1),
-					{ ...last, providerOptions: BREAKPOINT },
-				],
-			} as ModelMessage;
-			return marked;
+		const last = message.content.at(-1);
+		if (last === undefined || (last.type !== "text" && last.type !== "file")) {
+			continue;
 		}
+		const marked = [...messages];
+		marked[index] = {
+			...message,
+			content: [
+				...message.content.slice(0, -1),
+				{ ...last, providerOptions: breakpoint },
+			],
+		} as ModelMessage;
+		return marked;
 	}
 	return messages;
 }

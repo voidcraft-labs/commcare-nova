@@ -59,13 +59,12 @@ export const OPENAI_BASE_OPTIONS = {
  * configuration as ONE unit — `promptCacheKey` (cache-routing affinity; the
  * SA passes one key per app) together with `promptCacheOptions
  * { mode: 'implicit', ttl: '30m' }` (contractual 30-minute lifetime;
- * implicit keeps the automatic breakpoint on the latest message that lets
- * each tool-loop step cache-read the previous step's suffix, and honors the
- * explicit stable-boundary marker `markStablePrefixBoundary` places). The
- * provider doc specifies key + options + marker as one configuration —
- * never wire a subset: key-without-marker and marker-without-key were both
- * live-measured to read zero across requests. One-shot calls (extraction,
- * scripts) pass no cache config.
+ * implicit supplies automatic placement and also honors an explicit boundary).
+ * Ordinary edit POSTs add a request-local boundary before their volatile
+ * app-state tail; it changes no transcript token. The reviewed design and
+ * executor loops preserve an actually growing prefix under one stable tool
+ * grammar, so their latest automatic entry remains reusable without moving a
+ * marker. One-shot calls (extraction, scripts) pass no cache config.
  */
 export function reasoningProviderOptions(
 	effort: ReasoningEffort,

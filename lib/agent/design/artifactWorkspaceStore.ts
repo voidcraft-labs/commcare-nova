@@ -65,8 +65,15 @@ export interface DesignArtifactWorkspaceRecord {
 export interface DesignArtifactWorkspaceState {
 	readonly workspace: DesignArtifactWorkspaceRecord;
 	readonly operations: readonly DesignArtifactWorkspaceOperation[];
+	readonly handleBindings: readonly DesignIdentityHandleBinding[];
 	readonly candidate: Record<string, unknown>;
 	readonly sourceContract: Record<string, unknown> | null;
+}
+
+export interface DesignIdentityHandleBinding {
+	readonly handle: string;
+	readonly designId: string;
+	readonly entityKind: string;
 }
 
 type Db = Kysely<AppDatabase> | Transaction<AppDatabase>;
@@ -397,24 +404,41 @@ async function loadWorkspaceState(args: {
 	designSessionId: string;
 	authority: DesignArtifactWriteAuthority;
 }): Promise<DesignArtifactWorkspaceState> {
-	const { workspace, operations } = await withAppTx(async (tx) => {
-		await authorizeWorkspace(tx, args.designSessionId, args.authority);
-		const workspace = await readWorkspaceRecord(tx, args.workspaceId);
-		if (workspace.designSessionId !== args.designSessionId) {
-			throw new DesignArtifactWorkspaceError(
-				"not-found",
-				"The design artifact workspace does not belong to this session.",
-			);
-		}
-		const operations = await readWorkspaceOperations(tx, args.workspaceId);
-		if (operations.length !== workspace.revision) {
-			throw new DesignArtifactWorkspaceError(
-				"lineage-invalid",
-				"The design workspace revision disagrees with its operation ledger.",
-			);
-		}
-		return { workspace, operations };
-	});
+	const { workspace, operations, handleBindings } = await withAppTx(
+		async (tx) => {
+			await authorizeWorkspace(tx, args.designSessionId, args.authority);
+			const workspace = await readWorkspaceRecord(tx, args.workspaceId);
+			if (workspace.designSessionId !== args.designSessionId) {
+				throw new DesignArtifactWorkspaceError(
+					"not-found",
+					"The design artifact workspace does not belong to this session.",
+				);
+			}
+			const operations = await readWorkspaceOperations(tx, args.workspaceId);
+			const handleBindings = await tx
+				.selectFrom("design_identity_handles")
+				.select(["handle", "design_id", "entity_kind"])
+				.where("design_session_id", "=", args.designSessionId)
+				.orderBy("created_at", "asc")
+				.orderBy("handle", "asc")
+				.execute();
+			if (operations.length !== workspace.revision) {
+				throw new DesignArtifactWorkspaceError(
+					"lineage-invalid",
+					"The design workspace revision disagrees with its operation ledger.",
+				);
+			}
+			return {
+				workspace,
+				operations,
+				handleBindings: handleBindings.map((binding) => ({
+					handle: binding.handle,
+					designId: binding.design_id,
+					entityKind: binding.entity_kind,
+				})),
+			};
+		},
+	);
 	let sourceContract: Record<string, unknown> | null = null;
 	const base = workspace.lineage.baseRevision;
 	if (base !== undefined) {
@@ -450,7 +474,7 @@ async function loadWorkspaceState(args: {
 					...(sourceContract !== null && { baseContract: sourceContract }),
 					operations,
 				});
-	return { workspace, operations, candidate, sourceContract };
+	return { workspace, operations, handleBindings, candidate, sourceContract };
 }
 
 export async function openDesignArtifactWorkspace(args: {
@@ -518,6 +542,7 @@ export async function stageDesignArtifactWorkspace(args: {
 	toolCallId: string;
 	expectedRevision: number;
 	operation: DesignArtifactWorkspaceOperation;
+	handleBindings?: readonly DesignIdentityHandleBinding[];
 }): Promise<{ state: DesignArtifactWorkspaceState; deduplicated: boolean }> {
 	const operation = designArtifactWorkspaceOperationSchema.parse(
 		args.operation,
@@ -540,6 +565,7 @@ export async function stageDesignArtifactWorkspace(args: {
 	const inputDigest = canonicalJsonDigest({
 		expectedRevision: args.expectedRevision,
 		operation,
+		handleBindings: args.handleBindings ?? [],
 	});
 	let baseContract: Record<string, unknown> | undefined;
 	if (operation.kind === "revision") {
@@ -601,6 +627,45 @@ export async function stageDesignArtifactWorkspace(args: {
 				"stale-revision",
 				`The workspace is at revision ${revision}, not ${args.expectedRevision}. Inspect its current state before staging more work.`,
 			);
+		}
+		for (const binding of args.handleBindings ?? []) {
+			const existing = await tx
+				.selectFrom("design_identity_handles")
+				.select(["handle", "design_id", "entity_kind"])
+				.where("design_session_id", "=", args.designSessionId)
+				.where((eb) =>
+					eb.or([
+						eb("handle", "=", binding.handle),
+						eb("design_id", "=", binding.designId),
+					]),
+				)
+				.executeTakeFirst();
+			if (existing !== undefined) {
+				if (
+					existing.handle !== binding.handle ||
+					existing.design_id !== binding.designId ||
+					existing.entity_kind !== binding.entityKind
+				) {
+					throw new DesignArtifactWorkspaceError(
+						"partial-invalid",
+						`The design handle ${binding.handle} is already bound to another ${existing.entity_kind} identity.`,
+						1,
+					);
+				}
+				continue;
+			}
+			await tx
+				.insertInto("design_identity_handles")
+				.values({
+					design_session_id: args.designSessionId,
+					handle: binding.handle,
+					design_id: binding.designId,
+					entity_kind: binding.entityKind,
+					workspace_id: workspaceId,
+					tool_call_id: args.toolCallId,
+					created_by_run_id: args.authority.runId,
+				})
+				.execute();
 		}
 		const priorOperations = await readWorkspaceOperations(tx, workspaceId);
 		if (priorOperations.length !== revision) {

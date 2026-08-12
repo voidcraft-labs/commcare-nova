@@ -1,20 +1,13 @@
 /**
  * UsageAccumulator — in-memory per-request token + cost totals.
  *
- * The accumulator owns two write targets on flush():
- * - `incrementUsage()` for the monthly spend cap (skipped on zero cost).
- * - `writeRunSummary()` for the per-run admin inspect summary doc.
+ * The accumulator hands one transaction both accounting targets on flush():
+ * the monthly spend cap and the per-run admin inspect summary.
  *
- * `writeRunSummary` and `refundReservation` (separate modules) are mocked so the
- * accounting + flush-orchestration tests stay unit-scoped; the monthly-usage
- * increment (`incrementUsage`, INTRA-module — a module-level mock can't intercept
- * it) runs for real against the per-test `usage_months` table (the app-state
- * harness), so an increment shows up as a real row (`request_count`) rather than a
- * spied `set` call.
+ * That writer and `refundReservation` are mocked so these tests stay unit-
+ * scoped. `runSummary.test.ts` proves the two database rows commit together.
  */
 import { describe, expect, it, vi } from "vitest";
-import { getCurrentPeriod } from "../period";
-import { setupAppStateTestDb } from "./appStateTestDb";
 
 // vi.mock is hoisted above imports by Vitest, so any identifiers referenced
 // inside the factory must be hoisted too — vi.hoisted lifts a block of setup
@@ -28,14 +21,35 @@ const { writeRunSummaryMock, refundReservationMock } = vi.hoisted(() => ({
 // Run summary writer is fire-and-forget in prod — mock it outright so
 // the idempotence + zero-cost tests can count invocations.
 vi.mock("../runSummary", () => ({
-	writeRunSummary: writeRunSummaryMock,
+	writeRunSummaryWithDurableContributions: async (
+		...args: [
+			unknown,
+			unknown,
+			{ costEstimate: number },
+			Array<{ costEstimate: number }>,
+			unknown,
+		]
+	) => {
+		const admittedContributions = args[3];
+		const requestedCost =
+			args[2].costEstimate +
+			admittedContributions.reduce(
+				(total, contribution) => total + contribution.costEstimate,
+				0,
+			);
+		const override = await writeRunSummaryMock(...args);
+		if (override !== null && typeof override === "object") return override;
+		return {
+			action: override ?? "created",
+			admittedContributions,
+			monthlyUsageAccrued: requestedCost > 0,
+			runCostEstimate: override === "failed" ? null : requestedCost,
+		};
+	},
 }));
 
-// `refundReservation` lives in `../credits` — a SEPARATE module from
-// `UsageAccumulator` — so a module-level mock DOES intercept the import that
-// `usage.ts` resolves at flush time (unlike `incrementUsage`, which is
-// intra-module and can only be observed at the database boundary below). We
-// assert on the mock's invocations to prove the refund branch's guard logic.
+// `refundReservation` lives in `../credits`, so this module-level mock
+// intercepts the import that `usage.ts` resolves at flush time.
 vi.mock("../credits", () => ({
 	refundReservation: refundReservationMock,
 }));
@@ -46,20 +60,20 @@ vi.mock("../credits", () => ({
 import { log } from "@/lib/logger";
 import { estimateCost, UsageAccumulator } from "../usage";
 
-const h = setupAppStateTestDb("usage_acc_");
 const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
-/** The `usage_months.request_count` for a user this period, or undefined when
- *  `incrementUsage` never wrote (a zero-cost run short-circuits it). */
-async function requestCount(userId: string): Promise<number | undefined> {
-	const row = await h
-		.db()
-		.selectFrom("usage_months")
-		.select("request_count")
-		.where("user_id", "=", userId)
-		.where("period", "=", getCurrentPeriod())
-		.executeTakeFirst();
-	return row?.request_count;
+function lastRequestedBillingCost(): number | undefined {
+	const call = writeRunSummaryMock.mock.calls.at(-1);
+	if (!call) return undefined;
+	const base = call[2] as { costEstimate: number };
+	const durable = call[3] as Array<{ costEstimate: number }>;
+	return (
+		base.costEstimate +
+		durable.reduce(
+			(total, contribution) => total + contribution.costEstimate,
+			0,
+		)
+	);
 }
 
 describe("UsageAccumulator", () => {
@@ -230,6 +244,46 @@ describe("UsageAccumulator", () => {
 		expect(acc.snapshot().stepCount).toBe(2);
 	});
 
+	it("registers one durable contribution for repeated recovery of the same step", async () => {
+		writeRunSummaryMock.mockReset();
+		const acc = new UsageAccumulator({
+			target: { kind: "design-session", designSessionId: "design-1" },
+			userId: "u",
+			runId: "r",
+			holderNonce: HOLDER_NONCE,
+			model: "gpt-5.6-sol",
+			promptMode: "build",
+			appReady: false,
+			moduleCount: 0,
+		});
+		const usage = { inputTokens: 100, outputTokens: 25 };
+		const identity = { contextId: "context-1", stepKey: "attempt:1" };
+		acc.trackDurable(identity, usage, { step: true, phase: "design-author" });
+		acc.trackDurable(identity, usage, { step: true, phase: "design-author" });
+
+		expect(acc.snapshot()).toMatchObject({
+			stepCount: 1,
+			inputTokens: 100,
+			outputTokens: 25,
+		});
+		await acc.flush();
+		const call = writeRunSummaryMock.mock.calls[0];
+		expect(call?.[2]).toMatchObject({
+			stepCount: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+		});
+		expect(call?.[3]).toEqual([
+			expect.objectContaining({
+				contextId: "context-1",
+				stepKey: "attempt:1",
+				stepCount: 1,
+				inputTokens: 100,
+				outputTokens: 25,
+			}),
+		]);
+	});
+
 	it("flush() is idempotent", async () => {
 		writeRunSummaryMock.mockReset();
 		const acc = new UsageAccumulator({
@@ -246,10 +300,9 @@ describe("UsageAccumulator", () => {
 		acc.track({ inputTokens: 1, outputTokens: 1 }, { step: true });
 		await acc.flush();
 		await acc.flush();
-		// One increment (request_count 1, not 2) proves the second flush
-		// short-circuited before the monthly-usage write ran.
-		expect(await requestCount("u")).toBe(1);
+		// One transaction proves the second flush short-circuited.
 		expect(writeRunSummaryMock).toHaveBeenCalledTimes(1);
+		expect(lastRequestedBillingCost()).toBeGreaterThan(0);
 	});
 
 	it("flush() with zero cost skips the monthly increment", async () => {
@@ -265,9 +318,7 @@ describe("UsageAccumulator", () => {
 			moduleCount: 5,
 		});
 		await acc.flush();
-		// No usage_months row at all — zero-cost runs short-circuit before
-		// incrementUsage. request_count would otherwise bump without matching spend.
-		expect(await requestCount("u")).toBeUndefined();
+		expect(lastRequestedBillingCost()).toBe(0);
 		// Run summary still written so the inspect tools see the run at all —
 		// admins care about zero-cost replays too (e.g. cache-hit analysis).
 		expect(writeRunSummaryMock).toHaveBeenCalledTimes(1);
@@ -326,8 +377,7 @@ describe("UsageAccumulator", () => {
 				HOLDER_NONCE,
 				"build",
 			);
-			// Zero cost short-circuits the increment — no usage_months row at all.
-			expect(await requestCount("u")).toBeUndefined();
+			expect(lastRequestedBillingCost()).toBe(0);
 		});
 
 		it("charges (no refund) on a successful run with real cost", async () => {
@@ -338,9 +388,60 @@ describe("UsageAccumulator", () => {
 			await acc.flush();
 
 			// Real cost accrues to the monthly spend row (the increment fires)…
-			expect(await requestCount("u")).toBe(1);
+			expect(lastRequestedBillingCost()).toBeGreaterThan(0);
 			// …and a healthy charge is never refunded.
 			expect(refundReservationMock).not.toHaveBeenCalled();
+		});
+
+		it("does not refund when durable paid work could not be accounted", async () => {
+			writeRunSummaryMock.mockReset();
+			writeRunSummaryMock.mockResolvedValue("failed");
+			refundReservationMock.mockReset();
+			const acc = new UsageAccumulator(reservedSeed);
+			acc.trackDurable(
+				{ contextId: "context-1", stepKey: "step-1" },
+				{ inputTokens: 1000, outputTokens: 500 },
+				{ step: true, phase: "design-author" },
+			);
+			await acc.flush();
+
+			expect(refundReservationMock).not.toHaveBeenCalled();
+			expect(log.info).toHaveBeenCalledWith(
+				"[run-finalize]",
+				expect.objectContaining({
+					summaryAction: "failed",
+					runCostEstimate: null,
+					accountingFailed: true,
+					refundReason: null,
+				}),
+			);
+		});
+
+		it("does not refund when another finalizer already admitted the durable step", async () => {
+			writeRunSummaryMock.mockReset();
+			writeRunSummaryMock.mockResolvedValue({
+				action: "incremented",
+				admittedContributions: [],
+				monthlyUsageAccrued: false,
+				runCostEstimate: 0.025,
+			});
+			refundReservationMock.mockReset();
+			const acc = new UsageAccumulator(reservedSeed);
+			acc.trackDurable(
+				{ contextId: "context-1", stepKey: "step-1" },
+				{ inputTokens: 1000, outputTokens: 500 },
+				{ step: true, phase: "design-author" },
+			);
+			await acc.flush();
+
+			expect(refundReservationMock).not.toHaveBeenCalled();
+			expect(log.info).toHaveBeenCalledWith(
+				"[run-finalize]",
+				expect.objectContaining({
+					runCostEstimate: 0.025,
+					refundReason: null,
+				}),
+			);
 		});
 
 		it("on a FAILED run with real cost it BOTH accrues the cost AND refunds", async () => {
@@ -353,7 +454,7 @@ describe("UsageAccumulator", () => {
 
 			// The two branches are independent: the dollar cost still accrues so
 			// the backstop sees retry spam from a user hammering a broken app…
-			expect(await requestCount("u")).toBe(1);
+			expect(lastRequestedBillingCost()).toBeGreaterThan(0);
 			// …while the user's credits are made whole because the app broke.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
 			expect(refundReservationMock).toHaveBeenCalledWith(

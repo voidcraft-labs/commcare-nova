@@ -55,6 +55,10 @@ import * as designSessions from "./20260809000000_design_sessions";
 import * as designOrchestration from "./20260810000000_design_orchestration";
 import * as designArtifactWorkspaces from "./20260810010000_design_artifact_workspaces";
 import * as executorAttemptRecovery from "./20260811000000_executor_attempt_recovery";
+import * as designModelContexts from "./20260811010000_design_model_contexts";
+import * as designIdentityHandles from "./20260811020000_design_identity_handles";
+import * as sliceAttemptBudgetClaims from "./20260811030000_slice_attempt_budget_claims";
+import * as modelStepUsageAccounts from "./20260811040000_model_step_usage_accounts";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -104,6 +108,10 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260810000000_design_orchestration": designOrchestration,
 	"20260810010000_design_artifact_workspaces": designArtifactWorkspaces,
 	"20260811000000_executor_attempt_recovery": executorAttemptRecovery,
+	"20260811010000_design_model_contexts": designModelContexts,
+	"20260811020000_design_identity_handles": designIdentityHandles,
+	"20260811030000_slice_attempt_budget_claims": sliceAttemptBudgetClaims,
+	"20260811040000_model_step_usage_accounts": modelStepUsageAccounts,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

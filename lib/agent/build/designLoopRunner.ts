@@ -14,9 +14,11 @@
  * compaction, or fresh-POST resume never re-produces committed work.
  */
 
+import { randomUUID } from "node:crypto";
 import type {
 	InferAgentUIMessage,
 	ModelMessage,
+	ToolSet,
 	UIMessage,
 	UIMessageChunk,
 } from "ai";
@@ -38,13 +40,20 @@ import {
 } from "@/lib/agent/design/capabilityCatalog";
 import {
 	appDesignContractSchema,
-	designConstructionQuestions,
+	designConstructionQuestionRequirements,
+	type OpenQuestion,
 } from "@/lib/agent/design/contract";
 import type { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import {
 	createDesignAgent,
 	type DesignAgentStep,
+	isExactRequiredDesignQuestionCall,
+	REQUIRED_DESIGN_QUESTIONS_HEADER,
+	requiredDesignQuestionAuthorizationKey,
+	requiredDesignQuestionBatch,
 	requiredDesignQuestionBatchWasAnswered,
+	requiredDesignQuestionCardAuthorizationKey,
+	requiredDesignQuestionMessage,
 } from "@/lib/agent/design/loop/designAgent";
 import {
 	DESIGN_LOOP_STEP_BUDGET,
@@ -64,9 +73,11 @@ import {
 	createDesignLoopTools,
 	designWorkspaceLineageForGates,
 	ensureDerivedBuildPlan,
+	projectDesignIdentityHandles,
 } from "@/lib/agent/design/loop/tools";
 import {
 	DESIGN_AGENT_SYSTEM,
+	DESIGN_PROMPT_VERSIONS,
 	renderPlatformConstraintsSection,
 } from "@/lib/agent/design/prompts";
 import type {
@@ -77,7 +88,7 @@ import {
 	type ClassifiedError,
 	classifyError,
 } from "@/lib/agent/errorClassifier";
-import { markStablePrefixBoundary } from "@/lib/agent/prompts";
+import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import { shouldRetryTurn, turnRetryDelayMs } from "@/lib/agent/turnRetry";
 import {
 	isOpenAICompactionChunk,
@@ -86,7 +97,15 @@ import {
 import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
 import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
-import { DESIGN_AUTHOR_MODEL } from "@/lib/models";
+import { DESIGN_AUTHOR_MODEL, MODEL_CONTEXT_VERSION } from "@/lib/models";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import {
+	appendDesignModelContext,
+	completeDesignModelStep,
+	openDesignModelContext,
+	recordDesignModelStepEvent,
+	recoverableCompletedModelSteps,
+} from "./modelContextStore";
 import type { OrchestratorStreamWriter } from "./orchestrator";
 import type { OrchestrationHead } from "./orchestratorState";
 import {
@@ -193,6 +212,195 @@ export function designToolPulsePhase(
 	return current;
 }
 
+function modelToolPartIds(
+	messages: readonly ModelMessage[],
+	type: "tool-call" | "tool-result",
+): Set<string> {
+	const ids = new Set<string>();
+	for (const message of messages) {
+		if (!Array.isArray(message.content)) continue;
+		for (const part of message.content) {
+			if (part.type === type) ids.add(part.toolCallId);
+		}
+	}
+	return ids;
+}
+
+function unansweredDesignQuestionCalls(
+	messages: readonly ModelMessage[],
+): Array<{ readonly toolCallId: string; readonly toolName: "askQuestions" }> {
+	const answered = modelToolPartIds(messages, "tool-result");
+	const calls: Array<{
+		readonly toolCallId: string;
+		readonly toolName: "askQuestions";
+	}> = [];
+	for (const message of messages) {
+		if (message.role !== "assistant" || !Array.isArray(message.content))
+			continue;
+		for (const part of message.content) {
+			if (
+				part.type === "tool-call" &&
+				part.toolName === "askQuestions" &&
+				!answered.has(part.toolCallId)
+			) {
+				calls.push({
+					toolCallId: part.toolCallId,
+					toolName: "askQuestions",
+				});
+			}
+		}
+	}
+	return calls;
+}
+
+/** Reconcile the one piece of a paused design conversation that arrives on a
+ * later POST: the user's answer to a client-side askQuestions call. The
+ * original assistant call normally already lives in the private transcript;
+ * after a crash it may not, so this projects the exact final UI step and
+ * appends whichever call/result items are actually missing. */
+export async function projectAnsweredDesignContinuation(args: {
+	readonly uiMessages: readonly UIMessage[];
+	readonly modelContext: readonly ModelMessage[];
+	readonly tools: ToolSet;
+}): Promise<ModelMessage[]> {
+	const callIds = modelToolPartIds(args.modelContext, "tool-call");
+	const resultIds = modelToolPartIds(args.modelContext, "tool-result");
+	const unansweredQuestions = unansweredDesignQuestionCalls(args.modelContext);
+	const continuation: ModelMessage[] = [];
+	/* A later user turn can follow an interrupted answered-question round. Scan
+	 * the whole durable UI transcript in order so that missing answers are
+	 * restored before that later user turn enters the private context. */
+	for (const message of args.uiMessages) {
+		if (message.role !== "assistant") continue;
+		for (const part of message.parts) {
+			if (
+				part.type !== "tool-askQuestions" ||
+				part.state !== "output-available" ||
+				resultIds.has(part.toolCallId)
+			) {
+				continue;
+			}
+			const projected = await convertToModelMessages(
+				[{ ...message, parts: [part] }] as UIMessage[],
+				{ tools: args.tools },
+			);
+			for (const projectedMessage of projected) {
+				if (!Array.isArray(projectedMessage.content)) {
+					continuation.push(projectedMessage);
+					continue;
+				}
+				if (projectedMessage.role === "assistant") {
+					const content = projectedMessage.content.filter(
+						(projectedPart) =>
+							projectedPart.type !== "tool-call" ||
+							!callIds.has(projectedPart.toolCallId),
+					);
+					if (content.length > 0) {
+						continuation.push({ ...projectedMessage, content });
+						for (const projectedPart of content) {
+							if (projectedPart.type === "tool-call") {
+								callIds.add(projectedPart.toolCallId);
+							}
+						}
+					}
+					continue;
+				}
+				if (projectedMessage.role === "tool") {
+					const content = projectedMessage.content.filter(
+						(projectedPart) =>
+							projectedPart.type !== "tool-result" ||
+							!resultIds.has(projectedPart.toolCallId),
+					);
+					if (content.length > 0) {
+						continuation.push({ ...projectedMessage, content });
+						for (const projectedPart of content) {
+							if (projectedPart.type === "tool-result") {
+								resultIds.add(projectedPart.toolCallId);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	/* A paid askQuestions response can reach the private model ledger before its
+	 * client card reaches the thread row. Dead-run redrive deliberately removes
+	 * that partial assistant message. Close the now-orphaned function call before
+	 * another provider request; the error grants no answer and lets the server
+	 * derive and ask the still-current question batch again. */
+	for (const call of unansweredQuestions) {
+		if (resultIds.has(call.toolCallId)) continue;
+		continuation.push({
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: call.toolCallId,
+					toolName: call.toolName,
+					output: {
+						type: "json",
+						value: {
+							error:
+								"The question card was interrupted before a durable user answer. Re-evaluate the current required questions and ask them again if they remain necessary.",
+						},
+					},
+				},
+			],
+		});
+		resultIds.add(call.toolCallId);
+	}
+	return continuation;
+}
+
+export function designModelStepKey(args: {
+	readonly attemptId: string;
+	readonly stepNumber: number;
+	readonly requestDigest: string;
+}): string {
+	return `design:${args.attemptId}:${args.stepNumber}:${args.requestDigest}`;
+}
+
+/** Append every ordinary user turn that is absent from an already-open private
+ * design context. The initial seed is one atomic append whose `seed-through`
+ * key proves every UI message through that id was included; later turns carry
+ * their own stable id. Scanning the whole transcript closes a process-death
+ * gap even when more than one newer browser turn has since arrived. */
+export async function projectMissingDesignUserContinuations(args: {
+	readonly uiMessages: readonly UIMessage[];
+	readonly appendKeys: ReadonlySet<string>;
+	readonly tools: ToolSet;
+}): Promise<
+	Array<{
+		readonly appendKey: string;
+		readonly messages: readonly ModelMessage[];
+	}>
+> {
+	let seededThrough = -1;
+	for (const appendKey of args.appendKeys) {
+		if (!appendKey.startsWith("seed-through:")) continue;
+		const messageId = appendKey.slice("seed-through:".length);
+		const index = args.uiMessages.findIndex(
+			(message) => message.id === messageId,
+		);
+		if (index > seededThrough) seededThrough = index;
+	}
+	const continuations: Array<{
+		appendKey: string;
+		messages: readonly ModelMessage[];
+	}> = [];
+	for (let index = 0; index < args.uiMessages.length; index++) {
+		const message = args.uiMessages[index];
+		if (message?.role !== "user" || index <= seededThrough) continue;
+		const appendKey = `ui-turn:${message.id}`;
+		if (args.appendKeys.has(appendKey)) continue;
+		continuations.push({
+			appendKey,
+			messages: await convertToModelMessages([message], { tools: args.tools }),
+		});
+	}
+	return continuations;
+}
+
 function activeWorkspaceKind(
 	gates: DesignGateState,
 ): DesignArtifactKind | null {
@@ -208,7 +416,7 @@ export async function readRequiredDesignQuestionsFromWorkspace(args: {
 	readonly designSessionId: string;
 	readonly gates: DesignGateState;
 	readonly authority: DesignArtifactWriteAuthority;
-}): Promise<readonly string[]> {
+}): Promise<readonly OpenQuestion[]> {
 	const kind = activeWorkspaceKind(args.gates);
 	if (kind === null) return [];
 	const workspace = await openDesignArtifactWorkspace({
@@ -220,7 +428,7 @@ export async function readRequiredDesignQuestionsFromWorkspace(args: {
 		workspace.candidate;
 	const parsed = appDesignContractSchema.safeParse(contractCandidate);
 	if (!parsed.success) return [];
-	return designConstructionQuestions(parsed.data) ?? [];
+	return designConstructionQuestionRequirements(parsed.data) ?? [];
 }
 
 export interface DesignLoopRunnerArgs {
@@ -267,17 +475,7 @@ export async function runDesignAgentLoop(
 	const loadAncestry = () =>
 		loadDesignAncestry(args.designSessionId, args.pkg.packageDigest);
 
-	/* Resume convergence: a session whose accepted design is already planned
-	 * has no design work left: the loop never mounts, and the orchestrator
-	 * continues at slice execution. */
 	const initialGates = evaluateDesignGates(await loadAncestry());
-	if (initialGates.plan !== null && initialGates.newestAccepted !== null) {
-		return {
-			kind: "planned",
-			revision: initialGates.newestAccepted,
-			plan: initialGates.plan,
-		};
-	}
 
 	const repair = new DesignRepairTracker();
 	const pulse = createDesignPulseEmitter(
@@ -295,6 +493,11 @@ export async function runDesignAgentLoop(
 			? "review"
 			: "design";
 	const catalogText = renderCapabilityCatalog(buildCapabilityCatalog());
+	/* Declared before tool construction because a recovered workspace can ask
+	 * the server gate about question provenance before the model context opens.
+	 * Until its durable append keys load, no answered card is authorized. */
+	let modelContextAppendKeys = new Set<string>();
+	let modelContextProtocolKeys = new Set<string>();
 	const toolDeps = {
 		designSessionId: args.designSessionId,
 		runId: args.runId,
@@ -314,6 +517,12 @@ export async function runDesignAgentLoop(
 				messages: args.messages as BuildSourcePackageArgs["messages"],
 				deps: args.packageDeps,
 			}),
+		requiredQuestionsWereAnswered: (questions: readonly OpenQuestion[]) =>
+			requiredDesignQuestionBatchWasAnswered(
+				args.messages,
+				questions,
+				modelContextProtocolKeys,
+			),
 		onReviewActivity: (deltaChars: number) => pulse("review", deltaChars),
 		...(args.onReviewerReasoning !== undefined && {
 			onReviewerReasoning: args.onReviewerReasoning,
@@ -321,13 +530,6 @@ export async function runDesignAgentLoop(
 	};
 	const tools = createDesignLoopTools(toolDeps);
 	const recoveredPlan = await ensureDerivedBuildPlan(toolDeps, initialGates);
-	if (recoveredPlan !== null && initialGates.newestAccepted !== null) {
-		return {
-			kind: "planned",
-			revision: initialGates.newestAccepted,
-			plan: recoveredPlan,
-		};
-	}
 	const stateMessageFor = async (
 		gates: DesignGateState,
 	): Promise<ModelMessage> => {
@@ -354,7 +556,10 @@ export async function runDesignAgentLoop(
 				claims: args.pkg.claims,
 				openReviews:
 					openReviews.length > 0
-						? openReviews.map((review) => review.envelope.payload)
+						? (projectDesignIdentityHandles(
+								openReviews.map((review) => review.envelope.payload),
+								workspace?.handleBindings ?? [],
+							) as (typeof openReviews)[number]["envelope"]["payload"][])
 						: null,
 				workspace:
 					workspace === null || workspaceKind === null
@@ -367,8 +572,14 @@ export async function runDesignAgentLoop(
 									workspaceKind,
 									workspace.candidate,
 								),
-								candidate: workspace.candidate,
-								sourceContract: workspace.sourceContract,
+								candidate: projectDesignIdentityHandles(
+									workspace.candidate,
+									workspace.handleBindings,
+								) as Record<string, unknown>,
+								sourceContract: projectDesignIdentityHandles(
+									workspace.sourceContract,
+									workspace.handleBindings,
+								) as Record<string, unknown> | null,
 							},
 			}),
 		};
@@ -383,7 +594,90 @@ export async function runDesignAgentLoop(
 				: gates.verdicts.submitContract.legal
 					? "author"
 					: "awaiting-input";
-	let completedModelSteps = 0;
+	let modelStepsSpent = 0;
+	/* One model-visible context for the whole design attempt. Durable phase
+	 * transitions append state and tool receipts to this sequence; they never
+	 * reconstruct a phase-local prompt. Provider compaction inside
+	 * `prepareStep` is the sole legal prefix replacement. */
+	let modelContext: ModelMessage[] | null = null;
+	let modelContextId: string | null = null;
+	const modelContextAuthority = {
+		actorUserId: args.actorUserId,
+		runId: args.runId,
+		holderNonce: args.holderNonce,
+		expectedProjectId: args.projectId,
+	};
+	const appendContext = async (
+		appendKey: string,
+		messages: readonly ModelMessage[],
+	): Promise<void> => {
+		if (messages.length === 0 || modelContextAppendKeys.has(appendKey)) return;
+		if (modelContextId === null) {
+			throw new Error("The durable design model context is not open.");
+		}
+		await appendDesignModelContext({
+			designSessionId: args.designSessionId,
+			contextId: modelContextId,
+			appendKey,
+			messages,
+			authority: modelContextAuthority,
+		});
+		modelContextAppendKeys.add(appendKey);
+		modelContextProtocolKeys.add(appendKey);
+	};
+	const openAndRecoverModelContext = async (): Promise<void> => {
+		if (modelContextId !== null) return;
+		const toolsetDigest = canonicalJsonDigest(
+			await Promise.all(
+				Object.entries(tools).map(async ([name, definition]) => ({
+					name,
+					description: definition.description,
+					strict: definition.strict,
+					inputSchema: await definition.inputSchema.jsonSchema,
+				})),
+			),
+		);
+		const persisted = await openDesignModelContext({
+			designSessionId: args.designSessionId,
+			kind: "design",
+			modelId: DESIGN_AUTHOR_MODEL,
+			promptVersion: DESIGN_PROMPT_VERSIONS.agent,
+			toolsetDigest,
+			contextVersion: MODEL_CONTEXT_VERSION,
+			authority: modelContextAuthority,
+		});
+		modelContextId = persisted.id;
+		modelContext = [...persisted.messages];
+		modelContextAppendKeys = new Set(persisted.appendKeys);
+		modelContextProtocolKeys = new Set(persisted.lineageAppendKeys);
+		modelStepsSpent = persisted.totalStartedStepCount;
+		/* Re-register every usage-bearing response from this long-lived run in
+		 * the exact-once meter only. Recovered steps are historical evidence, not
+		 * fresh model activity, so they must never re-enter `onAgentStep` and emit
+		 * duplicate step-usage/tool/reasoning conversation events. */
+		for (const completed of recoverableCompletedModelSteps(
+			persisted.completedSteps,
+			args.runId,
+		)) {
+			args.designCtx.trackDurableSubGeneration(
+				completed.usage,
+				{
+					contextId: completed.contextId,
+					stepKey: completed.stepKey,
+				},
+				DESIGN_AUTHOR_MODEL,
+				{ step: true, phase: "design-author" },
+			);
+		}
+	};
+	await openAndRecoverModelContext();
+	if (recoveredPlan !== null && initialGates.newestAccepted !== null) {
+		return {
+			kind: "planned",
+			revision: initialGates.newestAccepted,
+			plan: recoveredPlan,
+		};
+	}
 
 	let turnRetries = 0;
 	const openParts = createOpenPartTracker();
@@ -399,8 +693,15 @@ export async function runDesignAgentLoop(
 		const gates = evaluateDesignGates(await loadAncestry());
 		if (gates.plan !== null) break;
 		const phase = phaseFor(gates);
-		if (completedModelSteps >= DESIGN_LOOP_STEP_BUDGET) break;
-		const stepsBeforeStream = completedModelSteps;
+		if (modelStepsSpent >= DESIGN_LOOP_STEP_BUDGET) break;
+		const stepsBeforeStream = modelStepsSpent;
+		/* One provider invocation identity. A replacement process or bounded
+		 * stream redrive must never reuse the completed-event identity of a call
+		 * whose response bytes were not durably observed by that process. */
+		const modelAttemptId = randomUUID();
+		const stepEventKeys = new Map<number, string>();
+		let activeRequiredQuestionBatch: readonly OpenQuestion[] = [];
+		let activeRequiredQuestionAuthorizationKey: string | null = null;
 		const agent = createDesignAgent({
 			model: args.designCtx.model(DESIGN_AUTHOR_MODEL),
 			tools,
@@ -408,7 +709,7 @@ export async function runDesignAgentLoop(
 			catalogText,
 			constraintsText: renderPlatformConstraintsSection(),
 			instructions: DESIGN_AGENT_SYSTEM,
-			promptCacheKey: `nova:design:${args.designSessionId}:${phase}`,
+			promptCacheKey: `nova:design:${args.designSessionId}`,
 			fatalError: () => repair.fatalError(),
 			requiredUserQuestions: async () => {
 				const pending = repair.requiredUserQuestions();
@@ -420,21 +721,121 @@ export async function runDesignAgentLoop(
 								gates: evaluateDesignGates(await loadAncestry()),
 								authority,
 							});
-				return requiredDesignQuestionBatchWasAnswered(args.messages, questions)
-					? []
-					: questions;
+				if (
+					requiredDesignQuestionBatchWasAnswered(
+						args.messages,
+						questions,
+						modelContextProtocolKeys,
+					)
+				) {
+					activeRequiredQuestionBatch = [];
+					activeRequiredQuestionAuthorizationKey = null;
+					return [];
+				}
+				activeRequiredQuestionBatch = requiredDesignQuestionBatch(questions);
+				if (questions.length > 0) {
+					const authorizationKey =
+						requiredDesignQuestionAuthorizationKey(questions);
+					activeRequiredQuestionAuthorizationKey = authorizationKey;
+					if (!modelContextAppendKeys.has(authorizationKey)) {
+						const authorization = requiredDesignQuestionMessage(questions);
+						await appendContext(authorizationKey, [authorization]);
+						modelContext = [...(modelContext ?? []), authorization];
+					}
+				}
+				if (questions.length === 0) {
+					activeRequiredQuestionAuthorizationKey = null;
+				}
+				return questions;
 			},
 			freshStateMessage: async () =>
 				stateMessageFor(evaluateDesignGates(await loadAncestry())),
+			onCompactionState: async ({ boundaryDigest, message }) => {
+				const appendKey = `compaction-state:${boundaryDigest}:${durableModelValueDigest(message)}`;
+				if (modelContextAppendKeys.has(appendKey)) return;
+				await appendContext(appendKey, [message]);
+				modelContext = [...(modelContext ?? []), message];
+			},
 			stepsBeforeStream,
-			onStepEnd: (step) => {
-				completedModelSteps += 1;
-				args.onAgentStep?.(step);
+			onStepEnd: (step) => args.onAgentStep?.(step),
+			onStepPrepared: async (step) => {
+				if (modelContextId === null) {
+					throw new Error("The durable design model context is not open.");
+				}
+				const stepKey = designModelStepKey({
+					attemptId: modelAttemptId,
+					stepNumber: step.stepNumber,
+					requestDigest: step.requestDigest,
+				});
+				stepEventKeys.set(step.stepNumber, stepKey);
+				await recordDesignModelStepEvent({
+					designSessionId: args.designSessionId,
+					contextId: modelContextId,
+					stepKey,
+					event: {
+						eventKind: "started",
+						requestDigest: step.requestDigest,
+					},
+					authority: modelContextAuthority,
+				});
+				/* The started event is written before the provider request. Once that
+				 * succeeds, this call owns one unit of the session budget even if the
+				 * response is interrupted and never reaches onStepEnd. */
+				modelStepsSpent += 1;
+			},
+			onStepCompleted: async (step) => {
+				if (modelContextId === null) {
+					throw new Error("The durable design model context is not open.");
+				}
+				const stepKey = stepEventKeys.get(step.stepNumber);
+				if (stepKey === undefined) {
+					throw new Error(
+						"The completed design model step has no started event key.",
+					);
+				}
+				const requiredQuestionCall = step.toolCalls.find(
+					(call) =>
+						call.toolName === "askQuestions" &&
+						activeRequiredQuestionAuthorizationKey !== null &&
+						isExactRequiredDesignQuestionCall(
+							call.input,
+							activeRequiredQuestionBatch,
+						),
+				);
+				const cardKey =
+					requiredQuestionCall === undefined ||
+					activeRequiredQuestionAuthorizationKey === null
+						? null
+						: requiredDesignQuestionCardAuthorizationKey({
+								toolCallId: requiredQuestionCall.toolCallId,
+								authorizationKey: activeRequiredQuestionAuthorizationKey,
+								input: requiredQuestionCall.input,
+							});
+				const responseKey =
+					cardKey === null
+						? `response:${stepKey}:${step.responseDigest}`
+						: `${cardKey}:response:${stepKey}:${step.responseDigest}`;
+				await completeDesignModelStep({
+					designSessionId: args.designSessionId,
+					contextId: modelContextId,
+					appendKey: responseKey,
+					messages: step.responseMessages,
+					stepKey,
+					responseDigest: step.responseDigest,
+					...(step.usage !== undefined && { usage: step.usage }),
+					authority: modelContextAuthority,
+				});
+				if (!modelContextAppendKeys.has(responseKey)) {
+					modelContextAppendKeys.add(responseKey);
+					modelContextProtocolKeys.add(responseKey);
+					modelContext = [...(modelContext ?? []), ...step.responseMessages];
+				}
+				return { contextId: modelContextId, stepKey };
 			},
 		});
-		/* Each durable phase starts a fresh internal model context. Historical
-		 * private tool parts from other phases are removed; the exact regenerated
-		 * phase packet below is the authority. Visible conversation remains. */
+		/* Deploy-compatibility projection happens once, when this logical context
+		 * is first seeded. Every later phase uses the exact growing ModelMessage
+		 * sequence captured below. */
 		const sanitized = await sanitizeHistoricalToolParts(
 			[...args.messages],
 			agent.tools,
@@ -457,10 +858,54 @@ export async function runDesignAgentLoop(
 			messages: projected,
 			tools: agent.tools,
 		});
-		const baseModelMessages = markStablePrefixBoundary(
-			await convertToModelMessages(validated, { tools: agent.tools }),
-		);
-		const prompt = [...baseModelMessages, await stateMessageFor(gates)];
+		if (modelContext === null) {
+			modelContext = [];
+		}
+		if (modelContext.length === 0) {
+			const seed = await convertToModelMessages(validated, {
+				tools: agent.tools,
+			});
+			modelContext = [...seed];
+			const lastMessage = validated.at(-1);
+			await appendContext(
+				lastMessage === undefined
+					? `seed:${args.pkg.packageDigest}`
+					: `seed-through:${lastMessage.id}`,
+				seed,
+			);
+		} else {
+			const continuation = await projectAnsweredDesignContinuation({
+				uiMessages: args.messages,
+				modelContext,
+				tools: agent.tools,
+			});
+			if (continuation.length > 0) {
+				const answerKey = `answer:${canonicalJsonDigest(continuation)}`;
+				if (!modelContextAppendKeys.has(answerKey)) {
+					modelContext = [...modelContext, ...continuation];
+					await appendContext(answerKey, continuation);
+				}
+			}
+			const userContinuations = await projectMissingDesignUserContinuations({
+				uiMessages: validated,
+				appendKeys: modelContextAppendKeys,
+				tools: agent.tools,
+			});
+			for (const userContinuation of userContinuations) {
+				modelContext = [...modelContext, ...userContinuation.messages];
+				await appendContext(
+					userContinuation.appendKey,
+					userContinuation.messages,
+				);
+			}
+		}
+		const stateMessage = await stateMessageFor(gates);
+		const stateKey = `state:${canonicalJsonDigest(stateMessage)}`;
+		if (!modelContextAppendKeys.has(stateKey)) {
+			modelContext = [...modelContext, stateMessage];
+			await appendContext(stateKey, [stateMessage]);
+		}
+		const prompt = modelContext;
 		const result = await agent.stream({ prompt });
 		const drained = Promise.resolve(result.consumeStream()).catch(() => {});
 
@@ -621,6 +1066,11 @@ export async function runDesignAgentLoop(
 			}
 		};
 		let contextActivityActive = false;
+		const bufferedRequiredQuestionChunks = new Map<string, UIMessageChunk[]>();
+		let rejectedRequiredQuestionCall: {
+			toolCallId: string;
+			input: unknown;
+		} | null = null;
 		for await (const chunk of result.toUIMessageStream({
 			originalMessages: validated,
 			generateMessageId: () => args.responseMessageId,
@@ -658,6 +1108,64 @@ export async function runDesignAgentLoop(
 			}
 			if (chunk.type === "start" || chunk.type === "finish") continue;
 			trackPulse(chunk);
+			/* A required question card is server-authored protocol. Buffer its
+			 * streamed input until the complete call proves byte-for-byte semantic
+			 * equality with the authorized batch. A subset or paraphrase is repaired
+			 * internally and never becomes a user-facing pause. */
+			if (
+				chunk.type === "tool-input-start" &&
+				chunk.toolName === "askQuestions" &&
+				activeRequiredQuestionBatch.length > 0
+			) {
+				bufferedRequiredQuestionChunks.set(chunk.toolCallId, [chunk]);
+				continue;
+			}
+			const bufferedQuestion =
+				"toolCallId" in chunk
+					? bufferedRequiredQuestionChunks.get(chunk.toolCallId)
+					: undefined;
+			if (bufferedQuestion !== undefined) {
+				bufferedQuestion.push(chunk);
+				if (
+					chunk.type === "tool-input-available" &&
+					chunk.toolName === "askQuestions"
+				) {
+					bufferedRequiredQuestionChunks.delete(chunk.toolCallId);
+					if (
+						isExactRequiredDesignQuestionCall(
+							chunk.input,
+							activeRequiredQuestionBatch,
+						)
+					) {
+						pausedOnQuestions = true;
+						for (const bufferedChunk of bufferedQuestion) {
+							openParts.observe(bufferedChunk);
+							try {
+								args.writer.write(bufferedChunk);
+							} catch {
+								break;
+							}
+						}
+					} else {
+						rejectedRequiredQuestionCall = {
+							toolCallId: chunk.toolCallId,
+							input: chunk.input,
+						};
+						noteToolOutcome(
+							chunk.toolCallId,
+							"rejected",
+							"required-question-mismatch",
+						);
+					}
+				} else if (chunk.type === "tool-input-error") {
+					bufferedRequiredQuestionChunks.delete(chunk.toolCallId);
+					rejectedRequiredQuestionCall = {
+						toolCallId: chunk.toolCallId,
+						input: null,
+					};
+				}
+				continue;
+			}
 			if (
 				chunk.type === "tool-input-available" &&
 				chunk.toolName === "askQuestions"
@@ -679,7 +1187,6 @@ export async function runDesignAgentLoop(
 			});
 		}
 		await drained;
-
 		const incomplete = [...toolStreams.entries()].find(
 			([, tracked]) => !tracked.inputAvailable && !tracked.outcomeEmitted,
 		);
@@ -700,16 +1207,59 @@ export async function runDesignAgentLoop(
 			};
 			break;
 		}
+		if (rejectedRequiredQuestionCall !== null) {
+			const rejection: ModelMessage = {
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: rejectedRequiredQuestionCall.toolCallId,
+						toolName: "askQuestions",
+						output: {
+							type: "json",
+							value: {
+								error:
+									"The call did not match the exact server-authorized required question batch. Repeat the supplied batch exactly.",
+							},
+						},
+					},
+				],
+			};
+			const rejectionKey = `required-question-rejection:${rejectedRequiredQuestionCall.toolCallId}:${durableModelValueDigest(rejectedRequiredQuestionCall.input)}`;
+			modelContext = [...(modelContext ?? []), rejection];
+			await appendContext(rejectionKey, [rejection]);
+			continue;
+		}
 
 		if (pausedOnQuestions) break;
+		if (
+			!sawFatalError &&
+			activeRequiredQuestionBatch.length > 0 &&
+			activeRequiredQuestionAuthorizationKey !== null
+		) {
+			/* Stable tool choice intentionally remains automatic for cache reuse. A
+			 * clean response that simply omitted the required client pause is repaired
+			 * inside this same run instead of making the user resend the turn. */
+			const omission: ModelMessage = {
+				role: "user",
+				content: [
+					"# Required question protocol correction (server-derived)",
+					`The previous response omitted the required askQuestions call. Call askQuestions now with header "${REQUIRED_DESIGN_QUESTIONS_HEADER}" and the exact authorized questions already supplied. Do not continue design work or answer them yourself.`,
+				].join("\n"),
+			};
+			const omissionKey = `required-question-omission:${durableModelValueDigest(activeRequiredQuestionAuthorizationKey)}:${modelStepsSpent}`;
+			await appendContext(omissionKey, [omission]);
+			modelContext = [...(modelContext ?? []), omission];
+			continue;
+		}
 		if (!sawFatalError) {
 			const afterPhase = evaluateDesignGates(await loadAncestry());
 			await ensureDerivedBuildPlan(toolDeps, afterPhase);
 			const settled = evaluateDesignGates(await loadAncestry());
 			if (settled.plan !== null) break;
-			/* A legal terminal tool advances the durable phase. Continue with a
-			 * fresh, phase-specific model context; a clean stream that did not
-			 * advance is incomplete and is mapped below instead of spinning. */
+			/* A legal terminal tool advances the durable phase. Continue by
+			 * appending its new authoritative state to this same context; a clean
+			 * stream that did not advance is incomplete and is mapped below. */
 			if (phaseFor(settled) !== phase) continue;
 			break;
 		}
@@ -764,7 +1314,7 @@ export async function runDesignAgentLoop(
 			recoverable: false,
 		};
 	}
-	if (completedModelSteps >= DESIGN_LOOP_STEP_BUDGET) {
+	if (modelStepsSpent >= DESIGN_LOOP_STEP_BUDGET) {
 		return {
 			kind: "failed",
 			errorType: "design-step-budget",

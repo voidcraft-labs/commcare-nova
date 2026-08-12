@@ -14,6 +14,7 @@ import {
 	insertDesignRevision,
 } from "@/lib/agent/design/artifactStore";
 import {
+	CONTRACT_COLLECTIONS,
 	type DesignArtifactKind,
 	type DesignArtifactWorkspaceLineage,
 	designWorkspaceBoundError,
@@ -25,7 +26,9 @@ import {
 } from "@/lib/agent/design/artifactWorkspaceOperations";
 import {
 	DesignArtifactWorkspaceError,
+	type DesignIdentityHandleBinding,
 	inspectDesignArtifactWorkspace,
+	openDesignArtifactWorkspace,
 	stageDesignArtifactWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceStore";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
@@ -34,7 +37,8 @@ import {
 	appDesignContractSchema,
 	type DesignConstructionIssue,
 	designConstructionIssues,
-	designConstructionQuestions,
+	designConstructionQuestionRequirements,
+	type OpenQuestion,
 } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import {
@@ -82,6 +86,9 @@ export interface DesignLoopToolDeps {
 	readonly rebuildPackageForDigest: (
 		digest: string,
 	) => Promise<DesignSourcePackage | null>;
+	readonly requiredQuestionsWereAnswered?: (
+		questions: readonly OpenQuestion[],
+	) => boolean | Promise<boolean>;
 	readonly onReviewActivity?: (deltaChars: number) => void;
 	readonly onReviewerReasoning?: (text: string) => void;
 }
@@ -196,6 +203,155 @@ export function resolveDesignWorkspaceHandles(
 			resolveDesignWorkspaceHandles(entry, designSessionId),
 		]),
 	);
+}
+
+const DESIGN_COLLECTION_ENTITY_KINDS = {
+	actors: "actor",
+	records: "record",
+	workflows: "workflow",
+	lists: "list",
+	access: "access",
+	navigation: "navigation",
+	externalRequirements: "external_requirement",
+	decisions: "decision",
+	assumptions: "assumption",
+	openQuestions: "open_question",
+} as const;
+
+function handleValue(value: unknown): string | null {
+	return isJsonObject(value) &&
+		Object.keys(value).length === 1 &&
+		typeof value.handle === "string" &&
+		DESIGN_HANDLE_PATTERN.test(value.handle)
+		? value.handle
+		: null;
+}
+
+export function collectDesignIdentityHandleBindings(
+	input: unknown,
+	designSessionId: string,
+): DesignIdentityHandleBinding[] {
+	if (!isJsonObject(input)) return [];
+	const bindings: DesignIdentityHandleBinding[] = [];
+	const add = (value: unknown, entityKind: string): void => {
+		const handle = handleValue(value);
+		if (handle === null) return;
+		bindings.push({
+			handle,
+			designId: designIdSchema.parse(
+				deterministicDesignId(
+					`design-workspace-v1:${designSessionId}:${handle}`,
+				),
+			),
+			entityKind,
+		});
+	};
+	if (isJsonObject(input.root)) add(input.root.id, "contract");
+	if (!Array.isArray(input.collections)) return bindings;
+	for (const collection of input.collections) {
+		if (
+			!isJsonObject(collection) ||
+			!Array.isArray(collection.upserts) ||
+			typeof collection.collection !== "string" ||
+			collection.collection === "dispositions"
+		) {
+			continue;
+		}
+		const kind =
+			DESIGN_COLLECTION_ENTITY_KINDS[
+				collection.collection as keyof typeof DESIGN_COLLECTION_ENTITY_KINDS
+			];
+		if (kind === undefined) continue;
+		for (const item of collection.upserts) {
+			if (!isJsonObject(item)) continue;
+			add(item.id, kind);
+			if (
+				collection.collection === "records" &&
+				Array.isArray(item.properties)
+			) {
+				for (const property of item.properties) {
+					if (isJsonObject(property)) add(property.id, "property");
+				}
+			}
+		}
+	}
+	return bindings;
+}
+
+function collectDesignHandleReferences(value: unknown): string[] {
+	const handles: string[] = [];
+	const visit = (entry: unknown): void => {
+		if (Array.isArray(entry)) {
+			for (const nested of entry) visit(nested);
+			return;
+		}
+		if (!isJsonObject(entry)) return;
+		const handle = handleValue(entry);
+		if (handle !== null) {
+			handles.push(handle);
+			return;
+		}
+		for (const nested of Object.values(entry)) visit(nested);
+	};
+	visit(value);
+	return handles;
+}
+
+/** A symbolic reference is legal only after its declaration has durably bound
+ * the handle, or when that declaration is part of this same transaction. */
+export function designUnboundHandleIssue(
+	input: unknown,
+	existingBindings: readonly DesignIdentityHandleBinding[],
+	candidate: Record<string, unknown>,
+	designSessionId: string,
+	sourceContract: Record<string, unknown> | null = null,
+): string | null {
+	const existingKinds = existingDesignIdentityKinds(sourceContract ?? {});
+	for (const [designId, entityKind] of existingDesignIdentityKinds(candidate)) {
+		existingKinds.set(designId, entityKind);
+	}
+	const known = new Set(
+		existingBindings
+			.filter(
+				(binding) => existingKinds.get(binding.designId) === binding.entityKind,
+			)
+			.map((binding) => binding.handle),
+	);
+	for (const declaration of collectDesignIdentityHandleBindings(
+		input,
+		designSessionId,
+	)) {
+		known.add(declaration.handle);
+	}
+	const unknown = collectDesignHandleReferences(input).find(
+		(handle) => !known.has(handle),
+	);
+	return unknown === undefined
+		? null
+		: `The design handle ${unknown} has not been declared. Declare it in its authoring identity slot before referencing it, or include its declaration in this same stage.`;
+}
+
+/** Model-facing projection: persisted artifacts remain UUID-only while every
+ * identity with a durable symbol is rendered back through that symbol. */
+export function projectDesignIdentityHandles(
+	value: unknown,
+	bindings: readonly DesignIdentityHandleBinding[],
+): unknown {
+	const byId = new Map(
+		bindings.map((binding) => [binding.designId, binding.handle] as const),
+	);
+	const visit = (entry: unknown): unknown => {
+		if (typeof entry === "string") {
+			const handle = byId.get(entry);
+			return handle === undefined ? entry : { handle };
+		}
+		if (Array.isArray(entry)) return entry.map(visit);
+		if (!isJsonObject(entry)) return entry;
+		return Object.fromEntries(
+			Object.entries(entry).map(([key, nested]) => [key, visit(nested)]),
+		);
+	};
+	return visit(value);
 }
 
 export function renderDesignValidationIssues(error: ZodError): string {
@@ -333,6 +489,164 @@ function parseHandledStage<T>(
 	);
 }
 
+async function requiredQuestionRefusal(
+	deps: DesignLoopToolDeps,
+	candidate: Record<string, unknown>,
+): Promise<ToolError | null> {
+	const { dispositions: _dispositions, ...contractCandidate } = candidate;
+	const parsed = appDesignContractSchema.safeParse(contractCandidate);
+	if (!parsed.success) return null;
+	const questions = designConstructionQuestionRequirements(
+		parsed.data,
+		designConstructionIssues(parsed.data),
+	);
+	if (
+		questions === null ||
+		(await deps.requiredQuestionsWereAnswered?.(questions)) === true
+	) {
+		return null;
+	}
+	return {
+		error: [
+			"These construction decisions still require the user's answer.",
+			"Call askQuestions with the exact pending questions before staging more design work.",
+		].join(" "),
+		diagnostic: {
+			code: "design-required-question-pending",
+			validationStage: "construction",
+			issueCount: questions.length,
+		},
+	};
+}
+
+function existingDesignIdentityKinds(
+	candidate: Record<string, unknown>,
+): Map<string, string> {
+	const ids = new Map<string, string>();
+	const add = (value: unknown, kind: string): void => {
+		if (typeof value === "string") ids.set(value, kind);
+	};
+	add(candidate.id, "contract");
+	for (const collection of CONTRACT_COLLECTIONS) {
+		const members = candidate[collection];
+		if (!Array.isArray(members)) continue;
+		for (const member of members) {
+			if (!isJsonObject(member)) continue;
+			add(member.id, DESIGN_COLLECTION_ENTITY_KINDS[collection]);
+			if (collection === "records" && Array.isArray(member.properties)) {
+				for (const property of member.properties) {
+					if (isJsonObject(property)) add(property.id, "property");
+				}
+			}
+		}
+	}
+	return ids;
+}
+
+/** New design declarations are symbolic in every phase. A raw UUID is legal
+ * only when it names an identity already present in the exact workspace/base;
+ * accepting a merely well-formed UUID here is what let the initial Haiti
+ * design fabricate an unrelated identity graph. */
+export function designCreationIdentityIssue(
+	input: unknown,
+	candidate: Record<string, unknown>,
+	sourceContract?: Record<string, unknown> | null,
+): string | null {
+	if (!isJsonObject(input)) return null;
+	const existing = new Set(existingDesignIdentityKinds(candidate).keys());
+	if (sourceContract !== null && sourceContract !== undefined) {
+		for (const id of existingDesignIdentityKinds(sourceContract).keys()) {
+			existing.add(id);
+		}
+	}
+	const declarations: Array<{ path: string; value: unknown }> = [];
+	if (isJsonObject(input.root) && input.root.id !== undefined) {
+		declarations.push({ path: "root.id", value: input.root.id });
+	}
+	if (Array.isArray(input.collections)) {
+		for (const [collectionIndex, collection] of input.collections.entries()) {
+			if (!isJsonObject(collection) || !Array.isArray(collection.upserts)) {
+				continue;
+			}
+			if (collection.collection === "dispositions") continue;
+			for (const [itemIndex, item] of collection.upserts.entries()) {
+				if (!isJsonObject(item)) continue;
+				declarations.push({
+					path: `collections.${collectionIndex}.upserts.${itemIndex}.id`,
+					value: item.id,
+				});
+				if (
+					collection.collection === "records" &&
+					Array.isArray(item.properties)
+				) {
+					for (const [propertyIndex, property] of item.properties.entries()) {
+						if (!isJsonObject(property)) continue;
+						declarations.push({
+							path: `collections.${collectionIndex}.upserts.${itemIndex}.properties.${propertyIndex}.id`,
+							value: property.id,
+						});
+					}
+				}
+			}
+		}
+	}
+	for (const declaration of declarations) {
+		if (
+			typeof declaration.value === "string" &&
+			!existing.has(declaration.value)
+		) {
+			return `${declaration.path} declares a new design identity with a raw UUID. Use a readable handle such as {"handle":"@name"}; raw UUIDs may reference only identities proven to exist in the accepted base.`;
+		}
+	}
+	const declarationPaths = new Set(declarations.map(({ path }) => path));
+	const occurrences: Array<{ path: string; value: string }> = [];
+	const visit = (value: unknown, path: string): void => {
+		if (Array.isArray(value)) {
+			for (const [index, entry] of value.entries()) {
+				visit(entry, `${path}.${index}`);
+			}
+			return;
+		}
+		if (!isJsonObject(value)) return;
+		/* Disposition upserts and removals point into the review-finding
+		 * namespace. They are deliberately not Design Contract identities. */
+		if (path === "dispositions" || value.collection === "dispositions") return;
+		for (const [key, entry] of Object.entries(value)) {
+			const nextPath = path === "" ? key : `${path}.${key}`;
+			const identitySlot =
+				key === "id" ||
+				key === "removeIds" ||
+				key.endsWith("Id") ||
+				key.endsWith("Ids");
+			if (identitySlot) {
+				const values = Array.isArray(entry) ? entry : [entry];
+				values.forEach((identity, index) => {
+					if (
+						typeof identity === "string" &&
+						designIdSchema.safeParse(identity).success
+					) {
+						occurrences.push({
+							path: Array.isArray(entry) ? `${nextPath}.${index}` : nextPath,
+							value: identity,
+						});
+					}
+				});
+				continue;
+			}
+			visit(entry, nextPath);
+		}
+	};
+	visit(input, "");
+	const unknown = occurrences.find(
+		(occurrence) =>
+			!existing.has(occurrence.value) && !declarationPaths.has(occurrence.path),
+	);
+	if (unknown !== undefined) {
+		return `${unknown.path} references an unknown raw design UUID. Use the declared readable handle for new design elements; raw UUIDs may reference only identities proven to exist in the accepted base.`;
+	}
+	return null;
+}
+
 export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 	const stageContract = {
 		description:
@@ -346,6 +660,49 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const gates = await gatesFor(deps);
 			const refusal = refuse(deps, gates, "submitContract");
 			if (refusal) return refusal;
+			const workspace = await openDesignArtifactWorkspace({
+				designSessionId: deps.designSessionId,
+				lineage: designWorkspaceLineageForGates("contract", gates),
+				authority: deps.authority,
+			});
+			const questionRefusal = await requiredQuestionRefusal(
+				deps,
+				workspace.candidate,
+			);
+			if (questionRefusal !== null) return questionRefusal;
+			const strippedInput = stripNullProperties(input);
+			const identityIssue = designCreationIdentityIssue(
+				strippedInput,
+				workspace.candidate,
+				workspace.sourceContract,
+			);
+			if (identityIssue !== null) {
+				return {
+					error: identityIssue,
+					diagnostic: {
+						code: "design-creation-handle-required",
+						validationStage: "partial" as const,
+						issueCount: 1,
+					},
+				};
+			}
+			const unboundHandleIssue = designUnboundHandleIssue(
+				strippedInput,
+				workspace.handleBindings,
+				workspace.candidate,
+				deps.designSessionId,
+				workspace.sourceContract,
+			);
+			if (unboundHandleIssue !== null) {
+				return {
+					error: unboundHandleIssue,
+					diagnostic: {
+						code: "design-unbound-handle",
+						validationStage: "partial" as const,
+						issueCount: 1,
+					},
+				};
+			}
 			const parsed = parseHandledStage(
 				stageContractInputSchema,
 				input,
@@ -354,6 +711,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			if (!parsed.ok) return { error: parsed.error };
 			const { expectedRevision, ...body } = parsed.data;
 			const operation = { kind: "contract" as const, ...body };
+			const handleBindings = collectDesignIdentityHandleBindings(
+				strippedInput,
+				deps.designSessionId,
+			);
 			const bound = designWorkspaceBoundError({
 				input: parsed.data,
 				operation,
@@ -367,6 +728,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					toolCallId: options.toolCallId,
 					expectedRevision,
 					operation,
+					handleBindings,
 				});
 				return {
 					ok: true,
@@ -395,6 +757,49 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const gates = await gatesFor(deps);
 			const refusal = refuse(deps, gates, "submitRevision");
 			if (refusal) return refusal;
+			const workspace = await openDesignArtifactWorkspace({
+				designSessionId: deps.designSessionId,
+				lineage: designWorkspaceLineageForGates("revision", gates),
+				authority: deps.authority,
+			});
+			const questionRefusal = await requiredQuestionRefusal(
+				deps,
+				workspace.candidate,
+			);
+			if (questionRefusal !== null) return questionRefusal;
+			const strippedInput = stripNullProperties(input);
+			const identityIssue = designCreationIdentityIssue(
+				strippedInput,
+				workspace.candidate,
+				workspace.sourceContract,
+			);
+			if (identityIssue !== null) {
+				return {
+					error: identityIssue,
+					diagnostic: {
+						code: "design-creation-handle-required",
+						validationStage: "partial" as const,
+						issueCount: 1,
+					},
+				};
+			}
+			const unboundHandleIssue = designUnboundHandleIssue(
+				strippedInput,
+				workspace.handleBindings,
+				workspace.candidate,
+				deps.designSessionId,
+				workspace.sourceContract,
+			);
+			if (unboundHandleIssue !== null) {
+				return {
+					error: unboundHandleIssue,
+					diagnostic: {
+						code: "design-unbound-handle",
+						validationStage: "partial" as const,
+						issueCount: 1,
+					},
+				};
+			}
 			const parsed = parseHandledStage(
 				stageRevisionInputSchema,
 				input,
@@ -403,6 +808,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			if (!parsed.ok) return { error: parsed.error };
 			const { expectedRevision, ...body } = parsed.data;
 			const operation = { kind: "revision" as const, ...body };
+			const handleBindings = collectDesignIdentityHandleBindings(
+				strippedInput,
+				deps.designSessionId,
+			);
 			const bound = designWorkspaceBoundError({
 				input: parsed.data,
 				operation,
@@ -416,6 +825,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					toolCallId: options.toolCallId,
 					expectedRevision,
 					operation,
+					handleBindings,
 				});
 				return {
 					ok: true,
@@ -435,10 +845,15 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 	const inspectDesignWorkspace = {
 		description:
 			"Inspect the authoritative staged candidate. Request a compact summary, root metadata, or up to 20 exact items from one collection. Revision and plan workspaces can also inspect the immutable source contract with sourceRoot or sourceCollection. Use this after resume or compaction and whenever the current workspace revision is uncertain.",
-		inputSchema: strictWireOnly(inspectDesignWorkspaceInputSchema),
+		inputSchema: strictWireWithHandles(inspectDesignWorkspaceInputSchema),
 		strict: true,
 		execute: async (input: unknown) => {
-			const parsed = parseStage(inspectDesignWorkspaceInputSchema, input);
+			const strippedInput = stripNullProperties(input);
+			const parsed = parseHandledStage(
+				inspectDesignWorkspaceInputSchema,
+				strippedInput,
+				deps.designSessionId,
+			);
 			if (!parsed.ok) return { error: parsed.error };
 			const gates = await gatesFor(deps);
 			const refusal = refuse(
@@ -457,18 +872,38 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					authority: deps.authority,
 					expectedRevision: parsed.data.expectedRevision,
 				});
+				const unboundHandleIssue = designUnboundHandleIssue(
+					strippedInput,
+					state.handleBindings,
+					state.candidate,
+					deps.designSessionId,
+					state.sourceContract,
+				);
+				if (unboundHandleIssue !== null) {
+					return {
+						error: unboundHandleIssue,
+						diagnostic: {
+							code: "design-unbound-handle",
+							validationStage: "partial" as const,
+							issueCount: 1,
+						},
+					};
+				}
 				return {
 					ok: true,
 					workspaceRevision: state.workspace.revision,
 					stepCount: state.operations.length,
-					view: inspectDesignWorkspaceCandidate({
-						kind: state.workspace.artifactKind,
-						candidate: state.candidate,
-						...(state.sourceContract !== null && {
-							sourceContract: state.sourceContract,
+					view: projectDesignIdentityHandles(
+						inspectDesignWorkspaceCandidate({
+							kind: state.workspace.artifactKind,
+							candidate: state.candidate,
+							...(state.sourceContract !== null && {
+								sourceContract: state.sourceContract,
+							}),
+							selection: parsed.data.selection,
 						}),
-						selection: parsed.data.selection,
-					}),
+						state.handleBindings,
+					),
 				};
 			} catch (error) {
 				const handled = workspaceError(error);
@@ -515,12 +950,13 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			}
 			const constructionIssues = designConstructionIssues(parsed.data);
 			if (constructionIssues.length > 0) {
-				const questions = designConstructionQuestions(
+				const requirements = designConstructionQuestionRequirements(
 					parsed.data,
 					constructionIssues,
 				);
-				if (questions !== null) {
-					deps.repair.requireUserQuestions(questions);
+				if (requirements !== null) {
+					const questions = requirements.map((question) => question.question);
+					deps.repair.requireUserQuestions(requirements);
 					return {
 						error: [
 							"The contract needs decisions from the user before it can be finalized.",
@@ -736,12 +1172,13 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			}
 			const constructionIssues = designConstructionIssues(parsed.data.contract);
 			if (constructionIssues.length > 0) {
-				const questions = designConstructionQuestions(
+				const requirements = designConstructionQuestionRequirements(
 					parsed.data.contract,
 					constructionIssues,
 				);
-				if (questions !== null) {
-					deps.repair.requireUserQuestions(questions);
+				if (requirements !== null) {
+					const questions = requirements.map((question) => question.question);
+					deps.repair.requireUserQuestions(requirements);
 					return {
 						error: [
 							"The revision needs decisions from the user before it can be accepted.",

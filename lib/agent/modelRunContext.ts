@@ -21,7 +21,10 @@
 import type { LanguageModel, LanguageModelUsage } from "ai";
 import type { z } from "zod";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
-import type { DesignBuildCostPhase } from "@/lib/db/usage";
+import type {
+	DesignBuildCostPhase,
+	DurableUsageIdentity,
+} from "@/lib/db/usage";
 import { strictStructuredSchema } from "./strictStructuredOutput";
 import {
 	type SubGenerationImage,
@@ -48,6 +51,20 @@ export interface StructuredModelRunArgs<T> {
  *  tokens accrue, the step counter does not move). */
 export interface SubGenerationUsageMeter {
 	track(
+		usage: {
+			inputTokens: number;
+			outputTokens: number;
+			cacheReadTokens?: number;
+			cacheWriteTokens?: number;
+		},
+		opts?: {
+			step?: boolean;
+			model?: string;
+			phase?: DesignBuildCostPhase;
+		},
+	): void;
+	trackDurable?(
+		identity: DurableUsageIdentity,
 		usage: {
 			inputTokens: number;
 			outputTokens: number;
@@ -136,4 +153,31 @@ export function meterSubGenerationUsage(
 		},
 		opts,
 	);
+}
+
+/** Meter a persisted provider response under its exact context/step identity.
+ * Production accumulators defer cross-process deduplication to the atomic run-
+ * summary write. Lightweight test meters without that extension retain the
+ * ordinary structural sink behavior. */
+export function meterDurableSubGenerationUsage(
+	meter: SubGenerationUsageMeter,
+	identity: DurableUsageIdentity,
+	usage: LanguageModelUsage,
+	opts: {
+		step?: boolean;
+		model?: string;
+		phase?: DesignBuildCostPhase;
+	} = {},
+): void {
+	const normalized = {
+		inputTokens: usage.inputTokens ?? 0,
+		outputTokens: usage.outputTokens ?? 0,
+		cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+		cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+	};
+	if (meter.trackDurable !== undefined) {
+		meter.trackDurable(identity, normalized, opts);
+		return;
+	}
+	meter.track(normalized, opts);
 }

@@ -27,6 +27,11 @@ export type SliceAttemptBudgetCounter =
 	| "commitAttempts"
 	| "blockerReports";
 
+export type SliceAttemptBudgetClaimResult =
+	| "claimed"
+	| "replayed"
+	| "exhausted";
+
 export interface SliceAttemptBudgetSpent {
 	readonly modelSteps: number;
 	readonly stagedRequests: number;

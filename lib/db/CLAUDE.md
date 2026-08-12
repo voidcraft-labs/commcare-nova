@@ -620,6 +620,11 @@ The reconnect endpoint resolves a GET id as stream-first, thread-second, so
 `useChat`'s `resumeStream({chatId: threadId})` reconnects a refreshed page
 to the in-flight run by thread id alone; a thread with nothing in flight
 answers a bare `finish` (the transport errors on any non-OK response).
+When that reconnect closes, the client performs one authoritative transcript
+heal through the app-scoped thread route, or through the owner-private
+`/api/design-sessions/{id}/threads/{threadId}` route before materialization.
+The latter also returns a newly bound app id so a completion race leaves the
+app-less shell and hydrates the canonical Blueprint from the app page.
 `updated_at` orders the list (a refresh opens the most recent thread);
 `thread_id` is the PK (client-minted uuid) with writers app-guarded so a
 forged id can't write across apps. Every POST sends the thread's FULL durable
@@ -897,6 +902,32 @@ different or missing source and different immutable ancestry supersede the open
 workspace. Per-call and cumulative per-POST bounds prevent runaway work
 without a persistent stage cliff that could strand a candidate after final
 validation.
+
+`design_model_contexts` is the mutable ordinal carrier for the exact private
+model transcript of each reviewed-design role. Its item and step children are
+append-only tenant data: model-visible bytes live only in
+`design_model_context_items`, while `design_model_steps` carries payload-free
+request/response evidence. A model, prompt, tool digest, or context-format
+change inserts the next linked generation and leaves the prior generation
+immutable; stale writers are rejected once that successor exists. Ordinary
+phase and workflow transitions append to the current generation rather than
+creating another context.
+
+`design_model_step_usage_accounts` is the exact-once bridge from a completed
+provider step to cost accounting. The response bytes and usage-bearing
+completion event commit together first. On request finalization, insertion of
+its `(context_id, step_key)` account, the cumulative `run_summaries` delta, and
+the `usage_months` dollar/token delta share one transaction. Recovery may offer
+the same completed response repeatedly; only the transaction that inserts its
+account includes that contribution. No timestamp or process-local watermark
+decides whether paid work counts. The transaction also returns the cumulative
+run cost; a zero-cost credit refund is legal only after that authoritative write
+succeeds and proves the complete run still has no paid work.
+
+`design_slice_attempt_budget_claims` is the append-only idempotency ledger for
+executor sub-budget units. The mutable attempt row is locked while one stable
+claim key is inserted and its matching counter advances; replay of that key
+returns the existing claim without incrementing the counter again.
 
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read

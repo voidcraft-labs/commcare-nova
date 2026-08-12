@@ -21,6 +21,8 @@ import {
 	rememberDesignBuildResumeEligibility,
 	retireProjectAttachmentRefs,
 	threadActivationNeedsIncompleteSeed,
+	threadResumeHealPath,
+	threadResumeHealTarget,
 } from "./ChatContainer";
 
 describe("interrupted-turn request routing", () => {
@@ -461,6 +463,26 @@ describe("new-app Project handoff", () => {
 				snapshotDigest: "not-a-digest",
 			}),
 		).toBeNull();
+	});
+});
+
+describe("post-resume transcript healing", () => {
+	it("uses the design-session authority before an app exists", () => {
+		const target = threadResumeHealTarget(undefined, "design-1");
+		expect(target).toEqual({ kind: "design-session", id: "design-1" });
+		if (target === null) throw new Error("Expected a design-session target.");
+		expect(threadResumeHealPath(target, "thread/1")).toBe(
+			"/api/design-sessions/design-1/threads/thread%2F1",
+		);
+	});
+
+	it("switches to the app authority after materialization", () => {
+		const target = threadResumeHealTarget("app-1", "design-1");
+		expect(target).toEqual({ kind: "app", id: "app-1" });
+		if (target === null) throw new Error("Expected an app target.");
+		expect(threadResumeHealPath(target, "thread-1")).toBe(
+			"/api/apps/app-1/threads/thread-1",
+		);
 	});
 });
 

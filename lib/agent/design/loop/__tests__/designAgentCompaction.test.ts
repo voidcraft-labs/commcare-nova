@@ -22,6 +22,7 @@ describe("design agent compaction checkpoint", () => {
 				content: `${DESIGN_STATE_MESSAGE_HEADING}\n\nworkspace revision 4`,
 			}),
 		);
+		const persist = vi.fn(async () => undefined);
 		const projected = await projectDesignStepMessages(
 			[
 				{ role: "user", content: "old request" },
@@ -29,6 +30,7 @@ describe("design agent compaction checkpoint", () => {
 				{ role: "assistant", content: "continuing" },
 			],
 			fresh,
+			persist,
 		);
 		expect(projected).toHaveLength(3);
 		expect(projected[0]).toMatchObject({ role: "assistant" });
@@ -37,9 +39,14 @@ describe("design agent compaction checkpoint", () => {
 			content: `${DESIGN_STATE_MESSAGE_HEADING}\n\nworkspace revision 4`,
 		});
 		expect(fresh).toHaveBeenCalledOnce();
+		expect(persist).toHaveBeenCalledOnce();
+		expect(persist).toHaveBeenCalledWith({
+			boundaryDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+			message: projected[2],
+		});
 	});
 
-	it("replaces a retained state checkpoint with current server state", async () => {
+	it("retains an authoritative state already appended after the checkpoint", async () => {
 		const fresh = vi.fn(
 			async (): Promise<ModelMessage> => ({
 				role: "user",
@@ -54,11 +61,7 @@ describe("design agent compaction checkpoint", () => {
 			[checkpoint, existingState, { role: "assistant", content: "next" }],
 			fresh,
 		);
-		expect(projected).not.toContainEqual(existingState);
-		expect(projected).toContainEqual({
-			role: "user",
-			content: DESIGN_STATE_MESSAGE_HEADING,
-		});
-		expect(fresh).toHaveBeenCalledOnce();
+		expect(projected).toContainEqual(existingState);
+		expect(fresh).not.toHaveBeenCalled();
 	});
 });

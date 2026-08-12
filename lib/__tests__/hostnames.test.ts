@@ -101,6 +101,12 @@ describe("isPathAllowedOnHost", () => {
 			isPathAllowedOnHost(HOSTNAMES.main, "/api/projectships/project-1"),
 		).toBe(false);
 	});
+	it("allows pre-app design-session recovery only on the main host", () => {
+		const path = "/api/design-sessions/design-1/threads/thread-1";
+		expect(isPathAllowedOnHost(HOSTNAMES.main, path)).toBe(true);
+		expect(isPathAllowedOnHost(HOSTNAMES.mcp, path)).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.docs, path)).toBe(false);
+	});
 	it("allows docs search only on the docs host", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/api/search")).toBe(true);
 		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/search")).toBe(false);

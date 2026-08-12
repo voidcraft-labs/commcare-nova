@@ -70,6 +70,7 @@ describe("deriveSliceExecutionBrief", () => {
 			revision: REVISION,
 			planId: ids.planId,
 		});
+		let stableToolFingerprint: string | undefined;
 		for (const [index, slice] of plan.slices.entries()) {
 			const brief = deriveSliceExecutionBrief({
 				contract,
@@ -90,20 +91,13 @@ describe("deriveSliceExecutionBrief", () => {
 				"reportExecutionBlocker",
 			]);
 			const projected = JSON.stringify(tools);
+			stableToolFingerprint ??= projected;
+			expect(projected).toBe(stableToolFingerprint);
 			for (const toolName of [
 				...brief.toolProfile.readTools,
 				...brief.toolProfile.mutationTools,
 			]) {
 				expect(projected).toContain(JSON.stringify(toolName));
-			}
-			for (const unrelated of [
-				"getLookupTables",
-				"listMediaAssets",
-				"getOrganization",
-				"getAutomations",
-				"addAutomations",
-			]) {
-				expect(projected).not.toContain(JSON.stringify(unrelated));
 			}
 			if (index > 0) {
 				expect(brief.toolProfile.blueprintAreas).not.toContain("users");

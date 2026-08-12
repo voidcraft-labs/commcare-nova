@@ -8,7 +8,11 @@ import {
 	readLatestAcceptedDesignRevision,
 	readLatestDesignBuildPlanForRevision,
 } from "@/lib/agent/design/artifactStore";
-import type { AppDesignContract } from "@/lib/agent/design/contract";
+import {
+	type AppDesignContract,
+	collectContractIds,
+} from "@/lib/agent/design/contract";
+import { designIdSchema } from "@/lib/agent/design/ids";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 import { DesignRepairTracker } from "@/lib/agent/design/loop/gates";
 import {
@@ -103,7 +107,7 @@ function correctionReview(): DesignReview {
 				dispositionClass: "design-correction",
 				claim: "The visit workflow needs explicit confirmation after save.",
 				evidenceRefs: [messageRef()],
-				affectedElementIds: [ids.taskVisit],
+				affectedElementIds: [resolvedFixtureId(ids.taskVisit)],
 				proposedResolution: "Confirm the saved visit summary.",
 			},
 		],
@@ -182,32 +186,78 @@ async function call(
 const COLLECTIONS = [
 	"actors",
 	"records",
+	"externalRequirements",
 	"workflows",
 	"lists",
 	"access",
 	"navigation",
-	"externalRequirements",
 	"decisions",
 	"assumptions",
 	"openQuestions",
 ] as const;
+
+function handleForFixtureId(id: string): string {
+	return `@design_${id.replaceAll("-", "").slice(-24)}`;
+}
+
+function resolvedFixtureId(id: string) {
+	return designIdSchema.parse(
+		deterministicDesignId(
+			`design-workspace-v1:${sessionId}:${handleForFixtureId(id)}`,
+		),
+	);
+}
+
+function projectFixtureIdentities(
+	value: unknown,
+	contract: AppDesignContract,
+	mode: "handles" | "resolved",
+): unknown {
+	const declared = collectContractIds(contract);
+	const visit = (entry: unknown): unknown => {
+		if (typeof entry === "string" && declared.has(entry)) {
+			return mode === "handles"
+				? { handle: handleForFixtureId(entry) }
+				: resolvedFixtureId(entry);
+		}
+		if (Array.isArray(entry)) return entry.map(visit);
+		if (entry === null || typeof entry !== "object") return entry;
+		return Object.fromEntries(
+			Object.entries(entry).map(([key, nested]) => [key, visit(nested)]),
+		);
+	};
+	return visit(value);
+}
+
+function modelContract(contract: AppDesignContract) {
+	return projectFixtureIdentities(contract, contract, "handles") as never;
+}
+
+function resolvedContract(contract: AppDesignContract): AppDesignContract {
+	return projectFixtureIdentities(
+		contract,
+		contract,
+		"resolved",
+	) as AppDesignContract;
+}
 
 async function stageWholeContract(
 	tools: ReturnType<typeof createDesignLoopTools>,
 	contract: AppDesignContract,
 	startRevision = 0,
 ): Promise<number> {
+	const projected = modelContract(contract) as AppDesignContract;
 	let revision = startRevision;
 	if (revision === 0) {
 		const root = await call(tools.stageContract, {
 			expectedRevision: revision,
-			root: { id: contract.id, charter: contract.charter },
+			root: { id: projected.id },
 			collections: [],
 		});
 		revision = Number(root.workspaceRevision);
 	}
 	for (const collection of COLLECTIONS) {
-		const items = contract[collection];
+		const items = projected[collection];
 		if (items.length === 0) continue;
 		const staged = await call(tools.stageContract, {
 			expectedRevision: revision,
@@ -215,6 +265,12 @@ async function stageWholeContract(
 		});
 		revision = Number(staged.workspaceRevision);
 	}
+	const charter = await call(tools.stageContract, {
+		expectedRevision: revision,
+		root: { charter: projected.charter },
+		collections: [],
+	});
+	revision = Number(charter.workspaceRevision);
 	return revision;
 }
 
@@ -248,14 +304,7 @@ describe("staged design loop", () => {
 		const tools = mount(pkg);
 		const result = await call(tools.stageContract, {
 			expectedRevision: 0,
-			root: {
-				id: { handle: "@contract" },
-				charter: {
-					...makeContract().charter,
-					includedWorkflowIds: [{ handle: "@register" }],
-					initialWorkflowId: { handle: "@register" },
-				},
-			},
+			root: { id: { handle: "@contract" } },
 			collections: [],
 		});
 		expect(result).toMatchObject({ ok: true, workspaceRevision: 1 });
@@ -265,9 +314,107 @@ describe("staged design loop", () => {
 			selection: { kind: "root" },
 		});
 		const root = (inspected.view as { root: Record<string, unknown> }).root;
-		expect(root.id).toBe(
-			deterministicDesignId(`design-workspace-v1:${sessionId}:@contract`),
-		);
+		expect(root.id).toEqual({ handle: "@contract" });
+
+		const contract = makeContract();
+		const sourceRecord = fixtureValue(contract.records[0], "first record");
+		const record = (modelContract(contract) as AppDesignContract).records[0];
+		if (record === undefined) throw new Error("record fixture missing");
+		const stagedRecord = await call(tools.stageContract, {
+			expectedRevision: 1,
+			collections: [
+				{ collection: "records", upserts: [record], removeIds: [] },
+			],
+		});
+		expect(stagedRecord).toMatchObject({ ok: true, workspaceRevision: 2 });
+		const inspectedRecord = await call(tools.inspectDesignWorkspace, {
+			artifactKind: "contract",
+			expectedRevision: 2,
+			selection: {
+				kind: "collection",
+				collection: "records",
+				ids: [{ handle: handleForFixtureId(sourceRecord.id) }],
+				offset: 0,
+				limit: 20,
+			},
+		});
+		expect(inspectedRecord).toMatchObject({
+			ok: true,
+			view: {
+				kind: "collection",
+				collection: "records",
+				total: 1,
+				items: [{ id: { handle: handleForFixtureId(sourceRecord.id) } }],
+			},
+		});
+		expect(
+			await call(tools.inspectDesignWorkspace, {
+				artifactKind: "contract",
+				expectedRevision: 2,
+				selection: {
+					kind: "collection",
+					collection: "records",
+					ids: [{ handle: "@not_declared" }],
+					offset: 0,
+					limit: 20,
+				},
+			}),
+		).toMatchObject({
+			diagnostic: { code: "design-unbound-handle", issueCount: 1 },
+		});
+	});
+
+	it("rejects raw new UUID declarations and undeclared symbolic references", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const tools = mount(pkg);
+		const raw = await call(tools.stageContract, {
+			expectedRevision: 0,
+			root: { id: did(999) },
+			collections: [],
+		});
+		expect(raw).toMatchObject({
+			diagnostic: { code: "design-creation-handle-required", issueCount: 1 },
+		});
+		const unbound = await call(tools.stageContract, {
+			expectedRevision: 0,
+			root: {
+				id: { handle: "@contract" },
+				charter: {
+					...makeContract().charter,
+					includedWorkflowIds: [{ handle: "@undeclared_workflow" }],
+					initialWorkflowId: { handle: "@undeclared_workflow" },
+				},
+			},
+			collections: [],
+		});
+		expect(unbound).toMatchObject({
+			diagnostic: { code: "design-unbound-handle", issueCount: 1 },
+		});
+		const unknownReference = await call(tools.stageContract, {
+			expectedRevision: 0,
+			root: {
+				id: { handle: "@contract" },
+				charter: {
+					...makeContract().charter,
+					includedWorkflowIds: [did(998)],
+					initialWorkflowId: did(998),
+				},
+			},
+			collections: [],
+		});
+		expect(unknownReference).toMatchObject({
+			diagnostic: { code: "design-creation-handle-required", issueCount: 1 },
+		});
+		expect(unknownReference.error).toContain("unknown raw design UUID");
+
+		const unknownRemoval = await call(tools.stageContract, {
+			expectedRevision: 0,
+			collections: [
+				{ collection: "records", upserts: [], removeIds: [did(997)] },
+			],
+		});
+		expect(unknownRemoval.error).toContain("unknown raw design UUID");
 	});
 
 	it("rejects duplicate declaration identities before they enter the workspace ledger", async () => {
@@ -275,22 +422,31 @@ describe("staged design loop", () => {
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
 		const contract = makeContract();
+		const projected = modelContract(contract) as AppDesignContract;
 		const root = await call(tools.stageContract, {
 			expectedRevision: 0,
-			root: { id: contract.id, charter: contract.charter },
+			root: { id: projected.id },
 			collections: [],
 		});
 		const baseRecord = fixtureValue(contract.records[0], "first record");
 		const collidingRecords = Array.from({ length: 6 }, (_, index) => {
-			const id = did(1000 + index);
+			const identity = { handle: `@collision_${index}` };
 			return {
-				...baseRecord,
-				id,
+				...(projectFixtureIdentities(
+					baseRecord,
+					contract,
+					"handles",
+				) as object),
+				id: identity,
 				name: `record_${index}`,
 				properties: [
 					{
-						...fixtureValue(baseRecord.properties[0], "first property"),
-						id,
+						...(projectFixtureIdentities(
+							fixtureValue(baseRecord.properties[0], "first property"),
+							contract,
+							"handles",
+						) as object),
+						id: identity,
 						name: `property_${index}`,
 					},
 				],
@@ -310,7 +466,7 @@ describe("staged design loop", () => {
 			diagnostic: {
 				code: "design-partial-identity-rejected",
 				validationStage: "partial",
-				issueCount: 6,
+				issueCount: 1,
 			},
 		});
 		const inspected = await call(tools.inspectDesignWorkspace, {
@@ -342,7 +498,7 @@ describe("staged design loop", () => {
 		);
 		const root = await call(tools.stageContract, {
 			expectedRevision: 0,
-			root: { id: contract.id, charter: contract.charter },
+			root: { id: (modelContract(contract) as AppDesignContract).id },
 			collections: [],
 		});
 		const firstSubmission = await call(tools.submitContract, {
@@ -390,9 +546,21 @@ describe("staged design loop", () => {
 			),
 			authority: authority(),
 		});
-		expect(recovered).toEqual(
+		expect(recovered.map((question) => question.question)).toEqual(
 			(needsInput.needsUserInput as { questions: string[] }).questions,
 		);
+		expect(
+			await call(tools.stageContract, {
+				expectedRevision: completeRevision,
+				collections: [],
+			}),
+		).toMatchObject({
+			diagnostic: {
+				code: "design-required-question-pending",
+				validationStage: "construction",
+				issueCount: 7,
+			},
+		});
 	});
 
 	it("keeps an invalid candidate open so only missing collections are added", async () => {
@@ -400,9 +568,10 @@ describe("staged design loop", () => {
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
 		const contract = makeContract();
+		const projected = modelContract(contract) as AppDesignContract;
 		const root = await call(tools.stageContract, {
 			expectedRevision: 0,
-			root: { id: contract.id, charter: contract.charter },
+			root: { id: projected.id },
 			collections: [],
 		});
 		expect(
@@ -425,6 +594,7 @@ describe("staged design loop", () => {
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg, correctionReview);
 		const contract = makeContract();
+		const resolved = resolvedContract(contract);
 		const contractRevision = await stageWholeContract(tools, contract);
 		await call(tools.submitContract, { expectedRevision: contractRevision });
 		expect(await call(tools.requestReview)).toMatchObject({ accepted: false });
@@ -435,8 +605,8 @@ describe("staged design loop", () => {
 					collection: "workflows",
 					upserts: [
 						{
-							...fixtureValue(contract.workflows[1], "second workflow"),
-							id: fixtureValue(contract.records[0], "first record").id,
+							...fixtureValue(resolved.workflows[1], "second workflow"),
+							id: fixtureValue(resolved.records[0], "first record").id,
 						},
 					],
 					removeIds: [],
@@ -452,12 +622,12 @@ describe("staged design loop", () => {
 		});
 
 		const workflow = {
-			...fixtureValue(contract.workflows[1], "second workflow"),
+			...fixtureValue(resolved.workflows[1], "second workflow"),
 			readback: [
 				{
-					recordId: ids.recVisit,
+					recordId: resolvedFixtureId(ids.recVisit),
 					purpose: "Confirm the visit was saved",
-					propertyIds: [ids.factVisitSummary],
+					propertyIds: [resolvedFixtureId(ids.factVisitSummary)],
 				},
 			],
 		};
@@ -484,7 +654,7 @@ describe("staged design loop", () => {
 			}),
 		).toMatchObject({ ok: true, accepted: true });
 		const accepted = await readLatestAcceptedDesignRevision(sessionId);
-		expect(accepted?.envelope.payload.actors).toEqual(contract.actors);
+		expect(accepted?.envelope.payload.actors).toEqual(resolved.actors);
 		if (accepted?.parentRevisionId === null || accepted === null)
 			throw new Error("accepted revision parent missing");
 		expect(await readDesignReviews(accepted.parentRevisionId)).toHaveLength(1);
@@ -494,9 +664,10 @@ describe("staged design loop", () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
+		const projected = modelContract(makeContract()) as AppDesignContract;
 		const input = {
 			expectedRevision: 0,
-			root: { id: makeContract().id, charter: makeContract().charter },
+			root: { id: projected.id },
 			collections: [],
 		};
 		const first = await call(tools.stageContract, input, "same-call");

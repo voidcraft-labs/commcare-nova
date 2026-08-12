@@ -15,7 +15,6 @@
  * try/catch — if Postgres is down, the read fails → 503. No separate retry or
  * pending mechanism: an outage that blocks writes also blocks reads.
  */
-import { sql } from "kysely";
 import { log } from "@/lib/logger";
 import {
 	DEFAULT_PRICING,
@@ -26,7 +25,10 @@ import { refundDesignSessionReservation, refundReservation } from "./credits";
 import type { GenerationTarget } from "./generationTargets";
 import { getCurrentPeriod } from "./period";
 import { getAppDb } from "./pg";
-import { writeRunSummary } from "./runSummary";
+import {
+	type DurableRunSummaryContribution,
+	writeRunSummaryWithDurableContributions,
+} from "./runSummary";
 import type { RunSummaryDoc, UsageDoc } from "./types";
 
 /** Paid design-build phases that need their own aggregate in the final run
@@ -82,54 +84,6 @@ export async function getMonthlyUsage(
 	};
 }
 
-// ── Write ─────────────────────────────────────────────────────────
-
-/** Deltas to add to the usage row after a request completes. */
-interface UsageIncrement {
-	input_tokens: number;
-	output_tokens: number;
-	cost_estimate: number;
-}
-
-/**
- * Accumulate the current month's usage counters for a user. Single attempt,
- * throws on failure — consistent with every other write here. The pre-request
- * backstop check (read) is the fail-closed gate; if Postgres is down for
- * writes, it's down for reads too, and the route returns 503.
- *
- * One `INSERT ... ON CONFLICT (user_id, period) DO UPDATE` seeds the row on the
- * first request of a new month and otherwise adds this request's deltas
- * (`request_count + 1`) to the stored totals in the same statement — so there
- * is no separate create path and no read-then-write race.
- */
-export async function incrementUsage(
-	userId: string,
-	deltas: UsageIncrement,
-): Promise<void> {
-	const db = await getAppDb();
-	await db
-		.insertInto("usage_months")
-		.values({
-			user_id: userId,
-			period: getCurrentPeriod(),
-			input_tokens: deltas.input_tokens,
-			output_tokens: deltas.output_tokens,
-			cost_estimate: deltas.cost_estimate,
-			request_count: 1,
-			updated_at: new Date(),
-		})
-		.onConflict((oc) =>
-			oc.columns(["user_id", "period"]).doUpdateSet({
-				input_tokens: sql<number>`usage_months.input_tokens + excluded.input_tokens`,
-				output_tokens: sql<number>`usage_months.output_tokens + excluded.output_tokens`,
-				cost_estimate: sql<number>`usage_months.cost_estimate + excluded.cost_estimate`,
-				request_count: sql<number>`usage_months.request_count + 1`,
-				updated_at: new Date(),
-			}),
-		)
-		.execute();
-}
-
 // ── Cost estimation ───────────────────────────────────────────────
 
 /**
@@ -145,7 +99,7 @@ export async function incrementUsage(
  *
  * `uncachedInput` is floored at zero: if a caller mis-reports cache tokens
  * such that the sum exceeds `inputTokens`, a negative uncached count would
- * flow into the monthly `incrementUsage` accumulation and corrupt the
+ * flow into the monthly usage accumulation and corrupt the
  * dollar counter (and misreport the run summary). Clamp here rather than
  * trust the source.
  *
@@ -189,6 +143,11 @@ interface LLMCallUsage {
 	outputTokens: number;
 	cacheReadTokens?: number;
 	cacheWriteTokens?: number;
+}
+
+export interface DurableUsageIdentity {
+	readonly contextId: string;
+	readonly stepKey: string;
 }
 
 /**
@@ -308,6 +267,10 @@ export class UsageAccumulator {
 	>();
 	private stepCount = 0;
 	private toolCallCount = 0;
+	private readonly durableContributions = new Map<
+		string,
+		DurableRunSummaryContribution
+	>();
 	private _finalized = false;
 	/* Flipped by `markRunFailed` when the run broke the app. A failed run still
 	 * accrues its dollar cost (the backstop must see retry spam) but hands
@@ -388,6 +351,42 @@ export class UsageAccumulator {
 		if (opts.step) this.stepCount++;
 	}
 
+	/** Register usage from a response whose durable model-step identity can be
+	 * replayed after process replacement. Local repeats are ignored here; cross-
+	 * process and overlapping-POST repeats are admitted exactly once by the
+	 * run-summary transaction at flush. */
+	trackDurable(
+		identity: DurableUsageIdentity,
+		usage: LLMCallUsage,
+		opts: {
+			step?: boolean;
+			model?: string;
+			phase?: DesignBuildCostPhase;
+		} = {},
+	): void {
+		const key = `${identity.contextId}\u0000${identity.stepKey}`;
+		if (this.durableContributions.has(key)) return;
+		const model = opts.model ?? this.seed.model;
+		const contribution: DurableRunSummaryContribution = {
+			contextId: identity.contextId,
+			stepKey: identity.stepKey,
+			stepCount: opts.step ? 1 : 0,
+			inputTokens: usage.inputTokens,
+			outputTokens: usage.outputTokens,
+			cacheReadTokens: usage.cacheReadTokens ?? 0,
+			cacheWriteTokens: usage.cacheWriteTokens ?? 0,
+			costEstimate: estimateCost(
+				model,
+				usage.inputTokens,
+				usage.outputTokens,
+				usage.cacheReadTokens ?? 0,
+				usage.cacheWriteTokens ?? 0,
+			),
+		};
+		this.durableContributions.set(key, contribution);
+		this.track(usage, opts);
+	}
+
 	/** Numeric, model-id-only decomposition for cost investigations. */
 	costBreakdown(): Record<
 		string,
@@ -465,10 +464,10 @@ export class UsageAccumulator {
 	 * - Run summary is always written (awaited, transactional), even on
 	 *   zero-cost edit replays, so inspect tools have a row to display
 	 *   and multi-turn threads accumulate correctly.
-	 * - Monthly increment fires whenever there was real cost — failed runs
-	 *   included. The dollar spend always accrues so the backstop sees
-	 *   retry spam from a user hammering a broken app. (Zero-cost runs skip it:
-	 *   `incrementUsage` would bump `request_count` without matching spend.)
+	 * - Monthly accumulation fires whenever there was real cost — failed runs
+	 *   included. The dollar spend always accrues so the backstop sees retry
+	 *   spam from a user hammering a broken app. Zero-cost runs leave the monthly
+	 *   row untouched.
 	 * - Credit refund fires when a reservation was booked AND the run did no
 	 *   billable work — it FAILED (broke the app) or produced zero cost. These
 	 *   two are INDEPENDENT decisions: a failed run with real cost both accrues
@@ -476,17 +475,43 @@ export class UsageAccumulator {
 	 *   the period CAPTURED at reservation (`chargePeriod`), not the period at
 	 *   flush time, so a flush that crosses midnight un-books the right month.
 	 *
-	 * All three writes swallow their own errors (fire-and-forget semantics from
-	 * the caller's perspective) so finalization never blocks on observability
-	 * failures.
+	 * The summary and monthly counters share one transaction. Their writer and
+	 * the independent refund writer swallow their own errors so finalization
+	 * never blocks on observability failures.
 	 */
 	async flush(): Promise<void> {
 		if (this._finalized) return;
 		this._finalized = true;
 
 		const snap = this.snapshot();
-		const summary: RunSummaryDoc = {
+		const durableContributions = [...this.durableContributions.values()];
+		const durableTotals = durableContributions.reduce(
+			(total, contribution) => ({
+				stepCount: total.stepCount + contribution.stepCount,
+				inputTokens: total.inputTokens + contribution.inputTokens,
+				outputTokens: total.outputTokens + contribution.outputTokens,
+				cacheReadTokens: total.cacheReadTokens + contribution.cacheReadTokens,
+				cacheWriteTokens:
+					total.cacheWriteTokens + contribution.cacheWriteTokens,
+				costEstimate: total.costEstimate + contribution.costEstimate,
+			}),
+			{
+				stepCount: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				costEstimate: 0,
+			},
+		);
+		const baseSummary: RunSummaryDoc = {
 			...snap,
+			stepCount: snap.stepCount - durableTotals.stepCount,
+			inputTokens: snap.inputTokens - durableTotals.inputTokens,
+			outputTokens: snap.outputTokens - durableTotals.outputTokens,
+			cacheReadTokens: snap.cacheReadTokens - durableTotals.cacheReadTokens,
+			cacheWriteTokens: snap.cacheWriteTokens - durableTotals.cacheWriteTokens,
+			costEstimate: Math.max(0, snap.costEstimate - durableTotals.costEstimate),
 			finishedAt: new Date().toISOString(),
 		};
 
@@ -495,33 +520,35 @@ export class UsageAccumulator {
 		 * errors, so we don't wrap in try/catch here. The returned action
 		 * (created / incremented / overwritten / failed) feeds the finalize
 		 * log below — an `overwritten` is a silent clobber worth seeing. */
-		const summaryAction = await writeRunSummary(
+		const summaryWrite = await writeRunSummaryWithDurableContributions(
 			this.seed.target,
 			this.seed.runId,
-			summary,
+			baseSummary,
+			durableContributions,
+			{
+				userId: this.seed.userId,
+				period: getCurrentPeriod(),
+			},
 		);
-
-		// Branch 1 — dollar spend. Accrues whenever the SA ran (including a
-		// failed run, so the dollar backstop counts retry spam). Independent
-		// of the refund below.
-		if (summary.costEstimate > 0) {
-			try {
-				await incrementUsage(this.seed.userId, {
-					input_tokens: summary.inputTokens,
-					output_tokens: summary.outputTokens,
-					cost_estimate: summary.costEstimate,
-				});
-			} catch (err) {
-				log.error("[UsageAccumulator] monthly increment failed", err, {
-					userId: this.seed.userId,
-				});
-			}
+		const summary = { ...baseSummary };
+		for (const contribution of summaryWrite.admittedContributions) {
+			summary.stepCount += contribution.stepCount;
+			summary.inputTokens += contribution.inputTokens;
+			summary.outputTokens += contribution.outputTokens;
+			summary.cacheReadTokens += contribution.cacheReadTokens;
+			summary.cacheWriteTokens += contribution.cacheWriteTokens;
+			summary.costEstimate += contribution.costEstimate;
 		}
+		const summaryAction = summaryWrite.action;
 
 		// Branch 2 — credit refund. Only when a reservation was booked
 		// (`didReserve`, with its amount + period) AND the run earned nothing
 		// chargeable — it failed or produced zero cost. The `didReserve` gate
 		// stops a free continuation (which never reserved) from phantom-refunding.
+		// A zero-cost refund requires the transaction's authoritative cumulative
+		// run total. The process-local delta is insufficient: another overlapping
+		// finalizer may already have admitted the same durable response, and a
+		// failed accounting transaction proves nothing about whether work was paid.
 		// `refundReason` is computed (not just a boolean) so the finalize log can
 		// distinguish a legitimate failed-run refund from a `zero-cost` refund,
 		// which on a run that actually did work is the wrong-refund symptom of a
@@ -534,7 +561,7 @@ export class UsageAccumulator {
 			? null
 			: this._runFailed
 				? "run-failed"
-				: summary.costEstimate === 0
+				: summaryWrite.runCostEstimate === 0
 					? "zero-cost"
 					: null;
 		if (
@@ -594,6 +621,7 @@ export class UsageAccumulator {
 			cacheReadTokens: summary.cacheReadTokens,
 			cacheWriteTokens: summary.cacheWriteTokens,
 			costEstimate: summary.costEstimate,
+			runCostEstimate: summaryWrite.runCostEstimate,
 			modelCosts: this.costBreakdown(),
 			phaseCosts: this.phaseBreakdown(),
 			summaryAction,
@@ -609,7 +637,8 @@ export class UsageAccumulator {
 			refunded: refundReason !== null && !this._refundFailed,
 			refundReason,
 			refundFailed: this._refundFailed,
-			accruedCost: summary.costEstimate > 0,
+			accruedCost: summaryWrite.monthlyUsageAccrued,
+			accountingFailed: summaryAction === "failed",
 			sentMessageCount: this.seed.sentMessageCount,
 			sentMessageChars: this.seed.sentMessageChars,
 		});

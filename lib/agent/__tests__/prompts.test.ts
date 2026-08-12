@@ -190,87 +190,56 @@ describe("buildAppStateMessage", () => {
 });
 
 describe("markStablePrefixBoundary", () => {
-	const BREAKPOINT = {
-		openai: { promptCacheBreakpoint: { mode: "explicit" } },
-	};
-
-	/** Collect every marker location as "index:role:partType" strings. */
-	function markerLocations(messages: ModelMessage[]): string[] {
-		return messages.flatMap((m, i) => [
-			...(m.providerOptions ? [`${i}:${m.role}:message`] : []),
-			...(Array.isArray(m.content)
-				? m.content.flatMap((p) =>
-						(p as { providerOptions?: unknown }).providerOptions
-							? [`${i}:${m.role}:${p.type}`]
-							: [],
-					)
-				: []),
-		]);
-	}
-
-	it("marks the FINAL user message — the next turn replays it verbatim", () => {
-		/* NOT the assistant message or an earlier user turn: the final user
-		 * message is the deepest byte-stable point (only the volatile tail
-		 * follows it), and the Responses wire can carry the marker on user
-		 * text parts — assistant `output_text` items have no slot. */
+	it("marks a request-local copy of the final user item", () => {
 		const messages: ModelMessage[] = [
-			{ role: "system", content: "SYSTEM" },
-			{ role: "user", content: [{ type: "text", text: "u1" }] },
-			{ role: "assistant", content: [{ type: "text", text: "a1" }] },
-			{ role: "user", content: [{ type: "text", text: "new question" }] },
+			{ role: "user", content: [{ type: "text", text: "first" }] },
+			{ role: "assistant", content: [{ type: "text", text: "answer" }] },
+			{ role: "user", content: [{ type: "text", text: "next" }] },
 		];
 		const marked = markStablePrefixBoundary(messages);
-		expect(markerLocations(marked)).toEqual(["3:user:text"]);
-		const content = marked[3]?.content as Array<{ providerOptions?: unknown }>;
-		expect(content[0]?.providerOptions).toEqual(BREAKPOINT);
-		// Inputs are never mutated — the base array is reused across retries.
-		expect(markerLocations(messages)).toEqual([]);
+		const markedPart = Array.isArray(marked[2]?.content)
+			? marked[2].content[0]
+			: undefined;
+		expect(
+			markedPart !== undefined && "providerOptions" in markedPart
+				? markedPart.providerOptions
+				: undefined,
+		).toEqual({
+			openai: { promptCacheBreakpoint: { mode: "explicit" } },
+		});
+		const originalPart = Array.isArray(messages[2]?.content)
+			? messages[2].content[0]
+			: undefined;
+		expect(
+			originalPart !== undefined && "providerOptions" in originalPart
+				? originalPart.providerOptions
+				: undefined,
+		).toBeUndefined();
 	});
 
-	it("marks a lone opening message — the first post of a thread writes a readable entry", () => {
-		/* The pattern that cost prod its first cross-POST reads: a fresh
-		 * thread's turn 1 has ONLY its own user message. Marking it is what
-		 * gives turn 2 an entry to read. */
-		const messages: ModelMessage[] = [
-			{ role: "system", content: "SYSTEM" },
-			{ role: "user", content: [{ type: "text", text: "only question" }] },
-		];
-		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
-			"1:user:text",
-		]);
-	});
-
-	it("walks past unmarkable trailing messages (tool results, assistant turns) to the nearest user message", () => {
-		// A continuation prompt ends with assistant/tool messages — the wire
-		// can't mark those, so the marker lands on the turn's user message.
-		const messages: ModelMessage[] = [
-			{ role: "system", content: "SYSTEM" },
-			{ role: "user", content: [{ type: "text", text: "u1" }] },
-			{ role: "assistant", content: [{ type: "text", text: "a1" }] },
+	it("walks past unmarkable assistant and tool items", () => {
+		const marked = markStablePrefixBoundary([
+			{ role: "user", content: [{ type: "text", text: "question" }] },
+			{ role: "assistant", content: [{ type: "text", text: "answer" }] },
 			{
 				role: "tool",
 				content: [
 					{
 						type: "tool-result",
-						toolCallId: "t1",
-						toolName: "askQuestions",
+						toolCallId: "call-1",
+						toolName: "probe",
 						output: { type: "json", value: {} },
 					},
 				],
 			},
-		];
-		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
-			"1:user:text",
 		]);
-	});
-
-	it("falls back to the system message when no user message exists", () => {
-		const messages: ModelMessage[] = [
-			{ role: "system", content: "SYSTEM" },
-			{ role: "assistant", content: [{ type: "text", text: "a1" }] },
-		];
-		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
-			"0:system:message",
-		]);
+		const part = Array.isArray(marked[0]?.content)
+			? marked[0].content[0]
+			: undefined;
+		expect(
+			part !== undefined && "providerOptions" in part
+				? part.providerOptions
+				: undefined,
+		).toBeDefined();
 	});
 });

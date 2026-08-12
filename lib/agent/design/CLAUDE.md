@@ -15,8 +15,10 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
 
 - `ids.ts` defines `DesignId`, a UUID brand separate from Blueprint `Uuid`.
   The design loop's model-facing tools also accept short `@handle` objects;
-  the server resolves them deterministically inside the current design session
-  before the unchanged UUID-only persisted schemas parse the candidate.
+  the server binds declarations transactionally in a session-scoped durable
+  ledger, refuses undeclared references and invented raw UUID declarations,
+  and resolves symbols before the unchanged UUID-only schemas parse. State and
+  inspection project every bound identity back through its handle.
 - `contract.ts` is the schema-version-1 Design Contract. `graph.ts` runs inside
   parsing and proves global identity uniqueness, reference closure, workflow
   ownership, property/record coherence, navigation closure, charter coverage,
@@ -93,8 +95,8 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
 
 ## Phase protocol
 
-`loop/` runs a server-governed protocol with a fresh model context for each
-semantic phase:
+`loop/` runs one durable append-only model context through these
+server-governed semantic phases:
 
 1. `author` asks only material questions and submits a complete contract.
 2. `review` runs the independent reviewer against the exact source package,
@@ -104,29 +106,69 @@ semantic phase:
 4. The server accepts a clean revision and derives its build plan without a
    planner model call.
 
-Each phase mounts only its legal tools. Contract and revision candidates use a
-durable identity-addressed workspace; bounded stage calls survive interruption,
-and the small submit call replays and validates the whole candidate before one
-immutable artifact insert. `inspectDesignWorkspace` reads selected exact state
-when a model needs it. Provider parallel tool calls are disabled because the
-workspace revision protocol is ordered.
+The same immutable seven-tool grammar is mounted in every phase so a phase
+transition never changes provider context. Durable gates refuse calls that are
+not currently legal. Contract and revision candidates use a durable identity-
+addressed workspace; bounded stage calls survive interruption, and the small
+submit call replays and validates the whole candidate before one immutable
+artifact insert. `inspectDesignWorkspace` reads selected exact state when a
+model needs it. Provider parallel tool calls are disabled because the workspace
+revision protocol is ordered.
 
 Finalization rejections are tracked by validation stage and stable diagnostic
 fingerprint. Reaching a later stage or receiving changed diagnostics is real
 progress; an exact repeat stops after two attempts and any third rejection
 stops as a classified internal defect. When every construction issue is an
 open question already authored in the candidate, it does not consume that
-repair budget. The server derives those exact questions and forces the next
-model step to call only `askQuestions`, in rounds of at most five, before any
-more staging or finalization can occur.
+repair budget. The server derives those exact questions, appends them as an
+authoritative message, and refuses further design staging until an exact
+`askQuestions` round of at most five is answered. That answered round remains
+valid across every bounded stage needed to apply it because the private context
+ledger records a server-only authorization key for the entire exact pending
+sequence. Authorization binds each question's durable id, structural scope,
+related element ids, exact prose, and the accepted `askQuestions` tool-call id;
+identical prose on a later question cannot inherit an old answer. That sequence
+may retain an answered prefix while bounded stages apply it, but a newly
+introduced or reordered question cannot inherit the old authorization.
+Transcript text cannot authorize a subset. If a clean model step omits the
+required call, the server appends correction guidance and redrives internally
+without changing the tool grammar or asking the user to resend. Once none of
+the asked prefix remains pending, the next batch requires its own authorization
+and answer.
 
-`designAgent.ts` owns the phase-specific agents and compaction preparation.
-When compaction occurs, stale state packets are removed and a fresh bounded
-server-authored packet for the exact workspace revision is appended. The
-checkpoint need not remember staged candidate content: the model can inspect
-the durable workspace. `designLoopRunner.ts` advances phases inside one outer
-user stream and reconstructs each next phase from persisted artifacts rather
-than a growing transcript.
+`designAgent.ts` owns the one stable agent grammar and compaction preparation.
+The ordinary history and every complete step response append to
+`design_model_context_items` atomically with its usage-bearing
+`design_model_steps` completion event; the step ledger brackets provider calls
+with payload-free request/response evidence. A durable provider-call start
+consumes the design step budget even when infrastructure interrupts its
+response, and recovery derives prior spend from those starts before another
+request is allowed. Every browser user turn
+absent from the private context, including an answered client-side question
+result, is reconciled in transcript order on its later POST. A persisted
+question call whose client card never reached that transcript receives an
+explicit interrupted result before redrive; the closure is never treated as a
+user answer. Every completed-step usage record from the exact recovered run is
+registered in the replacement meter; the durable `(context, step)` accounting
+ledger admits it exactly once into the run and monthly totals, including across
+overlapping recovery. Recovery does not re-emit that historical step's live
+usage, tool, text, or reasoning events. Already finalized turns and other
+instructions stay charged exactly where they were. Automatic provider
+compaction is the only operation allowed to replace a prefix; Nova durably
+appends an exact server state packet after the boundary before the next provider
+request, without deleting retained suffix items. The durable workspace remains
+authority and supports bounded inspection. `designLoopRunner.ts`
+advances phases by appending exact durable state, not by reconstructing phase
+prompts.
+
+A real deployment change to the pinned model, prompt, tool digest, or context
+format creates a new context generation linked to the immutable prior one.
+Provider-call spend is session-wide across that immutable generation chain, so
+a contract rollover cannot reset the design budget. Server-only question-card
+provenance also remains readable across the chain even though model messages
+reseed into the successor. That exceptional rollover reseeds from the complete
+browser transcript and durable workspace; it never mutates old messages or
+leaves the session permanently unable to resume.
 
 `gates.ts` decides legality only from durable artifact ancestry and persisted
 review counts. A second review is required only for unresolved critical risk,

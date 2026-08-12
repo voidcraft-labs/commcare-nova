@@ -17,6 +17,7 @@
 
 import { sql } from "kysely";
 import type {
+	SliceAttemptBudgetClaimResult,
 	SliceAttemptBudgetCounter,
 	SliceAttemptBudgetSpent,
 } from "@/lib/agent/build/budgets";
@@ -720,52 +721,90 @@ const BUDGET_COUNTER_COLUMNS: Readonly<
 };
 
 /** Claim one unit before starting the corresponding external or canonical
- * operation. The row update is the crash boundary: a recovered process sees
- * the unit as spent even when the prior process died before receiving its
- * response. */
+ * operation. `claimKey` names the exact model call or batch operation, so a
+ * recovered process can replay that work without consuming a second unit.
+ * The attempt row lock, counter advance, and append-only claim row are one
+ * transaction. */
 export async function claimSliceAttemptBudget(
 	args: SliceAttemptAuthority & {
 		readonly designSessionId: string;
 		readonly attemptId: string;
 		readonly counter: SliceAttemptBudgetCounter;
 		readonly limit: number;
+		readonly claimKey: string;
 	},
-): Promise<boolean> {
+): Promise<SliceAttemptBudgetClaimResult> {
 	if (!Number.isSafeInteger(args.limit) || args.limit < 0) {
 		throw new Error(
 			"A slice-attempt budget limit must be a nonnegative integer.",
 		);
 	}
+	if (args.claimKey.trim().length === 0) {
+		throw new Error("A slice-attempt budget claim requires a stable key.");
+	}
 	return await withAppTx(async (tx) => {
 		await assertAttemptAuthority(tx, args.designSessionId, args);
 		const column = BUDGET_COUNTER_COLUMNS[args.counter];
-		const claimed = await sql<{ used: number }>`
-			UPDATE design_slice_attempts
-			SET ${sql.ref(column)} = ${sql.ref(column)} + 1,
-				finalization_eligible = CASE
-					WHEN ${args.counter} = 'modelSteps' THEN false
-					ELSE finalization_eligible
-				END,
-				updated_at = now()
+		const locked = await sql<{ status: string; used: number }>`
+			SELECT status, ${sql.ref(column)} AS used
+			FROM design_slice_attempts
 			WHERE id = ${args.attemptId}
 				AND design_session_id = ${args.designSessionId}
-				AND status = 'running'
-				AND ${sql.ref(column)} < ${args.limit}
-			RETURNING ${sql.ref(column)} AS used
+			FOR UPDATE
 		`.execute(tx);
-		if (claimed.rows.length === 1) return true;
-		const current = await tx
-			.selectFrom("design_slice_attempts")
-			.select("status")
-			.where("id", "=", args.attemptId)
-			.where("design_session_id", "=", args.designSessionId)
-			.executeTakeFirst();
+		const current = locked.rows[0];
 		if (current === undefined || current.status !== "running") {
 			throw new SliceAttemptStateError(
 				"The slice attempt is no longer running, so it cannot spend more budget.",
 			);
 		}
-		return false;
+		const existing = await tx
+			.selectFrom("design_slice_attempt_budget_claims")
+			.select("counter")
+			.where("attempt_id", "=", args.attemptId)
+			.where("claim_key", "=", args.claimKey)
+			.executeTakeFirst();
+		if (existing !== undefined) {
+			if (existing.counter !== args.counter) {
+				throw new SliceAttemptStateError(
+					`Budget claim ${args.claimKey} was already bound to ${existing.counter}, not ${args.counter}.`,
+				);
+			}
+			return "replayed";
+		}
+		if (!Number.isSafeInteger(current.used) || current.used < 0) {
+			throw new SliceAttemptStateError(
+				`The slice attempt carries an invalid ${args.counter} budget count.`,
+			);
+		}
+		if (current.used >= args.limit) return "exhausted";
+		const updated = await tx
+			.updateTable("design_slice_attempts")
+			.set({
+				[column]: sql`${sql.ref(column)} + 1`,
+				...(args.counter === "modelSteps"
+					? { finalization_eligible: false }
+					: {}),
+				updated_at: new Date(),
+			})
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.where("status", "=", "running")
+			.executeTakeFirst();
+		if (!updatedExactlyOne(updated)) {
+			throw new SliceAttemptStateError(
+				"The slice attempt is no longer running, so it cannot spend more budget.",
+			);
+		}
+		await tx
+			.insertInto("design_slice_attempt_budget_claims")
+			.values({
+				attempt_id: args.attemptId,
+				claim_key: args.claimKey,
+				counter: args.counter,
+			})
+			.execute();
+		return "claimed";
 	});
 }
 

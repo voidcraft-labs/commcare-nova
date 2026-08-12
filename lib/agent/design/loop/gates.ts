@@ -34,6 +34,7 @@ import {
 	readDesignRevisionsForSession,
 	readLatestDesignBuildPlanForRevision,
 } from "@/lib/agent/design/artifactStore";
+import type { OpenQuestion } from "@/lib/agent/design/contract";
 
 export const DESIGN_LOOP_TOOL_NAMES = [
 	"submitContract",
@@ -325,7 +326,7 @@ export class DesignRepairTracker {
 	>();
 	private sequenceErrors = 0;
 	private fatal: DesignLoopBudgetError | undefined;
-	private pendingUserQuestions: readonly string[] = [];
+	private pendingUserQuestions: readonly OpenQuestion[] = [];
 
 	noteSubmissionRejection(
 		kind: DesignLoopToolName,
@@ -352,13 +353,19 @@ export class DesignRepairTracker {
 		}
 	}
 
-	requireUserQuestions(questions: readonly string[]): void {
-		this.pendingUserQuestions = [
-			...new Set(questions.map((question) => question.trim()).filter(Boolean)),
-		];
+	requireUserQuestions(questions: readonly OpenQuestion[]): void {
+		const byId = new Map<string, OpenQuestion>();
+		for (const question of questions) {
+			if (!question.question.trim()) continue;
+			byId.set(question.id, {
+				...question,
+				question: question.question.trim(),
+			});
+		}
+		this.pendingUserQuestions = [...byId.values()];
 	}
 
-	requiredUserQuestions(): readonly string[] {
+	requiredUserQuestions(): readonly OpenQuestion[] {
 		return this.pendingUserQuestions;
 	}
 

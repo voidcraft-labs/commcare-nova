@@ -6,11 +6,8 @@
  *
  * This is the drift guard for the whole cache + statelessness configuration:
  * every assertion here is a field the provider must emit for caching or
- * privacy to work, and several (the breakpoint especially) would vanish
- * SILENTLY if a refactor moved them somewhere the Responses input converter
- * has no slot for — e.g. an assistant message's `output_text` items, which
- * carry no `prompt_cache_breakpoint`. Cheaper and stricter than a live
- * probe: the request body is asserted byte-level, offline, on every run.
+ * privacy to work. Cheaper and stricter than a live probe: the request body
+ * is asserted byte-level, offline, on every run.
  */
 
 import { createOpenAI } from "@ai-sdk/openai";
@@ -154,7 +151,7 @@ describe("SA edit-turn Responses wire body", () => {
 		);
 	});
 
-	it("emits exactly one breakpoint, before the volatile tail", async () => {
+	it("emits one request-local boundary before the volatile state tail", async () => {
 		const body = await captureEditTurnBody();
 		const input = body.input ?? [];
 
@@ -171,16 +168,9 @@ describe("SA edit-turn Responses wire body", () => {
 					: [],
 			),
 		);
-		expect(breakpoints).toHaveLength(1);
-		const bp = breakpoints[0];
-		expect(bp?.mode).toBe("explicit");
-		// On a markable item (a user message — assistant output_text has no
-		// breakpoint slot on this wire) …
-		expect(bp?.role).toBe("user");
-		// … the FINAL history user message: the item just before the
-		// app-state tail. The next turn replays it verbatim, so the entry it
-		// writes is the deepest prefix that turn can read.
-		expect(bp?.index).toBe(input.length - 2);
+		expect(breakpoints).toEqual([
+			{ index: input.length - 2, role: "user", mode: "explicit" },
+		]);
 
 		// The app-state summary is the very last input item.
 		const last = input[input.length - 1];

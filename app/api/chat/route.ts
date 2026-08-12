@@ -2137,12 +2137,18 @@ export async function POST(req: Request) {
 						}
 						let superseded: { type: ErrorType; message: string } | undefined;
 						if (reacquire === "superseded") {
-							const holder = await loadAppHolder(appId);
+							/* Before materialization a design session is owner-private, so a
+							 * successor holder can only be this same user. There is no app row
+							 * to inspect yet: `appId` is merely the proposed identity. */
+							const preAppDesign =
+								designSessionRun !== undefined &&
+								!designSessionRun.materialized;
+							const holder = preAppDesign ? null : await loadAppHolder(appId);
 							superseded = {
 								type: "generation_in_progress",
 								message:
-									holder.userId === userId
-										? "You started a newer request on this app, so this answer round was superseded. Continue from your newer conversation."
+									preAppDesign || holder?.userId === userId
+										? "You started a newer request for this design, so this answer round was superseded. Continue from your newer conversation."
 										: "Someone else started working on this app while you were answering, so this request was superseded. Refresh to pick up their changes, then try again.",
 							};
 						}
@@ -2851,12 +2857,9 @@ export async function POST(req: Request) {
 						messages: effectiveMessages,
 						tools: sa.tools,
 					});
-					/* Mark the stable-prefix boundary (the message before the latest
-					 * user message) with an explicit cache breakpoint: GPT-5.6's
-					 * implicit mode only auto-caches at the LATEST message, an entry
-					 * the next turn's changed tail can never match; the explicit
-					 * marker is what gives the next turn a readable entry. Full
-					 * story on `markStablePrefixBoundary`. */
+					/* The request-local marker writes a reusable entry before the
+					 * volatile app-state tail. It changes no transcript token and does
+					 * not mutate the durable UI history. */
 					const baseModelMessages = markStablePrefixBoundary(
 						await convertToModelMessages(validated, {
 							tools: sa.tools,
