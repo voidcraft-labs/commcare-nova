@@ -354,14 +354,15 @@ through the session's immutable materialization mapping. Artifact selection addi
 proves that the accepted revision and build plan belong to the same session and
 that the plan targets that revision.
 
-A build plan is active only while its accepted revision remains the artifact
-head and its source-package digest matches the current turn. Later user content
-reopens reviewed design work; the historical plan stays immutable but cannot
-drive execution.
+A build plan becomes the frozen execution authority with its accepted revision
+before construction starts. Later arbitrary user content cannot replace that
+pair, reopen design, reduce scope, or drive a different plan. Only a persisted
+pre-build question may accept an answer before the pair freezes.
 
 A persisted build plan is derived deterministically from the accepted
-workflows. It has one workflow-complete slice per workflow, stable construction
-groups, exactly one materialization root, and no model-authored ownership
+workflows. It has exactly one workflow-complete slice per included workflow and
+no extra slice, stable construction groups, exactly one materialization root,
+and no model-authored ownership
 choices. The root has no prerequisite slices and directly owns the complete
 first export-ready app.
 External actions are separate from Blueprint effects. Current plan admission
@@ -384,7 +385,8 @@ Materialization applies the same lookup, media, organization, runtime-schema,
 and export-readiness integrity as every later canonical commit. Once sequence
 `1` exists, it remains reachable even if a later slice fails: the design-session
 recovery URL resolves to the authoritative app, and the app is a usable earlier
-valid revision rather than a discarded partial build.
+valid revision retained for diagnosis. It remains initial-build locked and is
+never reported as complete while any planned slice is uncommitted.
 
 ### One Postgres system
 

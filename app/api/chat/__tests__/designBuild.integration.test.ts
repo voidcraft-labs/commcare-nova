@@ -471,8 +471,18 @@ describe("design-session build turns", () => {
 				data: { appId: args.proposedAppId, seq: 1 },
 				transient: true,
 			});
+			const finalized = await args.finalizeCompletion({
+				appId: args.proposedAppId,
+				expectedSeq: 1,
+				expectedHead: null,
+			});
 			args.writer.write({ type: "finish" });
-			return { kind: "completed", appId: args.proposedAppId, finalSeq: 1 };
+			return {
+				kind: "completed",
+				appId: args.proposedAppId,
+				finalSeq: 1,
+				finalBlueprint: finalized.blueprint,
+			};
 		});
 
 		const response = await POST(buildRequest());
@@ -490,8 +500,8 @@ describe("design-session build turns", () => {
 		expect(materializedAt).toBeGreaterThan(announceAt);
 		expect(doneAt).toBeGreaterThan(materializedAt);
 
-		/* The transferred holder settled: the app is complete with the kept
-		 * charge booked, exactly the build finalize order. */
+		/* The transferred holder settled: app completion, the kept charge, and
+		 * the terminal orchestration event committed as one final decision. */
 		const session = await sessionRow();
 		const app = await appDb
 			.selectFrom("apps")
@@ -500,6 +510,13 @@ describe("design-session build turns", () => {
 			.executeTakeFirstOrThrow();
 		expect(app.status).toBe("complete");
 		expect(app.res_settled).toBe(true);
+		const terminal = await appDb
+			.selectFrom("design_orchestration_events")
+			.select(["kind", "run_id"])
+			.where("design_session_id", "=", session.id)
+			.orderBy("revision", "desc")
+			.executeTakeFirstOrThrow();
+		expect(terminal).toEqual({ kind: "finished", run_id: app.run_id });
 		const credit = await appDb
 			.selectFrom("credit_months")
 			.select("consumed")

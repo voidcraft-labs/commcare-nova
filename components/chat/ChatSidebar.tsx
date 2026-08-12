@@ -108,9 +108,13 @@ interface ChatSidebarProps {
 	 * above the composer instead of moving upward as transcript cards arrive. */
 	designProgressStatus?: ReactNode;
 	/** The initial build is still unfinished, but no run is active because it
-	 * stopped. Keep the Builder read-only while allowing a conversational design
-	 * adjustment or clarification to resume it. */
+	 * stopped. This affects the activity indicator, not whether arbitrary new
+	 * messages may alter an accepted plan. */
 	generationPaused?: boolean;
+	/** Freeze ordinary composer sends from the first persisted design artifact
+	 * through whole-plan completion. A persisted question round is the only
+	 * pre-build input the composer may route. */
+	initialBuildLocked?: boolean;
 	/** Suppress the generic activity row while `designProgress` owns the
 	 *  status. The design stage line is a live region of its own and says the
 	 *  same thing more precisely; announcing both reads as a stutter. */
@@ -171,6 +175,32 @@ export function chatComposerIsSubmitting({
 	return isLoading || (isGenerating && !generationPaused);
 }
 
+export function chatComposerIsDisabled({
+	isLoading,
+	isGenerating,
+	initialBuildLocked,
+	activeQuestionCount,
+	composerBusy,
+	readOnly,
+	authorized,
+}: {
+	readonly isLoading: boolean;
+	readonly isGenerating: boolean;
+	readonly initialBuildLocked: boolean;
+	readonly activeQuestionCount: number;
+	readonly composerBusy: boolean;
+	readonly readOnly: boolean;
+	readonly authorized: boolean;
+}): boolean {
+	return (
+		isLoading ||
+		((isGenerating || initialBuildLocked) && activeQuestionCount === 0) ||
+		composerBusy ||
+		readOnly ||
+		!authorized
+	);
+}
+
 export function ChatSidebar({
 	centered,
 	startFromScratch,
@@ -190,6 +220,7 @@ export function ChatSidebar({
 	designProgressDetails,
 	designProgressStatus,
 	generationPaused = false,
+	initialBuildLocked = false,
 	activityStatusHidden = false,
 	activityOverride = null,
 }: ChatSidebarProps) {
@@ -779,16 +810,18 @@ export function ChatSidebar({
 				>
 					<ChatInput
 						onSend={handleSend}
-						disabled={
-							isLoading ||
-							(isGenerating && !generationPaused) ||
-							composerBusy ||
-							readOnly ||
-							accessPhase !== "authorized"
-						}
-						// The spinner means the turn is still moving. A stopped design
-						// leaves the builder's generation latch set until recovery, but its
-						// enabled composer must return to the ordinary Submit control.
+						disabled={chatComposerIsDisabled({
+							isLoading,
+							isGenerating,
+							initialBuildLocked,
+							activeQuestionCount,
+							composerBusy: composerBusy === true,
+							readOnly: readOnly === true,
+							authorized: accessPhase === "authorized",
+						})}
+						// The spinner means the turn is still moving. A stopped accepted
+						// build remains locked; only a persisted question round can accept
+						// a composer answer before construction starts.
 						submitting={chatComposerIsSubmitting({
 							isLoading,
 							isGenerating,

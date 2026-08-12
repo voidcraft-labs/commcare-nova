@@ -397,6 +397,34 @@ async function replayIfMaterialized(
 	if (changeSet.status !== "committed" || changeSet.proposedAppId === null) {
 		return undefined;
 	}
+	return {
+		kind: "materialized",
+		replayed: true,
+		receipt: await materializedReceipt(changeSet, args.actorUserId),
+	};
+}
+
+/** Read-only reconciliation for genesis after a post-COMMIT response race.
+ * It reconstructs the ordinary activation receipt from the committed sidecar
+ * and canonical sequence-1 fold; it never retries materialization. */
+export async function readMaterializedGenesisReceipt(args: {
+	readonly changeSetId: string;
+	readonly actorUserId: string;
+}): Promise<AppMaterializationReceipt | null> {
+	const changeSet = await loadChangeSet(args.changeSetId);
+	if (changeSet === undefined || changeSet.status !== "committed") return null;
+	if (changeSet.kind !== "genesis" || changeSet.proposedAppId === null) {
+		throw new ChangeSetIntegrityError(
+			`Committed change set ${changeSet.id} is not a genesis materialization.`,
+		);
+	}
+	return await materializedReceipt(changeSet, args.actorUserId);
+}
+
+async function materializedReceipt(
+	changeSet: DesignChangeSet,
+	actorUserId: string,
+): Promise<AppMaterializationReceipt> {
 	const db = await getAppDb();
 	const stored = await db
 		.selectFrom("design_committed_slices")
@@ -414,27 +442,23 @@ async function replayIfMaterialized(
 		expectedDigest: stored.committed_snapshot_digest,
 	});
 	const role = await withAppTx((tx) =>
-		projectRoleForInTransaction(tx, args.actorUserId, folded.projectId),
+		projectRoleForInTransaction(tx, actorUserId, folded.projectId),
 	);
 	if (role === null) {
 		throw new ChangeSetScopeLostError(
 			"This materialized app is no longer available in your Project scope.",
 		);
 	}
-	return {
-		kind: "materialized",
-		replayed: true,
-		receipt: buildReceipt({
-			designSessionId: changeSet.designSessionId,
-			appId: stored.app_id,
-			projectId: folded.projectId,
-			role,
-			batchId: stored.batch_id,
-			changeSetId: changeSet.id,
-			snapshotDigest: stored.committed_snapshot_digest,
-			blueprint: folded.snapshot,
-		}),
-	};
+	return buildReceipt({
+		designSessionId: changeSet.designSessionId,
+		appId: stored.app_id,
+		projectId: folded.projectId,
+		role,
+		batchId: stored.batch_id,
+		changeSetId: changeSet.id,
+		snapshotDigest: stored.committed_snapshot_digest,
+		blueprint: folded.snapshot,
+	});
 }
 
 function verifySessionForTransfer(

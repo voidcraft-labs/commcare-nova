@@ -9,8 +9,8 @@ import {
 } from "@/lib/agent/build/executorPrompt";
 
 describe("reviewed-build presentation", () => {
-	it("keeps the first shipped executor dialect at v1 and requests complete creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v1");
+	it("versions the durable-handle executor dialect and requests complete creation calls", () => {
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v2");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` operation");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"Use `stageModule` / `stageForm` when a real dependency or call-size boundary requires",

@@ -7,15 +7,21 @@
  * `change_set_id` binding. The partial unique index permits one `running`
  * attempt per `(design_session_id, build_plan_id, slice_id)`, so a resumed
  * process RECOVERS the existing attempt rather than starting a second
- * overlay merely because a response was lost. A terminal attempt never
+ * overlay merely because a response was lost. The current exact session
+ * holder transactionally adopts an open change set left by prior
+ * infrastructure, so a process/run replacement resumes the same attempt.
+ * A terminal attempt never
  * reopens under a later user turn; deterministic exhaustion is a planning or
  * compiler defect, not a dice roll for the user to repeat.
  */
 
-import {
-	assertDesignSessionRunAuthorityInTransaction,
-	setDesignSessionActiveArtifactsInTransaction,
-} from "@/lib/db/designSessions";
+import { sql } from "kysely";
+import type {
+	SliceAttemptBudgetCounter,
+	SliceAttemptBudgetSpent,
+} from "@/lib/agent/build/budgets";
+import type { ExecutorToolOutcomeKind } from "@/lib/agent/build/executorLoop";
+import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { getAppDb, withAppTx } from "@/lib/db/pg";
 import { updatedExactlyOne } from "@/lib/db/runHolderWrites";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
@@ -57,6 +63,23 @@ export interface SliceAttempt {
 	readonly executorModel: string;
 	readonly promptVersion: string;
 	readonly briefDigest: string;
+	/** Original attempt start; recovery derives the same absolute deadline. */
+	readonly startedAt: Date;
+	readonly budgetSpent: SliceAttemptBudgetSpent;
+	readonly finalizationCheckpoint: {
+		readonly validationRequested: boolean;
+		readonly eligible: boolean;
+	};
+	/** Append-only provenance for every run holder that recovered or executed
+	 * this attempt. Registered before any model work, so missing summaries fail
+	 * the release-cost gate closed. */
+	readonly executionRunIds: readonly string[];
+	readonly diagnostics: {
+		readonly wireInvalid: number;
+		readonly stageRejected: number;
+		readonly validatorRepair: number;
+		readonly outcomeEvidenceState: SliceAttemptOutcomeEvidenceState;
+	};
 	readonly status: SliceAttemptStatus;
 	readonly failureCode: string | null;
 }
@@ -79,8 +102,45 @@ interface AttemptRow {
 	executor_model: string;
 	prompt_version: string;
 	brief_digest: string;
+	model_steps_used: number;
+	staged_requests_used: number;
+	commit_attempts_used: number;
+	blocker_reports_used: number;
+	validation_requested: boolean;
+	finalization_eligible: boolean;
+	execution_run_ids: string[];
+	wire_invalid_count: number;
+	stage_rejected_count: number;
+	validator_repair_count: number;
+	outcome_evidence_state: string;
+	created_at: Date | string;
 	status: string;
 	failure_code: string | null;
+}
+
+export type SliceAttemptOutcomeEvidenceState =
+	| "legacy-missing"
+	| "unstarted"
+	| "collecting"
+	| "complete"
+	| "incomplete";
+
+function parseOutcomeEvidenceState(
+	value: string,
+	attemptId: string,
+): SliceAttemptOutcomeEvidenceState {
+	if (
+		value === "legacy-missing" ||
+		value === "unstarted" ||
+		value === "collecting" ||
+		value === "complete" ||
+		value === "incomplete"
+	) {
+		return value;
+	}
+	throw new Error(
+		`Persisted slice attempt ${attemptId} has invalid outcome evidence state ${value}.`,
+	);
 }
 
 function parseStatus(value: string): SliceAttemptStatus {
@@ -95,7 +155,27 @@ function parseStatus(value: string): SliceAttemptStatus {
 	throw new Error(`Persisted slice-attempt status "${value}" is invalid.`);
 }
 
+function parseExecutionRunIds(value: unknown, attemptId: string): string[] {
+	if (
+		!Array.isArray(value) ||
+		value.some((runId) => typeof runId !== "string" || runId.length === 0) ||
+		new Set(value).size !== value.length
+	) {
+		throw new Error(
+			`Persisted slice attempt ${attemptId} has invalid execution-run provenance.`,
+		);
+	}
+	return [...value];
+}
+
 function rowToAttempt(row: AttemptRow): SliceAttempt {
+	const startedAt =
+		row.created_at instanceof Date ? row.created_at : new Date(row.created_at);
+	if (Number.isNaN(startedAt.getTime())) {
+		throw new Error(
+			`Persisted slice attempt ${row.id} has an invalid start time.`,
+		);
+	}
 	const baseTarget: SliceAttemptBaseTarget =
 		row.base_kind === "empty-genesis"
 			? {
@@ -134,6 +214,27 @@ function rowToAttempt(row: AttemptRow): SliceAttempt {
 		executorModel: row.executor_model,
 		promptVersion: row.prompt_version,
 		briefDigest: row.brief_digest,
+		startedAt,
+		budgetSpent: {
+			modelSteps: row.model_steps_used,
+			stagedRequests: row.staged_requests_used,
+			commitAttempts: row.commit_attempts_used,
+			blockerReports: row.blocker_reports_used,
+		},
+		finalizationCheckpoint: {
+			validationRequested: row.validation_requested,
+			eligible: row.finalization_eligible,
+		},
+		executionRunIds: parseExecutionRunIds(row.execution_run_ids, row.id),
+		diagnostics: {
+			wireInvalid: row.wire_invalid_count,
+			stageRejected: row.stage_rejected_count,
+			validatorRepair: row.validator_repair_count,
+			outcomeEvidenceState: parseOutcomeEvidenceState(
+				row.outcome_evidence_state,
+				row.id,
+			),
+		},
 		status: parseStatus(row.status),
 		failureCode: row.failure_code,
 	};
@@ -157,6 +258,18 @@ const ATTEMPT_COLUMNS = [
 	"executor_model",
 	"prompt_version",
 	"brief_digest",
+	"model_steps_used",
+	"staged_requests_used",
+	"commit_attempts_used",
+	"blocker_reports_used",
+	"validation_requested",
+	"finalization_eligible",
+	"execution_run_ids",
+	"wire_invalid_count",
+	"stage_rejected_count",
+	"validator_repair_count",
+	"outcome_evidence_state",
+	"created_at",
 	"status",
 	"failure_code",
 ] as const;
@@ -334,12 +447,70 @@ async function supersedeRunningAttempt(
 	}
 }
 
+async function adoptOpenChangeSetOwner(
+	tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
+	attempt: SliceAttempt,
+	bound: BoundChangeSetRow,
+	authority: SliceAttemptAuthority,
+): Promise<void> {
+	if (
+		bound.owner_user_id === authority.actorUserId &&
+		bound.owner_run_id === authority.runId
+	) {
+		return;
+	}
+	const adopted = await tx
+		.updateTable("design_change_sets")
+		.set({
+			owner_user_id: authority.actorUserId,
+			owner_run_id: authority.runId,
+			updated_at: new Date(),
+		})
+		.where("id", "=", bound.id)
+		.where("attempt_id", "=", attempt.id)
+		.where("status", "=", "open")
+		.where("owner_user_id", "=", bound.owner_user_id)
+		.where("owner_run_id", "=", bound.owner_run_id)
+		.executeTakeFirst();
+	if (!updatedExactlyOne(adopted)) {
+		throw new SliceAttemptStateError(
+			`Slice attempt ${attempt.id}'s open change set changed during infrastructure recovery.`,
+		);
+	}
+}
+
+async function recordAttemptExecutionRun(
+	tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
+	attempt: SliceAttempt,
+	runId: string,
+): Promise<SliceAttempt> {
+	if (attempt.executionRunIds.includes(runId)) return attempt;
+	const executionRunIds = [...attempt.executionRunIds, runId];
+	const updated = await tx
+		.updateTable("design_slice_attempts")
+		.set({
+			execution_run_ids: JSON.stringify(executionRunIds),
+			updated_at: new Date(),
+		})
+		.where("id", "=", attempt.id)
+		.where("design_session_id", "=", attempt.designSessionId)
+		.where("status", "=", "running")
+		.executeTakeFirst();
+	if (!updatedExactlyOne(updated)) {
+		throw new SliceAttemptStateError(
+			`Slice attempt ${attempt.id} changed while recording its execution run.`,
+		);
+	}
+	return { ...attempt, executionRunIds };
+}
+
 /**
- * Begin one attempt, or RECOVER the running one. Matching immutable inputs
- * are not enough once a change set is bound: its actor/run owner must also
- * match the current delegated holder. Holder or artifact drift supersedes
- * the running attempt and its open set before a fresh attempt begins. The
- * one-running partial unique index closes the race between continuations.
+ * Begin one attempt, or RECOVER the running one. Exact immutable inputs keep
+ * the attempt and its private overlay; when infrastructure replaced the run,
+ * the current authorized session holder adopts that open set in this same
+ * transaction. Artifact drift supersedes the running attempt and its open
+ * set before a fresh attempt begins. The one-running partial unique index
+ * closes the race between continuations.
  */
 export async function beginOrRecoverSliceAttempt(
 	args: CreateSliceAttemptArgs & SliceAttemptAuthority,
@@ -356,25 +527,18 @@ export async function beginOrRecoverSliceAttempt(
 			.forUpdate()
 			.executeTakeFirst();
 		if (running !== undefined) {
-			const attempt = rowToAttempt(running as AttemptRow);
+			let attempt = rowToAttempt(running as AttemptRow);
 			const bound = await lockBoundChangeSet(tx, attempt);
-			if (
-				sameAttemptInputs(attempt, args) &&
-				(bound === null ||
-					(bound.status === "open" &&
-						bound.owner_user_id === args.actorUserId &&
-						bound.owner_run_id === args.runId))
-			) {
+			if (sameAttemptInputs(attempt, args) && bound === null) {
+				attempt = await recordAttemptExecutionRun(tx, attempt, args.runId);
 				return { attempt, recovered: true };
 			}
-			await supersedeRunningAttempt(
-				tx,
-				attempt,
-				sameAttemptInputs(attempt, args)
-					? "holder-superseded"
-					: "artifact-superseded",
-				bound,
-			);
+			if (sameAttemptInputs(attempt, args) && bound?.status === "open") {
+				await adoptOpenChangeSetOwner(tx, attempt, bound, args);
+				attempt = await recordAttemptExecutionRun(tx, attempt, args.runId);
+				return { attempt, recovered: true };
+			}
+			await supersedeRunningAttempt(tx, attempt, "artifact-superseded", bound);
 		}
 
 		const latest = await tx
@@ -431,6 +595,17 @@ export async function beginOrRecoverSliceAttempt(
 				executor_model: args.executorModel,
 				prompt_version: args.promptVersion,
 				brief_digest: args.briefDigest,
+				model_steps_used: 0,
+				staged_requests_used: 0,
+				commit_attempts_used: 0,
+				blocker_reports_used: 0,
+				validation_requested: false,
+				finalization_eligible: false,
+				execution_run_ids: JSON.stringify([args.runId]),
+				wire_invalid_count: 0,
+				stage_rejected_count: 0,
+				validator_repair_count: 0,
+				outcome_evidence_state: "unstarted",
 				status: "running",
 				failure_code: null,
 			})
@@ -482,69 +657,25 @@ export async function supersedeSliceAttempt(
 	});
 }
 
-/** Install one accepted replacement plan and supersede the running root
- * attempt in the same authority-locked transaction. The replacement artifact
- * itself is immutable and may already exist; neither the active pointer nor
- * the old execution control can advance alone. */
-export async function activateReplacementPlan(
-	args: SliceAttemptAuthority & {
-		readonly designSessionId: string;
-		readonly attemptId: string;
-		readonly failureCode: string;
-		readonly activeDesignRevisionId: string;
-		readonly activeBuildPlanId: string;
-	},
-): Promise<void> {
-	await withAppTx(async (tx) => {
-		await assertAttemptAuthority(tx, args.designSessionId, args);
-		const row = await tx
-			.selectFrom("design_slice_attempts")
-			.select([...ATTEMPT_COLUMNS])
-			.where("id", "=", args.attemptId)
-			.where("design_session_id", "=", args.designSessionId)
-			.forUpdate()
-			.executeTakeFirst();
-		if (row === undefined) {
-			throw new SliceAttemptStateError(
-				`Slice attempt ${args.attemptId} no longer exists.`,
-			);
-		}
-		const attempt = rowToAttempt(row as AttemptRow);
-		if (
-			attempt.status === "superseded" &&
-			attempt.failureCode === args.failureCode
-		) {
-			const active = await tx
-				.selectFrom("design_sessions")
-				.select(["active_design_revision_id", "active_build_plan_id"])
-				.where("id", "=", args.designSessionId)
-				.executeTakeFirstOrThrow();
-			if (
-				active.active_design_revision_id === args.activeDesignRevisionId &&
-				active.active_build_plan_id === args.activeBuildPlanId
-			) {
-				return;
-			}
-			throw new SliceAttemptStateError(
-				"The replacement-plan transition was already consumed by another active artifact selection.",
-			);
-		}
-		if (attempt.status !== "running") {
-			throw new SliceAttemptStateError(
-				`Slice attempt ${args.attemptId} was already terminated by another transition.`,
-			);
-		}
-		await setDesignSessionActiveArtifactsInTransaction(tx, {
-			designSessionId: args.designSessionId,
-			actorUserId: args.actorUserId,
-			runId: args.runId,
-			holderNonce: args.holderNonce,
-			expectedProjectId: args.expectedProjectId,
-			activeDesignRevisionId: args.activeDesignRevisionId,
-			activeBuildPlanId: args.activeBuildPlanId,
-		});
-		await supersedeRunningAttempt(tx, attempt, args.failureCode);
-	});
+/** Count semantic rebase retries already spent by this exact slice lineage.
+ * Superseded attempts are durable execution history, so a replacement process
+ * resumes the same retry budget instead of resetting it in memory. */
+export async function countSliceRebaseAttempts(args: {
+	readonly designSessionId: string;
+	readonly buildPlanId: string;
+	readonly sliceId: string;
+}): Promise<number> {
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("design_slice_attempts")
+		.select("id")
+		.where("design_session_id", "=", args.designSessionId)
+		.where("build_plan_id", "=", args.buildPlanId)
+		.where("slice_id", "=", args.sliceId)
+		.where("status", "=", "superseded")
+		.where("failure_code", "in", ["rebase-conflict", "read-set-stale"])
+		.execute();
+	return rows.length;
 }
 
 /** Bind the attempt's change set — set exactly once, right after the set
@@ -574,6 +705,203 @@ export async function bindSliceAttemptChangeSet(
 		if (Number(result.numUpdatedRows) !== 1) {
 			throw new SliceAttemptStateError(
 				"The slice attempt is no longer running or is bound to another change set.",
+			);
+		}
+	});
+}
+
+const BUDGET_COUNTER_COLUMNS: Readonly<
+	Record<SliceAttemptBudgetCounter, string>
+> = {
+	modelSteps: "model_steps_used",
+	stagedRequests: "staged_requests_used",
+	commitAttempts: "commit_attempts_used",
+	blockerReports: "blocker_reports_used",
+};
+
+/** Claim one unit before starting the corresponding external or canonical
+ * operation. The row update is the crash boundary: a recovered process sees
+ * the unit as spent even when the prior process died before receiving its
+ * response. */
+export async function claimSliceAttemptBudget(
+	args: SliceAttemptAuthority & {
+		readonly designSessionId: string;
+		readonly attemptId: string;
+		readonly counter: SliceAttemptBudgetCounter;
+		readonly limit: number;
+	},
+): Promise<boolean> {
+	if (!Number.isSafeInteger(args.limit) || args.limit < 0) {
+		throw new Error(
+			"A slice-attempt budget limit must be a nonnegative integer.",
+		);
+	}
+	return await withAppTx(async (tx) => {
+		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const column = BUDGET_COUNTER_COLUMNS[args.counter];
+		const claimed = await sql<{ used: number }>`
+			UPDATE design_slice_attempts
+			SET ${sql.ref(column)} = ${sql.ref(column)} + 1,
+				finalization_eligible = CASE
+					WHEN ${args.counter} = 'modelSteps' THEN false
+					ELSE finalization_eligible
+				END,
+				updated_at = now()
+			WHERE id = ${args.attemptId}
+				AND design_session_id = ${args.designSessionId}
+				AND status = 'running'
+				AND ${sql.ref(column)} < ${args.limit}
+			RETURNING ${sql.ref(column)} AS used
+		`.execute(tx);
+		if (claimed.rows.length === 1) return true;
+		const current = await tx
+			.selectFrom("design_slice_attempts")
+			.select("status")
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.executeTakeFirst();
+		if (current === undefined || current.status !== "running") {
+			throw new SliceAttemptStateError(
+				"The slice attempt is no longer running, so it cannot spend more budget.",
+			);
+		}
+		return false;
+	});
+}
+
+/** Persist the executor's only step-boundary commit authority. Recovery may
+ * consume this checkpoint without another model call, but still re-runs the
+ * complete private diagnostics and canonical commit gate. */
+export async function checkpointSliceAttemptFinalization(
+	args: SliceAttemptAuthority & {
+		readonly designSessionId: string;
+		readonly attemptId: string;
+		readonly validationRequested: boolean;
+		readonly eligible: boolean;
+	},
+): Promise<void> {
+	if (args.eligible && !args.validationRequested) {
+		throw new Error("Finalization eligibility requires a validation request.");
+	}
+	await withAppTx(async (tx) => {
+		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const updated = await tx
+			.updateTable("design_slice_attempts")
+			.set({
+				validation_requested: args.validationRequested,
+				finalization_eligible: args.eligible,
+				updated_at: new Date(),
+			})
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.where("status", "=", "running")
+			.executeTakeFirst();
+		if (!updatedExactlyOne(updated)) {
+			throw new SliceAttemptStateError(
+				"The slice attempt is no longer running, so its finalization checkpoint cannot advance.",
+			);
+		}
+	});
+}
+
+type AuthoritativeDiagnosticOutcome = Extract<
+	ExecutorToolOutcomeKind,
+	"wire-invalid" | "stage-rejected" | "validator-repair"
+>;
+
+/** Start one process's evidence window. A prior unclosed window means a process
+ * died after it could have observed an outcome, so the attempt latches
+ * `incomplete` permanently instead of ever claiming zero from absence. */
+export async function beginSliceAttemptOutcomeCollection(
+	args: SliceAttemptAuthority & {
+		readonly designSessionId: string;
+		readonly attemptId: string;
+	},
+): Promise<void> {
+	await withAppTx(async (tx) => {
+		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const updated = await tx
+			.updateTable("design_slice_attempts")
+			.set({
+				outcome_evidence_state: sql<string>`CASE outcome_evidence_state
+					WHEN 'unstarted' THEN 'collecting'
+					WHEN 'complete' THEN 'collecting'
+					WHEN 'collecting' THEN 'incomplete'
+					ELSE outcome_evidence_state
+				END`,
+				updated_at: new Date(),
+			})
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.where("status", "=", "running")
+			.executeTakeFirst();
+		if (!updatedExactlyOne(updated)) {
+			throw new SliceAttemptStateError(
+				"The slice attempt is no longer running, so it cannot start outcome collection.",
+			);
+		}
+	});
+}
+
+/** Persist a release-gate diagnostic before the executor can answer the model
+ * or advance. Operational events may mirror it, but only this row is authority. */
+export async function recordSliceAttemptDiagnostic(
+	args: SliceAttemptAuthority & {
+		readonly designSessionId: string;
+		readonly attemptId: string;
+		readonly outcome: AuthoritativeDiagnosticOutcome;
+	},
+): Promise<void> {
+	await withAppTx(async (tx) => {
+		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const increment =
+			args.outcome === "wire-invalid"
+				? { wire_invalid_count: sql<number>`wire_invalid_count + 1` }
+				: args.outcome === "stage-rejected"
+					? { stage_rejected_count: sql<number>`stage_rejected_count + 1` }
+					: { validator_repair_count: sql<number>`validator_repair_count + 1` };
+		const updated = await tx
+			.updateTable("design_slice_attempts")
+			.set({ ...increment, updated_at: new Date() })
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.where("status", "=", "running")
+			.where("outcome_evidence_state", "in", ["collecting", "incomplete"])
+			.executeTakeFirst();
+		if (!updatedExactlyOne(updated)) {
+			throw new SliceAttemptStateError(
+				"The slice attempt could not durably record its executor outcome.",
+			);
+		}
+	});
+}
+
+/** Seal a process's evidence window after the executor returns or throws in a
+ * controlled process. An already-incomplete attempt never becomes complete. */
+export async function finishSliceAttemptOutcomeCollection(
+	args: SliceAttemptAuthority & {
+		readonly designSessionId: string;
+		readonly attemptId: string;
+	},
+): Promise<void> {
+	await withAppTx(async (tx) => {
+		await assertAttemptAuthority(tx, args.designSessionId, args);
+		const updated = await tx
+			.updateTable("design_slice_attempts")
+			.set({
+				outcome_evidence_state: sql<string>`CASE
+					WHEN outcome_evidence_state = 'collecting' THEN 'complete'
+					ELSE outcome_evidence_state
+				END`,
+				updated_at: new Date(),
+			})
+			.where("id", "=", args.attemptId)
+			.where("design_session_id", "=", args.designSessionId)
+			.where("status", "in", ["running", "committed"])
+			.executeTakeFirst();
+		if (!updatedExactlyOne(updated)) {
+			throw new SliceAttemptStateError(
+				"The slice attempt could not seal its executor outcome evidence.",
 			);
 		}
 	});

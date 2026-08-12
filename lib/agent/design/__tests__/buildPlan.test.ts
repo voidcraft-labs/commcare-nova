@@ -11,6 +11,7 @@ import {
 	ids,
 	makeBuildPlan,
 	makeContract,
+	makeThirteenWorkflowContract,
 } from "./fixtures";
 
 function messages(
@@ -48,6 +49,210 @@ describe("deterministic build planning", () => {
 		);
 		expect(new Set(assigned).size).toBe(assigned.length);
 		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
+	});
+
+	it("derives thirteen exact workflow slices with unique construction ownership", () => {
+		const contract = makeThirteenWorkflowContract();
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		expect(plan.slices).toHaveLength(13);
+		expect(plan.slices.map((slice) => slice.workflowId)).toEqual(
+			contract.charter.includedWorkflowIds,
+		);
+		const owned = plan.slices.flatMap((slice) =>
+			slice.constructionGroups.flatMap((group) =>
+				group.elements.map((element) => `${element.kind}:${element.id}`),
+			),
+		);
+		expect(new Set(owned).size).toBe(owned.length);
+		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
+	});
+
+	it("puts the materialization root first and gives it the only app-area owner", () => {
+		const contract = cloneContract(makeContract());
+		contract.records = [];
+		contract.lists = [];
+		contract.access = [];
+		contract.workflows.forEach((workflow, index) => {
+			workflow.contextRecordId = undefined;
+			workflow.prerequisiteWorkflowIds = [];
+			workflow.prerequisites = [];
+			workflow.inputs = [
+				{
+					handle: `answer_${index}`,
+					name: `Answer ${index}`,
+					purpose: "Collect one standalone answer",
+					dataShape: "text",
+				},
+			];
+			workflow.decisions = [];
+			workflow.recordEffects = [];
+			workflow.readback = [];
+		});
+		contract.navigation.forEach((navigation) => {
+			navigation.listIds = [];
+		});
+		contract.charter.initialWorkflowId = ids.taskVisit;
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "9".repeat(64) },
+			planId: ids.planId,
+		});
+		expect(plan.slices[0]?.workflowId).toBe(ids.taskVisit);
+		expect(plan.slices[0]?.role).toBe("materialization-root");
+		const appOwners = plan.slices.flatMap((slice) =>
+			slice.constructionGroups
+				.filter((group) => group.blueprintAreas.includes("app"))
+				.map((group) => ({ slice, group })),
+		);
+		expect(appOwners).toHaveLength(1);
+		expect(appOwners[0]?.slice.role).toBe("materialization-root");
+		expect(appOwners[0]?.group.kind).toBe("workflow");
+	});
+
+	it("reads prior v1 plans while enforcing exact app ownership for new plans", () => {
+		const contract = makeContract();
+		const legacyPlan = makeBuildPlan();
+		const laterGroup = legacyPlan.slices
+			.slice(1)
+			.flatMap((slice) => slice.constructionGroups)
+			.find((group) => !group.blueprintAreas.includes("app"));
+		if (laterGroup === undefined)
+			throw new Error("fixture needs a later group");
+		laterGroup.blueprintAreas.push("app");
+
+		expect(buildPlanSchema.safeParse(legacyPlan).success).toBe(true);
+		expect(buildPlanSchemaFor(contract).safeParse(legacyPlan).success).toBe(
+			false,
+		);
+	});
+
+	it("derives media and automation areas from explicit workflow semantics", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows[0];
+		if (workflow === undefined) throw new Error("fixture workflow missing");
+		workflow.authoredFeatures = ["existing-media", "automation"];
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const group = plan.slices[0]?.constructionGroups.find((candidate) =>
+			candidate.elements.some((element) => element.kind === "workflow"),
+		);
+		expect(group?.blueprintAreas).toEqual(
+			expect.arrayContaining(["media-references", "automations"]),
+		);
+	});
+
+	it("mounts case operations for a single effect targeting a non-context record", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows.find(
+			(candidate) => candidate.id === ids.taskVisit,
+		);
+		if (workflow === undefined) throw new Error("visit workflow missing");
+		const effect = workflow.recordEffects[0];
+		if (effect === undefined) throw new Error("visit effect missing");
+		delete effect.sourceRecordId;
+		expect(effect.recordId).not.toBe(workflow.contextRecordId);
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const workflowGroup = plan.slices
+			.find((slice) => slice.workflowId === workflow.id)
+			?.constructionGroups.find((group) => group.kind === "workflow");
+		expect(workflowGroup?.blueprintAreas).toContain("case-operations");
+	});
+
+	it("plans a standalone form workflow without inventing a record effect", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows[0];
+		if (workflow === undefined) throw new Error("fixture workflow missing");
+		workflow.inputs = [
+			{
+				handle: "survey_answer",
+				name: "Survey answer",
+				purpose: "Collect a standalone response",
+				dataShape: "text",
+			},
+		];
+		workflow.decisions = [];
+		workflow.recordEffects = [];
+		workflow.readback = [];
+		expect(() =>
+			deriveBuildPlan({
+				contract,
+				revision: { id: ids.revisionId, digest: "1".repeat(64) },
+				planId: ids.planId,
+			}),
+		).not.toThrow();
+	});
+
+	it("assigns read-only and queue-only properties to the workflow that uses them", () => {
+		const contract = cloneContract(makeContract());
+		const readOnly = did(34);
+		const queueOnly = did(35);
+		const patient = contract.records.find(
+			(record) => record.id === ids.recPatient,
+		);
+		const visit = contract.workflows.find(
+			(workflow) => workflow.id === ids.taskVisit,
+		);
+		const list = contract.lists.find((entry) => entry.id === ids.rmPatients);
+		if (patient === undefined || visit === undefined || list === undefined) {
+			throw new Error("fixture needs patient, visit, and patient list");
+		}
+		patient.properties.push(
+			{
+				id: readOnly,
+				name: "Imported status",
+				meaning: "A status displayed during visits.",
+				dataShape: "text",
+				sensitivity: "ordinary",
+			},
+			{
+				id: queueOnly,
+				name: "Queue marker",
+				meaning: "A marker displayed only in the patient queue.",
+				dataShape: "text",
+				sensitivity: "ordinary",
+			},
+		);
+		visit.readback.push({
+			recordId: ids.recPatient,
+			purpose: "Show the imported patient status",
+			propertyIds: [readOnly],
+		});
+		list.detailPropertyIds.push(queueOnly);
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const visitSlice = plan.slices.find(
+			(slice) => slice.workflowId === ids.taskVisit,
+		);
+		const visitElements = visitSlice?.constructionGroups.flatMap((group) =>
+			group.elements.map((element) => element.id),
+		);
+		expect(visitElements).toEqual(
+			expect.arrayContaining([readOnly, queueOnly]),
+		);
+		expect(
+			plan.slices[0]?.constructionGroups.some((group) =>
+				group.elements.some(
+					(element) => element.id === readOnly || element.id === queueOnly,
+				),
+			),
+		).toBe(false);
 	});
 
 	it("rejects duplicate workflow slices and construction groups", () => {
@@ -142,13 +347,28 @@ describe("deterministic build planning", () => {
 			valueColumn: "code",
 			labelColumn: "name",
 		};
-		expect(
-			deriveBuildPlan({
-				contract,
-				revision: { id: ids.revisionId, digest: "a".repeat(64) },
-				planId: ids.planId,
-			}).slices,
-		).not.toHaveLength(0);
+		const visit = contract.workflows.find(
+			(workflow) => workflow.id === ids.taskVisit,
+		);
+		if (visit === undefined) throw new Error("visit workflow missing");
+		visit.inputs.push({
+			handle: "risk_confirmation",
+			name: "Risk confirmation",
+			purpose: "Confirm the selected patient's current risk",
+			propertyId: ids.factRisk,
+		});
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "a".repeat(64) },
+			planId: ids.planId,
+		});
+		const visitSlice = plan.slices.find(
+			(slice) => slice.workflowId === ids.taskVisit,
+		);
+		const workflowGroup = visitSlice?.constructionGroups.find(
+			(group) => group.kind === "workflow",
+		);
+		expect(workflowGroup?.blueprintAreas).toContain("lookup-references");
 	});
 
 	it("refuses blocking external actions until a receipt producer exists", () => {

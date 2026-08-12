@@ -343,6 +343,101 @@ export function cloneContract(contract: AppDesignContract): AppDesignContract {
 	return structuredClone(contract);
 }
 
+/** Large deterministic fixture: thirteen included workflows, each with
+ * one record/property it alone constructs. It is deliberately semantically
+ * plain so projection tests can see accidental cross-workflow leakage. */
+export function makeThirteenWorkflowContract(): AppDesignContract {
+	const workflowIds = Array.from({ length: 13 }, (_, index) =>
+		did(3000 + index),
+	);
+	const recordIds = Array.from({ length: 13 }, (_, index) => did(1000 + index));
+	const propertyIds = Array.from({ length: 13 }, (_, index) =>
+		did(2000 + index),
+	);
+	const base = makeContract();
+	return appDesignContractSchema.parse({
+		...base,
+		charter: {
+			...base.charter,
+			includedWorkflowIds: workflowIds,
+			initialWorkflowId: workflowIds[0],
+		},
+		actors: [base.actors[0]],
+		records: recordIds.map((recordId, index) => ({
+			id: recordId,
+			name: `Workflow ${index + 1} record`,
+			purpose: `Store the result of workflow ${index + 1}.`,
+			lifecycleStates: ["active"],
+			properties: [
+				{
+					id: propertyIds[index],
+					name: `Workflow ${index + 1} value`,
+					meaning: `The value collected only by workflow ${index + 1}.`,
+					dataShape: "text",
+					sensitivity: "ordinary",
+				},
+			],
+		})),
+		workflows: workflowIds.map((workflowId, index) => ({
+			id: workflowId,
+			name: `Workflow ${index + 1}`,
+			actorIds: [ids.actorChw],
+			goal: `Complete workflow ${index + 1}.`,
+			trigger: `The worker starts workflow ${index + 1}.`,
+			prerequisiteWorkflowIds: index === 0 ? [] : [workflowIds[index - 1]],
+			prerequisites: index === 0 ? [] : [`Workflow ${index} is complete`],
+			inputs: [
+				{
+					handle: `workflow_${index + 1}_value`,
+					name: `Workflow ${index + 1} value`,
+					purpose: `Capture workflow ${index + 1}'s value`,
+					propertyId: propertyIds[index],
+				},
+			],
+			decisions: [],
+			recordEffects: [
+				{
+					handle: `create_workflow_${index + 1}_record`,
+					recordId: recordIds[index],
+					kind: "create",
+					writes: [
+						{
+							propertyId: propertyIds[index],
+							value: `Workflow ${index + 1} answer`,
+							unanswered: "preserve",
+						},
+					],
+					outcome: `Workflow ${index + 1}'s record is saved.`,
+				},
+			],
+			readback: [
+				{
+					recordId: recordIds[index],
+					purpose: `Confirm workflow ${index + 1}'s saved value`,
+					propertyIds: [propertyIds[index]],
+				},
+			],
+			exceptions: [],
+			externalRequirementIds: [],
+			acceptanceExamples: [
+				{
+					name: `Complete workflow ${index + 1}`,
+					given: ["The worker is signed in"],
+					when: [`The worker submits workflow ${index + 1}`],
+					expectedResults: [`Workflow ${index + 1}'s record is saved`],
+				},
+			],
+		})),
+		lists: [],
+		access: [],
+		navigation: [],
+		externalRequirements: [],
+		decisions: [],
+		assumptions: [],
+		openQuestions: [],
+	});
+}
+
 export function makeBuildPlan(): BuildPlan {
 	return deriveBuildPlan({
 		contract: makeContract(),

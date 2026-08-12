@@ -57,8 +57,8 @@ Four session fields describe "what phase is the builder in":
   mirroring the server's authoritative app-row-status rule.
   It is also the initial-build authoring lock: the store retains the raw
   Project capability in `projectCanEdit`, while effective `canEdit` remains
-  false from materialization through whole-build completion (or explicit
-  sequence-bound partial acceptance). Chat reads `useProjectCanEdit`; every
+  false from materialization through authoritative whole-build completion.
+  A stopped partial plan stays locked. Chat reads `useProjectCanEdit`; every
   builder editor, stale imperative handler, doc gate, and reconciler reads
   effective `canEdit`. `derivePhase` keeps a materialized unfinished app in
   `Generating`, so its real tree surrounds the central progress card instead
@@ -122,8 +122,8 @@ projections the build orchestrator streams — the reviewed-design outline, the
 build plan's slice names, which slices committed — plus the two facts only the
 client can see: a paused askQuestions round (read off the transcript) and a
 run-stopping stream error. BOTH error kinds stop the stage line — a
-recoverable error reads `incomplete` ("Stopped before it finished", inviting
-the retry its toast offered) and a fatal one `failed`; marking only fatal
+recoverable error reads `incomplete` ("Stopped before it finished") and a fatal
+one `failed`; neither creates a user retry action. Marking only fatal
 errors left the line spinning over a dead run, observed live. An automatic
 provider-retry warning is explicitly marked `runContinues` on the conversation
 event and does not become a terminal progress failure; later pulses and commits

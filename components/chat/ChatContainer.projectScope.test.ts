@@ -11,12 +11,16 @@ import {
 	chatCallbackCanPublish,
 	chatGenerationCanWrite,
 	chatRequestIsRedrive,
+	designBuildCanResume,
+	designProgressLocksInitialBuild,
 	designProgressOwnsActivityStatus,
 	designProgressTracksBuildFailure,
 	expectedProjectIdForChatRequest,
 	mergeRetainedUserTextSuffix,
 	parseAppMaterializationReceipt,
+	rememberDesignBuildResumeEligibility,
 	retireProjectAttachmentRefs,
+	threadActivationNeedsIncompleteSeed,
 } from "./ChatContainer";
 
 describe("interrupted-turn request routing", () => {
@@ -26,6 +30,83 @@ describe("interrupted-turn request routing", () => {
 			true,
 		);
 		expect(chatRequestIsRedrive("submit-message", undefined)).toBe(false);
+	});
+
+	it("offers only a stopped recoverable build an exact-plan resume", () => {
+		expect(
+			designBuildCanResume(
+				{
+					failure: { message: "Temporary failure", recoverable: true },
+					seededStage: null,
+				},
+				true,
+				"ready",
+			),
+		).toBe(true);
+		expect(
+			designBuildCanResume(
+				{
+					failure: { message: "Build defect", recoverable: false },
+					seededStage: null,
+				},
+				true,
+				"ready",
+			),
+		).toBe(false);
+		expect(
+			designBuildCanResume(
+				{
+					failure: { message: "Temporary failure", recoverable: true },
+					seededStage: null,
+				},
+				true,
+				"streaming",
+			),
+		).toBe(false);
+		expect(
+			designBuildCanResume(
+				{ failure: null, seededStage: "incomplete" },
+				true,
+				"ready",
+			),
+		).toBe(true);
+	});
+
+	it("retains recoverable resume eligibility across a thread reset and revokes it on terminal evidence", () => {
+		const resumable = new Set<string>();
+		rememberDesignBuildResumeEligibility(resumable, {
+			designSessionId: "design-1",
+			failure: { message: "Infrastructure stopped", recoverable: true },
+			seededStage: null,
+			completion: null,
+		});
+		expect([...resumable]).toEqual(["design-1"]);
+		expect(
+			threadActivationNeedsIncompleteSeed({
+				designSessionId: "design-1",
+				buildUnfinished: true,
+				resume: false,
+				redrive: false,
+				resumableDesignSessionIds: resumable,
+			}),
+		).toBe(true);
+		expect(
+			threadActivationNeedsIncompleteSeed({
+				designSessionId: "design-1",
+				buildUnfinished: true,
+				resume: true,
+				redrive: false,
+				resumableDesignSessionIds: resumable,
+			}),
+		).toBe(false);
+
+		rememberDesignBuildResumeEligibility(resumable, {
+			designSessionId: "design-1",
+			failure: null,
+			seededStage: null,
+			completion: { appId: "app-1", appSeq: 13, plannedSlices: 13 },
+		});
+		expect(resumable.size).toBe(0);
 	});
 });
 
@@ -86,6 +167,28 @@ describe("design progress activity ownership", () => {
 		expect(designProgressTracksBuildFailure(materialized, true)).toBe(true);
 		expect(designProgressTracksBuildFailure(materialized, false)).toBe(false);
 	});
+
+	it("locks only an actually unfinished initial build", () => {
+		const historicalDesignThread = {
+			active: true,
+			stage: "understanding",
+		} as const;
+		expect(designProgressLocksInitialBuild(historicalDesignThread, true)).toBe(
+			true,
+		);
+		expect(designProgressLocksInitialBuild(historicalDesignThread, false)).toBe(
+			false,
+		);
+		expect(
+			designProgressLocksInitialBuild(
+				{ active: false, stage: "understanding" },
+				true,
+			),
+		).toBe(true);
+		expect(
+			designProgressLocksInitialBuild({ active: true, stage: "ready" }, true),
+		).toBe(true);
+	});
 });
 
 describe("authoritative thread activation", () => {
@@ -106,6 +209,7 @@ describe("authoritative thread activation", () => {
 			resume: true,
 			redrive: false,
 			buildResume: true,
+			buildUnfinished: true,
 			designSessionId: null,
 		});
 		expect(

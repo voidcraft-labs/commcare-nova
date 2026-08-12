@@ -17,6 +17,7 @@ import {
 	type SliceExecutionBrief,
 } from "@/lib/agent/build/executionBrief";
 import {
+	buildExecutorTools,
 	type ExecutorStepFn,
 	type ExecutorToolOutcomeEvent,
 	type ExecutorWorkspace,
@@ -203,14 +204,32 @@ it("checkpoints the identities needed to continue after compaction", () => {
 		},
 	};
 	doc.userPropertyOrder = [userPropertyUuid];
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	const fieldUuid = doc.fieldOrder[formUuid][0];
 	const workspace = fakeWorkspace({
 		executionCheckpoint: {
 			intentCoverage: [{ intentId: TEST_CONSTRUCTION_GROUP_ID, stepCount: 2 }],
 			handles: [
 				{
-					handle: "@registration",
-					uuid: testUuid("22222222-2222-4222-8222-222222222222"),
+					handle: "@staff_role",
+					uuid: userPropertyUuid,
+					entityKind: "worker_property",
+				},
+				{
+					handle: "@referrals",
+					uuid: moduleUuid,
+					entityKind: "module",
+				},
+				{
+					handle: "@follow_up",
+					uuid: formUuid,
 					entityKind: "form",
+				},
+				{
+					handle: "@notes",
+					uuid: fieldUuid,
+					entityKind: "field",
 				},
 			],
 		},
@@ -223,17 +242,15 @@ it("checkpoints the identities needed to continue after compaction", () => {
 	});
 
 	const summary = renderExecutorWorkspaceSummary(workspace);
-	const moduleUuid = doc.moduleOrder[0];
-	const formUuid = doc.formOrder[moduleUuid][0];
-	const fieldUuid = doc.fieldOrder[formUuid][0];
 	expect(summary).toContain("Revision 7");
-	expect(summary).toContain(`staff_role (${userPropertyUuid})`);
+	expect(summary).toContain("staff_role (@staff_role)");
 	expect(summary).toContain("Case type referral: status");
-	expect(summary).toContain(`Module ${moduleUuid}`);
-	expect(summary).toContain(`Form ${formUuid}`);
-	expect(summary).toContain(`notes:text (${fieldUuid})`);
+	expect(summary).toContain("Module @referrals");
+	expect(summary).toContain("Form @follow_up");
+	expect(summary).toContain("notes:text (@notes)");
 	expect(summary).toContain(brief().constructionGroupIds[0]);
-	expect(summary).toContain("@registration=form:");
+	expect(summary).toContain("@staff_role:worker_property");
+	expect(summary).not.toContain(userPropertyUuid);
 });
 
 type ScriptedStep =
@@ -248,11 +265,21 @@ const VALID_BLOCKER = {
 };
 
 function batchInput(toolName: string, input: unknown = {}) {
+	const creationIdentity =
+		toolName === "stageModule"
+			? { moduleUuid: { handle: "@staged_module" } }
+			: toolName === "stageForm"
+				? {
+						formUuid: { handle: "@staged_form" },
+						moduleUuid: { handle: "@staged_module" },
+					}
+				: {};
 	return {
 		operations: [
 			{
 				toolName,
 				input: {
+					...creationIdentity,
 					...(input as Record<string, unknown>),
 					constructionGroupIds: [brief().constructionGroupIds[0]],
 				},
@@ -410,9 +437,24 @@ describe("runSliceExecutor — the one-call law", () => {
 							result: { message: `Staged ${toolName}.` },
 						},
 		});
+		const read = (toolName: "getModule" | "getForm") => ({
+			operations: [{ toolName, input: {} }],
+		});
 		const { step, seen } = scriptedStep([
-			{ calls: [{ toolCallId: "module", toolName: "getModule" }] },
-			{ calls: [{ toolCallId: "form", toolName: "getForm" }] },
+			{
+				calls: [
+					{
+						toolCallId: "module",
+						toolName: "readBatch",
+						input: read("getModule"),
+					},
+				],
+			},
+			{
+				calls: [
+					{ toolCallId: "form", toolName: "readBatch", input: read("getForm") },
+				],
+			},
 			{
 				calls: [
 					{
@@ -533,25 +575,20 @@ describe("runSliceExecutor — the one-call law", () => {
 });
 
 describe("runSliceExecutor — staged dispatch", () => {
-	it("declares item-local handles only on server-minted identity items", async () => {
-		let definitions: Parameters<ExecutorStepFn>[0]["tools"] | undefined;
-		const step: ExecutorStepFn = async (args) => {
-			definitions = args.tools;
-			return {
-				toolCalls: [
-					{
-						toolCallId: "stop",
-						toolName: "reportExecutionBlocker",
-						input: VALID_BLOCKER,
-					},
+	it("requires durable handles in the canonical creation identity slots", () => {
+		const base = brief();
+		const definitions = buildExecutorTools({
+			...base,
+			toolProfile: {
+				...base.toolProfile,
+				mutationTools: [
+					"addUserProperties",
+					"addUserTypes",
+					"addPersonas",
+					"addLocationProperties",
 				],
-				text: "",
-				usage: undefined,
-				responseMessages: [],
-			};
-		};
-
-		await run({ workspace: fakeWorkspace(), step });
+			},
+		});
 
 		const batch = definitions?.stageBatch?.inputSchema as {
 			properties?: {
@@ -578,17 +615,19 @@ describe("runSliceExecutor — staged dispatch", () => {
 				| { properties?: Record<string, unknown>; required?: string[] }
 				| undefined;
 		};
-		for (const [name, collection] of [
-			["addUserProperties", "properties"],
-			["addUserTypes", "userTypes"],
-			["addPersonas", "personas"],
+		for (const [name, collection, identity] of [
+			["addUserProperties", "properties", "userPropertyUuid"],
+			["addUserTypes", "userTypes", "userTypeUuid"],
+			["addPersonas", "personas", "personaUuid"],
+			["addLocationProperties", "properties", "locationPropertyUuid"],
 		] as const) {
 			const item = itemSchema(name, collection);
-			expect(item?.properties?.handle).toMatchObject({
-				type: "string",
-				pattern: "^@[a-z][a-z0-9_-]{0,63}$",
-			});
-			expect(item?.required).toContain("handle");
+			const slot = item?.properties?.[identity] as
+				| { properties?: Record<string, unknown> }
+				| undefined;
+			expect(slot?.properties?.handle).toBeDefined();
+			expect(item?.required).toContain(identity);
+			expect(item?.properties).not.toHaveProperty("handle");
 		}
 		expect(
 			arms.every(
@@ -643,7 +682,10 @@ describe("runSliceExecutor — staged dispatch", () => {
 			{
 				toolName: "stageModule",
 				requestId: "call-42:0",
-				input: { name: "Patients" },
+				input: {
+					moduleUuid: { handle: "@staged_module" },
+					name: "Patients",
+				},
 			},
 		]);
 		/* The envelope is unwrapped and the UI-only summary is stripped. */
@@ -656,6 +698,52 @@ describe("runSliceExecutor — staged dispatch", () => {
 					result: { message: "Staged stageModule." },
 				},
 			],
+		});
+	});
+
+	it("refuses an unbound creation identity before shared-tool dispatch", async () => {
+		const workspace = fakeWorkspace();
+		const outcomes: Array<Record<string, unknown>> = [];
+		const { step, seen } = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "raw-creation",
+						toolName: "stageBatch",
+						input: batchInput("stageModule", {
+							moduleUuid: testUuid("raw-created-module"),
+							name: "Patients",
+						}),
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({
+			workspace,
+			step,
+			onToolOutcome: (event) => {
+				outcomes.push({ ...event });
+			},
+		});
+
+		expect(workspace.staged).toHaveLength(0);
+		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
+			status: "stopped",
+			failed: {
+				index: 0,
+				toolName: "stageModule",
+				error: "input.moduleUuid must declare a durable handle.",
+			},
+		});
+		expect(outcomes[0]).toEqual({
+			modelStep: 1,
+			toolName: "stageModule",
+			workspaceRevision: 1,
+			outcome: "wire-invalid",
+			code: "CREATION_HANDLE_REQUIRED",
+			operationIndex: 0,
 		});
 	});
 
@@ -710,12 +798,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 				};
 			},
 		});
-		const inputFor = (toolName: string) => ({
-			toolName,
-			input: {
-				constructionGroupIds: [brief().constructionGroupIds[0]],
-			},
-		});
+		const inputFor = (toolName: string) => batchInput(toolName).operations[0];
 		const { step, seen } = scriptedStep([
 			{
 				calls: [
@@ -748,16 +831,11 @@ describe("runSliceExecutor — staged dispatch", () => {
 		});
 	});
 
-	it("resolves server-minted worker identities through batch-local handles", async () => {
-		const propertyUuid = "11111111-1111-4111-8111-111111111111";
-		const roleUuid = "22222222-2222-4222-8222-222222222222";
+	it("delegates canonical declarations and nested handle references to the durable workspace", async () => {
 		const workspace = fakeWorkspace({
 			stage: async ({ toolName }) => ({
 				kind: "mutate",
-				result:
-					toolName === "addUserProperties"
-						? { message: "Added property.", uuids: [propertyUuid] }
-						: { message: "Added role.", uuids: [roleUuid] },
+				result: { message: `Staged ${toolName}.` },
 			}),
 		});
 		const { step, seen } = scriptedStep([
@@ -773,7 +851,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 									input: {
 										properties: [
 											{
-												handle: "@role_property",
+												userPropertyUuid: { handle: "@role_property" },
 												slug: "role",
 												label: "Role",
 											},
@@ -786,7 +864,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 									input: {
 										userTypes: [
 											{
-												handle: "@supervisor_role",
+												userTypeUuid: { handle: "@supervisor_role" },
 												name: "Supervisor",
 												values: [
 													{
@@ -811,24 +889,62 @@ describe("runSliceExecutor — staged dispatch", () => {
 
 		await run({ workspace, step });
 
+		expect(workspace.staged).toHaveLength(2);
+		expect(workspace.staged[0]?.input).toMatchObject({
+			properties: [{ userPropertyUuid: { handle: "@role_property" } }],
+		});
 		expect(workspace.staged[1]?.input).toMatchObject({
 			userTypes: [
 				{
-					values: [{ userPropertyUuid: propertyUuid }],
+					userTypeUuid: { handle: "@supervisor_role" },
+					values: [{ userPropertyUuid: { handle: "@role_property" } }],
 				},
 			],
 		});
-		expect(workspace.staged[0]?.input).not.toHaveProperty(
-			"properties.0.handle",
-		);
-		expect(workspace.staged[1]?.input).not.toHaveProperty("userTypes.0.handle");
-		expect(toolResults(seen[1] ?? [])[0]?.value).toMatchObject({
-			status: "completed",
-			bindings: {
-				"@role_property": propertyUuid,
-				"@supervisor_role": roleUuid,
+		const result = toolResults(seen[1] ?? [])[0]?.value;
+		expect(result).toMatchObject({ status: "completed" });
+		expect(result).not.toHaveProperty("bindings");
+	});
+
+	it("projects bound result values and object keys back through symbols", async () => {
+		const moduleUuid = testUuid("projected-module-result");
+		const workspace = fakeWorkspace({
+			executionCheckpoint: {
+				intentCoverage: [],
+				handles: [
+					{
+						handle: "@patients",
+						uuid: moduleUuid,
+						entityKind: "module",
+					},
+				],
 			},
+			stage: async () => ({
+				kind: "mutate",
+				result: {
+					uuids: [moduleUuid],
+					byUuid: { [moduleUuid]: { uuid: moduleUuid } },
+				},
+			}),
 		});
+		const { step, seen } = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "module",
+						toolName: "stageBatch",
+						input: batchInput("stageModule"),
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({ workspace, step });
+
+		const projected = JSON.stringify(toolResults(seen[1] ?? [])[0]?.value);
+		expect(projected).toContain("@patients");
+		expect(projected).not.toContain(moduleUuid);
 	});
 
 	it("rejects the legacy operation-level outputHandles shape before staging", async () => {
@@ -861,7 +977,9 @@ describe("runSliceExecutor — staged dispatch", () => {
 		await run({
 			workspace,
 			step,
-			onToolOutcome: (event) => outcomes.push({ ...event }),
+			onToolOutcome: (event) => {
+				outcomes.push({ ...event });
+			},
 		});
 
 		expect(workspace.staged).toHaveLength(0);
@@ -881,169 +999,6 @@ describe("runSliceExecutor — staged dispatch", () => {
 				...outcomes[0],
 			}).success,
 		).toBe(true);
-	});
-
-	it("validates duplicate and forward item handles before staging any prefix", async () => {
-		for (const operations of [
-			[
-				{
-					toolName: "addUserProperties",
-					input: {
-						properties: [
-							{ handle: "@identity", slug: "role", label: "Role" },
-							{ handle: "@identity", slug: "region", label: "Region" },
-						],
-						constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
-					},
-				},
-			],
-			[
-				{
-					toolName: "addUserTypes",
-					input: {
-						userTypes: [
-							{
-								handle: "@supervisor",
-								name: "Supervisor",
-								values: [
-									{
-										userPropertyUuid: { handle: "@role_property" },
-										value: "supervisor",
-									},
-								],
-							},
-						],
-						constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
-					},
-				},
-				{
-					toolName: "addUserProperties",
-					input: {
-						properties: [
-							{
-								handle: "@role_property",
-								slug: "role",
-								label: "Role",
-							},
-						],
-						constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
-					},
-				},
-			],
-			[
-				{
-					toolName: "stageModule",
-					input: {
-						moduleUuid: { handle: "@identity" },
-						constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
-					},
-				},
-				{
-					toolName: "addUserProperties",
-					input: {
-						properties: [{ handle: "@identity", slug: "role", label: "Role" }],
-						constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
-					},
-				},
-			],
-		] as const) {
-			const workspace = fakeWorkspace();
-			const { step } = scriptedStep([
-				{
-					calls: [
-						{
-							toolCallId: "invalid",
-							toolName: "stageBatch",
-							input: { operations },
-						},
-					],
-				},
-				{
-					calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }],
-				},
-			]);
-
-			await run({ workspace, step });
-			expect(workspace.staged).toHaveLength(0);
-		}
-	});
-
-	it.each([
-		["missing", { slug: "role", label: "Role" }],
-		["malformed", { handle: "Role Property", slug: "role", label: "Role" }],
-	])("rejects a %s item handle before staging", async (_label, property) => {
-		const workspace = fakeWorkspace();
-		const { step } = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "invalid-handle",
-						toolName: "stageBatch",
-						input: {
-							operations: [
-								{
-									toolName: "addUserProperties",
-									input: {
-										properties: [property],
-										constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
-									},
-								},
-							],
-						},
-					},
-				],
-			},
-			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
-		]);
-
-		await run({ workspace, step });
-		expect(workspace.staged).toHaveLength(0);
-	});
-
-	it("rejects an item handle already bound in the durable workspace", async () => {
-		const workspace = fakeWorkspace({
-			executionCheckpoint: {
-				intentCoverage: [],
-				handles: [
-					{
-						handle: "@role_property",
-						uuid: testUuid("existing-handle"),
-						entityKind: "field",
-					},
-				],
-			},
-		});
-		const { step } = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "rebind",
-						toolName: "stageBatch",
-						input: {
-							operations: [
-								{
-									toolName: "addUserProperties",
-									input: {
-										properties: [
-											{
-												handle: "@role_property",
-												slug: "role",
-												label: "Role",
-											},
-										],
-										constructionGroupIds: [TEST_CONSTRUCTION_GROUP_ID],
-									},
-								},
-							],
-						},
-					},
-				],
-			},
-			{ calls: [{ toolCallId: "stop", toolName: "reportExecutionBlocker" }] },
-		]);
-
-		await run({ workspace, step });
-		expect(workspace.staged).toHaveLength(0);
 	});
 
 	it("ends the attempt on lost scope", async () => {
@@ -1387,7 +1342,9 @@ describe("runSliceExecutor — budgets", () => {
 			step,
 			commit,
 			signal: new AbortController().signal,
-			onToolOutcome: (event) => outcomes.push(event),
+			onToolOutcome: (event) => {
+				outcomes.push(event);
+			},
 		});
 
 		expect(outcome).toEqual({ kind: "committed", receipt });
@@ -1525,7 +1482,7 @@ describe("runSliceExecutor — budgets", () => {
 		});
 		expect(outcome).toEqual({
 			kind: "budget-exhausted",
-			spent: { modelSteps: 0, stagedRequests: 0 },
+			spent: { modelSteps: 1, stagedRequests: 0 },
 		});
 		pendingStep.resolve({
 			toolCalls: [],
@@ -1562,6 +1519,278 @@ describe("runSliceExecutor — budgets", () => {
 		});
 		await pendingCommit.promise;
 		await Promise.resolve();
+	});
+
+	it("reconciles a durable commit whose response loses the deadline race", async () => {
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+		const { step } = scriptedStep([
+			{ calls: [{ toolCallId: "commit", toolName: "commitChangeSet" }] },
+		]);
+		const pendingCommit = deferred<SliceCommitResult>();
+		const receipt = {} as never;
+		const reconcileCommit = vi.fn(
+			async (): Promise<SliceCommitResult> => ({
+				kind: "committed",
+				receipt,
+			}),
+		);
+		const outcome = await runSliceExecutor({
+			workspace: fakeWorkspace({ inspect: async () => diagnostics() }),
+			brief: brief(),
+			budget: { ...budgetForSlice(slice), maxWallClockMs: 10 },
+			step,
+			commit: async () => pendingCommit.promise,
+			reconcileCommit,
+			signal: new AbortController().signal,
+		});
+		expect(outcome).toEqual({ kind: "committed", receipt });
+		expect(reconcileCommit).toHaveBeenCalledOnce();
+		pendingCommit.resolve({
+			kind: "gate-rejected",
+			message: "the response settled after reconciliation",
+		});
+		await pendingCommit.promise;
+	});
+
+	it("continues from durable attempt counters instead of resetting them", async () => {
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+		const step = vi.fn<ExecutorStepFn>();
+		const claim = vi.fn(async () => true);
+		const budget = { ...budgetForSlice(slice), maxModelSteps: 3 };
+		const outcome = await runSliceExecutor({
+			workspace: fakeWorkspace(),
+			brief: brief(),
+			budget,
+			budgetLedger: {
+				deadlineAt: Date.now() + budget.maxWallClockMs,
+				spent: {
+					modelSteps: 3,
+					stagedRequests: 2,
+					commitAttempts: 1,
+					blockerReports: 1,
+				},
+				finalizationCheckpoint: {
+					validationRequested: false,
+					eligible: false,
+				},
+				claim,
+				checkpointFinalization: vi.fn(async () => undefined),
+			},
+			step,
+			commit: async () => {
+				throw new Error("commit must not be called");
+			},
+			signal: new AbortController().signal,
+		});
+		expect(outcome).toEqual({
+			kind: "budget-exhausted",
+			spent: { modelSteps: 3, stagedRequests: 2 },
+		});
+		expect(step).not.toHaveBeenCalled();
+		expect(claim).not.toHaveBeenCalled();
+	});
+
+	it("recovers a persisted finalization checkpoint at the model-step limit", async () => {
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+		const budget = { ...budgetForSlice(slice), maxModelSteps: 3 };
+		const receipt = { id: "recovered-boundary-receipt" } as never;
+		const commit = vi.fn(
+			async (): Promise<SliceCommitResult> => ({ kind: "committed", receipt }),
+		);
+		const claim = vi.fn(async () => true);
+		const step = vi.fn<ExecutorStepFn>();
+
+		await expect(
+			runSliceExecutor({
+				workspace: fakeWorkspace({ inspect: async () => diagnostics() }),
+				brief: brief(),
+				budget,
+				budgetLedger: {
+					deadlineAt: Date.now() + budget.maxWallClockMs,
+					spent: {
+						modelSteps: 3,
+						stagedRequests: 1,
+						commitAttempts: 0,
+						blockerReports: 0,
+					},
+					finalizationCheckpoint: {
+						validationRequested: true,
+						eligible: true,
+					},
+					claim,
+					checkpointFinalization: vi.fn(async () => undefined),
+				},
+				step,
+				commit,
+				signal: new AbortController().signal,
+			}),
+		).resolves.toEqual({ kind: "committed", receipt });
+		expect(step).not.toHaveBeenCalled();
+		expect(claim).toHaveBeenCalledWith(
+			"commitAttempts",
+			budget.maxCommitAttempts,
+		);
+		expect(commit).toHaveBeenCalledOnce();
+	});
+
+	it("clears finalization eligibility when the final model step's commit is rejected", async () => {
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+		const budget = { ...budgetForSlice(slice), maxModelSteps: 1 };
+		const checkpointFinalization = vi.fn(
+			async (_checkpoint: {
+				validationRequested: boolean;
+				eligible: boolean;
+			}) => undefined,
+		);
+		const commit = vi
+			.fn<() => Promise<SliceCommitResult>>()
+			.mockResolvedValueOnce({
+				kind: "gate-rejected",
+				message: "repair needed",
+			})
+			.mockResolvedValueOnce({ kind: "committed", receipt: {} as never });
+		const { step } = scriptedStep([
+			{ calls: [{ toolCallId: "commit", toolName: "commitChangeSet" }] },
+		]);
+
+		await expect(
+			runSliceExecutor({
+				workspace: fakeWorkspace({ inspect: async () => diagnostics() }),
+				brief: brief(),
+				budget,
+				budgetLedger: {
+					deadlineAt: Date.now() + budget.maxWallClockMs,
+					spent: {
+						modelSteps: 0,
+						stagedRequests: 0,
+						commitAttempts: 0,
+						blockerReports: 0,
+					},
+					finalizationCheckpoint: {
+						validationRequested: false,
+						eligible: false,
+					},
+					claim: vi.fn(async () => true),
+					checkpointFinalization,
+				},
+				step,
+				commit,
+				signal: new AbortController().signal,
+			}),
+		).resolves.toEqual({
+			kind: "budget-exhausted",
+			spent: { modelSteps: 1, stagedRequests: 0 },
+		});
+		expect(commit).toHaveBeenCalledOnce();
+		expect(checkpointFinalization.mock.calls.at(-1)?.[0]).toEqual({
+			validationRequested: true,
+			eligible: false,
+		});
+	});
+
+	it("clears a recovered finalization checkpoint after the canonical gate rejects", async () => {
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+		const budget = { ...budgetForSlice(slice), maxModelSteps: 1 };
+		const checkpointFinalization = vi.fn(
+			async (_checkpoint: {
+				validationRequested: boolean;
+				eligible: boolean;
+			}) => undefined,
+		);
+		const commit = vi.fn(
+			async (): Promise<SliceCommitResult> => ({
+				kind: "gate-rejected",
+				message: "repair needed",
+			}),
+		);
+
+		await expect(
+			runSliceExecutor({
+				workspace: fakeWorkspace({ inspect: async () => diagnostics() }),
+				brief: brief(),
+				budget,
+				budgetLedger: {
+					deadlineAt: Date.now() + budget.maxWallClockMs,
+					spent: {
+						modelSteps: 1,
+						stagedRequests: 0,
+						commitAttempts: 0,
+						blockerReports: 0,
+					},
+					finalizationCheckpoint: {
+						validationRequested: true,
+						eligible: true,
+					},
+					claim: vi.fn(async () => true),
+					checkpointFinalization,
+				},
+				step: vi.fn<ExecutorStepFn>(),
+				commit,
+				signal: new AbortController().signal,
+			}),
+		).resolves.toEqual({
+			kind: "budget-exhausted",
+			spent: { modelSteps: 1, stagedRequests: 0 },
+		});
+		expect(commit).toHaveBeenCalledOnce();
+		expect(checkpointFinalization).toHaveBeenCalledWith({
+			validationRequested: true,
+			eligible: false,
+		});
+	});
+
+	it("recovers when the final repair stage committed before its attempt checkpoint", async () => {
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+		const budget = { ...budgetForSlice(slice), maxModelSteps: 3 };
+		const receipt = { id: "atomic-stage-boundary-receipt" } as never;
+		const commit = vi.fn(
+			async (): Promise<SliceCommitResult> => ({ kind: "committed", receipt }),
+		);
+		const claim = vi.fn(async () => true);
+
+		await expect(
+			runSliceExecutor({
+				workspace: fakeWorkspace({
+					inspect: async () => diagnostics(),
+					executionCheckpoint: {
+						intentCoverage: [],
+						handles: [],
+						finalizationModelStep: 3,
+					},
+				}),
+				brief: brief(),
+				budget,
+				budgetLedger: {
+					deadlineAt: Date.now() + budget.maxWallClockMs,
+					spent: {
+						modelSteps: 3,
+						stagedRequests: 1,
+						commitAttempts: 0,
+						blockerReports: 0,
+					},
+					finalizationCheckpoint: {
+						validationRequested: true,
+						eligible: false,
+					},
+					claim,
+					checkpointFinalization: vi.fn(async () => undefined),
+				},
+				step: vi.fn<ExecutorStepFn>(),
+				commit,
+				signal: new AbortController().signal,
+			}),
+		).resolves.toEqual({ kind: "committed", receipt });
+		expect(claim).toHaveBeenCalledWith(
+			"commitAttempts",
+			budget.maxCommitAttempts,
+		);
+		expect(commit).toHaveBeenCalledOnce();
 	});
 
 	it("exhausts on model steps without claiming completion", async () => {

@@ -54,6 +54,7 @@ import * as designArtifacts from "./20260808000000_design_artifacts";
 import * as designSessions from "./20260809000000_design_sessions";
 import * as designOrchestration from "./20260810000000_design_orchestration";
 import * as designArtifactWorkspaces from "./20260810010000_design_artifact_workspaces";
+import * as executorAttemptRecovery from "./20260811000000_executor_attempt_recovery";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -102,6 +103,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260809000000_design_sessions": designSessions,
 	"20260810000000_design_orchestration": designOrchestration,
 	"20260810010000_design_artifact_workspaces": designArtifactWorkspaces,
+	"20260811000000_executor_attempt_recovery": executorAttemptRecovery,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

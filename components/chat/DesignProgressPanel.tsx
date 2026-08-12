@@ -20,9 +20,7 @@ import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
 import tablerPointFilled from "@iconify-icons/tabler/point-filled";
-import { type ReactNode, useId, useState, useTransition } from "react";
-import { acceptPartialBuild } from "@/app/(app)/build/actions";
-import { Button } from "@/components/shadcn/button";
+import { type ReactNode, useId, useState } from "react";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -35,16 +33,11 @@ import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 
 export interface DesignProgressPanelProps {
 	readonly view: DesignProgressView;
-	/** Recovery actions mutate the design/app and are editor-only. */
-	readonly canRecover?: boolean;
 }
 
-export function DesignProgressStatus({
-	view,
-	canRecover = false,
-}: DesignProgressPanelProps) {
+export function DesignProgressStatus({ view }: DesignProgressPanelProps) {
 	if (!view.active || view.stageLabel === null) return null;
-	return <StageLine view={view} canRecover={canRecover} />;
+	return <StageLine view={view} />;
 }
 
 export function DesignProgressDetails({ view }: DesignProgressPanelProps) {
@@ -86,34 +79,8 @@ export function DesignProgressDetails({ view }: DesignProgressPanelProps) {
  * than a demand: the question card owns the assertive announcement when the
  * build actually needs an answer.
  */
-function StageLine({
-	view,
-	canRecover,
-}: {
-	readonly view: DesignProgressView;
-	readonly canRecover: boolean;
-}) {
+function StageLine({ view }: { readonly view: DesignProgressView }) {
 	const halted = view.stage === "failed" || view.stage === "incomplete";
-	const canAcceptPartial =
-		canRecover &&
-		halted &&
-		view.materialized &&
-		view.committedSliceNames.length > 0 &&
-		view.designSessionId !== null;
-	const [accepting, startAccepting] = useTransition();
-	const [acceptError, setAcceptError] = useState<string | null>(null);
-	const acceptPartial = () => {
-		if (view.designSessionId === null) return;
-		setAcceptError(null);
-		startAccepting(async () => {
-			const result = await acceptPartialBuild(view.designSessionId as string);
-			if (!result.success) {
-				setAcceptError(result.error);
-				return;
-			}
-			window.location.assign(`/build/${encodeURIComponent(result.appId)}`);
-		});
-	};
 	return (
 		<div
 			role="status"
@@ -171,26 +138,6 @@ function StageLine({
 					<p className="mt-0.5 text-xs leading-5 text-nova-text-secondary">
 						{view.failure}
 					</p>
-				)}
-				{canAcceptPartial && (
-					<div className="mt-2 flex flex-col items-start gap-1.5">
-						<p className="text-xs leading-5 text-nova-text-secondary">
-							You can keep the workflows already added and edit them yourself.
-						</p>
-						<Button
-							type="button"
-							variant="outline"
-							disabled={accepting}
-							onClick={acceptPartial}
-						>
-							{accepting ? "Finishing…" : "Use what’s built"}
-						</Button>
-						{acceptError && (
-							<p role="alert" className="text-xs leading-5 text-nova-rose">
-								{acceptError}
-							</p>
-						)}
-					</div>
 				)}
 			</div>
 		</div>

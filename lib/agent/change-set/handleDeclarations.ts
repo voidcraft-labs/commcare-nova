@@ -1,13 +1,13 @@
 /**
  * Handle declarations on the SHARED structural creation tools.
  *
- * The executor wire widens every handle-eligible identity slot to
- * `uuid | { handle }`. A creation slot has one extra responsibility beyond a
- * reference slot: it must bind that handle before the workspace resolves the
- * complete input through the original canonical schema. Keep this list closed
- * and explicit so target, parent, and anchor slots never accidentally mint an
- * entity. Inline-option replacement slots preserve a bound option handle or
- * bind a new one, because the same canonical slot supports both operations.
+ * The executor wire widens reference slots to `uuid | { handle }` and narrows
+ * creation slots to `{ handle }`. A creation slot must bind that handle before
+ * the workspace resolves the complete input through the original canonical
+ * schema. Keep this list closed and explicit so target, parent, and anchor
+ * slots never accidentally mint an entity. Inline-option replacement slots
+ * preserve a bound option handle or bind a new one, because the same canonical
+ * slot supports both operations.
  */
 
 import { asHandleRef, type StagedHandleDeclaration } from "./handles";
@@ -180,6 +180,13 @@ const SHARED_HANDLE_DECLARERS: Readonly<Record<string, HandleDeclarer>> = {
 	addCaseListColumns(input) {
 		return itemDeclarations(
 			object(input)?.columns,
+			"columnUuid",
+			"case_list_column",
+		);
+	},
+	updateModule(input) {
+		return itemDeclarations(
+			object(input)?.case_list_columns,
 			"columnUuid",
 			"case_list_column",
 		);

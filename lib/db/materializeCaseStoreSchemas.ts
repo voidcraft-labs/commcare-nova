@@ -19,7 +19,8 @@
  *
  *   1. Await this helper — UPSERTs the schema row + indexes for
  *      every case type. Blocks until Postgres is caught up.
- *   2. `completeAndSettleRun` (atomic status-flip + kept-charge settle, builds).
+ *   2. Build finalization atomically writes the status flip, kept-charge
+ *      settlement, and (for a reviewed initial build) its `finished` event.
  *   3. `data-done` SSE emit — the UX signal that the build is
  *      done; the client's stream dispatcher stamps `runCompletedAt`
  *      on this event, which drives the Completed celebration phase.

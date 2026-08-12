@@ -37,10 +37,13 @@ import {
 import { canonicalJsonDigest, stagingInputDigest } from "../digest";
 import { ChangeSetScopeLostError } from "../errors";
 import { materializeAppFromGenesis } from "../materializeGenesis";
+import { changeSetHandleSchema } from "../schemas";
 import {
 	beginGenesisChangeSet,
 	loadChangeSet,
 	loadChangeSetSteps,
+	loadPriorCommittedPlanHandleBindings,
+	type StageHandleAllocation,
 	stageChangeSetRequest,
 } from "../store";
 
@@ -135,6 +138,7 @@ async function stageBatch(
 	mutations: readonly Mutation[],
 	intentId: ReturnType<typeof asDesignId>,
 	requestId = "genesis-stage-1",
+	handles: readonly StageHandleAllocation[] = [],
 ): Promise<void> {
 	const admitted = admitMutationBatch(mutations);
 	await stageChangeSetRequest({
@@ -153,7 +157,8 @@ async function stageBatch(
 			kind: "stage",
 			mutations: admitted,
 			stageSlices: [],
-			handles: [],
+			handles,
+			retainedHandleUuids: handles.map((binding) => binding.uuid),
 			intentIds: [intentId],
 			readSet: [],
 			exclusiveKind: null,
@@ -185,6 +190,54 @@ function materializeArgs(fixture: ClaimedGenesisFixture) {
 }
 
 describe("materializeAppFromGenesis", () => {
+	it("imports handles committed by the genesis slice into a later app slice", async () => {
+		const fixture = await claimedGenesisFixture();
+		const genesis = canonicalAppGenesis(
+			emptyBlueprintDoc(fixture.proposedAppId),
+		);
+		const rootHandle = changeSetHandleSchema.parse("@root_module");
+		await stageBatch(
+			fixture.changeSetId,
+			genesis.mutations,
+			fixture.intentId,
+			"handled-genesis",
+			[
+				{
+					handle: rootHandle,
+					uuid: genesis.moduleUuid,
+					entityKind: "module",
+				},
+			],
+		);
+		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
+		if (outcome.kind !== "materialized") {
+			throw new Error(`expected materialized, got ${outcome.kind}`);
+		}
+		const committedRoot = await loadChangeSet(fixture.changeSetId);
+		if (committedRoot === undefined) throw new Error("missing committed root");
+
+		const imported = await loadPriorCommittedPlanHandleBindings({
+			...committedRoot,
+			id: crypto.randomUUID(),
+			kind: "app-edit",
+			appId: fixture.proposedAppId,
+			proposedAppId: null,
+			baseSeq: outcome.receipt.seq,
+			baseSnapshotDigest: outcome.receipt.snapshotDigest,
+			status: "open",
+			committedSeq: null,
+			committedBatchId: null,
+			committedSnapshotDigest: null,
+		});
+		expect(imported).toEqual([
+			expect.objectContaining({
+				handle: rootHandle,
+				uuid: genesis.moduleUuid,
+				entityKind: "module",
+			}),
+		]);
+	});
+
 	it("materializes one complete sequence-1 app with the transferred holder and reservation", async () => {
 		const fixture = await claimedGenesisFixture();
 		await stageBatch(
@@ -192,6 +245,12 @@ describe("materializeAppFromGenesis", () => {
 			exportReadyBatch(fixture.proposedAppId),
 			fixture.intentId,
 		);
+		await h
+			.db()
+			.updateTable("design_slice_attempts")
+			.set({ outcome_evidence_state: "collecting" })
+			.where("design_session_id", "=", fixture.designSessionId)
+			.executeTakeFirstOrThrow();
 
 		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
 		if (outcome.kind !== "materialized") {
@@ -253,11 +312,12 @@ describe("materializeAppFromGenesis", () => {
 		const attempt = await h
 			.db()
 			.selectFrom("design_slice_attempts")
-			.select(["status", "change_set_id"])
+			.select(["status", "change_set_id", "outcome_evidence_state"])
 			.where("design_session_id", "=", fixture.designSessionId)
 			.executeTakeFirst();
 		expect(attempt?.status).toBe("committed");
 		expect(attempt?.change_set_id).toBe(fixture.changeSetId);
+		expect(attempt?.outcome_evidence_state).toBe("complete");
 
 		/* Sequence 1 is fold-replay exact: the immutable baseline reproduces
 		 * the receipt's snapshot digest. */

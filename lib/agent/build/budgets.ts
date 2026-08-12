@@ -20,6 +20,20 @@ export interface SliceExecutionBudget {
 	readonly maxWallClockMs: number;
 }
 
+/** Attempt-local spend axes that are claimed durably before work begins. */
+export type SliceAttemptBudgetCounter =
+	| "modelSteps"
+	| "stagedRequests"
+	| "commitAttempts"
+	| "blockerReports";
+
+export interface SliceAttemptBudgetSpent {
+	readonly modelSteps: number;
+	readonly stagedRequests: number;
+	readonly commitAttempts: number;
+	readonly blockerReports: number;
+}
+
 /**
  * The floor every slice gets. Sized for the smallest real slice — one record,
  * one form, its case list — with room for a read, a correction after a

@@ -74,12 +74,11 @@ export const chatRequestSchema = z.object({
 	 *  presence, deliberately never on a client-claimed mode). It stays on the
 	 *  wire so the server can see when a client's phase read has drifted. */
 	appReady: z.boolean().optional(),
-	/** True on the client's automatic re-drive of an instance-killed run (the
-	 *  loader detected a dead live-stream marker and the thread's last turn is
-	 *  an unanswered user message). One behavioral difference from a normal
-	 *  send: on a CLAIM CONFLICT the request bails with a clean close instead
-	 *  of serialize-waiting: a conflict means another session's re-drive (or
-	 *  a real run) already owns the turn, and a queued duplicate would re-run
-	 *  it a second time when the holder finishes. */
+	/** True on an exact-turn re-drive: either the loader found a dead live-stream
+	 *  marker or the user explicitly resumed a sealed recoverable reviewed
+	 *  build. It is always a fresh chargeable claim even when the frozen
+	 *  transcript ends in an assistant question round. On a CLAIM CONFLICT the
+	 *  request bails with a clean close instead of serialize-waiting: another
+	 *  session already owns the same recovery, and queueing would duplicate it. */
 	redrive: z.boolean().optional(),
 });

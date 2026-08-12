@@ -1,7 +1,7 @@
 /**
- * The executor's provider-facing schemas — where the `uuid | { handle }`
- * widening lands, where it deliberately does not, and that the widened shape
- * still validates through the untouched Zod schema.
+ * The executor's provider-facing schemas — where references widen to
+ * `uuid | { handle }`, where creation identities narrow to required handles,
+ * and where neither projection mutates the shared tool schema.
  */
 
 import { jsonSchema } from "ai";
@@ -9,11 +9,14 @@ import { describe, expect, it } from "vitest";
 import { executionBlockerSchema } from "@/lib/agent/build/executionBlocker";
 import {
 	EXECUTOR_TOOL_SURFACE,
+	executorCatalogDefaultHandleIssue,
 	executorWireToolSchema,
 } from "@/lib/agent/build/executorWireSchemas";
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import { CHANGE_SET_HANDLE_PATTERN } from "@/lib/agent/change-set/schemas";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
+import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
+import { proseText } from "@/lib/domain/prose";
 import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 
 type JsonNode = Record<string, unknown>;
@@ -73,12 +76,26 @@ function uuidLeaves(node: unknown): JsonNode[] {
 	return found;
 }
 
+function schemasWithProperty(node: unknown, name: string): JsonNode[] {
+	const found: JsonNode[] = [];
+	const walk = (value: unknown): void => {
+		if (Array.isArray(value)) {
+			for (const entry of value) walk(entry);
+			return;
+		}
+		if (value === null || typeof value !== "object") return;
+		const schema = value as JsonNode;
+		const properties = schema.properties as JsonNode | undefined;
+		if (properties !== undefined && name in properties) found.push(schema);
+		for (const entry of Object.values(schema)) walk(entry);
+	};
+	walk(node);
+	return found;
+}
+
 describe("EXECUTOR_TOOL_SURFACE", () => {
 	it("mounts reads, one mutation batch, and the server-owned gates", () => {
 		expect(EXECUTOR_TOOL_SURFACE).toEqual([
-			...Array.from(CHANGE_SET_TOOL_REGISTRY.values())
-				.filter((entry) => entry.policy.effect === "read-blueprint")
-				.map((entry) => entry.name),
 			"readBatch",
 			"stageBatch",
 			"inspectChangeSet",
@@ -102,15 +119,86 @@ describe("EXECUTOR_TOOL_SURFACE", () => {
 });
 
 describe("executorWireToolSchema", () => {
-	it("widens a staged module's identity and anchor slots", () => {
-		const schema = schemaFor("stageModule");
-		const arms = (property(schema, "moduleUuid").anyOf ?? []) as JsonNode[];
+	it("requires handled options when a case-bound select would inherit catalog UUIDs", () => {
+		const doc = emptyBlueprintDoc("app-select-defaults");
+		doc.caseTypes = [
+			{
+				name: "patient",
+				properties: [
+					{
+						name: "risk",
+						label: proseText("Risk"),
+						data_type: "single_select",
+						options: [
+							{ value: "routine", label: proseText("Routine") },
+							{ value: "priority", label: proseText("Priority") },
+						],
+					},
+				],
+			},
+		];
+		const baseField = {
+			fieldUuid: { handle: "@risk" },
+			id: "risk",
+			caseWrite: { caseType: "patient", property: "risk" },
+		};
+		expect(
+			executorCatalogDefaultHandleIssue(
+				"addFields",
+				{ fields: [baseField] },
+				doc,
+			),
+		).toContain("explicit inline optionsSource");
+		expect(
+			executorCatalogDefaultHandleIssue(
+				"addFields",
+				{ fields: [{ ...baseField, optionsSource: null }] },
+				doc,
+			),
+		).toContain("explicit inline optionsSource");
+		expect(
+			executorCatalogDefaultHandleIssue(
+				"addFields",
+				{ fields: [{ ...baseField, kind: "text" }] },
+				doc,
+			),
+		).toBeNull();
+		expect(
+			executorCatalogDefaultHandleIssue(
+				"addFields",
+				{
+					fields: [
+						{
+							...baseField,
+							optionsSource: {
+								kind: "inline",
+								options: [
+									{
+										optionUuid: { handle: "@risk_routine" },
+										value: "routine",
+										label: proseText("Routine"),
+									},
+								],
+							},
+						},
+					],
+				},
+				doc,
+			),
+		).toBeNull();
+	});
 
-		expect(arms).toHaveLength(2);
-		expect(arms[0]?.pattern).toBe(CANONICAL_UUID_PATTERN.source);
-		expect((arms[1]?.properties as JsonNode | undefined)?.handle).toMatchObject(
-			{ type: "string", pattern: CHANGE_SET_HANDLE_PATTERN.source },
-		);
+	it("requires a staged module handle and widens only its reference anchor", () => {
+		const schema = schemaFor("stageModule");
+		expect(
+			(property(schema, "moduleUuid").properties as JsonNode | undefined)
+				?.handle,
+		).toMatchObject({
+			type: "string",
+			pattern: CHANGE_SET_HANDLE_PATTERN.source,
+		});
+		expect(schema.required).toContain("moduleUuid");
+		expect(uuidLeaves(property(schema, "moduleUuid"))).toHaveLength(0);
 
 		/* `after` is nullable — only its string arm widens, never the null. */
 		const afterArms = (property(schema, "after").anyOf ?? []) as JsonNode[];
@@ -122,6 +210,19 @@ describe("executorWireToolSchema", () => {
 		const schema = schemaFor("moveField");
 		expect(handleArms(property(schema, "fieldUuid"))).toHaveLength(1);
 		expect(handleArms(schema).length).toBeGreaterThan(1);
+	});
+
+	it("requires durable handles for columns seeded by updateModule", () => {
+		const schema = schemaFor("updateModule");
+		const columns = property(schema, "case_list_columns");
+		const columnArms = schemasWithProperty(columns, "columnUuid");
+		expect(columnArms.length).toBeGreaterThan(0);
+		for (const item of columnArms) {
+			const columnUuid = property(item, "columnUuid");
+			expect(handleArms(columnUuid)).toHaveLength(1);
+			expect(uuidLeaves(columnUuid)).toHaveLength(0);
+			expect(item.required).toContain("columnUuid");
+		}
 	});
 
 	it("leaves non-uuid strings untouched", () => {
@@ -168,7 +269,7 @@ describe("executorWireToolSchema", () => {
 		expect(handleArms(chat)).toHaveLength(0);
 	});
 
-	it("accepts both a canonical uuid and a handle through the SDK validator", async () => {
+	it("projects handles while leaving resolved input validation canonical", async () => {
 		const entry = CHANGE_SET_TOOL_REGISTRY.get("stageForm");
 		if (entry === undefined) throw new Error("no stageForm");
 		const validate = jsonSchema(

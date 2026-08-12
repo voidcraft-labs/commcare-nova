@@ -128,6 +128,7 @@ function stageArgs(
 			mutations,
 			stageSlices: [],
 			handles: [],
+			retainedHandleUuids: [],
 			intentIds: [],
 			readSet: [],
 			exclusiveKind: null,
@@ -308,6 +309,7 @@ describe("statement-boundary fault injection", () => {
 			const appId = await createTestApp();
 			const changeSet = await openAppEditSet(appId);
 			const handle = changeSetHandleSchema.parse("@fault");
+			const handleUuid = asUuid(crypto.randomUUID());
 			const args = stageArgs(changeSet.id, {
 				outcome: {
 					kind: "stage",
@@ -315,9 +317,8 @@ describe("statement-boundary fault injection", () => {
 						{ kind: "setAppName", name: "Renamed by staging" },
 					]),
 					stageSlices: [{ stage: "structure", start: 0, end: 1 }],
-					handles: [
-						{ handle, uuid: asUuid(crypto.randomUUID()), entityKind: "module" },
-					],
+					handles: [{ handle, uuid: handleUuid, entityKind: "module" }],
+					retainedHandleUuids: [handleUuid],
 					intentIds: [],
 					readSet: [],
 					exclusiveKind: null,

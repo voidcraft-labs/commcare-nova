@@ -18,6 +18,12 @@ function messages(value: unknown): string {
 		: result.error.issues.map((issue) => issue.message).join("\n");
 }
 
+function constructionMessages(value: ReturnType<typeof makeContract>): string {
+	return designConstructionIssues(value)
+		.map((issue) => issue.message)
+		.join("\n");
+}
+
 describe("lean Design Contract graph", () => {
 	it("accepts and round-trips a task-complete contract", () => {
 		const contract = makeContract();
@@ -38,6 +44,128 @@ describe("lean Design Contract graph", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.includedWorkflowIds = [ids.taskRegister];
 		expect(messages(contract)).toContain("include every workflow");
+	});
+
+	it("admits no multi-app, unsupported media feature, empty shell, or unresolved build contract", () => {
+		const multipleApps = structuredClone(makeContract()) as unknown as {
+			charter: { appCount: number };
+		};
+		multipleApps.charter.appCount = 2;
+		expect(messages(multipleApps)).toContain("Invalid input");
+
+		const media = cloneContract(makeContract()) as unknown as {
+			workflows: Array<{ authoredFeatures: string[] }>;
+		};
+		const mediaWorkflow = media.workflows[0];
+		if (mediaWorkflow === undefined)
+			throw new Error("fixture workflow missing");
+		mediaWorkflow.authoredFeatures = ["generated-media"];
+		expect(messages(media)).toContain("Invalid option");
+
+		const disabled = cloneContract(makeContract());
+		const disabledWorkflow = fixtureValue(
+			disabled.workflows[0],
+			"first workflow",
+		);
+		disabledWorkflow.inputs = [];
+		disabledWorkflow.decisions = [];
+		disabledWorkflow.recordEffects = [];
+		disabledWorkflow.authoredFeatures = [];
+		disabledWorkflow.readback = [];
+		expect(constructionMessages(disabled)).toContain("empty workflow shell");
+
+		const unresolved = cloneContract(makeContract());
+		unresolved.openQuestions.push({
+			id: ids.question,
+			question: "What calculation should this workflow perform?",
+			structuralImpact: "local",
+			blocking: false,
+			relatedElementIds: [ids.taskRegister],
+		});
+		expect(constructionMessages(unresolved)).toContain(
+			"must be answered or its workflow explicitly excluded",
+		);
+	});
+
+	it("admits human media readiness but rejects structurally empty workflows", () => {
+		const readiness = cloneContract(makeContract());
+		readiness.externalRequirements.push({
+			id: ids.externalSetup,
+			name: "Existing image",
+			kind: "user-prerequisite",
+			description:
+				"An administrator must upload an image before Nova can attach the existing asset.",
+			relatedWorkflowIds: [ids.taskRegister],
+			timing: "before-runtime",
+			blocksConstruction: false,
+		});
+		expect(constructionMessages(readiness)).toBe("");
+
+		const empty = cloneContract(makeContract());
+		const workflow = fixtureValue(empty.workflows[0], "first workflow");
+		workflow.inputs = [];
+		workflow.decisions = [];
+		workflow.recordEffects = [];
+		workflow.authoredFeatures = [];
+		workflow.readback = [];
+		expect(constructionMessages(empty)).toContain("empty workflow shell");
+	});
+
+	it("treats unresolved actor construction as a blocking design question", () => {
+		const contract = cloneContract(makeContract());
+		contract.openQuestions.push({
+			id: ids.question,
+			question: "Which worker property distinguishes this actor?",
+			structuralImpact: "local",
+			blocking: true,
+			relatedElementIds: [ids.actorChw],
+		});
+		expect(constructionMessages(contract)).toContain(
+			"must be answered or its workflow explicitly excluded",
+		);
+	});
+
+	it("does not mistake a concrete pending status value for deferred design work", () => {
+		const contract = cloneContract(makeContract());
+		const write = contract.workflows[0]?.recordEffects[0]?.writes[0];
+		if (write === undefined) throw new Error("fixture write missing");
+		write.value = "pending";
+		expect(constructionMessages(contract)).toBe("");
+	});
+
+	it("does not infer construction state from domain prose", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = fixtureValue(contract.workflows[0], "first workflow");
+		workflow.goal = "Process deferred referrals in a follow-up form";
+		contract.externalRequirements.push({
+			id: ids.externalSetup,
+			name: "Existing image",
+			kind: "user-prerequisite",
+			description:
+				"Nova cannot upload the image; an administrator must upload it before runtime.",
+			relatedWorkflowIds: [workflow.id],
+			timing: "before-runtime",
+			blocksConstruction: false,
+		});
+		expect(constructionMessages(contract)).toBe("");
+	});
+
+	it("admits a form-only workflow with no record mutation", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = fixtureValue(contract.workflows[0], "first workflow");
+		workflow.inputs = [
+			{
+				handle: "survey_answer",
+				name: "Survey answer",
+				purpose: "Collect a standalone response",
+				dataShape: "text",
+			},
+		];
+		workflow.decisions = [];
+		workflow.recordEffects = [];
+		workflow.readback = [];
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+		expect(constructionMessages(contract)).toBe("");
 	});
 
 	it("rejects record and navigation cycles", () => {

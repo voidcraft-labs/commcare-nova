@@ -101,13 +101,21 @@ editor. After design materialization, `projectCanEdit` keeps chat available but
 `canEdit` stays false while `buildUnfinished` is true: the committed app tree
 fills in read-only around the central progress card, and no human autosave can
 race Nova's remaining slices. Whole-build completion releases it. After a
-settled interruption with committed work, **Use what’s built** invokes the
-server's exact-sequence `accepted-partial` transition and reloads the now-
-complete app; a client never unlocks itself locally. Partial acceptance and its
-eligibility are server-owned. A viewer sees the stopped state without controls.
-Provider, transport, transaction, and lost-response recovery stay internal; a
+settled interruption with committed work, the app tree remains inspectable but
+locked: no partial-plan transition can mark it complete or unlock authoring. A
+viewer sees the same stopped state without controls. Provider, transport,
+transaction, and lost-response recovery resume the exact attempt. A recoverable
+turn that has already sealed its stream exposes one **Resume build** action;
+the durable incomplete stage restores that action after a cold reload. An error
+app with a nonterminal orchestration head also projects incomplete, closing the
+window where an infrastructure fault settled the app before it could append a
+failure event. It is
+editor-only, submits no new message, and carries only the redrive capability,
+which makes a fresh exact-build claim without redesigning the frozen plan. A
 deterministic failed plan/slice exposes no retry control and cannot be reopened
-by another chat turn.
+by another chat turn. A completed app's original design-backed
+conversation remains ordinary editable history: its retained design-session
+identity does not re-arm the lock after `buildUnfinished` is released.
 
 ## Publishing
 

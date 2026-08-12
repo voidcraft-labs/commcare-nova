@@ -32,7 +32,7 @@
  * is corruption for the CALLER to detect, never a new commit.
  */
 
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import { implementationCoordinateSchema } from "@/lib/agent/design/projection/coordinates";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { AppDatabase } from "./pg";
@@ -228,7 +228,20 @@ async function commitDesignChangeSetSidecar(
 	}
 	const attemptFlip = await tx
 		.updateTable("design_slice_attempts")
-		.set({ status: "committed", failure_code: null, updated_at: new Date() })
+		.set({
+			status: "committed",
+			failure_code: null,
+			/* The canonical commit is the final executor operation, and every
+			 * negative outcome is awaited into this attempt before the commit can
+			 * start. Seal a live evidence window in the same transaction as the
+			 * receipt so process death after COMMIT cannot strand it at collecting.
+			 * An already-incomplete window remains fail-closed forever. */
+			outcome_evidence_state: sql<string>`CASE
+				WHEN outcome_evidence_state = 'collecting' THEN 'complete'
+				ELSE outcome_evidence_state
+			END`,
+			updated_at: new Date(),
+		})
 		.where("id", "=", sidecar.sliceAttemptId)
 		.where("status", "=", "running")
 		.where("change_set_id", "=", sidecar.changeSetId)

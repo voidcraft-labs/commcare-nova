@@ -25,6 +25,11 @@ import {
 	turnRetryDelayMs,
 } from "@/lib/agent";
 import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
+import {
+	appendOrchestrationEvent,
+	completeBuildOrchestration,
+	readOrchestrationHead,
+} from "@/lib/agent/build/orchestratorState";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
@@ -50,7 +55,6 @@ import {
 	claimAndReserveRun,
 	clearRunLock,
 	clearRunLockAndSettle,
-	completeAndSettleRun,
 	failApp,
 	GenerationInProgressError,
 	loadApp,
@@ -269,6 +273,7 @@ export async function POST(req: Request) {
 	const { chargeable, preflightCost } = creditGateDecision({
 		rawMessages: messages,
 		existingApp: parsed.data.appId !== undefined,
+		redrive: parsed.data.redrive,
 	});
 	/* A holder nonce is a per-CLAIM capability, never thread attribution. A
 	 * chargeable instruction/redrive always gets a fresh server value even if a
@@ -1695,9 +1700,12 @@ export async function POST(req: Request) {
 				const failRun = async (
 					error: unknown,
 					source: string,
-					opts?: { turnComplete?: boolean },
+					opts?: {
+						turnComplete?: boolean;
+						classified?: ClassifiedError;
+					},
 				): Promise<void> => {
-					const classified = classifyError(error);
+					const classified = opts?.classified ?? classifyError(error);
 					if (error instanceof RunHolderLostError) {
 						ctx.latchRunHolderLost(error);
 						ctx.emitError(classified, source);
@@ -2255,6 +2263,35 @@ export async function POST(req: Request) {
 							meter: usage,
 							signal: orchestrationAbort.signal,
 							materializedAppId: design.materialized ? appId : null,
+							finalizeCompletion: async ({
+								appId,
+								expectedSeq,
+								expectedHead,
+							}) => {
+								const finalApp = await loadApp(appId);
+								if (
+									finalApp === null ||
+									finalApp.mutation_seq !== expectedSeq
+								) {
+									throw new RunHolderLostError("superseded");
+								}
+								await materializeCaseStoreSchemas({
+									appId,
+									blueprint: finalApp.blueprint,
+									syncedSeq: expectedSeq,
+								});
+								const head = await completeBuildOrchestration({
+									designSessionId: design.designSessionId,
+									runId: effectiveRunId,
+									holderNonce,
+									actorUserId: userId,
+									expectedProjectId: projectId,
+									appId,
+									expectedSeq,
+									expectedHead,
+								});
+								return { blueprint: finalApp.blueprint, head };
+							},
 							deps: {
 								logCommittedStages: (receipt, envelopes) => {
 									for (const envelope of envelopes) {
@@ -2330,34 +2367,13 @@ export async function POST(req: Request) {
 							},
 						});
 						if (outcome.kind === "completed") {
-							/* The finishing moves, in the build arm's exact order:
-							 * converge case-store schemas for anything later slices
-							 * added, flip `generating → complete` while settling the
-							 * kept charge, then emit `data-done` so the client's
-							 * reconciler adopts the final canonical snapshot. */
-							const finalApp = await loadApp(outcome.appId);
-							if (finalApp !== null) {
-								await materializeCaseStoreSchemas({
-									appId: outcome.appId,
-									blueprint: finalApp.blueprint,
-									syncedSeq: outcome.finalSeq,
-								});
-							}
-							const completionOutcome = await completeAndSettleRun(
-								outcome.appId,
-								effectiveRunId,
-								holderNonce,
-							);
-							if (completionOutcome !== "owned") {
-								throw new RunHolderLostError(completionOutcome);
-							}
-							if (finalApp !== null) {
-								ctx.emit("data-done", {
-									doc: finalApp.blueprint,
-									seq: outcome.finalSeq,
-									success: true,
-								});
-							}
+							/* The orchestrator persisted `finished` only after the route's
+							 * schema convergence and exact-head lifecycle CAS above. */
+							ctx.emit("data-done", {
+								doc: outcome.finalBlueprint,
+								seq: outcome.finalSeq,
+								success: true,
+							});
 							await finalizeRun();
 						} else if (outcome.kind === "awaiting-input") {
 							if (!outcome.pauseOwned) {
@@ -2455,7 +2471,55 @@ export async function POST(req: Request) {
 							}
 						}
 						if (materializedNow) {
-							await failRun(error, "route:design-build-throw");
+							const classified = classifyError(error);
+							const recoverableInfrastructureFault = ![
+								"run_released",
+								"generation_in_progress",
+								"access_revoked",
+								"app_changed",
+							].includes(classified.type);
+							if (recoverableInfrastructureFault) {
+								/* Preserve an exact-plan continuation in durable orchestration
+								 * state before the generic failure funnel releases the app holder.
+								 * A storage failure here is itself fail-closed: the cold-load page
+								 * also treats an error app with a nonterminal head as interrupted. */
+								try {
+									const currentHead = await readOrchestrationHead(
+										design.designSessionId,
+									);
+									if (
+										currentHead?.state.kind !== "finished" &&
+										currentHead?.state.kind !== "accepted-partial" &&
+										currentHead?.state.kind !== "failed"
+									) {
+										await appendOrchestrationEvent({
+											designSessionId: design.designSessionId,
+											runId: effectiveRunId,
+											holderNonce,
+											actorUserId: userId,
+											expectedProjectId: projectId,
+											state: {
+												kind: "failed",
+												failureId: crypto.randomUUID(),
+												recoverable: true,
+												errorType: classified.type,
+											},
+											expectedHead: currentHead,
+										});
+									}
+								} catch (err) {
+									log.error(
+										"[chat] recoverable build interruption stamp failed",
+										err,
+										{ designSessionId: design.designSessionId },
+									);
+								}
+							}
+							await failRun(error, "route:design-build-throw", {
+								classified: recoverableInfrastructureFault
+									? { ...classified, recoverable: true }
+									: classified,
+							});
 						} else {
 							usage.markRunFailed();
 							try {

@@ -43,6 +43,8 @@ import { delay } from "@/lib/utils/delay";
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
 /** `bigint` counters read through the shared nonnegative safe-integer boundary. */
 type BigIntColumn = ColumnType<string | number, number, number>;
+/** Integer counter with a database default, optional only on INSERT. */
+type DefaultedNumberColumn = ColumnType<number, number | undefined, number>;
 /** Lookup revisions stay exact decimal strings on every application boundary. */
 type LookupRevisionColumn = ColumnType<string, string, string>;
 /** Exact lookup revision with a database default, so INSERT may omit it. */
@@ -574,6 +576,7 @@ export interface DesignChangeSetsTable {
 	revision: ColumnType<string | number, number | undefined, number>;
 	next_ordinal: ColumnType<string | number, number | undefined, number>;
 	exclusive_kind: string | null;
+	finalization_model_step: number | null;
 	owner_user_id: string;
 	owner_run_id: string;
 	status: string;
@@ -700,6 +703,17 @@ export interface DesignSliceAttemptsTable {
 	executor_model: string;
 	prompt_version: string;
 	brief_digest: string;
+	model_steps_used: DefaultedNumberColumn;
+	staged_requests_used: DefaultedNumberColumn;
+	commit_attempts_used: DefaultedNumberColumn;
+	blocker_reports_used: DefaultedNumberColumn;
+	validation_requested: ColumnType<boolean, boolean | undefined, boolean>;
+	finalization_eligible: ColumnType<boolean, boolean | undefined, boolean>;
+	execution_run_ids: JSONColumnType<string[], string | undefined, string>;
+	wire_invalid_count: DefaultedNumberColumn;
+	stage_rejected_count: DefaultedNumberColumn;
+	validator_repair_count: DefaultedNumberColumn;
+	outcome_evidence_state: ColumnType<string, string | undefined, string>;
 	status: string;
 	failure_code: string | null;
 	created_at: Timestamp;

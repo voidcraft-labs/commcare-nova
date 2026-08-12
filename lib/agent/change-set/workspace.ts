@@ -55,7 +55,7 @@ import {
 	admitMutationStages,
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
-import type { BlueprintDoc } from "@/lib/domain";
+import { authoredBlueprintIdentities, type BlueprintDoc } from "@/lib/domain";
 import { collectRealAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	type ChangeSetDiagnostics,
@@ -103,6 +103,9 @@ export interface ChangeSetExecutionCheckpoint {
 		readonly uuid: string;
 		readonly entityKind: string;
 	}[];
+	/** Atomic marker on the latest durable stage request. The executor combines
+	 * it with the attempt's exact model-step count before using it. */
+	readonly finalizationModelStep?: number;
 }
 
 /** The Project data readers + services a change-set workspace runs over. */
@@ -132,6 +135,7 @@ interface DispatchArgs<T> {
 	readonly input?: unknown;
 	readonly intentIds?: readonly DesignId[];
 	readonly deadlineAt?: number;
+	readonly finalizationModelStep?: number;
 	execute(ctx: ToolInvocationContext, resolvedInput?: unknown): Promise<T>;
 }
 
@@ -143,6 +147,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 	private overlayDoc: BlueprintDoc;
 	private handleTable: HandleTable;
 	private accumulatedReadSet: ExternalReadDependency[];
+	private finalizationModelStep: number | null;
 	private lastSummaryFingerprints: readonly string[] = [];
 	private readonly host: ChangeSetWorkspaceHost;
 
@@ -157,6 +162,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		overlayDoc: BlueprintDoc;
 		handleTable: HandleTable;
 		accumulatedReadSet: ExternalReadDependency[];
+		finalizationModelStep: number | null;
 	}) {
 		this.host = args.host;
 		this.changeSet = args.changeSet;
@@ -164,6 +170,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		this.overlayDoc = args.overlayDoc;
 		this.handleTable = args.handleTable;
 		this.accumulatedReadSet = args.accumulatedReadSet;
+		this.finalizationModelStep = args.finalizationModelStep;
 	}
 
 	/** Open (or reopen after process death) one change set's workspace by
@@ -184,6 +191,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			overlayDoc: rehydrated.overlay.doc,
 			handleTable: new HandleTable(rehydrated.handles),
 			accumulatedReadSet: [...rehydrated.accumulatedReadSet],
+			finalizationModelStep: rehydrated.finalizationModelStep,
 		});
 	}
 
@@ -216,6 +224,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				uuid: binding.uuid,
 				entityKind: binding.entityKind,
 			})),
+			...(this.finalizationModelStep !== null && {
+				finalizationModelStep: this.finalizationModelStep,
+			}),
 		};
 	}
 
@@ -247,6 +258,8 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly intentIds?: readonly DesignId[];
 		/** Absolute executor deadline. Direct/non-executor callers omit it. */
 		readonly deadlineAt?: number;
+		/** The final operation of a validation-following repair batch. */
+		readonly finalizationModelStep?: number;
 	}): Promise<StageDispatchResult<unknown>> {
 		const entry = changeSetToolEntry(args.toolName);
 		if (entry === undefined) {
@@ -261,6 +274,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			input: args.input,
 			...(args.intentIds !== undefined && { intentIds: args.intentIds }),
 			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
+			...(args.finalizationModelStep !== undefined && {
+				finalizationModelStep: args.finalizationModelStep,
+			}),
 			execute: async (ctx, resolvedInput) => {
 				const parsed = entry.tool.inputSchema.safeParse(resolvedInput);
 				if (!parsed.success) {
@@ -344,6 +360,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				) {
 					throw new ChangeSetRequestIdCollisionError();
 				}
+				if (stored.resultingRevision === this.changeSet.revision) {
+					this.finalizationModelStep =
+						stored.receipt.finalizationModelStep ?? null;
+				}
 				return {
 					replayed: true,
 					result: this.replayedResult(stored.receipt) as T,
@@ -425,8 +445,31 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				state: invocationState,
 				intentIds: args.intentIds ?? [],
 				...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
+				...(args.finalizationModelStep !== undefined && {
+					finalizationModelStep: args.finalizationModelStep,
+				}),
 			});
 			const result = await args.execute(ctx, resolvedInput);
+			if (
+				invocationState.receipt === undefined &&
+				args.finalizationModelStep !== undefined &&
+				isSuccessfulMutationNoop(result)
+			) {
+				/* A successful final repair can legitimately prove that the private
+				 * candidate already has the requested value. Record that accepted no-op
+				 * as the request's durable action before returning it; otherwise process
+				 * death could consume the final model step while losing the only fact
+				 * that authorizes clean-candidate finalization. */
+				invocationState.receipt = await this.persistFinalizationNoop({
+					toolName: args.toolName,
+					requestId,
+					inputDigest,
+					expectedRevision,
+					finalizationModelStep: args.finalizationModelStep,
+					...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
+				});
+				this.finalizationModelStep = args.finalizationModelStep;
+			}
 			return {
 				replayed: false,
 				result,
@@ -455,6 +498,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		state: InvocationWriteState;
 		intentIds: readonly DesignId[];
 		deadlineAt?: number;
+		finalizationModelStep?: number;
 	}): ToolInvocationContext {
 		const snapshot = this.currentSnapshot();
 		const { state } = args;
@@ -492,6 +536,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				scratch: args.scratch,
 				lookupCaptures: state.lookupCaptures,
 				...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
+				...(args.finalizationModelStep !== undefined && {
+					finalizationModelStep: args.finalizationModelStep,
+				}),
 				...staged,
 			});
 			if (outcome.kind === "staged") {
@@ -633,12 +680,20 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		this.overlayDoc = rehydrated.overlay.doc;
 		this.handleTable = new HandleTable(rehydrated.handles);
 		this.accumulatedReadSet = [...rehydrated.accumulatedReadSet];
+		this.finalizationModelStep = rehydrated.finalizationModelStep;
 		this.lastSummaryFingerprints = [];
 	}
 
 	private replayedResult(receipt: StageRequestReceipt): unknown {
 		if (receipt.disposition === "rejected") {
 			return { error: receipt.error?.message ?? "This request was rejected." };
+		}
+		if (receipt.disposition === "noop") {
+			return {
+				kind: "mutate",
+				mutations: [],
+				result: { message: "This no-op correction was already accepted." },
+			};
 		}
 		/* The receipt IS the replay contract: identical handles, mutation
 		 * digest, diagnostics, and workspace revision, with the minted
@@ -687,6 +742,32 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		return receipt;
 	}
 
+	private async persistFinalizationNoop(args: {
+		readonly toolName: string;
+		readonly requestId: string;
+		readonly inputDigest: string;
+		readonly expectedRevision: number;
+		readonly finalizationModelStep: number;
+		readonly deadlineAt?: number;
+	}): Promise<StageRequestReceipt> {
+		const { receipt } = await stageChangeSetRequest({
+			changeSetId: this.changeSet.id,
+			requestId: args.requestId,
+			toolName: args.toolName,
+			inputDigest: args.inputDigest,
+			expectedRevision: args.expectedRevision,
+			actorUserId: this.host.actorUserId,
+			runId: this.host.runId,
+			...(this.host.chatRunHolder !== undefined && {
+				chatRunHolder: this.host.chatRunHolder,
+			}),
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
+			finalizationModelStep: args.finalizationModelStep,
+			outcome: { kind: "noop" },
+		});
+		return receipt;
+	}
+
 	private async lookupContextFor(
 		prevDoc: BlueprintDoc,
 		nextDoc: BlueprintDoc,
@@ -717,6 +798,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly scratch: HandleTable;
 		readonly lookupCaptures: readonly ExternalReadDependency[];
 		readonly deadlineAt?: number;
+		readonly finalizationModelStep?: number;
 		readonly mutations: AdmittedMutationBatch;
 		readonly slices: readonly AdmittedMutationStageSlice[];
 		readonly policyOrganizationRevision?: string;
@@ -941,6 +1023,15 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			previousFingerprints: this.lastSummaryFingerprints,
 		});
 		const summary = summarizeDiagnostics(diagnostics);
+		const retainedHandleUuids = new Set(
+			authoredBlueprintIdentities(prepared.nextDoc).map(
+				(identity) => identity.uuid,
+			),
+		);
+		const retainedAllocations = args.allocations.filter((allocation) =>
+			retainedHandleUuids.has(allocation.uuid),
+		);
+		const retainedScratch = args.scratch.retainingUuids(retainedHandleUuids);
 
 		const { replayed, receipt } = await stageChangeSetRequest({
 			changeSetId: this.changeSet.id,
@@ -954,11 +1045,15 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				chatRunHolder: this.host.chatRunHolder,
 			}),
 			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
+			...(args.finalizationModelStep !== undefined && {
+				finalizationModelStep: args.finalizationModelStep,
+			}),
 			outcome: {
 				kind: "stage",
 				mutations: args.mutations,
 				stageSlices: args.slices,
-				handles: args.allocations,
+				handles: retainedAllocations,
+				retainedHandleUuids: [...retainedHandleUuids],
 				intentIds: args.intentIds ?? [],
 				readSet: stepReadSet,
 				exclusiveKind: exclusive,
@@ -988,8 +1083,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		 * next invocation builds on it. */
 		this.overlayDoc = prepared.nextDoc;
 		this.steps = nextSteps;
-		this.handleTable = args.scratch;
+		this.handleTable = retainedScratch;
 		this.accumulatedReadSet = nextAccumulated;
+		this.finalizationModelStep = receipt.finalizationModelStep ?? null;
 		this.lastSummaryFingerprints = summary.findingFingerprints;
 		this.changeSet = {
 			...this.changeSet,
@@ -1005,4 +1101,22 @@ interface InvocationWriteState {
 	writesUsed: number;
 	lookupCaptures: ExternalReadDependency[];
 	receipt: StageRequestReceipt | undefined;
+}
+
+function isSuccessfulMutationNoop(value: unknown): boolean {
+	if (value === null || typeof value !== "object") return false;
+	const candidate = value as {
+		kind?: unknown;
+		mutations?: unknown;
+		result?: unknown;
+	};
+	if (candidate.kind !== "mutate" || !Array.isArray(candidate.mutations)) {
+		return false;
+	}
+	if (candidate.mutations.length !== 0) return false;
+	return !(
+		candidate.result !== null &&
+		typeof candidate.result === "object" &&
+		typeof (candidate.result as { error?: unknown }).error === "string"
+	);
 }

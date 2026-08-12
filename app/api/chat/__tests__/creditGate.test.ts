@@ -36,4 +36,14 @@ describe("creditGateDecision", () => {
 			}),
 		).toEqual({ chargeable: false, preflightCost: 0 });
 	});
+
+	it("treats an explicit exact-build redrive as a fresh claim even when the frozen transcript ends in an assistant message", () => {
+		expect(
+			creditGateDecision({
+				rawMessages: [message("user"), message("assistant")],
+				existingApp: true,
+				redrive: true,
+			}),
+		).toEqual({ chargeable: true, preflightCost: 5 });
+	});
 });

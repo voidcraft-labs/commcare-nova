@@ -9,12 +9,6 @@
 
 "use server";
 
-import { z } from "zod";
-import {
-	acceptPartialMaterializedBuild,
-	OrchestrationForkError,
-	PartialBuildAcceptanceError,
-} from "@/lib/agent/build/orchestratorState";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
@@ -65,48 +59,6 @@ export interface CreatedAppReceiptPayload {
 export type CreateStarterAppResult =
 	| { success: true; receipt: CreatedAppReceiptPayload }
 	| { success: false; error: string };
-
-export type AcceptPartialBuildResult =
-	| { success: true; appId: string; appSeq: number }
-	| { success: false; error: string };
-
-/** Finish an interrupted initial build with the exact workflows already
- * committed. The database transition reauthorizes and sequence-binds the
- * accepted app; this action only shapes a calm user-facing result. */
-export async function acceptPartialBuild(
-	designSessionId: string,
-): Promise<AcceptPartialBuildResult> {
-	try {
-		const session = await getSession();
-		if (!session) return { success: false, error: "Please sign in again." };
-		if (!z.string().uuid().safeParse(designSessionId).success) {
-			return { success: false, error: "Reload the page and try again." };
-		}
-		const accepted = await acceptPartialMaterializedBuild({
-			designSessionId,
-			actorUserId: session.user.id,
-		});
-		return { success: true, ...accepted };
-	} catch (err) {
-		if (
-			err instanceof PartialBuildAcceptanceError ||
-			err instanceof OrchestrationForkError
-		) {
-			return {
-				success: false,
-				error:
-					err instanceof OrchestrationForkError
-						? "The build changed while this page was open. Reload and try again."
-						: err.message,
-			};
-		}
-		log.error("[build/accept-partial] error", err, { designSessionId });
-		return {
-			success: false,
-			error: "Nova couldn't finish this build yet. Please try again.",
-		};
-	}
-}
 
 /**
  * Create the canonical starter: the starting point for a user who'd rather

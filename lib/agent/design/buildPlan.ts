@@ -29,6 +29,7 @@ export const blueprintAreaSchema = z.enum([
 	"case-list",
 	"forms",
 	"case-operations",
+	"lookup-references",
 	"media-references",
 	"automations",
 ]);
@@ -233,9 +234,192 @@ function validatePlan(plan: BuildPlan, ctx: z.RefinementCtx): void {
 
 export const buildPlanSchema = buildPlanBaseSchema.superRefine(validatePlan);
 
+function deriveOwnerByElement(
+	contract: AppDesignContract,
+	orderedWorkflowIds: readonly string[],
+): Map<string, string> {
+	const initial = contract.charter.initialWorkflowId;
+	const rank = new Map(orderedWorkflowIds.map((id, index) => [id, index]));
+	const earliest = (ids: readonly string[]): string =>
+		[...ids].sort(
+			(a, b) =>
+				(rank.get(a) ?? Number.MAX_SAFE_INTEGER) -
+				(rank.get(b) ?? Number.MAX_SAFE_INTEGER),
+		)[0] ?? initial;
+	const ownerByElement = new Map<string, string>();
+	for (const workflow of contract.workflows)
+		ownerByElement.set(workflow.id, workflow.id);
+	for (const actor of contract.actors) {
+		ownerByElement.set(
+			actor.id,
+			earliest(
+				contract.workflows
+					.filter((workflow) => workflow.actorIds.includes(actor.id))
+					.map((workflow) => workflow.id),
+			),
+		);
+	}
+	for (const record of contract.records) {
+		const references = contract.workflows.filter(
+			(workflow) =>
+				workflow.contextRecordId === record.id ||
+				workflow.recordEffects.some(
+					(effect) =>
+						effect.recordId === record.id ||
+						effect.sourceRecordId === record.id,
+				) ||
+				workflow.readback.some((readback) => readback.recordId === record.id),
+		);
+		const creators = references.filter((workflow) =>
+			workflow.recordEffects.some(
+				(effect) => effect.recordId === record.id && effect.kind === "create",
+			),
+		);
+		ownerByElement.set(
+			record.id,
+			earliest(
+				(creators.length > 0 ? creators : references).map(
+					(workflow) => workflow.id,
+				),
+			),
+		);
+		for (const property of record.properties) {
+			const directUsers = contract.workflows.filter(
+				(workflow) =>
+					workflow.inputs.some((input) => input.propertyId === property.id) ||
+					workflow.decisions.some((decision) =>
+						decision.inputPropertyIds.includes(property.id),
+					) ||
+					workflow.recordEffects.some((effect) =>
+						effect.writes.some((write) => write.propertyId === property.id),
+					) ||
+					workflow.readback.some((readback) =>
+						readback.propertyIds.includes(property.id),
+					),
+			);
+			const listUsers = contract.lists
+				.filter((list) =>
+					[
+						...list.scanPropertyIds,
+						...list.detailPropertyIds,
+						...list.searchPropertyIds,
+					].includes(property.id),
+				)
+				.flatMap((list) =>
+					list.selectionWorkflowId !== undefined
+						? [list.selectionWorkflowId]
+						: contract.workflows
+								.filter(
+									(workflow) =>
+										workflow.contextRecordId === list.recordId ||
+										workflow.recordEffects.some(
+											(effect) => effect.recordId === list.recordId,
+										) ||
+										workflow.readback.some(
+											(readback) => readback.recordId === list.recordId,
+										),
+								)
+								.map((workflow) => workflow.id),
+				);
+			ownerByElement.set(
+				property.id,
+				earliest([...directUsers.map((workflow) => workflow.id), ...listUsers]),
+			);
+		}
+	}
+	for (const list of contract.lists) {
+		const related =
+			list.selectionWorkflowId !== undefined
+				? [list.selectionWorkflowId]
+				: contract.workflows
+						.filter(
+							(workflow) =>
+								workflow.contextRecordId === list.recordId ||
+								workflow.recordEffects.some(
+									(effect) => effect.recordId === list.recordId,
+								),
+						)
+						.map((workflow) => workflow.id);
+		ownerByElement.set(list.id, earliest(related));
+	}
+	for (const nav of contract.navigation) {
+		ownerByElement.set(
+			nav.id,
+			earliest([
+				...nav.workflowIds,
+				...nav.listIds.map((id) => ownerByElement.get(id) ?? initial),
+			]),
+		);
+	}
+	for (const policy of contract.access) {
+		ownerByElement.set(
+			policy.id,
+			earliest(
+				policy.targets.map((target) =>
+					target.kind === "workflow"
+						? target.id
+						: (ownerByElement.get(target.id) ?? initial),
+				),
+			),
+		);
+	}
+	return ownerByElement;
+}
+
+function expectedElementKinds(
+	contract: AppDesignContract,
+): Map<string, DesignElementRef["kind"]> {
+	return new Map([
+		...contract.actors.map((value) => [value.id, "actor"] as const),
+		...contract.records.flatMap((record) => [
+			[record.id, "record"] as const,
+			...record.properties.map(
+				(property) => [property.id, "property"] as const,
+			),
+		]),
+		...contract.workflows.map((value) => [value.id, "workflow"] as const),
+		...contract.lists.map((value) => [value.id, "list"] as const),
+		...contract.access.map((value) => [value.id, "access"] as const),
+		...contract.navigation.map((value) => [value.id, "navigation"] as const),
+		...contract.externalRequirements.map(
+			(value) => [value.id, "external-requirement"] as const,
+		),
+	]);
+}
+
 /** Contract-bound persisted-read proof. */
 export function buildPlanSchemaFor(contract: AppDesignContract) {
 	return buildPlanSchema.superRefine((plan, ctx) => {
+		/* These are producer invariants for plans derived from an accepted
+		 * contract, not v1 wire-format invariants. Earlier v1 producers placed
+		 * the app area on every foundation group, so the generic persisted reader
+		 * must remain permissive while newly derived plans stay exact. */
+		if (plan.slices[0]?.role !== "materialization-root") {
+			ctx.addIssue({
+				code: "custom",
+				path: ["slices", 0, "role"],
+				message: "The materialization root must be the first build slice.",
+			});
+		}
+		const appAreaOwners = plan.slices.flatMap((slice, sliceIndex) =>
+			slice.constructionGroups.flatMap((group, groupIndex) =>
+				group.blueprintAreas.includes("app")
+					? [{ sliceIndex, groupIndex }]
+					: [],
+			),
+		);
+		if (
+			appAreaOwners.length !== 1 ||
+			plan.slices[appAreaOwners[0]?.sliceIndex ?? -1]?.role !==
+				"materialization-root"
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["slices"],
+				message:
+					"Exactly one construction group must own the app area, and it must belong to the materialization root.",
+			});
+		}
 		const workflowIds = new Set(
 			contract.workflows.map((workflow) => workflow.id),
 		);
@@ -255,6 +439,29 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 			...contract.externalRequirements.map((value) => value.id),
 		]);
 		const assigned = new Map<string, string>();
+		const orderedWorkflowIds = workflowOrder(contract);
+		const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
+		const kindsByElement = expectedElementKinds(contract);
+		const planWorkflowIds = new Set<string>(
+			plan.slices.map((slice) => slice.workflowId),
+		);
+		for (const workflowId of orderedWorkflowIds) {
+			if (!planWorkflowIds.has(workflowId)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["slices"],
+					message: `Included workflow ${workflowId} has no build slice.`,
+				});
+			}
+		}
+		if (plan.slices.length !== orderedWorkflowIds.length) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["slices"],
+				message:
+					"A BuildPlan must contain exactly one slice for every included workflow and no extra slices.",
+			});
+		}
 		plan.slices.forEach((slice, sliceIndex) => {
 			if (!workflowIds.has(slice.workflowId))
 				ctx.addIssue({
@@ -279,6 +486,62 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 							message:
 								"This construction element is absent from the accepted design.",
 						});
+					const expectedKind = kindsByElement.get(element.id);
+					if (expectedKind !== undefined && element.kind !== expectedKind) {
+						ctx.addIssue({
+							code: "custom",
+							path: [
+								"slices",
+								sliceIndex,
+								"constructionGroups",
+								groupIndex,
+								"elements",
+								elementIndex,
+								"kind",
+							],
+							message: `Design element ${element.id} must retain kind ${expectedKind}.`,
+						});
+					}
+					if (element.kind !== "external-requirement") {
+						const ownerWorkflowId = ownerByElement.get(element.id);
+						const groupKey =
+							element.kind === "actor" ||
+							element.kind === "record" ||
+							element.kind === "property"
+								? "foundation"
+								: element.kind === "workflow"
+									? "workflow"
+									: element.kind === "list"
+										? "queues"
+										: "access";
+						const expectedGroupId =
+							ownerWorkflowId === undefined
+								? undefined
+								: stableId(
+										plan.designRevisionDigest,
+										`group:${groupKey}`,
+										ownerWorkflowId,
+									);
+						if (
+							ownerWorkflowId !== slice.workflowId ||
+							expectedGroupId !== group.id
+						) {
+							ctx.addIssue({
+								code: "custom",
+								path: [
+									"slices",
+									sliceIndex,
+									"constructionGroups",
+									groupIndex,
+									"elements",
+									elementIndex,
+									"id",
+								],
+								message:
+									"This design element is not owned by its deterministic workflow construction group.",
+							});
+						}
+					}
 					const owner = assigned.get(element.id);
 					if (owner !== undefined && owner !== group.id)
 						ctx.addIssue({
@@ -321,6 +584,7 @@ function stableId(
 }
 
 function workflowOrder(contract: AppDesignContract): string[] {
+	const initial = contract.charter.initialWorkflowId;
 	const order = new Map(
 		contract.workflows.map((workflow, index) => [workflow.id, index]),
 	);
@@ -334,7 +598,11 @@ function workflowOrder(contract: AppDesignContract): string[] {
 						?.prerequisiteWorkflowIds ?? []
 				).every((dependency) => !remaining.has(dependency)),
 			)
-			.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+			.sort((a, b) => {
+				if (a === initial) return -1;
+				if (b === initial) return 1;
+				return (order.get(a) ?? 0) - (order.get(b) ?? 0);
+			});
 		if (ready.length === 0)
 			throw new Error("Accepted design has cyclic workflow prerequisites.");
 		for (const id of ready) {
@@ -361,103 +629,11 @@ export function deriveBuildPlan(args: {
 		);
 	}
 	const orderedWorkflowIds = workflowOrder(contract);
-	const rank = new Map(orderedWorkflowIds.map((id, index) => [id, index]));
 	const workflowById = new Map<string, AppDesignContract["workflows"][number]>(
 		contract.workflows.map((workflow) => [workflow.id, workflow]),
 	);
 	const initial = contract.charter.initialWorkflowId;
-	const earliest = (ids: readonly string[]): string =>
-		[...ids].sort(
-			(a, b) =>
-				(rank.get(a) ?? Number.MAX_SAFE_INTEGER) -
-				(rank.get(b) ?? Number.MAX_SAFE_INTEGER),
-		)[0] ?? initial;
-
-	const ownerByElement = new Map<string, string>();
-	for (const workflow of contract.workflows)
-		ownerByElement.set(workflow.id, workflow.id);
-	for (const actor of contract.actors) {
-		ownerByElement.set(
-			actor.id,
-			earliest(
-				contract.workflows
-					.filter((workflow) => workflow.actorIds.includes(actor.id))
-					.map((workflow) => workflow.id),
-			),
-		);
-	}
-	for (const record of contract.records) {
-		const references = contract.workflows.filter(
-			(workflow) =>
-				workflow.contextRecordId === record.id ||
-				workflow.recordEffects.some(
-					(effect) =>
-						effect.recordId === record.id ||
-						effect.sourceRecordId === record.id,
-				) ||
-				workflow.readback.some((readback) => readback.recordId === record.id),
-		);
-		const creators = references.filter((workflow) =>
-			workflow.recordEffects.some(
-				(effect) => effect.recordId === record.id && effect.kind === "create",
-			),
-		);
-		ownerByElement.set(
-			record.id,
-			earliest(
-				(creators.length > 0 ? creators : references).map(
-					(workflow) => workflow.id,
-				),
-			),
-		);
-		for (const property of record.properties) {
-			const writers = contract.workflows.filter(
-				(workflow) =>
-					workflow.inputs.some((input) => input.propertyId === property.id) ||
-					workflow.recordEffects.some((effect) =>
-						effect.writes.some((write) => write.propertyId === property.id),
-					),
-			);
-			ownerByElement.set(
-				property.id,
-				earliest(writers.map((workflow) => workflow.id)),
-			);
-		}
-	}
-	for (const list of contract.lists) {
-		const related =
-			list.selectionWorkflowId !== undefined
-				? [list.selectionWorkflowId]
-				: contract.workflows
-						.filter(
-							(workflow) =>
-								workflow.contextRecordId === list.recordId ||
-								workflow.recordEffects.some(
-									(effect) => effect.recordId === list.recordId,
-								),
-						)
-						.map((workflow) => workflow.id);
-		ownerByElement.set(list.id, earliest(related));
-	}
-	for (const nav of contract.navigation)
-		ownerByElement.set(
-			nav.id,
-			earliest([
-				...nav.workflowIds,
-				...nav.listIds.map((id) => ownerByElement.get(id) ?? initial),
-			]),
-		);
-	for (const policy of contract.access)
-		ownerByElement.set(
-			policy.id,
-			earliest(
-				policy.targets.map((target) =>
-					target.kind === "workflow"
-						? target.id
-						: (ownerByElement.get(target.id) ?? initial),
-				),
-			),
-		);
+	const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
 	const refsFor = (
 		workflowId: string,
 		kinds: DesignElementRef["kind"][],
@@ -491,40 +667,116 @@ export function deriveBuildPlan(args: {
 		return refs;
 	};
 	const groupsFor = (workflowId: string): ConstructionGroup[] => {
+		const workflow = workflowById.get(workflowId);
+		const propertyById = new Map(
+			contract.records.flatMap((record) =>
+				record.properties.map(
+					(property) => [property.id as string, property] as const,
+				),
+			),
+		);
+		const authoredFeatures = new Set(workflow?.authoredFeatures ?? []);
+		const needsAdvancedCaseOperations =
+			(workflow?.recordEffects.length ?? 0) > 1 ||
+			workflow?.recordEffects.some(
+				(effect) =>
+					effect.kind === "link" ||
+					effect.kind === "reassign" ||
+					effect.sourceRecordId !== undefined ||
+					(workflow.contextRecordId !== undefined &&
+						effect.recordId !== workflow.contextRecordId),
+			) === true;
 		const specs: Array<{
 			key: string;
 			name: string;
 			kind: ConstructionGroup["kind"];
 			kinds: DesignElementRef["kind"][];
-			areas: BlueprintArea[];
+			areas: (elements: readonly DesignElementRef[]) => BlueprintArea[];
 		}> = [
 			{
 				key: "foundation",
 				name: "Data and people",
 				kind: "foundation",
 				kinds: ["actor", "record", "property"],
-				areas: ["app", "case-catalog", "users"],
+				areas: (elements) => [
+					...(elements.some(
+						(element) =>
+							element.kind === "record" || element.kind === "property",
+					)
+						? (["case-catalog"] as const)
+						: []),
+					...(elements.some((element) => element.kind === "actor")
+						? (["users"] as const)
+						: []),
+					...(elements.some((element) => {
+						if (element.kind !== "property") return false;
+						return contract.records.some((record) =>
+							record.properties.some(
+								(property) =>
+									property.id === element.id &&
+									property.choiceSource !== undefined,
+							),
+						);
+					})
+						? (["lookup-references"] as const)
+						: []),
+				],
 			},
 			{
 				key: "workflow",
 				name: "Workflow",
 				kind: "workflow",
 				kinds: ["workflow"],
-				areas: ["forms", "case-operations"],
+				areas: () => [
+					...(workflowId === initial ? (["app"] as const) : []),
+					"forms",
+					...(needsAdvancedCaseOperations
+						? (["case-operations"] as const)
+						: []),
+					...(workflow?.inputs.some(
+						(input) =>
+							input.choiceSource !== undefined ||
+							(input.propertyId !== undefined &&
+								propertyById.get(input.propertyId as string)?.choiceSource !==
+									undefined),
+					)
+						? (["lookup-references"] as const)
+						: []),
+					...(authoredFeatures.has("existing-media")
+						? (["media-references"] as const)
+						: []),
+					...(authoredFeatures.has("automation")
+						? (["automations"] as const)
+						: []),
+				],
 			},
 			{
 				key: "queues",
 				name: "Lists and search",
 				kind: "work-queue",
 				kinds: ["list"],
-				areas: ["case-list"],
+				areas: () => ["case-list"],
 			},
 			{
 				key: "access",
 				name: "Access and navigation",
 				kind: "access-navigation",
 				kinds: ["access", "navigation"],
-				areas: ["navigation", "users", "organization-shape"],
+				areas: (elements) => [
+					"navigation",
+					...(elements.some((element) => element.kind === "access")
+						? (["users"] as const)
+						: []),
+					...(elements.some((element) => {
+						if (element.kind !== "access") return false;
+						return contract.access.some(
+							(policy) =>
+								policy.id === element.id && policy.locationScope !== undefined,
+						);
+					})
+						? (["organization-shape"] as const)
+						: []),
+				],
 			},
 		];
 		return specs.flatMap((spec) => {
@@ -538,7 +790,7 @@ export function deriveBuildPlan(args: {
 							name: spec.name,
 							kind: spec.kind,
 							elements,
-							blueprintAreas: spec.areas,
+							blueprintAreas: spec.areas(elements),
 						},
 					];
 		});

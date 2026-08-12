@@ -198,6 +198,7 @@ task-complete user outcome:
 - prerequisite workflows and plain-language prerequisites;
 - inputs, including form-only inputs when nothing persists;
 - workflow-local decisions and outcomes;
+- authored existing-media and automation features when the workflow needs them;
 - record effects: create, update, close, link, or reassign;
 - property writes and unanswered-value behavior;
 - readback that confirms or supports the next decision;
@@ -453,7 +454,7 @@ are not separate construction work.
 
 The persisted plan proves:
 
-- one slice per workflow;
+- exactly one slice per included workflow and no extra slice;
 - one materialization root;
 - an acyclic prerequisite graph;
 - unique slice and group identities;
@@ -474,11 +475,13 @@ Each executor receives one exact brief containing:
 
 - the one-app charter;
 - its workflow and prerequisite workflow summaries;
-- the actors, records, lists, access, navigation, and external requirements it
-  needs;
+- only properties owned by this slice or read/written by its workflow, queue,
+  access rule, or navigation, plus the actors, records, lists, and requirements
+  that context needs;
 - root decisions and assumptions when relevant;
-- its construction-group IDs;
-- the capability boundary and platform constraints;
+- each construction group as an explicit semantic checklist;
+- a slice-specific read/mutation profile and only relevant capability and
+  platform constraints;
 - exact accepted revision and plan digests.
 
 The brief contains no source documents, author reasoning, traceability matrix,
@@ -495,8 +498,12 @@ The slice executor is a bounded compiler, not a designer. It receives:
 - `commitChangeSet`;
 - `reportExecutionBlocker`.
 
-It receives no external-effect, app-lifecycle, user-message, or direct canonical
-commit authority.
+Only `readBatch`, `stageBatch`, `inspectChangeSet`, `commitChangeSet`, and
+`reportExecutionBlocker` are top-level tools. Each batch schema contains only
+the shared operations relevant to the slice's Blueprint areas, including the
+correction operations for those areas. It receives no unrelated lookup,
+media, organization, automation, external-effect, app-lifecycle, user-message,
+or direct canonical commit authority.
 
 Every mutating operation names one or more `constructionGroupIds`. The server
 strips that executor-only field before the original shared tool schema parses.
@@ -514,6 +521,22 @@ The executor uses private readable handles for entities created inside a
 change set. The server resolves handles before original tool-schema and
 mutation admission. Handles never enter Blueprint, app history, MCP, export,
 or deployment.
+
+There is one declaration rule: a creator places `{ "handle": "@name" }` in
+its ordinary canonical identity slot. Worker properties, user types, personas,
+and place-information properties use `userPropertyUuid`, `userTypeUuid`,
+`personaUuid`, and `locationPropertyUuid`. A binding is durable across batches,
+model steps, context compaction, process recovery, and later slices in the
+same frozen plan. Before a later slice inherits it, rehydration proves that the
+UUID and entity kind exist in that slice's exact base revision. Executor reads
+and checkpoints project symbols rather than raw UUIDs or binding maps.
+
+When a correction removes an entity created earlier in the private candidate,
+the same durable stage prunes its local handle. An earlier committed slice's
+symbol is not imported after a later slice deletes that identity. A case-bound
+select also spells out its catalog options on the executor path so every option
+is born through a handled `optionUuid`; shared catalog defaulting never
+introduces anonymous authorable identities into a private build.
 
 `stageBatch` runs ordinary Nova operations serially. A rejected operation stops
 the batch before that operation while preserving the accepted prefix. The next
@@ -560,7 +583,14 @@ the same current-read, coverage, and validator proofs and may commit the clean
 candidate directly. It never infers completion before the executor enters
 validation, after a stopped batch, or from a partial accepted prefix. The model
 step budget therefore bounds reasoning without discarding already complete,
-fully proved work merely for lack of a final mechanical commit call.
+fully proved work merely for lack of a final mechanical commit call. The
+attempt row durably records validation entry and last-action eligibility, and
+claiming another model step clears eligibility transactionally, so process
+recovery at the budget boundary re-runs the proofs instead of losing a clean
+candidate or accepting stale readiness. The final accepted action records its
+model-step marker with its staged receipt; a successful correction that is
+already satisfied records an accepted no-op receipt and the same marker without
+advancing the private revision.
 
 The sequence-one materialization transaction creates the first useful,
 export-ready app and transfers the exact holder and unsettled reservation from
@@ -571,25 +601,55 @@ The exact running slice attempt, change-set transition, committed-slice
 receipt, and implementation provenance commit with the canonical revision or
 not at all.
 
+The orchestration appends `finished` only after every exact plan slice has one
+matching committed attempt and receipt, every construction group has durable
+mutation coverage, the final receipt matches the canonical app head, the full
+validator passes, and the ordinary `.ccz` export path compiles. A valid prefix
+or a valid app with an uncommitted slice is never completion.
+
+Receipt, attempt, validator, and ordinary export-compilation proof failures are
+deterministic terminal build defects. Infrastructure failures while reading
+those authorities remain ordinary classified throws and resume without a
+terminal completion event. While the accepted build owns the app, the canonical
+writer rejects holder-less MCP and autosave mutations. After the proof,
+case-schema convergence lands first. The exact-sequence app-status
+compare-and-set, kept-charge settlement, and append-only `finished` event then
+commit in one holder-authorized transaction; a concurrent canonical edit cannot
+be adopted as a head that was never receipt-matched and compiled, and no app can
+release its build authority before recording its terminal event.
+
 ### 6.6 Blockers and terminal behavior
 
 An executor reports evidence when implementation appears to require changed
-meaning. A fresh architect may:
+meaning. A fresh architect may give construction guidance that preserves the
+accepted workflow or declare it unsupported by the current compiler.
 
-- give construction guidance;
-- require a reviewed contract revision;
-- ask the user for a missing decision;
-- declare the accepted meaning unsupported.
-
-The build plan itself is deterministic and cannot be repaired by the model.
-A local tool-schema rejection is normally a construction problem, not a reason
-to rewrite product intent.
+The accepted contract and deterministic plan freeze when construction begins.
+The architect cannot require a contract revision, ask the user to reinterpret
+an accepted workflow, remove workflows, or replace the plan. Such a result is
+an internal build defect and stops honestly. A local tool-schema rejection is
+a construction problem, not a reason to rewrite product intent.
 
 Budgets cover model steps, staged requests, blocker resolutions, commit and
 rebase attempts, and absolute wall time. The same deadline reaches awaited
-provider work and database transactions. A deterministic failure closes the
+provider work and database transactions. Each attempt durably claims model,
+staging, blocker, and commit spend before starting that work and retains its
+original wall-clock start, so infrastructure recovery grants no new budget. A
+validation/finalization checkpoint survives on the same attempt row. Each run
+id is appended to that attempt before the run can spend model work, so a
+replacement holder never erases cost-evidence provenance. A post-COMMIT
+response that races the deadline reconciles through the already
+durable receipt without retrying the write. A deterministic failure closes the
 exact plan, slice, model, prompt, and brief combination. Sending another user
 message does not reroll unchanged work.
+
+Each attempt also owns authoritative wire-invalid, stage-rejected, and
+validator-repair counters. A process opens a durable outcome-evidence window
+before executing and closes it only after every observed outcome is
+checkpointed; recovery over an unclosed window latches incomplete evidence, so
+absence from the fire-and-forget operational event log can never count as zero.
+A successful canonical commit seals a collecting window transactionally with
+the slice receipt; an already-incomplete window never becomes complete.
 
 ## 7. Recovery, UI, and user trust
 
@@ -602,7 +662,10 @@ delegates to the app row.
 
 Stage requests and design workspace operations are idempotent by tool-call ID,
 input digest, and expected revision. Lost responses return the stored receipt.
-Process death rehydrates from durable artifacts and steps.
+Process death rehydrates from durable artifacts and steps. If infrastructure
+replaces the run, the current authorized session holder adopts the same exact
+running attempt and open change set transactionally; it does not start a fresh
+model attempt or reset any spent budget.
 
 ### 7.2 What the user sees
 
@@ -622,13 +685,13 @@ or severity labels.
 
 After materialization, the builder installs the complete sequence-one snapshot
 atomically, promotes the URL, starts collaboration at sequence one, and keeps
-visual authoring read-only until the initial plan completes or the user accepts
-an interrupted partial build. The central progress card stays on Build while
-construction is active.
+visual authoring and the composer read-only until the initial plan completes.
+Only a persisted pre-build question accepts an answer. The central progress
+card stays on Build while construction is active.
 
 A later slice failure never hides or invalidates an earlier materialized app.
-The user may use the valid committed portion without being told that unbuilt
-work completed.
+The valid committed portion remains recoverable for diagnosis, but it stays
+locked and Nova never reports it as a completed build.
 
 ### 7.3 User-language rule
 
@@ -673,6 +736,14 @@ model usage, and digests. They do not receive customer design text, source
 bodies, transcripts, model prompts, raw tool payloads, private mutations, or
 holder nonces. Admin-authorized run inspection may expose the deliberately
 persisted reasoning summaries used for quality diagnosis.
+
+The design-session inspector prints one payload-free build aggregate: accepted
+and committed workflow counts; each slice's attempt and commit status;
+wire-invalid, stage-rejected, and validator-repair counts; model steps, token
+and cache use, elapsed time, and estimated cost. It fails the mechanical gate
+when any attempt lacks complete outcome evidence or any persisted package,
+artifact-workspace step, revision, review, plan, orchestration, or execution run
+lacks a usage summary.
 
 ## 9. Unit F: conformance, quality, correction, and Design history
 

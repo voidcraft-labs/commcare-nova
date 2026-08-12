@@ -37,7 +37,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { Form, Module } from "@/lib/domain";
 import { FORM_TYPES } from "@/lib/domain/forms";
 import { uniqueSlug } from "@/lib/domain/idSlug";
-import { asUuid, uuidSchema } from "@/lib/domain/uuid";
+import { uuidSchema } from "@/lib/domain/uuid";
 import { asHandleRef, type StagedHandleDeclaration } from "./handles";
 import type { StagedEntityKind } from "./schemas";
 
@@ -80,11 +80,7 @@ function existingFormIds(doc: {
 
 const stageModuleInputSchema = z
 	.object({
-		moduleUuid: uuidSchema
-			.optional()
-			.describe(
-				"Identity for the new module. Pass the handle you want bound (as { handle }) or omit to mint one.",
-			),
+		moduleUuid: uuidSchema.describe("Resolved identity for the new module."),
 		name: z.string().min(1),
 		case_type: z
 			.string()
@@ -105,7 +101,7 @@ export const stageModuleTool: ChangeSetStageToolModule = {
 	async execute(input, ctx) {
 		const parsed = stageModuleInputSchema.parse(input);
 		const doc = ctx.snapshot.doc;
-		const uuid = parsed.moduleUuid ?? asUuid(crypto.randomUUID());
+		const uuid = parsed.moduleUuid;
 		const module: Module = {
 			uuid,
 			id: uniqueSlug(parsed.name, "module", existingModuleIds(doc)),
@@ -141,7 +137,7 @@ export const stageModuleTool: ChangeSetStageToolModule = {
 
 const stageFormInputSchema = z
 	.object({
-		formUuid: uuidSchema.optional(),
+		formUuid: uuidSchema.describe("Resolved identity for the new form."),
 		moduleUuid: uuidSchema,
 		name: z.string().min(1),
 		type: z.enum(FORM_TYPES),
@@ -166,7 +162,7 @@ export const stageFormTool: ChangeSetStageToolModule = {
 				},
 			};
 		}
-		const uuid = parsed.formUuid ?? asUuid(crypto.randomUUID());
+		const uuid = parsed.formUuid;
 		const form: Form = {
 			uuid,
 			id: uniqueSlug(parsed.name, "form", existingFormIds(doc)),

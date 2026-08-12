@@ -85,7 +85,10 @@ import {
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
-import { BuilderSessionContext } from "@/lib/session/provider";
+import {
+	BuilderSessionContext,
+	useBuilderSession,
+} from "@/lib/session/provider";
 import { markAppListStale } from "@/lib/ui/appListFreshness";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
@@ -123,6 +126,17 @@ export function designProgressOwnsActivityStatus(
 	);
 }
 
+/** A design-backed conversation locks authoring only while its app still owns
+ * the unfinished initial-build latch. Reopening the original thread after
+ * completion may initially seed an `understanding` progress stage, but that
+ * historical scope must not disable an otherwise editable composer. */
+export function designProgressLocksInitialBuild(
+	_view: Pick<DesignProgressView, "active" | "stage">,
+	buildUnfinished: boolean,
+): boolean {
+	return buildUnfinished;
+}
+
 /** A design lineage persists after materialization, including through later
  * ordinary edits. Only an unfinished design build owns build-progress failure
  * presentation; an edit on the completed app remains on the generic chat path. */
@@ -138,6 +152,70 @@ export function designProgressTracksBuildFailure(
 		(progress.materializedAppId === null ||
 			buildUnfinished ||
 			progress.activeSlice !== null)
+	);
+}
+
+/** A sealed recoverable build failure has no live stream marker to re-drive
+ * automatically, while the ordinary composer must stay frozen so a message
+ * cannot revise the accepted contract. Offer one explicit continuation that
+ * resubmits the exact transcript with `redrive`, adding no user text. */
+export function designBuildCanResume(
+	progress: Pick<DesignProgressState, "failure" | "seededStage">,
+	buildUnfinished: boolean,
+	status: ChatStatus,
+): boolean {
+	return (
+		buildUnfinished &&
+		(progress.failure?.recoverable === true ||
+			(progress.failure === null && progress.seededStage === "incomplete")) &&
+		status !== "submitted" &&
+		status !== "streaming"
+	);
+}
+
+/** Remember only durable/recoverable resume eligibility while a conversation
+ * is inactive. The progress store itself resets on every thread switch, but an
+ * unfinished accepted build must regain its server-derived `incomplete` floor
+ * when its original design thread becomes active again. Fatal failure and
+ * completion evidence revoke an older recoverable marker. */
+export function rememberDesignBuildResumeEligibility(
+	designSessionIds: Set<string>,
+	progress: Pick<
+		DesignProgressState,
+		"designSessionId" | "failure" | "seededStage" | "completion"
+	>,
+): void {
+	const designSessionId = progress.designSessionId;
+	if (designSessionId === null) return;
+	if (
+		progress.failure?.recoverable === true ||
+		(progress.failure === null && progress.seededStage === "incomplete")
+	) {
+		designSessionIds.add(designSessionId);
+		return;
+	}
+	if (
+		progress.failure !== null ||
+		progress.completion !== null ||
+		progress.seededStage === "failed" ||
+		progress.seededStage === "ready"
+	) {
+		designSessionIds.delete(designSessionId);
+	}
+}
+
+export function threadActivationNeedsIncompleteSeed(args: {
+	readonly designSessionId: string;
+	readonly buildUnfinished: boolean;
+	readonly resume: boolean;
+	readonly redrive: boolean;
+	readonly resumableDesignSessionIds: ReadonlySet<string>;
+}): boolean {
+	return (
+		args.buildUnfinished &&
+		!args.resume &&
+		!args.redrive &&
+		args.resumableDesignSessionIds.has(args.designSessionId)
 	);
 }
 
@@ -401,6 +479,7 @@ export function authoritativeThreadActivationOptions(
 		resume,
 		redrive,
 		buildResume: (resume || redrive) && buildUnfinished,
+		buildUnfinished,
 		/* The thread's design lineage rides every activation so the sends it
 		 * feeds keep addressing the session scope. */
 		designSessionId: thread.design_session_id ?? null,
@@ -1115,6 +1194,7 @@ export function ChatContainer({
 	 * SA is the edit mechanism, so the composer hides. The write paths reject
 	 * their edits server-side regardless. */
 	const canEdit = useProjectCanEdit();
+	const buildUnfinished = useBuilderSession((state) => state.buildUnfinished);
 
 	// ── Stable refs so Chat callbacks always read the latest stores ──────
 	const docStoreRef = useRef(docStore);
@@ -1177,6 +1257,16 @@ export function ChatContainer({
 			store.getState().seedSession(initialDesignSession);
 		return store;
 	});
+	/** Thread switches intentionally reset the detailed progress projection.
+	 * Keep only the bounded fact needed to restore an explicit Resume action
+	 * when the user returns to a recoverably stopped accepted build. */
+	const resumableDesignSessionIdsRef = useRef(
+		new Set<string>(
+			initialDesignSession?.stage === "incomplete"
+				? [initialDesignSession.designSessionId]
+				: [],
+		),
+	);
 	const designProgress = useDesignProgressView(designProgressStore);
 	const [contextCompacting, setContextCompacting] = useState(false);
 	/** Whether the SSE transport was open on the previous render, used
@@ -1282,6 +1372,7 @@ export function ChatContainer({
 				holderNonce?: string;
 				resume?: boolean;
 				buildResume?: boolean;
+				buildUnfinished?: boolean;
 				redrive?: boolean;
 				designSessionId?: string | null;
 			},
@@ -1299,12 +1390,35 @@ export function ChatContainer({
 			 * later review/revision pulses would otherwise be dropped while the
 			 * generic Builder status incorrectly kept saying "Building your app."
 			 * The replayed scope frame remains idempotent and authoritative. */
+			const priorProgress = designProgressStore.getState();
+			rememberDesignBuildResumeEligibility(
+				resumableDesignSessionIdsRef.current,
+				priorProgress,
+			);
 			designProgressStore.getState().reset();
 			if (opts?.designSessionId) {
-				designProgressStore.getState().beginSession({
-					designSessionId: opts.designSessionId,
-					materializedAppId: sessionStoreRef.current?.getState().appId ?? null,
-				});
+				const materializedAppId =
+					sessionStoreRef.current?.getState().appId ?? null;
+				if (
+					threadActivationNeedsIncompleteSeed({
+						designSessionId: opts.designSessionId,
+						buildUnfinished: opts.buildUnfinished === true,
+						resume: opts.resume === true,
+						redrive: opts.redrive === true,
+						resumableDesignSessionIds: resumableDesignSessionIdsRef.current,
+					})
+				) {
+					designProgressStore.getState().seedSession({
+						designSessionId: opts.designSessionId,
+						materializedAppId,
+						stage: "incomplete",
+					});
+				} else {
+					designProgressStore.getState().beginSession({
+						designSessionId: opts.designSessionId,
+						materializedAppId,
+					});
+				}
 			}
 			return createChatInstance(
 				init,
@@ -1371,6 +1485,7 @@ export function ChatContainer({
 		setMessages,
 		status,
 		error: chatError,
+		clearError,
 		stop,
 		resumeStream,
 		regenerate,
@@ -2036,6 +2151,30 @@ export function ChatContainer({
 		[scopeEpoch, sendMessage],
 	);
 
+	const resumeAcceptedBuild = useCallback(() => {
+		const session = sessionStoreRef.current?.getState();
+		if (
+			!chatGenerationCanWrite(
+				session,
+				scopeEpoch,
+				threadHydrationStateRef.current,
+			) ||
+			!designBuildCanResume(
+				designProgressStore.getState(),
+				session?.buildUnfinished === true,
+				status,
+			)
+		) {
+			return;
+		}
+		autoResendFatalStrikesRef.current = 0;
+		clearError();
+		/* No message is appended: the accepted revision/plan already carry all
+		 * construction meaning. `redrive` asks the route to claim and resume that
+		 * exact frozen attempt without turning recovery into a design instruction. */
+		void sendMessage(undefined, { body: { redrive: true } });
+	}, [clearError, designProgressStore, scopeEpoch, sendMessage, status]);
+
 	const handleToolOutput = useCallback(
 		(params: { tool: string; toolCallId: string; output: unknown }) => {
 			const session = sessionStoreRef.current?.getState();
@@ -2195,7 +2334,21 @@ export function ChatContainer({
 							actionLabel: "Reload page",
 							onAction: () => window.location.reload(),
 						}
-					: undefined
+					: canEdit &&
+							!readOnly &&
+							designBuildCanResume(
+								designProgressStore.getState(),
+								buildUnfinished,
+								status,
+							)
+						? {
+								title: "Build paused",
+								message:
+									"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
+								actionLabel: "Resume build",
+								onAction: resumeAcceptedBuild,
+							}
+						: undefined
 			}
 			messages={messages}
 			status={status}
@@ -2220,13 +2373,17 @@ export function ChatContainer({
 			}
 			designProgressStatus={
 				designProgressOwnsStatus ? (
-					<DesignProgressStatus view={designProgress} canRecover={!readOnly} />
+					<DesignProgressStatus view={designProgress} />
 				) : undefined
 			}
 			generationPaused={
 				designProgress.stage === "incomplete" ||
 				designProgress.stage === "failed"
 			}
+			initialBuildLocked={designProgressLocksInitialBuild(
+				designProgress,
+				buildUnfinished,
+			)}
 			/* The design session owns the one activity row until the complete
 			 * frame and transport close. Its details collapse after materialization,
 			 * but its status remains the authoritative current slice/build phase. */

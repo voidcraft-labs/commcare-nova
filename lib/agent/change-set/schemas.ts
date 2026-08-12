@@ -150,17 +150,18 @@ const stageErrorCodeSchema = z.enum([
 ]);
 
 /**
- * The closed durable receipt one staging request commits beside its step —
- * what an idempotent retry replays, verbatim. Only safe structured facts:
- * no prose payloads, no raw mutations (the step row holds those), no
- * secrets.
+ * The closed durable receipt one staging request records in its append-only
+ * ledger — beside the step when staged, or beside the unchanged workspace
+ * when accepted as a final no-op or rejected. An idempotent retry replays it
+ * verbatim. Only safe structured facts: no prose payloads, no raw mutations
+ * (the step row holds those), no secrets.
  */
 export const stageRequestReceiptSchema = z
 	.object({
 		requestId: z.string().min(1),
-		disposition: z.enum(["staged", "rejected"]),
+		disposition: z.enum(["staged", "noop", "rejected"]),
 		/** The workspace revision AFTER this request (staged: expected + 1;
-		 * rejected: unchanged). */
+		 * no-op or rejected: unchanged). */
 		workspaceRevision: z.number().int().nonnegative(),
 		/** The appended step's ordinal — staged dispositions only. */
 		ordinal: z.number().int().nonnegative().optional(),
@@ -168,6 +169,11 @@ export const stageRequestReceiptSchema = z
 		handles: z.record(changeSetHandleSchema, uuidSchema),
 		/** Canonical digest of the appended admitted batch — staged only. */
 		mutationDigest: sha256HexSchema.optional(),
+		/** The durable model-step claim whose final stage operation this receipt
+		 * completed. Recovery may use it only when it still equals the attempt's
+		 * current model-step count; a later model step therefore invalidates the
+		 * marker without rewriting this append-only receipt. */
+		finalizationModelStep: z.number().int().positive().optional(),
 		diagnostics: changeSetDiagnosticsSummarySchema.optional(),
 		error: z
 			.object({
@@ -201,6 +207,26 @@ export const stageRequestReceiptSchema = z
 					message: "A staged receipt cannot carry a rejection.",
 				});
 			}
+		} else if (receipt.disposition === "noop") {
+			if (receipt.finalizationModelStep === undefined) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["finalizationModelStep"],
+					message:
+						"An accepted no-op receipt must carry its finalization model step.",
+				});
+			}
+			if (
+				receipt.ordinal !== undefined ||
+				receipt.mutationDigest !== undefined ||
+				receipt.error !== undefined
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["ordinal"],
+					message: "An accepted no-op receipt appends no mutation step.",
+				});
+			}
 		} else {
 			if (receipt.error === undefined) {
 				ctx.addIssue({
@@ -211,7 +237,8 @@ export const stageRequestReceiptSchema = z
 			}
 			if (
 				receipt.ordinal !== undefined ||
-				receipt.mutationDigest !== undefined
+				receipt.mutationDigest !== undefined ||
+				receipt.finalizationModelStep !== undefined
 			) {
 				ctx.addIssue({
 					code: "custom",

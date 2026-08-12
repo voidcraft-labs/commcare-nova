@@ -9,20 +9,20 @@
  * resolved per slot through the shared identity-pointer registry. Only
  * Blueprint-ENTITY families are handle-eligible — a change set can create
  * those privately, so a symbol for one is meaningful. App, Project, media,
- * lookup, location-row, worker, and automation identities stay canonical:
+ * lookup, location-row, and worker identities stay canonical:
  * they exist outside the private candidate, so offering a handle there would
  * only teach the model to write a reference that cannot resolve.
  *
- * The widened schema is for the PROVIDER and the SDK-side shape only. The
- * gate is unchanged and lives where it always did: `stageDispatch` resolves
- * `{ handle }` STRUCTURALLY and then re-parses the resolved input through the
- * tool's ORIGINAL Zod schema, so an unbound handle, a handle in an illegal
- * slot, or a handle of the wrong entity kind rejects there exactly as before.
+ * The projected schema is for the PROVIDER and SDK-side shape. The executor
+ * independently refuses any creation slot that is missing a handle before
+ * dispatch; `stageDispatch` then binds declarations, resolves `{ handle }`
+ * structurally, and re-parses the resolved input through the tool's ORIGINAL
+ * Zod schema. An unbound handle, a handle in an illegal slot, or a handle of
+ * the wrong entity kind rejects at that shared boundary.
  */
 
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import type { z } from "zod";
-import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import { CHANGE_SET_HANDLE_PATTERN } from "@/lib/agent/change-set/schemas";
 import { familyIsHandleEligible } from "@/lib/agent/change-set/stagingProjection";
 import {
@@ -31,6 +31,7 @@ import {
 } from "@/lib/agent/identityPointerRegistry";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
+import type { BlueprintDoc } from "@/lib/domain";
 
 /**
  * The complete mounted executor tool surface.
@@ -40,9 +41,6 @@ import { wireToolSchema } from "@/lib/agent/wireSchemas";
  * move the executor can make to escape its own diagnostics.
  */
 export const EXECUTOR_TOOL_SURFACE: readonly string[] = [
-	...Array.from(CHANGE_SET_TOOL_REGISTRY.values())
-		.filter((entry) => entry.policy.effect === "read-blueprint")
-		.map((entry) => entry.name),
 	"readBatch",
 	"stageBatch",
 	"inspectChangeSet",
@@ -59,8 +57,268 @@ const HANDLE_REF_SCHEMA = {
 	required: ["handle"],
 	additionalProperties: false,
 	description:
-		"A change-set handle for an entity created privately in this change set.",
+		"A durable handle for an entity created earlier in this accepted plan or privately in this change set.",
 } as const satisfies JSONSchema7;
+
+type IdentityPath = readonly string[];
+
+/** Every raw slot that CREATES an authorable identity on the private executor
+ * surface. Reference slots remain `uuid | { handle }`; creation slots narrow
+ * to a required handle so the executor can never fall back to a server-minted
+ * UUID that has no durable symbol. */
+const CREATION_IDENTITY_PATHS: ReadonlyMap<string, readonly IdentityPath[]> =
+	new Map([
+		["stageModule", [["moduleUuid"]]],
+		["stageForm", [["formUuid"]]],
+		[
+			"createModule",
+			[
+				["moduleUuid"],
+				["forms", "*", "formUuid"],
+				["forms", "*", "fields", "*", "fieldUuid"],
+				[
+					"forms",
+					"*",
+					"fields",
+					"*",
+					"optionsSource",
+					"options",
+					"*",
+					"optionUuid",
+				],
+				["case_list_columns", "*", "columnUuid"],
+			],
+		],
+		[
+			"createForm",
+			[
+				["formUuid"],
+				["fields", "*", "fieldUuid"],
+				["fields", "*", "optionsSource", "options", "*", "optionUuid"],
+			],
+		],
+		[
+			"addFields",
+			[
+				["fields", "*", "fieldUuid"],
+				["fields", "*", "optionsSource", "options", "*", "optionUuid"],
+			],
+		],
+		["addCaseListColumns", [["columns", "*", "columnUuid"]]],
+		["updateModule", [["case_list_columns", "*", "columnUuid"]]],
+		["addSearchInputs", [["searchInputs", "*", "searchInputUuid"]]],
+		["addCaseOperations", [["operations", "*", "operationUuid"]]],
+		["addUserProperties", [["properties", "*", "userPropertyUuid"]]],
+		["addUserTypes", [["userTypes", "*", "userTypeUuid"]]],
+		["addPersonas", [["personas", "*", "personaUuid"]]],
+		["addOrganizationLevels", [["levels", "*", "uuid"]]],
+		["addLocationProperties", [["properties", "*", "locationPropertyUuid"]]],
+		[
+			"addAutomations",
+			[
+				["automations", "*", "uuid"],
+				["automations", "*", "criteria", "*", "uuid"],
+				["automations", "*", "setupOnlyCriteria", "*", "uuid"],
+				["automations", "*", "updates", "*", "uuid"],
+				["automations", "*", "recipients", "*", "uuid"],
+				["automations", "*", "schedule", "events", "*", "uuid"],
+				["automations", "*", "userDataFilters", "*", "uuid"],
+			],
+		],
+		[
+			"updateAutomation",
+			[
+				["automation", "criteria", "*", "uuid"],
+				["automation", "setupOnlyCriteria", "*", "uuid"],
+				["automation", "updates", "*", "uuid"],
+				["automation", "recipients", "*", "uuid"],
+				["automation", "schedule", "events", "*", "uuid"],
+				["automation", "userDataFilters", "*", "uuid"],
+			],
+		],
+		["editField", [["updates", "optionsSource", "options", "*", "optionUuid"]]],
+		["setFieldOptionsSource", [["source", "options", "*", "optionUuid"]]],
+	]);
+
+function schemaVariants(value: unknown): Record<string, unknown>[] {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		return [];
+	}
+	const node = value as Record<string, unknown>;
+	return [
+		node,
+		...["anyOf", "oneOf", "allOf"].flatMap((key) => {
+			const arms = node[key];
+			return Array.isArray(arms) ? arms.flatMap(schemaVariants) : [];
+		}),
+	];
+}
+
+function narrowSchemaCreationPath(
+	nodes: readonly unknown[],
+	path: IdentityPath,
+	index = 0,
+): number {
+	const segment = path[index];
+	if (segment === undefined) return 0;
+	if (segment === "*") {
+		return narrowSchemaCreationPath(
+			nodes.flatMap((node) =>
+				schemaVariants(node).flatMap((variant) =>
+					variant.items === undefined ? [] : [variant.items],
+				),
+			),
+			path,
+			index + 1,
+		);
+	}
+	let changed = 0;
+	const children: unknown[] = [];
+	for (const node of nodes) {
+		for (const variant of schemaVariants(node)) {
+			const properties = variant.properties;
+			if (
+				properties === null ||
+				typeof properties !== "object" ||
+				Array.isArray(properties)
+			)
+				continue;
+			const slots = properties as Record<string, unknown>;
+			if (!(segment in slots)) continue;
+			if (index === path.length - 1) {
+				slots[segment] = structuredClone(HANDLE_REF_SCHEMA);
+				const required = Array.isArray(variant.required)
+					? variant.required.filter(
+							(entry): entry is string => typeof entry === "string",
+						)
+					: [];
+				variant.required = [...new Set([...required, segment])];
+				changed += 1;
+			} else {
+				children.push(slots[segment]);
+			}
+		}
+	}
+	return index === path.length - 1
+		? changed
+		: narrowSchemaCreationPath(children, path, index + 1);
+}
+
+function hasExactHandle(value: unknown): boolean {
+	return (
+		value !== null &&
+		typeof value === "object" &&
+		!Array.isArray(value) &&
+		Object.keys(value).length === 1 &&
+		typeof (value as { handle?: unknown }).handle === "string" &&
+		CHANGE_SET_HANDLE_PATTERN.test((value as { handle: string }).handle)
+	);
+}
+
+function rawCreationPathIssue(
+	value: unknown,
+	path: IdentityPath,
+	index = 0,
+	label = "input",
+): string | null {
+	const segment = path[index];
+	if (segment === undefined) return null;
+	if (segment === "*") {
+		if (!Array.isArray(value)) return null;
+		for (const [itemIndex, item] of value.entries()) {
+			const issue = rawCreationPathIssue(
+				item,
+				path,
+				index + 1,
+				`${label}.${itemIndex}`,
+			);
+			if (issue !== null) return issue;
+		}
+		return null;
+	}
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		return null;
+	}
+	const member = (value as Record<string, unknown>)[segment];
+	const memberLabel = `${label}.${segment}`;
+	if (index === path.length - 1) {
+		return hasExactHandle(member)
+			? null
+			: `${memberLabel} must declare a durable handle.`;
+	}
+	if (member === undefined || member === null) return null;
+	return rawCreationPathIssue(member, path, index + 1, memberLabel);
+}
+
+/** Runtime counterpart to the provider projection. AI SDK forwards a raw
+ * JSON Schema without a validator, so the executor must independently refuse
+ * any creation that could mint an unbound identity before dispatch. */
+export function executorCreationHandleIssue(
+	toolName: string,
+	input: unknown,
+): string | null {
+	for (const path of CREATION_IDENTITY_PATHS.get(toolName) ?? []) {
+		const issue = rawCreationPathIssue(input, path);
+		if (issue !== null) return issue;
+	}
+	return null;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function creationFields(toolName: string, input: unknown): readonly unknown[] {
+	const root = record(input);
+	if (root === null) return [];
+	if (toolName === "addFields" || toolName === "createForm") {
+		return Array.isArray(root.fields) ? root.fields : [];
+	}
+	if (toolName !== "createModule" || !Array.isArray(root.forms)) return [];
+	return root.forms.flatMap((formValue) => {
+		const form = record(formValue);
+		return Array.isArray(form?.fields) ? form.fields : [];
+	});
+}
+
+/** Catalog defaults are normally ergonomic, but a select default mints
+ * authorable option identities after raw handle declaration. The executor
+ * therefore requires the same inline options explicitly, with handled
+ * `optionUuid` slots, before the shared creator runs. */
+export function executorCatalogDefaultHandleIssue(
+	toolName: string,
+	input: unknown,
+	doc: BlueprintDoc,
+): string | null {
+	for (const [index, fieldValue] of creationFields(toolName, input).entries()) {
+		const field = record(fieldValue);
+		if (
+			field === null ||
+			(field.optionsSource !== undefined && field.optionsSource !== null) ||
+			(field.kind !== undefined &&
+				field.kind !== null &&
+				field.kind !== "single_select" &&
+				field.kind !== "multi_select")
+		) {
+			continue;
+		}
+		const caseWrite = record(field.caseWrite);
+		if (
+			typeof caseWrite?.caseType !== "string" ||
+			typeof caseWrite.property !== "string"
+		) {
+			continue;
+		}
+		const property = doc.caseTypes
+			?.find((caseType) => caseType.name === caseWrite.caseType)
+			?.properties.find((entry) => entry.name === caseWrite.property);
+		if ((property?.options?.length ?? 0) === 0) continue;
+		return `input field ${index} writes select property ${caseWrite.caseType}.${caseWrite.property}; pass its catalog options as an explicit inline optionsSource and give every optionUuid a durable handle.`;
+	}
+	return null;
+}
 
 const MCP_NAME_BY_SA_NAME: ReadonlyMap<string, string> = new Map(
 	SHARED_TOOL_REGISTRY.map((entry) => [entry.saName, entry.mcpName]),
@@ -92,7 +350,6 @@ function unescapePointerToken(token: string): string {
 function handleEligiblePointers(
 	toolName: string,
 	json: JSONSchema7,
-	additionalFamilies: ReadonlySet<AuthorableIdentityFamily>,
 ): readonly string[] {
 	const mcpName = MCP_NAME_BY_SA_NAME.get(toolName);
 	if (mcpName !== undefined) {
@@ -100,11 +357,7 @@ function handleEligiblePointers(
 			mcpName,
 			json as unknown as Record<string, unknown>,
 		)
-			.filter(
-				(pointer) =>
-					familyIsHandleEligible(pointer.family) ||
-					additionalFamilies.has(pointer.family),
-			)
+			.filter((pointer) => familyIsHandleEligible(pointer.family))
 			.map((pointer) => pointer.schemaPointer);
 	}
 	const declared = STAGE_TOOL_IDENTITY_FAMILIES[toolName];
@@ -163,9 +416,6 @@ function widenAtPointer(root: JSONSchema7, pointer: string): void {
 export function executorWireToolSchema(
 	name: string,
 	zodSchema: z.ZodType,
-	options?: {
-		readonly additionalHandleFamilies?: readonly AuthorableIdentityFamily[];
-	},
 ): JSONSchema7 {
 	const source = wireToolSchema(zodSchema).jsonSchema;
 	if (typeof source !== "object" || source === null) {
@@ -174,13 +424,15 @@ export function executorWireToolSchema(
 		);
 	}
 	const projected = structuredClone(source) as JSONSchema7;
-	const additionalFamilies = new Set(options?.additionalHandleFamilies ?? []);
-	for (const pointer of handleEligiblePointers(
-		name,
-		projected,
-		additionalFamilies,
-	)) {
+	for (const pointer of handleEligiblePointers(name, projected)) {
 		widenAtPointer(projected, pointer);
+	}
+	for (const path of CREATION_IDENTITY_PATHS.get(name) ?? []) {
+		if (narrowSchemaCreationPath([projected], path) === 0) {
+			throw new Error(
+				`The executor cannot find canonical creation identity ${name}.${path.join(".")}.`,
+			);
+		}
 	}
 	return projected;
 }

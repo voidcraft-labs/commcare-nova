@@ -67,24 +67,61 @@ solely for the notice.
   workflow behavior, lists, access, navigation, external requirements,
   decisions, assumptions, and questions once. Its `CLAUDE.md` is the contract;
   nothing there reaches a canonical store. The chat route mounts it through
-  `build/`.
+  `build/`. Whole-plan completion distinguishes deterministic proof failures
+  from transient reads: only exact receipt/attempt/validation/compilation
+  defects close the plan. The canonical writer rejects holder-less MCP and
+  autosave edits until the materialized design's terminal head is `finished`,
+  including after a failed build has lost its live lease. The route first
+  converges case schemas, then atomically exact-sequence CASes `generating →
+  complete`, settles the kept charge, and persists `finished`, so neither half
+  of completion can exist without the other.
 - Model-authored chat turns acknowledge each newly submitted human response as
   their first visible output, before extended reasoning or a tool call. The
   synthetic current-state/session-state messages are context, not human turns.
-- `build/` — the design-driven BUILD method behind a chat build: `orchestrator.ts` (`runBuildOrchestration` — source package → the Luna `xhigh` design agent loop (`designLoopRunner.ts`, which owns the loop's stream forwarding, sanitizers, bounded redrive, and progress frames) → Luna `xhigh` fresh-context review → accepted-artifact selection → durable orchestration events → Luna `xhigh` slice execution in topological order, materialization root first → completion; every model seam injectable), `orchestratorState.ts` (the append-only `design_orchestration_events` chain + strict fold, each append authorized against the exact live session/app holder and current Project membership; an identical predecessor race adopts its winner, a divergent one fails), `sliceAttempts.ts` (authority-locked recovery of one exact running private candidate, supersession on changed authority/base, and terminal attempt closure), `externalActions.ts` (the fail-closed typed receipt consumer; plan admission rejects blocking timings until a producer is registered), `executorLoop.ts` + `executorPrompt.ts` + `executorWireSchemas.ts` + `budgets.ts` + `executionBlocker.ts` (the bounded slice compiler over the change-set workspace: one compound `readBatch`, `stageBatch`, or blocker report per step, deterministic subrequest IDs plus exact construction-group IDs, item-local handle declarations for server-minted worker identities, a freshly reconstructed durable checkpoint plus at most four recent read turns rather than a growing transcript, deadline-bound abort and strategy-derived budgets, payload-free tool-outcome annotations, inspect-before-commit with server-proved findings/read currency/ownership coverage, safe server finalization when a fully accepted repair spends the final model step on an already clean candidate, and a fresh Luna architect decision over evidence-only blocker reports), `executionBrief.ts` (the §13.4 brief, including the accepted app name and objective), and `progress.ts` (the `DesignBuildStage` union, `DesignProgressEnvelope`, the outline/plan projections the progress frames carry, and the throttled `data-design-pulse` emitter — the live "this phase's model call is streaming" signal the pipeline's `onModelActivity` callback feeds, which is what keeps the progress region truthful through a long silent reasoning stretch). `UsageAccumulator` labels those roles `design-author`, `design-review`, and `build-executor` in the terminal operational log while preserving per-call model pricing in the authoritative total. A design turn never mounts the SA. Slice progress and executor-outcome logs carry only opaque session/slice IDs, tool names, stable phase/outcome codes, indices, and revisions, never customer-authored names, inputs, outputs, or rejection prose.
-Running-attempt recovery reuses a bound open change set only for its exact
-current actor/run owner. Holder or artifact drift atomically supersedes the
-private set and attempt under the live delegated holder. A stale external read
+- `build/` — the design-driven BUILD method behind a chat build: `orchestrator.ts` (`runBuildOrchestration` — source package → Luna `xhigh` design and independent review → frozen accepted artifacts → Luna `xhigh` workflow slices in topological order → exact receipt, validator, and normal export-compilation proofs), `orchestratorState.ts` (the append-only authorized event chain), `sliceAttempts.ts` (exact-attempt recovery across infrastructure replacement and terminal attempt closure), `externalActions.ts` (fail-closed typed prerequisites), `executorLoop.ts` + `executorPrompt.ts` + `executorWireSchemas.ts` + `executorToolProfile.ts` + `budgets.ts` + `executionBlocker.ts` (the bounded private compiler: only top-level `readBatch`, `stageBatch`, inspection, commit request, and blocker reporting; slice-specific operation arms; canonical creation-slot handles for every authorable identity; durable checkpoints; absolute budgets; payload-free outcomes; server-proved validation, read currency, and construction coverage), `executionBrief.ts` (the workflow-local semantic checklist, relevant constraints, and tool profile), and `progress.ts` (durable user-facing stage projections). Every model seam is injectable. `UsageAccumulator` labels `design-author`, `design-review`, and `build-executor` while preserving per-call model pricing in the authoritative total. A design turn never mounts the SA. Progress and executor-outcome logs carry only opaque IDs, tool names, stable codes, indices, revisions, and aggregate usage, never customer-authored names, inputs, outputs, or rejection prose.
+Running-attempt recovery keeps the exact attempt and transactionally transfers
+its open change set to the current authorized session holder. The attempt row's
+original start time and claim-before-work counters preserve model, staging,
+commit, blocker, and wall-clock spend across that recovery. It also persists
+an append-only set of every execution run id before that run can spend model
+work, so usage inspection can fail closed when any recovered run lacks a
+summary. The same row persists whether validation was requested and whether
+the last accepted action may
+enter the server-owned step-boundary finalizer; claiming another model step
+clears that eligibility in the same transaction. The final operation of an
+accepted repair batch also carries its claimed model-step number in the same
+transaction as the durable stage, closing the process-death gap before the
+attempt checkpoint. A successful final no-op records the same marker in an
+accepted request receipt without advancing the private revision. Recovery uses
+either marker only while the attempt still has that exact model-step count.
+Wire-invalid, stage-rejected, and validator-repair outcomes increment
+authoritative attempt counters before the executor answers or advances. Each
+process brackets execution with a durable evidence window; a replacement that
+finds an unclosed window latches the attempt incomplete, so missing operational
+logs can never be interpreted as zero rejected calls. A successful canonical
+commit seals a still-collecting window in the same transaction as its immutable
+slice receipt, so process death after COMMIT cannot strand complete evidence;
+an already-incomplete window remains fail-closed. The event log remains a
+payload-free diagnostic mirror, not release authority. A
+commit response that loses the deadline race is
+accepted only when the immutable sidecar is already readable; terminal build
+completion similarly re-reads and adopts an exact matching `finished` head
+after any unknown transaction outcome. Reconciliation never starts a new write. Artifact or base
+drift atomically supersedes the private set and attempt. A stale external read
 also ends the append-only attempt and restarts it from current Project state;
-appending a newer read cannot erase an older dependency. The deterministic
-plan is never model-repaired. A blocker that exposes a real design issue
-reopens reviewed contract work; an implementation correction stays within the
-same accepted workflow slice.
+appending a newer read cannot erase an older dependency. The accepted contract
+and deterministic plan freeze when construction begins. A blocker may receive
+implementation guidance inside the same accepted slice; a request to revise
+meaning or ask the user is an internal build defect and stops without changing
+scope.
 A deterministic failure atomically abandons its open set and closes that exact
 plan/slice under the same immutable executor model, prompt, and brief. A fresh
 attempt may open only when one of those recorded compiler inputs changes.
 Provider, transaction, and lost-response replay
 remain internal and idempotent, but no user turn redrives known-bad execution.
+The forward counter migration gives any legacy in-flight attempt the global
+ceilings rather than pretending its already-spent work was zero; fresh attempts
+begin with exact durable counters.
 
 - `errorClassifier.ts` — the shared thrown-error taxonomy (network / provider / internal) both surfaces classify failures through.
 - `turnRetry.ts` — the chat route's transient mid-stream failure policy: a provider fault partway through a generation re-drives the WHOLE TURN inside the same POST / claim / stream (bounded attempts, spaced), instead of failing + refunding. The turn is the safe retry unit — an LLM step is nondeterministic, so there is deliberately no step-boundary resume; safety comes from inline commits (nothing to lose) + the validity gate rejecting duplicate structural work. Each retry appends one continuation message with the committed-state summary (same `summarizeBlueprint` renderer) to the unchanged base prompt, and surfaces as a RECOVERABLE conversation event carrying the real classified type — the admin-inspect breadcrumb for in-flight provider faults. The SDK's `maxRetries` (establishment) and this (mid-stream) are the two retry layers; `shouldRetryTurn` keys on the classifier's transient buckets so the two stay aligned.

@@ -102,6 +102,41 @@ describe("reserveForNewBuild credit debit", () => {
 		});
 	});
 
+	it("refuses completion when the canonical head is not the verified sequence", async () => {
+		const { completeAndSettleRun, reserveForNewBuild } = await import(
+			"../apps"
+		);
+		await reserveForNewBuild(
+			TEST_APP_ID,
+			TEST_USER_ID,
+			CREDITS_PER_BUILD,
+			"run-1",
+			PROJECT_ID,
+			HOLDER_NONCE,
+		);
+		expect(
+			await completeAndSettleRun(TEST_APP_ID, "run-1", HOLDER_NONCE, 999),
+		).toBe("superseded");
+		const stillBuilding = await h
+			.db()
+			.selectFrom("apps")
+			.select(["status", "res_settled", "mutation_seq"])
+			.where("id", "=", TEST_APP_ID)
+			.executeTakeFirstOrThrow();
+		expect(stillBuilding).toMatchObject({
+			status: "generating",
+			res_settled: false,
+		});
+		expect(
+			await completeAndSettleRun(
+				TEST_APP_ID,
+				"run-1",
+				HOLDER_NONCE,
+				Number(stillBuilding.mutation_seq),
+			),
+		).toBe("owned");
+	});
+
 	it("a stale second reservation cannot replace the first holder, and later affordability still fails atomically", async () => {
 		const { OutOfCreditsError } = await import("../credits");
 		const { completeAndSettleRun, reserveForNewBuild, RunConflictError } =

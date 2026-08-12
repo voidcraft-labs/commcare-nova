@@ -128,6 +128,7 @@ import {
 	type ClientAppChangeKind,
 	parsePersistedAppLifecycleStatus,
 } from "./types";
+import { hasUnfinishedMaterializedDesignInTransaction } from "./unfinishedMaterializedDesign";
 
 // ── Holder capability ──────────────────────────────────────────────
 
@@ -747,7 +748,8 @@ export function isUniqueViolation(err: unknown): boolean {
  * dedup hit on `(app_id, batch_id)` returns the recorded seq + the current
  * committed doc, writing nothing; lock + reauthorize the actor's exact Project
  * membership against the fresh row (a concurrent MOVE rejects retryably);
- * when chat supplied holder authority,
+ * while an initial build owns the app, reject every caller that does not carry
+ * that exact build-holder authority; when chat supplied holder authority,
  * compare its exact mode/run identity before evaluation and again on the final
  * app-row SQL update (MCP's attribution-only run id supplies no authority);
  * re-check media expectations against rows read `FOR SHARE` (a racing delete
@@ -837,6 +839,20 @@ export async function commitCanonicalBatch(
 			!exactRunHolderMatches(lease.holderIdentity, args.chatRunHolder)
 		) {
 			throw new RunHolderLostError(lease.present ? "superseded" : "released");
+		}
+		/* The accepted initial contract and plan stay frozen until authoritative
+		 * completion, not merely until the live lease disappears. A failed partial
+		 * build is still unfinished after `failApp` changes status to `error`.
+		 * Chat construction commits carry the exact live holder; MCP/autosave do
+		 * not. */
+		if (
+			args.chatRunHolder === undefined &&
+			(lease.mode === "build" ||
+				(await hasUnfinishedMaterializedDesignInTransaction(tx, appId)))
+		) {
+			throw new BlueprintCommitRejectedError(
+				"This app's reviewed initial build has not finished. Wait for it to complete before editing the app.",
+			);
 		}
 		if (mutations.length === 0) {
 			throw new BlueprintCommitRejectedError(

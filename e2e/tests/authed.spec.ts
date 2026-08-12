@@ -258,7 +258,7 @@ async function stubDesignBuildJourney(
 						actors: ["Intake worker", "Follow-up coordinator"],
 						tasks: ["Register a referral", "Record follow-up"],
 						records: ["Referral"],
-						readModels: ["Open referrals"],
+						lists: ["Open referrals"],
 						assumptions: [],
 						blockingQuestions: ["How quickly should follow-up begin?"],
 						outOfScope: [],

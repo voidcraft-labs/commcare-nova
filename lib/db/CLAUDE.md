@@ -610,7 +610,10 @@ message is scanned, not its last step) or is genuinely paused. The
 re-drive re-runs the interrupted turn through the normal
 POST/claim/charge machinery (`redrive: true` on the wire; a claim conflict
 there means another session already re-drove, so the request closes clean
-instead of serialize-waiting a duplicate). A died BUILD (reaped to `error`)
+instead of serialize-waiting a duplicate). The same capability is the explicit
+continuation for a sealed recoverable reviewed build: even when its frozen
+transcript ends in an assistant answer round, it takes a fresh claim rather
+than trying to reacquire the released holder. A died BUILD (reaped to `error`)
 is admitted by the build page only on this signal, and its re-drive claim
 flips the row back to `generating`.
 The reconnect endpoint resolves a GET id as stream-first, thread-second, so
@@ -761,6 +764,23 @@ affects zero rows rather than clobbering its successor. A failed EDIT never
 flips its `complete` app to `error` (that would brick a working app over a
 transient model error).
 
+The reviewed initial-build path composes `completeAndSettleRunInTransaction`
+with its append-only `finished` orchestration event after case-schema
+convergence. It takes the actor gate, proves the still-live delegated app
+holder or the exact unreclaimed false-reap signature, exact-sequence-CASes the
+app, settles the charge, and inserts the event in one transaction. The reaped
+arm still re-proves Project membership, actor, root run/nonce, canonical
+sequence, and event head. Completion therefore cannot release the authority
+required to record its own terminal state, and a rolled-back terminal event
+cannot leave an app marked complete.
+
+The canonical commit guard keeps a materialized reviewed build frozen until
+its orchestration head is terminal. `finished` is the only current successful
+terminal state; the retired `accepted-partial` arm remains terminal solely so
+apps released through the historical **Use what’s built** path stay editable.
+A failed or interrupted current build remains frozen even after its live lease
+has gone away.
+
 **Reapers re-validate staleness IN-TXN.** `reapStaleGenerating` →
 `refundStaleGeneration` (stale build: refund + `generating → error` +
 `paused_timeout` classification for an abandoned pause) and
@@ -882,6 +902,9 @@ validation.
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
 → reject when the row no longer matches the caller's required
 `expectedProjectId` → reauth against the fresh Project membership row →
+while a materialized initial design is unfinished, reject MCP/autosave callers
+that cannot carry its exact live chat holder capability (the durable terminal
+head keeps failed partial builds frozen after their lease is gone) →
 assemble + hydrate the fresh doc →
 `mutationTargetsInvalid` → re-run verdict → literal `seq + 1` → entity-row diff
 write + the permanent app-change row + the in-commit NOTIFY. The per-commit edit
@@ -896,7 +919,10 @@ transaction; every THREAD writer replaces only ITS thread's
 same asset locks and verdicts, row written after the thread row it is a
 child of) in the transcript transaction. Neither family can overwrite the
 other, and deletion checks BOTH. Atomic creation, `appendSyntheticBatch`,
-and Project move apply the identical rule — the move additionally rewrites
+and Project move apply the identical rule. A Project move refuses an unfinished
+materialized reviewed build even after its holder is reaped, so it cannot
+advance the canonical sequence out from under the frozen plan. The move
+additionally rewrites
 each thread's rows from its remapped transcript with destination ids and
 Project, and re-tenants the app's bound design sessions
 (materialized/completed/edit; an active pre-app session never moves).

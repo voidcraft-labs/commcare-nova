@@ -26,7 +26,9 @@ gate, and integrity services every other write uses.
   `__setStageTransactionFaultHookForTests`. Production slice creation also
   locks the exact delegated holder and running attempt, inserts the change
   set, and binds its id onto that attempt in one transaction; recovery may
-  adopt only an open set whose complete lineage, owner, kind, and base match.
+  adopt only an open set whose complete lineage, kind, and base match, and the
+  current authorized session holder transfers its owner attribution in that
+  same recovery transaction.
 - `workspace.ts` — `ChangeSetMutationWorkspace`, the same tool-facing
   contract as the canonical workspace (`lib/agent/workspace/types.ts`) over
   durable staging. It owns: serialized synchronous ordinals, one write per
@@ -87,7 +89,22 @@ gate, and integrity services every other write uses.
   classification over the identity-pointer registry — only Blueprint-entity
   families are handle-eligible; app/Project/media/lookup/location/external
   identities stay canonical. Executor-facing `uuid | { handle }` wire
-  schemas emit from this map in the executor unit.
+  schemas emit from this map in the executor unit. Every creator declares in
+  its existing canonical identity slot; worker properties, user types,
+  personas, and place-information properties use `userPropertyUuid`,
+  `userTypeUuid`, `personaUuid`, and `locationPropertyUuid`. A later change
+  set in the same frozen accepted plan inherits bindings from earlier
+  committed slices, including the genesis set through its immutable committed
+  receipt's app identity, only after `runtime.ts` proves each UUID and entity
+  kind still exists in its exact base revision and in the replayed private
+  overlay. A correction that deletes a locally created entity prunes its
+  binding in the same stage transaction; deleting an inherited entity prunes
+  that symbol on process recovery too, and an earlier slice's handle whose
+  entity was later deleted is omitted from the next seed.
+  Case-catalog select defaults are not allowed to mint anonymous options on the
+  executor path: the executor explicitly supplies the same options with
+  handled `optionUuid` creation slots. The executor checkpoint projects those
+  symbols and never returns raw UUID binding maps.
 - `readSets.ts` / `diagnostics.ts` — external read sets are captured
   automatically (lookup reads via the wrapped readers, the organization
   fence from the write's `expectedOrganizationRevision`, media identities
@@ -124,7 +141,10 @@ gate, and integrity services every other write uses.
    resolution; steps never contain handles.
 2. A stage request is idempotent by stable request id + input digest; a
    reused id with different content latches
-   (`ChangeSetRequestIdCollisionError`), and rejection receipts replay too.
+   (`ChangeSetRequestIdCollisionError`), and rejection receipts replay too. A
+   successful final repair that proves itself a no-op records an accepted
+   no-op receipt and finalization marker without advancing the private
+   revision, so process recovery does not lose that step boundary.
 3. Admission failures (wire canonicality, identity collision, invalid
    anchor, missing target, rename-plan issues, reducer throws, policy
    fences, unbound handles) reject BEFORE a step appends; validator
@@ -156,8 +176,9 @@ gate, and integrity services every other write uses.
    set and permanently closes that exact plan/slice. Recovery reuses a bound
    open set only when its actor/run owner matches the current holder.
 9. Executor recovery reconstructs its bounded checkpoint from the current
-   candidate plus durable construction-group coverage and handle bindings. Conversation or
-   tool-call transcripts are never needed to decide what already staged.
+   candidate plus durable construction-group coverage, handle bindings, and
+   the latest staged-or-no-op finalization marker. Conversation or tool-call
+   transcripts are never needed to decide what already staged.
 
 ## Tests
 

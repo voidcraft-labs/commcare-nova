@@ -38,7 +38,10 @@ import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
-import { deriveDesignBuildStage } from "@/lib/agent/build/progress";
+import {
+	deriveDesignBuildStage,
+	deriveInterruptedMaterializedBuildStage,
+} from "@/lib/agent/build/progress";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
@@ -186,7 +189,7 @@ export default async function BuilderPage({
 	const failedMaterializedStage =
 		failedMaterializedDesign === null
 			? null
-			: deriveDesignBuildStage(
+			: deriveInterruptedMaterializedBuildStage(
 					failedMaterializedDesign,
 					failedMaterializedHead,
 				);

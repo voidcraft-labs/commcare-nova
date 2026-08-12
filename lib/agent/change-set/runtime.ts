@@ -18,7 +18,12 @@ import { produce } from "immer";
 import { getAppDb } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
+import {
+	authoredBlueprintIdentities,
+	type BlueprintAuthoredIdentityKind,
+	type BlueprintDoc,
+	type PersistableDoc,
+} from "@/lib/domain";
 import {
 	emptyGenesisBase,
 	loadCanonicalBlueprintAtSequence,
@@ -26,8 +31,13 @@ import {
 import { canonicalJsonDigest } from "./digest";
 import { ChangeSetIntegrityError } from "./errors";
 import { externalContextDigest, normalizeReadSet } from "./readSets";
-import type { ExternalReadDependency } from "./schemas";
-import { loadChangeSetSteps, loadHandleBindings } from "./store";
+import type { ExternalReadDependency, StagedEntityKind } from "./schemas";
+import {
+	loadChangeSetFinalizationModelStep,
+	loadChangeSetSteps,
+	loadHandleBindings,
+	loadPriorCommittedPlanHandleBindings,
+} from "./store";
 import type {
 	ChangeSetHandleBinding,
 	ChangeSetStep,
@@ -70,6 +80,106 @@ export interface RehydratedChangeSet {
 	readonly handles: readonly ChangeSetHandleBinding[];
 	readonly accumulatedReadSet: readonly ExternalReadDependency[];
 	readonly externalContextDigest: string;
+	readonly finalizationModelStep: number | null;
+}
+
+const AUTHORED_KIND_BY_STAGED_KIND: Readonly<
+	Record<StagedEntityKind, BlueprintAuthoredIdentityKind>
+> = {
+	module: "module",
+	form: "form",
+	field: "field",
+	option: "selectOption",
+	case_list_column: "caseListColumn",
+	search_input: "searchInput",
+	case_operation: "caseOperation",
+	worker_property: "userProperty",
+	user_type: "userType",
+	persona: "persona",
+	organization_level: "organizationLevel",
+	location_property: "locationProperty",
+	automation: "automation",
+	automation_criterion: "automationCriterion",
+	automation_setup_criterion: "automationSetupOnlyCriterion",
+	automation_update: "automationUpdate",
+	automation_recipient: "automationRecipient",
+	automation_event: "automationEvent",
+	automation_user_data_filter: "automationUserDataFilter",
+};
+
+function verifiedPlanHandles(
+	changeSet: DesignChangeSet,
+	baseDoc: BlueprintDoc,
+	overlayDoc: BlueprintDoc,
+	local: readonly ChangeSetHandleBinding[],
+	inherited: readonly ChangeSetHandleBinding[],
+): ChangeSetHandleBinding[] {
+	const baseKinds = new Map(
+		authoredBlueprintIdentities(baseDoc).map((identity) => [
+			identity.uuid,
+			identity.kind,
+		]),
+	);
+	const overlayKinds = new Map(
+		authoredBlueprintIdentities(overlayDoc).map((identity) => [
+			identity.uuid,
+			identity.kind,
+		]),
+	);
+	const byHandle = new Map<string, ChangeSetHandleBinding>();
+	const byUuid = new Map<string, ChangeSetHandleBinding>();
+	for (const binding of inherited) {
+		const baseKind = baseKinds.get(binding.uuid);
+		const expectedKind = AUTHORED_KIND_BY_STAGED_KIND[binding.entityKind];
+		/* A later committed slice may intentionally delete an earlier entity.
+		 * Its old symbol is no longer seedable; absence is a prune, while a UUID
+		 * surviving under another kind is corruption. */
+		if (baseKind === undefined) continue;
+		if (baseKind !== expectedKind) {
+			throw new ChangeSetIntegrityError(
+				`Change set ${changeSet.id} cannot inherit ${binding.handle}: its ${binding.entityKind} UUID has kind ${baseKind} in the exact base.`,
+			);
+		}
+		const overlayKind = overlayKinds.get(binding.uuid);
+		if (overlayKind === undefined) continue;
+		if (overlayKind !== expectedKind) {
+			throw new ChangeSetIntegrityError(
+				`Change set ${changeSet.id} cannot restore ${binding.handle}: its replayed private candidate carries kind ${overlayKind}.`,
+			);
+		}
+		const priorHandle = byHandle.get(binding.handle);
+		const priorUuid = byUuid.get(binding.uuid);
+		if (
+			(priorHandle !== undefined &&
+				(priorHandle.uuid !== binding.uuid ||
+					priorHandle.entityKind !== binding.entityKind)) ||
+			(priorUuid !== undefined && priorUuid.handle !== binding.handle)
+		) {
+			throw new ChangeSetIntegrityError(
+				`Accepted plan ${changeSet.buildPlanId} contains conflicting durable handle bindings before slice ${changeSet.sliceId}.`,
+			);
+		}
+		byHandle.set(binding.handle, binding);
+		byUuid.set(binding.uuid, binding);
+	}
+	for (const binding of local) {
+		const actualKind = overlayKinds.get(binding.uuid);
+		const expectedKind = AUTHORED_KIND_BY_STAGED_KIND[binding.entityKind];
+		if (actualKind === undefined) continue;
+		if (actualKind !== expectedKind) {
+			throw new ChangeSetIntegrityError(
+				`Change set ${changeSet.id} bound ${binding.handle} as ${binding.entityKind}, but its final private candidate carries kind ${actualKind}.`,
+			);
+		}
+		if (byHandle.has(binding.handle) || byUuid.has(binding.uuid)) {
+			throw new ChangeSetIntegrityError(
+				`Change set ${changeSet.id} redeclared a durable handle inherited from an earlier committed slice.`,
+			);
+		}
+		byHandle.set(binding.handle, binding);
+		byUuid.set(binding.uuid, binding);
+	}
+	return [...byHandle.values()];
 }
 
 /**
@@ -80,9 +190,10 @@ export async function rehydrateChangeSet(
 	changeSet: DesignChangeSet,
 ): Promise<RehydratedChangeSet> {
 	const db = await getAppDb();
-	const [steps, handles] = await Promise.all([
+	const [steps, localHandles, finalizationModelStep] = await Promise.all([
 		loadChangeSetSteps(changeSet.id, db),
 		loadHandleBindings(changeSet.id, db),
+		loadChangeSetFinalizationModelStep(changeSet.id, db),
 	]);
 	if (steps.length !== changeSet.nextOrdinal) {
 		throw new ChangeSetIntegrityError(
@@ -121,7 +232,18 @@ export async function rehydrateChangeSet(
 		}
 		baseDoc = base.doc;
 	}
+	const inheritedHandles = await loadPriorCommittedPlanHandleBindings(
+		changeSet,
+		db,
+	);
 	const overlay = replayStepsOverBase(baseDoc, steps);
+	const handles = verifiedPlanHandles(
+		changeSet,
+		baseDoc,
+		overlay.doc,
+		localHandles,
+		inheritedHandles,
+	);
 	const accumulated = normalizeReadSet(steps.flatMap((step) => step.readSet));
 	return {
 		overlay,
@@ -130,5 +252,6 @@ export async function rehydrateChangeSet(
 		handles,
 		accumulatedReadSet: accumulated,
 		externalContextDigest: externalContextDigest(accumulated),
+		finalizationModelStep,
 	};
 }

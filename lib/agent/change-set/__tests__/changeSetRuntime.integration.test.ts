@@ -40,6 +40,7 @@ import {
 	beginGenesisChangeSet,
 	loadChangeSet,
 	loadChangeSetSteps,
+	loadHandleBindings,
 	stageChangeSetRequest,
 } from "../store";
 import type { ChangeSetLineage } from "../types";
@@ -407,6 +408,7 @@ describe("private staging isolation", () => {
 			requestId: "call-1",
 			input,
 			intentIds: [intentId],
+			finalizationModelStep: 3,
 		});
 
 		/* Same workspace instance. */
@@ -428,6 +430,7 @@ describe("private staging isolation", () => {
 		expect(reopened.currentExecutionCheckpoint()).toMatchObject({
 			intentCoverage: [{ intentId, stepCount: 1 }],
 			handles: [{ handle: "@m", entityKind: "module" }],
+			finalizationModelStep: 3,
 		});
 		const replayAfterDeath = await reopened.stageDispatch({
 			toolName: "stageModule",
@@ -437,6 +440,341 @@ describe("private staging isolation", () => {
 		});
 		expect(replayAfterDeath.replayed).toBe(true);
 		expect(replayAfterDeath.receipt).toEqual(first.receipt);
+	});
+
+	it("prunes a removed handle from the verified projection while retaining its append-only declaration", async () => {
+		const app = await createTestApp();
+		const { changeSet, workspace } = await openWorkspace(app.appId);
+		await workspace.stageDispatch({
+			toolName: "stageModule",
+			requestId: "temporary-module",
+			input: { moduleUuid: { handle: "@temporary" }, name: "Temporary" },
+		});
+		expect(workspace.currentExecutionCheckpoint().handles).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ handle: "@temporary", entityKind: "module" }),
+			]),
+		);
+		await workspace.stageDispatch({
+			toolName: "removeModule",
+			requestId: "remove-temporary-module",
+			input: { moduleUuid: { handle: "@temporary" } },
+		});
+		expect(workspace.currentExecutionCheckpoint().handles).not.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ handle: "@temporary" }),
+			]),
+		);
+		expect(await loadHandleBindings(changeSet.id)).toEqual([
+			expect.objectContaining({
+				handle: "@temporary",
+				entityKind: "module",
+			}),
+		]);
+		const reopened = await ChangeSetMutationWorkspace.open(host, changeSet.id);
+		expect(reopened.currentExecutionCheckpoint().handles).toEqual([]);
+	});
+
+	it("carries worker symbols across model steps, process recovery, commit, and a later slice", async () => {
+		const app = await createTestApp();
+		const sharedLineage = await lineage();
+		const first = await beginAppEditChangeSet({
+			appId: app.appId,
+			expectedProjectId: PROJECT,
+			lineage: sharedLineage,
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+		});
+		await h
+			.db()
+			.updateTable("design_slice_attempts")
+			.set({ change_set_id: first.id })
+			.where("id", "=", first.attemptId)
+			.execute();
+		const firstIntent = asDesignId(crypto.randomUUID());
+		const firstWorkspace = await ChangeSetMutationWorkspace.open(
+			host,
+			first.id,
+		);
+
+		const workerProperty = await firstWorkspace.stageDispatch({
+			toolName: "addUserProperties",
+			requestId: "worker-property-step",
+			input: {
+				properties: [
+					{
+						userPropertyUuid: { handle: "@worker_role" },
+						slug: "worker_role",
+						label: "Worker role",
+						choices: ["supervisor", "agent"],
+					},
+				],
+			},
+			intentIds: [firstIntent],
+		});
+		const workerPropertyUuid =
+			workerProperty.receipt?.handles[
+				changeSetHandleSchema.parse("@worker_role")
+			];
+		if (workerPropertyUuid === undefined)
+			throw new Error("worker property handle was not bound");
+
+		/* This is the original failure boundary: the worker property was created
+		 * in one model step, then the in-memory workspace disappeared before a
+		 * later createModule referenced it. */
+		const recovered = await ChangeSetMutationWorkspace.open(host, first.id);
+		expect(recovered.currentExecutionCheckpoint()).toMatchObject({
+			handles: [
+				{
+					handle: "@worker_role",
+					uuid: workerPropertyUuid,
+					entityKind: "worker_property",
+				},
+			],
+		});
+
+		await recovered.stageDispatch({
+			toolName: "addUserTypes",
+			requestId: "worker-type-step",
+			input: {
+				userTypes: [
+					{
+						userTypeUuid: { handle: "@supervisor_type" },
+						name: "Supervisor",
+						values: [
+							{
+								userPropertyUuid: { handle: "@worker_role" },
+								value: "supervisor",
+							},
+						],
+					},
+				],
+			},
+			intentIds: [firstIntent],
+		});
+		await recovered.stageDispatch({
+			toolName: "addPersonas",
+			requestId: "persona-step",
+			input: {
+				personas: [
+					{
+						personaUuid: { handle: "@asha" },
+						name: "Asha",
+						userTypeUuid: { handle: "@supervisor_type" },
+						values: [
+							{
+								userPropertyUuid: { handle: "@worker_role" },
+								value: "supervisor",
+							},
+						],
+					},
+				],
+			},
+			intentIds: [firstIntent],
+		});
+		await recovered.stageDispatch({
+			toolName: "addLocationProperties",
+			requestId: "location-property-step",
+			input: {
+				properties: [
+					{
+						locationPropertyUuid: { handle: "@facility_code" },
+						slug: "facility_code",
+						label: "Facility code",
+					},
+				],
+			},
+			intentIds: [firstIntent],
+		});
+		const module = await recovered.stageDispatch({
+			toolName: "createModule",
+			requestId: "later-module-step",
+			input: {
+				moduleUuid: { handle: "@restricted_module" },
+				name: "Restricted workflow",
+				case_type: null,
+				forms: [
+					{
+						formUuid: { handle: "@restricted_form" },
+						name: "Restricted survey",
+						type: "survey",
+						fields: [
+							{
+								fieldUuid: { handle: "@restricted_note" },
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
+								relevant: {
+									parts: [
+										{
+											kind: "user-property-ref",
+											userPropertyUuid: { handle: "@worker_role" },
+										},
+										{ kind: "text", text: " = 'supervisor'" },
+									],
+								},
+							},
+						],
+					},
+				],
+			},
+			intentIds: [firstIntent],
+		});
+		const noteUuid =
+			module.receipt?.handles[changeSetHandleSchema.parse("@restricted_note")];
+		if (noteUuid === undefined) throw new Error("note handle was not bound");
+		expect(recovered.currentSnapshot().doc.fields[noteUuid]?.relevant).toEqual({
+			parts: [
+				{
+					kind: "user-property-ref",
+					userPropertyUuid: workerPropertyUuid,
+				},
+				{ kind: "text", text: " = 'supervisor'" },
+			],
+		});
+		expect((await recovered.inspect()).canCommit).toBe(true);
+		const firstCommit = await commitDesignChangeSet({
+			changeSetId: first.id,
+			actorUserId: ACTOR,
+			runId: RUN,
+			kind: "mcp",
+			expectedRevision: 5,
+			owningIntentIds: [firstIntent],
+		});
+		expect(firstCommit.kind).toBe("committed");
+		if (firstCommit.kind !== "committed") throw new Error("first slice failed");
+
+		const priorAttempt = await h
+			.db()
+			.selectFrom("design_slice_attempts")
+			.selectAll()
+			.where("id", "=", sharedLineage.attemptId)
+			.executeTakeFirstOrThrow();
+		const secondAttemptId = crypto.randomUUID();
+		const secondSliceId = asDesignId(crypto.randomUUID());
+		await h
+			.db()
+			.insertInto("design_slice_attempts")
+			.values({
+				...priorAttempt,
+				id: secondAttemptId,
+				slice_id: secondSliceId,
+				attempt: 1,
+				base_kind: "app",
+				base_app_id: app.appId,
+				base_proposed_app_id: null,
+				base_seq: firstCommit.receipt.seq,
+				base_snapshot_digest: firstCommit.receipt.committedSnapshotDigest,
+				change_set_id: null,
+				brief_digest: canonicalJsonDigest(`brief:${secondAttemptId}`),
+				execution_run_ids: JSON.stringify([RUN]),
+				status: "running",
+				failure_code: null,
+				created_at: new Date(),
+				updated_at: new Date(),
+			})
+			.execute();
+		const secondLineage: ChangeSetLineage = {
+			...sharedLineage,
+			sliceId: secondSliceId,
+			attemptId: secondAttemptId,
+		};
+		const second = await beginAppEditChangeSet({
+			appId: app.appId,
+			expectedProjectId: PROJECT,
+			lineage: secondLineage,
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+		});
+		await h
+			.db()
+			.updateTable("design_slice_attempts")
+			.set({ change_set_id: second.id })
+			.where("id", "=", secondAttemptId)
+			.execute();
+		const secondWorkspace = await ChangeSetMutationWorkspace.open(
+			host,
+			second.id,
+		);
+		expect(secondWorkspace.currentExecutionCheckpoint().handles).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					handle: "@worker_role",
+					uuid: workerPropertyUuid,
+					entityKind: "worker_property",
+				}),
+				expect.objectContaining({
+					handle: "@supervisor_type",
+					entityKind: "user_type",
+				}),
+				expect.objectContaining({
+					handle: "@facility_code",
+					entityKind: "location_property",
+				}),
+			]),
+		);
+		const secondIntent = asDesignId(crypto.randomUUID());
+		const laterPersona = await secondWorkspace.stageDispatch({
+			toolName: "addPersonas",
+			requestId: "later-slice-persona",
+			input: {
+				personas: [
+					{
+						personaUuid: { handle: "@later_persona" },
+						name: "Later slice persona",
+						userTypeUuid: { handle: "@supervisor_type" },
+						values: [
+							{
+								userPropertyUuid: { handle: "@worker_role" },
+								value: "supervisor",
+							},
+						],
+					},
+				],
+			},
+			intentIds: [secondIntent],
+		});
+		expect(laterPersona.result).not.toHaveProperty("error");
+		const reopenedSecond = await ChangeSetMutationWorkspace.open(
+			host,
+			second.id,
+		);
+		expect(reopenedSecond.currentExecutionCheckpoint().handles).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ handle: "@worker_role" }),
+				expect.objectContaining({ handle: "@later_persona" }),
+			]),
+		);
+		await reopenedSecond.stageDispatch({
+			toolName: "removeModule",
+			requestId: "remove-inherited-module",
+			input: { moduleUuid: { handle: "@restricted_module" } },
+			intentIds: [secondIntent],
+		});
+		const reopenedAfterInheritedDelete = await ChangeSetMutationWorkspace.open(
+			host,
+			second.id,
+		);
+		expect(
+			reopenedAfterInheritedDelete.currentExecutionCheckpoint().handles,
+		).not.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ handle: "@restricted_module" }),
+				expect.objectContaining({ handle: "@restricted_form" }),
+				expect.objectContaining({ handle: "@restricted_note" }),
+			]),
+		);
+		expect((await reopenedAfterInheritedDelete.inspect()).canCommit).toBe(true);
+		expect(
+			await commitDesignChangeSet({
+				changeSetId: second.id,
+				actorUserId: ACTOR,
+				runId: RUN,
+				kind: "mcp",
+				expectedRevision: 2,
+				owningIntentIds: [secondIntent],
+			}),
+		).toMatchObject({ kind: "committed" });
 	});
 
 	it("rejects admission failures before a step appends, with a durable rejection receipt", async () => {
@@ -486,7 +824,7 @@ describe("private staging isolation", () => {
 		}
 
 		const app = await createTestApp();
-		const { workspace } = await openWorkspace(app.appId);
+		const { changeSet, workspace } = await openWorkspace(app.appId);
 
 		const levelUuid = asUuid(crypto.randomUUID());
 		const stagedLevel = await workspace.stageDispatch({
@@ -562,6 +900,7 @@ describe("private staging isolation", () => {
 		const noop = await workspace.stageDispatch({
 			toolName: "updateAutomation",
 			requestId: "update-automation-noop",
+			finalizationModelStep: 4,
 			input: {
 				automation: {
 					uuid: automationUuid,
@@ -580,6 +919,33 @@ describe("private staging isolation", () => {
 			mutations: [],
 			result: { message: expect.stringContaining("already has") },
 		});
+		expect(noop.receipt?.disposition).toBe("noop");
+		expect(workspace.currentExecutionCheckpoint().finalizationModelStep).toBe(
+			4,
+		);
+
+		const reopened = await ChangeSetMutationWorkspace.open(host, changeSet.id);
+		expect(reopened.currentExecutionCheckpoint().finalizationModelStep).toBe(4);
+		const replay = await reopened.stageDispatch({
+			toolName: "updateAutomation",
+			requestId: "update-automation-noop",
+			finalizationModelStep: 4,
+			input: {
+				automation: {
+					uuid: automationUuid,
+					kind: "case-update",
+					name: "Close stale visits",
+					caseType: "visit",
+					criteriaOperator: "all",
+					criteria: [],
+					setupOnlyCriteria: [],
+					updates: [],
+					closeCase: true,
+				},
+			},
+		});
+		expect(replay.replayed).toBe(true);
+		expect(replay.receipt).toEqual(noop.receipt);
 	});
 
 	it("rejects an organization-deriving write that carried no revision fence (READ_SET_UNRECORDED)", async () => {
@@ -651,7 +1017,7 @@ describe("private staging isolation", () => {
 		await workspace.stageDispatch({
 			toolName: "stageModule",
 			requestId: "call-1",
-			input: { name: "Ordinary first" },
+			input: { moduleUuid: { handle: "@ordinary" }, name: "Ordinary first" },
 		});
 
 		const notAlone = await workspace.invoke({
@@ -693,6 +1059,7 @@ describe("private staging isolation", () => {
 				]),
 				stageSlices: [],
 				handles: [],
+				retainedHandleUuids: [],
 				intentIds: [],
 				readSet: [],
 				exclusiveKind: "renameCaseProperties",
@@ -714,7 +1081,10 @@ describe("private staging isolation", () => {
 		const closed = await reopened.stageDispatch({
 			toolName: "stageModule",
 			requestId: "call-2",
-			input: { name: "After exclusive" },
+			input: {
+				moduleUuid: { handle: "@after_exclusive" },
+				name: "After exclusive",
+			},
 		});
 		expect(closed.receipt?.disposition).toBe("rejected");
 		expect(closed.receipt?.error?.code).toBe("EXCLUSIVE_SET_CLOSED");
@@ -885,6 +1255,12 @@ describe("commitDesignChangeSet", () => {
 		const app = await createTestApp();
 		const { changeSet, intentId } = await stageCompleteWorkflow(app.appId, app);
 		const before = await canonicalTableCounts(app.appId);
+		await h
+			.db()
+			.updateTable("design_slice_attempts")
+			.set({ outcome_evidence_state: "collecting" })
+			.where("id", "=", changeSet.attemptId)
+			.executeTakeFirstOrThrow();
 
 		const outcome = await commitDesignChangeSet({
 			changeSetId: changeSet.id,
@@ -913,10 +1289,11 @@ describe("commitDesignChangeSet", () => {
 		const attempt = await h
 			.db()
 			.selectFrom("design_slice_attempts")
-			.select("status")
+			.select(["status", "outcome_evidence_state"])
 			.where("change_set_id", "=", changeSet.id)
 			.executeTakeFirst();
 		expect(attempt?.status).toBe("committed");
+		expect(attempt?.outcome_evidence_state).toBe("complete");
 
 		/* A commit retry converges on the stored receipt. */
 		const retry = await commitDesignChangeSet({

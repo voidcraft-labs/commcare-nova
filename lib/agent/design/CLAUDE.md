@@ -28,23 +28,38 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   of an existing Project lookup table plus its value/label columns; the
   executor resolves current UUIDs. The base reader remains compatible with
   already-persisted v1 artifacts.
+  Admission also rejects unknown record/form-input shapes, decisions without
+  concrete inputs and outcomes, structurally empty or disabled workflow shells,
+  unresolved writes or outcomes, construction-bearing open questions (including
+  actor/worker-shape questions), and promises that Nova creates or uploads
+  media. Human-owned readiness such as an administrator uploading an asset may
+  remain external when construction is otherwise executable. Blocking meaning
+  becomes a pre-build question or an explicitly excluded workflow; it never
+  survives into execution.
 - `review.ts` defines independent findings, dispositions, and revisions.
   Critical and important findings cite the exact source or contract elements
   they concern; advisory observations do not create traceability work. Only
   design-correction and user-decision findings block acceptance. A revision
   must disposition every blocker, and lowering a property's sensitivity is
   allowed only when the reviewed finding explicitly required it.
-- `buildPlan.ts` deterministically derives one workflow-complete construction
-  slice per workflow from an accepted revision. It also derives stable
-  construction groups for Blueprint work and separate external actions. The
+- `buildPlan.ts` deterministically derives exactly one workflow-complete
+  construction slice per included workflow, and no extra slice, from an
+  accepted revision. It also derives stable
+  construction groups for Blueprint work and separate external actions.
+  Workflow-authored existing-media and automation features lower to their
+  exact Blueprint areas; they are never inferred from requirement prose. The
+  lookup area is also inherited through a workflow input's referenced record
+  property, not only a form-local inline choice declaration. The
   model cannot choose ownership, omit accepted work, or author a separate
   lowering graph. Plan validation proves exact workflow/group coverage, one
   materialization root, an acyclic dependency graph, and supported external-
   action timing. All-external groups from earlier persisted v1 plans remain
   readable but are not executor work or commit coverage.
 - `executionBrief.ts` renders the bounded semantic brief consumed by a slice
-  executor. It names the workflow, its directly related design elements, and
-  the construction groups the executor must prove through admitted steps.
+  executor. It names the workflow, only properties owned or used by that
+  workflow and its list/access/navigation context, a semantic checklist for
+  each construction group, relevant constraints, and the exact slice tool
+  profile.
 - `complexity.ts` deterministically assigns `compact`, `standard`, or
   `extended`. The class chooses process depth and conservative user-facing time
   estimates; it never changes Blueprint validity or authority.
@@ -105,7 +120,8 @@ than a growing transcript.
 review counts. A second review is required only for unresolved critical risk,
 multiple critical first-pass findings, or a critical architectural change; raw
 complexity alone is not a trigger. Answered blocking questions reopen a fresh
-reviewed design cycle. `packageRebuild.ts` refuses continuation when the
+reviewed design cycle only before construction freezes the accepted revision
+and plan. `packageRebuild.ts` refuses continuation when the
 authorized sources cannot reproduce the bound package.
 
 Tool lifecycle diagnostics contain only opaque call identity, tool name,

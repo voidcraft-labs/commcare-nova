@@ -248,6 +248,17 @@ export const workflowRecordEffectSchema = z
 	.strict();
 export type WorkflowRecordEffect = z.infer<typeof workflowRecordEffectSchema>;
 
+/** Supported Blueprint features whose authored state is workflow-local but is
+ * not otherwise represented by a record effect. This is semantic intent, not
+ * a tool list: the deterministic plan compiler lowers it to Blueprint areas. */
+export const workflowAuthoredFeatureSchema = z.enum([
+	"existing-media",
+	"automation",
+]);
+export type WorkflowAuthoredFeature = z.infer<
+	typeof workflowAuthoredFeatureSchema
+>;
+
 export const workflowReadbackSchema = z
 	.object({
 		recordId: designIdSchema,
@@ -281,7 +292,9 @@ export const workflowSchema = z
 		prerequisites: z.array(z.string().min(1)),
 		inputs: z.array(workflowInputSchema),
 		decisions: z.array(workflowDecisionSchema),
-		recordEffects: z.array(workflowRecordEffectSchema).min(1),
+		recordEffects: z.array(workflowRecordEffectSchema),
+		/** Optional on input for persisted Design Contract v1 compatibility. */
+		authoredFeatures: z.array(workflowAuthoredFeatureSchema).optional(),
 		readback: z.array(workflowReadbackSchema),
 		exceptions: z.array(z.string().min(1)),
 		externalRequirementIds: z.array(designIdSchema),
@@ -459,6 +472,19 @@ export function designConstructionIssues(
 	const issues: DesignConstructionIssue[] = [];
 	contract.records.forEach((record, recordIndex) => {
 		record.properties.forEach((property, propertyIndex) => {
+			if (property.dataShape === "unknown") {
+				issues.push({
+					path: [
+						"records",
+						recordIndex,
+						"properties",
+						propertyIndex,
+						"dataShape",
+					],
+					message:
+						"A record property needs a concrete data shape before its field and storage can be authored.",
+				});
+			}
 			if (
 				(property.dataShape === "single-choice" ||
 					property.dataShape === "multiple-choice") &&
@@ -480,7 +506,27 @@ export function designConstructionIssues(
 		});
 	});
 	contract.workflows.forEach((workflow, workflowIndex) => {
+		if (
+			workflow.inputs.length === 0 &&
+			workflow.decisions.length === 0 &&
+			workflow.recordEffects.length === 0 &&
+			(workflow.authoredFeatures?.length ?? 0) === 0 &&
+			workflow.readback.length === 0
+		) {
+			issues.push({
+				path: ["workflows", workflowIndex],
+				message:
+					"An included workflow needs executable inputs, decisions, record effects, readback, or an explicitly authored feature; an empty workflow shell cannot be constructed.",
+			});
+		}
 		workflow.inputs.forEach((input, inputIndex) => {
+			if (input.propertyId === undefined && input.dataShape === "unknown") {
+				issues.push({
+					path: ["workflows", workflowIndex, "inputs", inputIndex, "dataShape"],
+					message:
+						"A form-only input needs a concrete data shape before it can be authored.",
+				});
+			}
 			if (
 				input.propertyId === undefined &&
 				(input.dataShape === "single-choice" ||
@@ -501,6 +547,57 @@ export function designConstructionIssues(
 				});
 			}
 		});
+		workflow.decisions.forEach((decision, decisionIndex) => {
+			if (decision.inputPropertyIds.length === 0) {
+				issues.push({
+					path: [
+						"workflows",
+						workflowIndex,
+						"decisions",
+						decisionIndex,
+						"inputPropertyIds",
+					],
+					message:
+						"A workflow decision must name the accepted property inputs that determine it.",
+				});
+			}
+			if (distinctRealChoices(decision.outcomes) < 2) {
+				issues.push({
+					path: [
+						"workflows",
+						workflowIndex,
+						"decisions",
+						decisionIndex,
+						"outcomes",
+					],
+					message:
+						"A workflow decision needs at least two distinct concrete outcomes before construction.",
+				});
+			}
+		});
+	});
+	const includedIds = new Set<string>([
+		...contract.charter.includedWorkflowIds,
+		...contract.actors.map((actor) => actor.id),
+		...contract.records.map((record) => record.id),
+		...contract.records.flatMap((record) =>
+			record.properties.map((property) => property.id),
+		),
+		...contract.lists.map((list) => list.id),
+		...contract.access.map((policy) => policy.id),
+		...contract.navigation.map((navigation) => navigation.id),
+	]);
+	contract.openQuestions.forEach((question, questionIndex) => {
+		if (
+			question.structuralImpact !== "none" &&
+			question.relatedElementIds.some((id) => includedIds.has(id))
+		) {
+			issues.push({
+				path: ["openQuestions", questionIndex],
+				message:
+					"A construction-bearing question must be answered or its workflow explicitly excluded before a plan can exist.",
+			});
+		}
 	});
 	return issues;
 }

@@ -407,6 +407,59 @@ export async function loadHandleBindings(
 	}));
 }
 
+/** Load durable symbols declared by earlier committed slices of the same
+ * accepted plan. The current change set's exact base sequence is the upper
+ * bound: a historical rehydrate can never see a symbol committed later. The
+ * runtime independently proves each returned UUID and kind against that base
+ * before exposing it. */
+export async function loadPriorCommittedPlanHandleBindings(
+	changeSet: DesignChangeSet,
+	dbHandle?: Db,
+): Promise<ChangeSetHandleBinding[]> {
+	if (changeSet.kind !== "app-edit" || changeSet.baseSeq === null) return [];
+	const db = dbHandle ?? (await getAppDb());
+	const rows = await db
+		.selectFrom("design_change_sets as source")
+		.innerJoin(
+			"design_committed_slices as receipt",
+			"receipt.change_set_id",
+			"source.id",
+		)
+		.innerJoin(
+			"design_change_set_handles as handle",
+			"handle.change_set_id",
+			"source.id",
+		)
+		.select([
+			"handle.handle",
+			"handle.uuid",
+			"handle.entity_kind",
+			"handle.binding_request_id",
+			"source.id as source_change_set_id",
+		])
+		.where("source.design_session_id", "=", changeSet.designSessionId)
+		.where("source.design_revision_id", "=", changeSet.designRevisionId)
+		.where("source.design_revision_digest", "=", changeSet.designRevisionDigest)
+		.where("source.build_plan_id", "=", changeSet.buildPlanId)
+		.where("source.build_plan_digest", "=", changeSet.buildPlanDigest)
+		/* A genesis source has `app_id = NULL` forever; the immutable receipt is
+		 * the canonical binding from that root change set to the materialized app.
+		 * Scope through it so later slices inherit root handles too. */
+		.where("receipt.app_id", "=", changeSet.appId)
+		.where("source.status", "=", "committed")
+		.where("source.committed_seq", "<=", changeSet.baseSeq)
+		.where("source.id", "!=", changeSet.id)
+		.orderBy("source.committed_seq", "asc")
+		.orderBy("handle.handle", "asc")
+		.execute();
+	return rows.map((row) => ({
+		handle: changeSetHandleSchema.parse(row.handle),
+		uuid: row.uuid as Uuid,
+		entityKind: stagedEntityKindSchema.parse(row.entity_kind),
+		bindingRequestId: `${row.source_change_set_id}:${row.binding_request_id}`,
+	}));
+}
+
 /** Look up one stored staging request — the idempotent-replay read. */
 export async function lookupStageRequest(
 	changeSetId: string,
@@ -433,7 +486,11 @@ export async function lookupStageRequest(
 		.where("request_id", "=", requestId)
 		.executeTakeFirst();
 	if (row === undefined) return undefined;
-	if (row.status !== "staged" && row.status !== "rejected") {
+	if (
+		row.status !== "staged" &&
+		row.status !== "noop" &&
+		row.status !== "rejected"
+	) {
 		throw new ChangeSetIntegrityError(
 			`design_change_set_requests.status holds unknown value "${row.status}".`,
 		);
@@ -458,6 +515,23 @@ export async function lookupStageRequest(
 			),
 		),
 	};
+}
+
+/** The latest durable action's step-boundary recovery marker. A successful
+ * stage writes or clears it, while a successful final no-op writes it without
+ * advancing the private revision. The executor separately requires the marker
+ * to equal the attempt's current model-step count. */
+export async function loadChangeSetFinalizationModelStep(
+	changeSetId: string,
+	handle?: Db,
+): Promise<number | null> {
+	const db = handle ?? (await getAppDb());
+	const row = await db
+		.selectFrom("design_change_sets")
+		.select("finalization_model_step")
+		.where("id", "=", changeSetId)
+		.executeTakeFirst();
+	return row?.finalization_model_step ?? null;
 }
 
 // ── Authority verification ─────────────────────────────────────────
@@ -909,12 +983,19 @@ export type StageRequestOutcome =
 			readonly mutations: AdmittedMutationBatch;
 			readonly stageSlices: readonly AdmittedMutationStageSlice[];
 			readonly handles: readonly StageHandleAllocation[];
+			/** Complete set of local binding UUIDs still represented by the
+			 * post-step candidate. The workspace uses this to prune its verified
+			 * projection; the durable handle ledger itself remains append-only. */
+			readonly retainedHandleUuids: readonly Uuid[];
 			readonly intentIds: readonly DesignId[];
 			readonly readSet: readonly ExternalReadDependency[];
 			/** Non-null when this batch is batch-exclusive — the fence closes
 			 * the set to any other step. */
 			readonly exclusiveKind: ChangeSetExclusiveKind | null;
 			readonly diagnostics: ChangeSetDiagnosticsSummary;
+	  }
+	| {
+			readonly kind: "noop";
 	  }
 	| {
 			readonly kind: "reject";
@@ -935,6 +1016,10 @@ export interface StageChangeSetRequestArgs {
 	readonly chatRunHolder?: ChatRunHolderCapability;
 	/** Absolute executor deadline. The stage transaction cannot commit past it. */
 	readonly deadlineAt?: number;
+	/** Present only on the final operation of a fully accepted repair batch
+	 * after validation was requested. It commits in the same transaction as
+	 * that stage so process death cannot erase step-boundary eligibility. */
+	readonly finalizationModelStep?: number;
 	readonly outcome: StageRequestOutcome;
 }
 
@@ -1087,6 +1172,52 @@ async function stageInTransaction(
 			.execute();
 		return { replayed: false, receipt };
 	}
+	if (outcome.kind === "noop") {
+		if (args.finalizationModelStep === undefined) {
+			throw new ChangeSetIntegrityError(
+				"An accepted no-op request requires a finalization model-step marker.",
+			);
+		}
+		const receipt = stageRequestReceiptSchema.parse({
+			requestId: args.requestId,
+			disposition: "noop",
+			workspaceRevision: changeSet.revision,
+			handles: {},
+			finalizationModelStep: args.finalizationModelStep,
+		} satisfies StageRequestReceipt);
+		await tx
+			.insertInto("design_change_set_requests")
+			.values({
+				change_set_id: args.changeSetId,
+				request_id: args.requestId,
+				tool_name: args.toolName,
+				input_digest: args.inputDigest,
+				expected_revision: changeSet.revision,
+				resulting_revision: changeSet.revision,
+				status: "noop",
+				rejection_code: null,
+				receipt: JSON.stringify(receipt),
+			})
+			.execute();
+		await faultBoundary("after-request-insert");
+		const marked = await tx
+			.updateTable("design_change_sets")
+			.set({
+				finalization_model_step: args.finalizationModelStep,
+				updated_at: new Date(),
+			})
+			.where("id", "=", args.changeSetId)
+			.where("revision", "=", changeSet.revision)
+			.where("status", "=", "open")
+			.executeTakeFirst();
+		if (!updatedExactlyOne(marked)) {
+			throw new ChangeSetIntegrityError(
+				`Change set ${args.changeSetId} changed while recording an accepted no-op finalization boundary.`,
+			);
+		}
+		await faultBoundary("after-advance");
+		return { replayed: false, receipt };
+	}
 
 	/* The batch-exclusive fence, authoritative under the lock: an exclusive
 	 * batch must be the set's only step, and a set holding one admits no
@@ -1120,6 +1251,9 @@ async function stageInTransaction(
 			outcome.handles.map((entry) => [entry.handle, entry.uuid]),
 		),
 		mutationDigest,
+		...(args.finalizationModelStep !== undefined && {
+			finalizationModelStep: args.finalizationModelStep,
+		}),
 		diagnostics: outcome.diagnostics,
 	} satisfies StageRequestReceipt);
 
@@ -1182,12 +1316,18 @@ async function stageInTransaction(
 			)
 			.execute();
 	}
+	/* Handle declarations are an append-only audit ledger. A correction may
+	 * remove the authored entity a symbol once named, but pruning belongs to
+	 * the workspace/runtime's verified candidate projection; production grants
+	 * this table SELECT + INSERT only, and historical declarations must never
+	 * be rewritten to resemble a different execution. */
 	await faultBoundary("after-handle-insert");
 	const advance = await tx
 		.updateTable("design_change_sets")
 		.set({
 			revision: resultingRevision,
 			next_ordinal: ordinal + 1,
+			finalization_model_step: args.finalizationModelStep ?? null,
 			updated_at: new Date(),
 			...(outcome.exclusiveKind !== null && {
 				exclusive_kind: outcome.exclusiveKind,

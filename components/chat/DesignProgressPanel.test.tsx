@@ -1,13 +1,9 @@
 // @vitest-environment happy-dom
 
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { DesignProgressView } from "@/lib/session/designProgressStore";
 import { DesignProgressStatus } from "./DesignProgressPanel";
-
-vi.mock("@/app/(app)/build/actions", () => ({
-	acceptPartialBuild: vi.fn(),
-}));
 
 const view: DesignProgressView = {
 	active: true,
@@ -45,7 +41,6 @@ describe("DesignProgressStatus", () => {
 					working: false,
 					failure: "Nothing invalid was saved.",
 				}}
-				canRecover
 			/>,
 		);
 

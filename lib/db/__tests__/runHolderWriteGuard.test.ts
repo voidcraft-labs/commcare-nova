@@ -51,7 +51,7 @@ function exportedFunction(relativePath: string, name: string): string {
  *  with the run lifecycle in `apps.ts`. */
 const LIFECYCLE_APP_WRITERS = [
 	{ file: "lib/db/canonicalCommitKernel.ts", name: "writeCommittedBatch" },
-	{ file: "lib/db/apps.ts", name: "completeAndSettleRun" },
+	{ file: "lib/db/apps.ts", name: "completeAndSettleRunInTransaction" },
 	{ file: "lib/db/apps.ts", name: "refreshEditLease" },
 	{ file: "lib/db/apps.ts", name: "refreshBuildLiveness" },
 	{ file: "lib/db/apps.ts", name: "clearRunLock" },
@@ -115,7 +115,7 @@ describe("run-holder write structural guard", () => {
 		).not.toMatch(appDml);
 		expect(
 			source("lib/db/apps.ts").match(new RegExp(appDml, "g"))?.length,
-		).toBe(17);
+		).toBe(16);
 		// The genesis owner holds exactly one apps DML site — the sequence-1
 		// insert inside `writePreparedGenesisInTransaction` (pinned above).
 		expect(
@@ -142,19 +142,6 @@ describe("run-holder write structural guard", () => {
 		);
 		expect(projectMove).toContain('.where("mutation_seq", "=", args.seq - 1)');
 		expect(projectMove).toContain("app source/head changed");
-		// Human acceptance of a settled partial initial build remains in the
-		// reviewed app-lifecycle authority. It can only advance the exact error
-		// sequence after settlement, with no run holder left to supersede.
-		const partialAcceptance = exportedFunction(
-			"lib/db/apps.ts",
-			"acceptSettledPartialBuildInTransaction",
-		);
-		expect(partialAcceptance).toContain('.where("status", "=", "error")');
-		expect(partialAcceptance).toContain('.where("res_settled", "=", true)');
-		expect(partialAcceptance).toContain(
-			'.where("mutation_seq", "=", args.appSeq)',
-		);
-		expect(partialAcceptance).toContain("noRunHolderPredicate()");
 		expect(
 			source("lib/db/credits.ts").match(new RegExp(appDml, "g"))?.length,
 		).toBe(5);
@@ -190,6 +177,13 @@ describe("run-holder write structural guard", () => {
 		const reserve = exportedFunction("lib/db/apps.ts", "reserveForNewBuild");
 		expect(reserve).toContain("debitAndBookReservation(tx");
 		expect(reserve).toContain("exactRunHolderMatches");
+
+		const completion = exportedFunction(
+			"lib/db/apps.ts",
+			"completeAndSettleRun",
+		);
+		expect(completion).toContain("lockActorGenerationGateForAppHolder");
+		expect(completion).toContain("completeAndSettleRunInTransaction");
 	});
 
 	it("requires exact SQL holder predicates on lifecycle and recovery app writes", () => {
@@ -204,7 +198,7 @@ describe("run-holder write structural guard", () => {
 		// The one sanctioned absent-holder exception: a falsely reaped build
 		// repairing its own error row.
 		expect(
-			exportedFunction("lib/db/apps.ts", "completeAndSettleRun"),
+			exportedFunction("lib/db/apps.ts", "completeAndSettleRunInTransaction"),
 		).toContain("expectedReapedBuildCompletionPredicate");
 		// Operator recovery asserts the app is FREE, never that a holder matches.
 		expect(exportedFunction("lib/db/apps.ts", "recoverAppStatus")).toContain(

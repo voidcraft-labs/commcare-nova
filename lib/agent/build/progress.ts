@@ -76,11 +76,35 @@ export function deriveDesignBuildStage(
 		case "executing-slice":
 			return session.app_id === null ? "building-first-workflow" : "building";
 		case "finished":
-		case "accepted-partial":
 			return "ready";
+		case "accepted-partial":
+			/* Historical reader compatibility only. A partial plan is never
+			 * authoritative completion, even if its materialized prefix is valid. */
+			return "incomplete";
 		case "failed":
 			return state.recoverable ? "incomplete" : "failed";
 	}
+}
+
+/** Cold-load projection for an `error` app still bound to its reviewed initial
+ * build. A nonterminal orchestration head plus a settled error row is durable
+ * evidence of infrastructure interruption even when the failure happened
+ * before an orchestration error event could be appended. */
+export function deriveInterruptedMaterializedBuildStage(
+	session: Pick<
+		DesignSessionDoc,
+		"state" | "awaiting_input" | "last_error_type" | "app_id"
+	>,
+	head: OrchestrationHead | null,
+): DesignBuildStage {
+	if (
+		head?.state.kind === "finished" ||
+		head?.state.kind === "accepted-partial" ||
+		head?.state.kind === "failed"
+	) {
+		return deriveDesignBuildStage(session, head);
+	}
+	return "incomplete";
 }
 
 /** The versioned envelope every progress frame rides in (§15.4). */

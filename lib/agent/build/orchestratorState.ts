@@ -18,14 +18,15 @@
  */
 
 import { createHash } from "node:crypto";
+import type { Transaction } from "kysely";
 import { z } from "zod";
 import { designIdSchema } from "@/lib/agent/design/ids";
-import { roleAllowsApp } from "@/lib/auth/projectRoles";
-import { acceptSettledPartialBuildInTransaction } from "@/lib/db/apps";
+import { lockActorGenerationGateForAppHolder } from "@/lib/db/actorGenerationGate";
+import { completeAndSettleRunInTransaction } from "@/lib/db/apps";
+import { RunHolderLostError } from "@/lib/db/commitGuard";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
-import { getAppDb, withAppTx } from "@/lib/db/pg";
-import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
+import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 
@@ -92,10 +93,8 @@ export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 		.strict(),
 	z
 		.object({
-			/** A human accepted the exact materialized app sequence after an
-			 * interrupted initial build. The accepted canonical state is durable;
-			 * uncommitted plan slices remain design history rather than silently
-			 * pretending they were built. */
+			/** Historical persisted state from the retired partial-acceptance path.
+			 * New orchestrations have no writer for this arm. */
 			kind: z.literal("accepted-partial"),
 			appId: z.string().min(1),
 			appSeq: z.number().int().positive(),
@@ -134,10 +133,6 @@ export class OrchestrationForkError extends Error {
 	}
 }
 
-export class PartialBuildAcceptanceError extends Error {
-	readonly name = "PartialBuildAcceptanceError";
-}
-
 /** The canonical content digest of one event — what its successor pins as
  *  `predecessor_digest`. */
 function orchestrationEventDigest(args: {
@@ -161,6 +156,95 @@ function holderNonceDigest(holderNonce: string): string {
 	return createHash("sha256").update(holderNonce).digest("hex");
 }
 
+interface PreparedOrchestrationEvent {
+	readonly revision: number;
+	readonly eventId: string;
+	readonly digest: string;
+	readonly state: BuildOrchestratorState;
+}
+
+function prepareOrchestrationEvent(args: {
+	readonly designSessionId: string;
+	readonly state: BuildOrchestratorState;
+	readonly expectedHead: OrchestrationHead | null;
+}): PreparedOrchestrationEvent {
+	/* Write-side admission: the fold strict-parses every stored payload, so a
+	 * state the schema rejects must fail HERE — before persistence — rather
+	 * than becoming a poisoned event that bricks every later read. */
+	const state = buildOrchestratorStateSchema.parse(args.state);
+	const revision = (args.expectedHead?.revision ?? 0) + 1;
+	const eventId = crypto.randomUUID();
+	return {
+		revision,
+		eventId,
+		state,
+		digest: orchestrationEventDigest({
+			designSessionId: args.designSessionId,
+			revision,
+			eventId,
+			predecessorEventId: args.expectedHead?.eventId ?? null,
+			state,
+		}),
+	};
+}
+
+async function insertPreparedOrchestrationEvent(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly designSessionId: string;
+		readonly runId: string;
+		readonly holderNonce: string;
+		readonly expectedHead: OrchestrationHead | null;
+	},
+	prepared: PreparedOrchestrationEvent,
+): Promise<void> {
+	await tx
+		.insertInto("design_orchestration_events")
+		.values({
+			design_session_id: args.designSessionId,
+			revision: prepared.revision,
+			event_id: prepared.eventId,
+			predecessor_event_id: args.expectedHead?.eventId ?? null,
+			predecessor_digest: args.expectedHead?.digest ?? null,
+			run_id: args.runId,
+			holder_nonce_digest: holderNonceDigest(args.holderNonce),
+			kind: prepared.state.kind,
+			payload: JSON.stringify(prepared.state),
+		})
+		.execute();
+}
+
+function preparedHead(prepared: PreparedOrchestrationEvent): OrchestrationHead {
+	return {
+		revision: prepared.revision,
+		eventId: prepared.eventId,
+		digest: prepared.digest,
+		state: prepared.state,
+	};
+}
+
+function winnerMatchesPrepared(
+	winner: OrchestrationHead | null,
+	prepared: PreparedOrchestrationEvent,
+): winner is OrchestrationHead {
+	return (
+		winner?.revision === prepared.revision &&
+		canonicalJsonDigest(winner.state) === canonicalJsonDigest(prepared.state)
+	);
+}
+
+type CompletionCommitFaultHook = () => void | Promise<void>;
+let completionCommitFaultHook: CompletionCommitFaultHook | null = null;
+
+/** Deterministic lost-response seam. Production never installs it; tests use
+ * it to throw after the terminal transaction commits but before its caller
+ * receives the result. */
+export function __setCompletionCommitFaultHookForTests(
+	hook: CompletionCommitFaultHook | null,
+): void {
+	completionCommitFaultHook = hook;
+}
+
 /**
  * Append one transition. `expectedHead` is the fold the caller acted on
  * (`null` for the first event); a concurrent continuation that advanced the
@@ -176,19 +260,10 @@ export async function appendOrchestrationEvent(args: {
 	readonly state: BuildOrchestratorState;
 	readonly expectedHead: OrchestrationHead | null;
 }): Promise<OrchestrationHead> {
-	/* Write-side admission: the fold strict-parses every stored payload, so a
-	 * state the schema rejects must fail HERE — before persistence — rather
-	 * than becoming a poisoned event that bricks every later read of this
-	 * session's chain (the head fold, the resume page, the designs list). */
-	const state = buildOrchestratorStateSchema.parse(args.state);
-	const revision = (args.expectedHead?.revision ?? 0) + 1;
-	const eventId = crypto.randomUUID();
-	const digest = orchestrationEventDigest({
+	const prepared = prepareOrchestrationEvent({
 		designSessionId: args.designSessionId,
-		revision,
-		eventId,
-		predecessorEventId: args.expectedHead?.eventId ?? null,
-		state,
+		state: args.state,
+		expectedHead: args.expectedHead,
 	});
 	try {
 		await withAppTx(async (tx) => {
@@ -202,182 +277,88 @@ export async function appendOrchestrationEvent(args: {
 					nonce: args.holderNonce,
 				},
 			});
-			await tx
-				.insertInto("design_orchestration_events")
-				.values({
-					design_session_id: args.designSessionId,
-					revision,
-					event_id: eventId,
-					predecessor_event_id: args.expectedHead?.eventId ?? null,
-					predecessor_digest: args.expectedHead?.digest ?? null,
-					run_id: args.runId,
-					holder_nonce_digest: holderNonceDigest(args.holderNonce),
-					kind: state.kind,
-					payload: JSON.stringify(state),
-				})
-				.execute();
+			await insertPreparedOrchestrationEvent(tx, args, prepared);
 		});
 	} catch (err) {
 		if ((err as { code?: unknown })?.code === "23505") {
 			const winner = await readOrchestrationHead(args.designSessionId);
-			if (
-				winner?.revision === revision &&
-				canonicalJsonDigest(winner.state) === canonicalJsonDigest(state)
-			) {
-				return winner;
-			}
+			if (winnerMatchesPrepared(winner, prepared)) return winner;
 			throw new OrchestrationForkError();
 		}
 		throw err;
 	}
-	return { revision, eventId, digest, state };
+	return preparedHead(prepared);
 }
 
 /**
- * Finish an interrupted materialized build at the exact canonical sequence
- * that exists now. This is a human terminal transition, not a synthetic
- * successful executor run: the app row and orchestration event commit
- * together after current Project membership and the settled failed-run state
- * are re-proved under locks.
+ * Commit the terminal orchestration event, exact-sequence app completion, and
+ * kept-charge settlement atomically. The holder is proved while still live;
+ * no successful build can release its authority before recording `finished`,
+ * and no terminal event can survive a failed completion CAS.
  */
-export async function acceptPartialMaterializedBuild(args: {
+export async function completeBuildOrchestration(args: {
 	readonly designSessionId: string;
+	readonly runId: string;
+	readonly holderNonce: string;
 	readonly actorUserId: string;
-}): Promise<{ appId: string; appSeq: number }> {
-	const expectedHead = await readOrchestrationHead(args.designSessionId);
-	if (expectedHead === null) {
-		throw new PartialBuildAcceptanceError(
-			"This build has no durable progress to accept.",
-		);
-	}
-
-	return await withAppTx(async (tx) => {
-		/* Resolve the mapping, then take the ordinary existing-app lock order:
-		 * app first, Project membership, and finally the materialized session.
-		 * The final locked re-read proves the optimistic mapping did not move. */
-		const mapping = await tx
-			.selectFrom("design_sessions")
-			.select(["app_id"])
-			.where("id", "=", args.designSessionId)
-			.executeTakeFirst();
-		if (mapping?.app_id === null || mapping?.app_id === undefined) {
-			throw new PartialBuildAcceptanceError(
-				"This design does not have a recoverable app yet.",
+	readonly expectedProjectId: string;
+	readonly appId: string;
+	readonly expectedSeq: number;
+	readonly expectedHead: OrchestrationHead | null;
+}): Promise<OrchestrationHead> {
+	const prepared = prepareOrchestrationEvent({
+		designSessionId: args.designSessionId,
+		state: {
+			kind: "finished",
+			appId: args.appId,
+			appSeq: args.expectedSeq,
+		},
+		expectedHead: args.expectedHead,
+	});
+	try {
+		await withAppTx(async (tx) => {
+			/* Lifecycle lock order remains actor gate -> app row. The delegated
+			 * design-session authority proof then reuses that app-row lock. */
+			await lockActorGenerationGateForAppHolder(tx, args.appId);
+			const authority = await assertDesignSessionRunAuthorityInTransaction(tx, {
+				designSessionId: args.designSessionId,
+				actorUserId: args.actorUserId,
+				expectedProjectId: args.expectedProjectId,
+				holder: {
+					mode: "build",
+					runId: args.runId,
+					nonce: args.holderNonce,
+				},
+				allowReapedBuildCompletion: true,
+			});
+			if (authority.appId !== args.appId) {
+				throw new RunHolderLostError("released");
+			}
+			const completion = await completeAndSettleRunInTransaction(
+				tx,
+				args.appId,
+				args.runId,
+				args.holderNonce,
+				args.expectedSeq,
 			);
-		}
-
-		const app = await tx
-			.selectFrom("apps")
-			.select([
-				"project_id",
-				"mutation_seq",
-				"status",
-				"res_settled",
-				"deleted_at",
-			])
-			.where("id", "=", mapping.app_id)
-			.forUpdate()
-			.executeTakeFirst();
-		if (app === undefined || app.deleted_at !== null) {
-			throw new PartialBuildAcceptanceError(
-				"This build is no longer available.",
-			);
-		}
-		const role = await projectRoleForInTransaction(
-			tx,
-			args.actorUserId,
-			app.project_id,
-		);
-		if (role === null || !roleAllowsApp(role, "edit")) {
-			throw new PartialBuildAcceptanceError(
-				"You no longer have permission to finish this build.",
-			);
-		}
-		const session = await tx
-			.selectFrom("design_sessions")
-			.select(["project_id", "app_id", "state"])
-			.where("id", "=", args.designSessionId)
-			.forUpdate()
-			.executeTakeFirst();
-		if (
-			session === undefined ||
-			session.state !== "materialized" ||
-			session.app_id !== mapping.app_id ||
-			session.project_id !== app.project_id
-		) {
-			throw new PartialBuildAcceptanceError(
-				"This build is no longer available.",
-			);
-		}
-		const appSeq = safePersistedSequence(
-			app.mutation_seq,
-			`apps.mutation_seq for partial build ${session.app_id}`,
-		);
-		if (
-			expectedHead.state.kind === "accepted-partial" &&
-			expectedHead.state.appId === session.app_id &&
-			app.status === "complete"
-		) {
-			return { appId: session.app_id, appSeq };
-		}
-		if (app.status !== "error" || app.res_settled !== true) {
-			throw new PartialBuildAcceptanceError(
-				"This build is still running or has not finished settling yet.",
-			);
-		}
-
-		const latest = await tx
-			.selectFrom("design_orchestration_events")
-			.select(["revision", "event_id"])
-			.where("design_session_id", "=", args.designSessionId)
-			.orderBy("revision", "desc")
-			.limit(1)
-			.executeTakeFirst();
-		if (
-			latest === undefined ||
-			safePersistedSequence(
-				latest.revision,
-				`design_orchestration_events.revision for session ${args.designSessionId}`,
-			) !== expectedHead.revision ||
-			latest.event_id !== expectedHead.eventId
-		) {
+			if (completion !== "owned") throw new RunHolderLostError(completion);
+			await insertPreparedOrchestrationEvent(tx, args, prepared);
+		});
+		await completionCommitFaultHook?.();
+	} catch (err) {
+		/* Every error after the transaction started has an unknown commit
+		 * outcome from this process's perspective (not only a 23505 or a holder
+		 * loss). Re-read the append-only head first: a matching terminal event
+		 * proves the exact status/settlement transaction committed and is the
+		 * authoritative response to adopt. */
+		const winner = await readOrchestrationHead(args.designSessionId);
+		if (winnerMatchesPrepared(winner, prepared)) return winner;
+		if ((err as { code?: unknown })?.code === "23505") {
 			throw new OrchestrationForkError();
 		}
-
-		const state = buildOrchestratorStateSchema.parse({
-			kind: "accepted-partial",
-			appId: session.app_id,
-			appSeq,
-		});
-		const revision = expectedHead.revision + 1;
-		const eventId = crypto.randomUUID();
-		const accepted = await acceptSettledPartialBuildInTransaction(tx, {
-			appId: session.app_id,
-			appSeq,
-		});
-		if (!accepted) {
-			throw new PartialBuildAcceptanceError(
-				"This build changed before it could be finished.",
-			);
-		}
-		await tx
-			.insertInto("design_orchestration_events")
-			.values({
-				design_session_id: args.designSessionId,
-				revision,
-				event_id: eventId,
-				predecessor_event_id: expectedHead.eventId,
-				predecessor_digest: expectedHead.digest,
-				run_id: `partial:${eventId}`,
-				holder_nonce_digest: holderNonceDigest(
-					`partial:${args.actorUserId}:${eventId}`,
-				),
-				kind: state.kind,
-				payload: JSON.stringify(state),
-			})
-			.execute();
-		return { appId: session.app_id, appSeq };
-	});
+		throw err;
+	}
+	return preparedHead(prepared);
 }
 
 /**

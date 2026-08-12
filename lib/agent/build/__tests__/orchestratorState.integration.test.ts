@@ -4,22 +4,29 @@
  * re-proves the whole chain, and one running attempt per slice.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { beginGenesisChangeSet } from "@/lib/agent/change-set/store";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { reapStaleGenerating } from "@/lib/db/apps";
 import {
-	acceptPartialMaterializedBuild,
+	__setCompletionCommitFaultHookForTests,
 	appendOrchestrationEvent as appendOrchestrationEventAuthorized,
 	type BuildOrchestratorState,
+	completeBuildOrchestration,
 	OrchestrationForkError,
 	readOrchestrationHead,
 } from "../orchestratorState";
 import {
-	activateReplacementPlan,
 	beginOrRecoverSliceAttempt,
+	beginSliceAttemptOutcomeCollection,
+	checkpointSliceAttemptFinalization,
+	claimSliceAttemptBudget,
+	countSliceRebaseAttempts,
+	finishSliceAttemptOutcomeCollection,
 	loadRunningSliceAttempt,
 	markSliceAttempt,
+	recordSliceAttemptDiagnostic,
 	supersedeSliceAttempt,
 } from "../sliceAttempts";
 
@@ -30,6 +37,10 @@ const NONCE = "6a0a35a4-1111-4222-8333-944445555666";
 const ACTOR = "owner-test";
 const PROJECT = "project-test";
 const DIGEST = "a".repeat(64);
+
+afterEach(() => {
+	__setCompletionCommitFaultHookForTests(null);
+});
 
 function appendOrchestrationEvent(
 	args: Omit<
@@ -67,18 +78,18 @@ function designing(designSessionId: string): BuildOrchestratorState {
 }
 
 describe("orchestration event chain", () => {
-	async function seedInterruptedMaterializedBuild() {
-		const appId = crypto.randomUUID();
-		await h.seedApp({
-			id: appId,
+	it("finishes the exact canonical head after a false stale-build reap", async () => {
+		const appId = await h.seedApp({
+			id: crypto.randomUUID(),
 			owner: ACTOR,
 			project_id: PROJECT,
 			status: "generating",
 			run_id: RUN,
 			run_holder_nonce: NONCE,
+			updated_at: new Date(Date.now() - 60 * 60_000),
 			reservation: {
 				period: "2026-08",
-				reserved: 100,
+				reserved: 1,
 				settled: false,
 				userId: ACTOR,
 				runId: RUN,
@@ -90,64 +101,101 @@ describe("orchestration event chain", () => {
 			.set({ mutation_seq: 1 })
 			.where("id", "=", appId)
 			.execute();
-		const designSessionId = await h.seedDesignSession({
+		const sessionId = await h.seedDesignSession({
 			owner_user_id: ACTOR,
 			project_id: PROJECT,
-			app_id: appId,
 			proposed_app_id: appId,
+			app_id: appId,
 			state: "materialized",
 		});
-		await appendOrchestrationEvent({
-			designSessionId,
+
+		await reapStaleGenerating(appId, {
+			mode: "build",
 			runId: RUN,
-			holderNonce: NONCE,
-			state: designing(designSessionId),
-			expectedHead: null,
+			nonce: NONCE,
+		});
+		expect((await h.readAppRow(appId))?.status).toBe("error");
+
+		await expect(
+			completeBuildOrchestration({
+				designSessionId: sessionId,
+				runId: RUN,
+				holderNonce: NONCE,
+				actorUserId: ACTOR,
+				expectedProjectId: PROJECT,
+				appId,
+				expectedSeq: 1,
+				expectedHead: null,
+			}),
+		).resolves.toMatchObject({
+			state: { kind: "finished", appId, appSeq: 1 },
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("apps")
+				.select(["status", "error_type", "res_settled"])
+				.where("id", "=", appId)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "complete", error_type: null, res_settled: true });
+	});
+
+	it("adopts a matching finished head when the terminal commit response is lost", async () => {
+		const appId = await h.seedApp({
+			id: crypto.randomUUID(),
+			owner: ACTOR,
+			project_id: PROJECT,
+			status: "generating",
+			run_id: RUN,
+			run_holder_nonce: NONCE,
+			reservation: {
+				period: "2026-08",
+				reserved: 1,
+				settled: false,
+				userId: ACTOR,
+				runId: RUN,
+			},
 		});
 		await h
 			.db()
 			.updateTable("apps")
-			.set({ status: "error", error_type: "internal", res_settled: true })
+			.set({ mutation_seq: 1 })
 			.where("id", "=", appId)
 			.execute();
-		return { appId, designSessionId };
-	}
-
-	it("accepts the exact settled materialized sequence as an explicit terminal state", async () => {
-		const { appId, designSessionId } = await seedInterruptedMaterializedBuild();
-		expect(
-			await acceptPartialMaterializedBuild({
-				designSessionId,
-				actorUserId: ACTOR,
-			}),
-		).toEqual({ appId, appSeq: 1 });
-		expect(await h.readAppRow(appId)).toMatchObject({
-			status: "complete",
-			error_type: null,
-			mutation_seq: "1",
+		const sessionId = await h.seedDesignSession({
+			owner_user_id: ACTOR,
+			project_id: PROJECT,
+			proposed_app_id: appId,
+			app_id: appId,
+			state: "materialized",
 		});
-		expect((await readOrchestrationHead(designSessionId))?.state).toEqual({
-			kind: "accepted-partial",
-			appId,
-			appSeq: 1,
+		__setCompletionCommitFaultHookForTests(() => {
+			throw new Error("connection closed after COMMIT");
 		});
-	});
 
-	it("refuses partial acceptance after Project membership loss", async () => {
-		const { appId, designSessionId } = await seedInterruptedMaterializedBuild();
-		await h
-			.pool()
-			.query(
-				`DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2`,
-				[ACTOR, PROJECT],
-			);
 		await expect(
-			acceptPartialMaterializedBuild({
-				designSessionId,
+			completeBuildOrchestration({
+				designSessionId: sessionId,
+				runId: RUN,
+				holderNonce: NONCE,
 				actorUserId: ACTOR,
+				expectedProjectId: PROJECT,
+				appId,
+				expectedSeq: 1,
+				expectedHead: null,
 			}),
-		).rejects.toThrow(/permission/);
-		expect(await h.readAppRow(appId)).toMatchObject({ status: "error" });
+		).resolves.toMatchObject({
+			revision: 1,
+			state: { kind: "finished", appId, appSeq: 1 },
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("apps")
+				.select(["status", "res_settled"])
+				.where("id", "=", appId)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "complete", res_settled: true });
 	});
 
 	it("refuses a stale holder before it can consume the next revision", async () => {
@@ -357,6 +405,61 @@ describe("slice attempts", () => {
 		).toEqual({ change_set_id: changeSet.id });
 	});
 
+	it("persists diagnostic counts and fails evidence closed across a lost process", async () => {
+		const sessionId = await seedHeldSession();
+		const args = await attemptArgs(sessionId);
+		const { attempt } = await beginOrRecoverSliceAttempt(args);
+		const authority = { ...args, attemptId: attempt.id };
+
+		await beginSliceAttemptOutcomeCollection(authority);
+		await recordSliceAttemptDiagnostic({
+			...authority,
+			outcome: "wire-invalid",
+		});
+		await recordSliceAttemptDiagnostic({
+			...authority,
+			outcome: "stage-rejected",
+		});
+		await recordSliceAttemptDiagnostic({
+			...authority,
+			outcome: "validator-repair",
+		});
+		await finishSliceAttemptOutcomeCollection(authority);
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select([
+					"wire_invalid_count",
+					"stage_rejected_count",
+					"validator_repair_count",
+					"outcome_evidence_state",
+				])
+				.where("id", "=", attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({
+			wire_invalid_count: 1,
+			stage_rejected_count: 1,
+			validator_repair_count: 1,
+			outcome_evidence_state: "complete",
+		});
+
+		await beginSliceAttemptOutcomeCollection(authority);
+		/* A replacement begins while the prior collection is still open: there
+		 * may have been an observed-but-uncheckpointed outcome, so completion can
+		 * never restore this attempt's evidence to authoritative. */
+		await beginSliceAttemptOutcomeCollection(authority);
+		await finishSliceAttemptOutcomeCollection(authority);
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select("outcome_evidence_state")
+				.where("id", "=", attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ outcome_evidence_state: "incomplete" });
+	});
+
 	it("recovers the running attempt when digests match, supersedes it when they moved", async () => {
 		const sessionId = await seedHeldSession();
 		const args = await attemptArgs(sessionId);
@@ -398,10 +501,32 @@ describe("slice attempts", () => {
 		).toEqual({ status: "superseded" });
 	});
 
-	it("supersedes a recovered change set owned by a prior run", async () => {
+	it("adopts the exact running attempt and open change set after infrastructure replacement", async () => {
 		const sessionId = await seedHeldSession();
 		const oldArgs = await attemptArgs(sessionId);
 		const first = await beginOrRecoverSliceAttempt(oldArgs);
+		await expect(
+			claimSliceAttemptBudget({
+				...oldArgs,
+				attemptId: first.attempt.id,
+				counter: "modelSteps",
+				limit: 2,
+			}),
+		).resolves.toBe(true);
+		await expect(
+			claimSliceAttemptBudget({
+				...oldArgs,
+				attemptId: first.attempt.id,
+				counter: "stagedRequests",
+				limit: 2,
+			}),
+		).resolves.toBe(true);
+		await checkpointSliceAttemptFinalization({
+			...oldArgs,
+			attemptId: first.attempt.id,
+			validationRequested: true,
+			eligible: true,
+		});
 		const firstChangeSet = await openGenesisForAttempt(
 			oldArgs,
 			first.attempt.id,
@@ -425,8 +550,52 @@ describe("slice attempts", () => {
 			runId: nextRunId,
 			holderNonce: nextNonce,
 		});
-		expect(next.recovered).toBe(false);
-		expect(next.attempt.attempt).toBe(2);
+		expect(next.recovered).toBe(true);
+		expect(next.attempt.id).toBe(first.attempt.id);
+		expect(next.attempt.attempt).toBe(1);
+		expect(next.attempt.startedAt.getTime()).toBe(
+			first.attempt.startedAt.getTime(),
+		);
+		expect(next.attempt.budgetSpent).toMatchObject({
+			modelSteps: 1,
+			stagedRequests: 1,
+		});
+		expect(next.attempt.finalizationCheckpoint).toEqual({
+			validationRequested: true,
+			eligible: true,
+		});
+		expect(next.attempt.executionRunIds).toEqual([RUN, nextRunId]);
+		await expect(
+			claimSliceAttemptBudget({
+				...oldArgs,
+				runId: nextRunId,
+				holderNonce: nextNonce,
+				attemptId: first.attempt.id,
+				counter: "modelSteps",
+				limit: 1,
+			}),
+		).resolves.toBe(false);
+		await expect(
+			claimSliceAttemptBudget({
+				...oldArgs,
+				runId: nextRunId,
+				holderNonce: nextNonce,
+				attemptId: first.attempt.id,
+				counter: "modelSteps",
+				limit: 2,
+			}),
+		).resolves.toBe(true);
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select(["validation_requested", "finalization_eligible"])
+				.where("id", "=", first.attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({
+			validation_requested: true,
+			finalization_eligible: false,
+		});
 		expect(
 			await h
 				.db()
@@ -434,15 +603,19 @@ describe("slice attempts", () => {
 				.select(["status", "failure_code"])
 				.where("id", "=", first.attempt.id)
 				.executeTakeFirstOrThrow(),
-		).toEqual({ status: "superseded", failure_code: "holder-superseded" });
+		).toEqual({ status: "running", failure_code: null });
 		expect(
 			await h
 				.db()
 				.selectFrom("design_change_sets")
-				.select("status")
+				.select(["status", "owner_user_id", "owner_run_id"])
 				.where("id", "=", firstChangeSet.id)
 				.executeTakeFirstOrThrow(),
-		).toEqual({ status: "superseded" });
+		).toEqual({
+			status: "open",
+			owner_user_id: ACTOR,
+			owner_run_id: nextRunId,
+		});
 	});
 
 	it("supersedes the attempt and private set before a semantic rebase retry", async () => {
@@ -471,73 +644,27 @@ describe("slice attempts", () => {
 				.where("id", "=", firstChangeSet.id)
 				.executeTakeFirstOrThrow(),
 		).toEqual({ status: "superseded" });
-		expect((await beginOrRecoverSliceAttempt(args)).attempt.attempt).toBe(2);
-	});
-
-	it("activates a replacement plan with root-attempt supersession atomically", async () => {
-		const sessionId = await seedHeldSession();
-		const args = await attemptArgs(sessionId);
-		const first = await beginOrRecoverSliceAttempt(args);
-		const firstChangeSet = await openGenesisForAttempt(args, first.attempt.id);
-		const replacementPlanId = crypto.randomUUID();
-		const replacementDigest = "c".repeat(64);
-		await h
-			.db()
-			.insertInto("design_build_plans")
-			.values({
-				id: replacementPlanId,
-				design_session_id: sessionId,
-				design_revision_id: args.designRevisionId,
-				design_revision_digest: args.designRevisionDigest,
-				plan_digest: replacementDigest,
-				artifact_digest: replacementDigest,
-				producer_model: "architect-test",
-				prompt_version: "build-plan-v1",
-				created_by_run_id: RUN,
-				envelope: JSON.stringify({}),
-			})
-			.execute();
-
-		await activateReplacementPlan({
+		expect(
+			await countSliceRebaseAttempts({
+				designSessionId: args.designSessionId,
+				buildPlanId: args.buildPlanId,
+				sliceId: args.sliceId,
+			}),
+		).toBe(1);
+		const second = await beginOrRecoverSliceAttempt(args);
+		expect(second.attempt.attempt).toBe(2);
+		await supersedeSliceAttempt({
 			...args,
-			attemptId: first.attempt.id,
-			failureCode: "architect-plan-repair",
-			activeDesignRevisionId: args.designRevisionId,
-			activeBuildPlanId: replacementPlanId,
-		});
-		/* A lost-response replay proves the same active lineage instead of
-		 * blindly accepting the old attempt status. */
-		await activateReplacementPlan({
-			...args,
-			attemptId: first.attempt.id,
-			failureCode: "architect-plan-repair",
-			activeDesignRevisionId: args.designRevisionId,
-			activeBuildPlanId: replacementPlanId,
-		});
-
-		expect(await h.readDesignSessionRow(sessionId)).toMatchObject({
-			active_design_revision_id: args.designRevisionId,
-			active_build_plan_id: replacementPlanId,
+			attemptId: second.attempt.id,
+			failureCode: "read-set-stale",
 		});
 		expect(
-			await h
-				.db()
-				.selectFrom("design_slice_attempts")
-				.select(["status", "failure_code"])
-				.where("id", "=", first.attempt.id)
-				.executeTakeFirstOrThrow(),
-		).toEqual({
-			status: "superseded",
-			failure_code: "architect-plan-repair",
-		});
-		expect(
-			await h
-				.db()
-				.selectFrom("design_change_sets")
-				.select("status")
-				.where("id", "=", firstChangeSet.id)
-				.executeTakeFirstOrThrow(),
-		).toEqual({ status: "superseded" });
+			await countSliceRebaseAttempts({
+				designSessionId: args.designSessionId,
+				buildPlanId: args.buildPlanId,
+				sliceId: args.sliceId,
+			}),
+		).toBe(2);
 	});
 
 	it("terminal marks are running-only compare-and-sets", async () => {

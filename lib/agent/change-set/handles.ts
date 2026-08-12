@@ -88,6 +88,20 @@ export class HandleTable {
 		return [...this.byHandle.entries()];
 	}
 
+	/** Keep only symbols whose authored identities still exist in the private
+	 * candidate. Corrections may remove an entity created earlier in this same
+	 * change set; its handle must disappear with it rather than poisoning the
+	 * next slice's verified import. */
+	retainingUuids(uuids: ReadonlySet<string>): HandleTable {
+		const retained = new HandleTable();
+		for (const [handle, binding] of this.byHandle.entries()) {
+			if (!uuids.has(binding.uuid)) continue;
+			retained.byHandle.set(handle, binding);
+			retained.boundUuids.add(binding.uuid);
+		}
+		return retained;
+	}
+
 	/** A scratch copy for one invocation's tentative declarations — merged
 	 *  back into workspace state only after the staged request commits. */
 	clone(): HandleTable {

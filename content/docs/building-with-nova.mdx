@@ -46,13 +46,17 @@ starting a second copy.
 ## If a later step stops
 
 The app remains available when its first workflow was saved and a later part of
-the build stops. Open its app card to review what was completed. A failed later
-step does not invalidate or hide the working revision that already exists.
-Choose **Use what’s built** to finish with the workflows already added and
-unlock the builder; Nova keeps the unbuilt items in the design record rather
-than claiming they were completed. Temporary provider, connection, and database
-interruptions recover automatically. Nova does not ask you to retry a build
-step that has already reached a deterministic failure.
+the build stops. Open its app card to inspect what committed, but Nova keeps the
+initial-build editor locked and does not call that partial plan complete. A
+failed later step does not invalidate or hide the working revision that already
+exists. Temporary provider, connection, and database interruptions resume the
+same saved attempt automatically. A schema, validation, compiler, or budget
+failure stops as an internal build defect; Nova does not ask you to retry or
+reduce the accepted workflows. When a temporary failure has already closed its
+connection cleanly and cannot auto-reconnect, **Resume build** continues the
+same accepted plan from its last durable workflow without adding a new design
+instruction. That action remains available after a refresh and appears only to
+Project members who can edit the app.
 
 ## Start with a blank app
 

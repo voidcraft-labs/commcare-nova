@@ -97,7 +97,7 @@ export interface StoredStageRequest {
 	readonly inputDigest: string;
 	readonly expectedRevision: number;
 	readonly resultingRevision: number;
-	readonly status: "staged" | "rejected";
+	readonly status: "staged" | "noop" | "rejected";
 	readonly receipt: StageRequestReceipt;
 }
 

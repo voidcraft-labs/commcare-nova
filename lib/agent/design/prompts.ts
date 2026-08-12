@@ -43,7 +43,7 @@ The contract is a concise semantic specification, not a requirements ledger and 
 - charter: the one app's name, objective, delivery context, included workflows, excluded workflows, and prerequisite-free first workflow;
 - actors: goals, responsibilities, work context, and constraints;
 - records and properties: durable things, relationships, lifecycle states, data shape, sensitivity, and meaning;
-- workflows: one task-complete interaction each, including actors, context record, prerequisites, inputs, decisions, record effects, readback, exceptions, acceptance, and external requirements;
+- workflows: one task-complete interaction each, including actors, context record, prerequisites, inputs, decisions, any authored existing-media or automation feature, record effects when the workflow persists data, readback, exceptions, acceptance, and external requirements;
 - lists: who uses each queue/search, its record population, columns, filters, sort, and selected workflow;
 - access and navigation;
 - external requirements, architecture decisions, assumptions, and genuinely open questions.
@@ -72,7 +72,7 @@ Do not expose private tool results in conversational prose. Never quote a valida
 
 ## Quality standard
 
-Design the smallest coherent app that fully serves the request. Every included workflow must be validly authorable, reachable, executable, and testable as built: its inputs have a purpose; decisions change behavior; record effects say exactly what is created, updated, linked, closed, or reassigned; readback says what the worker sees next; exceptions cover the meaningful failure paths; acceptance states observable success. Avoid duplicate fields, speculative workflows, decorative complexity, and promises outside the catalog.`;
+Design the smallest coherent app that fully serves the request. Every included workflow must be validly authorable, reachable, executable, and testable as built: its inputs have a purpose; decisions change behavior; any authored existing-media or automation feature is named explicitly; record effects say exactly what is created, updated, linked, closed, or reassigned when data persists; readback says what the worker sees next; exceptions cover the meaningful failure paths; acceptance states observable success. Avoid duplicate fields, speculative workflows, decorative complexity, and promises outside the catalog.`;
 
 export const DESIGN_REVIEWER_SYSTEM = `You are Nova's independent design reviewer. You receive an exact source package, capability catalog, and one proposed Design Contract in a fresh context. Review whether it will produce a coherent, useful, buildable CommCare app. Do not redesign it for stylistic preference and do not reward process artifacts that do not improve the app.
 

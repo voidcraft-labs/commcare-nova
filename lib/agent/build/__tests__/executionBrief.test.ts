@@ -4,15 +4,16 @@ import {
 	deriveSliceExecutionBrief,
 	renderBriefMessage,
 } from "@/lib/agent/build/executionBrief";
+import { buildExecutorTools } from "@/lib/agent/build/executorLoop";
 import {
 	cloneContract,
 	did,
 	ids,
 	makeBuildPlan,
 	makeContract,
+	makeThirteenWorkflowContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
-import { PLATFORM_CONSTRAINT_CODES } from "@/lib/agent/design/platformConstraints";
 
 const REVISION = { id: ids.revisionId, digest: "b".repeat(64) };
 
@@ -60,6 +61,93 @@ describe("deriveSliceExecutionBrief", () => {
 			ids.decision,
 		]);
 		expect(briefAt(1).decisions).toEqual([]);
+	});
+
+	it("keeps thirteen workflow briefs local and projects every tool profile offline", () => {
+		const contract = makeThirteenWorkflowContract();
+		const plan = deriveBuildPlan({
+			contract,
+			revision: REVISION,
+			planId: ids.planId,
+		});
+		for (const [index, slice] of plan.slices.entries()) {
+			const brief = deriveSliceExecutionBrief({
+				contract,
+				revision: REVISION,
+				plan,
+				sliceId: slice.id,
+			});
+			const propertyIds = brief.records.flatMap((record) =>
+				record.properties.map((property) => property.id),
+			);
+			expect(propertyIds).toEqual([contract.records[index]?.properties[0]?.id]);
+			const tools = buildExecutorTools(brief);
+			expect(Object.keys(tools)).toEqual([
+				"readBatch",
+				"stageBatch",
+				"inspectChangeSet",
+				"commitChangeSet",
+				"reportExecutionBlocker",
+			]);
+			const projected = JSON.stringify(tools);
+			for (const toolName of [
+				...brief.toolProfile.readTools,
+				...brief.toolProfile.mutationTools,
+			]) {
+				expect(projected).toContain(JSON.stringify(toolName));
+			}
+			for (const unrelated of [
+				"getLookupTables",
+				"listMediaAssets",
+				"getOrganization",
+				"getAutomations",
+				"addAutomations",
+			]) {
+				expect(projected).not.toContain(JSON.stringify(unrelated));
+			}
+			if (index > 0) {
+				expect(brief.toolProfile.blueprintAreas).not.toContain("users");
+				expect(brief.toolProfile.blueprintAreas).not.toContain(
+					"case-operations",
+				);
+			}
+		}
+	});
+
+	it("includes the owning record for a property read from an earlier workflow", () => {
+		const contract = makeThirteenWorkflowContract();
+		const earlierProperty = contract.records[0]?.properties[0];
+		const laterWorkflow = contract.workflows[1];
+		if (earlierProperty === undefined || laterWorkflow === undefined) {
+			throw new Error("thirteen-workflow fixture is incomplete");
+		}
+		laterWorkflow.decisions.push({
+			handle: "earlier_value_decision",
+			name: "Use earlier value",
+			statement: "Use the value established by the earlier workflow.",
+			inputPropertyIds: [earlierProperty.id],
+			outcomes: ["continue", "stop"],
+		});
+		const plan = deriveBuildPlan({
+			contract,
+			revision: REVISION,
+			planId: ids.planId,
+		});
+		const slice = plan.slices[1];
+		if (slice === undefined) throw new Error("later slice missing");
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: slice.id,
+		});
+		expect(
+			brief.records.some((record) =>
+				record.properties.some(
+					(property) => property.id === earlierProperty.id,
+				),
+			),
+		).toBe(true);
 	});
 
 	it("keeps legacy all-external plan groups as context, not executable coverage", () => {
@@ -113,13 +201,47 @@ describe("deriveSliceExecutionBrief", () => {
 		const brief = briefAt(0);
 		expect(brief.designRevisionId).toBe(REVISION.id);
 		expect(brief.buildPlanId).toBe(makeBuildPlan().id);
-		expect(brief.loweringConstraints.map((entry) => entry.code)).toEqual([
-			...PLATFORM_CONSTRAINT_CODES,
-		]);
+		const constraintCodes = brief.loweringConstraints.map(
+			(entry) => entry.code,
+		);
+		expect(constraintCodes).toContain("WORKER_PROVISIONING_NOT_SHIPPED");
+		expect(constraintCodes).toContain("SINGLE_DIRECT_CASE_WRITE_PER_FIELD");
+		expect(constraintCodes).not.toContain("PREVIEW_AUTOMATIONS_NOT_EXECUTED");
+		expect(constraintCodes).not.toContain("LOOKUP_HQ_EXPORT_CLOSED");
+		expect(constraintCodes).not.toContain("CASE_SEARCH_IS_LIVE_AND_ONLINE");
 		expect(brief.capabilityBoundary.sessionBoundary).toEqual({
 			appCount: 1,
 			projectScope: "current-project",
 		});
+	});
+
+	it("mounts only the declared media and automation families", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows[0];
+		if (workflow === undefined) throw new Error("fixture workflow missing");
+		workflow.authoredFeatures = ["existing-media", "automation"];
+		const plan = deriveBuildPlan({
+			contract,
+			revision: REVISION,
+			planId: ids.planId,
+		});
+		const slice = plan.slices[0];
+		if (slice === undefined) throw new Error("fixture slice missing");
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: slice.id,
+		});
+		expect(brief.toolProfile.mutationTools).toEqual(
+			expect.arrayContaining(["setMenuMedia", "addAutomations"]),
+		);
+		expect(brief.loweringConstraints.map((entry) => entry.code)).toEqual(
+			expect.arrayContaining([
+				"PREVIEW_AUTOMATIONS_NOT_EXECUTED",
+				"AUTOMATION_HQ_MANUAL_SETUP",
+			]),
+		);
 	});
 
 	it("renders a concise workflow-scoped executor message", () => {

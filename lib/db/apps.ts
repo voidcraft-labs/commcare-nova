@@ -174,6 +174,7 @@ import {
 	runLeaseState,
 } from "./runLiveness";
 import { type AppDoc, parsePersistedAppLifecycleStatus } from "./types";
+import { hasUnfinishedMaterializedDesignInTransaction } from "./unfinishedMaterializedDesign";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -966,6 +967,11 @@ export async function prepareAppProjectMoveInTransaction(
 	await authorizeProjectMoveGovernance(tx, args);
 	const runDisposition = projectMoveRunDisposition(fresh);
 	if (runDisposition) return runDisposition;
+	if (await hasUnfinishedMaterializedDesignInTransaction(tx, args.appId)) {
+		throw new BlueprintCommitRejectedError(
+			"This app's reviewed initial build has not finished. Resume or discard that exact build before moving the app to another Project.",
+		);
+	}
 	const { doc } = await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
 	await assertMoveLookupClosureEmpty(tx, args.appId, doc);
 	await assertMoveCaptureClosureEmpty(tx, args.appId);
@@ -1055,6 +1061,11 @@ export async function commitAppProjectMoveInTransaction(
 	await authorizeProjectMoveGovernance(tx, args);
 	const runDisposition = projectMoveRunDisposition(fresh);
 	if (runDisposition) return runDisposition;
+	if (await hasUnfinishedMaterializedDesignInTransaction(tx, args.appId)) {
+		throw new BlueprintCommitRejectedError(
+			"This app's reviewed initial build has not finished. Resume or discard that exact build before moving the app to another Project.",
+		);
+	}
 
 	const { persisted: previousPersisted, doc: previousDoc } =
 		await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
@@ -1588,60 +1599,93 @@ export async function reserveForNewBuild(
  * flips the row back to `complete` without touching the marker; the reaper's
  * refund stands. A pre-settled stale marker retains `runId`, so it is not this
  * signature and cannot enter the self-heal branch.
+ *
+ * `expectedMutationSeq` is the optional canonical-head fence used by
+ * authoritative initial-build completion after receipt and compile proof.
  */
 export async function completeAndSettleRun(
 	appId: string,
 	runId: string,
 	holderNonce: string,
+	expectedMutationSeq?: number,
 ): Promise<RunHolderWriteOutcome> {
 	return await withAppTx(async (tx) => {
 		/* Lifecycle lock order: the holder's actor gate first (settle is a
 		 * holder/reservation transition — see `actorGenerationGate.ts`). */
 		await lockActorGenerationGateForAppHolder(tx, appId);
-		const fresh = await lockAppRow(tx, appId);
-		if (!fresh) return "released";
-		const lease = runLeaseState(leaseView(fresh));
-		const expectedHolder = {
-			mode: "build",
+		return await completeAndSettleRunInTransaction(
+			tx,
+			appId,
 			runId,
-			nonce: holderNonce,
-		} as const;
-		if (
-			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
-			!lease.terminalWriteOwned(runId)
-		) {
-			if (
-				fresh.status === "error" &&
-				lease.mode === "none" &&
-				lease.reaperResolved &&
-				fresh.run_id === runId &&
-				fresh.run_holder_nonce === holderNonce
-			) {
-				const result = await tx
-					.updateTable("apps")
-					.set({ status: "complete", error_type: null })
-					.where("id", "=", appId)
-					.where(expectedReapedBuildCompletionPredicate(expectedHolder))
-					.executeTakeFirst();
-				if (!updatedExactlyOne(result)) return "released";
-				await notifyAppStatus(tx, appId);
-				return "owned";
-			}
-			return lease.present ? "superseded" : "released";
-		}
-		const result = await tx
-			.updateTable("apps")
-			.set({ status: "complete", error_type: null, res_settled: true })
-			.where("id", "=", appId)
-			.where(expectedRunHolderPredicate(expectedHolder))
-			.executeTakeFirst();
-		if (!updatedExactlyOne(result)) return "superseded";
-		/* Delivered on commit: connected builder streams re-read + re-announce
-		 * the app status, so a co-member tab's build-rate latch releases the
-		 * moment the build completes instead of on the next reauth cadence. */
-		await notifyAppStatus(tx, appId);
-		return "owned";
+			holderNonce,
+			expectedMutationSeq,
+		);
 	});
+}
+
+/**
+ * Transaction body for {@link completeAndSettleRun}. The caller MUST already
+ * hold the current app holder's actor-generation gate. Kept separate so the
+ * reviewed-build finalizer can commit the exact terminal orchestration event,
+ * the `generating -> complete` transition, and reservation settlement as one
+ * database decision instead of releasing its authority between those writes.
+ */
+export async function completeAndSettleRunInTransaction(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	runId: string,
+	holderNonce: string,
+	expectedMutationSeq?: number,
+): Promise<RunHolderWriteOutcome> {
+	const fresh = await lockAppRow(tx, appId);
+	if (!fresh) return "released";
+	const lease = runLeaseState(leaseView(fresh));
+	const expectedHolder = {
+		mode: "build",
+		runId,
+		nonce: holderNonce,
+	} as const;
+	if (
+		!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
+		!lease.terminalWriteOwned(runId)
+	) {
+		if (
+			fresh.status === "error" &&
+			lease.mode === "none" &&
+			lease.reaperResolved &&
+			fresh.run_id === runId &&
+			fresh.run_holder_nonce === holderNonce
+		) {
+			let query = tx
+				.updateTable("apps")
+				.set({ status: "complete", error_type: null })
+				.where("id", "=", appId)
+				.where(expectedReapedBuildCompletionPredicate(expectedHolder));
+			if (expectedMutationSeq !== undefined) {
+				query = query.where("mutation_seq", "=", expectedMutationSeq);
+			}
+			const result = await query.executeTakeFirst();
+			if (!updatedExactlyOne(result)) return "released";
+			await notifyAppStatus(tx, appId);
+			return "owned";
+		}
+		return lease.present ? "superseded" : "released";
+	}
+	let query = tx
+		.updateTable("apps")
+		.set({ status: "complete", error_type: null, res_settled: true })
+		.where("id", "=", appId)
+		.where(expectedRunHolderPredicate(expectedHolder));
+	if (expectedMutationSeq !== undefined) {
+		query = query.where("mutation_seq", "=", expectedMutationSeq);
+	}
+	const result = await query.executeTakeFirst();
+	if (!updatedExactlyOne(result)) return "superseded";
+	/* Delivered on commit: connected builder streams re-read + re-announce
+	 * the app status, so a co-member tab's build-rate latch releases the
+	 * moment the build completes instead of on the next reauth cadence. */
+	await notifyAppStatus(tx, appId);
+	return "owned";
 }
 
 /**
@@ -1953,40 +1997,6 @@ export async function failApp(
 		log.error("[failApp] write failed", err, { appId, runId });
 		return false;
 	}
-}
-
-/**
- * Accept a settled, holder-free partial initial build inside the caller's
- * larger transaction. The caller already owns the locked app row and is
- * responsible for committing its matching orchestration event in the same
- * transaction; this helper keeps the apps DML inside the reviewed lifecycle
- * authority and repeats every terminal-state predicate on the write itself.
- */
-export async function acceptSettledPartialBuildInTransaction(
-	tx: Transaction<AppDatabase>,
-	args: {
-		readonly appId: string;
-		readonly appSeq: number;
-	},
-): Promise<boolean> {
-	const result = await tx
-		.updateTable("apps")
-		.set({
-			status: "complete",
-			awaiting_input: false,
-			error_type: null,
-			recoverable_until: null,
-			updated_at: new Date(),
-		})
-		.where("id", "=", args.appId)
-		.where("status", "=", "error")
-		.where("res_settled", "=", true)
-		.where("mutation_seq", "=", args.appSeq)
-		.where(noRunHolderPredicate())
-		.executeTakeFirst();
-	if (!updatedExactlyOne(result)) return false;
-	await notifyAppStatus(tx, args.appId);
-	return true;
 }
 
 export type RecoverAppStatusOutcome =

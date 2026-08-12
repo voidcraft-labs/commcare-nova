@@ -235,6 +235,10 @@ export async function assertDesignSessionRunAuthorityInTransaction(
 		readonly actorUserId: string;
 		readonly expectedProjectId: string;
 		readonly holder: ExactRunHolderIdentity;
+		/** Terminal reviewed-build completion alone may adopt the exact
+		 * reaped-but-unclaimed app signature. All ordinary artifact, attempt, and
+		 * orchestration writes still require a live holder. */
+		readonly allowReapedBuildCompletion?: boolean;
 	},
 ): Promise<{ appId: string | null }> {
 	const mapping = await tx
@@ -265,10 +269,19 @@ export async function assertDesignSessionRunAuthorityInTransaction(
 			args.holder.mode === "edit"
 				? app.lock_actor_user_id
 				: (app.res_user_id ?? app.owner);
+		const exactLiveHolder =
+			lease.live && exactRunHolderMatches(lease.holderIdentity, args.holder);
+		const exactReapedBuild =
+			args.allowReapedBuildCompletion === true &&
+			args.holder.mode === "build" &&
+			app.status === "error" &&
+			lease.mode === "none" &&
+			lease.reaperResolved &&
+			app.run_id === args.holder.runId &&
+			app.run_holder_nonce === args.holder.nonce;
 		if (
-			!lease.live ||
 			holderActor !== args.actorUserId ||
-			!exactRunHolderMatches(lease.holderIdentity, args.holder)
+			(!exactLiveHolder && !exactReapedBuild)
 		) {
 			throw new RunHolderLostError();
 		}

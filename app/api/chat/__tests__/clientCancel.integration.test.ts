@@ -1527,6 +1527,12 @@ describe("server-derived build-vs-edit mode", () => {
 			overrides: { status: "error" },
 			mock: false,
 		});
+		const adoptedBuildSeq = 1;
+		await appDb
+			.updateTable("apps")
+			.set({ mutation_seq: adoptedBuildSeq })
+			.where("id", "=", DIRECT_ADOPT_APP)
+			.executeTakeFirstOrThrow();
 		await seedBoundSession(DIRECT_ADOPT_SESSION, DIRECT_ADOPT_APP);
 		resolveAuthorizedAppSnapshotMock
 			.mockResolvedValueOnce({
@@ -1543,11 +1549,17 @@ describe("server-derived build-vs-edit mode", () => {
 		 * against the claim this adoption booked. */
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
 			args.writer.write({ type: "start", messageId: args.responseMessageId });
+			const finalized = await args.finalizeCompletion({
+				appId: DIRECT_ADOPT_APP,
+				expectedSeq: adoptedBuildSeq,
+				expectedHead: null,
+			});
 			args.writer.write({ type: "finish" });
 			return {
 				kind: "completed",
 				appId: DIRECT_ADOPT_APP,
-				finalSeq: 1,
+				finalSeq: adoptedBuildSeq,
+				finalBlueprint: finalized.blueprint,
 			};
 		});
 

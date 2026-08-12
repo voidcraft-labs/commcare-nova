@@ -502,6 +502,76 @@ async function requireStoredReceipt(
 	};
 }
 
+/** Read-only reconciliation for a canonical commit whose response raced the
+ * executor deadline. `null` means no commit became durable before the read;
+ * this function never retries or starts a write. */
+export async function readCommittedSliceReceipt(
+	changeSetId: string,
+): Promise<CommittedSliceReceipt | null> {
+	const changeSet = await loadChangeSet(changeSetId);
+	if (changeSet === undefined || changeSet.status !== "committed") return null;
+	return await requireStoredReceipt(changeSet);
+}
+
+/** Read every immutable receipt for one plan through the same strict JSON and
+ * sequence boundary as the commit replay path. Completion policy uses this
+ * aggregate; row presence alone is never enough to call a build finished. */
+export async function readCommittedSliceReceiptsForPlan(
+	buildPlanId: string,
+): Promise<CommittedSliceReceipt[]> {
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("design_committed_slices")
+		.select([
+			"id",
+			"design_session_id",
+			"design_revision_id",
+			"design_revision_digest",
+			"build_plan_id",
+			"build_plan_digest",
+			"slice_id",
+			"slice_attempt_id",
+			"change_set_id",
+			"app_id",
+			"seq",
+			"batch_id",
+			"committed_snapshot_digest",
+			"mutation_count",
+			"committed_at",
+		])
+		.select(
+			sql<string>`${sql.ref("design_committed_slices.owning_intent_ids")}::text`.as(
+				"owning_intent_ids_text",
+			),
+		)
+		.where("build_plan_id", "=", buildPlanId)
+		.orderBy("seq", "asc")
+		.execute();
+	return rows.map((row) => ({
+		id: row.id,
+		designSessionId: row.design_session_id,
+		designRevisionId: row.design_revision_id,
+		designRevisionDigest: row.design_revision_digest,
+		buildPlanId: row.build_plan_id,
+		buildPlanDigest: row.build_plan_digest,
+		sliceId: row.slice_id as DesignId,
+		attemptId: row.slice_attempt_id,
+		changeSetId: row.change_set_id,
+		appId: row.app_id,
+		seq: safePersistedSequence(row.seq, "design_committed_slices.seq"),
+		batchId: row.batch_id,
+		committedSnapshotDigest: row.committed_snapshot_digest,
+		owningIntentIds: intentIdsSchema.parse(
+			parsePersistedJsonText(
+				row.owning_intent_ids_text,
+				`design_committed_slices.owning_intent_ids for receipt ${row.id}`,
+			),
+		),
+		mutationCount: row.mutation_count,
+		committedAt: row.committed_at,
+	}));
+}
+
 async function currentAppSeq(appId: string): Promise<number> {
 	const app = await loadApp(appId);
 	return app === null ? 0 : app.mutation_seq;
