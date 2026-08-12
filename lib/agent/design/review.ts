@@ -6,9 +6,16 @@ import {
 	appDesignContractSchema,
 	collectContractIds,
 } from "@/lib/agent/design/contract";
-import { type SourceRef, sourceRefSchema } from "@/lib/agent/design/evidence";
+import {
+	type SourceRef,
+	sourceRefKey,
+	sourceRefSchema,
+} from "@/lib/agent/design/evidence";
 import { designIdSchema } from "@/lib/agent/design/ids";
-import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
+import {
+	citableSourceRefs,
+	type DesignSourcePackage,
+} from "@/lib/agent/design/sourcePackage";
 
 export const designFindingCategorySchema = z.enum([
 	"requirement-coverage",
@@ -168,8 +175,7 @@ export function designReviewSchemaFor(
 					ctx.addIssue({
 						code: "custom",
 						path: ["findings", findingIndex, "evidenceRefs", index],
-						message:
-							"This citation is not part of the exact source package under review.",
+						message: `The citation ${diagnosticSourceRefKey(ref)} names a coordinate outside the exact source package under review.`,
 					});
 				}
 			});
@@ -338,27 +344,18 @@ export function validateSensitivityNotSilentlyLowered(
 
 export { collectContractIds };
 
-function sourceRefKey(ref: SourceRef): string {
-	switch (ref.kind) {
-		case "message":
-			return `message:${ref.threadId}:${ref.messageId}:${ref.partIndex}`;
-		case "attachment-extract":
-			return `attachment:${ref.assetId}:${ref.extractorVersion}`;
-		case "platform-constraint":
-			return `platform:${ref.code}`;
-		case "image":
-			return `image:${ref.assetId}:${ref.bytesDigest}`;
-	}
-}
-
 function allowedSourceRefKeys(
 	sourcePackage: DesignSourcePackage,
 ): ReadonlySet<string> {
-	const keys = new Set<string>();
-	for (const source of sourcePackage.sources)
-		keys.add(sourceRefKey(source.ref));
-	for (const claim of sourcePackage.claims) {
-		for (const ref of claim.sourceRefs) keys.add(sourceRefKey(ref));
-	}
-	return keys;
+	return new Set(citableSourceRefs(sourcePackage).map(sourceRefKey));
+}
+
+/* A rejected citation's coordinate is the model's own emitted value, and the
+ * rejection message reaches mirrored operational logs. Reducing it to bounded
+ * id-safe characters keeps the coordinate diagnosable (ids survive intact)
+ * while free prose smuggled into a string slot cannot ride into retention. */
+function diagnosticSourceRefKey(ref: SourceRef): string {
+	return sourceRefKey(ref)
+		.replace(/[^A-Za-z0-9_.:-]/g, "_")
+		.slice(0, 160);
 }

@@ -39,7 +39,9 @@
 
 import { z } from "zod";
 import {
+	type SourceRef,
 	sourceClaimSchema,
+	sourceRefKey,
 	sourceRefSchema,
 } from "@/lib/agent/design/evidence";
 import {
@@ -169,6 +171,28 @@ export interface DesignSourcePackage {
  *  normalization, e.g. from an answered question round) — same shape as an
  *  authored claim. */
 export type SourceClaimSeed = z.infer<typeof sourceClaimSchema>;
+
+/**
+ * The closed, deduplicated set of references a reviewer may cite from this
+ * package: every projected source-index entry plus every normalized claim's
+ * references. Citation validation (`review.ts`) and the review prompt's
+ * citable-coordinates section both derive from exactly this function, so
+ * what the reviewer is shown and what the validator admits cannot drift.
+ */
+export function citableSourceRefs(pkg: DesignSourcePackage): SourceRef[] {
+	const seen = new Set<string>();
+	const refs: SourceRef[] = [];
+	for (const ref of [
+		...pkg.sources.map((source) => source.ref),
+		...pkg.claims.flatMap((claim) => claim.sourceRefs),
+	]) {
+		const key = sourceRefKey(ref);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		refs.push(ref);
+	}
+	return refs;
+}
 
 const sha256DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 

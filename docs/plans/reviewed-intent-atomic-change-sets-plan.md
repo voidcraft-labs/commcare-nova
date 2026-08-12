@@ -415,10 +415,18 @@ A finding records:
 - evidence references only for critical or important findings.
 
 Advisories carry no citations. Heuristics cannot be critical. Platform findings
-cite a known platform constraint. Only design corrections at critical or
+cite a known platform constraint. Citations are grounded in a closed set: the
+package's source index plus its normalized claims' references, derived once
+(`citableSourceRefs`) for both the validator and the review prompt's
+citable-coordinates list, so the reviewer copies exact coordinates instead of
+reconstructing them from labels, and a rejected citation's diagnostic names
+the offending coordinate. Only design corrections at critical or
 important severity, plus unresolved user decisions, block acceptance.
 External, runtime, deployment, and advisory observations remain visible
-context but do not force a pointless design rewrite.
+context but do not force a pointless design rewrite. A decision the sources
+show the person delegated is settled by its concretely recorded default: the
+reviewer challenges a bad default as a design correction rather than raising
+a user-decision finding to hand the choice back.
 
 ### 4.5 Revision and review depth
 

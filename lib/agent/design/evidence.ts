@@ -76,6 +76,25 @@ export const sourceRefSchema = z.discriminatedUnion("kind", [
 export type SourceRef = z.infer<typeof sourceRefSchema>;
 
 /**
+ * The canonical identity key of one source reference — the coordinate that
+ * makes two references "the same citation". Attachment `sectionPath` /
+ * `figureMarker` deliberately stay out of the key: they narrow WHERE inside
+ * an extract a citation points, not WHICH source it cites.
+ */
+export function sourceRefKey(ref: SourceRef): string {
+	switch (ref.kind) {
+		case "message":
+			return `message:${ref.threadId}:${ref.messageId}:${ref.partIndex}`;
+		case "attachment-extract":
+			return `attachment:${ref.assetId}:${ref.extractorVersion}`;
+		case "platform-constraint":
+			return `platform:${ref.code}`;
+		case "image":
+			return `image:${ref.assetId}:${ref.bytesDigest}`;
+	}
+}
+
+/**
  * One normalized requirement claim. The `statement` is the normalized
  * requirement in Nova's own words — never a raw excerpt, unless an exact
  * label/choice/value is itself the requirement. `status` is the epistemic

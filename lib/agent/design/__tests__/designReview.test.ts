@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { renderCitableSourceCoordinates } from "@/lib/agent/design/prompts";
 import type { DesignFinding, DesignReview } from "@/lib/agent/design/review";
 import {
 	designFindingSchema,
@@ -7,7 +8,10 @@ import {
 	findingBlocksAcceptance,
 	validateSensitivityNotSilentlyLowered,
 } from "@/lib/agent/design/review";
-import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
+import {
+	citableSourceRefs,
+	type DesignSourcePackage,
+} from "@/lib/agent/design/sourcePackage";
 import { cloneContract, did, ids, makeContract, messageRef } from "./fixtures";
 
 function pkg(): DesignSourcePackage {
@@ -101,6 +105,100 @@ describe("review findings", () => {
 					finding({
 						evidenceRefs: [{ ...messageRef(), messageId: "not-in-package" }],
 					}),
+				]),
+			).success,
+		).toBe(false);
+	});
+
+	it("names the offending coordinate when a citation misses the package", () => {
+		const schema = designReviewSchemaFor(makeContract(), pkg());
+		const result = schema.safeParse(
+			review([
+				finding({
+					evidenceRefs: [{ ...messageRef(5), messageId: "invented-id" }],
+				}),
+			]),
+		);
+		expect(result.success).toBe(false);
+		const message = result.success
+			? ""
+			: (result.error.issues[0]?.message ?? "");
+		// The composed key makes the failure diagnosable from the operational
+		// log alone — the exact gap that hid what a live reviewer invented.
+		expect(message).toContain("message:");
+		expect(message).toContain("invented-id");
+		expect(message).toContain(":5");
+	});
+});
+
+describe("citation grounding stays in lockstep with the review prompt", () => {
+	function richPackage(): DesignSourcePackage {
+		const attachmentRef = {
+			kind: "attachment-extract" as const,
+			assetId: "00000000-0000-4000-8000-000000000860" as never,
+			extractorVersion: 3,
+			sectionPath: [],
+		};
+		return {
+			...pkg(),
+			claims: [
+				{
+					id: did(700),
+					statement: "The user answered the pilot questions.",
+					// One NEW coordinate plus a duplicate of the projected block —
+					// the citable set must dedup, not double-list.
+					sourceRefs: [messageRef(9), messageRef()],
+					status: "explicit",
+					confidence: 1,
+				},
+			],
+			attachments: [
+				{
+					assetId: attachmentRef.assetId,
+					extractorVersion: 3,
+					filename: "spec.pdf",
+					extract: "## Requirements\nTrack visits.",
+					truncated: false,
+				},
+			],
+			sources: [{ ref: messageRef() }, { ref: attachmentRef }],
+		};
+	}
+
+	it("admits exactly the coordinates the prompt renders, including claim refs", () => {
+		const sourcePackage = richPackage();
+		const schema = designReviewSchemaFor(makeContract(), sourcePackage);
+		const refs = citableSourceRefs(sourcePackage);
+		// message block + attachment + the claim's extra coordinate, deduped.
+		expect(refs).toHaveLength(3);
+		for (const ref of refs) {
+			expect(
+				schema.safeParse(review([finding({ evidenceRefs: [ref] })])).success,
+			).toBe(true);
+		}
+		const rendered = renderCitableSourceCoordinates(sourcePackage);
+		expect(rendered.match(/^- /gm)).toHaveLength(refs.length);
+		expect(rendered).toContain("partIndex 9");
+		expect(rendered).toContain("extractorVersion 3");
+	});
+
+	it("matches an attachment citation on identity, not sectionPath", () => {
+		const sourcePackage = richPackage();
+		const schema = designReviewSchemaFor(makeContract(), sourcePackage);
+		const cited = {
+			kind: "attachment-extract" as const,
+			assetId: "00000000-0000-4000-8000-000000000860" as never,
+			extractorVersion: 3,
+			sectionPath: ["Requirements"],
+			figureMarker: '<nova:figure index="1"/>',
+		};
+		expect(
+			schema.safeParse(review([finding({ evidenceRefs: [cited] })])).success,
+		).toBe(true);
+		expect(
+			schema.safeParse(
+				review([
+					finding({ evidenceRefs: [{ ...cited, extractorVersion: 4 }] }),
 				]),
 			).success,
 		).toBe(false);

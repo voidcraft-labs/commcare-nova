@@ -2,11 +2,14 @@
 
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import { PLATFORM_CONSTRAINTS } from "@/lib/agent/design/platformConstraints";
-import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
+import {
+	citableSourceRefs,
+	type DesignSourcePackage,
+} from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v3",
+	agent: "design-agent-v1",
 	reviewer: "design-reviewer-v1",
 	planner: "design-plan-v1",
 } as const;
@@ -106,15 +109,17 @@ For role-aware remote queues, a worker-role check cannot stand alone. Expect sep
 Return only concrete findings that would help ship a better app. Use:
 
 - dispositionClass design-correction for a flaw in the proposed design;
-- user-decision when safe meaning truly depends on the person;
+- user-decision when safe meaning truly depends on the person and the person has not already delegated it;
 - external-readiness, runtime-readiness, or deployment-readiness for work outside construction;
 - advisory for optional improvement.
+
+When the sources show the person delegated a decision — for example answering "use sensible defaults" or "you choose" — a concrete recorded default with its recorded decision or assumption is settled meaning, not a user decision to hand back. If the chosen default is wrong or unsafe, raise a design-correction finding that names the better choice.
 
 Only critical and important design-correction findings, plus user-decision findings, block acceptance. External/runtime/deployment readiness never becomes a design rewrite merely because a person must do it later. But a missing value or reference that prevents valid authoring is a design-correction or user-decision finding, not a readiness finding.
 
 Critical means the design would build the wrong app, expose or corrupt sensitive data, or cannot perform a central workflow. Important means a material workflow, data, access, or usability defect. Advisory means worthwhile but non-blocking.
 
-Critical and important findings must cite the exact source message, attachment, image, or platform constraint that establishes the problem. Advisory findings carry no citations. affectedElementIds names only stable elements that actually exist in the reviewed contract; it may be empty for a genuinely missing element. Do not demand source attribution inside the contract itself.
+Critical and important findings must cite the exact source message, attachment, image, or platform constraint that establishes the problem. The citable coordinates form a closed set: copy every value verbatim from the source labels and the citable source coordinates list, and never derive, interpolate, or invent a thread id, message id, part index, asset id, extractor version, or byte digest — one citation outside that set invalidates the whole review. Several findings may share one coordinate; material inside a labeled source block is cited with that block's coordinate. Advisory findings carry no citations. affectedElementIds names only stable elements that actually exist in the reviewed contract; it may be empty for a genuinely missing element. Do not demand source attribution inside the contract itself.
 
 Prefer a clean review over speculative findings. Do not manufacture severity from uncertainty, count objects as quality, require a second app, or flag setup guidance as an app defect. Summarize in calm product language without exposing schemas, identifiers, model behavior, or internal process.`;
 
@@ -215,6 +220,46 @@ export function renderPlatformConstraintsSection(): string {
 	return lines.join("\n");
 }
 
+/**
+ * The reviewer's copyable citation list — the same closed set citation
+ * validation admits (`citableSourceRefs`), rendered with explicit field
+ * names so a structured `evidenceRefs` entry is a copy, not a
+ * reconstruction from labels scattered through the source text. Platform
+ * constraints are omitted here because the source package already lists
+ * them, and a message id passes through the same `refToken` flattening as
+ * the source labels so a hostile id cannot inject prompt text.
+ */
+export function renderCitableSourceCoordinates(
+	pkg: DesignSourcePackage,
+): string {
+	const lines = [
+		"## Citable source coordinates",
+		"Critical and important findings cite only these exact coordinates, or a platform constraint from the list above. Copy every value verbatim. An attachment-extract citation may add sectionPath headings and a figureMarker to say where inside the extract it points; its assetId and extractorVersion must still match exactly.",
+	];
+	for (const ref of citableSourceRefs(pkg)) {
+		switch (ref.kind) {
+			case "message":
+				lines.push(
+					`- message — threadId ${ref.threadId}, messageId ${refToken(ref.messageId)}, partIndex ${ref.partIndex}`,
+				);
+				break;
+			case "attachment-extract":
+				lines.push(
+					`- attachment-extract — assetId ${ref.assetId}, extractorVersion ${ref.extractorVersion}`,
+				);
+				break;
+			case "image":
+				lines.push(
+					`- image — assetId ${ref.assetId}, bytesDigest ${ref.bytesDigest}`,
+				);
+				break;
+			case "platform-constraint":
+				break;
+		}
+	}
+	return lines.join("\n");
+}
+
 export function renderReviewPrompt(
 	pkg: DesignSourcePackage,
 	contract: AppDesignContract,
@@ -222,6 +267,8 @@ export function renderReviewPrompt(
 ): string {
 	return [
 		renderSourcePackage(pkg),
+		"",
+		renderCitableSourceCoordinates(pkg),
 		"",
 		catalogText,
 		"",

@@ -56,8 +56,16 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   incomplete.
 - `review.ts` defines independent findings, dispositions, and revisions.
   Critical and important findings cite the exact source or contract elements
-  they concern; advisory observations do not create traceability work. Only
-  design-correction and user-decision findings block acceptance. A revision
+  they concern; advisory observations do not create traceability work.
+  Citations validate against the package's closed citable set
+  (`sourcePackage.ts::citableSourceRefs` — the source index plus claim
+  references), the same derivation the review prompt renders as copyable
+  coordinates, and a rejection's diagnostic names the offending coordinate in
+  bounded id-safe characters. Only
+  design-correction and user-decision findings block acceptance; a decision
+  the sources show the person delegated is settled by its recorded default,
+  so the reviewer challenges a bad default as a design correction instead of
+  handing the choice back. A revision
   must disposition every blocker, and lowering a property's sensitivity is
   allowed only when the reviewed finding explicitly required it.
 - `buildPlan.ts` deterministically derives exactly one workflow-complete
