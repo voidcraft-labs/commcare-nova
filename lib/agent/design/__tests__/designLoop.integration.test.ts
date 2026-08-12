@@ -518,7 +518,32 @@ describe("staged design loop", () => {
 		});
 	});
 
-	it("routes construction-bearing open questions outside repair convergence", async () => {
+	it("finalizes a contract that records a delegated decision as a non-blocking question", async () => {
+		/* The user said "use sensible defaults": the model bakes concrete values
+		 * into the design and keeps the future-facing question as a recorded,
+		 * non-blocking caveat. That question must never force a user pause. */
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const repair = new DesignRepairTracker();
+		const tools = mount(pkg, cleanReview, repair);
+		const contract = makeContract();
+		contract.openQuestions.push({
+			id: did(1200),
+			question:
+				"What exact production thresholds replace the provisional pilot values?",
+			structuralImpact: "local",
+			blocking: false,
+			relatedElementIds: [ids.taskVisit],
+		});
+		const workspaceRevision = await stageWholeContract(tools, contract);
+		expect(
+			await call(tools.submitContract, { expectedRevision: workspaceRevision }),
+		).toMatchObject({ ok: true });
+		expect(repair.requiredUserQuestions()).toHaveLength(0);
+		expect(repair.fatalError()).toBeUndefined();
+	});
+
+	it("routes blocking open questions outside repair convergence", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const repair = new DesignRepairTracker();

@@ -74,12 +74,26 @@ describe("lean Design Contract graph", () => {
 		disabledWorkflow.readback = [];
 		expect(constructionMessages(disabled)).toContain("empty workflow shell");
 
+		/* The authored blocking flag is the construction gate. A non-blocking
+		 * question beside concrete design — the spelling for a decision the
+		 * user delegated or a production-hardening note — never forces a user
+		 * pause; the concreteness checks still catch unbuildable design. */
+		const delegated = cloneContract(makeContract());
+		delegated.openQuestions.push({
+			id: ids.question,
+			question: "What calculation should this workflow perform?",
+			structuralImpact: "local",
+			blocking: false,
+			relatedElementIds: [ids.taskRegister],
+		});
+		expect(constructionMessages(delegated)).toBe("");
+
 		const unresolved = cloneContract(makeContract());
 		unresolved.openQuestions.push({
 			id: ids.question,
 			question: "What calculation should this workflow perform?",
 			structuralImpact: "local",
-			blocking: false,
+			blocking: true,
 			relatedElementIds: [ids.taskRegister],
 		});
 		expect(constructionMessages(unresolved)).toContain(

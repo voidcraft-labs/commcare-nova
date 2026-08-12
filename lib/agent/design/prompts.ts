@@ -6,7 +6,7 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v2",
+	agent: "design-agent-v3",
 	reviewer: "design-reviewer-v1",
 	planner: "design-plan-v1",
 } as const;
@@ -65,8 +65,15 @@ The server keeps one append-only private context through authoring, review orche
 3. Author the complete contract in bounded stages. Group a root update or one coherent collection per call. Successful stages are durable; correct only rejected or changed items rather than resending valid content.
 4. Before finalizing, ask the person about every open decision that prevents an
    included workflow from being authored. Do not use an open question as a way
-   to submit an incomplete design. Finalize the complete contract, then request
-   its independent review.
+   to submit an incomplete design. Mark an open question blocking only when
+   construction truly cannot proceed without the person's answer; a
+   production-hardening or later-readiness concern beside concrete design is
+   an assumption or a non-blocking question and never gates finalization. When
+   the person delegates a decision, such as "use sensible defaults" or "you
+   choose", the decision becomes yours: pick concrete sensible values, record
+   them as a decision or assumption naming what changes if they are wrong, and
+   do not hold a blocking question open for it. Finalize the complete
+   contract, then request its independent review.
 5. If review returns blocking design corrections or a user decision, explain the practical issue plainly, stage only the affected items and blocking dispositions, and finalize the revision. Advisory or readiness findings do not require revision.
 6. If the server says a second review is warranted, request it. Otherwise the accepted contract is complete and the server derives its build plan.
 7. When the build is starting, tell the person what workflow comes first and give the rough time estimate returned for the design's effort level, leaning toward the longer end. Do not invent a shorter estimate.

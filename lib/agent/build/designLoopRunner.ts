@@ -54,6 +54,7 @@ import {
 	requiredDesignQuestionBatchWasAnswered,
 	requiredDesignQuestionCardAuthorizationKey,
 	requiredDesignQuestionMessage,
+	unansweredRequiredDesignQuestions,
 } from "@/lib/agent/design/loop/designAgent";
 import {
 	DESIGN_LOOP_STEP_BUDGET,
@@ -721,32 +722,29 @@ export async function runDesignAgentLoop(
 								gates: evaluateDesignGates(await loadAncestry()),
 								authority,
 							});
-				if (
-					requiredDesignQuestionBatchWasAnswered(
-						args.messages,
-						questions,
-						modelContextProtocolKeys,
-					)
-				) {
+				/* An answer binds to the exact question identity, so a question the
+				 * user already answered is never demanded again; only genuinely new
+				 * or re-authored questions come back to them. */
+				const unanswered = unansweredRequiredDesignQuestions(
+					args.messages,
+					questions,
+					modelContextProtocolKeys,
+				);
+				if (unanswered.length === 0) {
 					activeRequiredQuestionBatch = [];
 					activeRequiredQuestionAuthorizationKey = null;
 					return [];
 				}
-				activeRequiredQuestionBatch = requiredDesignQuestionBatch(questions);
-				if (questions.length > 0) {
-					const authorizationKey =
-						requiredDesignQuestionAuthorizationKey(questions);
-					activeRequiredQuestionAuthorizationKey = authorizationKey;
-					if (!modelContextAppendKeys.has(authorizationKey)) {
-						const authorization = requiredDesignQuestionMessage(questions);
-						await appendContext(authorizationKey, [authorization]);
-						modelContext = [...(modelContext ?? []), authorization];
-					}
+				activeRequiredQuestionBatch = requiredDesignQuestionBatch(unanswered);
+				const authorizationKey =
+					requiredDesignQuestionAuthorizationKey(unanswered);
+				activeRequiredQuestionAuthorizationKey = authorizationKey;
+				if (!modelContextAppendKeys.has(authorizationKey)) {
+					const authorization = requiredDesignQuestionMessage(unanswered);
+					await appendContext(authorizationKey, [authorization]);
+					modelContext = [...(modelContext ?? []), authorization];
 				}
-				if (questions.length === 0) {
-					activeRequiredQuestionAuthorizationKey = null;
-				}
-				return questions;
+				return unanswered;
 			},
 			freshStateMessage: async () =>
 				stateMessageFor(evaluateDesignGates(await loadAncestry())),

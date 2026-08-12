@@ -249,7 +249,15 @@ An assumption states what Nova is relying on and what changes if it is wrong.
 
 An open question states its structural impact, whether it blocks, and the
 contract elements it can change. A blocking question cannot float without an
-affected element.
+affected element. The authored blocking flag is the construction gate: only a
+blocking question tied to included construction forces a user decision before
+finalization, while a non-blocking question is a recorded caveat beside
+concrete design — the spelling for a decision the user delegated or a
+production-hardening note — and the concreteness proofs above still reject
+design that is not actually buildable. A user answer that delegates a
+decision makes it the model's: it bakes concrete values into the design,
+records them as a decision or assumption, and does not hold a blocking
+question open for them.
 
 ### 3.7 Deterministic graph checks
 
@@ -330,14 +338,18 @@ fingerprints. A later stage or changed fingerprint is progress; an exact repeat
 stops after two attempts and any third rejection stops honestly as an internal
 design defect. A bounded stage call rejected three times in a row with an
 identical diagnostic stops the same way; a changed diagnostic or an accepted
-stage resets that count. When every construction issue is an authored open question, the
-server appends the exact required questions and refuses further design staging
-until an `askQuestions` round, at most five questions, is answered. Those user
-decisions do not consume the model-repair budget. Server-only durable append
-keys bind the exact batch's question ids, structural scope, related elements,
-prose, and accepted tool-call id, so identical later prose or an incomplete
-model-authored subset cannot unlock staging. The authorization remains valid
-while bounded stages consume the batch's answered prefix. A clean response
+stage resets that count. When every construction issue is an authored blocking
+question, the server appends the exact required questions and refuses further
+design staging until an `askQuestions` round, at most five questions, is
+answered. Those user decisions do not consume the model-repair budget.
+Server-only durable append keys bind the exact batch's question ids,
+structural scope, related elements, prose, and accepted tool-call id, so
+identical later prose or an incomplete model-authored subset cannot unlock
+staging. An answer binds to the exact question identity it was given for, so
+it stays valid while bounded stages apply it and across later rounds: a
+question the user already answered is never demanded again, only genuinely
+new or re-authored questions are, and staging opens when every currently
+pending question identity carries a durably authorized answer. A clean response
 that omits the required call receives internal correction guidance and is
 redriven without changing the provider tool grammar or asking the user to
 resend. If process replacement preserves a question call but its user-facing

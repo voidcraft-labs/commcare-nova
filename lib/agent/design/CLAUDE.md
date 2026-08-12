@@ -41,12 +41,16 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   already-persisted v1 artifacts.
   Admission also rejects unknown record/form-input shapes, decisions without
   concrete inputs and outcomes, structurally empty or disabled workflow shells,
-  unresolved writes or outcomes, construction-bearing open questions (including
-  actor/worker-shape questions), and promises that Nova creates or uploads
-  media. Human-owned readiness such as an administrator uploading an asset may
-  remain external when construction is otherwise executable. Blocking meaning
-  becomes a pre-build question or an explicitly excluded workflow; it never
-  survives into execution. The identity-only subset of the graph proof runs on
+  unresolved writes or outcomes, blocking open questions tied to included
+  construction, and promises that Nova creates or uploads media. The authored
+  `blocking` flag is the construction gate: a non-blocking question beside
+  concrete design — the spelling for a decision the user delegated or a
+  production-hardening note — is a recorded caveat that never forces a user
+  pause, and the concreteness checks still reject design that is not actually
+  buildable. Human-owned readiness such as an administrator uploading an asset
+  may remain external when construction is otherwise executable. Blocking
+  meaning becomes a pre-build question or an explicitly excluded workflow; it
+  never survives into execution. The identity-only subset of the graph proof runs on
   every contract and revision stage before ledger insertion, so one Design ID
   can never be durably reused by two declarations even while the candidate is
   incomplete.
@@ -133,23 +137,27 @@ row with an identical diagnostic stops the run the same way, because zero
 diagnostic movement means the model cannot express what the server requires —
 a systemic contract defect, never a correctable slip. A changed diagnostic or
 an accepted stage resets that count; gate refusals and the forced-question
-state stay outside it. When every construction issue is an
-open question already authored in the candidate, it does not consume that
+state stay outside it. When every construction issue is a
+blocking question already authored in the candidate, it does not consume that
 repair budget. The server derives those exact questions, appends them as an
 authoritative message, and refuses further design staging until an exact
-`askQuestions` round of at most five is answered. That answered round remains
-valid across every bounded stage needed to apply it because the private context
-ledger records a server-only authorization key for the entire exact pending
-sequence. Authorization binds each question's durable id, structural scope,
-related element ids, exact prose, and the accepted `askQuestions` tool-call id;
-identical prose on a later question cannot inherit an old answer. That sequence
-may retain an answered prefix while bounded stages apply it, but a newly
-introduced or reordered question cannot inherit the old authorization.
-Transcript text cannot authorize a subset. If a clean model step omits the
-required call, the server appends correction guidance and redrives internally
-without changing the tool grammar or asking the user to resend. Once none of
-the asked prefix remains pending, the next batch requires its own authorization
-and answer.
+`askQuestions` round of at most five is answered. The private context ledger
+records a server-only authorization key for the exact pending sequence, and
+each answer binds to the exact question identity it was given for — durable
+id, structural scope, related element ids, exact prose, and the accepted
+`askQuestions` tool-call id — so identical prose on a later question cannot
+inherit an old answer while an unchanged question stays answered across
+bounded stages and later rounds. A question the user already answered is
+never demanded again: only the unanswered remainder of the pending set is,
+and staging opens when every currently pending question identity carries a
+durably authorized answer. Transcript text cannot mint that provenance. If a
+clean model step omits the required call, the server appends correction
+guidance and redrives internally without changing the tool grammar or asking
+the user to resend. The demand message also teaches the resolution path:
+after answers arrive the model stages them — records each settled choice as a
+decision or assumption, removes the question or marks it non-blocking — and a
+delegating answer such as "use sensible defaults" makes the concrete choice
+the model's to bake in.
 
 `designAgent.ts` owns the one stable agent grammar and compaction preparation.
 The ordinary history and every complete step response append to

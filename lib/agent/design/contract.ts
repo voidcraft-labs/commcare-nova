@@ -587,15 +587,19 @@ export function designConstructionIssues(
 		...contract.access.map((policy) => policy.id),
 		...contract.navigation.map((navigation) => navigation.id),
 	]);
+	/* The authored `blocking` flag is the construction gate, honoring a user
+	 * who delegated the decision: a non-blocking question is a recorded caveat
+	 * beside concrete design, and the concreteness checks above catch design
+	 * that is not actually buildable regardless of what any question claims. */
 	contract.openQuestions.forEach((question, questionIndex) => {
 		if (
-			question.structuralImpact !== "none" &&
+			question.blocking &&
 			question.relatedElementIds.some((id) => includedIds.has(id))
 		) {
 			issues.push({
 				path: ["openQuestions", questionIndex],
 				message:
-					"A construction-bearing question must be answered or its workflow explicitly excluded before a plan can exist.",
+					"A blocking question must be answered or its workflow explicitly excluded before a plan can exist.",
 			});
 		}
 	});

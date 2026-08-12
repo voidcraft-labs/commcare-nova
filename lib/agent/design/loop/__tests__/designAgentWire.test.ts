@@ -24,6 +24,7 @@ import {
 	requiredDesignQuestionCardAuthorizationKey,
 	requiredDesignQuestionInputSchema,
 	requiredDesignQuestionStep,
+	unansweredRequiredDesignQuestions,
 } from "@/lib/agent/design/loop/designAgent";
 import { DesignRepairTracker } from "@/lib/agent/design/loop/gates";
 import {
@@ -299,34 +300,67 @@ describe("design agent Responses wire body", () => {
 				),
 			).length,
 		).toBeLessThan(512);
+		/* Seven questions are pending but the round cap presented only the first
+		 * five, so the answered card covers Q1-Q5 and the unasked Q6-Q7 still
+		 * need their own round before staging is authorized. */
 		expect(
 			requiredDesignQuestionBatchWasAnswered(answered, questions, authorized),
-		).toBe(true);
-		/* A bounded first correction can remove Q1 while Q2-Q5 from the same
-		 * answered card still need later stages. The shifted pending batch must
-		 * remain authorized until every question from that card is applied. */
+		).toBe(false);
+		expect(
+			unansweredRequiredDesignQuestions(answered, questions, authorized).map(
+				(question) => question.id,
+			),
+		).toEqual(questions.slice(5).map((question) => question.id));
+		/* An answer binds to the exact question identity: once the pending set
+		 * is exactly the answered card's questions — in any order, and however
+		 * bounded stages shrank it — staging is authorized. */
 		expect(
 			requiredDesignQuestionBatchWasAnswered(
 				answered,
-				questions.slice(1),
+				questions.slice(0, 5),
 				authorized,
 			),
 		).toBe(true);
 		expect(
 			requiredDesignQuestionBatchWasAnswered(
 				answered,
-				[
-					questions[1] as OpenQuestion,
-					...requiredQuestions(["A newly introduced decision?"], 9500),
-				],
+				questions.slice(1, 5),
+				authorized,
+			),
+		).toBe(true);
+		expect(
+			requiredDesignQuestionBatchWasAnswered(
+				answered,
+				[...questions.slice(0, 5)].reverse(),
+				authorized,
+			),
+		).toBe(true);
+		/* A newly introduced question never inherits an old answer, and only it
+		 * is demanded again — the four already-answered identities stay
+		 * answered instead of coming back to the user. */
+		const newlyIntroduced = requiredQuestions(
+			["A newly introduced decision?"],
+			9500,
+		);
+		const shiftedPending = [
+			...questions.slice(0, 4),
+			...newlyIntroduced,
+		] as OpenQuestion[];
+		expect(
+			requiredDesignQuestionBatchWasAnswered(
+				answered,
+				shiftedPending,
 				authorized,
 			),
 		).toBe(false);
 		expect(
+			unansweredRequiredDesignQuestions(answered, shiftedPending, authorized),
+		).toEqual(newlyIntroduced);
+		expect(
 			requiredDesignQuestionBatchWasAnswered(
 				answered,
 				[
-					...questions.slice(0, -1),
+					...questions.slice(0, 4),
 					...requiredQuestions(["A different final decision?"], 9600),
 				],
 				authorized,
@@ -338,7 +372,7 @@ describe("design agent Responses wire body", () => {
 				questions.slice(4),
 				authorized,
 			),
-		).toBe(true);
+		).toBe(false);
 		expect(
 			requiredDesignQuestionBatchWasAnswered(
 				[
@@ -349,10 +383,13 @@ describe("design agent Responses wire body", () => {
 						parts: [{ type: "text", text: "Please continue." }],
 					},
 				] as never,
-				questions,
+				questions.slice(0, 5),
 				authorized,
 			),
 		).toBe(true);
+		/* A redundant newer card for identities the durable answered card already
+		 * covers cannot un-answer them; coverage is per question identity, not
+		 * per newest card. */
 		expect(
 			requiredDesignQuestionBatchWasAnswered(
 				[
@@ -370,10 +407,10 @@ describe("design agent Responses wire body", () => {
 						],
 					},
 				] as never,
-				questions,
+				questions.slice(0, 5),
 				authorized,
 			),
-		).toBe(false);
+		).toBe(true);
 		expect(
 			requiredDesignQuestionBatchWasAnswered(
 				[
@@ -390,7 +427,7 @@ describe("design agent Responses wire body", () => {
 						],
 					},
 				] as never,
-				questions,
+				questions.slice(0, 5),
 				authorized,
 			),
 		).toBe(false);
@@ -420,12 +457,16 @@ describe("design agent Responses wire body", () => {
 						],
 					},
 				] as never,
-				questions,
+				questions.slice(0, 5),
 				authorized,
 			),
 		).toBe(false);
 		expect(
-			requiredDesignQuestionBatchWasAnswered(answered, questions, new Set()),
+			requiredDesignQuestionBatchWasAnswered(
+				answered,
+				questions.slice(0, 5),
+				new Set(),
+			),
 		).toBe(false);
 		const reusedTextWithNewIdentity = requiredQuestions(
 			[questions[0]?.question ?? ""],

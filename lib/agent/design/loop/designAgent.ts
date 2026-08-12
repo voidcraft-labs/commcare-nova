@@ -307,18 +307,24 @@ export function isExactRequiredDesignQuestionCall(
 	);
 }
 
-export function requiredDesignQuestionBatchWasAnswered(
+/** Digests of every required question whose exact identity received a
+ * durably authorized, non-empty user answer. An answer binds to the digest
+ * of the exact question asked — durable id, prose, structural scope, and
+ * related elements — so an unchanged question stays answered across bounded
+ * stages and later rounds, while a re-authored or newly introduced question
+ * can never inherit an old answer. The durable card authorization key proves
+ * each card was the exact server-derived batch, so its question order is the
+ * authorization's hash order; transcript text alone cannot make that claim. */
+export function answeredRequiredDesignQuestionDigests(
 	messages: readonly UIMessage[],
-	questions: readonly OpenQuestion[],
 	authorizedAppendKeys: ReadonlySet<string>,
-): boolean {
-	const pendingQuestions = normalizedRequiredDesignQuestions(questions);
-	const pendingHashes = pendingQuestions.map(requiredDesignQuestionDigest);
+): ReadonlySet<string> {
+	const answered = new Set<string>();
 	const authorizations = authorizedQuestionBatches(authorizedAppendKeys);
-	if (pendingQuestions.length === 0) return false;
-	for (const message of [...messages].reverse()) {
+	if (authorizations.length === 0) return answered;
+	for (const message of messages) {
 		if (message.role !== "assistant") continue;
-		for (const part of [...message.parts].reverse()) {
+		for (const part of message.parts) {
 			if (part.type !== "tool-askQuestions") continue;
 			const shaped = part as unknown as {
 				state?: unknown;
@@ -342,56 +348,69 @@ export function requiredDesignQuestionBatchWasAnswered(
 						question.options.length === 0,
 				);
 			if (!requiredBatch) continue;
-			/* One answered round authorizes every bounded stage needed to apply its
-			 * answers. The durable authorization key proves the card was the exact
-			 * server-derived batch; transcript text alone cannot make that claim. After
-			 * a bounded stage removes an answered prefix, the remaining suffix of that
-			 * same card must be the current pending prefix. Once the suffix is empty, a
-			 * later batch needs its own authorization and answer. */
-			const representsCurrentBatch = authorizations.some((authorization) => {
-				if (typeof part.toolCallId !== "string") return false;
+			if (shaped.state !== "output-available") continue;
+			if (typeof part.toolCallId !== "string") continue;
+			for (const authorization of authorizations) {
 				const cardKey = requiredDesignQuestionCardAuthorizationKey({
 					toolCallId: part.toolCallId,
 					authorizationKey: authorization.authorizationKey,
 					input: shaped.input,
 				});
-				if (
-					![...authorizedAppendKeys].some(
-						(key) => key === cardKey || key.startsWith(`${cardKey}:response:`),
-					)
-				) {
-					return false;
-				}
-				const firstPendingIndex = authorization.batchHashes.indexOf(
-					pendingHashes[0] as string,
+				const proven = [...authorizedAppendKeys].some(
+					(key) => key === cardKey || key.startsWith(`${cardKey}:response:`),
 				);
-				if (firstPendingIndex < 0) return false;
-				const batchSuffix = authorization.batchHashes.slice(firstPendingIndex);
-				return (
-					batchSuffix.every((hash, index) => hash === pendingHashes[index]) &&
-					durableModelValueDigest(
-						pendingQuestions
-							.slice(batchSuffix.length)
-							.map(requiredDesignQuestionDigest),
-					) === authorization.tailDigest
-				);
-			});
-			if (!representsCurrentBatch) {
-				/* A newer required-question-shaped card without matching durable
-				 * provenance must not fall through to an older answered card. */
-				return false;
+				if (!proven) continue;
+				asked.forEach((_question, index) => {
+					const digest = authorization.batchHashes[index];
+					const answer = shaped.output?.[String(index)];
+					if (
+						digest !== undefined &&
+						typeof answer === "string" &&
+						answer.trim().length > 0
+					) {
+						answered.add(digest);
+					}
+				});
 			}
-			return (
-				shaped.state === "output-available" &&
-				asked.every(
-					(_question, index) =>
-						typeof shaped.output?.[String(index)] === "string" &&
-						(shaped.output[String(index)] as string).trim().length > 0,
-				)
-			);
 		}
 	}
-	return false;
+	return answered;
+}
+
+/** The pending required questions that still need the user: every question
+ * whose exact identity lacks a durably authorized answer. Only these are
+ * demanded, so a question the user already answered never comes back to
+ * them when a resolved question leaves the pending set or a new one joins
+ * it. */
+export function unansweredRequiredDesignQuestions(
+	messages: readonly UIMessage[],
+	questions: readonly OpenQuestion[],
+	authorizedAppendKeys: ReadonlySet<string>,
+): OpenQuestion[] {
+	const pending = normalizedRequiredDesignQuestions(questions);
+	if (pending.length === 0) return [];
+	const answered = answeredRequiredDesignQuestionDigests(
+		messages,
+		authorizedAppendKeys,
+	);
+	return pending.filter(
+		(question) => !answered.has(requiredDesignQuestionDigest(question)),
+	);
+}
+
+/** True when every currently pending required question is answered, which
+ * authorizes the bounded stages that apply those answers to the candidate. */
+export function requiredDesignQuestionBatchWasAnswered(
+	messages: readonly UIMessage[],
+	questions: readonly OpenQuestion[],
+	authorizedAppendKeys: ReadonlySet<string>,
+): boolean {
+	const pending = normalizedRequiredDesignQuestions(questions);
+	return (
+		pending.length > 0 &&
+		unansweredRequiredDesignQuestions(messages, questions, authorizedAppendKeys)
+			.length === 0
+	);
 }
 
 function isRequiredQuestionMessage(message: ModelMessage): boolean {
@@ -412,7 +431,8 @@ export function requiredDesignQuestionMessage(
 		role: "user",
 		content: [
 			REQUIRED_QUESTION_HEADING,
-			`Finalization proved that these decisions require the user. Call askQuestions now with header "${REQUIRED_DESIGN_QUESTIONS_HEADER}" and every exact question below, in order, using an empty options list for free-text answers. Do not stage more design, submit again, assume answers, remove workflows, or reinterpret their scope.`,
+			`Finalization proved that these decisions require the user. Call askQuestions now with header "${REQUIRED_DESIGN_QUESTIONS_HEADER}" and every exact question below, in order, using an empty options list for free-text answers. Until the answers arrive, do not stage more design, submit again, assume answers, remove workflows, or reinterpret their scope.`,
+			`When the answers arrive, apply each one by staging before submitting again: update the affected elements, record the settled choice as a decision or assumption, and remove the question or mark it non-blocking. An answer that delegates the choice to you, such as "use sensible defaults", is a real answer — choose concrete values yourself, record them with an assumption naming what changes if they are wrong, and clear the question the same way.`,
 			...batch.map((question) => `- ${question.question}`),
 		].join("\n"),
 	};

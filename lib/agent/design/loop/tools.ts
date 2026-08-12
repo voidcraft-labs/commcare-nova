@@ -1021,6 +1021,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 						error: [
 							"The contract needs decisions from the user before it can be finalized.",
 							"Call askQuestions now with up to five of the exact questions below. Do not assume answers, remove included workflows, or reinterpret their scope.",
+							"Once the user answers, stage the resolution before submitting again: record each settled choice as a decision or assumption, and remove the question or mark it non-blocking.",
 							...questions.map((question) => `- ${question}`),
 						].join("\n"),
 						needsUserInput: {
@@ -1243,6 +1244,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 						error: [
 							"The revision needs decisions from the user before it can be accepted.",
 							"Call askQuestions now with up to five of the exact questions below. Do not assume answers, remove included workflows, or reinterpret their scope.",
+							"Once the user answers, stage the resolution before submitting again: record each settled choice as a decision or assumption, and remove the question or mark it non-blocking.",
 							...questions.map((question) => `- ${question}`),
 						].join("\n"),
 						needsUserInput: {
