@@ -270,7 +270,7 @@ function summarizeConversation(payload: ConversationPayload): string {
 		case "executor-tool-outcome":
 			return `executor ${payload.outcome}: ${payload.toolName}${payload.operationIndex === undefined ? "" : `[${payload.operationIndex}]`} (${payload.code}) at workspace r${payload.workspaceRevision}`;
 		case "design-tool-outcome":
-			return `design ${payload.outcome}: ${payload.toolName} [${payload.toolCallId}] (${payload.code}, ${payload.inputChars} chars, ${payload.durationMs}ms)`;
+			return `design ${payload.outcome}: ${payload.toolName} [${payload.toolCallId}] (${payload.code}${payload.validationStage === undefined ? "" : `, ${payload.validationStage}`}${payload.issueCount === undefined ? "" : `, ${payload.issueCount} issues`}, ${payload.inputChars} chars, ${payload.durationMs}ms)`;
 	}
 }
 
@@ -356,6 +356,10 @@ function printEventVerbose(event: Event): void {
 			console.log(`  │ durationMs:        ${p.durationMs}`);
 			console.log(`  │ outcome:           ${p.outcome}`);
 			console.log(`  │ code:              ${p.code}`);
+			console.log(
+				`  │ validationStage:   ${p.validationStage ?? "not applicable"}`,
+			);
+			console.log(`  │ issueCount:        ${p.issueCount ?? "not reported"}`);
 			break;
 		case "executor-tool-outcome":
 			console.log(`  │ modelStep:         ${p.modelStep}`);

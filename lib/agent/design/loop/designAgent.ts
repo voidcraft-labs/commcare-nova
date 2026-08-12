@@ -15,10 +15,15 @@ import type {
 	LanguageModel,
 	LanguageModelUsage,
 	ModelMessage,
+	Schema,
 	StepResultPerformance,
+	UIMessage,
 } from "ai";
-import { ToolLoopAgent } from "ai";
-import { askQuestionsTool } from "@/lib/agent/tools/askQuestions";
+import { jsonSchema, ToolLoopAgent, zodSchema } from "ai";
+import {
+	type AskQuestionsInput,
+	askQuestionsInputSchema,
+} from "@/lib/agent/tools/askQuestions";
 import {
 	modelMessagesContainCompaction,
 	projectModelHistoryFromNewestCompaction,
@@ -53,6 +58,13 @@ export interface DesignAgentArgs {
 	 *  exhausted repair or sequence budget ends the turn instead of asking
 	 *  the model for another step. */
 	readonly fatalError: () => Error | undefined;
+	/** A finalization proof may establish that only the user can supply the
+	 * remaining construction decisions. The next SDK step is then constrained
+	 * to the client-side question tool instead of permitting another mutation
+	 * or submission attempt. */
+	readonly requiredUserQuestions: () =>
+		| readonly string[]
+		| Promise<readonly string[]>;
 	/** A compact server-derived checkpoint appended immediately after a new
 	 * provider compaction item. Durable workspace state, not the summarized
 	 * model history, remains authoritative across the boundary. */
@@ -149,6 +161,169 @@ function isDesignStateMessage(message: ModelMessage): boolean {
 	);
 }
 
+const REQUIRED_QUESTION_HEADING =
+	"# Required design questions (server-derived)";
+export const REQUIRED_DESIGN_QUESTIONS_HEADER = "Required design decisions";
+export const MAX_REQUIRED_DESIGN_QUESTIONS_PER_ROUND = 5;
+
+export function requiredDesignQuestionBatch(
+	questions: readonly string[],
+): readonly string[] {
+	return [
+		...new Set(questions.map((question) => question.trim()).filter(Boolean)),
+	].slice(0, MAX_REQUIRED_DESIGN_QUESTIONS_PER_ROUND);
+}
+
+/** A lazy tool schema calls this for both provider projection and SDK input
+ * validation on each step. In a forced round it admits only the exact
+ * server-derived batch, in order, with free-text answers; an ordinary design
+ * question round retains the shared askQuestions schema. */
+export function requiredDesignQuestionInputSchema(
+	questions: readonly string[],
+): Schema<AskQuestionsInput> {
+	const batch = requiredDesignQuestionBatch(questions);
+	if (batch.length === 0) return zodSchema(askQuestionsInputSchema);
+	return jsonSchema<AskQuestionsInput>(
+		{
+			type: "object",
+			additionalProperties: false,
+			required: ["header", "questions"],
+			properties: {
+				header: {
+					type: "string",
+					const: REQUIRED_DESIGN_QUESTIONS_HEADER,
+				},
+				questions: {
+					type: "array",
+					minItems: batch.length,
+					maxItems: batch.length,
+					items: {
+						type: "object",
+						additionalProperties: false,
+						required: ["question", "options"],
+						properties: {
+							question: { type: "string", enum: [...batch] },
+							options: {
+								type: "array",
+								maxItems: 0,
+								items: {
+									type: "object",
+									additionalProperties: false,
+									properties: {
+										label: { type: "string" },
+										description: { type: "string" },
+									},
+									required: ["label"],
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			validate: (value) => {
+				const parsed = askQuestionsInputSchema.safeParse(value);
+				const exact =
+					parsed.success &&
+					parsed.data.header === REQUIRED_DESIGN_QUESTIONS_HEADER &&
+					parsed.data.questions.length === batch.length &&
+					parsed.data.questions.every(
+						(question, index) =>
+							question.question === batch[index] &&
+							question.options.length === 0,
+					);
+				return exact
+					? { success: true as const, value: parsed.data }
+					: {
+							success: false as const,
+							error: new Error(
+								"The forced question round must contain the exact server-derived questions.",
+							),
+						};
+			},
+		},
+	);
+}
+
+export function requiredDesignQuestionBatchWasAnswered(
+	messages: readonly UIMessage[],
+	questions: readonly string[],
+): boolean {
+	const batch = requiredDesignQuestionBatch(questions);
+	if (batch.length === 0) return false;
+	const last = messages.at(-1);
+	if (last?.role !== "assistant") return false;
+	let lastStepStart = -1;
+	last.parts.forEach((part, index) => {
+		if (part.type === "step-start") lastStepStart = index;
+	});
+	return last.parts.slice(lastStepStart + 1).some((part) => {
+		if (part.type !== "tool-askQuestions") return false;
+		const shaped = part as unknown as {
+			state?: unknown;
+			input?: {
+				header?: unknown;
+				questions?: Array<{ question?: unknown; options?: unknown }>;
+			};
+			output?: Record<string, unknown>;
+		};
+		const asked = shaped.input?.questions;
+		return (
+			shaped.state === "output-available" &&
+			shaped.input?.header === REQUIRED_DESIGN_QUESTIONS_HEADER &&
+			Array.isArray(asked) &&
+			asked.length === batch.length &&
+			asked.every(
+				(question, index) =>
+					question.question === batch[index] &&
+					Array.isArray(question.options) &&
+					question.options.length === 0 &&
+					typeof shaped.output?.[String(index)] === "string" &&
+					(shaped.output[String(index)] as string).trim().length > 0,
+			)
+		);
+	});
+}
+
+function isRequiredQuestionMessage(message: ModelMessage): boolean {
+	if (message.role !== "user") return false;
+	if (typeof message.content === "string")
+		return message.content.startsWith(REQUIRED_QUESTION_HEADING);
+	return message.content.some(
+		(part) =>
+			part.type === "text" && part.text.startsWith(REQUIRED_QUESTION_HEADING),
+	);
+}
+
+export function requiredDesignQuestionMessage(
+	questions: readonly string[],
+): ModelMessage {
+	const batch = requiredDesignQuestionBatch(questions);
+	return {
+		role: "user",
+		content: [
+			REQUIRED_QUESTION_HEADING,
+			`Finalization proved that these decisions require the user. Call askQuestions now with header "${REQUIRED_DESIGN_QUESTIONS_HEADER}" and every exact question below, in order, using an empty options list for free-text answers. Do not stage more design, submit again, assume answers, remove workflows, or reinterpret their scope.`,
+			...batch.map((question) => `- ${question}`),
+		].join("\n"),
+	};
+}
+
+export function requiredDesignQuestionStep(questions: readonly string[]) {
+	const batch = requiredDesignQuestionBatch(questions);
+	return batch.length === 0
+		? null
+		: {
+				activeTools: ["askQuestions"] as const,
+				toolChoice: {
+					type: "tool" as const,
+					toolName: "askQuestions" as const,
+				},
+				message: requiredDesignQuestionMessage(batch),
+			};
+}
+
 export async function projectDesignStepMessages(
 	messages: readonly ModelMessage[],
 	freshStateMessage: () => Promise<ModelMessage>,
@@ -165,10 +340,12 @@ export async function projectDesignStepMessages(
 }
 
 export function createDesignAgent(args: DesignAgentArgs) {
+	let activeRequiredQuestions: readonly string[] = [];
 	const phaseTools = {
 		askQuestions: {
 			description: DESIGN_ASK_QUESTIONS_DESCRIPTION,
-			inputSchema: askQuestionsTool.inputSchema,
+			inputSchema: () =>
+				requiredDesignQuestionInputSchema(activeRequiredQuestions),
 			strict: false,
 		},
 		...(args.phase === "author" && {
@@ -216,12 +393,29 @@ export function createDesignAgent(args: DesignAgentArgs) {
 				messages,
 				args.freshStateMessage,
 			);
+			const requiredQuestions = await args.requiredUserQuestions();
+			activeRequiredQuestions = requiredQuestions;
+			const requiredQuestionStep =
+				requiredDesignQuestionStep(requiredQuestions);
+			const preparedMessages =
+				requiredQuestionStep === null
+					? withFreshState
+					: [
+							...withFreshState.filter(
+								(message) => !isRequiredQuestionMessage(message),
+							),
+							requiredQuestionStep.message,
+						];
 			const providerOptions = reasoningProviderOptions(
 				DESIGN_AUTHOR_REASONING.effort,
 				{ promptCacheKey: args.promptCacheKey },
 			);
 			return {
-				messages: withFreshState,
+				messages: preparedMessages,
+				...(requiredQuestionStep !== null && {
+					activeTools: requiredQuestionStep.activeTools,
+					toolChoice: requiredQuestionStep.toolChoice,
+				}),
 				providerOptions: {
 					openai: { ...providerOptions.openai, parallelToolCalls: false },
 				},

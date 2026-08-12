@@ -20,6 +20,7 @@ import {
 	initialDesignWorkspaceCandidate,
 	replayDesignWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
+import { designIdentityCollisions } from "@/lib/agent/design/graph";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
@@ -36,8 +37,10 @@ export class DesignArtifactWorkspaceError extends Error {
 			| "not-found"
 			| "stale-revision"
 			| "not-open"
-			| "idempotency-collision",
+			| "idempotency-collision"
+			| "partial-invalid",
 		message: string,
+		readonly issueCount?: number,
 	) {
 		super(message);
 	}
@@ -538,6 +541,27 @@ export async function stageDesignArtifactWorkspace(args: {
 		expectedRevision: args.expectedRevision,
 		operation,
 	});
+	let baseContract: Record<string, unknown> | undefined;
+	if (operation.kind === "revision") {
+		const base = args.lineage.baseRevision;
+		const revision =
+			base === undefined ? null : await readDesignRevision(base.id);
+		if (
+			base === undefined ||
+			revision === null ||
+			revision.designSessionId !== args.designSessionId ||
+			revision.artifactDigest !== base.digest
+		) {
+			throw new DesignArtifactWorkspaceError(
+				"lineage-invalid",
+				"The revision workspace base no longer verifies.",
+			);
+		}
+		baseContract = revision.envelope.payload as unknown as Record<
+			string,
+			unknown
+		>;
+	}
 	const result = await withAppTx(async (tx) => {
 		await authorizeWorkspace(tx, args.designSessionId, args.authority);
 		const workspaceId = await ensureOpenWorkspaceInTransaction({ tx, ...args });
@@ -576,6 +600,28 @@ export async function stageDesignArtifactWorkspace(args: {
 			throw new DesignArtifactWorkspaceError(
 				"stale-revision",
 				`The workspace is at revision ${revision}, not ${args.expectedRevision}. Inspect its current state before staging more work.`,
+			);
+		}
+		const priorOperations = await readWorkspaceOperations(tx, workspaceId);
+		if (priorOperations.length !== revision) {
+			throw new DesignArtifactWorkspaceError(
+				"lineage-invalid",
+				"The design workspace revision disagrees with its operation ledger.",
+			);
+		}
+		const collisions = designIdentityCollisions(
+			replayDesignWorkspace({
+				kind: operation.kind,
+				...(baseContract !== undefined && { baseContract }),
+				operations: [...priorOperations, operation],
+			}),
+		);
+		if (collisions.length > 0) {
+			const first = collisions[0];
+			throw new DesignArtifactWorkspaceError(
+				"partial-invalid",
+				`The staged ${operation.kind} reuses ${collisions.length} design ${collisions.length === 1 ? "identity" : "identities"}. ${first?.path.join(".")} is already used at ${first?.priorPath.join(".")}. Give every declared actor, record, property, workflow, list, access rule, navigation item, requirement, decision, assumption, and question its own handle.`,
+				collisions.length,
 			);
 		}
 		const next = revision + 1;

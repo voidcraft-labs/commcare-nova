@@ -158,8 +158,18 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		toolName: z.string().min(1),
 		inputChars: z.number().int().nonnegative(),
 		durationMs: z.number().int().nonnegative(),
-		outcome: z.enum(["accepted", "rejected", "wire-invalid", "incomplete"]),
+		outcome: z.enum([
+			"accepted",
+			"needs-input",
+			"rejected",
+			"wire-invalid",
+			"incomplete",
+		]),
 		code: z.string().min(1),
+		validationStage: z
+			.enum(["partial", "schema", "construction", "sensitivity"])
+			.optional(),
+		issueCount: z.number().int().nonnegative().optional(),
 	}),
 	/* Executor-tool-outcome annotation — the payload-free audit trail for the
 	 * private slice compiler. Raw executor inputs, outputs, and rejection prose

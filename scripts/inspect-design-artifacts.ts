@@ -22,6 +22,7 @@
  *   npx tsx scripts/inspect-design-artifacts.ts --session <designSessionId> [--reasoning] [--prod]
  */
 import "dotenv/config";
+import { sql } from "kysely";
 import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
 import { readCommittedSliceReceiptsForPlan } from "@/lib/agent/change-set/commit";
 import {
@@ -31,11 +32,24 @@ import {
 	readDispositions,
 	readLatestDesignBuildPlanForRevision,
 } from "@/lib/agent/design/artifactStore";
+import {
+	designArtifactWorkspaceOperationSchema,
+	replayDesignWorkspace,
+} from "@/lib/agent/design/artifactWorkspaceOperations";
+import {
+	appDesignContractSchema,
+	designConstructionIssues,
+} from "@/lib/agent/design/contract";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { loadDesignSession } from "@/lib/db/designSessions";
+import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { getAppDb } from "@/lib/db/pg";
 import { readEvents } from "@/lib/log/reader";
-import { collectDesignArtifactProducerRunIds } from "./lib/designArtifactProducerRuns";
+import { safePersistedSequence } from "@/lib/utils/persistedSequence";
+import {
+	collectDesignArtifactProducerRunIds,
+	designArtifactDiagnosticRuns,
+} from "./lib/designArtifactProducerRuns";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
@@ -73,17 +87,187 @@ async function printRunDiagnostics(
 		);
 	}
 	for (const event of events) {
-		if (
-			event.kind !== "conversation" ||
-			event.payload.type !== "executor-tool-outcome"
-		) {
+		if (event.kind !== "conversation") continue;
+		if (event.payload.type === "design-tool-outcome") {
+			const outcome = event.payload;
+			console.log(
+				`${indent}design ${outcome.outcome}: ${outcome.toolName} (${outcome.code})${outcome.validationStage === undefined ? "" : ` at ${outcome.validationStage}`}${outcome.issueCount === undefined ? "" : `, ${outcome.issueCount} issues`}`,
+			);
 			continue;
 		}
+		if (event.payload.type !== "executor-tool-outcome") continue;
 		const outcome = event.payload;
 		console.log(
 			`${indent}executor ${outcome.outcome}: ${outcome.toolName}${outcome.operationIndex === undefined ? "" : `[${outcome.operationIndex}]`} (${outcome.code}) at workspace r${outcome.workspaceRevision}`,
 		);
 	}
+}
+
+async function printPreRevisionDiagnostics(args: {
+	readonly sessionId: string;
+	readonly appId: string | null;
+	readonly withReasoning: boolean;
+}): Promise<void> {
+	const session = await loadDesignSession(args.sessionId);
+	if (session === null) {
+		console.log(`No design session ${args.sessionId}.`);
+		return;
+	}
+	const db = await getAppDb();
+	const [workspaces, workspaceStepProducers, sourceProducers, summaries] =
+		await Promise.all([
+			db
+				.selectFrom("design_artifact_workspaces")
+				.select([
+					"id",
+					"artifact_kind",
+					"revision",
+					"status",
+					"created_by_run_id",
+					"updated_by_run_id",
+				])
+				.where("design_session_id", "=", args.sessionId)
+				.orderBy("created_at", "asc")
+				.execute(),
+			db
+				.selectFrom("design_artifact_workspace_steps")
+				.innerJoin(
+					"design_artifact_workspaces",
+					"design_artifact_workspaces.id",
+					"design_artifact_workspace_steps.workspace_id",
+				)
+				.select(
+					"design_artifact_workspace_steps.created_by_run_id as createdByRunId",
+				)
+				.where(
+					"design_artifact_workspaces.design_session_id",
+					"=",
+					args.sessionId,
+				)
+				.execute(),
+			db
+				.selectFrom("design_source_packages")
+				.select("created_by_run_id as createdByRunId")
+				.where("design_session_id", "=", args.sessionId)
+				.execute(),
+			db
+				.selectFrom("run_summaries")
+				.selectAll()
+				.where("design_session_id", "=", args.sessionId)
+				.orderBy("started_at", "asc")
+				.execute(),
+		]);
+	console.log(
+		`session ${args.sessionId} [${session.state}] · materialized ${session.app_id === null ? "no" : "yes"} · awaiting input ${session.awaiting_input ? "yes" : "no"} · last error ${session.last_error_type ?? "none"}`,
+	);
+	for (const workspace of workspaces) {
+		const rows = await db
+			.selectFrom("design_artifact_workspace_steps")
+			.select("revision")
+			.select(
+				sql<string>`${sql.ref("design_artifact_workspace_steps.operation")}::text`.as(
+					"operation_text",
+				),
+			)
+			.where("workspace_id", "=", workspace.id)
+			.orderBy("revision", "asc")
+			.execute();
+		const operations = rows.map((row, index) => {
+			const revision = safePersistedSequence(
+				row.revision,
+				`design_artifact_workspace_steps.revision for ${workspace.id}`,
+			);
+			if (revision !== index + 1)
+				throw new Error(
+					`Design workspace ${workspace.id} has a non-contiguous operation ledger.`,
+				);
+			return designArtifactWorkspaceOperationSchema.parse(
+				parsePersistedJsonText(
+					row.operation_text,
+					`design_artifact_workspace_steps.operation for ${workspace.id} revision ${revision}`,
+				),
+			);
+		});
+		const persistedRevision = safePersistedSequence(
+			workspace.revision,
+			`design_artifact_workspaces.revision for ${workspace.id}`,
+		);
+		if (persistedRevision !== operations.length)
+			throw new Error(
+				`Design workspace ${workspace.id} disagrees with its operation ledger.`,
+			);
+		let readiness = "readiness unavailable";
+		if (workspace.artifact_kind === "contract") {
+			const candidate = replayDesignWorkspace({
+				kind: "contract",
+				operations,
+			});
+			const parsed = appDesignContractSchema.safeParse(candidate);
+			if (!parsed.success) {
+				readiness = `schema-invalid (${parsed.error.issues.length} issues)`;
+			} else {
+				const constructionIssues = designConstructionIssues(parsed.data);
+				readiness =
+					constructionIssues.length === 0
+						? "ready to finalize"
+						: `construction-blocked (${constructionIssues.length} issues)`;
+			}
+		}
+		console.log(
+			`  ${workspace.artifact_kind} workspace ${workspace.id.slice(0, 8)}… [${workspace.status}] · r${persistedRevision} · ${readiness}`,
+		);
+	}
+	if (workspaces.length === 0) console.log("  no design workspaces");
+
+	const producerRunIds = collectDesignArtifactProducerRunIds(
+		sourceProducers,
+		workspaces.flatMap((workspace) => [
+			{ createdByRunId: workspace.created_by_run_id },
+			{ createdByRunId: workspace.updated_by_run_id },
+		]),
+		workspaceStepProducers,
+	);
+	const { runIds: diagnosticRunIds, missingSummaryCount } =
+		designArtifactDiagnosticRuns(
+			producerRunIds,
+			summaries.map((summary) => summary.run_id),
+		);
+	const sum = (read: (row: (typeof summaries)[number]) => number): number =>
+		summaries.reduce((total, row) => total + read(row), 0);
+	const startedAt = summaries
+		.map((summary) => summary.started_at)
+		.sort((left, right) => Date.parse(left) - Date.parse(right))
+		.at(0);
+	const finishedAt = summaries
+		.flatMap((summary) =>
+			summary.finished_at === undefined ? [] : [summary.finished_at],
+		)
+		.sort((left, right) => Date.parse(right) - Date.parse(left))
+		.at(0);
+	const inputTokens = sum((row) => Number(row.input_tokens));
+	const outputTokens = sum((row) => Number(row.output_tokens));
+	const cacheReadTokens = sum((row) => Number(row.cache_read_tokens));
+	const cacheWriteTokens = sum((row) => Number(row.cache_write_tokens));
+	if (summaries.length === 0) {
+		console.log(
+			`  usage unknown · no flushed run summary${producerRunIds.length === 0 ? "" : ` for ${producerRunIds.length} artifact producer run${producerRunIds.length === 1 ? "" : "s"}`}`,
+		);
+	} else {
+		console.log(
+			`  usage ${sum((row) => row.step_count)} model steps · ${(inputTokens + outputTokens).toLocaleString()} tokens ` +
+				`(${cacheReadTokens.toLocaleString()} cache read, ${cacheWriteTokens.toLocaleString()} cache write) · ` +
+				`${startedAt === undefined || finishedAt === undefined ? "unknown" : `${Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt))} ms`} · ` +
+				`$${sum((row) => row.cost_estimate).toFixed(4)} estimated` +
+				(missingSummaryCount === 0
+					? ""
+					: ` · ${missingSummaryCount} artifact producer run${missingSummaryCount === 1 ? "" : "s"} missing summaries`),
+		);
+	}
+	if (args.withReasoning) {
+		for (const runId of diagnosticRunIds)
+			await printRunDiagnostics(args.appId, runId, "  ");
+	}
+	console.log("No immutable design revisions or build plan were accepted.");
 }
 
 async function printBuildAggregate(args: {
@@ -273,7 +457,7 @@ async function main(): Promise<void> {
 
 	const revisions = await readDesignRevisionsForSession(sessionId);
 	if (revisions.length === 0) {
-		console.log(`No design revisions for session ${sessionId}.`);
+		await printPreRevisionDiagnostics({ sessionId, appId, withReasoning });
 		return;
 	}
 	const reviewEntries = await Promise.all(

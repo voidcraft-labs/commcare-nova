@@ -13,7 +13,13 @@
 
 import { createOpenAI } from "@ai-sdk/openai";
 import { describe, expect, it } from "vitest";
-import { createDesignAgent } from "@/lib/agent/design/loop/designAgent";
+import {
+	createDesignAgent,
+	REQUIRED_DESIGN_QUESTIONS_HEADER,
+	requiredDesignQuestionBatchWasAnswered,
+	requiredDesignQuestionInputSchema,
+	requiredDesignQuestionStep,
+} from "@/lib/agent/design/loop/designAgent";
 import { DesignRepairTracker } from "@/lib/agent/design/loop/gates";
 import { createDesignLoopTools } from "@/lib/agent/design/loop/tools";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
@@ -28,6 +34,7 @@ interface CapturedBody {
 	prompt_cache_key?: string;
 	prompt_cache_options?: { mode?: string; ttl?: string };
 	parallel_tool_calls?: boolean;
+	tool_choice?: { type?: string; name?: string };
 	tools?: Array<{
 		name?: string;
 		strict?: boolean;
@@ -61,7 +68,9 @@ function fixturePkg(): DesignSourcePackage {
 	return { ...unsealed, packageDigest: computeSourcePackageDigest(unsealed) };
 }
 
-async function captureDesignTurnBody(): Promise<CapturedBody> {
+async function captureDesignTurnBody(
+	requiredQuestions: readonly string[] = [],
+): Promise<CapturedBody> {
 	let captured: CapturedBody | null = null;
 	const capture: typeof fetch = async (_url, init) => {
 		captured ??= JSON.parse(init?.body as string) as CapturedBody;
@@ -109,6 +118,7 @@ async function captureDesignTurnBody(): Promise<CapturedBody> {
 		instructions: "You are Nova's designer.",
 		promptCacheKey: "nova:design:session-probe",
 		fatalError: () => undefined,
+		requiredUserQuestions: () => requiredQuestions,
 		freshStateMessage: async () => ({
 			role: "user",
 			content: "# Design session state (server-derived)",
@@ -132,6 +142,113 @@ async function captureDesignTurnBody(): Promise<CapturedBody> {
 }
 
 describe("design agent Responses wire body", () => {
+	it("forces the client question tool after construction admission needs input", () => {
+		const questions = Array.from(
+			{ length: 7 },
+			(_, index) => `Which protocol threshold ${index + 1} applies?`,
+		);
+		const step = requiredDesignQuestionStep(questions);
+		expect(step).toMatchObject({
+			activeTools: ["askQuestions"],
+			toolChoice: { type: "tool", toolName: "askQuestions" },
+		});
+		expect(step?.message.content).toContain(questions[0]);
+		expect(step?.message.content).not.toContain(questions[5]);
+		expect(requiredDesignQuestionStep([])).toBeNull();
+	});
+
+	it("admits only the exact server-derived five-question batch", async () => {
+		const questions = Array.from(
+			{ length: 7 },
+			(_, index) => `Which protocol threshold ${index + 1} applies?`,
+		);
+		const schema = requiredDesignQuestionInputSchema(questions);
+		const exactInput = {
+			header: REQUIRED_DESIGN_QUESTIONS_HEADER,
+			questions: questions.slice(0, 5).map((question) => ({
+				question,
+				options: [],
+			})),
+		};
+		expect(await schema.validate?.(exactInput)).toMatchObject({
+			success: true,
+		});
+		expect(
+			await schema.validate?.({
+				...exactInput,
+				questions: exactInput.questions.map((question, index) =>
+					index === 0 ? { ...question, question: "A paraphrase?" } : question,
+				),
+			}),
+		).toMatchObject({ success: false });
+		const projected = await schema.jsonSchema;
+		expect(
+			(projected.properties?.questions as { maxItems?: number } | undefined)
+				?.maxItems,
+		).toBe(5);
+
+		const body = await captureDesignTurnBody(questions);
+		expect(body.tool_choice).toEqual({
+			type: "function",
+			name: "askQuestions",
+		});
+		const askQuestions = body.tools?.find(
+			(tool) => tool.name === "askQuestions",
+		);
+		expect(body.tools?.map((tool) => tool.name)).toEqual(["askQuestions"]);
+		const header = askQuestions?.parameters?.properties?.header as
+			| { const?: unknown }
+			| undefined;
+		const questionArray = askQuestions?.parameters?.properties?.questions as
+			| { minItems?: number; maxItems?: number }
+			| undefined;
+		expect(header?.const).toBe(REQUIRED_DESIGN_QUESTIONS_HEADER);
+		expect(questionArray).toMatchObject({ minItems: 5, maxItems: 5 });
+
+		const answered = [
+			{
+				id: "assistant-1",
+				role: "assistant",
+				parts: [
+					{ type: "step-start" },
+					{
+						type: "tool-askQuestions",
+						state: "output-available",
+						input: exactInput,
+						output: Object.fromEntries(
+							exactInput.questions.map((_, index) => [String(index), "Answer"]),
+						),
+					},
+				],
+			},
+		] as never;
+		expect(requiredDesignQuestionBatchWasAnswered(answered, questions)).toBe(
+			true,
+		);
+		expect(
+			requiredDesignQuestionBatchWasAnswered(
+				[
+					{
+						...(answered[0] as object),
+						parts: [
+							{ type: "step-start" },
+							{
+								type: "tool-askQuestions",
+								state: "output-available",
+								input: exactInput,
+								output: {},
+							},
+						],
+					},
+				] as never,
+				questions,
+			),
+		).toBe(false);
+		expect(
+			requiredDesignQuestionBatchWasAnswered(answered, questions.slice(5)),
+		).toBe(false);
+	});
+
 	it("carries strict ordered tools, the cache triple, and xhigh reasoning", async () => {
 		const body = await captureDesignTurnBody();
 

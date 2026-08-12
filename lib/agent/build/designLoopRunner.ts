@@ -22,6 +22,7 @@ import type {
 } from "ai";
 import { convertToModelMessages, validateUIMessages } from "ai";
 import type {
+	DesignArtifactWriteAuthority,
 	DesignBuildPlanRecord,
 	DesignRevisionRecord,
 } from "@/lib/agent/design/artifactStore";
@@ -35,15 +36,21 @@ import {
 	buildCapabilityCatalog,
 	renderCapabilityCatalog,
 } from "@/lib/agent/design/capabilityCatalog";
+import {
+	appDesignContractSchema,
+	designConstructionQuestions,
+} from "@/lib/agent/design/contract";
 import type { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import {
 	createDesignAgent,
 	type DesignAgentStep,
+	requiredDesignQuestionBatchWasAnswered,
 } from "@/lib/agent/design/loop/designAgent";
 import {
 	DESIGN_LOOP_STEP_BUDGET,
 	type DesignGateState,
 	DesignRepairTracker,
+	type DesignSubmissionValidationStage,
 	evaluateDesignGates,
 	loadDesignAncestry,
 } from "@/lib/agent/design/loop/gates";
@@ -112,12 +119,55 @@ export interface DesignToolOutcomeEvent {
 	readonly toolName: string;
 	readonly inputChars: number;
 	readonly durationMs: number;
-	readonly outcome: "accepted" | "rejected" | "wire-invalid" | "incomplete";
+	readonly outcome:
+		| "accepted"
+		| "needs-input"
+		| "rejected"
+		| "wire-invalid"
+		| "incomplete";
 	readonly code: string;
+	readonly validationStage?: DesignSubmissionValidationStage | "partial";
+	readonly issueCount?: number;
 }
 
-export const DESIGN_LOOP_STOP_MESSAGE =
-	"Your reviewed design is saved, but Nova couldn't finish preparing the build. Nothing incomplete was added.";
+export function designLoopStopMessage(gates: DesignGateState): string {
+	if (gates.head === null)
+		return "Nova preserved the unfinished design workspace, but couldn't produce an executable design. No design, plan, or app was accepted.";
+	if (gates.head.lifecycle === "draft")
+		return gates.headReviews.length > 0
+			? "Nova preserved the reviewed draft, but couldn't resolve its remaining design requirements. No plan or app was accepted."
+			: "Nova preserved the draft design, but couldn't finish checking it. No plan or app was accepted.";
+	return "Nova preserved the accepted design, but couldn't derive its exact construction plan. No app was created.";
+}
+
+function readDesignToolDiagnostic(output: Record<string, unknown> | null): {
+	readonly code: string;
+	readonly validationStage?: DesignSubmissionValidationStage | "partial";
+	readonly issueCount?: number;
+} | null {
+	const value = output?.diagnostic;
+	if (typeof value !== "object" || value === null || Array.isArray(value))
+		return null;
+	const diagnostic = value as Record<string, unknown>;
+	if (typeof diagnostic.code !== "string" || diagnostic.code.length === 0)
+		return null;
+	const validationStage = diagnostic.validationStage;
+	const issueCount = diagnostic.issueCount;
+	return {
+		code: diagnostic.code,
+		...(validationStage === "partial" ||
+		validationStage === "schema" ||
+		validationStage === "construction" ||
+		validationStage === "sensitivity"
+			? { validationStage }
+			: {}),
+		...(typeof issueCount === "number" &&
+		Number.isInteger(issueCount) &&
+		issueCount >= 0
+			? { issueCount }
+			: {}),
+	};
+}
 
 /** A fresh contract is being designed; replacing any persisted contract is a
  * revision from the person's point of view even though immutable artifacts
@@ -149,6 +199,28 @@ function activeWorkspaceKind(
 	if (gates.verdicts.submitRevision.legal) return "revision";
 	if (gates.verdicts.submitContract.legal) return "contract";
 	return null;
+}
+
+/** Recover a forced-question requirement from durable workspace state. This
+ * closes the process-death gap between a finalizer proving the questions and
+ * the client-side question card being emitted. */
+export async function readRequiredDesignQuestionsFromWorkspace(args: {
+	readonly designSessionId: string;
+	readonly gates: DesignGateState;
+	readonly authority: DesignArtifactWriteAuthority;
+}): Promise<readonly string[]> {
+	const kind = activeWorkspaceKind(args.gates);
+	if (kind === null) return [];
+	const workspace = await openDesignArtifactWorkspace({
+		designSessionId: args.designSessionId,
+		lineage: designWorkspaceLineageForGates(kind, args.gates),
+		authority: args.authority,
+	});
+	const { dispositions: _dispositions, ...contractCandidate } =
+		workspace.candidate;
+	const parsed = appDesignContractSchema.safeParse(contractCandidate);
+	if (!parsed.success) return [];
+	return designConstructionQuestions(parsed.data) ?? [];
 }
 
 export interface DesignLoopRunnerArgs {
@@ -338,6 +410,20 @@ export async function runDesignAgentLoop(
 			instructions: DESIGN_AGENT_SYSTEM,
 			promptCacheKey: `nova:design:${args.designSessionId}:${phase}`,
 			fatalError: () => repair.fatalError(),
+			requiredUserQuestions: async () => {
+				const pending = repair.requiredUserQuestions();
+				const questions =
+					pending.length > 0
+						? pending
+						: await readRequiredDesignQuestionsFromWorkspace({
+								designSessionId: args.designSessionId,
+								gates: evaluateDesignGates(await loadAncestry()),
+								authority,
+							});
+				return requiredDesignQuestionBatchWasAnswered(args.messages, questions)
+					? []
+					: questions;
+			},
 			freshStateMessage: async () =>
 				stateMessageFor(evaluateDesignGates(await loadAncestry())),
 			stepsBeforeStream,
@@ -400,6 +486,7 @@ export async function runDesignAgentLoop(
 			toolCallId: string,
 			outcome: DesignToolOutcomeEvent["outcome"],
 			code: string,
+			diagnostic?: ReturnType<typeof readDesignToolDiagnostic>,
 		): void => {
 			const tracked = toolStreams.get(toolCallId);
 			if (tracked === undefined || tracked.outcomeEmitted) return;
@@ -410,7 +497,13 @@ export async function runDesignAgentLoop(
 				inputChars: tracked.inputChars,
 				durationMs: Math.max(0, Date.now() - tracked.startedAt),
 				outcome,
-				code,
+				code: diagnostic?.code ?? code,
+				...(diagnostic?.validationStage !== undefined && {
+					validationStage: diagnostic.validationStage,
+				}),
+				...(diagnostic?.issueCount !== undefined && {
+					issueCount: diagnostic.issueCount,
+				}),
 			});
 		};
 		const trackPulse = (chunk: UIMessageChunk): void => {
@@ -492,10 +585,15 @@ export async function runDesignAgentLoop(
 							? (chunk.output as Record<string, unknown>)
 							: null;
 					const failed = typeof output?.error === "string";
+					const needsInput =
+						typeof output?.needsUserInput === "object" &&
+						output.needsUserInput !== null;
+					const diagnostic = readDesignToolDiagnostic(output);
 					noteToolOutcome(
 						chunk.toolCallId,
-						failed ? "rejected" : "accepted",
+						needsInput ? "needs-input" : failed ? "rejected" : "accepted",
 						failed ? "tool-refused" : "tool-completed",
+						diagnostic,
 					);
 					if (toolName === "submitContract") {
 						livePulsePhase = failed ? contractPulsePhase : "review";
@@ -618,6 +716,12 @@ export async function runDesignAgentLoop(
 		const classified = classifyError(
 			pendingError ?? new Error("The design stream ended in an error."),
 		);
+		/* A latched protocol/convergence defect is terminal for this run. The
+		 * provider retry loop cannot change its deterministic gate state. */
+		if (repair.fatalError() !== undefined) {
+			failure = classified;
+			break;
+		}
 		if (!shouldRetryTurn(classified, turnRetries)) {
 			failure = classified;
 			break;
@@ -652,12 +756,20 @@ export async function runDesignAgentLoop(
 			headRevisionId: finalGates.head?.id ?? null,
 		};
 	}
-	if (fatal !== undefined || completedModelSteps >= DESIGN_LOOP_STEP_BUDGET) {
+	if (fatal !== undefined) {
 		return {
 			kind: "failed",
-			errorType: "design-loop-budget",
-			message: DESIGN_LOOP_STOP_MESSAGE,
-			recoverable: true,
+			errorType: fatal.code,
+			message: designLoopStopMessage(finalGates),
+			recoverable: false,
+		};
+	}
+	if (completedModelSteps >= DESIGN_LOOP_STEP_BUDGET) {
+		return {
+			kind: "failed",
+			errorType: "design-step-budget",
+			message: designLoopStopMessage(finalGates),
+			recoverable: false,
 		};
 	}
 	if (failure !== null) {

@@ -146,6 +146,7 @@ function scriptedContext(
 function mount(
 	pkg: DesignSourcePackage,
 	nextReview: () => DesignReview = cleanReview,
+	repair = new DesignRepairTracker(),
 ) {
 	return createDesignLoopTools({
 		designSessionId: sessionId,
@@ -155,7 +156,7 @@ function mount(
 		catalogText: "CATALOG",
 		ctx: scriptedContext(nextReview),
 		signal: new AbortController().signal,
-		repair: new DesignRepairTracker(),
+		repair,
 		loadAncestry: async () => {
 			const { loadDesignAncestry } = await import(
 				"@/lib/agent/design/loop/gates"
@@ -269,6 +270,131 @@ describe("staged design loop", () => {
 		);
 	});
 
+	it("rejects duplicate declaration identities before they enter the workspace ledger", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const tools = mount(pkg);
+		const contract = makeContract();
+		const root = await call(tools.stageContract, {
+			expectedRevision: 0,
+			root: { id: contract.id, charter: contract.charter },
+			collections: [],
+		});
+		const baseRecord = fixtureValue(contract.records[0], "first record");
+		const collidingRecords = Array.from({ length: 6 }, (_, index) => {
+			const id = did(1000 + index);
+			return {
+				...baseRecord,
+				id,
+				name: `record_${index}`,
+				properties: [
+					{
+						...fixtureValue(baseRecord.properties[0], "first property"),
+						id,
+						name: `property_${index}`,
+					},
+				],
+			};
+		});
+		const rejected = await call(tools.stageContract, {
+			expectedRevision: root.workspaceRevision,
+			collections: [
+				{
+					collection: "records",
+					upserts: collidingRecords,
+					removeIds: [],
+				},
+			],
+		});
+		expect(rejected).toMatchObject({
+			diagnostic: {
+				code: "design-partial-identity-rejected",
+				validationStage: "partial",
+				issueCount: 6,
+			},
+		});
+		const inspected = await call(tools.inspectDesignWorkspace, {
+			artifactKind: "contract",
+			expectedRevision: root.workspaceRevision,
+			selection: { kind: "summary" },
+		});
+		expect(inspected).toMatchObject({
+			ok: true,
+			workspaceRevision: 1,
+			stepCount: 1,
+		});
+	});
+
+	it("routes construction-bearing open questions outside repair convergence", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const repair = new DesignRepairTracker();
+		const tools = mount(pkg, cleanReview, repair);
+		const contract = makeContract();
+		contract.openQuestions.push(
+			...Array.from({ length: 7 }, (_, index) => ({
+				id: did(1100 + index),
+				question: `Which construction decision ${index + 1} applies?`,
+				structuralImpact: "local" as const,
+				blocking: true,
+				relatedElementIds: [ids.taskVisit],
+			})),
+		);
+		const root = await call(tools.stageContract, {
+			expectedRevision: 0,
+			root: { id: contract.id, charter: contract.charter },
+			collections: [],
+		});
+		const firstSubmission = await call(tools.submitContract, {
+			expectedRevision: root.workspaceRevision,
+		});
+		expect(firstSubmission).toMatchObject({
+			diagnostic: { validationStage: "schema" },
+		});
+
+		const completeRevision = await stageWholeContract(
+			tools,
+			contract,
+			Number(root.workspaceRevision),
+		);
+		const needsInput = await call(tools.submitContract, {
+			expectedRevision: completeRevision,
+		});
+		expect(needsInput).toMatchObject({
+			diagnostic: {
+				code: "design-construction-needs-input",
+				validationStage: "construction",
+				issueCount: 7,
+			},
+			needsUserInput: { maxQuestionsPerRound: 5 },
+		});
+		expect(
+			(needsInput.needsUserInput as { questions: string[] }).questions,
+		).toHaveLength(7);
+		expect(repair.requiredUserQuestions()).toHaveLength(7);
+		expect(repair.fatalError()).toBeUndefined();
+
+		/* A replacement process has no repair tracker state. The open workspace is
+		 * the durable authority, so it must recover the same exact questions before
+		 * permitting another design operation. */
+		const { readRequiredDesignQuestionsFromWorkspace } = await import(
+			"@/lib/agent/build/designLoopRunner"
+		);
+		const { evaluateDesignGates, loadDesignAncestry } = await import(
+			"@/lib/agent/design/loop/gates"
+		);
+		const recovered = await readRequiredDesignQuestionsFromWorkspace({
+			designSessionId: sessionId,
+			gates: evaluateDesignGates(
+				await loadDesignAncestry(sessionId, pkg.packageDigest),
+			),
+			authority: authority(),
+		});
+		expect(recovered).toEqual(
+			(needsInput.needsUserInput as { questions: string[] }).questions,
+		);
+	});
+
 	it("keeps an invalid candidate open so only missing collections are added", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
@@ -302,6 +428,28 @@ describe("staged design loop", () => {
 		const contractRevision = await stageWholeContract(tools, contract);
 		await call(tools.submitContract, { expectedRevision: contractRevision });
 		expect(await call(tools.requestReview)).toMatchObject({ accepted: false });
+		const collidingRevision = await call(tools.stageRevision, {
+			expectedRevision: 0,
+			collections: [
+				{
+					collection: "workflows",
+					upserts: [
+						{
+							...fixtureValue(contract.workflows[1], "second workflow"),
+							id: fixtureValue(contract.records[0], "first record").id,
+						},
+					],
+					removeIds: [],
+				},
+			],
+		});
+		expect(collidingRevision).toMatchObject({
+			diagnostic: {
+				code: "design-partial-identity-rejected",
+				validationStage: "partial",
+				issueCount: 1,
+			},
+		});
 
 		const workflow = {
 			...fixtureValue(contract.workflows[1], "second workflow"),

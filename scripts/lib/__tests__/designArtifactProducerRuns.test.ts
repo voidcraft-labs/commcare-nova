@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { collectDesignArtifactProducerRunIds } from "../designArtifactProducerRuns";
+import {
+	collectDesignArtifactProducerRunIds,
+	designArtifactDiagnosticRuns,
+} from "../designArtifactProducerRuns";
 
 describe("collectDesignArtifactProducerRunIds", () => {
 	it("includes superseded revisions and reviews of an accepted revision's parent", () => {
@@ -28,5 +31,19 @@ describe("collectDesignArtifactProducerRunIds", () => {
 			"superseded-review-run",
 			"recovered-workspace-step-run",
 		]);
+	});
+});
+
+describe("designArtifactDiagnosticRuns", () => {
+	it("retains artifact producers when the process died before summary flush", () => {
+		expect(
+			designArtifactDiagnosticRuns(
+				["workspace-run", "summarized-run"],
+				["summarized-run", "summary-only-run"],
+			),
+		).toEqual({
+			runIds: ["workspace-run", "summarized-run", "summary-only-run"],
+			missingSummaryCount: 1,
+		});
 	});
 });

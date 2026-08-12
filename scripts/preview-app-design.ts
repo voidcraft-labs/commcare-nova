@@ -486,6 +486,7 @@ async function main(): Promise<void> {
 			instructions: DESIGN_AGENT_SYSTEM,
 			promptCacheKey: `nova:design-preview:${sessionId}:${phase}`,
 			fatalError: () => undefined,
+			requiredUserQuestions: () => [],
 			freshStateMessage: async () => ({
 				role: "user",
 				content: `# Design session state (server-derived)\n\nCurrent phase: ${phase}.`,

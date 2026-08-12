@@ -35,7 +35,10 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   media. Human-owned readiness such as an administrator uploading an asset may
   remain external when construction is otherwise executable. Blocking meaning
   becomes a pre-build question or an explicitly excluded workflow; it never
-  survives into execution.
+  survives into execution. The identity-only subset of the graph proof runs on
+  every contract and revision stage before ledger insertion, so one Design ID
+  can never be durably reused by two declarations even while the candidate is
+  incomplete.
 - `review.ts` defines independent findings, dispositions, and revisions.
   Critical and important findings cite the exact source or contract elements
   they concern; advisory observations do not create traceability work. Only
@@ -108,6 +111,15 @@ immutable artifact insert. `inspectDesignWorkspace` reads selected exact state
 when a model needs it. Provider parallel tool calls are disabled because the
 workspace revision protocol is ordered.
 
+Finalization rejections are tracked by validation stage and stable diagnostic
+fingerprint. Reaching a later stage or receiving changed diagnostics is real
+progress; an exact repeat stops after two attempts and any third rejection
+stops as a classified internal defect. When every construction issue is an
+open question already authored in the candidate, it does not consume that
+repair budget. The server derives those exact questions and forces the next
+model step to call only `askQuestions`, in rounds of at most five, before any
+more staging or finalization can occur.
+
 `designAgent.ts` owns the phase-specific agents and compaction preparation.
 When compaction occurs, stale state packets are removed and a fresh bounded
 server-authored packet for the exact workspace revision is appended. The
@@ -125,9 +137,10 @@ and plan. `packageRebuild.ts` refuses continuation when the
 authorized sources cannot reproduce the bound package.
 
 Tool lifecycle diagnostics contain only opaque call identity, tool name,
-duration, character count, and outcome code. Candidate payloads, validation
-prose, source text, and customer-authored names never enter operational logs.
-User-facing questions remain in the conversation.
+duration, character count, outcome code, validation stage, and issue count.
+Candidate payloads, validation prose, source text, and customer-authored names
+never enter operational logs. User-facing questions remain in the
+conversation.
 
 ## Invariants
 
@@ -153,5 +166,6 @@ phase loop each have focused tests under `__tests__/` and `loop/__tests__/`.
 `scripts/preview-app-design.ts` makes live model calls against an in-memory
 author/review/revision protocol and performs no database writes.
 `scripts/inspect-design-artifacts.ts` is the read-only local/production
-inspector; `--reasoning` includes model reasoning summaries from the run event
-log.
+inspector. It reconstructs open workspace readiness and usage even before an
+immutable revision exists; `--reasoning` includes model reasoning summaries and
+payload-free tool outcomes from the run event log.

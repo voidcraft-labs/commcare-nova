@@ -166,16 +166,62 @@ describe("design phase gates", () => {
 });
 
 describe("DesignRepairTracker", () => {
-	it("stops unchanged schema repair and repeated illegal sequencing", () => {
+	it("stops an exact repeated finalization diagnostic and illegal sequencing", () => {
 		const schema = new DesignRepairTracker();
-		schema.noteSchemaRejection("submitContract", 4);
-		schema.noteSchemaRejection("submitContract", 4);
+		schema.noteSubmissionRejection("submitContract", {
+			stage: "schema",
+			fingerprints: ["records.0.id|duplicate"],
+		});
+		schema.noteSubmissionRejection("submitContract", {
+			stage: "schema",
+			fingerprints: ["records.0.id|duplicate"],
+		});
 		expect(schema.fatalError()).toBeDefined();
+		expect(schema.fatalError()?.code).toBe("design-submission-nonconvergent");
 
 		const sequence = new DesignRepairTracker();
 		for (let index = 0; index < DESIGN_SEQUENCE_ERROR_BUDGET; index += 1) {
 			sequence.noteSequenceError();
 		}
 		expect(sequence.fatalError()).toBeDefined();
+		expect(sequence.fatalError()?.code).toBe("design-sequence-budget");
+	});
+
+	it("treats a later validation stage and changed diagnostics as progress", () => {
+		const tracker = new DesignRepairTracker();
+		tracker.noteSubmissionRejection("submitContract", {
+			stage: "schema",
+			fingerprints: Array.from(
+				{ length: 6 },
+				(_, index) => `duplicate-${index}`,
+			),
+		});
+		tracker.noteSubmissionRejection("submitContract", {
+			stage: "construction",
+			fingerprints: Array.from(
+				{ length: 7 },
+				(_, index) => `question-${index}`,
+			),
+		});
+		expect(tracker.fatalError()).toBeUndefined();
+
+		tracker.noteSubmissionRejection("submitContract", {
+			stage: "construction",
+			fingerprints: ["a-different-construction-finding"],
+		});
+		expect(tracker.fatalError()?.code).toBe("design-submission-nonconvergent");
+	});
+
+	it("tracks construction questions outside the repair budget", () => {
+		const tracker = new DesignRepairTracker();
+		tracker.noteSubmissionRejection("submitContract", {
+			stage: "schema",
+			fingerprints: ["duplicate"],
+		});
+		tracker.requireUserQuestions(["Which threshold applies?", ""]);
+		expect(tracker.requiredUserQuestions()).toEqual([
+			"Which threshold applies?",
+		]);
+		expect(tracker.fatalError()).toBeUndefined();
 	});
 });

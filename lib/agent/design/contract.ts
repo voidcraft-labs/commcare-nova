@@ -602,6 +602,27 @@ export function designConstructionIssues(
 	return issues;
 }
 
+/** Exact user questions when every remaining construction issue is already
+ * represented by one authored open question. A mixed set still belongs to
+ * model repair, so it deliberately returns null rather than hiding the
+ * non-question defects behind a user pause. */
+export function designConstructionQuestions(
+	contract: AppDesignContract,
+	issues: readonly DesignConstructionIssue[] = designConstructionIssues(
+		contract,
+	),
+): string[] | null {
+	const questions = issues.flatMap((issue) => {
+		const [collection, index] = issue.path;
+		if (collection !== "openQuestions" || typeof index !== "number") return [];
+		const question = contract.openQuestions[index]?.question.trim();
+		return question ? [question] : [];
+	});
+	return questions.length === issues.length && questions.length > 0
+		? questions
+		: null;
+}
+
 /** Every stable semantic identity carried by a contract. */
 export function collectContractIds(
 	contract: AppDesignContract,

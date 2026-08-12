@@ -50,10 +50,10 @@ export type DesignLoopToolName = (typeof DESIGN_LOOP_TOOL_NAMES)[number];
  *  hope. */
 export const DESIGN_LOOP_STEP_BUDGET = 64;
 
-/** Maximum consecutive schema rejections of one submission kind. A third
- *  rejection always stops the run. The tracker permits the third attempt only
- *  when the second rejection has strictly fewer diagnostics than the first;
- *  an unchanged or broader repair still stops after two. */
+/** Maximum finalization rejections of one submission kind. A third rejection
+ * always stops the run. An exact repeat in the same validation stage stops
+ * after two; reaching a later stage or changing the concrete diagnostics is
+ * progress and retains the third attempt. */
 export const DESIGN_SUBMISSION_REPAIR_BUDGET = 3;
 
 /** Consecutive illegal-sequence calls (any tool) before the run fails.
@@ -62,10 +62,30 @@ export const DESIGN_SUBMISSION_REPAIR_BUDGET = 3;
 export const DESIGN_SEQUENCE_ERROR_BUDGET = 3;
 
 /** A budget the gates enforce was exhausted: thrown from the agent's
- *  `prepareStep` so the turn ends as a retriable design-session error with
- *  every committed artifact intact. */
+ *  `prepareStep` so the turn ends as a classified design defect with every
+ *  committed artifact intact. */
+export type DesignLoopBudgetCode =
+	| "design-submission-nonconvergent"
+	| "design-sequence-budget";
+
 export class DesignLoopBudgetError extends Error {
 	readonly name = "DesignLoopBudgetError";
+	constructor(
+		readonly code: DesignLoopBudgetCode,
+		message: string,
+	) {
+		super(message);
+	}
+}
+
+export type DesignSubmissionValidationStage =
+	| "schema"
+	| "construction"
+	| "sensitivity";
+
+export interface DesignSubmissionRejection {
+	readonly stage: DesignSubmissionValidationStage;
+	readonly fingerprints: readonly string[];
 }
 
 /** Everything gate evaluation needs, loaded once per tool call from the
@@ -288,38 +308,66 @@ function deriveExpectedNext(
 }
 
 /**
- * Per-turn repair accounting. Consecutive schema rejections of one
- * submission kind, and consecutive illegal-sequence calls across kinds,
- * both latch a fatal budget error that `prepareStep` throws: ending the
- * turn as a retriable design-session error instead of an unbounded
- * refinement loop.
+ * Per-turn repair accounting. Finalization rejection fingerprints and
+ * consecutive illegal-sequence calls both latch a fatal budget error that
+ * `prepareStep` throws, ending the turn instead of spinning. Construction
+ * decisions owned by the user are a separate forced-question state, not a
+ * failed model repair.
  */
 export class DesignRepairTracker {
 	private rejectionsByKind = new Map<
 		DesignLoopToolName,
-		{ count: number; issueCount: number }
+		{
+			count: number;
+			stage: DesignSubmissionValidationStage;
+			fingerprints: ReadonlySet<string>;
+		}
 	>();
 	private sequenceErrors = 0;
 	private fatal: DesignLoopBudgetError | undefined;
+	private pendingUserQuestions: readonly string[] = [];
 
-	noteSchemaRejection(kind: DesignLoopToolName, issueCount = 1): void {
+	noteSubmissionRejection(
+		kind: DesignLoopToolName,
+		rejection: DesignSubmissionRejection,
+	): void {
 		const previous = this.rejectionsByKind.get(kind);
 		const count = (previous?.count ?? 0) + 1;
-		this.rejectionsByKind.set(kind, { count, issueCount });
-		const stoppedImproving =
-			previous !== undefined && issueCount >= previous.issueCount;
-		if (count >= DESIGN_SUBMISSION_REPAIR_BUDGET || stoppedImproving) {
+		const fingerprints = new Set(rejection.fingerprints);
+		this.rejectionsByKind.set(kind, {
+			count,
+			stage: rejection.stage,
+			fingerprints,
+		});
+		const repeatedExactly =
+			previous !== undefined &&
+			previous.stage === rejection.stage &&
+			previous.fingerprints.size === fingerprints.size &&
+			[...fingerprints].every((value) => previous.fingerprints.has(value));
+		if (count >= DESIGN_SUBMISSION_REPAIR_BUDGET || repeatedExactly) {
 			this.fatal = new DesignLoopBudgetError(
-				`The ${kind} submission did not converge after ${count} schema rejections. The committed artifacts are intact; inspect the run diagnostics before restarting this phase.`,
+				"design-submission-nonconvergent",
+				`The ${kind} submission did not converge after ${count} finalization rejections. The committed artifacts are intact; inspect the run diagnostics and correct the harness before running this phase again.`,
 			);
 		}
+	}
+
+	requireUserQuestions(questions: readonly string[]): void {
+		this.pendingUserQuestions = [
+			...new Set(questions.map((question) => question.trim()).filter(Boolean)),
+		];
+	}
+
+	requiredUserQuestions(): readonly string[] {
+		return this.pendingUserQuestions;
 	}
 
 	noteSequenceError(): void {
 		this.sequenceErrors += 1;
 		if (this.sequenceErrors >= DESIGN_SEQUENCE_ERROR_BUDGET) {
 			this.fatal = new DesignLoopBudgetError(
-				`The design agent made ${this.sequenceErrors} out-of-order tool calls in a row. The turn ends here; the committed artifacts are intact, and sending the message again resumes from them.`,
+				"design-sequence-budget",
+				`The design agent made ${this.sequenceErrors} out-of-order tool calls in a row. The turn ends here with committed artifacts intact; inspect the harness before running the phase again.`,
 			);
 		}
 	}
@@ -333,6 +381,7 @@ export class DesignRepairTracker {
 	noteAccepted(kind: DesignLoopToolName): void {
 		this.rejectionsByKind.delete(kind);
 		this.sequenceErrors = 0;
+		this.pendingUserQuestions = [];
 	}
 
 	fatalError(): DesignLoopBudgetError | undefined {

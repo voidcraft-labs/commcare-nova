@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
 	contractSubmissionPulsePhase,
-	DESIGN_LOOP_STOP_MESSAGE,
+	designLoopStopMessage,
 	designToolPulsePhase,
 } from "@/lib/agent/build/designLoopRunner";
 import {
 	designPhaseTerminalSucceeded,
 	designStepBudgetReached,
 } from "@/lib/agent/design/loop/designAgent";
+import type { DesignGateState } from "@/lib/agent/design/loop/gates";
 
 describe("contractSubmissionPulsePhase", () => {
 	it("distinguishes a first design from an immutable replacement revision", () => {
@@ -16,10 +17,10 @@ describe("contractSubmissionPulsePhase", () => {
 	});
 
 	it("keeps schema-repair internals out of the user-facing stop message", () => {
-		expect(DESIGN_LOOP_STOP_MESSAGE).toContain("reviewed design is saved");
-		expect(DESIGN_LOOP_STOP_MESSAGE).not.toMatch(
-			/schema|submission|diagnostic|tool/i,
-		);
+		const message = designLoopStopMessage({ head: null } as DesignGateState);
+		expect(message).toContain("unfinished design workspace");
+		expect(message).not.toMatch(/schema|submission|diagnostic|tool/i);
+		expect(message).not.toContain("reviewed design is saved");
 	});
 });
 

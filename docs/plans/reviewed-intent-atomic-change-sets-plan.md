@@ -308,6 +308,18 @@ parses. Persisted artifacts remain UUID-only.
 Each stage is bounded to 32 item changes and 48 KiB. Successful stages are
 durable. A rejected finalization leaves every accepted stage intact, so the
 model corrects only the affected items and necessary cross-dependencies.
+Before a contract or revision stage enters the ledger, Nova replays it and
+proves that every declared design element still has a globally unique identity.
+Reference closure waits for finalization because an incomplete workspace may
+legitimately point at a later stage.
+
+Finalization rejections carry a validation stage and payload-free diagnostic
+fingerprints. A later stage or changed fingerprint is progress; an exact repeat
+stops after two attempts and any third rejection stops honestly as an internal
+design defect. When every construction issue is an authored open question, the
+server instead restricts the next model step to `askQuestions` with the exact
+questions, at most five per round. Those user decisions do not consume the
+model-repair budget.
 
 There is no plan workspace. The model neither stages nor submits a plan.
 
@@ -683,6 +695,11 @@ history but never render in chat. Technical validation errors and model-only
 success instructions stay internal. The outline does not show finding counts
 or severity labels.
 
+If final construction admission discovers that an included workflow still
+depends on a user decision, Nova returns to the question card before accepting
+the design. It cannot present an unfinished workspace as a saved reviewed
+design, and it cannot convert a design defect into a user retry strategy.
+
 After materialization, the builder installs the complete sequence-one snapshot
 atomically, promotes the URL, starts collaboration at sequence one, and keeps
 visual authoring and the composer read-only until the initial plan completes.
@@ -737,13 +754,16 @@ bodies, transcripts, model prompts, raw tool payloads, private mutations, or
 holder nonces. Admin-authorized run inspection may expose the deliberately
 persisted reasoning summaries used for quality diagnosis.
 
-The design-session inspector prints one payload-free build aggregate: accepted
-and committed workflow counts; each slice's attempt and commit status;
-wire-invalid, stage-rejected, and validator-repair counts; model steps, token
-and cache use, elapsed time, and estimated cost. It fails the mechanical gate
-when any attempt lacks complete outcome evidence or any persisted package,
-artifact-workspace step, revision, review, plan, orchestration, or execution run
-lacks a usage summary.
+The design-session inspector reconstructs pre-revision sessions from the
+durable workspace ledger and prints workspace revision, readiness stage,
+session error classification, model usage, elapsed time, and estimated cost.
+After acceptance it prints one payload-free build aggregate: accepted and
+committed workflow counts; each slice's attempt and commit status; wire-invalid,
+stage-rejected, and validator-repair counts; model steps, token and cache use,
+elapsed time, and estimated cost. It fails the mechanical gate when any attempt
+lacks complete outcome evidence or any persisted package, artifact-workspace
+step, revision, review, plan, orchestration, or execution run lacks a usage
+summary.
 
 ## 9. Unit F: conformance, quality, correction, and Design history
 

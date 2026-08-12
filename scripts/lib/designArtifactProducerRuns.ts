@@ -17,3 +17,18 @@ export function collectDesignArtifactProducerRunIds(
 		]),
 	];
 }
+
+/** Join artifact evidence to flushed summaries without letting an interrupted
+ * summary write erase the run from diagnostics. */
+export function designArtifactDiagnosticRuns(
+	producerRunIds: readonly string[],
+	summaryRunIds: readonly string[],
+): { readonly runIds: string[]; readonly missingSummaryCount: number } {
+	const summarized = new Set(summaryRunIds);
+	return {
+		runIds: [...new Set([...producerRunIds, ...summaryRunIds])],
+		missingSummaryCount: producerRunIds.filter(
+			(runId) => !summarized.has(runId),
+		).length,
+	};
+}

@@ -207,8 +207,10 @@ describe("eventSchema", () => {
 					toolName: "stageContract",
 					inputChars: 2400,
 					durationMs: 812,
-					outcome: "accepted",
-					code: "tool-completed",
+					outcome: "needs-input",
+					code: "design-construction-needs-input",
+					validationStage: "construction",
+					issueCount: 7,
 				},
 			},
 		];

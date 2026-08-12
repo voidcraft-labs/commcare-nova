@@ -32,7 +32,9 @@ import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { DESIGN_EFFORT_TIME_ESTIMATES } from "@/lib/agent/design/complexity";
 import {
 	appDesignContractSchema,
+	type DesignConstructionIssue,
 	designConstructionIssues,
+	designConstructionQuestions,
 } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import {
@@ -50,6 +52,7 @@ import {
 	type DesignGateState,
 	type DesignLoopToolName,
 	type DesignRepairTracker,
+	type DesignSubmissionValidationStage,
 	evaluateDesignGates,
 } from "@/lib/agent/design/loop/gates";
 import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
@@ -217,8 +220,36 @@ function renderDesignConstructionIssues(
 	].join("\n");
 }
 
+interface DesignToolDiagnostic {
+	readonly code: string;
+	readonly validationStage?: DesignSubmissionValidationStage | "partial";
+	readonly issueCount?: number;
+}
+
 interface ToolError {
 	readonly error: string;
+	readonly diagnostic?: DesignToolDiagnostic;
+}
+
+function zodIssueFingerprints(error: ZodError): string[] {
+	return error.issues.map(
+		(issue) => `${issue.path.join(".")}|${issue.code}|${issue.message}`,
+	);
+}
+
+function constructionIssueFingerprint(issue: DesignConstructionIssue): string {
+	return `${issue.path.join(".")}|${issue.message}`;
+}
+
+function rejectionDiagnostic(
+	stage: DesignSubmissionValidationStage,
+	issueCount: number,
+): DesignToolDiagnostic {
+	return {
+		code: `design-${stage}-rejected`,
+		validationStage: stage,
+		issueCount,
+	};
 }
 
 async function gatesFor(deps: DesignLoopToolDeps): Promise<DesignGateState> {
@@ -266,9 +297,19 @@ export function designWorkspaceLineageForGates(
 }
 
 function workspaceError(error: unknown): ToolError | null {
-	return error instanceof DesignArtifactWorkspaceError
-		? { error: error.message }
-		: null;
+	if (!(error instanceof DesignArtifactWorkspaceError)) return null;
+	return {
+		error: error.message,
+		...(error.code === "partial-invalid" && {
+			diagnostic: {
+				code: "design-partial-identity-rejected",
+				validationStage: "partial" as const,
+				...(error.issueCount !== undefined && {
+					issueCount: error.issueCount,
+				}),
+			},
+		}),
+	};
 }
 
 function parseStage<T>(schema: z.ZodType<T>, input: unknown) {
@@ -463,20 +504,50 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			}
 			const parsed = appDesignContractSchema.safeParse(state.candidate);
 			if (!parsed.success) {
-				deps.repair.noteSchemaRejection(
-					"submitContract",
-					parsed.error.issues.length,
-				);
-				return { error: renderDesignValidationIssues(parsed.error) };
+				deps.repair.noteSubmissionRejection("submitContract", {
+					stage: "schema",
+					fingerprints: zodIssueFingerprints(parsed.error),
+				});
+				return {
+					error: renderDesignValidationIssues(parsed.error),
+					diagnostic: rejectionDiagnostic("schema", parsed.error.issues.length),
+				};
 			}
 			const constructionIssues = designConstructionIssues(parsed.data);
 			if (constructionIssues.length > 0) {
-				deps.repair.noteSchemaRejection(
-					"submitContract",
-					constructionIssues.length,
+				const questions = designConstructionQuestions(
+					parsed.data,
+					constructionIssues,
 				);
+				if (questions !== null) {
+					deps.repair.requireUserQuestions(questions);
+					return {
+						error: [
+							"The contract needs decisions from the user before it can be finalized.",
+							"Call askQuestions now with up to five of the exact questions below. Do not assume answers, remove included workflows, or reinterpret their scope.",
+							...questions.map((question) => `- ${question}`),
+						].join("\n"),
+						needsUserInput: {
+							questions,
+							maxQuestionsPerRound: 5,
+						},
+						diagnostic: {
+							code: "design-construction-needs-input",
+							validationStage: "construction" as const,
+							issueCount: constructionIssues.length,
+						},
+					};
+				}
+				deps.repair.noteSubmissionRejection("submitContract", {
+					stage: "construction",
+					fingerprints: constructionIssues.map(constructionIssueFingerprint),
+				});
 				return {
 					error: renderDesignConstructionIssues(constructionIssues),
+					diagnostic: rejectionDiagnostic(
+						"construction",
+						constructionIssues.length,
+					),
 				};
 			}
 			const head = gates.head;
@@ -547,7 +618,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				deps.onReviewActivity,
 			);
 			if (reviewed.kind === "not-produced") {
-				deps.repair.noteSchemaRejection("requestReview");
+				deps.repair.noteSubmissionRejection("requestReview", {
+					stage: "schema",
+					fingerprints: [`review:${reviewed.reason}`],
+				});
 				return {
 					error: `The independent review did not come back usable this time (${reviewed.reason}). The draft stays unreviewed; request the review again.`,
 				};
@@ -651,20 +725,50 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				dispositions,
 			});
 			if (!parsed.success) {
-				deps.repair.noteSchemaRejection(
-					"submitRevision",
-					parsed.error.issues.length,
-				);
-				return { error: renderDesignValidationIssues(parsed.error) };
+				deps.repair.noteSubmissionRejection("submitRevision", {
+					stage: "schema",
+					fingerprints: zodIssueFingerprints(parsed.error),
+				});
+				return {
+					error: renderDesignValidationIssues(parsed.error),
+					diagnostic: rejectionDiagnostic("schema", parsed.error.issues.length),
+				};
 			}
 			const constructionIssues = designConstructionIssues(parsed.data.contract);
 			if (constructionIssues.length > 0) {
-				deps.repair.noteSchemaRejection(
-					"submitRevision",
-					constructionIssues.length,
+				const questions = designConstructionQuestions(
+					parsed.data.contract,
+					constructionIssues,
 				);
+				if (questions !== null) {
+					deps.repair.requireUserQuestions(questions);
+					return {
+						error: [
+							"The revision needs decisions from the user before it can be accepted.",
+							"Call askQuestions now with up to five of the exact questions below. Do not assume answers, remove included workflows, or reinterpret their scope.",
+							...questions.map((question) => `- ${question}`),
+						].join("\n"),
+						needsUserInput: {
+							questions,
+							maxQuestionsPerRound: 5,
+						},
+						diagnostic: {
+							code: "design-construction-needs-input",
+							validationStage: "construction" as const,
+							issueCount: constructionIssues.length,
+						},
+					};
+				}
+				deps.repair.noteSubmissionRejection("submitRevision", {
+					stage: "construction",
+					fingerprints: constructionIssues.map(constructionIssueFingerprint),
+				});
 				return {
 					error: renderDesignConstructionIssues(constructionIssues),
+					diagnostic: rejectionDiagnostic(
+						"construction",
+						constructionIssues.length,
+					),
 				};
 			}
 			const sensitivityViolations = validateSensitivityNotSilentlyLowered(
@@ -673,15 +777,19 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				reviewPayloads,
 			);
 			if (sensitivityViolations.length > 0) {
-				deps.repair.noteSchemaRejection(
-					"submitRevision",
-					sensitivityViolations.length,
-				);
+				deps.repair.noteSubmissionRejection("submitRevision", {
+					stage: "sensitivity",
+					fingerprints: sensitivityViolations,
+				});
 				return {
 					error: [
 						"The revision quietly lowered declared sensitivity:",
 						...sensitivityViolations.map((violation) => `- ${violation}`),
 					].join("\n"),
+					diagnostic: rejectionDiagnostic(
+						"sensitivity",
+						sensitivityViolations.length,
+					),
 				};
 			}
 			const mappedDispositions = mapDispositionsToReviews(

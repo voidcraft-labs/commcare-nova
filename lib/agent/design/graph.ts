@@ -5,6 +5,89 @@ import type { AppDesignContract } from "@/lib/agent/design/contract";
 
 type Path = Array<string | number>;
 
+export interface DesignIdentityCollision {
+	readonly path: Path;
+	readonly priorPath: Path;
+}
+
+function objectWithId(value: unknown): value is { readonly id: string } {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"id" in value &&
+		typeof value.id === "string"
+	);
+}
+
+/**
+ * The identity-only proof that is safe on an incomplete authoring workspace.
+ * References and collection closure require the final contract, but two
+ * declarations may never share one DesignId at any intermediate revision.
+ */
+function collectDesignIdentities(
+	candidate: Record<string, unknown>,
+): Array<{ id: string; path: Path }> {
+	const identities: Array<{ id: string; path: Path }> = [];
+	if (typeof candidate.id === "string")
+		identities.push({ id: candidate.id, path: ["id"] });
+	const actors = Array.isArray(candidate.actors) ? candidate.actors : [];
+	actors.forEach((value, index) => {
+		if (objectWithId(value))
+			identities.push({ id: value.id, path: ["actors", index, "id"] });
+	});
+	const records = Array.isArray(candidate.records) ? candidate.records : [];
+	records.forEach((value, recordIndex) => {
+		if (!objectWithId(value)) return;
+		identities.push({
+			id: value.id,
+			path: ["records", recordIndex, "id"],
+		});
+		const properties =
+			"properties" in value && Array.isArray(value.properties)
+				? value.properties
+				: [];
+		properties.forEach((property, propertyIndex) => {
+			if (objectWithId(property))
+				identities.push({
+					id: property.id,
+					path: ["records", recordIndex, "properties", propertyIndex, "id"],
+				});
+		});
+	});
+	for (const collection of [
+		"workflows",
+		"lists",
+		"access",
+		"navigation",
+		"externalRequirements",
+		"decisions",
+		"assumptions",
+		"openQuestions",
+	] as const) {
+		const values = Array.isArray(candidate[collection])
+			? candidate[collection]
+			: [];
+		values.forEach((value, index) => {
+			if (objectWithId(value))
+				identities.push({ id: value.id, path: [collection, index, "id"] });
+		});
+	}
+	return identities;
+}
+
+export function designIdentityCollisions(
+	candidate: Record<string, unknown>,
+): DesignIdentityCollision[] {
+	const seen = new Map<string, Path>();
+	const collisions: DesignIdentityCollision[] = [];
+	for (const identity of collectDesignIdentities(candidate)) {
+		const priorPath = seen.get(identity.id);
+		if (priorPath === undefined) seen.set(identity.id, identity.path);
+		else collisions.push({ path: identity.path, priorPath });
+	}
+	return collisions;
+}
+
 function issue(ctx: z.RefinementCtx, path: Path, message: string): void {
 	ctx.addIssue({ code: "custom", path, message });
 }
@@ -44,48 +127,12 @@ export function validateDesignGraph(
 	contract: AppDesignContract,
 	ctx: z.RefinementCtx,
 ): void {
-	const identities: Array<{ id: string; path: Path }> = [
-		{ id: contract.id, path: ["id"] },
-	];
-	contract.actors.forEach((value, index) => {
-		identities.push({ id: value.id, path: ["actors", index, "id"] });
-	});
-	contract.records.forEach((record, recordIndex) => {
-		identities.push({ id: record.id, path: ["records", recordIndex, "id"] });
-		record.properties.forEach((property, propertyIndex) => {
-			identities.push({
-				id: property.id,
-				path: ["records", recordIndex, "properties", propertyIndex, "id"],
-			});
-		});
-	});
-	for (const [collection, values] of [
-		["workflows", contract.workflows],
-		["lists", contract.lists],
-		["access", contract.access],
-		["navigation", contract.navigation],
-		["externalRequirements", contract.externalRequirements],
-		["decisions", contract.decisions],
-		["assumptions", contract.assumptions],
-		["openQuestions", contract.openQuestions],
-	] as const) {
-		values.forEach((value, index) => {
-			identities.push({ id: value.id, path: [collection, index, "id"] });
-		});
-	}
-	const seen = new Map<string, Path>();
-	for (const identity of identities) {
-		const prior = seen.get(identity.id);
-		if (prior !== undefined) {
-			issue(
-				ctx,
-				identity.path,
-				`This id is already used at ${prior.join(".")}.`,
-			);
-		} else {
-			seen.set(identity.id, identity.path);
-		}
-	}
+	for (const collision of designIdentityCollisions(contract))
+		issue(
+			ctx,
+			collision.path,
+			`This id is already used at ${collision.priorPath.join(".")}.`,
+		);
 
 	const actors = new Set(contract.actors.map((value) => value.id));
 	const records = new Map(contract.records.map((value) => [value.id, value]));
@@ -478,7 +525,9 @@ export function validateDesignGraph(
 			);
 		}
 	});
-	const allIds = new Set(identities.map((value) => value.id));
+	const allIds = new Set(
+		collectDesignIdentities(contract).map((value) => value.id),
+	);
 	contract.openQuestions.forEach((question, questionIndex) => {
 		question.relatedElementIds.forEach((id, index) => {
 			expect(
