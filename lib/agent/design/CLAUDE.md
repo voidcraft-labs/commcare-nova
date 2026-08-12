@@ -18,7 +18,16 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   the server binds declarations transactionally in a session-scoped durable
   ledger, refuses undeclared references and invented raw UUID declarations,
   and resolves symbols before the unchanged UUID-only schemas parse. State and
-  inspection project every bound identity back through its handle.
+  inspection project every bound identity back through its handle. The stage
+  and inspect tools ship `strict: true`, so their provider wire schemas widen
+  every design-ID slot to `uuid | { handle }` — `designIdSchema` emits its
+  admission rule as the canonical UUID `pattern` (a required slot as
+  `type: "string"`, a formerly-optional slot as the strict projection's
+  `type: ["string", "null"]`, which widens with its null arm kept), the
+  widening keys on that exact pattern, and
+  `loop/__tests__/toolWireSchemas.test.ts` audits every node carrying the
+  pattern so no slot remains pinned to raw UUIDs the server would then
+  refuse.
 - `contract.ts` is the schema-version-1 Design Contract. `graph.ts` runs inside
   parsing and proves global identity uniqueness, reference closure, workflow
   ownership, property/record coherence, navigation closure, charter coverage,
@@ -118,7 +127,13 @@ revision protocol is ordered.
 Finalization rejections are tracked by validation stage and stable diagnostic
 fingerprint. Reaching a later stage or receiving changed diagnostics is real
 progress; an exact repeat stops after two attempts and any third rejection
-stops as a classified internal defect. When every construction issue is an
+stops as a classified internal defect. Bounded stage calls carry their own
+fuse: a `stageContract`/`stageRevision` rejection repeated three times in a
+row with an identical diagnostic stops the run the same way, because zero
+diagnostic movement means the model cannot express what the server requires —
+a systemic contract defect, never a correctable slip. A changed diagnostic or
+an accepted stage resets that count; gate refusals and the forced-question
+state stay outside it. When every construction issue is an
 open question already authored in the candidate, it does not consume that
 repair budget. The server derives those exact questions, appends them as an
 authoritative message, and refuses further design staging until an exact

@@ -56,6 +56,7 @@ import {
 	type DesignGateState,
 	type DesignLoopToolName,
 	type DesignRepairTracker,
+	type DesignStageToolName,
 	type DesignSubmissionValidationStage,
 	evaluateDesignGates,
 } from "@/lib/agent/design/loop/gates";
@@ -72,6 +73,7 @@ import {
 	strictWireJsonSchema,
 	stripNullProperties,
 } from "@/lib/agent/strictStructuredOutput";
+import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 
 export interface DesignLoopToolDeps {
 	readonly designSessionId: string;
@@ -133,32 +135,59 @@ function strictWireOnly(schema: z.ZodType) {
 	return jsonSchema<unknown>(strictWireJsonSchema(schema) as never);
 }
 
-const DESIGN_HANDLE_PATTERN = /^@[a-z][a-z0-9_-]{0,62}$/;
+export const DESIGN_HANDLE_PATTERN = /^@[a-z][a-z0-9_-]{0,62}$/;
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const DESIGN_HANDLE_ARM = {
+	type: "object",
+	properties: {
+		handle: {
+			type: "string",
+			pattern: DESIGN_HANDLE_PATTERN.source,
+		},
+	},
+	required: ["handle"],
+	additionalProperties: false,
+} as const;
+
+/** A design-ID string node in the strict wire projection. A required slot
+ * emits `type: "string"`; a formerly-optional slot emits the projection's
+ * null-union spelling `type: ["string", "null"]`. Both carry the canonical
+ * UUID regex as `pattern` (never `format` — `designIdSchema` is a `.regex()`),
+ * so that exact pattern is the key. */
+function isDesignIdStringNode(node: Record<string, unknown>): boolean {
+	if (node.pattern !== CANONICAL_UUID_PATTERN.source) return false;
+	return (
+		node.type === "string" ||
+		(Array.isArray(node.type) &&
+			node.type.length === 2 &&
+			node.type.includes("string") &&
+			node.type.includes("null"))
+	);
+}
+
 /** The model names semantic design elements; the server mints their stable
- * UUIDs. This projection leaves persisted schemas UUID-only. */
+ * UUIDs. Every design-ID slot — required or optional, declaration or
+ * reference — widens to `uuid | { handle }` (plus a null arm where the slot
+ * was optional) so the strict provider grammar can express a handle; a slot
+ * left bare would pin the model to raw UUIDs the server then refuses.
+ * Persisted schemas remain UUID-only. Design IDs are the only
+ * canonical-UUID-pattern strings in these tool schemas — a Blueprint or media
+ * UUID slot added here would widen too and must first grow a distinguishable
+ * emission; `toolWireSchemas.test.ts` pins the widened inventory. */
 function widenDesignIdsToHandles(node: unknown): unknown {
 	if (Array.isArray(node)) return node.map(widenDesignIdsToHandles);
 	if (!isJsonObject(node)) return node;
-	if (node.type === "string" && node.format === "uuid") {
+	if (isDesignIdStringNode(node)) {
+		const nullable = Array.isArray(node.type);
 		return {
 			anyOf: [
-				node,
-				{
-					type: "object",
-					properties: {
-						handle: {
-							type: "string",
-							pattern: DESIGN_HANDLE_PATTERN.source,
-						},
-					},
-					required: ["handle"],
-					additionalProperties: false,
-				},
+				nullable ? { ...node, type: "string" } : node,
+				DESIGN_HANDLE_ARM,
+				...(nullable ? [{ type: "null" }] : []),
 			],
 		};
 	}
@@ -170,10 +199,15 @@ function widenDesignIdsToHandles(node: unknown): unknown {
 	);
 }
 
+/** The exact provider-facing JSON grammar of a handle-widened design tool.
+ * Exported so tests can prove the wire admits a handle object everywhere a
+ * design identity is expressible. */
+export function designToolWireSchema(schema: z.ZodType): unknown {
+	return widenDesignIdsToHandles(strictWireJsonSchema(schema));
+}
+
 function strictWireWithHandles(schema: z.ZodType) {
-	return jsonSchema<unknown>(
-		widenDesignIdsToHandles(strictWireJsonSchema(schema)) as never,
-	);
+	return jsonSchema<unknown>(designToolWireSchema(schema) as never);
 }
 
 export function resolveDesignWorkspaceHandles(
@@ -468,6 +502,22 @@ function workspaceError(error: unknown): ToolError | null {
 	};
 }
 
+/** Record a rejected stage call before returning it, so consecutive
+ * identical rejections latch the repair tracker's stage budget instead of
+ * spinning until the step budget. Gate refusals (the sequence budget) and
+ * the forced-question state stay outside this accounting. */
+function rejectedStage<T extends ToolError>(
+	deps: DesignLoopToolDeps,
+	kind: DesignStageToolName,
+	result: T,
+): T {
+	deps.repair.noteStageRejection(
+		kind,
+		`${result.diagnostic?.code ?? "design-validation-rejected"}|${result.error}`,
+	);
+	return result;
+}
+
 function parseStage<T>(schema: z.ZodType<T>, input: unknown) {
 	const parsed = schema.safeParse(stripNullProperties(input));
 	return parsed.success
@@ -677,14 +727,14 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				workspace.sourceContract,
 			);
 			if (identityIssue !== null) {
-				return {
+				return rejectedStage(deps, "stageContract", {
 					error: identityIssue,
 					diagnostic: {
 						code: "design-creation-handle-required",
 						validationStage: "partial" as const,
 						issueCount: 1,
 					},
-				};
+				});
 			}
 			const unboundHandleIssue = designUnboundHandleIssue(
 				strippedInput,
@@ -694,21 +744,23 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				workspace.sourceContract,
 			);
 			if (unboundHandleIssue !== null) {
-				return {
+				return rejectedStage(deps, "stageContract", {
 					error: unboundHandleIssue,
 					diagnostic: {
 						code: "design-unbound-handle",
 						validationStage: "partial" as const,
 						issueCount: 1,
 					},
-				};
+				});
 			}
 			const parsed = parseHandledStage(
 				stageContractInputSchema,
 				input,
 				deps.designSessionId,
 			);
-			if (!parsed.ok) return { error: parsed.error };
+			if (!parsed.ok) {
+				return rejectedStage(deps, "stageContract", { error: parsed.error });
+			}
 			const { expectedRevision, ...body } = parsed.data;
 			const operation = { kind: "contract" as const, ...body };
 			const handleBindings = collectDesignIdentityHandleBindings(
@@ -719,7 +771,9 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				input: parsed.data,
 				operation,
 			});
-			if (bound !== null) return { error: bound };
+			if (bound !== null) {
+				return rejectedStage(deps, "stageContract", { error: bound });
+			}
 			try {
 				const result = await stageDesignArtifactWorkspace({
 					designSessionId: deps.designSessionId,
@@ -730,6 +784,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					operation,
 					handleBindings,
 				});
+				deps.repair.noteStageAccepted("stageContract");
 				return {
 					ok: true,
 					workspaceRevision: result.state.workspace.revision,
@@ -739,7 +794,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				};
 			} catch (error) {
 				const handled = workspaceError(error);
-				if (handled) return handled;
+				if (handled) return rejectedStage(deps, "stageContract", handled);
 				throw error;
 			}
 		},
@@ -774,14 +829,14 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				workspace.sourceContract,
 			);
 			if (identityIssue !== null) {
-				return {
+				return rejectedStage(deps, "stageRevision", {
 					error: identityIssue,
 					diagnostic: {
 						code: "design-creation-handle-required",
 						validationStage: "partial" as const,
 						issueCount: 1,
 					},
-				};
+				});
 			}
 			const unboundHandleIssue = designUnboundHandleIssue(
 				strippedInput,
@@ -791,21 +846,23 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				workspace.sourceContract,
 			);
 			if (unboundHandleIssue !== null) {
-				return {
+				return rejectedStage(deps, "stageRevision", {
 					error: unboundHandleIssue,
 					diagnostic: {
 						code: "design-unbound-handle",
 						validationStage: "partial" as const,
 						issueCount: 1,
 					},
-				};
+				});
 			}
 			const parsed = parseHandledStage(
 				stageRevisionInputSchema,
 				input,
 				deps.designSessionId,
 			);
-			if (!parsed.ok) return { error: parsed.error };
+			if (!parsed.ok) {
+				return rejectedStage(deps, "stageRevision", { error: parsed.error });
+			}
 			const { expectedRevision, ...body } = parsed.data;
 			const operation = { kind: "revision" as const, ...body };
 			const handleBindings = collectDesignIdentityHandleBindings(
@@ -816,7 +873,9 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				input: parsed.data,
 				operation,
 			});
-			if (bound !== null) return { error: bound };
+			if (bound !== null) {
+				return rejectedStage(deps, "stageRevision", { error: bound });
+			}
 			try {
 				const result = await stageDesignArtifactWorkspace({
 					designSessionId: deps.designSessionId,
@@ -827,6 +886,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					operation,
 					handleBindings,
 				});
+				deps.repair.noteStageAccepted("stageRevision");
 				return {
 					ok: true,
 					workspaceRevision: result.state.workspace.revision,
@@ -836,7 +896,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				};
 			} catch (error) {
 				const handled = workspaceError(error);
-				if (handled) return handled;
+				if (handled) return rejectedStage(deps, "stageRevision", handled);
 				throw error;
 			}
 		},

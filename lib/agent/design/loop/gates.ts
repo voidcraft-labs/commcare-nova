@@ -62,11 +62,24 @@ export const DESIGN_SUBMISSION_REPAIR_BUDGET = 3;
  *  message on the retried turn restores it. */
 export const DESIGN_SEQUENCE_ERROR_BUDGET = 3;
 
+/** The two bounded workspace-staging tools. Their rejections are tracked
+ *  separately from finalization because a stage rejection is normally
+ *  correctable in the very next call. */
+export type DesignStageToolName = "stageContract" | "stageRevision";
+
+/** Consecutive stage rejections of one tool with an IDENTICAL diagnostic
+ *  before the run fails. A changed diagnostic or an accepted stage is
+ *  progress and resets the count. Three identical rejections mean the model
+ *  cannot express what the server requires — a systemic contract defect, not
+ *  a correctable slip — and every further call would repeat the rejection. */
+export const DESIGN_STAGE_REPAIR_BUDGET = 3;
+
 /** A budget the gates enforce was exhausted: thrown from the agent's
  *  `prepareStep` so the turn ends as a classified design defect with every
  *  committed artifact intact. */
 export type DesignLoopBudgetCode =
 	| "design-submission-nonconvergent"
+	| "design-stage-nonconvergent"
 	| "design-sequence-budget";
 
 export class DesignLoopBudgetError extends Error {
@@ -324,6 +337,10 @@ export class DesignRepairTracker {
 			fingerprints: ReadonlySet<string>;
 		}
 	>();
+	private stageRejectionsByKind = new Map<
+		DesignStageToolName,
+		{ fingerprint: string; count: number }
+	>();
 	private sequenceErrors = 0;
 	private fatal: DesignLoopBudgetError | undefined;
 	private pendingUserQuestions: readonly OpenQuestion[] = [];
@@ -351,6 +368,27 @@ export class DesignRepairTracker {
 				`The ${kind} submission did not converge after ${count} finalization rejections. The committed artifacts are intact; inspect the run diagnostics and correct the harness before running this phase again.`,
 			);
 		}
+	}
+
+	/** A rejected `stageContract`/`stageRevision` call. Only CONSECUTIVE
+	 * rejections with a byte-identical diagnostic latch the fatal error: a
+	 * changed diagnostic means the model is moving through distinct problems,
+	 * which the overall step budget already bounds. */
+	noteStageRejection(kind: DesignStageToolName, fingerprint: string): void {
+		const previous = this.stageRejectionsByKind.get(kind);
+		const count =
+			previous?.fingerprint === fingerprint ? previous.count + 1 : 1;
+		this.stageRejectionsByKind.set(kind, { fingerprint, count });
+		if (count >= DESIGN_STAGE_REPAIR_BUDGET) {
+			this.fatal = new DesignLoopBudgetError(
+				"design-stage-nonconvergent",
+				`The ${kind} staging call was rejected ${count} times in a row with the same diagnostic. The model cannot express what the server requires here, so another attempt would only repeat the rejection. The committed artifacts are intact; inspect the run diagnostics and correct the harness before running this phase again.`,
+			);
+		}
+	}
+
+	noteStageAccepted(kind: DesignStageToolName): void {
+		this.stageRejectionsByKind.delete(kind);
 	}
 
 	requireUserQuestions(questions: readonly OpenQuestion[]): void {

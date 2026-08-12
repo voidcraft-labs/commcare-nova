@@ -14,7 +14,10 @@ import {
 } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
-import { DesignRepairTracker } from "@/lib/agent/design/loop/gates";
+import {
+	DESIGN_STAGE_REPAIR_BUDGET,
+	DesignRepairTracker,
+} from "@/lib/agent/design/loop/gates";
 import {
 	createDesignLoopTools,
 	type DesignLoopToolDeps,
@@ -415,6 +418,40 @@ describe("staged design loop", () => {
 			],
 		});
 		expect(unknownRemoval.error).toContain("unknown raw design UUID");
+	});
+
+	it("latches a fatal defect when identical stage rejections repeat", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const repair = new DesignRepairTracker();
+		const tools = mount(pkg, cleanReview, repair);
+		const rawUuidActor = {
+			expectedRevision: 0,
+			collections: [
+				{
+					collection: "actors",
+					upserts: [
+						{
+							id: did(900),
+							name: "Community worker",
+							goals: ["Register and screen beneficiaries"],
+							responsibilities: [],
+							workContext: [],
+							constraints: [],
+						},
+					],
+					removeIds: [],
+				},
+			],
+		};
+		for (let attempt = 0; attempt < DESIGN_STAGE_REPAIR_BUDGET; attempt += 1) {
+			expect(repair.fatalError()).toBeUndefined();
+			const result = await call(tools.stageContract, rawUuidActor);
+			expect(result).toMatchObject({
+				diagnostic: { code: "design-creation-handle-required" },
+			});
+		}
+		expect(repair.fatalError()?.code).toBe("design-stage-nonconvergent");
 	});
 
 	it("rejects duplicate declaration identities before they enter the workspace ledger", async () => {

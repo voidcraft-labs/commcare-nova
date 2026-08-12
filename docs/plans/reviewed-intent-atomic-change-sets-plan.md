@@ -328,7 +328,9 @@ declaration in the same stage; they cannot point speculatively at future work.
 Finalization rejections carry a validation stage and payload-free diagnostic
 fingerprints. A later stage or changed fingerprint is progress; an exact repeat
 stops after two attempts and any third rejection stops honestly as an internal
-design defect. When every construction issue is an authored open question, the
+design defect. A bounded stage call rejected three times in a row with an
+identical diagnostic stops the same way; a changed diagnostic or an accepted
+stage resets that count. When every construction issue is an authored open question, the
 server appends the exact required questions and refuses further design staging
 until an `askQuestions` round, at most five questions, is answered. Those user
 decisions do not consume the model-repair budget. Server-only durable append

@@ -6,6 +6,7 @@ import type {
 } from "@/lib/agent/design/artifactStore";
 import {
 	DESIGN_SEQUENCE_ERROR_BUDGET,
+	DESIGN_STAGE_REPAIR_BUDGET,
 	type DesignAncestry,
 	DesignRepairTracker,
 	evaluateDesignGates,
@@ -210,6 +211,35 @@ describe("DesignRepairTracker", () => {
 			fingerprints: ["a-different-construction-finding"],
 		});
 		expect(tracker.fatalError()?.code).toBe("design-submission-nonconvergent");
+	});
+
+	it("stops consecutive identical stage rejections", () => {
+		const tracker = new DesignRepairTracker();
+		const fingerprint =
+			"design-creation-handle-required|collections.0.upserts.0.id declares a new design identity with a raw UUID.";
+		for (let index = 0; index < DESIGN_STAGE_REPAIR_BUDGET - 1; index += 1) {
+			tracker.noteStageRejection("stageContract", fingerprint);
+			expect(tracker.fatalError()).toBeUndefined();
+		}
+		tracker.noteStageRejection("stageContract", fingerprint);
+		expect(tracker.fatalError()?.code).toBe("design-stage-nonconvergent");
+	});
+
+	it("treats a changed stage diagnostic or an accepted stage as progress", () => {
+		const alternating = new DesignRepairTracker();
+		alternating.noteStageRejection("stageContract", "issue-a");
+		alternating.noteStageRejection("stageContract", "issue-b");
+		alternating.noteStageRejection("stageContract", "issue-a");
+		alternating.noteStageRejection("stageContract", "issue-b");
+		expect(alternating.fatalError()).toBeUndefined();
+
+		const interrupted = new DesignRepairTracker();
+		interrupted.noteStageRejection("stageRevision", "issue-a");
+		interrupted.noteStageRejection("stageRevision", "issue-a");
+		interrupted.noteStageAccepted("stageRevision");
+		interrupted.noteStageRejection("stageRevision", "issue-a");
+		interrupted.noteStageRejection("stageRevision", "issue-a");
+		expect(interrupted.fatalError()).toBeUndefined();
 	});
 
 	it("tracks construction questions outside the repair budget", () => {
