@@ -29,11 +29,39 @@ function row(
 		app_id: null,
 		state: "active",
 		awaiting_input: false,
+		owner_user_id: "user-1",
+		run_id: null,
+		run_holder_nonce: null,
+		run_actor_user_id: null,
+		run_mode: null,
+		run_lease_expires_at: null,
+		res_period: null,
+		res_reserved: null,
+		res_settled: null,
+		res_user_id: null,
+		res_run_id: null,
 		last_error_type: null,
 		updated_at: new Date("2026-08-01T10:00:00.000Z"),
 		thread_summary: "Home visit tracking",
 		thread_updated_at: "2026-08-01T09:00:00.000Z",
 		...overrides,
+	};
+}
+
+/** The holder + reservation column group a claimed BUILD session carries. */
+function holder(leaseExpiresAt: Date): Partial<DesignInProgressRow> {
+	const runId = "77777777-7777-4777-8777-777777777777";
+	return {
+		run_id: runId,
+		run_holder_nonce: "88888888-8888-4888-8888-888888888888",
+		run_actor_user_id: "user-1",
+		run_mode: "build",
+		run_lease_expires_at: leaseExpiresAt,
+		res_period: "2026-08",
+		res_reserved: 100,
+		res_settled: false,
+		res_user_id: "user-1",
+		res_run_id: runId,
 	};
 }
 
@@ -101,6 +129,34 @@ describe("projectDesignInProgress", () => {
 		);
 		expect(summary.stage).toBe("incomplete");
 		expect(summary.recoverable).toBe(true);
+	});
+
+	it("says the build stopped when a killed run's lease lapsed unreaped", () => {
+		/* No failure flush ran (`last_error_type` null) — the lapsed holder
+		 * lease is the dead-run evidence, so the list stops showing
+		 * active-work copy while nothing can move. */
+		const summary = projectDesignInProgress(
+			row(holder(new Date(Date.now() - 60_000))),
+			head({
+				kind: "designing",
+				designSessionId: SESSION,
+				sourcePackageDigest: "b".repeat(64),
+			}),
+		);
+		expect(summary.stage).toBe("incomplete");
+		expect(summary.recoverable).toBe(true);
+	});
+
+	it("keeps a live run's active-work stage", () => {
+		const summary = projectDesignInProgress(
+			row(holder(new Date(Date.now() + 300_000))),
+			head({
+				kind: "designing",
+				designSessionId: SESSION,
+				sourcePackageDigest: "b".repeat(64),
+			}),
+		);
+		expect(summary.stage).toBe("designing");
 	});
 
 	it("reports the paused stage while the design waits on an answer", () => {

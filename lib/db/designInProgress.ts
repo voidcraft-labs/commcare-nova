@@ -35,6 +35,7 @@ import {
 	parsePersistedDesignSessionState,
 } from "./designSessions";
 import { getAppDb } from "./pg";
+import type { DesignSessionLeaseRow } from "./runLiveness";
 
 /** One row of the Designs-in-progress section (§15.9). */
 export interface DesignInProgressSummary {
@@ -83,15 +84,15 @@ export async function userHasDesignsInProgress(args: {
 }
 
 /** The persisted shape the projection reads — spelled out so the pure
- *  projection below can be exercised without a database. */
-export interface DesignInProgressRow {
+ *  projection below can be exercised without a database. It carries the full
+ *  lease row because the stage fold's dead-run evidence includes a lapsed
+ *  holder, derived through the one sanctioned liveness reader. */
+export interface DesignInProgressRow extends DesignSessionLeaseRow {
 	readonly id: string;
 	readonly project_id: string;
 	readonly app_id: string | null;
 	readonly state: DesignSessionState;
-	readonly awaiting_input: boolean;
 	readonly last_error_type: string | null;
-	readonly updated_at: Date;
 	/** The most recent thread bound to this session, when it has one. */
 	readonly thread_summary: string | null;
 	readonly thread_updated_at: string | null;
@@ -117,15 +118,7 @@ export function projectDesignInProgress(
 		designSessionId: row.id,
 		title: title && title.length > 0 ? title : UNTITLED_DESIGN_TITLE,
 		projectId: row.project_id,
-		stage: deriveDesignBuildStage(
-			{
-				state: row.state,
-				awaiting_input: row.awaiting_input,
-				last_error_type: row.last_error_type,
-				app_id: row.app_id,
-			},
-			head,
-		),
+		stage: deriveDesignBuildStage(row, head),
 		lastActivityAt: lastActivity.toISOString(),
 		materializedAppId: row.app_id,
 		awaitingInput: row.awaiting_input,
@@ -153,6 +146,17 @@ export async function listDesignsInProgress(args: {
 			"app_id",
 			"state",
 			"awaiting_input",
+			"owner_user_id",
+			"run_id",
+			"run_holder_nonce",
+			"run_actor_user_id",
+			"run_mode",
+			"run_lease_expires_at",
+			"res_period",
+			"res_reserved",
+			"res_settled",
+			"res_user_id",
+			"res_run_id",
 			"last_error_type",
 			"updated_at",
 		])
@@ -199,13 +203,8 @@ export async function listDesignsInProgress(args: {
 		const thread = titles.get(row.id);
 		return projectDesignInProgress(
 			{
-				id: row.id,
-				project_id: row.project_id,
-				app_id: row.app_id,
+				...row,
 				state: parsePersistedDesignSessionState(row.state),
-				awaiting_input: row.awaiting_input,
-				last_error_type: row.last_error_type,
-				updated_at: row.updated_at,
 				thread_summary: thread?.summary ?? null,
 				thread_updated_at: thread?.updatedAt ?? null,
 			},

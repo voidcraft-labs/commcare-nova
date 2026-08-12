@@ -754,6 +754,12 @@ Before materialization the user sees:
 - resume and discard controls;
 - no app tree or Preview.
 
+The stage projection derives dead-run evidence from the durable row alone: a
+recorded failed-run marker, or a still-present holder whose lease lapsed with
+no failure flush (a process death). Either form projects the stopped stage and
+its resume control immediately, report-only, without waiting for a later
+claim's admission scan to reap the session.
+
 Internal contract, review, and revision tool parts remain in durable model
 history but never render in chat. Technical validation errors and model-only
 success instructions stay internal. The outline does not show finding counts

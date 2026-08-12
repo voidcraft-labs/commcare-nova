@@ -13,6 +13,10 @@ import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import type { DesignReview } from "@/lib/agent/design/review";
 import type { DesignSessionDoc } from "@/lib/db/designSessions";
+import {
+	type DesignSessionLeaseRow,
+	designSessionLeaseState,
+} from "@/lib/db/runLiveness";
 import type { OrchestrationHead } from "./orchestratorState";
 
 export type DesignBuildStage =
@@ -29,6 +33,11 @@ export type DesignBuildStage =
 	| "incomplete"
 	| "failed";
 
+/** The session facts the stage fold reads: the full lease row (the sanctioned
+ * liveness derivation consumes it whole) plus the failure marker. */
+export type StageFoldSession = DesignSessionLeaseRow &
+	Pick<DesignSessionDoc, "last_error_type" | "app_id">;
+
 /**
  * Fold a session + its orchestration head into the user-facing stage. The
  * head's granularity is per-phase (the design pipeline is internally
@@ -36,29 +45,36 @@ export type DesignBuildStage =
  * frames; a reconnect lands on the phase.
  */
 export function deriveDesignBuildStage(
-	session: Pick<
-		DesignSessionDoc,
-		"state" | "awaiting_input" | "last_error_type" | "app_id"
-	>,
+	session: StageFoldSession,
 	head: OrchestrationHead | null,
 ): DesignBuildStage {
 	if (session.awaiting_input) return "needs-input";
 	if (session.state === "abandoned") return "failed";
+	/* Dead-run evidence has two durable forms: `last_error_type` (set by every
+	 * failed/reaped settle, cleared by every fresh claim) and a still-present
+	 * holder whose lease lapsed — a process death no failure flush recorded.
+	 * The reaper that stamps the error type fires only from a later claim's
+	 * admission scan, so without the lapse arm a killed run wears active-work
+	 * copy (and hides the resume control) until some unrelated claim happens
+	 * by. Report-only, like the thread loaders' dead-marker stamp: the row is
+	 * never written here, and the resume claim retires the evidence. */
+	const deadRun =
+		session.last_error_type !== null ||
+		designSessionLeaseState(session).reapableStaleRun;
 	if (head === null) {
-		/* No orchestration event yet, but the session records a failed run
-		 * (a claim/pipeline death before the first transition): say the build
-		 * stopped rather than showing active-work copy over a dead run. */
-		return session.last_error_type === null ? "understanding" : "incomplete";
+		/* No orchestration event yet, but the session records a dead run (a
+		 * claim/pipeline death before the first transition): say the build
+		 * stopped rather than showing active-work copy over it. */
+		return deadRun ? "incomplete" : "understanding";
 	}
 	const state = head.state;
 	/* A mid-flight head kind describes the last event of a run that may since
-	 * have DIED: `last_error_type` is set by every failed/reaped settle and
-	 * cleared by every fresh claim, so while it stands, active-work copy over
-	 * that kind is a spinner over a dead run. The terminal kinds keep their
-	 * own answer (a finished app is ready regardless of a later edit turn's
-	 * error marker). */
+	 * have DIED: while dead-run evidence stands, active-work copy over that
+	 * kind is a spinner over a dead run. The terminal kinds keep their own
+	 * answer (a finished app is ready regardless of a later edit turn's error
+	 * marker). */
 	if (
-		session.last_error_type !== null &&
+		deadRun &&
 		(state.kind === "designing" ||
 			state.kind === "planning" ||
 			state.kind === "executing-slice")
@@ -91,10 +107,7 @@ export function deriveDesignBuildStage(
  * evidence of infrastructure interruption even when the failure happened
  * before an orchestration error event could be appended. */
 export function deriveInterruptedMaterializedBuildStage(
-	session: Pick<
-		DesignSessionDoc,
-		"state" | "awaiting_input" | "last_error_type" | "app_id"
-	>,
+	session: StageFoldSession,
 	head: OrchestrationHead | null,
 ): DesignBuildStage {
 	if (

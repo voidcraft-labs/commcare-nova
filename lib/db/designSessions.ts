@@ -128,7 +128,13 @@ export interface DesignSessionDoc {
 	run_id: string | null;
 	run_holder_nonce: string | null;
 	run_actor_user_id: string | null;
+	run_mode: string | null;
 	run_lease_expires_at: Date | null;
+	res_period: string | null;
+	res_reserved: number | null;
+	res_settled: boolean | null;
+	res_user_id: string | null;
+	res_run_id: string | null;
 	last_error_type: string | null;
 	active_design_revision_id: string | null;
 	active_build_plan_id: string | null;
@@ -1053,24 +1059,17 @@ export async function loadDesignSession(
 		.where("id", "=", designSessionId)
 		.executeTakeFirst();
 	if (!row) return null;
+	/* The spread carries the exact selected columns — including the holder +
+	 * reservation groups the stage projection's lease derivation reads — into
+	 * the doc without member-reading any liveness column here (the
+	 * single-reader guard's rule); only the parsed/normalized fields are
+	 * restated. */
 	return {
-		id: row.id,
+		...row,
 		mode: parsePersistedDesignSessionMode(row.mode),
-		project_id: row.project_id,
-		owner_user_id: row.owner_user_id,
-		proposed_app_id: row.proposed_app_id,
-		app_id: row.app_id,
 		state: parsePersistedDesignSessionState(row.state),
-		awaiting_input: row.awaiting_input,
-		run_id: row.run_id,
-		run_holder_nonce: row.run_holder_nonce,
-		run_actor_user_id: row.run_actor_user_id,
-		run_lease_expires_at: row.run_lease_expires_at,
-		last_error_type: row.last_error_type,
 		active_design_revision_id: row.active_design_revision_id ?? null,
 		active_build_plan_id: row.active_build_plan_id ?? null,
-		created_at: row.created_at,
-		updated_at: row.updated_at,
 	};
 }
 
