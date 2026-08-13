@@ -21,6 +21,7 @@
  * list starts disagreeing with the conversation it links to.
  */
 
+import { sql } from "kysely";
 import {
 	type OrchestrationHead,
 	readOrchestrationHead,
@@ -167,7 +168,20 @@ export async function listDesignsInProgress(args: {
 		.where("app_id", "is", null)
 		.where("owner_user_id", "=", args.userId)
 		.where("project_id", "=", args.projectId)
-		.orderBy("updated_at", "desc")
+		/* Order and cut by the SAME clock the row displays: the later of the
+		 * session's own last write and its newest conversation's. A write that
+		 * stamps only the thread (a bailed-history merge) must not sort the
+		 * design stale or push it off the LIMIT while its card shows fresh
+		 * activity. `threads.updated_at` is server-written ISO-8601 TEXT, so
+		 * its max is cast for the comparison. */
+		.orderBy(
+			sql`GREATEST(design_sessions.updated_at, COALESCE((
+				SELECT max(threads.updated_at)
+				FROM threads
+				WHERE threads.design_session_id = design_sessions.id
+			)::timestamptz, design_sessions.updated_at))`,
+			"desc",
+		)
 		.orderBy("id", "asc")
 		.limit(args.limit ?? DEFAULT_LIMIT)
 		.execute();
