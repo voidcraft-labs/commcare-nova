@@ -40,7 +40,7 @@ import type { createDesignLoopTools } from "./tools";
  *  leading recommendation wherever real candidates exist, free text as the
  *  ever-present fallback the user already has rather than an option. */
 export const DESIGN_ASK_QUESTIONS_DESCRIPTION =
-	"Ask the user clarifying questions; execution pauses for their answers. Always available, any number of rounds. Give a question 2-4 concrete options whenever real alternatives or sensible defaults exist — your recommended option first, its label ending in ' (Recommended)' when you have one. The user can always answer in free text instead of picking an option, so never add an option that means 'something else'; an empty options list is only for questions with no concrete candidates. Assume only what the user would not want to be asked.";
+	"Ask the user clarifying questions; execution pauses for their answers. Always available, any number of rounds. Give a question 2-4 concrete options whenever real alternatives or sensible defaults exist — your recommended option first, its label ending in ' (Recommended)' when you have one. The user can always answer in free text instead of picking an option, so never add an option that means 'something else'; an empty options list is only for questions with no concrete candidates. If a question asks for data or a document, the user may attach a file while answering; it arrives right after the answers. Assume only what the user would not want to be asked.";
 
 export interface DesignAgentArgs {
 	readonly model: LanguageModel;

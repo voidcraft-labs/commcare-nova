@@ -787,6 +787,7 @@ function createChatInstance(
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
 	autoResendFatalStrikesRef: { current: number },
+	pendingAnswerAttachmentsRef: { current: AttachmentRef[] },
 	threadHydrationStateRef: {
 		current: "ready" | "pending" | "failed";
 	},
@@ -796,8 +797,10 @@ function createChatInstance(
 ): Chat<NovaUIMessage> {
 	/* A fresh Chat instance starts with a clean slate: the strike count
 	 * guards runs of THIS instance, not whatever a previously open thread
-	 * ended on. */
+	 * ended on — and files staged against another conversation's question
+	 * round must not ride a send in this one. */
 	autoResendFatalStrikesRef.current = 0;
+	pendingAnswerAttachmentsRef.current = [];
 	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
 	 * sent: the route loads the persisted doc server-side off the
 	 * authorization read. We send only the `appId`.
@@ -925,6 +928,11 @@ function createChatInstance(
 			 * unconditional resend provided. */
 			if (autoResendFatalStrikesRef.current >= AUTO_RESEND_FATAL_HALT_STRIKES)
 				return false;
+			/* Files staged with answers own the resume: `handleToolOutput`
+			 * flushes them as the attachment-bearing user message the model
+			 * needs, so the bare auto-resend must stand down or the turn would
+			 * run without the files the answers reference. */
+			if (pendingAnswerAttachmentsRef.current.length > 0) return false;
 			const owner = sessionStoreRef.current?.getState();
 			return (
 				chatGenerationCanWrite(
@@ -1460,6 +1468,7 @@ export function ChatContainer({
 				reconcilerCtxRef,
 				ownUserIdRef,
 				autoResendFatalStrikesRef,
+				pendingAnswerAttachmentsRef,
 				threadHydrationStateRef,
 				projectToast,
 				scopeEpoch,
@@ -1475,6 +1484,16 @@ export function ChatContainer({
 	 * identity. Clear stale local state from the previous app: run ID and
 	 * the Chat instance. (The mount initializer reads the refs the component
 	 * seeded above rather than restamping them.) */
+	/* Attachments the user staged WHILE ANSWERING a question round. An answer
+	 * itself rides the tool output (no user message), so its files buffer here
+	 * — extraction keeps running server-side the whole time — and flush as one
+	 * attachment-bearing user message the moment the round's last answer
+	 * lands. That message is what both pipelines already understand (the SA
+	 * resolves the extracts; a design session extends its source package), so
+	 * the model reads the files exactly where the answers reference them. The
+	 * chat-instance factory clears it: a new conversation must not inherit
+	 * files staged against another one's round. */
+	const pendingAnswerAttachmentsRef = useRef<AttachmentRef[]>([]);
 	const prevSessionRef = useRef(sessionApi);
 	const [chat, setChat] = useState(() =>
 		createChatInstance(
@@ -1491,6 +1510,7 @@ export function ChatContainer({
 			reconcilerCtxRef,
 			ownUserIdRef,
 			autoResendFatalStrikesRef,
+			pendingAnswerAttachmentsRef,
 			threadHydrationStateRef,
 			projectToast,
 			scopeEpoch,
@@ -2163,6 +2183,16 @@ export function ChatContainer({
 		};
 	}, [status]);
 
+	const handleAnswerAttachments = useCallback((refs: AttachmentRef[]) => {
+		const seen = new Set(
+			pendingAnswerAttachmentsRef.current.map((ref) => ref.assetId),
+		);
+		pendingAnswerAttachmentsRef.current = [
+			...pendingAnswerAttachmentsRef.current,
+			...refs.filter((ref) => !seen.has(ref.assetId)),
+		];
+	}, []);
+
 	const handleSend = useCallback(
 		({
 			text,
@@ -2255,8 +2285,28 @@ export function ChatContainer({
 			 * strike cap still stops unattended loops. */
 			autoResendFatalStrikesRef.current = 0;
 			addToolOutput(params);
+			/* The round's last answer just landed. If files were staged with the
+			 * answers, resume the turn OURSELVES with the attachment-bearing
+			 * user message (the auto-resend stands down while the buffer is
+			 * non-empty): the server resolves the refs into stored extracts —
+			 * waiting on any still-running extraction — and a design session
+			 * extends its source package from the same message. The text is the
+			 * plain manifest of what the user did, nothing invented. */
+			const buffered = pendingAnswerAttachmentsRef.current;
+			if (
+				params.tool === "askQuestions" &&
+				buffered.length > 0 &&
+				trailingAskPosture(chat.messages) === "answered"
+			) {
+				pendingAnswerAttachmentsRef.current = [];
+				const names = buffered.map((ref) => ref.filename).join(", ");
+				sendMessage({
+					text: `Attached: ${names}`,
+					metadata: { attachments: buffered },
+				});
+			}
 		},
-		[addToolOutput, scopeEpoch],
+		[addToolOutput, chat, scopeEpoch, sendMessage],
 	);
 
 	const handleCreateStarterApp = useCallback(() => {
@@ -2416,6 +2466,7 @@ export function ChatContainer({
 			messages={messages}
 			status={status}
 			onSend={handleSend}
+			onAnswerAttachments={handleAnswerAttachments}
 			addToolOutput={handleToolOutput}
 			readOnly={readOnly}
 			readOnlyNotice={

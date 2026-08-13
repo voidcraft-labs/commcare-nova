@@ -89,11 +89,6 @@ interface ChatInputProps {
 	 *  strict subset of `disabled`: locking the composer for a non-chat reason
 	 *  (creating the starter) must not claim the user's message is being sent. */
 	submitting?: boolean;
-	/** True while an AskQuestionsCard is waiting for a reply: a composer send
-	 *  routes to that card as a text-only answer, so attachments can't go with it.
-	 *  Disables the attach button and preserves any staged files for the next
-	 *  normal turn rather than dropping them. */
-	answerPending?: boolean;
 	/** Centered (Idle) card layout vs docked sidebar: drives the input chrome
 	 *  (the docked variant gets a top divider). */
 	centered?: boolean;
@@ -136,7 +131,6 @@ function ChatInputComposer({
 	onSend,
 	disabled,
 	submitting,
-	answerPending,
 	centered,
 	openingPrompt,
 	onReadingChange,
@@ -285,13 +279,10 @@ function ChatInputComposer({
 		// the request itself). The disabled submit button covers the click path;
 		// this guards every other submit route.
 		if (!text) return false;
-		if (answerPending) {
-			// This send answers a waiting question card (text-only). Forward the
-			// text and KEEP the staged attachments: they're not part of an answer,
-			// but they shouldn't vanish; they ride the next normal turn.
-			onSend({ text });
-			return;
-		}
+		// A normal send carries the staged refs directly; an answer send routes
+		// through the sidebar, which buffers the refs and delivers them with the
+		// round's answers (a question can ask for data, and the file IS part of
+		// the answer). Either way the files leave the composer with this send.
 		const attachments = visiblePicked.map(toAttachmentRef);
 		onSend({
 			text,
@@ -348,10 +339,10 @@ function ChatInputComposer({
 				</PromptInputBody>
 				<PromptInputFooter>
 					<PromptInputTools>
-						{/* Attach from the file manager. Disabled while a turn is in
-						 *  flight (staging something you can't yet send reads as broken)
-						 *  AND while a question card is awaiting a reply: that send is a
-						 *  text-only answer, so an attachment couldn't ride it anyway. */}
+						{/* Attach from the file manager. Disabled only while a turn is in
+						 *  flight (staging something you can't yet send reads as broken).
+						 *  While a question card waits the button stays live: a question
+						 *  can ask for data, and the file rides the answer. */}
 						<Tooltip>
 							<TooltipTrigger
 								render={
@@ -362,7 +353,7 @@ function ChatInputComposer({
 										onClick={() => {
 											if (ownsCurrentProjectScope()) setPickerOpen(true);
 										}}
-										disabled={disabled || answerPending}
+										disabled={disabled}
 										aria-label="Attach a file"
 										className="text-nova-text-muted"
 									>

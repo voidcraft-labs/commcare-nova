@@ -85,6 +85,12 @@ interface ChatSidebarProps {
 	/** Send a turn. `attachments` are asset-id refs to files picked from the file
 	 *  manager; the server resolves each to its stored extract or image bytes. */
 	onSend: (message: { text: string; attachments?: AttachmentRef[] }) => void;
+	/** Files attached WHILE ANSWERING a question round. The answer itself rides
+	 *  the tool output, so its files buffer with the owner (ChatContainer) and
+	 *  flush as one attachment-bearing user message when the round completes;
+	 *  extraction keeps running the whole time and never blocks the next
+	 *  question. */
+	onAnswerAttachments?: (refs: AttachmentRef[]) => void;
 	addToolOutput: (params: {
 		tool: string;
 		toolCallId: string;
@@ -210,6 +216,7 @@ export function ChatSidebar({
 	messages,
 	status,
 	onSend,
+	onAnswerAttachments,
 	addToolOutput,
 	readOnly,
 	readOnlyNotice,
@@ -425,21 +432,32 @@ export function ChatSidebar({
 	}, []);
 
 	// Route typed messages as question answers when an AskQuestionsCard is waiting.
-	// Answers are text-only (the question UI is multiple-choice); any staged
-	// attachments are forwarded only on a normal send, never folded into an answer.
-	// Sending returns attention to the conversation, so the thread list closes.
+	// Files attached with an answer buffer with the owner (extraction keeps
+	// running, the next question stays answerable) and the answer text names
+	// them, so the model can tie each file to the answer it came with; the
+	// buffered refs flush as one attachment-bearing message when the round
+	// completes. Sending returns attention to the conversation, so the thread
+	// list closes.
 	const handleSend = useCallback(
 		(message: { text: string; attachments?: AttachmentRef[] }) => {
 			setThreadListOpen(false);
 			if (pendingAnswerRef.current) {
-				pendingAnswerRef.current(message.text);
+				const attachments = message.attachments ?? [];
+				if (attachments.length > 0) {
+					onAnswerAttachments?.(attachments);
+				}
+				const note =
+					attachments.length > 0
+						? ` (attached: ${attachments.map((ref) => ref.filename).join(", ")})`
+						: "";
+				pendingAnswerRef.current(`${message.text}${note}`);
 			} else {
 				markLocalSend();
 				onSend(message);
 			}
 			scrollToLatest();
 		},
-		[markLocalSend, onSend, scrollToLatest],
+		[markLocalSend, onAnswerAttachments, onSend, scrollToLatest],
 	);
 
 	// An answered question starts the same outgoing-message status as the composer
@@ -460,7 +478,7 @@ export function ChatSidebar({
 	 * model's pinned target anchors on the last waiting card, so a pinned view
 	 * opens each arriving card at its top, and an escaped reader is left
 	 * where they are (the status line says an answer is waited on). The count
-	 * still feeds `answerPending` below. */
+	 * still feeds the composer-disabled derivation below. */
 	let activeQuestionCount = 0;
 	for (const msg of messages) {
 		for (const part of msg.parts) {
@@ -786,10 +804,6 @@ export function ChatSidebar({
 							isGenerating,
 							generationPaused,
 						})}
-						// A waiting question card routes the next composer send to it as
-						// a text-only answer, so the composer disables attaching and
-						// preserves any staged files instead of dropping them.
-						answerPending={activeQuestionCount > 0}
 						centered={centered}
 						// "Describe the app" fits only the opening prompt of a
 						// brand-new build; the moment a message exists (sent or
