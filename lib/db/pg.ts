@@ -195,12 +195,26 @@ export interface ThreadsTable {
 		string | null
 	>;
 	messages: JSONColumnType<unknown[]>;
-	/** Assistant message ids the server deliberately removed or reverted (a
-	 * failed turn's claw-back, a re-drive claim's dead-partial trim) and has
-	 * not re-authored since. The history-admission gate refuses a client copy
-	 * of these ids; a fold snapshot that re-authors one clears it. */
-	clawed_back_ids: JSONColumnType<string[], string | undefined, string>;
+	/** Claw-back tombstones for assistant message ids the server has ruled on
+	 * and not re-authored since. Two shapes coexist:
+	 *  - a plain string — the id's stored copy was removed or reverted to its
+	 *    pre-run seed (a continuation claw-back, a re-drive trim); a client
+	 *    copy is capped to that stored copy, or refused when none exists.
+	 *  - `{ id, cap }` — the display-keeping claw-back: the failed turn's
+	 *    partial STAYS in `messages` as the user-visible record, and `cap`
+	 *    bounds what a client copy may contribute (0 = never admitted; the
+	 *    stored partial is the one authentic copy).
+	 * A fold snapshot that re-authors an id clears its tombstone. */
+	clawed_back_ids: JSONColumnType<
+		ClawedBackEntry[],
+		string | undefined,
+		string
+	>;
 }
+
+/** See `threads.clawed_back_ids`. Defined here beside the column it types;
+ *  `lib/db/threads.ts` owns the semantics. */
+export type ClawedBackEntry = string | { id: string; cap: number };
 
 /**
  * The durable chat-stream chunk log — one row per flushed batch of UI message

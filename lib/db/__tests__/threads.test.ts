@@ -477,11 +477,12 @@ describe("upsertThreadTurn", () => {
 		expect(doc?.created_at).toBe(before?.created_at);
 	});
 
-	it("refuses a clawed-back partial riding a later send (the tombstone)", async () => {
-		/* A failed run's claw-back removed its partial from the durable record
-		 * and tombstoned the id, but the tab that watched it stream still holds
-		 * it in memory. Its next send carries the partial mid-history; the
-		 * claim must not durably resurrect exactly what the claw-back removed. */
+	it("keeps a fresh failed turn's partial for display while refusing client copies of it", async () => {
+		/* A fresh turn failed after streaming half an answer. The transcript
+		 * KEEPS that partial — the tab that watched it fail still shows it, and
+		 * a reload must not show less than the live view did — while the cap-0
+		 * tombstone refuses the stale tab's own (possibly richer) copy, so a
+		 * later send can never grow the stored record of the failed turn. */
 		await upsertThreadTurn({
 			appId: APP,
 			threadId: T1,
@@ -515,13 +516,76 @@ describe("upsertThreadTurn", () => {
 			threadType: "build",
 			messages: [
 				userMsg("m1", "first ask"),
-				assistantMsg("m-clawed", "half an ans"),
+				{
+					id: "m-clawed",
+					role: "assistant",
+					parts: [
+						{ type: "text", text: "half an ans" },
+						{ type: "text", text: "the unpersisted tail only the tab saw" },
+					],
+				} as UIMessage,
 				userMsg("m2", "try again"),
 			],
 		});
 
 		const doc = await loadThread({ kind: "app", appId: APP }, T1);
-		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m-clawed", "m2"]);
+		const kept = doc?.messages[1] as UIMessage | undefined;
+		expect(
+			kept?.parts.map((p) => (p.type === "text" ? p.text : p.type)),
+		).toEqual(["half an ans"]);
+	});
+
+	it("closes a kept partial's dangling tool calls at claw-back", async () => {
+		/* The failed turn died with a tool call still in flight. Kept as-is it
+		 * would render a spinner forever; the claw-back closes it so the record
+		 * reads as what happened — a step that was interrupted. */
+		await upsertThreadTurn({
+			appId: APP,
+			threadId: T1,
+			runId: "run-1",
+			streamId: "stream-1",
+			holderNonce: NONCE,
+			threadType: "build",
+			messages: [userMsg("m1", "first ask")],
+		});
+		await persistResponseSnapshot({
+			target: { kind: "app", appId: APP },
+			threadId: T1,
+			streamId: "stream-1",
+			expectedProjectId: "project-test",
+			responseMessage: {
+				id: "m-dangling",
+				role: "assistant",
+				parts: [
+					{ type: "text", text: "working on it" },
+					{
+						type: "tool-addFields",
+						toolCallId: "call-1",
+						state: "input-available",
+						input: {},
+					},
+				],
+			} as UIMessage,
+			clearMarker: false,
+		});
+		await clawBackThreadResponse({
+			target: { kind: "app", appId: APP },
+			threadId: T1,
+			streamId: "stream-1",
+			messageId: "m-dangling",
+		});
+
+		const doc = await loadThread({ kind: "app", appId: APP }, T1);
+		const kept = doc?.messages[1] as UIMessage | undefined;
+		expect(kept?.id).toBe("m-dangling");
+		const toolPart = kept?.parts[1] as
+			| { state?: string; errorText?: string }
+			| undefined;
+		expect(toolPart?.state).toBe("output-error");
+		expect(toolPart?.errorText).toBe(
+			"This step was interrupted before it finished.",
+		);
 	});
 
 	it("admits an assistant message the store lost (the self-heal), because it was never clawed back", async () => {
@@ -655,7 +719,7 @@ describe("upsertThreadTurn", () => {
 			.select("clawed_back_ids")
 			.where("thread_id", "=", T1)
 			.executeTakeFirstOrThrow();
-		expect(tombstoned.clawed_back_ids).toEqual(["m2"]);
+		expect(tombstoned.clawed_back_ids).toEqual([{ id: "m2", cap: 0 }]);
 
 		/* A new run re-claims and its fold writes the SAME id (a continuation
 		 * retry): the id is server-authored again. */
@@ -1181,7 +1245,7 @@ describe("clawBackThreadResponse", () => {
 		});
 	});
 
-	it("deletes a failed turn's fresh partial and clears the marker in one write", async () => {
+	it("keeps a failed turn's fresh partial for display and clears the marker in one write", async () => {
 		await persistResponseSnapshot({
 			target: { kind: "app", appId: APP },
 			threadId: T1,
@@ -1199,15 +1263,16 @@ describe("clawBackThreadResponse", () => {
 		});
 
 		const doc = await loadThread({ kind: "app", appId: APP }, T1);
-		expect(doc?.messages.map((m) => m.id)).toEqual(["m1"]);
+		expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 		expect(doc?.active_stream_id).toBeNull();
 		const db = await getAppDb();
 		const row = await db
 			.selectFrom("threads")
-			.select("active_holder_nonce")
+			.select(["active_holder_nonce", "clawed_back_ids"])
 			.where("thread_id", "=", T1)
 			.executeTakeFirstOrThrow();
 		expect(row.active_holder_nonce).toBeNull();
+		expect(row.clawed_back_ids).toEqual([{ id: "m2", cap: 0 }]);
 	});
 
 	it("restores a continuation to its pre-run seed", async () => {

@@ -526,9 +526,16 @@ delete an answer a completed successor already finished), then
 fold of the chunk sequence fires `onStepEnd` per completed step, and that
 callback — never any Nova chunk interpretation — merges the growing
 assistant message) and once at stream end (final state + marker retirement).
-A FAILED turn's terminal write is `clawBackThreadResponse`: the message
-reverts to its pre-run state and the marker clears in one transaction — the
-record holds completed-unit turns only, on every turn end, uniformly. "A
+A FAILED turn's terminal write is `clawBackThreadResponse`: the marker
+clears and the id is tombstoned in one transaction, with the transcript
+settled by arm — a FRESH turn's streamed partial is KEPT as the
+user-visible record (the tab that watched it fail still shows it, and a
+reload must not show less; its dangling tool calls are closed as
+`output-error` so nothing renders forever in flight, and its `{ id, cap: 0 }`
+tombstone refuses every client copy so a stale tab can never grow the stored
+record), while a CONTINUATION reverts to its pre-run seed (its retry
+re-authors the same message id, and a kept partial would win the
+richer-version merge over the retry's growing fold). "A
 failed TURN" means the turn's own stream failed: a post-drain bookkeeping
 fault (schema materialization, the settle) finalizes with `turnComplete`, so
 the finished, fully-streamed answer is never clawed back over it. A
