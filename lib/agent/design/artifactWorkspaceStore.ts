@@ -665,11 +665,24 @@ export async function stageDesignArtifactWorkspace(args: {
 				)
 				.executeTakeFirst();
 			if (existing !== undefined) {
-				if (
-					existing.handle !== binding.handle ||
-					existing.design_id !== binding.designId ||
-					existing.entity_kind !== binding.entityKind
-				) {
+				const sameIdentity =
+					existing.handle === binding.handle &&
+					existing.design_id === binding.designId;
+				/* A reference is satisfied by any binding of the same identity,
+				 * and a declaration UPGRADES a row first seen as a reference —
+				 * the deterministic mint made their identities equal already,
+				 * so only the recorded kind moves. */
+				if (sameIdentity && binding.entityKind === "referenced") continue;
+				if (sameIdentity && existing.entity_kind === "referenced") {
+					await tx
+						.updateTable("design_identity_handles")
+						.set({ entity_kind: binding.entityKind })
+						.where("design_session_id", "=", args.designSessionId)
+						.where("handle", "=", binding.handle)
+						.execute();
+					continue;
+				}
+				if (!sameIdentity || existing.entity_kind !== binding.entityKind) {
 					throw new DesignArtifactWorkspaceError(
 						"partial-invalid",
 						`The design handle ${binding.handle} is already bound to another ${existing.entity_kind} identity.`,

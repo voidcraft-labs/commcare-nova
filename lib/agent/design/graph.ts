@@ -156,8 +156,15 @@ export function validateDesignGraph(
 		path: Path,
 		kind: string,
 	): void => {
+		/* The id rides in the message so the loop's rejection renderer can
+		 * project it back to the symbol the model wrote — a forward reference
+		 * whose element never arrived names itself as its @handle. */
 		if (!known.has(id))
-			issue(ctx, path, `This ${kind} id does not exist in the contract.`);
+			issue(
+				ctx,
+				path,
+				`This ${kind} id (${id}) does not exist in the contract.`,
+			);
 	};
 
 	contract.charter.includedWorkflowIds.forEach((id, index) => {

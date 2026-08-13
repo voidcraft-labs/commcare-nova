@@ -15,9 +15,15 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
 
 - `ids.ts` defines `DesignId`, a UUID brand separate from Blueprint `Uuid`.
   The design loop's model-facing tools also accept short `@handle` objects;
-  the server binds declarations transactionally in a session-scoped durable
-  ledger, refuses undeclared references and invented raw UUID declarations,
-  and resolves symbols before the unchanged UUID-only schemas parse. State and
+  identities are minted deterministically from (session, handle), so a
+  reference and its declaration always converge on one UUID and staging is
+  ORDER-FREE: a forward reference binds eagerly under the ledger's
+  `referenced` marker kind, the declaring item upgrades that row to its real
+  kind, and submit-time reference closure refuses any element never actually
+  authored — naming the model's own handle, which the marker row makes
+  possible. Invented raw UUID declarations still reject, symbols still
+  resolve before the unchanged UUID-only schemas parse, and the reserved
+  `@f<N>` namespace can never enter a design reference. State and
   inspection project every bound identity back through its handle. The stage
   and inspect tools ship `strict: true`, so their provider wire schemas widen
   every design-ID slot to `uuid | { handle }` — `designIdSchema` emits its

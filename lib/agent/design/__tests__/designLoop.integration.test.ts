@@ -347,6 +347,8 @@ describe("staged design loop", () => {
 				items: [{ id: { handle: handleForFixtureId(sourceRecord.id) } }],
 			},
 		});
+		/* An unknown handle resolves to its deterministic identity and finds
+		 * no item — an honest empty view, never a reference gate. */
 		expect(
 			await call(tools.inspectDesignWorkspace, {
 				artifactKind: "contract",
@@ -360,11 +362,12 @@ describe("staged design loop", () => {
 				},
 			}),
 		).toMatchObject({
-			diagnostic: { code: "design-unbound-handle", issueCount: 1 },
+			ok: true,
+			view: { kind: "collection", collection: "records", total: 0 },
 		});
 	});
 
-	it("rejects raw new UUID declarations and undeclared symbolic references", async () => {
+	it("rejects raw new UUID declarations and closes forward references at submit", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
@@ -376,7 +379,11 @@ describe("staged design loop", () => {
 		expect(raw).toMatchObject({
 			diagnostic: { code: "design-creation-handle-required", issueCount: 1 },
 		});
-		const unbound = await call(tools.stageContract, {
+		/* Root-first staging with a forward workflow reference is legal: the
+		 * reference mints its deterministic identity eagerly and staging is
+		 * order-free. Submit still refuses a reference whose element never
+		 * arrived — naming the handle the model wrote. */
+		const forward = await call(tools.stageContract, {
 			expectedRevision: 0,
 			root: {
 				id: { handle: "@contract" },
@@ -388,8 +395,75 @@ describe("staged design loop", () => {
 			},
 			collections: [],
 		});
-		expect(unbound).toMatchObject({
-			diagnostic: { code: "design-unbound-handle", issueCount: 1 },
+		expect(forward).toMatchObject({ ok: true, workspaceRevision: 1 });
+		const closure = await call(tools.submitContract, {
+			expectedRevision: 1,
+		});
+		expect(closure).toMatchObject({
+			diagnostic: { code: "design-schema-rejected" },
+		});
+		expect(closure.error).toContain("@undeclared_workflow");
+		/* The late declaration upgrades the `referenced` ledger row in place —
+		 * same deterministic identity, real entity kind — instead of
+		 * conflicting with it. Its own identity slots use handles too (all
+		 * forward references themselves, exercising the order-free law). */
+		const fixtureWorkflow = makeContract().workflows[0];
+		if (fixtureWorkflow === undefined) throw new Error("fixture workflow");
+		const lateDeclaration = await call(tools.stageContract, {
+			expectedRevision: 1,
+			collections: [
+				{
+					collection: "workflows",
+					upserts: [
+						{
+							...fixtureWorkflow,
+							id: { handle: "@undeclared_workflow" },
+							actorIds: [{ handle: "@late_actor" }],
+							inputs: fixtureWorkflow.inputs.map((input) => ({
+								...input,
+								propertyId: { handle: "@late_property" },
+							})),
+							decisions: fixtureWorkflow.decisions.map((decision) => ({
+								...decision,
+								inputPropertyIds: [{ handle: "@late_property" }],
+							})),
+							recordEffects: fixtureWorkflow.recordEffects.map((effect) => ({
+								...effect,
+								recordId: { handle: "@late_record" },
+								writes: effect.writes.map((write) => ({
+									...write,
+									propertyId: { handle: "@late_property" },
+								})),
+							})),
+							readback: fixtureWorkflow.readback.map((entry) => ({
+								...entry,
+								recordId: { handle: "@late_record" },
+								propertyIds: [{ handle: "@late_property" }],
+							})),
+						},
+					],
+					removeIds: [],
+				},
+			],
+		});
+		expect(lateDeclaration).toMatchObject({ ok: true, workspaceRevision: 2 });
+		/* A reserved finding handle can never enter the design namespace,
+		 * even as a reference. */
+		expect(
+			await call(tools.stageContract, {
+				expectedRevision: 2,
+				root: {
+					id: { handle: "@contract" },
+					charter: {
+						...makeContract().charter,
+						includedWorkflowIds: [{ handle: "@f1" }],
+						initialWorkflowId: { handle: "@f1" },
+					},
+				},
+				collections: [],
+			}),
+		).toMatchObject({
+			diagnostic: { code: "design-reserved-handle", issueCount: 1 },
 		});
 		const unknownReference = await call(tools.stageContract, {
 			expectedRevision: 0,

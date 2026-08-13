@@ -321,10 +321,14 @@ Authoring and revision use:
 
 A stage changes the root or one coherent collection and carries the exact
 expected workspace revision. Every new global element uses a readable handle
-such as `{ "handle": "@register_client" }`, declared before its references or
-in the same stage. The server transactionally binds it in a session-scoped
-ledger and resolves it before the persisted schema parses. Invented raw UUID
-declarations and undeclared handles are rejected. Persisted artifacts remain
+such as `{ "handle": "@register_client" }`. Identities are minted
+deterministically from (session, handle), so staging is ORDER-FREE: a
+reference may precede its declaration in any stage, binding eagerly in the
+session-scoped ledger under a `referenced` marker kind that the declaring
+item later upgrades. Submit-time reference closure refuses any element never
+actually authored, naming the model's own handle. Invented raw UUID
+declarations are rejected at staging, and the reserved `@f` finding namespace
+can never enter a design reference. Persisted artifacts remain
 UUID-only, while exact model state projects known IDs back through handles.
 The reviewer's tag/handle vocabulary (§4.4) is the same projection law applied
 to the review surface: symbols in every model-facing direction, UUIDs at rest,

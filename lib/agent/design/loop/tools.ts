@@ -338,38 +338,56 @@ function collectDesignHandleReferences(value: unknown): string[] {
 	return handles;
 }
 
-/** A symbolic reference is legal only after its declaration has durably bound
- * the handle, or when that declaration is part of this same transaction. */
-export function designUnboundHandleIssue(
+/** The ledger's marker kind for a handle first seen as a REFERENCE. The
+ * identity is already final (minting is deterministic per session+handle);
+ * the declaring item later upgrades the row to its real kind, and submit's
+ * reference-closure proof names this handle if the element never arrives. */
+export const REFERENCED_HANDLE_KIND = "referenced";
+
+/** Staging is order-free: a reference may precede its declaration, in any
+ * call. The one reference rejection left is the reserved `@f<N>` namespace —
+ * those are the server's finding projections, and outside a disposition's
+ * pre-resolved findingId slot they can never name a design element. */
+export function designReservedReferenceIssue(input: unknown): string | null {
+	const reserved = collectDesignHandleReferences(input).find((handle) =>
+		RESERVED_FINDING_HANDLE_PATTERN.test(handle),
+	);
+	return reserved === undefined
+		? null
+		: `Handles like ${reserved} are the server's names for review findings; they can appear only as a disposition's findingId, never as a design element reference. Use the element's own handle instead.`;
+}
+
+/** Every handle this call references without declaring, absent from the
+ * ledger, becomes a `referenced` binding: the deterministic identity is
+ * durable from first sight, so later declarations converge on it and the
+ * submit diagnostics can name the symbol. */
+export function collectDesignReferenceBindings(
 	input: unknown,
 	existingBindings: readonly DesignIdentityHandleBinding[],
-	candidate: Record<string, unknown>,
 	designSessionId: string,
-	sourceContract: Record<string, unknown> | null = null,
-): string | null {
-	const existingKinds = existingDesignIdentityKinds(sourceContract ?? {});
-	for (const [designId, entityKind] of existingDesignIdentityKinds(candidate)) {
-		existingKinds.set(designId, entityKind);
-	}
-	const known = new Set(
-		existingBindings
-			.filter(
-				(binding) => existingKinds.get(binding.designId) === binding.entityKind,
-			)
-			.map((binding) => binding.handle),
-	);
+): DesignIdentityHandleBinding[] {
+	const known = new Set(existingBindings.map((binding) => binding.handle));
 	for (const declaration of collectDesignIdentityHandleBindings(
 		input,
 		designSessionId,
 	)) {
 		known.add(declaration.handle);
 	}
-	const unknown = collectDesignHandleReferences(input).find(
-		(handle) => !known.has(handle),
-	);
-	return unknown === undefined
-		? null
-		: `The design handle ${unknown} has not been declared, and a stage may only reference elements that already exist or are declared in this same call. Two ways forward: add the element that declares ${unknown} (its own complete item, with ${unknown} in its id slot) to this call's collections, or remove the ${unknown} reference from this part now, stage the declaring element, and then re-stage this part with the reference restored. Repeating this call unchanged will be rejected again.`;
+	const bindings: DesignIdentityHandleBinding[] = [];
+	for (const handle of collectDesignHandleReferences(input)) {
+		if (known.has(handle)) continue;
+		known.add(handle);
+		bindings.push({
+			handle,
+			designId: designIdSchema.parse(
+				deterministicDesignId(
+					`design-workspace-v1:${designSessionId}:${handle}`,
+				),
+			),
+			entityKind: REFERENCED_HANDLE_KIND,
+		});
+	}
+	return bindings;
 }
 
 /** `@f<N>` is the server's projection vocabulary for review findings
@@ -470,10 +488,29 @@ export function projectDesignIdentityHandles(
 	return visit(value);
 }
 
-export function renderDesignValidationIssues(error: ZodError): string {
+/** Replace every ledger-bound design UUID in a diagnostic line with the
+ * symbol the model actually wrote — including `referenced` bindings, which is
+ * what lets a never-declared forward reference name itself as its handle. */
+function projectBoundIdsIntoText(
+	line: string,
+	bindings: readonly DesignIdentityHandleBinding[],
+): string {
+	return bindings.reduce(
+		(text, binding) => text.split(binding.designId).join(binding.handle),
+		line,
+	);
+}
+
+export function renderDesignValidationIssues(
+	error: ZodError,
+	bindings: readonly DesignIdentityHandleBinding[] = [],
+): string {
 	const shown = error.issues.slice(0, 25);
-	const lines = shown.map(
-		(issue) => `- ${issue.path.join(".") || "<root>"}: ${issue.message}`,
+	const lines = shown.map((issue) =>
+		projectBoundIdsIntoText(
+			`- ${issue.path.join(".") || "<root>"}: ${issue.message}`,
+			bindings,
+		),
 	);
 	const more = error.issues.length - shown.length;
 	return [
@@ -485,10 +522,16 @@ export function renderDesignValidationIssues(error: ZodError): string {
 
 function renderDesignConstructionIssues(
 	issues: ReturnType<typeof designConstructionIssues>,
+	bindings: readonly DesignIdentityHandleBinding[] = [],
 ): string {
 	return [
 		"The submission cannot yet be built. Correct these exact items, then finalize again:",
-		...issues.map((issue) => `- ${issue.path.join(".")}: ${issue.message}`),
+		...issues.map((issue) =>
+			projectBoundIdsIntoText(
+				`- ${issue.path.join(".")}: ${issue.message}`,
+				bindings,
+			),
+		),
 	].join("\n");
 }
 
@@ -782,7 +825,7 @@ export function designCreationIdentityIssue(
 export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 	const stageContract = {
 		description:
-			"Stage a bounded part of the Design Contract. Give every new design element a readable handle such as {handle:'@register_client'} and reuse that handle for references; the server mints its stable identity. A part may reference a handle only after (or in the same call as) the item that declares it, so stage a new element's own item before staging the root or any part that references it. Set root fields and/or upsert or remove complete collection items. A new workspace starts at revision 0; use the returned revision for the next stage. Keep each call within 32 item changes and 48 KiB.",
+			"Stage a bounded part of the Design Contract. Give every new design element a readable handle such as {handle:'@register_client'} and reuse that handle for references; the server mints its stable identity. Parts may arrive in any order — a reference may precede the call that declares its element, and the final submission proves every referenced element was actually authored. Set root fields and/or upsert or remove complete collection items. A new workspace starts at revision 0; use the returned revision for the next stage. Keep each call within 32 item changes and 48 KiB.",
 		inputSchema: strictWireWithHandles(stageContractInputSchema),
 		strict: true,
 		execute: async (
@@ -832,18 +875,13 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					},
 				});
 			}
-			const unboundHandleIssue = designUnboundHandleIssue(
-				strippedInput,
-				workspace.handleBindings,
-				workspace.candidate,
-				deps.designSessionId,
-				workspace.sourceContract,
-			);
-			if (unboundHandleIssue !== null) {
+			const reservedReferenceIssue =
+				designReservedReferenceIssue(strippedInput);
+			if (reservedReferenceIssue !== null) {
 				return rejectedStage(deps, "stageContract", {
-					error: unboundHandleIssue,
+					error: reservedReferenceIssue,
 					diagnostic: {
-						code: "design-unbound-handle",
+						code: "design-reserved-handle",
 						validationStage: "partial" as const,
 						issueCount: 1,
 					},
@@ -859,10 +897,20 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			}
 			const { expectedRevision, ...body } = parsed.data;
 			const operation = { kind: "contract" as const, ...body };
-			const handleBindings = collectDesignIdentityHandleBindings(
-				strippedInput,
-				deps.designSessionId,
-			);
+			/* Declarations first, then eager `referenced` bindings for forward
+			 * references — staging is order-free and submit closure names any
+			 * symbol that never gets authored. */
+			const handleBindings = [
+				...collectDesignIdentityHandleBindings(
+					strippedInput,
+					deps.designSessionId,
+				),
+				...collectDesignReferenceBindings(
+					strippedInput,
+					workspace.handleBindings,
+					deps.designSessionId,
+				),
+			];
 			const bound = designWorkspaceBoundError({
 				input: parsed.data,
 				operation,
@@ -898,7 +946,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 
 	const stageRevision = {
 		description:
-			"Stage a bounded part of the reviewed revision. Reuse the stable identities in the exact state packet for existing elements and give any new element a readable handle such as {handle:'@follow_up'}; the server mints its stable identity. A part may reference a handle only after (or in the same call as) the item that declares it, so stage a NEW element's own item before re-staging the root or any part that references it. Upsert or remove complete items and blocking finding dispositions — a disposition's findingId is the finding's printed handle, for example {handle:'@f1'}. Unchanged parent content stays in place. Use the returned workspace revision for the next stage.",
+			"Stage a bounded part of the reviewed revision. Reuse the stable identities in the exact state packet for existing elements and give any new element a readable handle such as {handle:'@follow_up'}; the server mints its stable identity. Parts may arrive in any order — a reference may precede the call that declares its element, and the final submission proves every referenced element was actually authored. Upsert or remove complete items and blocking finding dispositions — a disposition's findingId is the finding's printed handle, for example {handle:'@f1'}. Unchanged parent content stays in place. Use the returned workspace revision for the next stage.",
 		inputSchema: strictWireWithHandles(stageRevisionInputSchema),
 		strict: true,
 		execute: async (
@@ -971,18 +1019,12 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					},
 				});
 			}
-			const unboundHandleIssue = designUnboundHandleIssue(
-				stagedInput,
-				workspace.handleBindings,
-				workspace.candidate,
-				deps.designSessionId,
-				workspace.sourceContract,
-			);
-			if (unboundHandleIssue !== null) {
+			const reservedReferenceIssue = designReservedReferenceIssue(stagedInput);
+			if (reservedReferenceIssue !== null) {
 				return rejectedStage(deps, "stageRevision", {
-					error: unboundHandleIssue,
+					error: reservedReferenceIssue,
 					diagnostic: {
-						code: "design-unbound-handle",
+						code: "design-reserved-handle",
 						validationStage: "partial" as const,
 						issueCount: 1,
 					},
@@ -998,10 +1040,20 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			}
 			const { expectedRevision, ...body } = parsed.data;
 			const operation = { kind: "revision" as const, ...body };
-			const handleBindings = collectDesignIdentityHandleBindings(
-				stagedInput,
-				deps.designSessionId,
-			);
+			/* Declarations first, then eager `referenced` bindings for forward
+			 * references — staging is order-free and submit closure names any
+			 * symbol that never gets authored. */
+			const handleBindings = [
+				...collectDesignIdentityHandleBindings(
+					stagedInput,
+					deps.designSessionId,
+				),
+				...collectDesignReferenceBindings(
+					stagedInput,
+					workspace.handleBindings,
+					deps.designSessionId,
+				),
+			];
 			const bound = designWorkspaceBoundError({
 				input: parsed.data,
 				operation,
@@ -1065,23 +1117,9 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					authority: deps.authority,
 					expectedRevision: parsed.data.expectedRevision,
 				});
-				const unboundHandleIssue = designUnboundHandleIssue(
-					strippedInput,
-					state.handleBindings,
-					state.candidate,
-					deps.designSessionId,
-					state.sourceContract,
-				);
-				if (unboundHandleIssue !== null) {
-					return {
-						error: unboundHandleIssue,
-						diagnostic: {
-							code: "design-unbound-handle",
-							validationStage: "partial" as const,
-							issueCount: 1,
-						},
-					};
-				}
+				/* An unknown handle in an inspect selection resolves to its
+				 * deterministic identity and simply finds no item — an honest
+				 * not-found, no reference gate needed. */
 				return {
 					ok: true,
 					workspaceRevision: state.workspace.revision,
@@ -1137,7 +1175,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					fingerprints: zodIssueFingerprints(parsed.error),
 				});
 				return {
-					error: renderDesignValidationIssues(parsed.error),
+					error: renderDesignValidationIssues(
+						parsed.error,
+						state.handleBindings,
+					),
 					diagnostic: rejectionDiagnostic("schema", parsed.error.issues.length),
 				};
 			}
@@ -1173,7 +1214,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					fingerprints: constructionIssues.map(constructionIssueFingerprint),
 				});
 				return {
-					error: renderDesignConstructionIssues(constructionIssues),
+					error: renderDesignConstructionIssues(
+						constructionIssues,
+						state.handleBindings,
+					),
 					diagnostic: rejectionDiagnostic(
 						"construction",
 						constructionIssues.length,
@@ -1388,7 +1432,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					fingerprints: zodIssueFingerprints(parsed.error),
 				});
 				return {
-					error: renderDesignValidationIssues(parsed.error),
+					error: renderDesignValidationIssues(
+						parsed.error,
+						state.handleBindings,
+					),
 					diagnostic: rejectionDiagnostic("schema", parsed.error.issues.length),
 				};
 			}
@@ -1424,7 +1471,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					fingerprints: constructionIssues.map(constructionIssueFingerprint),
 				});
 				return {
-					error: renderDesignConstructionIssues(constructionIssues),
+					error: renderDesignConstructionIssues(
+						constructionIssues,
+						state.handleBindings,
+					),
 					diagnostic: rejectionDiagnostic(
 						"construction",
 						constructionIssues.length,

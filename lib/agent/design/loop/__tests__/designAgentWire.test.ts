@@ -28,9 +28,10 @@ import {
 } from "@/lib/agent/design/loop/designAgent";
 import { DesignRepairTracker } from "@/lib/agent/design/loop/gates";
 import {
+	collectDesignReferenceBindings,
 	createDesignLoopTools,
 	designCreationIdentityIssue,
-	designUnboundHandleIssue,
+	designReservedReferenceIssue,
 	resolveDesignWorkspaceHandles,
 } from "@/lib/agent/design/loop/tools";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
@@ -485,7 +486,7 @@ describe("design agent Responses wire body", () => {
 		).toBe(false);
 	});
 
-	it("recognizes durable handles that remain only in the immutable revision source", () => {
+	it("binds forward references eagerly instead of forcing a staging order", () => {
 		const designSessionId = "00000000-0000-4000-8000-000000000002";
 		const handle = "@source_record";
 		const designId = resolveDesignWorkspaceHandles(
@@ -493,25 +494,39 @@ describe("design agent Responses wire body", () => {
 			designSessionId,
 		) as string;
 		const input = { selection: { ids: [{ handle }] } };
-		const bindings = [{ handle, designId, entityKind: "record" }];
 
+		/* A handle already in the ledger mints no new binding. */
 		expect(
-			designUnboundHandleIssue(
+			collectDesignReferenceBindings(
 				input,
-				bindings,
-				{ records: [] },
-				designSessionId,
-				{ records: [{ id: designId, properties: [] }] },
-			),
-		).toBeNull();
-		expect(
-			designUnboundHandleIssue(
-				input,
-				bindings,
-				{ records: [] },
+				[{ handle, designId, entityKind: "record" }],
 				designSessionId,
 			),
-		).toContain("has not been declared");
+		).toEqual([]);
+		/* A forward reference mints its deterministic identity under the
+		 * `referenced` marker kind — the later declaration converges on the
+		 * same UUID, so staging order stops mattering. */
+		expect(collectDesignReferenceBindings(input, [], designSessionId)).toEqual([
+			{ handle, designId, entityKind: "referenced" },
+		]);
+		/* A declaration in the same call already binds; no reference row. */
+		expect(
+			collectDesignReferenceBindings(
+				{
+					...input,
+					collections: [
+						{ collection: "records", upserts: [{ id: { handle } }] },
+					],
+				},
+				[],
+				designSessionId,
+			),
+		).toEqual([]);
+		/* The reserved finding namespace never mints a design identity. */
+		expect(
+			designReservedReferenceIssue({ selection: { ids: [{ handle: "@f2" }] } }),
+		).toContain("@f2");
+		expect(designReservedReferenceIssue(input)).toBeNull();
 
 		const rawSourceUpsert = {
 			collections: [{ collection: "records", upserts: [{ id: designId }] }],
