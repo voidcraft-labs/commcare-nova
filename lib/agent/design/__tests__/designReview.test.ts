@@ -457,6 +457,48 @@ describe("blocking dispositions", () => {
 		).toBe(true);
 	});
 
+	it("names the offending finding by its printed handle in closure issues", () => {
+		/* The model's only finding vocabulary is the positional @f handle; an
+		 * issue naming a dispositions array index reads as a finding number
+		 * and sends the correction at the wrong entry (observed live as a
+		 * nonconvergent removal chase). */
+		const blocking = finding();
+		const advisory = finding({
+			id: did(301),
+			severity: "advisory",
+			basis: "heuristic",
+			dispositionClass: "advisory",
+			evidenceRefs: [],
+		});
+		const schema = designRevisionResultSchemaFor([
+			review([blocking, advisory]),
+		]);
+		const rejected = schema.safeParse({
+			contract: makeContract(),
+			dispositions: [
+				{
+					findingId: advisory.id,
+					status: "accepted",
+					rationale: "Advisory findings take no disposition.",
+				},
+			],
+		});
+		expect(rejected.success).toBe(false);
+		if (rejected.success) return;
+		const messages = rejected.error.issues.map((issue) => issue.message);
+		expect(
+			messages.some(
+				(message) => message.includes("@f2") && message.includes("advisory"),
+			),
+		).toBe(true);
+		expect(
+			messages.some(
+				(message) =>
+					message.includes("@f1") && message.includes("no disposition"),
+			),
+		).toBe(true);
+	});
+
 	it("requires a visible consequence for an unresolved user decision", () => {
 		const userDecision = finding({ dispositionClass: "user-decision" });
 		const schema = designRevisionResultSchemaFor([review([userDecision])]);

@@ -1337,8 +1337,14 @@ export async function runDesignAgentLoop(
 		return {
 			kind: "failed",
 			errorType: fatal.code,
-			message: designLoopStopMessage(finalGates),
-			recoverable: false,
+			message: `${designLoopStopMessage(finalGates)} Everything already decided is saved; send a message to run that phase again.`,
+			/* The repair tracker is PER-TURN accounting: its stop seals this
+			 * turn's budget, never the durable artifacts. A fresh chargeable
+			 * turn re-enters the same phase with a fresh budget — which is
+			 * also how a deployed harness correction reaches a preserved
+			 * draft. Only the session-wide step budget below is a genuinely
+			 * unrecoverable stop. */
+			recoverable: true,
 		};
 	}
 	if (modelStepsSpent >= DESIGN_LOOP_STEP_BUDGET) {

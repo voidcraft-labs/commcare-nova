@@ -1283,12 +1283,13 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			 * positional `@f` handles (what a disposition's findingId takes) and
 			 * affected elements back through the ledger — the same vocabulary
 			 * the next state packet prints. */
+			const findingHandleBindings = deriveFindingHandleBindings([
+				...gates.headReviews.map((entry) => entry.envelope.payload),
+				review.envelope.payload,
+			]);
 			const projectedFindings = projectDesignIdentityHandles(findings, [
 				...bindings,
-				...deriveFindingHandleBindings([
-					...gates.headReviews.map((entry) => entry.envelope.payload),
-					review.envelope.payload,
-				]),
+				...findingHandleBindings,
 			]);
 			if (gated.length === 0) {
 				const accepted = await insertDesignRevision({
@@ -1327,14 +1328,22 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 							: "The review raised no blocking findings, so the server accepted the design and derived its build plan. Tell the user briefly that the build is starting, then stop.",
 				};
 			}
+			const handleByFindingId = new Map(
+				findingHandleBindings.map((binding) => [
+					binding.designId,
+					binding.handle,
+				]),
+			);
+			const gatedHandles = gated.map(
+				(finding) => handleByFindingId.get(finding.id) ?? finding.id,
+			);
 			return {
 				ok: true,
 				reviewId: review.id,
 				summary: review.envelope.payload.summary,
 				findings: projectedFindings,
 				accepted: false,
-				message:
-					'The review has blocking design corrections or user decisions. Stage only those corrections and their dispositions with stageRevision — disposition each finding by its printed handle, for example {"handle":"@f1"} — then finalize with submitRevision.',
+				message: `The review has blocking design corrections or user decisions: ${gatedHandles.join(", ")}. Stage those corrections plus exactly one disposition per blocking finding with stageRevision — a disposition's findingId is the finding's printed handle, for example {"handle":"@f1"}, and advisory findings take no disposition — then finalize with submitRevision.`,
 			};
 		},
 	};

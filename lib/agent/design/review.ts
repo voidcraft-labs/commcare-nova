@@ -8,6 +8,7 @@ import {
 } from "@/lib/agent/design/contract";
 import { type SourceRef, sourceRefSchema } from "@/lib/agent/design/evidence";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import { deriveFindingHandleBindings } from "@/lib/agent/design/reviewVocabulary";
 
 export const designFindingCategorySchema = z.enum([
 	"requirement-coverage",
@@ -194,6 +195,18 @@ export function validateDispositionClosure(
 			.flatMap((review) => review.findings)
 			.map((finding) => [finding.id, finding]),
 	);
+	/* Every issue names the finding by its printed `@f` handle — the model's
+	 * only vocabulary for findings. A positional `dispositions.<index>` path
+	 * alone reads as a finding number and sends the correction at the wrong
+	 * entry, and each wrong removal reindexes the array so the next rejection
+	 * moves the target (observed live as a nonconvergent three-strike chase). */
+	const handles = new Map(
+		deriveFindingHandleBindings(reviews).map((binding) => [
+			binding.designId,
+			binding.handle,
+		]),
+	);
+	const nameFinding = (findingId: string) => handles.get(findingId);
 	const required = new Set(
 		[...findings.values()]
 			.filter(findingBlocksAcceptance)
@@ -202,12 +215,20 @@ export function validateDispositionClosure(
 	const seen = new Set<string>();
 	result.dispositions.forEach((disposition, index) => {
 		const finding = findings.get(disposition.findingId);
-		if (finding === undefined || !findingBlocksAcceptance(finding)) {
+		if (finding === undefined) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["dispositions", index, "findingId"],
 				message:
-					"Only blocking design corrections and unresolved user decisions receive dispositions.",
+					"This disposition names a finding that does not exist on this review. Remove it, and disposition only the blocking findings by their printed @f handles.",
+			});
+			return;
+		}
+		if (!findingBlocksAcceptance(finding)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["dispositions", index, "findingId"],
+				message: `The finding ${nameFinding(finding.id) ?? finding.id} is advisory, and only blocking design corrections and unresolved user decisions receive dispositions. Remove the disposition whose findingId is ${nameFinding(finding.id) ?? finding.id}.`,
 			});
 			return;
 		}
@@ -215,7 +236,7 @@ export function validateDispositionClosure(
 			ctx.addIssue({
 				code: "custom",
 				path: ["dispositions", index, "findingId"],
-				message: "A blocking finding may be dispositioned only once.",
+				message: `The blocking finding ${nameFinding(finding.id) ?? finding.id} already has a disposition; a blocking finding may be dispositioned only once. Remove the duplicate.`,
 			});
 		}
 		seen.add(disposition.findingId);
@@ -257,7 +278,7 @@ export function validateDispositionClosure(
 			ctx.addIssue({
 				code: "custom",
 				path: ["dispositions"],
-				message: "Every blocking finding requires exactly one disposition.",
+				message: `The blocking finding ${nameFinding(id) ?? id} has no disposition yet, and every blocking finding requires exactly one.`,
 			});
 		}
 	}

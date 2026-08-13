@@ -164,7 +164,12 @@ row with an identical diagnostic stops the run the same way, because zero
 diagnostic movement means the model cannot express what the server requires —
 a systemic contract defect, never a correctable slip. A changed diagnostic or
 an accepted stage resets that count; gate refusals and the forced-question
-state stay outside it. When every construction issue is a
+state stay outside it. Both fuses are PER-TURN accounting and classify as
+RECOVERABLE failures: the stop seals that turn's repair budget, never the
+durable artifacts, so a fresh chargeable turn re-enters the same phase with a
+fresh budget — which is also how a deployed harness correction reaches a
+preserved draft. Only the session-wide design step budget is an unrecoverable
+stop. When every construction issue is a
 blocking question already authored in the candidate, it does not consume that
 repair budget. The server derives those exact questions, appends them as an
 authoritative message, and refuses further design staging until an exact
