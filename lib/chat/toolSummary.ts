@@ -14,6 +14,7 @@
 
 import type { ToolUIPart } from "ai";
 import type { ToolCallSummary } from "@/lib/agent/tools/shared/toolCallSummary";
+import { isDesignProtocolToolPartType } from "@/lib/chat/internalToolParts";
 
 /** The two tenses a row can read in: `doing` while the call is in flight (or
  *  failed — the act never completed, so the past tense would claim a change
@@ -145,6 +146,35 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	generateSchema: {
 		doing: "Recording the data model",
 		done: "Recorded the data model",
+	},
+	// The design protocol. The phrases speak for the whole call; the raw
+	// payloads (model-facing teaching prose, rejection diagnostics, workspace
+	// views) are suppressed in `toolDetail`, so these rows never leak protocol
+	// vocabulary. A failed row here is Nova's own validation refusing a draft
+	// part, which Nova then reworks: honest, and explained by Nova's prose.
+	stageContract: {
+		doing: "Adding to the design draft",
+		done: "Added to the design draft",
+	},
+	submitContract: {
+		doing: "Completing the design draft",
+		done: "Completed the design draft",
+	},
+	requestReview: {
+		doing: "Reviewing the design",
+		done: "Reviewed the design",
+	},
+	stageRevision: {
+		doing: "Applying review feedback",
+		done: "Applied review feedback",
+	},
+	submitRevision: {
+		doing: "Finalizing the revised design",
+		done: "Finalized the revised design",
+	},
+	inspectDesignWorkspace: {
+		doing: "Checking the design draft",
+		done: "Checked the design draft",
 	},
 	// Historical threads only — these tools are retired, but runs
 	// persisted before their retirement still carry these parts.
@@ -381,6 +411,12 @@ export const toolLocation = (part: ToolUIPart): string | null => {
  *  not yet wired) — its raw prose so nothing renders blank. Null when the
  *  action + location already say everything. */
 export const toolDetail = (part: ToolUIPart): string | null => {
+	// Design protocol calls carry model-facing payloads on both branches: the
+	// success `message` is an instruction to the model, and the `error` is a
+	// rejection diagnostic in protocol vocabulary (@handles, validation
+	// stages). Neither faces the user — the action phrase and status glyph
+	// carry the row, and Nova's own prose narrates the work.
+	if (isDesignProtocolToolPartType(part.type)) return null;
 	const cerrors = completionErrors(part);
 	if (cerrors) return cerrors.join("\n");
 	if (COMPLETION_TOOLS.has(toolName(part)) && toolStatus(part) === "done") {

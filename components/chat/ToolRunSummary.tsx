@@ -11,6 +11,7 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
+import { isDesignProtocolToolPartType } from "@/lib/chat/internalToolParts";
 import {
 	completionErrors,
 	runStatus,
@@ -148,6 +149,11 @@ export function ToolRunSummary({ parts }: { parts: ToolUIPart[] }) {
 	}
 
 	const status = runStatus(parts);
+	/* A design-protocol run authors the design, it doesn't change the app —
+	 * "changes" would overpromise, so those runs collapse under "steps". */
+	const noun = parts.every((part) => isDesignProtocolToolPartType(part.type))
+		? "design steps"
+		: "changes";
 	return (
 		<Collapsible className="w-full rounded-lg border border-nova-border bg-nova-surface/40">
 			<CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-2 p-2.5 text-left">
@@ -156,7 +162,7 @@ export function ToolRunSummary({ parts }: { parts: ToolUIPart[] }) {
 					icon={STATUS[status].icon}
 				/>
 				<span className="min-w-0 flex-1 truncate text-nova-text text-sm">
-					{parts.length} changes
+					{parts.length} {noun}
 				</span>
 				<Icon
 					className="size-4 shrink-0 text-nova-text-muted transition-transform group-data-[panel-open]:rotate-180"

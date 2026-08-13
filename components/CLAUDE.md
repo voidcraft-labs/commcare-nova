@@ -153,11 +153,16 @@ Dark "Twilight and first light": a four-step warm plum surface stack (`#171221` 
 **Voice.** Sentence case everywhere except the product name, which is always lowercase `commcare nova`. No em dashes, in UI copy or docs or code comments; a comma, a colon, or a new sentence carries the aside. No ellipsis in buttons, menu items, or placeholders, including in-progress labels ("Creating blank app", not "Creating blank app…"). Skip the period on single-line labels, tooltips, placeholders, and one-sentence dialog bodies. Use contractions, spell out Latin abbreviations, write "and" not "&", and use `·` as the metadata separator. Errors take responsibility and offer the next step. No emoji.
 
 **Reviewed-build chat.** The design protocol's contract/review/revision tool
-parts remain in durable message history for replay but never render in the
-conversation. Nova's model-authored prose explains the work in the voice above;
-technical tool errors and model-only success instructions stay internal. The
-reviewed outline names review status without finding counts or severity
-language. Its cards scroll with the transcript, while the one live design stage
-line is the final status directly above the composer. A terminal design-build
-error replaces any stale working stage; automatic recovery never invents a
-user-authored retry message in the transcript.
+parts render in the conversation as the same grouped, plain-language tool
+cards the build tools use (`lib/chat/toolSummary.ts` carries their action
+phrases; a run of them collapses under "N design steps"), so the transcript
+shows the work happening instead of bare stacked thinking blocks — but their
+raw payloads never face the user: the model-facing success instructions and
+rejection diagnostics are suppressed (`toolDetail` returns null for the
+protocol set in `lib/chat/internalToolParts.ts`), and a rejected call reads
+as a silent failed row Nova's own prose explains. The reviewed outline names
+review status without finding counts or severity language. Its cards scroll
+with the transcript, while the one live design stage line is the final status
+directly above the composer. A terminal design-build error replaces any stale
+working stage; automatic recovery never invents a user-authored retry message
+in the transcript.

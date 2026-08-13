@@ -13,7 +13,6 @@ import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { ToolRunSummary } from "@/components/chat/ToolRunSummary";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { isOpenAICompactionPart } from "@/lib/chat/compaction";
-import { isInternalDesignToolPartType } from "@/lib/chat/internalToolParts";
 import { isEditToolPart } from "@/lib/chat/toolSummary";
 import { ChatMarkdown } from "@/lib/markdown";
 
@@ -129,16 +128,10 @@ export function ChatMessage({
 			flushReasoning();
 			continue;
 		}
-		/* Design artifacts are a server-owned protocol, not a user action log.
-		 * The progress line and Nova's authored updates describe the same work in
-		 * plain language; rendering these parts would expose schema names and
-		 * model-only validation results. Keep them in the transcript for replay,
-		 * but never project them into the conversation. */
-		if (isInternalDesignToolPartType(part.type)) {
-			flushTools();
-			flushReasoning();
-			continue;
-		}
+		/* Design protocol calls ride the same grouped tool cards as build
+		 * edits: `toolSummary` projects them to plain-language action phrases
+		 * and suppresses their model-facing payloads, so the transcript shows
+		 * the work happening without exposing protocol vocabulary. */
 		if (isEditToolPart(part)) {
 			flushReasoning();
 			toolRun.push(part as ToolUIPart);

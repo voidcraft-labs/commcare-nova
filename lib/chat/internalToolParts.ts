@@ -1,7 +1,9 @@
-/** Tool parts that belong to Nova's internal design protocol. They remain in
- * durable history for model replay, but the user sees Nova's own prose and the
- * live design status instead of raw protocol names, inputs, or results. */
-const INTERNAL_DESIGN_TOOL_PART_TYPES = new Set([
+/** Tool parts belonging to Nova's design protocol. They render in the
+ * transcript as friendly projected rows (the same card the build tools use),
+ * but their raw payloads — model-facing teaching messages, rejection
+ * diagnostics, workspace views — never face the user: `toolSummary` speaks
+ * for them with plain-language action phrases and suppresses their prose. */
+const DESIGN_PROTOCOL_TOOL_PART_TYPES = new Set([
 	"tool-stageContract",
 	"tool-stageRevision",
 	"tool-inspectDesignWorkspace",
@@ -10,6 +12,6 @@ const INTERNAL_DESIGN_TOOL_PART_TYPES = new Set([
 	"tool-submitRevision",
 ]);
 
-export function isInternalDesignToolPartType(type: string): boolean {
-	return INTERNAL_DESIGN_TOOL_PART_TYPES.has(type);
+export function isDesignProtocolToolPartType(type: string): boolean {
+	return DESIGN_PROTOCOL_TOOL_PART_TYPES.has(type);
 }
