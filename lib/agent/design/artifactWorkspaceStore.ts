@@ -634,7 +634,7 @@ export async function stageDesignArtifactWorkspace(args: {
 					"This tool-call identity was already used for different staged input.",
 				);
 			}
-			return { workspaceId, deduplicated: true };
+			return { workspaceId, deduplicated: true, state: undefined };
 		}
 		if (workspace.status !== "open") {
 			throw new DesignArtifactWorkspaceError(
@@ -711,13 +711,13 @@ export async function stageDesignArtifactWorkspace(args: {
 				"The design workspace revision disagrees with its operation ledger.",
 			);
 		}
-		const collisions = designIdentityCollisions(
-			replayDesignWorkspace({
-				kind: operation.kind,
-				...(baseContract !== undefined && { baseContract }),
-				operations: [...priorOperations, operation],
-			}),
-		);
+		const operations = [...priorOperations, operation];
+		const candidate = replayDesignWorkspace({
+			kind: operation.kind,
+			...(baseContract !== undefined && { baseContract }),
+			operations,
+		});
+		const collisions = designIdentityCollisions(candidate);
 		if (collisions.length > 0) {
 			const first = collisions[0];
 			throw new DesignArtifactWorkspaceError(
@@ -749,8 +749,25 @@ export async function stageDesignArtifactWorkspace(args: {
 			.where("status", "=", "open")
 			.where("revision", "=", revision)
 			.executeTakeFirstOrThrow();
-		return { workspaceId, deduplicated: false };
+		/* Assemble the returned state HERE, from what this transaction already
+		 * read and replayed: the accepted operations plus this one, the ledger
+		 * after its binding writes, and the record after its revision bump. A
+		 * post-commit reload would re-read and re-replay the whole operation
+		 * ledger a second time on every accepted stage call. */
+		const state: DesignArtifactWorkspaceState = {
+			workspace: await readWorkspaceRecord(tx, workspaceId),
+			operations,
+			handleBindings: await selectHandleBindings(tx, args.designSessionId),
+			candidate,
+			sourceContract: baseContract ?? null,
+		};
+		return { workspaceId, deduplicated: false, state };
 	});
+	if (result.state !== undefined) {
+		return { state: result.state, deduplicated: false };
+	}
+	/* Deduplicated replay: the stored ledger is the authority for what the
+	 * original call staged, so read the state back in full. */
 	return {
 		state: await loadWorkspaceState({
 			workspaceId: result.workspaceId,

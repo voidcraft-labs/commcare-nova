@@ -161,18 +161,25 @@ async function readItems(
 	});
 }
 
-async function readStepKeys(
+/** Both step-key sets in one query — the open path needs started AND
+ * completed, and two separate reads over the same rows would double the
+ * round trips. */
+async function readStepKeysByEvent(
 	tx: Transaction<AppDatabase>,
 	contextId: string,
-	eventKind: DesignModelStepEvent["eventKind"],
-): Promise<Set<string>> {
+): Promise<{ started: Set<string>; completed: Set<string> }> {
 	const rows = await tx
 		.selectFrom("design_model_steps")
-		.select("step_key")
+		.select(["step_key", "event_kind"])
 		.where("context_id", "=", contextId)
-		.where("event_kind", "=", eventKind)
+		.where("event_kind", "in", ["started", "completed"])
 		.execute();
-	return new Set(rows.map((row) => row.step_key));
+	const started = new Set<string>();
+	const completed = new Set<string>();
+	for (const row of rows) {
+		(row.event_kind === "started" ? started : completed).add(row.step_key);
+	}
+	return { started, completed };
 }
 
 async function countStartedStepsThroughGeneration(
@@ -183,20 +190,20 @@ async function countStartedStepsThroughGeneration(
 		readonly generation: number;
 	},
 ): Promise<number> {
-	const rows = await tx
+	const row = await tx
 		.selectFrom("design_model_steps as step")
 		.innerJoin(
 			"design_model_contexts as context",
 			"context.id",
 			"step.context_id",
 		)
-		.select("step.step_key")
+		.select(({ fn }) => fn.countAll<string>().as("n"))
 		.where("context.design_session_id", "=", context.design_session_id)
 		.where("context.context_kind", "=", context.context_kind)
 		.where("context.generation", "<=", context.generation)
 		.where("step.event_kind", "=", "started")
-		.execute();
-	return rows.length;
+		.executeTakeFirst();
+	return Number(row?.n ?? 0);
 }
 
 const optionalTokenCount = z.number().int().nonnegative().optional();
@@ -327,19 +334,6 @@ async function assertCurrentContext(
 	}
 }
 
-async function readAppendKeys(
-	tx: Transaction<AppDatabase>,
-	contextId: string,
-): Promise<Set<string>> {
-	const rows = await tx
-		.selectFrom("design_model_context_items")
-		.select("append_key")
-		.distinct()
-		.where("context_id", "=", contextId)
-		.execute();
-	return new Set(rows.map((row) => row.append_key));
-}
-
 async function readAppendKeysThroughGeneration(
 	tx: Transaction<AppDatabase>,
 	context: {
@@ -434,12 +428,23 @@ export async function openDesignModelContext(
 		}
 		const items = await readItems(tx, row.id);
 		const completedSteps = await readCompletedStepsThroughGeneration(tx, row);
+		const generation = safePersistedSequence(
+			row.generation,
+			`design_model_contexts.generation for ${row.id}`,
+		);
+		/* The loaded items already carry their append keys — a distinct query
+		 * would re-read the same rows. Generation 0 has no predecessors, so its
+		 * lineage keys are exactly its own; only a rolled-over context needs
+		 * the cross-generation read. */
+		const appendKeys = new Set(items.map((item) => item.appendKey));
+		const lineageAppendKeys =
+			generation === 0
+				? new Set(appendKeys)
+				: await readAppendKeysThroughGeneration(tx, row);
+		const stepKeys = await readStepKeysByEvent(tx, row.id);
 		return {
 			id: row.id,
-			generation: safePersistedSequence(
-				row.generation,
-				`design_model_contexts.generation for ${row.id}`,
-			),
+			generation,
 			supersedesContextId: row.supersedes_context_id,
 			revision: safePersistedSequence(
 				row.revision,
@@ -447,10 +452,10 @@ export async function openDesignModelContext(
 			),
 			messages: items.map((item) => item.message),
 			items,
-			appendKeys: await readAppendKeys(tx, row.id),
-			lineageAppendKeys: await readAppendKeysThroughGeneration(tx, row),
-			startedStepKeys: await readStepKeys(tx, row.id, "started"),
-			completedStepKeys: await readStepKeys(tx, row.id, "completed"),
+			appendKeys,
+			lineageAppendKeys,
+			startedStepKeys: stepKeys.started,
+			completedStepKeys: stepKeys.completed,
 			completedSteps,
 			totalStartedStepCount: await countStartedStepsThroughGeneration(tx, row),
 		};
