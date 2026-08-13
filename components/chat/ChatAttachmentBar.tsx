@@ -1,6 +1,5 @@
 "use client";
 import { PromptInputHeader } from "@/components/ai-elements/prompt-input";
-import { ExtractionStatusBadgeView } from "@/components/builder/media/ExtractionStatusBadge";
 import type {
 	ExtractMeta,
 	MediaAssetView,
@@ -25,10 +24,11 @@ interface ChatAttachmentBarProps {
 
 /**
  * One staged chip. Owns the asset's extraction lifecycle (the single
- * `useDocumentExtraction` call) so the chip can both render the status badge AND
- * gate its own remove control on that status: the hook can't be called inside
- * the parent's `.map`, and a second call (one here, one in the badge) would
- * double-trigger extraction.
+ * `useDocumentExtraction` call) so the chip can reflect the status: a small
+ * spinner in the glyph slot while reading, a compact retry on failure, and the
+ * preview/remove gates. The hook can't be called inside the parent's `.map`.
+ * There is no per-chip status badge: the composer's "Reading your documents"
+ * activity status narrates the wait, so the chip stays glyph + name + ×.
  */
 function StagedChip({
 	asset,
@@ -66,7 +66,8 @@ function StagedChip({
 			onRemove={() => onRemove(asset.id)}
 			removeDisabled={reading}
 			removeDisabledTooltip="Nova is still reading this file. You can remove it when it's ready."
-			trailing={<ExtractionStatusBadgeView status={status} retry={retry} />}
+			reading={reading}
+			onRetry={status === "failed" ? retry : undefined}
 		/>
 	);
 }
