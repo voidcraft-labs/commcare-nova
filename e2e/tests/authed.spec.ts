@@ -3160,7 +3160,7 @@ test.describe("authenticated builder", () => {
 		await page
 			.getByPlaceholder("Describe your app")
 			.fill("Build a small referral tracker with intake and follow-up");
-		await page.getByRole("button", { name: "Submit" }).click();
+		await page.getByRole("button", { name: "Send" }).click();
 
 		/* The first pause shows the reviewed design in human terms. Internal
 		 * design tools and their model-facing receipts never become chat UI. */
@@ -3210,7 +3210,7 @@ test.describe("authenticated builder", () => {
 		).toBeLessThanOrEqual(firstComposerBox?.y ?? 0);
 
 		await firstComposer.fill("Within two days");
-		await page.getByRole("button", { name: "Submit" }).click();
+		await page.getByRole("button", { name: "Send" }).click();
 
 		/* Genesis activates the real tree, but the initial-build latch keeps every
 		 * direct editor locked and the center canvas on progress. */
@@ -3379,7 +3379,7 @@ test.describe("authenticated builder", () => {
 		expect(await bottomGap(page)).toBeLessThanOrEqual(1);
 
 		const composer = page.getByPlaceholder("What would you like to change?");
-		const submit = page.getByRole("button", { name: "Submit" });
+		const submit = page.getByRole("button", { name: "Send" });
 
 		// Re-reading history escapes the bottom pin: the view holds still and
 		// the return affordance appears — nothing yanks the reader around.
@@ -3446,7 +3446,7 @@ test.describe("authenticated builder", () => {
 		const preAnswerMax = await armScrollTrace(page);
 		const composer = page.getByPlaceholder("What would you like to change?");
 		await composer.fill("The community team handles it");
-		await page.getByRole("button", { name: "Submit" }).click();
+		await page.getByRole("button", { name: "Send" }).click();
 		await expect(page.getByText(seed.scrollQuestionTwoText)).toBeVisible();
 		await expect.poll(() => bottomGap(page)).toBeLessThanOrEqual(1);
 		const trace = await readScrollTrace(page);
