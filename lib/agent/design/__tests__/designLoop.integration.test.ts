@@ -151,6 +151,7 @@ function mount(
 	pkg: DesignSourcePackage,
 	nextReview: () => unknown = cleanReview,
 	repair = new DesignRepairTracker(),
+	ancestry?: Pick<DesignLoopToolDeps, "loadAncestry" | "ancestryChanged">,
 ) {
 	return createDesignLoopTools({
 		designSessionId: sessionId,
@@ -161,12 +162,17 @@ function mount(
 		ctx: scriptedContext(nextReview),
 		signal: new AbortController().signal,
 		repair,
-		loadAncestry: async () => {
-			const { loadDesignAncestry } = await import(
-				"@/lib/agent/design/loop/gates"
-			);
-			return loadDesignAncestry(sessionId, pkg.packageDigest);
-		},
+		loadAncestry:
+			ancestry?.loadAncestry ??
+			(async () => {
+				const { loadDesignAncestry } = await import(
+					"@/lib/agent/design/loop/gates"
+				);
+				return loadDesignAncestry(sessionId, pkg.packageDigest);
+			}),
+		/* The suite's default loadAncestry reads fresh every call, so there is
+		 * no memo to drop. */
+		ancestryChanged: ancestry?.ancestryChanged ?? (() => {}),
 		rebuildPackageForDigest: async () => null,
 	} satisfies DesignLoopToolDeps);
 }
@@ -296,6 +302,31 @@ describe("staged design loop", () => {
 			modelId: "deterministic-build-planner-v1",
 		});
 		expect(plan?.envelope.payload.slices).toHaveLength(2);
+	});
+
+	it("keeps gates fresh through the runner's memoized ancestry loader", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const { createMemoizedAncestryLoader } = await import(
+			"@/lib/agent/design/loop/gates"
+		);
+		const ancestry = createMemoizedAncestryLoader(sessionId, pkg.packageDigest);
+		/* Unchanged ancestry: repeated gate evaluations share ONE load. */
+		expect(ancestry.loadAncestry()).toBe(ancestry.loadAncestry());
+		const tools = mount(pkg, cleanReview, new DesignRepairTracker(), ancestry);
+		const workspaceRevision = await stageWholeContract(tools, makeContract());
+		expect(
+			await call(tools.submitContract, { expectedRevision: workspaceRevision }),
+		).toMatchObject({ ok: true });
+		/* Each artifact insert invalidated the memo: the review gate must see
+		 * the freshly submitted draft (a stale memo would refuse with "No
+		 * draft exists to review"), and the acceptance path re-reads again to
+		 * derive the plan from the accepted head. */
+		expect(await call(tools.requestReview)).toMatchObject({
+			ok: true,
+			accepted: true,
+		});
+		expect(await readLatestAcceptedDesignRevision(sessionId)).not.toBeNull();
 	});
 
 	it("resolves readable model handles to stable server identities", async () => {

@@ -90,6 +90,11 @@ export interface DesignLoopToolDeps {
 	readonly signal: AbortSignal;
 	readonly repair: DesignRepairTracker;
 	readonly loadAncestry: () => Promise<DesignAncestry>;
+	/** Called immediately after ANY immutable ancestry artifact (revision,
+	 * review, or plan) is inserted, so a memoizing `loadAncestry` reloads.
+	 * The design session is single-writer (exact-holder locked), so these
+	 * inserts are the only invalidation source. */
+	readonly ancestryChanged: () => void;
 	readonly rebuildPackageForDigest: (
 		digest: string,
 	) => Promise<DesignSourcePackage | null>;
@@ -108,7 +113,7 @@ async function persistDerivedPlan(
 		contract: accepted.envelope.payload,
 		revision: { id: accepted.id, digest: accepted.artifactDigest },
 	});
-	return insertDesignBuildPlan({
+	const record = await insertDesignBuildPlan({
 		envelope: planEnvelope({
 			accepted,
 			packageDigest: accepted.sourcePackageDigest,
@@ -117,6 +122,8 @@ async function persistDerivedPlan(
 		}),
 		authority: deps.authority,
 	});
+	deps.ancestryChanged();
+	return record;
 }
 
 /** Crash recovery for the tiny accepted-revision -> derived-plan boundary. */
@@ -1245,6 +1252,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					artifactKind: "contract",
 				},
 			});
+			deps.ancestryChanged();
 			deps.repair.noteAccepted("submitContract");
 			return {
 				ok: true,
@@ -1320,6 +1328,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				designRevisionId: draft.id,
 				authority: deps.authority,
 			});
+			deps.ancestryChanged();
 			deps.repair.noteAccepted("requestReview");
 			const findings = review.envelope.payload.findings;
 			const gated = findings.filter(findingBlocksAcceptance);
@@ -1351,6 +1360,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					authority: deps.authority,
 					dispositions: [],
 				});
+				deps.ancestryChanged();
 				const blocking = accepted.envelope.payload.openQuestions.filter(
 					(question) => question.blocking,
 				);
@@ -1537,6 +1547,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					artifactKind: "revision",
 				},
 			});
+			deps.ancestryChanged();
 			deps.repair.noteAccepted("submitRevision");
 			if (lifecycle === "draft") {
 				return {

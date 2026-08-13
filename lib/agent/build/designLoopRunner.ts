@@ -60,12 +60,12 @@ import {
 	unansweredRequiredDesignQuestions,
 } from "@/lib/agent/design/loop/designAgent";
 import {
+	createMemoizedAncestryLoader,
 	type DesignGateState,
 	DesignRepairTracker,
 	type DesignSubmissionValidationStage,
 	designLoopStepBudget,
 	evaluateDesignGates,
-	loadDesignAncestry,
 } from "@/lib/agent/design/loop/gates";
 import { rebuildPackageForDigest } from "@/lib/agent/design/loop/packageRebuild";
 import {
@@ -477,8 +477,10 @@ export async function runDesignAgentLoop(
 	};
 	await insertDesignSourcePackage({ pkg: args.pkg, authority });
 
-	const loadAncestry = () =>
-		loadDesignAncestry(args.designSessionId, args.pkg.packageDigest);
+	const { loadAncestry, ancestryChanged } = createMemoizedAncestryLoader(
+		args.designSessionId,
+		args.pkg.packageDigest,
+	);
 
 	const initialGates = evaluateDesignGates(await loadAncestry());
 
@@ -513,6 +515,7 @@ export async function runDesignAgentLoop(
 		signal: args.signal,
 		repair,
 		loadAncestry,
+		ancestryChanged,
 		rebuildPackageForDigest: (digest: string) =>
 			rebuildPackageForDigest({
 				designSessionId: args.designSessionId,

@@ -133,6 +133,7 @@ async function captureDesignTurnBody(
 		loadAncestry: async () => {
 			throw new Error("never called at registration time");
 		},
+		ancestryChanged: () => {},
 		rebuildPackageForDigest: async () => null,
 	});
 	const agent = createDesignAgent({

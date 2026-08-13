@@ -30,7 +30,7 @@ import type {
 	DesignRevisionRecord,
 } from "@/lib/agent/design/artifactStore";
 import {
-	readDesignReviews,
+	readDesignReviewsForRevisions,
 	readDesignRevisionsForSession,
 	readLatestDesignBuildPlanForRevision,
 } from "@/lib/agent/design/artifactStore";
@@ -139,15 +139,47 @@ export interface DesignAncestry {
 	readonly currentPackageDigest: string;
 }
 
+/**
+ * The runner's per-run ancestry loader: memoized, because the gate loader
+ * reads (and digest-verifies) the session's whole revision/review/plan
+ * ancestry and is consulted on every provider step, every tool call, and
+ * every phase boundary — while the single-writer runner's own artifact
+ * inserts are the only thing that can change it. `ancestryChanged` (called
+ * by the tools and the plan writer right after each insert) drops the memo;
+ * a rejected load also drops it so a transient read fault never sticks.
+ */
+export function createMemoizedAncestryLoader(
+	designSessionId: string,
+	currentPackageDigest: string,
+): {
+	loadAncestry: () => Promise<DesignAncestry>;
+	ancestryChanged: () => void;
+} {
+	let cache: Promise<DesignAncestry> | null = null;
+	return {
+		loadAncestry: () => {
+			cache ??= loadDesignAncestry(designSessionId, currentPackageDigest).catch(
+				(error) => {
+					cache = null;
+					throw error;
+				},
+			);
+			return cache;
+		},
+		ancestryChanged: () => {
+			cache = null;
+		},
+	};
+}
+
 export async function loadDesignAncestry(
 	designSessionId: string,
 	currentPackageDigest: string,
 ): Promise<DesignAncestry> {
 	const revisions = await readDesignRevisionsForSession(designSessionId);
-	const reviewsByRevisionId = new Map<string, readonly DesignReviewRecord[]>();
-	for (const revision of revisions) {
-		reviewsByRevisionId.set(revision.id, await readDesignReviews(revision.id));
-	}
+	const reviewsByRevisionId = await readDesignReviewsForRevisions(
+		revisions.map((revision) => revision.id),
+	);
 	const newestAccepted = [...revisions]
 		.reverse()
 		.find((revision) => revision.lifecycle === "accepted");

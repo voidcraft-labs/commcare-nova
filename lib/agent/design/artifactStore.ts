@@ -545,24 +545,19 @@ export async function readLatestAcceptedDesignRevision(
 	return readRevisionRecordInTx(db, row.id);
 }
 
-/** Every revision of one session, ascending, each read through the
- *  verified record reader — the inspector's integrity walk. */
+/** Every revision of one session, ascending, each row through the same
+ *  verified record conversion — the inspector's integrity walk. ONE query:
+ *  the gate loader runs this on every tool call, so a per-row fetch would be
+ *  an N+1 against the session's whole history. */
 export async function readDesignRevisionsForSession(
 	designSessionId: string,
 ): Promise<DesignRevisionRecord[]> {
 	const db = await getAppDb();
-	const rows = await db
-		.selectFrom("design_revisions")
-		.select(["id"])
+	const rows = await revisionRowsQuery(db)
 		.where("design_session_id", "=", designSessionId)
 		.orderBy("revision", "asc")
 		.execute();
-	const records: DesignRevisionRecord[] = [];
-	for (const row of rows) {
-		const record = await readRevisionRecordInTx(db, row.id);
-		if (record) records.push(record);
-	}
-	return records;
+	return rows.map(revisionRecordFromRow);
 }
 
 /** The session's newest revision of ANY lifecycle — the pipeline's resume
@@ -596,7 +591,9 @@ export async function countDesignRevisions(
 	return Number(row?.n ?? 0);
 }
 
-async function readRevisionRowInTx(db: Db, id: string) {
+/** The revision columns every record read selects — one spelling, so the
+ *  by-id and whole-session readers cannot drift. */
+function revisionRowsQuery(db: Db) {
 	return db
 		.selectFrom("design_revisions")
 		.select([
@@ -615,21 +612,22 @@ async function readRevisionRowInTx(db: Db, id: string) {
 			sql<string>`${sql.ref("design_revisions.envelope")}::text`.as(
 				"envelope_text",
 			),
-		)
-		.where("id", "=", id)
-		.executeTakeFirst();
+		);
 }
 
-async function readRevisionRecordInTx(
-	db: Db,
-	id: string,
-): Promise<DesignRevisionRecord | null> {
-	const row = await readRevisionRowInTx(db, id);
-	if (!row) return null;
+type RevisionRow = Awaited<
+	ReturnType<ReturnType<typeof revisionRowsQuery>["execute"]>
+>[number];
+
+async function readRevisionRowInTx(db: Db, id: string) {
+	return revisionRowsQuery(db).where("id", "=", id).executeTakeFirst();
+}
+
+function revisionRecordFromRow(row: RevisionRow): DesignRevisionRecord {
 	const envelope = contractEnvelopeSchema.parse(
 		parsePersistedJsonText(
 			row.envelope_text,
-			`design_revisions.envelope for revision ${id}`,
+			`design_revisions.envelope for revision ${row.id}`,
 		),
 	);
 	verifyArtifactEnvelope(envelope);
@@ -639,13 +637,13 @@ async function readRevisionRecordInTx(
 		envelope.designSessionId !== row.design_session_id
 	) {
 		throw new DesignArtifactStoreError(
-			`The stored revision ${id} disagrees with its own envelope about identity or digest — corruption, not drift to repair.`,
+			`The stored revision ${row.id} disagrees with its own envelope about identity or digest — corruption, not drift to repair.`,
 		);
 	}
 	const lifecycle = row.lifecycle;
 	if (lifecycle !== "draft" && lifecycle !== "accepted") {
 		throw new DesignArtifactStoreError(
-			`The stored revision ${id} carries an unknown lifecycle "${lifecycle}".`,
+			`The stored revision ${row.id} carries an unknown lifecycle "${lifecycle}".`,
 		);
 	}
 	return {
@@ -653,7 +651,7 @@ async function readRevisionRecordInTx(
 		designSessionId: row.design_session_id,
 		revision: safePersistedSequence(
 			row.revision,
-			`design_revisions.revision for ${id}`,
+			`design_revisions.revision for ${row.id}`,
 		),
 		parentRevisionId: row.parent_revision_id,
 		lifecycle,
@@ -664,6 +662,14 @@ async function readRevisionRecordInTx(
 		createdByRunId: row.created_by_run_id,
 		createdAt: row.created_at,
 	};
+}
+
+async function readRevisionRecordInTx(
+	db: Db,
+	id: string,
+): Promise<DesignRevisionRecord | null> {
+	const row = await readRevisionRowInTx(db, id);
+	return row ? revisionRecordFromRow(row) : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -737,26 +743,40 @@ export async function insertDesignReview(args: {
 export async function readDesignReviews(
 	designRevisionId: string,
 ): Promise<DesignReviewRecord[]> {
-	const db = await getAppDb();
-	const rows = await db
-		.selectFrom("design_reviews")
-		.select(["id"])
-		.where("design_revision_id", "=", designRevisionId)
-		.orderBy("review_ordinal", "asc")
-		.execute();
-	const records: DesignReviewRecord[] = [];
-	for (const row of rows) {
-		const record = await readReviewRecordInTx(db, row.id);
-		if (record) records.push(record);
-	}
-	return records;
+	const reviews = await readDesignReviewsForRevisions([designRevisionId]);
+	return [...(reviews.get(designRevisionId) ?? [])];
 }
 
-async function readReviewRecordInTx(
-	db: Db,
-	id: string,
-): Promise<DesignReviewRecord | null> {
-	const row = await db
+/**
+ * Every review of the named revisions, keyed by revision id (every requested
+ * id gets an entry, empty when unreviewed), each list ascending by
+ * `review_ordinal`. ONE query: the gate loader reads reviews for the whole
+ * session's revision list on every tool call, so a per-revision-per-review
+ * fetch would be a nested N+1.
+ */
+export async function readDesignReviewsForRevisions(
+	designRevisionIds: readonly string[],
+): Promise<ReadonlyMap<string, readonly DesignReviewRecord[]>> {
+	const reviews = new Map<string, DesignReviewRecord[]>(
+		designRevisionIds.map((id) => [id, []]),
+	);
+	if (designRevisionIds.length === 0) return reviews;
+	const db = await getAppDb();
+	const rows = await reviewRowsQuery(db)
+		.where("design_revision_id", "in", [...designRevisionIds])
+		.orderBy("design_revision_id")
+		.orderBy("review_ordinal", "asc")
+		.execute();
+	for (const row of rows) {
+		reviews.get(row.design_revision_id)?.push(reviewRecordFromRow(row));
+	}
+	return reviews;
+}
+
+/** The review columns every record read selects — one spelling, so the
+ *  by-id and batch readers cannot drift. */
+function reviewRowsQuery(db: Db) {
+	return db
 		.selectFrom("design_reviews")
 		.select([
 			"id",
@@ -772,14 +792,18 @@ async function readReviewRecordInTx(
 			sql<string>`${sql.ref("design_reviews.envelope")}::text`.as(
 				"envelope_text",
 			),
-		)
-		.where("id", "=", id)
-		.executeTakeFirst();
-	if (!row) return null;
+		);
+}
+
+type ReviewRow = Awaited<
+	ReturnType<ReturnType<typeof reviewRowsQuery>["execute"]>
+>[number];
+
+function reviewRecordFromRow(row: ReviewRow): DesignReviewRecord {
 	const envelope = reviewEnvelopeSchema.parse(
 		parsePersistedJsonText(
 			row.envelope_text,
-			`design_reviews.envelope for review ${id}`,
+			`design_reviews.envelope for review ${row.id}`,
 		),
 	);
 	verifyArtifactEnvelope(envelope);
@@ -788,7 +812,7 @@ async function readReviewRecordInTx(
 		envelope.artifactId !== row.id
 	) {
 		throw new DesignArtifactStoreError(
-			`The stored review ${id} disagrees with its own envelope — corruption.`,
+			`The stored review ${row.id} disagrees with its own envelope — corruption.`,
 		);
 	}
 	return {
@@ -802,6 +826,14 @@ async function readReviewRecordInTx(
 		createdByRunId: row.created_by_run_id,
 		createdAt: row.created_at,
 	};
+}
+
+async function readReviewRecordInTx(
+	db: Db,
+	id: string,
+): Promise<DesignReviewRecord | null> {
+	const row = await reviewRowsQuery(db).where("id", "=", id).executeTakeFirst();
+	return row ? reviewRecordFromRow(row) : null;
 }
 
 export async function readDispositions(

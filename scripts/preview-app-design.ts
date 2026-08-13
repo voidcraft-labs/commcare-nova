@@ -249,6 +249,9 @@ async function main(): Promise<void> {
 		loadAncestry: async () => {
 			throw new Error("The preview never touches the artifact store.");
 		},
+		/* In-memory protocol: nothing memoizes, so a changed ancestry needs no
+		 * notification. */
+		ancestryChanged: () => {},
 		rebuildPackageForDigest: async () => pkg,
 	});
 
