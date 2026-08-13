@@ -1064,9 +1064,10 @@ export type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
 export const PromptInputSubmit = ({
 	className,
 	// Icon-only ghost by default: a violet glyph on transparent that lifts to
-	// the full text tier on hover. A caller after a real labeled send button
-	// passes `variant="default"` (the lilac action keycap) plus children: the
-	// label renders beside the status glyph and the keycap owns its own ink.
+	// the full text tier on hover. A caller after a conspicuous send passes
+	// `variant="default"` (the lilac action keycap, icon-only square) and
+	// names it via `aria-label`; the keycap owns its own ink. Children render
+	// beside the status glyph when a caller does want a visible label.
 	variant = "ghost",
 	size = "icon",
 	status,

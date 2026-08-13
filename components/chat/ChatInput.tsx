@@ -391,16 +391,21 @@ function ChatInputComposer({
 							</TooltipContent>
 						</Tooltip>
 						{/* The send is the composer's primary action, so it wears the
-						 *  action keycap with a real label: an unlabeled arrow glyph
-						 *  read as decoration, not as the button that sends. */}
-						<PromptInputSubmit
-							disabled={disabled || overLimit || !hasText}
-							status={submitting ? "submitted" : "ready"}
-							variant="default"
-							size="default"
-						>
-							Send
-						</PromptInputSubmit>
+						 *  lilac action keycap: the bright square is what makes the
+						 *  arrow read as the button that sends, no text label needed. */}
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<PromptInputSubmit
+										disabled={disabled || overLimit || !hasText}
+										status={submitting ? "submitted" : "ready"}
+										variant="default"
+										aria-label="Send"
+									/>
+								}
+							/>
+							<TooltipContent>Send</TooltipContent>
+						</Tooltip>
 					</div>
 				</PromptInputFooter>
 			</PromptInput>
