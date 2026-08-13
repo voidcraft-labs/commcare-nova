@@ -133,6 +133,11 @@ function coordinateForMutation(
 		case "moveColumn":
 			return entityCoordinate("case-list-column", mutation.uuid);
 
+		case "addUserProperty":
+			return entityCoordinate("worker-property", mutation.property.uuid);
+		case "updateUserProperty":
+		case "removeUserProperty":
+			return entityCoordinate("worker-property", mutation.uuid);
 		case "addUserType":
 			return entityCoordinate("user-type", mutation.userType.uuid);
 		case "updateUserType":
@@ -180,11 +185,26 @@ function coordinateForMutation(
 				property: mutation.property,
 			};
 
-		// These mutations either address the app itself or a collection whose
-		// closed coordinate vocabulary deliberately has no finer identity.
-		default:
+		// These mutations address the app itself or a catalog whose closed
+		// coordinate vocabulary deliberately has no finer identity. Each kind
+		// is named so the switch stays exhaustive: a NEW mutation kind is a
+		// compile error here, never a silent fall-through to app scope that
+		// coarsens its durable provenance rows.
+		case "setAppName":
+		case "setAppLogo":
+		case "setConnectType":
+		case "declareCaseType":
+		case "setCaseTypeMeta":
+		case "renameCaseProperties":
+		case "retireCaseType":
 			return { kind: "app", appId };
 	}
+	/* Unreachable while the switch covers every `Mutation` kind — the
+	 * assignment is the compile-time proof. */
+	const unhandled: never = mutation;
+	throw new Error(
+		`No implementation coordinate is defined for mutation kind ${(unhandled as Mutation).kind}.`,
+	);
 }
 
 function entityCoordinate<

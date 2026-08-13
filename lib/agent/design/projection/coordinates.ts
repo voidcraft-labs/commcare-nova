@@ -23,6 +23,7 @@ export const implementationCoordinateSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("field"), uuid: uuidSchema }).strict(),
 	z.object({ kind: z.literal("case-list-column"), uuid: uuidSchema }).strict(),
 	z.object({ kind: z.literal("case-operation"), uuid: uuidSchema }).strict(),
+	z.object({ kind: z.literal("worker-property"), uuid: uuidSchema }).strict(),
 	z.object({ kind: z.literal("user-type"), uuid: uuidSchema }).strict(),
 	z.object({ kind: z.literal("persona"), uuid: uuidSchema }).strict(),
 	z

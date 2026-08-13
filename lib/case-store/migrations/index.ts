@@ -61,6 +61,7 @@ import * as sliceAttemptBudgetClaims from "./20260811030000_slice_attempt_budget
 import * as modelStepUsageAccounts from "./20260811040000_model_step_usage_accounts";
 import * as sliceAttemptWallClock from "./20260813000000_slice_attempt_wall_clock";
 import * as designIdentityHandleReferences from "./20260813010000_design_identity_handle_references";
+import * as workerPropertyCoordinate from "./20260813020000_worker_property_coordinate";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -117,6 +118,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260813000000_slice_attempt_wall_clock": sliceAttemptWallClock,
 	"20260813010000_design_identity_handle_references":
 		designIdentityHandleReferences,
+	"20260813020000_worker_property_coordinate": workerPropertyCoordinate,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {
