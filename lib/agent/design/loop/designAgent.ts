@@ -35,11 +35,12 @@ import { DESIGN_STATE_MESSAGE_HEADING } from "./packageRender";
 import type { createDesignLoopTools } from "./tools";
 
 /** The design registration of the client pause tool: same schema, same
- *  client contract, re-described to explicitly invite option-less free-text
- *  questions (the SA description's "2-4 answer options" framing would bend
- *  real design questions into invented multiple choice). */
+ *  client contract, re-described for design pacing (any number of rounds)
+ *  with the same options guidance as the SA: concrete options with a
+ *  leading recommendation wherever real candidates exist, free text as the
+ *  ever-present fallback the user already has rather than an option. */
 export const DESIGN_ASK_QUESTIONS_DESCRIPTION =
-	"Ask the user clarifying questions; execution pauses for their answers. Always available, any number of rounds. A question may be free text (an empty options list) or carry 2-4 options when real alternatives exist. Assume only what the user would not want to be asked.";
+	"Ask the user clarifying questions; execution pauses for their answers. Always available, any number of rounds. Give a question 2-4 concrete options whenever real alternatives or sensible defaults exist — your recommended option first, its label ending in ' (Recommended)' when you have one. The user can always answer in free text instead of picking an option, so never add an option that means 'something else'; an empty options list is only for questions with no concrete candidates. Assume only what the user would not want to be asked.";
 
 export interface DesignAgentArgs {
 	readonly model: LanguageModel;
@@ -306,10 +307,12 @@ export function isExactRequiredDesignQuestionCall(
 		batch.length > 0 &&
 		parsed.data.header === REQUIRED_DESIGN_QUESTIONS_HEADER &&
 		parsed.data.questions.length === batch.length &&
+		/* Prose exactness is the authorization property; options are the
+		 * model's own proposed candidate answers (a recommended default the
+		 * user can tap) and ride freely — the user can always answer in free
+		 * text regardless. */
 		parsed.data.questions.every(
-			(question, index) =>
-				question.question.trim() === batch[index]?.question &&
-				question.options.length === 0,
+			(question, index) => question.question.trim() === batch[index]?.question,
 		)
 	);
 }
@@ -351,8 +354,10 @@ export function answeredRequiredDesignQuestionDigests(
 					(question) =>
 						typeof question.question === "string" &&
 						question.question.trim().length > 0 &&
-						Array.isArray(question.options) &&
-						question.options.length === 0,
+						/* Options are model-proposed candidates, any number including
+						 * none; the card key still digests the exact accepted input,
+						 * options and all. */
+						Array.isArray(question.options),
 				);
 			if (!requiredBatch) continue;
 			if (shaped.state !== "output-available") continue;
@@ -438,7 +443,7 @@ export function requiredDesignQuestionMessage(
 		role: "user",
 		content: [
 			REQUIRED_QUESTION_HEADING,
-			`Finalization proved that these decisions require the user. Call askQuestions now with header "${REQUIRED_DESIGN_QUESTIONS_HEADER}" and every exact question below, in order, using an empty options list for free-text answers. Until the answers arrive, do not stage more design, submit again, assume answers, remove workflows, or reinterpret their scope.`,
+			`Finalization proved that these decisions require the user. Call askQuestions now with header "${REQUIRED_DESIGN_QUESTIONS_HEADER}" and every exact question below, in order. Give a question 2-4 concrete candidate options when you can propose real alternatives or sensible defaults — your recommended option first, its label ending in ' (Recommended)'; the user can always answer in free text instead, so never add an option that only means they should type, and leave a question's options empty when no concrete candidates exist. Until the answers arrive, do not stage more design, submit again, assume answers, remove workflows, or reinterpret their scope.`,
 			`When the answers arrive, apply each one by staging before submitting again: update the affected elements, record the settled choice as a decision or assumption, and remove the question or mark it non-blocking. An answer that delegates the choice to you, such as "use sensible defaults", is a real answer — choose concrete values yourself, record them with an assumption naming what changes if they are wrong, and clear the question the same way.`,
 			...batch.map((question) => `- ${question.question}`),
 		].join("\n"),

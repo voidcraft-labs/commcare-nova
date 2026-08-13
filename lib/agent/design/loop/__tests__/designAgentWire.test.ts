@@ -227,6 +227,9 @@ describe("design agent Responses wire body", () => {
 				questions,
 			),
 		).toBe(false);
+		/* Model-proposed candidate options ride an exact call freely: the
+		 * authorization property is prose exactness, and options are the
+		 * recommended defaults the user can tap instead of typing. */
 		expect(
 			isExactRequiredDesignQuestionCall(
 				{
@@ -235,14 +238,14 @@ describe("design agent Responses wire body", () => {
 						index === 0
 							? {
 									...question,
-									options: [{ label: "Guess" }],
+									options: [{ label: "Two days (Recommended)" }],
 								}
 							: question,
 					),
 				},
 				questions,
 			),
-		).toBe(false);
+		).toBe(true);
 		const projected = await schema.jsonSchema;
 		expect(projected).toEqual(
 			await requiredDesignQuestionInputSchema([]).jsonSchema,
