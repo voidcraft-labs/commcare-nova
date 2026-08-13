@@ -13,7 +13,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { StickToBottomContext } from "use-stick-to-bottom";
 import {
 	Conversation,
 	ConversationContent,
@@ -49,6 +48,7 @@ import {
 	useSetSidebarOpen,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import type { ChatScrollController } from "@/lib/ui/chatScroll";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { INSPECTOR_RAIL_WIDTH } from "@/lib/ui/inspector";
 
@@ -400,34 +400,12 @@ export function ChatSidebar({
 
 	const pendingAnswerRef = useRef<((text: string) => void) | null>(null);
 
-	/* The StickToBottom scroll context, captured from Conversation. The library's
-	 * initial="instant" path still waits for ResizeObserver + rAF, which leaves one
-	 * top-positioned frame when this scroll root remounts after closing History.
-	 * Initialize each NEW scroll element synchronously from the imperative-ref
-	 * commit instead: DOM refs and layout are ready, but the browser has not painted.
-	 * Tracking element identity keeps later context updates from fighting manual
-	 * scrolling; use-stick-to-bottom owns all pinning after this first position. */
-	const stickContextRef = useRef<StickToBottomContext | null>(null);
-	const initializedScrollElementRef = useRef<HTMLElement | null>(null);
-	const captureStickContext = useCallback(
-		(context: StickToBottomContext | null) => {
-			stickContextRef.current = context;
-			const scrollElement = context?.scrollRef.current;
-			if (
-				!scrollElement ||
-				scrollElement === initializedScrollElementRef.current
-			) {
-				return;
-			}
-
-			initializedScrollElementRef.current = scrollElement;
-			if (getComputedStyle(scrollElement).overflow === "visible") {
-				scrollElement.style.overflow = "auto";
-			}
-			scrollElement.scrollTop = scrollElement.scrollHeight;
-		},
-		[],
-	);
+	/* The conversation's scroll controller (`lib/ui/chatScroll.ts` is the one
+	 * scroll model: pinned-to-bottom through content growth, resizes, and the
+	 * centered↔sidebar morph; the question-card anchor; escape on upward
+	 * scroll; re-entry with leeway). Conversation hands it up so the send
+	 * handlers below can jump the view back to the latest content. */
+	const scrollControllerRef = useRef<ChatScrollController | null>(null);
 
 	const markLocalSend = useCallback(() => {
 		/* Mark the coming `submitted` window as a real send. A resume or re-drive
@@ -435,15 +413,15 @@ export function ChatSidebar({
 		localSendRef.current = true;
 	}, []);
 
-	/* A local turn always returns the view to the bottom, wherever the user had
-	 * scrolled: jump (no animated travel through the transcript) and re-engage
-	 * use-stick-to-bottom's pin, which an upward scroll releases. The jump lands
-	 * on the CURRENT bottom: the new message commits a render later, and the
-	 * re-engaged pin then carries it (and the streamed reply) into view via the
-	 * resize follow. Incoming content alone never scrolls an escaped view; only
-	 * the user's own send does. */
+	/* A local turn always returns the view to the pinned position, wherever
+	 * the user had scrolled: an instant jump (no animated travel through the
+	 * transcript) that re-engages the pin an upward scroll releases. The jump
+	 * lands on the CURRENT bottom (or the waiting card's top): the new message
+	 * commits a render later, and the re-engaged pin then carries it (and the
+	 * streamed reply) into view via the resize follow. Incoming content alone
+	 * never scrolls an escaped view; only the user's own send does. */
 	const scrollToLatest = useCallback(() => {
-		void stickContextRef.current?.scrollToBottom({ animation: "instant" });
+		scrollControllerRef.current?.scrollToLatest();
 	}, []);
 
 	// Route typed messages as question answers when an AskQuestionsCard is waiting.
@@ -478,7 +456,11 @@ export function ChatSidebar({
 		[addToolOutput, markLocalSend, scrollToLatest],
 	);
 
-	// ── Auto-scroll question cards into view when they appear ──
+	/* Waiting question cards need no scroll effect of their own: the scroll
+	 * model's pinned target anchors on the last waiting card, so a pinned view
+	 * opens each arriving card at its top, and an escaped reader is left
+	 * where they are (the status line says an answer is waited on). The count
+	 * still feeds `answerPending` below. */
 	let activeQuestionCount = 0;
 	for (const msg of messages) {
 		for (const part of msg.parts) {
@@ -490,30 +472,6 @@ export function ChatSidebar({
 			}
 		}
 	}
-
-	// use-stick-to-bottom keeps the view pinned to the latest message, but it does
-	// not scroll a mid-list element into view. A new waiting question card can land
-	// above the fold, so when the count of waiting cards rises we scroll the last
-	// one into view. We reach the live content element through the StickToBottom
-	// context (ConversationContent owns its own ref internally and exposes none),
-	// then let scrollIntoView locate its own scroll ancestor.
-	const prevActiveQCountRef = useRef(0);
-	useEffect(() => {
-		if (activeQuestionCount > prevActiveQCountRef.current) {
-			requestAnimationFrame(() => {
-				const content = stickContextRef.current?.contentRef.current;
-				if (!content) return;
-				const cards = content.querySelectorAll(
-					'[data-question-card="waiting"]',
-				);
-				const lastCard = cards[cards.length - 1] as HTMLElement | undefined;
-				if (lastCard) {
-					lastCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
-				}
-			});
-		}
-		prevActiveQCountRef.current = activeQuestionCount;
-	}, [activeQuestionCount]);
 
 	return (
 		<motion.div
@@ -671,11 +629,12 @@ export function ChatSidebar({
 				)}
 
 				{/* Messages: the open conversation's transcript (hydrated
-				 *  history + live turns through one render path).
-				 *  Conversation (a use-stick-to-bottom root) owns the scroll: it
-				 *  keeps the view pinned to the latest message and across the
-				 *  center↔sidebar morph. contextRef hands us the scroll context so
-				 *  the question-card autoscroll can reach the content element. */}
+				 *  history + live turns through one render path). Conversation
+				 *  owns the scroll via ChatScrollController: pinned to the
+				 *  latest content across streaming and the center↔sidebar
+				 *  morph, anchored to a waiting question card's top, released
+				 *  by an upward scroll. controllerRef hands the controller up
+				 *  for the send handlers' jump-to-latest. */}
 				{/* The card is `overflow-hidden`; the activity status + composer below are
 				 *  `shrink-0` and must NEVER be clipped, so the Conversation absorbs all
 				 *  flex pressure (it's the scroll region).
@@ -692,7 +651,7 @@ export function ChatSidebar({
 					<Conversation
 						key={activeThreadId}
 						className={centered ? "flex-auto min-h-0" : "flex-1"}
-						contextRef={captureStickContext}
+						controllerRef={scrollControllerRef}
 						inert={interactionBlocked}
 						aria-busy={interactionBlocked || undefined}
 					>
