@@ -1644,35 +1644,51 @@ describe("runSliceExecutor — budgets", () => {
 	});
 
 	it("reconciles a durable commit whose response loses the deadline race", async () => {
-		const plan = makeBuildPlan();
-		const slice = fixtureValue(plan.slices[0], "first slice");
-		const { step } = scriptedStep([
-			{ calls: [{ toolCallId: "commit", toolName: "commitChangeSet" }] },
-		]);
-		const pendingCommit = deferred<SliceCommitResult>();
-		const receipt = {} as never;
-		const reconcileCommit = vi.fn(
-			async (): Promise<SliceCommitResult> => ({
-				kind: "committed",
-				receipt,
-			}),
-		);
-		const outcome = await runSliceExecutor({
-			workspace: fakeWorkspace({ inspect: async () => diagnostics() }),
-			brief: brief(),
-			budget: { ...budgetForSlice(slice), maxWallClockMs: 10 },
-			step,
-			commit: async () => pendingCommit.promise,
-			reconcileCommit,
-			signal: new AbortController().signal,
-		});
-		expect(outcome).toEqual({ kind: "committed", receipt });
-		expect(reconcileCommit).toHaveBeenCalledOnce();
-		pendingCommit.resolve({
-			kind: "gate-rejected",
-			message: "the response settled after reconciliation",
-		});
-		await pendingCommit.promise;
+		/* Deterministic clock: the deadline crosses exactly while the commit
+		 * response is in flight. The old shape gave the loop a real 10ms
+		 * window and lost it to the CI scheduler whenever reaching the commit
+		 * claim took longer, exhausting before the race it meant to test. */
+		vi.useFakeTimers();
+		try {
+			const plan = makeBuildPlan();
+			const slice = fixtureValue(plan.slices[0], "first slice");
+			const { step } = scriptedStep([
+				{ calls: [{ toolCallId: "commit", toolName: "commitChangeSet" }] },
+			]);
+			const pendingCommit = deferred<SliceCommitResult>();
+			const receipt = {} as never;
+			const reconcileCommit = vi.fn(
+				async (): Promise<SliceCommitResult> => ({
+					kind: "committed",
+					receipt,
+				}),
+			);
+			const commit = vi.fn(() => {
+				/* The response is in flight; now the wall clock runs out. The
+				 * microtask lets the loop attach its abort listener first
+				 * (awaitWithAbort also pre-checks an already-aborted signal). */
+				queueMicrotask(() => void vi.advanceTimersByTimeAsync(60_001));
+				return pendingCommit.promise;
+			});
+			const outcome = await runSliceExecutor({
+				workspace: fakeWorkspace({ inspect: async () => diagnostics() }),
+				brief: brief(),
+				budget: { ...budgetForSlice(slice), maxWallClockMs: 60_000 },
+				step,
+				commit,
+				reconcileCommit,
+				signal: new AbortController().signal,
+			});
+			expect(outcome).toEqual({ kind: "committed", receipt });
+			expect(reconcileCommit).toHaveBeenCalledOnce();
+			pendingCommit.resolve({
+				kind: "gate-rejected",
+				message: "the response settled after reconciliation",
+			});
+			await pendingCommit.promise;
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("continues from durable attempt counters instead of resetting them", async () => {
