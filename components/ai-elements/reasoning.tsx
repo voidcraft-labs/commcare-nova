@@ -53,6 +53,31 @@ export type ReasoningProps = ComponentProps<typeof Collapsible> & {
 const AUTO_CLOSE_DELAY = 1000;
 const MS_IN_S = 1000;
 
+/**
+ * Ambient open/close policy for a reasoning block. The rule that overrides
+ * everything: once the USER has toggled the block, the automation never moves
+ * it again. A block someone opened to read must not close itself under them
+ * when the stream moves on, and one they closed must not spring back open.
+ * Untouched blocks keep the ambient lifecycle: open while their reasoning
+ * streams, then close shortly after it ends (once).
+ */
+export function reasoningAutoBehavior(args: {
+	isStreaming: boolean;
+	isOpen: boolean;
+	userToggled: boolean;
+	explicitlyClosed: boolean;
+	hasAutoClosed: boolean;
+	everStreamed: boolean;
+}): "open" | "scheduleClose" | "none" {
+	if (args.userToggled) return "none";
+	if (args.isStreaming) {
+		return !args.isOpen && !args.explicitlyClosed ? "open" : "none";
+	}
+	return args.everStreamed && args.isOpen && !args.hasAutoClosed
+		? "scheduleClose"
+		: "none";
+}
+
 /** Compact elapsed time for the reasoning trigger. Long model turns are easier
  * to scan as clock-like units than as a large count of seconds. */
 export function formatThinkingDuration(totalSeconds: number): string {
@@ -102,6 +127,11 @@ export const Reasoning = memo(
 		const hasEverStreamedRef = useRef(isStreaming);
 		const [hasAutoClosed, setHasAutoClosed] = useState(false);
 		const startTimeRef = useRef<number | null>(null);
+		/** True once the user has toggled the block themselves. A ref, not
+		 *  state: it only ever flips inside `handleOpenChange`, whose `setIsOpen`
+		 *  re-runs the ambient effect in the same commit, so the fresh value is
+		 *  always read where it matters. */
+		const userToggledRef = useRef(false);
 
 		// Track when streaming starts and compute duration
 		useEffect(() => {
@@ -116,21 +146,23 @@ export const Reasoning = memo(
 			}
 		}, [isStreaming, setDuration]);
 
-		// Auto-open when streaming starts (unless explicitly closed)
+		// The ambient lifecycle (auto-open while streaming, one delayed
+		// auto-close after) runs only while the user has never touched the
+		// block; `reasoningAutoBehavior` is the single policy for both moves.
 		useEffect(() => {
-			if (isStreaming && !isOpen && !isExplicitlyClosed) {
+			const behavior = reasoningAutoBehavior({
+				isStreaming,
+				isOpen,
+				userToggled: userToggledRef.current,
+				explicitlyClosed: isExplicitlyClosed,
+				hasAutoClosed,
+				everStreamed: hasEverStreamedRef.current,
+			});
+			if (behavior === "open") {
 				setIsOpen(true);
+				return;
 			}
-		}, [isStreaming, isOpen, setIsOpen, isExplicitlyClosed]);
-
-		// Auto-close when streaming ends (once only, and only if it ever streamed)
-		useEffect(() => {
-			if (
-				hasEverStreamedRef.current &&
-				!isStreaming &&
-				isOpen &&
-				!hasAutoClosed
-			) {
+			if (behavior === "scheduleClose") {
 				const timer = setTimeout(() => {
 					setIsOpen(false);
 					setHasAutoClosed(true);
@@ -138,10 +170,14 @@ export const Reasoning = memo(
 
 				return () => clearTimeout(timer);
 			}
-		}, [isStreaming, isOpen, setIsOpen, hasAutoClosed]);
+		}, [isStreaming, isOpen, setIsOpen, hasAutoClosed, isExplicitlyClosed]);
 
 		const handleOpenChange = useCallback(
 			(newOpen: boolean) => {
+				// Only the trigger routes through here (the ambient effect calls
+				// setIsOpen directly), so this is the user's own hand: it retires
+				// the ambient automation for this block permanently.
+				userToggledRef.current = true;
 				setIsOpen(newOpen);
 			},
 			[setIsOpen],
