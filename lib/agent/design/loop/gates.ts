@@ -51,6 +51,26 @@ export type DesignLoopToolName = (typeof DESIGN_LOOP_TOOL_NAMES)[number];
  *  hope. */
 export const DESIGN_LOOP_STEP_BUDGET = 64;
 
+/** Extra step headroom per context-generation rollover, capped. A rollover
+ * happens only when a real deployment changed the pinned model, prompt, tool
+ * digest, or context format — exactly the "correct the harness, then run this
+ * phase again" case the repair fuses name — so the allowance is bounded by
+ * deploy cadence and can never be minted by a user. Without it, steps a
+ * harness defect consumed would permanently starve the session's retry: one
+ * live session spent fifty steps in a since-fixed staging rut and then hit
+ * the ceiling twenty productive stages into its clean post-fix rebuild. */
+export const DESIGN_ROLLOVER_STEP_ALLOWANCE = 32;
+export const DESIGN_ROLLOVER_ALLOWANCE_CAP = 2;
+
+/** The session's step ceiling given its current context generation. */
+export function designLoopStepBudget(generation: number): number {
+	return (
+		DESIGN_LOOP_STEP_BUDGET +
+		Math.min(Math.max(generation, 0), DESIGN_ROLLOVER_ALLOWANCE_CAP) *
+			DESIGN_ROLLOVER_STEP_ALLOWANCE
+	);
+}
+
 /** Maximum finalization rejections of one submission kind. A third rejection
  * always stops the run. An exact repeat in the same validation stage stops
  * after two; reaching a later stage or changing the concrete diagnostics is

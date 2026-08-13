@@ -225,7 +225,11 @@ prompts.
 A real deployment change to the pinned model, prompt, tool digest, or context
 format creates a new context generation linked to the immutable prior one.
 Provider-call spend is session-wide across that immutable generation chain, so
-a contract rollover cannot reset the design budget. Server-only question-card
+a contract rollover never RESETS the design budget — but each rollover grants
+one bounded step allowance (`designLoopStepBudget`, capped at two rollovers):
+a rollover is by definition a real deployment change, which is exactly the
+corrected-harness retry the repair fuses direct users toward, and steps a
+since-fixed defect consumed must not starve that retry. Server-only question-card
 provenance also remains readable across the chain even though model messages
 reseed into the successor. That exceptional rollover reseeds from the complete
 browser transcript and durable workspace; it never mutates old messages or

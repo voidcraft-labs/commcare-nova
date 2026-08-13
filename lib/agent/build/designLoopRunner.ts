@@ -60,10 +60,10 @@ import {
 	unansweredRequiredDesignQuestions,
 } from "@/lib/agent/design/loop/designAgent";
 import {
-	DESIGN_LOOP_STEP_BUDGET,
 	type DesignGateState,
 	DesignRepairTracker,
 	type DesignSubmissionValidationStage,
+	designLoopStepBudget,
 	evaluateDesignGates,
 	loadDesignAncestry,
 } from "@/lib/agent/design/loop/gates";
@@ -625,6 +625,10 @@ export async function runDesignAgentLoop(
 					? "author"
 					: "awaiting-input";
 	let modelStepsSpent = 0;
+	/** The durable context's generation: each rollover (a real deployment
+	 * change) raises the step ceiling by the capped allowance, so steps a
+	 * since-fixed harness consumed cannot starve the corrected retry. */
+	let modelContextGeneration = 0;
 	/* One model-visible context for the whole design attempt. Durable phase
 	 * transitions append state and tool receipts to this sequence; they never
 	 * reconstruct a phase-local prompt. Provider compaction inside
@@ -681,6 +685,7 @@ export async function runDesignAgentLoop(
 		modelContextAppendKeys = new Set(persisted.appendKeys);
 		modelContextProtocolKeys = new Set(persisted.lineageAppendKeys);
 		modelStepsSpent = persisted.totalStartedStepCount;
+		modelContextGeneration = persisted.generation;
 		/* Re-register every usage-bearing response from this long-lived run in
 		 * the exact-once meter only. Recovered steps are historical evidence, not
 		 * fresh model activity, so they must never re-enter `onAgentStep` and emit
@@ -723,7 +728,7 @@ export async function runDesignAgentLoop(
 		const gates = evaluateDesignGates(await loadAncestry());
 		if (gates.plan !== null) break;
 		const phase = phaseFor(gates);
-		if (modelStepsSpent >= DESIGN_LOOP_STEP_BUDGET) break;
+		if (modelStepsSpent >= designLoopStepBudget(modelContextGeneration)) break;
 		const stepsBeforeStream = modelStepsSpent;
 		/* One provider invocation identity. A replacement process or bounded
 		 * stream redrive must never reuse the completed-event identity of a call
@@ -784,6 +789,7 @@ export async function runDesignAgentLoop(
 				modelContext = [...(modelContext ?? []), message];
 			},
 			stepsBeforeStream,
+			contextGeneration: modelContextGeneration,
 			onStepEnd: (step) => args.onAgentStep?.(step),
 			onStepPrepared: async (step) => {
 				if (modelContextId === null) {
@@ -1347,7 +1353,7 @@ export async function runDesignAgentLoop(
 			recoverable: true,
 		};
 	}
-	if (modelStepsSpent >= DESIGN_LOOP_STEP_BUDGET) {
+	if (modelStepsSpent >= designLoopStepBudget(modelContextGeneration)) {
 		return {
 			kind: "failed",
 			errorType: "design-step-budget",

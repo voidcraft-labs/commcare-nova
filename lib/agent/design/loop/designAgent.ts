@@ -30,7 +30,7 @@ import {
 	DESIGN_AUTHOR_REASONING,
 	reasoningProviderOptions,
 } from "@/lib/models";
-import { DESIGN_LOOP_STEP_BUDGET } from "./gates";
+import { designLoopStepBudget } from "./gates";
 import { DESIGN_STATE_MESSAGE_HEADING } from "./packageRender";
 import type { createDesignLoopTools } from "./tools";
 
@@ -77,6 +77,9 @@ export interface DesignAgentArgs {
 	 * runner snapshots one POST-wide counter so SDK stop evaluation cannot
 	 * double-count the completed steps already represented in this stream. */
 	readonly stepsBeforeStream: number;
+	/** The durable context's generation, which raises the step ceiling by the
+	 * capped per-rollover allowance (`designLoopStepBudget`). */
+	readonly contextGeneration: number;
 	readonly onStepPrepared?: (step: {
 		readonly stepNumber: number;
 		readonly requestDigest: string;
@@ -115,8 +118,12 @@ export interface DesignAgentStep {
 export function designStepBudgetReached(
 	stepsBeforeStream: number,
 	stepsInCurrentStream: number,
+	contextGeneration = 0,
 ): boolean {
-	return stepsBeforeStream + stepsInCurrentStream >= DESIGN_LOOP_STEP_BUDGET;
+	return (
+		stepsBeforeStream + stepsInCurrentStream >=
+		designLoopStepBudget(contextGeneration)
+	);
 }
 
 interface DesignStopStep {
@@ -502,7 +509,11 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			args.constraintsText,
 		].join("\n"),
 		stopWhen: ({ steps }) =>
-			designStepBudgetReached(args.stepsBeforeStream, steps.length) ||
+			designStepBudgetReached(
+				args.stepsBeforeStream,
+				steps.length,
+				args.contextGeneration,
+			) ||
 			(phaseTerminal !== null &&
 				designPhaseTerminalSucceeded(steps, phaseTerminal)),
 		/* Establishment-level provider retries, matching the SA's patience;

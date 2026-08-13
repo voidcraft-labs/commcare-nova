@@ -5,10 +5,14 @@ import type {
 	DesignRevisionRecord,
 } from "@/lib/agent/design/artifactStore";
 import {
+	DESIGN_LOOP_STEP_BUDGET,
+	DESIGN_ROLLOVER_ALLOWANCE_CAP,
+	DESIGN_ROLLOVER_STEP_ALLOWANCE,
 	DESIGN_SEQUENCE_ERROR_BUDGET,
 	DESIGN_STAGE_REPAIR_BUDGET,
 	type DesignAncestry,
 	DesignRepairTracker,
+	designLoopStepBudget,
 	evaluateDesignGates,
 } from "@/lib/agent/design/loop/gates";
 import { did, fixtureValue, makeContract } from "../../__tests__/fixtures";
@@ -163,6 +167,24 @@ describe("design phase gates", () => {
 				ancestry({ revisions: [accepted], plan, currentDigest: D2 }),
 			).plan,
 		).toBeNull();
+	});
+});
+
+describe("designLoopStepBudget", () => {
+	it("grants one bounded allowance per context-generation rollover", () => {
+		/* A rollover is a real deployment change — the corrected-harness retry
+		 * the repair fuses direct users toward — so steps a since-fixed defect
+		 * consumed cannot starve the retry, while the cap keeps the ceiling
+		 * bounded by deploy cadence, never by anything a user can mint. */
+		expect(designLoopStepBudget(0)).toBe(DESIGN_LOOP_STEP_BUDGET);
+		expect(designLoopStepBudget(1)).toBe(
+			DESIGN_LOOP_STEP_BUDGET + DESIGN_ROLLOVER_STEP_ALLOWANCE,
+		);
+		expect(designLoopStepBudget(DESIGN_ROLLOVER_ALLOWANCE_CAP + 5)).toBe(
+			DESIGN_LOOP_STEP_BUDGET +
+				DESIGN_ROLLOVER_ALLOWANCE_CAP * DESIGN_ROLLOVER_STEP_ALLOWANCE,
+		);
+		expect(designLoopStepBudget(-1)).toBe(DESIGN_LOOP_STEP_BUDGET);
 	});
 });
 
