@@ -2213,6 +2213,14 @@ export function ChatContainer({
 				status,
 			)
 		) {
+			/* The card promised a resume; a guard that has since gone stale
+			 * (hydration lost, scope changed, a run already claimed) must say
+			 * so rather than swallow the click. */
+			projectToast(
+				"error",
+				"Couldn't start the resume",
+				"Reload the page, then use Resume build again.",
+			);
 			return;
 		}
 		autoResendFatalStrikesRef.current = 0;
@@ -2221,7 +2229,14 @@ export function ChatContainer({
 		 * construction meaning. `redrive` asks the route to claim and resume that
 		 * exact frozen attempt without turning recovery into a design instruction. */
 		void sendMessage(undefined, { body: { redrive: true } });
-	}, [clearError, designProgressStore, scopeEpoch, sendMessage, status]);
+	}, [
+		clearError,
+		designProgressStore,
+		projectToast,
+		scopeEpoch,
+		sendMessage,
+		status,
+	]);
 
 	const handleToolOutput = useCallback(
 		(params: { tool: string; toolCallId: string; output: unknown }) => {
