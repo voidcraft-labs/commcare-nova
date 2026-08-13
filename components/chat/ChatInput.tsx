@@ -399,11 +399,17 @@ function ChatInputComposer({
 								)}
 							</TooltipContent>
 						</Tooltip>
+						{/* The send is the composer's primary action, so it wears the
+						 *  action keycap with a real label: an unlabeled arrow glyph
+						 *  read as decoration, not as the button that sends. */}
 						<PromptInputSubmit
 							disabled={disabled || overLimit || !hasText}
 							status={submitting ? "submitted" : "ready"}
-							className="size-11 rounded-xl"
-						/>
+							variant="default"
+							size="default"
+						>
+							Send
+						</PromptInputSubmit>
 					</div>
 				</PromptInputFooter>
 			</PromptInput>

@@ -1063,9 +1063,10 @@ export type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
 
 export const PromptInputSubmit = ({
 	className,
-	// Ghost (transparent), not the filled primary: Nova's send button is a violet
-	// glyph on transparent that lifts to the full text tier on hover. A filled
-	// violet button would wash the violet glyph out against its own background.
+	// Icon-only ghost by default: a violet glyph on transparent that lifts to
+	// the full text tier on hover. A caller after a real labeled send button
+	// passes `variant="default"` (the lilac action keycap) plus children: the
+	// label renders beside the status glyph and the keycap owns its own ink.
 	variant = "ghost",
 	size = "icon",
 	status,
@@ -1109,9 +1110,15 @@ export const PromptInputSubmit = ({
 
 	return (
 		<InputGroupButton
-			aria-label={isGenerating ? "Stop" : "Submit"}
+			// A label names the button itself; only the icon-only form needs an
+			// aria-label (and it must not override a visible label, per
+			// label-in-name).
+			aria-label={children ? undefined : isGenerating ? "Stop" : "Submit"}
 			className={cn(
-				"text-nova-violet-bright transition-colors not-disabled:hover:text-nova-text disabled:opacity-(--disabled-opacity)",
+				// The violet-glyph tier belongs to the ghost idiom only: a keycap
+				// variant carries its own ink and hover.
+				variant === "ghost" &&
+					"text-nova-violet-bright transition-colors not-disabled:hover:text-nova-text",
 				className,
 			)}
 			onClick={handleClick}
@@ -1120,7 +1127,8 @@ export const PromptInputSubmit = ({
 			variant={variant}
 			{...props}
 		>
-			{children ?? statusIcon}
+			{statusIcon}
+			{children}
 		</InputGroupButton>
 	);
 };
