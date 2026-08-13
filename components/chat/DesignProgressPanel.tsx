@@ -9,9 +9,11 @@
  *
  * Purely presentational — every value arrives already derived
  * (`lib/session/designProgressStore`), so nothing here decides what the build
- * is doing. Once the app materializes the detail region collapses to a brief
- * per-slice line (§15.7), while the live stage remains the one status directly
- * above the composer until the full build finishes.
+ * is doing. Once the app materializes the outline retires (the app tree shows
+ * the real structure) but the workflow progress card stays, compacting past
+ * five workflows to the one being built plus the next waiting with a counted
+ * byline; the live stage remains the one status directly above the composer
+ * until the full build finishes.
  */
 "use client";
 
@@ -43,10 +45,25 @@ export function DesignProgressStatus({ view }: DesignProgressPanelProps) {
 export function DesignProgressDetails({ view }: DesignProgressPanelProps) {
 	if (!view.active || view.stageLabel === null) return null;
 
-	/* Once the app exists the builder is mounted, so the transcript keeps only
-	 * one quiet sentence naming what landed. The live stage stays beside the
-	 * composer, where every other activity status lives. */
+	/* Once the app exists the builder is mounted and the outline's job is
+	 * done (the app tree now shows the real structure) — but the workflow
+	 * progress card STAYS: the first workflow's card must not be the only one
+	 * a user ever sees. Past five workflows it compacts to the one being
+	 * built plus the next few waiting, with the rest counted in a byline. A
+	 * legacy session with no published plan names keeps the brief per-slice
+	 * sentence. */
 	if (view.materialized) {
+		if (view.plannedSliceNames.length > 0) {
+			return (
+				<section
+					aria-label="Build progress"
+					data-design-progress-stage={view.stage ?? undefined}
+					className="flex flex-col gap-3"
+				>
+					<PlannedWorkflows view={view} />
+				</section>
+			);
+		}
 		const latest = view.committedSliceNames.at(-1);
 		if (!latest) return null;
 		return (
@@ -146,49 +163,102 @@ function StageLine({ view }: { readonly view: DesignProgressView }) {
 
 // ── Planned workflows ──────────────────────────────────────────────
 
+/** How many workflow rows the card shows before it compacts. */
+const WORKFLOW_ROWS_SHOWN = 5;
+
+/**
+ * The rows and byline the workflow card renders — a pure derivation so the
+ * compact rule is testable without mounting anything. Five or fewer planned
+ * workflows show in full, statuses and all. Past five, the card keeps the one
+ * being built at the top plus the next waiting ones up to five rows, and the
+ * byline counts what the list no longer shows ("3 pending · 4 completed").
+ */
+export function planWorkflowRows(view: {
+	readonly plannedSliceNames: readonly string[];
+	readonly currentSliceName: string | null;
+	readonly committedSliceNames: readonly string[];
+}): {
+	rows: readonly { name: string; status: "built" | "building" | "waiting" }[];
+	byline: string | null;
+} {
+	const committed = new Set(view.committedSliceNames);
+	const status = (name: string): "built" | "building" | "waiting" =>
+		committed.has(name)
+			? "built"
+			: view.currentSliceName === name
+				? "building"
+				: "waiting";
+	const all = view.plannedSliceNames.map((name) => ({
+		name,
+		status: status(name),
+	}));
+	if (all.length <= WORKFLOW_ROWS_SHOWN) {
+		return { rows: all, byline: null };
+	}
+	const building = all.filter((row) => row.status === "building");
+	const waiting = all.filter((row) => row.status === "waiting");
+	const rows = [
+		...building,
+		...waiting.slice(0, WORKFLOW_ROWS_SHOWN - building.length),
+	];
+	const hiddenPending = waiting.length - (rows.length - building.length);
+	const completedCount = all.length - building.length - waiting.length;
+	const parts: string[] = [];
+	if (hiddenPending > 0) {
+		parts.push(`${hiddenPending} pending`);
+	}
+	if (completedCount > 0) {
+		parts.push(`${completedCount} completed`);
+	}
+	return { rows, byline: parts.length > 0 ? parts.join(" · ") : null };
+}
+
 function PlannedWorkflows({ view }: { readonly view: DesignProgressView }) {
 	if (view.plannedSliceNames.length === 0) return null;
 	/* The plan summary publishes slice NAMES only (no ids — §15.3 keeps
 	 * implementation identifiers off this surface), so the join with what has
 	 * committed is by name. The count beside the stage line is the
 	 * authoritative figure; these marks are the readable version of it. */
-	const committed = new Set(view.committedSliceNames);
+	const { rows, byline } = planWorkflowRows(view);
 	return (
 		<div className="rounded-lg border border-nova-border bg-white/[0.02] p-3">
 			<h2 className="text-xs font-medium uppercase tracking-wide text-nova-text-muted">
 				Planned workflows
 			</h2>
 			<ol className="mt-2 flex flex-col gap-1.5">
-				{view.plannedSliceNames.map((name) => {
-					const done = committed.has(name);
-					const current = view.currentSliceName === name && !done;
-					return (
-						<li
-							key={name}
-							className="flex items-start gap-2 text-xs leading-5 text-nova-text-secondary"
-						>
-							<Icon
-								icon={done ? tablerCircleCheck : tablerPointFilled}
-								aria-hidden="true"
-								className={`mt-0.5 size-3.5 shrink-0 ${
-									done
-										? "text-nova-emerald"
-										: current
-											? "text-nova-violet-bright"
-											: "text-nova-text-muted"
-								}`}
-							/>
-							<span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-								{name}
-							</span>
-							{/* Text, never color alone. */}
-							<span className="shrink-0 text-nova-text-muted">
-								{done ? "Built" : current ? "Building" : "Waiting"}
-							</span>
-						</li>
-					);
-				})}
+				{rows.map(({ name, status }) => (
+					<li
+						key={name}
+						className="flex items-start gap-2 text-xs leading-5 text-nova-text-secondary"
+					>
+						<Icon
+							icon={status === "built" ? tablerCircleCheck : tablerPointFilled}
+							aria-hidden="true"
+							className={`mt-0.5 size-3.5 shrink-0 ${
+								status === "built"
+									? "text-nova-emerald"
+									: status === "building"
+										? "text-nova-violet-bright"
+										: "text-nova-text-muted"
+							}`}
+						/>
+						<span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+							{name}
+						</span>
+						{/* Text, never color alone. */}
+						<span className="shrink-0 text-nova-text-muted">
+							{status === "built"
+								? "Built"
+								: status === "building"
+									? "Building"
+									: "Waiting"}
+						</span>
+					</li>
+				))}
 			</ol>
+			{byline && (
+				<p className="mt-2 text-xs leading-5 text-nova-text-muted">{byline}</p>
+			)}
 		</div>
 	);
 }
