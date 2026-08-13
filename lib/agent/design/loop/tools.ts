@@ -782,7 +782,7 @@ export function designCreationIdentityIssue(
 export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 	const stageContract = {
 		description:
-			"Stage a bounded part of the Design Contract. Give every new design element a readable handle such as {handle:'@register_client'} and reuse that handle for references; the server mints its stable identity. Set root fields and/or upsert or remove complete collection items. A new workspace starts at revision 0; use the returned revision for the next stage. Keep each call within 32 item changes and 48 KiB.",
+			"Stage a bounded part of the Design Contract. Give every new design element a readable handle such as {handle:'@register_client'} and reuse that handle for references; the server mints its stable identity. A part may reference a handle only after (or in the same call as) the item that declares it, so stage a new element's own item before staging the root or any part that references it. Set root fields and/or upsert or remove complete collection items. A new workspace starts at revision 0; use the returned revision for the next stage. Keep each call within 32 item changes and 48 KiB.",
 		inputSchema: strictWireWithHandles(stageContractInputSchema),
 		strict: true,
 		execute: async (
@@ -898,7 +898,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 
 	const stageRevision = {
 		description:
-			"Stage a bounded part of the reviewed revision. Reuse the stable identities in the exact state packet for existing elements and give any new element a readable handle such as {handle:'@follow_up'}; the server mints its stable identity. Upsert or remove complete items and blocking finding dispositions — a disposition's findingId is the finding's printed handle, for example {handle:'@f1'}. Unchanged parent content stays in place. Use the returned workspace revision for the next stage.",
+			"Stage a bounded part of the reviewed revision. Reuse the stable identities in the exact state packet for existing elements and give any new element a readable handle such as {handle:'@follow_up'}; the server mints its stable identity. A part may reference a handle only after (or in the same call as) the item that declares it, so stage a NEW element's own item before re-staging the root or any part that references it. Upsert or remove complete items and blocking finding dispositions — a disposition's findingId is the finding's printed handle, for example {handle:'@f1'}. Unchanged parent content stays in place. Use the returned workspace revision for the next stage.",
 		inputSchema: strictWireWithHandles(stageRevisionInputSchema),
 		strict: true,
 		execute: async (
