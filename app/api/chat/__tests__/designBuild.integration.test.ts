@@ -457,6 +457,38 @@ describe("design-session build turns", () => {
 		]);
 	}, 30_000);
 
+	it("a pre-app orchestration throw refunds the session hold and signals the refund", async () => {
+		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			args.writer.write({ type: "start", messageId: args.responseMessageId });
+			throw new Error("orchestration infrastructure fault");
+		});
+
+		const response = await POST(buildRequest());
+		expect(response.status).toBe(200);
+		const wire = await response.text();
+		const chunks = wireChunks(wire);
+
+		/* Same settle + refund as the typed failed outcome — and the same
+		 * on-wire reassurance. The throw arm used to refund server-side but
+		 * never emit `data-credit-refund`, so the person saw only the error
+		 * and reasonably believed they paid for the turn that threw. */
+		const session = await sessionRow();
+		expect(session.state).toBe("active");
+		expect(session.run_id).toBeNull();
+		expect(session.res_settled).toBeNull();
+		expect(session.res_reserved).toBeNull();
+		const credit = await appDb
+			.selectFrom("credit_months")
+			.select("consumed")
+			.where("user_id", "=", USER)
+			.executeTakeFirstOrThrow();
+		expect(credit.consumed).toBe(0);
+		expect(
+			chunks.find((c) => c.type === "data-credit-refund")?.data,
+		).toMatchObject({ amount: CREDITS_PER_BUILD });
+		expect(wire).toContain('"type":"internal"');
+	}, 30_000);
+
 	it("a completed build lands data-app-materialized before data-done and settles under the transferred holder", async () => {
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
 			args.writer.write({ type: "start", messageId: args.responseMessageId });

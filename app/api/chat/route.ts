@@ -2528,19 +2528,31 @@ export async function POST(req: Request) {
 							});
 						} else {
 							usage.markRunFailed();
+							let refunded = false;
 							try {
-								await failAndRefundDesignSessionRun(
+								({ settled: refunded } = await failAndRefundDesignSessionRun(
 									design.designSessionId,
 									effectiveRunId,
 									holderNonce,
 									classifyError(error).type,
-								);
+								));
 							} catch (err) {
 								log.error("[chat] design-session throw settle failed", err, {
 									designSessionId: design.designSessionId,
 								});
 							}
 							ctx.emitError(classifyError(error), "route:design-build-throw");
+							/* Same reassurance as the failed-outcome arm: the refund is
+							 * already durable server-side, so tell the person they were
+							 * not charged for the turn that threw. */
+							if (chargeable && refunded && !refundSignalled) {
+								refundSignalled = true;
+								writer.write({
+									type: "data-credit-refund",
+									data: { amount: cost, userId },
+									transient: true,
+								});
+							}
 							await finalizeRun(undefined, { heldApp: false });
 						}
 					} finally {
