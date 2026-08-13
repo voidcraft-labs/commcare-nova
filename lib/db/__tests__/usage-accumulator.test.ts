@@ -13,14 +13,26 @@ import { describe, expect, it, vi } from "vitest";
 // inside the factory must be hoisted too — vi.hoisted lifts a block of setup
 // alongside the mock calls. Without this, the mock factory runs before the
 // top-level `const` bindings exist and throws a ReferenceError on load.
-const { writeRunSummaryMock, refundReservationMock } = vi.hoisted(() => ({
-	writeRunSummaryMock: vi.fn(),
-	refundReservationMock: vi.fn(),
-}));
+const { writeRunSummaryMock, refundReservationMock, accrueMonthlyUsageMock } =
+	vi.hoisted(() => ({
+		writeRunSummaryMock: vi.fn(),
+		refundReservationMock: vi.fn(),
+		accrueMonthlyUsageMock: vi.fn(
+			async (
+				_billing: { userId: string; period: string },
+				_totals: {
+					inputTokens: number;
+					outputTokens: number;
+					costEstimate: number;
+				},
+			) => true,
+		),
+	}));
 
 // Run summary writer is fire-and-forget in prod — mock it outright so
 // the idempotence + zero-cost tests can count invocations.
 vi.mock("../runSummary", () => ({
+	accrueMonthlyUsageBestEffort: accrueMonthlyUsageMock,
 	writeRunSummaryWithDurableContributions: async (
 		...args: [
 			unknown,
@@ -555,6 +567,96 @@ describe("UsageAccumulator", () => {
 				HOLDER_NONCE,
 				"build",
 			);
+		});
+	});
+
+	// ── Monthly accrual fallback on a failed summary transaction ────
+	//
+	// The summary transaction carries the monthly dollar accrual, and flush()
+	// runs exactly once — so a failed transaction would silently drop the
+	// backstop's view of real spend. The fallback re-accrues only the
+	// PROCESS-LOCAL portion: durable contributions rolled their admission
+	// accounts back with the failed transaction and remain claimable by a
+	// later finalizer, so accruing them here would double-count.
+	describe("monthly accrual fallback", () => {
+		const seed = {
+			target: { kind: "app" as const, appId: "a" },
+			userId: "u",
+			runId: "r",
+			holderNonce: HOLDER_NONCE,
+			model: "gpt-5.6-sol",
+			promptMode: "build" as const,
+			appReady: false,
+			moduleCount: 0,
+		};
+
+		it("re-accrues the process-local spend when the summary transaction fails", async () => {
+			writeRunSummaryMock.mockReset();
+			writeRunSummaryMock.mockResolvedValue("failed");
+			accrueMonthlyUsageMock.mockClear();
+			const acc = new UsageAccumulator(seed);
+			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
+			await acc.flush();
+
+			expect(accrueMonthlyUsageMock).toHaveBeenCalledTimes(1);
+			const call = accrueMonthlyUsageMock.mock.calls[0];
+			if (call === undefined) throw new Error("accrual call not recorded");
+			const [billing, totals] = call;
+			expect(billing).toMatchObject({ userId: "u" });
+			expect(totals.inputTokens).toBe(1000);
+			expect(totals.outputTokens).toBe(500);
+			expect(totals.costEstimate).toBeCloseTo(
+				estimateCost("gpt-5.6-sol", 1000, 500),
+				10,
+			);
+			expect(log.info).toHaveBeenCalledWith(
+				"[run-finalize]",
+				expect.objectContaining({
+					summaryAction: "failed",
+					accountingFailed: true,
+					accruedCost: true,
+				}),
+			);
+		});
+
+		it("reports the accrual lost when the fallback also fails", async () => {
+			writeRunSummaryMock.mockReset();
+			writeRunSummaryMock.mockResolvedValue("failed");
+			accrueMonthlyUsageMock.mockClear();
+			accrueMonthlyUsageMock.mockResolvedValueOnce(false);
+			const acc = new UsageAccumulator(seed);
+			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
+			await acc.flush();
+
+			expect(log.info).toHaveBeenCalledWith(
+				"[run-finalize]",
+				expect.objectContaining({ accruedCost: false }),
+			);
+		});
+
+		it("leaves durable-only spend to a later finalizer's exact-once admission", async () => {
+			writeRunSummaryMock.mockReset();
+			writeRunSummaryMock.mockResolvedValue("failed");
+			accrueMonthlyUsageMock.mockClear();
+			const acc = new UsageAccumulator(seed);
+			acc.trackDurable(
+				{ contextId: "context-1", stepKey: "step-1" },
+				{ inputTokens: 1000, outputTokens: 500 },
+				{ step: true, phase: "design-author" },
+			);
+			await acc.flush();
+
+			expect(accrueMonthlyUsageMock).not.toHaveBeenCalled();
+		});
+
+		it("never fires on a healthy summary write", async () => {
+			writeRunSummaryMock.mockReset();
+			accrueMonthlyUsageMock.mockClear();
+			const acc = new UsageAccumulator(seed);
+			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
+			await acc.flush();
+
+			expect(accrueMonthlyUsageMock).not.toHaveBeenCalled();
 		});
 	});
 

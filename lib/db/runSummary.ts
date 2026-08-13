@@ -67,6 +67,71 @@ export interface RunSummaryBillingTarget {
 	readonly period: string;
 }
 
+/** The slice of a summary the monthly dollar ledger accrues. */
+export interface MonthlyUsageTotals {
+	readonly inputTokens: number;
+	readonly outputTokens: number;
+	readonly costEstimate: number;
+}
+
+/** The one `usage_months` UPSERT — shared by the summary transaction and the
+ * standalone fallback so the two accrual paths cannot drift. */
+function insertMonthlyUsage(
+	db: Pick<Kysely<AppDatabase>, "insertInto">,
+	billing: RunSummaryBillingTarget,
+	totals: MonthlyUsageTotals,
+) {
+	return db
+		.insertInto("usage_months")
+		.values({
+			user_id: billing.userId,
+			period: billing.period,
+			input_tokens: totals.inputTokens,
+			output_tokens: totals.outputTokens,
+			cost_estimate: totals.costEstimate,
+			request_count: 1,
+			updated_at: new Date(),
+		})
+		.onConflict((conflict) =>
+			conflict.columns(["user_id", "period"]).doUpdateSet({
+				input_tokens: sql<number>`usage_months.input_tokens + excluded.input_tokens`,
+				output_tokens: sql<number>`usage_months.output_tokens + excluded.output_tokens`,
+				cost_estimate: sql<number>`usage_months.cost_estimate + excluded.cost_estimate`,
+				request_count: sql<number>`usage_months.request_count + 1`,
+				updated_at: new Date(),
+			}),
+		)
+		.execute();
+}
+
+/**
+ * Best-effort monthly accrual OUTSIDE the summary transaction — the fallback
+ * for a failed `writeRunSummaryWithDurableContributions`. The monthly dollar
+ * backstop must always see real spend (retry spam included), so the caller
+ * re-accrues the run's PROCESS-LOCAL portion here when the transaction
+ * failed: that portion is never re-offered by recovery, while the failed
+ * transaction's durable contributions rolled their admission accounts back
+ * and remain claimable by a later finalizer — accruing them here would
+ * double-count that later admission. Returns whether the accrual committed;
+ * errors log and return false so finalization never blocks on it.
+ */
+export async function accrueMonthlyUsageBestEffort(
+	billing: RunSummaryBillingTarget,
+	totals: MonthlyUsageTotals,
+): Promise<boolean> {
+	try {
+		const db = await getAppDb();
+		await insertMonthlyUsage(db, billing, totals);
+		return true;
+	} catch (err) {
+		log.error("[accrueMonthlyUsage] monthly accrual fallback failed", err, {
+			userId: billing.userId,
+			period: billing.period,
+		});
+		return false;
+	}
+}
+
 function withContributions(
 	summary: RunSummaryDoc,
 	contributions: readonly DurableRunSummaryContribution[],
@@ -135,27 +200,7 @@ async function writeRunSummaryInternal(
 			const monthlyUsageAccrued =
 				billing !== undefined && admittedSummary.costEstimate > 0;
 			if (monthlyUsageAccrued) {
-				await tx
-					.insertInto("usage_months")
-					.values({
-						user_id: billing.userId,
-						period: billing.period,
-						input_tokens: admittedSummary.inputTokens,
-						output_tokens: admittedSummary.outputTokens,
-						cost_estimate: admittedSummary.costEstimate,
-						request_count: 1,
-						updated_at: new Date(),
-					})
-					.onConflict((conflict) =>
-						conflict.columns(["user_id", "period"]).doUpdateSet({
-							input_tokens: sql<number>`usage_months.input_tokens + excluded.input_tokens`,
-							output_tokens: sql<number>`usage_months.output_tokens + excluded.output_tokens`,
-							cost_estimate: sql<number>`usage_months.cost_estimate + excluded.cost_estimate`,
-							request_count: sql<number>`usage_months.request_count + 1`,
-							updated_at: new Date(),
-						}),
-					)
-					.execute();
+				await insertMonthlyUsage(tx, billing, admittedSummary);
 			}
 
 			if (!existing) {

@@ -354,6 +354,57 @@ describe("writeRunSummary", () => {
 		});
 	});
 
+	it("accrues monthly usage independently of the summary transaction", async () => {
+		// The fallback for a failed summary write: same UPSERT, no summary row.
+		const { accrueMonthlyUsageBestEffort } = await import("../runSummary");
+		const billing = { userId: "owner-test", period: "2026-04" };
+		const totals = { inputTokens: 40, outputTokens: 10, costEstimate: 0.002 };
+		await expect(accrueMonthlyUsageBestEffort(billing, totals)).resolves.toBe(
+			true,
+		);
+		await expect(accrueMonthlyUsageBestEffort(billing, totals)).resolves.toBe(
+			true,
+		);
+		expect(
+			await h
+				.db()
+				.selectFrom("usage_months")
+				.select([
+					"input_tokens",
+					"output_tokens",
+					"cost_estimate",
+					"request_count",
+				])
+				.where("user_id", "=", "owner-test")
+				.where("period", "=", "2026-04")
+				.executeTakeFirst(),
+		).toMatchObject({
+			input_tokens: "80",
+			output_tokens: "20",
+			cost_estimate: 0.004,
+			request_count: 2,
+		});
+	});
+
+	it("the accrual fallback returns false instead of throwing on a dead pool", async () => {
+		const deadPool = new Pool({ connectionString: h.uri(), max: 1 });
+		await deadPool.end();
+		__setAppDbForTests(
+			new Kysely<AppDatabase>({
+				dialect: new PostgresDialect({
+					pool: deadPool as unknown as PostgresPool,
+				}),
+			}),
+		);
+		const { accrueMonthlyUsageBestEffort } = await import("../runSummary");
+		await expect(
+			accrueMonthlyUsageBestEffort(
+				{ userId: "owner-test", period: "2026-04" },
+				{ inputTokens: 1, outputTokens: 1, costEstimate: 0.001 },
+			),
+		).resolves.toBe(false);
+	});
+
 	it("swallows a write failure and resolves to the 'failed' action (never throws on the request path)", async () => {
 		// Point the injected handle at a DEAD pool so the write errors — the writer
 		// must log-and-swallow to the `"failed"` sentinel, never bubble.

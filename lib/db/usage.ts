@@ -26,6 +26,7 @@ import type { GenerationTarget } from "./generationTargets";
 import { getCurrentPeriod } from "./period";
 import { getAppDb } from "./pg";
 import {
+	accrueMonthlyUsageBestEffort,
 	type DurableRunSummaryContribution,
 	writeRunSummaryWithDurableContributions,
 } from "./runSummary";
@@ -520,16 +521,29 @@ export class UsageAccumulator {
 		 * errors, so we don't wrap in try/catch here. The returned action
 		 * (created / incremented / overwritten / failed) feeds the finalize
 		 * log below — an `overwritten` is a silent clobber worth seeing. */
+		const billing = { userId: this.seed.userId, period: getCurrentPeriod() };
 		const summaryWrite = await writeRunSummaryWithDurableContributions(
 			this.seed.target,
 			this.seed.runId,
 			baseSummary,
 			durableContributions,
-			{
-				userId: this.seed.userId,
-				period: getCurrentPeriod(),
-			},
+			billing,
 		);
+		/* The summary transaction carries the monthly accrual, and this flush
+		 * runs exactly once — so a failed transaction would silently drop the
+		 * dollar backstop's view of real spend (the cap must see retry spam).
+		 * Re-accrue the PROCESS-LOCAL portion independently: it is never
+		 * re-offered by recovery, while the failed transaction's durable
+		 * contributions rolled their admission accounts back and remain
+		 * claimable by a later finalizer, so accruing them here would
+		 * double-count. */
+		let monthlyUsageAccrued = summaryWrite.monthlyUsageAccrued;
+		if (summaryWrite.action === "failed" && baseSummary.costEstimate > 0) {
+			monthlyUsageAccrued = await accrueMonthlyUsageBestEffort(
+				billing,
+				baseSummary,
+			);
+		}
 		const summary = { ...baseSummary };
 		for (const contribution of summaryWrite.admittedContributions) {
 			summary.stepCount += contribution.stepCount;
@@ -637,7 +651,7 @@ export class UsageAccumulator {
 			refunded: refundReason !== null && !this._refundFailed,
 			refundReason,
 			refundFailed: this._refundFailed,
-			accruedCost: summaryWrite.monthlyUsageAccrued,
+			accruedCost: monthlyUsageAccrued,
 			accountingFailed: summaryAction === "failed",
 			sentMessageCount: this.seed.sentMessageCount,
 			sentMessageChars: this.seed.sentMessageChars,
