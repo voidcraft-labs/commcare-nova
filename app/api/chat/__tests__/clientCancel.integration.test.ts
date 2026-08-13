@@ -1711,7 +1711,12 @@ describe("barrier persistence", () => {
 	async function threadRowMaybe(threadId: string) {
 		const row = await appDb
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id", "active_holder_nonce"])
+			.select([
+				"messages",
+				"active_stream_id",
+				"active_holder_nonce",
+				"clawed_back_ids",
+			])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirst();
 		if (!row) return undefined;
@@ -1803,7 +1808,7 @@ describe("barrier persistence", () => {
 		await wirePromise;
 	}, 30_000);
 
-	it("claws a failed turn back to its pre-run state: the barrier-persisted partial is removed with the marker", async () => {
+	it("claws a failed turn back keeping its partial for display, with the marker cleared and the id tombstoned", async () => {
 		await seedFeedEditApp();
 		const feed = new ChunkFeed();
 		createSolutionsArchitectMock.mockReturnValue({
@@ -1832,10 +1837,10 @@ describe("barrier persistence", () => {
 		});
 
 		/* ...then the generation dies with a FATAL stream error (classified
-		 * non-transient, so no in-route retry). The failure funnel must revert
-		 * the turn: a partial serves nobody, so the record returns to its
-		 * pre-run state — the user's message alone — with the marker cleared
-		 * in the same write. */
+		 * non-transient, so no in-route retry). The failure funnel's terminal
+		 * write clears the marker and tombstones the id, but the streamed
+		 * partial STAYS in the transcript: the tab that watched it fail still
+		 * shows it, and a reload must not show less than the live view did. */
 		feed.push(
 			{ type: "error", errorText: "model exploded" } as UIMessageChunk,
 			{
@@ -1853,7 +1858,19 @@ describe("barrier persistence", () => {
 
 		const thread = await threadRowMaybe(THREAD);
 		expect(thread?.active_stream_id).toBeNull();
-		expect(thread?.messages.map((m) => m.role)).toEqual(["user"]);
+		expect(thread?.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+		const kept = thread?.messages.at(-1) as
+			| { id?: string; parts: Array<{ type: string; text?: string }> }
+			| undefined;
+		expect(
+			kept?.parts
+				.filter((p) => p.type === "text")
+				.map((p) => p.text)
+				.join(""),
+		).toBe("Half an answer");
+		/* The cap-0 tombstone refuses every client copy of the kept id, so a
+		 * stale tab can never grow the stored record of the failed turn. */
+		expect(thread?.clawed_back_ids).toEqual([{ id: kept?.id, cap: 0 }]);
 		expect(thread?.active_holder_nonce).toBeNull();
 
 		/* A failed EDIT releases its lock and refunds without touching the
