@@ -322,10 +322,14 @@ export type PromptInputProps = Omit<
 		code: "max_files" | "max_file_size" | "accept" | "duplicate";
 		message: string;
 	}) => void;
+	/** Return `false` (sync or resolved) to signal the send was refused: the
+	 *  typed draft and staged attachments are kept instead of cleared, so a
+	 *  submit the handler rejected (wrong scope, empty text) leaves the
+	 *  composer exactly as the user had it. */
 	onSubmit: (
 		message: PromptInputMessage,
 		event: FormEvent<HTMLFormElement>,
-	) => void | Promise<void>;
+	) => void | boolean | Promise<void> | Promise<boolean>;
 };
 
 export const PromptInput = ({
@@ -757,19 +761,10 @@ export const PromptInput = ({
 
 				const result = onSubmit({ files: convertedFiles, text }, event);
 
-				// Handle both sync and async onSubmit
-				if (result instanceof Promise) {
-					try {
-						await result;
-						clear();
-						if (usingProvider) {
-							controller.textInput.clear();
-						}
-					} catch {
-						// Don't clear on error - user may want to retry
-					}
-				} else {
-					// Sync function completed without throwing, clear inputs
+				// Handle both sync and async onSubmit; a `false` outcome means the
+				// handler refused the send, so the draft stays put.
+				const outcome = result instanceof Promise ? await result : result;
+				if (outcome !== false) {
 					clear();
 					if (usingProvider) {
 						controller.textInput.clear();
@@ -938,9 +933,26 @@ export const PromptInputTextarea = ({
 			}
 
 			if (files.length > 0) {
-				// Pasted-file staging is disabled (see the drop handlers): swallow the
-				// paste so a file never becomes an in-browser blob attachment.
+				// Pasted-file staging is disabled (see the drop handlers): block the
+				// default paste so a file never becomes an in-browser blob attachment.
+				// The clipboard's text flavor still belongs in the box, though: a copy
+				// from a spreadsheet or a document commonly carries an image alongside
+				// its text, and swallowing the whole paste would drop the text the
+				// user meant to paste. Insert it at the caret and fire a native input
+				// event so React's onChange path (and the controlled value) see it.
 				event.preventDefault();
+				const text = event.clipboardData.getData("text/plain");
+				if (!text) {
+					return;
+				}
+				const el = event.currentTarget;
+				el.setRangeText(
+					text,
+					el.selectionStart ?? el.value.length,
+					el.selectionEnd ?? el.value.length,
+					"end",
+				);
+				el.dispatchEvent(new Event("input", { bubbles: true }));
 			}
 		},
 		[],
@@ -1064,9 +1076,9 @@ export const PromptInputSubmit = ({
 }: PromptInputSubmitProps) => {
 	const isGenerating = status === "submitted" || status === "streaming";
 
-	// Default glyph is the violet send arrow (Nova's ChatInput idiom). While a
-	// request is in flight the button flips to a spinner, then a stop square once
-	// tokens stream; an errored turn shows the dismiss glyph.
+	// Default glyph is the send arrow. While a request is in flight the button
+	// flips to a spinner, then a stop square once tokens stream; an errored
+	// turn shows the dismiss glyph.
 	let statusIcon = <Icon icon={tablerArrowUp} className="size-4" />;
 
 	if (status === "submitted") {

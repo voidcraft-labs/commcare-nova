@@ -7,9 +7,11 @@ import {
 	PromptInputBody,
 	PromptInputFooter,
 	type PromptInputMessage,
+	PromptInputProvider,
 	PromptInputSubmit,
 	PromptInputTextarea,
 	PromptInputTools,
+	usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import {
 	AssetPreviewDialog,
@@ -111,15 +113,26 @@ interface ChatInputProps {
 }
 
 /**
- * The chat composer, built on AI Elements `PromptInput`. PromptInput owns its own
- * text state and resets on submit; THIS component owns the staged attachments:
- * assets the user picks from the media library (file manager), not files staged
- * in the browser. The "+" opens the picker; picked assets show as chips above the
- * textarea and ride the next send as id refs. There is no raw-file path: every
- * attachment is a stored asset Nova reads via its extract (or, for images, its
- * bytes).
+ * The chat composer, built on AI Elements `PromptInput`. The typed draft lives
+ * in `PromptInputProvider` so the textarea is controlled: the send gate and the
+ * character counter derive from the same value the box displays, and no event
+ * bookkeeping can let the two disagree (paste, drop, undo, any path that puts
+ * text in the box enables the send). THIS component owns the staged
+ * attachments: assets the user picks from the media library (file manager),
+ * not files staged in the browser. The "+" opens the picker; picked assets
+ * show as chips above the textarea and ride the next send as id refs. There is
+ * no raw-file path: every attachment is a stored asset Nova reads via its
+ * extract (or, for images, its bytes).
  */
-export function ChatInput({
+export function ChatInput(props: ChatInputProps) {
+	return (
+		<PromptInputProvider>
+			<ChatInputComposer {...props} />
+		</PromptInputProvider>
+	);
+}
+
+function ChatInputComposer({
 	onSend,
 	disabled,
 	submitting,
@@ -137,12 +150,12 @@ export function ChatInput({
 	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
 		null,
 	);
-	/** Live shadow of the typed text: PromptInput owns the textarea value; we
-	 *  mirror only what the footer needs: its length (counter + over-limit gate)
-	 *  and whether it holds any non-whitespace (`hasText`, the require-text send
-	 *  gate, so a staged attachment alone can't send an empty turn). */
-	const [textLength, setTextLength] = useState(0);
-	const [hasText, setHasText] = useState(false);
+	/** The one source of truth for the typed draft: the provider's controlled
+	 *  value. Everything the footer needs is a pure derivation of it, so the
+	 *  send gate is "is there content to send", never "did an event fire". */
+	const { textInput } = usePromptInputController();
+	const textLength = textInput.value.length;
+	const hasText = textInput.value.trim().length > 0;
 	const overLimit = textLength > MAX_CHAT_MESSAGE_CHARS;
 	const accessPhase = useAccessPhase();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -157,7 +170,7 @@ export function ChatInput({
 	useEffect(() => {
 		if (previousScopeEpochRef.current === scopeEpoch) return;
 		previousScopeEpochRef.current = scopeEpoch;
-		/* PromptInput owns the typed draft and remains mounted. Only stored
+		/* The provider owns the typed draft and remains mounted. Only stored
 		 * Project asset handles and their portaled surfaces are discarded. */
 		setPicked([]);
 		setPickerOpen(false);
@@ -260,23 +273,18 @@ export function ChatInput({
 		}
 	};
 
-	const handleSubmit = (message: PromptInputMessage) => {
+	const handleSubmit = (message: PromptInputMessage): boolean | undefined => {
 		/* PromptInput can dispatch a queued submit in the synchronous reset stack,
 		 * before React supplies new access props. The registry advances this ref
-		 * immediately; refuse before clearing the text shadow so the draft remains. */
-		if (!ownsCurrentProjectScope() || disabled) return;
-		// PromptInput resets the textarea on every submit it processes; mirror that
-		// in the text shadow (form.reset() doesn't fire onChange). (Over-limit
-		// submits never reach here: they're blocked at the keydown + the disabled
-		// button, so their text isn't reset.)
-		setTextLength(0);
-		setHasText(false);
+		 * immediately; returning false keeps the draft in the box for the send
+		 * the user will retry once the surface settles. */
+		if (!ownsCurrentProjectScope() || disabled) return false;
 		const text = (message.text ?? "").trim();
 		// Require typed text to send: a staged attachment alone never sends an
 		// empty turn (the SA reads an attachment as context for a request, not as
 		// the request itself). The disabled submit button covers the click path;
 		// this guards every other submit route.
-		if (!text) return;
+		if (!text) return false;
 		if (answerPending) {
 			// This send answers a waiting question card (text-only). Forward the
 			// text and KEEP the staged attachments: they're not part of an answer,
@@ -289,7 +297,8 @@ export function ChatInput({
 			text,
 			attachments: attachments.length > 0 ? attachments : undefined,
 		});
-		// PromptInput clears its own text; we clear the staged attachments.
+		// PromptInput clears the draft after we return; we clear the staged
+		// attachments.
 		setPicked([]);
 	};
 
@@ -326,11 +335,6 @@ export function ChatInput({
 				<PromptInputBody>
 					<PromptInputTextarea
 						disabled={disabled}
-						onChange={(e) => {
-							const { value } = e.target;
-							setTextLength(value.length);
-							setHasText(value.trim().length > 0);
-						}}
 						onKeyDown={handleTextareaKeyDown}
 						/* The opening prompt sits directly under a heading that
 						 * already asks what you would like to build, so this names

@@ -29,6 +29,12 @@ vi.mock("@/components/ai-elements/prompt-input", () => ({
 		children,
 		...props
 	}: FormHTMLAttributes<HTMLFormElement>) => <form {...props}>{children}</form>,
+	PromptInputProvider: ({ children }: { children: ReactNode }) => (
+		<>{children}</>
+	),
+	usePromptInputController: () => ({
+		textInput: { value: "", setInput: () => {}, clear: () => {} },
+	}),
 	PromptInputBody: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
