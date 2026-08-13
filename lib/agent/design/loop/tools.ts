@@ -17,6 +17,7 @@ import {
 	CONTRACT_COLLECTIONS,
 	type DesignArtifactKind,
 	type DesignArtifactWorkspaceLineage,
+	type DesignArtifactWorkspaceOperation,
 	designWorkspaceBoundError,
 	finalizeDesignWorkspaceInputSchema,
 	inspectDesignWorkspaceCandidate,
@@ -35,6 +36,7 @@ import {
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { DESIGN_EFFORT_TIME_ESTIMATES } from "@/lib/agent/design/complexity";
 import {
+	type AppDesignContract,
 	appDesignContractSchema,
 	type DesignConstructionIssue,
 	designConstructionIssues,
@@ -650,6 +652,188 @@ function rejectedStage<T extends ToolError>(
 	return result;
 }
 
+/** The stage tools' shared raw-input admission cascade, in production order:
+ * creation-identity handles, reserved `@f` handles, reserved references. ONE
+ * spelling so the two stage tools cannot drift on codes or order. */
+function stagedInputAdmissionRejection(
+	deps: DesignLoopToolDeps,
+	toolName: DesignStageToolName,
+	stagedInput: unknown,
+	workspace: {
+		readonly candidate: Record<string, unknown>;
+		readonly sourceContract: Record<string, unknown> | null;
+	},
+) {
+	const identityIssue = designCreationIdentityIssue(
+		stagedInput,
+		workspace.candidate,
+		workspace.sourceContract,
+	);
+	if (identityIssue !== null) {
+		return rejectedStage(deps, toolName, {
+			error: identityIssue,
+			diagnostic: {
+				code: "design-creation-handle-required",
+				validationStage: "partial" as const,
+				issueCount: 1,
+			},
+		});
+	}
+	const reservedIssue = designReservedHandleIssue(
+		stagedInput,
+		deps.designSessionId,
+	);
+	if (reservedIssue !== null) {
+		return rejectedStage(deps, toolName, {
+			error: reservedIssue,
+			diagnostic: {
+				code: "design-reserved-handle",
+				validationStage: "partial" as const,
+				issueCount: 1,
+			},
+		});
+	}
+	const reservedReferenceIssue = designReservedReferenceIssue(stagedInput);
+	if (reservedReferenceIssue !== null) {
+		return rejectedStage(deps, toolName, {
+			error: reservedReferenceIssue,
+			diagnostic: {
+				code: "design-reserved-handle",
+				validationStage: "partial" as const,
+				issueCount: 1,
+			},
+		});
+	}
+	return null;
+}
+
+/** The stage tools' shared persistence tail: collect declarations plus eager
+ * `referenced` bindings for forward references (staging is order-free and
+ * submit closure names any symbol that never gets authored), enforce the
+ * stage bound, and stage the operation durably. */
+async function persistStagedDesignPart(args: {
+	deps: DesignLoopToolDeps;
+	toolName: DesignStageToolName;
+	kind: "contract" | "revision";
+	gates: DesignGateState;
+	toolCallId: string;
+	stagedInput: unknown;
+	parsedInput: unknown;
+	expectedRevision: number;
+	operation: DesignArtifactWorkspaceOperation;
+	workspaceHandleBindings: readonly DesignIdentityHandleBinding[];
+	successMessage: string;
+}) {
+	const handleBindings = [
+		...collectDesignIdentityHandleBindings(
+			args.stagedInput,
+			args.deps.designSessionId,
+		),
+		...collectDesignReferenceBindings(
+			args.stagedInput,
+			args.workspaceHandleBindings,
+			args.deps.designSessionId,
+		),
+	];
+	const bound = designWorkspaceBoundError({
+		input: args.parsedInput,
+		operation: args.operation,
+	});
+	if (bound !== null) {
+		return rejectedStage(args.deps, args.toolName, { error: bound });
+	}
+	try {
+		const result = await stageDesignArtifactWorkspace({
+			designSessionId: args.deps.designSessionId,
+			lineage: designWorkspaceLineageForGates(args.kind, args.gates),
+			authority: args.deps.authority,
+			toolCallId: args.toolCallId,
+			expectedRevision: args.expectedRevision,
+			operation: args.operation,
+			handleBindings,
+		});
+		args.deps.repair.noteStageAccepted(args.toolName);
+		return {
+			ok: true,
+			workspaceRevision: result.state.workspace.revision,
+			deduplicated: result.deduplicated,
+			message: args.successMessage,
+		};
+	} catch (error) {
+		const handled = workspaceError(error);
+		if (handled) return rejectedStage(args.deps, args.toolName, handled);
+		throw error;
+	}
+}
+
+/** One spelling for a submit tool's whole-candidate schema rejection. */
+function schemaSubmissionRejection(
+	deps: DesignLoopToolDeps,
+	toolName: "submitContract" | "submitRevision",
+	error: ZodError,
+	handleBindings: readonly DesignIdentityHandleBinding[],
+) {
+	deps.repair.noteSubmissionRejection(toolName, {
+		stage: "schema",
+		fingerprints: zodIssueFingerprints(error),
+	});
+	return {
+		error: renderDesignValidationIssues(error, handleBindings),
+		diagnostic: rejectionDiagnostic("schema", error.issues.length),
+	};
+}
+
+/** The submit tools' shared construction gate: blocking construction issues
+ * either demand the user's exact pending questions (outside the repair
+ * budget) or reject with the rendered issues. Returns null when construction
+ * is clean. Only the lead sentence differs per tool. */
+function constructionSubmissionRejection(args: {
+	deps: DesignLoopToolDeps;
+	toolName: "submitContract" | "submitRevision";
+	contract: AppDesignContract;
+	handleBindings: readonly DesignIdentityHandleBinding[];
+	needsDecisionsLine: string;
+}) {
+	const constructionIssues = designConstructionIssues(args.contract);
+	if (constructionIssues.length === 0) return null;
+	const requirements = designConstructionQuestionRequirements(
+		args.contract,
+		constructionIssues,
+	);
+	if (requirements !== null) {
+		const questions = requirements.map((question) => question.question);
+		args.deps.repair.requireUserQuestions(requirements);
+		return {
+			error: [
+				args.needsDecisionsLine,
+				"Call askQuestions now with up to five of the exact questions below. Do not assume answers, remove included workflows, or reinterpret their scope.",
+				"Once the user answers, stage the resolution before submitting again: record each settled choice as a decision or assumption, and remove the question or mark it non-blocking.",
+				...questions.map((question) => `- ${question}`),
+			].join("\n"),
+			needsUserInput: {
+				questions,
+				maxQuestionsPerRound: 5,
+			},
+			diagnostic: {
+				code: "design-construction-needs-input",
+				validationStage: "construction" as const,
+				issueCount: constructionIssues.length,
+			},
+		};
+	}
+	args.deps.repair.noteSubmissionRejection(args.toolName, {
+		stage: "construction",
+		fingerprints: constructionIssues.map(constructionIssueFingerprint),
+	});
+	return {
+		error: renderDesignConstructionIssues(
+			constructionIssues,
+			args.handleBindings,
+		),
+		diagnostic: rejectionDiagnostic("construction", constructionIssues.length),
+	};
+}
+
 function parseStage<T>(schema: z.ZodType<T>, input: unknown) {
 	const parsed = schema.safeParse(stripNullProperties(input));
 	return parsed.success
@@ -853,47 +1037,13 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			);
 			if (questionRefusal !== null) return questionRefusal;
 			const strippedInput = stripNullProperties(input);
-			const identityIssue = designCreationIdentityIssue(
+			const admissionRejection = stagedInputAdmissionRejection(
+				deps,
+				"stageContract",
 				strippedInput,
-				workspace.candidate,
-				workspace.sourceContract,
+				workspace,
 			);
-			if (identityIssue !== null) {
-				return rejectedStage(deps, "stageContract", {
-					error: identityIssue,
-					diagnostic: {
-						code: "design-creation-handle-required",
-						validationStage: "partial" as const,
-						issueCount: 1,
-					},
-				});
-			}
-			const reservedIssue = designReservedHandleIssue(
-				strippedInput,
-				deps.designSessionId,
-			);
-			if (reservedIssue !== null) {
-				return rejectedStage(deps, "stageContract", {
-					error: reservedIssue,
-					diagnostic: {
-						code: "design-reserved-handle",
-						validationStage: "partial" as const,
-						issueCount: 1,
-					},
-				});
-			}
-			const reservedReferenceIssue =
-				designReservedReferenceIssue(strippedInput);
-			if (reservedReferenceIssue !== null) {
-				return rejectedStage(deps, "stageContract", {
-					error: reservedReferenceIssue,
-					diagnostic: {
-						code: "design-reserved-handle",
-						validationStage: "partial" as const,
-						issueCount: 1,
-					},
-				});
-			}
+			if (admissionRejection !== null) return admissionRejection;
 			const parsed = parseHandledStage(
 				stageContractInputSchema,
 				input,
@@ -903,51 +1053,20 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				return rejectedStage(deps, "stageContract", { error: parsed.error });
 			}
 			const { expectedRevision, ...body } = parsed.data;
-			const operation = { kind: "contract" as const, ...body };
-			/* Declarations first, then eager `referenced` bindings for forward
-			 * references — staging is order-free and submit closure names any
-			 * symbol that never gets authored. */
-			const handleBindings = [
-				...collectDesignIdentityHandleBindings(
-					strippedInput,
-					deps.designSessionId,
-				),
-				...collectDesignReferenceBindings(
-					strippedInput,
-					workspace.handleBindings,
-					deps.designSessionId,
-				),
-			];
-			const bound = designWorkspaceBoundError({
-				input: parsed.data,
-				operation,
+			return persistStagedDesignPart({
+				deps,
+				toolName: "stageContract",
+				kind: "contract",
+				gates,
+				toolCallId: options.toolCallId,
+				stagedInput: strippedInput,
+				parsedInput: parsed.data,
+				expectedRevision,
+				operation: { kind: "contract" as const, ...body },
+				workspaceHandleBindings: workspace.handleBindings,
+				successMessage:
+					"This part of the contract is saved. Continue staging related items, inspect the workspace when needed, and submitContract only after the complete graph is ready.",
 			});
-			if (bound !== null) {
-				return rejectedStage(deps, "stageContract", { error: bound });
-			}
-			try {
-				const result = await stageDesignArtifactWorkspace({
-					designSessionId: deps.designSessionId,
-					lineage: designWorkspaceLineageForGates("contract", gates),
-					authority: deps.authority,
-					toolCallId: options.toolCallId,
-					expectedRevision,
-					operation,
-					handleBindings,
-				});
-				deps.repair.noteStageAccepted("stageContract");
-				return {
-					ok: true,
-					workspaceRevision: result.state.workspace.revision,
-					deduplicated: result.deduplicated,
-					message:
-						"This part of the contract is saved. Continue staging related items, inspect the workspace when needed, and submitContract only after the complete graph is ready.",
-				};
-			} catch (error) {
-				const handled = workspaceError(error);
-				if (handled) return rejectedStage(deps, "stageContract", handled);
-				throw error;
-			}
 		},
 	};
 
@@ -997,46 +1116,13 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				});
 			}
 			const stagedInput = preResolved.value;
-			const identityIssue = designCreationIdentityIssue(
+			const admissionRejection = stagedInputAdmissionRejection(
+				deps,
+				"stageRevision",
 				stagedInput,
-				workspace.candidate,
-				workspace.sourceContract,
+				workspace,
 			);
-			if (identityIssue !== null) {
-				return rejectedStage(deps, "stageRevision", {
-					error: identityIssue,
-					diagnostic: {
-						code: "design-creation-handle-required",
-						validationStage: "partial" as const,
-						issueCount: 1,
-					},
-				});
-			}
-			const reservedIssue = designReservedHandleIssue(
-				stagedInput,
-				deps.designSessionId,
-			);
-			if (reservedIssue !== null) {
-				return rejectedStage(deps, "stageRevision", {
-					error: reservedIssue,
-					diagnostic: {
-						code: "design-reserved-handle",
-						validationStage: "partial" as const,
-						issueCount: 1,
-					},
-				});
-			}
-			const reservedReferenceIssue = designReservedReferenceIssue(stagedInput);
-			if (reservedReferenceIssue !== null) {
-				return rejectedStage(deps, "stageRevision", {
-					error: reservedReferenceIssue,
-					diagnostic: {
-						code: "design-reserved-handle",
-						validationStage: "partial" as const,
-						issueCount: 1,
-					},
-				});
-			}
+			if (admissionRejection !== null) return admissionRejection;
 			const parsed = parseHandledStage(
 				stageRevisionInputSchema,
 				stagedInput,
@@ -1046,51 +1132,20 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				return rejectedStage(deps, "stageRevision", { error: parsed.error });
 			}
 			const { expectedRevision, ...body } = parsed.data;
-			const operation = { kind: "revision" as const, ...body };
-			/* Declarations first, then eager `referenced` bindings for forward
-			 * references — staging is order-free and submit closure names any
-			 * symbol that never gets authored. */
-			const handleBindings = [
-				...collectDesignIdentityHandleBindings(
-					stagedInput,
-					deps.designSessionId,
-				),
-				...collectDesignReferenceBindings(
-					stagedInput,
-					workspace.handleBindings,
-					deps.designSessionId,
-				),
-			];
-			const bound = designWorkspaceBoundError({
-				input: parsed.data,
-				operation,
+			return persistStagedDesignPart({
+				deps,
+				toolName: "stageRevision",
+				kind: "revision",
+				gates,
+				toolCallId: options.toolCallId,
+				stagedInput,
+				parsedInput: parsed.data,
+				expectedRevision,
+				operation: { kind: "revision" as const, ...body },
+				workspaceHandleBindings: workspace.handleBindings,
+				successMessage:
+					"This part of the revision is saved. Continue with the remaining corrections and dispositions, then submitRevision to validate the complete result.",
 			});
-			if (bound !== null) {
-				return rejectedStage(deps, "stageRevision", { error: bound });
-			}
-			try {
-				const result = await stageDesignArtifactWorkspace({
-					designSessionId: deps.designSessionId,
-					lineage: designWorkspaceLineageForGates("revision", gates),
-					authority: deps.authority,
-					toolCallId: options.toolCallId,
-					expectedRevision,
-					operation,
-					handleBindings,
-				});
-				deps.repair.noteStageAccepted("stageRevision");
-				return {
-					ok: true,
-					workspaceRevision: result.state.workspace.revision,
-					deduplicated: result.deduplicated,
-					message:
-						"This part of the revision is saved. Continue with the remaining corrections and dispositions, then submitRevision to validate the complete result.",
-				};
-			} catch (error) {
-				const handled = workspaceError(error);
-				if (handled) return rejectedStage(deps, "stageRevision", handled);
-				throw error;
-			}
 		},
 	};
 
@@ -1177,60 +1232,22 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			}
 			const parsed = appDesignContractSchema.safeParse(state.candidate);
 			if (!parsed.success) {
-				deps.repair.noteSubmissionRejection("submitContract", {
-					stage: "schema",
-					fingerprints: zodIssueFingerprints(parsed.error),
-				});
-				return {
-					error: renderDesignValidationIssues(
-						parsed.error,
-						state.handleBindings,
-					),
-					diagnostic: rejectionDiagnostic("schema", parsed.error.issues.length),
-				};
-			}
-			const constructionIssues = designConstructionIssues(parsed.data);
-			if (constructionIssues.length > 0) {
-				const requirements = designConstructionQuestionRequirements(
-					parsed.data,
-					constructionIssues,
+				return schemaSubmissionRejection(
+					deps,
+					"submitContract",
+					parsed.error,
+					state.handleBindings,
 				);
-				if (requirements !== null) {
-					const questions = requirements.map((question) => question.question);
-					deps.repair.requireUserQuestions(requirements);
-					return {
-						error: [
-							"The contract needs decisions from the user before it can be finalized.",
-							"Call askQuestions now with up to five of the exact questions below. Do not assume answers, remove included workflows, or reinterpret their scope.",
-							"Once the user answers, stage the resolution before submitting again: record each settled choice as a decision or assumption, and remove the question or mark it non-blocking.",
-							...questions.map((question) => `- ${question}`),
-						].join("\n"),
-						needsUserInput: {
-							questions,
-							maxQuestionsPerRound: 5,
-						},
-						diagnostic: {
-							code: "design-construction-needs-input",
-							validationStage: "construction" as const,
-							issueCount: constructionIssues.length,
-						},
-					};
-				}
-				deps.repair.noteSubmissionRejection("submitContract", {
-					stage: "construction",
-					fingerprints: constructionIssues.map(constructionIssueFingerprint),
-				});
-				return {
-					error: renderDesignConstructionIssues(
-						constructionIssues,
-						state.handleBindings,
-					),
-					diagnostic: rejectionDiagnostic(
-						"construction",
-						constructionIssues.length,
-					),
-				};
 			}
+			const constructionRejection = constructionSubmissionRejection({
+				deps,
+				toolName: "submitContract",
+				contract: parsed.data,
+				handleBindings: state.handleBindings,
+				needsDecisionsLine:
+					"The contract needs decisions from the user before it can be finalized.",
+			});
+			if (constructionRejection !== null) return constructionRejection;
 			const head = gates.head;
 			const draft = await insertDesignRevision({
 				envelope: contractEnvelope({
@@ -1437,60 +1454,22 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				dispositions,
 			});
 			if (!parsed.success) {
-				deps.repair.noteSubmissionRejection("submitRevision", {
-					stage: "schema",
-					fingerprints: zodIssueFingerprints(parsed.error),
-				});
-				return {
-					error: renderDesignValidationIssues(
-						parsed.error,
-						state.handleBindings,
-					),
-					diagnostic: rejectionDiagnostic("schema", parsed.error.issues.length),
-				};
-			}
-			const constructionIssues = designConstructionIssues(parsed.data.contract);
-			if (constructionIssues.length > 0) {
-				const requirements = designConstructionQuestionRequirements(
-					parsed.data.contract,
-					constructionIssues,
+				return schemaSubmissionRejection(
+					deps,
+					"submitRevision",
+					parsed.error,
+					state.handleBindings,
 				);
-				if (requirements !== null) {
-					const questions = requirements.map((question) => question.question);
-					deps.repair.requireUserQuestions(requirements);
-					return {
-						error: [
-							"The revision needs decisions from the user before it can be accepted.",
-							"Call askQuestions now with up to five of the exact questions below. Do not assume answers, remove included workflows, or reinterpret their scope.",
-							"Once the user answers, stage the resolution before submitting again: record each settled choice as a decision or assumption, and remove the question or mark it non-blocking.",
-							...questions.map((question) => `- ${question}`),
-						].join("\n"),
-						needsUserInput: {
-							questions,
-							maxQuestionsPerRound: 5,
-						},
-						diagnostic: {
-							code: "design-construction-needs-input",
-							validationStage: "construction" as const,
-							issueCount: constructionIssues.length,
-						},
-					};
-				}
-				deps.repair.noteSubmissionRejection("submitRevision", {
-					stage: "construction",
-					fingerprints: constructionIssues.map(constructionIssueFingerprint),
-				});
-				return {
-					error: renderDesignConstructionIssues(
-						constructionIssues,
-						state.handleBindings,
-					),
-					diagnostic: rejectionDiagnostic(
-						"construction",
-						constructionIssues.length,
-					),
-				};
 			}
+			const constructionRejection = constructionSubmissionRejection({
+				deps,
+				toolName: "submitRevision",
+				contract: parsed.data.contract,
+				handleBindings: state.handleBindings,
+				needsDecisionsLine:
+					"The revision needs decisions from the user before it can be accepted.",
+			});
+			if (constructionRejection !== null) return constructionRejection;
 			const sensitivityViolations = validateSensitivityNotSilentlyLowered(
 				head.envelope.payload,
 				parsed.data,

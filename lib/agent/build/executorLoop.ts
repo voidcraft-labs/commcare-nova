@@ -45,6 +45,7 @@ import {
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import type { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
+import type { DesignId } from "@/lib/agent/design/ids";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import {
@@ -762,6 +763,11 @@ export function renderExecutorWorkspaceSummary(
 	return lines.join("\n");
 }
 
+/** ONE spelling for the candidate checkpoint heading: the composer writes it
+ * and the compaction re-seed detects it by prefix, so a drifted copy would
+ * silently stop fresh checkpoints after a compaction boundary. */
+const EXECUTOR_CANDIDATE_HEADING = "## Current authoritative private candidate";
+
 function executorSliceStartMessages(
 	brief: SliceExecutionBrief,
 	workspace: ExecutorWorkspace,
@@ -776,7 +782,7 @@ function executorSliceStartMessages(
 		),
 		userMessage(
 			[
-				"## Current authoritative private candidate",
+				EXECUTOR_CANDIDATE_HEADING,
 				"Use this current durable checkpoint. Do not rely on an older summarized workspace.",
 				renderExecutorWorkspaceSummary(workspace),
 			].join("\n\n"),
@@ -793,7 +799,14 @@ function isExecutorCandidateMessage(message: ModelMessage): boolean {
 					.filter((part) => part.type === "text")
 					.map((part) => part.text)
 					.join("");
-	return text.startsWith("## Current authoritative private candidate");
+	return text.startsWith(EXECUTOR_CANDIDATE_HEADING);
+}
+
+/** The Elm-style one-liner for a rejected wire envelope's Zod issues. */
+function wireIssueSummary(error: z.ZodError): string {
+	return error.issues
+		.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+		.join("; ");
 }
 
 // ── The loop ─────────────────────────────────────────────────────────
@@ -1328,21 +1341,43 @@ export async function runSliceExecutor(args: {
 					toolMessage(call.toolCallId, call.toolName, value),
 				);
 			};
-
-			if (call.toolName === READ_BATCH_TOOL) {
-				const parsed = readBatchEnvelopeSchema.safeParse(call.input);
-				if (!parsed.success) {
-					await toolOutcome("wire-invalid", "READ_BATCH_ENVELOPE_INVALID");
-					answer({
-						error: `The read batch shape is invalid: ${parsed.error.issues
-							.map(
-								(issue) =>
-									`${issue.path.join(".") || "(root)"}: ${issue.message}`,
-							)
-							.join("; ")}`,
-					});
-					continue;
-				}
+			/* The one skeleton both batch tools share: per-operation policy
+			 * check, dispatch through the workspace, result classification, and
+			 * the answer envelope. The stage batch layers its extras through the
+			 * two hooks — `beforeDispatch` (the durable budget claim, outside
+			 * the try like the claim it wraps) and `admit` (creation-handle
+			 * admission plus the staging-input projection, inside the try after
+			 * the deadline check). */
+			const runOperationBatch = async (batch: {
+				operations: readonly { toolName: string; input: unknown }[];
+				effect: "read-blueprint" | "mutate-blueprint";
+				allowedTools: ReadonlySet<string>;
+				notAllowedCode: string;
+				notAllowedError: string;
+				acceptedCode: string;
+				beforeDispatch?: (
+					operation: { toolName: string; input: unknown },
+					index: number,
+				) => Promise<
+					| { kind: "continue" }
+					| { kind: "stop"; outcome: SliceExecutionOutcome }
+				>;
+				admit?: (
+					operation: { toolName: string; input: unknown },
+					index: number,
+				) => Promise<
+					| {
+							kind: "dispatch";
+							input: unknown;
+							intentIds: readonly DesignId[];
+							finalizationModelStep?: number;
+					  }
+					| { kind: "reject"; code: string; error: string }
+				>;
+			}): Promise<
+				| { kind: "answered"; clean: boolean }
+				| { kind: "stop"; outcome: SliceExecutionOutcome }
+			> => {
 				const completed: Array<{
 					index: number;
 					toolName: string;
@@ -1350,202 +1385,68 @@ export async function runSliceExecutor(args: {
 				}> = [];
 				let failed: { index: number; toolName: string; error: string } | null =
 					null;
-				for (const [index, operation] of parsed.data.operations.entries()) {
+				for (const [index, operation] of batch.operations.entries()) {
 					const entry = CHANGE_SET_TOOL_REGISTRY.get(operation.toolName);
 					if (
 						entry === undefined ||
-						entry.policy.effect !== "read-blueprint" ||
-						!allowedReadTools.has(operation.toolName)
+						entry.policy.effect !== batch.effect ||
+						!batch.allowedTools.has(operation.toolName)
 					) {
 						await toolOutcome(
 							"wire-invalid",
-							"READ_OPERATION_NOT_ALLOWED",
+							batch.notAllowedCode,
 							index,
 							operation.toolName,
 						);
 						failed = {
 							index,
 							toolName: operation.toolName,
-							error:
-								"Only read-only Blueprint tools are valid read operations.",
+							error: batch.notAllowedError,
 						};
 						break;
 					}
+					if (batch.beforeDispatch !== undefined) {
+						const before = await batch.beforeDispatch(operation, index);
+						if (before.kind === "stop") return before;
+					}
 					try {
 						if (Date.now() >= deadlineAt || deadline.signal.aborted)
-							return exhausted();
+							return { kind: "stop", outcome: exhausted() };
+						let dispatchInput: {
+							input: unknown;
+							intentIds: readonly DesignId[];
+							finalizationModelStep?: number;
+						} = { input: operation.input, intentIds: [] };
+						if (batch.admit !== undefined) {
+							const admitted = await batch.admit(operation, index);
+							if (admitted.kind === "reject") {
+								await toolOutcome(
+									"wire-invalid",
+									admitted.code,
+									index,
+									operation.toolName,
+								);
+								failed = {
+									index,
+									toolName: operation.toolName,
+									error: admitted.error,
+								};
+								break;
+							}
+							dispatchInput = admitted;
+						}
 						const dispatched = await awaitWithAbort(
 							workspace.stageDispatch({
 								toolName: operation.toolName,
 								requestId: `${call.toolCallId}:${index}`,
-								input: operation.input,
-								intentIds: [],
+								input: dispatchInput.input,
+								intentIds: dispatchInput.intentIds,
 								deadlineAt,
-							}),
-							boundedSignal,
-						);
-						const projectedResult = projectToolResult(
-							dispatched.result,
-							workspace,
-						);
-						if (resultHasError(projectedResult)) {
-							await toolOutcome(
-								"stage-rejected",
-								"TOOL_RESULT_ERROR",
-								index,
-								operation.toolName,
-							);
-							failed = {
-								index,
-								toolName: operation.toolName,
-								error: (projectedResult as { error: string }).error,
-							};
-							break;
-						}
-						await toolOutcome(
-							"accepted",
-							"READ_COMPLETED",
-							index,
-							operation.toolName,
-						);
-						completed.push({
-							index,
-							toolName: operation.toolName,
-							result: projectedResult,
-						});
-					} catch (error) {
-						if (deadlineExceeded()) return exhausted();
-						if (error instanceof ChangeSetStagingRejectedError) {
-							await toolOutcome(
-								"stage-rejected",
-								error.code,
-								index,
-								operation.toolName,
-							);
-							failed = {
-								index,
-								toolName: operation.toolName,
-								error: error.message,
-							};
-							break;
-						}
-						const terminal = terminalProtocolCode(error);
-						if (terminal === null) throw error;
-						await toolOutcome(
-							"terminal-protocol",
-							terminal,
-							index,
-							operation.toolName,
-						);
-						return {
-							kind: "protocol-failure",
-							code: terminal,
-							message: (error as Error).message,
-						};
-					}
-				}
-				answer({
-					completed,
-					...(failed === null
-						? { status: "completed" }
-						: {
-								status: "stopped",
-								failed,
-								unattemptedCount:
-									parsed.data.operations.length - failed.index - 1,
-							}),
-				});
-				continue;
-			}
-
-			if (call.toolName === STAGE_BATCH_TOOL) {
-				const parsed = stageBatchEnvelopeSchema.safeParse(call.input);
-				if (!parsed.success) {
-					await toolOutcome("wire-invalid", "STAGE_BATCH_ENVELOPE_INVALID");
-					answer({
-						error: `The batch shape is invalid: ${parsed.error.issues
-							.map(
-								(issue) =>
-									`${issue.path.join(".") || "(root)"}: ${issue.message}`,
-							)
-							.join("; ")}`,
-					});
-					continue;
-				}
-				const operations = parsed.data.operations;
-				const completed: Array<{
-					index: number;
-					toolName: string;
-					result: unknown;
-				}> = [];
-				let failed: { index: number; toolName: string; error: string } | null =
-					null;
-				for (const [index, operation] of operations.entries()) {
-					const entry = CHANGE_SET_TOOL_REGISTRY.get(operation.toolName);
-					if (
-						entry === undefined ||
-						entry.policy.effect !== "mutate-blueprint" ||
-						!allowedMutationTools.has(operation.toolName)
-					) {
-						await toolOutcome(
-							"wire-invalid",
-							"STAGE_OPERATION_NOT_ALLOWED",
-							index,
-							operation.toolName,
-						);
-						failed = {
-							index,
-							toolName: operation.toolName,
-							error:
-								"Only private Blueprint mutations are valid batch operations.",
-						};
-						break;
-					}
-					if (
-						(await claimBudget(
-							"stagedRequests",
-							allowedStagedRequests(),
-							`stage:${scopeKey}:${modelSteps}:${call.toolCallId}:${index}`,
-						)) === "exhausted"
-					)
-						return exhausted();
-					try {
-						if (Date.now() >= deadlineAt || deadline.signal.aborted)
-							return exhausted();
-						const creationIssue =
-							executorCreationHandleIssue(
-								operation.toolName,
-								operation.input,
-							) ??
-							executorCatalogDefaultHandleIssue(
-								operation.toolName,
-								operation.input,
-								workspace.currentSnapshot().doc,
-							);
-						if (creationIssue !== null) {
-							await toolOutcome(
-								"wire-invalid",
-								"CREATION_HANDLE_REQUIRED",
-								index,
-								operation.toolName,
-							);
-							failed = {
-								index,
-								toolName: operation.toolName,
-								error: creationIssue,
-							};
-							break;
-						}
-						const projected = extractStagingInput(operation.input, brief);
-						const dispatched = await awaitWithAbort(
-							workspace.stageDispatch({
-								toolName: operation.toolName,
-								requestId: `${call.toolCallId}:${index}`,
-								input: projected.input,
-								intentIds: projected.intentIds,
-								deadlineAt,
-								...(validationRequested && index === operations.length - 1
-									? { finalizationModelStep: modelSteps }
+								...(dispatchInput.finalizationModelStep !== undefined
+									? {
+											finalizationModelStep:
+												dispatchInput.finalizationModelStep,
+										}
 									: {}),
 							}),
 							boundedSignal,
@@ -1570,7 +1471,7 @@ export async function runSliceExecutor(args: {
 						}
 						await toolOutcome(
 							"accepted",
-							"STAGE_COMPLETED",
+							batch.acceptedCode,
 							index,
 							operation.toolName,
 						);
@@ -1580,7 +1481,8 @@ export async function runSliceExecutor(args: {
 							result: projectedResult,
 						});
 					} catch (error) {
-						if (deadlineExceeded()) return exhausted();
+						if (deadlineExceeded())
+							return { kind: "stop", outcome: exhausted() };
 						if (error instanceof ChangeSetStagingRejectedError) {
 							await toolOutcome(
 								"stage-rejected",
@@ -1604,9 +1506,12 @@ export async function runSliceExecutor(args: {
 							operation.toolName,
 						);
 						return {
-							kind: "protocol-failure",
-							code: terminal,
-							message: (error as Error).message,
+							kind: "stop",
+							outcome: {
+								kind: "protocol-failure",
+								code: terminal,
+								message: (error as Error).message,
+							},
 						};
 					}
 				}
@@ -1617,11 +1522,91 @@ export async function runSliceExecutor(args: {
 						: {
 								status: "stopped",
 								failed,
-								unattemptedCount:
-									parsed.data.operations.length - failed.index - 1,
+								unattemptedCount: batch.operations.length - failed.index - 1,
 							}),
 				});
-				await checkpointFinalization(validationRequested && failed === null);
+				return { kind: "answered", clean: failed === null };
+			};
+
+			if (call.toolName === READ_BATCH_TOOL) {
+				const parsed = readBatchEnvelopeSchema.safeParse(call.input);
+				if (!parsed.success) {
+					await toolOutcome("wire-invalid", "READ_BATCH_ENVELOPE_INVALID");
+					answer({
+						error: `The read batch shape is invalid: ${wireIssueSummary(parsed.error)}`,
+					});
+					continue;
+				}
+				const outcome = await runOperationBatch({
+					operations: parsed.data.operations,
+					effect: "read-blueprint",
+					allowedTools: allowedReadTools,
+					notAllowedCode: "READ_OPERATION_NOT_ALLOWED",
+					notAllowedError:
+						"Only read-only Blueprint tools are valid read operations.",
+					acceptedCode: "READ_COMPLETED",
+				});
+				if (outcome.kind === "stop") return outcome.outcome;
+				continue;
+			}
+
+			if (call.toolName === STAGE_BATCH_TOOL) {
+				const parsed = stageBatchEnvelopeSchema.safeParse(call.input);
+				if (!parsed.success) {
+					await toolOutcome("wire-invalid", "STAGE_BATCH_ENVELOPE_INVALID");
+					answer({
+						error: `The batch shape is invalid: ${wireIssueSummary(parsed.error)}`,
+					});
+					continue;
+				}
+				const operations = parsed.data.operations;
+				const outcome = await runOperationBatch({
+					operations,
+					effect: "mutate-blueprint",
+					allowedTools: allowedMutationTools,
+					notAllowedCode: "STAGE_OPERATION_NOT_ALLOWED",
+					notAllowedError:
+						"Only private Blueprint mutations are valid batch operations.",
+					acceptedCode: "STAGE_COMPLETED",
+					beforeDispatch: async (_operation, index) =>
+						(await claimBudget(
+							"stagedRequests",
+							allowedStagedRequests(),
+							`stage:${scopeKey}:${modelSteps}:${call.toolCallId}:${index}`,
+						)) === "exhausted"
+							? { kind: "stop", outcome: exhausted() }
+							: { kind: "continue" },
+					admit: async (operation, index) => {
+						const creationIssue =
+							executorCreationHandleIssue(
+								operation.toolName,
+								operation.input,
+							) ??
+							executorCatalogDefaultHandleIssue(
+								operation.toolName,
+								operation.input,
+								workspace.currentSnapshot().doc,
+							);
+						if (creationIssue !== null) {
+							return {
+								kind: "reject",
+								code: "CREATION_HANDLE_REQUIRED",
+								error: creationIssue,
+							};
+						}
+						const projected = extractStagingInput(operation.input, brief);
+						return {
+							kind: "dispatch",
+							input: projected.input,
+							intentIds: projected.intentIds,
+							...(validationRequested && index === operations.length - 1
+								? { finalizationModelStep: modelSteps }
+								: {}),
+						};
+					},
+				});
+				if (outcome.kind === "stop") return outcome.outcome;
+				await checkpointFinalization(validationRequested && outcome.clean);
 				continue;
 			}
 
@@ -1787,12 +1772,7 @@ export async function runSliceExecutor(args: {
 				if (!parsed.success) {
 					await toolOutcome("wire-invalid", "BLOCKER_REPORT_INVALID");
 					answer({
-						error: `That blocker report is invalid: ${parsed.error.issues
-							.map(
-								(issue) =>
-									`${issue.path.join(".") || "(root)"}: ${issue.message}`,
-							)
-							.join("; ")}`,
+						error: `That blocker report is invalid: ${wireIssueSummary(parsed.error)}`,
 					});
 					continue;
 				}
