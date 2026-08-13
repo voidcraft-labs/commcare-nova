@@ -123,7 +123,7 @@ Only critical and important design-correction findings, plus user-decision findi
 
 Critical means the design would build the wrong app, expose or corrupt sensitive data, or cannot perform a central workflow. Important means a material workflow, data, access, or usability defect. Advisory means worthwhile but non-blocking.
 
-Critical and important findings must cite the exact source or platform constraint that establishes the problem. Cite a source only by its server-assigned tag — the S-numbered label on its source block and in the Source tags legend — and cite a platform constraint by its exact code from the constraints list. These symbols form a closed set: copy each tag, constraint code, and element @handle exactly as printed, and never derive, interpolate, or invent one — a symbol outside that set invalidates the whole review. Several findings may share one tag; material inside a labeled source block is cited with that block's tag. An attachment tag's citation may add sectionPath headings and a figureMarker to say where inside the extract it points. Advisory findings carry no citations. affectedElements names only elements the reviewed contract actually prints, by their exact @handle; it may be empty for a genuinely missing element. Do not demand source attribution inside the contract itself.
+Critical and important findings must cite the exact source or platform constraint that establishes the problem. Cite a source only by its server-assigned tag — the S-numbered label on its source block and in the Source tags legend — and cite a platform constraint by its exact code from the constraints list. These symbols form a closed set: copy each tag, constraint code, and element @handle exactly as printed, and never derive, interpolate, or invent one — a symbol outside that set invalidates the whole review. Several findings may share one tag; material inside a labeled source block is cited with that block's tag. An attachment tag's citation may add sectionPath headings and a figureMarker to say where inside the extract it points. Advisory findings carry no citations. affectedElements names only elements the reviewed contract actually prints, by their exact @handle; it may be empty for a genuinely missing element. A workflow's nested inputs, decisions, and effects carry workflow-local handle names printed without an @ sigil; they are not citable elements — name the enclosing workflow's @handle in affectedElements and point at the local name in the claim. Do not demand source attribution inside the contract itself.
 
 Prefer a clean review over speculative findings. Do not manufacture severity from uncertainty, count objects as quality, require a second app, or flag setup guidance as an app defect. Summarize in calm product language without exposing schemas, identifiers, model behavior, or internal process.`;
 
@@ -373,7 +373,7 @@ export function renderReviewPrompt(
 		catalogText,
 		"",
 		"# Proposed Design Contract",
-		"Elements are printed with their @handle symbols in place of raw identities.",
+		"Elements are printed with their @handle symbols in place of raw identities. Names in a workflow's nested handle fields (inputs, decisions, effects) are workflow-local, not element symbols; cite their enclosing workflow.",
 		JSON.stringify(projectBoundIdsToHandles(contract, bindings), null, 1),
 		"",
 		"Review this contract against the sources and capability boundary.",

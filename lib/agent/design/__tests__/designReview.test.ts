@@ -146,13 +146,21 @@ describe("the reviewer's symbol vocabulary resolves to the persisted shape", () 
 		expect(resolved?.evidenceRefs).toEqual([messageRef()]);
 	});
 
-	it("accepts a raw identity only when it is a contract element", () => {
+	it("accepts a raw identity only when the contract prints it raw", () => {
 		const schema = reviewerSchema();
+		// taskRegister has no ledger row, so the projection printed its raw id.
+		expect(
+			schema.safeParse(
+				wireReview([wireFinding({ affectedElements: [ids.taskRegister] })]),
+			).success,
+		).toBe(true);
+		// A bound element prints as its @handle — the raw identity is out of the
+		// grammar entirely, not merely discouraged.
 		expect(
 			schema.safeParse(
 				wireReview([wireFinding({ affectedElements: [ids.taskVisit] })]),
 			).success,
-		).toBe(true);
+		).toBe(false);
 		const unknown = schema.safeParse(
 			wireReview([wireFinding({ affectedElements: [did(9999)] })]),
 		);
@@ -187,6 +195,8 @@ describe("the reviewer's symbol vocabulary resolves to the persisted shape", () 
 			pkg: pkg(),
 			bindings: [...bindings(), { handle: "@ghost", designId: did(9999) }],
 		});
+		// The ledger row survives element removal, but the contract no longer
+		// prints @ghost — so the symbol is out of the element grammar.
 		const result = schema.safeParse(
 			wireReview([wireFinding({ affectedElements: ["@ghost"] })]),
 		);
@@ -195,7 +205,24 @@ describe("the reviewer's symbol vocabulary resolves to the persisted shape", () 
 			? ""
 			: (result.error.issues[0]?.message ?? "");
 		expect(message).toContain("@ghost");
-		expect(message).toContain("not part of the reviewed contract");
+		expect(message).toContain("not an element symbol");
+	});
+
+	it("keeps workflow-local names out of the element grammar", () => {
+		// The live failure class: the contract prints effect/decision handles as
+		// bare workflow-local names, and a reviewer glued @ onto one. The exact
+		// symbol enum makes that citation inexpressible, and the rejection
+		// teaches the enclosing workflow instead — retrying the same prompt
+		// could never have fixed it.
+		const result = reviewerSchema().safeParse(
+			wireReview([wireFinding({ affectedElements: ["@record_visit"] })]),
+		);
+		expect(result.success).toBe(false);
+		const message = result.success
+			? ""
+			: (result.error.issues[0]?.message ?? "");
+		expect(message).toContain("@record_visit");
+		expect(message).toContain("enclosing workflow");
 	});
 
 	it("makes an out-of-set source tag grammatically inexpressible", () => {

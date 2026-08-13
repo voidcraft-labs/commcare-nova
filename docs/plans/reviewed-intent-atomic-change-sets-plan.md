@@ -436,8 +436,14 @@ so an out-of-set citation is grammatically inexpressible rather than merely
 rejected; no raw coordinate appears anywhere in the reviewer's context.
 Platform citations are the catalog's code enum, and the catalog supplies the
 `sourceAnchor` (a model-emitted anchor was never verifiable). Affected
-elements resolve through the ledger bindings; an unbound or off-contract
-symbol invalidates the review and the diagnostic names the model's own symbol.
+elements get the same exact-enum closure: the grammar admits only the symbols
+the projected contract prints — bound `@handle`s plus any raw-printed unbound
+identity — so a symbol the contract does not print is grammatically
+inexpressible, and a rejection names the model's own symbol. Workflow-local
+input, decision, and effect names (printed without `@` inside their workflow)
+are deliberately outside that set; the prompt directs such findings at the
+enclosing workflow's `@handle`, with the local name in the claim prose.
+Ledger-binding resolution remains the backstop for direct callers.
 The server mints the review and finding identities at resolution, and the
 resolved value re-parses under the persisted schema before anything persists.
 

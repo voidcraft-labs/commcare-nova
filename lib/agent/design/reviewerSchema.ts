@@ -12,7 +12,11 @@
  * are the contract's printed `@handle` symbols, platform citations are the
  * catalog's code enum (the catalog supplies `sourceAnchor`; a model-invented
  * anchor was never verifiable), and the server mints the review and finding
- * ids at resolution.
+ * ids at resolution. Affected elements get the same exact-enum closure as
+ * tags: the grammar admits only the symbols the projected contract prints —
+ * bound `@handle`s plus any raw-printed unbound identity — so a symbol the
+ * contract does not print (a workflow-local input/decision/effect name with
+ * `@` glued on was the live failure class) is grammatically inexpressible.
  *
  * Resolution failures surface as `code: "custom"` issues naming the offending
  * symbol — those messages ride `schemaIssueSummary` into operational logs, so
@@ -56,10 +60,11 @@ function unanchored(pattern: RegExp): string {
 	return pattern.source.replace(/^\^/, "").replace(/\$$/, "");
 }
 
-/** An affected element is the contract's printed `@handle`, or — only when
- *  the contract printed a raw identity for an unbound element — that exact
- *  identity string. One pattern node, so the strict projection stays a plain
- *  typed string slot. */
+/** Defensive fallback for a contract with no collectible ids (impossible for
+ *  a parsed contract, which always carries its charter workflows): the element
+ *  slot degrades to this shape instead of crashing enum construction. The
+ *  production grammar is the exact symbol enum built in
+ *  `designReviewSchemaFor`. */
 const AFFECTED_ELEMENT_PATTERN = new RegExp(
 	`^(?:${unanchored(DESIGN_HANDLE_PATTERN)}|${unanchored(CANONICAL_UUID_PATTERN)})$`,
 );
@@ -274,15 +279,16 @@ export function designReviewSchemaFor(args: {
 }): z.ZodType<DesignReview> {
 	const tagged = taggedCitableSourceRefs(args.pkg);
 	const knownIds = collectContractIds(args.contract);
+	const boundHandles = args.bindings
+		.filter((binding) => knownIds.has(binding.designId))
+		.map((binding) => binding.handle);
 	const resolution: ResolutionContext = {
 		tagByName: new Map(tagged.map(({ tag, ref }) => [tag, ref])),
 		designIdByHandle: new Map(
 			args.bindings.map((binding) => [binding.handle, binding.designId]),
 		),
 		knownIds,
-		printedHandleCount: args.bindings.filter((binding) =>
-			knownIds.has(binding.designId),
-		).length,
+		printedHandleCount: boundHandles.length,
 	};
 	const tags = tagged.map(({ tag }) => tag);
 	/* Every real package carries at least one request block, so the tag list
@@ -295,6 +301,30 @@ export function designReviewSchemaFor(args: {
 					sourceCitationSchema(tags as [string, ...string[]]),
 					platformCitationSchema,
 				]);
+	/* The exact set of element symbols the projected contract prints: bound
+	 * elements print as their @handle, and an unbound element (no ledger row —
+	 * absent in production, where every element is declared by handle) prints
+	 * its raw identity. A workflow's LOCAL input/decision/effect names print
+	 * without @ inside their workflow and are deliberately not in this set —
+	 * the live failure class was the reviewer gluing @ onto one of them, and
+	 * an enum makes that inexpressible instead of a retry loop. */
+	const boundIds = new Set(args.bindings.map((binding) => binding.designId));
+	const elementSymbols = [
+		...boundHandles,
+		...[...knownIds].filter((id) => !boundIds.has(id)),
+	];
+	const affectedElementSchema =
+		elementSymbols.length === 0
+			? z
+					.string()
+					.regex(
+						AFFECTED_ELEMENT_PATTERN,
+						"Expected a printed @handle from the reviewed contract.",
+					)
+			: z.enum(elementSymbols as [string, ...string[]], {
+					error: (issue) =>
+						`${String(issue.input)} is not an element symbol the reviewed contract prints. Cite one of the printed @handles; a workflow-local input, decision, or effect name is not citable — name its enclosing workflow instead.`,
+				});
 	const findingSchema = z
 		.object({
 			category: designFindingCategorySchema,
@@ -303,14 +333,7 @@ export function designReviewSchemaFor(args: {
 			dispositionClass: designFindingDispositionClassSchema,
 			claim: z.string().min(1),
 			evidenceRefs: z.array(citationSchema),
-			affectedElements: z.array(
-				z
-					.string()
-					.regex(
-						AFFECTED_ELEMENT_PATTERN,
-						"Expected a printed @handle from the reviewed contract.",
-					),
-			),
+			affectedElements: z.array(affectedElementSchema),
 			proposedResolution: z.string().min(1).optional(),
 		})
 		.strict();

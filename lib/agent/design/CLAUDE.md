@@ -67,11 +67,15 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   `reviewVocabulary.ts::taggedCitableSourceRefs`, the one derivation the
   prompt's legend and block labels share, so an out-of-set citation is
   grammatically inexpressible), platform-constraint codes (the catalog
-  supplies `sourceAnchor`), and contract element `@handle` symbols — and whose
+  supplies `sourceAnchor`), and contract element symbols (an exact enum of
+  what the projected contract prints — bound `@handle`s plus raw-printed
+  unbound ids — so workflow-local input/decision/effect names, which print
+  without `@`, cannot be cited; the prompt directs those findings at the
+  enclosing workflow) — and whose
   Zod transform resolves symbols against the session's ledger bindings, mints
   the review and finding identities, and re-parses under the persisted schema.
-  An unbound or off-contract symbol invalidates the review and the diagnostic
-  names the model's own symbol. Only
+  A symbol outside the printed set rejects naming the model's own symbol,
+  with ledger resolution as the direct-caller backstop. Only
   design-correction and user-decision findings block acceptance; a decision
   the sources show the person delegated is settled by its recorded default,
   so the reviewer challenges a bad default as a design correction instead of
