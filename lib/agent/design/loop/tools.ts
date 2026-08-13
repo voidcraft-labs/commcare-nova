@@ -369,7 +369,7 @@ export function designUnboundHandleIssue(
 	);
 	return unknown === undefined
 		? null
-		: `The design handle ${unknown} has not been declared. Declare it in its authoring identity slot before referencing it, or include its declaration in this same stage.`;
+		: `The design handle ${unknown} has not been declared, and a stage may only reference elements that already exist or are declared in this same call. Two ways forward: add the element that declares ${unknown} (its own complete item, with ${unknown} in its id slot) to this call's collections, or remove the ${unknown} reference from this part now, stage the declaring element, and then re-stage this part with the reference restored. Repeating this call unchanged will be rejected again.`;
 }
 
 /** `@f<N>` is the server's projection vocabulary for review findings
