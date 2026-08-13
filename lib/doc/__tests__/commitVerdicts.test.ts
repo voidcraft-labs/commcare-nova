@@ -105,6 +105,74 @@ describe("mutationCommitVerdict", () => {
 		);
 	});
 
+	it("accepts a case-ref expression whose object keys admission re-sorts", () => {
+		// Admission (`admitMutationBatch`) re-serializes every mutation with
+		// sorted object keys, and `case-ref` is the one XPath part whose
+		// sorted spelling ({caseType, kind, property}) differs from its
+		// authored spelling ({kind, caseType, property}). The candidate doc
+		// therefore stores the sorted shape, and the deep validator's
+		// parse-and-print round trip must compare ASTs structurally rather
+		// than byte-wise. Regression: a live build rejected every faithful
+		// construction of a case-reading guard as INVALID_REF.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Households",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Update",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "village",
+									label: proseText("Village"),
+									caseWrite: { caseType: "patient", property: "village" },
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "village", label: proseText("Village") },
+					],
+				},
+			],
+		});
+		const caseRead = xp("#patient/village");
+		expect(caseRead.parts).toEqual([
+			{ kind: "case-ref", caseType: "patient", property: "village" },
+		]);
+
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "addField",
+					parentUuid: formUuid(doc),
+					field: {
+						uuid: testUuid("case-ref-hidden"),
+						kind: "hidden",
+						id: "village_value",
+						calculate: caseRead,
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	});
+
 	it("rejects raw #case text parsed by the builder before it reaches storage", () => {
 		const doc = minDoc();
 		const target = Object.values(doc.fields).find(

@@ -41,6 +41,7 @@ import {
 } from "@/lib/preview/engine/fieldTree";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
 	checkCaseHashtag,
 	validateXPath,
@@ -285,8 +286,14 @@ function canonicalXPathError(
 			...(suggestions.length > 0 && { suggestions }),
 		};
 	}
+	// AST identity is structural: mutation admission re-serializes stored
+	// values with sorted object keys, so the stored part and the freshly
+	// parsed part may spell the same identity in different key orders
+	// (`case-ref` is the one XPath arm whose sorted order differs from its
+	// schema order). Both sides canonicalize before comparison; the printed
+	// TEXT comparison below stays byte-exact.
 	if (
-		JSON.stringify(parsed.expression) !== JSON.stringify(expr) ||
+		canonicalJsonText(parsed.expression) !== canonicalJsonText(expr) ||
 		projectXPath(parsed.expression, xpathPrintContext(doc)).text !== text
 	) {
 		return {
