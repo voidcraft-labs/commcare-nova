@@ -5,6 +5,7 @@ import {
 	type DesignArtifactWriteAuthority,
 	insertDesignSourcePackage,
 	readDesignReviews,
+	readDispositions,
 	readLatestAcceptedDesignRevision,
 	readLatestDesignBuildPlanForRevision,
 } from "@/lib/agent/design/artifactStore";
@@ -22,7 +23,6 @@ import {
 	createDesignLoopTools,
 	type DesignLoopToolDeps,
 } from "@/lib/agent/design/loop/tools";
-import type { DesignReview } from "@/lib/agent/design/review";
 import {
 	computeSourcePackageDigest,
 	type DesignSourcePackage,
@@ -87,39 +87,36 @@ function makePackage(): DesignSourcePackage {
 	return { ...unsealed, packageDigest: computeSourcePackageDigest(unsealed) };
 }
 
-function cleanReview(): DesignReview {
+/* The scripted reviewer emits what the live model emits: the WIRE shape —
+ * source tags, element @handles, no identities. The real reviewer schema
+ * resolves it against the session's actual ledger bindings, so these tests
+ * exercise the symbol resolution end to end. */
+function cleanReview(): unknown {
 	return {
-		schemaVersion: 1,
-		id: did(500),
 		summary: "The design is coherent and buildable.",
 		findings: [],
 	};
 }
 
-function correctionReview(): DesignReview {
+function correctionReview(): unknown {
 	return {
-		schemaVersion: 1,
-		id: did(501),
 		summary: "One workflow correction is needed.",
 		findings: [
 			{
-				id: did(502),
 				category: "workflow-gap",
 				severity: "important",
 				basis: "source-supported",
 				dispositionClass: "design-correction",
 				claim: "The visit workflow needs explicit confirmation after save.",
-				evidenceRefs: [messageRef()],
-				affectedElementIds: [resolvedFixtureId(ids.taskVisit)],
+				evidenceRefs: [{ source: "S1" }],
+				affectedElements: [handleForFixtureId(ids.taskVisit)],
 				proposedResolution: "Confirm the saved visit summary.",
 			},
 		],
 	};
 }
 
-function scriptedContext(
-	nextReview: () => DesignReview,
-): StructuredModelRunContext {
+function scriptedContext(nextReview: () => unknown): StructuredModelRunContext {
 	return {
 		userId: ACTOR,
 		projectId: PROJECT,
@@ -152,7 +149,7 @@ function scriptedContext(
 
 function mount(
 	pkg: DesignSourcePackage,
-	nextReview: () => DesignReview = cleanReview,
+	nextReview: () => unknown = cleanReview,
 	repair = new DesignRepairTracker(),
 ) {
 	return createDesignLoopTools({
@@ -659,7 +656,44 @@ describe("staged design loop", () => {
 		const resolved = resolvedContract(contract);
 		const contractRevision = await stageWholeContract(tools, contract);
 		await call(tools.submitContract, { expectedRevision: contractRevision });
-		expect(await call(tools.requestReview)).toMatchObject({ accepted: false });
+		const reviewResult = await call(tools.requestReview);
+		expect(reviewResult).toMatchObject({ accepted: false });
+		/* Findings return in the agent's symbol vocabulary: the server-minted
+		 * finding identity projects to its positional @f handle and affected
+		 * elements to their declared handles — the exact symbols the next
+		 * state packet prints and a disposition consumes. */
+		const [blockingFinding] = reviewResult.findings as Array<{
+			id: unknown;
+			affectedElementIds: unknown[];
+		}>;
+		if (blockingFinding === undefined) throw new Error("finding missing");
+		expect(blockingFinding.id).toEqual({ handle: "@f1" });
+		expect(blockingFinding.affectedElementIds).toEqual([
+			{ handle: handleForFixtureId(ids.taskVisit) },
+		]);
+
+		/* An unknown finding handle refuses before the generic resolver could
+		 * mint a plausible wrong identity for it. */
+		const unknownFinding = await call(tools.stageRevision, {
+			expectedRevision: 0,
+			collections: [],
+			dispositions: {
+				collection: "dispositions",
+				upserts: [
+					{
+						findingId: { handle: "@f9" },
+						status: "accepted",
+						rationale: "This finding does not exist.",
+					},
+				],
+				removeIds: [],
+			},
+		});
+		expect(unknownFinding).toMatchObject({
+			diagnostic: { code: "design-unknown-finding-handle" },
+		});
+		expect(String(unknownFinding.error)).toContain("@f9");
+		expect(String(unknownFinding.error)).toContain("@f1");
 		const collidingRevision = await call(tools.stageRevision, {
 			expectedRevision: 0,
 			collections: [
@@ -702,7 +736,7 @@ describe("staged design loop", () => {
 				collection: "dispositions",
 				upserts: [
 					{
-						findingId: did(502),
+						findingId: { handle: "@f1" },
 						status: "accepted",
 						rationale: "The saved visit is now explicitly confirmed.",
 					},
@@ -719,7 +753,34 @@ describe("staged design loop", () => {
 		expect(accepted?.envelope.payload.actors).toEqual(resolved.actors);
 		if (accepted?.parentRevisionId === null || accepted === null)
 			throw new Error("accepted revision parent missing");
-		expect(await readDesignReviews(accepted.parentRevisionId)).toHaveLength(1);
+		const reviews = await readDesignReviews(accepted.parentRevisionId);
+		expect(reviews).toHaveLength(1);
+		/* The wrong-uuid-mint hazard, pinned dead: the persisted disposition
+		 * names the server-minted finding identity, not a deterministic
+		 * workspace mint of the "@f1" symbol. */
+		const persistedReview = reviews[0];
+		const persistedFinding = persistedReview?.envelope.payload.findings[0];
+		if (persistedReview === undefined || persistedFinding === undefined)
+			throw new Error("persisted review finding missing");
+		const dispositions = await readDispositions(persistedReview.id);
+		expect(dispositions.map((entry) => entry.findingId)).toEqual([
+			persistedFinding.id,
+		]);
+	});
+
+	it("refuses declaring an @f-numbered handle for a design element", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const tools = mount(pkg);
+		const result = await call(tools.stageContract, {
+			expectedRevision: 0,
+			root: { id: { handle: "@f1" } },
+			collections: [],
+		});
+		expect(result).toMatchObject({
+			diagnostic: { code: "design-reserved-handle" },
+		});
+		expect(String(result.error)).toContain("@f1");
 	});
 
 	it("deduplicates an exact repeated stage tool call", async () => {

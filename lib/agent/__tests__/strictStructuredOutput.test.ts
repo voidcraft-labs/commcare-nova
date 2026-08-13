@@ -18,12 +18,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
-import { makeContract } from "@/lib/agent/design/__tests__/fixtures";
+import { ids, makeContract } from "@/lib/agent/design/__tests__/fixtures";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import {
-	designReviewSchemaFor,
+	designReviewSchema,
 	designRevisionResultSchemaFor,
 } from "@/lib/agent/design/review";
+import { designReviewSchemaFor } from "@/lib/agent/design/reviewerSchema";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import {
 	strictStructuredSchema,
@@ -70,12 +71,20 @@ function fixturePackage(): DesignSourcePackage {
 	};
 }
 
+const REVIEW_BINDINGS = [
+	{ handle: "@task_visit", designId: ids.taskVisit as string },
+];
+
 /** The pipeline's model-facing schemas, by the names the phases use. */
 const PIPELINE_SCHEMAS: ReadonlyArray<[string, z.ZodType]> = [
 	["author (appDesignContractSchema)", appDesignContractSchema],
 	[
 		"review (designReviewSchemaFor)",
-		designReviewSchemaFor(CONTRACT, fixturePackage()),
+		designReviewSchemaFor({
+			contract: CONTRACT,
+			pkg: fixturePackage(),
+			bindings: REVIEW_BINDINGS,
+		}),
 	],
 	["revise (designRevisionResultSchemaFor)", designRevisionResultSchemaFor([])],
 ];
@@ -173,6 +182,57 @@ describe("the validation bridge", () => {
 		expect(result?.success).toBe(true);
 	});
 
+	it("round-trips a wire-shaped review into the persisted UUID vocabulary", async () => {
+		const schema = strictStructuredSchema(
+			designReviewSchemaFor({
+				contract: CONTRACT,
+				pkg: fixturePackage(),
+				bindings: REVIEW_BINDINGS,
+			}),
+		);
+		const result = await schema.validate?.({
+			summary: "Focused review",
+			findings: [
+				{
+					category: "workflow-gap",
+					severity: "important",
+					basis: "source-supported",
+					dispositionClass: "design-correction",
+					claim: "The visit result is not shown after submission.",
+					// Handle + raw-contract-id arms, a tag citation with the strict
+					// null spelling in its optional slots, and a platform citation.
+					evidenceRefs: [
+						{ source: "S1", sectionPath: null, figureMarker: null },
+						{ platform: "CASE_SEARCH_IS_LIVE_AND_ONLINE" },
+					],
+					affectedElements: ["@task_visit", ids.taskRegister],
+					proposedResolution: null,
+				},
+			],
+		});
+		expect(result?.success).toBe(true);
+		if (result?.success !== true) return;
+		// The resolved value is exactly what the artifact store re-parses.
+		const persisted = designReviewSchema.safeParse(result.value);
+		expect(persisted.success).toBe(true);
+		if (!persisted.success) return;
+		const finding = persisted.data.findings[0];
+		expect(finding?.affectedElementIds).toEqual([
+			ids.taskVisit,
+			ids.taskRegister,
+		]);
+		expect(finding?.evidenceRefs[0]).toEqual({
+			kind: "message",
+			threadId: "00000000-0000-4000-8000-999999999999",
+			messageId: "m-1",
+			partIndex: 0,
+		});
+		expect(finding?.evidenceRefs[1]).toMatchObject({
+			kind: "platform-constraint",
+			code: "CASE_SEARCH_IS_LIVE_AND_ONLINE",
+		});
+	});
+
 	it("maps the strict null spelling back to absence", async () => {
 		const { z } = require("zod") as typeof import("zod");
 		const schema = strictStructuredSchema(
@@ -211,6 +271,7 @@ describe("projection soundness precondition", () => {
 			"lib/agent/design/contract.ts",
 			"lib/agent/design/evidence.ts",
 			"lib/agent/design/review.ts",
+			"lib/agent/design/reviewerSchema.ts",
 			"lib/agent/design/buildPlan.ts",
 		]) {
 			expect(

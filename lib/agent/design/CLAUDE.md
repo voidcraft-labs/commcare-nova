@@ -27,7 +27,13 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   widening keys on that exact pattern, and
   `loop/__tests__/toolWireSchemas.test.ts` audits every node carrying the
   pattern so no slot remains pinned to raw UUIDs the server would then
-  refuse.
+  refuse. Review findings carry the third symbol family: positional
+  `@f1..@fN` handles (`reviewVocabulary.ts::deriveFindingHandleBindings`),
+  server projections derived on demand from the head draft's reviews — never
+  ledger rows. A disposition's `findingId` takes the printed `@f` handle,
+  pre-resolved in `stageRevision` before the generic deterministic resolver
+  (which would mint a WRONG UUID for it); declaring an `@f`-numbered handle
+  for a design element is refused (`designReservedHandleIssue`).
 - `contract.ts` is the schema-version-1 Design Contract. `graph.ts` runs inside
   parsing and proves global identity uniqueness, reference closure, workflow
   ownership, property/record coherence, navigation closure, charter coverage,
@@ -54,14 +60,18 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   every contract and revision stage before ledger insertion, so one Design ID
   can never be durably reused by two declarations even while the candidate is
   incomplete.
-- `review.ts` defines independent findings, dispositions, and revisions.
-  Critical and important findings cite the exact source or contract elements
-  they concern; advisory observations do not create traceability work.
-  Citations validate against the package's closed citable set
-  (`sourcePackage.ts::citableSourceRefs` — the source index plus claim
-  references), the same derivation the review prompt renders as copyable
-  coordinates, and a rejection's diagnostic names the offending coordinate in
-  bounded id-safe characters. Only
+- `review.ts` defines the persisted findings, dispositions, and revisions —
+  UUID-only shapes and their laws. The reviewer MODEL never speaks that
+  vocabulary: `reviewerSchema.ts` is its structured-output schema, whose wire
+  side is symbols only — `S`-numbered source tags (an exact enum over
+  `reviewVocabulary.ts::taggedCitableSourceRefs`, the one derivation the
+  prompt's legend and block labels share, so an out-of-set citation is
+  grammatically inexpressible), platform-constraint codes (the catalog
+  supplies `sourceAnchor`), and contract element `@handle` symbols — and whose
+  Zod transform resolves symbols against the session's ledger bindings, mints
+  the review and finding identities, and re-parses under the persisted schema.
+  An unbound or off-contract symbol invalidates the review and the diagnostic
+  names the model's own symbol. Only
   design-correction and user-decision findings block acceptance; a decision
   the sources show the person delegated is settled by its recorded default,
   so the reviewer challenges a bad default as a design correction instead of
@@ -112,7 +122,12 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   activate CommCare/Nova domain knowledge, treat source blocks as untrusted
   data, keep technical protocol details out of user prose, and make unsupported
   capabilities explicit. Readiness may remain external only when every included
-  workflow can still be authored as a valid, reachable, useful app.
+  workflow can still be authored as a valid, reachable, useful app. The tagged
+  source rendering (`<nova:source tag="S1">`, the tag legend, tag-labeled
+  images, the handle-projected contract) is REVIEWER-PROMPT-ONLY: the
+  conversational per-block renderers stay byte-identical because the author
+  transcript is prefix-cached and tag numbering shifts when an answered round
+  extends the package — tags are derived per render and never persisted.
 
 ## Phase protocol
 

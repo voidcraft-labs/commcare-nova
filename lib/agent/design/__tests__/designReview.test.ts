@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { renderCitableSourceCoordinates } from "@/lib/agent/design/prompts";
+import { renderSourceTagLegend } from "@/lib/agent/design/prompts";
 import type { DesignFinding, DesignReview } from "@/lib/agent/design/review";
 import {
 	designFindingSchema,
-	designReviewSchemaFor,
 	designRevisionResultSchemaFor,
 	findingBlocksAcceptance,
 	validateSensitivityNotSilentlyLowered,
 } from "@/lib/agent/design/review";
+import { designReviewSchemaFor } from "@/lib/agent/design/reviewerSchema";
 import {
-	citableSourceRefs,
-	type DesignSourcePackage,
-} from "@/lib/agent/design/sourcePackage";
+	type ReviewHandleBinding,
+	taggedCitableSourceRefs,
+} from "@/lib/agent/design/reviewVocabulary";
+import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
+import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 import { cloneContract, did, ids, makeContract, messageRef } from "./fixtures";
 
 function pkg(): DesignSourcePackage {
@@ -31,6 +33,43 @@ function pkg(): DesignSourcePackage {
 	};
 }
 
+/** The ledger rows the reviewer schema resolves against — the contract's
+ *  elements under their authored handles. */
+function bindings(): ReviewHandleBinding[] {
+	return [
+		{ handle: "@task_visit", designId: ids.taskVisit },
+		{ handle: "@risk_level", designId: ids.factRisk },
+	];
+}
+
+function reviewerSchema(sourcePackage: DesignSourcePackage = pkg()) {
+	return designReviewSchemaFor({
+		contract: makeContract(),
+		pkg: sourcePackage,
+		bindings: bindings(),
+	});
+}
+
+/** A wire-shaped finding — what the reviewer model actually emits. */
+function wireFinding(overrides: Record<string, unknown> = {}) {
+	return {
+		category: "workflow-gap",
+		severity: "important",
+		basis: "source-supported",
+		dispositionClass: "design-correction",
+		claim: "The visit result is not shown after submission.",
+		evidenceRefs: [{ source: "S1" }],
+		affectedElements: ["@task_visit"],
+		proposedResolution: "Show the saved visit summary.",
+		...overrides,
+	};
+}
+
+function wireReview(findings: unknown[]) {
+	return { summary: "Focused review", findings };
+}
+
+/** A persisted-shape finding for the UUID-space laws below. */
 function finding(overrides: Partial<DesignFinding> = {}): DesignFinding {
 	return designFindingSchema.parse({
 		id: did(300),
@@ -91,31 +130,105 @@ describe("review findings", () => {
 			),
 		).toBe(true);
 	});
+});
 
-	it("binds element ids and citations to the reviewed artifacts", () => {
-		const schema = designReviewSchemaFor(makeContract(), pkg());
-		expect(schema.safeParse(review([finding()])).success).toBe(true);
-		expect(
-			schema.safeParse(review([finding({ affectedElementIds: [did(9999)] })]))
-				.success,
-		).toBe(false);
+describe("the reviewer's symbol vocabulary resolves to the persisted shape", () => {
+	it("resolves handles and tags into the UUID-only review", () => {
+		const result = reviewerSchema().safeParse(wireReview([wireFinding()]));
+		expect(result.success).toBe(true);
+		if (!result.success) return;
+		expect(result.data.schemaVersion).toBe(1);
+		expect(result.data.id).toMatch(CANONICAL_UUID_PATTERN);
+		const resolved = result.data.findings[0];
+		expect(resolved?.id).toMatch(CANONICAL_UUID_PATTERN);
+		expect(resolved?.id).not.toBe(result.data.id);
+		expect(resolved?.affectedElementIds).toEqual([ids.taskVisit]);
+		expect(resolved?.evidenceRefs).toEqual([messageRef()]);
+	});
+
+	it("accepts a raw identity only when it is a contract element", () => {
+		const schema = reviewerSchema();
 		expect(
 			schema.safeParse(
-				review([
-					finding({
-						evidenceRefs: [{ ...messageRef(), messageId: "not-in-package" }],
-					}),
-				]),
+				wireReview([wireFinding({ affectedElements: [ids.taskVisit] })]),
+			).success,
+		).toBe(true);
+		const unknown = schema.safeParse(
+			wireReview([wireFinding({ affectedElements: [did(9999)] })]),
+		);
+		expect(unknown.success).toBe(false);
+		expect(
+			unknown.success ? "" : (unknown.error.issues[0]?.message ?? ""),
+		).toContain(did(9999));
+	});
+
+	it("names an unbound handle instead of a resolved coordinate", () => {
+		const result = reviewerSchema().safeParse(
+			wireReview([wireFinding({ affectedElements: ["@not_declared"] })]),
+		);
+		expect(result.success).toBe(false);
+		const message = result.success
+			? ""
+			: (result.error.issues[0]?.message ?? "");
+		// The model's own symbol is the diagnosable value — the exact gap that
+		// once hid what a live reviewer spliced.
+		expect(message).toContain("@not_declared");
+		expect(result.success ? [] : (result.error.issues[0]?.path ?? [])).toEqual([
+			"findings",
+			0,
+			"affectedElements",
+			0,
+		]);
+	});
+
+	it("rejects a bound handle whose element left the reviewed contract", () => {
+		const schema = designReviewSchemaFor({
+			contract: makeContract(),
+			pkg: pkg(),
+			bindings: [...bindings(), { handle: "@ghost", designId: did(9999) }],
+		});
+		const result = schema.safeParse(
+			wireReview([wireFinding({ affectedElements: ["@ghost"] })]),
+		);
+		expect(result.success).toBe(false);
+		const message = result.success
+			? ""
+			: (result.error.issues[0]?.message ?? "");
+		expect(message).toContain("@ghost");
+		expect(message).toContain("not part of the reviewed contract");
+	});
+
+	it("makes an out-of-set source tag grammatically inexpressible", () => {
+		expect(
+			reviewerSchema().safeParse(
+				wireReview([wireFinding({ evidenceRefs: [{ source: "S9" }] })]),
 			).success,
 		).toBe(false);
 	});
 
-	it("names the offending coordinate when a citation misses the package", () => {
-		const schema = designReviewSchemaFor(makeContract(), pkg());
-		const result = schema.safeParse(
-			review([
-				finding({
-					evidenceRefs: [{ ...messageRef(5), messageId: "invented-id" }],
+	it("attaches the catalog's anchor to a platform citation", () => {
+		const result = reviewerSchema().safeParse(
+			wireReview([
+				wireFinding({
+					basis: "platform-constraint",
+					evidenceRefs: [{ platform: "CASE_SEARCH_IS_LIVE_AND_ONLINE" }],
+				}),
+			]),
+		);
+		expect(result.success).toBe(true);
+		if (!result.success) return;
+		expect(result.data.findings[0]?.evidenceRefs[0]).toEqual({
+			kind: "platform-constraint",
+			code: "CASE_SEARCH_IS_LIVE_AND_ONLINE",
+			sourceAnchor: "lib/commcare/suite/case-search/remoteRequest.ts",
+		});
+	});
+
+	it("teaches that sectionPath belongs to attachment tags only", () => {
+		const result = reviewerSchema().safeParse(
+			wireReview([
+				wireFinding({
+					evidenceRefs: [{ source: "S1", sectionPath: ["Requirements"] }],
 				}),
 			]),
 		);
@@ -123,19 +236,36 @@ describe("review findings", () => {
 		const message = result.success
 			? ""
 			: (result.error.issues[0]?.message ?? "");
-		// The composed key makes the failure diagnosable from the operational
-		// log alone — the exact gap that hid what a live reviewer invented.
-		expect(message).toContain("message:");
-		expect(message).toContain("invented-id");
-		expect(message).toContain(":5");
+		expect(message).toContain("S1");
+		expect(message).toContain("message");
+	});
+
+	it("keeps the persisted schema's citation laws speaking with wire paths", () => {
+		const result = reviewerSchema().safeParse(
+			wireReview([
+				wireFinding({
+					severity: "advisory",
+					basis: "heuristic",
+					dispositionClass: "advisory",
+					// Advisory findings carry no citations — the law lives once, in
+					// the persisted schema, and the backstop re-parse surfaces it.
+				}),
+			]),
+		);
+		expect(result.success).toBe(false);
+		const issue = result.success ? undefined : result.error.issues[0];
+		expect(issue?.path).toEqual(["findings", 0, "evidenceRefs"]);
+		expect(issue?.message ?? "").toContain("Advisory findings");
 	});
 });
 
 describe("citation grounding stays in lockstep with the review prompt", () => {
+	const ATTACHMENT_ASSET = "00000000-0000-4000-8000-000000000860";
+
 	function richPackage(): DesignSourcePackage {
 		const attachmentRef = {
 			kind: "attachment-extract" as const,
-			assetId: "00000000-0000-4000-8000-000000000860" as never,
+			assetId: ATTACHMENT_ASSET as never,
 			extractorVersion: 3,
 			sectionPath: [],
 		};
@@ -146,7 +276,7 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 					id: did(700),
 					statement: "The user answered the pilot questions.",
 					// One NEW coordinate plus a duplicate of the projected block —
-					// the citable set must dedup, not double-list.
+					// the tagged set must dedup, not double-list.
 					sourceRefs: [messageRef(9), messageRef()],
 					status: "explicit",
 					confidence: 1,
@@ -165,43 +295,101 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 		};
 	}
 
-	it("admits exactly the coordinates the prompt renders, including claim refs", () => {
+	it("admits exactly the tags the prompt's legend renders, including claim refs", () => {
 		const sourcePackage = richPackage();
-		const schema = designReviewSchemaFor(makeContract(), sourcePackage);
-		const refs = citableSourceRefs(sourcePackage);
+		const tagged = taggedCitableSourceRefs(sourcePackage);
 		// message block + attachment + the claim's extra coordinate, deduped.
-		expect(refs).toHaveLength(3);
-		for (const ref of refs) {
+		expect(tagged.map(({ tag }) => tag)).toEqual(["S1", "S2", "S3"]);
+		const schema = designReviewSchemaFor({
+			contract: makeContract(),
+			pkg: sourcePackage,
+			bindings: bindings(),
+		});
+		for (const { tag } of tagged) {
 			expect(
-				schema.safeParse(review([finding({ evidenceRefs: [ref] })])).success,
+				schema.safeParse(
+					wireReview([wireFinding({ evidenceRefs: [{ source: tag }] })]),
+				).success,
 			).toBe(true);
 		}
-		const rendered = renderCitableSourceCoordinates(sourcePackage);
-		expect(rendered.match(/^- /gm)).toHaveLength(refs.length);
-		expect(rendered).toContain("partIndex 9");
-		expect(rendered).toContain("extractorVersion 3");
+		const legend = renderSourceTagLegend(sourcePackage);
+		expect(legend.match(/^- /gm)).toHaveLength(tagged.length);
+		expect(legend).toContain("S1 — user message block");
+		expect(legend).toContain("S2 — attached document spec.pdf");
+		expect(legend).toContain(
+			"S3 — a message coordinate from the normalized source notes",
+		);
 	});
 
-	it("matches an attachment citation on identity, not sectionPath", () => {
+	it("resolves an attachment tag from identity fields plus the model's own narrowing", () => {
 		const sourcePackage = richPackage();
-		const schema = designReviewSchemaFor(makeContract(), sourcePackage);
-		const cited = {
-			kind: "attachment-extract" as const,
-			assetId: "00000000-0000-4000-8000-000000000860" as never,
+		const schema = designReviewSchemaFor({
+			contract: makeContract(),
+			pkg: sourcePackage,
+			bindings: bindings(),
+		});
+		const result = schema.safeParse(
+			wireReview([
+				wireFinding({
+					evidenceRefs: [
+						{
+							source: "S2",
+							sectionPath: ["Requirements"],
+							figureMarker: '<nova:figure index="1"/>',
+						},
+					],
+				}),
+			]),
+		);
+		expect(result.success).toBe(true);
+		if (!result.success) return;
+		expect(result.data.findings[0]?.evidenceRefs[0]).toEqual({
+			kind: "attachment-extract",
+			assetId: ATTACHMENT_ASSET,
 			extractorVersion: 3,
 			sectionPath: ["Requirements"],
 			figureMarker: '<nova:figure index="1"/>',
+		});
+	});
+
+	it("never inherits a claim-carried sectionPath into a citation", () => {
+		// The attachment coordinate enters the citable set ONLY through a claim
+		// that narrowed it to a section; a citation of its tag without narrowing
+		// must resolve to the bare identity, not the claim's location.
+		const attachmentViaClaim = {
+			kind: "attachment-extract" as const,
+			assetId: ATTACHMENT_ASSET as never,
+			extractorVersion: 3,
+			sectionPath: ["From the claim"],
 		};
-		expect(
-			schema.safeParse(review([finding({ evidenceRefs: [cited] })])).success,
-		).toBe(true);
-		expect(
-			schema.safeParse(
-				review([
-					finding({ evidenceRefs: [{ ...cited, extractorVersion: 4 }] }),
-				]),
-			).success,
-		).toBe(false);
+		const sourcePackage: DesignSourcePackage = {
+			...pkg(),
+			claims: [
+				{
+					id: did(701),
+					statement: "The spec names the requirement.",
+					sourceRefs: [attachmentViaClaim],
+					status: "explicit",
+					confidence: 1,
+				},
+			],
+		};
+		const schema = designReviewSchemaFor({
+			contract: makeContract(),
+			pkg: sourcePackage,
+			bindings: bindings(),
+		});
+		const result = schema.safeParse(
+			wireReview([wireFinding({ evidenceRefs: [{ source: "S2" }] })]),
+		);
+		expect(result.success).toBe(true);
+		if (!result.success) return;
+		expect(result.data.findings[0]?.evidenceRefs[0]).toEqual({
+			kind: "attachment-extract",
+			assetId: ATTACHMENT_ASSET,
+			extractorVersion: 3,
+			sectionPath: [],
+		});
 	});
 });
 

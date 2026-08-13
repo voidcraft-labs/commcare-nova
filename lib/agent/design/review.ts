@@ -6,16 +6,8 @@ import {
 	appDesignContractSchema,
 	collectContractIds,
 } from "@/lib/agent/design/contract";
-import {
-	type SourceRef,
-	sourceRefKey,
-	sourceRefSchema,
-} from "@/lib/agent/design/evidence";
+import { type SourceRef, sourceRefSchema } from "@/lib/agent/design/evidence";
 import { designIdSchema } from "@/lib/agent/design/ids";
-import {
-	citableSourceRefs,
-	type DesignSourcePackage,
-} from "@/lib/agent/design/sourcePackage";
 
 export const designFindingCategorySchema = z.enum([
 	"requirement-coverage",
@@ -148,40 +140,6 @@ export const designReviewSchema = z
 	})
 	.strict();
 export type DesignReview = z.infer<typeof designReviewSchema>;
-
-export function designReviewSchemaFor(
-	contract: AppDesignContract,
-	sourcePackage: DesignSourcePackage,
-) {
-	const knownIds = collectContractIds(contract);
-	const allowed = allowedSourceRefKeys(sourcePackage);
-	return designReviewSchema.superRefine((review, ctx) => {
-		review.findings.forEach((finding, findingIndex) => {
-			finding.affectedElementIds.forEach((id, index) => {
-				if (!knownIds.has(id)) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["findings", findingIndex, "affectedElementIds", index],
-						message:
-							"This finding names an element absent from the reviewed design.",
-					});
-				}
-			});
-			finding.evidenceRefs.forEach((ref, index) => {
-				if (
-					ref.kind !== "platform-constraint" &&
-					!allowed.has(sourceRefKey(ref))
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["findings", findingIndex, "evidenceRefs", index],
-						message: `The citation ${diagnosticSourceRefKey(ref)} names a coordinate outside the exact source package under review.`,
-					});
-				}
-			});
-		});
-	});
-}
 
 export const findingDispositionSchema = z
 	.object({
@@ -343,19 +301,3 @@ export function validateSensitivityNotSilentlyLowered(
 }
 
 export { collectContractIds };
-
-function allowedSourceRefKeys(
-	sourcePackage: DesignSourcePackage,
-): ReadonlySet<string> {
-	return new Set(citableSourceRefs(sourcePackage).map(sourceRefKey));
-}
-
-/* A rejected citation's coordinate is the model's own emitted value, and the
- * rejection message reaches mirrored operational logs. Reducing it to bounded
- * id-safe characters keeps the coordinate diagnosable (ids survive intact)
- * while free prose smuggled into a string slot cannot ride into retention. */
-function diagnosticSourceRefKey(ref: SourceRef): string {
-	return sourceRefKey(ref)
-		.replace(/[^A-Za-z0-9_.:-]/g, "_")
-		.slice(0, 160);
-}

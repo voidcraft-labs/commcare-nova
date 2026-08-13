@@ -24,7 +24,6 @@ import {
 	renderAttachmentSource,
 	renderRequestBlockSource,
 } from "@/lib/agent/design/prompts";
-import type { DesignReview } from "@/lib/agent/design/review";
 import type {
 	DesignSourcePackage,
 	SourceClaimSeed,
@@ -167,8 +166,13 @@ export function renderDesignStateMessage(args: {
 	gates: DesignGateState;
 	claims: readonly SourceClaimSeed[];
 	/** Reviews of the head draft whose findings await disposition, included
-	 *  when the thread does not carry them. */
-	openReviews: readonly DesignReview[] | null;
+	 *  when the thread does not carry them — already projected into the
+	 *  model's symbol vocabulary (finding `@f` handles, element handles), so
+	 *  the shape here is structural, not the persisted `DesignReview`. */
+	openReviews: ReadonlyArray<{
+		readonly summary: string;
+		readonly findings: unknown;
+	}> | null;
 	/** Private staged authoring survives provider compaction and process loss.
 	 * This bounded summary tells the model where to resume; exact items remain
 	 * available through inspectDesignWorkspace. */
@@ -192,15 +196,9 @@ export function renderDesignStateMessage(args: {
 	if (args.openReviews && args.openReviews.length > 0) {
 		lines.push("", "## Review findings awaiting disposition");
 		lines.push(
-			JSON.stringify(
-				args.openReviews.map((review) => ({
-					summary: review.summary,
-					findings: review.findings,
-				})),
-				null,
-				1,
-			),
+			"Disposition each finding by its printed handle (its id, for example @f1).",
 		);
+		lines.push(JSON.stringify(args.openReviews, null, 1));
 	}
 	if (args.workspace) {
 		lines.push(

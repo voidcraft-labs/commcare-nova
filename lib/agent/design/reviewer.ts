@@ -17,10 +17,9 @@ import {
 	renderReviewPrompt,
 	sourcePackageImages,
 } from "@/lib/agent/design/prompts";
-import {
-	type DesignReview,
-	designReviewSchemaFor,
-} from "@/lib/agent/design/review";
+import type { DesignReview } from "@/lib/agent/design/review";
+import { designReviewSchemaFor } from "@/lib/agent/design/reviewerSchema";
+import type { ReviewHandleBinding } from "@/lib/agent/design/reviewVocabulary";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
 import {
@@ -37,15 +36,28 @@ export async function runDesignReviewer(
 		pkg: DesignSourcePackage;
 		contract: AppDesignContract;
 		catalogText: string;
+		/** The session's durable identity-handle ledger. ONE value feeds both
+		 *  the prompt rendering and the output schema, so the symbols the
+		 *  model reads and the symbols the schema resolves cannot drift. */
+		bindings: readonly ReviewHandleBinding[];
 	},
 	signal: AbortSignal,
 	onProgress?: (deltaChars: number) => void,
 ): Promise<ArtifactResult<DesignReview>> {
 	const result = await ctx.runStructured({
-		schema: designReviewSchemaFor(args.contract, args.pkg),
+		schema: designReviewSchemaFor({
+			contract: args.contract,
+			pkg: args.pkg,
+			bindings: args.bindings,
+		}),
 		modelId: DESIGN_REVIEWER_MODEL,
 		system: DESIGN_REVIEWER_SYSTEM,
-		prompt: renderReviewPrompt(args.pkg, args.contract, args.catalogText),
+		prompt: renderReviewPrompt(
+			args.pkg,
+			args.contract,
+			args.catalogText,
+			args.bindings,
+		),
 		images: sourcePackageImages(args.pkg),
 		maxOutputTokens: DESIGN_REVIEWER_MAX_OUTPUT_TOKENS,
 		providerOptions: reasoningProviderOptions(DESIGN_REVIEWER_REASONING.effort),

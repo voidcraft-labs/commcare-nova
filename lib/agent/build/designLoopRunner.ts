@@ -33,7 +33,10 @@ import {
 	type DesignArtifactKind,
 	designWorkspaceCandidateSummary,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
-import { openDesignArtifactWorkspace } from "@/lib/agent/design/artifactWorkspaceStore";
+import {
+	openDesignArtifactWorkspace,
+	readDesignIdentityHandleBindings,
+} from "@/lib/agent/design/artifactWorkspaceStore";
 import {
 	buildCapabilityCatalog,
 	renderCapabilityCatalog,
@@ -81,6 +84,7 @@ import {
 	DESIGN_PROMPT_VERSIONS,
 	renderPlatformConstraintsSection,
 } from "@/lib/agent/design/prompts";
+import { deriveFindingHandleBindings } from "@/lib/agent/design/reviewVocabulary";
 import type {
 	BuildSourcePackageArgs,
 	DesignSourcePackage,
@@ -550,6 +554,17 @@ export async function runDesignAgentLoop(
 						lineage: designWorkspaceLineageForGates(workspaceKind, gates),
 						authority,
 					});
+		/* The ledger read stands alone so open findings project through the
+		 * session's handles even before any revision workspace exists — the
+		 * workspace-bundled copy is the same session-scoped rows. */
+		const ledgerBindings =
+			workspace?.handleBindings ??
+			(openReviews.length > 0
+				? await readDesignIdentityHandleBindings({
+						designSessionId: args.designSessionId,
+						authority,
+					})
+				: []);
 		return {
 			role: "user",
 			content: renderDesignStateMessage({
@@ -557,10 +572,24 @@ export async function runDesignAgentLoop(
 				claims: args.pkg.claims,
 				openReviews:
 					openReviews.length > 0
-						? (projectDesignIdentityHandles(
-								openReviews.map((review) => review.envelope.payload),
-								workspace?.handleBindings ?? [],
-							) as (typeof openReviews)[number]["envelope"]["payload"][])
+						? (() => {
+								/* The SAME positional numbering the requestReview result
+								 * printed: continuous across the head's reviews in ordinal
+								 * order. */
+								const projectionBindings = [
+									...ledgerBindings,
+									...deriveFindingHandleBindings(
+										openReviews.map((entry) => entry.envelope.payload),
+									),
+								];
+								return openReviews.map((review) => ({
+									summary: review.envelope.payload.summary,
+									findings: projectDesignIdentityHandles(
+										review.envelope.payload.findings,
+										projectionBindings,
+									),
+								}));
+							})()
 						: null,
 				workspace:
 					workspace === null || workspaceKind === null

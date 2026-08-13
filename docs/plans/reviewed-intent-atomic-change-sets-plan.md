@@ -208,7 +208,9 @@ task-complete user outcome:
 
 Workflow-local handles identify inputs, decisions, and effects without adding
 global Design IDs for every nested item. They are semantic names inside one
-workflow, not Blueprint identities.
+workflow, not Blueprint identities — and a third vocabulary from both the
+session's `@handle` identity symbols (§4.2) and the server's positional `@f`
+finding handles (§4.4): the three never share a resolution path.
 
 ### 3.5 Lists, access, and navigation
 
@@ -324,6 +326,9 @@ in the same stage. The server transactionally binds it in a session-scoped
 ledger and resolves it before the persisted schema parses. Invented raw UUID
 declarations and undeclared handles are rejected. Persisted artifacts remain
 UUID-only, while exact model state projects known IDs back through handles.
+The reviewer's tag/handle vocabulary (§4.4) is the same projection law applied
+to the review surface: symbols in every model-facing direction, UUIDs at rest,
+resolution server-side before admission.
 
 Each stage is bounded to 32 item changes and 48 KiB. Successful stages are
 durable. A rejected finalization leaves every accepted stage intact, so the
@@ -397,8 +402,11 @@ lookups.
 only:
 
 - the exact authorized source package;
-- the exact proposed contract;
-- the capability and platform-constraint catalog.
+- the exact proposed contract, printed through the session's identity-handle
+  projection;
+- the capability and platform-constraint catalog;
+- the session's durable identity-handle bindings (a read-only ledger read that
+  authorizes like every workspace read and creates nothing).
 
 It receives no author hidden reasoning, prior reviewer prose, mutation tools,
 or canonical authority.
@@ -410,17 +418,31 @@ A finding records:
 - basis;
 - disposition class;
 - claim;
-- affected contract elements;
+- affected contract elements, named by their printed `@handle` symbols;
 - proposed resolution when useful;
-- evidence references only for critical or important findings.
+- evidence references only for critical or important findings, named by
+  server-assigned source tags or a platform-constraint code.
+
+The reviewer emits no identities Nova already owns. A structured generation
+reproduces short semantic symbols far more reliably than 32-hex-digit UUIDs or
+compound source coordinates — both observed live failure classes were the
+model failing to copy an arbitrary string it could not mean — so the model's
+whole output vocabulary is symbols, resolved inside the reviewer's own schema
+(`reviewerSchema.ts`, a Zod transform: the strict wire projection emits the
+symbol grammar, the parse returns the persisted UUID-only review). Source
+citations are `S`-numbered tags derived once (`taggedCitableSourceRefs`) for
+the prompt's legend, the source-block labels, and the schema's exact tag enum,
+so an out-of-set citation is grammatically inexpressible rather than merely
+rejected; no raw coordinate appears anywhere in the reviewer's context.
+Platform citations are the catalog's code enum, and the catalog supplies the
+`sourceAnchor` (a model-emitted anchor was never verifiable). Affected
+elements resolve through the ledger bindings; an unbound or off-contract
+symbol invalidates the review and the diagnostic names the model's own symbol.
+The server mints the review and finding identities at resolution, and the
+resolved value re-parses under the persisted schema before anything persists.
 
 Advisories carry no citations. Heuristics cannot be critical. Platform findings
-cite a known platform constraint. Citations are grounded in a closed set: the
-package's source index plus its normalized claims' references, derived once
-(`citableSourceRefs`) for both the validator and the review prompt's
-citable-coordinates list, so the reviewer copies exact coordinates instead of
-reconstructing them from labels, and a rejected citation's diagnostic names
-the offending coordinate. Only design corrections at critical or
+cite a known platform constraint. Only design corrections at critical or
 important severity, plus unresolved user decisions, block acceptance.
 External, runtime, deployment, and advisory observations remain visible
 context but do not force a pointless design rewrite. A decision the sources
@@ -433,6 +455,17 @@ a user-decision finding to hand the choice back.
 A revision workspace begins from the immutable reviewed parent. It upserts or
 removes only affected items and persists one disposition for each blocking
 finding. Unchanged content stays in place.
+
+The agent never copies a finding's UUID either: findings return from
+`requestReview` — and print in every state packet — with server-assigned
+positional `@f1..@fN` handles (continuous across the head draft's reviews in
+ordinal order, derived on demand, never stored), and a disposition's
+`findingId` is that printed handle. The revision stage resolves finding
+handles against that derivation BEFORE the generic workspace resolver runs,
+because findings are server-minted identities a deterministic handle mint
+would silently miss; an unknown finding handle refuses naming the open set.
+Declaring an `@f`-numbered handle for a design element is refused at staging,
+so the projection can never print one symbol for two things.
 
 One second review occurs only when the first revision:
 
@@ -955,7 +988,10 @@ assumption handling, and setup honesty.
 It receives no executor reasoning or raw chat narrative. A model heuristic
 cannot be critical. A critical finding requires deterministic proof, exact
 source support, or a versioned platform constraint. Findings do not carry a
-numeric confidence score.
+numeric confidence score. Its citation and element vocabulary follows §4.4:
+server-assigned symbols over its projection inputs, resolved in its own
+schema — a second citation dialect would reintroduce the copyable-coordinate
+failure class the design reviewer already retired.
 
 ### 9.7 Bounded correction
 
@@ -1161,10 +1197,12 @@ Every remaining unit keeps the current guarantees covered by focused and
 integration tests:
 
 - exact artifact parsing, lineage, and digest checks;
-- design graph closure and review grounding;
+- design graph closure and review grounding, including the reviewer's
+  tag/handle vocabulary staying in lockstep with its prompt legend;
 - deterministic plan derivation;
 - workspace revision and request idempotency;
-- handle resolution before original schema admission;
+- handle resolution before original schema admission, including the reviewer
+  output schema's in-schema symbol resolution;
 - change-set replay and coverage;
 - external read-set fences;
 - canonical sidecar atomicity;

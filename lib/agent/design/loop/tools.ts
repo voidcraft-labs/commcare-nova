@@ -29,6 +29,7 @@ import {
 	type DesignIdentityHandleBinding,
 	inspectDesignArtifactWorkspace,
 	openDesignArtifactWorkspace,
+	readDesignIdentityHandleBindings,
 	stageDesignArtifactWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceStore";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
@@ -40,7 +41,7 @@ import {
 	designConstructionQuestionRequirements,
 	type OpenQuestion,
 } from "@/lib/agent/design/contract";
-import { designIdSchema } from "@/lib/agent/design/ids";
+import { DESIGN_HANDLE_PATTERN, designIdSchema } from "@/lib/agent/design/ids";
 import {
 	changesArchitecture,
 	contractEnvelope,
@@ -67,6 +68,10 @@ import {
 	validateSensitivityNotSilentlyLowered,
 } from "@/lib/agent/design/review";
 import { runDesignReviewer } from "@/lib/agent/design/reviewer";
+import {
+	deriveFindingHandleBindings,
+	RESERVED_FINDING_HANDLE_PATTERN,
+} from "@/lib/agent/design/reviewVocabulary";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
 import {
@@ -135,7 +140,9 @@ function strictWireOnly(schema: z.ZodType) {
 	return jsonSchema<unknown>(strictWireJsonSchema(schema) as never);
 }
 
-export const DESIGN_HANDLE_PATTERN = /^@[a-z][a-z0-9_-]{0,62}$/;
+/** Re-exported from `ids.ts` (its home is the leaf, beside `designIdSchema`,
+ * so the reviewer schema shares it without importing the loop). */
+export { DESIGN_HANDLE_PATTERN };
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -363,6 +370,81 @@ export function designUnboundHandleIssue(
 	return unknown === undefined
 		? null
 		: `The design handle ${unknown} has not been declared. Declare it in its authoring identity slot before referencing it, or include its declaration in this same stage.`;
+}
+
+/** `@f<N>` is the server's projection vocabulary for review findings
+ * (`reviewVocabulary.ts::deriveFindingHandleBindings`). A design element
+ * declared under one would print the same symbol as a finding, making every
+ * later projection ambiguous — so the declaration is refused before binding. */
+export function designReservedHandleIssue(
+	input: unknown,
+	designSessionId: string,
+): string | null {
+	const reserved = collectDesignIdentityHandleBindings(
+		input,
+		designSessionId,
+	).find((binding) => RESERVED_FINDING_HANDLE_PATTERN.test(binding.handle));
+	return reserved === undefined
+		? null
+		: `Handles like ${reserved.handle} are the server's names for review findings; they cannot be declared for design elements. Pick a descriptive handle such as @follow_up_visit.`;
+}
+
+/**
+ * Resolve `{ handle: "@f1" }` finding references in a revision stage's
+ * dispositions BEFORE the generic workspace resolver sees them: findings are
+ * server-minted identities, not session-deterministic handle mints, so the
+ * generic resolver would deterministically produce a WRONG UUID that parses.
+ * Walks only the dispositions collection (`upserts[].findingId` and
+ * `removeIds[]`); every other slot belongs to the contract namespace and
+ * keeps its existing resolution.
+ */
+export function resolveDesignFindingHandles(
+	input: unknown,
+	findingBindings: ReadonlyArray<{
+		readonly handle: string;
+		readonly designId: string;
+	}>,
+):
+	| { readonly ok: true; readonly value: unknown }
+	| { readonly ok: false; readonly error: string } {
+	if (!isJsonObject(input) || !isJsonObject(input.dispositions)) {
+		return { ok: true, value: input };
+	}
+	const byHandle = new Map(
+		findingBindings.map((binding) => [binding.handle, binding.designId]),
+	);
+	let error: string | null = null;
+	const resolveSlot = (value: unknown): unknown => {
+		const handle = handleValue(value);
+		if (handle === null) return value;
+		const designId = byHandle.get(handle);
+		if (designId === undefined) {
+			const known = [...byHandle.keys()];
+			error ??=
+				known.length === 0
+					? `The finding handle ${handle} does not exist — this review cycle has no open findings to disposition.`
+					: `The finding handle ${handle} does not exist on this review. The open findings are ${known.join(", ")} — disposition one of those, or use the exact finding identity from the review result.`;
+			return value;
+		}
+		return designId;
+	};
+	const dispositions = input.dispositions;
+	const resolved = {
+		...dispositions,
+		...(Array.isArray(dispositions.upserts) && {
+			upserts: dispositions.upserts.map((entry) =>
+				isJsonObject(entry) && "findingId" in entry
+					? { ...entry, findingId: resolveSlot(entry.findingId) }
+					: entry,
+			),
+		}),
+		...(Array.isArray(dispositions.removeIds) && {
+			removeIds: dispositions.removeIds.map(resolveSlot),
+		}),
+	};
+	return error !== null
+		? { ok: false, error }
+		: { ok: true, value: { ...input, dispositions: resolved } };
 }
 
 /** Model-facing projection: persisted artifacts remain UUID-only while every
@@ -736,6 +818,20 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					},
 				});
 			}
+			const reservedIssue = designReservedHandleIssue(
+				strippedInput,
+				deps.designSessionId,
+			);
+			if (reservedIssue !== null) {
+				return rejectedStage(deps, "stageContract", {
+					error: reservedIssue,
+					diagnostic: {
+						code: "design-reserved-handle",
+						validationStage: "partial" as const,
+						issueCount: 1,
+					},
+				});
+			}
 			const unboundHandleIssue = designUnboundHandleIssue(
 				strippedInput,
 				workspace.handleBindings,
@@ -802,7 +898,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 
 	const stageRevision = {
 		description:
-			"Stage a bounded part of the reviewed revision. Reuse the stable identities in the exact state packet for existing elements and give any new element a readable handle such as {handle:'@follow_up'}; the server mints its stable identity. Upsert or remove complete items and blocking finding dispositions; unchanged parent content stays in place. Use the returned workspace revision for the next stage.",
+			"Stage a bounded part of the reviewed revision. Reuse the stable identities in the exact state packet for existing elements and give any new element a readable handle such as {handle:'@follow_up'}; the server mints its stable identity. Upsert or remove complete items and blocking finding dispositions — a disposition's findingId is the finding's printed handle, for example {handle:'@f1'}. Unchanged parent content stays in place. Use the returned workspace revision for the next stage.",
 		inputSchema: strictWireWithHandles(stageRevisionInputSchema),
 		strict: true,
 		execute: async (
@@ -822,9 +918,32 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				workspace.candidate,
 			);
 			if (questionRefusal !== null) return questionRefusal;
+			/* Finding handles resolve FIRST: they are server-minted identities,
+			 * and the generic deterministic resolver below would mint a wrong
+			 * UUID for `{handle:"@f1"}` that parses. The existing dispositions
+			 * exemptions in the declaration/reference walks stay — after this
+			 * pass those slots hold only UUIDs. */
 			const strippedInput = stripNullProperties(input);
-			const identityIssue = designCreationIdentityIssue(
+			const findingBindings = deriveFindingHandleBindings(
+				gates.headReviews.map((review) => review.envelope.payload),
+			);
+			const preResolved = resolveDesignFindingHandles(
 				strippedInput,
+				findingBindings,
+			);
+			if (!preResolved.ok) {
+				return rejectedStage(deps, "stageRevision", {
+					error: preResolved.error,
+					diagnostic: {
+						code: "design-unknown-finding-handle",
+						validationStage: "partial" as const,
+						issueCount: 1,
+					},
+				});
+			}
+			const stagedInput = preResolved.value;
+			const identityIssue = designCreationIdentityIssue(
+				stagedInput,
 				workspace.candidate,
 				workspace.sourceContract,
 			);
@@ -838,8 +957,22 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					},
 				});
 			}
+			const reservedIssue = designReservedHandleIssue(
+				stagedInput,
+				deps.designSessionId,
+			);
+			if (reservedIssue !== null) {
+				return rejectedStage(deps, "stageRevision", {
+					error: reservedIssue,
+					diagnostic: {
+						code: "design-reserved-handle",
+						validationStage: "partial" as const,
+						issueCount: 1,
+					},
+				});
+			}
 			const unboundHandleIssue = designUnboundHandleIssue(
-				strippedInput,
+				stagedInput,
 				workspace.handleBindings,
 				workspace.candidate,
 				deps.designSessionId,
@@ -857,7 +990,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			}
 			const parsed = parseHandledStage(
 				stageRevisionInputSchema,
-				input,
+				stagedInput,
 				deps.designSessionId,
 			);
 			if (!parsed.ok) {
@@ -866,7 +999,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			const { expectedRevision, ...body } = parsed.data;
 			const operation = { kind: "revision" as const, ...body };
 			const handleBindings = collectDesignIdentityHandleBindings(
-				strippedInput,
+				stagedInput,
 				deps.designSessionId,
 			);
 			const bound = designWorkspaceBoundError({
@@ -1104,12 +1237,20 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 						"The sources for this draft no longer reproduce exactly. Stage and finalize a fresh Design Contract from the current sources.",
 				};
 			}
+			/* The session's handle ledger renders the contract in symbol
+			 * vocabulary and resolves the symbols the reviewer emits — one
+			 * read-only load feeds both directions. */
+			const bindings = await readDesignIdentityHandleBindings({
+				designSessionId: deps.designSessionId,
+				authority: deps.authority,
+			});
 			const reviewed = await runDesignReviewer(
 				deps.ctx,
 				{
 					pkg,
 					contract: draft.envelope.payload,
 					catalogText: deps.catalogText,
+					bindings,
 				},
 				deps.signal,
 				deps.onReviewActivity,
@@ -1138,6 +1279,17 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 			deps.repair.noteAccepted("requestReview");
 			const findings = review.envelope.payload.findings;
 			const gated = findings.filter(findingBlocksAcceptance);
+			/* The agent reads and writes symbols: finding ids project to their
+			 * positional `@f` handles (what a disposition's findingId takes) and
+			 * affected elements back through the ledger — the same vocabulary
+			 * the next state packet prints. */
+			const projectedFindings = projectDesignIdentityHandles(findings, [
+				...bindings,
+				...deriveFindingHandleBindings([
+					...gates.headReviews.map((entry) => entry.envelope.payload),
+					review.envelope.payload,
+				]),
+			]);
 			if (gated.length === 0) {
 				const accepted = await insertDesignRevision({
 					envelope: contractEnvelope({
@@ -1165,7 +1317,7 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					ok: true,
 					reviewId: review.id,
 					summary: review.envelope.payload.summary,
-					findings,
+					findings: projectedFindings,
 					accepted: true,
 					acceptedRevisionId: accepted.id,
 					planId: plan?.id,
@@ -1179,10 +1331,10 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				ok: true,
 				reviewId: review.id,
 				summary: review.envelope.payload.summary,
-				findings,
+				findings: projectedFindings,
 				accepted: false,
 				message:
-					"The review has blocking design corrections or user decisions. Stage only those corrections and their dispositions with stageRevision, then finalize with submitRevision.",
+					'The review has blocking design corrections or user decisions. Stage only those corrections and their dispositions with stageRevision — disposition each finding by its printed handle, for example {"handle":"@f1"} — then finalize with submitRevision.',
 			};
 		},
 	};

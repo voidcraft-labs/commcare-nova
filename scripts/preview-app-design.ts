@@ -27,6 +27,7 @@ import {
 	stageContractInputSchema,
 	stageRevisionInputSchema,
 } from "../lib/agent/design/artifactWorkspaceOperations";
+import type { DesignIdentityHandleBinding } from "../lib/agent/design/artifactWorkspaceStore";
 import { type BuildPlan, deriveBuildPlan } from "../lib/agent/design/buildPlan";
 import {
 	buildCapabilityCatalog,
@@ -42,8 +43,11 @@ import {
 } from "../lib/agent/design/loop/artifacts";
 import { createDesignAgent } from "../lib/agent/design/loop/designAgent";
 import {
+	collectDesignIdentityHandleBindings,
 	createDesignLoopTools,
+	projectDesignIdentityHandles,
 	renderDesignValidationIssues,
+	resolveDesignFindingHandles,
 	resolveDesignWorkspaceHandles,
 } from "../lib/agent/design/loop/tools";
 import { PLATFORM_CONSTRAINTS } from "../lib/agent/design/platformConstraints";
@@ -61,6 +65,7 @@ import {
 	validateSensitivityNotSilentlyLowered,
 } from "../lib/agent/design/review";
 import { runDesignReviewer } from "../lib/agent/design/reviewer";
+import { deriveFindingHandleBindings } from "../lib/agent/design/reviewVocabulary";
 import {
 	computeSourcePackageDigest,
 	type DesignSourcePackage,
@@ -85,6 +90,10 @@ interface PreviewState {
 	plan: BuildPlan | null;
 	contractOperations: DesignArtifactWorkspaceOperation[];
 	revisionOperations: DesignArtifactWorkspaceOperation[];
+	/** The in-memory stand-in for the durable identity-handle ledger:
+	 *  every accepted stage's declarations, deduped by handle, exactly what
+	 *  production reads back for the reviewer's symbol vocabulary. */
+	handleBindings: Map<string, DesignIdentityHandleBinding>;
 }
 
 function issuesText(error: {
@@ -212,6 +221,7 @@ async function main(): Promise<void> {
 		plan: null,
 		contractOperations: [],
 		revisionOperations: [],
+		handleBindings: new Map(),
 	};
 
 	/* Reuse production descriptions and strict wire schemas while replacing
@@ -257,9 +267,19 @@ async function main(): Promise<void> {
 	const stage = async (kind: "contract" | "revision", rawInput: unknown) => {
 		const schema =
 			kind === "contract" ? stageContractInputSchema : stageRevisionInputSchema;
+		/* Same order as production stageRevision: finding handles resolve
+		 * before the generic resolver can mint a wrong deterministic UUID. */
+		const preResolved =
+			kind === "revision"
+				? resolveDesignFindingHandles(
+						stripNullProperties(rawInput),
+						deriveFindingHandleBindings(state.reviews),
+					)
+				: ({ ok: true, value: rawInput } as const);
+		if (!preResolved.ok) return { error: preResolved.error };
 		const parsed = parseInput(
 			schema,
-			resolveDesignWorkspaceHandles(rawInput, sessionId),
+			resolveDesignWorkspaceHandles(preResolved.value, sessionId),
 		);
 		if (!parsed.ok) return { error: parsed.error };
 		const operations =
@@ -274,6 +294,12 @@ async function main(): Promise<void> {
 		const bound = designWorkspaceBoundError({ input: parsed.data, operation });
 		if (bound !== null) return { error: bound };
 		operations.push(operation);
+		for (const binding of collectDesignIdentityHandleBindings(
+			stripNullProperties(rawInput),
+			sessionId,
+		)) {
+			state.handleBindings.set(binding.handle, binding);
+		}
 		return {
 			ok: true,
 			workspaceRevision: operations.length,
@@ -370,7 +396,12 @@ async function main(): Promise<void> {
 				console.log("\n[requestReview] running the independent reviewer…");
 				const reviewed = await runDesignReviewer(
 					ctx,
-					{ pkg, contract: state.contract, catalogText },
+					{
+						pkg,
+						contract: state.contract,
+						catalogText,
+						bindings: [...state.handleBindings.values()],
+					},
 					signal,
 				);
 				if (reviewed.kind !== "produced") {
@@ -393,7 +424,10 @@ async function main(): Promise<void> {
 				}
 				return {
 					ok: true,
-					findings: reviewed.artifact.findings,
+					findings: projectDesignIdentityHandles(reviewed.artifact.findings, [
+						...state.handleBindings.values(),
+						...deriveFindingHandleBindings([reviewed.artifact]),
+					]),
 					summary: reviewed.artifact.summary,
 					accepted: blocking.length === 0,
 					message:

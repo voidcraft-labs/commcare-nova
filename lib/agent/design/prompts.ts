@@ -1,11 +1,15 @@
 /** Static design/review prompts and source-package renderers. */
 
 import type { AppDesignContract } from "@/lib/agent/design/contract";
+import { sourceRefKey } from "@/lib/agent/design/evidence";
 import { PLATFORM_CONSTRAINTS } from "@/lib/agent/design/platformConstraints";
 import {
-	citableSourceRefs,
-	type DesignSourcePackage,
-} from "@/lib/agent/design/sourcePackage";
+	projectBoundIdsToHandles,
+	type ReviewHandleBinding,
+	sourceTagByRefKey,
+	taggedCitableSourceRefs,
+} from "@/lib/agent/design/reviewVocabulary";
+import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
@@ -57,7 +61,7 @@ Keep semantic information beside the workflow it belongs to. An input, decision,
 
 ## Identity
 
-Use readable handles wherever a staging schema permits an identity object, for example {"handle":"@register_client"}. A handle begins with @ and contains lowercase letters, digits, underscores, or hyphens. Declare it in the element's own identity slot before referencing it, or declare and reference it in the same stage. Reuse the same handle for every reference to that element. The server binds the handle durably and mints the stable identity. Exact state and inspection project every known identity back through its handle, including during revision; keep using that symbol. A raw UUID is accepted only for an identity already proven in the immutable base or current workspace. Never invent one.
+Use readable handles wherever a staging schema permits an identity object, for example {"handle":"@register_client"}. A handle begins with @ and contains lowercase letters, digits, underscores, or hyphens. Declare it in the element's own identity slot before referencing it, or declare and reference it in the same stage. Reuse the same handle for every reference to that element. The server binds the handle durably and mints the stable identity. Exact state and inspection project every known identity back through its handle, including during revision; keep using that symbol. A raw UUID is accepted only for an identity already proven in the immutable base or current workspace. Never invent one. Review findings arrive with server-assigned @f-numbered handles; a disposition's findingId is that printed handle, copied exactly, for example {"handle":"@f1"}. Never declare an @f-numbered handle for a design element — that numbering belongs to the server.
 
 ## How to work
 
@@ -119,7 +123,7 @@ Only critical and important design-correction findings, plus user-decision findi
 
 Critical means the design would build the wrong app, expose or corrupt sensitive data, or cannot perform a central workflow. Important means a material workflow, data, access, or usability defect. Advisory means worthwhile but non-blocking.
 
-Critical and important findings must cite the exact source message, attachment, image, or platform constraint that establishes the problem. The citable coordinates form a closed set: copy every value verbatim from the source labels and the citable source coordinates list, and never derive, interpolate, or invent a thread id, message id, part index, asset id, extractor version, or byte digest — one citation outside that set invalidates the whole review. Several findings may share one coordinate; material inside a labeled source block is cited with that block's coordinate. Advisory findings carry no citations. affectedElementIds names only stable elements that actually exist in the reviewed contract; it may be empty for a genuinely missing element. Do not demand source attribution inside the contract itself.
+Critical and important findings must cite the exact source or platform constraint that establishes the problem. Cite a source only by its server-assigned tag — the S-numbered label on its source block and in the Source tags legend — and cite a platform constraint by its exact code from the constraints list. These symbols form a closed set: copy each tag, constraint code, and element @handle exactly as printed, and never derive, interpolate, or invent one — a symbol outside that set invalidates the whole review. Several findings may share one tag; material inside a labeled source block is cited with that block's tag. An attachment tag's citation may add sectionPath headings and a figureMarker to say where inside the extract it points. Advisory findings carry no citations. affectedElements names only elements the reviewed contract actually prints, by their exact @handle; it may be empty for a genuinely missing element. Do not demand source attribution inside the contract itself.
 
 Prefer a clean review over speculative findings. Do not manufacture severity from uncertainty, count objects as quality, require a second app, or flag setup guidance as an app defect. Summarize in calm product language without exposing schemas, identifiers, model behavior, or internal process.`;
 
@@ -173,26 +177,87 @@ export function imageSourceLabel(
 	return `Attached image: ${neutralizeSourceDelimiters(image.filename)} (image:${image.assetId}:${image.bytesDigest})`;
 }
 
+function sourceTagOpen(tag: string): string {
+	return `<nova:source tag="${tag}">`;
+}
+
+/** The tag every rendered source unit prints — one lookup over the same
+ *  derivation the legend and the reviewer schema use, so a block's label can
+ *  never disagree with the citable set. Construction guarantees a hit (the
+ *  source index feeds `citableSourceRefs`); the fallback only keeps a
+ *  malformed synthetic package renderable. */
+function tagFor(tags: ReadonlyMap<string, string>, key: string): string {
+	return tags.get(key) ?? "S0";
+}
+
+/** Claims carry full source references; the reviewer prompt prints them as
+ *  tags (or a platform code) so no compound coordinate is copyable anywhere
+ *  in the reviewer's context. */
+function projectClaimRefsToTags(
+	claims: DesignSourcePackage["claims"],
+	tags: ReadonlyMap<string, string>,
+): unknown[] {
+	return claims.map((claim) => ({
+		...claim,
+		sourceRefs: claim.sourceRefs.map((ref) =>
+			ref.kind === "platform-constraint"
+				? `platform:${ref.code}`
+				: tagFor(tags, sourceRefKey(ref)),
+		),
+	}));
+}
+
+/** REVIEWER-ONLY rendering. The conversational per-block renderers above stay
+ *  byte-identical — the author transcript is prefix-cached and tag numbering
+ *  shifts when an answered round extends the package, so tags may exist only
+ *  in this one-shot prompt and are never persisted. */
 export function renderSourcePackage(pkg: DesignSourcePackage): string {
+	const tags = sourceTagByRefKey(pkg);
 	const lines: string[] = ["# Source package", "", "## User request"];
 	for (const block of pkg.request.blocks) {
-		lines.push(...renderRequestBlockSource(block));
+		lines.push(
+			sourceTagOpen(tagFor(tags, sourceRefKey(block.ref))),
+			neutralizeSourceDelimiters(block.text),
+			...(block.truncated ? ["[clipped at the projection bound]"] : []),
+			SOURCE_CLOSE,
+		);
 	}
 	for (const attachment of pkg.attachments) {
-		lines.push("", ...renderAttachmentSource(attachment));
+		const tag = tagFor(
+			tags,
+			sourceRefKey({
+				kind: "attachment-extract",
+				assetId: attachment.assetId,
+				extractorVersion: attachment.extractorVersion,
+				sectionPath: [],
+			}),
+		);
+		lines.push(
+			"",
+			`## Attached document: ${neutralizeSourceDelimiters(attachment.filename)} (${tag})`,
+			...(attachment.summary
+				? [`Summary: ${neutralizeSourceDelimiters(attachment.summary)}`]
+				: []),
+			sourceTagOpen(tag),
+			neutralizeSourceDelimiters(attachment.extract),
+			...(attachment.truncated
+				? ["[the stored extract was truncated or clipped at the bound]"]
+				: []),
+			SOURCE_CLOSE,
+		);
 	}
 	if (pkg.images.length > 0) {
 		lines.push(
 			"",
 			`## Attached images (${pkg.images.length})`,
-			'Image parts follow with exact source-coordinate labels. Cite one with its "image" source reference from that label.',
+			"Image parts follow; each label ends with its source tag. Cite an image with that tag.",
 		);
 	}
 	if (pkg.claims.length > 0) {
 		lines.push(
 			"",
 			"## Normalized source notes",
-			JSON.stringify(pkg.claims, null, 1),
+			JSON.stringify(projectClaimRefsToTags(pkg.claims, tags), null, 1),
 		);
 	}
 	lines.push("", "## Citable platform constraints");
@@ -202,13 +267,23 @@ export function renderSourcePackage(pkg: DesignSourcePackage): string {
 	return lines.join("\n");
 }
 
+/** Reviewer-only image labels: the tag is the citation, so the label carries
+ *  it instead of the raw asset coordinate. */
 export function sourcePackageImages(
 	pkg: DesignSourcePackage,
 ): SubGenerationImage[] {
+	const tags = sourceTagByRefKey(pkg);
 	return pkg.images.map((image) => ({
 		mediaType: image.mediaType,
 		data: image.dataUrl,
-		label: imageSourceLabel(image),
+		label: `Attached image: ${neutralizeSourceDelimiters(image.filename)} (${tagFor(
+			tags,
+			sourceRefKey({
+				kind: "image",
+				assetId: image.assetId,
+				bytesDigest: image.bytesDigest,
+			}),
+		)})`,
 	}));
 }
 
@@ -221,38 +296,62 @@ export function renderPlatformConstraintsSection(): string {
 }
 
 /**
- * The reviewer's copyable citation list — the same closed set citation
- * validation admits (`citableSourceRefs`), rendered with explicit field
- * names so a structured `evidenceRefs` entry is a copy, not a
- * reconstruction from labels scattered through the source text. Platform
- * constraints are omitted here because the source package already lists
- * them, and a message id passes through the same `refToken` flattening as
- * the source labels so a hostile id cannot inject prompt text.
+ * The reviewer's citation legend — the same closed set the reviewer schema
+ * admits (`taggedCitableSourceRefs`), described in plain words per tag. The
+ * tag IS the citation, so no thread id, asset id, extractor version, or byte
+ * digest appears anywhere in the reviewer's context; there is nothing to
+ * copy incorrectly. Platform constraints are omitted because the source
+ * package already lists their codes.
  */
-export function renderCitableSourceCoordinates(
-	pkg: DesignSourcePackage,
-): string {
+export function renderSourceTagLegend(pkg: DesignSourcePackage): string {
+	const blockKeys = new Set(
+		pkg.request.blocks.map((block) => sourceRefKey(block.ref)),
+	);
+	const attachmentNames = new Map(
+		pkg.attachments.map((attachment) => [
+			`${attachment.assetId}:${attachment.extractorVersion}`,
+			attachment.filename,
+		]),
+	);
+	const imageNames = new Map(
+		pkg.images.map((image) => [
+			`${image.assetId}:${image.bytesDigest}`,
+			image.filename,
+		]),
+	);
 	const lines = [
-		"## Citable source coordinates",
-		"Critical and important findings cite only these exact coordinates, or a platform constraint from the list above. Copy every value verbatim. An attachment-extract citation may add sectionPath headings and a figureMarker to say where inside the extract it points; its assetId and extractorVersion must still match exactly.",
+		"## Source tags",
+		"Critical and important findings cite sources only by these server-assigned tags, or a platform constraint code from the list above. Copy the tag exactly; never derive or invent one. An attachment tag's citation may add sectionPath headings and a figureMarker to say where inside the extract it points.",
 	];
-	for (const ref of citableSourceRefs(pkg)) {
+	for (const { tag, ref } of taggedCitableSourceRefs(pkg)) {
 		switch (ref.kind) {
 			case "message":
 				lines.push(
-					`- message — threadId ${ref.threadId}, messageId ${refToken(ref.messageId)}, partIndex ${ref.partIndex}`,
+					blockKeys.has(sourceRefKey(ref))
+						? `- ${tag} — user message block`
+						: `- ${tag} — a message coordinate from the normalized source notes`,
 				);
 				break;
-			case "attachment-extract":
+			case "attachment-extract": {
+				const name = attachmentNames.get(
+					`${ref.assetId}:${ref.extractorVersion}`,
+				);
 				lines.push(
-					`- attachment-extract — assetId ${ref.assetId}, extractorVersion ${ref.extractorVersion}`,
+					name === undefined
+						? `- ${tag} — an attachment coordinate from the normalized source notes`
+						: `- ${tag} — attached document ${neutralizeSourceDelimiters(name)}`,
 				);
 				break;
-			case "image":
+			}
+			case "image": {
+				const name = imageNames.get(`${ref.assetId}:${ref.bytesDigest}`);
 				lines.push(
-					`- image — assetId ${ref.assetId}, bytesDigest ${ref.bytesDigest}`,
+					name === undefined
+						? `- ${tag} — an image coordinate from the normalized source notes`
+						: `- ${tag} — attached image ${neutralizeSourceDelimiters(name)}`,
 				);
 				break;
+			}
 			case "platform-constraint":
 				break;
 		}
@@ -264,16 +363,18 @@ export function renderReviewPrompt(
 	pkg: DesignSourcePackage,
 	contract: AppDesignContract,
 	catalogText: string,
+	bindings: readonly ReviewHandleBinding[],
 ): string {
 	return [
 		renderSourcePackage(pkg),
 		"",
-		renderCitableSourceCoordinates(pkg),
+		renderSourceTagLegend(pkg),
 		"",
 		catalogText,
 		"",
 		"# Proposed Design Contract",
-		JSON.stringify(contract, null, 1),
+		"Elements are printed with their @handle symbols in place of raw identities.",
+		JSON.stringify(projectBoundIdsToHandles(contract, bindings), null, 1),
 		"",
 		"Review this contract against the sources and capability boundary.",
 	].join("\n");

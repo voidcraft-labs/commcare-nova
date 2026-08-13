@@ -399,6 +399,41 @@ async function readWorkspaceOperations(
 	});
 }
 
+async function selectHandleBindings(
+	tx: Transaction<AppDatabase>,
+	designSessionId: string,
+): Promise<DesignIdentityHandleBinding[]> {
+	const rows = await tx
+		.selectFrom("design_identity_handles")
+		.select(["handle", "design_id", "entity_kind"])
+		.where("design_session_id", "=", designSessionId)
+		.orderBy("created_at", "asc")
+		.orderBy("handle", "asc")
+		.execute();
+	return rows.map((binding) => ({
+		handle: binding.handle,
+		designId: binding.design_id,
+		entityKind: binding.entity_kind,
+	}));
+}
+
+/**
+ * The session's durable identity-handle ledger, read-only. The reviewer call
+ * loads this to render the contract in handle vocabulary and to resolve the
+ * handles the reviewer emits — one load, both directions. Deliberately NOT
+ * `openDesignArtifactWorkspace`: that call creates a workspace row when none
+ * is open, and a review must never mutate workspace state to read symbols.
+ */
+export async function readDesignIdentityHandleBindings(args: {
+	designSessionId: string;
+	authority: DesignArtifactWriteAuthority;
+}): Promise<readonly DesignIdentityHandleBinding[]> {
+	return withAppTx(async (tx) => {
+		await authorizeWorkspace(tx, args.designSessionId, args.authority);
+		return selectHandleBindings(tx, args.designSessionId);
+	});
+}
+
 async function loadWorkspaceState(args: {
 	workspaceId: string;
 	designSessionId: string;
@@ -415,28 +450,17 @@ async function loadWorkspaceState(args: {
 				);
 			}
 			const operations = await readWorkspaceOperations(tx, args.workspaceId);
-			const handleBindings = await tx
-				.selectFrom("design_identity_handles")
-				.select(["handle", "design_id", "entity_kind"])
-				.where("design_session_id", "=", args.designSessionId)
-				.orderBy("created_at", "asc")
-				.orderBy("handle", "asc")
-				.execute();
+			const handleBindings = await selectHandleBindings(
+				tx,
+				args.designSessionId,
+			);
 			if (operations.length !== workspace.revision) {
 				throw new DesignArtifactWorkspaceError(
 					"lineage-invalid",
 					"The design workspace revision disagrees with its operation ledger.",
 				);
 			}
-			return {
-				workspace,
-				operations,
-				handleBindings: handleBindings.map((binding) => ({
-					handle: binding.handle,
-					designId: binding.design_id,
-					entityKind: binding.entity_kind,
-				})),
-			};
+			return { workspace, operations, handleBindings };
 		},
 	);
 	let sourceContract: Record<string, unknown> | null = null;
