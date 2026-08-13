@@ -714,6 +714,12 @@ export interface DesignSliceAttemptsTable {
 	stage_rejected_count: DefaultedNumberColumn;
 	validator_repair_count: DefaultedNumberColumn;
 	outcome_evidence_state: ColumnType<string, string | undefined, string>;
+	/** Active wall-clock spend in milliseconds — accrued only at genuine
+	 * budget claims, so the gap a dead process leaves never counts. */
+	wall_clock_ms_used: ColumnType<string | number, number | undefined, number>;
+	/** The instant the wall-clock integrator last accrued to; recovery
+	 * resets it without accruing. */
+	wall_clock_accrued_at: Timestamp;
 	status: string;
 	failure_code: string | null;
 	created_at: Timestamp;

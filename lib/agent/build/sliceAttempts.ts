@@ -64,8 +64,14 @@ export interface SliceAttempt {
 	readonly executorModel: string;
 	readonly promptVersion: string;
 	readonly briefDigest: string;
-	/** Original attempt start; recovery derives the same absolute deadline. */
+	/** Original attempt start — provenance only. The wall-clock budget does
+	 * NOT measure elapsed time since this instant: `wallClockMsUsed` is the
+	 * durable active-time integrator, so a recovery grants the remaining
+	 * budget rather than inheriting a deadline the dead gap already burned. */
 	readonly startedAt: Date;
+	/** Active wall-clock spend in milliseconds, accrued at each genuine
+	 * budget claim. Dead gaps between holders never accrue. */
+	readonly wallClockMsUsed: number;
 	readonly budgetSpent: SliceAttemptBudgetSpent;
 	readonly finalizationCheckpoint: {
 		readonly validationRequested: boolean;
@@ -114,6 +120,7 @@ interface AttemptRow {
 	stage_rejected_count: number;
 	validator_repair_count: number;
 	outcome_evidence_state: string;
+	wall_clock_ms_used: string | number;
 	created_at: Date | string;
 	status: string;
 	failure_code: string | null;
@@ -177,6 +184,12 @@ function rowToAttempt(row: AttemptRow): SliceAttempt {
 			`Persisted slice attempt ${row.id} has an invalid start time.`,
 		);
 	}
+	const wallClockMsUsed = Number(row.wall_clock_ms_used);
+	if (!Number.isSafeInteger(wallClockMsUsed) || wallClockMsUsed < 0) {
+		throw new Error(
+			`Persisted slice attempt ${row.id} carries an invalid wall-clock spend.`,
+		);
+	}
 	const baseTarget: SliceAttemptBaseTarget =
 		row.base_kind === "empty-genesis"
 			? {
@@ -216,6 +229,7 @@ function rowToAttempt(row: AttemptRow): SliceAttempt {
 		promptVersion: row.prompt_version,
 		briefDigest: row.brief_digest,
 		startedAt,
+		wallClockMsUsed,
 		budgetSpent: {
 			modelSteps: row.model_steps_used,
 			stagedRequests: row.staged_requests_used,
@@ -270,6 +284,7 @@ const ATTEMPT_COLUMNS = [
 	"stage_rejected_count",
 	"validator_repair_count",
 	"outcome_evidence_state",
+	"wall_clock_ms_used",
 	"created_at",
 	"status",
 	"failure_code",
@@ -480,6 +495,28 @@ async function adoptOpenChangeSetOwner(
 	}
 }
 
+/** Recovery adopts a running attempt without accruing the gap the previous
+ * holder's death left behind: the wall-clock integrator's accrual instant
+ * moves to now, so the next budget claim charges only time this holder
+ * actually worked. The spent milliseconds themselves are untouched. */
+async function resetWallClockAccrual(
+	tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
+	attempt: SliceAttempt,
+): Promise<void> {
+	const updated = await tx
+		.updateTable("design_slice_attempts")
+		.set({ wall_clock_accrued_at: new Date(), updated_at: new Date() })
+		.where("id", "=", attempt.id)
+		.where("design_session_id", "=", attempt.designSessionId)
+		.where("status", "=", "running")
+		.executeTakeFirst();
+	if (!updatedExactlyOne(updated)) {
+		throw new SliceAttemptStateError(
+			`Slice attempt ${attempt.id} changed while resetting its wall-clock accrual.`,
+		);
+	}
+}
+
 async function recordAttemptExecutionRun(
 	tx: Parameters<Parameters<typeof withAppTx>[0]>[0],
 	attempt: SliceAttempt,
@@ -531,11 +568,13 @@ export async function beginOrRecoverSliceAttempt(
 			let attempt = rowToAttempt(running as AttemptRow);
 			const bound = await lockBoundChangeSet(tx, attempt);
 			if (sameAttemptInputs(attempt, args) && bound === null) {
+				await resetWallClockAccrual(tx, attempt);
 				attempt = await recordAttemptExecutionRun(tx, attempt, args.runId);
 				return { attempt, recovered: true };
 			}
 			if (sameAttemptInputs(attempt, args) && bound?.status === "open") {
 				await adoptOpenChangeSetOwner(tx, attempt, bound, args);
+				await resetWallClockAccrual(tx, attempt);
 				attempt = await recordAttemptExecutionRun(tx, attempt, args.runId);
 				return { attempt, recovered: true };
 			}
@@ -782,6 +821,11 @@ export async function claimSliceAttemptBudget(
 			.updateTable("design_slice_attempts")
 			.set({
 				[column]: sql`${sql.ref(column)} + 1`,
+				/* The wall-clock integrator: a genuine claim charges the active
+				 * interval since the last accrual point and moves the point.
+				 * Replayed and exhausted claims deliberately do not accrue. */
+				wall_clock_ms_used: sql`wall_clock_ms_used + GREATEST(0, CEIL(EXTRACT(EPOCH FROM (now() - wall_clock_accrued_at)) * 1000))::bigint`,
+				wall_clock_accrued_at: sql`now()`,
 				...(args.counter === "modelSteps"
 					? { finalization_eligible: false }
 					: {}),

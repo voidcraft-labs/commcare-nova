@@ -7,6 +7,12 @@
  * in a test rather than tuned at runtime. Exceeding any axis ends the attempt
  * as `budget-exhausted`: it never commits a partial canonical prefix and never
  * reports completion. There is no unbounded "amend until valid" loop.
+ *
+ * Wall time is ACTIVE time. The attempt row's durable integrator
+ * (`sliceAttempts.ts`) accrues it at genuine budget claims and recovery
+ * resets the accrual point without accruing, so a process-death resume —
+ * which can only run after the build liveness horizon lapses — receives the
+ * unspent remainder instead of a deadline the dead gap already burned.
  */
 
 import type { BuildSlice } from "@/lib/agent/design/buildPlan";
@@ -83,6 +89,17 @@ const CEILINGS = {
 	maxStagedRequests: 96,
 	maxWallClockMs: 12 * 60_000,
 } as const;
+
+/** The wall clock an attempt may still spend: its budget minus durable
+ * active spend, floored at zero. The executor deadline is now plus this —
+ * never elapsed time since the attempt's original start, which would count
+ * the dead gap a process-death recovery necessarily sits behind. */
+export function remainingWallClockMs(
+	budget: SliceExecutionBudget,
+	wallClockMsUsed: number,
+): number {
+	return Math.max(0, budget.maxWallClockMs - wallClockMsUsed);
+}
 
 /** Deterministic budget for one slice — pure, and pinned by test. */
 export function budgetForSlice(slice: BuildSlice): SliceExecutionBudget {

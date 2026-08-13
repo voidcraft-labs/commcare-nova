@@ -81,8 +81,14 @@ solely for the notice.
 - `build/` — the design-driven BUILD method behind a chat build: `orchestrator.ts` (`runBuildOrchestration` — source package → Luna `xhigh` design and independent review → frozen accepted artifacts → Luna `xhigh` workflow slices in topological order → exact receipt, validator, and normal export-compilation proofs), `orchestratorState.ts` (the append-only authorized event chain), `sliceAttempts.ts` (exact-attempt recovery across infrastructure replacement and terminal attempt closure), `modelContextStore.ts` (tenant-authorized append-only design/executor `ModelMessage` ledgers plus payload-free provider-step boundaries), `externalActions.ts` (fail-closed typed prerequisites), `executorLoop.ts` + `executorPrompt.ts` + `executorWireSchemas.ts` + `executorToolProfile.ts` + `budgets.ts` + `executionBlocker.ts` (the bounded private compiler: only top-level `readBatch`, `stageBatch`, inspection, commit request, and blocker reporting; one immutable provider grammar with slice-specific dispatch authorization; canonical creation-slot handles for every authorable identity; one transcript across workflow slices; absolute budgets; payload-free outcomes; server-proved validation, read currency, and construction coverage), `executionBrief.ts` (the workflow-local semantic checklist, relevant constraints, and tool profile), and `progress.ts` (durable user-facing stage projections). Every model seam is injectable. `UsageAccumulator` labels `design-author`, `design-review`, and `build-executor` while preserving per-call model pricing in the authoritative total. A design turn never mounts the SA. Progress and executor-outcome logs carry only opaque IDs, tool names, stable codes, indices, revisions, and aggregate usage, never customer-authored names, inputs, outputs, or rejection prose.
 Running-attempt recovery keeps the exact attempt and transactionally transfers
 its open change set to the current authorized session holder. The attempt row's
-original start time and claim-before-work counters preserve model, staging,
-commit, blocker, and wall-clock spend across that recovery. It also persists
+claim-before-work counters preserve model, staging, commit, and blocker spend
+across that recovery, and wall-clock spend is a durable ACTIVE-time
+integrator: each genuine budget claim accrues the interval since the last
+accrual point, recovery resets that point without accruing, and the executor
+deadline grants only the unspent remainder — so the dead gap between a killed
+process and its resume (which must outlast the build liveness horizon) never
+counts as spend and can never birth a recovered attempt already
+budget-exhausted. It also persists
 an append-only set of every execution run id before that run can spend model
 work, so usage inspection can fail closed when any recovered run lacks a
 summary. Completed design and executor response usage is also persisted beside

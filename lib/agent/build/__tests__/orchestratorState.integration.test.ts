@@ -4,6 +4,7 @@
  * re-proves the whole chain, and one running attempt per slice.
  */
 
+import { sql } from "kysely";
 import { afterEach, describe, expect, it } from "vitest";
 import { beginGenesisChangeSet } from "@/lib/agent/change-set/store";
 import { asDesignId } from "@/lib/agent/design/ids";
@@ -458,6 +459,80 @@ describe("slice attempts", () => {
 				.where("id", "=", attempt.id)
 				.executeTakeFirstOrThrow(),
 		).toEqual({ outcome_evidence_state: "incomplete" });
+	});
+
+	it("accrues wall-clock only at genuine claims and forgives the dead gap on recovery", async () => {
+		const sessionId = await seedHeldSession();
+		const args = await attemptArgs(sessionId);
+		const { attempt } = await beginOrRecoverSliceAttempt(args);
+		const authority = { ...args, attemptId: attempt.id };
+		expect(attempt.wallClockMsUsed).toBe(0);
+		const readSpend = async () =>
+			Number(
+				(
+					await h
+						.db()
+						.selectFrom("design_slice_attempts")
+						.select("wall_clock_ms_used")
+						.where("id", "=", attempt.id)
+						.executeTakeFirstOrThrow()
+				).wall_clock_ms_used,
+			);
+		const backdateAccrual = (minutes: number) =>
+			h
+				.db()
+				.updateTable("design_slice_attempts")
+				.set({
+					wall_clock_accrued_at: sql`now() - make_interval(mins => ${minutes})`,
+				})
+				.where("id", "=", attempt.id)
+				.execute();
+
+		/* Five minutes of active work since the last accrual point: the next
+		 * genuine claim charges it. */
+		await backdateAccrual(5);
+		expect(
+			await claimSliceAttemptBudget({
+				...authority,
+				counter: "modelSteps",
+				limit: 10,
+				claimKey: "step:1",
+			}),
+		).toBe("claimed");
+		const afterActive = await readSpend();
+		expect(afterActive).toBeGreaterThanOrEqual(5 * 60_000);
+		expect(afterActive).toBeLessThan(6 * 60_000);
+
+		/* A replayed claim never accrues. */
+		await backdateAccrual(5);
+		expect(
+			await claimSliceAttemptBudget({
+				...authority,
+				counter: "modelSteps",
+				limit: 10,
+				claimKey: "step:1",
+			}),
+		).toBe("replayed");
+		expect(await readSpend()).toBe(afterActive);
+
+		/* The process dies; thirty minutes pass before a replacement holder
+		 * recovers the attempt. Recovery resets the accrual point without
+		 * accruing, so the recovered attempt still holds only its active
+		 * spend and the next claim charges only post-recovery time. */
+		await backdateAccrual(30);
+		const recovered = await beginOrRecoverSliceAttempt(args);
+		expect(recovered.recovered).toBe(true);
+		expect(recovered.attempt.wallClockMsUsed).toBe(afterActive);
+		expect(
+			await claimSliceAttemptBudget({
+				...authority,
+				counter: "modelSteps",
+				limit: 10,
+				claimKey: "step:2",
+			}),
+		).toBe("claimed");
+		const afterRecovery = await readSpend();
+		expect(afterRecovery - afterActive).toBeLessThan(60_000);
 	});
 
 	it("recovers the running attempt when digests match, supersedes it when they moved", async () => {

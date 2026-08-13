@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { budgetForSlice } from "@/lib/agent/build/budgets";
+import {
+	budgetForSlice,
+	remainingWallClockMs,
+} from "@/lib/agent/build/budgets";
 import {
 	did,
 	fixtureValue,
@@ -55,5 +58,24 @@ describe("budgetForSlice", () => {
 		expect(budgetForSlice(slice)).toEqual(
 			budgetForSlice(structuredClone(slice)),
 		);
+	});
+});
+
+describe("remainingWallClockMs", () => {
+	it("grants the full budget to a fresh attempt and the unspent remainder to a recovered one", () => {
+		const budget = budgetForSlice(sliceWithGroups(1));
+		expect(remainingWallClockMs(budget, 0)).toBe(budget.maxWallClockMs);
+		expect(remainingWallClockMs(budget, 200_000)).toBe(
+			budget.maxWallClockMs - 200_000,
+		);
+	});
+
+	it("floors at zero once active spend reaches the budget", () => {
+		const budget = budgetForSlice(sliceWithGroups(1));
+		expect(remainingWallClockMs(budget, budget.maxWallClockMs)).toBe(0);
+		/* The pre-integrator failure shape: a recovery arriving after a long
+		 * dead gap must NOT be modeled as spend — but if genuine active spend
+		 * ever exceeds the budget, the remainder still floors at zero. */
+		expect(remainingWallClockMs(budget, budget.maxWallClockMs + 1)).toBe(0);
 	});
 });

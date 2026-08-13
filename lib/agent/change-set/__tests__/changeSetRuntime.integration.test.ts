@@ -670,6 +670,8 @@ describe("private staging isolation", () => {
 				execution_run_ids: JSON.stringify([RUN]),
 				status: "running",
 				failure_code: null,
+				wall_clock_ms_used: 0,
+				wall_clock_accrued_at: new Date(),
 				created_at: new Date(),
 				updated_at: new Date(),
 			})

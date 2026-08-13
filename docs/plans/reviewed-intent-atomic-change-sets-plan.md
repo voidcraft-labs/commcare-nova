@@ -742,12 +742,17 @@ an internal build defect and stops honestly. A local tool-schema rejection is
 a construction problem, not a reason to rewrite product intent.
 
 Budgets cover model steps, staged requests, blocker resolutions, commit and
-rebase attempts, and absolute wall time. The same deadline reaches awaited
+rebase attempts, and active wall time. The same deadline reaches awaited
 provider work and database transactions. Each attempt durably claims model,
-staging, blocker, and commit spend before starting that work and retains its
-original wall-clock start. Every sub-budget claim has a stable operation key;
-replaying that exact operation reuses the existing claim instead of charging a
-second unit, while infrastructure recovery grants no new budget. A paid
+staging, blocker, and commit spend before starting that work. Wall-clock
+spend is a durable active-time integrator: each genuine claim accrues the
+interval since the attempt's last accrual point, recovery resets the point
+without accruing, and the deadline grants only the unspent remainder — the
+dead gap between a killed process and its resume is not spend, so a recovered
+attempt is never born past its deadline. Every sub-budget claim has a stable
+operation key; replaying that exact operation reuses the existing claim
+instead of charging a second unit, while infrastructure recovery grants no
+new budget beyond that unspent remainder. A paid
 architect blocker result is appended before execution continues, and a result
 lost before that durable write stops instead of purchasing a second decision. A
 validation/finalization checkpoint survives on the same attempt row. Each run

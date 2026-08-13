@@ -100,7 +100,7 @@ import {
 	BuildCompletionVerificationError,
 	refuseBuildCompletion,
 } from "./authoritativeCompletion";
-import { budgetForSlice } from "./budgets";
+import { budgetForSlice, remainingWallClockMs } from "./budgets";
 import {
 	type DesignLoopOutcome,
 	type DesignToolOutcomeEvent,
@@ -1486,8 +1486,14 @@ async function executeOneSlice(
 				return receipt === null ? null : { kind: "committed", receipt };
 			},
 			budgetLedger: {
+				/* The wall-clock budget grants what the attempt has not actively
+				 * spent — never elapsed time since the original start. A
+				 * process-death recovery can only run after the build liveness
+				 * horizon lapses, so an absolute deadline would arrive already
+				 * burned and fail every recovered attempt unexecuted. */
 				deadlineAt:
-					slice.attempt.startedAt.getTime() + slice.budget.maxWallClockMs,
+					Date.now() +
+					remainingWallClockMs(slice.budget, slice.attempt.wallClockMsUsed),
 				spent: slice.attempt.budgetSpent,
 				finalizationCheckpoint: slice.attempt.finalizationCheckpoint,
 				claim: (counter, limit, claimKey) =>
