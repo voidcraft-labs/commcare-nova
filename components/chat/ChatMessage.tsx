@@ -122,6 +122,13 @@ export function ChatMessage({
 	};
 
 	for (const [partIndex, part] of message.parts.entries()) {
+		/* Bookkeeping parts (step boundaries, data-* events) render nothing, so
+		 * they must not split a visible run: the design loop emits one tool
+		 * call per step, and flushing on each step-start would shatter its
+		 * grouped card into single-row fragments. */
+		if (part.type === "step-start" || part.type.startsWith("data-")) {
+			continue;
+		}
 		/* Provider compaction is model context, never conversation content. */
 		if (isOpenAICompactionPart(part)) {
 			flushTools();
@@ -138,6 +145,11 @@ export function ChatMessage({
 			continue;
 		}
 		if (part.type === "reasoning") {
+			/* A reasoning part with no visible text renders nothing (the design
+			 * roles often reason encrypted-only), so it must not split a run of
+			 * tool cards into single-row fragments. If deltas later fill it, the
+			 * walker regroups on the next render. */
+			if (!part.text.trim()) continue;
 			flushTools();
 			reasoningRunKey ??= `${message.id}-reasoning-${partIndex}`;
 			reasoningRun.push(part.text);
