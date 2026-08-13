@@ -1430,6 +1430,81 @@ describe("runSliceExecutor — budgets", () => {
 		});
 	});
 
+	it("re-arms a live deadline signal when the extension lands after the timer fired", async () => {
+		/* The blocker's durable budget claim is awaited, and the wall-clock
+		 * timer can fire in that gap. The paid decision then moves
+		 * `deadlineAt`, but an AbortController cannot un-abort: without
+		 * recreating it, the freshly purchased allowance died instantly as
+		 * budget-exhausted. Deterministic clock: the deadline crosses exactly
+		 * while the claim is in flight. */
+		vi.useFakeTimers();
+		try {
+			const plan = makeBuildPlan();
+			const slice = fixtureValue(plan.slices[0], "first slice");
+			const budget = {
+				...budgetForSlice(slice),
+				maxModelSteps: 2,
+				maxWallClockMs: 60_000,
+			};
+			const workspace = fakeWorkspace({
+				inspect: async () => BLOCKING_DIAGNOSTICS,
+			});
+			const { step } = scriptedStep([
+				{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
+				{ calls: [{ toolCallId: "read", toolName: "inspectChangeSet" }] },
+			]);
+			const outcome = await runSliceExecutor({
+				workspace,
+				brief: brief(),
+				budget,
+				budgetLedger: {
+					deadlineAt: Date.now() + budget.maxWallClockMs,
+					spent: {
+						modelSteps: 0,
+						stagedRequests: 0,
+						commitAttempts: 0,
+						blockerReports: 0,
+					},
+					finalizationCheckpoint: {
+						validationRequested: false,
+						eligible: false,
+					},
+					claim: async (counter) => {
+						/* The claim is in flight; now the wall clock runs out and
+						 * the timer fires, so the extension lands on a spent
+						 * controller. */
+						if (counter === "blockerReports") {
+							await vi.advanceTimersByTimeAsync(60_001);
+						}
+						return "claimed" as const;
+					},
+					checkpointFinalization: async () => undefined,
+				},
+				step,
+				commit: async () => {
+					throw new Error("commit must not be called");
+				},
+				signal: new AbortController().signal,
+				resolveBlocker: async () => ({
+					kind: "continue" as const,
+					guidance: "Lower the reserved property and continue.",
+				}),
+			});
+			/* The paid allowance survives the race: the loop keeps stepping
+			 * until the RAISED step limit, instead of dying at one step on the
+			 * stale aborted signal. */
+			expect(outcome).toEqual({
+				kind: "budget-exhausted",
+				spent: {
+					modelSteps: 2 + BLOCKER_RESOLUTION_ALLOWANCE.modelSteps,
+					stagedRequests: 0,
+				},
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("commits a clean fully accepted repair at the model-step boundary", async () => {
 		const workspace = fakeWorkspace({
 			inspect: vi

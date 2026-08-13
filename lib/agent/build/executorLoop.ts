@@ -862,21 +862,31 @@ export async function runSliceExecutor(args: {
 	const allowedMutationTools = new Set(brief.toolProfile.mutationTools);
 	let deadlineAt =
 		args.budgetLedger?.deadlineAt ?? Date.now() + budget.maxWallClockMs;
-	const deadline = new AbortController();
+	let deadline = new AbortController();
+	let boundedSignal = AbortSignal.any([signal, deadline.signal]);
 	let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 	/* Re-armable: a paid architect decision extends the wall clock by the
-	 * blocker allowance, so the abort timer must track the moved deadline. */
+	 * blocker allowance, so the abort timer must track the moved deadline.
+	 * An AbortController cannot un-abort, so when the previous timer already
+	 * fired (it can race the awaited budget claim that precedes an extension)
+	 * re-arming replaces the spent controller and re-derives the combined
+	 * signal; every use site reads the current binding, and the loop is
+	 * sequential, so no in-flight await holds the stale signal. */
 	const armDeadlineTimer = () => {
 		if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+		if (deadline.signal.aborted) {
+			deadline = new AbortController();
+			boundedSignal = AbortSignal.any([signal, deadline.signal]);
+		}
+		const armed = deadline;
 		deadlineTimer = setTimeout(
 			() =>
-				deadline.abort(new Error("Slice execution wall-clock budget expired.")),
+				armed.abort(new Error("Slice execution wall-clock budget expired.")),
 			Math.max(0, deadlineAt - Date.now()),
 		);
 		deadlineTimer.unref?.();
 	};
 	armDeadlineTimer();
-	const boundedSignal = AbortSignal.any([signal, deadline.signal]);
 	const deadlineExceeded = () =>
 		!signal.aborted && (deadline.signal.aborted || Date.now() >= deadlineAt);
 
