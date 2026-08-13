@@ -20,6 +20,10 @@
 import { createHash } from "node:crypto";
 import type { Transaction } from "kysely";
 import { z } from "zod";
+import {
+	ORCHESTRATION_KIND_CLASSIFICATION,
+	type OrchestrationKindClass,
+} from "@/lib/agent/build/orchestrationKinds";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { lockActorGenerationGateForAppHolder } from "@/lib/db/actorGenerationGate";
 import { completeAndSettleRunInTransaction } from "@/lib/db/apps";
@@ -112,6 +116,17 @@ export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 export type BuildOrchestratorState = z.infer<
 	typeof buildOrchestratorStateSchema
 >;
+
+/* Compile-time lockstep with `orchestrationKinds.ts`: the classification must
+ * name every kind in this union, so adding an arm here without deciding
+ * whether it releases the app freeze fails the build — the SQL gate, progress
+ * fold, and interruption stamp all derive from that record. (The unit test
+ * pins the reverse direction: no stale classified kind.) */
+const _everyOrchestrationKindIsClassified =
+	ORCHESTRATION_KIND_CLASSIFICATION satisfies Record<
+		BuildOrchestratorState["kind"],
+		OrchestrationKindClass
+	>;
 
 /** The fold's result — everything an append needs to name its predecessor. */
 export interface OrchestrationHead {

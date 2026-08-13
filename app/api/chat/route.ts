@@ -24,6 +24,7 @@ import {
 	TURN_RETRY_MESSAGE,
 	turnRetryDelayMs,
 } from "@/lib/agent";
+import { isTerminalOrchestrationKind } from "@/lib/agent/build/orchestrationKinds";
 import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
 import {
 	appendOrchestrationEvent,
@@ -2494,9 +2495,8 @@ export async function POST(req: Request) {
 										design.designSessionId,
 									);
 									if (
-										currentHead?.state.kind !== "finished" &&
-										currentHead?.state.kind !== "accepted-partial" &&
-										currentHead?.state.kind !== "failed"
+										currentHead === null ||
+										!isTerminalOrchestrationKind(currentHead.state.kind)
 									) {
 										await appendOrchestrationEvent({
 											designSessionId: design.designSessionId,

@@ -17,6 +17,7 @@ import {
 	type DesignSessionLeaseRow,
 	designSessionLeaseState,
 } from "@/lib/db/runLiveness";
+import { isTerminalOrchestrationKind } from "./orchestrationKinds";
 import type { OrchestrationHead } from "./orchestratorState";
 
 export type DesignBuildStage =
@@ -110,11 +111,7 @@ export function deriveInterruptedMaterializedBuildStage(
 	session: StageFoldSession,
 	head: OrchestrationHead | null,
 ): DesignBuildStage {
-	if (
-		head?.state.kind === "finished" ||
-		head?.state.kind === "accepted-partial" ||
-		head?.state.kind === "failed"
-	) {
+	if (head !== null && isTerminalOrchestrationKind(head.state.kind)) {
 		return deriveDesignBuildStage(session, head);
 	}
 	return "incomplete";
