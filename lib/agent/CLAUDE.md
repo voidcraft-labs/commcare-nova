@@ -126,7 +126,11 @@ appending a newer read cannot erase an older dependency. The accepted contract
 and deterministic plan freeze when construction begins. A blocker may receive
 implementation guidance inside the same accepted slice; a request to revise
 meaning or ask the user is an internal build defect and stops without changing
-scope.
+scope. Each paid architect decision also grows the attempt's step, staging,
+and wall-clock limits by one bounded priced allowance
+(`BLOCKER_RESOLUTION_ALLOWANCE`), because `continue` guidance directs rework
+the deterministic slice budget never priced; `maxBlockerResolutions` caps the
+total extension.
 A deterministic failure atomically abandons its open set and closes that exact
 plan/slice under the same immutable executor model, prompt, and brief. A fresh
 attempt may open only when one of those recorded compiler inputs changes.

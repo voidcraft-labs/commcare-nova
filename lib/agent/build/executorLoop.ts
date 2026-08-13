@@ -55,11 +55,12 @@ import type { AppMaterializationReceipt } from "@/lib/db/appGenesis";
 import type { DurableUsageIdentity } from "@/lib/db/usage";
 import { type ReasoningEffort, reasoningProviderOptions } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import type {
-	SliceAttemptBudgetClaimResult,
-	SliceAttemptBudgetCounter,
-	SliceAttemptBudgetSpent,
-	SliceExecutionBudget,
+import {
+	BLOCKER_RESOLUTION_ALLOWANCE,
+	type SliceAttemptBudgetClaimResult,
+	type SliceAttemptBudgetCounter,
+	type SliceAttemptBudgetSpent,
+	type SliceExecutionBudget,
 } from "./budgets";
 import {
 	type ArchitectBlockerDecision,
@@ -859,15 +860,22 @@ export async function runSliceExecutor(args: {
 	const tools = buildExecutorTools(brief);
 	const allowedReadTools = new Set(brief.toolProfile.readTools);
 	const allowedMutationTools = new Set(brief.toolProfile.mutationTools);
-	const deadlineAt =
+	let deadlineAt =
 		args.budgetLedger?.deadlineAt ?? Date.now() + budget.maxWallClockMs;
 	const deadline = new AbortController();
-	const deadlineTimer = setTimeout(
-		() =>
-			deadline.abort(new Error("Slice execution wall-clock budget expired.")),
-		Math.max(0, deadlineAt - Date.now()),
-	);
-	deadlineTimer.unref?.();
+	let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+	/* Re-armable: a paid architect decision extends the wall clock by the
+	 * blocker allowance, so the abort timer must track the moved deadline. */
+	const armDeadlineTimer = () => {
+		if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+		deadlineTimer = setTimeout(
+			() =>
+				deadline.abort(new Error("Slice execution wall-clock budget expired.")),
+			Math.max(0, deadlineAt - Date.now()),
+		);
+		deadlineTimer.unref?.();
+	};
+	armDeadlineTimer();
 	const boundedSignal = AbortSignal.any([signal, deadline.signal]);
 	const deadlineExceeded = () =>
 		!signal.aborted && (deadline.signal.aborted || Date.now() >= deadlineAt);
@@ -899,6 +907,17 @@ export async function runSliceExecutor(args: {
 	};
 
 	const spent = () => ({ modelSteps, stagedRequests });
+	/* A paid architect decision directs rework the deterministic slice budget
+	 * never priced (a lowering, a rehosting), so each answered blocker grows
+	 * the step and staging limits by one allowance. `blockerReports` restores
+	 * durably on recovery, and a recovered deadline already prices durable
+	 * blockers through `remainingWallClockMs`. */
+	const allowedModelSteps = () =>
+		budget.maxModelSteps +
+		blockerReports * BLOCKER_RESOLUTION_ALLOWANCE.modelSteps;
+	const allowedStagedRequests = () =>
+		budget.maxStagedRequests +
+		blockerReports * BLOCKER_RESOLUTION_ALLOWANCE.stagedRequests;
 	const claimBudget = async (
 		counter: SliceAttemptBudgetCounter,
 		limit: number,
@@ -1156,14 +1175,14 @@ export async function runSliceExecutor(args: {
 					completedStepKeys.add(stepKey);
 				}
 			} else {
-				if (modelSteps >= budget.maxModelSteps) {
+				if (modelSteps >= allowedModelSteps()) {
 					const finalized = await finalizeCleanCandidateAtStepBoundary();
 					return finalized ?? exhausted();
 				}
 				if (
 					(await claimBudget(
 						"modelSteps",
-						budget.maxModelSteps,
+						allowedModelSteps(),
 						`model:${scopeKey}:${modelSteps + 1}`,
 					)) === "exhausted"
 				) {
@@ -1475,7 +1494,7 @@ export async function runSliceExecutor(args: {
 					if (
 						(await claimBudget(
 							"stagedRequests",
-							budget.maxStagedRequests,
+							allowedStagedRequests(),
 							`stage:${scopeKey}:${modelSteps}:${call.toolCallId}:${index}`,
 						)) === "exhausted"
 					)
@@ -1788,6 +1807,11 @@ export async function runSliceExecutor(args: {
 							"A paid architect decision was observed before process replacement, but its durable result was not recorded. The attempt stopped instead of purchasing or inventing a second decision.",
 					};
 				}
+				/* The paid decision's rework allowance: the claim above already
+				 * grew the step/staging limits (it incremented `blockerReports`),
+				 * so extend the wall clock by the matching amount now. */
+				deadlineAt += BLOCKER_RESOLUTION_ALLOWANCE.ms;
+				armDeadlineTimer();
 				let diagnostics: ReturnType<typeof projectDiagnostics>;
 				try {
 					diagnostics = projectDiagnostics(

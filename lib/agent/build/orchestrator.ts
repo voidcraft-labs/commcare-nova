@@ -1493,7 +1493,11 @@ async function executeOneSlice(
 				 * burned and fail every recovered attempt unexecuted. */
 				deadlineAt:
 					Date.now() +
-					remainingWallClockMs(slice.budget, slice.attempt.wallClockMsUsed),
+					remainingWallClockMs(
+						slice.budget,
+						slice.attempt.wallClockMsUsed,
+						slice.attempt.budgetSpent.blockerReports,
+					),
 				spent: slice.attempt.budgetSpent,
 				finalizationCheckpoint: slice.attempt.finalizationCheckpoint,
 				claim: (counter, limit, claimKey) =>

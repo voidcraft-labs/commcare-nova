@@ -752,7 +752,11 @@ dead gap between a killed process and its resume is not spend, so a recovered
 attempt is never born past its deadline. Every sub-budget claim has a stable
 operation key; replaying that exact operation reuses the existing claim
 instead of charging a second unit, while infrastructure recovery grants no
-new budget beyond that unspent remainder. A paid
+new budget beyond that unspent remainder. Each PAID architect decision grows
+the attempt's step, staging, and wall-clock limits by one bounded priced
+allowance: a `continue` guidance directs rework the deterministic plan never
+priced, and `maxBlockerResolutions` caps the total extension at two
+allowances. A paid
 architect blocker result is appended before execution continues, and a result
 lost before that durable write stops instead of purchasing a second decision. A
 validation/finalization checkpoint survives on the same attempt row. Each run

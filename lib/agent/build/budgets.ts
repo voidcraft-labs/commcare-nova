@@ -90,15 +90,35 @@ const CEILINGS = {
 	maxWallClockMs: 12 * 60_000,
 } as const;
 
-/** The wall clock an attempt may still spend: its budget minus durable
- * active spend, floored at zero. The executor deadline is now plus this —
- * never elapsed time since the attempt's original start, which would count
- * the dead gap a process-death recovery necessarily sits behind. */
+/**
+ * Priced rework for one answered architect blocker. A `continue` decision
+ * directs construction the deterministic plan never priced — a lowering, a
+ * rehosting — so each paid resolution grows the attempt's step, staging, and
+ * wall-clock limits by this much. `maxBlockerResolutions` bounds the total:
+ * the worst case adds exactly two allowances, never an open-ended stream.
+ */
+export const BLOCKER_RESOLUTION_ALLOWANCE = {
+	modelSteps: 5,
+	stagedRequests: 8,
+	ms: 150_000,
+} as const;
+
+/** The wall clock an attempt may still spend: its budget plus the priced
+ * allowance for every durably paid architect blocker, minus durable active
+ * spend, floored at zero. The executor deadline is now plus this — never
+ * elapsed time since the attempt's original start, which would count the
+ * dead gap a process-death recovery necessarily sits behind. */
 export function remainingWallClockMs(
 	budget: SliceExecutionBudget,
 	wallClockMsUsed: number,
+	blockerReportsUsed = 0,
 ): number {
-	return Math.max(0, budget.maxWallClockMs - wallClockMsUsed);
+	return Math.max(
+		0,
+		budget.maxWallClockMs +
+			blockerReportsUsed * BLOCKER_RESOLUTION_ALLOWANCE.ms -
+			wallClockMsUsed,
+	);
 }
 
 /** Deterministic budget for one slice — pure, and pinned by test. */

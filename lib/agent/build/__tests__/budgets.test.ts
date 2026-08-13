@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	BLOCKER_RESOLUTION_ALLOWANCE,
 	budgetForSlice,
 	remainingWallClockMs,
 } from "@/lib/agent/build/budgets";
@@ -67,6 +68,16 @@ describe("remainingWallClockMs", () => {
 		expect(remainingWallClockMs(budget, 0)).toBe(budget.maxWallClockMs);
 		expect(remainingWallClockMs(budget, 200_000)).toBe(
 			budget.maxWallClockMs - 200_000,
+		);
+	});
+
+	it("prices answered architect blockers into the remaining wall clock", () => {
+		const budget = budgetForSlice(sliceWithGroups(1));
+		expect(remainingWallClockMs(budget, budget.maxWallClockMs, 1)).toBe(
+			BLOCKER_RESOLUTION_ALLOWANCE.ms,
+		);
+		expect(remainingWallClockMs(budget, 0, 2)).toBe(
+			budget.maxWallClockMs + 2 * BLOCKER_RESOLUTION_ALLOWANCE.ms,
 		);
 	});
 

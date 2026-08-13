@@ -11,7 +11,10 @@ import type { ModelMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { budgetForSlice } from "@/lib/agent/build/budgets";
+import {
+	BLOCKER_RESOLUTION_ALLOWANCE,
+	budgetForSlice,
+} from "@/lib/agent/build/budgets";
 import {
 	deriveSliceExecutionBrief,
 	type SliceExecutionBrief,
@@ -1391,6 +1394,42 @@ describe("runSliceExecutor — architect blocker resolution", () => {
 });
 
 describe("runSliceExecutor — budgets", () => {
+	it("grants the priced allowance for an answered architect blocker", async () => {
+		/* Session five's slice three died at its base cap after two honest
+		 * blockers whose architect guidance directed a rehosting the plan
+		 * never priced. Each paid `continue` decision now grows the limits. */
+		const workspace = fakeWorkspace({
+			inspect: async () => BLOCKING_DIAGNOSTICS,
+		});
+		const { step } = scriptedStep([
+			{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
+			{ calls: [{ toolCallId: "read", toolName: "inspectChangeSet" }] },
+		]);
+		const plan = makeBuildPlan();
+		const slice = fixtureValue(plan.slices[0], "first slice");
+		const outcome = await runSliceExecutor({
+			workspace,
+			brief: brief(),
+			budget: { ...budgetForSlice(slice), maxModelSteps: 2 },
+			step,
+			commit: async () => {
+				throw new Error("commit must not be called");
+			},
+			signal: new AbortController().signal,
+			resolveBlocker: async () => ({
+				kind: "continue" as const,
+				guidance: "Lower the reserved property and continue.",
+			}),
+		});
+		expect(outcome).toEqual({
+			kind: "budget-exhausted",
+			spent: {
+				modelSteps: 2 + BLOCKER_RESOLUTION_ALLOWANCE.modelSteps,
+				stagedRequests: 0,
+			},
+		});
+	});
+
 	it("commits a clean fully accepted repair at the model-step boundary", async () => {
 		const workspace = fakeWorkspace({
 			inspect: vi
@@ -1648,8 +1687,11 @@ describe("runSliceExecutor — budgets", () => {
 			budget,
 			budgetLedger: {
 				deadlineAt: Date.now() + budget.maxWallClockMs,
+				/* The restored blocker raises the step limit by one allowance,
+				 * so the restored step count sits exactly at that raised limit
+				 * and the recovered attempt is exhausted without a fresh call. */
 				spent: {
-					modelSteps: 3,
+					modelSteps: 3 + BLOCKER_RESOLUTION_ALLOWANCE.modelSteps,
 					stagedRequests: 2,
 					commitAttempts: 1,
 					blockerReports: 1,
@@ -1669,7 +1711,10 @@ describe("runSliceExecutor — budgets", () => {
 		});
 		expect(outcome).toEqual({
 			kind: "budget-exhausted",
-			spent: { modelSteps: 3, stagedRequests: 2 },
+			spent: {
+				modelSteps: 3 + BLOCKER_RESOLUTION_ALLOWANCE.modelSteps,
+				stagedRequests: 2,
+			},
 		});
 		expect(step).not.toHaveBeenCalled();
 		expect(claim).not.toHaveBeenCalled();
