@@ -23,6 +23,7 @@
 
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import type { z } from "zod";
+import { creationIdentityPaths } from "@/lib/agent/change-set/creationIdentities";
 import { CHANGE_SET_HANDLE_PATTERN } from "@/lib/agent/change-set/schemas";
 import { familyIsHandleEligible } from "@/lib/agent/change-set/stagingProjection";
 import {
@@ -62,83 +63,13 @@ const HANDLE_REF_SCHEMA = {
 
 type IdentityPath = readonly string[];
 
-/** Every raw slot that CREATES an authorable identity on the private executor
- * surface. Reference slots remain `uuid | { handle }`; creation slots narrow
- * to a required handle so the executor can never fall back to a server-minted
- * UUID that has no durable symbol. */
-const CREATION_IDENTITY_PATHS: ReadonlyMap<string, readonly IdentityPath[]> =
-	new Map([
-		["stageModule", [["moduleUuid"]]],
-		["stageForm", [["formUuid"]]],
-		[
-			"createModule",
-			[
-				["moduleUuid"],
-				["forms", "*", "formUuid"],
-				["forms", "*", "fields", "*", "fieldUuid"],
-				[
-					"forms",
-					"*",
-					"fields",
-					"*",
-					"optionsSource",
-					"options",
-					"*",
-					"optionUuid",
-				],
-				["case_list_columns", "*", "columnUuid"],
-			],
-		],
-		[
-			"createForm",
-			[
-				["formUuid"],
-				["fields", "*", "fieldUuid"],
-				["fields", "*", "optionsSource", "options", "*", "optionUuid"],
-			],
-		],
-		[
-			"addFields",
-			[
-				["fields", "*", "fieldUuid"],
-				["fields", "*", "optionsSource", "options", "*", "optionUuid"],
-			],
-		],
-		["addCaseListColumns", [["columns", "*", "columnUuid"]]],
-		["updateModule", [["case_list_columns", "*", "columnUuid"]]],
-		["addSearchInputs", [["searchInputs", "*", "searchInputUuid"]]],
-		["addCaseOperations", [["operations", "*", "operationUuid"]]],
-		["addUserProperties", [["properties", "*", "userPropertyUuid"]]],
-		["addUserTypes", [["userTypes", "*", "userTypeUuid"]]],
-		["addPersonas", [["personas", "*", "personaUuid"]]],
-		["addOrganizationLevels", [["levels", "*", "uuid"]]],
-		["addLocationProperties", [["properties", "*", "locationPropertyUuid"]]],
-		[
-			"addAutomations",
-			[
-				["automations", "*", "uuid"],
-				["automations", "*", "criteria", "*", "uuid"],
-				["automations", "*", "setupOnlyCriteria", "*", "uuid"],
-				["automations", "*", "updates", "*", "uuid"],
-				["automations", "*", "recipients", "*", "uuid"],
-				["automations", "*", "schedule", "events", "*", "uuid"],
-				["automations", "*", "userDataFilters", "*", "uuid"],
-			],
-		],
-		[
-			"updateAutomation",
-			[
-				["automation", "criteria", "*", "uuid"],
-				["automation", "setupOnlyCriteria", "*", "uuid"],
-				["automation", "updates", "*", "uuid"],
-				["automation", "recipients", "*", "uuid"],
-				["automation", "schedule", "events", "*", "uuid"],
-				["automation", "userDataFilters", "*", "uuid"],
-			],
-		],
-		["editField", [["updates", "optionsSource", "options", "*", "optionUuid"]]],
-		["setFieldOptionsSource", [["source", "options", "*", "optionUuid"]]],
-	]);
+/* Every raw slot that CREATES an authorable identity on the private executor
+ * surface lives in ONE annotated table — `creationIdentities.ts` — which the
+ * handle declarers also derive from, so a slot this projection narrows to a
+ * required handle is always a slot the workspace binds. Reference slots
+ * remain `uuid | { handle }`; creation slots narrow to a required handle so
+ * the executor can never fall back to a server-minted UUID that has no
+ * durable symbol. */
 
 function schemaVariants(value: unknown): Record<string, unknown>[] {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -257,7 +188,7 @@ export function executorCreationHandleIssue(
 	toolName: string,
 	input: unknown,
 ): string | null {
-	for (const path of CREATION_IDENTITY_PATHS.get(toolName) ?? []) {
+	for (const path of creationIdentityPaths(toolName)) {
 		const issue = rawCreationPathIssue(input, path);
 		if (issue !== null) return issue;
 	}
@@ -427,7 +358,7 @@ export function executorWireToolSchema(
 	for (const pointer of handleEligiblePointers(name, projected)) {
 		widenAtPointer(projected, pointer);
 	}
-	for (const path of CREATION_IDENTITY_PATHS.get(name) ?? []) {
+	for (const path of creationIdentityPaths(name)) {
 		if (narrowSchemaCreationPath([projected], path) === 0) {
 			throw new Error(
 				`The executor cannot find canonical creation identity ${name}.${path.join(".")}.`,

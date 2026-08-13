@@ -38,8 +38,8 @@ import type { Form, Module } from "@/lib/domain";
 import { FORM_TYPES } from "@/lib/domain/forms";
 import { uniqueSlug } from "@/lib/domain/idSlug";
 import { uuidSchema } from "@/lib/domain/uuid";
-import { asHandleRef, type StagedHandleDeclaration } from "./handles";
-import type { StagedEntityKind } from "./schemas";
+import { collectCreationHandleDeclarations } from "./creationIdentities";
+import type { StagedHandleDeclaration } from "./handles";
 
 /** One executor-only staging tool: a shared-tool-shaped module plus the
  *  declaration metadata the workspace mints handles from. */
@@ -50,18 +50,9 @@ export interface ChangeSetStageToolModule {
 		input: unknown,
 		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<unknown> | ReadToolResult<unknown>>;
-	/** Which RAW input slots declare new handles, read before resolution. */
+	/** Which RAW input slots declare new handles, read before resolution —
+	 * derived from the one annotated table in `creationIdentities.ts`. */
 	declaredHandles(input: unknown): readonly StagedHandleDeclaration[];
-}
-
-function declarationAt(
-	input: unknown,
-	key: string,
-	entityKind: StagedEntityKind,
-): readonly StagedHandleDeclaration[] {
-	if (typeof input !== "object" || input === null) return [];
-	const handle = asHandleRef((input as Record<string, unknown>)[key]);
-	return handle === null ? [] : [{ handle, entityKind }];
 }
 
 function existingModuleIds(doc: {
@@ -97,7 +88,8 @@ export const stageModuleTool: ChangeSetStageToolModule = {
 	description:
 		"Stage one module privately, without requiring its forms or case-list completeness yet. Later staged steps complete it before commit.",
 	inputSchema: stageModuleInputSchema,
-	declaredHandles: (input) => declarationAt(input, "moduleUuid", "module"),
+	declaredHandles: (input) =>
+		collectCreationHandleDeclarations("stageModule", input),
 	async execute(input, ctx) {
 		const parsed = stageModuleInputSchema.parse(input);
 		const doc = ctx.snapshot.doc;
@@ -149,7 +141,8 @@ export const stageFormTool: ChangeSetStageToolModule = {
 	description:
 		"Stage one form privately inside a staged or existing module, without requiring fields yet.",
 	inputSchema: stageFormInputSchema,
-	declaredHandles: (input) => declarationAt(input, "formUuid", "form"),
+	declaredHandles: (input) =>
+		collectCreationHandleDeclarations("stageForm", input),
 	async execute(input, ctx) {
 		const parsed = stageFormInputSchema.parse(input);
 		const doc = ctx.snapshot.doc;

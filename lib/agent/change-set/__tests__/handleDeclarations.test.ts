@@ -1,6 +1,7 @@
 /** Shared structural tools declare handles only in their creation slots. */
 
 import { describe, expect, it } from "vitest";
+import { CREATION_IDENTITY_SPECS } from "@/lib/agent/change-set/creationIdentities";
 import { sharedHandleDeclarer } from "@/lib/agent/change-set/handleDeclarations";
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 
@@ -232,5 +233,19 @@ describe("shared creation handle declarations", () => {
 		expect(
 			CHANGE_SET_TOOL_REGISTRY.get("moveField")?.declaredHandles,
 		).toBeUndefined();
+	});
+
+	it("every creation-identity tool binds its declarations in the registry", () => {
+		/* The wire projection narrows exactly the annotated table's paths to
+		 * required handles; every tool in that table must therefore have a
+		 * registry declarer (stage or shared), or the wire would demand a
+		 * handle the workspace never binds and every dispatch would die on
+		 * "handle is not bound". */
+		for (const toolName of Object.keys(CREATION_IDENTITY_SPECS)) {
+			expect(
+				CHANGE_SET_TOOL_REGISTRY.get(toolName)?.declaredHandles,
+				`registry declarer missing for ${toolName}`,
+			).toBeDefined();
+		}
 	});
 });
