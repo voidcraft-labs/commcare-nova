@@ -84,4 +84,35 @@ describe("directCaseWritePlan", () => {
 			}),
 		).toBeNull();
 	});
+
+	it("routes the platform's standard names to their scalars by name alone", () => {
+		// The display identity has no marker: a property NAMED case_name IS
+		// the standard name slot, so the ordinary slug path lowers it to the
+		// standard scalar write — same convention the built app uses.
+		const named = fixture();
+		named.property.name = "Case name";
+		expect(
+			directCaseWritePlan({
+				...named,
+				formContext: {
+					caseType: "patient",
+					directSlotTaken: false,
+					repeatScopeCompatible: true,
+				},
+			}),
+		).toEqual({ kind: "direct", property: "case_name" });
+
+		const external = fixture();
+		external.property.name = "External ID";
+		expect(
+			directCaseWritePlan({
+				...external,
+				formContext: {
+					caseType: "patient",
+					directSlotTaken: false,
+					repeatScopeCompatible: true,
+				},
+			}),
+		).toEqual({ kind: "direct", property: "external_id" });
+	});
 });

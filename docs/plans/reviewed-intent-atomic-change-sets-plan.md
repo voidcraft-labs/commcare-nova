@@ -187,6 +187,9 @@ A record owns its properties. Each property records:
 
 Properties are declared once under their record. Writer and reader relations
 are derived from workflows and lists rather than copied into the property.
+There is no separate identity marker: a record's display identity is spelled
+by name — a property named `case_name` is the platform's standard name slot
+(`external_id` likewise), the same convention the built app uses.
 
 ### 3.4 Workflows
 
