@@ -68,8 +68,6 @@ describe("taggedCitableSourceRefs", () => {
 							},
 							messageRef(9),
 						],
-						status: "explicit",
-						confidence: 1,
 					},
 				],
 			}),

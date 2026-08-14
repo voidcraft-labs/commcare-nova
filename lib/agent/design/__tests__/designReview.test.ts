@@ -313,8 +313,6 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 					// One NEW coordinate plus a duplicate of the projected block —
 					// the tagged set must dedup, not double-list.
 					sourceRefs: [messageRef(9), messageRef()],
-					status: "explicit",
-					confidence: 1,
 				},
 			],
 			attachments: [
@@ -404,8 +402,6 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 					id: did(701),
 					statement: "The spec names the requirement.",
 					sourceRefs: [attachmentViaClaim],
-					status: "explicit",
-					confidence: 1,
 				},
 			],
 		};

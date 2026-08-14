@@ -95,41 +95,20 @@ export function sourceRefKey(ref: SourceRef): string {
 }
 
 /**
- * One normalized requirement claim. The `statement` is the normalized
- * requirement in Nova's own words — never a raw excerpt, unless an exact
- * label/choice/value is itself the requirement. `status` is the epistemic
- * grade: `explicit` claims restate what the source says and MUST carry a
- * message, attachment, or image reference — the three kinds that point at
- * what the user actually provided; `inferred` claims are derived from source
- * material; `assumption` claims fill a gap the source leaves open. A claim
- * grounded only in platform knowledge uses a `platform-constraint`
- * reference.
+ * One normalized requirement claim: a statement in Nova's own words plus the
+ * source coordinates that carry it. Claims are DETERMINISTIC SERVER OUTPUT —
+ * the answered-question seeding in `loop/claimSeeding.ts` is the only
+ * producer, so the shape holds exactly what that producer states and its
+ * consumers read (the claims dump in the prompts, the citable-ref set). No
+ * epistemic-status grade and no confidence score: one producer hardcoded
+ * both, nothing read either, and the author prompt itself forbids
+ * confidence scores.
  */
 export const sourceClaimSchema = z
 	.object({
 		id: designIdSchema,
 		statement: z.string().min(1),
 		sourceRefs: z.array(sourceRefSchema).min(1),
-		status: z.enum(["explicit", "inferred", "assumption"]),
-		confidence: z.number().min(0).max(1),
 	})
-	.strict()
-	.superRefine((claim, ctx) => {
-		if (
-			claim.status === "explicit" &&
-			!claim.sourceRefs.some(
-				(ref) =>
-					ref.kind === "message" ||
-					ref.kind === "attachment-extract" ||
-					ref.kind === "image",
-			)
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["sourceRefs"],
-				message:
-					"An explicit claim restates what the user provided, so it needs a message, attachment, or image source reference — a platform-constraint reference alone supports an inferred claim or an assumption, not an explicit one.",
-			});
-		}
-	});
+	.strict();
 export type SourceClaim = z.infer<typeof sourceClaimSchema>;

@@ -90,8 +90,6 @@ export function seedClaimsFromAnsweredRounds(
 							partIndex,
 						},
 					],
-					status: "explicit",
-					confidence: 1,
 				}),
 			);
 		}

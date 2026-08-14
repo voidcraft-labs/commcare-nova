@@ -234,9 +234,7 @@ export const persistedSourcePackageSchema = z
 		attachmentCount: z.number().int().nonnegative(),
 		imageCount: z.number().int().nonnegative(),
 		projectedBytes: z.number().int().nonnegative(),
-		/** Added before v1 shipped. Optional only so local/pre-release rows remain
-		 * readable; a row without it can never authorize workspace rebinding. */
-		extensionProof: sourcePackageExtensionProofSchema.optional(),
+		extensionProof: sourcePackageExtensionProofSchema,
 	})
 	.strict();
 export type PersistedSourcePackage = z.infer<
