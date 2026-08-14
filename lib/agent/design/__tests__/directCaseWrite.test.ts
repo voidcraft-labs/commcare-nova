@@ -84,4 +84,32 @@ describe("directCaseWritePlan", () => {
 			}),
 		).toBeNull();
 	});
+
+	it("lowers an identity property to its standard scalar, never a slug", () => {
+		const named = fixture();
+		named.property.identityRole = "case-name";
+		expect(
+			directCaseWritePlan({
+				...named,
+				formContext: {
+					caseType: "patient",
+					directSlotTaken: false,
+					repeatScopeCompatible: true,
+				},
+			}),
+		).toEqual({ kind: "direct", property: "case_name" });
+
+		const external = fixture();
+		external.property.identityRole = "external-id";
+		expect(
+			directCaseWritePlan({
+				...external,
+				formContext: {
+					caseType: "patient",
+					directSlotTaken: false,
+					repeatScopeCompatible: true,
+				},
+			}),
+		).toEqual({ kind: "direct", property: "external_id" });
+	});
 });

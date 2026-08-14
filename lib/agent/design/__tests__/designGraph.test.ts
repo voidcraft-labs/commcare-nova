@@ -331,6 +331,53 @@ describe("lean Design Contract graph", () => {
 		]);
 	});
 
+	it("marks at most one text property as a record's identity", () => {
+		const contract = cloneContract(makeContract());
+		const record = contract.records[0];
+		if (!record) throw new Error("fixture patient record missing");
+		const name = record.properties.find(
+			(property) => property.id === ids.factName,
+		);
+		if (!name) throw new Error("fixture name property missing");
+		name.identityRole = "case-name";
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+
+		record.properties.push({
+			id: did(34),
+			name: "Nickname",
+			meaning: "What neighbors call the patient.",
+			dataShape: "text",
+			sensitivity: "ordinary",
+			identityRole: "case-name",
+		});
+		expect(messages(contract)).toContain("all claim it");
+	});
+
+	it("keeps identity roles on text properties", () => {
+		const contract = cloneContract(makeContract());
+		const age = contract.records[0]?.properties.find(
+			(property) => property.id === ids.factAge,
+		);
+		if (!age) throw new Error("fixture age property missing");
+		age.identityRole = "external-id";
+		expect(messages(contract)).toContain("text data shape");
+	});
+
+	it("requires a create to capture its record's case-name identity", () => {
+		const contract = cloneContract(makeContract());
+		const name = contract.records[0]?.properties.find(
+			(property) => property.id === ids.factName,
+		);
+		if (!name) throw new Error("fixture name property missing");
+		name.identityRole = "case-name";
+		const effect = contract.workflows[0]?.recordEffects[0];
+		if (!effect) throw new Error("fixture create effect missing");
+		effect.writes = effect.writes.filter(
+			(write) => write.propertyId !== ids.factName,
+		);
+		expect(messages(contract)).toContain("its case-name identity");
+	});
+
 	it("rejects unresolved references and unsupported promises", () => {
 		const actor = cloneContract(makeContract());
 		actor.workflows[0]?.actorIds.push(did(9999));

@@ -35,6 +35,12 @@ export function directCaseWritePlan(args: {
 	}
 	if (!formContext.repeatScopeCompatible || formContext.directSlotTaken)
 		return null;
+	// An identity property IS the standard scalar — its write targets
+	// case_name / external_id directly, never a slug-named custom property.
+	if (property.identityRole === "case-name")
+		return { kind: "direct", property: "case_name" };
+	if (property.identityRole === "external-id")
+		return { kind: "direct", property: "external_id" };
 	const name = slugifyId(property.name, "");
 	return name.length === 0 ? null : { kind: "direct", property: name };
 }

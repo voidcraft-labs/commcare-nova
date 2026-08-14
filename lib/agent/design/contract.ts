@@ -85,6 +85,14 @@ export const recordPropertySchema = z
 		name: z.string().min(1),
 		meaning: z.string().min(1),
 		dataShape: factDataShapeSchema,
+		/** Marks this property as the record's standard wire identity: the
+		 * display name workers know the record by (`case-name`) or an external
+		 * system's identifier (`external-id`). An identity property authors as
+		 * the standard scalar write, never as a custom case property, so
+		 * construction needs no guess about which input names the record.
+		 * Absent means ordinary; a composed or derived display name has no
+		 * single property to mark and stays construction's job. */
+		identityRole: z.enum(["case-name", "external-id"]).optional(),
 		sensitivity: z
 			.enum(["ordinary", "sensitive", "highly-sensitive"])
 			.default("ordinary"),
@@ -94,6 +102,14 @@ export const recordPropertySchema = z
 	})
 	.strict()
 	.superRefine((value, ctx) => {
+		if (value.identityRole !== undefined && value.dataShape !== "text") {
+			ctx.addIssue({
+				code: "custom",
+				path: ["identityRole"],
+				message:
+					"An identity property must have the text data shape — case_name and external_id carry text on the wire.",
+			});
+		}
 		const choice =
 			value.dataShape === "single-choice" ||
 			value.dataShape === "multiple-choice";
@@ -145,7 +161,25 @@ export const recordConceptSchema = z
 		lifecycleStates: z.array(z.string().min(1)),
 		properties: z.array(recordPropertySchema),
 	})
-	.strict();
+	.strict()
+	.superRefine((value, ctx) => {
+		for (const role of ["case-name", "external-id"] as const) {
+			const claimants = value.properties.filter(
+				(property) => property.identityRole === role,
+			);
+			if (claimants.length > 1) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["properties"],
+					message: `A record has one ${role} identity, but ${claimants
+						.map((property) => property.name)
+						.join(
+							", ",
+						)} all claim it. Keep the one property workers know the record by and make the others ordinary.`,
+				});
+			}
+		}
+	});
 export type RecordConcept = z.infer<typeof recordConceptSchema>;
 
 export const workflowInputSchema = z

@@ -108,6 +108,32 @@ describe("deriveSliceExecutionBrief", () => {
 		}
 	});
 
+	it("states an identity property's standard scalar authoring", () => {
+		const contract = cloneContract(makeContract());
+		const name = contract.records[0]?.properties.find(
+			(property) => property.id === ids.factName,
+		);
+		if (name === undefined) throw new Error("fixture name property missing");
+		name.identityRole = "case-name";
+		const plan = deriveBuildPlan({
+			contract,
+			revision: REVISION,
+			planId: ids.planId,
+		});
+		const slice = plan.slices[0];
+		if (slice === undefined) throw new Error("first slice missing");
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: slice.id,
+		});
+		const requirement = brief.constructionChecklist
+			.flatMap((group) => group.items)
+			.find((item) => item.id === ids.factName)?.requirement;
+		expect(requirement).toContain("case_name writer");
+	});
+
 	it("includes the owning record for a property read from an earlier workflow", () => {
 		const contract = makeThirteenWorkflowContract();
 		const earlierProperty = contract.records[0]?.properties[0];

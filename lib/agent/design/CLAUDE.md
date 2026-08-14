@@ -45,6 +45,11 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   ownership, property/record coherence, navigation closure, charter coverage,
   a dependency-free initial workflow, acyclic workflow and record hierarchies,
   and a blocking user question for every unresolved construction dependency.
+  A record property may carry an identity role (`case-name` / `external-id`):
+  text-shaped, at most one per role per record, every create captures the
+  case-name identity, and construction authors it as the standard scalar
+  write rather than a custom case property (`directCaseWrite.ts` lowers it
+  so; the execution brief's checklist states it to the executor).
   A structurally incoherent contract is never persisted. New-artifact
   construction admission additionally requires every controlled choice to
   carry either at least two distinct real inline values or the semantic name
