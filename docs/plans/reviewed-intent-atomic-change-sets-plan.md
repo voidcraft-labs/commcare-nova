@@ -27,16 +27,13 @@ remain, in order:
    for clients that want the reviewed workflow rather than direct mutation
    tools.
 
-Before Unit F, the reviewed-build model interfaces have one required tuning
-sequence. The slice executor now uses an implicit private workspace, ordinary
-Nova read/mutation tools mounted directly, native multi-tool responses, and one
-server-owned workflow finalizer. After measuring that executor experiment, the
-design author receives the same treatment: its private workspace becomes
-implicit, semantic design operations become native tool calls, model-visible
-`expectedRevision` disappears, and one model response may carry several
-ordered design operations. This design-author work is the next implementation
-step, not an optional or permanently deferred tuning knob; separating the two
-experiments keeps their effects measurable.
+The reviewed-build model interfaces use one shared interaction shape. The slice
+executor has an implicit private workspace, ordinary Nova read/mutation tools
+mounted directly, native multi-tool responses, and one server-owned workflow
+finalizer. The design author likewise has an implicit durable workspace,
+collection-specific semantic update calls, native multi-tool responses, and
+one `finishDesign` finalizer. Optimistic revisions remain server-owned
+persistence details rather than model input.
 
 This file describes the present architecture plus those two remaining units.
 It is not a rollout log.
@@ -351,7 +348,7 @@ The runner uses distinct semantic phases:
 - `revision`
 - `awaiting-input`
 
-All phases share one tenant-scoped append-only model context and the same seven
+All phases share one tenant-scoped append-only model context and the same
 provider tool definitions. Durable gates decide which operations are legal.
 A terminal phase tool advances ancestry, and the runner appends the next exact
 state without requiring another user message or rebuilding the prompt. Complete
@@ -371,51 +368,52 @@ successor model context reseeds its messages.
 
 ### 4.2 Bounded durable workspaces
 
-Authoring and revision use:
+Authoring and revision use `setDesignRoot`, collection-specific semantic
+`update*` calls, `updateFindingDispositions`, bounded `inspectDesign`, and the
+single `finishDesign` finalizer. The active contract or revision workspace and
+its optimistic revision are inferred from durable gates. The model may emit
+several known calls in one response; the server serializes their effects in
+provider order.
 
-- `stageContract` or `stageRevision`;
-- `inspectDesignWorkspace`;
-- `submitContract` or `submitRevision`.
-
-A stage changes the root or one coherent collection and carries the exact
-expected workspace revision. Every new global element uses a readable handle
+An update changes the root or one coherent collection. Every new global element uses a readable handle
 such as `{ "handle": "@register_client" }`. Identities are minted
-deterministically from (session, handle), so staging is ORDER-FREE: a
-reference may precede its declaration in any stage, binding eagerly in the
+deterministically from (session, handle), so authoring is ORDER-FREE: a
+reference may precede its declaration in any update, binding eagerly in the
 session-scoped ledger under a `referenced` marker kind that the declaring
 item later upgrades. Submit-time reference closure refuses any element never
 actually authored, naming the model's own handle. Invented raw UUID
-declarations are rejected at staging, and the reserved `@f` finding namespace
+declarations are rejected during semantic admission, and the reserved `@f` finding namespace
 can never enter a design reference. Persisted artifacts remain
 UUID-only, while exact model state projects known IDs back through handles.
 The reviewer's tag/handle vocabulary (§4.4) is the same projection law applied
 to the review surface: symbols in every model-facing direction, UUIDs at rest,
 resolution server-side before admission.
 
-Each stage is bounded to 32 item changes and 48 KiB. Successful stages are
-durable. A rejected finalization leaves every accepted stage intact, so the
+Each semantic update is bounded to 32 item changes and 48 KiB. Successful
+updates are durable. A rejected finalization leaves every accepted update intact, so the
 model corrects only the affected items and necessary cross-dependencies.
-Before a contract or revision stage enters the ledger, Nova replays it and
+Before a contract or revision update enters the ledger, Nova replays it and
 proves that every declared design element still has a globally unique identity.
-References may target declarations already bound by an earlier stage or a
-declaration in the same stage; they cannot point speculatively at future work.
+References may precede their declarations across updates because the handle
+ledger records that forward reference eagerly. Finalization refuses any handle
+that was never actually declared.
 
 Finalization rejections carry a validation stage and payload-free diagnostic
-fingerprints. A later stage or changed fingerprint is progress; an exact repeat
+fingerprints. A later validation stage or changed fingerprint is progress; an exact repeat
 stops after two attempts and any third rejection stops honestly as an internal
-design defect. A bounded stage call rejected three times in a row with an
+design defect. A bounded semantic update rejected three times in a row with an
 identical diagnostic stops the same way; a changed diagnostic or an accepted
-stage resets that count. When every construction issue is an authored blocking
+update resets that count. When every construction issue is an authored blocking
 question, the server appends the exact required questions and refuses further
-design staging until an `askQuestions` round, at most five questions, is
+design updates until an `askQuestions` round, at most five questions, is
 answered. Those user decisions do not consume the model-repair budget.
 Server-only durable append keys bind the exact batch's question ids,
 related elements, prose, and accepted tool-call id, so
 identical later prose or an incomplete model-authored subset cannot unlock
-staging. An answer binds to the exact question identity it was given for, so
-it stays valid while bounded stages apply it and across later rounds: a
+authoring. An answer binds to the exact question identity it was given for, so
+it stays valid while bounded updates apply it and across later rounds: a
 question the user already answered is never demanded again, only genuinely
-new or re-authored questions are, and staging opens when every currently
+new or re-authored questions are, and authoring opens when every currently
 pending question identity carries a durably authorized answer. A clean response
 that omits the required call receives internal correction guidance and is
 redriven without changing the provider tool grammar or asking the user to
@@ -424,7 +422,7 @@ card never committed, redrive first appends an explicit interrupted tool result
 and derives the still-current questions again. It never sends an unmatched
 function call to the provider or mistakes the closure for a user answer.
 
-There is no plan workspace. The model neither stages nor submits a plan.
+There is no plan workspace. The server derives the plan from the accepted design.
 
 ### 4.3 Exact state after resume and compaction
 
@@ -450,7 +448,7 @@ state. The packet contains:
 - the legal next phase;
 - resolved answers and source outline;
 - open review findings;
-- the current workspace revision and counts;
+- current workspace collection counts;
 - the exact current candidate;
 - the immutable reviewed parent during revision.
 
@@ -544,22 +542,20 @@ finding per form and not an omission behind the higher-severity issue.
 
 ### 4.5 Revision and review depth
 
-A revision workspace begins from the immutable reviewed parent at its own
-revision 0. The `requestReview` result and the next exact state packet both
-print `nextExpectedRevision: 0`, so the first `stageRevision` cannot inherit
-the completed contract workspace's counter. It upserts or removes only
-affected items and persists one disposition for each blocking finding.
+A revision workspace begins from the immutable reviewed parent in a separate
+server-owned lineage. The model does not see or supply its revision counter.
+It upserts or removes only affected items and persists one disposition for each blocking finding.
 Unchanged content stays in place.
 
 The agent never copies a finding's UUID either: findings return from
 `requestReview` — and print in every state packet — with server-assigned
 positional `@f1..@fN` handles (continuous across the head draft's reviews in
 ordinal order, derived on demand, never stored), and a disposition's
-`findingId` is that printed handle. The revision stage resolves finding
+`findingId` is that printed handle. `updateFindingDispositions` resolves finding
 handles against that derivation BEFORE the generic workspace resolver runs,
 because findings are server-minted identities a deterministic handle mint
 would silently miss; an unknown finding handle refuses naming the open set.
-Declaring an `@f`-numbered handle for a design element is refused at staging,
+Declaring an `@f`-numbered handle for a design element is refused during admission,
 so the projection can never print one symbol for two things.
 
 One second review occurs only when the first revision:
@@ -879,10 +875,9 @@ reservation, transcript, stream, artifacts, and recovery URL. After
 materialization, the session maps immutably to the app and holder authority
 delegates to the app row.
 
-Native executor calls are idempotent by tool-call ID and input digest; the
-workspace revision is server-owned. Design workspace operations still use
-their current explicit revision protocol until the required design-author
-experiment. Lost responses return the stored receipt. Process death rehydrates
+Native executor and design-author calls are idempotent by tool-call ID and
+semantic input digest; workspace revisions are server-owned. Lost responses
+return the stored receipt. Process death rehydrates
 from durable artifacts and steps. If infrastructure
 replaces the run, the current authorized session holder adopts the same exact
 running attempt and open change set transactionally; it does not start a fresh
@@ -969,7 +964,7 @@ holder nonces. Admin-authorized run inspection may expose the deliberately
 persisted reasoning summaries used for quality diagnosis.
 
 The design-session inspector reconstructs pre-revision sessions from the
-durable workspace ledger and prints workspace revision, readiness stage,
+durable workspace ledger and prints server-owned workspace revision, readiness stage,
 session error classification, model usage, elapsed time, and estimated cost.
 After acceptance it prints one payload-free build aggregate: accepted and
 committed workflow counts; each slice's attempt, executor context generation,
@@ -1319,7 +1314,7 @@ integration tests:
   the selected-parent-host versus child-effect regression;
 - one durable executor generation per slice attempt, three-packet opening and
   compaction reseeding, and automatic escalation of repeated failures;
-- workspace revision and request idempotency;
+- server-owned workspace revision and request idempotency;
 - handle resolution before original schema admission, including the reviewer
   output schema's in-schema symbol resolution;
 - change-set replay and native-call recovery;

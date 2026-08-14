@@ -18,14 +18,14 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { ModelMessage } from "ai";
 import {
+	CONTRACT_COLLECTIONS,
 	type DesignArtifactWorkspaceOperation,
+	designArtifactWorkspaceOperationSchema,
 	designWorkspaceBoundError,
-	finalizeDesignWorkspaceInputSchema,
+	finishDesignInputSchema,
+	inspectDesignInputSchema,
 	inspectDesignWorkspaceCandidate,
-	inspectDesignWorkspaceInputSchema,
 	replayDesignWorkspace,
-	stageContractInputSchema,
-	stageRevisionInputSchema,
 } from "../lib/agent/design/artifactWorkspaceOperations";
 import type { DesignIdentityHandleBinding } from "../lib/agent/design/artifactWorkspaceStore";
 import { type BuildPlan, deriveBuildPlan } from "../lib/agent/design/buildPlan";
@@ -267,46 +267,45 @@ async function main(): Promise<void> {
 					: state.revisionOperations,
 		});
 
-	const stage = async (kind: "contract" | "revision", rawInput: unknown) => {
-		const schema =
-			kind === "contract" ? stageContractInputSchema : stageRevisionInputSchema;
-		/* Same order as production stageRevision: finding handles resolve
+	const activeKind = (): "contract" | "revision" =>
+		state.contract !== null && state.reviews.length > 0
+			? "revision"
+			: "contract";
+	const stage = async (
+		kind: "contract" | "revision",
+		rawBody: Record<string, unknown>,
+	) => {
+		const rawOperation = { kind, ...rawBody };
+		/* Same order as production revision updates: finding handles resolve
 		 * before the generic resolver can mint a wrong deterministic UUID. */
 		const preResolved =
 			kind === "revision"
 				? resolveDesignFindingHandles(
-						stripNullProperties(rawInput),
+						stripNullProperties(rawOperation),
 						deriveFindingHandleBindings(state.reviews),
 					)
-				: ({ ok: true, value: rawInput } as const);
+				: ({ ok: true, value: rawOperation } as const);
 		if (!preResolved.ok) return { error: preResolved.error };
 		const parsed = parseInput(
-			schema,
+			designArtifactWorkspaceOperationSchema,
 			resolveDesignWorkspaceHandles(preResolved.value, sessionId),
 		);
 		if (!parsed.ok) return { error: parsed.error };
 		const operations =
 			kind === "contract" ? state.contractOperations : state.revisionOperations;
-		if (parsed.data.expectedRevision !== operations.length) {
-			return {
-				error: `The workspace is at revision ${operations.length}; inspect it and continue from that revision.`,
-			};
-		}
-		const { expectedRevision: _expectedRevision, ...body } = parsed.data;
-		const operation = { kind, ...body } as DesignArtifactWorkspaceOperation;
-		const bound = designWorkspaceBoundError({ input: parsed.data, operation });
+		const operation = parsed.data as DesignArtifactWorkspaceOperation;
+		const bound = designWorkspaceBoundError({ input: rawOperation, operation });
 		if (bound !== null) return { error: bound };
 		operations.push(operation);
 		for (const binding of collectDesignIdentityHandleBindings(
-			stripNullProperties(rawInput),
+			stripNullProperties(rawOperation),
 			sessionId,
 		)) {
 			state.handleBindings.set(binding.handle, binding);
 		}
 		return {
 			ok: true,
-			workspaceRevision: operations.length,
-			message: "This part is saved. Continue from the returned revision.",
+			message: "The semantic design update is saved.",
 		};
 	};
 
@@ -320,184 +319,224 @@ async function main(): Promise<void> {
 		console.log(`\n[deriveBuildPlan] ${state.plan.slices.length} slices`);
 	};
 
+	const finishContract = async (input: unknown) => {
+		const finalized = parseInput(finishDesignInputSchema, input);
+		if (!finalized.ok) return { error: finalized.error };
+		const parsed = appDesignContractSchema.safeParse(candidateFor("contract"));
+		if (!parsed.success) {
+			return { error: renderDesignValidationIssues(parsed.error) };
+		}
+		state.contract = parsed.data;
+		state.lifecycle = "draft";
+		state.reviews = [];
+		state.revisionOperations = [];
+		write("contract-draft.json", parsed.data);
+		console.log(
+			`\n[finishDesign] ${parsed.data.actors.length} actors, ${parsed.data.workflows.length} workflows, ${parsed.data.records.length} records`,
+		);
+		return {
+			ok: true,
+			revisionId: crypto.randomUUID(),
+			message: "The draft persisted. Request its independent review.",
+		};
+	};
+
+	const requestReview = async () => {
+		if (state.contract === null || state.lifecycle !== "draft") {
+			return { error: "No unreviewed draft exists." };
+		}
+		console.log("\n[requestReview] running the independent reviewer…");
+		const reviewed = await runDesignReviewer(
+			ctx,
+			{
+				pkg,
+				contract: state.contract,
+				catalogText,
+				bindings: [...state.handleBindings.values()],
+			},
+			signal,
+		);
+		if (reviewed.kind !== "produced") {
+			return {
+				error: `The review did not come back (${reviewed.reason}).`,
+			};
+		}
+		state.reviews = [reviewed.artifact];
+		state.openReviewCount += 1;
+		write(`review-${state.openReviewCount}.json`, reviewed.artifact);
+		const blocking = reviewed.artifact.findings.filter(findingBlocksAcceptance);
+		console.log(
+			`[requestReview] ${reviewed.artifact.findings.length} findings (${blocking.length} blocking)`,
+		);
+		if (blocking.length === 0) {
+			state.lifecycle = "accepted";
+			finalizePlan();
+		}
+		return {
+			ok: true,
+			findings: projectDesignIdentityHandles(reviewed.artifact.findings, [
+				...state.handleBindings.values(),
+				...deriveFindingHandleBindings([reviewed.artifact]),
+			]),
+			summary: reviewed.artifact.summary,
+			accepted: blocking.length === 0,
+			message:
+				blocking.length === 0
+					? "The design is accepted and its build plan was derived."
+					: "Update the blocking corrections and their dispositions.",
+		};
+	};
+
+	const finishRevision = async (input: unknown) => {
+		if (state.contract === null || state.reviews.length === 0) {
+			return { error: "No reviewed draft exists to revise." };
+		}
+		const finalized = parseInput(finishDesignInputSchema, input);
+		if (!finalized.ok) return { error: finalized.error };
+		const { dispositions, ...contract } = candidateFor("revision");
+		const parsed = designRevisionResultSchemaFor(state.reviews).safeParse({
+			contract,
+			dispositions,
+		});
+		if (!parsed.success) {
+			return { error: renderDesignValidationIssues(parsed.error) };
+		}
+		const violations = validateSensitivityNotSilentlyLowered(
+			state.contract,
+			parsed.data,
+			state.reviews,
+		);
+		if (violations.length > 0) return { error: violations.join("\n") };
+		const prior = state.contract;
+		const revision: DesignRevisionResult = parsed.data;
+		const secondReview =
+			state.openReviewCount === 1 &&
+			(leavesCriticalFinding(revision, state.reviews) ||
+				criticalFindingCount(state.reviews) >= 2 ||
+				(criticalFindingCount(state.reviews) > 0 &&
+					changesArchitecture(prior, revision.contract)));
+		state.contract = revision.contract;
+		state.lifecycle = secondReview ? "draft" : "accepted";
+		state.reviews = [];
+		state.revisionOperations = [];
+		write(`contract-revision-${state.openReviewCount}.json`, revision.contract);
+		write(`dispositions-${state.openReviewCount}.json`, revision.dispositions);
+		if (!secondReview) finalizePlan();
+		return {
+			ok: true,
+			accepted: !secondReview,
+			message: secondReview
+				? "The revision warrants one more independent review."
+				: "The revision is accepted and its build plan was derived.",
+		};
+	};
+
+	let previewTail: Promise<void> = Promise.resolve();
+	const ordered = <T>(work: () => Promise<T>): Promise<T> => {
+		const result = previewTail.then(work);
+		previewTail = result.then(
+			() => undefined,
+			() => undefined,
+		);
+		return result;
+	};
+	const collectionToolName = {
+		actors: "updateActors",
+		records: "updateRecords",
+		workflows: "updateWorkflows",
+		lists: "updateLists",
+		access: "updateAccess",
+		navigation: "updateNavigation",
+		moduleCompositions: "updateModuleCompositions",
+		formCompositions: "updateFormCompositions",
+		externalRequirements: "updateExternalRequirements",
+		decisions: "updateDecisions",
+		assumptions: "updateAssumptions",
+		openQuestions: "updateOpenQuestions",
+	} as const;
+	const semanticCollectionTools = Object.fromEntries(
+		CONTRACT_COLLECTIONS.map((collection) => {
+			const toolName = collectionToolName[collection];
+			return [
+				toolName,
+				{
+					...realTools[toolName],
+					execute: (input: unknown) =>
+						ordered(() =>
+							stage(activeKind(), {
+								collections: [
+									{
+										collection,
+										...(stripNullProperties(input) as Record<string, unknown>),
+									},
+								],
+							}),
+						),
+				},
+			];
+		}),
+	);
 	const tools = {
 		...realTools,
-		stageContract: {
-			...realTools.stageContract,
-			execute: async (input: unknown) => stage("contract", input),
-		},
-		stageRevision: {
-			...realTools.stageRevision,
-			execute: async (input: unknown) => stage("revision", input),
-		},
-		inspectDesignWorkspace: {
-			...realTools.inspectDesignWorkspace,
-			execute: async (input: unknown) => {
-				const parsed = parseInput(inspectDesignWorkspaceInputSchema, input);
-				if (!parsed.ok) return { error: parsed.error };
-				const operations =
-					parsed.data.artifactKind === "contract"
-						? state.contractOperations
-						: state.revisionOperations;
-				if (parsed.data.expectedRevision !== operations.length) {
-					return {
-						error: `The workspace is at revision ${operations.length}.`,
-					};
-				}
-				return {
-					ok: true,
-					workspaceRevision: operations.length,
-					stepCount: operations.length,
-					view: inspectDesignWorkspaceCandidate({
-						kind: parsed.data.artifactKind,
-						candidate: candidateFor(parsed.data.artifactKind),
-						...(state.contract !== null && { sourceContract: state.contract }),
-						selection: parsed.data.selection,
+		...semanticCollectionTools,
+		setDesignRoot: {
+			...realTools.setDesignRoot,
+			execute: (input: unknown) =>
+				ordered(() =>
+					stage(activeKind(), {
+						root: stripNullProperties(input),
+						collections: [],
 					}),
-				};
-			},
+				),
 		},
-		submitContract: {
-			...realTools.submitContract,
-			execute: async (input: unknown) => {
-				const finalized = parseInput(finalizeDesignWorkspaceInputSchema, input);
-				if (!finalized.ok) return { error: finalized.error };
-				if (
-					finalized.data.expectedRevision !== state.contractOperations.length
-				) {
+		updateFindingDispositions: {
+			...realTools.updateFindingDispositions,
+			execute: (input: unknown) =>
+				ordered(() =>
+					stage("revision", {
+						collections: [],
+						dispositions: {
+							collection: "dispositions",
+							...(stripNullProperties(input) as Record<string, unknown>),
+						},
+					}),
+				),
+		},
+		inspectDesign: {
+			...realTools.inspectDesign,
+			execute: (input: unknown) =>
+				ordered(async () => {
+					const parsed = parseInput(inspectDesignInputSchema, input);
+					if (!parsed.ok) return { error: parsed.error };
+					const kind = activeKind();
 					return {
-						error: `The workspace is at revision ${state.contractOperations.length}.`,
+						ok: true,
+						view: projectDesignIdentityHandles(
+							inspectDesignWorkspaceCandidate({
+								kind,
+								candidate: candidateFor(kind),
+								...(state.contract !== null && {
+									sourceContract: state.contract,
+								}),
+								selection: parsed.data.selection,
+							}),
+							[...state.handleBindings.values()],
+						),
 					};
-				}
-				const parsed = appDesignContractSchema.safeParse(
-					candidateFor("contract"),
-				);
-				if (!parsed.success) {
-					return { error: renderDesignValidationIssues(parsed.error) };
-				}
-				state.contract = parsed.data;
-				state.lifecycle = "draft";
-				state.reviews = [];
-				state.revisionOperations = [];
-				write("contract-draft.json", parsed.data);
-				console.log(
-					`\n[submitContract] ${parsed.data.actors.length} actors, ${parsed.data.workflows.length} workflows, ${parsed.data.records.length} records`,
-				);
-				return {
-					ok: true,
-					revisionId: crypto.randomUUID(),
-					message: "The draft persisted. Request its independent review.",
-				};
-			},
+				}),
+		},
+		finishDesign: {
+			...realTools.finishDesign,
+			execute: (input: unknown) =>
+				ordered<unknown>(() =>
+					activeKind() === "revision"
+						? finishRevision(input)
+						: finishContract(input),
+				),
 		},
 		requestReview: {
 			...realTools.requestReview,
-			execute: async () => {
-				if (state.contract === null || state.lifecycle !== "draft") {
-					return { error: "No unreviewed draft exists." };
-				}
-				console.log("\n[requestReview] running the independent reviewer…");
-				const reviewed = await runDesignReviewer(
-					ctx,
-					{
-						pkg,
-						contract: state.contract,
-						catalogText,
-						bindings: [...state.handleBindings.values()],
-					},
-					signal,
-				);
-				if (reviewed.kind !== "produced") {
-					return {
-						error: `The review did not come back (${reviewed.reason}).`,
-					};
-				}
-				state.reviews = [reviewed.artifact];
-				state.openReviewCount += 1;
-				write(`review-${state.openReviewCount}.json`, reviewed.artifact);
-				const blocking = reviewed.artifact.findings.filter(
-					findingBlocksAcceptance,
-				);
-				console.log(
-					`[requestReview] ${reviewed.artifact.findings.length} findings (${blocking.length} blocking)`,
-				);
-				if (blocking.length === 0) {
-					state.lifecycle = "accepted";
-					finalizePlan();
-				}
-				return {
-					ok: true,
-					findings: projectDesignIdentityHandles(reviewed.artifact.findings, [
-						...state.handleBindings.values(),
-						...deriveFindingHandleBindings([reviewed.artifact]),
-					]),
-					summary: reviewed.artifact.summary,
-					accepted: blocking.length === 0,
-					message:
-						blocking.length === 0
-							? "The design is accepted and its build plan was derived."
-							: "Stage the blocking corrections and their dispositions.",
-				};
-			},
-		},
-		submitRevision: {
-			...realTools.submitRevision,
-			execute: async (input: unknown) => {
-				if (state.contract === null || state.reviews.length === 0) {
-					return { error: "No reviewed draft exists to revise." };
-				}
-				const finalized = parseInput(finalizeDesignWorkspaceInputSchema, input);
-				if (!finalized.ok) return { error: finalized.error };
-				if (
-					finalized.data.expectedRevision !== state.revisionOperations.length
-				) {
-					return {
-						error: `The workspace is at revision ${state.revisionOperations.length}.`,
-					};
-				}
-				const { dispositions, ...contract } = candidateFor("revision");
-				const parsed = designRevisionResultSchemaFor(state.reviews).safeParse({
-					contract,
-					dispositions,
-				});
-				if (!parsed.success) {
-					return { error: renderDesignValidationIssues(parsed.error) };
-				}
-				const violations = validateSensitivityNotSilentlyLowered(
-					state.contract,
-					parsed.data,
-					state.reviews,
-				);
-				if (violations.length > 0) return { error: violations.join("\n") };
-				const prior = state.contract;
-				const revision: DesignRevisionResult = parsed.data;
-				const secondReview =
-					state.openReviewCount === 1 &&
-					(leavesCriticalFinding(revision, state.reviews) ||
-						criticalFindingCount(state.reviews) >= 2 ||
-						(criticalFindingCount(state.reviews) > 0 &&
-							changesArchitecture(prior, revision.contract)));
-				state.contract = revision.contract;
-				state.lifecycle = secondReview ? "draft" : "accepted";
-				state.reviews = [];
-				state.revisionOperations = [];
-				write(
-					`contract-revision-${state.openReviewCount}.json`,
-					revision.contract,
-				);
-				write(
-					`dispositions-${state.openReviewCount}.json`,
-					revision.dispositions,
-				);
-				if (!secondReview) finalizePlan();
-				return {
-					ok: true,
-					accepted: !secondReview,
-					message: secondReview
-						? "The revision warrants one more independent review."
-						: "The revision is accepted and its build plan was derived.",
-				};
-			},
+			execute: () => ordered(requestReview),
 		},
 	};
 

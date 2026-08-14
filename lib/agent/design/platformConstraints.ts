@@ -36,6 +36,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"SINGLE_DIRECT_CASE_WRITE_PER_FIELD",
 	"STANDARD_SCALAR_WRITERS_LIMITED",
 	"CASE_NAME_REQUIRED_ON_CREATE",
+	"REGISTRATION_CREATE_IS_UNCONDITIONAL",
 	"RESERVED_CASE_IDENTIFIERS_REJECTED",
 	"CASE_WRITE_TARGETS_MODULE_LINEAGE",
 	"CASE_PROPERTY_CLEAR_UNAVAILABLE",
@@ -137,6 +138,12 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"A registration form or child-create bucket requires exactly one case_name writer; a create without a name is not constructible.",
 		sourceAnchor:
 			"lib/commcare/caseWriteAdmission.ts::assertAndProjectCaseWriteInventory",
+	},
+	REGISTRATION_CREATE_IS_UNCONDITIONAL: {
+		code: "REGISTRATION_CREATE_IS_UNCONDITIONAL",
+		statement:
+			"Submitting a registration form always creates its hosted record. A workflow that must submit successfully while conditionally skipping that create uses a standalone form with a conditional create operation; validation is the alternative only when the ineligible submission itself must be blocked.",
+		sourceAnchor: "lib/commcare/formActions.ts::buildFormActions",
 	},
 	RESERVED_CASE_IDENTIFIERS_REJECTED: {
 		code: "RESERVED_CASE_IDENTIFIERS_REJECTED",

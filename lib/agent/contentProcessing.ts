@@ -335,6 +335,7 @@ export function flatFieldToField(
 		id: q.id,
 		...(q.label !== undefined && q.label !== null && { label: q.label }),
 		...(q.hint !== undefined && q.hint !== null && { hint: q.hint }),
+		...(q.help !== undefined && q.help !== null && { help: q.help }),
 		...(q.required !== undefined &&
 			q.required !== null && { required: q.required }),
 		...(q.relevant !== undefined &&

@@ -152,27 +152,56 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	// views) are suppressed in `toolDetail`, so these rows never leak protocol
 	// vocabulary. A failed row here is Nova's own validation refusing a draft
 	// part, which Nova then reworks: honest, and explained by Nova's prose.
-	stageContract: {
-		doing: "Adding to the design draft",
-		done: "Added to the design draft",
+	setDesignRoot: { doing: "Setting app direction", done: "Set app direction" },
+	updateActors: { doing: "Designing roles", done: "Designed roles" },
+	updateRecords: { doing: "Designing records", done: "Designed records" },
+	updateWorkflows: {
+		doing: "Designing workflows",
+		done: "Designed workflows",
 	},
-	submitContract: {
-		doing: "Completing the design draft",
-		done: "Completed the design draft",
+	updateLists: { doing: "Designing worklists", done: "Designed worklists" },
+	updateAccess: { doing: "Designing access", done: "Designed access" },
+	updateNavigation: {
+		doing: "Designing navigation",
+		done: "Designed navigation",
+	},
+	updateModuleCompositions: {
+		doing: "Composing menus",
+		done: "Composed menus",
+	},
+	updateFormCompositions: {
+		doing: "Composing forms",
+		done: "Composed forms",
+	},
+	updateExternalRequirements: {
+		doing: "Checking setup needs",
+		done: "Checked setup needs",
+	},
+	updateDecisions: {
+		doing: "Recording design decisions",
+		done: "Recorded design decisions",
+	},
+	updateAssumptions: {
+		doing: "Recording assumptions",
+		done: "Recorded assumptions",
+	},
+	updateOpenQuestions: {
+		doing: "Recording open questions",
+		done: "Recorded open questions",
+	},
+	updateFindingDispositions: {
+		doing: "Applying review feedback",
+		done: "Applied review feedback",
+	},
+	finishDesign: {
+		doing: "Completing the design",
+		done: "Completed the design",
 	},
 	requestReview: {
 		doing: "Reviewing the design",
 		done: "Reviewed the design",
 	},
-	stageRevision: {
-		doing: "Applying review feedback",
-		done: "Applied review feedback",
-	},
-	submitRevision: {
-		doing: "Finalizing the revised design",
-		done: "Finalized the revised design",
-	},
-	inspectDesignWorkspace: {
+	inspectDesign: {
 		doing: "Checking the design draft",
 		done: "Checked the design draft",
 	},

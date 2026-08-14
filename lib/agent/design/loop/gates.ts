@@ -259,7 +259,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 				return {
 					legal: false,
 					refusal:
-						"The current draft has a persisted review whose findings are not yet dispositioned. A fresh draft would orphan them; submit the revision with submitRevision instead.",
+						"The current draft has a persisted review whose findings are not yet dispositioned. A fresh draft would orphan them; update the affected design items and finding dispositions, then call finishDesign.",
 				};
 			}
 			if (!newerUserContent) {
@@ -289,7 +289,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 				legal: false,
 				refusal:
 					head === null
-						? "No draft exists to review. Submit the Design Contract with submitContract first."
+						? "No draft exists to review. Complete the semantic design and call finishDesign first."
 						: "The newest revision is already accepted, so there is nothing awaiting review.",
 			};
 		}
@@ -297,14 +297,14 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 			return {
 				legal: false,
 				refusal:
-					"This draft already has its persisted review. Disposition its findings with submitRevision.",
+					"This draft already has its persisted review. Update its affected design items and finding dispositions, then call finishDesign.",
 			};
 		}
 		if (openCycleReviews >= 2) {
 			return {
 				legal: false,
 				refusal:
-					"This design cycle has used both of its review rounds. Submit the revision with submitRevision; the server will accept it.",
+					"This design cycle has used both of its review rounds. Complete the revision with finishDesign; the server will accept it.",
 			};
 		}
 		return { legal: true };
@@ -316,7 +316,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 				legal: false,
 				refusal:
 					head === null
-						? "No draft exists to revise. Submit the Design Contract with submitContract first."
+						? "No draft exists to revise. Complete the semantic design and call finishDesign first."
 						: "The newest revision is already accepted; there are no findings awaiting a disposition.",
 			};
 		}
@@ -361,16 +361,16 @@ function deriveExpectedNext(
 	if (blockingQuestions.length > 0) {
 		return "Ask the user the accepted design's blocking open questions with askQuestions; the answers reopen design work.";
 	}
-	for (const name of [
-		"submitRevision",
-		"requestReview",
-		"submitContract",
-	] as const) {
-		if (verdicts[name].legal) {
-			return `The expected next step is ${name}. Asking the user a question with askQuestions is always available.`;
-		}
+	if (verdicts.submitRevision.legal) {
+		return "Update the reviewed design and blocking finding dispositions with the native semantic calls, then call finishDesign. Several known updates may be emitted in one response. askQuestions remains available.";
 	}
-	return "No submit tool is legal right now; ask the user with askQuestions if something is genuinely unclear.";
+	if (verdicts.requestReview.legal) {
+		return "The expected next step is requestReview. askQuestions remains available.";
+	}
+	if (verdicts.submitContract.legal) {
+		return "Continue the implicit workspace with native semantic design calls, then call finishDesign. Several known updates may be emitted in one response. askQuestions remains available.";
+	}
+	return "No design finalizer is legal right now; ask the user with askQuestions if something is genuinely unclear.";
 }
 
 /**

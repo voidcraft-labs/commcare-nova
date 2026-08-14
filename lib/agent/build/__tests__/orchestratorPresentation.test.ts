@@ -10,7 +10,7 @@ import {
 
 describe("reviewed-build presentation", () => {
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v6");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v7");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"Use several native calls in one response when their inputs are already known",
@@ -20,8 +20,15 @@ describe("reviewed-build presentation", () => {
 		expect(EXECUTOR_SYSTEM).toContain(
 			"an empty property catalog is not by itself a stale external dependency",
 		);
+		expect(EXECUTOR_SYSTEM).toContain("Batch the longest safe known prefix");
 		expect(EXECUTOR_SYSTEM).toContain(
-			"When the accepted workflow creates the module's primary record",
+			"A registration form's direct `caseWrite` fields create its hosted record on every successful submission",
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"When a workflow input carries optional `validation` intent",
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"An optional input's predicate must accept an unanswered value",
 		);
 		expect(EXECUTOR_SYSTEM).toContain(
 			"needs at least two distinct real inline choices or the specific existing Project lookup source",

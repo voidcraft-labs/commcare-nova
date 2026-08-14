@@ -1,33 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
+	designCollectionUpdateInputSchemas,
 	designWorkspaceBoundError,
 	designWorkspaceCandidateSummary,
 	inspectDesignWorkspaceCandidate,
 	replayDesignWorkspace,
-	stageContractInputSchema,
-	stageRevisionInputSchema,
+	setDesignRootInputSchema,
+	updateFindingDispositionsInputSchema,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
 import { did, fixtureValue, makeContract } from "./fixtures";
 
 describe("design artifact workspaces", () => {
-	it("stages a lean contract root and coherent collections", () => {
+	it("replays semantic root and collection updates", () => {
 		const contract = makeContract();
-		const root = stageContractInputSchema.parse({
-			expectedRevision: 0,
-			root: { id: contract.id, charter: contract.charter },
-			collections: [],
+		const root = setDesignRootInputSchema.parse({
+			id: contract.id,
+			charter: contract.charter,
 		});
-		const actors = stageContractInputSchema.parse({
-			expectedRevision: 1,
-			collections: [
-				{ collection: "actors", upserts: contract.actors, removeIds: [] },
-			],
+		const actors = designCollectionUpdateInputSchemas.actors.parse({
+			upserts: contract.actors,
+			removeIds: [],
 		});
 		const candidate = replayDesignWorkspace({
 			kind: "contract",
 			operations: [
-				{ kind: "contract", root: root.root, collections: root.collections },
-				{ kind: "contract", collections: actors.collections },
+				{ kind: "contract", root, collections: [] },
+				{
+					kind: "contract",
+					collections: [{ collection: "actors", ...actors }],
+				},
 			],
 		});
 		expect(candidate.charter).toEqual(contract.charter);
@@ -59,29 +60,24 @@ describe("design artifact workspaces", () => {
 	});
 
 	it("keeps blocking dispositions separate from contract collections", () => {
-		const parsed = stageRevisionInputSchema.parse({
-			expectedRevision: 0,
-			collections: [],
-			dispositions: {
-				collection: "dispositions",
-				upserts: [
-					{
-						findingId: did(500),
-						status: "accepted",
-						rationale: "Corrected the workflow readback.",
-					},
-				],
-				removeIds: [],
-			},
+		const parsed = updateFindingDispositionsInputSchema.parse({
+			upserts: [
+				{
+					findingId: did(500),
+					status: "accepted",
+					rationale: "Corrected the workflow readback.",
+				},
+			],
+			removeIds: [],
 		});
-		expect(parsed.dispositions?.upserts).toHaveLength(1);
+		expect(parsed.upserts).toHaveLength(1);
 	});
 
-	it("rejects empty stages and bounds oversized stages", () => {
+	it("rejects empty semantic updates and bounds oversized operations", () => {
 		expect(
-			stageContractInputSchema.safeParse({
-				expectedRevision: 0,
-				collections: [],
+			designCollectionUpdateInputSchemas.actors.safeParse({
+				upserts: [],
+				removeIds: [],
 			}).success,
 		).toBe(false);
 		const contract = makeContract();

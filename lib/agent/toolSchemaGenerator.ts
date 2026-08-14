@@ -323,6 +323,7 @@ function repeatConfigDiscriminated() {
 const ADD_GATED_KEYS = [
 	"label",
 	"hint",
+	"help",
 	"required",
 	"relevant",
 	"validate",
@@ -332,7 +333,7 @@ const ADD_GATED_KEYS = [
 	"caseWrite",
 ] as const;
 
-const EDIT_GATED_KEYS = [...ADD_GATED_KEYS, "help"] as const;
+const EDIT_GATED_KEYS = ADD_GATED_KEYS;
 
 function undeclaredSlotIssue(
 	ctx: z.RefinementCtx,
@@ -380,6 +381,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			parentUuid: parentUuidField(),
 			label: labelField(),
 			hint: hintField(),
+			help: helpField(),
 			required: requiredField(),
 			relevant: relevantField(),
 			validate: validateConfigField().nullable().optional(),
@@ -449,8 +451,8 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 /**
  * The `editField` patch shape. Every clearable key is
  * `.nullable().optional()` — omitted = keep the current value, a value =
- * set, `null` = CLEAR the property — and `help` (longer-form text the
- * add tool omits) is a slot for kinds that declare it.
+ * set, `null` = CLEAR the property. The edit and creation paths expose the
+ * same field-content slots; only their null semantics differ.
  *
  * `kind` is REQUIRED: the SA states the field's CURRENT kind to edit in
  * place, or a different convertible kind to convert it. That's what the

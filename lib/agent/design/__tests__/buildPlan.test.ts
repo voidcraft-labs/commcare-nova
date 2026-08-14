@@ -227,6 +227,54 @@ describe("deterministic build planning", () => {
 		).not.toThrow();
 	});
 
+	it("authorizes case operations for a standalone conditional primary create", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows.find(
+			(candidate) => candidate.id === ids.taskRegister,
+		);
+		if (workflow === undefined)
+			throw new Error("registration workflow missing");
+		const effect = workflow.recordEffects[0];
+		if (effect === undefined) throw new Error("create effect missing");
+		effect.condition = "The worker gave consent";
+		const existingModule = contract.moduleCompositions[0];
+		if (existingModule === undefined) throw new Error("module missing");
+		existingModule.workflowIds = existingModule.workflowIds.filter(
+			(id) => id !== workflow.id,
+		);
+		const standaloneModuleId = did(880);
+		contract.moduleCompositions.push({
+			id: standaloneModuleId,
+			name: "Consent registration",
+			purpose: "Host conditional registration without selected record context.",
+			role: "form-host",
+			workflowIds: [workflow.id],
+			actorIds: workflow.actorIds,
+			navigationIds: [],
+			listIds: [],
+			orderRationale: "Registration precedes patient follow-up.",
+			icon: { kind: "builtin", slug: "default" },
+			roleSeparationRationale:
+				"Conditional creation cannot use the patient-hosted registration form.",
+		});
+		const form = contract.formCompositions.find(
+			(candidate) => candidate.workflowId === workflow.id,
+		);
+		if (form === undefined) throw new Error("registration form missing");
+		form.moduleCompositionId = standaloneModuleId;
+		form.mode = "standalone";
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const workflowGroup = plan.slices
+			.find((slice) => slice.workflowId === workflow.id)
+			?.constructionGroups.find((group) => group.kind === "workflow");
+		expect(workflowGroup?.blueprintAreas).toContain("case-operations");
+	});
+
 	it("assigns read-only and queue-only properties to the workflow that uses them", () => {
 		const contract = cloneContract(makeContract());
 		const readOnly = did(34);

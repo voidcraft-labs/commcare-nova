@@ -107,7 +107,7 @@ function delimiterCount(text: string): { open: number; close: number } {
 }
 
 describe("renderSourcePackage containment", () => {
-	it("makes the fresh post-review revision counter explicit", () => {
+	it("rehydrates a revision candidate without model-visible bookkeeping", () => {
 		const rendered = renderDesignStateMessage({
 			gates: {
 				expectedNext: "Revise the reviewed design.",
@@ -117,20 +117,32 @@ describe("renderSourcePackage containment", () => {
 			openReviews: [],
 			workspace: {
 				artifactKind: "revision",
-				revision: 0,
-				stepCount: 0,
 				counts: {},
 				missingRootFields: [],
 				candidate: {},
 				sourceContract: { id: { handle: "@contract" } },
 			},
 		});
-		expect(rendered).toContain('"nextExpectedRevision": 0');
-		expect(rendered).toContain(
-			"new post-review revision workspace at revision 0",
+		expect(rendered).toContain("## Revision phase packet");
+		expect(rendered).toContain("Continue from this exact revision candidate");
+		expect(rendered).toContain("finishDesign");
+		expect(rendered).not.toContain("expectedRevision");
+		expect(rendered).not.toContain("nextExpectedRevision");
+		expect(rendered).not.toContain('"artifactKind"');
+	});
+
+	it("teaches selective validation and exact conditional-create architecture", () => {
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"An optional input's rule must allow no answer",
 		);
-		expect(rendered).toContain(
-			"first stageRevision call must use expectedRevision 0",
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"Validation is a design choice, not a completeness quota",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"A registration form always creates its hosted record",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"standalone form with a conditional create effect",
 		);
 	});
 

@@ -1,4 +1,4 @@
-/** Offline integration of staged design tools with the real artifact store. */
+/** Offline integration of semantic design tools with the real artifact store. */
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -202,6 +202,21 @@ const COLLECTIONS = [
 	"openQuestions",
 ] as const;
 
+const COLLECTION_TO_TOOL = {
+	actors: "updateActors",
+	records: "updateRecords",
+	externalRequirements: "updateExternalRequirements",
+	workflows: "updateWorkflows",
+	lists: "updateLists",
+	access: "updateAccess",
+	navigation: "updateNavigation",
+	moduleCompositions: "updateModuleCompositions",
+	formCompositions: "updateFormCompositions",
+	decisions: "updateDecisions",
+	assumptions: "updateAssumptions",
+	openQuestions: "updateOpenQuestions",
+} as const;
+
 function handleForFixtureId(id: string): string {
 	return `@design_${id.replaceAll("-", "").slice(-24)}`;
 }
@@ -247,48 +262,30 @@ function resolvedContract(contract: AppDesignContract): AppDesignContract {
 	) as AppDesignContract;
 }
 
-async function stageWholeContract(
+async function authorWholeContract(
 	tools: ReturnType<typeof createDesignLoopTools>,
 	contract: AppDesignContract,
-	startRevision = 0,
-): Promise<number> {
+): Promise<void> {
 	const projected = modelContract(contract) as AppDesignContract;
-	let revision = startRevision;
-	if (revision === 0) {
-		const root = await call(tools.stageContract, {
-			expectedRevision: revision,
-			root: { id: projected.id },
-			collections: [],
-		});
-		revision = Number(root.workspaceRevision);
-	}
+	await call(tools.setDesignRoot, { id: projected.id });
 	for (const collection of COLLECTIONS) {
 		const items = projected[collection];
 		if (items.length === 0) continue;
-		const staged = await call(tools.stageContract, {
-			expectedRevision: revision,
-			collections: [{ collection, upserts: items, removeIds: [] }],
+		await call(tools[COLLECTION_TO_TOOL[collection]], {
+			upserts: items,
+			removeIds: [],
 		});
-		revision = Number(staged.workspaceRevision);
 	}
-	const charter = await call(tools.stageContract, {
-		expectedRevision: revision,
-		root: { charter: projected.charter },
-		collections: [],
-	});
-	revision = Number(charter.workspaceRevision);
-	return revision;
+	await call(tools.setDesignRoot, { charter: projected.charter });
 }
 
-describe("staged design loop", () => {
+describe("semantic design loop", () => {
 	it("persists, reviews, accepts, and deterministically plans a clean design", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
-		const workspaceRevision = await stageWholeContract(tools, makeContract());
-		expect(
-			await call(tools.submitContract, { expectedRevision: workspaceRevision }),
-		).toMatchObject({ ok: true });
+		await authorWholeContract(tools, makeContract());
+		expect(await call(tools.finishDesign)).toMatchObject({ ok: true });
 		expect(await call(tools.requestReview)).toMatchObject({
 			ok: true,
 			accepted: true,
@@ -314,10 +311,8 @@ describe("staged design loop", () => {
 		/* Unchanged ancestry: repeated gate evaluations share ONE load. */
 		expect(ancestry.loadAncestry()).toBe(ancestry.loadAncestry());
 		const tools = mount(pkg, cleanReview, new DesignRepairTracker(), ancestry);
-		const workspaceRevision = await stageWholeContract(tools, makeContract());
-		expect(
-			await call(tools.submitContract, { expectedRevision: workspaceRevision }),
-		).toMatchObject({ ok: true });
+		await authorWholeContract(tools, makeContract());
+		expect(await call(tools.finishDesign)).toMatchObject({ ok: true });
 		/* Each artifact insert invalidated the memo: the review gate must see
 		 * the freshly submitted draft (a stale memo would refuse with "No
 		 * draft exists to review"), and the acceptance path re-reads again to
@@ -333,15 +328,11 @@ describe("staged design loop", () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
-		const result = await call(tools.stageContract, {
-			expectedRevision: 0,
-			root: { id: { handle: "@contract" } },
-			collections: [],
+		const result = await call(tools.setDesignRoot, {
+			id: { handle: "@contract" },
 		});
-		expect(result).toMatchObject({ ok: true, workspaceRevision: 1 });
-		const inspected = await call(tools.inspectDesignWorkspace, {
-			artifactKind: "contract",
-			expectedRevision: 1,
+		expect(result).toMatchObject({ ok: true });
+		const inspected = await call(tools.inspectDesign, {
 			selection: { kind: "root" },
 		});
 		const root = (inspected.view as { root: Record<string, unknown> }).root;
@@ -351,16 +342,12 @@ describe("staged design loop", () => {
 		const sourceRecord = fixtureValue(contract.records[0], "first record");
 		const record = (modelContract(contract) as AppDesignContract).records[0];
 		if (record === undefined) throw new Error("record fixture missing");
-		const stagedRecord = await call(tools.stageContract, {
-			expectedRevision: 1,
-			collections: [
-				{ collection: "records", upserts: [record], removeIds: [] },
-			],
+		const stagedRecord = await call(tools.updateRecords, {
+			upserts: [record],
+			removeIds: [],
 		});
-		expect(stagedRecord).toMatchObject({ ok: true, workspaceRevision: 2 });
-		const inspectedRecord = await call(tools.inspectDesignWorkspace, {
-			artifactKind: "contract",
-			expectedRevision: 2,
+		expect(stagedRecord).toMatchObject({ ok: true });
+		const inspectedRecord = await call(tools.inspectDesign, {
 			selection: {
 				kind: "collection",
 				collection: "records",
@@ -381,9 +368,7 @@ describe("staged design loop", () => {
 		/* An unknown handle resolves to its deterministic identity and finds
 		 * no item — an honest empty view, never a reference gate. */
 		expect(
-			await call(tools.inspectDesignWorkspace, {
-				artifactKind: "contract",
-				expectedRevision: 2,
+			await call(tools.inspectDesign, {
 				selection: {
 					kind: "collection",
 					collection: "records",
@@ -398,14 +383,39 @@ describe("staged design loop", () => {
 		});
 	});
 
+	it("serializes several semantic calls emitted in one model response", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const tools = mount(pkg);
+		const projected = modelContract(makeContract()) as AppDesignContract;
+		const root = call(
+			tools.setDesignRoot,
+			{ id: projected.id, charter: projected.charter },
+			"parallel-root",
+		);
+		const actors = call(
+			tools.updateActors,
+			{ upserts: projected.actors, removeIds: [] },
+			"parallel-actors",
+		);
+		expect(await Promise.all([root, actors])).toEqual([
+			expect.objectContaining({ ok: true }),
+			expect.objectContaining({ ok: true }),
+		]);
+		expect(
+			await call(tools.inspectDesign, { selection: { kind: "summary" } }),
+		).toMatchObject({
+			ok: true,
+			view: { counts: { actors: projected.actors.length } },
+		});
+	});
+
 	it("rejects raw new UUID declarations and closes forward references at submit", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
-		const raw = await call(tools.stageContract, {
-			expectedRevision: 0,
-			root: { id: did(999) },
-			collections: [],
+		const raw = await call(tools.setDesignRoot, {
+			id: did(999),
 		});
 		expect(raw).toMatchObject({
 			diagnostic: { code: "design-creation-handle-required", issueCount: 1 },
@@ -414,22 +424,16 @@ describe("staged design loop", () => {
 		 * reference mints its deterministic identity eagerly and staging is
 		 * order-free. Submit still refuses a reference whose element never
 		 * arrived — naming the handle the model wrote. */
-		const forward = await call(tools.stageContract, {
-			expectedRevision: 0,
-			root: {
-				id: { handle: "@contract" },
-				charter: {
-					...makeContract().charter,
-					includedWorkflowIds: [{ handle: "@undeclared_workflow" }],
-					initialWorkflowId: { handle: "@undeclared_workflow" },
-				},
+		const forward = await call(tools.setDesignRoot, {
+			id: { handle: "@contract" },
+			charter: {
+				...makeContract().charter,
+				includedWorkflowIds: [{ handle: "@undeclared_workflow" }],
+				initialWorkflowId: { handle: "@undeclared_workflow" },
 			},
-			collections: [],
 		});
-		expect(forward).toMatchObject({ ok: true, workspaceRevision: 1 });
-		const closure = await call(tools.submitContract, {
-			expectedRevision: 1,
-		});
+		expect(forward).toMatchObject({ ok: true });
+		const closure = await call(tools.finishDesign);
 		expect(closure).toMatchObject({
 			diagnostic: { code: "design-schema-rejected" },
 		});
@@ -440,115 +444,93 @@ describe("staged design loop", () => {
 		 * forward references themselves, exercising the order-free law). */
 		const fixtureWorkflow = makeContract().workflows[0];
 		if (fixtureWorkflow === undefined) throw new Error("fixture workflow");
-		const lateDeclaration = await call(tools.stageContract, {
-			expectedRevision: 1,
-			collections: [
+		const lateDeclaration = await call(tools.updateWorkflows, {
+			upserts: [
 				{
-					collection: "workflows",
-					upserts: [
-						{
-							...fixtureWorkflow,
-							id: { handle: "@undeclared_workflow" },
-							actorIds: [{ handle: "@late_actor" }],
-							inputs: fixtureWorkflow.inputs.map((input) => ({
-								...input,
-								propertyId: { handle: "@late_property" },
-							})),
-							decisions: fixtureWorkflow.decisions.map((decision) => ({
-								...decision,
-								inputPropertyIds: [{ handle: "@late_property" }],
-							})),
-							recordEffects: fixtureWorkflow.recordEffects.map((effect) => ({
-								...effect,
-								recordId: { handle: "@late_record" },
-								writes: effect.writes.map((write) => ({
-									...write,
-									propertyId: { handle: "@late_property" },
-								})),
-							})),
-							readback: fixtureWorkflow.readback.map((entry) => ({
-								...entry,
-								recordId: { handle: "@late_record" },
-								propertyIds: [{ handle: "@late_property" }],
-							})),
-						},
-					],
-					removeIds: [],
+					...fixtureWorkflow,
+					id: { handle: "@undeclared_workflow" },
+					actorIds: [{ handle: "@late_actor" }],
+					inputs: fixtureWorkflow.inputs.map((input) => ({
+						...input,
+						propertyId: { handle: "@late_property" },
+					})),
+					decisions: fixtureWorkflow.decisions.map((decision) => ({
+						...decision,
+						inputPropertyIds: [{ handle: "@late_property" }],
+					})),
+					recordEffects: fixtureWorkflow.recordEffects.map((effect) => ({
+						...effect,
+						recordId: { handle: "@late_record" },
+						writes: effect.writes.map((write) => ({
+							...write,
+							propertyId: { handle: "@late_property" },
+						})),
+					})),
+					readback: fixtureWorkflow.readback.map((entry) => ({
+						...entry,
+						recordId: { handle: "@late_record" },
+						propertyIds: [{ handle: "@late_property" }],
+					})),
 				},
 			],
+			removeIds: [],
 		});
-		expect(lateDeclaration).toMatchObject({ ok: true, workspaceRevision: 2 });
+		expect(lateDeclaration).toMatchObject({ ok: true });
 		/* A reserved finding handle can never enter the design namespace,
 		 * even as a reference. */
 		expect(
-			await call(tools.stageContract, {
-				expectedRevision: 2,
-				root: {
-					id: { handle: "@contract" },
-					charter: {
-						...makeContract().charter,
-						includedWorkflowIds: [{ handle: "@f1" }],
-						initialWorkflowId: { handle: "@f1" },
-					},
+			await call(tools.setDesignRoot, {
+				id: { handle: "@contract" },
+				charter: {
+					...makeContract().charter,
+					includedWorkflowIds: [{ handle: "@f1" }],
+					initialWorkflowId: { handle: "@f1" },
 				},
-				collections: [],
 			}),
 		).toMatchObject({
 			diagnostic: { code: "design-reserved-handle", issueCount: 1 },
 		});
-		const unknownReference = await call(tools.stageContract, {
-			expectedRevision: 0,
-			root: {
-				id: { handle: "@contract" },
-				charter: {
-					...makeContract().charter,
-					includedWorkflowIds: [did(998)],
-					initialWorkflowId: did(998),
-				},
+		const unknownReference = await call(tools.setDesignRoot, {
+			id: { handle: "@contract" },
+			charter: {
+				...makeContract().charter,
+				includedWorkflowIds: [did(998)],
+				initialWorkflowId: did(998),
 			},
-			collections: [],
 		});
 		expect(unknownReference).toMatchObject({
 			diagnostic: { code: "design-creation-handle-required", issueCount: 1 },
 		});
 		expect(unknownReference.error).toContain("unknown raw design UUID");
 
-		const unknownRemoval = await call(tools.stageContract, {
-			expectedRevision: 0,
-			collections: [
-				{ collection: "records", upserts: [], removeIds: [did(997)] },
-			],
+		const unknownRemoval = await call(tools.updateRecords, {
+			upserts: [],
+			removeIds: [did(997)],
 		});
 		expect(unknownRemoval.error).toContain("unknown raw design UUID");
 	});
 
-	it("latches a fatal defect when identical stage rejections repeat", async () => {
+	it("latches a fatal defect when identical semantic update rejections repeat", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const repair = new DesignRepairTracker();
 		const tools = mount(pkg, cleanReview, repair);
 		const rawUuidActor = {
-			expectedRevision: 0,
-			collections: [
+			upserts: [
 				{
-					collection: "actors",
-					upserts: [
-						{
-							id: did(900),
-							name: "Community worker",
-							goals: ["Register and screen beneficiaries"],
-							responsibilities: [],
-							workContext: [],
-							constraints: [],
-						},
-					],
-					removeIds: [],
+					id: did(900),
+					name: "Community worker",
+					goals: ["Register and screen beneficiaries"],
+					responsibilities: [],
+					workContext: [],
+					constraints: [],
 				},
 			],
+			removeIds: [],
 		};
 		for (let attempt = 0; attempt < DESIGN_STAGE_REPAIR_BUDGET; attempt += 1) {
 			expect(repair.fatalError()).toBeUndefined();
-			const result = await call(tools.stageContract, rawUuidActor);
+			const result = await call(tools.updateActors, rawUuidActor);
 			expect(result).toMatchObject({
 				diagnostic: { code: "design-creation-handle-required" },
 			});
@@ -562,11 +544,7 @@ describe("staged design loop", () => {
 		const tools = mount(pkg);
 		const contract = makeContract();
 		const projected = modelContract(contract) as AppDesignContract;
-		const root = await call(tools.stageContract, {
-			expectedRevision: 0,
-			root: { id: projected.id },
-			collections: [],
-		});
+		await call(tools.setDesignRoot, { id: projected.id });
 		const baseRecord = fixtureValue(contract.records[0], "first record");
 		const collidingRecords = Array.from({ length: 6 }, (_, index) => {
 			const identity = { handle: `@collision_${index}` };
@@ -591,15 +569,9 @@ describe("staged design loop", () => {
 				],
 			};
 		});
-		const rejected = await call(tools.stageContract, {
-			expectedRevision: root.workspaceRevision,
-			collections: [
-				{
-					collection: "records",
-					upserts: collidingRecords,
-					removeIds: [],
-				},
-			],
+		const rejected = await call(tools.updateRecords, {
+			upserts: collidingRecords,
+			removeIds: [],
 		});
 		expect(rejected).toMatchObject({
 			diagnostic: {
@@ -608,15 +580,12 @@ describe("staged design loop", () => {
 				issueCount: 1,
 			},
 		});
-		const inspected = await call(tools.inspectDesignWorkspace, {
-			artifactKind: "contract",
-			expectedRevision: root.workspaceRevision,
+		const inspected = await call(tools.inspectDesign, {
 			selection: { kind: "summary" },
 		});
 		expect(inspected).toMatchObject({
 			ok: true,
-			workspaceRevision: 1,
-			stepCount: 1,
+			view: { kind: "summary", counts: { records: 0 } },
 		});
 	});
 
@@ -636,10 +605,8 @@ describe("staged design loop", () => {
 			blocking: false,
 			relatedElementIds: [ids.taskVisit],
 		});
-		const workspaceRevision = await stageWholeContract(tools, contract);
-		expect(
-			await call(tools.submitContract, { expectedRevision: workspaceRevision }),
-		).toMatchObject({ ok: true });
+		await authorWholeContract(tools, contract);
+		expect(await call(tools.finishDesign)).toMatchObject({ ok: true });
 		expect(repair.requiredUserQuestions()).toHaveLength(0);
 		expect(repair.fatalError()).toBeUndefined();
 	});
@@ -658,26 +625,16 @@ describe("staged design loop", () => {
 				relatedElementIds: [ids.taskVisit],
 			})),
 		);
-		const root = await call(tools.stageContract, {
-			expectedRevision: 0,
-			root: { id: (modelContract(contract) as AppDesignContract).id },
-			collections: [],
+		await call(tools.setDesignRoot, {
+			id: (modelContract(contract) as AppDesignContract).id,
 		});
-		const firstSubmission = await call(tools.submitContract, {
-			expectedRevision: root.workspaceRevision,
-		});
+		const firstSubmission = await call(tools.finishDesign);
 		expect(firstSubmission).toMatchObject({
 			diagnostic: { validationStage: "schema" },
 		});
 
-		const completeRevision = await stageWholeContract(
-			tools,
-			contract,
-			Number(root.workspaceRevision),
-		);
-		const needsInput = await call(tools.submitContract, {
-			expectedRevision: completeRevision,
-		});
+		await authorWholeContract(tools, contract);
+		const needsInput = await call(tools.finishDesign);
 		expect(needsInput).toMatchObject({
 			diagnostic: {
 				code: "design-construction-needs-input",
@@ -712,9 +669,9 @@ describe("staged design loop", () => {
 			(needsInput.needsUserInput as { questions: string[] }).questions,
 		);
 		expect(
-			await call(tools.stageContract, {
-				expectedRevision: completeRevision,
-				collections: [],
+			await call(tools.updateActors, {
+				upserts: [],
+				removeIds: [],
 			}),
 		).toMatchObject({
 			diagnostic: {
@@ -731,24 +688,10 @@ describe("staged design loop", () => {
 		const tools = mount(pkg);
 		const contract = makeContract();
 		const projected = modelContract(contract) as AppDesignContract;
-		const root = await call(tools.stageContract, {
-			expectedRevision: 0,
-			root: { id: projected.id },
-			collections: [],
-		});
-		expect(
-			await call(tools.submitContract, {
-				expectedRevision: root.workspaceRevision,
-			}),
-		).toHaveProperty("error");
-		const completeRevision = await stageWholeContract(
-			tools,
-			contract,
-			Number(root.workspaceRevision),
-		);
-		expect(
-			await call(tools.submitContract, { expectedRevision: completeRevision }),
-		).toMatchObject({ ok: true });
+		await call(tools.setDesignRoot, { id: projected.id });
+		expect(await call(tools.finishDesign)).toHaveProperty("error");
+		await authorWholeContract(tools, contract);
+		expect(await call(tools.finishDesign)).toMatchObject({ ok: true });
 	});
 
 	it("revises only affected items and dispositions after a blocking review", async () => {
@@ -757,20 +700,11 @@ describe("staged design loop", () => {
 		const tools = mount(pkg, correctionReview);
 		const contract = makeContract();
 		const resolved = resolvedContract(contract);
-		const contractRevision = await stageWholeContract(tools, contract);
-		await call(tools.submitContract, { expectedRevision: contractRevision });
+		await authorWholeContract(tools, contract);
+		await call(tools.finishDesign);
 		const reviewResult = await call(tools.requestReview);
-		expect(reviewResult).toMatchObject({
-			accepted: false,
-			revisionWorkspace: {
-				artifactKind: "revision",
-				workspaceRevision: 0,
-				nextExpectedRevision: 0,
-			},
-		});
-		expect(reviewResult.message).toContain(
-			"first stageRevision call must use expectedRevision 0",
-		);
+		expect(reviewResult).toMatchObject({ accepted: false });
+		expect(reviewResult.message).not.toContain("expectedRevision");
 		/* Findings return in the agent's symbol vocabulary: the server-minted
 		 * finding identity projects to its positional @f handle and affected
 		 * elements to their declared handles — the exact symbols the next
@@ -787,40 +721,29 @@ describe("staged design loop", () => {
 
 		/* An unknown finding handle refuses before the generic resolver could
 		 * mint a plausible wrong identity for it. */
-		const unknownFinding = await call(tools.stageRevision, {
-			expectedRevision: 0,
-			collections: [],
-			dispositions: {
-				collection: "dispositions",
-				upserts: [
-					{
-						findingId: { handle: "@f9" },
-						status: "accepted",
-						rationale: "This finding does not exist.",
-					},
-				],
-				removeIds: [],
-			},
+		const unknownFinding = await call(tools.updateFindingDispositions, {
+			upserts: [
+				{
+					findingId: { handle: "@f9" },
+					status: "accepted",
+					rationale: "This finding does not exist.",
+				},
+			],
+			removeIds: [],
 		});
 		expect(unknownFinding).toMatchObject({
 			diagnostic: { code: "design-unknown-finding-handle" },
 		});
 		expect(String(unknownFinding.error)).toContain("@f9");
 		expect(String(unknownFinding.error)).toContain("@f1");
-		const collidingRevision = await call(tools.stageRevision, {
-			expectedRevision: 0,
-			collections: [
+		const collidingRevision = await call(tools.updateWorkflows, {
+			upserts: [
 				{
-					collection: "workflows",
-					upserts: [
-						{
-							...fixtureValue(resolved.workflows[1], "second workflow"),
-							id: fixtureValue(resolved.records[0], "first record").id,
-						},
-					],
-					removeIds: [],
+					...fixtureValue(resolved.workflows[1], "second workflow"),
+					id: fixtureValue(resolved.records[0], "first record").id,
 				},
 			],
+			removeIds: [],
 		});
 		expect(collidingRevision).toMatchObject({
 			diagnostic: {
@@ -840,28 +763,24 @@ describe("staged design loop", () => {
 				},
 			],
 		};
-		const staged = await call(tools.stageRevision, {
-			expectedRevision: 0,
-			collections: [
-				{ collection: "workflows", upserts: [workflow], removeIds: [] },
-			],
-			dispositions: {
-				collection: "dispositions",
-				upserts: [
-					{
-						findingId: { handle: "@f1" },
-						status: "accepted",
-						rationale: "The saved visit is now explicitly confirmed.",
-					},
-				],
-				removeIds: [],
-			},
+		await call(tools.updateWorkflows, {
+			upserts: [workflow],
+			removeIds: [],
 		});
-		expect(
-			await call(tools.submitRevision, {
-				expectedRevision: staged.workspaceRevision,
-			}),
-		).toMatchObject({ ok: true, accepted: true });
+		await call(tools.updateFindingDispositions, {
+			upserts: [
+				{
+					findingId: { handle: "@f1" },
+					status: "accepted",
+					rationale: "The saved visit is now explicitly confirmed.",
+				},
+			],
+			removeIds: [],
+		});
+		expect(await call(tools.finishDesign)).toMatchObject({
+			ok: true,
+			accepted: true,
+		});
 		const accepted = await readLatestAcceptedDesignRevision(sessionId);
 		expect(accepted?.envelope.payload.actors).toEqual(resolved.actors);
 		if (accepted?.parentRevisionId === null || accepted === null)
@@ -885,10 +804,8 @@ describe("staged design loop", () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
-		const result = await call(tools.stageContract, {
-			expectedRevision: 0,
-			root: { id: { handle: "@f1" } },
-			collections: [],
+		const result = await call(tools.setDesignRoot, {
+			id: { handle: "@f1" },
 		});
 		expect(result).toMatchObject({
 			diagnostic: { code: "design-reserved-handle" },
@@ -896,18 +813,18 @@ describe("staged design loop", () => {
 		expect(String(result.error)).toContain("@f1");
 	});
 
-	it("deduplicates an exact repeated stage tool call", async () => {
+	it("deduplicates an exact repeated semantic tool call after the workspace advances", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
 		const projected = modelContract(makeContract()) as AppDesignContract;
-		const input = {
-			expectedRevision: 0,
-			root: { id: projected.id },
-			collections: [],
-		};
-		const first = await call(tools.stageContract, input, "same-call");
-		const second = await call(tools.stageContract, input, "same-call");
+		const input = { id: projected.id };
+		const first = await call(tools.setDesignRoot, input, "same-call");
+		await call(tools.updateActors, {
+			upserts: (modelContract(makeContract()) as AppDesignContract).actors,
+			removeIds: [],
+		});
+		const second = await call(tools.setDesignRoot, input, "same-call");
 		expect(first).toMatchObject({ deduplicated: false });
 		expect(second).toMatchObject({ deduplicated: true });
 	});

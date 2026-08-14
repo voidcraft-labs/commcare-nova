@@ -30,6 +30,24 @@ describe("lean Design Contract graph", () => {
 		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
 	});
 
+	it("preserves optional semantic input validation without making it a quota", () => {
+		const contract = cloneContract(makeContract());
+		const input = fixtureValue(
+			contract.workflows[0]?.inputs[0],
+			"first workflow input",
+		);
+		input.validation = {
+			rule: "When answered, the phone number must contain at least seven digits.",
+			message: "Enter a valid phone number.",
+		};
+		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
+
+		const withoutValidation = cloneContract(makeContract());
+		expect(appDesignContractSchema.safeParse(withoutValidation).success).toBe(
+			true,
+		);
+	});
+
 	it("reads historical v1 contracts without composition but refuses them for new construction", () => {
 		const historical = cloneContract(makeContract()) as unknown as Record<
 			string,
@@ -233,6 +251,25 @@ describe("lean Design Contract graph", () => {
 		visitForm.mode = "registration";
 		expect(messages(contract)).toContain(
 			"a child record it creates is an effect, not the form host",
+		);
+	});
+
+	it("rejects a conditional primary create on an unconditional registration form", () => {
+		const contract = cloneContract(makeContract());
+		const registration = fixtureValue(
+			contract.workflows.find((workflow) => workflow.id === ids.taskRegister),
+			"registration workflow",
+		);
+		const create = fixtureValue(
+			registration.recordEffects.find((effect) => effect.kind === "create"),
+			"primary create",
+		);
+		create.condition = "The worker gave consent";
+		expect(messages(contract)).toContain(
+			"registration form always creates its hosted record",
+		);
+		expect(messages(contract)).toContain(
+			"standalone form with a conditional create effect",
 		);
 	});
 

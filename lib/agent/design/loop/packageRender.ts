@@ -36,8 +36,6 @@ export const DESIGN_STATE_MESSAGE_HEADING =
 
 export interface DesignWorkspaceStateSummary {
 	readonly artifactKind: "contract" | "revision";
-	readonly revision: number;
-	readonly stepCount: number;
 	readonly counts: Readonly<Record<string, number>>;
 	readonly missingRootFields: readonly string[];
 	/** Exact private candidate. This is regenerated after compaction so the
@@ -158,7 +156,7 @@ export function applySourceProjection<M extends UIMessage>(
  * The per-turn state message: the volatile tail that makes resume
  * explicit, never assumed. It carries the open findings and a bounded durable
  * workspace checkpoint; exact candidate/source content stays recoverable
- * through inspectDesignWorkspace. A redrive, process loss, or provider
+ * through inspectDesign. A redrive, process loss, or provider
  * compaction therefore cannot erase accepted authoring work or force a large
  * artifact back into one prompt tail.
  */
@@ -175,7 +173,7 @@ export function renderDesignStateMessage(args: {
 	}> | null;
 	/** Private staged authoring survives provider compaction and process loss.
 	 * This bounded summary tells the model where to resume; exact items remain
-	 * available through inspectDesignWorkspace. */
+	 * available through inspectDesign. */
 	workspace: DesignWorkspaceStateSummary | null;
 }): string {
 	const lines: string[] = [
@@ -210,10 +208,6 @@ export function renderDesignStateMessage(args: {
 		lines.push(
 			JSON.stringify(
 				{
-					artifactKind: args.workspace.artifactKind,
-					revision: args.workspace.revision,
-					nextExpectedRevision: args.workspace.revision,
-					stepCount: args.workspace.stepCount,
 					counts: args.workspace.counts,
 					missingRootFields: args.workspace.missingRootFields,
 					...(args.workspace.sourceContract !== null && {
@@ -221,10 +215,9 @@ export function renderDesignStateMessage(args: {
 					}),
 					currentCandidate: args.workspace.candidate,
 					instruction:
-						args.workspace.artifactKind === "revision" &&
-						args.workspace.revision === 0
-							? "This is a new post-review revision workspace at revision 0. The first stageRevision call must use expectedRevision 0. Continue from the reviewed parent shown here; do not use the earlier contract workspace revision."
-							: "Continue from this exact candidate and use nextExpectedRevision for the next stage. Do not recreate saved stages. Inspect only when a narrow exceptional lookup is genuinely needed.",
+						args.workspace.artifactKind === "revision"
+							? "Continue from this exact revision candidate. Use the native semantic update calls for affected items and dispositions, then finishDesign. Do not recreate saved work."
+							: "Continue from this exact candidate with native semantic update calls, then finishDesign. Do not recreate saved work. Inspect only when a narrow exceptional lookup is genuinely needed.",
 				},
 				null,
 				1,

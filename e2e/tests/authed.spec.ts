@@ -3177,9 +3177,9 @@ test.describe("authenticated builder", () => {
 			page.getByText("or type your answer below", { exact: true }),
 		).toHaveCount(0);
 		for (const internalName of [
-			"submitContract",
+			"finishDesign",
 			"requestReview",
-			"submitRevision",
+			"updateFindingDispositions",
 			"submitPlan",
 		]) {
 			await expect(page.getByText(internalName, { exact: true })).toHaveCount(

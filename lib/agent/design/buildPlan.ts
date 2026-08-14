@@ -712,8 +712,15 @@ export function deriveBuildPlan(args: {
 			),
 		);
 		const authoredFeatures = new Set(workflow?.authoredFeatures);
+		const formCompositions = contract.formCompositions.filter(
+			(composition) => composition.workflowId === workflowId,
+		);
 		const needsAdvancedCaseOperations =
 			(workflow?.recordEffects.length ?? 0) > 1 ||
+			(formCompositions.some(
+				(composition) => composition.mode === "standalone",
+			) &&
+				(workflow?.recordEffects.length ?? 0) > 0) ||
 			workflow?.recordEffects.some(
 				(effect) =>
 					effect.kind === "link" ||

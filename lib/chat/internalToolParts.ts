@@ -4,12 +4,23 @@
  * diagnostics, workspace views — never face the user: `toolSummary` speaks
  * for them with plain-language action phrases and suppresses their prose. */
 const DESIGN_PROTOCOL_TOOL_PART_TYPES = new Set([
-	"tool-stageContract",
-	"tool-stageRevision",
-	"tool-inspectDesignWorkspace",
-	"tool-submitContract",
+	"tool-setDesignRoot",
+	"tool-updateActors",
+	"tool-updateRecords",
+	"tool-updateWorkflows",
+	"tool-updateLists",
+	"tool-updateAccess",
+	"tool-updateNavigation",
+	"tool-updateModuleCompositions",
+	"tool-updateFormCompositions",
+	"tool-updateExternalRequirements",
+	"tool-updateDecisions",
+	"tool-updateAssumptions",
+	"tool-updateOpenQuestions",
+	"tool-updateFindingDispositions",
+	"tool-inspectDesign",
+	"tool-finishDesign",
 	"tool-requestReview",
-	"tool-submitRevision",
 ]);
 
 export function isDesignProtocolToolPartType(type: string): boolean {

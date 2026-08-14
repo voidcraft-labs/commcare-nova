@@ -18,9 +18,10 @@
 
 import { describe, expect, it } from "vitest";
 import {
-	inspectDesignWorkspaceInputSchema,
-	stageContractInputSchema,
-	stageRevisionInputSchema,
+	designCollectionUpdateInputSchemas,
+	inspectDesignInputSchema,
+	setDesignRootInputSchema,
+	updateFindingDispositionsInputSchema,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
 import {
 	DESIGN_HANDLE_PATTERN,
@@ -88,16 +89,8 @@ function auditUuidSlots(node: unknown): { widened: number; bare: number } {
 }
 
 function collectionArm(schemaName: "actors" | "records") {
-	const wire = designToolWireSchema(stageContractInputSchema) as {
-		properties: {
-			collections: { items: { anyOf: Record<string, unknown>[] } };
-		};
-	};
-	return wire.properties.collections.items.anyOf.find(
-		(arm) =>
-			isJsonObject(arm.properties) &&
-			isJsonObject(arm.properties.collection) &&
-			arm.properties.collection.const === schemaName,
+	return designToolWireSchema(
+		designCollectionUpdateInputSchemas[schemaName],
 	) as {
 		properties: {
 			upserts: { items: { properties: Record<string, unknown> } };
@@ -107,9 +100,12 @@ function collectionArm(schemaName: "actors" | "records") {
 
 describe("design tool wire schemas", () => {
 	it.each([
-		["stageContract", stageContractInputSchema],
-		["stageRevision", stageRevisionInputSchema],
-		["inspectDesignWorkspace", inspectDesignWorkspaceInputSchema],
+		["setDesignRoot", setDesignRootInputSchema],
+		["updateActors", designCollectionUpdateInputSchemas.actors],
+		["updateRecords", designCollectionUpdateInputSchemas.records],
+		["updateWorkflows", designCollectionUpdateInputSchemas.workflows],
+		["updateFindingDispositions", updateFindingDispositionsInputSchema],
+		["inspectDesign", inspectDesignInputSchema],
 	] as const)(
 		"%s widens every design-ID slot to uuid | { handle }",
 		(_name, schema) => {
@@ -118,6 +114,19 @@ describe("design tool wire schemas", () => {
 			expect(audit.widened).toBeGreaterThan(0);
 		},
 	);
+
+	it("keeps workspace bookkeeping out of every provider-facing schema", () => {
+		for (const schema of [
+			setDesignRootInputSchema,
+			...Object.values(designCollectionUpdateInputSchemas),
+			updateFindingDispositionsInputSchema,
+			inspectDesignInputSchema,
+		]) {
+			const wire = JSON.stringify(designToolWireSchema(schema));
+			expect(wire).not.toContain("expectedRevision");
+			expect(wire).not.toContain("artifactKind");
+		}
+	});
 
 	it("offers the exact handle arm on a required declaration slot", () => {
 		const idSlot = collectionArm("actors").properties.upserts.items.properties

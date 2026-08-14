@@ -1,8 +1,9 @@
 /**
  * Server-gated design tools. Contract, revision, and plan authoring is a
- * durable sequence of bounded identity-addressed stages; the submit tools are
- * small finalizers that compose, fully validate, and atomically persist one
- * immutable artifact.
+ * durable sequence of bounded identity-addressed semantic updates. The model
+ * works in one implicit workspace; the server owns artifact kind, ordering,
+ * and optimistic revision fencing. A small finalizer composes, fully validates,
+ * and atomically persists one immutable artifact.
  */
 
 import { jsonSchema } from "ai";
@@ -18,17 +19,19 @@ import {
 	type DesignArtifactKind,
 	type DesignArtifactWorkspaceLineage,
 	type DesignArtifactWorkspaceOperation,
+	designArtifactWorkspaceOperationSchema,
+	designCollectionUpdateInputSchemas,
 	designWorkspaceBoundError,
-	finalizeDesignWorkspaceInputSchema,
+	finishDesignInputSchema,
+	inspectDesignInputSchema,
 	inspectDesignWorkspaceCandidate,
-	inspectDesignWorkspaceInputSchema,
-	stageContractInputSchema,
-	stageRevisionInputSchema,
+	setDesignRootInputSchema,
+	updateFindingDispositionsInputSchema,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
 import {
 	DesignArtifactWorkspaceError,
 	type DesignIdentityHandleBinding,
-	inspectDesignArtifactWorkspace,
+	type inspectDesignArtifactWorkspace,
 	openDesignArtifactWorkspace,
 	readDesignIdentityHandleBindings,
 	stageDesignArtifactWorkspace,
@@ -743,8 +746,8 @@ async function persistStagedDesignPart(args: {
 	toolCallId: string;
 	stagedInput: unknown;
 	parsedInput: unknown;
-	expectedRevision: number;
 	operation: DesignArtifactWorkspaceOperation;
+	workspaceRevision: number;
 	workspaceHandleBindings: readonly DesignIdentityHandleBinding[];
 	successMessage: string;
 }) {
@@ -772,14 +775,13 @@ async function persistStagedDesignPart(args: {
 			lineage: designWorkspaceLineageForGates(args.kind, args.gates),
 			authority: args.deps.authority,
 			toolCallId: args.toolCallId,
-			expectedRevision: args.expectedRevision,
+			expectedRevision: args.workspaceRevision,
 			operation: args.operation,
 			handleBindings,
 		});
 		args.deps.repair.noteStageAccepted(args.toolName);
 		return {
 			ok: true,
-			workspaceRevision: result.state.workspace.revision,
 			deduplicated: result.deduplicated,
 			message: args.successMessage,
 		};
@@ -831,7 +833,7 @@ function constructionSubmissionRejection(args: {
 			error: [
 				args.needsDecisionsLine,
 				"Call askQuestions now with up to five of the exact questions below. Do not assume answers, remove included workflows, or reinterpret their scope.",
-				"Once the user answers, stage the resolution before submitting again: record each settled choice as a decision or assumption, and remove the question or mark it non-blocking.",
+				"Once the user answers, apply the resolution with the native semantic calls before finishing again: record each settled choice as a decision or assumption, and remove the question or mark it non-blocking.",
 				...questions.map((question) => `- ${question}`),
 			].join("\n"),
 			needsUserInput: {
@@ -899,7 +901,7 @@ async function requiredQuestionRefusal(
 	return {
 		error: [
 			"These construction decisions still require the user's answer.",
-			"Call askQuestions with the exact pending questions before staging more design work.",
+			"Call askQuestions with the exact pending questions before updating more design work.",
 		].join(" "),
 		diagnostic: {
 			code: "design-required-question-pending",
@@ -1098,99 +1100,70 @@ export function designCreationIdentityIssue(
 }
 
 export function createDesignLoopTools(deps: DesignLoopToolDeps) {
-	const stageContract = {
-		description:
-			"Stage a bounded part of the Design Contract. Give every new design element a readable handle such as {handle:'@register_client'} and reuse that handle for references; the server mints its stable identity. Parts may arrive in any order — a reference may precede the call that declares its element, and the final submission proves every referenced element was actually authored. Set root fields and/or upsert or remove complete collection items. A new workspace starts at revision 0; use the returned revision for the next stage. Keep each call within 32 item changes and 48 KiB.",
-		inputSchema: strictWireWithHandles(stageContractInputSchema),
-		strict: true,
-		execute: async (
-			input: unknown,
-			options: { readonly toolCallId: string },
-		) => {
-			const gates = await gatesFor(deps);
-			const refusal = refuse(deps, gates, "submitContract");
-			if (refusal) return refusal;
-			const workspace = await openDesignArtifactWorkspace({
-				designSessionId: deps.designSessionId,
-				lineage: designWorkspaceLineageForGates("contract", gates),
-				authority: deps.authority,
-			});
-			const questionRefusal = await requiredQuestionRefusal(
-				deps,
-				workspace.candidate,
-			);
-			if (questionRefusal !== null) return questionRefusal;
-			const strippedInput = stripNullProperties(input);
-			const admissionRejection = stagedInputAdmissionRejection(
-				deps,
-				"stageContract",
-				strippedInput,
-				workspace,
-			);
-			if (admissionRejection !== null) return admissionRejection;
-			const parsed = parseHandledStage(
-				stageContractInputSchema,
-				input,
-				deps.designSessionId,
-			);
-			if (!parsed.ok) {
-				return rejectedStage(deps, "stageContract", { error: parsed.error });
-			}
-			const { expectedRevision, ...body } = parsed.data;
-			return persistStagedDesignPart({
-				deps,
-				toolName: "stageContract",
-				kind: "contract",
-				gates,
-				toolCallId: options.toolCallId,
-				stagedInput: strippedInput,
-				parsedInput: parsed.data,
-				expectedRevision,
-				operation: { kind: "contract" as const, ...body },
-				workspaceHandleBindings: workspace.handleBindings,
-				successMessage:
-					"This part of the contract is saved. Continue staging related items, inspect the workspace when needed, and submitContract only after the complete graph is ready.",
-			});
-		},
+	/* The AI SDK may invoke calls from one response concurrently. Queue every
+	 * design-side execute callback at invocation time so provider order becomes
+	 * durable workspace order, including update -> finish -> review chains. */
+	let orderedTail: Promise<void> = Promise.resolve();
+	const inResponseOrder = <T>(work: () => Promise<T>): Promise<T> => {
+		const result = orderedTail.then(work);
+		orderedTail = result.then(
+			() => undefined,
+			() => undefined,
+		);
+		return result;
 	};
 
-	const stageRevision = {
-		description:
-			"Stage a bounded part of the reviewed revision. Reuse the stable identities in the exact state packet for existing elements and give any new element a readable handle such as {handle:'@follow_up'}; the server mints its stable identity. Parts may arrive in any order — a reference may precede the call that declares its element, and the final submission proves every referenced element was actually authored. Upsert or remove complete items and blocking finding dispositions — a disposition's findingId is the finding's printed handle, for example {handle:'@f1'}. Unchanged parent content stays in place. Use the returned workspace revision for the next stage.",
-		inputSchema: strictWireWithHandles(stageRevisionInputSchema),
-		strict: true,
-		execute: async (
-			input: unknown,
-			options: { readonly toolCallId: string },
-		) => {
-			const gates = await gatesFor(deps);
-			const refusal = refuse(deps, gates, "submitRevision");
-			if (refusal) return refusal;
-			const workspace = await openDesignArtifactWorkspace({
-				designSessionId: deps.designSessionId,
-				lineage: designWorkspaceLineageForGates("revision", gates),
-				authority: deps.authority,
-			});
-			const questionRefusal = await requiredQuestionRefusal(
-				deps,
-				workspace.candidate,
-			);
-			if (questionRefusal !== null) return questionRefusal;
-			/* Finding handles resolve FIRST: they are server-minted identities,
-			 * and the generic deterministic resolver below would mint a wrong
-			 * UUID for `{handle:"@f1"}` that parses. The existing dispositions
-			 * exemptions in the declaration/reference walks stay — after this
-			 * pass those slots hold only UUIDs. */
-			const strippedInput = stripNullProperties(input);
+	const workspaceKind = (gates: DesignGateState): DesignArtifactKind =>
+		gates.verdicts.submitRevision.legal || gates.headReviews.length > 0
+			? "revision"
+			: "contract";
+
+	const semanticUpdate = async (args: {
+		input: unknown;
+		toolCallId: string;
+		collection?: (typeof CONTRACT_COLLECTIONS)[number];
+		root?: boolean;
+		dispositions?: boolean;
+	}) => {
+		const gates = await gatesFor(deps);
+		const kind = workspaceKind(gates);
+		const repairTool: DesignStageToolName =
+			kind === "contract" ? "stageContract" : "stageRevision";
+		const refusal = refuse(deps, gates, gateNameForKind(kind));
+		if (refusal) return refusal;
+		const workspace = await openDesignArtifactWorkspace({
+			designSessionId: deps.designSessionId,
+			lineage: designWorkspaceLineageForGates(kind, gates),
+			authority: deps.authority,
+		});
+		const questionRefusal = await requiredQuestionRefusal(
+			deps,
+			workspace.candidate,
+		);
+		if (questionRefusal !== null) return questionRefusal;
+
+		const body = stripNullProperties(args.input) as Record<string, unknown>;
+		const wrapped = args.root
+			? { root: body, collections: [] }
+			: args.dispositions
+				? {
+						collections: [],
+						dispositions: { collection: "dispositions", ...body },
+					}
+				: {
+						collections: [{ collection: args.collection, ...body }],
+					};
+		let stagedInput: unknown = wrapped;
+		if (args.dispositions) {
 			const findingBindings = deriveFindingHandleBindings(
 				gates.headReviews.map((review) => review.envelope.payload),
 			);
 			const preResolved = resolveDesignFindingHandles(
-				strippedInput,
+				stagedInput,
 				findingBindings,
 			);
 			if (!preResolved.ok) {
-				return rejectedStage(deps, "stageRevision", {
+				return rejectedStage(deps, repairTool, {
 					error: preResolved.error,
 					diagnostic: {
 						code: "design-unknown-finding-handle",
@@ -1199,176 +1172,250 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 					},
 				});
 			}
-			const stagedInput = preResolved.value;
-			const admissionRejection = stagedInputAdmissionRejection(
-				deps,
-				"stageRevision",
-				stagedInput,
-				workspace,
-			);
-			if (admissionRejection !== null) return admissionRejection;
-			const parsed = parseHandledStage(
-				stageRevisionInputSchema,
-				stagedInput,
-				deps.designSessionId,
-			);
-			if (!parsed.ok) {
-				return rejectedStage(deps, "stageRevision", { error: parsed.error });
-			}
-			const { expectedRevision, ...body } = parsed.data;
-			return persistStagedDesignPart({
-				deps,
-				toolName: "stageRevision",
-				kind: "revision",
-				gates,
-				toolCallId: options.toolCallId,
-				stagedInput,
-				parsedInput: parsed.data,
-				expectedRevision,
-				operation: { kind: "revision" as const, ...body },
-				workspaceHandleBindings: workspace.handleBindings,
-				successMessage:
-					"This part of the revision is saved. Continue with the remaining corrections and dispositions, then submitRevision to validate the complete result.",
-			});
-		},
+			stagedInput = preResolved.value;
+		}
+		const admissionRejection = stagedInputAdmissionRejection(
+			deps,
+			repairTool,
+			stagedInput,
+			workspace,
+		);
+		if (admissionRejection !== null) return admissionRejection;
+		const parsed = parseHandledStage(
+			designArtifactWorkspaceOperationSchema,
+			{ kind, ...(stagedInput as Record<string, unknown>) },
+			deps.designSessionId,
+		);
+		if (!parsed.ok)
+			return rejectedStage(deps, repairTool, { error: parsed.error });
+		return persistStagedDesignPart({
+			deps,
+			toolName: repairTool,
+			kind,
+			gates,
+			toolCallId: args.toolCallId,
+			stagedInput,
+			parsedInput: parsed.data,
+			operation: parsed.data,
+			workspaceRevision: workspace.workspace.revision,
+			workspaceHandleBindings: workspace.handleBindings,
+			successMessage:
+				kind === "contract"
+					? "The design update is saved. Continue with other known semantic updates, then finish the complete design."
+					: "The revision update is saved. Continue with the affected design items and blocking dispositions, then finish the revision.",
+		});
 	};
 
-	const inspectDesignWorkspace = {
-		description:
-			"Inspect the authoritative staged candidate. Request a compact summary, root metadata, or up to 20 exact items from one collection. Revision and plan workspaces can also inspect the immutable source contract with sourceRoot or sourceCollection. Use this after resume or compaction and whenever the current workspace revision is uncertain.",
-		inputSchema: strictWireWithHandles(inspectDesignWorkspaceInputSchema),
+	const semanticCollectionTool = (
+		collection: (typeof CONTRACT_COLLECTIONS)[number],
+		description: string,
+	) => ({
+		description: `${description} Upsert or remove complete items. Give each new element a readable @handle and reuse it in references. Emit this together with other known design updates in the same response.`,
+		inputSchema: strictWireWithHandles(
+			designCollectionUpdateInputSchemas[collection],
+		),
 		strict: true,
-		execute: async (input: unknown) => {
-			const strippedInput = stripNullProperties(input);
-			const parsed = parseHandledStage(
-				inspectDesignWorkspaceInputSchema,
-				strippedInput,
-				deps.designSessionId,
-			);
-			if (!parsed.ok) return { error: parsed.error };
-			const gates = await gatesFor(deps);
-			const refusal = refuse(
-				deps,
-				gates,
-				gateNameForKind(parsed.data.artifactKind),
-			);
-			if (refusal) return refusal;
-			try {
-				const state = await inspectDesignArtifactWorkspace({
-					designSessionId: deps.designSessionId,
-					lineage: designWorkspaceLineageForGates(
-						parsed.data.artifactKind,
-						gates,
-					),
-					authority: deps.authority,
-					expectedRevision: parsed.data.expectedRevision,
-				});
-				/* An unknown handle in an inspect selection resolves to its
-				 * deterministic identity and simply finds no item — an honest
-				 * not-found, no reference gate needed. */
-				return {
-					ok: true,
-					workspaceRevision: state.workspace.revision,
-					stepCount: state.operations.length,
-					view: projectDesignIdentityHandles(
-						inspectDesignWorkspaceCandidate({
-							kind: state.workspace.artifactKind,
-							candidate: state.candidate,
-							...(state.sourceContract !== null && {
-								sourceContract: state.sourceContract,
-							}),
-							selection: parsed.data.selection,
-						}),
-						state.handleBindings,
-					),
-				};
-			} catch (error) {
-				const handled = workspaceError(error);
-				if (handled) return handled;
-				throw error;
-			}
-		},
-	};
-
-	const submitContract = {
-		description:
-			"Finalize the staged complete Design Contract at the exact workspace revision. The server replays every saved stage, validates the whole graph, and atomically persists the immutable draft or leaves the workspace open with exact diagnostics.",
-		inputSchema: strictWireOnly(finalizeDesignWorkspaceInputSchema),
-		strict: true,
-		execute: async (input: unknown) => {
-			const gates = await gatesFor(deps);
-			const refusal = refuse(deps, gates, "submitContract");
-			if (refusal) return refusal;
-			const parsedInput = parseStage(finalizeDesignWorkspaceInputSchema, input);
-			if (!parsedInput.ok) return { error: parsedInput.error };
-			let state: Awaited<ReturnType<typeof inspectDesignArtifactWorkspace>>;
-			try {
-				state = await inspectDesignArtifactWorkspace({
-					designSessionId: deps.designSessionId,
-					lineage: designWorkspaceLineageForGates("contract", gates),
-					authority: deps.authority,
-					expectedRevision: parsedInput.data.expectedRevision,
-				});
-			} catch (error) {
-				const handled = workspaceError(error);
-				if (handled) return handled;
-				throw error;
-			}
-			const parsed = appDesignContractSchema.safeParse(state.candidate);
-			if (!parsed.success) {
-				return schemaSubmissionRejection(
-					deps,
-					"submitContract",
-					parsed.error,
-					state.handleBindings,
-				);
-			}
-			const constructionRejection = constructionSubmissionRejection({
-				deps,
-				toolName: "submitContract",
-				contract: parsed.data,
-				handleBindings: state.handleBindings,
-				needsDecisionsLine:
-					"The contract needs decisions from the user before it can be finalized.",
-			});
-			if (constructionRejection !== null) return constructionRejection;
-			const head = gates.head;
-			const draft = await insertDesignRevision({
-				envelope: contractEnvelope({
-					designSessionId: deps.designSessionId,
-					packageDigest: state.workspace.lineage.sourcePackageDigest,
-					contract: parsed.data,
-					revision: (head?.revision ?? 0) + 1,
-					parentId: head?.id ?? null,
-					inputDigests: head ? [head.artifactDigest] : [],
-					promptVersion: DESIGN_PROMPT_VERSIONS.agent,
-					finishReason: null,
+		execute: (input: unknown, options: { readonly toolCallId: string }) =>
+			inResponseOrder(() =>
+				semanticUpdate({
+					input,
+					toolCallId: options.toolCallId,
+					collection,
 				}),
-				lifecycle: "draft",
-				authority: deps.authority,
-				supersedeUncommittedExecution: gates.supersedesPlanExecution,
-				workspaceFinalization: {
-					workspaceId: state.workspace.id,
-					expectedRevision: state.workspace.revision,
-					artifactKind: "contract",
-				},
-			});
-			deps.ancestryChanged();
-			deps.repair.noteAccepted("submitContract");
-			return {
-				ok: true,
-				revisionId: draft.id,
-				effortLevel: draft.envelope.complexity?.depth,
-				roughTimeEstimate:
-					draft.envelope.complexity === undefined
-						? undefined
-						: DESIGN_EFFORT_TIME_ESTIMATES[draft.envelope.complexity.depth],
-				message: `The draft persisted as revision ${draft.revision}. Request its independent review with requestReview.`,
-			};
-		},
+			),
+	});
+
+	const setDesignRoot = {
+		description:
+			"Set the design identity and/or complete app charter in the implicit design workspace. Give a new design identity a readable @handle. Emit this with other known semantic design calls in the same response.",
+		inputSchema: strictWireWithHandles(setDesignRootInputSchema),
+		strict: true,
+		execute: (input: unknown, options: { readonly toolCallId: string }) =>
+			inResponseOrder(() =>
+				semanticUpdate({
+					input,
+					toolCallId: options.toolCallId,
+					root: true,
+				}),
+			),
+	};
+	const updateActors = semanticCollectionTool("actors", "Update app actors.");
+	const updateRecords = semanticCollectionTool(
+		"records",
+		"Update durable record concepts and their properties.",
+	);
+	const updateWorkflows = semanticCollectionTool(
+		"workflows",
+		"Update task-complete workflow semantics.",
+	);
+	const updateLists = semanticCollectionTool(
+		"lists",
+		"Update worker queues and searches.",
+	);
+	const updateAccess = semanticCollectionTool(
+		"access",
+		"Update actor access policies.",
+	);
+	const updateNavigation = semanticCollectionTool(
+		"navigation",
+		"Update worker navigation intent.",
+	);
+	const updateModuleCompositions = semanticCollectionTool(
+		"moduleCompositions",
+		"Update worker-facing module composition.",
+	);
+	const updateFormCompositions = semanticCollectionTool(
+		"formCompositions",
+		"Update exact worker-facing form composition and layout.",
+	);
+	const updateExternalRequirements = semanticCollectionTool(
+		"externalRequirements",
+		"Update honest requirements outside the authored app.",
+	);
+	const updateDecisions = semanticCollectionTool(
+		"decisions",
+		"Update settled architecture decisions.",
+	);
+	const updateAssumptions = semanticCollectionTool(
+		"assumptions",
+		"Update explicit design assumptions.",
+	);
+	const updateOpenQuestions = semanticCollectionTool(
+		"openQuestions",
+		"Update genuinely open design questions.",
+	);
+	const updateFindingDispositions = {
+		description:
+			"Disposition blocking findings in the current reviewed revision. Use each finding's printed @f handle exactly. Advisory findings need no disposition. Emit dispositions with the affected semantic design updates in the same response.",
+		inputSchema: strictWireWithHandles(updateFindingDispositionsInputSchema),
+		strict: true,
+		execute: (input: unknown, options: { readonly toolCallId: string }) =>
+			inResponseOrder(() =>
+				semanticUpdate({
+					input,
+					toolCallId: options.toolCallId,
+					dispositions: true,
+				}),
+			),
 	};
 
-	const requestReview = {
+	const inspectDesign = {
+		description:
+			"Inspect the implicit authoritative design candidate. Request a compact summary, root metadata, or up to 20 exact items from one collection. During revision, sourceRoot and sourceCollection inspect the immutable reviewed parent. Use only for a narrow lookup after resume or compaction; the state packet already carries the full current candidate.",
+		inputSchema: strictWireWithHandles(inspectDesignInputSchema),
+		strict: true,
+		execute: (input: unknown) =>
+			inResponseOrder(async () => {
+				const parsed = parseHandledStage(
+					inspectDesignInputSchema,
+					stripNullProperties(input),
+					deps.designSessionId,
+				);
+				if (!parsed.ok) return { error: parsed.error };
+				const gates = await gatesFor(deps);
+				const kind = workspaceKind(gates);
+				const refusal = refuse(deps, gates, gateNameForKind(kind));
+				if (refusal) return refusal;
+				try {
+					const state = await openDesignArtifactWorkspace({
+						designSessionId: deps.designSessionId,
+						lineage: designWorkspaceLineageForGates(kind, gates),
+						authority: deps.authority,
+					});
+					return {
+						ok: true,
+						view: projectDesignIdentityHandles(
+							inspectDesignWorkspaceCandidate({
+								kind,
+								candidate: state.candidate,
+								...(state.sourceContract !== null && {
+									sourceContract: state.sourceContract,
+								}),
+								selection: parsed.data.selection,
+							}),
+							state.handleBindings,
+						),
+					};
+				} catch (error) {
+					const handled = workspaceError(error);
+					if (handled) return handled;
+					throw error;
+				}
+			}),
+	};
+
+	const finishContract = async (input: unknown) => {
+		const gates = await gatesFor(deps);
+		const refusal = refuse(deps, gates, "submitContract");
+		if (refusal) return refusal;
+		const parsedInput = parseStage(finishDesignInputSchema, input);
+		if (!parsedInput.ok) return { error: parsedInput.error };
+		let state: Awaited<ReturnType<typeof inspectDesignArtifactWorkspace>>;
+		try {
+			state = await openDesignArtifactWorkspace({
+				designSessionId: deps.designSessionId,
+				lineage: designWorkspaceLineageForGates("contract", gates),
+				authority: deps.authority,
+			});
+		} catch (error) {
+			const handled = workspaceError(error);
+			if (handled) return handled;
+			throw error;
+		}
+		const parsed = appDesignContractSchema.safeParse(state.candidate);
+		if (!parsed.success) {
+			return schemaSubmissionRejection(
+				deps,
+				"submitContract",
+				parsed.error,
+				state.handleBindings,
+			);
+		}
+		const constructionRejection = constructionSubmissionRejection({
+			deps,
+			toolName: "submitContract",
+			contract: parsed.data,
+			handleBindings: state.handleBindings,
+			needsDecisionsLine:
+				"The contract needs decisions from the user before it can be finalized.",
+		});
+		if (constructionRejection !== null) return constructionRejection;
+		const head = gates.head;
+		const draft = await insertDesignRevision({
+			envelope: contractEnvelope({
+				designSessionId: deps.designSessionId,
+				packageDigest: state.workspace.lineage.sourcePackageDigest,
+				contract: parsed.data,
+				revision: (head?.revision ?? 0) + 1,
+				parentId: head?.id ?? null,
+				inputDigests: head ? [head.artifactDigest] : [],
+				promptVersion: DESIGN_PROMPT_VERSIONS.agent,
+				finishReason: null,
+			}),
+			lifecycle: "draft",
+			authority: deps.authority,
+			supersedeUncommittedExecution: gates.supersedesPlanExecution,
+			workspaceFinalization: {
+				workspaceId: state.workspace.id,
+				expectedRevision: state.workspace.revision,
+				artifactKind: "contract",
+			},
+		});
+		deps.ancestryChanged();
+		deps.repair.noteAccepted("submitContract");
+		return {
+			ok: true,
+			revisionId: draft.id,
+			effortLevel: draft.envelope.complexity?.depth,
+			roughTimeEstimate:
+				draft.envelope.complexity === undefined
+					? undefined
+					: DESIGN_EFFORT_TIME_ESTIMATES[draft.envelope.complexity.depth],
+			message: `The draft persisted as revision ${draft.revision}. Request its independent review with requestReview.`,
+		};
+	};
+
+	const requestReviewInternal = {
 		description:
 			"Ask the server to run the independent fresh-context reviewer over the current draft. The persisted review's findings come back as the result; a clean review is accepted on the spot.",
 		inputSchema: strictWireOnly(z.object({}).strict()),
@@ -1498,158 +1545,176 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				summary: review.envelope.payload.summary,
 				findings: projectedFindings,
 				accepted: false,
-				revisionWorkspace: {
-					artifactKind: "revision",
-					workspaceRevision: 0,
-					nextExpectedRevision: 0,
-				},
-				message: `The review has blocking design corrections or user decisions: ${gatedHandles.join(", ")}. Revision starts in a new workspace at revision 0, so the first stageRevision call must use expectedRevision 0. Stage those corrections plus exactly one disposition per blocking finding — a disposition's findingId is the finding's printed handle, for example {"handle":"@f1"}, and advisory findings take no disposition — then finalize with submitRevision.`,
+				message: `The review has blocking design corrections or user decisions: ${gatedHandles.join(", ")}. Update the affected semantic design items and record exactly one disposition per blocking finding — a disposition's findingId is the finding's printed handle, for example {"handle":"@f1"}; advisory findings take no disposition — then finish the revision.`,
 			};
 		},
 	};
 
-	const submitRevision = {
-		description:
-			"Finalize the staged revision at the exact workspace revision. The server composes the reviewed parent, all saved item changes, and dispositions; then reruns every graph, closure, sensitivity, and cross-artifact proof atomically.",
-		inputSchema: strictWireOnly(finalizeDesignWorkspaceInputSchema),
-		strict: true,
-		execute: async (input: unknown) => {
-			const gates = await gatesFor(deps);
-			const refusal = refuse(deps, gates, "submitRevision");
-			if (refusal) return refusal;
-			const head = gates.head;
-			if (head === null) return { error: "No draft exists to revise." };
-			const parsedInput = parseStage(finalizeDesignWorkspaceInputSchema, input);
-			if (!parsedInput.ok) return { error: parsedInput.error };
-			let state: Awaited<ReturnType<typeof inspectDesignArtifactWorkspace>>;
-			try {
-				state = await inspectDesignArtifactWorkspace({
-					designSessionId: deps.designSessionId,
-					lineage: designWorkspaceLineageForGates("revision", gates),
-					authority: deps.authority,
-					expectedRevision: parsedInput.data.expectedRevision,
-				});
-			} catch (error) {
-				const handled = workspaceError(error);
-				if (handled) return handled;
-				throw error;
-			}
-			const { dispositions, ...contract } = state.candidate;
-			const reviewPayloads = gates.headReviews.map(
-				(review) => review.envelope.payload,
-			);
-			const parsed = designRevisionResultSchemaFor(reviewPayloads).safeParse({
-				contract,
-				dispositions,
-			});
-			if (!parsed.success) {
-				return schemaSubmissionRejection(
-					deps,
-					"submitRevision",
-					parsed.error,
-					state.handleBindings,
-				);
-			}
-			const constructionRejection = constructionSubmissionRejection({
-				deps,
-				toolName: "submitRevision",
-				contract: parsed.data.contract,
-				handleBindings: state.handleBindings,
-				needsDecisionsLine:
-					"The revision needs decisions from the user before it can be accepted.",
-			});
-			if (constructionRejection !== null) return constructionRejection;
-			const sensitivityViolations = validateSensitivityNotSilentlyLowered(
-				head.envelope.payload,
-				parsed.data,
-				reviewPayloads,
-			);
-			if (sensitivityViolations.length > 0) {
-				deps.repair.noteSubmissionRejection("submitRevision", {
-					stage: "sensitivity",
-					fingerprints: sensitivityViolations,
-				});
-				return {
-					error: [
-						"The revision quietly lowered declared sensitivity:",
-						...sensitivityViolations.map((violation) => `- ${violation}`),
-					].join("\n"),
-					diagnostic: rejectionDiagnostic(
-						"sensitivity",
-						sensitivityViolations.length,
-					),
-				};
-			}
-			const mappedDispositions = mapDispositionsToReviews(
-				parsed.data,
-				gates.headReviews,
-			);
-			const criticalFindings = criticalFindingCount(reviewPayloads);
-			const secondRoundWarranted =
-				gates.openCycleReviews === 1 &&
-				(leavesCriticalFinding(parsed.data, reviewPayloads) ||
-					criticalFindings >= 2 ||
-					(criticalFindings > 0 &&
-						changesArchitecture(head.envelope.payload, parsed.data.contract)));
-			const lifecycle = secondRoundWarranted ? "draft" : "accepted";
-			const revision = await insertDesignRevision({
-				envelope: contractEnvelope({
-					designSessionId: deps.designSessionId,
-					packageDigest: state.workspace.lineage.sourcePackageDigest,
-					contract: parsed.data.contract,
-					revision: head.revision + 1,
-					parentId: head.id,
-					inputDigests: [
-						head.artifactDigest,
-						...gates.headReviews.map((review) => review.artifactDigest),
-					],
-					promptVersion: DESIGN_PROMPT_VERSIONS.agent,
-					finishReason: null,
-				}),
-				lifecycle,
+	const finishRevision = async (input: unknown) => {
+		const gates = await gatesFor(deps);
+		const refusal = refuse(deps, gates, "submitRevision");
+		if (refusal) return refusal;
+		const head = gates.head;
+		if (head === null) return { error: "No draft exists to revise." };
+		const parsedInput = parseStage(finishDesignInputSchema, input);
+		if (!parsedInput.ok) return { error: parsedInput.error };
+		let state: Awaited<ReturnType<typeof inspectDesignArtifactWorkspace>>;
+		try {
+			state = await openDesignArtifactWorkspace({
+				designSessionId: deps.designSessionId,
+				lineage: designWorkspaceLineageForGates("revision", gates),
 				authority: deps.authority,
-				dispositions: mappedDispositions,
-				workspaceFinalization: {
-					workspaceId: state.workspace.id,
-					expectedRevision: state.workspace.revision,
-					artifactKind: "revision",
-				},
 			});
-			deps.ancestryChanged();
-			deps.repair.noteAccepted("submitRevision");
-			if (lifecycle === "draft") {
-				return {
-					ok: true,
-					revisionId: revision.id,
-					accepted: false,
-					message:
-						"The revision persisted and warrants a second independent look. Request it with requestReview.",
-				};
-			}
-			const blocking = revision.envelope.payload.openQuestions.filter(
-				(question) => question.blocking,
+		} catch (error) {
+			const handled = workspaceError(error);
+			if (handled) return handled;
+			throw error;
+		}
+		const { dispositions, ...contract } = state.candidate;
+		const reviewPayloads = gates.headReviews.map(
+			(review) => review.envelope.payload,
+		);
+		const parsed = designRevisionResultSchemaFor(reviewPayloads).safeParse({
+			contract,
+			dispositions,
+		});
+		if (!parsed.success) {
+			return schemaSubmissionRejection(
+				deps,
+				"submitRevision",
+				parsed.error,
+				state.handleBindings,
 			);
-			const plan =
-				blocking.length === 0 ? await persistDerivedPlan(deps, revision) : null;
+		}
+		const constructionRejection = constructionSubmissionRejection({
+			deps,
+			toolName: "submitRevision",
+			contract: parsed.data.contract,
+			handleBindings: state.handleBindings,
+			needsDecisionsLine:
+				"The revision needs decisions from the user before it can be accepted.",
+		});
+		if (constructionRejection !== null) return constructionRejection;
+		const sensitivityViolations = validateSensitivityNotSilentlyLowered(
+			head.envelope.payload,
+			parsed.data,
+			reviewPayloads,
+		);
+		if (sensitivityViolations.length > 0) {
+			deps.repair.noteSubmissionRejection("submitRevision", {
+				stage: "sensitivity",
+				fingerprints: sensitivityViolations,
+			});
+			return {
+				error: [
+					"The revision quietly lowered declared sensitivity:",
+					...sensitivityViolations.map((violation) => `- ${violation}`),
+				].join("\n"),
+				diagnostic: rejectionDiagnostic(
+					"sensitivity",
+					sensitivityViolations.length,
+				),
+			};
+		}
+		const mappedDispositions = mapDispositionsToReviews(
+			parsed.data,
+			gates.headReviews,
+		);
+		const criticalFindings = criticalFindingCount(reviewPayloads);
+		const secondRoundWarranted =
+			gates.openCycleReviews === 1 &&
+			(leavesCriticalFinding(parsed.data, reviewPayloads) ||
+				criticalFindings >= 2 ||
+				(criticalFindings > 0 &&
+					changesArchitecture(head.envelope.payload, parsed.data.contract)));
+		const lifecycle = secondRoundWarranted ? "draft" : "accepted";
+		const revision = await insertDesignRevision({
+			envelope: contractEnvelope({
+				designSessionId: deps.designSessionId,
+				packageDigest: state.workspace.lineage.sourcePackageDigest,
+				contract: parsed.data.contract,
+				revision: head.revision + 1,
+				parentId: head.id,
+				inputDigests: [
+					head.artifactDigest,
+					...gates.headReviews.map((review) => review.artifactDigest),
+				],
+				promptVersion: DESIGN_PROMPT_VERSIONS.agent,
+				finishReason: null,
+			}),
+			lifecycle,
+			authority: deps.authority,
+			dispositions: mappedDispositions,
+			workspaceFinalization: {
+				workspaceId: state.workspace.id,
+				expectedRevision: state.workspace.revision,
+				artifactKind: "revision",
+			},
+		});
+		deps.ancestryChanged();
+		deps.repair.noteAccepted("submitRevision");
+		if (lifecycle === "draft") {
 			return {
 				ok: true,
 				revisionId: revision.id,
-				accepted: true,
-				planId: plan?.id,
+				accepted: false,
 				message:
-					blocking.length > 0
-						? "The accepted design carries blocking open questions. Ask the user before planning."
-						: "The revision persisted as the accepted design and the server derived its build plan. Tell the user briefly that the build is starting, then stop.",
+					"The revision persisted and warrants a second independent look. Request it with requestReview.",
 			};
-		},
+		}
+		const blocking = revision.envelope.payload.openQuestions.filter(
+			(question) => question.blocking,
+		);
+		const plan =
+			blocking.length === 0 ? await persistDerivedPlan(deps, revision) : null;
+		return {
+			ok: true,
+			revisionId: revision.id,
+			accepted: true,
+			planId: plan?.id,
+			message:
+				blocking.length > 0
+					? "The accepted design carries blocking open questions. Ask the user before planning."
+					: "The revision persisted as the accepted design and the server derived its build plan. Tell the user briefly that the build is starting, then stop.",
+		};
+	};
+
+	const finishDesign = {
+		description:
+			"Finish the complete design in the implicit workspace. The server chooses contract or reviewed-revision finalization from durable state, validates the whole graph, and atomically persists it or returns exact corrections. Call only after all known semantic updates; it may follow them in the same response.",
+		inputSchema: strictWireOnly(finishDesignInputSchema),
+		strict: true,
+		execute: (input: unknown) =>
+			inResponseOrder(async () => {
+				const gates = await gatesFor(deps);
+				return workspaceKind(gates) === "revision"
+					? finishRevision(input)
+					: finishContract(input);
+			}),
+	};
+
+	const requestReview = {
+		...requestReviewInternal,
+		execute: () => inResponseOrder(() => requestReviewInternal.execute()),
 	};
 
 	return {
-		stageContract,
-		stageRevision,
-		inspectDesignWorkspace,
-		submitContract,
+		setDesignRoot,
+		updateActors,
+		updateRecords,
+		updateWorkflows,
+		updateLists,
+		updateAccess,
+		updateNavigation,
+		updateModuleCompositions,
+		updateFormCompositions,
+		updateExternalRequirements,
+		updateDecisions,
+		updateAssumptions,
+		updateOpenQuestions,
+		updateFindingDispositions,
+		inspectDesign,
+		finishDesign,
 		requestReview,
-		submitRevision,
 	};
 }

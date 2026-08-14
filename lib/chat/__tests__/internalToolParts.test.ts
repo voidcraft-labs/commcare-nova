@@ -4,12 +4,23 @@ import { toolAction, toolDetail, toolStatus } from "@/lib/chat/toolSummary";
 
 describe("design protocol tool presentation", () => {
 	const DESIGN_PART_TYPES = [
-		"tool-stageContract",
-		"tool-stageRevision",
-		"tool-inspectDesignWorkspace",
-		"tool-submitContract",
+		"tool-setDesignRoot",
+		"tool-updateActors",
+		"tool-updateRecords",
+		"tool-updateWorkflows",
+		"tool-updateLists",
+		"tool-updateAccess",
+		"tool-updateNavigation",
+		"tool-updateModuleCompositions",
+		"tool-updateFormCompositions",
+		"tool-updateExternalRequirements",
+		"tool-updateDecisions",
+		"tool-updateAssumptions",
+		"tool-updateOpenQuestions",
+		"tool-updateFindingDispositions",
+		"tool-inspectDesign",
+		"tool-finishDesign",
 		"tool-requestReview",
-		"tool-submitRevision",
 	] as const;
 
 	it.each(DESIGN_PART_TYPES)("classifies %s as protocol", (type) => {
@@ -39,7 +50,7 @@ describe("design protocol tool presentation", () => {
 		 * protocol rejection diagnostic; neither may face the user. Status stays
 		 * honest: a rejected call still reads as failed, silently. */
 		const success = {
-			type: "tool-stageContract",
+			type: "tool-updateWorkflows",
 			toolCallId: "call-1",
 			state: "output-available",
 			output: { ok: true, message: "Continue staging related items." },
@@ -48,7 +59,7 @@ describe("design protocol tool presentation", () => {
 		expect(toolStatus(success)).toBe("done");
 
 		const rejection = {
-			type: "tool-stageRevision",
+			type: "tool-updateFindingDispositions",
 			toolCallId: "call-2",
 			state: "output-available",
 			output: {

@@ -48,6 +48,29 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(brief.actors.map((actor) => actor.id)).toContain(ids.actorChw);
 	});
 
+	it("carries accepted optional input validation into the executor brief", () => {
+		const contract = cloneContract(makeContract());
+		const input = contract.workflows[0]?.inputs[0];
+		if (input === undefined) throw new Error("workflow input fixture missing");
+		input.validation = {
+			rule: "When answered, the phone number must contain at least seven digits.",
+			message: "Enter a valid phone number.",
+		};
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const slice = plan.slices[0];
+		if (slice === undefined) throw new Error("fixture slice missing");
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: slice.id,
+		});
+		expect(brief.workflow.inputs[0]?.validation).toEqual(input.validation);
+		expect(renderBriefMessage(brief)).toContain(
+			"When answered, the phone number must contain at least seven digits.",
+		);
+	});
+
 	it("includes prerequisite workflow context without merging workflow work", () => {
 		const brief = briefAt(1);
 		expect(brief.workflow.id).toBe(ids.taskVisit);

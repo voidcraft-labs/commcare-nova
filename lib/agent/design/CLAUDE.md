@@ -16,7 +16,7 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
 - `ids.ts` defines `DesignId`, a UUID brand separate from Blueprint `Uuid`.
   The design loop's model-facing tools also accept short `@handle` objects;
   identities are minted deterministically from (session, handle), so a
-  reference and its declaration always converge on one UUID and staging is
+  reference and its declaration always converge on one UUID and authoring is
   ORDER-FREE: a forward reference binds eagerly under the ledger's
   `referenced` marker kind, the declaring item upgrades that row to its real
   kind, and submit-time reference closure refuses any element never actually
@@ -24,8 +24,8 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   possible. Invented raw UUID declarations still reject, symbols still
   resolve before the unchanged UUID-only schemas parse, and the reserved
   `@f<N>` namespace can never enter a design reference. State and
-  inspection project every bound identity back through its handle. The stage
-  and inspect tools ship `strict: true`, so their provider wire schemas widen
+  inspection project every bound identity back through its handle. The
+  semantic update and inspect tools ship `strict: true`, so their provider wire schemas widen
   every design-ID slot to `uuid | { handle }` — `designIdSchema` emits its
   admission rule as the canonical UUID `pattern` (a required slot as
   `type: "string"`, a formerly-optional slot as the strict projection's
@@ -37,7 +37,7 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   `@f1..@fN` handles (`reviewVocabulary.ts::deriveFindingHandleBindings`),
   server projections derived on demand from the head draft's reviews — never
   ledger rows. A disposition's `findingId` takes the printed `@f` handle,
-  pre-resolved in `stageRevision` before the generic deterministic resolver
+  pre-resolved by `updateFindingDispositions` before the generic deterministic resolver
   (which would mint a WRONG UUID for it); declaring an `@f`-numbered handle
   for a design element is refused (`designReservedHandleIssue`).
 - `contract.ts` is the schema-version-1 Design Contract. `graph.ts` runs inside
@@ -70,7 +70,7 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   may remain external when construction is otherwise executable. Blocking
   meaning becomes a pre-build question or an explicitly excluded workflow; it
   never survives into execution. The identity-only subset of the graph proof runs on
-  every contract and revision stage before ledger insertion, so one Design ID
+  every contract and revision update before ledger insertion, so one Design ID
   can never be durably reused by two declarations even while the candidate is
   incomplete.
 - `review.ts` defines the persisted findings, dispositions, and revisions —
@@ -180,29 +180,32 @@ the actual inputs and worker sequence; the reviewer reports repeated weak flat
 treatment as one systemic finding naming every affected form. There is no extra
 model-authored build-plan or visual-design pass.
 
-The same immutable seven-tool grammar is mounted in every phase so a phase
+The same immutable semantic tool grammar is mounted in every phase so a phase
 transition never changes provider context. Durable gates refuse calls that are
-not currently legal. Contract and revision candidates use a durable identity-
-addressed workspace; bounded stage calls survive interruption, and the small
-submit call replays and validates the whole candidate before one immutable
-artifact insert. `inspectDesignWorkspace` reads selected exact state when a
-model needs it. Provider parallel tool calls are disabled because the workspace
-revision protocol is ordered.
+not currently legal. Contract and revision candidates use an implicit durable
+identity-addressed workspace. The model calls `setDesignRoot`, collection-
+specific `update*` tools, `updateFindingDispositions`, `inspectDesign`,
+`finishDesign`, and `requestReview`; it never names the artifact kind,
+workspace, or optimistic revision. It may emit several known calls in one
+response. The server serializes their effects in provider order, and the small
+`finishDesign` call replays and validates the whole candidate before one
+immutable artifact insert. `inspectDesign` reads selected exact state only when
+a model needs a narrow lookup.
 
-The contract and post-review revision workspaces have independent counters.
-When a blocking review returns, both its result and the next state packet say
-that revision starts in a new workspace at revision 0 and that the first
-`stageRevision` uses `expectedRevision: 0`.
+The contract and post-review revision workspaces remain separate durable
+lineages, but their counters are persistence details. When a blocking review
+returns, the next semantic update automatically targets the revision candidate
+seeded from the immutable reviewed parent.
 
 Finalization rejections are tracked by validation stage and stable diagnostic
 fingerprint. Reaching a later stage or receiving changed diagnostics is real
 progress; an exact repeat stops after two attempts and any third rejection
-stops as a classified internal defect. Bounded stage calls carry their own
-fuse: a `stageContract`/`stageRevision` rejection repeated three times in a
+stops as a classified internal defect. Bounded semantic update calls carry their own
+fuse: an update rejection repeated three times in a
 row with an identical diagnostic stops the run the same way, because zero
 diagnostic movement means the model cannot express what the server requires —
 a systemic contract defect, never a correctable slip. A changed diagnostic or
-an accepted stage resets that count; gate refusals and the forced-question
+an accepted update resets that count; gate refusals and the forced-question
 state stay outside it. Both fuses are PER-TURN accounting and classify as
 RECOVERABLE failures: the stop seals that turn's repair budget, never the
 durable artifacts, so a fresh chargeable turn re-enters the same phase with a
@@ -211,21 +214,21 @@ preserved draft. Only the session-wide design step budget is an unrecoverable
 stop. When every construction issue is a
 blocking question already authored in the candidate, it does not consume that
 repair budget. The server derives those exact questions, appends them as an
-authoritative message, and refuses further design staging until an exact
+authoritative message, and refuses further design updates until an exact
 `askQuestions` round of at most five is answered. The private context ledger
 records a server-only authorization key for the exact pending sequence, and
 each answer binds to the exact question identity it was given for — durable
 id, related element ids, exact prose, and the accepted
 `askQuestions` tool-call id — so identical prose on a later question cannot
 inherit an old answer while an unchanged question stays answered across
-bounded stages and later rounds. A question the user already answered is
+bounded updates and later rounds. A question the user already answered is
 never demanded again: only the unanswered remainder of the pending set is,
-and staging opens when every currently pending question identity carries a
+and authoring opens when every currently pending question identity carries a
 durably authorized answer. Transcript text cannot mint that provenance. If a
 clean model step omits the required call, the server appends correction
 guidance and redrives internally without changing the tool grammar or asking
 the user to resend. The demand message also teaches the resolution path:
-after answers arrive the model stages them — records each settled choice as a
+after answers arrive the model records them — records each settled choice as a
 decision or assumption, removes the question or marks it non-blocking — and a
 delegating answer such as "use sensible defaults" makes the concrete choice
 the model's to bake in.

@@ -780,10 +780,11 @@ export function validateDesignGraph(
 				);
 			}
 			if (composition.mode === "registration") {
+				const createEffects = workflow.recordEffects.filter(
+					(effect) => effect.kind === "create",
+				);
 				const createdRecordIds = new Set(
-					workflow.recordEffects
-						.filter((effect) => effect.kind === "create")
-						.map((effect) => effect.recordId),
+					createEffects.map((effect) => effect.recordId),
 				);
 				if (workflow.contextRecordId !== undefined) {
 					issue(
@@ -799,6 +800,18 @@ export function validateDesignGraph(
 						ctx,
 						["formCompositions", compositionIndex, "mode"],
 						"A registration form must live in a module hosted by a record the workflow creates.",
+					);
+				}
+				const conditionalPrimaryCreate = createEffects.find(
+					(effect) =>
+						effect.recordId === module.hostRecordId &&
+						effect.condition !== undefined,
+				);
+				if (conditionalPrimaryCreate !== undefined) {
+					issue(
+						ctx,
+						["formCompositions", compositionIndex, "mode"],
+						"A registration form always creates its hosted record when submitted, so it cannot realize a conditional primary create. Use a standalone form with a conditional create effect when submission must succeed without creating the record, or make the condition a submission-blocking validation.",
 					);
 				}
 			}

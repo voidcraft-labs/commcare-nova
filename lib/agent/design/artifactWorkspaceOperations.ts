@@ -1,4 +1,7 @@
-/** Pure schemas and replay for bounded contract/revision workspaces. */
+/** Pure schemas and replay for bounded contract/revision workspaces.
+ *
+ * The provider sees semantic root/collection operations. Artifact kind and
+ * optimistic workspace revision are server-owned persistence details. */
 
 import { z } from "zod";
 import {
@@ -90,7 +93,7 @@ export type WorkspaceCollection = (typeof WORKSPACE_COLLECTIONS)[number];
 
 /** The stage grammar's charter IS the contract's charter — one schema, so
  * the two can never drift. */
-const contractRootPatchSchema = z
+export const setDesignRootInputSchema = z
 	.object({
 		id: designIdSchema.optional(),
 		charter: appCharterSchema.optional(),
@@ -99,6 +102,74 @@ const contractRootPatchSchema = z
 	.refine((value) => Object.keys(value).length > 0, {
 		message: "A root update must set the contract id or complete charter.",
 	});
+
+function identityUpdateInputSchema<T extends z.ZodTypeAny>(
+	itemSchema: T,
+	identity: "id" | "findingId",
+) {
+	return z
+		.object({
+			upserts: z.array(itemSchema).max(MAX_DESIGN_WORKSPACE_ITEM_MUTATIONS),
+			removeIds: z
+				.array(designIdSchema)
+				.max(MAX_DESIGN_WORKSPACE_ITEM_MUTATIONS),
+		})
+		.strict()
+		.superRefine((value, ctx) => {
+			if (value.upserts.length === 0 && value.removeIds.length === 0) {
+				ctx.addIssue({
+					code: "custom",
+					path: [],
+					message: "An update must upsert or remove an item.",
+				});
+			}
+			const upserts = new Set<string>();
+			value.upserts.forEach((item, index) => {
+				const id = (item as Record<string, unknown>)[identity] as string;
+				if (upserts.has(id))
+					ctx.addIssue({
+						code: "custom",
+						path: ["upserts", index, identity],
+						message: "An identity may be upserted only once in one call.",
+					});
+				upserts.add(id);
+			});
+			value.removeIds.forEach((id, index) => {
+				if (upserts.has(id))
+					ctx.addIssue({
+						code: "custom",
+						path: ["removeIds", index],
+						message:
+							"The same identity cannot be upserted and removed in one call.",
+					});
+			});
+		});
+}
+
+/** Provider-facing semantic collection grammars. The tool name supplies the
+ * collection, so the model never repeats a bookkeeping discriminator. */
+export const designCollectionUpdateInputSchemas = {
+	actors: identityUpdateInputSchema(designActorSchema, "id"),
+	records: identityUpdateInputSchema(recordConceptSchema, "id"),
+	workflows: identityUpdateInputSchema(workflowSchema, "id"),
+	lists: identityUpdateInputSchema(workListSchema, "id"),
+	access: identityUpdateInputSchema(accessPolicySchema, "id"),
+	navigation: identityUpdateInputSchema(navigationIntentSchema, "id"),
+	moduleCompositions: identityUpdateInputSchema(moduleCompositionSchema, "id"),
+	formCompositions: identityUpdateInputSchema(formCompositionSchema, "id"),
+	externalRequirements: identityUpdateInputSchema(
+		externalRequirementSchema,
+		"id",
+	),
+	decisions: identityUpdateInputSchema(architectureDecisionSchema, "id"),
+	assumptions: identityUpdateInputSchema(assumptionSchema, "id"),
+	openQuestions: identityUpdateInputSchema(openQuestionSchema, "id"),
+} as const satisfies Record<ContractCollection, z.ZodTypeAny>;
+
+export const updateFindingDispositionsInputSchema = identityUpdateInputSchema(
+	findingDispositionSchema,
+	"findingId",
+);
 
 function identityMutationSchema<const C extends string, T extends z.ZodTypeAny>(
 	collection: C,
@@ -129,7 +200,7 @@ function identityMutationSchema<const C extends string, T extends z.ZodTypeAny>(
 					ctx.addIssue({
 						code: "custom",
 						path: ["upserts", index, identity],
-						message: "An identity may be upserted only once in one stage.",
+						message: "An identity may be upserted only once in one update.",
 					});
 				upserts.add(id);
 			});
@@ -139,7 +210,7 @@ function identityMutationSchema<const C extends string, T extends z.ZodTypeAny>(
 						code: "custom",
 						path: ["removeIds", index],
 						message:
-							"The same identity cannot be upserted and removed in one stage.",
+							"The same identity cannot be upserted and removed in one update.",
 					});
 			});
 		});
@@ -172,7 +243,7 @@ const dispositionMutationSchema = identityMutationSchema(
 
 const contractStageBodySchema = z
 	.object({
-		root: contractRootPatchSchema.optional(),
+		root: setDesignRootInputSchema.optional(),
 		collections: z.array(contractCollectionMutationSchema).max(1),
 	})
 	.strict()
@@ -182,7 +253,7 @@ const contractStageBodySchema = z
 
 const revisionStageBodySchema = z
 	.object({
-		root: contractRootPatchSchema.optional(),
+		root: setDesignRootInputSchema.optional(),
 		collections: z.array(contractCollectionMutationSchema).max(1),
 		dispositions: dispositionMutationSchema.optional(),
 	})
@@ -198,13 +269,6 @@ const revisionStageBodySchema = z
 		},
 	);
 
-export const stageContractInputSchema = contractStageBodySchema.extend({
-	expectedRevision: z.number().int().nonnegative(),
-});
-export const stageRevisionInputSchema = revisionStageBodySchema.extend({
-	expectedRevision: z.number().int().nonnegative(),
-});
-
 export const designArtifactWorkspaceOperationSchema = z.discriminatedUnion(
 	"kind",
 	[
@@ -216,10 +280,8 @@ export type DesignArtifactWorkspaceOperation = z.infer<
 	typeof designArtifactWorkspaceOperationSchema
 >;
 
-export const inspectDesignWorkspaceInputSchema = z
+export const inspectDesignInputSchema = z
 	.object({
-		artifactKind: z.enum(DESIGN_ARTIFACT_KINDS),
-		expectedRevision: z.number().int().nonnegative(),
 		selection: z.discriminatedUnion("kind", [
 			z.object({ kind: z.literal("summary") }).strict(),
 			z.object({ kind: z.literal("root") }).strict(),
@@ -246,9 +308,7 @@ export const inspectDesignWorkspaceInputSchema = z
 	})
 	.strict();
 
-export const finalizeDesignWorkspaceInputSchema = z
-	.object({ expectedRevision: z.number().int().nonnegative() })
-	.strict();
+export const finishDesignInputSchema = z.object({}).strict();
 
 function identityFor(collection: WorkspaceCollection, item: unknown): string {
 	const record = item as Record<string, unknown>;
@@ -364,10 +424,10 @@ export function designWorkspaceBoundError(args: {
 }): string | null {
 	const mutations = designWorkspaceMutationCount(args.operation);
 	if (mutations > MAX_DESIGN_WORKSPACE_ITEM_MUTATIONS)
-		return `This stage contains ${mutations} item changes; submit at most ${MAX_DESIGN_WORKSPACE_ITEM_MUTATIONS} and continue in another stage.`;
+		return `This call contains ${mutations} item changes; submit at most ${MAX_DESIGN_WORKSPACE_ITEM_MUTATIONS} and continue in another semantic call.`;
 	const bytes = encodedJsonBytes(args.input);
 	return bytes > MAX_DESIGN_WORKSPACE_INPUT_BYTES
-		? `This stage is ${bytes} bytes; keep each stage at or below ${MAX_DESIGN_WORKSPACE_INPUT_BYTES} bytes and continue in another stage.`
+		? `This call is ${bytes} bytes; keep each semantic call at or below ${MAX_DESIGN_WORKSPACE_INPUT_BYTES} bytes and continue in another call.`
 		: null;
 }
 
@@ -400,7 +460,7 @@ export function inspectDesignWorkspaceCandidate(args: {
 	kind: DesignArtifactKind;
 	candidate: Record<string, unknown>;
 	sourceContract?: Record<string, unknown>;
-	selection: z.infer<typeof inspectDesignWorkspaceInputSchema>["selection"];
+	selection: z.infer<typeof inspectDesignInputSchema>["selection"];
 }) {
 	if (args.selection.kind === "summary")
 		return {
@@ -430,7 +490,7 @@ export function inspectDesignWorkspaceCandidate(args: {
 		throw new Error("Unknown workspace inspection selection.");
 	}
 	const selection = args.selection as Extract<
-		z.infer<typeof inspectDesignWorkspaceInputSchema>["selection"],
+		z.infer<typeof inspectDesignInputSchema>["selection"],
 		{ kind: "collection" | "sourceCollection" }
 	>;
 	const source = selection.kind === "sourceCollection";

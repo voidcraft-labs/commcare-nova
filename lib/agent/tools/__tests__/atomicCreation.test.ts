@@ -427,6 +427,7 @@ describe("createModule — atomic module + forms + case list", () => {
 							kind: "text",
 							id: "head_of_household",
 							label: proseText("Head of household"),
+							help: proseText("Use the name the household recognizes."),
 							caseWrite: {
 								caseType: "household",
 								property: "head_of_household",
@@ -478,6 +479,13 @@ describe("createModule — atomic module + forms + case list", () => {
 				m.kind === "addModule",
 		);
 		expect(addModule?.module.caseListConfig?.columns).toHaveLength(1);
+		const addedHead = out.mutations.find(
+			(m): m is Extract<typeof m, { kind: "addField" }> =>
+				m.kind === "addField" && m.field.uuid === headUuid,
+		);
+		expect(addedHead?.field).toMatchObject({
+			help: proseText("Use the name the household recognizes."),
+		});
 		if (!("moduleUuid" in out.result)) throw new Error("expected success");
 		expect(out.result).toMatchObject({
 			moduleUuid,

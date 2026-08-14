@@ -159,6 +159,24 @@ export const workflowInputSchema = z
 		requiredWhen: z.string().min(1).optional(),
 		choiceValues: z.array(z.string().min(1)).optional(),
 		choiceSource: existingLookupChoiceSourceSchema.optional(),
+		validation: z
+			.object({
+				rule: z
+					.string()
+					.min(1)
+					.describe(
+						"Semantic condition that entered answers must satisfy; this is design intent, not an XPath expression.",
+					),
+				message: z
+					.string()
+					.min(1)
+					.describe("Worker-facing message shown when the answer is invalid."),
+			})
+			.strict()
+			.optional()
+			.describe(
+				"Optional data-quality intent for this input. Optional inputs must still accept an unanswered value.",
+			),
 	})
 	.strict()
 	.superRefine((value, ctx) => {

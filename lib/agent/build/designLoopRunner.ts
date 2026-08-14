@@ -114,7 +114,6 @@ import {
 import type { OrchestratorStreamWriter } from "./orchestrator";
 import type { OrchestrationHead } from "./orchestratorState";
 import {
-	CONTRACT_STEP_LABELS,
 	createDesignPulseEmitter,
 	createSubmissionStepNarrator,
 	type DesignPulsePhase,
@@ -194,8 +193,8 @@ function readDesignToolDiagnostic(output: Record<string, unknown> | null): {
 }
 
 /** A fresh contract is being designed; replacing any persisted contract is a
- * revision from the person's point of view even though immutable artifacts
- * require another `submitContract` call on the wire. */
+ * revision from the person's point of view even though the same semantic
+ * `finishDesign` call closes both kinds of workspace. */
 export function contractSubmissionPulsePhase(
 	hasPersistedContract: boolean,
 ): DesignPulsePhase {
@@ -205,17 +204,27 @@ export function contractSubmissionPulsePhase(
 export function designToolPulsePhase(
 	toolName: string,
 	current: DesignPulsePhase,
-	contractPhase: DesignPulsePhase,
 ): DesignPulsePhase {
-	if (toolName === "stageContract" || toolName === "submitContract") {
-		return contractPhase;
-	}
 	if (toolName === "requestReview") return "review";
-	if (toolName === "stageRevision" || toolName === "submitRevision") {
-		return "revise";
-	}
 	return current;
 }
+
+const DESIGN_UPDATE_STEP_LABELS: Readonly<Record<string, string>> = {
+	setDesignRoot: "Setting the app direction",
+	updateActors: "Understanding who does what",
+	updateRecords: "Working out the records",
+	updateWorkflows: "Shaping the workflows",
+	updateLists: "Designing the worklists",
+	updateAccess: "Setting who sees what",
+	updateNavigation: "Laying out navigation",
+	updateModuleCompositions: "Composing the menus",
+	updateFormCompositions: "Composing the forms",
+	updateExternalRequirements: "Checking what needs setup",
+	updateDecisions: "Weighing the choices",
+	updateAssumptions: "Recording assumptions",
+	updateOpenQuestions: "Noting open questions",
+	updateFindingDispositions: "Resolving review findings",
+};
 
 function modelToolPartIds(
 	messages: readonly ModelMessage[],
@@ -490,9 +499,6 @@ export async function runDesignAgentLoop(
 		args.designSessionId,
 		args.head,
 	);
-	const contractPulsePhase = contractSubmissionPulsePhase(
-		initialGates.head !== null,
-	);
 	let livePulsePhase: DesignPulsePhase = initialGates.verdicts.submitRevision
 		.legal
 		? "revise"
@@ -599,8 +605,6 @@ export async function runDesignAgentLoop(
 						? null
 						: {
 								artifactKind: workspaceKind,
-								revision: workspace.workspace.revision,
-								stepCount: workspace.operations.length,
 								...designWorkspaceCandidateSummary(
 									workspaceKind,
 									workspace.candidate,
@@ -961,6 +965,7 @@ export async function runDesignAgentLoop(
 				inputChars: number;
 				inputAvailable: boolean;
 				outcomeEmitted: boolean;
+				phase: DesignPulsePhase;
 			}
 		>();
 		const noteToolOutcome = (
@@ -993,7 +998,7 @@ export async function runDesignAgentLoop(
 				case "text-delta":
 					pulse(livePulsePhase, chunk.delta.length);
 					return;
-				case "tool-input-start":
+				case "tool-input-start": {
 					toolNames.set(chunk.toolCallId, chunk.toolName);
 					toolStreams.set(chunk.toolCallId, {
 						toolName: chunk.toolName,
@@ -1001,31 +1006,29 @@ export async function runDesignAgentLoop(
 						inputChars: 0,
 						inputAvailable: false,
 						outcomeEmitted: false,
+						phase: livePulsePhase,
 					});
-					livePulsePhase = designToolPulsePhase(
-						chunk.toolName,
-						livePulsePhase,
-						contractPulsePhase,
-					);
-					if (chunk.toolName === "stageContract") {
-						narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
-						narratorPhase = contractPulsePhase;
-					} else if (chunk.toolName === "stageRevision") {
-						narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
-						narratorPhase = "revise";
+					livePulsePhase = designToolPulsePhase(chunk.toolName, livePulsePhase);
+					const updateLabel = DESIGN_UPDATE_STEP_LABELS[chunk.toolName];
+					if (updateLabel !== undefined) {
+						narrator = createSubmissionStepNarrator([
+							[
+								chunk.toolName === "setDesignRoot" ? "charter" : "upserts",
+								updateLabel,
+							],
+						]);
+						narratorPhase = livePulsePhase;
 					} else if (chunk.toolName === "requestReview") {
 						narrator = null;
 						pulse("review", 0);
-					} else if (chunk.toolName === "submitRevision") {
+					} else if (chunk.toolName === "finishDesign") {
 						narrator = null;
-						pulse("revise", 0);
-					} else if (chunk.toolName === "submitContract") {
-						narrator = null;
-						pulse(contractPulsePhase, 0);
+						pulse(livePulsePhase, 0);
 					} else {
 						narrator = null;
 					}
 					return;
+				}
 				case "tool-input-delta": {
 					const tracked = toolStreams.get(chunk.toolCallId);
 					if (tracked !== undefined) {
@@ -1076,18 +1079,17 @@ export async function runDesignAgentLoop(
 						failed ? "tool-refused" : "tool-completed",
 						diagnostic,
 					);
-					if (toolName === "submitContract") {
-						livePulsePhase = failed ? contractPulsePhase : "review";
+					if (toolName === "finishDesign") {
+						const calledFrom = toolStreams.get(chunk.toolCallId)?.phase;
+						livePulsePhase = failed
+							? (calledFrom ?? livePulsePhase)
+							: calledFrom === "revise" && output?.accepted !== false
+								? "revise"
+								: "review";
 					} else if (toolName === "requestReview") {
 						livePulsePhase = failed
 							? "review"
 							: output?.accepted === true
-								? "review"
-								: "revise";
-					} else if (toolName === "submitRevision") {
-						livePulsePhase = failed
-							? "revise"
-							: output?.accepted === false
 								? "review"
 								: "revise";
 					}

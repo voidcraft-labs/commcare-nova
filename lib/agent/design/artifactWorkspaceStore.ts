@@ -583,11 +583,10 @@ export async function stageDesignArtifactWorkspace(args: {
 			"A staged operation requires its provider tool-call identity.",
 		);
 	}
-	// The provider call includes its optimistic revision fence. A replay is
-	// idempotent only when that entire admitted input is byte-for-byte
-	// equivalent after canonicalization, not merely when its mutation matches.
+	// Artifact kind and revision fencing are server-owned. A provider replay is
+	// idempotent when its semantic operation and handle bindings are identical;
+	// the current revision may have advanced because later calls already ran.
 	const inputDigest = canonicalJsonDigest({
-		expectedRevision: args.expectedRevision,
 		operation,
 		handleBindings: args.handleBindings ?? [],
 	});
@@ -649,7 +648,7 @@ export async function stageDesignArtifactWorkspace(args: {
 		if (revision !== args.expectedRevision) {
 			throw new DesignArtifactWorkspaceError(
 				"stale-revision",
-				`The workspace is at revision ${revision}, not ${args.expectedRevision}. Inspect its current state before staging more work.`,
+				"This design update lost an ordering race. The workspace is intact; retry only this semantic call.",
 			);
 		}
 		for (const binding of args.handleBindings ?? []) {
@@ -788,7 +787,7 @@ export async function inspectDesignArtifactWorkspace(args: {
 	if (state.workspace.revision !== args.expectedRevision) {
 		throw new DesignArtifactWorkspaceError(
 			"stale-revision",
-			`The workspace is at revision ${state.workspace.revision}, not ${args.expectedRevision}. Use the current revision in the next inspection.`,
+			"The design workspace changed during this server operation. Retry the operation; the saved semantic updates are intact.",
 		);
 	}
 	return state;

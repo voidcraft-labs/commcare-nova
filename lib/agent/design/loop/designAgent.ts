@@ -442,8 +442,8 @@ export function requiredDesignQuestionMessage(
 		role: "user",
 		content: [
 			REQUIRED_QUESTION_HEADING,
-			`Finalization proved that these decisions require the user. Call askQuestions now with header "${REQUIRED_DESIGN_QUESTIONS_HEADER}" and every exact question below, in order. Give a question 2-4 concrete candidate options when you can propose real alternatives or sensible defaults — your recommended option first, its label ending in ' (Recommended)'; the user can always answer in free text instead, so never add an option that only means they should type, and leave a question's options empty when no concrete candidates exist. Until the answers arrive, do not stage more design, submit again, assume answers, remove workflows, or reinterpret their scope.`,
-			`When the answers arrive, apply each one by staging before submitting again: update the affected elements, record the settled choice as a decision or assumption, and remove the question or mark it non-blocking. An answer that delegates the choice to you, such as "use sensible defaults", is a real answer — choose concrete values yourself, record them with an assumption naming what changes if they are wrong, and clear the question the same way.`,
+			`Finalization proved that these decisions require the user. Call askQuestions now with header "${REQUIRED_DESIGN_QUESTIONS_HEADER}" and every exact question below, in order. Give a question 2-4 concrete candidate options when you can propose real alternatives or sensible defaults — your recommended option first, its label ending in ' (Recommended)'; the user can always answer in free text instead, so never add an option that only means they should type, and leave a question's options empty when no concrete candidates exist. Until the answers arrive, do not update the design, finish again, assume answers, remove workflows, or reinterpret their scope.`,
+			`When the answers arrive, apply each one with the semantic design calls before finishing again: update the affected elements, record the settled choice as a decision or assumption, and remove the question or mark it non-blocking. Emit the independent known updates together. An answer that delegates the choice to you, such as "use sensible defaults", is a real answer — choose concrete values yourself, record them with an assumption naming what changes if they are wrong, and clear the question the same way.`,
 			...batch.map((question) => `- ${question.question}`),
 		].join("\n"),
 	};
@@ -488,20 +488,31 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			inputSchema: requiredDesignQuestionInputSchema(),
 			strict: false,
 		},
-		stageContract: args.tools.stageContract,
-		inspectDesignWorkspace: args.tools.inspectDesignWorkspace,
-		submitContract: args.tools.submitContract,
+		setDesignRoot: args.tools.setDesignRoot,
+		updateActors: args.tools.updateActors,
+		updateRecords: args.tools.updateRecords,
+		updateWorkflows: args.tools.updateWorkflows,
+		updateLists: args.tools.updateLists,
+		updateAccess: args.tools.updateAccess,
+		updateNavigation: args.tools.updateNavigation,
+		updateModuleCompositions: args.tools.updateModuleCompositions,
+		updateFormCompositions: args.tools.updateFormCompositions,
+		updateExternalRequirements: args.tools.updateExternalRequirements,
+		updateDecisions: args.tools.updateDecisions,
+		updateAssumptions: args.tools.updateAssumptions,
+		updateOpenQuestions: args.tools.updateOpenQuestions,
+		updateFindingDispositions: args.tools.updateFindingDispositions,
+		inspectDesign: args.tools.inspectDesign,
+		finishDesign: args.tools.finishDesign,
 		requestReview: args.tools.requestReview,
-		stageRevision: args.tools.stageRevision,
-		submitRevision: args.tools.submitRevision,
 	};
 	const phaseTerminal =
 		args.phase === "author"
-			? "submitContract"
+			? "finishDesign"
 			: args.phase === "review"
 				? "requestReview"
 				: args.phase === "revision"
-					? "submitRevision"
+					? "finishDesign"
 					: null;
 	return new ToolLoopAgent({
 		model: args.model,
@@ -555,7 +566,7 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			return {
 				messages: preparedMessages,
 				providerOptions: {
-					openai: { ...providerOptions.openai, parallelToolCalls: false },
+					openai: { ...providerOptions.openai, parallelToolCalls: true },
 				},
 			};
 		},

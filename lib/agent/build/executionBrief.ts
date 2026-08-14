@@ -260,6 +260,7 @@ const CONSTRAINT_AREAS: Readonly<
 	SINGLE_DIRECT_CASE_WRITE_PER_FIELD: ["forms"],
 	STANDARD_SCALAR_WRITERS_LIMITED: ["forms", "case-operations"],
 	CASE_NAME_REQUIRED_ON_CREATE: ["forms", "case-operations"],
+	REGISTRATION_CREATE_IS_UNCONDITIONAL: ["forms", "case-operations"],
 	RESERVED_CASE_IDENTIFIERS_REJECTED: ["case-catalog", "forms"],
 	CASE_WRITE_TARGETS_MODULE_LINEAGE: ["forms", "case-operations"],
 	CASE_PROPERTY_CLEAR_UNAVAILABLE: ["forms", "case-operations"],

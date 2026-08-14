@@ -77,6 +77,26 @@ describe("toolSchemaGenerator", () => {
 		}
 	});
 
+	it("accepts useful help content during atomic field creation", () => {
+		const field = {
+			...validAddPayload("text"),
+			help: proseText("Include the country code when it is known."),
+		};
+		expect(generated.addFieldsItemSchema.safeParse(field).success).toBe(true);
+		expect(
+			createModuleInputSchema.safeParse({
+				name: "Registration",
+				forms: [
+					{
+						name: "Register",
+						type: "survey",
+						fields: [field],
+					},
+				],
+			}).success,
+		).toBe(true);
+	});
+
 	it("lets a case-bound field omit label and options — the record seeds them", () => {
 		// The prompt teaches stating those slots on a case-bound field only
 		// to OVERRIDE the catalog record, so the parse boundary must accept

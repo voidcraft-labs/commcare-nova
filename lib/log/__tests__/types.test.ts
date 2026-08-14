@@ -291,7 +291,7 @@ describe("eventSchema", () => {
 			payload: {
 				type: "design-tool-outcome",
 				toolCallId: "design-call-1",
-				toolName: "stageContract",
+				toolName: "updateWorkflows",
 				inputChars: 24,
 				durationMs: 12,
 				outcome: "accepted",

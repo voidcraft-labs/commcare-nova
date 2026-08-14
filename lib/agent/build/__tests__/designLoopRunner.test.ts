@@ -32,15 +32,11 @@ describe("contractSubmissionPulsePhase", () => {
 
 describe("designToolPulsePhase", () => {
 	it("switches to review as soon as requestReview starts", () => {
-		expect(designToolPulsePhase("requestReview", "revise", "design")).toBe(
-			"review",
-		);
+		expect(designToolPulsePhase("requestReview", "revise")).toBe("review");
 	});
 
-	it("returns to revision for its bounded stages", () => {
-		expect(designToolPulsePhase("stageRevision", "review", "design")).toBe(
-			"revise",
-		);
+	it("keeps the current phase for semantic design updates", () => {
+		expect(designToolPulsePhase("updateWorkflows", "revise")).toBe("revise");
 	});
 });
 
@@ -62,7 +58,7 @@ describe("design POST step budget", () => {
 	});
 
 	it("ends a phase only after the finalizer succeeds", () => {
-		const call = { toolCallId: "submit-1", toolName: "submitContract" };
+		const call = { toolCallId: "finish-1", toolName: "finishDesign" };
 		expect(
 			designPhaseTerminalSucceeded(
 				[
@@ -73,7 +69,7 @@ describe("design POST step budget", () => {
 						],
 					},
 				],
-				"submitContract",
+				"finishDesign",
 			),
 		).toBe(false);
 		expect(
@@ -86,7 +82,7 @@ describe("design POST step budget", () => {
 						],
 					},
 				],
-				"submitContract",
+				"finishDesign",
 			),
 		).toBe(true);
 	});

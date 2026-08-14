@@ -3,9 +3,10 @@
  * through the REAL factory (`createDesignAgent` + `createDesignLoopTools`)
  * against a capturing fetch that never sends. The drift guards:
  *
- *  - bounded stages, inspection, and tiny finalizers ride `strict: true`
+ *  - semantic updates, inspection, and tiny finalizers ride `strict: true`
  *    with the strict wire projection, while askQuestions stays non-strict;
- *  - parallel tool calls are disabled because workspace revisions are ordered;
+ *  - parallel tool calls are enabled while the server serializes their
+ *    workspace effects in response order;
  *  - the per-session prompt-cache triple and the statelessness pair are on
  *    the wire exactly as the SA's (`wireCacheConfig.test.ts` discipline);
  *  - the loop runs at the drafting ceiling (xhigh).
@@ -58,6 +59,27 @@ interface CapturedBody {
 		};
 	}>;
 }
+
+const DESIGN_TOOL_NAMES = [
+	"askQuestions",
+	"finishDesign",
+	"inspectDesign",
+	"requestReview",
+	"setDesignRoot",
+	"updateAccess",
+	"updateActors",
+	"updateAssumptions",
+	"updateDecisions",
+	"updateExternalRequirements",
+	"updateFindingDispositions",
+	"updateFormCompositions",
+	"updateLists",
+	"updateModuleCompositions",
+	"updateNavigation",
+	"updateOpenQuestions",
+	"updateRecords",
+	"updateWorkflows",
+] as const;
 
 function requiredQuestions(
 	texts: readonly string[],
@@ -259,15 +281,9 @@ describe("design agent Responses wire body", () => {
 		const askQuestions = body.tools?.find(
 			(tool) => tool.name === "askQuestions",
 		);
-		expect(body.tools?.map((tool) => tool.name).sort()).toEqual([
-			"askQuestions",
-			"inspectDesignWorkspace",
-			"requestReview",
-			"stageContract",
-			"stageRevision",
-			"submitContract",
-			"submitRevision",
-		]);
+		expect(body.tools?.map((tool) => tool.name).sort()).toEqual(
+			DESIGN_TOOL_NAMES,
+		);
 		expect(askQuestions?.parameters).toEqual(await schema.jsonSchema);
 
 		const answered = [
@@ -612,17 +628,12 @@ describe("design agent Responses wire body", () => {
 		expect(body.reasoning?.summary).toBeTruthy();
 		expect(body.prompt_cache_key).toBe("nova:design:session-probe");
 		expect(body.prompt_cache_options).toEqual({ mode: "implicit", ttl: "30m" });
-		expect(body.parallel_tool_calls).toBe(false);
+		expect(body.parallel_tool_calls).toBe(true);
 
 		const byName = new Map((body.tools ?? []).map((t) => [t.name, t]));
-		for (const name of [
-			"stageContract",
-			"inspectDesignWorkspace",
-			"submitContract",
-			"requestReview",
-			"stageRevision",
-			"submitRevision",
-		]) {
+		for (const name of DESIGN_TOOL_NAMES.filter(
+			(name) => name !== "askQuestions",
+		)) {
 			const tool = byName.get(name);
 			expect(tool, name).toBeDefined();
 			expect(tool?.strict, name).toBe(true);
@@ -634,14 +645,6 @@ describe("design agent Responses wire body", () => {
 			);
 		}
 		expect(byName.get("askQuestions")?.strict).toBe(false);
-		expect([...byName.keys()].sort()).toEqual([
-			"askQuestions",
-			"inspectDesignWorkspace",
-			"requestReview",
-			"stageContract",
-			"stageRevision",
-			"submitContract",
-			"submitRevision",
-		]);
+		expect([...byName.keys()].sort()).toEqual(DESIGN_TOOL_NAMES);
 	});
 });
