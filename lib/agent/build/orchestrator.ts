@@ -947,7 +947,7 @@ export async function runBuildOrchestration(
 								: outcome.code,
 						message:
 							outcome.kind === "budget-exhausted"
-								? "Nova stopped before saving a workflow that did not finish safely. Everything already added is intact."
+								? "This workflow needed more correction rounds than a build allows, so Nova stopped before saving it. Everything already added is intact."
 								: outcome.message,
 						recoverable: false,
 					};
