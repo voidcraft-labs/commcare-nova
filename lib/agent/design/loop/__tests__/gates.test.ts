@@ -32,7 +32,6 @@ function revision(args: {
 		contract.openQuestions.push({
 			id: did(9000),
 			question: "Which queue should open first?",
-			structuralImpact: "local",
 			blocking: true,
 			relatedElementIds: [
 				fixtureValue(contract.workflows[0], "first workflow").id,
@@ -273,7 +272,6 @@ describe("DesignRepairTracker", () => {
 		const question = {
 			id: did(9100),
 			question: "Which threshold applies?",
-			structuralImpact: "local" as const,
 			blocking: true,
 			relatedElementIds: [did(1)],
 		};

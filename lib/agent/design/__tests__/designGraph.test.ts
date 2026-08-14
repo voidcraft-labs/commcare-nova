@@ -46,13 +46,7 @@ describe("lean Design Contract graph", () => {
 		expect(messages(contract)).toContain("include every workflow");
 	});
 
-	it("admits no multi-app, unsupported media feature, empty shell, or unresolved build contract", () => {
-		const multipleApps = structuredClone(makeContract()) as unknown as {
-			charter: { appCount: number };
-		};
-		multipleApps.charter.appCount = 2;
-		expect(messages(multipleApps)).toContain("Invalid input");
-
+	it("admits no unsupported media feature, empty shell, or unresolved build contract", () => {
 		const media = cloneContract(makeContract()) as unknown as {
 			workflows: Array<{ authoredFeatures: string[] }>;
 		};
@@ -82,7 +76,6 @@ describe("lean Design Contract graph", () => {
 		delegated.openQuestions.push({
 			id: ids.question,
 			question: "What calculation should this workflow perform?",
-			structuralImpact: "local",
 			blocking: false,
 			relatedElementIds: [ids.taskRegister],
 		});
@@ -92,7 +85,6 @@ describe("lean Design Contract graph", () => {
 		unresolved.openQuestions.push({
 			id: ids.question,
 			question: "What calculation should this workflow perform?",
-			structuralImpact: "local",
 			blocking: true,
 			relatedElementIds: [ids.taskRegister],
 		});
@@ -130,7 +122,6 @@ describe("lean Design Contract graph", () => {
 		contract.openQuestions.push({
 			id: ids.question,
 			question: "Which worker property distinguishes this actor?",
-			structuralImpact: "local",
 			blocking: true,
 			relatedElementIds: [ids.actorChw],
 		});
@@ -377,7 +368,6 @@ describe("lean Design Contract graph", () => {
 		blocked.openQuestions.push({
 			id: ids.question,
 			question: "Which existing audio prompt should this app use?",
-			structuralImpact: "local",
 			blocking: true,
 			relatedElementIds: [ids.externalSetup],
 		});

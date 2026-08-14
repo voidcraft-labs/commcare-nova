@@ -66,7 +66,6 @@ function requiredQuestions(
 	return texts.map((question, index) => ({
 		id: did(identityBase + index),
 		question,
-		structuralImpact: "local",
 		blocking: true,
 		relatedElementIds: [did(identityBase - 1000 + index)],
 	}));

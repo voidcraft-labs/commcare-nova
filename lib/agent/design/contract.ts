@@ -16,7 +16,6 @@
 import { z } from "zod";
 import { validateDesignGraph } from "@/lib/agent/design/graph";
 import { designIdSchema } from "@/lib/agent/design/ids";
-import { uuidSchema } from "@/lib/domain/uuid";
 
 export const factDataShapeSchema = z.enum([
 	"text",
@@ -33,13 +32,13 @@ export const factDataShapeSchema = z.enum([
 ]);
 export type FactDataShape = z.infer<typeof factDataShapeSchema>;
 
+/** One session builds one app in the current Project — a server law stated
+ * by the capability catalog's session boundary, never a charter field the
+ * model spends tokens re-affirming. */
 export const appCharterSchema = z
 	.object({
 		appName: z.string().min(1),
 		objective: z.string().min(1),
-		/** A design session produces exactly one app in the current Project. */
-		appCount: z.literal(1),
-		projectScope: z.literal("current-project"),
 		includedWorkflowIds: z.array(designIdSchema).min(1),
 		excludedWorkflows: z.array(z.string().min(1)),
 		deliveryContext: z.enum([
@@ -79,16 +78,6 @@ export const existingLookupChoiceSourceSchema = z
 export type ExistingLookupChoiceSource = z.infer<
 	typeof existingLookupChoiceSourceSchema
 >;
-
-/** Implementation provenance, never part of the Design Contract payload. */
-export const actorRuntimeBindingSchema = z
-	.object({
-		actorId: designIdSchema,
-		userTypeUuid: uuidSchema.optional(),
-		personaUuids: z.array(uuidSchema).default([]),
-	})
-	.strict();
-export type ActorRuntimeBinding = z.infer<typeof actorRuntimeBindingSchema>;
 
 export const recordPropertySchema = z
 	.object({
@@ -293,8 +282,7 @@ export const workflowSchema = z
 		inputs: z.array(workflowInputSchema),
 		decisions: z.array(workflowDecisionSchema),
 		recordEffects: z.array(workflowRecordEffectSchema),
-		/** Optional on input for persisted Design Contract v1 compatibility. */
-		authoredFeatures: z.array(workflowAuthoredFeatureSchema).optional(),
+		authoredFeatures: z.array(workflowAuthoredFeatureSchema),
 		readback: z.array(workflowReadbackSchema),
 		exceptions: z.array(z.string().min(1)),
 		externalRequirementIds: z.array(designIdSchema),
@@ -355,7 +343,7 @@ export const navigationIntentSchema = z
 		workflowIds: z.array(designIdSchema),
 		listIds: z.array(designIdSchema),
 		parentNavigationId: designIdSchema.optional(),
-		orderRationale: z.string().min(1),
+		orderRationale: z.string().min(1).optional(),
 	})
 	.strict();
 export type NavigationIntent = z.infer<typeof navigationIntentSchema>;
@@ -421,7 +409,6 @@ export const openQuestionSchema = z
 	.object({
 		id: designIdSchema,
 		question: z.string().min(1),
-		structuralImpact: z.enum(["none", "local", "architecture"]),
 		blocking: z.boolean(),
 		relatedElementIds: z.array(designIdSchema),
 	})
@@ -510,7 +497,7 @@ export function designConstructionIssues(
 			workflow.inputs.length === 0 &&
 			workflow.decisions.length === 0 &&
 			workflow.recordEffects.length === 0 &&
-			(workflow.authoredFeatures?.length ?? 0) === 0 &&
+			workflow.authoredFeatures.length === 0 &&
 			workflow.readback.length === 0
 		) {
 			issues.push({

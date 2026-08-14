@@ -74,8 +74,6 @@ export function makeContract(): AppDesignContract {
 			appName: "CHW patient visits",
 			objective:
 				"Help community health workers register patients and record visits with supervisor oversight.",
-			appCount: 1,
-			projectScope: "current-project",
 			includedWorkflowIds: [ids.taskRegister, ids.taskVisit],
 			excludedWorkflows: ["Billing"],
 			deliveryContext: "offline-first",
@@ -206,6 +204,7 @@ export function makeContract(): AppDesignContract {
 						outcome: "An active patient record is available for visits.",
 					},
 				],
+				authoredFeatures: [],
 				readback: [
 					{
 						recordId: ids.recPatient,
@@ -258,6 +257,7 @@ export function makeContract(): AppDesignContract {
 						outcome: "A visit is linked to the selected patient.",
 					},
 				],
+				authoredFeatures: [],
 				readback: [
 					{
 						recordId: ids.recVisit,
@@ -410,6 +410,7 @@ export function makeThirteenWorkflowContract(): AppDesignContract {
 					outcome: `Workflow ${index + 1}'s record is saved.`,
 				},
 			],
+			authoredFeatures: [],
 			readback: [
 				{
 					recordId: recordIds[index],

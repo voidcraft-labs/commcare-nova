@@ -631,7 +631,6 @@ describe("staged design loop", () => {
 			id: did(1200),
 			question:
 				"What exact production thresholds replace the provisional pilot values?",
-			structuralImpact: "local",
 			blocking: false,
 			relatedElementIds: [ids.taskVisit],
 		});
@@ -653,7 +652,6 @@ describe("staged design loop", () => {
 			...Array.from({ length: 7 }, (_, index) => ({
 				id: did(1100 + index),
 				question: `Which construction decision ${index + 1} applies?`,
-				structuralImpact: "local" as const,
 				blocking: true,
 				relatedElementIds: [ids.taskVisit],
 			})),

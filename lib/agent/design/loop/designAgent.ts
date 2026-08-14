@@ -194,7 +194,7 @@ const REQUIRED_QUESTION_HEADING =
 export const REQUIRED_DESIGN_QUESTIONS_HEADER = "Required design decisions";
 export const MAX_REQUIRED_DESIGN_QUESTIONS_PER_ROUND = 5;
 export const REQUIRED_DESIGN_QUESTION_AUTHORIZATION_PREFIX =
-	"required-question-v4:";
+	"required-question-v5:";
 export const REQUIRED_DESIGN_QUESTION_CARD_PREFIX =
 	"required-question-card-v1:";
 
@@ -213,7 +213,6 @@ function requiredDesignQuestionDigest(question: OpenQuestion): string {
 	return durableModelValueDigest({
 		id: question.id,
 		question: question.question.trim(),
-		structuralImpact: question.structuralImpact,
 		relatedElementIds: question.relatedElementIds,
 	});
 }

@@ -525,7 +525,6 @@ describe("blocking dispositions", () => {
 		contract.openQuestions.push({
 			id: ids.question,
 			question: "Should the saved visit be shown after submission?",
-			structuralImpact: "local",
 			blocking: true,
 			relatedElementIds: [ids.taskVisit],
 		});

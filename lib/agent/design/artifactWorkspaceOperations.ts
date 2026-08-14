@@ -3,6 +3,7 @@
 import { z } from "zod";
 import {
 	accessPolicySchema,
+	appCharterSchema,
 	architectureDecisionSchema,
 	assumptionSchema,
 	designActorSchema,
@@ -83,27 +84,12 @@ export const WORKSPACE_COLLECTIONS = [
 ] as const;
 export type WorkspaceCollection = (typeof WORKSPACE_COLLECTIONS)[number];
 
+/** The stage grammar's charter IS the contract's charter — one schema, so
+ * the two can never drift. */
 const contractRootPatchSchema = z
 	.object({
 		id: designIdSchema.optional(),
-		charter: z
-			.object({
-				appName: z.string().min(1),
-				objective: z.string().min(1),
-				appCount: z.literal(1),
-				projectScope: z.literal("current-project"),
-				includedWorkflowIds: z.array(designIdSchema).min(1),
-				excludedWorkflows: z.array(z.string().min(1)),
-				deliveryContext: z.enum([
-					"offline-first",
-					"online-first",
-					"mixed",
-					"not-decided",
-				]),
-				initialWorkflowId: designIdSchema,
-			})
-			.strict()
-			.optional(),
+		charter: appCharterSchema.optional(),
 	})
 	.strict()
 	.refine((value) => Object.keys(value).length > 0, {

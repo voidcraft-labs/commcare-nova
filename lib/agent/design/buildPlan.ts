@@ -675,7 +675,7 @@ export function deriveBuildPlan(args: {
 				),
 			),
 		);
-		const authoredFeatures = new Set(workflow?.authoredFeatures ?? []);
+		const authoredFeatures = new Set(workflow?.authoredFeatures);
 		const needsAdvancedCaseOperations =
 			(workflow?.recordEffects.length ?? 0) > 1 ||
 			workflow?.recordEffects.some(

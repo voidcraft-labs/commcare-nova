@@ -386,7 +386,6 @@ describe("deterministic build planning", () => {
 		contract.openQuestions.push({
 			id: ids.question,
 			question: "Which existing media asset should be attached?",
-			structuralImpact: "local",
 			blocking: true,
 			relatedElementIds: [ids.externalSetup],
 		});
