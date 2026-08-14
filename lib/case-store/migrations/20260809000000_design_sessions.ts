@@ -69,7 +69,6 @@ const TERMINAL_STATES = "'materialized', 'completed', 'abandoned'";
 const SESSION_ID_CARRIERS = [
 	"design_change_sets",
 	"design_committed_slices",
-	"app_change_intents",
 	"design_source_packages",
 	"design_revisions",
 	"design_reviews",

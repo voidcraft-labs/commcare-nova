@@ -3,7 +3,7 @@
  * The accepted plan names Blueprint areas, not tools. This is the single
  * exhaustive lowering table from those semantic areas to the read and
  * mutation operations the server admits for that slice. Correction operations
- * live in the same area as creation. The provider-facing batch grammar stays
+ * live in the same area as creation. The provider-facing tool grammar stays
  * immutable across slices; this profile remains the execution brief and hard
  * dispatch allowlist.
  */
@@ -54,8 +54,6 @@ const MUTATIONS_BY_AREA = {
 		"removeLocationProperty",
 	],
 	navigation: [
-		"stageModule",
-		"stageForm",
 		"createModule",
 		"createForm",
 		"updateModule",
@@ -65,7 +63,6 @@ const MUTATIONS_BY_AREA = {
 		"removeForm",
 	],
 	"case-list": [
-		"stageModule",
 		"createModule",
 		"updateModule",
 		"addCaseListColumns",
@@ -82,8 +79,6 @@ const MUTATIONS_BY_AREA = {
 		"setCaseSearchDisplay",
 	],
 	forms: [
-		"stageModule",
-		"stageForm",
 		"createModule",
 		"createForm",
 		"updateModule",

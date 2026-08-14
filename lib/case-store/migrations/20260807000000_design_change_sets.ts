@@ -1,7 +1,7 @@
 // The Atomic Change Set runtime — private durable staging for one slice
-// executor, plus the committed-slice receipt and intent-provenance lineage.
+// executor, plus the committed-slice receipt lineage.
 //
-// Why these seven tables exist:
+// Why these six tables exist:
 //
 //   * `design_change_sets` is the one mutable authority row per change set:
 //     which base it was opened against (an exact app sequence, or the empty
@@ -34,11 +34,6 @@
 //     inserted by the canonical commit's transaction sidecar beside the
 //     status flip — the ONLY authority by which a slice is "committed".
 //
-//   * `app_change_intents` is committed design provenance: which accepted
-//     intents a canonical sequence implemented, at which implementation
-//     coordinates. Its `(app_id, seq)` foreign key onto `app_changes` is the
-//     §"commit together or neither commits" invariant made structural.
-//
 // Design/plan identities (`design_session_id`, `design_revision_id`,
 // `build_plan_id`, `slice_id`, `attempt_id`) are opaque non-null columns
 // with no foreign keys yet: the tables they will reference ship with the
@@ -63,10 +58,6 @@ const HANDLE_ENTITY_KINDS =
 	"'worker_property', 'user_type', 'persona', 'organization_level', 'location_property', " +
 	"'automation', 'automation_criterion', 'automation_setup_criterion', 'automation_update', " +
 	"'automation_recipient', 'automation_event', 'automation_user_data_filter'";
-const COORDINATE_KINDS =
-	"'app', 'module', 'form', 'field', 'case-list-column', 'case-operation', " +
-	"'user-type', 'persona', 'organization-level', 'location-property', " +
-	"'automation', 'case-property', 'external-action'";
 const SHA256_HEX = "'^[0-9a-f]{64}$'";
 const CANONICAL_UUID =
 	"'^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'";
@@ -176,7 +167,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			mutations jsonb NOT NULL,
 			mutation_digest text NOT NULL
 				CHECK (mutation_digest ~ ${sql.raw(SHA256_HEX)}),
-			intent_ids jsonb NOT NULL,
 			read_set jsonb NOT NULL,
 			created_at timestamptz(3) NOT NULL DEFAULT now(),
 			PRIMARY KEY (change_set_id, ordinal),
@@ -246,7 +236,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			batch_id text NOT NULL CHECK (btrim(batch_id) <> ''),
 			committed_snapshot_digest text NOT NULL
 				CHECK (committed_snapshot_digest ~ ${sql.raw(SHA256_HEX)}),
-			owning_intent_ids jsonb NOT NULL,
 			mutation_count integer NOT NULL CHECK (mutation_count >= 1),
 			committed_at timestamptz(3) NOT NULL DEFAULT now(),
 			CONSTRAINT design_committed_slices_change_set_unique
@@ -257,42 +246,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 				UNIQUE (build_plan_id, slice_id)
 		)
 	`.execute(db);
-
-	await sql`
-		CREATE TABLE IF NOT EXISTS app_change_intents (
-			app_id text NOT NULL,
-			seq bigint NOT NULL CHECK (seq >= 1),
-			design_session_id uuid NOT NULL,
-			design_revision_id uuid NOT NULL,
-			build_plan_id uuid NOT NULL,
-			slice_id uuid NOT NULL,
-			intent_id uuid NOT NULL,
-			coordinate_kind text NOT NULL
-				CHECK (coordinate_kind IN (${sql.raw(COORDINATE_KINDS)})),
-			coordinate_payload jsonb NOT NULL,
-			created_at timestamptz(3) NOT NULL DEFAULT now(),
-			-- Provenance cannot exist without its canonical app change: the
-			-- sidecar inserts both in one transaction, and this key is that
-			-- invariant made structural.
-			CONSTRAINT app_change_intents_app_change_fk
-				FOREIGN KEY (app_id, seq)
-				REFERENCES app_changes(app_id, seq)
-				ON DELETE CASCADE,
-			CONSTRAINT app_change_intents_no_duplicate_ownership
-				UNIQUE (app_id, seq, intent_id, coordinate_kind, coordinate_payload)
-		)
-	`.execute(db);
-
-	// Serves "which sequences implemented this intent" and the per-intent
-	// coverage reads the conformance unit adds.
-	await sql`
-		CREATE INDEX IF NOT EXISTS app_change_intents_intent
-			ON app_change_intents (intent_id, app_id)
-	`.execute(db);
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
-	await sql`DROP TABLE IF EXISTS app_change_intents`.execute(db);
 	await sql`DROP TABLE IF EXISTS design_committed_slices`.execute(db);
 	await sql`DROP TABLE IF EXISTS design_change_set_handles`.execute(db);
 	await sql`DROP TABLE IF EXISTS design_change_set_step_stages`.execute(db);

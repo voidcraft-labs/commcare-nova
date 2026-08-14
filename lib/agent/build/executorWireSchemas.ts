@@ -26,28 +26,10 @@ import type { z } from "zod";
 import { creationIdentityPaths } from "@/lib/agent/change-set/creationIdentities";
 import { CHANGE_SET_HANDLE_PATTERN } from "@/lib/agent/change-set/schemas";
 import { familyIsHandleEligible } from "@/lib/agent/change-set/stagingProjection";
-import {
-	type AuthorableIdentityFamily,
-	collectIdentitySchemaPointers,
-} from "@/lib/agent/identityPointerRegistry";
+import { collectIdentitySchemaPointers } from "@/lib/agent/identityPointerRegistry";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import type { BlueprintDoc } from "@/lib/domain";
-
-/**
- * The complete mounted executor tool surface.
- *
- * `discardChangeSet` is deliberately absent: discarding a slice's private work
- * is an orchestrator or user decision (retry policy, supersession), never a
- * move the executor can make to escape its own diagnostics.
- */
-export const EXECUTOR_TOOL_SURFACE: readonly string[] = [
-	"readBatch",
-	"stageBatch",
-	"inspectChangeSet",
-	"commitChangeSet",
-	"reportExecutionBlocker",
-];
 
 /** The `{ handle }` arm every widened slot gains. */
 const HANDLE_REF_SCHEMA = {
@@ -255,23 +237,6 @@ const MCP_NAME_BY_SA_NAME: ReadonlyMap<string, string> = new Map(
 	SHARED_TOOL_REGISTRY.map((entry) => [entry.saName, entry.mcpName]),
 );
 
-/**
- * The executor-only staging tools are not in the shared registry, so the
- * shared classifier has no rule for their slots. Their identity families are
- * declared here, by property name — the same reviewed act as adding a rule to
- * `identityPointerRegistry.ts::classifyIdentity`, kept beside the only surface
- * that mounts them.
- *
- * `after` is a sequence anchor: on `stageModule` it names the module the new
- * module follows, on `stageForm` the form it follows inside the module.
- */
-const STAGE_TOOL_IDENTITY_FAMILIES: Readonly<
-	Record<string, Readonly<Record<string, AuthorableIdentityFamily>>>
-> = {
-	stageModule: { moduleUuid: "module", after: "module" },
-	stageForm: { formUuid: "form", moduleUuid: "module", after: "form" },
-};
-
 function unescapePointerToken(token: string): string {
 	return token.replaceAll("~1", "/").replaceAll("~0", "~");
 }
@@ -291,32 +256,8 @@ function handleEligiblePointers(
 			.filter((pointer) => familyIsHandleEligible(pointer.family))
 			.map((pointer) => pointer.schemaPointer);
 	}
-	const declared = STAGE_TOOL_IDENTITY_FAMILIES[toolName];
-	/* Not a shared tool and not an executor staging tool — the loop's own
-	 * server-owned tools (inspect/commit/raise). They address nothing a change
-	 * set creates, so nothing widens. */
-	if (declared === undefined) return [];
-	const pointers: string[] = [];
-	for (const [property, family] of Object.entries(declared)) {
-		if (!familyIsHandleEligible(family)) continue;
-		const slot = (json.properties as Record<string, unknown> | undefined)?.[
-			property
-		];
-		if (slot === undefined) continue;
-		/* `uuidSchema.nullable()` emits an `anyOf` of the string and null; widen
-		 * the string arm, never the null. */
-		const arms = (slot as { anyOf?: unknown[] }).anyOf;
-		if (Array.isArray(arms)) {
-			arms.forEach((arm, index) => {
-				if ((arm as { type?: unknown }).type === "string") {
-					pointers.push(`/properties/${property}/anyOf/${index}`);
-				}
-			});
-			continue;
-		}
-		pointers.push(`/properties/${property}`);
-	}
-	return pointers;
+	/* The loop's own server tools address no Blueprint identities. */
+	return [];
 }
 
 /** Replace the node at one JSON pointer with `original | { handle }`. */

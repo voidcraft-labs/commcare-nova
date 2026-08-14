@@ -13,19 +13,13 @@ describe("executor attempt recovery migration", () => {
 			ALTER TABLE design_slice_attempts
 				DROP COLUMN outcome_evidence_state,
 				DROP COLUMN validator_repair_count,
-				DROP COLUMN stage_rejected_count,
+				DROP COLUMN private_mutation_rejected_count,
 				DROP COLUMN wire_invalid_count,
 				DROP COLUMN execution_run_ids,
-				DROP COLUMN finalization_eligible,
-				DROP COLUMN validation_requested,
 				DROP COLUMN blocker_reports_used,
 				DROP COLUMN commit_attempts_used,
-				DROP COLUMN staged_requests_used,
+				DROP COLUMN mutation_calls_used,
 				DROP COLUMN model_steps_used
-		`.execute(db);
-		await sql`
-			ALTER TABLE design_change_sets
-				DROP COLUMN finalization_model_step
 		`.execute(db);
 		await sql`
 			ALTER TABLE design_change_set_requests
@@ -62,11 +56,10 @@ describe("executor attempt recovery migration", () => {
 			WHERE table_schema = 'public'
 				AND table_name = 'design_slice_attempts'
 				AND column_name IN (
-					'model_steps_used', 'staged_requests_used',
+					'model_steps_used', 'mutation_calls_used',
 					'commit_attempts_used', 'blocker_reports_used',
-					'validation_requested', 'finalization_eligible',
 					'execution_run_ids', 'wire_invalid_count',
-					'stage_rejected_count', 'validator_repair_count',
+					'private_mutation_rejected_count', 'validator_repair_count',
 					'outcome_evidence_state'
 				)
 		`.execute(db);
@@ -74,12 +67,10 @@ describe("executor attempt recovery migration", () => {
 			"blocker_reports_used",
 			"commit_attempts_used",
 			"execution_run_ids",
-			"finalization_eligible",
 			"model_steps_used",
+			"mutation_calls_used",
 			"outcome_evidence_state",
-			"stage_rejected_count",
-			"staged_requests_used",
-			"validation_requested",
+			"private_mutation_rejected_count",
 			"validator_repair_count",
 			"wire_invalid_count",
 		]);
@@ -87,14 +78,12 @@ describe("executor attempt recovery migration", () => {
 			.selectFrom("design_slice_attempts")
 			.select([
 				"model_steps_used",
-				"staged_requests_used",
+				"mutation_calls_used",
 				"commit_attempts_used",
 				"blocker_reports_used",
-				"validation_requested",
-				"finalization_eligible",
 				"execution_run_ids",
 				"wire_invalid_count",
-				"stage_rejected_count",
+				"private_mutation_rejected_count",
 				"validator_repair_count",
 				"outcome_evidence_state",
 			])
@@ -102,25 +91,15 @@ describe("executor attempt recovery migration", () => {
 			.executeTakeFirstOrThrow();
 		expect(migrated).toEqual({
 			model_steps_used: 0,
-			staged_requests_used: 0,
+			mutation_calls_used: 0,
 			commit_attempts_used: 0,
 			blocker_reports_used: 0,
-			validation_requested: false,
-			finalization_eligible: false,
 			execution_run_ids: [],
 			wire_invalid_count: 0,
-			stage_rejected_count: 0,
+			private_mutation_rejected_count: 0,
 			validator_repair_count: 0,
 			outcome_evidence_state: "legacy-missing",
 		});
-		const changeSetColumns = await sql<{ column_name: string }>`
-			SELECT column_name
-			FROM information_schema.columns
-			WHERE table_schema = 'public'
-				AND table_name = 'design_change_sets'
-				AND column_name = 'finalization_model_step'
-		`.execute(db);
-		expect(changeSetColumns.rows).toHaveLength(1);
 		const requestStatus = await sql<{ definition: string }>`
 			SELECT pg_get_constraintdef(oid) AS definition
 			FROM pg_constraint

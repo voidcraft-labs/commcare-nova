@@ -105,7 +105,6 @@ export type ExternalReadSetKind =
  */
 export type ToolRuntimeCapability =
 	| "canonical-blueprint-write"
-	| "change-set-stage"
 	| "organization-read"
 	| "organization-write"
 	| "media-read"

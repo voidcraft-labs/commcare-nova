@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { did } from "@/lib/agent/design/__tests__/fixtures";
 import { strictWireJsonSchema } from "@/lib/agent/strictStructuredOutput";
 import {
 	architectBlockerDecisionSchema,
@@ -40,14 +39,21 @@ describe("architect blocker decisions", () => {
 		).toBe(false);
 	});
 
-	it("reports affected construction groups rather than intent graphs", () => {
+	it("reports exact observations without model-authored tracking ids", () => {
 		expect(
 			executionBlockerSchema.safeParse({
 				schemaVersion: 1,
-				affectedConstructionGroupIds: [did(1)],
 				observations: ["The current form cannot express the accepted effect."],
 				requestedDecision: "Clarify the safe lowering.",
 			}).success,
 		).toBe(true);
+		expect(
+			executionBlockerSchema.safeParse({
+				schemaVersion: 1,
+				affectedConstructionGroupIds: ["11111111-1111-4111-8111-111111111111"],
+				observations: ["The current form cannot express the accepted effect."],
+				requestedDecision: "Clarify the safe lowering.",
+			}).success,
+		).toBe(false);
 	});
 });

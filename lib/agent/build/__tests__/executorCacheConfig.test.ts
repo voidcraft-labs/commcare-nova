@@ -43,6 +43,7 @@ describe("productionExecutorStep cache configuration", () => {
 			system: "static executor",
 			messages,
 			tools: {},
+			allowedTools: ["searchBlueprint", "finishWorkflow"],
 			signal: new AbortController().signal,
 		});
 
@@ -56,7 +57,11 @@ describe("productionExecutorStep cache configuration", () => {
 			reasoningSummary: "auto",
 			promptCacheKey: "nova:design-executor:session-1",
 			promptCacheOptions: { mode: "implicit", ttl: "30m" },
-			parallelToolCalls: false,
+			parallelToolCalls: true,
+			allowedTools: {
+				toolNames: ["searchBlueprint", "finishWorkflow"],
+				mode: "auto",
+			},
 		});
 		expect(request.messages).toEqual(messages);
 		expect(JSON.stringify(request.messages)).not.toContain(
@@ -72,7 +77,7 @@ describe("productionExecutorStep cache configuration", () => {
 				drained = true;
 			})(),
 			toolCalls: Promise.resolve([
-				{ toolCallId: "call-1", toolName: "readBatch", input: { ids: [] } },
+				{ toolCallId: "call-1", toolName: "searchBlueprint", input: {} },
 			]),
 			text: Promise.resolve("done"),
 			reasoningText: Promise.resolve("thought"),
@@ -90,7 +95,7 @@ describe("productionExecutorStep cache configuration", () => {
 		expect(drained).toBe(true);
 		expect(outcome).toEqual({
 			toolCalls: [
-				{ toolCallId: "call-1", toolName: "readBatch", input: { ids: [] } },
+				{ toolCallId: "call-1", toolName: "searchBlueprint", input: {} },
 			],
 			text: "done",
 			reasoningText: "thought",

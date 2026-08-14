@@ -22,7 +22,6 @@
  * genesis kernel's separate unit, and this module refuses them loudly.
  */
 
-import { sql } from "kysely";
 import type { DesignId } from "@/lib/agent/design/ids";
 import {
 	applyBlueprintChange,
@@ -36,10 +35,7 @@ import {
 	BlueprintCommitRejectedError,
 	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
-import {
-	parsePersistedJsonText,
-	parsePersistedMutationBatchText,
-} from "@/lib/db/persistedJson";
+import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
 import { getAppDb } from "@/lib/db/pg";
 import type { ClientAppChangeKind } from "@/lib/db/types";
 import {
@@ -48,10 +44,7 @@ import {
 } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import {
-	type AdmittedMutationBatch,
-	encodeAdmittedMutationEnvelope,
-} from "@/lib/doc/mutationAdmission";
+import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
 import { parseOrganizationRevision } from "@/lib/organization/schema";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { canonicalJsonDigest } from "./digest";
@@ -60,11 +53,7 @@ import {
 	ChangeSetScopeLostError,
 	ChangeSetWorkspaceRevisionStaleError,
 } from "./errors";
-import {
-	type ProvenIntentCoverage,
-	proveIntentCoverage,
-} from "./intentCoverage";
-import { type ExternalReadDependency, intentIdsSchema } from "./schemas";
+import type { ExternalReadDependency } from "./schemas";
 import { loadChangeSet, loadChangeSetSteps } from "./store";
 import {
 	type ChangeSetStep,
@@ -124,7 +113,6 @@ export interface CommitDesignChangeSetArgs {
 	readonly chatRunHolder?: ChatRunHolderCapability;
 	readonly kind: ClientAppChangeKind;
 	readonly expectedRevision: number;
-	readonly owningIntentIds: readonly DesignId[];
 	/** Absolute executor wall-clock deadline; direct callers omit it. */
 	readonly deadlineAt?: number;
 }
@@ -189,22 +177,6 @@ export async function commitDesignChangeSet(
 			currentSeq: changeSet.baseSeq ?? 0,
 		};
 	}
-	let intentCoverage: ProvenIntentCoverage;
-	try {
-		intentCoverage = proveIntentCoverage({
-			changeSet,
-			steps,
-			expectedOwningIntentIds: args.owningIntentIds,
-			appId: changeSet.appId,
-		});
-	} catch (error) {
-		return {
-			kind: "gate-rejected",
-			message: error instanceof Error ? error.message : String(error),
-			currentSeq: changeSet.baseSeq ?? 0,
-		};
-	}
-
 	/* One concatenated admitted batch, in exact ordinal order, re-admitted
 	 * from its exact JSON bytes (already-admitted values carry the internal
 	 * protector marks the raw admission rejects, so the round trip goes
@@ -281,12 +253,7 @@ export async function commitDesignChangeSet(
 					buildPlanId: changeSet.buildPlanId,
 					buildPlanDigest: changeSet.buildPlanDigest,
 					sliceId: changeSet.sliceId,
-					owningIntentIds: [...intentCoverage.owningIntentIds],
 					mutationCount: batch.length,
-				},
-				{
-					kind: "write-intent-provenance" as const,
-					rows: intentCoverage.provenance,
 				},
 			],
 		});
@@ -392,54 +359,6 @@ async function committedReplayIfWon(
 	};
 }
 
-// ── Post-commit envelope derivation (Unit E wiring point) ──────────
-
-export interface CommittedStageEnvelope {
-	readonly stepOrdinal: number;
-	readonly toolName: string;
-	readonly stageName: string | null;
-	readonly mutations: AdmittedMutationBatch;
-}
-
-/**
- * Derive the per-stage event-envelope inputs from the stored step-stage
- * ranges — POST-commit projection only (the executor surface emits them;
- * nothing in Unit B streams or logs staged state).
- */
-export function committedStageEnvelopes(
-	steps: readonly ChangeSetStep[],
-): CommittedStageEnvelope[] {
-	const envelopes: CommittedStageEnvelope[] = [];
-	for (const step of steps) {
-		if (step.stages.length === 0) {
-			envelopes.push({
-				stepOrdinal: step.ordinal,
-				toolName: step.toolName,
-				stageName: null,
-				mutations: step.mutations,
-			});
-			continue;
-		}
-		for (const stage of step.stages) {
-			envelopes.push({
-				stepOrdinal: step.ordinal,
-				toolName: step.toolName,
-				stageName: stage.stageName,
-				mutations: parsePersistedMutationBatchText(
-					encodeAdmittedMutationEnvelope(
-						step.mutations.slice(
-							stage.mutationStart,
-							stage.mutationStart + stage.mutationCount,
-						),
-					).json,
-					`step ${step.ordinal} stage ${stage.stageOrdinal} slice`,
-				),
-			});
-		}
-	}
-	return envelopes;
-}
-
 // ── Internals ──────────────────────────────────────────────────────
 
 async function requireStoredReceipt(
@@ -465,11 +384,6 @@ async function requireStoredReceipt(
 			"mutation_count",
 			"committed_at",
 		])
-		.select(
-			sql<string>`${sql.ref("design_committed_slices.owning_intent_ids")}::text`.as(
-				"owning_intent_ids_text",
-			),
-		)
 		.where("change_set_id", "=", changeSet.id)
 		.executeTakeFirst();
 	if (row === undefined) {
@@ -491,12 +405,6 @@ async function requireStoredReceipt(
 		seq: safePersistedSequence(row.seq, "design_committed_slices.seq"),
 		batchId: row.batch_id,
 		committedSnapshotDigest: row.committed_snapshot_digest,
-		owningIntentIds: intentIdsSchema.parse(
-			parsePersistedJsonText(
-				row.owning_intent_ids_text,
-				`design_committed_slices.owning_intent_ids for change set ${changeSet.id}`,
-			),
-		),
 		mutationCount: row.mutation_count,
 		committedAt: row.committed_at,
 	};
@@ -539,11 +447,6 @@ export async function readCommittedSliceReceiptsForPlan(
 			"mutation_count",
 			"committed_at",
 		])
-		.select(
-			sql<string>`${sql.ref("design_committed_slices.owning_intent_ids")}::text`.as(
-				"owning_intent_ids_text",
-			),
-		)
 		.where("build_plan_id", "=", buildPlanId)
 		.orderBy("seq", "asc")
 		.execute();
@@ -561,12 +464,6 @@ export async function readCommittedSliceReceiptsForPlan(
 		seq: safePersistedSequence(row.seq, "design_committed_slices.seq"),
 		batchId: row.batch_id,
 		committedSnapshotDigest: row.committed_snapshot_digest,
-		owningIntentIds: intentIdsSchema.parse(
-			parsePersistedJsonText(
-				row.owning_intent_ids_text,
-				`design_committed_slices.owning_intent_ids for receipt ${row.id}`,
-			),
-		),
 		mutationCount: row.mutation_count,
 		committedAt: row.committed_at,
 	}));

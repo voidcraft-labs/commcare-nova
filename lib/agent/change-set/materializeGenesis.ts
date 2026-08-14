@@ -3,7 +3,7 @@
  * genesis Atomic Change Set into a real app (§12.4): the app row plus its
  * entities, edges, runtime schema rows, and immutable sequence-1 baseline are
  * born in the same commit that flips the change set `committed`, writes the
- * slice receipt and intent provenance, and transfers the design session's
+ * slice receipt, and transfers the design session's
  * holder and reservation onto the new app row. Nothing exists if any
  * pre-commit step fails, and there is never an interval with two holders or
  * an ownerless unsettled reservation (§11.5).
@@ -28,7 +28,6 @@
  * sequence-1 baseline fold.
  */
 
-import type { DesignId } from "@/lib/agent/design/ids";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { lockActorGenerationGate } from "@/lib/db/actorGenerationGate";
 import {
@@ -60,10 +59,6 @@ import {
 	loadCanonicalBlueprintAtSequence,
 } from "./baseLoader";
 import { ChangeSetIntegrityError, ChangeSetScopeLostError } from "./errors";
-import {
-	type ProvenIntentCoverage,
-	proveIntentCoverage,
-} from "./intentCoverage";
 import type { ReadSetStatus } from "./readSets";
 import { evaluateReadSetCurrency, normalizeReadSet } from "./readSets";
 import { loadChangeSet, loadChangeSetSteps, lockChangeSetRow } from "./store";
@@ -97,7 +92,6 @@ export interface MaterializeGenesisArgs {
 	readonly holderNonce: string;
 	readonly expectedProjectId: string;
 	readonly expectedRevision: number;
-	readonly owningIntentIds: readonly DesignId[];
 	/** Absolute executor wall-clock deadline; direct callers omit it. */
 	readonly deadlineAt?: number;
 }
@@ -141,20 +135,6 @@ export async function materializeAppFromGenesis(
 			kind: "gate-rejected",
 			message:
 				"This change set has no staged steps, so there is nothing to materialize.",
-		};
-	}
-	let intentCoverage: ProvenIntentCoverage;
-	try {
-		intentCoverage = proveIntentCoverage({
-			changeSet: preRead,
-			steps,
-			expectedOwningIntentIds: args.owningIntentIds,
-			appId: proposedAppId,
-		});
-	} catch (error) {
-		return {
-			kind: "gate-rejected",
-			message: error instanceof Error ? error.message : String(error),
 		};
 	}
 	const readSet = normalizeReadSet(steps.flatMap((step) => step.readSet));
@@ -261,9 +241,8 @@ export async function materializeAppFromGenesis(
 					},
 				});
 
-				/* The committed-slice receipt + `open → committed` flip + intent
-				 * provenance ride the same closed sidecar vocabulary every canonical
-				 * commit uses — one implementation, kernel-authoritative identities. */
+				/* The committed-slice receipt and `open → committed` flip ride the
+				 * same closed sidecar vocabulary every canonical commit uses. */
 				const batchId = genesisBatchId(proposedAppId);
 				await executeCanonicalCommitSidecars(tx, {
 					appId: proposedAppId,
@@ -283,12 +262,7 @@ export async function materializeAppFromGenesis(
 							buildPlanId: changeSet.buildPlanId,
 							buildPlanDigest: changeSet.buildPlanDigest,
 							sliceId: changeSet.sliceId,
-							owningIntentIds: [...intentCoverage.owningIntentIds],
 							mutationCount: batch.length,
-						},
-						{
-							kind: "write-intent-provenance" as const,
-							rows: intentCoverage.provenance,
 						},
 					],
 				});

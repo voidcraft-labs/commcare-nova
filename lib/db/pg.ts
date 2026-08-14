@@ -590,7 +590,6 @@ export interface DesignChangeSetsTable {
 	revision: ColumnType<string | number, number | undefined, number>;
 	next_ordinal: ColumnType<string | number, number | undefined, number>;
 	exclusive_kind: string | null;
-	finalization_model_step: number | null;
 	owner_user_id: string;
 	owner_run_id: string;
 	status: string;
@@ -625,7 +624,6 @@ export interface DesignChangeSetStepsTable {
 	/** Exact admitted batch — read as `::text` through mutation admission. */
 	mutations: JSONColumnType<Mutation[]>;
 	mutation_digest: string;
-	intent_ids: JSONColumnType<string[]>;
 	read_set: JSONColumnType<Record<string, unknown>[]>;
 	created_at: Timestamp;
 }
@@ -665,7 +663,6 @@ export interface DesignCommittedSlicesTable {
 	seq: BigIntColumn;
 	batch_id: string;
 	committed_snapshot_digest: string;
-	owning_intent_ids: JSONColumnType<string[]>;
 	mutation_count: number;
 	committed_at: Timestamp;
 }
@@ -718,14 +715,12 @@ export interface DesignSliceAttemptsTable {
 	prompt_version: string;
 	brief_digest: string;
 	model_steps_used: DefaultedNumberColumn;
-	staged_requests_used: DefaultedNumberColumn;
+	mutation_calls_used: DefaultedNumberColumn;
 	commit_attempts_used: DefaultedNumberColumn;
 	blocker_reports_used: DefaultedNumberColumn;
-	validation_requested: ColumnType<boolean, boolean | undefined, boolean>;
-	finalization_eligible: ColumnType<boolean, boolean | undefined, boolean>;
 	execution_run_ids: JSONColumnType<string[], string | undefined, string>;
 	wire_invalid_count: DefaultedNumberColumn;
-	stage_rejected_count: DefaultedNumberColumn;
+	private_mutation_rejected_count: DefaultedNumberColumn;
 	validator_repair_count: DefaultedNumberColumn;
 	outcome_evidence_state: ColumnType<string, string | undefined, string>;
 	/** Active wall-clock spend in milliseconds — accrued only at genuine
@@ -976,20 +971,6 @@ export interface DesignSessionsTable {
 	updated_at: Timestamp;
 }
 
-/** Committed design provenance — intent → implementation coordinate. */
-export interface AppChangeIntentsTable {
-	app_id: string;
-	seq: BigIntColumn;
-	design_session_id: string;
-	design_revision_id: string;
-	build_plan_id: string;
-	slice_id: string;
-	intent_id: string;
-	coordinate_kind: string;
-	coordinate_payload: JSONColumnType<Record<string, unknown>>;
-	created_at: Timestamp;
-}
-
 /**
  * One file a worker attached to a form in the running preview.
  *
@@ -1095,7 +1076,6 @@ export interface AppDatabase {
 	design_change_set_step_stages: DesignChangeSetStepStagesTable;
 	design_change_set_handles: DesignChangeSetHandlesTable;
 	design_committed_slices: DesignCommittedSlicesTable;
-	app_change_intents: AppChangeIntentsTable;
 	design_source_packages: DesignSourcePackagesTable;
 	design_revisions: DesignRevisionsTable;
 	design_reviews: DesignReviewsTable;

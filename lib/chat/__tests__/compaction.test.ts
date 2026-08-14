@@ -95,7 +95,7 @@ describe("model context compaction", () => {
 					{
 						type: "tool-call",
 						toolCallId: "call-1",
-						toolName: "inspectChangeSet",
+						toolName: "searchBlueprint",
 						input: {},
 					},
 				],
@@ -106,7 +106,7 @@ describe("model context compaction", () => {
 					{
 						type: "tool-result",
 						toolCallId: "call-1",
-						toolName: "inspectChangeSet",
+						toolName: "searchBlueprint",
 						output: { type: "json", value: { canCommit: false } },
 					},
 				],

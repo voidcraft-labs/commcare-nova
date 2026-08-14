@@ -157,8 +157,8 @@ const RUNTIME_READ_WRITE_TABLES = [
 
 /** The change-set runtime's durable staging ledgers are append-only: the
  * mutable authority row (`design_change_sets`) serializes them, so no code
- * may row-lock or update a request, step, stage, handle, receipt, or
- * provenance row — retention is a future, separately-owned service path. */
+ * may row-lock or update a request, step, stage, handle, or receipt row —
+ * retention is a future, separately-owned service path. */
 const RUNTIME_APPEND_ONLY_TABLES = [
 	"app_changes",
 	"design_change_set_requests",
@@ -166,7 +166,6 @@ const RUNTIME_APPEND_ONLY_TABLES = [
 	"design_change_set_step_stages",
 	"design_change_set_handles",
 	"design_committed_slices",
-	"app_change_intents",
 	"design_source_packages",
 	"design_revisions",
 	"design_reviews",

@@ -68,7 +68,6 @@ export interface ChangeSetStep {
 	readonly toolName: string;
 	readonly mutations: AdmittedMutationBatch;
 	readonly mutationDigest: string;
-	readonly intentIds: readonly DesignId[];
 	readonly readSet: readonly ExternalReadDependency[];
 	readonly stages: readonly ChangeSetStepStage[];
 }
@@ -109,7 +108,6 @@ export interface CommittedSliceReceipt extends ChangeSetLineage {
 	readonly seq: number;
 	readonly batchId: string;
 	readonly committedSnapshotDigest: string;
-	readonly owningIntentIds: readonly DesignId[];
 	readonly mutationCount: number;
 	readonly committedAt: Date;
 }

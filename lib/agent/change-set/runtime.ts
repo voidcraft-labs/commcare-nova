@@ -33,7 +33,6 @@ import { ChangeSetIntegrityError } from "./errors";
 import { externalContextDigest, normalizeReadSet } from "./readSets";
 import type { ExternalReadDependency, StagedEntityKind } from "./schemas";
 import {
-	loadChangeSetFinalizationModelStep,
 	loadChangeSetSteps,
 	loadHandleBindings,
 	loadPriorCommittedPlanHandleBindings,
@@ -80,7 +79,6 @@ export interface RehydratedChangeSet {
 	readonly handles: readonly ChangeSetHandleBinding[];
 	readonly accumulatedReadSet: readonly ExternalReadDependency[];
 	readonly externalContextDigest: string;
-	readonly finalizationModelStep: number | null;
 }
 
 const AUTHORED_KIND_BY_STAGED_KIND: Readonly<
@@ -190,10 +188,9 @@ export async function rehydrateChangeSet(
 	changeSet: DesignChangeSet,
 ): Promise<RehydratedChangeSet> {
 	const db = await getAppDb();
-	const [steps, localHandles, finalizationModelStep] = await Promise.all([
+	const [steps, localHandles] = await Promise.all([
 		loadChangeSetSteps(changeSet.id, db),
 		loadHandleBindings(changeSet.id, db),
-		loadChangeSetFinalizationModelStep(changeSet.id, db),
 	]);
 	if (steps.length !== changeSet.nextOrdinal) {
 		throw new ChangeSetIntegrityError(
@@ -252,6 +249,5 @@ export async function rehydrateChangeSet(
 		handles,
 		accumulatedReadSet: accumulated,
 		externalContextDigest: externalContextDigest(accumulated),
-		finalizationModelStep,
 	};
 }

@@ -73,17 +73,13 @@ export interface SliceAttempt {
 	 * budget claim. Dead gaps between holders never accrue. */
 	readonly wallClockMsUsed: number;
 	readonly budgetSpent: SliceAttemptBudgetSpent;
-	readonly finalizationCheckpoint: {
-		readonly validationRequested: boolean;
-		readonly eligible: boolean;
-	};
 	/** Append-only provenance for every run holder that recovered or executed
 	 * this attempt. Registered before any model work, so missing summaries fail
 	 * the release-cost gate closed. */
 	readonly executionRunIds: readonly string[];
 	readonly diagnostics: {
 		readonly wireInvalid: number;
-		readonly stageRejected: number;
+		readonly privateMutationRejected: number;
 		readonly validatorRepair: number;
 		readonly outcomeEvidenceState: SliceAttemptOutcomeEvidenceState;
 	};
@@ -110,14 +106,12 @@ interface AttemptRow {
 	prompt_version: string;
 	brief_digest: string;
 	model_steps_used: number;
-	staged_requests_used: number;
+	mutation_calls_used: number;
 	commit_attempts_used: number;
 	blocker_reports_used: number;
-	validation_requested: boolean;
-	finalization_eligible: boolean;
 	execution_run_ids: string[];
 	wire_invalid_count: number;
-	stage_rejected_count: number;
+	private_mutation_rejected_count: number;
 	validator_repair_count: number;
 	outcome_evidence_state: string;
 	wall_clock_ms_used: string | number;
@@ -232,18 +226,14 @@ function rowToAttempt(row: AttemptRow): SliceAttempt {
 		wallClockMsUsed,
 		budgetSpent: {
 			modelSteps: row.model_steps_used,
-			stagedRequests: row.staged_requests_used,
+			mutationCalls: row.mutation_calls_used,
 			commitAttempts: row.commit_attempts_used,
 			blockerReports: row.blocker_reports_used,
-		},
-		finalizationCheckpoint: {
-			validationRequested: row.validation_requested,
-			eligible: row.finalization_eligible,
 		},
 		executionRunIds: parseExecutionRunIds(row.execution_run_ids, row.id),
 		diagnostics: {
 			wireInvalid: row.wire_invalid_count,
-			stageRejected: row.stage_rejected_count,
+			privateMutationRejected: row.private_mutation_rejected_count,
 			validatorRepair: row.validator_repair_count,
 			outcomeEvidenceState: parseOutcomeEvidenceState(
 				row.outcome_evidence_state,
@@ -274,14 +264,12 @@ const ATTEMPT_COLUMNS = [
 	"prompt_version",
 	"brief_digest",
 	"model_steps_used",
-	"staged_requests_used",
+	"mutation_calls_used",
 	"commit_attempts_used",
 	"blocker_reports_used",
-	"validation_requested",
-	"finalization_eligible",
 	"execution_run_ids",
 	"wire_invalid_count",
-	"stage_rejected_count",
+	"private_mutation_rejected_count",
 	"validator_repair_count",
 	"outcome_evidence_state",
 	"wall_clock_ms_used",
@@ -636,14 +624,12 @@ export async function beginOrRecoverSliceAttempt(
 				prompt_version: args.promptVersion,
 				brief_digest: args.briefDigest,
 				model_steps_used: 0,
-				staged_requests_used: 0,
+				mutation_calls_used: 0,
 				commit_attempts_used: 0,
 				blocker_reports_used: 0,
-				validation_requested: false,
-				finalization_eligible: false,
 				execution_run_ids: JSON.stringify([args.runId]),
 				wire_invalid_count: 0,
-				stage_rejected_count: 0,
+				private_mutation_rejected_count: 0,
 				validator_repair_count: 0,
 				outcome_evidence_state: "unstarted",
 				status: "running",
@@ -754,7 +740,7 @@ const BUDGET_COUNTER_COLUMNS: Readonly<
 	Record<SliceAttemptBudgetCounter, string>
 > = {
 	modelSteps: "model_steps_used",
-	stagedRequests: "staged_requests_used",
+	mutationCalls: "mutation_calls_used",
 	commitAttempts: "commit_attempts_used",
 	blockerReports: "blocker_reports_used",
 };
@@ -826,9 +812,6 @@ export async function claimSliceAttemptBudget(
 				 * Replayed and exhausted claims deliberately do not accrue. */
 				wall_clock_ms_used: sql`wall_clock_ms_used + GREATEST(0, CEIL(EXTRACT(EPOCH FROM (now() - wall_clock_accrued_at)) * 1000))::bigint`,
 				wall_clock_accrued_at: sql`now()`,
-				...(args.counter === "modelSteps"
-					? { finalization_eligible: false }
-					: {}),
 				updated_at: new Date(),
 			})
 			.where("id", "=", args.attemptId)
@@ -852,44 +835,9 @@ export async function claimSliceAttemptBudget(
 	});
 }
 
-/** Persist the executor's only step-boundary commit authority. Recovery may
- * consume this checkpoint without another model call, but still re-runs the
- * complete private diagnostics and canonical commit gate. */
-export async function checkpointSliceAttemptFinalization(
-	args: SliceAttemptAuthority & {
-		readonly designSessionId: string;
-		readonly attemptId: string;
-		readonly validationRequested: boolean;
-		readonly eligible: boolean;
-	},
-): Promise<void> {
-	if (args.eligible && !args.validationRequested) {
-		throw new Error("Finalization eligibility requires a validation request.");
-	}
-	await withAppTx(async (tx) => {
-		await assertAttemptAuthority(tx, args.designSessionId, args);
-		const updated = await tx
-			.updateTable("design_slice_attempts")
-			.set({
-				validation_requested: args.validationRequested,
-				finalization_eligible: args.eligible,
-				updated_at: new Date(),
-			})
-			.where("id", "=", args.attemptId)
-			.where("design_session_id", "=", args.designSessionId)
-			.where("status", "=", "running")
-			.executeTakeFirst();
-		if (!updatedExactlyOne(updated)) {
-			throw new SliceAttemptStateError(
-				"The slice attempt is no longer running, so its finalization checkpoint cannot advance.",
-			);
-		}
-	});
-}
-
 type AuthoritativeDiagnosticOutcome = Extract<
 	ExecutorToolOutcomeKind,
-	"wire-invalid" | "stage-rejected" | "validator-repair"
+	"wire-invalid" | "mutation-rejected" | "validator-repair"
 >;
 
 /** Start one process's evidence window. A prior unclosed window means a process
@@ -940,8 +888,10 @@ export async function recordSliceAttemptDiagnostic(
 		const increment =
 			args.outcome === "wire-invalid"
 				? { wire_invalid_count: sql<number>`wire_invalid_count + 1` }
-				: args.outcome === "stage-rejected"
-					? { stage_rejected_count: sql<number>`stage_rejected_count + 1` }
+				: args.outcome === "mutation-rejected"
+					? {
+							private_mutation_rejected_count: sql<number>`private_mutation_rejected_count + 1`,
+						}
 					: { validator_repair_count: sql<number>`validator_repair_count + 1` };
 		const updated = await tx
 			.updateTable("design_slice_attempts")

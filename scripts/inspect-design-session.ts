@@ -475,14 +475,12 @@ async function collectSnapshot(resolution: ResolutionResult) {
 				"attempt.change_set_id",
 				"attempt.executor_model",
 				"attempt.model_steps_used",
-				"attempt.staged_requests_used",
+				"attempt.mutation_calls_used",
 				"attempt.commit_attempts_used",
 				"attempt.blocker_reports_used",
-				"attempt.validation_requested",
-				"attempt.finalization_eligible",
 				"attempt.execution_run_ids",
 				"attempt.wire_invalid_count",
-				"attempt.stage_rejected_count",
+				"attempt.private_mutation_rejected_count",
 				"attempt.validator_repair_count",
 				"attempt.outcome_evidence_state",
 				"attempt.wall_clock_ms_used",
@@ -491,7 +489,6 @@ async function collectSnapshot(resolution: ResolutionResult) {
 				"change_set.status as change_set_status",
 				"change_set.revision as change_set_revision",
 				"change_set.owner_run_id as change_set_run_id",
-				"change_set.finalization_model_step",
 				"change_set.committed_seq",
 			])
 			.where("attempt.design_session_id", "=", sessionId)
@@ -853,7 +850,7 @@ async function collectSnapshot(resolution: ResolutionResult) {
 				attempt.change_set_id === null
 					? []
 					: (requestsByChangeSet.get(attempt.change_set_id) ?? []);
-			const staged =
+			const admittedSteps =
 				attempt.change_set_id === null
 					? []
 					: (admittedByChangeSet.get(attempt.change_set_id) ?? []);
@@ -879,10 +876,10 @@ async function collectSnapshot(resolution: ResolutionResult) {
 									baseBudget.maxModelSteps +
 									attempt.blocker_reports_used *
 										BLOCKER_RESOLUTION_ALLOWANCE.modelSteps,
-								effectiveMaxStagedRequests:
-									baseBudget.maxStagedRequests +
+								effectiveMaxMutationCalls:
+									baseBudget.maxMutationCalls +
 									attempt.blocker_reports_used *
-										BLOCKER_RESOLUTION_ALLOWANCE.stagedRequests,
+										BLOCKER_RESOLUTION_ALLOWANCE.mutationCalls,
 								effectiveMaxWallClockMs:
 									baseBudget.maxWallClockMs +
 									attempt.blocker_reports_used *
@@ -890,19 +887,17 @@ async function collectSnapshot(resolution: ResolutionResult) {
 							},
 				spent: {
 					modelSteps: attempt.model_steps_used,
-					stagedRequests: attempt.staged_requests_used,
+					mutationCalls: attempt.mutation_calls_used,
 					commitAttempts: attempt.commit_attempts_used,
 					blockerReports: attempt.blocker_reports_used,
 					wallClockMs: Number(attempt.wall_clock_ms_used),
 				},
 				outcomes: {
 					wireInvalid: attempt.wire_invalid_count,
-					stageRejected: attempt.stage_rejected_count,
+					privateMutationRejected: attempt.private_mutation_rejected_count,
 					validatorRepair: attempt.validator_repair_count,
 					evidence: attempt.outcome_evidence_state,
 				},
-				validationRequested: attempt.validation_requested,
-				finalizationEligible: attempt.finalization_eligible,
 				executionRunIds: attempt.execution_run_ids,
 				changeSet:
 					attempt.change_set_id === null
@@ -913,15 +908,20 @@ async function collectSnapshot(resolution: ResolutionResult) {
 								revision:
 									attempt.change_set_revision === null
 										? null
-										: Number(attempt.change_set_revision),
+										: safePersistedSequence(
+												attempt.change_set_revision,
+												`change set ${attempt.change_set_id} revision`,
+											),
 								ownerRunId: attempt.change_set_run_id,
-								finalizationModelStep: attempt.finalization_model_step,
 								committedSeq:
 									attempt.committed_seq === null
 										? null
-										: Number(attempt.committed_seq),
+										: safePersistedSequence(
+												attempt.committed_seq,
+												`change set ${attempt.change_set_id} committed sequence`,
+											),
 								requestCount: changeSetRequests.length,
-								admittedStepCount: staged.length,
+								admittedStepCount: admittedSteps.length,
 								lastRequest:
 									lastRequest === undefined
 										? null
@@ -935,7 +935,10 @@ async function collectSnapshot(resolution: ResolutionResult) {
 					receipt === undefined
 						? null
 						: {
-								seq: Number(receipt.seq),
+								seq: safePersistedSequence(
+									receipt.seq,
+									`committed receipt ${attempt.change_set_id} sequence`,
+								),
 								mutationCount: receipt.mutation_count,
 								committedAt: tsToISO(receipt.committed_at),
 							},
@@ -1218,29 +1221,29 @@ function renderSnapshot(collected: Collected): void {
 			);
 			const latest = attempts.at(-1);
 			console.log(
-				`  ${slice.role === "materialization-root" ? "ROOT" : "    "} ${slice.name} (${shortId(slice.id)}) · ${slice.constructionGroups} group(s) · budget ${slice.budget.maxModelSteps} turns / ${slice.budget.maxStagedRequests} requests`,
+				`  ${slice.role === "materialization-root" ? "ROOT" : "    "} ${slice.name} (${shortId(slice.id)}) · ${slice.constructionGroups} group(s) · budget ${slice.budget.maxModelSteps} turns / ${slice.budget.maxMutationCalls} mutation calls`,
 			);
 			if (latest === undefined) console.log("       not started");
 			else {
 				const lastRequest = latest.changeSet?.lastRequest;
 				const baseTurns = latest.budget?.maxModelSteps;
 				const effectiveTurns = latest.budget?.effectiveMaxModelSteps;
-				const baseRequests = latest.budget?.maxStagedRequests;
-				const effectiveRequests = latest.budget?.effectiveMaxStagedRequests;
+				const baseRequests = latest.budget?.maxMutationCalls;
+				const effectiveRequests = latest.budget?.effectiveMaxMutationCalls;
 				console.log(
-					`       attempt ${latest.attempt} [${latest.status}] · ${latest.spent.modelSteps}/${effectiveTurns ?? "?"} turns${effectiveTurns !== baseTurns ? ` (base ${baseTurns} + blocker allowance)` : ""} · ${latest.spent.stagedRequests}/${effectiveRequests ?? "?"} requests${effectiveRequests !== baseRequests ? ` (base ${baseRequests} + allowance)` : ""} · ${duration(latest.spent.wallClockMs)} active${latest.failureCode === null ? "" : ` · failure ${latest.failureCode}`}`,
+					`       attempt ${latest.attempt} [${latest.status}] · ${latest.spent.modelSteps}/${effectiveTurns ?? "?"} turns${effectiveTurns !== baseTurns ? ` (base ${baseTurns} + blocker allowance)` : ""} · ${latest.spent.mutationCalls}/${effectiveRequests ?? "?"} mutation calls${effectiveRequests !== baseRequests ? ` (base ${baseRequests} + allowance)` : ""} · ${duration(latest.spent.wallClockMs)} active${latest.failureCode === null ? "" : ` · failure ${latest.failureCode}`}`,
 				);
 				console.log(
 					`       change set ${shortId(latest.changeSet?.id ?? null)} r${latest.changeSet?.revision ?? 0} [${latest.changeSet?.status ?? "none"}] · ${latest.changeSet?.admittedStepCount ?? 0} admitted step(s)${lastRequest === null || lastRequest === undefined ? "" : ` · last ${lastRequest.tool} ${lastRequest.status}${lastRequest.rejectionCode === null ? "" : ` (${lastRequest.rejectionCode})`}`}`,
 				);
 				if (
 					latest.outcomes.wireInvalid > 0 ||
-					latest.outcomes.stageRejected > 0 ||
+					latest.outcomes.privateMutationRejected > 0 ||
 					latest.outcomes.validatorRepair > 0 ||
 					latest.spent.blockerReports > 0
 				)
 					console.log(
-						`       friction ${latest.outcomes.wireInvalid} wire-invalid / ${latest.outcomes.stageRejected} stage-rejected / ${latest.outcomes.validatorRepair} validator-repair / ${latest.spent.blockerReports} blocker report(s)`,
+						`       friction ${latest.outcomes.wireInvalid} wire-invalid / ${latest.outcomes.privateMutationRejected} private-mutation-rejected / ${latest.outcomes.validatorRepair} validator-repair / ${latest.spent.blockerReports} blocker report(s)`,
 					);
 			}
 		}

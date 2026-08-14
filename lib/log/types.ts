@@ -175,7 +175,7 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 	 * private slice compiler. Raw executor inputs, outputs, and rejection prose
 	 * may contain customer-authored design material and never enter this log;
 	 * these stable categories and codes are enough to distinguish wire-shape
-	 * friction, ordinary staging refusal, validator repair, and completion. */
+	 * friction, operation refusal, validator repair, finalization, and completion. */
 	z.strictObject({
 		type: z.literal("executor-tool-outcome"),
 		modelStep: z.number().int().positive(),
@@ -184,9 +184,12 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		workspaceRevision: z.number().int().nonnegative(),
 		outcome: z.enum([
 			"accepted",
+			"skipped",
 			"wire-invalid",
-			"stage-rejected",
+			"operation-rejected",
+			"mutation-rejected",
 			"validator-repair",
+			"finalization-rejected",
 			"committed",
 			"terminal-protocol",
 		]),

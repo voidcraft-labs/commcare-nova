@@ -9,7 +9,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 				REFERENCES design_slice_attempts(id) ON DELETE CASCADE,
 			claim_key text NOT NULL CHECK (btrim(claim_key) <> ''),
 			counter text NOT NULL CHECK (
-				counter IN ('modelSteps', 'stagedRequests', 'commitAttempts', 'blockerReports')
+				counter IN ('modelSteps', 'mutationCalls', 'commitAttempts', 'blockerReports')
 			),
 			created_at timestamptz(3) NOT NULL DEFAULT now(),
 			PRIMARY KEY (attempt_id, claim_key)

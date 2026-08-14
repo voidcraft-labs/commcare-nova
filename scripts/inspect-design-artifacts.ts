@@ -300,7 +300,7 @@ async function printBuildAggregate(args: {
 			"design_slice_attempts.failure_code",
 			"design_slice_attempts.execution_run_ids",
 			"design_slice_attempts.wire_invalid_count",
-			"design_slice_attempts.stage_rejected_count",
+			"design_slice_attempts.private_mutation_rejected_count",
 			"design_slice_attempts.validator_repair_count",
 			"design_slice_attempts.outcome_evidence_state",
 			"design_change_sets.owner_run_id as run_id",
@@ -355,8 +355,8 @@ async function printBuildAggregate(args: {
 		(total, attempt) => total + attempt.wire_invalid_count,
 		0,
 	);
-	const stageRejected = attempts.reduce(
-		(total, attempt) => total + attempt.stage_rejected_count,
+	const privateMutationRejected = attempts.reduce(
+		(total, attempt) => total + attempt.private_mutation_rejected_count,
 		0,
 	);
 	const validatorRepair = attempts.reduce(
@@ -384,7 +384,7 @@ async function printBuildAggregate(args: {
 		summaries.reduce((total, row) => total + read(row), 0);
 	console.log(
 		`  release gate ${receipts.length}/${args.acceptedWorkflowCount} workflows committed · ` +
-			`wire-invalid ${wireInvalid} · stage-rejected ${stageRejected} · validator-repair ${validatorRepair} · ` +
+			`wire-invalid ${wireInvalid} · private-mutation-rejected ${privateMutationRejected} · validator-repair ${validatorRepair} · ` +
 			`outcome evidence ${outcomeEvidenceComplete ? "complete" : "missing"}`,
 	);
 	for (const [
@@ -438,7 +438,7 @@ async function printBuildAggregate(args: {
 		committedAttemptsMatch &&
 		outcomeEvidenceComplete &&
 		wireInvalid === 0 &&
-		stageRejected === 0 &&
+		privateMutationRejected === 0 &&
 		head?.state.kind === "finished" &&
 		usageEvidenceComplete &&
 		estimatedCost < 15;

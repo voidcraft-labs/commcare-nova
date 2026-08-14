@@ -2,8 +2,7 @@
  * Strict persisted-JSON schemas for the change-set tables.
  *
  * Producer and reader share these exact schemas: every JSONB payload a
- * change-set row carries (`receipt`, `read_set`, `intent_ids`,
- * `owning_intent_ids`) is written from a value these schemas accepted and
+ * change-set row carries (`receipt`, `read_set`) is written from a value these schemas accepted and
  * read back through `parsePersistedJsonText` + the same schema, unknown keys
  * failing closed. Mutation bytes are NOT here — a step's `mutations` column
  * goes through `parsePersistedMutationBatchText` (the one mutation-admission
@@ -11,7 +10,6 @@
  */
 
 import { z } from "zod";
-import { designIdSchema } from "@/lib/agent/design/ids";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -116,7 +114,6 @@ export type ExternalReadDependency = z.infer<
 >;
 
 export const readSetSchema = z.array(externalReadDependencySchema);
-export const intentIdsSchema = z.array(designIdSchema);
 
 /**
  * The compact diagnostics summary a stage receipt persists — stable finding
@@ -142,7 +139,8 @@ const stageErrorCodeSchema = z.enum([
 	"TARGET_INVALID",
 	"RENAME_PLAN_INVALID",
 	"REDUCER_FAILURE",
-	"STAGING_FORBIDDEN",
+	"TOOL_INPUT_INVALID",
+	"TOOL_NOT_ALLOWED",
 	"EXCLUSIVE_NOT_ALONE",
 	"EXCLUSIVE_SET_CLOSED",
 	"READ_SET_UNRECORDED",
@@ -169,11 +167,6 @@ export const stageRequestReceiptSchema = z
 		handles: z.record(changeSetHandleSchema, uuidSchema),
 		/** Canonical digest of the appended admitted batch — staged only. */
 		mutationDigest: sha256HexSchema.optional(),
-		/** The durable model-step claim whose final stage operation this receipt
-		 * completed. Recovery may use it only when it still equals the attempt's
-		 * current model-step count; a later model step therefore invalidates the
-		 * marker without rewriting this append-only receipt. */
-		finalizationModelStep: z.number().int().positive().optional(),
 		diagnostics: changeSetDiagnosticsSummarySchema.optional(),
 		error: z
 			.object({
@@ -208,14 +201,6 @@ export const stageRequestReceiptSchema = z
 				});
 			}
 		} else if (receipt.disposition === "noop") {
-			if (receipt.finalizationModelStep === undefined) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["finalizationModelStep"],
-					message:
-						"An accepted no-op receipt must carry its finalization model step.",
-				});
-			}
 			if (
 				receipt.ordinal !== undefined ||
 				receipt.mutationDigest !== undefined ||
@@ -237,8 +222,7 @@ export const stageRequestReceiptSchema = z
 			}
 			if (
 				receipt.ordinal !== undefined ||
-				receipt.mutationDigest !== undefined ||
-				receipt.finalizationModelStep !== undefined
+				receipt.mutationDigest !== undefined
 			) {
 				ctx.addIssue({
 					code: "custom",

@@ -6,10 +6,8 @@
 // constraint, so this forward migration replaces it with the complete durable
 // handle vocabulary.
 //
-// Slice attempts also own their consumed execution counters and finalization
-// checkpoint. A replacement process recovers the row's original `created_at`
-// wall-clock start and these fields instead of receiving a fresh attempt
-// budget or forgetting that a clean last action was eligible to finalize.
+// Slice attempts also own their consumed execution counters. A replacement
+// process recovers these fields instead of receiving a fresh attempt budget.
 
 import { type Kysely, sql } from "kysely";
 
@@ -36,20 +34,18 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		ALTER TABLE design_slice_attempts
 			ADD COLUMN IF NOT EXISTS model_steps_used integer NOT NULL DEFAULT 0
 				CHECK (model_steps_used >= 0),
-			ADD COLUMN IF NOT EXISTS staged_requests_used integer NOT NULL DEFAULT 0
-				CHECK (staged_requests_used >= 0),
+			ADD COLUMN IF NOT EXISTS mutation_calls_used integer NOT NULL DEFAULT 0
+				CHECK (mutation_calls_used >= 0),
 			ADD COLUMN IF NOT EXISTS commit_attempts_used integer NOT NULL DEFAULT 0
 				CHECK (commit_attempts_used >= 0),
 			ADD COLUMN IF NOT EXISTS blocker_reports_used integer NOT NULL DEFAULT 0
 				CHECK (blocker_reports_used >= 0),
-			ADD COLUMN IF NOT EXISTS validation_requested boolean NOT NULL DEFAULT false,
-			ADD COLUMN IF NOT EXISTS finalization_eligible boolean NOT NULL DEFAULT false,
 			ADD COLUMN IF NOT EXISTS execution_run_ids jsonb NOT NULL DEFAULT '[]'::jsonb
 				CHECK (jsonb_typeof(execution_run_ids) = 'array'),
 			ADD COLUMN IF NOT EXISTS wire_invalid_count integer NOT NULL DEFAULT 0
 				CHECK (wire_invalid_count >= 0),
-			ADD COLUMN IF NOT EXISTS stage_rejected_count integer NOT NULL DEFAULT 0
-				CHECK (stage_rejected_count >= 0),
+			ADD COLUMN IF NOT EXISTS private_mutation_rejected_count integer NOT NULL DEFAULT 0
+				CHECK (private_mutation_rejected_count >= 0),
 			ADD COLUMN IF NOT EXISTS validator_repair_count integer NOT NULL DEFAULT 0
 				CHECK (validator_repair_count >= 0),
 			ADD COLUMN IF NOT EXISTS outcome_evidence_state text NOT NULL
@@ -57,11 +53,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 				CHECK (outcome_evidence_state IN (
 					'legacy-missing', 'unstarted', 'collecting', 'complete', 'incomplete'
 				))
-	`.execute(db);
-	await sql`
-		ALTER TABLE design_change_sets
-			ADD COLUMN IF NOT EXISTS finalization_model_step integer
-				CHECK (finalization_model_step IS NULL OR finalization_model_step >= 1)
 	`.execute(db);
 	await sql`
 		ALTER TABLE design_change_set_requests
@@ -84,21 +75,15 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 				CHECK (status IN ('staged', 'rejected'))
 	`.execute(db);
 	await sql`
-		ALTER TABLE design_change_sets
-			DROP COLUMN IF EXISTS finalization_model_step
-	`.execute(db);
-	await sql`
 		ALTER TABLE design_slice_attempts
 			DROP COLUMN IF EXISTS outcome_evidence_state,
 			DROP COLUMN IF EXISTS validator_repair_count,
-			DROP COLUMN IF EXISTS stage_rejected_count,
+			DROP COLUMN IF EXISTS private_mutation_rejected_count,
 			DROP COLUMN IF EXISTS wire_invalid_count,
 			DROP COLUMN IF EXISTS execution_run_ids,
-			DROP COLUMN IF EXISTS finalization_eligible,
-			DROP COLUMN IF EXISTS validation_requested,
 			DROP COLUMN IF EXISTS blocker_reports_used,
 			DROP COLUMN IF EXISTS commit_attempts_used,
-			DROP COLUMN IF EXISTS staged_requests_used,
+			DROP COLUMN IF EXISTS mutation_calls_used,
 			DROP COLUMN IF EXISTS model_steps_used
 	`.execute(db);
 	await sql`

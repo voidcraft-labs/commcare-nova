@@ -22,7 +22,6 @@ function receiptFor(slice: BuildSlice, index: number): CommittedSliceReceipt {
 		seq: index + 1,
 		batchId: `batch-${index}`,
 		committedSnapshotDigest: "c".repeat(64),
-		owningIntentIds: slice.constructionGroups.map((group) => group.id),
 		mutationCount: 1,
 		committedAt: new Date(0),
 		designSessionId: SESSION_ID,
@@ -52,7 +51,7 @@ function fixture() {
 }
 
 describe("assertExactCommittedSliceReceipts", () => {
-	it("admits the exact ordered receipt and construction-group set", () => {
+	it("admits the exact ordered receipt set", () => {
 		expect(() => assertExactCommittedSliceReceipts(fixture())).not.toThrow();
 	});
 
@@ -75,23 +74,12 @@ describe("assertExactCommittedSliceReceipts", () => {
 		const value = fixture();
 		const first = value.receipts[0];
 		const second = value.receipts[1];
-		const secondIntent = second?.owningIntentIds[0];
-		if (
-			first === undefined ||
-			second === undefined ||
-			secondIntent === undefined
-		) {
-			throw new Error("completion fixture must contain two covered slices");
+		if (first === undefined || second === undefined) {
+			throw new Error("completion fixture must contain two slices");
 		}
 		const cases: readonly (readonly CommittedSliceReceipt[])[] = [
 			[second, first],
-			[
-				first,
-				{
-					...second,
-					owningIntentIds: [secondIntent, secondIntent],
-				},
-			],
+			[first, { ...second, sliceId: first.sliceId }],
 			[first, { ...second, buildPlanDigest: "d".repeat(64) }],
 			[first, { ...second, mutationCount: 0 }],
 		];

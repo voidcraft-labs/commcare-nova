@@ -19,7 +19,7 @@ import type { BuildSlice } from "@/lib/agent/design/buildPlan";
 
 export interface SliceExecutionBudget {
 	readonly maxModelSteps: number;
-	readonly maxStagedRequests: number;
+	readonly maxMutationCalls: number;
 	readonly maxCommitAttempts: number;
 	readonly maxRebaseAttempts: number;
 	readonly maxBlockerResolutions: number;
@@ -29,7 +29,7 @@ export interface SliceExecutionBudget {
 /** Attempt-local spend axes that are claimed durably before work begins. */
 export type SliceAttemptBudgetCounter =
 	| "modelSteps"
-	| "stagedRequests"
+	| "mutationCalls"
 	| "commitAttempts"
 	| "blockerReports";
 
@@ -40,19 +40,19 @@ export type SliceAttemptBudgetClaimResult =
 
 export interface SliceAttemptBudgetSpent {
 	readonly modelSteps: number;
-	readonly stagedRequests: number;
+	readonly mutationCalls: number;
 	readonly commitAttempts: number;
 	readonly blockerReports: number;
 }
 
 /**
  * The floor every slice gets. Sized for the smallest real slice — one record,
- * one form, its case list — with room for a read, a correction after a
- * rejected stage, and an inspect before commit.
+ * one form, its case list — with room for reads and bounded correction after
+ * a rejected private mutation.
  */
 const BASE_BUDGET: SliceExecutionBudget = {
 	maxModelSteps: 10,
-	maxStagedRequests: 16,
+	maxMutationCalls: 16,
 	/* Three commit attempts: the first, one after a rebase refresh, one after
 	 * a diagnostics fix. A fourth is a replan, not a retry. */
 	maxCommitAttempts: 3,
@@ -64,18 +64,18 @@ const BASE_BUDGET: SliceExecutionBudget = {
 };
 
 const MODEL_STEPS_PER_GROUP = 3;
-const STAGED_REQUESTS_PER_GROUP = 3;
+const MUTATION_CALLS_PER_GROUP = 3;
 const WALL_CLOCK_MS_PER_GROUP = 75_000;
 
 const RISK_ALLOWANCE: Readonly<
 	Record<
 		BuildSlice["risk"],
-		{ modelSteps: number; stagedRequests: number; ms: number }
+		{ modelSteps: number; mutationCalls: number; ms: number }
 	>
 > = {
-	ordinary: { modelSteps: 0, stagedRequests: 0, ms: 0 },
-	"cross-record": { modelSteps: 3, stagedRequests: 6, ms: 90_000 },
-	"external-effect": { modelSteps: 2, stagedRequests: 4, ms: 60_000 },
+	ordinary: { modelSteps: 0, mutationCalls: 0, ms: 0 },
+	"cross-record": { modelSteps: 3, mutationCalls: 6, ms: 90_000 },
+	"external-effect": { modelSteps: 2, mutationCalls: 4, ms: 60_000 },
 };
 
 /**
@@ -85,20 +85,20 @@ const RISK_ALLOWANCE: Readonly<
  */
 const CEILINGS = {
 	maxModelSteps: 40,
-	maxStagedRequests: 96,
+	maxMutationCalls: 96,
 	maxWallClockMs: 12 * 60_000,
 } as const;
 
 /**
  * Priced rework for one answered architect blocker. A `continue` decision
  * directs construction the deterministic plan never priced — a lowering, a
- * rehosting — so each paid resolution grows the attempt's step, staging, and
+ * rehosting — so each paid resolution grows the attempt's step, mutation-call, and
  * wall-clock limits by this much. `maxBlockerResolutions` bounds the total:
  * the worst case adds exactly two allowances, never an open-ended stream.
  */
 export const BLOCKER_RESOLUTION_ALLOWANCE = {
 	modelSteps: 5,
-	stagedRequests: 8,
+	mutationCalls: 8,
 	ms: 150_000,
 } as const;
 
@@ -131,11 +131,11 @@ export function budgetForSlice(slice: BuildSlice): SliceExecutionBudget {
 				groupCount * MODEL_STEPS_PER_GROUP +
 				risk.modelSteps,
 		),
-		maxStagedRequests: Math.min(
-			CEILINGS.maxStagedRequests,
-			BASE_BUDGET.maxStagedRequests +
-				groupCount * STAGED_REQUESTS_PER_GROUP +
-				risk.stagedRequests,
+		maxMutationCalls: Math.min(
+			CEILINGS.maxMutationCalls,
+			BASE_BUDGET.maxMutationCalls +
+				groupCount * MUTATION_CALLS_PER_GROUP +
+				risk.mutationCalls,
 		),
 		maxCommitAttempts: BASE_BUDGET.maxCommitAttempts,
 		maxRebaseAttempts: BASE_BUDGET.maxRebaseAttempts,

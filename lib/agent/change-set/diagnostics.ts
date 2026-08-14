@@ -10,7 +10,6 @@
  * compact fingerprint summary and `inspect` recomputes current details.
  */
 
-import type { DesignId } from "@/lib/agent/design/ids";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
@@ -59,10 +58,6 @@ export interface ChangeSetDiagnostics {
 	 * delta speaks fingerprint identity. */
 	readonly resolvedSincePreviousStep: readonly string[];
 	readonly readSetStatus: readonly ReadSetStatus[];
-	readonly sliceIntentCoverage: readonly {
-		readonly intentId: DesignId;
-		readonly stepCount: number;
-	}[];
 	readonly canCommit: boolean;
 }
 
@@ -86,13 +81,6 @@ export function computeChangeSetDiagnostics(args: {
 	const introduced = fingerprints.filter((print) => !previous.has(print));
 	const resolved = [...previous].filter((print) => !current.has(print));
 
-	const coverage = new Map<DesignId, number>();
-	for (const step of args.steps) {
-		for (const intentId of step.intentIds) {
-			coverage.set(intentId, (coverage.get(intentId) ?? 0) + 1);
-		}
-	}
-
 	const readSetsCurrent = args.readSetStatus.every(
 		(status) => status.state === "current",
 	);
@@ -105,9 +93,6 @@ export function computeChangeSetDiagnostics(args: {
 		introducedSincePreviousStep: introduced,
 		resolvedSincePreviousStep: resolved,
 		readSetStatus: args.readSetStatus,
-		sliceIntentCoverage: [...coverage.entries()]
-			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-			.map(([intentId, stepCount]) => ({ intentId, stepCount })),
 		canCommit:
 			findings.length === 0 && readSetsCurrent && args.steps.length > 0,
 	};

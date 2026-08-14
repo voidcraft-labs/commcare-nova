@@ -26,7 +26,7 @@ import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { asUuid } from "@/lib/domain/uuid";
 import { emptyGenesisBase } from "../baseLoader";
-import { canonicalJsonDigest, stagingInputDigest } from "../digest";
+import { canonicalJsonDigest, workspaceCallInputDigest } from "../digest";
 import {
 	ChangeSetRequestIdCollisionError,
 	ChangeSetScopeLostError,
@@ -115,7 +115,7 @@ function stageArgs(
 		changeSetId,
 		requestId: "req-1",
 		toolName: "updateApp",
-		inputDigest: stagingInputDigest({
+		inputDigest: workspaceCallInputDigest({
 			toolName: "updateApp",
 			expectedWorkspaceRevision: 0,
 			projectedInput: input,
@@ -129,7 +129,6 @@ function stageArgs(
 			stageSlices: [],
 			handles: [],
 			retainedHandleUuids: [],
-			intentIds: [],
 			readSet: [],
 			exclusiveKind: null,
 			diagnostics: CLEAN_DIAGNOSTICS,
@@ -319,7 +318,6 @@ describe("statement-boundary fault injection", () => {
 					stageSlices: [{ stage: "structure", start: 0, end: 1 }],
 					handles: [{ handle, uuid: handleUuid, entityKind: "module" }],
 					retainedHandleUuids: [handleUuid],
-					intentIds: [],
 					readSet: [],
 					exclusiveKind: null,
 					diagnostics: CLEAN_DIAGNOSTICS,

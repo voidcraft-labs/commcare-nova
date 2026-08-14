@@ -58,19 +58,5 @@ export function assertExactCommittedSliceReceipts(args: {
 			);
 		}
 		priorSeq = receipt.seq;
-
-		const expectedGroups = new Set(
-			slice.constructionGroups.map((group) => group.id as string),
-		);
-		const covered = new Set(receipt.owningIntentIds as readonly string[]);
-		if (
-			receipt.owningIntentIds.length !== expectedGroups.size ||
-			covered.size !== expectedGroups.size ||
-			[...expectedGroups].some((id) => !covered.has(id))
-		) {
-			refuseBuildCompletion(
-				`Build completion refused: slice ${slice.id} lacks exact durable construction-group coverage.`,
-			);
-		}
 	}
 }

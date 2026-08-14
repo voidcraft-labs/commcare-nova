@@ -35,7 +35,7 @@ import {
 	emptyGenesisBase,
 	loadCanonicalBlueprintAtSequence,
 } from "../baseLoader";
-import { canonicalJsonDigest, stagingInputDigest } from "../digest";
+import { canonicalJsonDigest, workspaceCallInputDigest } from "../digest";
 import { ChangeSetScopeLostError } from "../errors";
 import { materializeAppFromGenesis } from "../materializeGenesis";
 import { changeSetHandleSchema } from "../schemas";
@@ -86,7 +86,6 @@ interface ClaimedGenesisFixture {
 	readonly proposedAppId: string;
 	readonly holderNonce: string;
 	readonly changeSetId: string;
-	readonly intentId: ReturnType<typeof asDesignId>;
 }
 
 /** Claim a real design session through the production protocol, seed its
@@ -129,15 +128,13 @@ async function claimedGenesisFixture(): Promise<ClaimedGenesisFixture> {
 		proposedAppId: claimed.proposedAppId,
 		holderNonce: claimed.holderNonce,
 		changeSetId: changeSet.id,
-		intentId: asDesignId(crypto.randomUUID()),
 	};
 }
 
-/** Stage one admitted batch onto the genesis set (revision 0 → 1). */
-async function stageBatch(
+/** Persist one admitted native mutation onto the genesis set (revision 0 → 1). */
+async function persistPrivateMutation(
 	changeSetId: string,
 	mutations: readonly Mutation[],
-	intentId: ReturnType<typeof asDesignId>,
 	requestId = "genesis-stage-1",
 	handles: readonly StageHandleAllocation[] = [],
 ): Promise<void> {
@@ -145,9 +142,9 @@ async function stageBatch(
 	await stageChangeSetRequest({
 		changeSetId,
 		requestId,
-		toolName: "stageModule",
-		inputDigest: stagingInputDigest({
-			toolName: "stageModule",
+		toolName: "createModule",
+		inputDigest: workspaceCallInputDigest({
+			toolName: "createModule",
 			expectedWorkspaceRevision: 0,
 			projectedInput: { requestId },
 		}),
@@ -160,7 +157,6 @@ async function stageBatch(
 			stageSlices: [],
 			handles,
 			retainedHandleUuids: handles.map((binding) => binding.uuid),
-			intentIds: [intentId],
 			readSet: [],
 			exclusiveKind: null,
 			diagnostics: {
@@ -186,7 +182,6 @@ function materializeArgs(fixture: ClaimedGenesisFixture) {
 		holderNonce: fixture.holderNonce,
 		expectedProjectId: PROJECT,
 		expectedRevision: 1,
-		owningIntentIds: [fixture.intentId],
 	};
 }
 
@@ -196,19 +191,15 @@ describe("materializeAppFromGenesis", () => {
 		const genesis = canonicalAppGenesis(
 			emptyBlueprintDoc(fixture.proposedAppId),
 		);
-		await stageBatch(
-			fixture.changeSetId,
-			[
-				...genesis.mutations,
-				{
-					kind: "setModuleMedia",
-					uuid: genesis.moduleUuid,
-					icon: builtinIconRef("nutrition"),
-					audioLabel: null,
-				},
-			],
-			fixture.intentId,
-		);
+		await persistPrivateMutation(fixture.changeSetId, [
+			...genesis.mutations,
+			{
+				kind: "setModuleMedia",
+				uuid: genesis.moduleUuid,
+				icon: builtinIconRef("nutrition"),
+				audioLabel: null,
+			},
+		]);
 
 		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
 		if (outcome.kind !== "materialized") {
@@ -225,10 +216,9 @@ describe("materializeAppFromGenesis", () => {
 			emptyBlueprintDoc(fixture.proposedAppId),
 		);
 		const rootHandle = changeSetHandleSchema.parse("@root_module");
-		await stageBatch(
+		await persistPrivateMutation(
 			fixture.changeSetId,
 			genesis.mutations,
-			fixture.intentId,
 			"handled-genesis",
 			[
 				{
@@ -269,10 +259,9 @@ describe("materializeAppFromGenesis", () => {
 
 	it("materializes one complete sequence-1 app with the transferred holder and reservation", async () => {
 		const fixture = await claimedGenesisFixture();
-		await stageBatch(
+		await persistPrivateMutation(
 			fixture.changeSetId,
 			exportReadyBatch(fixture.proposedAppId),
-			fixture.intentId,
 		);
 		await h
 			.db()
@@ -373,10 +362,9 @@ describe("materializeAppFromGenesis", () => {
 
 	it("replays a lost response as the stored receipt without a second app", async () => {
 		const fixture = await claimedGenesisFixture();
-		await stageBatch(
+		await persistPrivateMutation(
 			fixture.changeSetId,
 			exportReadyBatch(fixture.proposedAppId),
-			fixture.intentId,
 		);
 		const first = await materializeAppFromGenesis(materializeArgs(fixture));
 		if (first.kind !== "materialized") throw new Error(first.kind);
@@ -399,10 +387,9 @@ describe("materializeAppFromGenesis", () => {
 
 	it("denies a lost-response replay after current Project membership is revoked", async () => {
 		const fixture = await claimedGenesisFixture();
-		await stageBatch(
+		await persistPrivateMutation(
 			fixture.changeSetId,
 			exportReadyBatch(fixture.proposedAppId),
-			fixture.intentId,
 		);
 		const first = await materializeAppFromGenesis(materializeArgs(fixture));
 		if (first.kind !== "materialized") throw new Error(first.kind);
@@ -420,21 +407,17 @@ describe("materializeAppFromGenesis", () => {
 	it("applies organization integrity before persisting sequence one", async () => {
 		const fixture = await claimedGenesisFixture();
 		const missingLocation = asUuid(crypto.randomUUID());
-		await stageBatch(
-			fixture.changeSetId,
-			[
-				...exportReadyBatch(fixture.proposedAppId),
-				{
-					kind: "addPersona",
-					persona: {
-						uuid: asUuid(crypto.randomUUID()),
-						name: "Asha",
-						locations: { primaryUuid: missingLocation },
-					},
+		await persistPrivateMutation(fixture.changeSetId, [
+			...exportReadyBatch(fixture.proposedAppId),
+			{
+				kind: "addPersona",
+				persona: {
+					uuid: asUuid(crypto.randomUUID()),
+					name: "Asha",
+					locations: { primaryUuid: missingLocation },
 				},
-			],
-			fixture.intentId,
-		);
+			},
+		]);
 		await expect(
 			materializeAppFromGenesis(materializeArgs(fixture)),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
@@ -454,16 +437,12 @@ describe("materializeAppFromGenesis", () => {
 		/* A lone module with neither forms nor case list is a gating finding
 		 * (NO_FORMS_OR_CASE_LIST): the verdict runs AFTER the app-row insert,
 		 * so the rejection proves the whole transaction rolled back. */
-		await stageBatch(
-			fixture.changeSetId,
-			[
-				{ kind: "setAppName", name: "Half-built" },
-				...caseListModuleMutations(emptyBlueprintDoc(fixture.proposedAppId), {
-					caseType: "client",
-				}).mutations.slice(0, 1),
-			],
-			fixture.intentId,
-		);
+		await persistPrivateMutation(fixture.changeSetId, [
+			{ kind: "setAppName", name: "Half-built" },
+			...caseListModuleMutations(emptyBlueprintDoc(fixture.proposedAppId), {
+				caseType: "client",
+			}).mutations.slice(0, 1),
+		]);
 
 		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
 		expect(outcome.kind).toBe("gate-rejected");
@@ -491,14 +470,10 @@ describe("materializeAppFromGenesis", () => {
 	it("admits runtime case-schema rows transactionally at synced_seq 1", async () => {
 		const fixture = await claimedGenesisFixture();
 		const emptyDoc = emptyBlueprintDoc(fixture.proposedAppId);
-		await stageBatch(
-			fixture.changeSetId,
-			[
-				...canonicalAppGenesis(emptyDoc).mutations,
-				...caseListModuleMutations(emptyDoc, { caseType: "client" }).mutations,
-			],
-			fixture.intentId,
-		);
+		await persistPrivateMutation(fixture.changeSetId, [
+			...canonicalAppGenesis(emptyDoc).mutations,
+			...caseListModuleMutations(emptyDoc, { caseType: "client" }).mutations,
+		]);
 
 		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
 		if (outcome.kind !== "materialized") {
@@ -518,10 +493,9 @@ describe("materializeAppFromGenesis", () => {
 
 	it("refuses a superseded holder and a paused session, touching nothing", async () => {
 		const fixture = await claimedGenesisFixture();
-		await stageBatch(
+		await persistPrivateMutation(
 			fixture.changeSetId,
 			exportReadyBatch(fixture.proposedAppId),
-			fixture.intentId,
 		);
 
 		await expect(
@@ -552,10 +526,9 @@ describe("materializeAppFromGenesis", () => {
 
 	it("rejects a stale expected revision without writing", async () => {
 		const fixture = await claimedGenesisFixture();
-		await stageBatch(
+		await persistPrivateMutation(
 			fixture.changeSetId,
 			exportReadyBatch(fixture.proposedAppId),
-			fixture.intentId,
 		);
 		await expect(
 			materializeAppFromGenesis({

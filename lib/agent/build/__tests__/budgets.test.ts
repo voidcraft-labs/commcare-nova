@@ -36,12 +36,12 @@ describe("budgetForSlice", () => {
 	it("scales from real construction groups", () => {
 		expect(budgetForSlice(sliceWithGroups(1))).toMatchObject({
 			maxModelSteps: 13,
-			maxStagedRequests: 19,
+			maxMutationCalls: 19,
 			maxWallClockMs: 315_000,
 		});
 		expect(budgetForSlice(sliceWithGroups(5))).toMatchObject({
 			maxModelSteps: 25,
-			maxStagedRequests: 31,
+			maxMutationCalls: 31,
 			maxWallClockMs: 615_000,
 		});
 	});
@@ -49,7 +49,7 @@ describe("budgetForSlice", () => {
 	it("holds scaled axes at hard ceilings", () => {
 		expect(budgetForSlice(sliceWithGroups(500))).toMatchObject({
 			maxModelSteps: 40,
-			maxStagedRequests: 96,
+			maxMutationCalls: 96,
 			maxWallClockMs: 720_000,
 		});
 	});

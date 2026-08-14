@@ -4,15 +4,13 @@
  * transaction-hook seam.
  *
  * A sidecar runs INSIDE the same retryable app-locked transaction as the
- * canonical write, after the committed-batch write tail (so the provenance
- * rows' foreign key onto the fresh `app_changes` row is immediately
- * checkable, and a lost holder CAS has already aborted). It must be
+ * canonical write, after the committed-batch write tail. It must be
  * deterministic, idempotent under transaction retry, and free of
  * network/object-store effects; it cannot alter the candidate Blueprint or
  * bypass the gate. This dispatcher is the whole vocabulary — arbitrary
  * closures never enter the kernel.
  *
- * Initial variants (the Atomic Change Set runtime's two):
+ * The Atomic Change Set runtime has one variant:
  *
  *   - `commit-design-change-set` — flip the locked change set
  *     `open → committed` beside the canonical write and insert the
@@ -21,55 +19,32 @@
  *     lock is taken here, AFTER the kernel's app lock — the canonical
  *     order.
  *
- *   - `write-intent-provenance` — insert `app_change_intents` rows binding
- *     accepted design intents to the committed sequence's implementation
- *     coordinates. The rows' `(app_id, seq)` foreign key onto `app_changes`
- *     makes "provenance without its canonical change" unrepresentable — the
- *     kernel's app-change row is already written in this same transaction.
- *
  * On a kernel DEDUP hit sidecars are skipped entirely: the original commit
  * ran them, and a canonical batch without its change-set/receipt sidecars
  * is corruption for the CALLER to detect, never a new commit.
  */
 
 import { sql, type Transaction } from "kysely";
-import { implementationCoordinateSchema } from "@/lib/agent/design/projection/coordinates";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { AppDatabase } from "./pg";
 import { updatedExactlyOne } from "./runHolderWrites";
 
-export interface IntentProvenanceRow {
+export type CanonicalCommitSidecar = {
+	readonly kind: "commit-design-change-set";
+	readonly changeSetId: string;
+	readonly expectedRevision: number;
+	/** Receipt-row identity, minted by the caller OUTSIDE the retryable
+	 * transaction so a retry reuses it. */
+	readonly receiptId: string;
+	readonly sliceAttemptId: string;
 	readonly designSessionId: string;
 	readonly designRevisionId: string;
+	readonly designRevisionDigest: string;
 	readonly buildPlanId: string;
+	readonly buildPlanDigest: string;
 	readonly sliceId: string;
-	readonly intentId: string;
-	/** Strict-parsed through the closed implementation-coordinate union. */
-	readonly coordinate: unknown;
-}
-
-export type CanonicalCommitSidecar =
-	| {
-			readonly kind: "commit-design-change-set";
-			readonly changeSetId: string;
-			readonly expectedRevision: number;
-			/** Receipt-row identity, minted by the caller OUTSIDE the retryable
-			 * transaction so a retry reuses it. */
-			readonly receiptId: string;
-			readonly sliceAttemptId: string;
-			readonly designSessionId: string;
-			readonly designRevisionId: string;
-			readonly designRevisionDigest: string;
-			readonly buildPlanId: string;
-			readonly buildPlanDigest: string;
-			readonly sliceId: string;
-			readonly owningIntentIds: readonly string[];
-			readonly mutationCount: number;
-	  }
-	| {
-			readonly kind: "write-intent-provenance";
-			readonly rows: readonly IntentProvenanceRow[];
-	  };
+	readonly mutationCount: number;
+};
 
 export class CanonicalCommitSidecarError extends Error {
 	readonly name = "CanonicalCommitSidecarError";
@@ -95,10 +70,6 @@ export async function executeCanonicalCommitSidecars(
 		switch (sidecar.kind) {
 			case "commit-design-change-set": {
 				await commitDesignChangeSetSidecar(tx, args, sidecar);
-				break;
-			}
-			case "write-intent-provenance": {
-				await writeIntentProvenanceSidecar(tx, args, sidecar);
 				break;
 			}
 		}
@@ -267,35 +238,7 @@ async function commitDesignChangeSetSidecar(
 			seq: commit.seq,
 			batch_id: commit.batchId,
 			committed_snapshot_digest: committedSnapshotDigest,
-			owning_intent_ids: JSON.stringify([...sidecar.owningIntentIds]),
 			mutation_count: sidecar.mutationCount,
 		})
-		.execute();
-}
-
-async function writeIntentProvenanceSidecar(
-	tx: Transaction<AppDatabase>,
-	commit: { readonly appId: string; readonly seq: number },
-	sidecar: Extract<CanonicalCommitSidecar, { kind: "write-intent-provenance" }>,
-): Promise<void> {
-	if (sidecar.rows.length === 0) return;
-	await tx
-		.insertInto("app_change_intents")
-		.values(
-			sidecar.rows.map((row) => ({
-				app_id: commit.appId,
-				seq: commit.seq,
-				design_session_id: row.designSessionId,
-				design_revision_id: row.designRevisionId,
-				build_plan_id: row.buildPlanId,
-				slice_id: row.sliceId,
-				intent_id: row.intentId,
-				coordinate_kind: implementationCoordinateSchema.parse(row.coordinate)
-					.kind,
-				coordinate_payload: JSON.stringify(
-					implementationCoordinateSchema.parse(row.coordinate),
-				),
-			})),
-		)
 		.execute();
 }

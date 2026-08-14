@@ -850,28 +850,21 @@ apps → kernel.
 **Kernel sidecars are a closed, typed vocabulary** —
 `canonicalCommitSidecars.ts`, never arbitrary closures. A sidecar runs inside
 the same retryable app-locked transaction AFTER the committed-batch write
-tail (so a provenance row's FK onto the fresh `app_changes` row is
-immediately checkable and a lost holder CAS has already aborted), with the
+tail (so a lost holder CAS has already aborted), with the
 kernel's authoritative seq/batch id/candidate — never caller-asserted ones.
-The two variants are the Atomic Change Set runtime's: `commit-design-change-
+The Atomic Change Set runtime has one variant: `commit-design-change-
 set` (lock the `design_change_sets` row AFTER the app lock — canonical order
 — verify status/revision/lineage, flip `open → committed`, insert the
-immutable `design_committed_slices` receipt) and `write-intent-provenance`
-(`app_change_intents` rows carrying deterministic construction-group IDs,
-with coordinate payloads strict-parsed through the closed implementation-
-coordinate union). The existing SQL names are storage compatibility, not a
-second intent/traceability model. A dedup hit skips sidecars entirely:
+immutable `design_committed_slices` receipt). A dedup hit skips sidecars entirely:
 the original commit ran them, and a canonical batch without its receipt is
 corruption for the caller to detect, never a new commit.
 
 **The change-set tables are private staging state, not app history.**
 `design_change_sets` is the one mutable authority row (read-write; row-locked
 to serialize its ledgers); `design_change_set_requests` / `_steps` /
-`_step_stages` / `_handles`, `design_committed_slices`, and
-`app_change_intents` are append-only runtime DML — never row-locked, never
+`_step_stages` / `_handles` and `design_committed_slices` are append-only runtime DML — never row-locked, never
 updated, never streamed (no NOTIFY channel exists for them; nothing here may
-poke realtime). Step mutations, receipts, read sets, and persisted construction
-group ids are
+poke realtime). Step mutations, receipts, and read sets are
 authoritative persisted JSON: `::text` reads through `persistedJson.ts` +
 strict schemas only. `design_session_id`, design revision, build plan, and
 attempt identities are foreign-key-bound to the durable design/orchestration

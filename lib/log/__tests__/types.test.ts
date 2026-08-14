@@ -191,8 +191,8 @@ describe("eventSchema", () => {
 					toolName: "addUserProperties",
 					operationIndex: 0,
 					workspaceRevision: 2,
-					outcome: "stage-rejected",
-					code: "STAGING_FORBIDDEN",
+					outcome: "mutation-rejected",
+					code: "TARGET_INVALID",
 				},
 			},
 			{
@@ -271,10 +271,10 @@ describe("eventSchema", () => {
 			payload: {
 				type: "executor-tool-outcome",
 				modelStep: 1,
-				toolName: "stageBatch",
+				toolName: "createModule",
 				workspaceRevision: 1,
 				outcome: "wire-invalid",
-				code: "STAGE_BATCH_ENVELOPE_INVALID",
+				code: "TOOL_INPUT_INVALID",
 				input: { customerAuthored: "must not persist" },
 			},
 		};

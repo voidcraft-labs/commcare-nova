@@ -5,16 +5,15 @@
  *
  * Three properties are the whole point:
  *
- *  1. **One executable call per step.** Provider-side parallel tool calls are
- *     off, and the loop independently refuses a step carrying more than one
- *     call — it executes NONE of them and answers each with a deterministic
- *     protocol result. Ordering inside a private change set is the
- *     correctness spine; it is not left to the SDK's dispatch behavior.
- *  2. **The model never holds authority.** `commitChangeSet` is a REQUEST:
- *     the loop re-runs the real diagnostics and only then calls the
- *     server-owned commit. A model assertion that the work is done proves
- *     nothing.
- *  3. **Every axis is bounded.** Model steps, staged requests, commit and
+ *  1. **Native calls, ordered by the server.** The model can return several
+ *     ordinary Nova calls in one response. The response is persisted first,
+ *     then calls are dispatched serially in provider order. Every call result
+ *     is persisted independently; a rejected call preserves the accepted
+ *     prefix and marks the dependent suffix skipped.
+ *  2. **The model never holds authority.** `finishWorkflow` is a request. The
+ *     loop re-runs the real diagnostics and only then calls the server-owned
+ *     commit. A model assertion that the work is done proves nothing.
+ *  3. **Every axis is bounded.** Model steps, mutation calls, commit and
  *     rebase attempts, and wall clock all cap. Exhausting one ends the
  *     attempt as `budget-exhausted` — never as a partial commit and never as
  *     a completion claim.
@@ -46,8 +45,6 @@ import {
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import type { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
-import type { DesignId } from "@/lib/agent/design/ids";
-import { designIdSchema } from "@/lib/agent/design/ids";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import {
 	modelMessagesContainCompaction,
@@ -126,6 +123,7 @@ export type ExecutorStepFn = (args: {
 	system: string;
 	messages: ModelMessage[];
 	tools: Record<string, { description: string; inputSchema: JSONSchema7 }>;
+	allowedTools?: readonly string[];
 	signal: AbortSignal;
 }) => Promise<{
 	toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }>;
@@ -159,7 +157,7 @@ export type SliceExecutionOutcome =
 	| { kind: "architect-decision"; decision: ArchitectBlockerDecision }
 	| {
 			kind: "budget-exhausted";
-			spent: { modelSteps: number; stagedRequests: number };
+			spent: { modelSteps: number; mutationCalls: number };
 	  }
 	| { kind: "protocol-failure"; code: string; message: string };
 
@@ -172,9 +170,12 @@ export type SliceBlockerResolver = (args: {
 
 export type ExecutorToolOutcomeKind =
 	| "accepted"
+	| "skipped"
 	| "wire-invalid"
-	| "stage-rejected"
+	| "operation-rejected"
+	| "mutation-rejected"
 	| "validator-repair"
+	| "finalization-rejected"
 	| "committed"
 	| "terminal-protocol";
 
@@ -189,28 +190,18 @@ export interface ExecutorToolOutcomeEvent {
 
 // ── The mounted tool surface ─────────────────────────────────────────
 
-const INSPECT_TOOL = "inspectChangeSet";
-const COMMIT_TOOL = "commitChangeSet";
+const FINISH_TOOL = "finishWorkflow";
 const REPORT_BLOCKER_TOOL = "reportExecutionBlocker";
-const READ_BATCH_TOOL = "readBatch";
-const STAGE_BATCH_TOOL = "stageBatch";
-const MAX_READ_BATCH_OPERATIONS = 4;
-const MAX_STAGE_BATCH_OPERATIONS = 12;
 
 const noArgumentsSchema = z.object({}).strict();
 
-/** Server-owned tools mounted beside the compiler's read and batch surface. */
+/** Server-owned tools mounted beside the ordinary Nova read/mutation surface. */
 const SERVER_TOOLS: Readonly<
 	Record<string, { description: string; schema: z.ZodType }>
 > = {
-	[INSPECT_TOOL]: {
+	[FINISH_TOOL]: {
 		description:
-			"Run the real validator over the private candidate and report every current finding, what the last steps introduced or resolved, whether external data the change set read is still current, and whether it can commit.",
-		schema: noArgumentsSchema,
-	},
-	[COMMIT_TOOL]: {
-		description:
-			"Request that this change set commit as one canonical revision. The server independently re-proves the diagnostics and the design digests; if anything blocks the commit you get back what it was.",
+			"Finish this workflow. The server inspects the complete private candidate, verifies current external reads and export readiness, and commits the workflow as one canonical revision only when every check is clean. Otherwise it returns exact corrections to make with ordinary Nova tools before calling finishWorkflow again.",
 		schema: noArgumentsSchema,
 	},
 	[REPORT_BLOCKER_TOOL]: {
@@ -220,93 +211,9 @@ const SERVER_TOOLS: Readonly<
 	},
 };
 
-function mutatingInputSchema(name: string): JSONSchema7 {
-	const entry = CHANGE_SET_TOOL_REGISTRY.get(name);
-	if (entry === undefined || entry.policy.effect !== "mutate-blueprint") {
-		throw new Error(`The stage batch cannot mount non-mutating tool ${name}.`);
-	}
-	const inputSchema = executorWireToolSchema(name, entry.tool.inputSchema);
-	inputSchema.properties ??= {};
-	inputSchema.properties.constructionGroupIds = {
-		type: "array",
-		items: { type: "string", format: "uuid" },
-		minItems: 1,
-		uniqueItems: true,
-		description: "The exact construction groups this operation implements.",
-	};
-	inputSchema.required = [
-		...new Set([...(inputSchema.required ?? []), "constructionGroupIds"]),
-	];
-	return inputSchema;
-}
-
-function readBatchSchema(allowedTools: readonly string[]): JSONSchema7 {
-	const operationArms = allowedTools.map((name) => {
-		const entry = CHANGE_SET_TOOL_REGISTRY.get(name);
-		if (entry === undefined || entry.policy.effect !== "read-blueprint") {
-			throw new Error(`The executor profile cannot mount read tool ${name}.`);
-		}
-		return {
-			type: "object",
-			properties: {
-				toolName: { const: entry.name },
-				input: executorWireToolSchema(entry.name, entry.tool.inputSchema),
-			},
-			required: ["toolName", "input"],
-			additionalProperties: false,
-		};
-	}) satisfies JSONSchema7[];
-	return {
-		type: "object",
-		properties: {
-			operations: {
-				type: "array",
-				items: { oneOf: operationArms },
-				minItems: 1,
-				maxItems: MAX_READ_BATCH_OPERATIONS,
-			},
-		},
-		required: ["operations"],
-		additionalProperties: false,
-	};
-}
-
-function stageBatchSchema(allowedTools: readonly string[]): JSONSchema7 {
-	const operationArms = allowedTools.map((name) => {
-		const entry = CHANGE_SET_TOOL_REGISTRY.get(name);
-		if (entry === undefined || entry.policy.effect !== "mutate-blueprint") {
-			throw new Error(
-				`The executor profile cannot mount mutation tool ${name}.`,
-			);
-		}
-		return {
-			type: "object",
-			properties: {
-				toolName: { const: entry.name },
-				input: mutatingInputSchema(entry.name),
-			},
-			required: ["toolName", "input"],
-			additionalProperties: false,
-		};
-	}) satisfies JSONSchema7[];
-	return {
-		type: "object",
-		properties: {
-			operations: {
-				type: "array",
-				items: { oneOf: operationArms },
-				minItems: 1,
-				maxItems: MAX_STAGE_BATCH_OPERATIONS,
-			},
-		},
-		required: ["operations"],
-		additionalProperties: false,
-	};
-}
-
-/** The immutable mounted tool definitions for every slice: complete batch
- * grammar plus the three server-owned change-set controls. Slice-specific
- * authorization remains in the brief and dispatch checks. */
+/** The immutable mounted tool definitions for every slice. Keeping the full
+ * native registry stable preserves prompt-cache shape; provider `allowedTools`
+ * and the server-side dispatch check enforce the slice-specific profile. */
 export function buildExecutorTools(
 	_brief?: SliceExecutionBrief,
 ): Record<string, { description: string; inputSchema: JSONSchema7 }> {
@@ -314,16 +221,21 @@ export function buildExecutorTools(
 		string,
 		{ description: string; inputSchema: JSONSchema7 }
 	> = {};
-	tools[READ_BATCH_TOOL] = {
-		description:
-			"Read up to four related current Blueprint structures in one step. Use this when one construction decision needs several views such as a form, its module, case operations, and worker schema. Reads run serially and never mutate the candidate.",
-		inputSchema: readBatchSchema(STABLE_EXECUTOR_TOOL_PROFILE.readTools),
-	};
-	tools[STAGE_BATCH_TOOL] = {
-		description:
-			"Stage one ordered semantic group. Operations run serially, each is durably idempotent, and execution stops at the first rejected operation while preserving every earlier admitted operation.",
-		inputSchema: stageBatchSchema(STABLE_EXECUTOR_TOOL_PROFILE.mutationTools),
-	};
+	for (const name of [
+		...STABLE_EXECUTOR_TOOL_PROFILE.readTools,
+		...STABLE_EXECUTOR_TOOL_PROFILE.mutationTools,
+	]) {
+		const entry = CHANGE_SET_TOOL_REGISTRY.get(name);
+		if (entry === undefined) {
+			throw new Error(
+				`The stable executor profile names unknown tool ${name}.`,
+			);
+		}
+		tools[name] = {
+			description: entry.tool.description,
+			inputSchema: executorWireToolSchema(name, entry.tool.inputSchema),
+		};
+	}
 	for (const [name, definition] of Object.entries(SERVER_TOOLS)) {
 		tools[name] = {
 			description: definition.description,
@@ -337,9 +249,8 @@ export function buildExecutorTools(
 
 /**
  * The real model call behind one executor step: one generation, tools mounted
- * with NO `execute` (the loop dispatches), and provider-side parallel tool
- * calls turned off so the one-call law is enforced at the wire as well as in
- * the loop.
+ * with NO `execute` (the loop dispatches), and native multi-tool responses
+ * enabled. The provider may compose calls; the loop owns their serial order.
  *
  * `strict: false` matches every other Nova tool surface — under Responses
  * strict-mode normalization the model cannot omit an inapplicable slot and
@@ -350,7 +261,13 @@ export function productionExecutorStep(
 	reasoningEffort: ReasoningEffort = "xhigh",
 	promptCacheKey?: string,
 ): ExecutorStepFn {
-	return async ({ system, messages, tools: definitions, signal }) => {
+	return async ({
+		system,
+		messages,
+		tools: definitions,
+		allowedTools,
+		signal,
+	}) => {
 		const base = reasoningProviderOptions(
 			reasoningEffort,
 			promptCacheKey === undefined ? undefined : { promptCacheKey },
@@ -387,7 +304,15 @@ export function productionExecutorStep(
 			providerOptions: {
 				openai: {
 					...base.openai,
-					parallelToolCalls: false,
+					parallelToolCalls: true,
+					...(allowedTools !== undefined && allowedTools.length > 0
+						? {
+								allowedTools: {
+									toolNames: [...allowedTools],
+									mode: "auto" as const,
+								},
+							}
+						: {}),
 				} satisfies OpenAIResponsesProviderOptions,
 			},
 		});
@@ -471,6 +396,10 @@ interface PendingExecutorStep {
 		readonly toolName: string;
 		readonly input: unknown;
 	}>;
+	/** An earlier call in this same provider response already failed or
+	 * finalized. Any unanswered suffix is dependent work and must receive
+	 * skipped results rather than execute after recovery. */
+	readonly halted: boolean;
 }
 
 /** Find the earliest provider response in one attempt whose function call has
@@ -502,21 +431,26 @@ function pendingExecutorStep(
 		group.messages.push(item.message);
 		responses.set(item.appendKey, group);
 	}
-	const answered = new Set<string>();
+	const answered = new Map<string, unknown>();
 	for (const message of context.messages) {
 		if (message.role !== "tool") continue;
 		for (const part of message.content) {
-			if (part.type === "tool-result") answered.add(part.toolCallId);
+			if (part.type !== "tool-result") continue;
+			const output = part.output;
+			answered.set(
+				part.toolCallId,
+				output.type === "json" ? output.value : output,
+			);
 		}
 	}
 	for (const [, response] of [...responses].sort(
 		([, left], [, right]) => left.modelStep - right.modelStep,
 	)) {
-		const toolCalls = response.messages.flatMap((message) => {
+		const allToolCalls = response.messages.flatMap((message) => {
 			if (message.role !== "assistant" || typeof message.content === "string")
 				return [];
 			return message.content.flatMap((part) =>
-				part.type === "tool-call" && !answered.has(part.toolCallId)
+				part.type === "tool-call"
 					? [
 							{
 								toolCallId: part.toolCallId,
@@ -527,12 +461,30 @@ function pendingExecutorStep(
 					: [],
 			);
 		});
+		const firstUnanswered = allToolCalls.findIndex(
+			(call) => !answered.has(call.toolCallId),
+		);
+		const toolCalls =
+			firstUnanswered < 0 ? [] : allToolCalls.slice(firstUnanswered);
 		if (toolCalls.length > 0) {
+			const halted = allToolCalls.slice(0, firstUnanswered).some((call) => {
+				const result = answered.get(call.toolCallId);
+				if (result === null || typeof result !== "object") return false;
+				const status = (result as { status?: unknown }).status;
+				return (
+					status === "failed" ||
+					status === "needs-correction" ||
+					status === "skipped" ||
+					status === "committed" ||
+					status === "terminal"
+				);
+			});
 			return {
 				modelStep: response.modelStep,
 				stepKey: `${scopeKey}:${response.modelStep}`,
 				responseMessages: response.messages,
 				toolCalls,
+				halted,
 			};
 		}
 	}
@@ -551,17 +503,18 @@ export function recoverCommittedExecutorToolResult(args: {
 	if (pending === null) return null;
 	if (
 		pending.toolCalls.length !== 1 ||
-		pending.toolCalls[0]?.toolName !== COMMIT_TOOL
+		pending.toolCalls[0]?.toolName !== FINISH_TOOL
 	) {
 		throw new Error(
-			`Committed slice attempt ${args.attemptId} has a pending non-commit executor call.`,
+			`Committed slice attempt ${args.attemptId} has a pending non-finalizer executor call.`,
 		);
 	}
 	const call = pending.toolCalls[0];
 	return {
 		appendKey: `step:${args.attemptId}:${pending.modelStep}:tool:${call.toolCallId}`,
 		message: toolMessage(call.toolCallId, call.toolName, {
-			committed: true,
+			status: "committed",
+			code: "WORKFLOW_COMMITTED",
 			receipt: args.receipt,
 		}),
 	};
@@ -622,43 +575,6 @@ function projectToolResult(
 	return projectBoundIdentities(rest, workspace);
 }
 
-const ONE_CALL_PROTOCOL_RESULT = {
-	error:
-		"One executable call per step; nothing was executed. Re-send exactly one call.",
-} as const;
-
-const stageBatchEnvelopeSchema = z
-	.object({
-		operations: z
-			.array(
-				z
-					.object({
-						toolName: z.string().min(1),
-						input: z.unknown(),
-					})
-					.strict(),
-			)
-			.min(1)
-			.max(MAX_STAGE_BATCH_OPERATIONS),
-	})
-	.strict();
-
-const readBatchEnvelopeSchema = z
-	.object({
-		operations: z
-			.array(
-				z
-					.object({
-						toolName: z.string().min(1),
-						input: z.unknown(),
-					})
-					.strict(),
-			)
-			.min(1)
-			.max(MAX_READ_BATCH_OPERATIONS),
-	})
-	.strict();
-
 function resultHasError(result: unknown): boolean {
 	return (
 		result !== null &&
@@ -668,7 +584,7 @@ function resultHasError(result: unknown): boolean {
 }
 
 const CONTINUE_NUDGE =
-	"Continue with exactly one tool call. Stage every remaining construction group before inspecting; once none remain, inspect once and commit if it reports no findings.";
+	"Continue building with the ordinary Nova tools. You may make several independent calls in one response; they run in order. Call finishWorkflow when this workflow is complete.";
 
 const INVENTORY_MODULE_LIMIT = 12;
 const INVENTORY_FORM_LIMIT = 24;
@@ -701,19 +617,11 @@ export function renderExecutorWorkspaceSummary(
 	const formCount = Object.keys(snapshot.doc.forms).length;
 	const lines = [
 		"## Current change set",
-		`Revision ${snapshot.revision}. The private candidate holds ${moduleCount} module(s) and ${formCount} form(s).`,
+		`The private candidate holds ${moduleCount} module(s) and ${formCount} form(s).`,
 		moduleCount === 0 && formCount === 0
-			? "Nothing has been staged yet — this is the first step."
-			: "Build on what is already staged; never re-create it.",
+			? "No private mutations have been applied yet — this is the first step."
+			: "Build on what is already in the private workspace; never re-create it.",
 		`App: ${JSON.stringify(doc.appName)} (${doc.appId})`,
-		execution.intentCoverage.length === 0
-			? "Durable construction groups: none yet."
-			: `Durable construction groups: ${execution.intentCoverage
-					.map(
-						(coverage) =>
-							`${coverage.intentId} (${coverage.stepCount} step${coverage.stepCount === 1 ? "" : "s"})`,
-					)
-					.join(", ")}.`,
 	];
 	const handles = execution.handles.slice(0, INVENTORY_HANDLE_LIMIT);
 	if (handles.length > 0) {
@@ -833,7 +741,6 @@ export function renderExecutorBlueprintCheckpoint(
 			workspaceRevision: snapshot.revision,
 			canonicalBaseSequence: snapshot.canonicalSeq,
 			externalContextDigest: snapshot.externalContextDigest,
-			durableConstructionGroups: execution.intentCoverage,
 			blueprint: projectBlueprintHandles(snapshot.doc, handleByUuid),
 		},
 		null,
@@ -850,19 +757,10 @@ const EXECUTOR_FOCUS_HEADING = "## Current slice focus";
 
 function renderExecutorSliceFocus(
 	brief: SliceExecutionBrief,
-	workspace: ExecutorWorkspace,
+	_workspace: ExecutorWorkspace,
 ): string {
-	const completed = new Set(
-		workspace
-			.currentExecutionCheckpoint()
-			.intentCoverage.map((coverage) => coverage.intentId),
-	);
-	const remaining = brief.constructionGroupIds.filter(
-		(id) => !completed.has(id),
-	);
 	return [
 		`${brief.slice.name}: ${brief.slice.goal}`,
-		`Remaining construction groups: ${remaining.join(", ") || "none; inspect and commit"}.`,
 		`Modules: ${brief.moduleRealizations
 			.map(
 				(module) =>
@@ -875,7 +773,7 @@ function renderExecutorSliceFocus(
 					`${form.name} (${form.blueprintFormType}) in ${form.moduleCompositionId}, ${form.layout.kind}`,
 			)
 			.join("; ")}.`,
-		"Execute this accepted composition exactly. Do not redesign, add a parallel host, flatten a sectioned form, or duplicate a role form.",
+		"Execute this accepted composition exactly. Do not redesign, add a parallel host, flatten a sectioned form, or duplicate a role form. Call finishWorkflow only after the complete workflow is present.",
 	].join("\n");
 }
 
@@ -947,80 +845,117 @@ function failureSignature(value: unknown): string {
 
 // ── The loop ─────────────────────────────────────────────────────────
 
-export async function runSliceExecutor(args: {
+export interface RunSliceExecutorArgs {
 	workspace: ExecutorWorkspace;
 	brief: SliceExecutionBrief;
 	budget: SliceExecutionBudget;
 	step: ExecutorStepFn;
-	/** One append-only context generation for this exact durable slice attempt. */
 	context?: ExecutorConversationContext;
-	/** Stable durable identity for this slice attempt's context appends. */
 	contextScopeKey?: string;
-	/**
-	 * Server-owned commit: the loop calls it only after `inspect()` shows
-	 * `canCommit` (the model's `commitChangeSet` call is a REQUEST, never
-	 * authority).
-	 */
 	commit: (
 		signal: AbortSignal,
 		deadlineAt: number,
 	) => Promise<SliceCommitResult>;
-	/** Read-only durable reconciliation for the post-COMMIT/response race. It
-	 * never retries or starts a canonical write after the deadline. */
 	reconcileCommit?: () => Promise<SliceCommitResult | null>;
-	/** Durable attempt ledger. Production supplies it; pure loop tests may omit
-	 * it and use the same counters in memory. */
 	budgetLedger?: {
 		readonly deadlineAt: number;
 		readonly spent: SliceAttemptBudgetSpent;
-		readonly finalizationCheckpoint: {
-			readonly validationRequested: boolean;
-			readonly eligible: boolean;
-		};
 		claim(
 			counter: SliceAttemptBudgetCounter,
 			limit: number,
 			claimKey: string,
 		): Promise<SliceAttemptBudgetClaimResult>;
-		checkpointFinalization(args: {
-			readonly validationRequested: boolean;
-			readonly eligible: boolean;
-		}): Promise<void>;
 	};
 	resolveBlocker?: SliceBlockerResolver;
 	signal: AbortSignal;
 	onProgress?: (phase: "building" | "validating" | "committing") => void;
-	/** Each step's display-safe reasoning summary → the run event log, so
-	 *  the WHY behind an executor decision is readable beside its artifacts
-	 *  (no design table gains a reasoning column). */
 	onReasoning?: (text: string) => void;
-	/** Meter spent provider usage as soon as an awaited response returns and
-	 * before the post-await deadline decision. */
 	onUsage?: (usage: LanguageModelUsage, identity: DurableUsageIdentity) => void;
 	onToolCall?: (call: {
 		readonly modelStep: number;
 		readonly toolName: string;
 		readonly workspaceRevision: number;
 	}) => void;
-	/** Payload-free operator diagnostics for the private compiler. */
 	onToolOutcome?: (event: ExecutorToolOutcomeEvent) => void | Promise<void>;
-}): Promise<SliceExecutionOutcome> {
+}
+
+type NativeCall = Awaited<ReturnType<ExecutorStepFn>>["toolCalls"][number];
+
+type NativeCallDispatch =
+	| { readonly kind: "continue" }
+	| { readonly kind: "halt-response" }
+	| { readonly kind: "stop"; readonly outcome: SliceExecutionOutcome };
+
+function failedToolResult(args: {
+	readonly code: string;
+	readonly error: string;
+	readonly repeatedFailure?: {
+		readonly fingerprint: string;
+		readonly occurrence: number;
+		readonly architectGuidance?: string;
+	};
+}): Record<string, unknown> {
+	return {
+		status: "failed",
+		code: args.code,
+		error: args.error,
+		...(args.repeatedFailure !== undefined && {
+			repeatedFailure: args.repeatedFailure,
+		}),
+	};
+}
+
+function toolFailureCode(
+	receipt: { readonly error?: { readonly code: string } } | undefined,
+	result: unknown,
+): string {
+	if (receipt?.error?.code !== undefined) return receipt.error.code;
+	if (
+		result !== null &&
+		typeof result === "object" &&
+		typeof (result as { code?: unknown }).code === "string"
+	) {
+		return (result as { code: string }).code;
+	}
+	return "PRIVATE_MUTATION_REJECTED";
+}
+
+/** Input-shape and permission mistakes are compiler protocol facts, not
+ * evidence that the reviewed design needs architectural reinterpretation. */
+function isSemanticConstructionFailure(code: string): boolean {
+	return new Set([
+		"COMPOSITION_HOST_FORBIDDEN",
+		"READ_SET_UNRECORDED",
+		"EXCLUSIVE_NOT_ALONE",
+		"EXCLUSIVE_SET_CLOSED",
+		"REDUCER_FAILURE",
+	]).has(code);
+}
+
+/**
+ * Execute one workflow against the implicit private change-set workspace.
+ * Native calls are accepted in the provider's order, persisted one result at
+ * a time, and never expose workspace handles, revisions, or construction
+ * bookkeeping beyond the ordinary Nova tool inputs.
+ */
+export async function runSliceExecutor(
+	args: RunSliceExecutorArgs,
+): Promise<SliceExecutionOutcome> {
 	const { workspace, brief, budget, signal } = args;
 	const tools = buildExecutorTools(brief);
 	const allowedReadTools = new Set(brief.toolProfile.readTools);
 	const allowedMutationTools = new Set(brief.toolProfile.mutationTools);
+	const allowedTools = [
+		...brief.toolProfile.readTools,
+		...brief.toolProfile.mutationTools,
+		FINISH_TOOL,
+		REPORT_BLOCKER_TOOL,
+	];
 	let deadlineAt =
 		args.budgetLedger?.deadlineAt ?? Date.now() + budget.maxWallClockMs;
 	let deadline = new AbortController();
 	let boundedSignal = AbortSignal.any([signal, deadline.signal]);
 	let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-	/* Re-armable: a paid architect decision extends the wall clock by the
-	 * blocker allowance, so the abort timer must track the moved deadline.
-	 * An AbortController cannot un-abort, so when the previous timer already
-	 * fired (it can race the awaited budget claim that precedes an extension)
-	 * re-arming replaces the spent controller and re-derives the combined
-	 * signal; every use site reads the current binding, and the loop is
-	 * sequential, so no in-flight await holds the stale signal. */
 	const armDeadlineTimer = () => {
 		if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
 		if (deadline.signal.aborted) {
@@ -1040,43 +975,16 @@ export async function runSliceExecutor(args: {
 		!signal.aborted && (deadline.signal.aborted || Date.now() >= deadlineAt);
 
 	let modelSteps = args.budgetLedger?.spent.modelSteps ?? 0;
-	let stagedRequests = args.budgetLedger?.spent.stagedRequests ?? 0;
+	let mutationCalls = args.budgetLedger?.spent.mutationCalls ?? 0;
 	let commitAttempts = args.budgetLedger?.spent.commitAttempts ?? 0;
 	let blockerReports = args.budgetLedger?.spent.blockerReports ?? 0;
 	const ephemeralBudgetClaims = new Map<string, SliceAttemptBudgetCounter>();
-	let consecutiveEmptySteps = 0;
-	/* Once the model asks for validation it has declared construction complete.
-	 * A later fully accepted repair batch may consume the final model step while
-	 * leaving an already clean candidate. The server may finish that exact
-	 * candidate at the step boundary; it may never infer readiness before the
-	 * model entered validation, or after a stopped/partial batch. */
-	let validationRequested =
-		args.budgetLedger?.finalizationCheckpoint.validationRequested ?? false;
-	let lastActionCanFinalizeAtStepBoundary =
-		(args.budgetLedger?.finalizationCheckpoint.eligible ?? false) ||
-		(validationRequested &&
-			workspace.currentExecutionCheckpoint().finalizationModelStep ===
-				modelSteps);
-	const checkpointFinalization = async (eligible: boolean): Promise<void> => {
-		lastActionCanFinalizeAtStepBoundary = eligible;
-		await args.budgetLedger?.checkpointFinalization({
-			validationRequested,
-			eligible,
-		});
-	};
-
-	const spent = () => ({ modelSteps, stagedRequests });
-	/* A paid architect decision directs rework the deterministic slice budget
-	 * never priced (a lowering, a rehosting), so each answered blocker grows
-	 * the step and staging limits by one allowance. `blockerReports` restores
-	 * durably on recovery, and a recovered deadline already prices durable
-	 * blockers through `remainingWallClockMs`. */
 	const allowedModelSteps = () =>
 		budget.maxModelSteps +
 		blockerReports * BLOCKER_RESOLUTION_ALLOWANCE.modelSteps;
-	const allowedStagedRequests = () =>
-		budget.maxStagedRequests +
-		blockerReports * BLOCKER_RESOLUTION_ALLOWANCE.stagedRequests;
+	const allowedMutationCalls = () =>
+		budget.maxMutationCalls +
+		blockerReports * BLOCKER_RESOLUTION_ALLOWANCE.mutationCalls;
 	const claimBudget = async (
 		counter: SliceAttemptBudgetCounter,
 		limit: number,
@@ -1085,8 +993,8 @@ export async function runSliceExecutor(args: {
 		const used =
 			counter === "modelSteps"
 				? modelSteps
-				: counter === "stagedRequests"
-					? stagedRequests
+				: counter === "mutationCalls"
+					? mutationCalls
 					: counter === "commitAttempts"
 						? commitAttempts
 						: blockerReports;
@@ -1109,108 +1017,15 @@ export async function runSliceExecutor(args: {
 		}
 		if (result !== "claimed") return result;
 		if (counter === "modelSteps") modelSteps += 1;
-		else if (counter === "stagedRequests") stagedRequests += 1;
+		else if (counter === "mutationCalls") mutationCalls += 1;
 		else if (counter === "commitAttempts") commitAttempts += 1;
 		else blockerReports += 1;
 		return "claimed";
 	};
 	const exhausted = (): SliceExecutionOutcome => ({
 		kind: "budget-exhausted",
-		spent: spent(),
+		spent: { modelSteps, mutationCalls },
 	});
-	const emitBoundaryOutcome = async (
-		outcome: ExecutorToolOutcomeKind,
-		code: string,
-	): Promise<void> => {
-		await args.onToolOutcome?.({
-			modelStep: modelSteps,
-			toolName: COMMIT_TOOL,
-			workspaceRevision: workspace.currentSnapshot().revision,
-			outcome,
-			code,
-		});
-	};
-	const finalizeCleanCandidateAtStepBoundary = async (): Promise<
-		SliceExecutionOutcome | undefined
-	> => {
-		if (
-			!validationRequested ||
-			!lastActionCanFinalizeAtStepBoundary ||
-			signal.aborted ||
-			deadlineExceeded()
-		) {
-			return undefined;
-		}
-		args.onProgress?.("validating");
-		let diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>;
-		try {
-			diagnostics = await awaitWithAbort(workspace.inspect(), boundedSignal);
-		} catch (error) {
-			if (deadlineExceeded()) return exhausted();
-			throw error;
-		}
-		const stale = staleExternalReads(diagnostics);
-		if (stale.length > 0) {
-			await emitBoundaryOutcome("stage-rejected", "READ_SET_STALE");
-			return { kind: "read-set-stale", stale };
-		}
-		if (
-			!diagnostics.canCommit ||
-			remainingConstructionGroupIds(diagnostics, brief).length > 0
-		) {
-			return undefined;
-		}
-		if (
-			(await claimBudget(
-				"commitAttempts",
-				budget.maxCommitAttempts,
-				`commit-boundary:${args.contextScopeKey ?? brief.slice.id}:${modelSteps}`,
-			)) === "exhausted"
-		)
-			return exhausted();
-		args.onProgress?.("committing");
-		let result: SliceCommitResult;
-		try {
-			result = await awaitWithAbort(
-				args.commit(boundedSignal, deadlineAt),
-				boundedSignal,
-			);
-		} catch (error) {
-			if (deadlineExceeded()) {
-				const reconciled = await args.reconcileCommit?.();
-				if (reconciled?.kind === "committed") {
-					await emitBoundaryOutcome(
-						"committed",
-						"CHANGE_SET_COMMITTED_AT_DEADLINE",
-					);
-					return { kind: "committed", receipt: reconciled.receipt };
-				}
-				return exhausted();
-			}
-			throw error;
-		}
-		if (result.kind === "committed") {
-			await emitBoundaryOutcome(
-				"committed",
-				"CHANGE_SET_COMMITTED_AT_STEP_BOUNDARY",
-			);
-			return { kind: "committed", receipt: result.receipt };
-		}
-		if (result.kind === "rebase-conflict") {
-			await emitBoundaryOutcome("stage-rejected", "REBASE_CONFLICT");
-			return { kind: "rebase-conflict", report: result.report };
-		}
-		if (result.kind === "read-set-stale") {
-			await emitBoundaryOutcome("stage-rejected", "READ_SET_STALE");
-			return { kind: "read-set-stale", stale: result.stale };
-		}
-		/* A fresh canonical gate rejection means the candidate is no longer
-		 * finalizable without another model correction. The model budget is
-		 * already spent, so preserve the ordinary bounded failure. */
-		await checkpointFinalization(false);
-		await emitBoundaryOutcome("stage-rejected", "CANONICAL_GATE_REJECTED");
-		return undefined;
-	};
 
 	const context = args.context ?? { messages: [] };
 	const appendKeys = context.appendKeys ?? new Set<string>();
@@ -1262,18 +1077,19 @@ export async function runSliceExecutor(args: {
 					failureOccurrences.get(record.fingerprint) ?? 0,
 				),
 			);
-			if (typeof record.architectGuidance === "string")
+			if (typeof record.architectGuidance === "string") {
 				architectGuidedFailures.add(record.fingerprint);
+			}
 		}
 		for (const nested of Object.values(record)) recoverFailureState(nested);
 	};
 	recoverFailureState(context.messages);
-	const clearAutomaticFailureSequence = (): void => {
+	const clearFailureSequence = (): void => {
 		failureOccurrences.clear();
 		architectGuidedFailures.clear();
 		lastFailureSignature = null;
 	};
-	type AutomaticFailureResult =
+	type FailureObservation =
 		| {
 				readonly kind: "observed";
 				readonly signature: string;
@@ -1281,27 +1097,22 @@ export async function runSliceExecutor(args: {
 				readonly guidance?: string;
 		  }
 		| { readonly kind: "stop"; readonly outcome: SliceExecutionOutcome };
-	const observeAutomaticFailure = async (failure: {
+	const observeSemanticFailure = async (failure: {
 		readonly signature: string;
 		readonly observations: readonly string[];
-		readonly affectedConstructionGroupIds?: readonly DesignId[];
 		readonly diagnostics?: unknown;
-	}): Promise<AutomaticFailureResult> => {
+	}): Promise<FailureObservation> => {
 		if (
 			lastFailureSignature !== null &&
 			lastFailureSignature !== failure.signature
 		) {
-			clearAutomaticFailureSequence();
+			clearFailureSequence();
 		}
 		lastFailureSignature = failure.signature;
 		const occurrence = (failureOccurrences.get(failure.signature) ?? 0) + 1;
 		failureOccurrences.set(failure.signature, occurrence);
 		if (occurrence < 2) {
-			return {
-				kind: "observed",
-				signature: failure.signature,
-				occurrence,
-			};
+			return { kind: "observed", signature: failure.signature, occurrence };
 		}
 		if (architectGuidedFailures.has(failure.signature)) {
 			return {
@@ -1310,7 +1121,7 @@ export async function runSliceExecutor(args: {
 					kind: "protocol-failure",
 					code: "repeated-failure-after-architect-guidance",
 					message:
-						"The compiler repeated the same unresolved diagnostic after the server architect supplied guidance, so Nova stopped before committing an unsafe or redesigned app.",
+						"The compiler repeated the same substantive construction failure after architect guidance.",
 				},
 			};
 		}
@@ -1321,7 +1132,7 @@ export async function runSliceExecutor(args: {
 					kind: "protocol-failure",
 					code: "architect-resolver-unavailable",
 					message:
-						"The server-owned architect resolver is unavailable for repeated compiler diagnostics.",
+						"The server-owned architect resolver is unavailable for a repeated substantive construction failure.",
 				},
 			};
 		}
@@ -1330,56 +1141,40 @@ export async function runSliceExecutor(args: {
 			budget.maxBlockerResolutions,
 			`auto-blocker:${scopeKey}:${failure.signature}`,
 		);
-		if (blockerClaim === "exhausted") {
+		if (blockerClaim !== "claimed") {
 			return {
 				kind: "stop",
 				outcome: {
 					kind: "protocol-failure",
-					code: "blocker-resolution-budget-exhausted",
+					code:
+						blockerClaim === "replayed"
+							? "architect-decision-response-lost"
+							: "blocker-resolution-budget-exhausted",
 					message:
-						"The compiler exhausted its bounded architect-resolution budget without reaching a safe construction.",
-				},
-			};
-		}
-		if (blockerClaim === "replayed") {
-			return {
-				kind: "stop",
-				outcome: {
-					kind: "protocol-failure",
-					code: "architect-decision-response-lost",
-					message:
-						"A paid architect decision was observed before process replacement, but its durable result was not recorded. The attempt stopped instead of purchasing or inventing a second decision.",
+						blockerClaim === "replayed"
+							? "A paid architect decision was durable without its result, so Nova stopped instead of purchasing or inventing another."
+							: "The compiler exhausted its bounded architect-resolution budget.",
 				},
 			};
 		}
 		deadlineAt += BLOCKER_RESOLUTION_ALLOWANCE.ms;
 		armDeadlineTimer();
-		const affectedConstructionGroupIds = [
-			...new Set(
-				failure.affectedConstructionGroupIds?.length
-					? failure.affectedConstructionGroupIds
-					: brief.constructionGroupIds,
-			),
-		];
 		const blocker = executionBlockerSchema.parse({
 			schemaVersion: 1,
-			affectedConstructionGroupIds,
 			observations: failure.observations.slice(0, 12),
 			requestedDecision:
-				"Give exact implementation guidance for resolving this repeated compiler diagnostic without changing the frozen accepted design.",
+				"Give exact implementation guidance for this substantive repeated construction failure without changing the accepted workflow meaning.",
 		});
-		let diagnostics = failure.diagnostics;
-		if (diagnostics === undefined) {
-			diagnostics = projectDiagnostics(
-				await awaitWithAbort(workspace.inspect(), boundedSignal),
-				brief,
-			);
-		}
 		const decision = await awaitWithAbort(
 			args.resolveBlocker({
 				blocker,
 				brief,
-				diagnostics,
+				diagnostics:
+					failure.diagnostics ??
+					projectDiagnostics(
+						await awaitWithAbort(workspace.inspect(), boundedSignal),
+						brief,
+					),
 				signal: boundedSignal,
 			}),
 			boundedSignal,
@@ -1398,6 +1193,7 @@ export async function runSliceExecutor(args: {
 			guidance: decision.guidance,
 		};
 	};
+
 	const compactionBoundaryOrdinal = (): number => {
 		let count = 0;
 		const visit = (value: unknown): void => {
@@ -1418,9 +1214,8 @@ export async function runSliceExecutor(args: {
 	};
 	const [briefMessage, candidateMessage, focusMessage] =
 		executorSliceStartMessages(brief, workspace);
-	if (briefMessage !== undefined) {
+	if (briefMessage !== undefined)
 		appendMessages(`slice-brief:${scopeKey}`, briefMessage);
-	}
 	if (candidateMessage !== undefined) {
 		appendMessages(
 			`candidate:${scopeKey}:${canonicalJsonDigest(candidateMessage)}`,
@@ -1434,8 +1229,50 @@ export async function runSliceExecutor(args: {
 		);
 	}
 
-	args.onProgress?.("building");
+	const emitOutcome = async (
+		call: NativeCall,
+		operationIndex: number,
+		outcome: ExecutorToolOutcomeKind,
+		code: string,
+	): Promise<void> => {
+		await args.onToolOutcome?.({
+			modelStep: modelSteps,
+			toolName: call.toolName,
+			operationIndex,
+			workspaceRevision: workspace.currentSnapshot().revision,
+			outcome,
+			code,
+		});
+	};
+	const appendToolResult = async (
+		call: NativeCall,
+		value: unknown,
+	): Promise<void> => {
+		appendMessages(
+			`step:${scopeKey}:${modelSteps}:tool:${call.toolCallId}`,
+			toolMessage(call.toolCallId, call.toolName, value),
+		);
+		await persistence;
+	};
+	const skipCalls = async (
+		calls: readonly NativeCall[],
+		start: number,
+		reason: string,
+	): Promise<void> => {
+		for (let index = start; index < calls.length; index += 1) {
+			const call = calls[index];
+			if (call === undefined) continue;
+			await emitOutcome(call, index, "skipped", "DEPENDENT_CALL_SKIPPED");
+			await appendToolResult(call, {
+				status: "skipped",
+				code: "DEPENDENT_CALL_SKIPPED",
+				reason,
+			});
+		}
+	};
 
+	args.onProgress?.("building");
+	let consecutiveEmptySteps = 0;
 	try {
 		for (;;) {
 			await persistence;
@@ -1453,8 +1290,10 @@ export async function runSliceExecutor(args: {
 					))
 			) {
 				const boundary = compactionBoundaryOrdinal();
-				const freshPackets = executorSliceStartMessages(brief, workspace);
-				for (const [index, packet] of freshPackets.entries()) {
+				for (const [index, packet] of executorSliceStartMessages(
+					brief,
+					workspace,
+				).entries()) {
 					if (packet === undefined) continue;
 					appendMessages(
 						`compaction-reseed:${scopeKey}:${boundary}:${index}:${canonicalJsonDigest(packet)}`,
@@ -1467,23 +1306,18 @@ export async function runSliceExecutor(args: {
 				return {
 					kind: "protocol-failure",
 					code: "aborted",
-					message: "This slice attempt was cancelled before it finished.",
+					message: "This workflow attempt was cancelled before it finished.",
 				};
 			}
-			if (Date.now() >= deadlineAt || deadline.signal.aborted)
-				return exhausted();
+			if (deadlineExceeded()) return exhausted();
 
 			let step: Awaited<ReturnType<ExecutorStepFn>>;
 			let stepKey: string;
 			const pending = pendingExecutorStep(context, scopeKey);
 			if (pending !== null) {
-				/* The paid response is durable but its function output is not. Resume
-				 * the ORIGINAL model step and dispatch its original call identity. The
-				 * workspace request ledger makes replay idempotent; no provider request
-				 * and no second model-step charge occurs. */
 				if (modelSteps > pending.modelStep) {
 					throw new Error(
-						`Executor attempt ${scopeKey} has an unanswered step ${pending.modelStep} behind durable budget step ${modelSteps}.`,
+						`Executor attempt ${scopeKey} has unanswered step ${pending.modelStep} behind durable budget step ${modelSteps}.`,
 					);
 				}
 				modelSteps = pending.modelStep;
@@ -1497,7 +1331,7 @@ export async function runSliceExecutor(args: {
 				if (!completedStepKeys.has(stepKey)) {
 					if (context.completeStep !== undefined) {
 						throw new Error(
-							`Executor response ${stepKey} is durable without its atomic completion evidence.`,
+							`Executor response ${stepKey} is durable without atomic completion evidence.`,
 						);
 					}
 					await context.recordStep?.(stepKey, {
@@ -1506,11 +1340,16 @@ export async function runSliceExecutor(args: {
 					});
 					completedStepKeys.add(stepKey);
 				}
-			} else {
-				if (modelSteps >= allowedModelSteps()) {
-					const finalized = await finalizeCleanCandidateAtStepBoundary();
-					return finalized ?? exhausted();
+				if (pending.halted) {
+					await skipCalls(
+						step.toolCalls,
+						0,
+						"An earlier call in this response already failed or finalized before recovery.",
+					);
+					continue;
 				}
+			} else {
+				if (modelSteps >= allowedModelSteps()) return exhausted();
 				if (
 					(await claimBudget(
 						"modelSteps",
@@ -1518,8 +1357,7 @@ export async function runSliceExecutor(args: {
 						`model:${scopeKey}:${modelSteps + 1}`,
 					)) === "exhausted"
 				) {
-					const finalized = await finalizeCleanCandidateAtStepBoundary();
-					return finalized ?? exhausted();
+					return exhausted();
 				}
 				stepKey = `${scopeKey}:${modelSteps}`;
 				await context.recordStep?.(stepKey, {
@@ -1534,14 +1372,12 @@ export async function runSliceExecutor(args: {
 							system: EXECUTOR_SYSTEM,
 							messages,
 							tools,
+							allowedTools,
 							signal: boundedSignal,
 						}),
 						boundedSignal,
 					);
 				} catch (error) {
-					/* The provider observes the deadline-bound signal while it is awaited.
-					 * Convert only OUR deadline abort to the durable budget outcome; caller
-					 * cancellation keeps its existing abort semantics. */
 					if (deadlineExceeded()) return exhausted();
 					throw error;
 				}
@@ -1581,14 +1417,8 @@ export async function runSliceExecutor(args: {
 					});
 				}
 			}
-			if (Date.now() >= deadlineAt || deadline.signal.aborted)
-				return exhausted();
-			/* Eligibility belongs only to an action accepted in THIS model step.
-			 * A prose-only or multi-call response executes nothing and must not carry
-			 * forward a prior clean inspection into boundary finalization. */
-			lastActionCanFinalizeAtStepBoundary = false;
+			if (deadlineExceeded()) return exhausted();
 			if (step.reasoningText) args.onReasoning?.(step.reasoningText);
-
 			if (step.toolCalls.length === 0) {
 				consecutiveEmptySteps += 1;
 				if (consecutiveEmptySteps > 2) {
@@ -1596,7 +1426,7 @@ export async function runSliceExecutor(args: {
 						kind: "protocol-failure",
 						code: "no-tool-call",
 						message:
-							"The executor produced three consecutive steps with no tool call. Its work product is tool calls; prose cannot stage or commit anything.",
+							"The executor produced three consecutive responses without a tool call.",
 					};
 				}
 				appendMessages(
@@ -1607,735 +1437,574 @@ export async function runSliceExecutor(args: {
 			}
 			consecutiveEmptySteps = 0;
 
-			if (step.toolCalls.length > 1) {
-				/* §13.6.3: execute none, answer every call deterministically. */
-				appendMessages(
-					`step:${scopeKey}:${modelSteps}:multi-call`,
-					...step.toolCalls.map((call) =>
-						toolMessage(
-							call.toolCallId,
-							call.toolName,
-							ONE_CALL_PROTOCOL_RESULT,
-						),
-					),
-				);
-				continue;
-			}
-
-			const call = step.toolCalls[0];
-			if (call === undefined) continue;
-			const toolOutcome = async (
-				outcome: ExecutorToolOutcomeKind,
-				code: string,
-				operationIndex?: number,
-				toolName = call.toolName,
-			): Promise<void> => {
-				await args.onToolOutcome?.({
+			let haltResponse = false;
+			for (const [index, call] of step.toolCalls.entries()) {
+				if (haltResponse) {
+					await skipCalls(
+						step.toolCalls,
+						index,
+						"A preceding call in this response failed or requested finalization.",
+					);
+					break;
+				}
+				args.onToolCall?.({
 					modelStep: modelSteps,
-					toolName,
-					...(operationIndex !== undefined && { operationIndex }),
+					toolName: call.toolName,
 					workspaceRevision: workspace.currentSnapshot().revision,
-					outcome,
-					code,
 				});
-			};
-			args.onToolCall?.({
-				modelStep: modelSteps,
-				toolName: call.toolName,
-				workspaceRevision: workspace.currentSnapshot().revision,
-			});
-			const answer = (value: unknown): void => {
-				appendMessages(
-					`step:${scopeKey}:${modelSteps}:tool:${call.toolCallId}`,
-					toolMessage(call.toolCallId, call.toolName, value),
-				);
-			};
-			/* The one skeleton both batch tools share: per-operation policy
-			 * check, dispatch through the workspace, result classification, and
-			 * the answer envelope. The stage batch layers its extras through the
-			 * two hooks — `beforeDispatch` (the durable budget claim, outside
-			 * the try like the claim it wraps) and `admit` (creation-handle
-			 * admission plus the staging-input projection, inside the try after
-			 * the deadline check). */
-			const runOperationBatch = async (batch: {
-				operations: readonly { toolName: string; input: unknown }[];
-				effect: "read-blueprint" | "mutate-blueprint";
-				allowedTools: ReadonlySet<string>;
-				notAllowedCode: string;
-				notAllowedError: string;
-				acceptedCode: string;
-				beforeDispatch?: (
-					operation: { toolName: string; input: unknown },
-					index: number,
-				) => Promise<
-					| { kind: "continue" }
-					| { kind: "stop"; outcome: SliceExecutionOutcome }
-				>;
-				admit?: (
-					operation: { toolName: string; input: unknown },
-					index: number,
-				) => Promise<
-					| {
-							kind: "dispatch";
-							input: unknown;
-							intentIds: readonly DesignId[];
-							finalizationModelStep?: number;
-					  }
-					| { kind: "reject"; code: string; error: string }
-				>;
-			}): Promise<
-				| { kind: "answered"; clean: boolean }
-				| { kind: "stop"; outcome: SliceExecutionOutcome }
-			> => {
-				const completed: Array<{
-					index: number;
-					toolName: string;
-					result: unknown;
-				}> = [];
-				let failed: {
-					index: number;
-					toolName: string;
-					code: string;
-					error: string;
-					affectedConstructionGroupIds?: readonly DesignId[];
-				} | null = null;
-				for (const [index, operation] of batch.operations.entries()) {
-					const entry = CHANGE_SET_TOOL_REGISTRY.get(operation.toolName);
-					if (
-						entry === undefined ||
-						entry.policy.effect !== batch.effect ||
-						!batch.allowedTools.has(operation.toolName)
-					) {
-						await toolOutcome(
-							"wire-invalid",
-							batch.notAllowedCode,
-							index,
-							operation.toolName,
-						);
-						failed = {
-							index,
-							toolName: operation.toolName,
-							code: batch.notAllowedCode,
-							error: batch.notAllowedError,
-						};
-						break;
-					}
-					if (batch.beforeDispatch !== undefined) {
-						const before = await batch.beforeDispatch(operation, index);
-						if (before.kind === "stop") return before;
-					}
-					try {
-						if (Date.now() >= deadlineAt || deadline.signal.aborted)
-							return { kind: "stop", outcome: exhausted() };
-						let dispatchInput: {
-							input: unknown;
-							intentIds: readonly DesignId[];
-							finalizationModelStep?: number;
-						} = { input: operation.input, intentIds: [] };
-						if (batch.admit !== undefined) {
-							const admitted = await batch.admit(operation, index);
-							if (admitted.kind === "reject") {
-								await toolOutcome(
-									"wire-invalid",
-									admitted.code,
-									index,
-									operation.toolName,
-								);
-								failed = {
-									index,
-									toolName: operation.toolName,
-									code: admitted.code,
-									error: admitted.error,
-								};
-								break;
-							}
-							dispatchInput = admitted;
-						}
-						const dispatched = await awaitWithAbort(
-							workspace.stageDispatch({
-								toolName: operation.toolName,
-								requestId: `${call.toolCallId}:${index}`,
-								input: dispatchInput.input,
-								intentIds: dispatchInput.intentIds,
-								deadlineAt,
-								...(dispatchInput.finalizationModelStep !== undefined
-									? {
-											finalizationModelStep:
-												dispatchInput.finalizationModelStep,
-										}
-									: {}),
+				let dispatch: NativeCallDispatch = { kind: "continue" };
+
+				const registryEntry = CHANGE_SET_TOOL_REGISTRY.get(call.toolName);
+				if (registryEntry !== undefined) {
+					const allowed =
+						(registryEntry.policy.effect === "read-blueprint" &&
+							allowedReadTools.has(call.toolName)) ||
+						(registryEntry.policy.effect === "mutate-blueprint" &&
+							allowedMutationTools.has(call.toolName));
+					if (!allowed) {
+						await emitOutcome(call, index, "wire-invalid", "TOOL_NOT_ALLOWED");
+						await appendToolResult(
+							call,
+							failedToolResult({
+								code: "TOOL_NOT_ALLOWED",
+								error: `${call.toolName} is not available for this workflow slice.`,
 							}),
+						);
+						dispatch = { kind: "halt-response" };
+					} else {
+						if (registryEntry.policy.effect === "mutate-blueprint") {
+							const claim = await claimBudget(
+								"mutationCalls",
+								allowedMutationCalls(),
+								`mutation:${scopeKey}:${modelSteps}:${call.toolCallId}`,
+							);
+							if (claim === "exhausted") {
+								await appendToolResult(
+									call,
+									failedToolResult({
+										code: "MUTATION_BUDGET_EXHAUSTED",
+										error:
+											"This workflow exhausted its bounded private-mutation budget.",
+									}),
+								);
+								dispatch = { kind: "stop", outcome: exhausted() };
+							}
+						}
+						if (dispatch.kind === "continue") {
+							const creationIssue =
+								registryEntry.policy.effect === "mutate-blueprint"
+									? (executorCreationHandleIssue(call.toolName, call.input) ??
+										executorCatalogDefaultHandleIssue(
+											call.toolName,
+											call.input,
+											workspace.currentSnapshot().doc,
+										))
+									: null;
+							const compositionIssue =
+								registryEntry.policy.effect === "mutate-blueprint"
+									? compositionAdmissionIssue(
+											call.toolName,
+											call.input,
+											brief,
+											workspace,
+										)
+									: null;
+							const admissionError = creationIssue ?? compositionIssue;
+							const admissionCode =
+								creationIssue !== null
+									? "CREATION_HANDLE_REQUIRED"
+									: compositionIssue !== null
+										? "COMPOSITION_HOST_FORBIDDEN"
+										: null;
+							if (admissionError !== null && admissionCode !== null) {
+								let repeatedFailure:
+									| {
+											fingerprint: string;
+											occurrence: number;
+											architectGuidance?: string;
+									  }
+									| undefined;
+								let stop: SliceExecutionOutcome | undefined;
+								if (isSemanticConstructionFailure(admissionCode)) {
+									const observed = await observeSemanticFailure({
+										signature: failureSignature({
+											toolName: call.toolName,
+											code: admissionCode,
+											message: normalizedFailureText(admissionError),
+										}),
+										observations: [
+											`${call.toolName} failed with ${admissionCode}.`,
+											admissionError,
+										],
+									});
+									if (observed.kind === "stop") stop = observed.outcome;
+									else {
+										repeatedFailure = {
+											fingerprint: observed.signature,
+											occurrence: observed.occurrence,
+											...(observed.guidance !== undefined && {
+												architectGuidance: observed.guidance,
+											}),
+										};
+									}
+								}
+								await emitOutcome(
+									call,
+									index,
+									admissionCode === "CREATION_HANDLE_REQUIRED"
+										? "wire-invalid"
+										: "mutation-rejected",
+									admissionCode,
+								);
+								await appendToolResult(
+									call,
+									failedToolResult({
+										code: admissionCode,
+										error: admissionError,
+										...(repeatedFailure !== undefined && { repeatedFailure }),
+									}),
+								);
+								dispatch =
+									stop === undefined
+										? { kind: "halt-response" }
+										: { kind: "stop", outcome: stop };
+							} else {
+								try {
+									const dispatched = await awaitWithAbort(
+										workspace.stageDispatch({
+											toolName: call.toolName,
+											requestId: call.toolCallId,
+											input: call.input,
+											deadlineAt,
+										}),
+										boundedSignal,
+									);
+									const projected = projectToolResult(
+										dispatched.result,
+										workspace,
+									);
+									if (resultHasError(projected)) {
+										const code = toolFailureCode(dispatched.receipt, projected);
+										const error = (projected as { error: string }).error;
+										let repeatedFailure:
+											| {
+													fingerprint: string;
+													occurrence: number;
+													architectGuidance?: string;
+											  }
+											| undefined;
+										let stop: SliceExecutionOutcome | undefined;
+										if (isSemanticConstructionFailure(code)) {
+											const observed = await observeSemanticFailure({
+												signature: failureSignature({
+													toolName: call.toolName,
+													code,
+													message: normalizedFailureText(error),
+												}),
+												observations: [
+													`${call.toolName} failed with ${code}.`,
+													error,
+												],
+											});
+											if (observed.kind === "stop") stop = observed.outcome;
+											else {
+												repeatedFailure = {
+													fingerprint: observed.signature,
+													occurrence: observed.occurrence,
+													...(observed.guidance !== undefined && {
+														architectGuidance: observed.guidance,
+													}),
+												};
+											}
+										}
+										await emitOutcome(
+											call,
+											index,
+											registryEntry.policy.effect === "read-blueprint"
+												? "operation-rejected"
+												: "mutation-rejected",
+											code,
+										);
+										await appendToolResult(
+											call,
+											failedToolResult({
+												code,
+												error,
+												...(repeatedFailure !== undefined && {
+													repeatedFailure,
+												}),
+											}),
+										);
+										dispatch =
+											stop === undefined
+												? { kind: "halt-response" }
+												: { kind: "stop", outcome: stop };
+									} else {
+										clearFailureSequence();
+										await emitOutcome(
+											call,
+											index,
+											"accepted",
+											registryEntry.policy.effect === "read-blueprint"
+												? "READ_COMPLETED"
+												: "PRIVATE_MUTATION_APPLIED",
+										);
+										await appendToolResult(call, projected);
+									}
+								} catch (error) {
+									if (deadlineExceeded()) {
+										dispatch = { kind: "stop", outcome: exhausted() };
+									} else if (error instanceof ChangeSetStagingRejectedError) {
+										await emitOutcome(call, index, "wire-invalid", error.code);
+										await appendToolResult(
+											call,
+											failedToolResult({
+												code: error.code,
+												error: error.message,
+											}),
+										);
+										dispatch = { kind: "halt-response" };
+									} else {
+										const terminal = terminalProtocolCode(error);
+										if (terminal === null) throw error;
+										await emitOutcome(
+											call,
+											index,
+											"terminal-protocol",
+											terminal,
+										);
+										await appendToolResult(call, {
+											status: "terminal",
+											code: terminal,
+											error: (error as Error).message,
+										});
+										dispatch = {
+											kind: "stop",
+											outcome: {
+												kind: "protocol-failure",
+												code: terminal,
+												message: (error as Error).message,
+											},
+										};
+									}
+								}
+							}
+						}
+					}
+				} else if (call.toolName === FINISH_TOOL) {
+					const parsed = noArgumentsSchema.safeParse(call.input);
+					if (!parsed.success) {
+						await emitOutcome(
+							call,
+							index,
+							"wire-invalid",
+							"TOOL_INPUT_INVALID",
+						);
+						await appendToolResult(
+							call,
+							failedToolResult({
+								code: "TOOL_INPUT_INVALID",
+								error: wireIssueSummary(parsed.error),
+							}),
+						);
+						dispatch = { kind: "halt-response" };
+					} else {
+						args.onProgress?.("validating");
+						const diagnostics = await awaitWithAbort(
+							workspace.inspect(),
 							boundedSignal,
 						);
-						const projectedResult = projectToolResult(
-							dispatched.result,
-							workspace,
-						);
-						if (resultHasError(projectedResult)) {
-							await toolOutcome(
-								"stage-rejected",
-								"TOOL_RESULT_ERROR",
+						const stale = staleExternalReads(diagnostics);
+						if (stale.length > 0) {
+							await emitOutcome(
+								call,
 								index,
-								operation.toolName,
+								"finalization-rejected",
+								"READ_SET_STALE",
 							);
-							failed = {
-								index,
-								toolName: operation.toolName,
-								code: "TOOL_RESULT_ERROR",
-								error: (projectedResult as { error: string }).error,
-								affectedConstructionGroupIds: dispatchInput.intentIds,
+							await appendToolResult(call, {
+								status: "terminal",
+								code: "READ_SET_STALE",
+								error: "The workflow's external read set is stale.",
+								stale,
+							});
+							dispatch = {
+								kind: "stop",
+								outcome: { kind: "read-set-stale", stale },
 							};
-							break;
-						}
-						await toolOutcome(
-							"accepted",
-							batch.acceptedCode,
-							index,
-							operation.toolName,
-						);
-						completed.push({
-							index,
-							toolName: operation.toolName,
-							result: projectedResult,
-						});
-					} catch (error) {
-						if (deadlineExceeded())
-							return { kind: "stop", outcome: exhausted() };
-						if (error instanceof ChangeSetStagingRejectedError) {
-							await toolOutcome(
-								"stage-rejected",
-								error.code,
-								index,
-								operation.toolName,
-							);
-							failed = {
-								index,
-								toolName: operation.toolName,
-								code: error.code,
-								error: error.message,
-							};
-							break;
-						}
-						const terminal = terminalProtocolCode(error);
-						if (terminal === null) throw error;
-						await toolOutcome(
-							"terminal-protocol",
-							terminal,
-							index,
-							operation.toolName,
-						);
-						return {
-							kind: "stop",
-							outcome: {
-								kind: "protocol-failure",
-								code: terminal,
-								message: (error as Error).message,
-							},
-						};
-					}
-				}
-				let automatic: AutomaticFailureResult | null = null;
-				if (failed !== null) {
-					const signature = failureSignature({
-						kind:
-							batch.effect === "mutate-blueprint"
-								? "staging-rejection"
-								: "read-rejection",
-						code: failed.code,
-						toolName: failed.toolName,
-						message: normalizedFailureText(failed.error),
-					});
-					automatic = await observeAutomaticFailure({
-						signature,
-						observations: [
-							`${failed.toolName} repeatedly failed with ${failed.code}.`,
-							failed.error,
-						],
-						...(failed.affectedConstructionGroupIds !== undefined && {
-							affectedConstructionGroupIds: failed.affectedConstructionGroupIds,
-						}),
-					});
-					if (automatic.kind === "stop") return automatic;
-				}
-				answer({
-					completed,
-					...(failed === null
-						? { status: "completed" }
-						: {
-								status: "stopped",
-								failed: {
-									index: failed.index,
-									toolName: failed.toolName,
-									error: failed.error,
-								},
-								unattemptedCount: batch.operations.length - failed.index - 1,
-								...(automatic?.kind === "observed" && {
-									repeatedFailure: {
-										fingerprint: automatic.signature,
-										occurrence: automatic.occurrence,
-										...(automatic.guidance !== undefined && {
-											architectGuidance: automatic.guidance,
-										}),
-									},
-								}),
-							}),
-				});
-				return { kind: "answered", clean: failed === null };
-			};
-
-			if (call.toolName === READ_BATCH_TOOL) {
-				const parsed = readBatchEnvelopeSchema.safeParse(call.input);
-				if (!parsed.success) {
-					await toolOutcome("wire-invalid", "READ_BATCH_ENVELOPE_INVALID");
-					const automatic = await observeAutomaticFailure({
-						signature: failureSignature({
-							kind: "wire-invalid",
-							code: "READ_BATCH_ENVELOPE_INVALID",
-						}),
-						observations: [
-							`The read batch envelope repeatedly failed schema admission: ${wireIssueSummary(parsed.error)}`,
-						],
-					});
-					if (automatic.kind === "stop") return automatic.outcome;
-					answer({
-						error: `The read batch shape is invalid: ${wireIssueSummary(parsed.error)}`,
-						repeatedFailure: {
-							fingerprint: automatic.signature,
-							occurrence: automatic.occurrence,
-							...(automatic.guidance !== undefined && {
-								architectGuidance: automatic.guidance,
-							}),
-						},
-					});
-					continue;
-				}
-				const outcome = await runOperationBatch({
-					operations: parsed.data.operations,
-					effect: "read-blueprint",
-					allowedTools: allowedReadTools,
-					notAllowedCode: "READ_OPERATION_NOT_ALLOWED",
-					notAllowedError:
-						"Only read-only Blueprint tools are valid read operations.",
-					acceptedCode: "READ_COMPLETED",
-				});
-				if (outcome.kind === "stop") return outcome.outcome;
-				continue;
-			}
-
-			if (call.toolName === STAGE_BATCH_TOOL) {
-				const parsed = stageBatchEnvelopeSchema.safeParse(call.input);
-				if (!parsed.success) {
-					await toolOutcome("wire-invalid", "STAGE_BATCH_ENVELOPE_INVALID");
-					const automatic = await observeAutomaticFailure({
-						signature: failureSignature({
-							kind: "wire-invalid",
-							code: "STAGE_BATCH_ENVELOPE_INVALID",
-						}),
-						observations: [
-							`The stage batch envelope repeatedly failed schema admission: ${wireIssueSummary(parsed.error)}`,
-						],
-					});
-					if (automatic.kind === "stop") return automatic.outcome;
-					answer({
-						error: `The batch shape is invalid: ${wireIssueSummary(parsed.error)}`,
-						repeatedFailure: {
-							fingerprint: automatic.signature,
-							occurrence: automatic.occurrence,
-							...(automatic.guidance !== undefined && {
-								architectGuidance: automatic.guidance,
-							}),
-						},
-					});
-					continue;
-				}
-				const operations = parsed.data.operations;
-				const outcome = await runOperationBatch({
-					operations,
-					effect: "mutate-blueprint",
-					allowedTools: allowedMutationTools,
-					notAllowedCode: "STAGE_OPERATION_NOT_ALLOWED",
-					notAllowedError:
-						"Only private Blueprint mutations are valid batch operations.",
-					acceptedCode: "STAGE_COMPLETED",
-					beforeDispatch: async (_operation, index) =>
-						(await claimBudget(
-							"stagedRequests",
-							allowedStagedRequests(),
-							`stage:${scopeKey}:${modelSteps}:${call.toolCallId}:${index}`,
-						)) === "exhausted"
-							? { kind: "stop", outcome: exhausted() }
-							: { kind: "continue" },
-					admit: async (operation, index) => {
-						const creationIssue =
-							executorCreationHandleIssue(
-								operation.toolName,
-								operation.input,
-							) ??
-							executorCatalogDefaultHandleIssue(
-								operation.toolName,
-								operation.input,
-								workspace.currentSnapshot().doc,
-							);
-						if (creationIssue !== null) {
-							return {
-								kind: "reject",
-								code: "CREATION_HANDLE_REQUIRED",
-								error: creationIssue,
-							};
-						}
-						const compositionIssue = compositionStagingIssue(
-							operation.toolName,
-							operation.input,
-							brief,
-							workspace,
-						);
-						if (compositionIssue !== null) {
-							return {
-								kind: "reject",
-								code: "COMPOSITION_HOST_FORBIDDEN",
-								error: compositionIssue,
-							};
-						}
-						const projected = extractStagingInput(operation.input, brief);
-						return {
-							kind: "dispatch",
-							input: projected.input,
-							intentIds: projected.intentIds,
-							...(validationRequested && index === operations.length - 1
-								? { finalizationModelStep: modelSteps }
-								: {}),
-						};
-					},
-				});
-				if (outcome.kind === "stop") return outcome.outcome;
-				await checkpointFinalization(validationRequested && outcome.clean);
-				continue;
-			}
-
-			if (CHANGE_SET_TOOL_REGISTRY.has(call.toolName)) {
-				await toolOutcome("wire-invalid", "TOP_LEVEL_OPERATION_NOT_ALLOWED");
-				answer({
-					error:
-						"Only readBatch and stageBatch mount Blueprint operations at the top level.",
-				});
-				continue;
-			}
-
-			if (call.toolName === INSPECT_TOOL) {
-				validationRequested = true;
-				if (Date.now() >= deadlineAt || deadline.signal.aborted)
-					return exhausted();
-				/* Persist the accepted validation action before its read. A replacement
-				 * process can re-run the full inspection and canonical gate even when
-				 * this was the attempt's last paid model step. */
-				await checkpointFinalization(true);
-				args.onProgress?.("validating");
-				try {
-					const diagnostics = await awaitWithAbort(
-						workspace.inspect(),
-						boundedSignal,
-					);
-					const stale = staleExternalReads(diagnostics);
-					if (stale.length > 0) {
-						await toolOutcome("stage-rejected", "READ_SET_STALE");
-						answer({ error: "The inspected read set is stale.", stale });
-						return { kind: "read-set-stale", stale };
-					}
-					await toolOutcome(
-						diagnostics.allFindings.length > 0
-							? "validator-repair"
-							: "accepted",
-						diagnostics.allFindings.length > 0
-							? "VALIDATOR_FINDINGS"
-							: "INSPECTION_CLEAN",
-					);
-					const projected = projectDiagnostics(diagnostics, brief);
-					if (diagnostics.allFindings.length === 0) {
-						clearAutomaticFailureSequence();
-						answer(projected);
-					} else {
-						const automatic = await observeAutomaticFailure({
-							signature: failureSignature({
-								kind: "validator-findings",
-								fingerprints: diagnostics.allFindings
-									.map(findingFingerprint)
-									.sort(),
-							}),
-							observations: diagnostics.allFindings
-								.slice(0, 12)
-								.map((finding) => `${finding.code}: ${finding.message}`),
-							diagnostics: projected,
-						});
-						if (automatic.kind === "stop") return automatic.outcome;
-						answer({
-							...(projected as Record<string, unknown>),
-							repeatedFailure: {
-								fingerprint: automatic.signature,
-								occurrence: automatic.occurrence,
-								...(automatic.guidance !== undefined && {
-									architectGuidance: automatic.guidance,
-								}),
-							},
-						});
-					}
-				} catch (error) {
-					if (deadlineExceeded()) return exhausted();
-					throw error;
-				}
-				continue;
-			}
-
-			if (call.toolName === COMMIT_TOOL) {
-				validationRequested = true;
-				if (Date.now() >= deadlineAt || deadline.signal.aborted)
-					return exhausted();
-				await checkpointFinalization(true);
-				let diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>;
-				try {
-					diagnostics = await awaitWithAbort(
-						workspace.inspect(),
-						boundedSignal,
-					);
-				} catch (error) {
-					if (deadlineExceeded()) return exhausted();
-					throw error;
-				}
-				if (Date.now() >= deadlineAt || deadline.signal.aborted)
-					return exhausted();
-				const stale = staleExternalReads(diagnostics);
-				if (stale.length > 0) {
-					await toolOutcome("stage-rejected", "READ_SET_STALE");
-					answer({ error: "The commit read set is stale.", stale });
-					return { kind: "read-set-stale", stale };
-				}
-				const remainingIntents = remainingConstructionGroupIds(
-					diagnostics,
-					brief,
-				);
-				if (!diagnostics.canCommit || remainingIntents.length > 0) {
-					/* A blocked request is not an attempt — nothing was tried. */
-					await checkpointFinalization(false);
-					await toolOutcome(
-						diagnostics.allFindings.length > 0
-							? "validator-repair"
-							: "stage-rejected",
-						diagnostics.allFindings.length > 0
-							? "VALIDATOR_FINDINGS"
-							: "COMMIT_PRECONDITION_FAILED",
-					);
-					const error = `The change set cannot commit yet: ${describeBlockers(
-						diagnostics,
-						remainingIntents,
-					)}`;
-					const signature =
-						diagnostics.allFindings.length > 0
-							? failureSignature({
-									kind: "validator-findings",
+						} else if (!diagnostics.canCommit) {
+							const projected = projectDiagnostics(diagnostics, brief);
+							const observed = await observeSemanticFailure({
+								signature: failureSignature({
+									kind: "workflow-needs-correction",
 									fingerprints: diagnostics.allFindings
 										.map(findingFingerprint)
 										.sort(),
-								})
-							: failureSignature({
-									kind: "commit-precondition",
-									remainingConstructionGroupIds: [...remainingIntents].sort(),
-								});
-					const automatic = await observeAutomaticFailure({
-						signature,
-						observations:
-							diagnostics.allFindings.length > 0
-								? diagnostics.allFindings
-										.slice(0, 12)
-										.map((finding) => `${finding.code}: ${finding.message}`)
-								: [error],
-						diagnostics: projectDiagnostics(diagnostics, brief),
-					});
-					if (automatic.kind === "stop") return automatic.outcome;
-					answer({
-						error,
-						remainingConstructionGroupIds: remainingIntents,
-						repeatedFailure: {
-							fingerprint: automatic.signature,
-							occurrence: automatic.occurrence,
-							...(automatic.guidance !== undefined && {
-								architectGuidance: automatic.guidance,
-							}),
-						},
-					});
-					continue;
-				}
-				if (
-					(await claimBudget(
-						"commitAttempts",
-						budget.maxCommitAttempts,
-						`commit:${scopeKey}:${modelSteps}:${call.toolCallId}`,
-					)) === "exhausted"
-				)
-					return exhausted();
-				args.onProgress?.("committing");
-				let result: SliceCommitResult;
-				try {
-					result = await awaitWithAbort(
-						args.commit(boundedSignal, deadlineAt),
-						boundedSignal,
-					);
-				} catch (error) {
-					if (deadlineExceeded()) {
-						const reconciled = await args.reconcileCommit?.();
-						if (reconciled?.kind === "committed") {
-							await toolOutcome(
-								"committed",
-								"CHANGE_SET_COMMITTED_AT_DEADLINE",
+									canCommit: diagnostics.canCommit,
+								}),
+								observations:
+									diagnostics.allFindings.length > 0
+										? diagnostics.allFindings
+												.slice(0, 12)
+												.map((finding) => `${finding.code}: ${finding.message}`)
+										: [describeBlockers(diagnostics)],
+								diagnostics: projected,
+							});
+							await emitOutcome(
+								call,
+								index,
+								"validator-repair",
+								"WORKFLOW_NEEDS_CORRECTION",
 							);
-							answer({ committed: true, receipt: reconciled.receipt });
-							return { kind: "committed", receipt: reconciled.receipt };
+							await appendToolResult(call, {
+								status: "needs-correction",
+								code: "WORKFLOW_NEEDS_CORRECTION",
+								diagnostics: projected,
+								...(observed.kind === "observed" && {
+									repeatedFailure: {
+										fingerprint: observed.signature,
+										occurrence: observed.occurrence,
+										...(observed.guidance !== undefined && {
+											architectGuidance: observed.guidance,
+										}),
+									},
+								}),
+							});
+							dispatch =
+								observed.kind === "stop"
+									? { kind: "stop", outcome: observed.outcome }
+									: { kind: "halt-response" };
+						} else if (
+							(await claimBudget(
+								"commitAttempts",
+								budget.maxCommitAttempts,
+								`finish:${scopeKey}:${modelSteps}:${call.toolCallId}`,
+							)) === "exhausted"
+						) {
+							await appendToolResult(
+								call,
+								failedToolResult({
+									code: "COMMIT_BUDGET_EXHAUSTED",
+									error: "This workflow exhausted its bounded commit budget.",
+								}),
+							);
+							dispatch = { kind: "stop", outcome: exhausted() };
+						} else {
+							args.onProgress?.("committing");
+							let result: SliceCommitResult;
+							try {
+								result = await awaitWithAbort(
+									args.commit(boundedSignal, deadlineAt),
+									boundedSignal,
+								);
+							} catch (error) {
+								if (!deadlineExceeded()) throw error;
+								const reconciled = await args.reconcileCommit?.();
+								if (reconciled?.kind !== "committed") {
+									dispatch = { kind: "stop", outcome: exhausted() };
+									result = { kind: "gate-rejected", message: "deadline" };
+								} else {
+									result = reconciled;
+								}
+							}
+							if (dispatch.kind === "continue") {
+								if (result.kind === "committed") {
+									clearFailureSequence();
+									await emitOutcome(
+										call,
+										index,
+										"committed",
+										"WORKFLOW_COMMITTED",
+									);
+									await appendToolResult(call, {
+										status: "committed",
+										code: "WORKFLOW_COMMITTED",
+										receipt: result.receipt,
+									});
+									dispatch = {
+										kind: "stop",
+										outcome: {
+											kind: "committed",
+											receipt: result.receipt,
+										},
+									};
+								} else if (result.kind === "rebase-conflict") {
+									await emitOutcome(
+										call,
+										index,
+										"finalization-rejected",
+										"REBASE_CONFLICT",
+									);
+									await appendToolResult(call, {
+										status: "terminal",
+										code: "REBASE_CONFLICT",
+										report: result.report,
+									});
+									dispatch = {
+										kind: "stop",
+										outcome: {
+											kind: "rebase-conflict",
+											report: result.report,
+										},
+									};
+								} else if (result.kind === "read-set-stale") {
+									await emitOutcome(
+										call,
+										index,
+										"finalization-rejected",
+										"READ_SET_STALE",
+									);
+									await appendToolResult(call, {
+										status: "terminal",
+										code: "READ_SET_STALE",
+										stale: result.stale,
+									});
+									dispatch = {
+										kind: "stop",
+										outcome: {
+											kind: "read-set-stale",
+											stale: result.stale,
+										},
+									};
+								} else {
+									const observed = await observeSemanticFailure({
+										signature: failureSignature({
+											kind: "canonical-gate-rejection",
+											message: normalizedFailureText(result.message),
+										}),
+										observations: [result.message],
+									});
+									await emitOutcome(
+										call,
+										index,
+										"validator-repair",
+										"CANONICAL_GATE_REJECTED",
+									);
+									await appendToolResult(call, {
+										status: "needs-correction",
+										code: "CANONICAL_GATE_REJECTED",
+										error: result.message,
+										...(observed.kind === "observed" && {
+											repeatedFailure: {
+												fingerprint: observed.signature,
+												occurrence: observed.occurrence,
+												...(observed.guidance !== undefined && {
+													architectGuidance: observed.guidance,
+												}),
+											},
+										}),
+									});
+									dispatch =
+										observed.kind === "stop"
+											? { kind: "stop", outcome: observed.outcome }
+											: { kind: "halt-response" };
+								}
+							}
 						}
-						return exhausted();
 					}
-					throw error;
-				}
-				if (result.kind === "committed") {
-					await toolOutcome("committed", "CHANGE_SET_COMMITTED");
-					answer({ committed: true, receipt: result.receipt });
-					return { kind: "committed", receipt: result.receipt };
-				}
-				if (result.kind === "gate-rejected") {
-					await checkpointFinalization(false);
-					await toolOutcome("stage-rejected", "CANONICAL_GATE_REJECTED");
-					const automatic = await observeAutomaticFailure({
-						signature: failureSignature({
-							kind: "canonical-gate-rejection",
-							message: normalizedFailureText(result.message),
-						}),
-						observations: [
-							"The canonical commit gate repeatedly rejected the same private candidate.",
-							result.message,
-						],
-					});
-					if (automatic.kind === "stop") return automatic.outcome;
-					answer({
-						error: result.message,
-						repeatedFailure: {
-							fingerprint: automatic.signature,
-							occurrence: automatic.occurrence,
-							...(automatic.guidance !== undefined && {
-								architectGuidance: automatic.guidance,
+				} else if (call.toolName === REPORT_BLOCKER_TOOL) {
+					const parsed = executionBlockerSchema.safeParse(call.input);
+					if (!parsed.success) {
+						await emitOutcome(
+							call,
+							index,
+							"wire-invalid",
+							"TOOL_INPUT_INVALID",
+						);
+						await appendToolResult(
+							call,
+							failedToolResult({
+								code: "TOOL_INPUT_INVALID",
+								error: wireIssueSummary(parsed.error),
 							}),
-						},
-					});
-					continue;
-				}
-				if (result.kind === "rebase-conflict") {
-					await toolOutcome("stage-rejected", "REBASE_CONFLICT");
-					answer({
-						error:
-							"The canonical base changed and this append-only attempt must be superseded.",
-						report: result.report,
-					});
-					/* Admitted steps are append-only. A semantic conflict cannot be
-					 * repaired by appending after the invalid step because replay would
-					 * still execute it. The orchestrator owns bounded supersession and
-					 * restarts from the fresh canonical base. */
-					return { kind: "rebase-conflict", report: result.report };
-				}
-				await toolOutcome("stage-rejected", "READ_SET_STALE");
-				answer({
-					error: "The commit read set became stale.",
-					stale: result.stale,
-				});
-				/* External dependencies are part of immutable staged steps. Appending a
-				 * new read cannot erase the stale dependency, so the orchestrator must
-				 * supersede this attempt and reconstruct from a fresh snapshot. */
-				return { kind: "read-set-stale", stale: result.stale };
-			}
-
-			if (call.toolName === REPORT_BLOCKER_TOOL) {
-				const parsed = executionBlockerSchema.safeParse(call.input);
-				if (!parsed.success) {
-					await toolOutcome("wire-invalid", "BLOCKER_REPORT_INVALID");
-					answer({
-						error: `That blocker report is invalid: ${wireIssueSummary(parsed.error)}`,
-					});
-					continue;
-				}
-				const blockerClaim = await claimBudget(
-					"blockerReports",
-					budget.maxBlockerResolutions,
-					`blocker:${scopeKey}:${modelSteps}:${call.toolCallId}`,
-				);
-				if (blockerClaim === "exhausted") {
-					return {
-						kind: "protocol-failure",
-						code: "blocker-resolution-budget-exhausted",
-						message:
-							"The compiler exhausted its bounded architect-resolution budget without reaching a safe construction.",
-					};
-				}
-				if (blockerClaim === "replayed") {
-					return {
-						kind: "protocol-failure",
-						code: "architect-decision-response-lost",
-						message:
-							"A paid architect decision was observed before process replacement, but its durable result was not recorded. The attempt stopped instead of purchasing or inventing a second decision.",
-					};
-				}
-				/* The paid decision's rework allowance: the claim above already
-				 * grew the step/staging limits (it incremented `blockerReports`),
-				 * so extend the wall clock by the matching amount now. */
-				deadlineAt += BLOCKER_RESOLUTION_ALLOWANCE.ms;
-				armDeadlineTimer();
-				let diagnostics: ReturnType<typeof projectDiagnostics>;
-				try {
-					diagnostics = projectDiagnostics(
-						await awaitWithAbort(workspace.inspect(), boundedSignal),
-						brief,
-					);
-				} catch (error) {
-					if (deadlineExceeded()) return exhausted();
-					throw error;
-				}
-				if (args.resolveBlocker === undefined) {
-					return {
-						kind: "protocol-failure",
-						code: "architect-resolver-unavailable",
-						message:
-							"The server-owned architect resolver is unavailable for this execution.",
-					};
-				}
-				let decision: ArchitectBlockerDecision;
-				try {
-					decision = await awaitWithAbort(
-						args.resolveBlocker({
-							blocker: parsed.data,
-							brief,
-							diagnostics,
-							signal: boundedSignal,
+						);
+						dispatch = { kind: "halt-response" };
+					} else if (args.resolveBlocker === undefined) {
+						dispatch = {
+							kind: "stop",
+							outcome: {
+								kind: "protocol-failure",
+								code: "architect-resolver-unavailable",
+								message: "The server-owned architect resolver is unavailable.",
+							},
+						};
+					} else {
+						const claim = await claimBudget(
+							"blockerReports",
+							budget.maxBlockerResolutions,
+							`blocker:${scopeKey}:${modelSteps}:${call.toolCallId}`,
+						);
+						if (claim !== "claimed") {
+							dispatch = {
+								kind: "stop",
+								outcome: {
+									kind: "protocol-failure",
+									code:
+										claim === "replayed"
+											? "architect-decision-response-lost"
+											: "blocker-resolution-budget-exhausted",
+									message:
+										"The bounded architect-resolution request could not run.",
+								},
+							};
+						} else {
+							deadlineAt += BLOCKER_RESOLUTION_ALLOWANCE.ms;
+							armDeadlineTimer();
+							const decision = await awaitWithAbort(
+								args.resolveBlocker({
+									blocker: parsed.data,
+									brief,
+									diagnostics: projectDiagnostics(
+										await awaitWithAbort(workspace.inspect(), boundedSignal),
+										brief,
+									),
+									signal: boundedSignal,
+								}),
+								boundedSignal,
+							);
+							await emitOutcome(call, index, "accepted", "ARCHITECT_DECISION");
+							await appendToolResult(call, {
+								status:
+									decision.kind === "continue"
+										? "needs-correction"
+										: "terminal",
+								decision,
+							});
+							dispatch =
+								decision.kind === "continue"
+									? { kind: "halt-response" }
+									: {
+											kind: "stop",
+											outcome: { kind: "architect-decision", decision },
+										};
+						}
+					}
+				} else {
+					await emitOutcome(call, index, "wire-invalid", "UNKNOWN_TOOL");
+					await appendToolResult(
+						call,
+						failedToolResult({
+							code: "UNKNOWN_TOOL",
+							error: `There is no tool named ${call.toolName}.`,
 						}),
-						boundedSignal,
 					);
-				} catch (error) {
-					if (deadlineExceeded()) return exhausted();
-					throw error;
+					dispatch = { kind: "halt-response" };
 				}
-				if (decision.kind === "continue") {
-					await toolOutcome("accepted", "ARCHITECT_CONTINUE");
-					answer({ decision: "continue", guidance: decision.guidance });
-					await persistence;
-					continue;
-				}
-				await toolOutcome("accepted", "ARCHITECT_DECISION");
-				answer({ decision });
-				await persistence;
-				return { kind: "architect-decision", decision };
-			}
 
-			await toolOutcome("wire-invalid", "UNKNOWN_TOOL");
-			answer({
-				error: `There is no tool named ${call.toolName}. The tools available are: ${Object.keys(tools).join(", ")}.`,
-			});
+				if (dispatch.kind === "halt-response") haltResponse = true;
+				if (dispatch.kind === "stop") {
+					await skipCalls(
+						step.toolCalls,
+						index + 1,
+						"A preceding call ended this workflow attempt.",
+					);
+					return dispatch.outcome;
+				}
+			}
 		}
 	} finally {
 		await persistence;
-		clearTimeout(deadlineTimer);
+		if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
 	}
 }
 
@@ -2364,7 +2033,7 @@ function resolveCheckpointIdentity(
  * prevents invented module homes and wrong form host/mode choices while the
  * final candidate remains free to realize fields, groups, prose, and layout
  * through the ordinary canonical tools. */
-export function compositionStagingIssue(
+export function compositionAdmissionIssue(
 	toolName: string,
 	input: unknown,
 	brief: SliceExecutionBrief,
@@ -2398,8 +2067,7 @@ export function compositionStagingIssue(
 		}
 		return null;
 	}
-	const createModule =
-		toolName === "stageModule" || toolName === "createModule";
+	const createModule = toolName === "createModule";
 	if (createModule) {
 		const caseType =
 			typeof object.case_type === "string" ? object.case_type : null;
@@ -2442,7 +2110,7 @@ export function compositionStagingIssue(
 		return null;
 	}
 
-	if (toolName === "stageForm" || toolName === "createForm") {
+	if (toolName === "createForm") {
 		const moduleUuid = resolveCheckpointIdentity(object.moduleUuid, workspace);
 		const module =
 			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
@@ -2513,42 +2181,6 @@ function awaitWithAbort<T>(
 	});
 }
 
-function extractStagingInput(
-	input: unknown,
-	brief: SliceExecutionBrief,
-): { input: unknown; intentIds: readonly z.infer<typeof designIdSchema>[] } {
-	if (input === null || typeof input !== "object" || Array.isArray(input)) {
-		throw new ChangeSetStagingRejectedError(
-			"STAGING_FORBIDDEN",
-			"A staged mutation call must be an object with constructionGroupIds.",
-		);
-	}
-	const { constructionGroupIds, ...toolInput } = input as Record<
-		string,
-		unknown
-	>;
-	const parsed = z
-		.array(designIdSchema)
-		.min(1)
-		.refine((ids) => new Set(ids).size === ids.length)
-		.safeParse(constructionGroupIds);
-	if (!parsed.success) {
-		throw new ChangeSetStagingRejectedError(
-			"STAGING_FORBIDDEN",
-			"A staged mutation call must name at least one valid construction group id.",
-		);
-	}
-	const owned = new Set<string>(brief.constructionGroupIds);
-	const foreignGroupIds = parsed.data.filter((id) => !owned.has(id));
-	if (foreignGroupIds.length > 0) {
-		throw new ChangeSetStagingRejectedError(
-			"STAGING_FORBIDDEN",
-			`A staged mutation call may name only construction groups in this workflow slice. These ids are outside the slice: ${foreignGroupIds.join(", ")}. Name the group or groups this operation actually implements; a group may appear on more than one corrective step.`,
-		);
-	}
-	return { input: toolInput, intentIds: parsed.data };
-}
-
 /** The terminal change-set errors, mapped to their stable observability codes.
  *  Anything else is not a protocol failure and belongs to the caller. */
 function terminalProtocolCode(error: unknown): string | null {
@@ -2563,10 +2195,9 @@ function terminalProtocolCode(error: unknown): string | null {
  *  whole validator dump. */
 function projectDiagnostics(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
-	brief: SliceExecutionBrief,
+	_brief: SliceExecutionBrief,
 ): unknown {
 	const MAX_REPORTED_FINDINGS = 20;
-	const remainingIntents = remainingConstructionGroupIds(diagnostics, brief);
 	return {
 		revision: diagnostics.snapshotRevision,
 		findingCount: diagnostics.allFindings.length,
@@ -2594,14 +2225,12 @@ function projectDiagnostics(
 			kind: status.dependency.kind,
 			state: status.state,
 		})),
-		remainingConstructionGroupIds: remainingIntents,
-		canCommit: diagnostics.canCommit && remainingIntents.length === 0,
+		canCommit: diagnostics.canCommit,
 	};
 }
 
 function describeBlockers(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
-	remainingIntents: readonly string[],
 ): string {
 	const codes = [
 		...new Set(diagnostics.allFindings.map((finding) => finding.code)),
@@ -2613,12 +2242,9 @@ function describeBlockers(
 	if (stale.length > 0) {
 		return `external data it read is ${[...new Set(stale.map((status) => status.state))].join(" and ")}`;
 	}
-	if (remainingIntents.length > 0) {
-		return `${remainingIntents.length} owned design intent${remainingIntents.length === 1 ? " has" : "s have"} no staged implementation`;
-	}
 	return diagnostics.snapshotRevision === 0
-		? "it holds no staged mutation steps yet"
-		: `its ${diagnostics.snapshotRevision} staged mutation step${diagnostics.snapshotRevision === 1 ? "" : "s"} have not satisfied finalization, but no specific finding was reported`;
+		? "it holds no private mutation steps yet"
+		: `its ${diagnostics.snapshotRevision} private mutation step${diagnostics.snapshotRevision === 1 ? "" : "s"} did not satisfy the final gate, but no specific finding was reported`;
 }
 
 function staleExternalReads(
@@ -2627,17 +2253,4 @@ function staleExternalReads(
 	return diagnostics.readSetStatus.filter(
 		(status) => status.state !== "current",
 	);
-}
-
-/** The exact coverage gap the canonical commit will independently re-prove.
- * Diagnostics derives coverage from durable mutation-bearing steps; the
- * accepted brief is the authority for what this slice owns. */
-function remainingConstructionGroupIds(
-	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
-	brief: SliceExecutionBrief,
-): string[] {
-	const covered = new Set(
-		diagnostics.sliceIntentCoverage.map((coverage) => coverage.intentId),
-	);
-	return brief.constructionGroupIds.filter((groupId) => !covered.has(groupId));
 }

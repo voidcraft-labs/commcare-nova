@@ -7,8 +7,8 @@
 import { jsonSchema } from "ai";
 import { describe, expect, it } from "vitest";
 import { executionBlockerSchema } from "@/lib/agent/build/executionBlocker";
+import { buildExecutorTools } from "@/lib/agent/build/executorLoop";
 import {
-	EXECUTOR_TOOL_SURFACE,
 	executorCatalogDefaultHandleIssue,
 	executorWireToolSchema,
 } from "@/lib/agent/build/executorWireSchemas";
@@ -93,28 +93,30 @@ function schemasWithProperty(node: unknown, name: string): JsonNode[] {
 	return found;
 }
 
-describe("EXECUTOR_TOOL_SURFACE", () => {
-	it("mounts reads, one mutation batch, and the server-owned gates", () => {
-		expect(EXECUTOR_TOOL_SURFACE).toEqual([
+describe("executor tool surface", () => {
+	it("mounts ordinary Nova tools and only the two server-owned controls", () => {
+		const names = Object.keys(buildExecutorTools());
+		expect(names).toEqual(
+			expect.arrayContaining([
+				"searchBlueprint",
+				"createModule",
+				"createForm",
+				"addCaseListColumns",
+				"finishWorkflow",
+				"reportExecutionBlocker",
+			]),
+		);
+		for (const retired of [
 			"readBatch",
 			"stageBatch",
 			"inspectChangeSet",
 			"commitChangeSet",
-			"reportExecutionBlocker",
-		]);
-	});
-
-	it("does not mount discardChangeSet", () => {
-		/* Discarding a slice's private work is an orchestrator or user
-		 * decision, never the executor's escape from its own diagnostics. */
-		expect(EXECUTOR_TOOL_SURFACE).not.toContain("discardChangeSet");
-	});
-
-	it("keeps granular staging operations inside the batch grammar", () => {
-		expect(EXECUTOR_TOOL_SURFACE).toContain("readBatch");
-		expect(EXECUTOR_TOOL_SURFACE).toContain("stageBatch");
-		expect(EXECUTOR_TOOL_SURFACE).not.toContain("stageModule");
-		expect(EXECUTOR_TOOL_SURFACE).not.toContain("stageForm");
+			"discardChangeSet",
+			"stageModule",
+			"stageForm",
+		]) {
+			expect(names).not.toContain(retired);
+		}
 	});
 });
 
@@ -188,8 +190,8 @@ describe("executorWireToolSchema", () => {
 		).toBeNull();
 	});
 
-	it("requires a staged module handle and widens only its reference anchor", () => {
-		const schema = schemaFor("stageModule");
+	it("requires a durable handle for a created module", () => {
+		const schema = schemaFor("createModule");
 		expect(
 			(property(schema, "moduleUuid").properties as JsonNode | undefined)
 				?.handle,
@@ -199,11 +201,6 @@ describe("executorWireToolSchema", () => {
 		});
 		expect(schema.required).toContain("moduleUuid");
 		expect(uuidLeaves(property(schema, "moduleUuid"))).toHaveLength(0);
-
-		/* `after` is nullable — only its string arm widens, never the null. */
-		const afterArms = (property(schema, "after").anyOf ?? []) as JsonNode[];
-		expect(afterArms.some((arm) => arm.type === "null")).toBe(true);
-		expect(handleArms(property(schema, "after"))).toHaveLength(1);
 	});
 
 	it("widens a shared tool's Blueprint-entity slots", () => {
@@ -226,8 +223,11 @@ describe("executorWireToolSchema", () => {
 	});
 
 	it("leaves non-uuid strings untouched", () => {
-		const schema = schemaFor("stageModule");
-		expect(property(schema, "name")).toEqual({ type: "string", minLength: 1 });
+		const schema = schemaFor("createModule");
+		expect(property(schema, "name")).toMatchObject({
+			type: "string",
+			minLength: 1,
+		});
 		expect(handleArms(property(schema, "case_type"))).toHaveLength(0);
 	});
 
@@ -261,19 +261,19 @@ describe("executorWireToolSchema", () => {
 	});
 
 	it("never mutates the projection chat sends", () => {
-		const entry = CHANGE_SET_TOOL_REGISTRY.get("stageModule");
-		if (entry === undefined) throw new Error("no stageModule");
-		schemaFor("stageModule");
+		const entry = CHANGE_SET_TOOL_REGISTRY.get("createModule");
+		if (entry === undefined) throw new Error("no createModule");
+		schemaFor("createModule");
 		const chat = wireToolSchema(entry.tool.inputSchema)
 			.jsonSchema as unknown as JsonNode;
 		expect(handleArms(chat)).toHaveLength(0);
 	});
 
 	it("projects handles while leaving resolved input validation canonical", async () => {
-		const entry = CHANGE_SET_TOOL_REGISTRY.get("stageForm");
-		if (entry === undefined) throw new Error("no stageForm");
+		const entry = CHANGE_SET_TOOL_REGISTRY.get("createModule");
+		if (entry === undefined) throw new Error("no createModule");
 		const validate = jsonSchema(
-			executorWireToolSchema("stageForm", entry.tool.inputSchema),
+			executorWireToolSchema("createModule", entry.tool.inputSchema),
 		);
 		expect(await validate.jsonSchema).toBeDefined();
 
@@ -282,18 +282,14 @@ describe("executorWireToolSchema", () => {
 		const uuid = "11111111-1111-4111-8111-111111111111";
 		expect(
 			entry.tool.inputSchema.safeParse({
-				formUuid: uuid,
 				moduleUuid: uuid,
 				name: "Intake",
-				type: "survey",
 			}).success,
 		).toBe(true);
 		expect(
 			entry.tool.inputSchema.safeParse({
-				formUuid: { handle: "@intake" },
-				moduleUuid: uuid,
+				moduleUuid: { handle: "@intake" },
 				name: "Intake",
-				type: "survey",
 			}).success,
 		).toBe(false);
 	});

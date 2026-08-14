@@ -66,7 +66,6 @@ import {
 	type ChangeSetHandle,
 	changeSetHandleSchema,
 	type ExternalReadDependency,
-	intentIdsSchema,
 	readSetSchema,
 	SHA256_HEX_PATTERN,
 	type StagedEntityKind,
@@ -300,11 +299,6 @@ export async function loadChangeSetSteps(
 				),
 			)
 			.select(
-				sql<string>`${sql.ref("design_change_set_steps.intent_ids")}::text`.as(
-					"intent_ids_text",
-				),
-			)
-			.select(
 				sql<string>`${sql.ref("design_change_set_steps.read_set")}::text`.as(
 					"read_set_text",
 				),
@@ -370,12 +364,6 @@ export async function loadChangeSetSteps(
 			toolName: row.tool_name,
 			mutations,
 			mutationDigest,
-			intentIds: intentIdsSchema.parse(
-				parsePersistedJsonText(
-					row.intent_ids_text,
-					`design_change_set_steps.intent_ids for change set ${changeSetId}, ordinal ${ordinal}`,
-				),
-			),
 			readSet: readSetSchema.parse(
 				parsePersistedJsonText(
 					row.read_set_text,
@@ -515,23 +503,6 @@ export async function lookupStageRequest(
 			),
 		),
 	};
-}
-
-/** The latest durable action's step-boundary recovery marker. A successful
- * stage writes or clears it, while a successful final no-op writes it without
- * advancing the private revision. The executor separately requires the marker
- * to equal the attempt's current model-step count. */
-export async function loadChangeSetFinalizationModelStep(
-	changeSetId: string,
-	handle?: Db,
-): Promise<number | null> {
-	const db = handle ?? (await getAppDb());
-	const row = await db
-		.selectFrom("design_change_sets")
-		.select("finalization_model_step")
-		.where("id", "=", changeSetId)
-		.executeTakeFirst();
-	return row?.finalization_model_step ?? null;
 }
 
 // ── Authority verification ─────────────────────────────────────────
@@ -987,7 +958,6 @@ export type StageRequestOutcome =
 			 * post-step candidate. The workspace uses this to prune its verified
 			 * projection; the durable handle ledger itself remains append-only. */
 			readonly retainedHandleUuids: readonly Uuid[];
-			readonly intentIds: readonly DesignId[];
 			readonly readSet: readonly ExternalReadDependency[];
 			/** Non-null when this batch is batch-exclusive — the fence closes
 			 * the set to any other step. */
@@ -1007,7 +977,7 @@ export interface StageChangeSetRequestArgs {
 	readonly changeSetId: string;
 	readonly requestId: string;
 	readonly toolName: string;
-	/** Canonical digest of the caller's ACTUAL request (`stagingInputDigest`),
+	/** Canonical digest of the caller's ACTUAL request (`workspaceCallInputDigest`),
 	 * computed before handle resolution. */
 	readonly inputDigest: string;
 	readonly expectedRevision: number;
@@ -1016,10 +986,6 @@ export interface StageChangeSetRequestArgs {
 	readonly chatRunHolder?: ChatRunHolderCapability;
 	/** Absolute executor deadline. The stage transaction cannot commit past it. */
 	readonly deadlineAt?: number;
-	/** Present only on the final operation of a fully accepted repair batch
-	 * after validation was requested. It commits in the same transaction as
-	 * that stage so process death cannot erase step-boundary eligibility. */
-	readonly finalizationModelStep?: number;
 	readonly outcome: StageRequestOutcome;
 }
 
@@ -1173,17 +1139,11 @@ async function stageInTransaction(
 		return { replayed: false, receipt };
 	}
 	if (outcome.kind === "noop") {
-		if (args.finalizationModelStep === undefined) {
-			throw new ChangeSetIntegrityError(
-				"An accepted no-op request requires a finalization model-step marker.",
-			);
-		}
 		const receipt = stageRequestReceiptSchema.parse({
 			requestId: args.requestId,
 			disposition: "noop",
 			workspaceRevision: changeSet.revision,
 			handles: {},
-			finalizationModelStep: args.finalizationModelStep,
 		} satisfies StageRequestReceipt);
 		await tx
 			.insertInto("design_change_set_requests")
@@ -1200,21 +1160,6 @@ async function stageInTransaction(
 			})
 			.execute();
 		await faultBoundary("after-request-insert");
-		const marked = await tx
-			.updateTable("design_change_sets")
-			.set({
-				finalization_model_step: args.finalizationModelStep,
-				updated_at: new Date(),
-			})
-			.where("id", "=", args.changeSetId)
-			.where("revision", "=", changeSet.revision)
-			.where("status", "=", "open")
-			.executeTakeFirst();
-		if (!updatedExactlyOne(marked)) {
-			throw new ChangeSetIntegrityError(
-				`Change set ${args.changeSetId} changed while recording an accepted no-op finalization boundary.`,
-			);
-		}
 		await faultBoundary("after-advance");
 		return { replayed: false, receipt };
 	}
@@ -1251,9 +1196,6 @@ async function stageInTransaction(
 			outcome.handles.map((entry) => [entry.handle, entry.uuid]),
 		),
 		mutationDigest,
-		...(args.finalizationModelStep !== undefined && {
-			finalizationModelStep: args.finalizationModelStep,
-		}),
 		diagnostics: outcome.diagnostics,
 	} satisfies StageRequestReceipt);
 
@@ -1281,7 +1223,6 @@ async function stageInTransaction(
 			tool_name: args.toolName,
 			mutations: encodeAdmittedMutationEnvelope(outcome.mutations).json,
 			mutation_digest: mutationDigest,
-			intent_ids: JSON.stringify(intentIdsSchema.parse(outcome.intentIds)),
 			read_set: JSON.stringify(readSetSchema.parse(outcome.readSet)),
 		})
 		.execute();
@@ -1327,7 +1268,6 @@ async function stageInTransaction(
 		.set({
 			revision: resultingRevision,
 			next_ordinal: ordinal + 1,
-			finalization_model_step: args.finalizationModelStep ?? null,
 			updated_at: new Date(),
 			...(outcome.exclusiveKind !== null && {
 				exclusive_kind: outcome.exclusiveKind,

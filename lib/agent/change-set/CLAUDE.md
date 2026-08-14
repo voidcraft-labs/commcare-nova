@@ -1,7 +1,7 @@
 # lib/agent/change-set — the Atomic Change Set runtime
 
 A private, durable workspace where one slice executor assembles exact
-canonical mutations across idempotent staging calls before ONE canonical
+canonical mutations across idempotent native tool calls before ONE canonical
 commit. The private candidate may be incomplete (gating findings are
 diagnostics here, never persistence outcomes), but it is never executable,
 never visible, and never a second app state: **no staged state reaches any
@@ -12,7 +12,7 @@ gate, and integrity services every other write uses.
 
 ## Authority
 
-- `store.ts` — the durable protocol. The STAGE TRANSACTION is the
+- `store.ts` — the durable protocol. The private-mutation transaction is the
   correctness spine: authority carrier first (an app-edit set's app row
   `FOR SHARE`, holder capability proved on it; a genesis set locks its
   CLAIMED design-session row — state `active`, the presented chat-run
@@ -53,15 +53,6 @@ gate, and integrity services every other write uses.
   receipt, and a canonical batch without that receipt is corruption, not a
   commit. Genesis sets refuse this path — their commit is
   `materializeGenesis.ts`.
-- `intentCoverage.ts` — the commit-time proof for construction groups. Every
-  mutation-bearing durable step names only groups assigned to the slice and
-  their union covers every assigned group. Executor calls expose
-  `constructionGroupIds`; the runtime strips that executor-only field before
-  canonical tool parsing, persists the IDs on the step, and derives
-  implementation coordinates from the admitted mutations. A plan's group list
-  is never copied into a receipt as proof of implementation. Existing database
-  columns retain their `intent_*` names, but the values are deterministic
-  construction-group IDs; those storage names are not a second semantic model.
 - `materializeGenesis.ts` — `materializeAppFromGenesis`, the design-slice
   birth: pre-read → committed-replay short-circuit (rebuilds the exact
   receipt from `design_committed_slices` + the sequence-1 canonical fold) →
@@ -71,7 +62,7 @@ gate, and integrity services every other write uses.
   `prepareGenesisCandidate` → reservation check →
   `writePreparedGenesisInTransaction` with the holder+reservation transfer
   → commit sidecars (the exact attempt `running → committed`, change-set flip,
-  committed-slice receipt, and construction-group provenance at seq 1) → the session's atomic
+  committed-slice receipt at seq 1) → the session's atomic
   `authority-cleared + materialized + app_id` flip (table CHECKs make a
   partial transfer unrepresentable). Gate rejection rolls the whole
   transaction back; pending case-index work drains post-commit.
@@ -116,14 +107,13 @@ gate, and integrity services every other write uses.
   — nothing here redefines validity. Genesis readiness loads Project-filtered
   uploaded rows and synthesizes built-in-icon rows through the same media seam
   as ordinary export. Its boundary-only findings join `allFindings` and the
-  diagnostic fingerprint summary, so a blocked finalization is actionable and
+  diagnostic fingerprint summary, so a blocked workflow finalizer is actionable and
   cannot masquerade as an empty change set.
-- `registry.ts` / `handleDeclarations.ts` / `stageTools.ts` — which tools a change set may dispatch:
+- `registry.ts` / `handleDeclarations.ts` — which tools a change set may dispatch:
   every shared registry entry whose reviewed staging classification is not
-  `forbidden`, plus the executor-only granular tools (`stageModule`,
-  `stageForm`) that create deliberately incomplete private structure —
-  INCOMPLETENESS is the only thing that earns a staging tool, so ordinary
-  reordering rides the shared canonical `moveModule`. Every shared body
+  `forbidden`. The executor mounts those ordinary semantic tools directly;
+  it has no alternate read/batch/creation protocol. Ordinary reordering rides
+  the shared canonical `moveModule`. Every shared body
   reads `ctx.snapshot.doc`, so a dispatched read answers from the overlay's
   own staged state; the organization-deriving tools keep only their PLACE
   reads external (rows, not Blueprint), and `updateAutomation`'s zero-diff
@@ -143,12 +133,12 @@ gate, and integrity services every other write uses.
 
 1. Staged mutations are exact admitted canonical mutations after handle
    resolution; steps never contain handles.
-2. A stage request is idempotent by stable request id + input digest; a
+2. A private mutation call is idempotent by stable request id + input digest; a
    reused id with different content latches
    (`ChangeSetRequestIdCollisionError`), and rejection receipts replay too. A
-   successful final repair that proves itself a no-op records an accepted
-   no-op receipt and finalization marker without advancing the private
-   revision, so process recovery does not lose that step boundary.
+   successful call that proves itself a no-op records an accepted no-op receipt
+   without advancing the private revision, so process recovery does not lose
+   that tool boundary.
 3. Admission failures (wire canonicality, identity collision, invalid
    anchor, missing target, rename-plan issues, reducer throws, policy
    fences, unbound handles) reject BEFORE a step appends; validator
@@ -173,15 +163,14 @@ gate, and integrity services every other write uses.
    domain, never compared against these.
 7. A canonical design commit accepts only the exact bound slice attempt in
    `running` state and transitions that attempt in the same transaction as
-   the canonical revision, committed-slice receipt, and provenance.
+   the canonical revision and committed-slice receipt.
 8. A semantic replay conflict never amends an append-only failed step. A real
    changed canonical base may supersede the open set plus running attempt under
    the current delegated holder. A deterministic failure instead abandons the
    set and permanently closes that exact plan/slice. Recovery reuses a bound
    open set only when its actor/run owner matches the current holder.
-9. Executor recovery proves staged authority from the current candidate,
-   durable construction-group coverage, handle bindings, and the latest
-   staged-or-no-op finalization marker. Separately, each slice attempt owns one
+9. Executor recovery proves private-work authority from the current candidate,
+   exact lineage, durable call receipts, and handle bindings. Separately, each slice attempt owns one
    exact append-only executor context generation: process recovery of that
    attempt reopens it, while the next attempt starts a fresh generation instead
    of inheriting the prior tool transcript. Each generation opens with the
@@ -189,14 +178,14 @@ gate, and integrity services every other write uses.
    slice focus; every compaction boundary reappends all three. Each returned
    provider response and its usage-bearing payload-free
    completed-step event commit atomically. Recovery replays any unanswered tool call under its
-   original call id before another provider request. Each staged operation,
+   original call id before another provider request. Each mutation call,
    commit, and blocker request has an idempotent durable sub-budget claim, so
    replay cannot consume a second unit. A paid blocker result is durably
    appended before execution continues; a response lost before that write
    stops rather than purchasing another decision. A canonical commit receipt
    supplies the lost commit output before a later slice begins. The attempt
    transcript preserves local reasoning continuity but never decides what
-   committed or already staged. Repeating one identical compiler failure
+   committed or was already applied privately. Repeating one identical compiler failure
    automatically invokes the bounded architect on occurrence two; occurrence
    three after durable guidance stops rather than retrying or redesigning.
 
@@ -205,16 +194,15 @@ gate, and integrity services every other write uses.
 `__tests__/changeSetStore.integration.test.ts` (the fault matrix +
 idempotency/authority/lifecycle), `changeSetRuntime.integration.test.ts`
 (workspace replay/process death, isolation gate, exclusivity, commit +
-rebase + provenance), and the pure suites (`digest`, `handles`,
+rebase), and the pure suites (`digest`, `handles`,
 `stagingProjection` — classification completeness + collision freedom,
 `changeSetSourceGuards` — the package-level import isolation).
 
 ## Adjacent boundaries
 
 The tool-facing contract lives in `lib/agent/workspace/` (this package's
-host implements it; the extensions — nullable `appId`,
-`externalContextDigest`, persisted construction-group IDs/read sets — are change-set-only, and
-the canonical workspace rejects them). The kernel sidecar vocabulary lives
+host implements it; nullable `appId` and automatic external read-set capture
+are private-workspace concerns). The kernel sidecar vocabulary lives
 in `lib/db/canonicalCommitSidecars.ts` (server-owned, closed). The
 executor loop, model-facing tool wrappers, and materialization consume this
 package in later units; nothing mounts these tools on chat or MCP today.

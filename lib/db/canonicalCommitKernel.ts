@@ -25,8 +25,7 @@
  * server-owned: hooks run inside the same retryable transaction and must be
  * deterministic, idempotent, and free of network/object-store effects. They
  * cannot alter the candidate Blueprint or bypass the gate. (Typed sidecar
- * variants — design change-set receipts, intent provenance — extend this seam
- * when the private change-set runtime lands.)
+ * variants such as the design change-set receipt extend this seam.)
  *
  * This module also owns the shared transaction plumbing every locked app
  * protocol composes: the strict persisted-app admission (`loadAppInTransaction`
@@ -709,9 +708,8 @@ export interface CanonicalCommitTransactionHooks {
 	/**
 	 * Closed, typed SQL-only sidecars (`canonicalCommitSidecars.ts`) executed
 	 * AFTER the committed-batch write tail, in the same transaction, with the
-	 * kernel's authoritative sequence/batch id/candidate — so a provenance
-	 * row's FK onto the fresh `app_changes` row is immediately checkable and
-	 * a lost holder CAS has already aborted. The change-set commit's
+	 * kernel's authoritative sequence/batch id/candidate after the write tail,
+	 * once a lost holder CAS has already aborted. The change-set commit's
 	 * `open → committed` flip and receipt ride here. Skipped entirely on a
 	 * dedup hit — the original commit ran them.
 	 */
@@ -982,9 +980,7 @@ export async function commitCanonicalBatch(
 			}),
 		});
 		/* Typed sidecars run AFTER the committed-batch write, in the same
-		 * transaction: the provenance rows' foreign key onto the just-written
-		 * `app_changes` row is checkable immediately, and a lost holder CAS
-		 * above has already aborted before any sidecar state exists. */
+		 * transaction, after a lost holder CAS has already aborted. */
 		if (
 			internalOptions.sidecars !== undefined &&
 			internalOptions.sidecars.length > 0

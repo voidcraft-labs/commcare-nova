@@ -31,7 +31,8 @@ export type ChangeSetStageErrorCode =
 	| "TARGET_INVALID"
 	| "RENAME_PLAN_INVALID"
 	| "REDUCER_FAILURE"
-	| "STAGING_FORBIDDEN"
+	| "TOOL_INPUT_INVALID"
+	| "TOOL_NOT_ALLOWED"
 	| "EXCLUSIVE_NOT_ALONE"
 	| "EXCLUSIVE_SET_CLOSED"
 	| "READ_SET_UNRECORDED"
@@ -70,9 +71,9 @@ export class ChangeSetWorkspaceRevisionStaleError extends Error {
  *  latches the run, exactly like a canonical batch-id collision. */
 export class ChangeSetRequestIdCollisionError extends Error {
 	readonly name = "ChangeSetRequestIdCollisionError";
-	readonly code = "STAGING_REQUEST_ID_COLLISION" as const;
+	readonly code = "WORKSPACE_REQUEST_ID_COLLISION" as const;
 	constructor() {
-		super("This staging request reused a request id for different content.");
+		super("This private tool call reused a request id for different content.");
 	}
 }
 

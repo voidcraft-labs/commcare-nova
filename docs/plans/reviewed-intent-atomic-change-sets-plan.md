@@ -27,6 +27,17 @@ remain, in order:
    for clients that want the reviewed workflow rather than direct mutation
    tools.
 
+Before Unit F, the reviewed-build model interfaces have one required tuning
+sequence. The slice executor now uses an implicit private workspace, ordinary
+Nova read/mutation tools mounted directly, native multi-tool responses, and one
+server-owned workflow finalizer. After measuring that executor experiment, the
+design author receives the same treatment: its private workspace becomes
+implicit, semantic design operations become native tool calls, model-visible
+`expectedRevision` disappears, and one model response may carry several
+ordered design operations. This design-author work is the next implementation
+step, not an optional or permanently deferred tuning knob; separating the two
+experiments keeps their effects measurable.
+
 This file describes the present architecture plus those two remaining units.
 It is not a rollout log.
 
@@ -606,7 +617,7 @@ so an accepted design cannot be mistaken for a plan the executor can start.
 
 ### 5.2 Construction groups
 
-Construction groups are the executor's small coverage vocabulary. Current
+Construction groups are the plan's small semantic work vocabulary. Current
 group kinds are:
 
 - data and people;
@@ -630,9 +641,9 @@ They are not construction groups because they do not require Blueprint
 mutations, and a construction group cannot reference one as an element.
 
 Ownership is assigned deterministically to the earliest workflow that creates,
-writes, exposes, or protects the element. This is enough to prove that each
-slice implemented its real units of work without forcing the model to cite
-every nested design object on every tool call.
+writes, exposes, or protects the element. This keeps every contract element in
+one workflow-local execution brief and gives budget derivation a stable unit.
+It is not a model-authored mutation label or a commit-time coverage claim.
 
 A shared module composition is owned by its earliest workflow. Later workflow
 slices receive an exact `reuse` instruction; each form composition, section,
@@ -688,11 +699,9 @@ or model plan.
 
 The slice executor is a bounded compiler, not a designer. It receives:
 
-- shared read operations over the private candidate;
-- `readBatch` for up to four related reads;
-- `stageBatch` for one ordered construction group;
-- `inspectChangeSet`;
-- `commitChangeSet`;
+- ordinary shared Nova read and mutation tools over the implicit private
+  candidate;
+- `finishWorkflow`, the one server-owned validation and commit request;
 - `reportExecutionBlocker`.
 
 The server admits record-schema and module/form creation against the accepted
@@ -703,27 +712,16 @@ module, or change an accepted form mode. This is a narrow architecture fence,
 not a second Blueprint validator; ordinary tools still realize the accepted
 fields, groups, prose, icons, and layout.
 
-Only `readBatch`, `stageBatch`, `inspectChangeSet`, `commitChangeSet`, and
-`reportExecutionBlocker` are top-level tools. Their provider definitions and
-batch operation unions are immutable across the accepted plan, preserving one
-cacheable context. The slice brief contains the narrower operation profile and
-the server enforces it as a hard dispatch allowlist, including the correction
-operations for that slice. Unrelated lookup, media, organization, automation,
-external-effect, app-lifecycle, user-message, and direct canonical commit
-authority remain unavailable even though stable batch schemas describe their
-ordinary authoring arms.
+The complete ordinary tool grammar plus the two server-owned controls remains
+immutable across the accepted plan, preserving one cacheable context. The
+provider receives the slice-specific `allowedTools` set and the server repeats
+that profile as a hard dispatch allowlist, including correction operations.
+Unrelated lookup, media, organization, automation, external-effect,
+app-lifecycle, user-message, and direct canonical commit authority remain
+unavailable. The model never supplies a workspace identity, expected revision,
+construction-group ID, stage label, or commit authority.
 
-Every mutating operation names one or more `constructionGroupIds`. The server
-strips that executor-only field before the original shared tool schema parses.
-Durable mutation-bearing steps must collectively cover every group in the
-slice before commit.
-
-The existing database columns retain their historical `intent_*` names, but
-their v1 semantic value in this pipeline is a construction-group ID. Unit F
-must read them through the construction-group plan and must not restore a
-per-element attribution matrix.
-
-### 6.3 Handles and batch efficiency
+### 6.3 Handles and native-call efficiency
 
 The executor uses private readable handles for entities created inside a
 change set. The server resolves handles before original tool-schema and
@@ -733,7 +731,7 @@ or deployment.
 There is one declaration rule: a creator places `{ "handle": "@name" }` in
 its ordinary canonical identity slot. Worker properties, user types, personas,
 and place-information properties use `userPropertyUuid`, `userTypeUuid`,
-`personaUuid`, and `locationPropertyUuid`. A binding is durable across batches,
+`personaUuid`, and `locationPropertyUuid`. A binding is durable across calls,
 model steps, context compaction, process recovery, and later slices in the
 same frozen plan. Before a later slice inherits it, rehydration proves that the
 UUID and entity kind exist in that slice's exact base revision. Executor reads
@@ -746,77 +744,58 @@ select also spells out its catalog options on the executor path so every option
 is born through a handled `optionUuid`; shared catalog defaulting never
 introduces anonymous authorable identities into a private build.
 
-`stageBatch` runs ordinary Nova operations serially. A rejected operation stops
-the batch before that operation while preserving the accepted prefix. The next
-batch corrects only the failed operation and its dependent suffix.
+The model may emit several ordinary calls in one provider response when their
+inputs are already known. The server persists the complete response first,
+then dispatches calls serially in provider order and persists each result
+independently. A rejected call preserves its accepted prefix and marks the
+dependent suffix skipped. Process recovery runs only unanswered calls; it
+never replays a successful prefix or runs a suffix after a durable failed or
+terminal result.
 
-Complete `createModule` and `createForm` operations are preferred when the
-accepted workflow already specifies the complete structure. `stageModule` and
-`stageForm` exist only for a genuine dependency or call-size boundary. There is
-no one-field-at-a-time fallback strategy. Field assembly is atomic across
+Complete `createModule` and `createForm` calls express ordinary semantic
+creation. There are no executor-only creation alternatives and no
+one-field-at-a-time fallback strategy. Field assembly is atomic across
 `addFields`, `createForm`, and `createModule`: if any requested field cannot be
 assembled or admitted, the entire call is rejected and no returned identity
 can name an omitted field.
 
-### 6.4 Coverage and provenance
+### 6.4 Completion evidence
 
-At commit, the server proves coverage from durable mutation-bearing steps. It
-does not copy every group from the plan into the receipt as if the model had
-implemented it.
-
-Mutation-derived implementation coordinates are persisted beside the canonical
-revision. The current coordinate vocabulary includes app, module, form, field,
-case-list column, case operation, user type, persona, organization level,
-location property, automation, case property, and external action.
-
-Unit F joins:
-
-```text
-contract element -> deterministic construction group -> committed group
-                 -> mutation-derived implementation coordinates
-```
-
-This provides useful verification without asking the design agent to maintain
-the same mapping manually.
+Construction-group IDs are not present on native calls, private steps,
+committed receipts, or canonical sidecars. The server proves that every
+planned workflow slice committed its exact lineage and that the final
+canonical app passes the ordinary validator and export compiler. Unit F then
+derives conformance from the accepted workflow semantics and the exact
+canonical projection. It does not treat model-authored bookkeeping or a
+mutation-touch coordinate as proof that a semantic requirement was implemented.
 
 ### 6.5 Commit and materialization
 
-`commitChangeSet` is only a request. The server independently proves current
-holder, Project membership, artifact lineage, workspace revision, read sets,
-coverage, validator state, and canonical replay.
-
-After the executor has requested validation, a fully accepted correction may
-consume its final model step. At that exact step boundary the server re-runs
-the same current-read, coverage, and validator proofs and may commit the clean
-candidate directly. It never infers completion before the executor enters
-validation, after a stopped batch, or from a partial accepted prefix. The model
-step budget therefore bounds reasoning without discarding already complete,
-fully proved work merely for lack of a final mechanical commit call. The
-attempt row durably records validation entry and last-action eligibility, and
-claiming another model step clears eligibility transactionally, so process
-recovery at the budget boundary re-runs the proofs instead of losing a clean
-candidate or accepting stale readiness. The final accepted action records its
-model-step marker with its staged receipt; a successful correction that is
-already satisfied records an accepted no-op receipt and the same marker without
-advancing the private revision.
+`finishWorkflow` is only a request. The server independently inspects the
+current private candidate, proves current holder, Project membership, artifact
+lineage, read sets, validator and export readiness, then enters the canonical
+kernel. A finding returns exact correction diagnostics and commits nothing. A
+clean finalizer creates the slice's one canonical revision. There is no
+step-boundary auto-commit, finalization-eligibility marker, or model assertion
+that substitutes for this call. A successful no-op mutation call is still
+durable under its tool-call ID so recovery does not execute it twice.
 
 The sequence-one materialization transaction creates the first useful,
 export-ready app and transfers the exact holder and unsettled reservation from
 the design session to the app. Genesis diagnostics and the transaction's final
 proof load Project-filtered uploaded rows and synthesize the same built-in-icon
 rows as the ordinary export boundary. Boundary-only findings are included in
-the executor's visible `allFindings`; a nonempty staged candidate is never
-reported as having no staged steps merely because finalization failed. Later
+the executor's visible `allFindings`; a nonempty private candidate is never
+reported as having no private mutation steps merely because finalization failed. Later
 slices use the normal app-locked canonical kernel.
 
-The exact running slice attempt, change-set transition, committed-slice
-receipt, and implementation provenance commit with the canonical revision or
-not at all.
+The exact running slice attempt, change-set transition, and committed-slice
+receipt commit with the canonical revision or not at all.
 
 The orchestration appends `finished` only after every exact plan slice has one
-matching committed attempt and receipt, every construction group has durable
-mutation coverage, the final receipt matches the canonical app head, the full
-validator passes, and the ordinary `.ccz` export path compiles. A valid prefix
+matching committed attempt and receipt, the final receipt matches the canonical
+app head, the full validator passes, and the ordinary `.ccz` export path
+compiles. A valid prefix
 or a valid app with an uncommitted slice is never completion.
 
 Receipt, attempt, validator, and ordinary export-compilation proof failures are
@@ -836,7 +815,8 @@ An executor reports evidence when implementation appears to require changed
 meaning. A fresh architect may give construction guidance that preserves the
 accepted workflow or declare it unsupported by the current compiler.
 
-The server also recognizes identical unresolved compiler failures without
+The server also recognizes identical unresolved substantive construction
+failures without
 waiting for the executor to formulate a blocker. The first occurrence is
 returned normally. The second consecutive occurrence automatically consumes
 one bounded architect-resolution allowance and appends exact guidance to that
@@ -846,16 +826,18 @@ diagnostic or clean inspection resets the sequence. The sequence and guidance
 live in the durable executor result, so process recovery cannot buy the same
 decision twice.
 
-The accepted contract and deterministic plan freeze when construction begins.
+Pure input-shape, unknown-tool, permission, and allowlist errors return directly
+and never invoke the architect. The accepted contract and deterministic plan
+freeze when construction begins.
 The architect cannot require a contract revision, ask the user to reinterpret
 an accepted workflow, remove workflows, or replace the plan. Such a result is
 an internal build defect and stops honestly. A local tool-schema rejection is
 a construction problem, not a reason to rewrite product intent.
 
-Budgets cover model steps, staged requests, blocker resolutions, commit and
+Budgets cover model steps, native mutation calls, blocker resolutions, commit and
 rebase attempts, and active wall time. The same deadline reaches awaited
 provider work and database transactions. Each attempt durably claims model,
-staging, blocker, and commit spend before starting that work. Wall-clock
+mutation, blocker, and commit spend before starting that work. Wall-clock
 spend is a durable active-time integrator: each genuine claim accrues the
 interval since the attempt's last accrual point, recovery resets the point
 without accruing, and the deadline grants only the unspent remainder — the
@@ -864,22 +846,24 @@ attempt is never born past its deadline. Every sub-budget claim has a stable
 operation key; replaying that exact operation reuses the existing claim
 instead of charging a second unit, while infrastructure recovery grants no
 new budget beyond that unspent remainder. Each PAID architect decision grows
-the attempt's step, staging, and wall-clock limits by one bounded priced
+the attempt's step, mutation-call, and wall-clock limits by one bounded priced
 allowance: a `continue` guidance directs rework the deterministic plan never
 priced, and `maxBlockerResolutions` caps the total extension at two
 allowances. A paid
 architect blocker result is appended before execution continues, and a result
-lost before that durable write stops instead of purchasing a second decision. A
-validation/finalization checkpoint survives on the same attempt row. Each run
-id is appended to that attempt before the run can spend model work, so a
+lost before that durable write stops instead of purchasing a second decision.
+Each run id is appended to that attempt before the run can spend model work, so a
 replacement holder never erases cost-evidence provenance. A post-COMMIT
 response that races the deadline reconciles through the already
 durable receipt without retrying the write. A deterministic failure closes the
 exact plan, slice, model, prompt, and brief combination. Sending another user
 message does not reroll unchanged work.
 
-Each attempt also owns authoritative wire-invalid, stage-rejected, and
-validator-repair counters. A process opens a durable outcome-evidence window
+Each attempt also owns authoritative wire-invalid, private-mutation-rejected,
+and validator-repair counters. Individual outcome events additionally state
+accepted reads/mutations, skipped dependent calls, finalization rejections,
+commits, and terminal protocol facts with specific stable codes. A process
+opens a durable outcome-evidence window
 before executing and closes it only after every observed outcome is
 checkpointed; recovery over an unclosed window latches incomplete evidence, so
 absence from the fire-and-forget operational event log can never count as zero.
@@ -895,9 +879,11 @@ reservation, transcript, stream, artifacts, and recovery URL. After
 materialization, the session maps immutably to the app and holder authority
 delegates to the app row.
 
-Stage requests and design workspace operations are idempotent by tool-call ID,
-input digest, and expected revision. Lost responses return the stored receipt.
-Process death rehydrates from durable artifacts and steps. If infrastructure
+Native executor calls are idempotent by tool-call ID and input digest; the
+workspace revision is server-owned. Design workspace operations still use
+their current explicit revision protocol until the required design-author
+experiment. Lost responses return the stored receipt. Process death rehydrates
+from durable artifacts and steps. If infrastructure
 replaces the run, the current authorized session holder adopts the same exact
 running attempt and open change set transactionally; it does not start a fresh
 model attempt or reset any spent budget.
@@ -964,7 +950,6 @@ The current foundation owns:
 - slice attempts and committed receipts;
 - change sets, requests, steps, stage ranges, and handles;
 - external-action receipts;
-- implementation provenance;
 - target-polymorphic threads, stream chunks, and run summaries;
 - exact thread media references.
 
@@ -988,7 +973,8 @@ durable workspace ledger and prints workspace revision, readiness stage,
 session error classification, model usage, elapsed time, and estimated cost.
 After acceptance it prints one payload-free build aggregate: accepted and
 committed workflow counts; each slice's attempt, executor context generation,
-and commit status; wire-invalid, stage-rejected, and validator-repair counts;
+and commit status; wire-invalid, private-mutation-rejected, and
+validator-repair counts;
 model steps, token and cache use, elapsed time, and estimated cost. Each
 revision also reports its worker-facing composition profile: module/form,
 sectioned/flat, section, input, guidance, record-summary, actor-specific,
@@ -1033,8 +1019,7 @@ Inputs are only deterministic repository data:
 - effective case-type catalog;
 - reference index;
 - user, organization, list, search, automation, and setup state;
-- committed slice receipts;
-- construction-group provenance.
+- committed slice receipts.
 
 The projection performs no model inference and invents no historical intent.
 Its schema and digest version independently.
@@ -1057,8 +1042,8 @@ Compare the projection directly with the lean contract:
   filtering rather than treating hidden menus as security;
 - external requirements are reported with their real readiness state;
 - deferred or unsupported work is not described as implemented;
-- every required construction group has a current committed receipt and at
-  least one still-resolving implementation coordinate.
+- every planned workflow has the exact committed receipt required by the
+  active plan.
 
 The first rules should be few and high-signal. Do not recreate a generic
 requirement traceability matrix. A rule documents its exact proof, severity,
@@ -1068,8 +1053,8 @@ false-positive boundary, and whether it may block completion.
 
 Initial deterministic codes should cover:
 
-- missing committed construction group;
-- provenance pointing to a missing coordinate;
+- missing committed workflow slice;
+- an accepted semantic element with no matching current projection;
 - workflow with no reachable entry point;
 - workflow input missing or duplicated;
 - expected property write missing or type-incompatible;
@@ -1152,7 +1137,6 @@ Statuses:
 Nova may say complete only when:
 
 - every planned workflow slice has a current committed receipt;
-- every construction group has current mutation-derived provenance;
 - no unresolved critical design or conformance finding remains;
 - every workflow acceptance example has a structural path;
 - no open change set remains;
@@ -1196,8 +1180,8 @@ inspection, and migration tests in the same unit.
 - Projection is deterministic and digest-stable.
 - A report for sequence N is stale at N+1.
 - Names alone do not prove implementation.
-- Construction-group provenance resolves through the deterministic plan to
-  contract elements.
+- Conformance is derived from accepted semantics and the exact canonical
+  projection rather than mutation labels or touch coordinates.
 - Model-only heuristics cannot become critical blockers.
 - A grounded critical finding prevents a false completion claim but not valid
   app use.
@@ -1213,7 +1197,7 @@ inspection, and migration tests in the same unit.
 Unit G gives substantial app edits the same design quality and recovery
 properties as initial builds while preserving immediate direct editors.
 
-Unit G depends on Unit F's projection, provenance readers, conformance
+Unit G depends on Unit F's projection, conformance
 vocabulary, correction path, and completion reports.
 
 ### 10.2 Edit authority
@@ -1251,7 +1235,7 @@ revision. Implementation correction reuses accepted meaning.
 ### 10.4 Reconciliation
 
 Before planning, compare the current canonical projection with current design
-lineage and provenance. Human, builder, direct MCP, migration, or prior agent
+lineage. Human, builder, direct MCP, migration, or prior agent
 changes may have made an older report stale.
 
 Unmapped implementation is context, not invalid state. The model may describe
@@ -1338,7 +1322,7 @@ integration tests:
 - workspace revision and request idempotency;
 - handle resolution before original schema admission, including the reviewer
   output schema's in-schema symbol resolution;
-- change-set replay and coverage;
+- change-set replay and native-call recovery;
 - external read-set fences;
 - canonical sidecar atomicity;
 - sequence-one materialization fault matrix;
@@ -1350,9 +1334,9 @@ integration tests:
 
 Add tests for:
 
-- projection determinism and coordinate resolution;
+- projection determinism and semantic matching;
 - every initial conformance rule, including false-positive boundaries;
-- construction group to element to coordinate joins;
+- workflow semantics to canonical projection comparisons;
 - report freshness at exact sequence and digest;
 - quality-review grounding and severity limits;
 - correction bounds and contract-revision classification;
@@ -1395,5 +1379,6 @@ independent review against one frozen SHA and fix findings before landing.
 
 CommCare's module, form, and field hierarchy is the output grammar, not the
 design method. Traceability exists only where it buys product truth: review
-cites important evidence, construction groups prove committed work, and Unit F
-checks workflow meaning against the canonical implementation.
+cites important evidence, exact workflow receipts prove the planned build
+completed, and Unit F checks workflow meaning against the canonical
+implementation.

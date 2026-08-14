@@ -36,11 +36,9 @@ import {
 } from "./executorToolProfile";
 
 export interface ConstructionChecklist {
-	readonly groupId: DesignId;
 	readonly groupName: string;
 	readonly items: readonly {
 		readonly kind: BuildSlice["constructionGroups"][number]["elements"][number]["kind"];
-		readonly id: DesignId;
 		readonly requirement: string;
 	}[];
 }
@@ -53,8 +51,6 @@ export interface SliceExecutionBrief {
 	readonly buildPlanDigest: string;
 	readonly charter: AppCharter;
 	readonly slice: BuildSlice;
-	/** Small coverage vocabulary used by the change set instead of every design object. */
-	readonly constructionGroupIds: readonly DesignId[];
 	readonly constructionChecklist: readonly ConstructionChecklist[];
 	readonly toolProfile: ExecutorToolProfile;
 	readonly workflow: Workflow;
@@ -540,10 +536,9 @@ export function deriveSliceExecutionBrief(args: {
 	);
 	const constructionChecklist = executableSlice.constructionGroups.map(
 		(group) => ({
-			groupId: group.id,
 			groupName: group.name,
 			items: group.elements.map((element) => ({
-				...element,
+				kind: element.kind,
 				requirement: checklistRequirement(
 					element.kind,
 					element.id,
@@ -560,9 +555,6 @@ export function deriveSliceExecutionBrief(args: {
 		buildPlanDigest: args.planDigest ?? canonicalJsonDigest(args.plan),
 		charter: args.contract.charter,
 		slice: executableSlice,
-		constructionGroupIds: executableSlice.constructionGroups.map(
-			(group) => group.id,
-		),
 		constructionChecklist,
 		toolProfile,
 		workflow,
@@ -668,8 +660,7 @@ export function renderBriefMessage(brief: SliceExecutionBrief): string {
 			[
 				`${brief.slice.name} — ${brief.slice.goal}`,
 				`Role: ${brief.slice.role}. Risk: ${brief.slice.risk}.`,
-				`Complete these construction groups in order: ${brief.slice.constructionGroups.map((group) => `${group.name} (${group.id})`).join(", ")}.`,
-				"Use each group id as the coverage identity for the staging batch that implements that group. Do not cite every nested design element as coverage.",
+				`Build these coherent parts in order: ${brief.slice.constructionGroups.map((group) => group.name).join(", ")}.`,
 			].join("\n"),
 		),
 		section(
@@ -677,10 +668,8 @@ export function renderBriefMessage(brief: SliceExecutionBrief): string {
 			brief.constructionChecklist
 				.map(
 					(group) =>
-						`${group.groupName} (${group.groupId})\n${group.items
-							.map(
-								(item) => `- [ ] ${item.kind} ${item.id}: ${item.requirement}`,
-							)
+						`${group.groupName}\n${group.items
+							.map((item) => `- ${item.kind}: ${item.requirement}`)
 							.join("\n")}`,
 				)
 				.join("\n"),

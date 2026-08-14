@@ -14,11 +14,7 @@
  * stages admitted batches durably without touching canonical stores.
  */
 
-import type {
-	ExternalReadDependency,
-	StageRequestReceipt,
-} from "@/lib/agent/change-set/schemas";
-import type { DesignId } from "@/lib/agent/design/ids";
+import type { StageRequestReceipt } from "@/lib/agent/change-set/schemas";
 import type { ConversionImpact } from "@/lib/case-store";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
@@ -191,14 +187,6 @@ export interface ToolInvocationContext {
 		readonly mutations: unknown;
 		readonly stage?: string;
 		readonly policy?: MutationApplicationPolicy;
-		/** Design intents this staged step implements — recorded with the
-		 * durable step by the change-set host. A canonical invocation
-		 * carrying these is a protocol error: the canonical host fabricates
-		 * none of the change-set extensions. */
-		readonly intentIds?: readonly DesignId[];
-		/** Explicit external read-set entries beyond what the change-set
-		 * host captures automatically. Change-set invocations only. */
-		readonly readSet?: readonly ExternalReadDependency[];
 	}): Promise<WorkspaceMutationOutcome>;
 
 	/**
@@ -208,9 +196,6 @@ export interface ToolInvocationContext {
 	 */
 	applyStages(args: {
 		readonly stages: unknown;
-		/** See {@link applyBatch} — change-set invocations only. */
-		readonly intentIds?: readonly DesignId[];
-		readonly readSet?: readonly ExternalReadDependency[];
 	}): Promise<WorkspaceMutationOutcome>;
 
 	/**

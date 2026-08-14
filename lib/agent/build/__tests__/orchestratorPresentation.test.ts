@@ -9,12 +9,14 @@ import {
 } from "@/lib/agent/build/executorPrompt";
 
 describe("reviewed-build presentation", () => {
-	it("versions the durable-handle executor dialect and requests complete creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v5");
-		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` operation");
+	it("versions the native-call executor dialect and requests coherent creation calls", () => {
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v6");
+		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain(
-			"Use `stageModule` / `stageForm` when a real dependency or call-size boundary requires",
+			"Use several native calls in one response when their inputs are already known",
 		);
+		expect(EXECUTOR_SYSTEM).toContain("finishWorkflow");
+		expect(EXECUTOR_SYSTEM).not.toContain("stageModule");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"an empty property catalog is not by itself a stale external dependency",
 		);

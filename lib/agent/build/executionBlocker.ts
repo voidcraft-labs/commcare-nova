@@ -7,7 +7,6 @@ import {
 } from "@/lib/agent/design/artifactResult";
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
-import { designIdSchema } from "@/lib/agent/design/ids";
 import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
 import {
 	DESIGN_AUTHOR_MODEL,
@@ -19,7 +18,6 @@ import { renderBriefMessage, type SliceExecutionBrief } from "./executionBrief";
 export const executionBlockerSchema = z
 	.object({
 		schemaVersion: z.literal(1),
-		affectedConstructionGroupIds: z.array(designIdSchema).min(1),
 		observations: z.array(z.string().min(1)).min(1).max(12),
 		requestedDecision: z.string().min(1),
 	})

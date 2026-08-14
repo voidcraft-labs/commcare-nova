@@ -30,11 +30,19 @@ function briefAt(index: number) {
 }
 
 describe("deriveSliceExecutionBrief", () => {
-	it("carries one workflow and its real construction groups", () => {
+	it("carries one workflow and its semantic construction checklist", () => {
 		const brief = briefAt(0);
 		expect(brief.workflow.id).toBe(ids.taskRegister);
-		expect(brief.constructionGroupIds).toEqual(
-			brief.slice.constructionGroups.map((group) => group.id),
+		expect(brief.constructionChecklist.map((group) => group.groupName)).toEqual(
+			brief.slice.constructionGroups.map((group) => group.name),
+		);
+		expect(brief.constructionChecklist.flatMap((group) => group.items)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: expect.any(String),
+					requirement: expect.any(String),
+				}),
+			]),
 		);
 		expect(brief.records.map((record) => record.id)).toContain(ids.recPatient);
 		expect(brief.actors.map((actor) => actor.id)).toContain(ids.actorChw);
@@ -183,13 +191,18 @@ describe("deriveSliceExecutionBrief", () => {
 			);
 			expect(propertyIds).toEqual([contract.records[index]?.properties[0]?.id]);
 			const tools = buildExecutorTools(brief);
-			expect(Object.keys(tools)).toEqual([
-				"readBatch",
-				"stageBatch",
-				"inspectChangeSet",
-				"commitChangeSet",
-				"reportExecutionBlocker",
-			]);
+			const toolNames = Object.keys(tools);
+			expect(toolNames).toEqual(
+				expect.arrayContaining([
+					"searchBlueprint",
+					"createModule",
+					"finishWorkflow",
+					"reportExecutionBlocker",
+				]),
+			);
+			expect(toolNames).not.toEqual(
+				expect.arrayContaining(["readBatch", "stageBatch"]),
+			);
 			const projected = JSON.stringify(tools);
 			stableToolFingerprint ??= projected;
 			expect(projected).toBe(stableToolFingerprint);
@@ -323,7 +336,8 @@ describe("deriveSliceExecutionBrief", () => {
 		const message = renderBriefMessage(briefAt(1));
 		expect(message).toContain("One-app charter");
 		expect(message).toContain("Record visit");
-		expect(message).toContain("construction groups");
+		expect(message).toContain("Semantic construction checklist");
+		expect(message).not.toContain("constructionGroupIds");
 		expect(message).not.toContain("intentOwnership");
 	});
 

@@ -22,9 +22,7 @@
 import type { UIMessage, UIMessageChunk } from "ai";
 import { emptyGenesisBase } from "@/lib/agent/change-set/baseLoader";
 import {
-	type CommittedStageEnvelope,
 	commitDesignChangeSet,
-	committedStageEnvelopes,
 	readCommittedSliceReceipt,
 	readCommittedSliceReceiptsForPlan,
 } from "@/lib/agent/change-set/commit";
@@ -36,7 +34,6 @@ import {
 	beginAppEditChangeSet,
 	beginGenesisChangeSet,
 	loadChangeSet,
-	loadChangeSetSteps,
 } from "@/lib/agent/change-set/store";
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import {
@@ -150,7 +147,6 @@ import {
 	beginOrRecoverSliceAttempt,
 	beginSliceAttemptOutcomeCollection,
 	bindSliceAttemptChangeSet,
-	checkpointSliceAttemptFinalization,
 	claimSliceAttemptBudget,
 	countSliceRebaseAttempts,
 	finishSliceAttemptOutcomeCollection,
@@ -204,14 +200,6 @@ export interface BuildOrchestrationDeps {
 	readonly resolveBlocker: ExecutionBlockerResolver;
 	readonly materialize: typeof materializeAppFromGenesis;
 	readonly commitSlice: typeof commitDesignChangeSet;
-	/** Item 18's event-log seam: the route hands the app LogWriter's
-	 *  emission in; the orchestrator calls it once per committed LATER slice
-	 *  with the stored per-stage envelopes (genesis steps are provenance,
-	 *  never app history). */
-	readonly logCommittedStages: (
-		receipt: CommittedSliceReceipt,
-		envelopes: readonly CommittedStageEnvelope[],
-	) => void;
 	/** Step fan-out for the design agent's loop (usage accounting,
 	 *  conversation events, the awaiting-input latch); the route wires
 	 *  `GenerationContext.handleAgentStep`. */
@@ -761,11 +749,6 @@ export async function runBuildOrchestration(
 						} else {
 							const sliceReceipt = receipt as CommittedSliceReceipt;
 							lastSeq = sliceReceipt.seq;
-							const steps = await loadChangeSetSteps(sliceReceipt.changeSetId);
-							deps.logCommittedStages(
-								sliceReceipt,
-								committedStageEnvelopes(steps),
-							);
 							args.writer.write({
 								type: "data-build-slice-committed",
 								data: progressEnvelope(args.designSessionId, head, {
@@ -889,8 +872,8 @@ export async function runBuildOrchestration(
 								? {
 										modelStepsSpent: outcome.spent.modelSteps,
 										modelStepsLimit: budget.maxModelSteps,
-										stagedRequestsSpent: outcome.spent.stagedRequests,
-										stagedRequestsLimit: budget.maxStagedRequests,
+										mutationCallsSpent: outcome.spent.mutationCalls,
+										mutationCallsLimit: budget.maxMutationCalls,
 									}
 								: { protocolCode: outcome.code }),
 						},
@@ -1044,7 +1027,6 @@ function productionDeps(
 			}),
 		materialize: overrides.materialize ?? materializeAppFromGenesis,
 		commitSlice: overrides.commitSlice ?? commitDesignChangeSet,
-		logCommittedStages: overrides.logCommittedStages ?? (() => {}),
 	};
 }
 
@@ -1417,7 +1399,6 @@ async function executeOneSlice(
 				holderNonce: args.holderNonce,
 				expectedProjectId: args.projectId,
 				expectedRevision: fresh.revision,
-				owningIntentIds: [...slice.brief.constructionGroupIds],
 				deadlineAt,
 			});
 			if (outcome.kind === "materialized") {
@@ -1437,7 +1418,6 @@ async function executeOneSlice(
 			},
 			kind: "chat",
 			expectedRevision: fresh.revision,
-			owningIntentIds: [...slice.brief.constructionGroupIds],
 			deadlineAt,
 		});
 		return outcome;
@@ -1492,7 +1472,6 @@ async function executeOneSlice(
 						slice.attempt.budgetSpent.blockerReports,
 					),
 				spent: slice.attempt.budgetSpent,
-				finalizationCheckpoint: slice.attempt.finalizationCheckpoint,
 				claim: (counter, limit, claimKey) =>
 					claimSliceAttemptBudget({
 						designSessionId: args.designSessionId,
@@ -1500,16 +1479,6 @@ async function executeOneSlice(
 						counter,
 						limit,
 						claimKey,
-						actorUserId: args.actorUserId,
-						runId: args.runId,
-						holderNonce: args.holderNonce,
-						expectedProjectId: args.projectId,
-					}),
-				checkpointFinalization: (checkpoint) =>
-					checkpointSliceAttemptFinalization({
-						designSessionId: args.designSessionId,
-						attemptId: slice.attempt.id,
-						...checkpoint,
 						actorUserId: args.actorUserId,
 						runId: args.runId,
 						holderNonce: args.holderNonce,
@@ -1550,7 +1519,7 @@ async function executeOneSlice(
 			onToolOutcome: async (event) => {
 				if (
 					event.outcome === "wire-invalid" ||
-					event.outcome === "stage-rejected" ||
+					event.outcome === "mutation-rejected" ||
 					event.outcome === "validator-repair"
 				) {
 					try {

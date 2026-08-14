@@ -64,6 +64,7 @@ import * as designIdentityHandleReferences from "./20260813010000_design_identit
 import * as workerPropertyCoordinate from "./20260813020000_worker_property_coordinate";
 import * as designDispositionStatusNames from "./20260813030000_design_disposition_status_names";
 import * as designCompositionHandleKinds from "./20260814000000_design_composition_handle_kinds";
+import * as executorNativeCalls from "./20260814010000_executor_native_calls";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -125,6 +126,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 		designDispositionStatusNames,
 	"20260814000000_design_composition_handle_kinds":
 		designCompositionHandleKinds,
+	"20260814010000_executor_native_calls": executorNativeCalls,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

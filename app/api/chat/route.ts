@@ -2300,18 +2300,6 @@ export async function POST(req: Request) {
 								return { blueprint: finalApp.blueprint, head };
 							},
 							deps: {
-								logCommittedStages: (receipt, envelopes) => {
-									for (const envelope of envelopes) {
-										try {
-											ctx.emitConversation({
-												type: "assistant-text",
-												text: `Committed ${envelope.toolName}${envelope.stageName ? ` (${envelope.stageName})` : ""} at sequence ${receipt.seq}.`,
-											});
-										} catch {
-											/* Event logging never fails the run. */
-										}
-									}
-								},
 								/* The design agent's step fan-out: per-step usage on the
 								 * accumulator (steps count as steps), tool-call/result and
 								 * reasoning-summary conversation events, all through the

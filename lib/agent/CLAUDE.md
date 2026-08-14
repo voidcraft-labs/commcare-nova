@@ -78,10 +78,10 @@ solely for the notice.
 - Model-authored chat turns acknowledge each newly submitted human response as
   their first visible output, before extended reasoning or a tool call. The
   synthetic current-state/session-state messages are context, not human turns.
-- `build/` — the design-driven BUILD method behind a chat build: `orchestrator.ts` (`runBuildOrchestration` — source package → Luna `xhigh` design and independent review → frozen accepted artifacts → Luna `xhigh` workflow slices in topological order → exact receipt, validator, and normal export-compilation proofs), `orchestratorState.ts` (the append-only authorized event chain), `sliceAttempts.ts` (exact-attempt recovery across infrastructure replacement and terminal attempt closure), `modelContextStore.ts` (tenant-authorized append-only design/executor `ModelMessage` ledgers plus payload-free provider-step boundaries), `externalActions.ts` (fail-closed typed prerequisites), `executorLoop.ts` + `executorPrompt.ts` + `executorWireSchemas.ts` + `executorToolProfile.ts` + `budgets.ts` + `executionBlocker.ts` (the bounded private compiler: only top-level `readBatch`, `stageBatch`, inspection, commit request, and blocker reporting; one immutable provider grammar with slice-specific dispatch authorization; canonical creation-slot handles for every authorable identity; one context generation per slice attempt; absolute budgets; payload-free outcomes; server-proved validation, read currency, and construction coverage), `executionBrief.ts` (the workflow-local semantic checklist, deterministic semantic-record-to-Blueprint-key lowering, exact worker-facing composition, relevant constraints, and tool profile), and `progress.ts` (durable user-facing stage projections). Every model seam is injectable. `UsageAccumulator` labels `design-author`, `design-review`, and `build-executor` while preserving per-call model pricing in the authoritative total. A design turn never mounts the SA. Progress and executor-outcome logs carry only opaque IDs, tool names, stable codes, indices, revisions, and aggregate usage, never customer-authored names, inputs, outputs, or rejection prose.
+- `build/` — the design-driven BUILD method behind a chat build: `orchestrator.ts` (`runBuildOrchestration` — source package → Luna `xhigh` design and independent review → frozen accepted artifacts → Luna `xhigh` workflow slices in topological order → exact receipt, validator, and normal export-compilation proofs), `orchestratorState.ts` (the append-only authorized event chain), `sliceAttempts.ts` (exact-attempt recovery across infrastructure replacement and terminal attempt closure), `modelContextStore.ts` (tenant-authorized append-only design/executor `ModelMessage` ledgers plus payload-free provider-step boundaries), `externalActions.ts` (fail-closed typed prerequisites), `executorLoop.ts` + `executorPrompt.ts` + `executorWireSchemas.ts` + `executorToolProfile.ts` + `budgets.ts` + `executionBlocker.ts` (the bounded private compiler: ordinary shared read/mutation tools mounted directly over an implicit private workspace, native ordered multi-call responses, `finishWorkflow`, blocker reporting, one immutable provider grammar with slice-specific dispatch authorization, canonical creation-slot handles, one context generation per slice attempt, absolute budgets, and payload-free exact outcomes; the server proves validation, read currency, lineage, and commit eligibility), `executionBrief.ts` (the workflow-local semantic checklist, deterministic semantic-record-to-Blueprint-key lowering, exact worker-facing composition, relevant constraints, and tool profile), and `progress.ts` (durable user-facing stage projections). Every model seam is injectable. `UsageAccumulator` labels `design-author`, `design-review`, and `build-executor` while preserving per-call model pricing in the authoritative total. A design turn never mounts the SA. Progress and executor-outcome logs carry only opaque IDs, tool names, stable codes, indices, revisions, and aggregate usage, never customer-authored names, inputs, outputs, or rejection prose.
 Running-attempt recovery keeps the exact attempt and transactionally transfers
 its open change set to the current authorized session holder. The attempt row's
-claim-before-work counters preserve model, staging, commit, and blocker spend
+claim-before-work counters preserve model, mutation-call, commit, and blocker spend
 across that recovery, and wall-clock spend is a durable ACTIVE-time
 integrator: each genuine budget claim accrues the interval since the last
 accrual point, recovery resets that point without accruing, and the executor
@@ -97,17 +97,15 @@ registers every matching-run response in the fresh meter before it is reused;
 the `(context, step)` usage-account ledger admits each contribution exactly
 once into the run summary and monthly dollar total, so overlapping POSTs and
 process replacement need no timestamp watermark and ordinary later turns do
-not re-meter old context. The same row
-persists whether validation was requested and whether
-the last accepted action may
-enter the server-owned step-boundary finalizer; claiming another model step
-clears that eligibility in the same transaction. The final operation of an
-accepted repair batch also carries its claimed model-step number in the same
-transaction as the durable stage, closing the process-death gap before the
-attempt checkpoint. A successful final no-op records the same marker in an
-accepted request receipt without advancing the private revision. Recovery uses
-either marker only while the attempt still has that exact model-step count.
-Wire-invalid, stage-rejected, and validator-repair outcomes increment
+not re-meter old context. The provider response is stored before dispatch; its
+calls then execute serially in provider order, with each result stored before
+the next call begins. Recovery answers only the durable response's unanswered
+suffix. A failed or terminal call preserves its accepted prefix and marks its
+dependent suffix skipped, so neither process replacement nor another model turn
+can accidentally execute it. `finishWorkflow` is the only server-owned
+validation and commit request; there is no step-boundary auto-finalizer or
+eligibility marker. Wire-invalid, private-mutation-rejected, and
+validator-repair outcomes increment
 authoritative attempt counters before the executor answers or advances. Each
 process brackets execution with a durable evidence window; a replacement that
 finds an unclosed window latches the attempt incomplete, so missing operational

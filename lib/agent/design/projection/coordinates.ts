@@ -1,12 +1,10 @@
 /**
  * Implementation coordinates — the closed union naming WHERE in the canonical
- * app a design intent is implemented.
+ * app a design requirement is implemented.
  *
- * Committed intent provenance (`app_change_intents`) persists one coordinate
- * per row and strict-parses it back through this exact schema; diagnostics,
- * conformance, Design history, and corrective planning all consume the same
- * closed set. Display paths are derived at read time — a coordinate is
- * identity, never prose.
+ * Unit F derives coordinates from the accepted design and canonical Blueprint
+ * when it compares expected behavior with what was actually built. Display
+ * paths are derived at read time — a coordinate is identity, never prose.
  *
  * This is the first file of the deterministic-projection package; the
  * projection walkers (the reviewed-intent plan's Unit F) build around it.

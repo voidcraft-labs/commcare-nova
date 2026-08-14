@@ -21,7 +21,6 @@ import {
 import {
 	beginOrRecoverSliceAttempt,
 	beginSliceAttemptOutcomeCollection,
-	checkpointSliceAttemptFinalization,
 	claimSliceAttemptBudget,
 	countSliceRebaseAttempts,
 	finishSliceAttemptOutcomeCollection,
@@ -419,7 +418,7 @@ describe("slice attempts", () => {
 		});
 		await recordSliceAttemptDiagnostic({
 			...authority,
-			outcome: "stage-rejected",
+			outcome: "mutation-rejected",
 		});
 		await recordSliceAttemptDiagnostic({
 			...authority,
@@ -432,7 +431,7 @@ describe("slice attempts", () => {
 				.selectFrom("design_slice_attempts")
 				.select([
 					"wire_invalid_count",
-					"stage_rejected_count",
+					"private_mutation_rejected_count",
 					"validator_repair_count",
 					"outcome_evidence_state",
 				])
@@ -440,7 +439,7 @@ describe("slice attempts", () => {
 				.executeTakeFirstOrThrow(),
 		).toEqual({
 			wire_invalid_count: 1,
-			stage_rejected_count: 1,
+			private_mutation_rejected_count: 1,
 			validator_repair_count: 1,
 			outcome_evidence_state: "complete",
 		});
@@ -602,17 +601,11 @@ describe("slice attempts", () => {
 			claimSliceAttemptBudget({
 				...oldArgs,
 				attemptId: first.attempt.id,
-				counter: "stagedRequests",
+				counter: "mutationCalls",
 				limit: 2,
 				claimKey: "stage:attempt:1:0",
 			}),
 		).resolves.toBe("claimed");
-		await checkpointSliceAttemptFinalization({
-			...oldArgs,
-			attemptId: first.attempt.id,
-			validationRequested: true,
-			eligible: true,
-		});
 		const firstChangeSet = await openGenesisForAttempt(
 			oldArgs,
 			first.attempt.id,
@@ -644,11 +637,7 @@ describe("slice attempts", () => {
 		);
 		expect(next.attempt.budgetSpent).toMatchObject({
 			modelSteps: 1,
-			stagedRequests: 1,
-		});
-		expect(next.attempt.finalizationCheckpoint).toEqual({
-			validationRequested: true,
-			eligible: true,
+			mutationCalls: 1,
 		});
 		expect(next.attempt.executionRunIds).toEqual([RUN, nextRunId]);
 		await expect(
@@ -673,17 +662,6 @@ describe("slice attempts", () => {
 				claimKey: "model:attempt:2",
 			}),
 		).resolves.toBe("claimed");
-		expect(
-			await h
-				.db()
-				.selectFrom("design_slice_attempts")
-				.select(["validation_requested", "finalization_eligible"])
-				.where("id", "=", first.attempt.id)
-				.executeTakeFirstOrThrow(),
-		).toEqual({
-			validation_requested: true,
-			finalization_eligible: false,
-		});
 		expect(
 			await h
 				.db()

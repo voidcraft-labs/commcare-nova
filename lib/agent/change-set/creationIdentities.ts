@@ -7,9 +7,8 @@
  *   - the executor wire projection (`lib/agent/build/executorWireSchemas.ts`)
  *     narrows each path's slot to a REQUIRED `{ handle }` and refuses raw
  *     UUIDs before dispatch;
- *   - the handle declarers (`handleDeclarations.ts` for shared tools,
- *     `stageTools.ts` for the executor-only staging tools) walk the same
- *     paths to bind each declared handle with its entity kind;
+ *   - the shared-tool handle declarers (`handleDeclarations.ts`) walk the
+ *     same paths to bind each declared handle with its entity kind;
  *   - the workspace then resolves `{ handle }` structurally and re-parses the
  *     resolved input through the tool's ORIGINAL canonical schema.
  *
@@ -92,9 +91,6 @@ const FIELD_SPECS = (
 export const CREATION_IDENTITY_SPECS: Readonly<
 	Record<string, readonly CreationIdentitySpec[]>
 > = {
-	/* Executor-only staging tools (`stageTools.ts`). */
-	stageModule: [spec(["moduleUuid"], "module")],
-	stageForm: [spec(["formUuid"], "form")],
 	/* Shared structural creation tools. */
 	createModule: [
 		spec(["moduleUuid"], "module"),

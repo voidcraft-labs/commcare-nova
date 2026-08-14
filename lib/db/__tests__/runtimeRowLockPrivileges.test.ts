@@ -202,7 +202,6 @@ describe("runtime row-lock privilege contract", () => {
 			"design_change_set_step_stages",
 			"design_change_set_handles",
 			"design_committed_slices",
-			"app_change_intents",
 			"design_source_packages",
 			"design_revisions",
 			"design_reviews",
