@@ -183,21 +183,10 @@ A record owns its properties. Each property records:
 - data shape;
 - sensitivity;
 - optional required condition;
-- allowed values for a choice property;
-- an optional identity role when the property IS the record's standard wire
-  identity: `case-name` (the display name workers know the record by) or
-  `external-id` (an external system's identifier).
+- allowed values for a choice property.
 
 Properties are declared once under their record. Writer and reader relations
 are derived from workflows and lists rather than copied into the property.
-
-An identity property is text-shaped, at most one per role per record, and
-every workflow that creates the record must capture its case-name identity.
-Construction authors a marked property as the standard scalar write
-(`case_name` / `external_id`), never as a custom case property — so which
-input names the record is stated design intent, not a construction guess. A
-composed or derived display name has no property to mark and stays
-construction's job.
 
 ### 3.4 Workflows
 

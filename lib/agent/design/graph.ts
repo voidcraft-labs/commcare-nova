@@ -364,22 +364,6 @@ export function validateDesignGraph(
 						"A record effect may write only properties of its target record.",
 					);
 			});
-			const target = records.get(effect.recordId);
-			const nameProperty = target?.properties.find(
-				(property) => property.identityRole === "case-name",
-			);
-			if (
-				effect.kind === "create" &&
-				nameProperty !== undefined &&
-				target !== undefined &&
-				!effect.writes.some((write) => write.propertyId === nameProperty.id)
-			) {
-				issue(
-					ctx,
-					["workflows", workflowIndex, "recordEffects", effectIndex, "writes"],
-					`Creating ${target.name} must write ${nameProperty.name}, its case-name identity — a record is born carrying its display name.`,
-				);
-			}
 		});
 		workflow.readback.forEach((readback, readbackIndex) => {
 			expect(

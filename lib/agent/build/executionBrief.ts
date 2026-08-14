@@ -142,11 +142,6 @@ function checklistRequirement(
 		const property = contract.records
 			.flatMap((record) => record.properties)
 			.find((entry) => entry.id === id);
-		if (property?.identityRole !== undefined) {
-			const scalar =
-				property.identityRole === "case-name" ? "case_name" : "external_id";
-			return `Author ${property.name} as its record's ${scalar} writer — the standard scalar destination, not a custom case property.`;
-		}
 		return `Declare and author ${property?.name ?? id}${property === undefined ? "" : ` as ${property.dataShape}`}.`;
 	}
 	if (kind === "list")
