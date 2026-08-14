@@ -99,8 +99,9 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   model cannot choose ownership, omit accepted work, or author a separate
   lowering graph. Plan validation proves exact workflow/group coverage, one
   materialization root, an acyclic dependency graph, and supported external-
-  action timing. All-external groups from earlier persisted v1 plans remain
-  readable but are not executor work or commit coverage.
+  action timing (a `blocked` action is refused at admission until a durable
+  receipt producer exists). A construction group cannot reference an
+  external requirement as an element.
 - `executionBrief.ts` renders the bounded semantic brief consumed by a slice
   executor. It names the workflow, only properties owned or used by that
   workflow and its list/access/navigation context, a semantic checklist for
@@ -182,7 +183,7 @@ authoritative message, and refuses further design staging until an exact
 `askQuestions` round of at most five is answered. The private context ledger
 records a server-only authorization key for the exact pending sequence, and
 each answer binds to the exact question identity it was given for — durable
-id, structural scope, related element ids, exact prose, and the accepted
+id, related element ids, exact prose, and the accepted
 `askQuestions` tool-call id — so identical prose on a later question cannot
 inherit an old answer while an unchanged question stays answered across
 bounded stages and later rounds. A question the user already answered is

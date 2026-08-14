@@ -231,7 +231,9 @@ is acyclic.
 An external requirement names what is outside Blueprint construction, which
 workflows depend on it, and whether construction truly has to wait — one
 kind and one blocking flag, from which the plan derives each action's
-timing; there is no separate authored timing axis restating them. Runtime or deployment setup is non-blocking only when every included
+timing; there is no separate authored timing axis restating them.
+
+Runtime or deployment setup is non-blocking only when every included
 workflow can still be authored as a valid, reachable, useful app. Every
 controlled choice has either at least two distinct real inline values or the
 semantic name of a lookup table and value/label columns that already exist in
@@ -250,8 +252,8 @@ value.
 
 An assumption states what Nova is relying on and what changes if it is wrong.
 
-An open question states its structural impact, whether it blocks, and the
-contract elements it can change. A blocking question cannot float without an
+An open question states whether it blocks and the contract elements it can
+change. A blocking question cannot float without an
 affected element. The authored blocking flag is the construction gate: only a
 blocking question tied to included construction forces a user decision before
 finalization, while a non-blocking question is a recorded caveat beside
@@ -353,7 +355,7 @@ question, the server appends the exact required questions and refuses further
 design staging until an `askQuestions` round, at most five questions, is
 answered. Those user decisions do not consume the model-repair budget.
 Server-only durable append keys bind the exact batch's question ids,
-structural scope, related elements, prose, and accepted tool-call id, so
+related elements, prose, and accepted tool-call id, so
 identical later prose or an incomplete model-authored subset cannot unlock
 staging. An answer binds to the exact question identity it was given for, so
 it stays valid while bounded stages apply it and across later rounds: a

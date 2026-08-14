@@ -35,9 +35,9 @@ export interface DesignComplexityEvidence {
  * Depth thresholds: 0–2 compact, 3–6 standard, 7+ extended.
  *
  * Each component is a workflow-shape reading, not an object count for its
- * own sake: record hierarchy, actor handoffs, task breadth, lifecycle
- * richness, access carving, derived/lookup data, and sensitivity each add
- * real design risk that earns more process.
+ * own sake: record hierarchy, actor handoffs, task breadth, record linking,
+ * access carving, external references, and sensitivity each add real design
+ * risk that earns more process.
  */
 export function computeDesignComplexity(
 	contract: AppDesignContract,
