@@ -2414,6 +2414,7 @@ export async function POST(req: Request) {
 										type: "internal",
 										message: outcome.message,
 										recoverable: outcome.recoverable,
+										raw: outcome.errorType,
 									},
 									{ failureSource: "route:design-build" },
 								);
@@ -2437,6 +2438,7 @@ export async function POST(req: Request) {
 										type: "internal",
 										message: outcome.message,
 										recoverable: outcome.recoverable,
+										raw: outcome.errorType,
 									},
 									"route:design-build",
 								);

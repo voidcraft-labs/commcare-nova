@@ -677,6 +677,7 @@ export async function runBuildOrchestration(
 					head = await appendFailure(args, head, {
 						errorType: "external-action-required",
 						recoverable: true,
+						detail: { sliceId: slice.id },
 					});
 					return {
 						kind: "failed",
@@ -856,6 +857,7 @@ export async function runBuildOrchestration(
 									? "external-read-change-budget-exhausted"
 									: "rebase-budget-exhausted",
 							recoverable: false,
+							detail: { sliceId: slice.id, attemptId: attempt.id },
 						});
 						return {
 							kind: "failed",
@@ -888,6 +890,11 @@ export async function runBuildOrchestration(
 						head = await appendFailure(args, head, {
 							errorType,
 							recoverable: false,
+							detail: {
+								sliceId: slice.id,
+								attemptId: attempt.id,
+								decisionKind: outcome.decision.kind,
+							},
 						});
 						return {
 							kind: "failed",
@@ -918,6 +925,18 @@ export async function runBuildOrchestration(
 								? "execution-budget-exhausted"
 								: outcome.code,
 						recoverable: false,
+						detail: {
+							sliceId: slice.id,
+							attemptId: attempt.id,
+							...(outcome.kind === "budget-exhausted"
+								? {
+										modelStepsSpent: outcome.spent.modelSteps,
+										modelStepsLimit: budget.maxModelSteps,
+										stagedRequestsSpent: outcome.spent.stagedRequests,
+										stagedRequestsLimit: budget.maxStagedRequests,
+									}
+								: { protocolCode: outcome.code }),
+						},
 					});
 					return {
 						kind: "failed",
@@ -1078,8 +1097,25 @@ async function appendFailure(
 	failure: {
 		errorType: string;
 		recoverable: boolean;
+		/** Machine context for the operational log line: opaque ids, stable
+		 * codes, and aggregate counters only — never customer-authored text. */
+		detail?: Record<string, string | number | boolean>;
 	},
 ): Promise<OrchestrationHead> {
+	/* Every terminal build failure passes through here, so this is the one
+	 * line that must account for the failure without a database visit: the
+	 * stable errorType plus the ids and counters that explain it. Recoverable
+	 * failures are expected external states (a prerequisite the person still
+	 * owes), so they log as warn and stay out of Sentry. */
+	const cause = {
+		designSessionId: args.designSessionId,
+		runId: args.runId,
+		errorType: failure.errorType,
+		recoverable: failure.recoverable,
+		...failure.detail,
+	};
+	if (failure.recoverable) log.warn("design_build_failed", cause);
+	else log.error("design_build_failed", undefined, cause);
 	return appendOrchestrationEvent({
 		designSessionId: args.designSessionId,
 		runId: args.runId,
