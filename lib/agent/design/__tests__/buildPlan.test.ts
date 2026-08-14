@@ -379,7 +379,6 @@ describe("deterministic build planning", () => {
 			kind: "existing-reference",
 			description: "Select an existing Project media asset.",
 			relatedWorkflowIds: [ids.taskRegister],
-			timing: "before-construction",
 			blocksConstruction: true,
 		});
 		contract.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
@@ -408,7 +407,6 @@ describe("deterministic build planning", () => {
 			kind: "runtime-readiness",
 			description: "Configure the worker role before people run this workflow.",
 			relatedWorkflowIds: [ids.taskRegister],
-			timing: "before-workflow",
 			blocksConstruction: false,
 		});
 		contract.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
@@ -418,56 +416,9 @@ describe("deterministic build planning", () => {
 			planId: ids.planId,
 		});
 		expect(plan.externalActions[0]).toMatchObject({
-			timing: "after-slice",
-			requiredFor: "runtime",
-		});
-		expect(
-			plan.slices
-				.flatMap((slice) => slice.constructionGroups)
-				.some((group) =>
-					group.elements.some(
-						(element) => element.kind === "external-requirement",
-					),
-				),
-		).toBe(false);
-		expect(newPlanAdmissionMessages(plan)).toEqual([]);
-	});
-
-	it("reads persisted v1 all-external groups without requiring them in new plans", () => {
-		const contract = cloneContract(makeContract());
-		contract.externalRequirements.push({
-			id: ids.externalSetup,
-			name: "Worker setup",
 			kind: "runtime-readiness",
-			description: "Configure workers before runtime.",
-			relatedWorkflowIds: [ids.taskRegister],
-			timing: "before-workflow",
-			blocksConstruction: false,
+			timing: "after-slice",
 		});
-		contract.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
-		const plan = deriveBuildPlan({
-			contract,
-			revision: { id: ids.revisionId, digest: "f".repeat(64) },
-			planId: ids.planId,
-		});
-		expect(
-			plan.slices
-				.flatMap((slice) => slice.constructionGroups)
-				.some((group) =>
-					group.elements.some(
-						(element) => element.kind === "external-requirement",
-					),
-				),
-		).toBe(false);
-
-		plan.slices[0]?.constructionGroups.push({
-			id: did(5000),
-			workflowId: ids.taskRegister,
-			name: "External readiness",
-			kind: "foundation",
-			elements: [{ kind: "external-requirement", id: ids.externalSetup }],
-			blueprintAreas: ["media-references"],
-		});
-		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
+		expect(newPlanAdmissionMessages(plan)).toEqual([]);
 	});
 });

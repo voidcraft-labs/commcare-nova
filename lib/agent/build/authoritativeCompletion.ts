@@ -1,10 +1,7 @@
 /** Pure admission for the immutable receipt set behind build completion. */
 
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
-import {
-	type BuildSlice,
-	isExecutableConstructionGroup,
-} from "@/lib/agent/design/buildPlan";
+import type { BuildSlice } from "@/lib/agent/design/buildPlan";
 
 /** A deterministic proof failure. Infrastructure errors deliberately retain
  * their original type so the route's shared classifier can redrive them. */
@@ -63,9 +60,7 @@ export function assertExactCommittedSliceReceipts(args: {
 		priorSeq = receipt.seq;
 
 		const expectedGroups = new Set(
-			slice.constructionGroups
-				.filter(isExecutableConstructionGroup)
-				.map((group) => group.id as string),
+			slice.constructionGroups.map((group) => group.id as string),
 		);
 		const covered = new Set(receipt.owningIntentIds as readonly string[]);
 		if (

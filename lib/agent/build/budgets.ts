@@ -76,7 +76,6 @@ const RISK_ALLOWANCE: Readonly<
 	ordinary: { modelSteps: 0, stagedRequests: 0, ms: 0 },
 	"cross-record": { modelSteps: 3, stagedRequests: 6, ms: 90_000 },
 	"external-effect": { modelSteps: 2, stagedRequests: 4, ms: 60_000 },
-	"data-migration": { modelSteps: 4, stagedRequests: 8, ms: 120_000 },
 };
 
 /**

@@ -144,7 +144,7 @@ describe("deriveSliceExecutionBrief", () => {
 		).toBe(true);
 	});
 
-	it("keeps legacy all-external plan groups as context, not executable coverage", () => {
+	it("carries linked external requirements as context", () => {
 		const contract = cloneContract(makeContract());
 		contract.externalRequirements.push({
 			id: ids.externalSetup,
@@ -152,7 +152,6 @@ describe("deriveSliceExecutionBrief", () => {
 			kind: "runtime-readiness",
 			description: "Configure workers before runtime.",
 			relatedWorkflowIds: [ids.taskRegister],
-			timing: "before-workflow",
 			blocksConstruction: false,
 		});
 		contract.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
@@ -160,14 +159,6 @@ describe("deriveSliceExecutionBrief", () => {
 			contract,
 			revision: REVISION,
 			planId: ids.planId,
-		});
-		plan.slices[0]?.constructionGroups.push({
-			id: did(5000),
-			workflowId: ids.taskRegister,
-			name: "External readiness",
-			kind: "foundation",
-			elements: [{ kind: "external-requirement", id: ids.externalSetup }],
-			blueprintAreas: ["media-references"],
 		});
 		const sliceId = plan.slices[0]?.id;
 		if (!sliceId) throw new Error("fixture slice missing");
@@ -177,20 +168,10 @@ describe("deriveSliceExecutionBrief", () => {
 			plan,
 			sliceId,
 		});
-
 		expect(brief.externalRequirements.map((item) => item.id)).toEqual([
 			ids.externalSetup,
 		]);
-		expect(brief.constructionGroupIds).not.toContain(did(5000));
-		expect(
-			brief.slice.constructionGroups.some((group) =>
-				group.elements.some(
-					(element) => element.kind === "external-requirement",
-				),
-			),
-		).toBe(false);
 	});
-
 	it("binds exact revision, plan, constraints, and capability boundary", () => {
 		const brief = briefAt(0);
 		expect(brief.designRevisionId).toBe(REVISION.id);

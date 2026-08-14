@@ -361,12 +361,6 @@ export const externalRequirementSchema = z
 		]),
 		description: z.string().min(1),
 		relatedWorkflowIds: z.array(designIdSchema),
-		timing: z.enum([
-			"before-construction",
-			"before-workflow",
-			"before-runtime",
-			"before-deployment",
-		]),
 		/** Missing runtime/deployment assets do not block app construction. */
 		blocksConstruction: z.boolean(),
 	})
@@ -374,8 +368,8 @@ export const externalRequirementSchema = z
 	.superRefine((value, ctx) => {
 		if (
 			value.blocksConstruction &&
-			value.timing !== "before-construction" &&
-			value.timing !== "before-workflow"
+			(value.kind === "runtime-readiness" ||
+				value.kind === "deployment-readiness")
 		) {
 			ctx.addIssue({
 				code: "custom",

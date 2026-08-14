@@ -229,8 +229,9 @@ is acyclic.
 ### 3.6 External requirements, decisions, assumptions, and questions
 
 An external requirement names what is outside Blueprint construction, which
-workflows depend on it, when it is needed, and whether construction truly has
-to wait. Runtime or deployment setup is non-blocking only when every included
+workflows depend on it, and whether construction truly has to wait — one
+kind and one blocking flag, from which the plan derives each action's
+timing; there is no separate authored timing axis restating them. Runtime or deployment setup is non-blocking only when every included
 workflow can still be authored as a valid, reachable, useful app. Every
 controlled choice has either at least two distinct real inline values or the
 semantic name of a lookup table and value/label columns that already exist in
@@ -527,13 +528,13 @@ Each slice records:
 - risk;
 - role.
 
-The charter's initial workflow is the only `materialization-root`. Other
-workflows are ordinary unless a future deterministic rule identifies a truly
-exclusive operation.
+The charter's initial workflow is the only `materialization-root`; every
+other workflow is ordinary.
 
 External actions remain separate from Blueprint effects. New-plan admission
-allows manual setup and after-slice readiness, but rejects blocking before-root
-or before-slice actions until a typed durable receipt producer exists. An
+allows manual setup and after-slice readiness, but rejects a blocked
+(construction-blocking) action until a typed durable receipt producer
+exists. An
 unresolved construction dependency stays linked to a blocking user question,
 so an accepted design cannot be mistaken for a plan the executor can start.
 
@@ -558,8 +559,7 @@ Every constructible top-level design element belongs to exactly one group:
 
 External requirements remain related external actions and execution context.
 They are not construction groups because they do not require Blueprint
-mutations. Persisted v1 plans that contain an all-external group remain
-readable, but that group is not executable work or commit coverage.
+mutations, and a construction group cannot reference one as an element.
 
 Ownership is assigned deterministically to the earliest workflow that creates,
 writes, exposes, or protects the element. This is enough to prove that each

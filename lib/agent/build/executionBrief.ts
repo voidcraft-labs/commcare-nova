@@ -5,7 +5,6 @@ import type {
 	BuildSlice,
 	ExternalAction,
 } from "@/lib/agent/design/buildPlan";
-import { isExecutableConstructionGroup } from "@/lib/agent/design/buildPlan";
 import { buildCapabilityCatalog } from "@/lib/agent/design/capabilityCatalog";
 import type {
 	AccessPolicy,
@@ -172,12 +171,7 @@ export function deriveSliceExecutionBrief(args: {
 	if (workflow === undefined) {
 		throw new Error(`Accepted design holds no workflow ${slice.workflowId}.`);
 	}
-	const executableSlice: BuildSlice = {
-		...slice,
-		constructionGroups: slice.constructionGroups.filter(
-			isExecutableConstructionGroup,
-		),
-	};
+	const executableSlice: BuildSlice = slice;
 	if (executableSlice.constructionGroups.length === 0) {
 		throw new Error(
 			`Build slice ${slice.id} has no Blueprint construction work.`,

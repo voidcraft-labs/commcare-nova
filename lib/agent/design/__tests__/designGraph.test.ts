@@ -102,7 +102,6 @@ describe("lean Design Contract graph", () => {
 			description:
 				"An administrator must upload an image before Nova can attach the existing asset.",
 			relatedWorkflowIds: [ids.taskRegister],
-			timing: "before-runtime",
 			blocksConstruction: false,
 		});
 		expect(constructionMessages(readiness)).toBe("");
@@ -149,7 +148,6 @@ describe("lean Design Contract graph", () => {
 			description:
 				"Nova cannot upload the image; an administrator must upload it before runtime.",
 			relatedWorkflowIds: [workflow.id],
-			timing: "before-runtime",
 			blocksConstruction: false,
 		});
 		expect(constructionMessages(contract)).toBe("");
@@ -345,7 +343,6 @@ describe("lean Design Contract graph", () => {
 			kind: "unsupported",
 			description: "Nova would need to generate an audio prompt.",
 			relatedWorkflowIds: [ids.taskRegister],
-			timing: "before-construction",
 			blocksConstruction: false,
 		});
 		expect(messages(unsupported)).toContain("must block");
@@ -359,7 +356,6 @@ describe("lean Design Contract graph", () => {
 			kind: "existing-reference",
 			description: "Choose an already-uploaded audio prompt.",
 			relatedWorkflowIds: [ids.taskRegister],
-			timing: "before-construction",
 			blocksConstruction: true,
 		});
 		blocked.workflows[0]?.externalRequirementIds.push(ids.externalSetup);

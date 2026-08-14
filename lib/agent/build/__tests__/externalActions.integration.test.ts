@@ -30,10 +30,8 @@ describe("assertRequiredExternalActionsSatisfied", () => {
 			id: did(900),
 			requirementId: did(901),
 			kind: "existing-reference",
-			timing: "before-slice",
-			requiredFor: "construction",
+			timing: "blocked",
 			description: "Load the approved facility catalog.",
-			completionEvidence: "The exact catalog import receipt.",
 		};
 		plan.externalActions = [action];
 		slice.externalActionIds = [action.id];
@@ -99,7 +97,8 @@ describe("assertRequiredExternalActionsSatisfied", () => {
 			.execute();
 		await expect(check()).rejects.toBeInstanceOf(ExternalActionRequiredError);
 
-		action.timing = "before-materialization";
+		/* A receipt landed before materialization (app_id null) satisfies the
+		 * same action both pre-app and after the canonical app exists. */
 		const root = plan.slices[0];
 		if (root === undefined)
 			throw new Error("fixture has a materialization root");
@@ -122,5 +121,6 @@ describe("assertRequiredExternalActionsSatisfied", () => {
 				slice: root,
 			}),
 		).resolves.toBeUndefined();
+		await expect(check()).resolves.toBeUndefined();
 	});
 });

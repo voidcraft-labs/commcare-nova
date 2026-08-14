@@ -45,7 +45,6 @@ export const designElementRefSchema = z
 			"list",
 			"access",
 			"navigation",
-			"external-requirement",
 		]),
 		id: designIdSchema,
 	})
@@ -57,34 +56,20 @@ export const constructionGroupSchema = z
 		id: designIdSchema,
 		workflowId: designIdSchema,
 		name: z.string().min(1),
-		kind: z.enum([
-			"foundation",
-			"capture",
-			"workflow",
-			"work-queue",
-			"access-navigation",
-		]),
+		kind: z.enum(["foundation", "workflow", "work-queue", "access-navigation"]),
 		elements: z.array(designElementRefSchema).min(1),
 		blueprintAreas: z.array(blueprintAreaSchema).min(1),
 	})
 	.strict();
 export type ConstructionGroup = z.infer<typeof constructionGroupSchema>;
 
-/** External requirements are plan actions, not Blueprint mutations. Persisted
- * v1 plans may still carry an all-external legacy group; readers accept it but
- * the executor and commit gate do not treat it as construction coverage. */
-export function isExecutableConstructionGroup(
-	group: ConstructionGroup,
-): boolean {
-	return group.elements.some(
-		(element) => element.kind !== "external-requirement",
-	);
-}
-
+/** External requirements are plan actions, not Blueprint mutations. */
 export const externalActionSchema = z
 	.object({
 		id: designIdSchema,
 		requirementId: designIdSchema,
+		/** Copied from the requirement so the receipt gate can match evidence
+		 * kinds without loading the contract. */
 		kind: z.enum([
 			"existing-reference",
 			"user-prerequisite",
@@ -92,16 +77,10 @@ export const externalActionSchema = z
 			"deployment-readiness",
 			"unsupported",
 		]),
-		timing: z.enum([
-			"before-materialization",
-			"before-slice",
-			"after-slice",
-			"manual-setup",
-		]),
-		requiredFor: z.enum(["construction", "runtime", "deployment", "optional"]),
+		/** `blocked` marks a construction-blocking requirement; admission
+		 * refuses it until a durable receipt producer exists. */
+		timing: z.enum(["blocked", "manual-setup", "after-slice"]),
 		description: z.string().min(1),
-		/** Durable evidence the orchestrator can require before construction. */
-		completionEvidence: z.string().min(1),
 	})
 	.strict();
 export type ExternalAction = z.infer<typeof externalActionSchema>;
@@ -110,7 +89,6 @@ export const buildSliceRiskSchema = z.enum([
 	"ordinary",
 	"cross-record",
 	"external-effect",
-	"data-migration",
 ]);
 export type BuildSliceRisk = z.infer<typeof buildSliceRiskSchema>;
 
@@ -124,7 +102,7 @@ export const buildSliceSchema = z
 		constructionGroups: z.array(constructionGroupSchema).min(1),
 		externalActionIds: z.array(designIdSchema),
 		risk: buildSliceRiskSchema,
-		role: z.enum(["materialization-root", "ordinary", "exclusive"]),
+		role: z.enum(["materialization-root", "ordinary"]),
 	})
 	.strict();
 export type BuildSlice = z.infer<typeof buildSliceSchema>;
@@ -381,9 +359,6 @@ function expectedElementKinds(
 		...contract.lists.map((value) => [value.id, "list"] as const),
 		...contract.access.map((value) => [value.id, "access"] as const),
 		...contract.navigation.map((value) => [value.id, "navigation"] as const),
-		...contract.externalRequirements.map(
-			(value) => [value.id, "external-requirement"] as const,
-		),
 	]);
 }
 
@@ -434,10 +409,6 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 			...contract.access.map((value) => value.id),
 			...contract.navigation.map((value) => value.id),
 		]);
-		const knownElementIds = new Set<string>([
-			...constructibleElementIds,
-			...contract.externalRequirements.map((value) => value.id),
-		]);
 		const assigned = new Map<string, string>();
 		const orderedWorkflowIds = workflowOrder(contract);
 		const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
@@ -471,7 +442,7 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 				});
 			slice.constructionGroups.forEach((group, groupIndex) => {
 				group.elements.forEach((element, elementIndex) => {
-					if (!knownElementIds.has(element.id))
+					if (!constructibleElementIds.has(element.id))
 						ctx.addIssue({
 							code: "custom",
 							path: [
@@ -502,45 +473,43 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 							message: `Design element ${element.id} must retain kind ${expectedKind}.`,
 						});
 					}
-					if (element.kind !== "external-requirement") {
-						const ownerWorkflowId = ownerByElement.get(element.id);
-						const groupKey =
-							element.kind === "actor" ||
-							element.kind === "record" ||
-							element.kind === "property"
-								? "foundation"
-								: element.kind === "workflow"
-									? "workflow"
-									: element.kind === "list"
-										? "queues"
-										: "access";
-						const expectedGroupId =
-							ownerWorkflowId === undefined
-								? undefined
-								: stableId(
-										plan.designRevisionDigest,
-										`group:${groupKey}`,
-										ownerWorkflowId,
-									);
-						if (
-							ownerWorkflowId !== slice.workflowId ||
-							expectedGroupId !== group.id
-						) {
-							ctx.addIssue({
-								code: "custom",
-								path: [
-									"slices",
-									sliceIndex,
-									"constructionGroups",
-									groupIndex,
-									"elements",
-									elementIndex,
-									"id",
-								],
-								message:
-									"This design element is not owned by its deterministic workflow construction group.",
-							});
-						}
+					const ownerWorkflowId = ownerByElement.get(element.id);
+					const groupKey =
+						element.kind === "actor" ||
+						element.kind === "record" ||
+						element.kind === "property"
+							? "foundation"
+							: element.kind === "workflow"
+								? "workflow"
+								: element.kind === "list"
+									? "queues"
+									: "access";
+					const expectedGroupId =
+						ownerWorkflowId === undefined
+							? undefined
+							: stableId(
+									plan.designRevisionDigest,
+									`group:${groupKey}`,
+									ownerWorkflowId,
+								);
+					if (
+						ownerWorkflowId !== slice.workflowId ||
+						expectedGroupId !== group.id
+					) {
+						ctx.addIssue({
+							code: "custom",
+							path: [
+								"slices",
+								sliceIndex,
+								"constructionGroups",
+								groupIndex,
+								"elements",
+								elementIndex,
+								"id",
+							],
+							message:
+								"This design element is not owned by its deterministic workflow construction group.",
+						});
 					}
 					const owner = assigned.get(element.id);
 					if (owner !== undefined && owner !== group.id)
@@ -802,21 +771,11 @@ export function deriveBuildPlan(args: {
 			requirementId: requirement.id,
 			kind: requirement.kind,
 			timing: requirement.blocksConstruction
-				? requirement.timing === "before-construction"
-					? "before-materialization"
-					: "before-slice"
-				: requirement.timing === "before-deployment"
+				? "blocked"
+				: requirement.kind === "deployment-readiness"
 					? "manual-setup"
 					: "after-slice",
-			requiredFor: requirement.blocksConstruction
-				? "construction"
-				: requirement.timing === "before-deployment"
-					? "deployment"
-					: "runtime",
 			description: requirement.description,
-			completionEvidence: requirement.blocksConstruction
-				? "A durable completion receipt is required before the affected slice opens."
-				: "The generated setup guidance records this readiness item for the person deploying or running the app.",
 		}),
 	);
 	const actionByRequirement = new Map(
@@ -875,10 +834,9 @@ export function newPlanAdmissionMessages(
 	plan: Pick<BuildPlan, "externalActions">,
 ): string[] {
 	return plan.externalActions.flatMap((action) =>
-		action.timing === "before-materialization" ||
-		action.timing === "before-slice"
+		action.timing === "blocked"
 			? [
-					`External action ${action.id} uses ${action.timing}, but no registered completion producer can issue its durable receipt. Use manual-setup or after-slice for a newly admitted plan.`,
+					`External action ${action.id} blocks construction, but no registered completion producer can issue its durable receipt. The design must resolve this requirement or defer its workflow before a plan can be admitted.`,
 				]
 			: [],
 	);

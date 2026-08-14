@@ -51,18 +51,13 @@ export async function assertRequiredExternalActionsSatisfied(args: {
 	);
 	const required = args.slice.externalActionIds
 		.map((id) => actionById.get(id))
-		.filter((action) => {
-			if (action === undefined || action.requiredFor === "optional")
-				return false;
-			return (
-				action.timing === "before-materialization" ||
-				action.timing === "before-slice"
-			);
-		});
+		.filter(
+			(action): action is NonNullable<typeof action> =>
+				action !== undefined && action.timing === "blocked",
+		);
 	if (required.length === 0) return;
 	const db = await getAppDb();
 	for (const action of required) {
-		if (action === undefined) continue;
 		let query = db
 			.selectFrom("design_external_action_receipts")
 			.select(["id", "action_digest", "outcome"])
@@ -73,13 +68,17 @@ export async function assertRequiredExternalActionsSatisfied(args: {
 			.where("build_plan_id", "=", args.plan.id)
 			.where("external_action_id", "=", action.id)
 			.where("project_id", "=", args.projectId);
-		/* A before-materialization receipt is permanently scoped to the pre-app
-		 * session even if a later defensive check re-encounters it. A before-slice
-		 * receipt follows the canonical target when one exists. */
+		/* A receipt landed before materialization is permanently scoped to the
+		 * pre-app session; after materialization it may also be scoped to the
+		 * canonical app. Either scope satisfies a later check of the same
+		 * action — the action digest is the real proof. */
+		const appId = args.appId;
 		query =
-			action.timing === "before-materialization" || args.appId === null
+			appId === null
 				? query.where("app_id", "is", null)
-				: query.where("app_id", "=", args.appId);
+				: query.where((eb) =>
+						eb.or([eb("app_id", "is", null), eb("app_id", "=", appId)]),
+					);
 		const receipt = await query.executeTakeFirst();
 		if (
 			receipt === undefined ||
