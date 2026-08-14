@@ -65,7 +65,7 @@ describe("setCaseListFilter", () => {
 
 	it("sets the case list filter to the supplied predicate", async () => {
 		const h = fixtureWithConfig();
-		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
+		const filter: Predicate = eq(prop("patient", "status"), literal("open"));
 
 		const result = await h.runTool(setCaseListFilterTool, {
 			moduleUuid: MOD_A,
@@ -75,6 +75,23 @@ describe("setCaseListFilter", () => {
 		expect(result.kind).toBe("mutate");
 		const finalConfig = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(finalConfig?.filter).toEqual(filter);
+	});
+
+	it("rejects a third value for the built-in case status", async () => {
+		const h = fixtureWithConfig();
+		const before = h.currentDoc();
+
+		const result = await h.runTool(setCaseListFilterTool, {
+			moduleUuid: MOD_A,
+			filter: eq(prop("patient", "status"), literal("active")),
+		});
+
+		expect(result.mutations).toEqual([]);
+		expect(h.currentDoc()).toEqual(before);
+		if (!("error" in result.result)) throw new Error("expected rejection");
+		expect(result.result.error).toMatch(
+			/only be compared with 'open' or 'closed'/,
+		);
 	});
 
 	it("persists Nova's canonical standard-property names", async () => {
@@ -96,7 +113,7 @@ describe("setCaseListFilter", () => {
 		// the SA reads the predicate's discriminator off `result.kind`
 		// rather than parsing it back out of the prose message.
 		const h = makeCaseListFixture();
-		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
+		const filter: Predicate = eq(prop("patient", "status"), literal("open"));
 
 		const result = await h.runTool(setCaseListFilterTool, {
 			moduleUuid: MOD_A,
@@ -157,7 +174,7 @@ describe("setCaseListFilter", () => {
 					...baseDoc.modules[MOD_A],
 					caseListConfig: {
 						...existingConfig,
-						filter: eq(prop("patient", "status"), literal("active")),
+						filter: eq(prop("patient", "status"), literal("open")),
 					},
 					caseSearchConfig: {},
 				},
@@ -221,7 +238,7 @@ describe("setCaseListFilter", () => {
 
 	it("is idempotent — two identical calls produce equivalent final state", async () => {
 		const h = makeCaseListFixture();
-		const filter = eq(prop("patient", "status"), literal("active"));
+		const filter = eq(prop("patient", "status"), literal("open"));
 
 		await h.runTool(setCaseListFilterTool, { moduleUuid: MOD_A, filter });
 		const afterFirst = h.currentDoc().modules[MOD_A]?.caseListConfig?.filter;
@@ -235,7 +252,7 @@ describe("setCaseListFilter", () => {
 	it("round-trips a recursive predicate (and/eq/literal/prop)", async () => {
 		const h = fixtureWithConfig();
 		const filter = and(
-			eq(prop("patient", "status"), literal("active")),
+			eq(prop("patient", "status"), literal("open")),
 			eq(prop("patient", "region"), literal("north")),
 		);
 
@@ -278,7 +295,7 @@ describe("setCaseListFilter", () => {
 		// logic added to the tool surface gets caught.
 		const chat = makeCaseListFixture();
 		const mcp = makeCaseListMcpFixture();
-		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
+		const filter: Predicate = eq(prop("patient", "status"), literal("open"));
 
 		const r1 = await chat.runTool(setCaseListFilterTool, {
 			moduleUuid: MOD_A,

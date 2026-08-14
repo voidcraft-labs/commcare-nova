@@ -50,6 +50,9 @@ describe("action tense follows the call's status", () => {
 		expect(
 			toolAction(donePart("getCaseOperations", { location: "Edit" })),
 		).toBe("Inspected case operations");
+		expect(
+			toolAction(donePart("configureCaseList", { location: "Patients" })),
+		).toBe("Configured the case list");
 	});
 
 	it("keeps the in-progress form for a failure — the change never landed", () => {

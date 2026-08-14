@@ -175,7 +175,7 @@ function buildSearchBlueprint(): BlueprintDoc {
 							"status_search",
 							"Status",
 							"text",
-							eq(prop("patient", "status"), literal("active")),
+							eq(prop("patient", "status"), literal("open")),
 						),
 					],
 				},
@@ -685,7 +685,7 @@ describe("case-search integration — suite XML wire emission", () => {
 			'<data key="_xpath_query" ref="&quot;region = &apos;North&apos;&quot;"/>',
 		);
 		expect(suite).toContain(
-			'<data key="_xpath_query" ref="&quot;@status = &apos;active&apos;&quot;"/>',
+			'<data key="_xpath_query" ref="&quot;@status = &apos;open&apos;&quot;"/>',
 		);
 		// The derived simple-arm clause carries its own presence gate over
 		// the typed value.
@@ -1061,7 +1061,7 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 		expect(xpathEntries).toHaveLength(3);
 		const values = xpathEntries.map((d) => d.defaultValue);
 		expect(values).toContain(`"region = 'North'"`);
-		expect(values).toContain(`"@status = 'active'"`);
+		expect(values).toContain(`"@status = 'open'"`);
 		expect(values.join("\n")).toContain("case_name = ");
 	});
 

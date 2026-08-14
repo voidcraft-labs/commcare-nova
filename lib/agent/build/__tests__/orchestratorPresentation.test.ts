@@ -10,7 +10,7 @@ import {
 
 describe("reviewed-build presentation", () => {
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v7");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v8");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"Use several native calls in one response when their inputs are already known",
@@ -42,6 +42,16 @@ describe("reviewed-build presentation", () => {
 		);
 		expect(EXECUTOR_SYSTEM).toContain(
 			"The record's display name is never a second case-type key",
+		);
+		expect(EXECUTOR_SYSTEM).toContain("Use `configureCaseList`");
+		expect(EXECUTOR_SYSTEM).toContain(
+			"it is not a request to create a Blueprint user type",
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"The built-in `status` is only `open` or `closed`",
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			'a direct Term such as `{ kind: "literal", value: "open" }`',
 		);
 	});
 

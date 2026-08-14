@@ -153,6 +153,27 @@ describe("renderSourcePackage containment", () => {
 		);
 	});
 
+	it("keeps actors, lifecycle, and universal platform truths out of invented app structure", () => {
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"design context, not an instruction to create a Blueprint user type",
+		);
+		expect(DESIGN_REVIEWER_SYSTEM).toContain(
+			"An actor is semantic work context, not Blueprint user structure",
+		);
+		for (const prompt of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {
+			expect(prompt).toContain("only `open` or `closed`");
+			expect(prompt).toMatch(/universal/i);
+		}
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"Record an external requirement only when this particular app depends",
+		);
+		expect(DESIGN_REVIEWER_SYSTEM).toContain(
+			"Do not turn universal worker provisioning",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain("building and releasing");
+		expect(DESIGN_REVIEWER_SYSTEM).toContain("HQ build/release");
+	});
+
 	it("opens every human turn before extended reasoning", () => {
 		expect(DESIGN_AGENT_SYSTEM).toContain(
 			"make your first visible output one short acknowledgement",

@@ -185,7 +185,11 @@ An actor records only the information needed to design usable work:
 - constraints.
 
 An actor is not a Blueprint user type or Preview persona. Runtime bindings are
-implementation provenance.
+implementation provenance. Deterministic plan derivation carries the actor as
+workflow context but never turns it into worker structure by itself; a worker
+property, user type, or persona is constructible only when an accepted
+executable condition/reference or an explicit authored-worker requirement
+needs it.
 
 A record owns its properties. Each property records:
 
@@ -200,6 +204,13 @@ are derived from workflows and lists rather than copied into the property.
 There is no separate identity marker: a record's display identity is spelled
 by name — a property named `case_name` is the platform's standard name slot
 (`external_id` likewise), the same convention the built app uses.
+
+The platform-owned case lifecycle is not an app-specific state machine.
+Built-in `status` is exactly `open` or `closed`, new cases are `open`, and an
+ordinary case list already excludes closed cases. Design prose such as
+"active cases" therefore means open cases unless the workflow defines a
+separate program-specific state property. Design review and semantic
+validation both refuse a third built-in status value such as `active`.
 
 ### 3.4 Workflows
 
@@ -274,10 +285,14 @@ composition for every included workflow.
 
 ### 3.7 External requirements, decisions, assumptions, and questions
 
-An external requirement names what is outside Blueprint construction, which
-workflows depend on it, and whether construction truly has to wait — one
-kind and one blocking flag, from which the plan derives each action's
-timing; there is no separate authored timing axis restating them.
+An external requirement names a concrete resource, configuration, or
+readiness step outside Blueprint construction that this particular app
+depends on, which workflows depend on it, and whether construction truly has
+to wait — one kind and one blocking flag, from which the plan derives each
+action's timing; there is no separate authored timing axis restating them.
+Universal product truths such as provisioning workers or building and
+releasing an uploaded app remain platform constraints, not boilerplate
+requirements copied into every design.
 
 Runtime or deployment setup is non-blocking only when every included
 workflow can still be authored as a valid, reachable, useful app. Every
@@ -747,6 +762,20 @@ independently. A rejected call preserves its accepted prefix and marks the
 dependent suffix skipped. Process recovery runs only unanswered calls; it
 never replays a successful prefix or runs a suffix after a durable failed or
 terminal result.
+
+The ordinary shared surface also includes `configureCaseList`, one
+resource-level call for a known case-list refinement: it may add columns and
+search inputs, replace or clear the always-on filter, compose the search-screen
+display cluster, and arrange Results, Details, and search-input order. The
+tool is not a second storage shape or a mutation envelope; it lowers to the
+same granular column, input, filter, order, and module-setting mutations and
+commits them as one guarded batch. Targeted follow-up tools remain available.
+
+On model-facing tool boundaries, a direct Predicate/ValueExpression Term such
+as `{ kind: "literal", value: "open" }` or a session-context leaf is accepted
+where a value is expected and normalized before the original canonical schema
+parses it. The stored domain AST remains explicitly term-lifted, direct MCP
+tools remain canonical, and true Term slots are never rewritten.
 
 Complete `createModule` and `createForm` calls express ordinary semantic
 creation. There are no executor-only creation alternatives and no

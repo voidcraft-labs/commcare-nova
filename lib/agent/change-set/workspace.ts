@@ -26,6 +26,7 @@
  * peer surface. Committing is `commit.ts`'s separate server-owned operation.
  */
 
+import { normalizeModelAstInput } from "@/lib/agent/modelAstInput";
 import type {
 	ConversionImpactFn,
 	ToolInvocationContext,
@@ -273,7 +274,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			input: args.input,
 			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			execute: async (ctx, resolvedInput) => {
-				const parsed = entry.tool.inputSchema.safeParse(resolvedInput);
+				const parsed = entry.tool.inputSchema.safeParse(
+					normalizeModelAstInput(resolvedInput),
+				);
 				if (!parsed.success) {
 					throw new ChangeSetStagingRejectedError(
 						"TOOL_INPUT_INVALID",

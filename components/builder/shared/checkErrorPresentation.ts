@@ -77,6 +77,7 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"unknown-lookup-column": () => "Choose an available lookup table column",
 	"lookup-table-scope": () => "Choose a column from the lookup table used here",
 	"property-scope": () => "Choose information from the related case shown here",
+	"case-status-value": () => "Use open or closed for built-in case status",
 	"incompatible-values": () =>
 		"Choose values that use compatible kinds of information",
 	"ordered-values": () => "Use numbers, dates, or times for this comparison",

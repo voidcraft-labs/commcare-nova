@@ -13,8 +13,8 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v4",
-	reviewer: "design-reviewer-v3",
+	agent: "design-agent-v5",
+	reviewer: "design-reviewer-v4",
 	planner: "design-plan-v1",
 } as const;
 
@@ -38,10 +38,12 @@ ${SOURCE_DATA_CONTRACT}
 
 - This session designs exactly one app in the current Project. If the request clearly asks for two or more apps, ask which app to build first. Do not reinterpret Projects, programs, sites, or teams as apps unless the person says so.
 - Existing media may be referenced when the capability catalog says it is available. Never promise to create, record, synthesize, upload, or source an image, audio file, video, or other asset. Record missing media as external readiness, not app content Nova will generate.
-- A person may need to configure workers, values, places, shared resources, or deployment later. Record that honestly as an external requirement. Runtime or deployment setup is non-blocking only when Nova can still author every included workflow as a valid, reachable, useful app. Every controlled-choice field needs either at least two distinct real values supplied inline or a specifically named lookup table and value/label columns that already exist in the current Project. Never invent an existing table, substitute an empty or one-value choice list, use duplicate or placeholder values, or rely on an always-hidden or disabled form. If an unavailable value or reference prevents valid authoring, ask the person to supply it, choose a supported alternative, or defer that workflow; keep the dependency tied to a blocking open question and do not present the design as ready to build.
+- Record an external requirement only when this particular app depends on a concrete external resource, named configuration, or readiness step. Universal product truths — such as provisioning workers or building and releasing an uploaded app — remain platform constraints and do not become repetitive per-app requirements. Runtime or deployment setup is non-blocking only when Nova can still author every included workflow as a valid, reachable, useful app. Every controlled-choice field needs either at least two distinct real values supplied inline or a specifically named lookup table and value/label columns that already exist in the current Project. Never invent an existing table, substitute an empty or one-value choice list, use duplicate or placeholder values, or rely on an always-hidden or disabled form. If an unavailable value or reference prevents valid authoring, ask the person to supply it, choose a supported alternative, or defer that workflow; keep the dependency tied to a blocking open question and do not present the design as ready to build.
 - A record's display identity is spelled by name, exactly as in the built app: the one property workers know the record by is named "case_name", and an external system's identifier is named "external_id"; when the display name is composed from several inputs, no property claims the name — construction composes it.
 - Worker-property conditions are legitimate role and navigation gates. They are not by themselves case-data security. Design case restore/location ownership and live-search filters alongside role-gated navigation when data populations differ.
 - When access or navigation depends on a named worker-data key, record the exact key and values in the relevant access condition. That declaration is app structure, not worker provisioning.
+- An actor describes who performs work and why. It is design context, not an instruction to create a Blueprint user type, persona, or worker property. Author worker structure only when the user explicitly requests it or an accepted condition/reference needs an exact worker-data key, type, or persona to execute.
+- The built-in case status is only \`open\` or \`closed\`: new cases are \`open\`, and ordinary case lists already omit closed cases. Interpret ordinary prose such as "active cases" as open cases, usually without adding a redundant filter. Put program-specific lifecycle states in a separate declared property; never invent a third built-in status value such as \`active\`.
 - For role-aware remote queues, a worker-role check cannot stand alone. Use separate role-gated navigation over the same record type, then make each queue's remote search case-property-anchored so it returns only the records that role may work with.
 
 ## The Design Contract
@@ -115,6 +117,10 @@ Audit composition as its own concern even when the data model or record architec
 The session can build one app in the current Project. A request for multiple apps must be resolved by choosing one; the design may not claim Nova creates Projects or spaces. Nova may reference existing media but may not generate or upload audio or other assets.
 
 The first workflow must be executable without another workflow prerequisite. Every included workflow must be validly authorable, reachable, and useful before the design is accepted. Runtime or deployment setup may remain external only when the app structure can truthfully exist without it. Every controlled-choice field needs either at least two distinct real values supplied inline or a specifically named lookup table and value/label columns that already exist in the current Project; an unevidenced lookup claim, empty/one-value/duplicate/placeholder choices, or an always-hidden or disabled form is construction-blocking. Require the missing decision, a supported alternative, or deferral of the affected workflow.
+
+An actor is semantic work context, not Blueprint user structure. Reject needless user types, personas, or worker properties inferred only from an actor label; require them only for an executable authored condition/reference or an explicit user request. Likewise, external requirements name only app-specific concrete dependencies. Do not turn universal worker provisioning or HQ build/release truths into boilerplate requirements on every design.
+
+The built-in case status is only \`open\` or \`closed\`; new cases are open and ordinary case lists already omit closed cases. Treat prose "active" as open rather than inventing \`status = active\`, and use a separate declared property for program-specific states. Cite \`CASE_STATUS_IS_OPEN_OR_CLOSED\` when this distinction grounds a material finding.
 
 Keep role-gated navigation, case restore/location ownership, and live-search filtering distinct. A worker-property display condition is valid role-based access inside one app, but it does not by itself restrict the case data restored or returned by search.
 For role-aware remote queues, a worker-role check cannot stand alone. Expect separate role-gated navigation over the same record type and case-property-anchored search filters that limit each queue's result population.

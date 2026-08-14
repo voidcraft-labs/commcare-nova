@@ -46,6 +46,11 @@ describe("deriveSliceExecutionBrief", () => {
 		);
 		expect(brief.records.map((record) => record.id)).toContain(ids.recPatient);
 		expect(brief.actors.map((actor) => actor.id)).toContain(ids.actorChw);
+		expect(
+			brief.constructionChecklist
+				.flatMap((group) => group.items)
+				.find((item) => item.kind === "actor")?.requirement,
+		).toContain("as workflow context; materialize worker properties");
 	});
 
 	it("carries accepted optional input validation into the executor brief", () => {

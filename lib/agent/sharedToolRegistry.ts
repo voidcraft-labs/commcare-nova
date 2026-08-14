@@ -16,6 +16,7 @@ import {
 } from "@/lib/agent/tools/automations";
 import { addCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "@/lib/agent/tools/case-list-config/addSearchInputs";
+import { configureCaseListTool } from "@/lib/agent/tools/case-list-config/configureCaseList";
 import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/removeCaseListColumn";
 import { removeSearchInputTool } from "@/lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/reorderCaseListColumns";
@@ -414,6 +415,13 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "addCaseListColumns",
 		mcpName: "add_case_list_columns",
 		tool: addCaseListColumnsTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "configureCaseList",
+		mcpName: "configure_case_list",
+		tool: configureCaseListTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

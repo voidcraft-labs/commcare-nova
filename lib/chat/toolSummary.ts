@@ -46,6 +46,10 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		done: "Renamed case properties",
 	},
 	addCaseListColumns: { doing: "Adding columns", done: "Added columns" },
+	configureCaseList: {
+		doing: "Configuring the case list",
+		done: "Configured the case list",
+	},
 	updateCaseListColumn: { doing: "Updating column", done: "Updated column" },
 	removeCaseListColumn: { doing: "Removing column", done: "Removed column" },
 	reorderCaseListColumns: {

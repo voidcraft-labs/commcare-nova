@@ -159,10 +159,19 @@ function classifyIdentity(
 		return "field";
 	}
 	if (property === "optionUuid") return "select-option";
-	if (property === "columnUuid" || property === "columnUuids") {
+	if (
+		property === "columnUuid" ||
+		property === "columnUuids" ||
+		property === "resultsColumnOrder" ||
+		property === "detailsColumnOrder"
+	) {
 		return "case-list-column";
 	}
-	if (property === "searchInputUuid" || property === "searchInputUuids") {
+	if (
+		property === "searchInputUuid" ||
+		property === "searchInputUuids" ||
+		property === "searchInputOrder"
+	) {
 		return "search-input";
 	}
 	if (property === "userPropertyUuid") return "worker-property";

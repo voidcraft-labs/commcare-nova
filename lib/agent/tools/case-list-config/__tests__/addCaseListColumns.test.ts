@@ -274,7 +274,7 @@ describe("addCaseListColumns", () => {
 				header: "Status",
 				mapping: [
 					{
-						value: "active",
+						value: "open",
 						assetId: testMediaAssetId("asset-active"),
 					},
 					{

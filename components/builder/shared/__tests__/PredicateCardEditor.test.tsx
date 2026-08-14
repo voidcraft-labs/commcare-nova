@@ -71,7 +71,7 @@ const CASE_TYPES = [HOUSEHOLD, PATIENT];
 
 describe("PredicateCardEditor — validity propagation", () => {
 	it("reports valid for a well-typed predicate", () => {
-		const value = eq(prop("patient", "status"), literal("active"));
+		const value = eq(prop("patient", "status"), literal("open"));
 		const onValidityChange = vi.fn();
 		render(
 			<PredicateCardEditor
@@ -159,6 +159,11 @@ describe("PredicateCardEditor — user-facing diagnostics", () => {
 			{ code: "match-value-empty", path: ["value"] },
 			"Enter a value to match",
 		],
+		[
+			"built-in case status",
+			{ code: "case-status-value", path: ["right"] },
+			"Use open or closed for built-in case status",
+		],
 	] as const)(
 		"presents a next action for %s errors",
 		(_label, finding, copy) => {
@@ -226,7 +231,7 @@ describe("PredicateCardEditor — recursive nesting", () => {
 		// own tests.
 		const value = exists(
 			ancestorPath(relationStep("parent")),
-			eq(prop("patient", "status"), literal("active")),
+			eq(prop("patient", "status"), literal("open")),
 		);
 		const onValidityChange = vi.fn();
 		render(
@@ -245,7 +250,7 @@ describe("PredicateCardEditor — recursive nesting", () => {
 describe("PredicateCardEditor — and/or grouping", () => {
 	it("renders an and-group with two clauses", () => {
 		const value: Predicate = and(
-			eq(prop("patient", "status"), literal("active")),
+			eq(prop("patient", "status"), literal("open")),
 			gt(prop("patient", "age"), literal(18)),
 		);
 		const onValidityChange = vi.fn();
@@ -267,7 +272,7 @@ describe("PredicateCardEditor — readable choice menus", () => {
 	it("wraps complete condition and value-source guidance instead of clipping it", () => {
 		render(
 			<PredicateCardEditor
-				value={eq(prop("patient", "status"), literal("active"))}
+				value={eq(prop("patient", "status"), literal("open"))}
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"

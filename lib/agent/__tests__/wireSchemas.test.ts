@@ -1,6 +1,7 @@
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { normalizeModelAstInput } from "@/lib/agent/modelAstInput";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import {
 	CANONICAL_UUID_PATTERN,
@@ -128,5 +129,80 @@ describe("compact provider expression schemas", () => {
 			}),
 			JSON.stringify(validate.errors),
 		).toBe(true);
+	});
+
+	it("admits direct Term operands and normalizes them before canonical parsing", async () => {
+		const shorthandSchema = z.object({ predicate: predicateSchema }).strict();
+		const shorthandWire = wireToolSchema(shorthandSchema);
+		const input = {
+			predicate: {
+				kind: "eq",
+				left: { kind: "prop", caseType: "patient", property: "status" },
+				right: { kind: "literal", value: "open" },
+			},
+		};
+		const validateJson = new Ajv({ strict: false }).compile(
+			shorthandWire.jsonSchema as JsonNode,
+		);
+		expect(validateJson(input), JSON.stringify(validateJson.errors)).toBe(true);
+
+		const result = await shorthandWire.validate?.(input);
+		expect(result).toEqual({
+			success: true,
+			value: {
+				predicate: {
+					kind: "eq",
+					left: {
+						kind: "term",
+						term: { kind: "prop", caseType: "patient", property: "status" },
+					},
+					right: {
+						kind: "term",
+						term: { kind: "literal", value: "open" },
+					},
+				},
+			},
+		});
+	});
+
+	it("does not reinterpret non-expression literal objects", () => {
+		const automation = {
+			automation: {
+				updates: [
+					{
+						target: { caseType: "patient", property: "state" },
+						value: { kind: "literal", value: "resolved" },
+					},
+				],
+			},
+		};
+		expect(normalizeModelAstInput(automation)).toEqual(automation);
+	});
+
+	it("preserves discriminator-only nodes and normalizes match values", () => {
+		expect(
+			normalizeModelAstInput({
+				filter: { kind: "match-all" },
+				expression: { kind: "today" },
+				predicate: {
+					kind: "match",
+					property: { caseType: "patient", property: "case_name" },
+					value: { kind: "literal", value: "Ada" },
+					mode: "exact",
+				},
+			}),
+		).toEqual({
+			filter: { kind: "match-all" },
+			expression: { kind: "today" },
+			predicate: {
+				kind: "match",
+				property: { caseType: "patient", property: "case_name" },
+				value: {
+					kind: "term",
+					term: { kind: "literal", value: "Ada" },
+				},
+				mode: "exact",
+			},
+		});
 	});
 });

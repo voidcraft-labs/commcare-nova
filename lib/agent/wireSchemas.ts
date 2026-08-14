@@ -16,14 +16,16 @@
  * detail already stated in the prompt collapses to `{}`. It is never an open
  * `additionalProperties:true` identity stub.
  *
- * Validation is untouched: the returned Schema parses with the real Zod
- * schema, so a malformed predicate rejects exactly as before, with the
- * same teaching messages, on chat and MCP alike (MCP registers the Zod
- * schemas directly and never sees this projection).
+ * Validation remains canonical: the returned Schema first normalizes the
+ * model-only direct-Term shorthand and then parses with the real Zod schema,
+ * so malformed predicates still reject with the same teaching messages. MCP
+ * registers the Zod schemas directly and never sees this projection or
+ * shorthand.
  */
 
 import { jsonSchema, type Schema } from "ai";
 import { z } from "zod";
+import { normalizeModelAstInput } from "@/lib/agent/modelAstInput";
 import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 
 type JsonNode = Record<string, unknown>;
@@ -195,6 +197,54 @@ const compactAstDefinitions = Object.fromEntries(
 		compactAstNode(schema),
 	]),
 ) as JsonNode;
+
+/**
+ * ValueExpression's provider projection also admits direct Term arms. The
+ * runtime validator below normalizes those arms to the canonical `term`
+ * wrapper before parsing, so this only removes model-facing ceremony; it does
+ * not widen the document AST or the MCP contract.
+ */
+function addDirectTermShorthand(): void {
+	const expression = compactAstDefinitions.ValueExpression;
+	const term = compactAstDefinitions.Term;
+	if (
+		expression === null ||
+		typeof expression !== "object" ||
+		term === null ||
+		typeof term !== "object"
+	) {
+		return;
+	}
+	const expressionNode = expression as JsonNode;
+	const termNode = term as JsonNode;
+	if (Array.isArray(expressionNode.oneOf)) {
+		expressionNode.oneOf.push({ $ref: "#/definitions/Term" });
+		return;
+	}
+	const expressionProperties = expressionNode.properties;
+	const termProperties = termNode.properties;
+	if (
+		expressionProperties === null ||
+		typeof expressionProperties !== "object" ||
+		termProperties === null ||
+		typeof termProperties !== "object"
+	) {
+		return;
+	}
+	const expressionKind = (expressionProperties as JsonNode).kind as
+		| JsonNode
+		| undefined;
+	const termKind = (termProperties as JsonNode).kind as JsonNode | undefined;
+	if (!Array.isArray(expressionKind?.enum) || !Array.isArray(termKind?.enum)) {
+		return;
+	}
+	expressionKind.enum = [
+		...new Set([...expressionKind.enum, ...termKind.enum]),
+	];
+	Object.assign(expressionProperties, termProperties);
+}
+
+addDirectTermShorthand();
 const AST_PROJECTIONS = new Map<z.ZodType, JsonNode>([
 	[predicateSchema, compactAstDefinitions.Predicate as JsonNode],
 	[valueExpressionSchema, compactAstDefinitions.ValueExpression as JsonNode],
@@ -246,7 +296,7 @@ export function wireToolSchema<I>(schema: z.ZodType<I>): Schema<I> {
 	pruneUnreferencedDefinitions(json);
 	const wire = jsonSchema<I>(json as Parameters<typeof jsonSchema<I>>[0], {
 		validate: (value) => {
-			const result = schema.safeParse(value);
+			const result = schema.safeParse(normalizeModelAstInput(value));
 			return result.success
 				? { success: true, value: result.data }
 				: { success: false, error: result.error };

@@ -103,6 +103,10 @@ export const CREATION_IDENTITY_SPECS: Readonly<
 	addCaseListColumns: [
 		spec(["columns", "*", "columnUuid"], "case_list_column"),
 	],
+	configureCaseList: [
+		spec(["columns", "*", "columnUuid"], "case_list_column"),
+		spec(["searchInputs", "*", "searchInputUuid"], "search_input"),
+	],
 	updateModule: [
 		spec(["case_list_columns", "*", "columnUuid"], "case_list_column"),
 	],

@@ -461,10 +461,11 @@ its time of day.
 
 ## Working on the case list
 
-A module's case list is the screen that lists existing cases and the search bar that filters them. Each case-list configuration has three slots: the columns shown in the list, an optional filter predicate, and the search inputs the user types into.
+A module's case list is the screen that lists existing cases and the search bar that filters them. Its configuration covers the columns shown in Results and Details, an optional filter predicate, the search inputs the user types into, their ordering, and an optional card layout.
 
 | Tool | What it does |
 |---|---|
+| `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs. |
 | `add_case_list_columns` | Add one or more columns to the case list (plain / date / phone / id-mapping / image-map / interval / calculated). Each may predeclare `columnUuid`; the result returns the final UUIDs. |
 | `update_case_list_column` | Replace a column's body, addressed by `moduleUuid` and `columnUuid`. |
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |

@@ -32,6 +32,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"LOCATION_OWNER_EXPORT_CLOSED",
 	// Case / data shape rules
 	"CASE_SEARCH_IS_LIVE_AND_ONLINE",
+	"CASE_STATUS_IS_OPEN_OR_CLOSED",
 	"CASE_UPDATES_ARE_NOT_COMPARE_AND_SET",
 	"SINGLE_DIRECT_CASE_WRITE_PER_FIELD",
 	"STANDARD_SCALAR_WRITERS_LIMITED",
@@ -113,6 +114,13 @@ export const PLATFORM_CONSTRAINTS: Record<
 		statement:
 			"Case search queries the server live: a Web Apps user is connected anyway, but on mobile a search (and the claim that follows selecting a result) fails without connectivity, so an offline-first design must not gate its primary workflow behind case search.",
 		sourceAnchor: "lib/commcare/suite/case-search/remoteRequest.ts",
+	},
+	CASE_STATUS_IS_OPEN_OR_CLOSED: {
+		code: "CASE_STATUS_IS_OPEN_OR_CLOSED",
+		statement:
+			"The built-in case status has exactly two values: open and closed. New cases are open, and ordinary case lists already exclude closed cases. Treat an active case as open; program-specific states such as pending, enrolled, or inactive belong in a separate declared property.",
+		sourceAnchor:
+			"lib/domain/standardCaseProperties.ts::CANONICAL_STANDARD_CASE_PROPERTY_LABELS",
 	},
 	CASE_UPDATES_ARE_NOT_COMPARE_AND_SET: {
 		code: "CASE_UPDATES_ARE_NOT_COMPARE_AND_SET",

@@ -256,6 +256,7 @@ const CONSTRAINT_AREAS: Readonly<
 	WORKER_PROVISIONING_NOT_SHIPPED: ["users"],
 	LOCATION_OWNER_EXPORT_CLOSED: ["organization-shape", "case-operations"],
 	CASE_SEARCH_IS_LIVE_AND_ONLINE: ["case-list"],
+	CASE_STATUS_IS_OPEN_OR_CLOSED: ["case-list", "forms", "case-operations"],
 	CASE_UPDATES_ARE_NOT_COMPARE_AND_SET: ["case-operations"],
 	SINGLE_DIRECT_CASE_WRITE_PER_FIELD: ["forms"],
 	STANDARD_SCALAR_WRITERS_LIMITED: ["forms", "case-operations"],
@@ -300,7 +301,7 @@ function checklistRequirement(
 		].join(" ");
 	}
 	if (kind === "actor")
-		return `Represent actor ${contract.actors.find((entry) => entry.id === id)?.name ?? id}.`;
+		return `Use actor ${contract.actors.find((entry) => entry.id === id)?.name ?? id} as workflow context; materialize worker properties, user types, or personas only where an accepted executable condition/reference or explicit authored-worker requirement needs them.`;
 	if (kind === "record")
 		return `Declare record ${contract.records.find((entry) => entry.id === id)?.name ?? id}.`;
 	if (kind === "property") {

@@ -125,6 +125,7 @@ describe("shared tool registry — execution policy coherence", () => {
 			removeCaseOperation: "mutate-blueprint/allowed",
 			moveCaseOperation: "mutate-blueprint/allowed",
 			addCaseListColumns: "mutate-blueprint/allowed",
+			configureCaseList: "mutate-blueprint/allowed",
 			addSearchInputs: "mutate-blueprint/allowed",
 			removeCaseListColumn: "mutate-blueprint/allowed",
 			removeSearchInput: "mutate-blueprint/allowed",

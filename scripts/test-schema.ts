@@ -16,7 +16,7 @@
  *     tool-input acceptance is the same across models).
  *   - Pass a schema name to test only that schema; omit to test every
  *     registered schema. Known names: `addFields`,
- *     `addCaseListColumns`, `updateCaseListColumn`,
+ *     `configureCaseList`, `addCaseListColumns`, `updateCaseListColumn`,
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
  *     `setCaseListFilter`, `setCaseListTile`, `addSearchInputs`, `updateSearchInput`,
  *     `removeSearchInput`, `reorderSearchInputs`,
@@ -34,6 +34,7 @@ import { z } from "zod";
 import { addFieldsTool } from "../lib/agent/tools/addFields";
 import { addCaseListColumnsTool } from "../lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "../lib/agent/tools/case-list-config/addSearchInputs";
+import { configureCaseListTool } from "../lib/agent/tools/case-list-config/configureCaseList";
 import { removeCaseListColumnTool } from "../lib/agent/tools/case-list-config/removeCaseListColumn";
 import { removeSearchInputTool } from "../lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "../lib/agent/tools/case-list-config/reorderCaseListColumns";
@@ -93,6 +94,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 			'Use updateModule with moduleUuid 11111111-1111-4111-8111-111111111111 to set its case type to "patient" and rename it to "Patients".',
 	},
 	{
+		name: "configureCaseList",
+		description: configureCaseListTool.description,
+		schema: configureCaseListTool.inputSchema,
+		prompt:
+			"Use configureCaseList with moduleUuid 11111111-1111-4111-8111-111111111111 to add a plain case_name column with columnUuid 33333333-3333-4333-8333-333333333333, set a title of Find a patient while clearing the other search display slots, and set Results order to that column UUID.",
+	},
+	{
 		name: "addCaseListColumns",
 		description: addCaseListColumnsTool.description,
 		schema: addCaseListColumnsTool.inputSchema,
@@ -125,7 +133,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: setCaseListFilterTool.description,
 		schema: setCaseListFilterTool.inputSchema,
 		prompt:
-			"Use setCaseListFilter with moduleUuid 11111111-1111-4111-8111-111111111111 to set a comparison: the patient case status property equals the literal string active.",
+			"Use setCaseListFilter with moduleUuid 11111111-1111-4111-8111-111111111111 to set a comparison: the patient case status property equals the literal string open.",
 	},
 	{
 		name: "setCaseListTile",

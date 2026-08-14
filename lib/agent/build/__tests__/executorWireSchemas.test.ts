@@ -101,6 +101,7 @@ describe("executor tool surface", () => {
 				"searchBlueprint",
 				"createModule",
 				"createForm",
+				"configureCaseList",
 				"addCaseListColumns",
 				"finishWorkflow",
 				"reportExecutionBlocker",

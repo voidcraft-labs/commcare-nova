@@ -58,6 +58,15 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   summaries, and justified flat or duplicated forms. Historical v1 artifacts
   default these collections to empty, while new construction requires at least
   one deliberate module and one complete form variant per included workflow.
+  Actors remain semantic work context: they do not create Blueprint user
+  types, personas, or worker properties unless an executable accepted
+  condition/reference or explicit authored-worker request needs that
+  structure. External requirements likewise name only concrete dependencies
+  of this app; universal provisioning and HQ build/release truths stay in the
+  platform constraint catalog rather than repeating in every contract.
+  Built-in case `status` is only `open`/`closed`, new cases are open, and
+  ordinary lists already exclude closed cases; program-specific states are
+  separate properties.
   Admission also rejects unknown record/form-input shapes, decisions without
   concrete inputs and outcomes, structurally empty or disabled workflow shells,
   unresolved writes or outcomes, blocking open questions tied to included
