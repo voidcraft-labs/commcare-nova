@@ -9,6 +9,10 @@
  * Usage:
  *   npx tsx --conditions=react-server scripts/inspect-design-slice.ts \
  *     --plan <buildPlanId> --slice <sliceId> [--change-set <changeSetId>] [--prod]
+ *
+ * If those ids are not already known, inspect-design-session accepts the
+ * session, app, thread, run, attempt, or change-set id and prints this exact
+ * replay command for the latest attempt.
  */
 import "dotenv/config";
 import { budgetForSlice } from "@/lib/agent/build/budgets";

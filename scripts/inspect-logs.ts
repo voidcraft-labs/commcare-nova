@@ -21,6 +21,11 @@
  * the Cloud SQL connector in the migrate-job image); `--prod` targets the
  * production instance over its public IP (see `./lib/prodDb.ts`). Never
  * writes. Run with `--help` for the flag reference.
+ *
+ * Reviewed-design sessions span additional artifact, orchestration, context,
+ * attempt, and stream ledgers. Start those investigations with
+ * `inspect-design-session.ts <anyRelatedId>`; use this app-centric reader for
+ * a focused event-log analysis after materialization.
  */
 import "dotenv/config";
 import { Command, InvalidArgumentError } from "commander";

@@ -20,6 +20,10 @@
  *
  * Usage:
  *   npx tsx scripts/inspect-design-artifacts.ts --session <designSessionId> [--reasoning] [--prod]
+ *
+ * For first-pass diagnosis, id resolution, live polling, slice budgets,
+ * compaction/context evidence, and retained stream state, start with:
+ *   npx tsx --conditions=react-server scripts/inspect-design-session.ts <anyRelatedId>
  */
 import "dotenv/config";
 import { sql } from "kysely";
