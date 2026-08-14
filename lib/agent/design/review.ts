@@ -10,19 +10,6 @@ import { type SourceRef, sourceRefSchema } from "@/lib/agent/design/evidence";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { deriveFindingHandleBindings } from "@/lib/agent/design/reviewVocabulary";
 
-export const designFindingCategorySchema = z.enum([
-	"requirement-coverage",
-	"workflow-gap",
-	"data-model",
-	"access-and-actor",
-	"privacy-and-sensitivity",
-	"usability",
-	"unsupported-assumption",
-	"unnecessary-complexity",
-	"platform-constraint",
-]);
-export type DesignFindingCategory = z.infer<typeof designFindingCategorySchema>;
-
 export const designFindingSeveritySchema = z.enum([
 	"critical",
 	"important",
@@ -30,21 +17,13 @@ export const designFindingSeveritySchema = z.enum([
 ]);
 export type DesignFindingSeverity = z.infer<typeof designFindingSeveritySchema>;
 
-export const designFindingBasisSchema = z.enum([
-	"source-supported",
-	"contract-internal",
-	"platform-constraint",
-	"heuristic",
-]);
-export type DesignFindingBasis = z.infer<typeof designFindingBasisSchema>;
-
+/** What happens next: a design correction blocks at critical/important
+ * severity, an unresolved user decision always blocks, and a note (readiness
+ * work outside construction, or an optional improvement) never does. */
 export const designFindingDispositionClassSchema = z.enum([
 	"design-correction",
 	"user-decision",
-	"external-readiness",
-	"runtime-readiness",
-	"deployment-readiness",
-	"advisory",
+	"note",
 ]);
 export type DesignFindingDispositionClass = z.infer<
 	typeof designFindingDispositionClassSchema
@@ -53,9 +32,7 @@ export type DesignFindingDispositionClass = z.infer<
 export const designFindingSchema = z
 	.object({
 		id: designIdSchema,
-		category: designFindingCategorySchema,
 		severity: designFindingSeveritySchema,
-		basis: designFindingBasisSchema,
 		dispositionClass: designFindingDispositionClassSchema,
 		claim: z.string().min(1),
 		/** The review is the contract's only attribution surface. */
@@ -78,7 +55,6 @@ export function findingBlocksAcceptance(finding: DesignFinding): boolean {
 export function validateFindingEvidence(
 	finding: {
 		severity: DesignFindingSeverity;
-		basis: DesignFindingBasis;
 		dispositionClass: DesignFindingDispositionClass;
 		evidenceRefs: SourceRef[];
 		affectedElementIds: string[];
@@ -87,19 +63,16 @@ export function validateFindingEvidence(
 ): void {
 	const gatedSeverity =
 		finding.severity === "critical" || finding.severity === "important";
-	if (finding.basis === "heuristic" && finding.severity === "critical") {
-		ctx.addIssue({
-			code: "custom",
-			path: ["severity"],
-			message: "A heuristic finding cannot be critical.",
-		});
-	}
-	if (gatedSeverity && finding.evidenceRefs.length === 0) {
+	if (
+		gatedSeverity &&
+		finding.evidenceRefs.length === 0 &&
+		finding.affectedElementIds.length === 0
+	) {
 		ctx.addIssue({
 			code: "custom",
 			path: ["evidenceRefs"],
 			message:
-				"A critical or important finding must cite the exact source or platform constraint that supports it.",
+				"A critical or important finding must ground itself: cite the exact source or platform constraint that establishes it, or name the affected contract elements when the contract contradicts itself.",
 		});
 	}
 	if (!gatedSeverity && finding.evidenceRefs.length > 0) {
@@ -108,26 +81,6 @@ export function validateFindingEvidence(
 			path: ["evidenceRefs"],
 			message:
 				"Advisory findings do not carry source attribution; reserve citations for critical and important outcomes.",
-		});
-	}
-	if (
-		finding.basis === "platform-constraint" &&
-		!finding.evidenceRefs.some((ref) => ref.kind === "platform-constraint")
-	) {
-		ctx.addIssue({
-			code: "custom",
-			path: ["evidenceRefs"],
-			message: "A platform finding must cite a catalogued constraint.",
-		});
-	}
-	if (
-		finding.dispositionClass === "advisory" &&
-		finding.severity !== "advisory"
-	) {
-		ctx.addIssue({
-			code: "custom",
-			path: ["dispositionClass"],
-			message: "An advisory classification must have advisory severity.",
 		});
 	}
 }
@@ -145,28 +98,10 @@ export type DesignReview = z.infer<typeof designReviewSchema>;
 export const findingDispositionSchema = z
 	.object({
 		findingId: designIdSchema,
-		status: z.enum([
-			"accepted",
-			"rejected-with-rationale",
-			"deferred-with-user-visible-consequence",
-		]),
+		status: z.enum(["accepted", "rejected", "deferred"]),
 		rationale: z.string().min(1),
-		userVisibleConsequence: z.string().min(1).optional(),
 	})
-	.strict()
-	.superRefine((value, ctx) => {
-		if (
-			value.status === "deferred-with-user-visible-consequence" &&
-			value.userVisibleConsequence === undefined
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["userVisibleConsequence"],
-				message:
-					"An unresolved user decision must state its visible consequence.",
-			});
-		}
-	});
+	.strict();
 export type FindingDisposition = z.infer<typeof findingDispositionSchema>;
 
 export const designRevisionResultSchema = z
@@ -228,7 +163,7 @@ export function validateDispositionClosure(
 			ctx.addIssue({
 				code: "custom",
 				path: ["dispositions", index, "findingId"],
-				message: `The finding ${nameFinding(finding.id) ?? finding.id} is advisory, and only blocking design corrections and unresolved user decisions receive dispositions. Remove the disposition whose findingId is ${nameFinding(finding.id) ?? finding.id}.`,
+				message: `The finding ${nameFinding(finding.id) ?? finding.id} does not block acceptance, and only blocking design corrections and unresolved user decisions receive dispositions. Remove the disposition whose findingId is ${nameFinding(finding.id) ?? finding.id}.`,
 			});
 			return;
 		}
@@ -262,7 +197,7 @@ export function validateDispositionClosure(
 		}
 		if (
 			finding.dispositionClass === "user-decision" &&
-			disposition.status === "deferred-with-user-visible-consequence" &&
+			disposition.status === "deferred" &&
 			relatedBlockingQuestions.length === 0
 		) {
 			ctx.addIssue({

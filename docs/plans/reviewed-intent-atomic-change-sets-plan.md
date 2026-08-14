@@ -415,17 +415,21 @@ only:
 It receives no author hidden reasoning, prior reviewer prose, mutation tools,
 or canonical authority.
 
-A finding records:
+A finding records exactly the two decisions the machine consumes plus its
+content:
 
-- category;
-- severity;
-- basis;
-- disposition class;
+- severity (critical, important, advisory);
+- disposition class (design correction, user decision, or note — readiness
+  work outside construction and optional improvements);
 - claim;
 - affected contract elements, named by their printed `@handle` symbols;
 - proposed resolution when useful;
 - evidence references only for critical or important findings, named by
   server-assigned source tags or a platform-constraint code.
+
+There is no category taxonomy, basis flag, or confidence score: nothing
+consumed them, and every extra correlated classification is another way a
+whole structured review fails its parse.
 
 The reviewer emits no identities Nova already owns. A structured generation
 reproduces short semantic symbols far more reliably than 32-hex-digit UUIDs or
@@ -451,10 +455,13 @@ Ledger-binding resolution remains the backstop for direct callers.
 The server mints the review and finding identities at resolution, and the
 resolved value re-parses under the persisted schema before anything persists.
 
-Advisories carry no citations. Heuristics cannot be critical. Platform findings
-cite a known platform constraint. Only design corrections at critical or
+Advisories carry no citations. A critical or important finding must ground
+itself: a source tag, a platform-constraint code, or — when the defect is the
+contract contradicting itself — the affected elements whose meanings conflict.
+Demanding a citation where none genuinely exists was the pressure that
+produced padded citations. Only design corrections at critical or
 important severity, plus unresolved user decisions, block acceptance.
-External, runtime, deployment, and advisory observations remain visible
+Notes remain visible
 context but do not force a pointless design rewrite. A decision the sources
 show the person delegated is settled by its concretely recorded default: the
 reviewer challenges a bad default as a design correction rather than raising

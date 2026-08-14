@@ -425,9 +425,7 @@ describe("contract revisions", () => {
 				findings: [
 					{
 						id: did(401),
-						category: "usability",
 						severity: "important",
-						basis: "source-supported",
 						dispositionClass: "design-correction",
 						claim: "Queue names could be shorter.",
 						evidenceRefs: [messageRef()],
@@ -447,7 +445,7 @@ describe("contract revisions", () => {
 					reviewId: review.id,
 					disposition: {
 						findingId: did(401),
-						status: "rejected-with-rationale",
+						status: "rejected",
 						rationale: "The queue name mirrors the workers' own vocabulary.",
 					},
 				},
@@ -462,7 +460,7 @@ describe("contract revisions", () => {
 		const dispositions = await readDispositions(review.id);
 		expect(dispositions).toHaveLength(1);
 		expect(dispositions[0]?.resultingRevisionId).toBe(accepted.id);
-		expect(dispositions[0]?.disposition.status).toBe("rejected-with-rationale");
+		expect(dispositions[0]?.disposition.status).toBe("rejected");
 
 		const reviews = await readDesignReviews(draft.id);
 		expect(reviews).toHaveLength(1);

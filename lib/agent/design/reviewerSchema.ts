@@ -22,9 +22,9 @@
  * symbol — those messages ride `schemaIssueSummary` into operational logs, so
  * a failed review is diagnosable from its log line alone. The final step
  * re-parses the resolved value under the persisted `designReviewSchema`, so
- * every law stated there (citation counts per severity, platform basis,
- * disposition-class coherence) runs with wire paths and the resolved output
- * provably satisfies the artifact store's read-back schema.
+ * every law stated there (grounding per severity, advisory citation limits)
+ * runs with wire paths and the resolved output provably satisfies the
+ * artifact store's read-back schema.
  */
 
 import { z } from "zod";
@@ -42,8 +42,6 @@ import {
 import {
 	type DesignFinding,
 	type DesignReview,
-	designFindingBasisSchema,
-	designFindingCategorySchema,
 	designFindingDispositionClassSchema,
 	designFindingSeveritySchema,
 	designReviewSchema,
@@ -87,9 +85,7 @@ type WireCitation =
 	| { platform: PlatformConstraintCode };
 
 interface WireFinding {
-	category: DesignFinding["category"];
 	severity: DesignFinding["severity"];
-	basis: DesignFinding["basis"];
 	dispositionClass: DesignFinding["dispositionClass"];
 	claim: string;
 	evidenceRefs: WireCitation[];
@@ -228,9 +224,7 @@ function resolveReview(
 		});
 		return {
 			id: mintDesignId(),
-			category: finding.category,
 			severity: finding.severity,
-			basis: finding.basis,
 			dispositionClass: finding.dispositionClass,
 			claim: finding.claim,
 			evidenceRefs: evidenceRefs.filter(
@@ -250,10 +244,9 @@ function resolveReview(
 		findings,
 	});
 	if (!parsed.success) {
-		/* The persisted schema's own laws (citation counts per severity,
-		 * platform basis, disposition-class coherence) speak here with wire
-		 * paths; anything else would be a resolution defect this backstop
-		 * refuses to let through. */
+		/* The persisted schema's own laws (grounding per severity, advisory
+		 * citation limits) speak here with wire paths; anything else would be
+		 * a resolution defect this backstop refuses to let through. */
 		for (const issue of parsed.error.issues) {
 			ctx.addIssue({
 				code: "custom",
@@ -327,9 +320,7 @@ export function designReviewSchemaFor(args: {
 				});
 	const findingSchema = z
 		.object({
-			category: designFindingCategorySchema,
 			severity: designFindingSeveritySchema,
-			basis: designFindingBasisSchema,
 			dispositionClass: designFindingDispositionClassSchema,
 			claim: z.string().min(1),
 			evidenceRefs: z.array(citationSchema),

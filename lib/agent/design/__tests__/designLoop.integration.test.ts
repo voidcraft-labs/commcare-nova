@@ -103,9 +103,7 @@ function correctionReview(): unknown {
 		summary: "One workflow correction is needed.",
 		findings: [
 			{
-				category: "workflow-gap",
 				severity: "important",
-				basis: "source-supported",
 				dispositionClass: "design-correction",
 				claim: "The visit workflow needs explicit confirmation after save.",
 				evidenceRefs: [{ source: "S1" }],

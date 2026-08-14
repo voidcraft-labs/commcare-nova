@@ -141,7 +141,7 @@ describe("renderSourcePackage containment", () => {
 			expect(prompt).toContain("two distinct real values");
 			expect(prompt).toContain("always-hidden or disabled form");
 		}
-		expect(DESIGN_REVIEWER_SYSTEM).toContain("not a readiness finding");
+		expect(DESIGN_REVIEWER_SYSTEM).toContain("not a note");
 	});
 
 	it("teaches the reviewer the closed symbol set and exact copying", () => {

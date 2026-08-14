@@ -194,9 +194,7 @@ describe("the validation bridge", () => {
 			summary: "Focused review",
 			findings: [
 				{
-					category: "workflow-gap",
 					severity: "important",
-					basis: "source-supported",
 					dispositionClass: "design-correction",
 					claim: "The visit result is not shown after submission.",
 					// Handle + raw-contract-id arms, a tag citation with the strict

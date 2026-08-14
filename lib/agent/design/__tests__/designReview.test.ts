@@ -53,9 +53,7 @@ function reviewerSchema(sourcePackage: DesignSourcePackage = pkg()) {
 /** A wire-shaped finding — what the reviewer model actually emits. */
 function wireFinding(overrides: Record<string, unknown> = {}) {
 	return {
-		category: "workflow-gap",
 		severity: "important",
-		basis: "source-supported",
 		dispositionClass: "design-correction",
 		claim: "The visit result is not shown after submission.",
 		evidenceRefs: [{ source: "S1" }],
@@ -73,9 +71,7 @@ function wireReview(findings: unknown[]) {
 function finding(overrides: Partial<DesignFinding> = {}): DesignFinding {
 	return designFindingSchema.parse({
 		id: did(300),
-		category: "workflow-gap",
 		severity: "important",
-		basis: "source-supported",
 		dispositionClass: "design-correction",
 		claim: "The visit result is not shown after submission.",
 		evidenceRefs: [messageRef()],
@@ -95,17 +91,33 @@ function review(findings: DesignFinding[]): DesignReview {
 }
 
 describe("review findings", () => {
-	it("requires citations for important and critical findings", () => {
+	it("requires grounding for important and critical findings", () => {
 		expect(
-			designFindingSchema.safeParse({ ...finding(), evidenceRefs: [] }).success,
+			designFindingSchema.safeParse({
+				...finding(),
+				evidenceRefs: [],
+				affectedElementIds: [],
+			}).success,
 		).toBe(false);
+	});
+
+	it("accepts contract-internal grounding through the named elements", () => {
+		/* An internal contradiction has no source to cite — the named elements
+		 * ARE its evidence. Demanding a citation here was exactly the pressure
+		 * that produced padded citations. */
+		expect(
+			designFindingSchema.safeParse({
+				...finding(),
+				evidenceRefs: [],
+				affectedElementIds: [ids.taskVisit, ids.factRisk],
+			}).success,
+		).toBe(true);
 	});
 
 	it("keeps advisory findings citation-free and non-blocking", () => {
 		const advisory = finding({
 			severity: "advisory",
-			basis: "heuristic",
-			dispositionClass: "advisory",
+			dispositionClass: "note",
 			evidenceRefs: [],
 		});
 		expect(findingBlocksAcceptance(advisory)).toBe(false);
@@ -119,11 +131,9 @@ describe("review findings", () => {
 
 	it("blocks only design corrections and user decisions", () => {
 		expect(findingBlocksAcceptance(finding())).toBe(true);
-		expect(
-			findingBlocksAcceptance(
-				finding({ dispositionClass: "runtime-readiness" }),
-			),
-		).toBe(false);
+		expect(findingBlocksAcceptance(finding({ dispositionClass: "note" }))).toBe(
+			false,
+		);
 		expect(
 			findingBlocksAcceptance(
 				finding({ dispositionClass: "user-decision", severity: "important" }),
@@ -237,7 +247,6 @@ describe("the reviewer's symbol vocabulary resolves to the persisted shape", () 
 		const result = reviewerSchema().safeParse(
 			wireReview([
 				wireFinding({
-					basis: "platform-constraint",
 					evidenceRefs: [{ platform: "CASE_SEARCH_IS_LIVE_AND_ONLINE" }],
 				}),
 			]),
@@ -272,8 +281,7 @@ describe("the reviewer's symbol vocabulary resolves to the persisted shape", () 
 			wireReview([
 				wireFinding({
 					severity: "advisory",
-					basis: "heuristic",
-					dispositionClass: "advisory",
+					dispositionClass: "note",
 					// Advisory findings carry no citations — the law lives once, in
 					// the persisted schema, and the backstop re-parse surfaces it.
 				}),
@@ -440,13 +448,12 @@ describe("blocking dispositions", () => {
 		).toBe(true);
 	});
 
-	it("does not require dispositions for readiness or advisory findings", () => {
-		const readiness = finding({ dispositionClass: "deployment-readiness" });
+	it("does not require dispositions for notes", () => {
+		const readiness = finding({ dispositionClass: "note" });
 		const advisory = finding({
 			id: did(301),
 			severity: "advisory",
-			basis: "heuristic",
-			dispositionClass: "advisory",
+			dispositionClass: "note",
 			evidenceRefs: [],
 		});
 		expect(
@@ -466,8 +473,7 @@ describe("blocking dispositions", () => {
 		const advisory = finding({
 			id: did(301),
 			severity: "advisory",
-			basis: "heuristic",
-			dispositionClass: "advisory",
+			dispositionClass: "note",
 			evidenceRefs: [],
 		});
 		const schema = designRevisionResultSchemaFor([
@@ -488,7 +494,8 @@ describe("blocking dispositions", () => {
 		const messages = rejected.error.issues.map((issue) => issue.message);
 		expect(
 			messages.some(
-				(message) => message.includes("@f2") && message.includes("advisory"),
+				(message) =>
+					message.includes("@f2") && message.includes("does not block"),
 			),
 		).toBe(true);
 		expect(
@@ -499,31 +506,13 @@ describe("blocking dispositions", () => {
 		).toBe(true);
 	});
 
-	it("requires a visible consequence for an unresolved user decision", () => {
-		const userDecision = finding({ dispositionClass: "user-decision" });
-		const schema = designRevisionResultSchemaFor([review([userDecision])]);
-		expect(
-			schema.safeParse({
-				contract: makeContract(),
-				dispositions: [
-					{
-						findingId: userDecision.id,
-						status: "deferred-with-user-visible-consequence",
-						rationale: "The person must choose.",
-					},
-				],
-			}).success,
-		).toBe(false);
-	});
-
 	it("keeps a deferred user decision linked to a blocking question", () => {
 		const userDecision = finding({ dispositionClass: "user-decision" });
 		const schema = designRevisionResultSchemaFor([review([userDecision])]);
 		const disposition = {
 			findingId: userDecision.id,
-			status: "deferred-with-user-visible-consequence" as const,
+			status: "deferred" as const,
 			rationale: "The person must choose before construction.",
-			userVisibleConsequence: "The build waits for this choice.",
 		};
 		expect(
 			schema.safeParse({
@@ -570,7 +559,6 @@ describe("sensitivity preservation", () => {
 		);
 		const sensitivityFinding = finding({
 			id: did(302),
-			category: "privacy-and-sensitivity",
 			affectedElementIds: [ids.factRisk],
 		});
 		expect(
