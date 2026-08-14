@@ -26,12 +26,12 @@
 import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import {
-	generateText,
 	jsonSchema,
 	type LanguageModel,
 	type LanguageModelUsage,
 	type ModelMessage,
 	stepCountIs,
+	streamText,
 	tool,
 } from "ai";
 import { z } from "zod";
@@ -354,7 +354,18 @@ export function productionExecutorStep(
 			reasoningEffort,
 			promptCacheKey === undefined ? undefined : { promptCacheKey },
 		);
-		const result = await generateText({
+		/* A dead signal must not construct the stream machinery at all: the
+		 * result promises only settle by consumption, and a call aborted
+		 * before its first byte strands them (same guard as
+		 * `subGeneration.ts`). */
+		signal.throwIfAborted();
+		/* Streamed like every other Nova call, with blocking semantics — the
+		 * stream drains fully before the aggregates resolve. A blocking
+		 * Responses call sends no headers until the whole generation
+		 * finishes, which the transport's header timeout kills, and the
+		 * server delivers context-compaction items only inside a response
+		 * stream. */
+		const result = streamText({
 			model,
 			system,
 			messages: projectModelHistoryFromNewestCompaction(messages),
@@ -379,16 +390,40 @@ export function productionExecutorStep(
 				} satisfies OpenAIResponsesProviderOptions,
 			},
 		});
+		/* The result promises are getters minting a fresh instance per
+		 * access; observe one instance of each NOW so a stream-stopping
+		 * error rejects promises that already have handlers instead of
+		 * escaping as an unhandled rejection. The drain's own throw is what
+		 * the caller classifies. */
+		const pending: PromiseLike<unknown>[] = [
+			result.toolCalls,
+			result.text,
+			result.reasoningText,
+			result.usage,
+			result.responseMessages,
+		];
+		for (const p of pending) void Promise.resolve(p).catch(() => {});
+		for await (const _part of result.stream) {
+			// Drain — generation advances only by consumption.
+		}
+		const [toolCalls, text, reasoningText, usage, responseMessages] =
+			await Promise.all([
+				result.toolCalls,
+				result.text,
+				result.reasoningText,
+				result.usage,
+				result.responseMessages,
+			]);
 		return {
-			toolCalls: result.toolCalls.map((call) => ({
+			toolCalls: toolCalls.map((call) => ({
 				toolCallId: call.toolCallId,
 				toolName: call.toolName,
 				input: call.input,
 			})),
-			text: result.text,
-			...(result.reasoningText && { reasoningText: result.reasoningText }),
-			usage: result.usage,
-			responseMessages: result.responseMessages,
+			text,
+			...(reasoningText && { reasoningText }),
+			usage,
+			responseMessages,
 		};
 	};
 }
