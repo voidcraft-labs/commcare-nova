@@ -262,6 +262,8 @@ const DESIGN_COLLECTION_ENTITY_KINDS = {
 	lists: "list",
 	access: "access",
 	navigation: "navigation",
+	moduleCompositions: "module_composition",
+	formCompositions: "form_composition",
 	externalRequirements: "external_requirement",
 	decisions: "decision",
 	assumptions: "assumption",
@@ -322,6 +324,28 @@ export function collectDesignIdentityHandleBindings(
 				for (const property of item.properties) {
 					if (isJsonObject(property)) add(property.id, "property");
 				}
+			}
+			if (
+				collection.collection === "formCompositions" &&
+				isJsonObject(item.layout)
+			) {
+				const sections = Array.isArray(item.layout.sections)
+					? item.layout.sections
+					: [];
+				for (const section of sections) {
+					if (!isJsonObject(section)) continue;
+					add(section.id, "composition_section");
+					if (Array.isArray(section.items))
+						for (const compositionItem of section.items) {
+							if (isJsonObject(compositionItem))
+								add(compositionItem.id, "composition_item");
+						}
+				}
+				if (Array.isArray(item.layout.items))
+					for (const compositionItem of item.layout.items) {
+						if (isJsonObject(compositionItem))
+							add(compositionItem.id, "composition_item");
+					}
 			}
 		}
 	}
@@ -904,6 +928,24 @@ function existingDesignIdentityKinds(
 					if (isJsonObject(property)) add(property.id, "property");
 				}
 			}
+			if (collection === "formCompositions" && isJsonObject(member.layout)) {
+				for (const section of Array.isArray(member.layout.sections)
+					? member.layout.sections
+					: []) {
+					if (!isJsonObject(section)) continue;
+					add(section.id, "composition_section");
+					for (const item of Array.isArray(section.items)
+						? section.items
+						: []) {
+						if (isJsonObject(item)) add(item.id, "composition_item");
+					}
+				}
+				for (const item of Array.isArray(member.layout.items)
+					? member.layout.items
+					: []) {
+					if (isJsonObject(item)) add(item.id, "composition_item");
+				}
+			}
 		}
 	}
 	return ids;
@@ -950,6 +992,48 @@ export function designCreationIdentityIssue(
 						declarations.push({
 							path: `collections.${collectionIndex}.upserts.${itemIndex}.properties.${propertyIndex}.id`,
 							value: property.id,
+						});
+					}
+				}
+				if (
+					collection.collection === "formCompositions" &&
+					isJsonObject(item.layout)
+				) {
+					for (const [sectionIndex, section] of (Array.isArray(
+						item.layout.sections,
+					)
+						? item.layout.sections
+						: []
+					).entries()) {
+						if (!isJsonObject(section)) continue;
+						declarations.push({
+							path: `collections.${collectionIndex}.upserts.${itemIndex}.layout.sections.${sectionIndex}.id`,
+							value: section.id,
+						});
+						for (const [
+							compositionItemIndex,
+							compositionItem,
+						] of (Array.isArray(section.items)
+							? section.items
+							: []
+						).entries()) {
+							if (!isJsonObject(compositionItem)) continue;
+							declarations.push({
+								path: `collections.${collectionIndex}.upserts.${itemIndex}.layout.sections.${sectionIndex}.items.${compositionItemIndex}.id`,
+								value: compositionItem.id,
+							});
+						}
+					}
+					for (const [compositionItemIndex, compositionItem] of (Array.isArray(
+						item.layout.items,
+					)
+						? item.layout.items
+						: []
+					).entries()) {
+						if (!isJsonObject(compositionItem)) continue;
+						declarations.push({
+							path: `collections.${collectionIndex}.upserts.${itemIndex}.layout.items.${compositionItemIndex}.id`,
+							value: compositionItem.id,
 						});
 					}
 				}
@@ -1414,7 +1498,12 @@ export function createDesignLoopTools(deps: DesignLoopToolDeps) {
 				summary: review.envelope.payload.summary,
 				findings: projectedFindings,
 				accepted: false,
-				message: `The review has blocking design corrections or user decisions: ${gatedHandles.join(", ")}. Stage those corrections plus exactly one disposition per blocking finding with stageRevision — a disposition's findingId is the finding's printed handle, for example {"handle":"@f1"}, and advisory findings take no disposition — then finalize with submitRevision.`,
+				revisionWorkspace: {
+					artifactKind: "revision",
+					workspaceRevision: 0,
+					nextExpectedRevision: 0,
+				},
+				message: `The review has blocking design corrections or user decisions: ${gatedHandles.join(", ")}. Revision starts in a new workspace at revision 0, so the first stageRevision call must use expectedRevision 0. Stage those corrections plus exactly one disposition per blocking finding — a disposition's findingId is the finding's printed handle, for example {"handle":"@f1"}, and advisory findings take no disposition — then finalize with submitRevision.`,
 			};
 		},
 	};

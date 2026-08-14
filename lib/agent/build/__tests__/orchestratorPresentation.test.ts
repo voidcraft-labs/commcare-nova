@@ -10,7 +10,7 @@ import {
 
 describe("reviewed-build presentation", () => {
 	it("versions the durable-handle executor dialect and requests complete creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v3");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v5");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` operation");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"Use `stageModule` / `stageForm` when a real dependency or call-size boundary requires",
@@ -27,6 +27,12 @@ describe("reviewed-build presentation", () => {
 		expect(EXECUTOR_SYSTEM).toContain("make a form always hidden/disabled");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"optional media slot that is already absent",
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"every accepted semantic record has one exact `blueprintCaseType`",
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"The record's display name is never a second case-type key",
 		);
 	});
 

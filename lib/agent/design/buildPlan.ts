@@ -45,6 +45,10 @@ export const designElementRefSchema = z
 			"list",
 			"access",
 			"navigation",
+			"module-composition",
+			"form-composition",
+			"composition-section",
+			"composition-item",
 		]),
 		id: designIdSchema,
 	})
@@ -341,6 +345,22 @@ function deriveOwnerByElement(
 			),
 		);
 	}
+	for (const composition of contract.moduleCompositions) {
+		ownerByElement.set(composition.id, earliest(composition.workflowIds));
+	}
+	for (const composition of contract.formCompositions) {
+		ownerByElement.set(composition.id, composition.workflowId);
+		if (composition.layout.kind === "sectioned") {
+			for (const section of composition.layout.sections) {
+				ownerByElement.set(section.id, composition.workflowId);
+				for (const item of section.items)
+					ownerByElement.set(item.id, composition.workflowId);
+			}
+		} else {
+			for (const item of composition.layout.items)
+				ownerByElement.set(item.id, composition.workflowId);
+		}
+	}
 	return ownerByElement;
 }
 
@@ -359,6 +379,22 @@ function expectedElementKinds(
 		...contract.lists.map((value) => [value.id, "list"] as const),
 		...contract.access.map((value) => [value.id, "access"] as const),
 		...contract.navigation.map((value) => [value.id, "navigation"] as const),
+		...contract.moduleCompositions.map(
+			(value) => [value.id, "module-composition"] as const,
+		),
+		...contract.formCompositions.flatMap((composition) => [
+			[composition.id, "form-composition"] as const,
+			...(composition.layout.kind === "sectioned"
+				? composition.layout.sections.flatMap((section) => [
+						[section.id, "composition-section"] as const,
+						...section.items.map(
+							(item) => [item.id, "composition-item"] as const,
+						),
+					])
+				: composition.layout.items.map(
+						(item) => [item.id, "composition-item"] as const,
+					)),
+		]),
 	]);
 }
 
@@ -408,6 +444,16 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 			...contract.lists.map((value) => value.id),
 			...contract.access.map((value) => value.id),
 			...contract.navigation.map((value) => value.id),
+			...contract.moduleCompositions.map((value) => value.id),
+			...contract.formCompositions.flatMap((composition) => [
+				composition.id,
+				...(composition.layout.kind === "sectioned"
+					? composition.layout.sections.flatMap((section) => [
+							section.id,
+							...section.items.map((item) => item.id),
+						])
+					: composition.layout.items.map((item) => item.id)),
+			]),
 		]);
 		const assigned = new Map<string, string>();
 		const orderedWorkflowIds = workflowOrder(contract);
@@ -479,7 +525,10 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 						element.kind === "record" ||
 						element.kind === "property"
 							? "foundation"
-							: element.kind === "workflow"
+							: element.kind === "workflow" ||
+									element.kind === "form-composition" ||
+									element.kind === "composition-section" ||
+									element.kind === "composition-item"
 								? "workflow"
 								: element.kind === "list"
 									? "queues"
@@ -633,6 +682,24 @@ export function deriveBuildPlan(args: {
 		contract.navigation.forEach((value) => {
 			push("navigation", value.id);
 		});
+		contract.moduleCompositions.forEach((value) => {
+			push("module-composition", value.id);
+		});
+		contract.formCompositions.forEach((composition) => {
+			push("form-composition", composition.id);
+			if (composition.layout.kind === "sectioned") {
+				composition.layout.sections.forEach((section) => {
+					push("composition-section", section.id);
+					section.items.forEach((item) => {
+						push("composition-item", item.id);
+					});
+				});
+			} else {
+				composition.layout.items.forEach((item) => {
+					push("composition-item", item.id);
+				});
+			}
+		});
 		return refs;
 	};
 	const groupsFor = (workflowId: string): ConstructionGroup[] => {
@@ -695,8 +762,13 @@ export function deriveBuildPlan(args: {
 				key: "workflow",
 				name: "Workflow",
 				kind: "workflow",
-				kinds: ["workflow"],
-				areas: () => [
+				kinds: [
+					"workflow",
+					"form-composition",
+					"composition-section",
+					"composition-item",
+				],
+				areas: (elements) => [
 					...(workflowId === initial ? (["app"] as const) : []),
 					"forms",
 					...(needsAdvancedCaseOperations
@@ -711,7 +783,16 @@ export function deriveBuildPlan(args: {
 					)
 						? (["lookup-references"] as const)
 						: []),
-					...(authoredFeatures.has("existing-media")
+					...(authoredFeatures.has("existing-media") ||
+					elements.some(
+						(element) =>
+							element.kind === "form-composition" &&
+							contract.formCompositions.some(
+								(composition) =>
+									composition.id === element.id &&
+									composition.icon.kind === "builtin",
+							),
+					)
 						? (["media-references"] as const)
 						: []),
 					...(authoredFeatures.has("automation")
@@ -730,9 +811,20 @@ export function deriveBuildPlan(args: {
 				key: "access",
 				name: "Access and navigation",
 				kind: "access-navigation",
-				kinds: ["access", "navigation"],
+				kinds: ["access", "navigation", "module-composition"],
 				areas: (elements) => [
 					"navigation",
+					...(elements.some(
+						(element) =>
+							element.kind === "module-composition" &&
+							contract.moduleCompositions.some(
+								(composition) =>
+									composition.id === element.id &&
+									composition.icon.kind === "builtin",
+							),
+					)
+						? (["media-references"] as const)
+						: []),
 					...(elements.some((element) => element.kind === "access")
 						? (["users"] as const)
 						: []),

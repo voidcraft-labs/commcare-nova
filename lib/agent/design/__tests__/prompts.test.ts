@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { renderDesignStateMessage } from "@/lib/agent/design/loop/packageRender";
 import {
 	DESIGN_AGENT_SYSTEM,
 	DESIGN_REVIEWER_SYSTEM,
@@ -106,6 +107,33 @@ function delimiterCount(text: string): { open: number; close: number } {
 }
 
 describe("renderSourcePackage containment", () => {
+	it("makes the fresh post-review revision counter explicit", () => {
+		const rendered = renderDesignStateMessage({
+			gates: {
+				expectedNext: "Revise the reviewed design.",
+				blockingQuestions: [],
+			} as never,
+			claims: [],
+			openReviews: [],
+			workspace: {
+				artifactKind: "revision",
+				revision: 0,
+				stepCount: 0,
+				counts: {},
+				missingRootFields: [],
+				candidate: {},
+				sourceContract: { id: { handle: "@contract" } },
+			},
+		});
+		expect(rendered).toContain('"nextExpectedRevision": 0');
+		expect(rendered).toContain(
+			"new post-review revision workspace at revision 0",
+		);
+		expect(rendered).toContain(
+			"first stageRevision call must use expectedRevision 0",
+		);
+	});
+
 	it("records named worker-data declarations without claiming provisioning", () => {
 		expect(DESIGN_AGENT_SYSTEM).toContain("depends on a named worker-data key");
 		expect(DESIGN_AGENT_SYSTEM).toContain(
@@ -133,6 +161,30 @@ describe("renderSourcePackage containment", () => {
 			expect(prompt).toContain("over the same record type");
 			expect(prompt).toContain("case-property-anchored");
 		}
+	});
+
+	it("makes worker-facing composition a first-class design and review responsibility", () => {
+		for (const prompt of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {
+			expect(prompt).toContain("module");
+			expect(prompt).toContain("form");
+			expect(prompt).toContain("section");
+			expect(prompt).toContain("Markdown");
+			expect(prompt).toContain("icon");
+		}
+		expect(DESIGN_AGENT_SYSTEM).toContain("flat dump");
+		expect(DESIGN_REVIEWER_SYSTEM).toContain("child or outcome record");
+		expect(DESIGN_REVIEWER_SYSTEM).toContain("duplicate forms");
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"how a worker regains their place after interruption",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"must name the form's actual inputs and worker sequence",
+		);
+		expect(DESIGN_REVIEWER_SYSTEM).toContain(
+			"Audit composition as its own concern",
+		);
+		expect(DESIGN_REVIEWER_SYSTEM).toContain("one systemic finding");
+		expect(DESIGN_REVIEWER_SYSTEM).toContain("every affected form composition");
 	});
 
 	it("treats missing authoring values as blockers rather than readiness", () => {

@@ -35,9 +35,11 @@ import type {
 	WorkspaceSnapshot,
 } from "@/lib/agent/workspace/types";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
+import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import {
 	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
+	exportReadinessFindings,
 	type PreparedMutationCandidate,
 	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
@@ -56,10 +58,15 @@ import {
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
 import { authoredBlueprintIdentities, type BlueprintDoc } from "@/lib/domain";
-import { collectRealAssetRefs } from "@/lib/domain/mediaRefs";
+import { collectAssetRefs, collectRealAssetRefs } from "@/lib/domain/mediaRefs";
+import {
+	builtinAssetRows,
+	partitionAssetRefs,
+} from "@/lib/media/builtinIconAssets";
 import {
 	type ChangeSetDiagnostics,
 	computeChangeSetDiagnostics,
+	evaluateOverlayFindings,
 	summarizeDiagnostics,
 } from "./diagnostics";
 import { canonicalJsonDigest, stagingInputDigest } from "./digest";
@@ -124,6 +131,27 @@ export interface StageDispatchResult<T> {
 	readonly replayed: boolean;
 	readonly result: T;
 	readonly receipt?: StageRequestReceipt;
+}
+
+async function genesisFinalizationFindings(args: {
+	readonly changeSet: Pick<DesignChangeSet, "kind" | "baseProjectId">;
+	readonly overlay: BlueprintDoc;
+	readonly lookupContext: LookupValidationContext;
+}): Promise<ReturnType<typeof exportReadinessFindings>> {
+	if (args.changeSet.kind !== "genesis") return [];
+	const { realIds, builtinSlugs } = partitionAssetRefs([
+		...collectAssetRefs(args.overlay),
+	]);
+	const realRows =
+		realIds.length === 0
+			? []
+			: await loadAssetsByIds(realIds, args.changeSet.baseProjectId);
+	const rows = [...realRows, ...builtinAssetRows(builtinSlugs)];
+	return exportReadinessFindings(
+		args.overlay,
+		args.lookupContext,
+		new Map(rows.map((row) => [row.id as string, row])),
+	);
 }
 
 interface DispatchArgs<T> {
@@ -308,11 +336,21 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			appId: this.changeSet.appId,
 			dependencies: this.accumulatedReadSet,
 		});
+		const findings = evaluateOverlayFindings(this.overlayDoc, lookupContext);
+		const finalizationFindings =
+			findings.length === 0
+				? await genesisFinalizationFindings({
+						changeSet: this.changeSet,
+						overlay: this.overlayDoc,
+						lookupContext,
+					})
+				: [];
 		return computeChangeSetDiagnostics({
 			changeSet: this.changeSet,
 			overlaySnapshot: toPersistableDoc(this.overlayDoc),
 			overlay: this.overlayDoc,
-			lookupContext,
+			findings,
+			finalizationFindings,
 			steps: this.steps,
 			readSetStatus,
 			previousFingerprints: this.lastSummaryFingerprints,
@@ -1009,6 +1047,15 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			appId: this.changeSet.appId,
 			dependencies: nextAccumulated,
 		});
+		const findings = evaluateOverlayFindings(prepared.nextDoc, lookupContext);
+		const finalizationFindings =
+			findings.length === 0
+				? await genesisFinalizationFindings({
+						changeSet: this.changeSet,
+						overlay: prepared.nextDoc,
+						lookupContext,
+					})
+				: [];
 		const diagnostics = computeChangeSetDiagnostics({
 			changeSet: {
 				kind: this.changeSet.kind,
@@ -1017,7 +1064,8 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			},
 			overlaySnapshot: nextSnapshot,
 			overlay: prepared.nextDoc,
-			lookupContext,
+			findings,
+			finalizationFindings,
 			steps: nextSteps,
 			readSetStatus,
 			previousFingerprints: this.lastSummaryFingerprints,

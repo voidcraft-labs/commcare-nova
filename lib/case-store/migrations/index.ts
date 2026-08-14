@@ -63,6 +63,7 @@ import * as sliceAttemptWallClock from "./20260813000000_slice_attempt_wall_cloc
 import * as designIdentityHandleReferences from "./20260813010000_design_identity_handle_references";
 import * as workerPropertyCoordinate from "./20260813020000_worker_property_coordinate";
 import * as designDispositionStatusNames from "./20260813030000_design_disposition_status_names";
+import * as designCompositionHandleKinds from "./20260814000000_design_composition_handle_kinds";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -122,6 +123,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260813020000_worker_property_coordinate": workerPropertyCoordinate,
 	"20260813030000_design_disposition_status_names":
 		designDispositionStatusNames,
+	"20260814000000_design_composition_handle_kinds":
+		designCompositionHandleKinds,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

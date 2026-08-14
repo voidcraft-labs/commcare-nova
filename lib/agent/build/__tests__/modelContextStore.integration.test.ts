@@ -199,6 +199,53 @@ describe("durable model context", () => {
 		expect(reopened.totalStartedStepCount).toBe(1);
 	});
 
+	it("reopens one slice attempt but starts a fresh executor generation for the next attempt", async () => {
+		const spec = {
+			designSessionId,
+			kind: "executor" as const,
+			modelId: "executor-model",
+			promptVersion: "executor-v2",
+			toolsetDigest: "d".repeat(64),
+			contextVersion: "v1",
+			semanticScopeKey: "slice-a:attempt-a",
+			authority,
+		};
+		const first = await openDesignModelContext(spec);
+		await appendDesignModelContext({
+			designSessionId,
+			contextId: first.id,
+			appendKey: "attempt-a-opening",
+			messages: [{ role: "user", content: "attempt A" }],
+			authority,
+		});
+
+		const recovered = await openDesignModelContext(spec);
+		expect(recovered.id).toBe(first.id);
+		expect(recovered.generation).toBe(first.generation);
+		expect(recovered.messages).toEqual([
+			{ role: "user", content: "attempt A" },
+		]);
+
+		const next = await openDesignModelContext({
+			...spec,
+			semanticScopeKey: "slice-b:attempt-b",
+		});
+		expect(next.id).not.toBe(first.id);
+		expect(next.generation).toBe(first.generation + 1);
+		expect(next.supersedesContextId).toBe(first.id);
+		expect(next.messages).toEqual([]);
+		expect(next.lineageAppendKeys).toEqual(new Set(["attempt-a-opening"]));
+		await expect(
+			appendDesignModelContext({
+				designSessionId,
+				contextId: first.id,
+				appendKey: "stale-attempt-a",
+				messages: [{ role: "assistant", content: "late" }],
+				authority,
+			}),
+		).rejects.toBeInstanceOf(DesignModelContextError);
+	});
+
 	it("records idempotent payload-free provider step boundaries", async () => {
 		const spec = {
 			designSessionId,

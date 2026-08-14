@@ -24,6 +24,8 @@ import {
 } from "@/lib/agent/design/artifactStore";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
+import { getAppDb } from "@/lib/db/pg";
+import { designCompositionSummary } from "./lib/designCompositionSummary";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
@@ -69,6 +71,41 @@ async function main(): Promise<void> {
 		planDigest: plan.artifactDigest,
 		sliceId: asDesignId(sliceId),
 	});
+	const db = await getAppDb();
+	const attempts = await db
+		.selectFrom("design_slice_attempts")
+		.select(["id", "attempt", "status", "failure_code", "change_set_id"])
+		.where("build_plan_id", "=", plan.id)
+		.where("slice_id", "=", slice.id)
+		.orderBy("attempt", "asc")
+		.execute();
+	const executorContexts = await db
+		.selectFrom("design_model_contexts")
+		.select(["id", "generation", "context_version", "revision"])
+		.where("design_session_id", "=", plan.designSessionId)
+		.where("context_kind", "=", "executor")
+		.orderBy("generation", "asc")
+		.execute();
+	const executionAttempts = attempts.map((attempt) => {
+		const context = executorContexts.find((candidate) =>
+			candidate.context_version.endsWith(`:semantic-scope:${attempt.id}`),
+		);
+		return {
+			id: attempt.id,
+			attempt: attempt.attempt,
+			status: attempt.status,
+			failureCode: attempt.failure_code,
+			changeSetId: attempt.change_set_id,
+			executorContext:
+				context === undefined
+					? null
+					: {
+							id: context.id,
+							generation: context.generation,
+							revision: context.revision,
+						},
+		};
+	});
 
 	let candidate: unknown = null;
 	if (changeSetId !== undefined) {
@@ -107,6 +144,9 @@ async function main(): Promise<void> {
 				revision: {
 					id: revision.id,
 					digest: revision.artifactDigest,
+					compositionSummary: designCompositionSummary(
+						revision.envelope.payload,
+					),
 					contract: revision.envelope.payload,
 				},
 				plan: {
@@ -120,6 +160,7 @@ async function main(): Promise<void> {
 					briefDigest: briefDigest(brief),
 					budget: budgetForSlice(slice),
 				},
+				executionAttempts,
 				candidate,
 			},
 			null,

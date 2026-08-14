@@ -135,6 +135,8 @@ The contract records:
 - `lists`
 - `access`
 - `navigation`
+- `moduleCompositions`
+- `formCompositions`
 - `externalRequirements`
 - `decisions`
 - `assumptions`
@@ -229,7 +231,40 @@ as a security boundary.
 Navigation groups workflows and lists around user purpose. Parent navigation
 is acyclic.
 
-### 3.6 External requirements, decisions, assumptions, and questions
+### 3.6 Worker-facing module and form composition
+
+Module composition records the smallest intentional set of worker-facing menu
+homes. Each module names its purpose, role (`form-host`, `queue-only`, or
+`form-and-queue`), workflows, optional record host, actors, navigation and list
+placements, ordering rationale, and a deliberate built-in-icon or no-icon
+choice. Workflows that share a selected-record context reuse one module unless
+the design states a real role or queue separation; a child or outcome record
+does not become a form host merely because a workflow writes it.
+
+Form composition records every complete workflow variant, its module home,
+registration/selected-record/close/standalone mode, actors, justified
+actor-specific duplication, icon, and exact ordered layout. Before submission,
+the author audits each form's meaningful phases, context shifts, decisions,
+error risks, and interruption recovery. A layout is either sectioned, with
+named sections, or flat with a content-specific rationale that names the real
+inputs and worker sequence and explains why one uninterrupted flow is better;
+generic claims about shortness, linearity, or speed do not establish that.
+Its identity-bearing items place every input
+exactly once and may interleave Markdown labels, hints, help, concise guidance,
+and record summaries. The design therefore decides the worker-facing
+information architecture before construction without becoming a Blueprint or
+an executable form schema. Deterministic lowering maps each design section to
+the current Blueprint `group` field and its identity-addressed children;
+guidance and record summaries map to `label` fields, with summaries carrying
+UUID-backed prose references. This is not the future durable FormSection
+entity described by the separate complex-app unit.
+
+The persisted schema-v1 reader defaults absent composition collections to
+empty for historical artifacts. New contract finalization and deterministic
+plan derivation require deliberate module composition and a complete form
+composition for every included workflow.
+
+### 3.7 External requirements, decisions, assumptions, and questions
 
 An external requirement names what is outside Blueprint construction, which
 workflows depend on it, and whether construction truly has to wait — one
@@ -267,7 +302,7 @@ decision makes it the model's: it bakes concrete values into the design,
 records them as a decision or assumption, and does not hold a blocking
 question open for them.
 
-### 3.7 Deterministic graph checks
+### 3.8 Deterministic graph checks
 
 `lib/agent/design/graph.ts::validateDesignGraph` runs inside the contract
 schema parse. It proves at least:
@@ -281,6 +316,12 @@ schema parse. It proves at least:
 - effects write only properties of their target record;
 - readback and list properties belong to the record being read;
 - access targets exist;
+- module roles, record hosts, workflow/list/navigation placements, and actor
+  coverage are coherent;
+- every form mode matches its workflow context and module host;
+- every complete form variant places every workflow input exactly once, and
+  summaries show only properties of their named record;
+- duplicate actor variants carry a concrete rationale;
 - unsupported promises block affected construction;
 - the charter includes every workflow exactly once;
 - blocking questions name affected elements.
@@ -390,9 +431,10 @@ cost. Recovery registers historical usage without replaying live step events,
 and a zero-cost credit refund requires the successful accounting transaction's
 authoritative cumulative run total.
 
-After a compatible compaction checkpoint, Nova preserves the retained suffix
-and appends a fresh exact state packet when the suffix does not already carry
-one. Ordinary phase transitions also append current state. The packet contains:
+After a compatible design-context compaction checkpoint, Nova preserves the
+retained suffix and appends a fresh exact state packet when the suffix does not
+already carry one. Ordinary design phase transitions also append current
+state. The packet contains:
 
 - the legal next phase;
 - resolved answers and source outline;
@@ -405,6 +447,17 @@ The durable workspace is authority. The model retains normal conversational
 continuity, while a compaction checkpoint is a lossy prefix replacement rather
 than a hand-built phase reset. Narrow inspection remains available for exact
 lookups.
+
+Executor history has a tighter semantic boundary. Every slice attempt opens a
+fresh immutable executor context generation; recovery of that exact attempt
+reopens the same generation, while the next attempt or slice cannot inherit its
+tool transcript. The generation begins with three separately durable messages:
+the exact accepted execution brief, a full current Blueprint checkpoint
+projected through durable authoring handles, and a short slice-focus plus
+compact inventory. After every provider compaction boundary Nova appends all
+three again. The executor can therefore continue immediately from exact intent
+and exact current state without spending turns rediscovering the app, while the
+change set and canonical document remain authority.
 
 ### 4.4 Independent review
 
@@ -473,11 +526,19 @@ show the person delegated is settled by its concretely recorded default: the
 reviewer challenges a bad default as a design correction rather than raising
 a user-decision finding to hand the choice back.
 
+Composition is an independent review concern even when the same contract has
+more serious record or workflow findings. Repeated weak flat treatment is one
+systemic finding naming every affected form composition, not one duplicate
+finding per form and not an omission behind the higher-severity issue.
+
 ### 4.5 Revision and review depth
 
-A revision workspace begins from the immutable reviewed parent. It upserts or
-removes only affected items and persists one disposition for each blocking
-finding. Unchanged content stays in place.
+A revision workspace begins from the immutable reviewed parent at its own
+revision 0. The `requestReview` result and the next exact state packet both
+print `nextExpectedRevision: 0`, so the first `stageRevision` cannot inherit
+the completed contract workspace's counter. It upserts or removes only
+affected items and persists one disposition for each blocking finding.
+Unchanged content stays in place.
 
 The agent never copies a finding's UUID either: findings return from
 `requestReview` — and print in every state packet — with server-assigned
@@ -561,6 +622,8 @@ Every constructible top-level design element belongs to exactly one group:
 - lists;
 - access policies;
 - navigation.
+- module compositions;
+- form compositions, their sections, and their layout items.
 
 External requirements remain related external actions and execution context.
 They are not construction groups because they do not require Blueprint
@@ -570,6 +633,10 @@ Ownership is assigned deterministically to the earliest workflow that creates,
 writes, exposes, or protects the element. This is enough to prove that each
 slice implemented its real units of work without forcing the model to cite
 every nested design object on every tool call.
+
+A shared module composition is owned by its earliest workflow. Later workflow
+slices receive an exact `reuse` instruction; each form composition, section,
+and item stays with its own workflow slice.
 
 Decisions and assumptions inform the materialization-root execution brief but
 are not separate construction work.
@@ -604,6 +671,12 @@ Each executor receives one exact brief containing:
   that context needs;
 - root decisions and assumptions when relevant;
 - each construction group as an explicit semantic checklist;
+- one deterministic record lowering that maps every relevant semantic record
+  display identity to the exact Blueprint case-type key used by schema,
+  parent, module, field-write, and case-operation calls;
+- the exact relevant module and form compositions, including create/reuse,
+  record host and role, form mode, name, icon, ordered sections/items,
+  Markdown, summaries, and any duplication or flat-layout rationale;
 - a slice-specific read/mutation profile and only relevant capability and
   platform constraints;
 - exact accepted revision and plan digests.
@@ -621,6 +694,14 @@ The slice executor is a bounded compiler, not a designer. It receives:
 - `inspectChangeSet`;
 - `commitChangeSet`;
 - `reportExecutionBlocker`.
+
+The server admits record-schema and module/form creation against the accepted
+lowering and composition before dispatch: a display name cannot become a
+second case-type key, and a slice cannot invent a parallel record home, move a
+selected-record form onto a child/outcome record, put forms in a queue-only
+module, or change an accepted form mode. This is a narrow architecture fence,
+not a second Blueprint validator; ordinary tools still realize the accepted
+fields, groups, prose, icons, and layout.
 
 Only `readBatch`, `stageBatch`, `inspectChangeSet`, `commitChangeSet`, and
 `reportExecutionBlocker` are top-level tools. Their provider definitions and
@@ -721,8 +802,12 @@ advancing the private revision.
 
 The sequence-one materialization transaction creates the first useful,
 export-ready app and transfers the exact holder and unsettled reservation from
-the design session to the app. Later slices use the normal app-locked canonical
-kernel.
+the design session to the app. Genesis diagnostics and the transaction's final
+proof load Project-filtered uploaded rows and synthesize the same built-in-icon
+rows as the ordinary export boundary. Boundary-only findings are included in
+the executor's visible `allFindings`; a nonempty staged candidate is never
+reported as having no staged steps merely because finalization failed. Later
+slices use the normal app-locked canonical kernel.
 
 The exact running slice attempt, change-set transition, committed-slice
 receipt, and implementation provenance commit with the canonical revision or
@@ -750,6 +835,16 @@ release its build authority before recording its terminal event.
 An executor reports evidence when implementation appears to require changed
 meaning. A fresh architect may give construction guidance that preserves the
 accepted workflow or declare it unsupported by the current compiler.
+
+The server also recognizes identical unresolved compiler failures without
+waiting for the executor to formulate a blocker. The first occurrence is
+returned normally. The second consecutive occurrence automatically consumes
+one bounded architect-resolution allowance and appends exact guidance to that
+tool result. If the same fingerprint occurs again after that guidance, the
+attempt stops as `repeated-failure-after-architect-guidance`. A changed
+diagnostic or clean inspection resets the sequence. The sequence and guidance
+live in the durable executor result, so process recovery cannot buy the same
+decision twice.
 
 The accepted contract and deterministic plan freeze when construction begins.
 The architect cannot require a contract revision, ask the user to reinterpret
@@ -892,12 +987,17 @@ The design-session inspector reconstructs pre-revision sessions from the
 durable workspace ledger and prints workspace revision, readiness stage,
 session error classification, model usage, elapsed time, and estimated cost.
 After acceptance it prints one payload-free build aggregate: accepted and
-committed workflow counts; each slice's attempt and commit status; wire-invalid,
-stage-rejected, and validator-repair counts; model steps, token and cache use,
-elapsed time, and estimated cost. It fails the mechanical gate when any attempt
-lacks complete outcome evidence or any persisted package, artifact-workspace
-step, revision, review, plan, orchestration, or execution run lacks a usage
-summary.
+committed workflow counts; each slice's attempt, executor context generation,
+and commit status; wire-invalid, stage-rejected, and validator-repair counts;
+model steps, token and cache use, elapsed time, and estimated cost. Each
+revision also reports its worker-facing composition profile: module/form,
+sectioned/flat, section, input, guidance, record-summary, actor-specific,
+duplicate-workflow, and icon counts. The slice replay inspector exports the
+same composition profile and attempt-to-generation bindings beside the exact
+brief and optional private candidate. Inspection fails the mechanical gate when
+any attempt lacks complete outcome evidence or any persisted package,
+artifact-workspace step, revision, review, plan, orchestration, or execution
+run lacks a usage summary.
 
 ## 9. Unit F: conformance, quality, correction, and Design history
 
@@ -1231,6 +1331,10 @@ integration tests:
 - design graph closure and review grounding, including the reviewer's
   tag/handle vocabulary staying in lockstep with its prompt legend;
 - deterministic plan derivation;
+- composition graph closure, exact plan ownership, create/reuse lowering, and
+  the selected-parent-host versus child-effect regression;
+- one durable executor generation per slice attempt, three-packet opening and
+  compaction reseeding, and automatic escalation of repeated failures;
 - workspace revision and request idempotency;
 - handle resolution before original schema admission, including the reviewer
   output schema's in-schema symbol resolution;

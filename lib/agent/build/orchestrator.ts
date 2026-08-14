@@ -19,7 +19,7 @@
  * offline; the production defaults wire the real loop and executor.
  */
 
-import type { ModelMessage, UIMessage, UIMessageChunk } from "ai";
+import type { UIMessage, UIMessageChunk } from "ai";
 import { emptyGenesisBase } from "@/lib/agent/change-set/baseLoader";
 import {
 	type CommittedStageEnvelope,
@@ -121,7 +121,6 @@ import {
 	type ExecutorStepFn,
 	type ExecutorToolOutcomeEvent,
 	productionExecutorStep,
-	recoverCommittedExecutorToolResult,
 	runSliceExecutor,
 	type SliceExecutionOutcome,
 } from "./executorLoop";
@@ -546,109 +545,76 @@ export async function runBuildOrchestration(
 			holderNonce: args.holderNonce,
 			expectedProjectId: args.projectId,
 		};
-		const persistedExecutorContext = await openDesignModelContext({
-			designSessionId: args.designSessionId,
-			kind: "executor",
-			modelId: DESIGN_EXECUTOR_MODEL,
-			promptVersion: EXECUTOR_PROMPT_VERSION,
-			toolsetDigest: canonicalJsonDigest(buildExecutorTools()),
-			contextVersion: MODEL_CONTEXT_VERSION,
-			authority: modelContextAuthority,
-		});
-		/* Executor responses are reused across process replacement. Rehydrate the
-		 * usage written beside those exact responses into this run's fresh meter;
-		 * unrelated prior instructions can remain in the context lineage without
-		 * being charged twice. */
-		if (args.meter !== undefined) {
-			for (const completed of recoverableCompletedModelSteps(
-				persistedExecutorContext.completedSteps,
-				args.runId,
-			)) {
-				meterDurableSubGenerationUsage(
-					args.meter,
-					{
-						contextId: completed.contextId,
-						stepKey: completed.stepKey,
-					},
-					completed.usage,
-					{
-						step: true,
-						model: DESIGN_EXECUTOR_MODEL,
-						phase: "build-executor",
-					},
-				);
-			}
-		}
-		const executorContext: ExecutorConversationContext = {
-			contextId: persistedExecutorContext.id,
-			messages: [...persistedExecutorContext.messages],
-			items: persistedExecutorContext.items.map((item) => ({ ...item })),
-			appendKeys: new Set(persistedExecutorContext.appendKeys),
-			completedStepKeys: new Set(persistedExecutorContext.completedStepKeys),
-			append: async (appendKey, messages) => {
-				await appendDesignModelContext({
-					designSessionId: args.designSessionId,
-					contextId: persistedExecutorContext.id,
-					appendKey,
-					messages,
-					authority: modelContextAuthority,
-				});
-			},
-			recordStep: async (stepKey, event) => {
-				await recordDesignModelStepEvent({
-					designSessionId: args.designSessionId,
-					contextId: persistedExecutorContext.id,
-					stepKey,
-					event,
-					authority: modelContextAuthority,
-				});
-			},
-			completeStep: async (completion) => {
-				await completeDesignModelStep({
-					designSessionId: args.designSessionId,
-					contextId: persistedExecutorContext.id,
-					...completion,
-					authority: modelContextAuthority,
-				});
-			},
-		};
-		const appendExecutorContext = async (
-			appendKey: string,
-			messages: readonly ModelMessage[],
-		): Promise<void> => {
-			if (executorContext.appendKeys?.has(appendKey)) return;
-			await executorContext.append?.(appendKey, messages);
-			executorContext.appendKeys?.add(appendKey);
-			executorContext.messages = [...executorContext.messages, ...messages];
-			executorContext.items?.push(
-				...messages.map((message) => ({ appendKey, message })),
-			);
-		};
-		/* Close the canonical-commit/response crash gap before another slice is
-		 * allowed to run. The receipt is server-derived and idempotently appended
-		 * even when the model-facing commit result was lost with the process. */
-		for (const receipt of await readCommittedSliceReceiptsForPlan(plan.id)) {
-			const recoveredResult = recoverCommittedExecutorToolResult({
-				context: executorContext,
-				attemptId: receipt.attemptId,
-				receipt,
+		const openExecutorContext = async (
+			semanticScopeKey: string,
+		): Promise<ExecutorConversationContext> => {
+			const persisted = await openDesignModelContext({
+				designSessionId: args.designSessionId,
+				kind: "executor",
+				modelId: DESIGN_EXECUTOR_MODEL,
+				promptVersion: EXECUTOR_PROMPT_VERSION,
+				toolsetDigest: canonicalJsonDigest(buildExecutorTools()),
+				contextVersion: MODEL_CONTEXT_VERSION,
+				semanticScopeKey,
+				authority: modelContextAuthority,
 			});
-			if (recoveredResult !== null) {
-				await appendExecutorContext(recoveredResult.appendKey, [
-					recoveredResult.message,
-				]);
+			/* Usage is read across the immutable generation chain and admitted by
+			 * durable (context, step) identity. Reopening the same attempt or opening
+			 * the next slice therefore cannot double-charge a paid response. */
+			if (args.meter !== undefined) {
+				for (const completed of recoverableCompletedModelSteps(
+					persisted.completedSteps,
+					args.runId,
+				)) {
+					meterDurableSubGenerationUsage(
+						args.meter,
+						{
+							contextId: completed.contextId,
+							stepKey: completed.stepKey,
+						},
+						completed.usage,
+						{
+							step: true,
+							model: DESIGN_EXECUTOR_MODEL,
+							phase: "build-executor",
+						},
+					);
+				}
 			}
-			await appendExecutorContext(`commit-receipt:${receipt.attemptId}`, [
-				{
-					role: "user",
-					content: [
-						"## Durable slice commit receipt",
-						"The server committed this exact accepted slice. Continue from this canonical state; do not reconstruct its work.",
-						JSON.stringify(receipt),
-					].join("\n\n"),
+			return {
+				contextId: persisted.id,
+				messages: [...persisted.messages],
+				items: persisted.items.map((item) => ({ ...item })),
+				appendKeys: new Set(persisted.appendKeys),
+				completedStepKeys: new Set(persisted.completedStepKeys),
+				append: async (appendKey, messages) => {
+					await appendDesignModelContext({
+						designSessionId: args.designSessionId,
+						contextId: persisted.id,
+						appendKey,
+						messages,
+						authority: modelContextAuthority,
+					});
 				},
-			]);
-		}
+				recordStep: async (stepKey, event) => {
+					await recordDesignModelStepEvent({
+						designSessionId: args.designSessionId,
+						contextId: persisted.id,
+						stepKey,
+						event,
+						authority: modelContextAuthority,
+					});
+				},
+				completeStep: async (completion) => {
+					await completeDesignModelStep({
+						designSessionId: args.designSessionId,
+						contextId: persisted.id,
+						...completion,
+						authority: modelContextAuthority,
+					});
+				},
+			};
+		};
 		for (;;) {
 			const ordered = orderSlicesForExecution(plan.envelope.payload);
 			const committedSlices = await committedSliceIds(plan.id);
@@ -724,6 +690,7 @@ export async function runBuildOrchestration(
 						plan,
 						isGenesis,
 					);
+					const executorContext = await openExecutorContext(attempt.id);
 					args.writer.write({
 						type: "data-build-slice-started",
 						data: progressEnvelope(args.designSessionId, head, {
@@ -770,16 +737,6 @@ export async function runBuildOrchestration(
 					heartbeat();
 					if (outcome.kind === "committed") {
 						const receipt = outcome.receipt;
-						await appendExecutorContext(`commit-receipt:${attempt.id}`, [
-							{
-								role: "user",
-								content: [
-									"## Durable slice commit receipt",
-									"The server committed this exact accepted slice. Continue from this canonical state; do not reconstruct its work.",
-									JSON.stringify(receipt),
-								].join("\n\n"),
-							},
-						]);
 						if (isGenesis) {
 							const materialization = receipt as AppMaterializationReceipt;
 							appId = materialization.appId;

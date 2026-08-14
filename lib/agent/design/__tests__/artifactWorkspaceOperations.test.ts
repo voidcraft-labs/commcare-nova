@@ -111,6 +111,8 @@ describe("design artifact workspaces", () => {
 			actors: 2,
 			records: 2,
 			workflows: 2,
+			moduleCompositions: 1,
+			formCompositions: 2,
 		});
 		const view = inspectDesignWorkspaceCandidate({
 			kind: "contract",

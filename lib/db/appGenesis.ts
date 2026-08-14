@@ -33,6 +33,7 @@
 
 import { sql, type Transaction } from "kysely";
 import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
+import { getAssetsInTransaction } from "@/lib/db/mediaAssets";
 import {
 	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
@@ -53,7 +54,12 @@ import {
 import { canonicalAppGenesis, emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { Uuid } from "@/lib/domain/uuid";
+import {
+	builtinAssetRows,
+	partitionAssetRefs,
+} from "@/lib/media/builtinIconAssets";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { decomposeBlueprint } from "./blueprintRows";
@@ -217,7 +223,24 @@ export async function writePreparedGenesisInTransaction(
 			)}`,
 		);
 	}
-	const notExportable = exportReadinessFindings(verdict.nextDoc, lookupContext);
+	const { realIds, builtinSlugs } = partitionAssetRefs([
+		...collectAssetRefs(verdict.nextDoc),
+	]);
+	const storedAssets = await getAssetsInTransaction(tx, realIds);
+	const mediaAssets = new Map(
+		[...storedAssets.values(), ...builtinAssetRows(builtinSlugs)]
+			.filter(
+				(row) =>
+					row.project_id === undefined ||
+					row.project_id === candidate.projectId,
+			)
+			.map((row) => [row.id as string, row]),
+	);
+	const notExportable = exportReadinessFindings(
+		verdict.nextDoc,
+		lookupContext,
+		mediaAssets,
+	);
 	if (notExportable.length > 0) {
 		throw new GenesisGateRejectedError(
 			`The app's first revision must be export-ready, but it could not be exported:\n${notExportable

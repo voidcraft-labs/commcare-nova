@@ -59,6 +59,7 @@ function collectDesignIdentities(
 		"lists",
 		"access",
 		"navigation",
+		"moduleCompositions",
 		"externalRequirements",
 		"decisions",
 		"assumptions",
@@ -72,6 +73,74 @@ function collectDesignIdentities(
 				identities.push({ id: value.id, path: [collection, index, "id"] });
 		});
 	}
+	const formCompositions = Array.isArray(candidate.formCompositions)
+		? candidate.formCompositions
+		: [];
+	formCompositions.forEach((value, compositionIndex) => {
+		if (!objectWithId(value)) return;
+		identities.push({
+			id: value.id,
+			path: ["formCompositions", compositionIndex, "id"],
+		});
+		const layout =
+			"layout" in value &&
+			typeof value.layout === "object" &&
+			value.layout !== null
+				? (value.layout as Record<string, unknown>)
+				: null;
+		if (layout === null) return;
+		if (layout.kind === "sectioned" && Array.isArray(layout.sections)) {
+			layout.sections.forEach((section, sectionIndex) => {
+				if (!objectWithId(section)) return;
+				identities.push({
+					id: section.id,
+					path: [
+						"formCompositions",
+						compositionIndex,
+						"layout",
+						"sections",
+						sectionIndex,
+						"id",
+					],
+				});
+				const items =
+					"items" in section && Array.isArray(section.items)
+						? section.items
+						: [];
+				items.forEach((item, itemIndex) => {
+					if (objectWithId(item))
+						identities.push({
+							id: item.id,
+							path: [
+								"formCompositions",
+								compositionIndex,
+								"layout",
+								"sections",
+								sectionIndex,
+								"items",
+								itemIndex,
+								"id",
+							],
+						});
+				});
+			});
+		} else if (Array.isArray(layout.items)) {
+			layout.items.forEach((item, itemIndex) => {
+				if (objectWithId(item))
+					identities.push({
+						id: item.id,
+						path: [
+							"formCompositions",
+							compositionIndex,
+							"layout",
+							"items",
+							itemIndex,
+							"id",
+						],
+					});
+			});
+		}
+	});
 	return identities;
 }
 
@@ -146,6 +215,9 @@ export function validateDesignGraph(
 	const workflows = new Set(contract.workflows.map((value) => value.id));
 	const lists = new Set(contract.lists.map((value) => value.id));
 	const navigation = new Set(contract.navigation.map((value) => value.id));
+	const moduleCompositions = new Map(
+		contract.moduleCompositions.map((value) => [value.id, value]),
+	);
 	const requirements = new Set(
 		contract.externalRequirements.map((value) => value.id),
 	);
@@ -502,6 +574,375 @@ export function validateDesignGraph(
 			expect(lists, id, ["navigation", navIndex, "listIds", index], "list");
 		});
 	});
+
+	contract.moduleCompositions.forEach((composition, compositionIndex) => {
+		for (const [key, ids] of [
+			["workflowIds", composition.workflowIds],
+			["actorIds", composition.actorIds],
+			["navigationIds", composition.navigationIds],
+			["listIds", composition.listIds],
+		] as const) {
+			if (new Set(ids).size !== ids.length) {
+				issue(
+					ctx,
+					["moduleCompositions", compositionIndex, key],
+					"Composition placement identities must not repeat.",
+				);
+			}
+		}
+		composition.workflowIds.forEach((id, index) => {
+			expect(
+				workflows,
+				id,
+				["moduleCompositions", compositionIndex, "workflowIds", index],
+				"workflow",
+			);
+		});
+		if (composition.hostRecordId !== undefined) {
+			expect(
+				records,
+				composition.hostRecordId,
+				["moduleCompositions", compositionIndex, "hostRecordId"],
+				"record",
+			);
+		}
+		composition.actorIds.forEach((id, index) => {
+			expect(
+				actors,
+				id,
+				["moduleCompositions", compositionIndex, "actorIds", index],
+				"actor",
+			);
+		});
+		composition.navigationIds.forEach((id, index) => {
+			expect(
+				navigation,
+				id,
+				["moduleCompositions", compositionIndex, "navigationIds", index],
+				"navigation",
+			);
+			const nav = contract.navigation.find((entry) => entry.id === id);
+			if (
+				nav !== undefined &&
+				!nav.workflowIds.some((workflowId) =>
+					composition.workflowIds.includes(workflowId),
+				) &&
+				!nav.listIds.some((listId) => composition.listIds.includes(listId))
+			) {
+				issue(
+					ctx,
+					["moduleCompositions", compositionIndex, "navigationIds", index],
+					"A module's navigation placement must contain one of its workflows or lists.",
+				);
+			}
+		});
+		composition.listIds.forEach((id, index) => {
+			expect(
+				lists,
+				id,
+				["moduleCompositions", compositionIndex, "listIds", index],
+				"list",
+			);
+			const list = contract.lists.find((entry) => entry.id === id);
+			if (
+				list !== undefined &&
+				composition.hostRecordId !== undefined &&
+				list.recordId !== composition.hostRecordId
+			) {
+				issue(
+					ctx,
+					["moduleCompositions", compositionIndex, "listIds", index],
+					"A module may place only lists for the record it hosts.",
+				);
+			}
+		});
+		if (composition.role === "queue-only" && composition.listIds.length === 0) {
+			issue(
+				ctx,
+				["moduleCompositions", compositionIndex, "listIds"],
+				"A queue-only module must place at least one accepted list.",
+			);
+		}
+		if (composition.role === "form-host" && composition.listIds.length > 0) {
+			issue(
+				ctx,
+				["moduleCompositions", compositionIndex, "listIds"],
+				"A form-host module cannot also place a queue; choose form-and-queue when both are intentional.",
+			);
+		}
+		if (
+			composition.role === "form-and-queue" &&
+			composition.listIds.length === 0
+		) {
+			issue(
+				ctx,
+				["moduleCompositions", compositionIndex, "listIds"],
+				"A form-and-queue module must place at least one accepted list.",
+			);
+		}
+	});
+
+	const compositionItems = (
+		composition: AppDesignContract["formCompositions"][number],
+	) =>
+		composition.layout.kind === "sectioned"
+			? composition.layout.sections.flatMap((section) => section.items)
+			: composition.layout.items;
+	const formCompositionsByWorkflow = new Map<
+		string,
+		AppDesignContract["formCompositions"]
+	>();
+	contract.formCompositions.forEach((composition, compositionIndex) => {
+		expect(
+			workflows,
+			composition.workflowId,
+			["formCompositions", compositionIndex, "workflowId"],
+			"workflow",
+		);
+		expect(
+			moduleCompositions,
+			composition.moduleCompositionId,
+			["formCompositions", compositionIndex, "moduleCompositionId"],
+			"module composition",
+		);
+		const workflow = contract.workflows.find(
+			(entry) => entry.id === composition.workflowId,
+		);
+		const module = moduleCompositions.get(composition.moduleCompositionId);
+		if (
+			module !== undefined &&
+			!module.workflowIds.includes(composition.workflowId)
+		) {
+			issue(
+				ctx,
+				["formCompositions", compositionIndex, "moduleCompositionId"],
+				"The form's module composition must include this workflow.",
+			);
+		}
+		if (module?.role === "queue-only") {
+			issue(
+				ctx,
+				["formCompositions", compositionIndex, "moduleCompositionId"],
+				"A queue-only module cannot host a form.",
+			);
+		}
+		composition.actorIds.forEach((id, index) => {
+			expect(
+				actors,
+				id,
+				["formCompositions", compositionIndex, "actorIds", index],
+				"actor",
+			);
+			if (workflow !== undefined && !workflow.actorIds.includes(id)) {
+				issue(
+					ctx,
+					["formCompositions", compositionIndex, "actorIds", index],
+					"A form variant may serve only actors assigned to its workflow.",
+				);
+			}
+			if (module !== undefined && !module.actorIds.includes(id)) {
+				issue(
+					ctx,
+					["formCompositions", compositionIndex, "actorIds", index],
+					"A form variant's actors must be included in its module placement.",
+				);
+			}
+		});
+		if (new Set(composition.actorIds).size !== composition.actorIds.length) {
+			issue(
+				ctx,
+				["formCompositions", compositionIndex, "actorIds"],
+				"A form variant may name each actor only once.",
+			);
+		}
+		if (workflow !== undefined && module !== undefined) {
+			if (
+				(composition.mode === "selected-record" ||
+					composition.mode === "close") &&
+				(workflow.contextRecordId === undefined ||
+					module.hostRecordId !== workflow.contextRecordId)
+			) {
+				issue(
+					ctx,
+					["formCompositions", compositionIndex, "mode"],
+					"A selected-record or close form must live in a module hosted by the workflow's context record.",
+				);
+			}
+			if (
+				composition.mode === "standalone" &&
+				(module.hostRecordId !== undefined ||
+					workflow.contextRecordId !== undefined)
+			) {
+				issue(
+					ctx,
+					["formCompositions", compositionIndex, "mode"],
+					"A standalone form must have no selected-record context and live in a module with no record host.",
+				);
+			}
+			if (composition.mode === "registration") {
+				const createdRecordIds = new Set(
+					workflow.recordEffects
+						.filter((effect) => effect.kind === "create")
+						.map((effect) => effect.recordId),
+				);
+				if (workflow.contextRecordId !== undefined) {
+					issue(
+						ctx,
+						["formCompositions", compositionIndex, "mode"],
+						"A workflow that starts from a selected context record must use a selected-record or close form; a child record it creates is an effect, not the form host.",
+					);
+				} else if (
+					module.hostRecordId === undefined ||
+					!createdRecordIds.has(module.hostRecordId)
+				) {
+					issue(
+						ctx,
+						["formCompositions", compositionIndex, "mode"],
+						"A registration form must live in a module hosted by a record the workflow creates.",
+					);
+				}
+			}
+			if (
+				composition.mode === "close" &&
+				!workflow.recordEffects.some(
+					(effect) =>
+						effect.kind === "close" &&
+						effect.recordId === workflow.contextRecordId,
+				)
+			) {
+				issue(
+					ctx,
+					["formCompositions", compositionIndex, "mode"],
+					"A close form must close its selected context record.",
+				);
+			}
+		}
+
+		const inputHandles = compositionItems(composition).flatMap((item) =>
+			item.kind === "input" ? [item.inputHandle] : [],
+		);
+		const expectedInputHandles =
+			workflow?.inputs.map((input) => input.handle) ?? [];
+		for (const handle of expectedInputHandles) {
+			if (inputHandles.filter((entry) => entry === handle).length !== 1) {
+				issue(
+					ctx,
+					["formCompositions", compositionIndex, "layout"],
+					`Every complete form variant must place workflow input ${handle} exactly once.`,
+				);
+			}
+		}
+		inputHandles.forEach((handle) => {
+			if (!expectedInputHandles.includes(handle)) {
+				issue(
+					ctx,
+					["formCompositions", compositionIndex, "layout"],
+					`Composition input ${handle} is not declared by this workflow.`,
+				);
+			}
+		});
+		compositionItems(composition).forEach((item) => {
+			if (item.kind !== "record-summary") return;
+			expect(
+				records,
+				item.recordId,
+				["formCompositions", compositionIndex, "layout"],
+				"record",
+			);
+			item.propertyIds.forEach((id) => {
+				const owner = properties.get(id)?.record.id;
+				if (owner === undefined) {
+					expect(
+						properties,
+						id,
+						["formCompositions", compositionIndex, "layout"],
+						"property",
+					);
+				} else if (owner !== item.recordId) {
+					issue(
+						ctx,
+						["formCompositions", compositionIndex, "layout"],
+						"A record summary may show only properties of its named record.",
+					);
+				}
+			});
+		});
+		const current =
+			formCompositionsByWorkflow.get(composition.workflowId) ?? [];
+		current.push(composition);
+		formCompositionsByWorkflow.set(composition.workflowId, current);
+	});
+	for (const workflow of contract.workflows) {
+		const variants = formCompositionsByWorkflow.get(workflow.id) ?? [];
+		// Composition was added to schema v1 after reviewed design artifacts had
+		// already been persisted. Keep the base graph backward-readable; the
+		// construction gate below is what refuses a new accepted revision that
+		// has not made these decisions.
+		if (variants.length === 0) continue;
+		const actorUse = new Map<string, number>();
+		for (const variant of variants) {
+			for (const actorId of variant.actorIds)
+				actorUse.set(actorId, (actorUse.get(actorId) ?? 0) + 1);
+		}
+		for (const actorId of workflow.actorIds) {
+			if ((actorUse.get(actorId) ?? 0) !== 1) {
+				issue(
+					ctx,
+					["formCompositions"],
+					`Workflow ${workflow.id} must give actor ${actorId} exactly one complete form variant.`,
+				);
+			}
+		}
+		if (variants.length === 1) {
+			const variant = variants[0];
+			if (variant?.variant !== "shared") {
+				issue(
+					ctx,
+					["formCompositions"],
+					`Workflow ${workflow.id} has one form composition, so it must be marked shared.`,
+				);
+			}
+		} else if (variants.length > 1) {
+			for (const variant of variants) {
+				if (
+					variant.variant !== "actor-specific" ||
+					variant.duplicateRationale === undefined
+				) {
+					issue(
+						ctx,
+						["formCompositions"],
+						`Every duplicated form for workflow ${workflow.id} must name its actor distinction and duplicate rationale.`,
+					);
+				}
+			}
+		}
+	}
+	for (const [
+		compositionIndex,
+		composition,
+	] of contract.moduleCompositions.entries()) {
+		const hostedForms = contract.formCompositions.filter(
+			(form) => form.moduleCompositionId === composition.id,
+		);
+		if (composition.role === "queue-only" && hostedForms.length > 0) {
+			issue(
+				ctx,
+				["moduleCompositions", compositionIndex, "role"],
+				"A queue-only module cannot have form compositions.",
+			);
+		}
+		if (
+			(composition.role === "form-host" ||
+				composition.role === "form-and-queue") &&
+			hostedForms.length === 0
+		) {
+			issue(
+				ctx,
+				["moduleCompositions", compositionIndex, "role"],
+				"A form-hosting module must contain at least one accepted form composition.",
+			);
+		}
+	}
 	contract.externalRequirements.forEach((requirement, requirementIndex) => {
 		requirement.relatedWorkflowIds.forEach((id, index) => {
 			expect(

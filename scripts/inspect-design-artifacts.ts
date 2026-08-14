@@ -50,6 +50,7 @@ import {
 	collectDesignArtifactProducerRunIds,
 	designArtifactDiagnosticRuns,
 } from "./lib/designArtifactProducerRuns";
+import { designCompositionSummary } from "./lib/designCompositionSummary";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
@@ -305,6 +306,21 @@ async function printBuildAggregate(args: {
 		.orderBy("design_slice_attempts.slice_id", "asc")
 		.orderBy("design_slice_attempts.attempt", "asc")
 		.execute();
+	const executorContexts = await db
+		.selectFrom("design_model_contexts")
+		.select(["id", "generation", "context_version"])
+		.where("design_session_id", "=", args.sessionId)
+		.where("context_kind", "=", "executor")
+		.orderBy("generation", "asc")
+		.execute();
+	const executorContextByAttempt = new Map(
+		attempts.flatMap((attempt) => {
+			const context = executorContexts.find((candidate) =>
+				candidate.context_version.endsWith(`:semantic-scope:${attempt.id}`),
+			);
+			return context === undefined ? [] : ([[attempt.id, context]] as const);
+		}),
+	);
 	const receipts = await readCommittedSliceReceiptsForPlan(args.plan.id);
 	const receiptBySlice = new Map(
 		receipts.map((receipt) => [receipt.sliceId as string, receipt]),
@@ -377,10 +393,10 @@ async function printBuildAggregate(args: {
 		console.log(
 			`    slice ${sliceIndex + 1} ${slice.id.slice(0, 8)}: ${
 				sliceAttempts
-					.map(
-						(attempt) =>
-							`attempt ${attempt.attempt} ${attempt.status}${attempt.failure_code === null ? "" : ` (${attempt.failure_code})`}`,
-					)
+					.map((attempt) => {
+						const context = executorContextByAttempt.get(attempt.id);
+						return `attempt ${attempt.attempt} ${attempt.status}${attempt.failure_code === null ? "" : ` (${attempt.failure_code})`} · executor ${context === undefined ? "context missing" : `g${context.generation} ${context.id.slice(0, 8)}…`}`;
+					})
 					.join(", ") || "no attempt"
 			}; commit ${receiptBySlice.has(slice.id as string) ? "yes" : "no"}`,
 		);
@@ -535,6 +551,14 @@ async function main(): Promise<void> {
 				`(${revision.envelope.promptVersion}, ${revision.createdAt.toISOString()})`,
 		);
 		console.log(`  artifact digest ${revision.artifactDigest.slice(0, 16)}…`);
+		const composition = designCompositionSummary(revision.envelope.payload);
+		console.log(
+			`  composition ${composition.modules} modules · ${composition.forms} forms ` +
+				`(${composition.sectionedForms} sectioned, ${composition.flatForms} flat, ${composition.actorSpecificForms} actor-specific) · ` +
+				`${composition.sections} sections · ${composition.inputItems} inputs · ${composition.guidanceItems} guidance · ` +
+				`${composition.recordSummaries} summaries · ${composition.builtinIcons} built-in icons/${composition.noIcons} no-icon choices · ` +
+				`${composition.duplicatedWorkflows} duplicated workflows`,
+		);
 		const complexity = revision.envelope.complexity;
 		if (complexity) {
 			console.log(

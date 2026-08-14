@@ -212,6 +212,7 @@ export function renderDesignStateMessage(args: {
 				{
 					artifactKind: args.workspace.artifactKind,
 					revision: args.workspace.revision,
+					nextExpectedRevision: args.workspace.revision,
 					stepCount: args.workspace.stepCount,
 					counts: args.workspace.counts,
 					missingRootFields: args.workspace.missingRootFields,
@@ -220,7 +221,10 @@ export function renderDesignStateMessage(args: {
 					}),
 					currentCandidate: args.workspace.candidate,
 					instruction:
-						"Continue from this exact candidate and workspace revision. Do not recreate saved stages. Inspect only when a narrow exceptional lookup is genuinely needed.",
+						args.workspace.artifactKind === "revision" &&
+						args.workspace.revision === 0
+							? "This is a new post-review revision workspace at revision 0. The first stageRevision call must use expectedRevision 0. Continue from the reviewed parent shown here; do not use the earlier contract workspace revision."
+							: "Continue from this exact candidate and use nextExpectedRevision for the next stage. Do not recreate saved stages. Inspect only when a narrow exceptional lookup is genuinely needed.",
 				},
 				null,
 				1,

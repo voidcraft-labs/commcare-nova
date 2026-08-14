@@ -58,6 +58,16 @@ export const ids = {
 	rmPatients: did(90),
 	accessSupervisor: did(100),
 	navMain: did(110),
+	modulePatients: did(170),
+	formRegister: did(171),
+	formVisit: did(172),
+	sectionRegisterIdentity: did(173),
+	sectionRegisterTriage: did(174),
+	itemRegisterName: did(175),
+	itemRegisterAge: did(176),
+	itemRegisterGuidance: did(177),
+	sectionVisit: did(178),
+	itemVisitSummary: did(179),
 	decision: did(120),
 	assumption: did(130),
 	question: did(140),
@@ -313,6 +323,112 @@ export function makeContract(): AppDesignContract {
 				orderRationale: "Registration comes before follow-up.",
 			},
 		],
+		moduleCompositions: [
+			{
+				id: ids.modulePatients,
+				name: "Patient care",
+				purpose:
+					"Give workers one patient-centered home for registration, selection, and follow-up.",
+				role: "form-and-queue",
+				workflowIds: [ids.taskRegister, ids.taskVisit],
+				hostRecordId: ids.recPatient,
+				actorIds: [ids.actorChw, ids.actorSupervisor],
+				navigationIds: [ids.navMain],
+				listIds: [ids.rmPatients],
+				orderRationale:
+					"Keep registration available before the patient queue and follow-up work.",
+				icon: { kind: "builtin", slug: "patient" },
+				roleSeparationRationale:
+					"The shared patient context is clearer than separate registration and visit menus.",
+			},
+		],
+		formCompositions: [
+			{
+				id: ids.formRegister,
+				workflowId: ids.taskRegister,
+				moduleCompositionId: ids.modulePatients,
+				name: "Register patient",
+				purpose: "Capture the minimum identity and triage information.",
+				mode: "registration",
+				icon: { kind: "builtin", slug: "register" },
+				variant: "shared",
+				actorIds: [ids.actorChw],
+				layout: {
+					kind: "sectioned",
+					rationale:
+						"Separate patient identity from the age-based triage step so the short form scans cleanly.",
+					sections: [
+						{
+							id: ids.sectionRegisterIdentity,
+							headingMarkdown: "## Patient",
+							purpose: "Identify the person being registered.",
+							items: [
+								{
+									kind: "input",
+									id: ids.itemRegisterName,
+									inputHandle: "patient_name",
+									labelMarkdown: "**Patient name**",
+									hintMarkdown: "Enter the name the household uses.",
+								},
+							],
+						},
+						{
+							id: ids.sectionRegisterTriage,
+							headingMarkdown: "## Triage",
+							purpose: "Collect the value used for the priority decision.",
+							items: [
+								{
+									kind: "guidance",
+									id: ids.itemRegisterGuidance,
+									markdown:
+										"Children under five are marked **priority** for follow-up.",
+								},
+								{
+									kind: "input",
+									id: ids.itemRegisterAge,
+									inputHandle: "age",
+									labelMarkdown: "Age in years",
+									hintMarkdown: "Use 0 for a child under one year.",
+								},
+							],
+						},
+					],
+				},
+			},
+			{
+				id: ids.formVisit,
+				workflowId: ids.taskVisit,
+				moduleCompositionId: ids.modulePatients,
+				name: "Record visit",
+				purpose: "Record what happened during the selected patient's visit.",
+				mode: "selected-record",
+				icon: { kind: "builtin", slug: "follow_up" },
+				variant: "shared",
+				actorIds: [ids.actorChw],
+				layout: {
+					kind: "sectioned",
+					rationale:
+						"The patient context and visit note should read as one focused task.",
+					sections: [
+						{
+							id: ids.sectionVisit,
+							headingMarkdown: "## Visit notes",
+							purpose: "Capture a concise account of the visit.",
+							items: [
+								{
+									kind: "input",
+									id: ids.itemVisitSummary,
+									inputHandle: "visit_summary",
+									labelMarkdown: "What happened during this visit?",
+									hintMarkdown:
+										"Include important observations and agreed next steps.",
+								},
+							],
+						},
+					],
+				},
+			},
+		],
 		externalRequirements: [],
 		decisions: [
 			{
@@ -432,6 +548,45 @@ export function makeThirteenWorkflowContract(): AppDesignContract {
 		lists: [],
 		access: [],
 		navigation: [],
+		moduleCompositions: workflowIds.map((workflowId, index) => ({
+			id: did(4000 + index),
+			name: `Workflow ${index + 1}`,
+			purpose: `Host workflow ${index + 1}.`,
+			role: "form-host",
+			workflowIds: [workflowId],
+			hostRecordId: recordIds[index],
+			actorIds: [ids.actorChw],
+			navigationIds: [],
+			listIds: [],
+			orderRationale: `Follow workflow dependency order at position ${index + 1}.`,
+			icon: { kind: "builtin", slug: "default" },
+			roleSeparationRationale:
+				"This workflow owns a distinct record and therefore a distinct menu home.",
+		})),
+		formCompositions: workflowIds.map((workflowId, index) => ({
+			id: did(5000 + index),
+			workflowId,
+			moduleCompositionId: did(4000 + index),
+			name: `Workflow ${index + 1}`,
+			purpose: `Complete workflow ${index + 1}.`,
+			mode: "registration",
+			icon: { kind: "builtin", slug: "default" },
+			variant: "shared",
+			actorIds: [ids.actorChw],
+			layout: {
+				kind: "flat",
+				rationale:
+					"This fixture has one input and no meaningful grouping boundary.",
+				items: [
+					{
+						kind: "input",
+						id: did(6000 + index),
+						inputHandle: `workflow_${index + 1}_value`,
+						labelMarkdown: `Workflow ${index + 1} value`,
+					},
+				],
+			},
+		})),
 		externalRequirements: [],
 		decisions: [],
 		assumptions: [],

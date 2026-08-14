@@ -21,6 +21,7 @@ import {
 } from "@/lib/agent/build/executionBrief";
 import {
 	buildExecutorTools,
+	compositionStagingIssue,
 	type ExecutorConversationContext,
 	type ExecutorStepFn,
 	type ExecutorToolOutcomeEvent,
@@ -43,6 +44,8 @@ import {
 	makeBuildPlan,
 	makeContract,
 } from "@/lib/agent/design/__tests__/fixtures";
+import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
+import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import type { WorkspaceSnapshot } from "@/lib/agent/workspace/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { conversationPayloadSchema } from "@/lib/log/types";
@@ -92,6 +95,7 @@ function diagnostics(
 		snapshotRevision: 1,
 		candidateDigest: "d".repeat(64),
 		allFindings: [],
+		finalizationFindings: [],
 		introducedSincePreviousStep: [],
 		resolvedSincePreviousStep: [],
 		readSetStatus: [],
@@ -117,6 +121,7 @@ interface FakeWorkspace extends ExecutorWorkspace {
 }
 
 function fakeWorkspace(options?: {
+	doc?: BlueprintDoc;
 	inspect?: () => Promise<ChangeSetDiagnostics>;
 	executionCheckpoint?: ReturnType<
 		ExecutorWorkspace["currentExecutionCheckpoint"]
@@ -134,7 +139,7 @@ function fakeWorkspace(options?: {
 		inspectCalls: 0,
 		currentSnapshot(): WorkspaceSnapshot {
 			return {
-				doc: EMPTY_DOC,
+				doc: options?.doc ?? EMPTY_DOC,
 				revision: 1,
 				canonicalSeq: null,
 				projectId: "project-1",
@@ -259,6 +264,114 @@ it("checkpoints the identities needed to continue after compaction", () => {
 	expect(summary).not.toContain(userPropertyUuid);
 });
 
+it("keeps a selected beneficiary form on the beneficiary module when its effect creates a referral child", () => {
+	const base = makeContract();
+	const contract = appDesignContractSchema.parse({
+		...base,
+		records: base.records.map((record) => ({
+			...record,
+			name:
+				record.id === ids.recPatient
+					? "Beneficiary"
+					: record.id === ids.recVisit
+						? "Referral"
+						: record.name,
+		})),
+	});
+	const plan = deriveBuildPlan({
+		contract,
+		revision: { id: ids.revisionId, digest: "b".repeat(64) },
+	});
+	const slice = fixtureValue(
+		plan.slices.find((entry) => entry.workflowId === ids.taskVisit),
+		"referral workflow slice",
+	);
+	const visitBrief = deriveSliceExecutionBrief({
+		contract,
+		revision: { id: ids.revisionId, digest: "b".repeat(64) },
+		plan,
+		sliceId: slice.id,
+	});
+	const doc = buildDoc({
+		appName: "Referral tracker",
+		caseTypes: [
+			{ name: "beneficiary", properties: [] },
+			{ name: "referral", properties: [] },
+		],
+		modules: [
+			{ name: "Beneficiaries", caseType: "beneficiary", forms: [] },
+			{ name: "Referrals", caseType: "referral", forms: [] },
+		],
+	});
+	const beneficiaryModuleUuid = fixtureValue(
+		doc.moduleOrder[0],
+		"beneficiary module",
+	);
+	const referralModuleUuid = fixtureValue(
+		doc.moduleOrder[1],
+		"referral module",
+	);
+	const workspace = fakeWorkspace({
+		doc,
+		executionCheckpoint: {
+			intentCoverage: [],
+			handles: [
+				{
+					handle: "@beneficiaries",
+					uuid: beneficiaryModuleUuid,
+					entityKind: "module",
+				},
+				{
+					handle: "@referrals",
+					uuid: referralModuleUuid,
+					entityKind: "module",
+				},
+			],
+		},
+	});
+	expect(
+		compositionStagingIssue(
+			"generateSchema",
+			{ caseTypes: [{ name: "Beneficiary", properties: [] }] },
+			visitBrief,
+			workspace,
+		),
+	).toContain("Beneficiary -> beneficiary");
+	expect(
+		compositionStagingIssue(
+			"generateSchema",
+			{ caseTypes: [{ name: "beneficiary", properties: [] }] },
+			visitBrief,
+			workspace,
+		),
+	).toBeNull();
+
+	expect(
+		compositionStagingIssue(
+			"stageForm",
+			{
+				moduleUuid: { handle: "@referrals" },
+				name: "Record visit",
+				type: "followup",
+			},
+			visitBrief,
+			workspace,
+		),
+	).toContain("child/outcome record");
+	expect(
+		compositionStagingIssue(
+			"stageForm",
+			{
+				moduleUuid: { handle: "@beneficiaries" },
+				name: "Record visit",
+				type: "followup",
+			},
+			visitBrief,
+			workspace,
+		),
+	).toBeNull();
+});
+
 type ScriptedStep =
 	| { text: string }
 	| { calls: { toolCallId: string; toolName: string; input?: unknown }[] };
@@ -273,11 +386,17 @@ const VALID_BLOCKER = {
 function batchInput(toolName: string, input: unknown = {}) {
 	const creationIdentity =
 		toolName === "stageModule"
-			? { moduleUuid: { handle: "@staged_module" } }
+			? {
+					moduleUuid: { handle: "@staged_module" },
+					name: "Patient care",
+					case_type: "patient",
+				}
 			: toolName === "stageForm"
 				? {
 						formUuid: { handle: "@staged_form" },
 						moduleUuid: { handle: "@staged_module" },
+						name: "Register patient",
+						type: "registration",
 					}
 				: {};
 	return {
@@ -731,7 +850,7 @@ describe("runSliceExecutor — staged dispatch", () => {
 					{
 						toolCallId: "call-42",
 						toolName: "stageBatch",
-						input: batchInput("stageModule", { name: "Patients" }),
+						input: batchInput("stageModule"),
 					},
 				],
 			},
@@ -746,7 +865,8 @@ describe("runSliceExecutor — staged dispatch", () => {
 				requestId: "call-42:0",
 				input: {
 					moduleUuid: { handle: "@staged_module" },
-					name: "Patients",
+					name: "Patient care",
+					case_type: "patient",
 				},
 			},
 		]);
@@ -1106,9 +1226,41 @@ describe("runSliceExecutor — staged dispatch", () => {
 });
 
 describe("runSliceExecutor — commit is a request", () => {
-	it("refuses to commit while diagnostics block it", async () => {
+	it("does not misreport a staged candidate as empty when finalization is unnamed", async () => {
 		const workspace = fakeWorkspace({
-			inspect: async () => BLOCKING_DIAGNOSTICS,
+			inspect: async () =>
+				diagnostics({
+					snapshotRevision: 23,
+					canCommit: false,
+					allFindings: [],
+				}),
+		});
+		const { step, seen } = scriptedStep([
+			{ calls: [{ toolCallId: "a", toolName: "commitChangeSet" }] },
+			{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
+		]);
+
+		await run({ workspace, step });
+
+		const value = toolResults(seen[1] ?? [])[0]?.value as { error: string };
+		expect(value.error).toContain("23 staged mutation steps");
+		expect(value.error).not.toContain("holds no staged");
+	});
+
+	it("refuses to commit while diagnostics block it", async () => {
+		let inspectOrdinal = 0;
+		const workspace = fakeWorkspace({
+			inspect: async () =>
+				diagnostics({
+					canCommit: false,
+					allFindings: [
+						{
+							code: "EMPTY_FORM",
+							message: "This form has no questions.",
+							location: { inspectOrdinal: inspectOrdinal++ },
+						},
+					] as unknown as ChangeSetDiagnostics["allFindings"],
+				}),
 		});
 		const commit = vi.fn(
 			async (): Promise<SliceCommitResult> => ({
@@ -1394,12 +1546,66 @@ describe("runSliceExecutor — architect blocker resolution", () => {
 });
 
 describe("runSliceExecutor — budgets", () => {
+	it("escalates the second identical compiler failure and stops when guidance does not resolve the third", async () => {
+		const resolveBlocker = vi.fn(async () => ({
+			kind: "continue" as const,
+			guidance:
+				"Keep the accepted beneficiary host and repair the empty form in place.",
+		}));
+		const { step, seen } = scriptedStep([
+			{ calls: [{ toolCallId: "inspect-1", toolName: "inspectChangeSet" }] },
+			{ calls: [{ toolCallId: "inspect-2", toolName: "inspectChangeSet" }] },
+			{ calls: [{ toolCallId: "inspect-3", toolName: "inspectChangeSet" }] },
+		]);
+
+		const outcome = await run({
+			workspace: fakeWorkspace({
+				inspect: async () => BLOCKING_DIAGNOSTICS,
+			}),
+			step,
+			resolveBlocker,
+		});
+
+		expect(resolveBlocker).toHaveBeenCalledTimes(1);
+		expect(outcome).toEqual({
+			kind: "protocol-failure",
+			code: "repeated-failure-after-architect-guidance",
+			message: expect.stringContaining("stopped before committing"),
+		});
+		const secondResult = toolResults(seen[2] ?? []).find(
+			(result) => result.toolCallId === "inspect-2",
+		)?.value as
+			| {
+					repeatedFailure?: {
+						occurrence?: number;
+						architectGuidance?: string;
+					};
+			  }
+			| undefined;
+		expect(secondResult?.repeatedFailure).toMatchObject({
+			occurrence: 2,
+			architectGuidance:
+				"Keep the accepted beneficiary host and repair the empty form in place.",
+		});
+	});
+
 	it("grants the priced allowance for an answered architect blocker", async () => {
 		/* Session five's slice three died at its base cap after two honest
 		 * blockers whose architect guidance directed a rehosting the plan
 		 * never priced. Each paid `continue` decision now grows the limits. */
+		let inspectOrdinal = 0;
 		const workspace = fakeWorkspace({
-			inspect: async () => BLOCKING_DIAGNOSTICS,
+			inspect: async () =>
+				diagnostics({
+					canCommit: false,
+					allFindings: [
+						{
+							code: "EMPTY_FORM",
+							message: "This form has no questions.",
+							location: { inspectOrdinal: inspectOrdinal++ },
+						},
+					] as unknown as ChangeSetDiagnostics["allFindings"],
+				}),
 		});
 		const { step } = scriptedStep([
 			{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
@@ -1446,8 +1652,19 @@ describe("runSliceExecutor — budgets", () => {
 				maxModelSteps: 2,
 				maxWallClockMs: 60_000,
 			};
+			let inspectOrdinal = 0;
 			const workspace = fakeWorkspace({
-				inspect: async () => BLOCKING_DIAGNOSTICS,
+				inspect: async () =>
+					diagnostics({
+						canCommit: false,
+						allFindings: [
+							{
+								code: "EMPTY_FORM",
+								message: "This form has no questions.",
+								location: { inspectOrdinal: inspectOrdinal++ },
+							},
+						] as unknown as ChangeSetDiagnostics["allFindings"],
+					}),
 			});
 			const { step } = scriptedStep([
 				{ calls: [{ toolCallId: "b", toolName: "reportExecutionBlocker" }] },
@@ -2380,11 +2597,15 @@ describe("runSliceExecutor — plumbing", () => {
 
 		expect(outcome.kind).toBe("protocol-failure");
 		const refreshKeys = [...(context.appendKeys ?? [])].filter((key) =>
-			key.startsWith("compaction-candidate:"),
+			key.startsWith("compaction-reseed:"),
 		);
-		expect(refreshKeys).toHaveLength(2);
-		expect(refreshKeys[0]).toContain(":1:");
-		expect(refreshKeys[1]).toContain(":2:");
+		expect(refreshKeys).toHaveLength(6);
+		expect(
+			refreshKeys.filter((key) => /:1:[0-2]:[a-f0-9]{64}$/.test(key)),
+		).toHaveLength(3);
+		expect(
+			refreshKeys.filter((key) => /:2:[0-2]:[a-f0-9]{64}$/.test(key)),
+		).toHaveLength(3);
 	});
 
 	it("opens with a stable brief followed by the current workspace state", async () => {
@@ -2395,11 +2616,15 @@ describe("runSliceExecutor — plumbing", () => {
 		await run({ workspace: fakeWorkspace(), step });
 
 		const opening = seen[0];
-		expect(opening).toHaveLength(2);
+		expect(opening).toHaveLength(3);
 		expect(JSON.stringify(opening?.[0])).toContain("Register patient");
 		const checkpoint = JSON.stringify(opening?.[1]);
-		expect(checkpoint).toContain("Current change set");
-		expect(checkpoint).toContain("Nothing has been staged yet");
+		expect(checkpoint).toContain("Current authoritative private candidate");
+		expect(checkpoint).toContain("blueprint");
+		const focus = JSON.stringify(opening?.[2]);
+		expect(focus).toContain("Current slice focus");
+		expect(focus).toContain("Current change set");
+		expect(focus).toContain("Nothing has been staged yet");
 	});
 
 	it("emits only coarse, user-safe progress notes", async () => {

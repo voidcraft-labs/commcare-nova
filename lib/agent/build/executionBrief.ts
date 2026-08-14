@@ -14,6 +14,9 @@ import type {
 	Assumption,
 	DesignActor,
 	ExternalRequirement,
+	FormComposition,
+	FormCompositionItem,
+	ModuleComposition,
 	NavigationIntent,
 	RecordConcept,
 	Workflow,
@@ -25,6 +28,7 @@ import {
 	type PlatformConstraint,
 	type PlatformConstraintCode,
 } from "@/lib/agent/design/platformConstraints";
+import { slugifyId } from "@/lib/domain/idSlug";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	deriveExecutorToolProfile,
@@ -60,9 +64,58 @@ export interface SliceExecutionBrief {
 	>[];
 	readonly actors: readonly DesignActor[];
 	readonly records: readonly RecordConcept[];
+	/** Deterministic lowering from semantic record identity to the exact
+	 * Blueprint case-type key every construction operation must reuse. */
+	readonly recordRealizations: readonly {
+		readonly recordId: DesignId;
+		readonly displayName: string;
+		readonly blueprintCaseType: string;
+		readonly parentBlueprintCaseType?: string;
+	}[];
 	readonly lists: readonly WorkList[];
 	readonly access: readonly AccessPolicy[];
 	readonly navigation: readonly NavigationIntent[];
+	readonly moduleCompositions: readonly ModuleComposition[];
+	readonly formCompositions: readonly FormComposition[];
+	readonly moduleRealizations: readonly {
+		readonly compositionId: DesignId;
+		readonly action: "create" | "reuse";
+		readonly hostRecord: {
+			readonly id: DesignId;
+			readonly name: string;
+			readonly blueprintCaseType: string;
+		} | null;
+		readonly role: ModuleComposition["role"];
+		readonly icon: ModuleComposition["icon"];
+		readonly formCompositionIds: readonly DesignId[];
+	}[];
+	readonly formRealizations: readonly {
+		readonly compositionId: DesignId;
+		readonly moduleCompositionId: DesignId;
+		readonly blueprintFormType:
+			| "registration"
+			| "followup"
+			| "close"
+			| "survey";
+		readonly name: string;
+		readonly icon: FormComposition["icon"];
+		readonly layout: FormComposition["layout"];
+		readonly layoutLowering:
+			| {
+					readonly kind: "nested-group-fields";
+					readonly groups: readonly {
+						readonly compositionSectionId: DesignId;
+						readonly blueprintFieldKind: "group";
+						readonly labelMarkdown: string;
+						readonly items: readonly FormCompositionItemLowering[];
+					}[];
+			  }
+			| {
+					readonly kind: "root-fields";
+					readonly items: readonly FormCompositionItemLowering[];
+			  };
+		readonly duplicateRationale?: string;
+	}[];
 	readonly externalRequirements: readonly ExternalRequirement[];
 	readonly decisions: readonly ArchitectureDecision[];
 	readonly assumptions: readonly Assumption[];
@@ -77,6 +130,121 @@ export interface SliceExecutionBrief {
 		readonly externalPrerequisites: readonly string[];
 		readonly unsupported: readonly string[];
 	};
+}
+
+const MAX_BLUEPRINT_CASE_TYPE_LENGTH = 255;
+const RESERVED_BLUEPRINT_CASE_TYPE_KEYS = new Set([
+	"case",
+	"form",
+	"parent",
+	"user",
+]);
+
+/** A semantic display name is not a machine identifier. Lower the complete
+ * accepted record catalog once, before any slice is derived, so every slice
+ * receives the same case-type key and a model can never create `Household`
+ * beside `household`. UUID suffixes make display-name collisions stable and
+ * independent of record order. */
+function deriveRecordRealizations(
+	records: readonly RecordConcept[],
+): SliceExecutionBrief["recordRealizations"] {
+	const bases = records.map((record) => {
+		const slug = slugifyId(record.name, "record");
+		const identifier = /^[a-z]/.test(slug) ? slug : `record_${slug}`;
+		return RESERVED_BLUEPRINT_CASE_TYPE_KEYS.has(identifier)
+			? `${identifier}_record`
+			: identifier;
+	});
+	const unsuffixedKeys = bases.map((base) =>
+		base.slice(0, MAX_BLUEPRINT_CASE_TYPE_LENGTH),
+	);
+	const duplicateBases = new Set(
+		unsuffixedKeys.filter(
+			(base, index) => unsuffixedKeys.indexOf(base) !== index,
+		),
+	);
+	const keyByRecordId = new Map<DesignId, string>();
+	for (const [index, record] of records.entries()) {
+		const base = bases[index] ?? "record";
+		const suffix = duplicateBases.has(
+			base.slice(0, MAX_BLUEPRINT_CASE_TYPE_LENGTH),
+		)
+			? `_${record.id.replaceAll("-", "")}`
+			: "";
+		keyByRecordId.set(
+			record.id,
+			`${base.slice(0, MAX_BLUEPRINT_CASE_TYPE_LENGTH - suffix.length)}${suffix}`,
+		);
+	}
+	return records.map((record) => ({
+		recordId: record.id,
+		displayName: record.name,
+		blueprintCaseType: keyByRecordId.get(record.id) ?? "record",
+		...(record.parentRecordId !== undefined && {
+			parentBlueprintCaseType: keyByRecordId.get(record.parentRecordId),
+		}),
+	}));
+}
+
+interface FormCompositionItemLowering {
+	readonly compositionItemId: DesignId;
+	readonly blueprintFieldKind: "workflow-input" | "label";
+	readonly inputHandle?: string;
+	readonly markdown?: string;
+	readonly recordSummary?: {
+		readonly recordId: DesignId;
+		readonly propertyIds: readonly DesignId[];
+		readonly purpose: string;
+	};
+}
+
+function lowerCompositionItems(
+	items: readonly FormCompositionItem[],
+): FormCompositionItemLowering[] {
+	return items.map((item) => {
+		if (item.kind === "input") {
+			return {
+				compositionItemId: item.id,
+				blueprintFieldKind: "workflow-input" as const,
+				inputHandle: item.inputHandle,
+			};
+		}
+		if (item.kind === "guidance") {
+			return {
+				compositionItemId: item.id,
+				blueprintFieldKind: "label" as const,
+				markdown: item.markdown,
+			};
+		}
+		return {
+			compositionItemId: item.id,
+			blueprintFieldKind: "label" as const,
+			recordSummary: {
+				recordId: item.recordId,
+				propertyIds: item.propertyIds,
+				purpose: item.purpose,
+			},
+		};
+	});
+}
+
+function lowerCompositionLayout(
+	layout: FormComposition["layout"],
+): SliceExecutionBrief["formRealizations"][number]["layoutLowering"] {
+	return layout.kind === "sectioned"
+		? {
+				kind: "nested-group-fields",
+				groups: layout.sections.map((section) => ({
+					compositionSectionId: section.id,
+					blueprintFieldKind: "group" as const,
+					labelMarkdown: section.headingMarkdown,
+					items: lowerCompositionItems(section.items),
+				})),
+			}
+		: {
+				kind: "root-fields",
+				items: lowerCompositionItems(layout.items),
+			};
 }
 
 const CONSTRAINT_AREAS: Readonly<
@@ -149,6 +317,26 @@ function checklistRequirement(
 	if (kind === "access") return `Implement accepted access policy ${id}.`;
 	if (kind === "navigation")
 		return `Author navigation ${contract.navigation.find((entry) => entry.id === id)?.name ?? id}.`;
+	if (kind === "module-composition") {
+		const composition = contract.moduleCompositions.find(
+			(entry) => entry.id === id,
+		);
+		return composition === undefined
+			? `Realize module composition ${id}.`
+			: `Realize ${composition.role} module ${composition.name} with its accepted host, placement, order, and icon decision.`;
+	}
+	if (kind === "form-composition") {
+		const composition = contract.formCompositions.find(
+			(entry) => entry.id === id,
+		);
+		return composition === undefined
+			? `Realize form composition ${id}.`
+			: `Realize ${composition.mode} form ${composition.name} with its exact variant, icon, and ${composition.layout.kind} layout.`;
+	}
+	if (kind === "composition-section")
+		return `Realize accepted form section ${id} in order.`;
+	if (kind === "composition-item")
+		return `Realize accepted input, guidance, or record-summary item ${id} in order.`;
 	return `Account for external requirement ${id}.`;
 }
 
@@ -177,6 +365,13 @@ export function deriveSliceExecutionBrief(args: {
 			`Build slice ${slice.id} has no Blueprint construction work.`,
 		);
 	}
+	const allRecordRealizations = deriveRecordRealizations(args.contract.records);
+	const recordKeyById = new Map(
+		allRecordRealizations.map((record) => [
+			record.recordId,
+			record.blueprintCaseType,
+		]),
+	);
 	const elements = new Set(
 		executableSlice.constructionGroups.flatMap((group) =>
 			group.elements.map((element) => element.id),
@@ -264,6 +459,70 @@ export function deriveSliceExecutionBrief(args: {
 	for (const nav of navigation) {
 		for (const actorId of nav.actorIds) actorIds.add(actorId);
 	}
+	const formCompositions = args.contract.formCompositions.filter(
+		(composition) => composition.workflowId === workflow.id,
+	);
+	const relevantModuleCompositionIds = new Set<string>([
+		...formCompositions.map(
+			(composition) => composition.moduleCompositionId as string,
+		),
+		...executableSlice.constructionGroups.flatMap((group) =>
+			group.elements.flatMap((element) =>
+				element.kind === "module-composition" ? [element.id as string] : [],
+			),
+		),
+	]);
+	const moduleCompositions = args.contract.moduleCompositions.filter(
+		(composition) => relevantModuleCompositionIds.has(composition.id),
+	);
+	const ownedModuleCompositionIds = new Set(
+		executableSlice.constructionGroups.flatMap((group) =>
+			group.elements.flatMap((element) =>
+				element.kind === "module-composition" ? [element.id] : [],
+			),
+		),
+	);
+	const moduleRealizations = moduleCompositions.map((composition) => {
+		const hostRecord = args.contract.records.find(
+			(record) => record.id === composition.hostRecordId,
+		);
+		return {
+			compositionId: composition.id,
+			action: ownedModuleCompositionIds.has(composition.id)
+				? ("create" as const)
+				: ("reuse" as const),
+			hostRecord:
+				hostRecord === undefined
+					? null
+					: {
+							id: hostRecord.id,
+							name: hostRecord.name,
+							blueprintCaseType: recordKeyById.get(hostRecord.id) ?? "record",
+						},
+			role: composition.role,
+			icon: composition.icon,
+			formCompositionIds: formCompositions
+				.filter((form) => form.moduleCompositionId === composition.id)
+				.map((form) => form.id),
+		};
+	});
+	const formRealizations = formCompositions.map((composition) => ({
+		compositionId: composition.id,
+		moduleCompositionId: composition.moduleCompositionId,
+		blueprintFormType:
+			composition.mode === "selected-record"
+				? ("followup" as const)
+				: composition.mode === "standalone"
+					? ("survey" as const)
+					: composition.mode,
+		name: composition.name,
+		icon: composition.icon,
+		layout: composition.layout,
+		layoutLowering: lowerCompositionLayout(composition.layout),
+		...(composition.duplicateRationale !== undefined && {
+			duplicateRationale: composition.duplicateRationale,
+		}),
+	}));
 	const requirementIds = new Set(workflow.externalRequirementIds);
 	const prerequisiteIds = new Set(workflow.prerequisiteWorkflowIds);
 	const catalog = buildCapabilityCatalog();
@@ -321,9 +580,16 @@ export function deriveSliceExecutionBrief(args: {
 						usedPropertyIds.has(property.id),
 				),
 			})),
+		recordRealizations: allRecordRealizations.filter((record) =>
+			recordIds.has(record.recordId),
+		),
 		lists,
 		access,
 		navigation,
+		moduleCompositions,
+		formCompositions,
+		moduleRealizations,
+		formRealizations,
 		externalRequirements: args.contract.externalRequirements.filter(
 			(requirement) => requirementIds.has(requirement.id),
 		),
@@ -430,9 +696,17 @@ export function renderBriefMessage(brief: SliceExecutionBrief): string {
 		),
 		jsonSection("Actors", brief.actors),
 		jsonSection("Records and properties", brief.records),
+		jsonSection("Exact record lowering", brief.recordRealizations),
 		jsonSection("Lists and searches", brief.lists),
 		jsonSection("Access", brief.access),
 		jsonSection("Navigation", brief.navigation),
+		jsonSection("Module composition", brief.moduleCompositions),
+		jsonSection("Form composition", brief.formCompositions),
+		jsonSection(
+			"Module create or reuse instructions",
+			brief.moduleRealizations,
+		),
+		jsonSection("Exact form realization instructions", brief.formRealizations),
 		jsonSection("External requirements", brief.externalRequirements),
 		jsonSection("App decisions", brief.decisions),
 		jsonSection("App assumptions", brief.assumptions),

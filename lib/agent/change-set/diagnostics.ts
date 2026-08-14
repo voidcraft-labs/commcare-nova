@@ -12,10 +12,7 @@
 
 import type { DesignId } from "@/lib/agent/design/ids";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
-import {
-	exportReadinessFindings,
-	mutationCommitVerdict,
-} from "@/lib/doc/commitVerdicts";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { canonicalJsonDigest } from "./digest";
@@ -52,6 +49,9 @@ export interface ChangeSetDiagnostics {
 	readonly snapshotRevision: number;
 	readonly candidateDigest: string;
 	readonly allFindings: readonly ValidationError[];
+	/** Boundary-only findings that prevent genesis finalization. They are also
+	 * included in `allFindings`; the separate field keeps the phase explicit. */
+	readonly finalizationFindings: readonly ValidationError[];
 	/** Fingerprints of findings present now but not in the prior summary. */
 	readonly introducedSincePreviousStep: readonly string[];
 	/** Fingerprints present in the prior summary but resolved now. A resolved
@@ -73,12 +73,13 @@ export function computeChangeSetDiagnostics(args: {
 	>;
 	readonly overlaySnapshot: PersistableDoc;
 	readonly overlay: BlueprintDoc;
-	readonly lookupContext: LookupValidationContext;
+	readonly findings: readonly ValidationError[];
+	readonly finalizationFindings: readonly ValidationError[];
 	readonly steps: readonly ChangeSetStep[];
 	readonly readSetStatus: readonly ReadSetStatus[];
 	readonly previousFingerprints: readonly string[];
 }): ChangeSetDiagnostics {
-	const findings = evaluateOverlayFindings(args.overlay, args.lookupContext);
+	const findings = [...args.findings, ...args.finalizationFindings];
 	const fingerprints = findings.map(findingFingerprint);
 	const previous = new Set(args.previousFingerprints);
 	const current = new Set(fingerprints);
@@ -92,14 +93,6 @@ export function computeChangeSetDiagnostics(args: {
 		}
 	}
 
-	/* Genesis additionally holds the export-readiness preflight: sequence 1
-	 * must be born export-ready, so an unexportable candidate cannot claim
-	 * committability. */
-	const exportFindings =
-		args.changeSet.kind === "genesis" && findings.length === 0
-			? exportReadinessFindings(args.overlay, args.lookupContext)
-			: [];
-
 	const readSetsCurrent = args.readSetStatus.every(
 		(status) => status.state === "current",
 	);
@@ -108,6 +101,7 @@ export function computeChangeSetDiagnostics(args: {
 		snapshotRevision: args.changeSet.revision,
 		candidateDigest: canonicalJsonDigest(args.overlaySnapshot),
 		allFindings: findings,
+		finalizationFindings: args.finalizationFindings,
 		introducedSincePreviousStep: introduced,
 		resolvedSincePreviousStep: resolved,
 		readSetStatus: args.readSetStatus,
@@ -115,10 +109,7 @@ export function computeChangeSetDiagnostics(args: {
 			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 			.map(([intentId, stepCount]) => ({ intentId, stepCount })),
 		canCommit:
-			findings.length === 0 &&
-			exportFindings.length === 0 &&
-			readSetsCurrent &&
-			args.steps.length > 0,
+			findings.length === 0 && readSetsCurrent && args.steps.length > 0,
 	};
 }
 

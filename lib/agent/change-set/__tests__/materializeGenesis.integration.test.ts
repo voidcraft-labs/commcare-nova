@@ -29,6 +29,7 @@ import {
 	emptyBlueprintDoc,
 } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
+import { builtinIconRef } from "@/lib/domain/builtinIcons";
 import { asUuid } from "@/lib/domain/uuid";
 import {
 	emptyGenesisBase,
@@ -190,6 +191,34 @@ function materializeArgs(fixture: ClaimedGenesisFixture) {
 }
 
 describe("materializeAppFromGenesis", () => {
+	it("materializes a genesis app that uses a shipped built-in icon", async () => {
+		const fixture = await claimedGenesisFixture();
+		const genesis = canonicalAppGenesis(
+			emptyBlueprintDoc(fixture.proposedAppId),
+		);
+		await stageBatch(
+			fixture.changeSetId,
+			[
+				...genesis.mutations,
+				{
+					kind: "setModuleMedia",
+					uuid: genesis.moduleUuid,
+					icon: builtinIconRef("nutrition"),
+					audioLabel: null,
+				},
+			],
+			fixture.intentId,
+		);
+
+		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
+		if (outcome.kind !== "materialized") {
+			throw new Error(`expected materialized, got ${outcome.kind}`);
+		}
+		expect(outcome.receipt.blueprint.modules[genesis.moduleUuid]?.icon).toBe(
+			"nova-icon:nutrition",
+		);
+	});
+
 	it("imports handles committed by the genesis slice into a later app slice", async () => {
 		const fixture = await claimedGenesisFixture();
 		const genesis = canonicalAppGenesis(

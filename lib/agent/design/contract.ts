@@ -16,6 +16,7 @@
 import { z } from "zod";
 import { validateDesignGraph } from "@/lib/agent/design/graph";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import { FORM_ICON_SLUGS, MODULE_ICON_SLUGS } from "@/lib/domain/builtinIcons";
 
 export const factDataShapeSchema = z.enum([
 	"text",
@@ -291,6 +292,145 @@ export const workflowSchema = z
 	.strict();
 export type Workflow = z.infer<typeof workflowSchema>;
 
+const compositionMarkdownSchema = z
+	.string()
+	.min(1)
+	.max(4_000)
+	.describe(
+		"Concise user-facing Markdown. Use structure only when it helps a worker scan or act; do not add decorative filler.",
+	);
+
+const moduleIconDecisionSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			kind: z.literal("builtin"),
+			slug: z.enum(MODULE_ICON_SLUGS),
+			rationale: z.string().min(1).max(500).optional(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("none"),
+			rationale: z.string().min(1).max(500),
+		})
+		.strict(),
+]);
+
+const formIconDecisionSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			kind: z.literal("builtin"),
+			slug: z.enum(FORM_ICON_SLUGS),
+			rationale: z.string().min(1).max(500).optional(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("none"),
+			rationale: z.string().min(1).max(500),
+		})
+		.strict(),
+]);
+
+/** One deliberate home-screen/menu container. These are product-composition
+ * decisions, not Blueprint modules: every reference stays in Design IDs and
+ * the deterministic compiler later chooses construction ownership. */
+export const moduleCompositionSchema = z
+	.object({
+		id: designIdSchema,
+		name: z.string().min(1).max(160),
+		purpose: z.string().min(1).max(1_000),
+		role: z.enum(["form-host", "queue-only", "form-and-queue"]),
+		workflowIds: z.array(designIdSchema).min(1).max(32),
+		hostRecordId: designIdSchema.optional(),
+		actorIds: z.array(designIdSchema).min(1).max(32),
+		navigationIds: z.array(designIdSchema).max(16),
+		listIds: z.array(designIdSchema).max(16),
+		orderRationale: z.string().min(1).max(1_000),
+		icon: moduleIconDecisionSchema,
+		roleSeparationRationale: z.string().min(1).max(1_000),
+	})
+	.strict();
+export type ModuleComposition = z.infer<typeof moduleCompositionSchema>;
+
+export const formCompositionItemSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			kind: z.literal("input"),
+			id: designIdSchema,
+			inputHandle: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+			labelMarkdown: compositionMarkdownSchema,
+			hintMarkdown: compositionMarkdownSchema.optional(),
+			helpMarkdown: compositionMarkdownSchema.optional(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("guidance"),
+			id: designIdSchema,
+			markdown: compositionMarkdownSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("record-summary"),
+			id: designIdSchema,
+			recordId: designIdSchema,
+			propertyIds: z.array(designIdSchema).min(1).max(16),
+			purpose: z.string().min(1).max(1_000),
+		})
+		.strict(),
+]);
+export type FormCompositionItem = z.infer<typeof formCompositionItemSchema>;
+
+export const formCompositionSectionSchema = z
+	.object({
+		id: designIdSchema,
+		headingMarkdown: compositionMarkdownSchema,
+		purpose: z.string().min(1).max(1_000),
+		items: z.array(formCompositionItemSchema).min(1).max(64),
+	})
+	.strict();
+export type FormCompositionSection = z.infer<
+	typeof formCompositionSectionSchema
+>;
+
+export const formCompositionLayoutSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			kind: z.literal("sectioned"),
+			rationale: z.string().min(1).max(1_000),
+			sections: z.array(formCompositionSectionSchema).min(1).max(12),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("flat"),
+			rationale: z.string().min(1).max(1_000),
+			items: z.array(formCompositionItemSchema).min(1).max(64),
+		})
+		.strict(),
+]);
+export type FormCompositionLayout = z.infer<typeof formCompositionLayoutSchema>;
+
+/** Exact worker-facing form composition for one complete workflow variant. */
+export const formCompositionSchema = z
+	.object({
+		id: designIdSchema,
+		workflowId: designIdSchema,
+		moduleCompositionId: designIdSchema,
+		name: z.string().min(1).max(160),
+		purpose: z.string().min(1).max(1_000),
+		mode: z.enum(["registration", "selected-record", "close", "standalone"]),
+		icon: formIconDecisionSchema,
+		variant: z.enum(["shared", "actor-specific"]),
+		actorIds: z.array(designIdSchema).min(1).max(32),
+		duplicateRationale: z.string().min(1).max(1_000).optional(),
+		layout: formCompositionLayoutSchema,
+	})
+	.strict();
+export type FormComposition = z.infer<typeof formCompositionSchema>;
+
 export const workListSchema = z
 	.object({
 		id: designIdSchema,
@@ -420,6 +560,8 @@ export const appDesignContractBaseSchema = z
 		lists: z.array(workListSchema),
 		access: z.array(accessPolicySchema),
 		navigation: z.array(navigationIntentSchema),
+		moduleCompositions: z.array(moduleCompositionSchema).default([]),
+		formCompositions: z.array(formCompositionSchema).default([]),
 		externalRequirements: z.array(externalRequirementSchema),
 		decisions: z.array(architectureDecisionSchema),
 		assumptions: z.array(assumptionSchema),
@@ -557,6 +699,28 @@ export function designConstructionIssues(
 			}
 		});
 	});
+	const includedWorkflowIds = new Set(contract.charter.includedWorkflowIds);
+	for (const [workflowIndex, workflow] of contract.workflows.entries()) {
+		if (!includedWorkflowIds.has(workflow.id)) continue;
+		if (
+			!contract.formCompositions.some(
+				(composition) => composition.workflowId === workflow.id,
+			)
+		) {
+			issues.push({
+				path: ["workflows", workflowIndex],
+				message:
+					"Every included workflow needs at least one complete form composition before construction.",
+			});
+		}
+	}
+	if (contract.moduleCompositions.length === 0) {
+		issues.push({
+			path: ["moduleCompositions"],
+			message:
+				"The accepted design needs deliberate menu/module composition before construction.",
+		});
+	}
 	const includedIds = new Set<string>([
 		...contract.charter.includedWorkflowIds,
 		...contract.actors.map((actor) => actor.id),
@@ -567,6 +731,16 @@ export function designConstructionIssues(
 		...contract.lists.map((list) => list.id),
 		...contract.access.map((policy) => policy.id),
 		...contract.navigation.map((navigation) => navigation.id),
+		...contract.moduleCompositions.map((composition) => composition.id),
+		...contract.formCompositions.flatMap((composition) => [
+			composition.id,
+			...(composition.layout.kind === "sectioned"
+				? composition.layout.sections.flatMap((section) => [
+						section.id,
+						...section.items.map((item) => item.id),
+					])
+				: composition.layout.items.map((item) => item.id)),
+		]),
 	]);
 	/* The authored `blocking` flag is the construction gate, honoring a user
 	 * who delegated the decision: a non-blocking question is a recorded caveat
@@ -638,6 +812,19 @@ export function collectContractIds(
 	for (const list of contract.lists) ids.add(list.id);
 	for (const policy of contract.access) ids.add(policy.id);
 	for (const nav of contract.navigation) ids.add(nav.id);
+	for (const composition of contract.moduleCompositions)
+		ids.add(composition.id);
+	for (const composition of contract.formCompositions) {
+		ids.add(composition.id);
+		if (composition.layout.kind === "sectioned") {
+			for (const section of composition.layout.sections) {
+				ids.add(section.id);
+				for (const item of section.items) ids.add(item.id);
+			}
+		} else {
+			for (const item of composition.layout.items) ids.add(item.id);
+		}
+	}
 	for (const requirement of contract.externalRequirements)
 		ids.add(requirement.id);
 	for (const decision of contract.decisions) ids.add(decision.id);

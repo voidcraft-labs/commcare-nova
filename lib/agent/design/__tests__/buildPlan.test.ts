@@ -51,6 +51,38 @@ describe("deterministic build planning", () => {
 		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
 	});
 
+	it("owns shared module composition once and keeps each form layout with its workflow", () => {
+		const plan = makeBuildPlan();
+		const first = plan.slices.find(
+			(slice) => slice.workflowId === ids.taskRegister,
+		);
+		const second = plan.slices.find(
+			(slice) => slice.workflowId === ids.taskVisit,
+		);
+		const elements = (slice: NonNullable<typeof first>) =>
+			slice.constructionGroups.flatMap((group) => group.elements);
+		expect(elements(first as NonNullable<typeof first>)).toEqual(
+			expect.arrayContaining([
+				{ kind: "module-composition", id: ids.modulePatients },
+				{ kind: "form-composition", id: ids.formRegister },
+				{ kind: "composition-section", id: ids.sectionRegisterIdentity },
+				{ kind: "composition-item", id: ids.itemRegisterGuidance },
+			]),
+		);
+		expect(elements(second as NonNullable<typeof second>)).toEqual(
+			expect.arrayContaining([
+				{ kind: "form-composition", id: ids.formVisit },
+				{ kind: "composition-section", id: ids.sectionVisit },
+				{ kind: "composition-item", id: ids.itemVisitSummary },
+			]),
+		);
+		expect(
+			plan.slices
+				.flatMap((slice) => elements(slice))
+				.filter((element) => element.id === ids.modulePatients),
+		).toHaveLength(1);
+	});
+
 	it("derives thirteen exact workflow slices with unique construction ownership", () => {
 		const contract = makeThirteenWorkflowContract();
 		const plan = deriveBuildPlan({

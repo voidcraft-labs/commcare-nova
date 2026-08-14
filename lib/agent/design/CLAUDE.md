@@ -50,7 +50,14 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   carry either at least two distinct real inline values or the semantic name
   of an existing Project lookup table plus its value/label columns; the
   executor resolves current UUIDs. The base reader remains compatible with
-  already-persisted v1 artifacts.
+  already-persisted v1 artifacts. Worker-facing composition is part of the
+  same contract: `moduleCompositions` chooses the minimal module/menu homes,
+  record hosts, queue/form roles, placements, ordering, and icon decisions;
+  `formCompositions` chooses exact workflow variants, modes, module homes,
+  actors, ordered sections/items, Markdown labels/guidance/help, record
+  summaries, and justified flat or duplicated forms. Historical v1 artifacts
+  default these collections to empty, while new construction requires at least
+  one deliberate module and one complete form variant per included workflow.
   Admission also rejects unknown record/form-input shapes, decisions without
   concrete inputs and outcomes, structurally empty or disabled workflow shells,
   unresolved writes or outcomes, blocking open questions tied to included
@@ -101,12 +108,23 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   materialization root, an acyclic dependency graph, and supported external-
   action timing (a `blocked` action is refused at admission until a durable
   receipt producer exists). A construction group cannot reference an
-  external requirement as an element.
+  external requirement as an element. Module composition is owned once by its
+  earliest workflow; each form composition, section, and item is owned by its
+  workflow so exact plan coverage includes the worker-facing information
+  architecture.
 - `executionBrief.ts` renders the bounded semantic brief consumed by a slice
   executor. It names the workflow, only properties owned or used by that
   workflow and its list/access/navigation context, a semantic checklist for
   each construction group, relevant constraints, and the exact slice tool
-  profile.
+  profile. It also lowers relevant composition deterministically into exact
+  module create/reuse, host and role instructions plus form type, name, icon,
+  ordered layout, Markdown, summary, and duplication decisions. A design
+  section lowers to the existing nested Blueprint `group` field plus handled
+  children (not the future durable FormSection entity); guidance and record
+  summaries lower to `label` fields with UUID-backed prose references.
+  Semantic record names lower once into exact Blueprint case-type keys; schema,
+  parent, module, field-write, and case-operation calls reuse those keys rather
+  than treating a display name as another record identity.
 - `complexity.ts` deterministically assigns `compact`, `standard`, or
   `extended`. The class chooses process depth and conservative user-facing time
   estimates; it never changes Blueprint validity or authority.
@@ -153,6 +171,15 @@ server-governed semantic phases:
 4. The server accepts a clean revision and derives its build plan without a
    planner model call.
 
+The author makes architectural and worker-facing composition decisions in the
+same durable pass. The stateless reviewer checks module minimality/reuse,
+parent-versus-child form hosts, queue-only roles, actor-specific duplication,
+meaningful phases, context changes, error risk, interruption recovery,
+Markdown guidance and summaries, and coherent icons. A flat rationale names
+the actual inputs and worker sequence; the reviewer reports repeated weak flat
+treatment as one systemic finding naming every affected form. There is no extra
+model-authored build-plan or visual-design pass.
+
 The same immutable seven-tool grammar is mounted in every phase so a phase
 transition never changes provider context. Durable gates refuse calls that are
 not currently legal. Contract and revision candidates use a durable identity-
@@ -161,6 +188,11 @@ submit call replays and validates the whole candidate before one immutable
 artifact insert. `inspectDesignWorkspace` reads selected exact state when a
 model needs it. Provider parallel tool calls are disabled because the workspace
 revision protocol is ordered.
+
+The contract and post-review revision workspaces have independent counters.
+When a blocking review returns, both its result and the next state packet say
+that revision starts in a new workspace at revision 0 and that the first
+`stageRevision` uses `expectedRevision: 0`.
 
 Finalization rejections are tracked by validation stage and stable diagnostic
 fingerprint. Reaching a later stage or receiving changed diagnostics is real

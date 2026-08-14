@@ -195,6 +195,8 @@ const COLLECTIONS = [
 	"lists",
 	"access",
 	"navigation",
+	"moduleCompositions",
+	"formCompositions",
 	"decisions",
 	"assumptions",
 	"openQuestions",
@@ -758,7 +760,17 @@ describe("staged design loop", () => {
 		const contractRevision = await stageWholeContract(tools, contract);
 		await call(tools.submitContract, { expectedRevision: contractRevision });
 		const reviewResult = await call(tools.requestReview);
-		expect(reviewResult).toMatchObject({ accepted: false });
+		expect(reviewResult).toMatchObject({
+			accepted: false,
+			revisionWorkspace: {
+				artifactKind: "revision",
+				workspaceRevision: 0,
+				nextExpectedRevision: 0,
+			},
+		});
+		expect(reviewResult.message).toContain(
+			"first stageRevision call must use expectedRevision 0",
+		);
 		/* Findings return in the agent's symbol vocabulary: the server-minted
 		 * finding identity projects to its positional @f handle and affected
 		 * elements to their declared handles — the exact symbols the next

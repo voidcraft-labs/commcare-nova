@@ -113,7 +113,11 @@ gate, and integrity services every other write uses.
   revision through the kernel; lookup/media re-resolve under the kernel's
   fresh locked verdicts. `canCommit` = zero gating findings + current read
   sets + (genesis) export readiness; it is advisory until the kernel's gate
-  — nothing here redefines validity.
+  — nothing here redefines validity. Genesis readiness loads Project-filtered
+  uploaded rows and synthesizes built-in-icon rows through the same media seam
+  as ordinary export. Its boundary-only findings join `allFindings` and the
+  diagnostic fingerprint summary, so a blocked finalization is actionable and
+  cannot masquerade as an empty change set.
 - `registry.ts` / `handleDeclarations.ts` / `stageTools.ts` — which tools a change set may dispatch:
   every shared registry entry whose reviewed staging classification is not
   `forbidden`, plus the executor-only granular tools (`stageModule`,
@@ -177,19 +181,24 @@ gate, and integrity services every other write uses.
    open set only when its actor/run owner matches the current holder.
 9. Executor recovery proves staged authority from the current candidate,
    durable construction-group coverage, handle bindings, and the latest
-   staged-or-no-op finalization marker. Separately, its exact append-only model
-   transcript survives process replacement and continues across every workflow
-   slice. Each returned provider response and its usage-bearing payload-free
+   staged-or-no-op finalization marker. Separately, each slice attempt owns one
+   exact append-only executor context generation: process recovery of that
+   attempt reopens it, while the next attempt starts a fresh generation instead
+   of inheriting the prior tool transcript. Each generation opens with the
+   accepted brief, a full handle-projected Blueprint checkpoint, and a short
+   slice focus; every compaction boundary reappends all three. Each returned
+   provider response and its usage-bearing payload-free
    completed-step event commit atomically. Recovery replays any unanswered tool call under its
    original call id before another provider request. Each staged operation,
    commit, and blocker request has an idempotent durable sub-budget claim, so
    replay cannot consume a second unit. A paid blocker result is durably
    appended before execution continues; a response lost before that write
    stops rather than purchasing another decision. A canonical commit receipt
-   supplies the lost commit output before a later slice begins. Every compaction
-   boundary receives its own current candidate checkpoint. The transcript
-   preserves reasoning continuity but never decides what committed or already
-   staged.
+   supplies the lost commit output before a later slice begins. The attempt
+   transcript preserves local reasoning continuity but never decides what
+   committed or already staged. Repeating one identical compiler failure
+   automatically invokes the bounded architect on occurrence two; occurrence
+   three after durable guidance stops rather than retrying or redesigning.
 
 ## Tests
 

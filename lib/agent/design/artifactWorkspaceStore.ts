@@ -722,7 +722,7 @@ export async function stageDesignArtifactWorkspace(args: {
 			const first = collisions[0];
 			throw new DesignArtifactWorkspaceError(
 				"partial-invalid",
-				`The staged ${operation.kind} reuses ${collisions.length} design ${collisions.length === 1 ? "identity" : "identities"}. ${first?.path.join(".")} is already used at ${first?.priorPath.join(".")}. Give every declared actor, record, property, workflow, list, access rule, navigation item, requirement, decision, assumption, and question its own handle.`,
+				`The staged ${operation.kind} reuses ${collisions.length} design ${collisions.length === 1 ? "identity" : "identities"}. ${first?.path.join(".")} is already used at ${first?.priorPath.join(".")}. Give every declared actor, record, property, workflow, list, access rule, navigation item, module/form composition, composition section/item, requirement, decision, assumption, and question its own handle.`,
 				collisions.length,
 			);
 		}

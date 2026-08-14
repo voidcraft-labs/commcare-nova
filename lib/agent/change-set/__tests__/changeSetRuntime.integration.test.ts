@@ -1180,8 +1180,23 @@ describe("genesis staging", () => {
 					] satisfies Mutation[],
 				}),
 		});
+		await workspace.stageDispatch({
+			toolName: "setMenuMedia",
+			requestId: "g-4",
+			input: {
+				items: [
+					{
+						target: "module",
+						moduleUuid: { handle: "@m" },
+						icon: "nutrition",
+						audioLabel: null,
+					},
+				],
+			},
+		});
 		const complete = await workspace.inspect();
 		expect(complete.allFindings).toEqual([]);
+		expect(complete.finalizationFindings).toEqual([]);
 		expect(complete.canCommit).toBe(true);
 
 		/* No app row exists for the proposed identity — genesis is private. */

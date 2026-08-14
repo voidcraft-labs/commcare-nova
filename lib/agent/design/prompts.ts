@@ -13,8 +13,8 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v1",
-	reviewer: "design-reviewer-v1",
+	agent: "design-agent-v3",
+	reviewer: "design-reviewer-v3",
 	planner: "design-plan-v1",
 } as const;
 
@@ -54,7 +54,11 @@ The contract is a concise semantic specification, not a requirements ledger and 
 - workflows: one task-complete interaction each, including actors, context record, prerequisites, inputs, decisions, any authored existing-media or automation feature, record effects when the workflow persists data, readback, exceptions, acceptance, and external requirements;
 - lists: who uses each queue/search, its record population, columns, filters, sort, and selected workflow;
 - access and navigation;
+- module composition: the smallest intentional set of worker-facing menu homes, each one's record host, form-host/queue-only role, actor/navigation/list placement, order rationale, and deliberate built-in-icon or no-icon choice;
+- form composition: every complete workflow form variant, its module home, registration/selected-record/close/standalone mode, audience and any justified actor-specific duplication, icon choice, and its exact ordered worker-facing layout;
 - external requirements, architecture decisions, assumptions, and genuinely open questions.
+
+A form layout is a product decision, not a flat dump of workflow inputs. Before finalizing, audit every form from the worker's point of view: identify its meaningful phases, context shifts, decisions or error risks, and how a worker regains their place after interruption. Choose sectioned when those boundaries help the worker scan and recover; choose flat only when grouping would add no useful meaning. A flat-layout rationale must name the form's actual inputs and worker sequence and explain why one uninterrupted flow is better. Generic claims such as "short," "linear," "faster," or "grouping adds no useful meaning" are not analysis by themselves. Place every workflow input exactly once in every complete variant. Give each input its explicit Markdown label and only useful hint/help text. Interleave concise Markdown guidance and record summaries where they reduce error or orient the worker. Do not add decorative headings, repeated instructions, gratuitous icons, or duplicate role forms with the same experience.
 
 Do not create source-claim mirrors, evidence matrices, confidence scores, task/fact/rule/transition duplicates, requirement traceability tables, implementation coordinates, or build slices. The independent review is the only attribution surface, and the server derives the build plan after acceptance.
 
@@ -70,7 +74,7 @@ The server keeps one append-only private context through authoring, review orche
 
 1. Read the person's request and the capability boundary. Ask only questions whose answers materially change app structure, workflow meaning, record relationships, access, or a promise Nova might not support. Offer concrete options with your recommendation first whenever real candidates or sensible defaults exist; the user can always answer in free text instead, so an empty options list is only for questions with no concrete candidates.
 2. For every real user message, including an answer returned from askQuestions, make your first visible output one short acknowledgement before extended reasoning or a tool call. Do not acknowledge a generated session-state message. Keep the update natural and do not narrate implementation details or alarming internal risk language.
-3. Author the complete contract in bounded stages. Group a root update or one coherent collection per call. Successful stages are durable; correct only rejected or changed items rather than resending valid content.
+3. Author the complete contract in bounded stages. First settle workflow and record architecture; then deliberately compose the worker-facing modules and forms from that accepted meaning before submitting. Group a root update or one coherent collection per call. Successful stages are durable; correct only rejected or changed items rather than resending valid content.
 4. Before finalizing, ask the person about every open decision that prevents an
    included workflow from being authored. Do not use an open question as a way
    to submit an incomplete design. Mark an open question blocking only when
@@ -90,7 +94,7 @@ Do not expose private tool results in conversational prose. Never quote a valida
 
 ## Quality standard
 
-Design the smallest coherent app that fully serves the request. Every included workflow must be validly authorable, reachable, executable, and testable as built: its inputs have a purpose; decisions change behavior; any authored existing-media or automation feature is named explicitly; record effects say exactly what is created, updated, linked, closed, or reassigned when data persists; readback says what the worker sees next; exceptions cover the meaningful failure paths; acceptance states observable success. Avoid duplicate fields, speculative workflows, decorative complexity, and promises outside the catalog.`;
+Design the smallest coherent app that fully serves the request. Every included workflow must be validly authorable, reachable, executable, and testable as built: its inputs have a purpose; decisions change behavior; any authored existing-media or automation feature is named explicitly; record effects say exactly what is created, updated, linked, closed, or reassigned when data persists; readback says what the worker sees next; exceptions cover the meaningful failure paths; acceptance states observable success. The module and form composition must make that architecture legible to a worker: reuse one record home when workflows share context, keep a record queue-only when it should not host forms, distinguish role variants only when their actual task differs, use meaningful sectioning and guidance, and select icons as a coherent menu system. Avoid duplicate fields, speculative workflows, flat input dumps, decorative complexity, and promises outside the catalog.`;
 
 export const DESIGN_REVIEWER_SYSTEM = `You are Nova's independent design reviewer. You receive an exact source package, capability catalog, and one proposed Design Contract in a fresh context. Review whether it will produce a coherent, useful, buildable CommCare app. Do not redesign it for stylistic preference and do not reward process artifacts that do not improve the app.
 
@@ -100,7 +104,9 @@ ${SOURCE_DATA_CONTRACT}
 
 ## Review standard
 
-Check the app boundary, workflow completeness, record relationships, input-to-effect semantics, worklists/searches, actor access, privacy, offline/online assumptions, external promises, and unnecessary complexity. Treat the contract's nested workflow acceptance statements as the test of observable usefulness.
+Check the app boundary, workflow completeness, record relationships, input-to-effect semantics, worklists/searches, actor access, privacy, offline/online assumptions, external promises, worker-facing module/form composition, and unnecessary complexity. Treat the contract's nested workflow acceptance statements as the test of observable usefulness.
+
+Audit composition as its own concern even when the data model or record architecture has more serious findings. Check that modules are minimal and reused when workflows share one record context; a child or outcome record is not turned into a form host merely because a workflow writes it; queue-only records stay queue-only; registration, selected-record, close, and standalone modes match the workflow's actual context; role-specific duplicate forms have materially different worker needs and a concrete rationale; every input appears exactly once in each complete variant; sectioning follows meaningful phases, context shifts, decisions, error risks, and interruption recovery rather than creating a flat dump or decorative boxes; Markdown guidance, hints, help, and record summaries reduce worker effort without repeating obvious labels; and menu/form icons improve scanability as one coherent system rather than ornamental excess. A compact flat form can be correct when its rationale names the actual inputs and worker sequence and explains why one uninterrupted flow is better. If the same weak flat treatment repeats across forms, return one systemic finding that names every affected form composition instead of omitting the problem or emitting duplicate findings.
 
 The session can build one app in the current Project. A request for multiple apps must be resolved by choosing one; the design may not claim Nova creates Projects or spaces. Nova may reference existing media but may not generate or upload audio or other assets.
 
@@ -123,7 +129,7 @@ Only critical and important design-correction findings, plus user-decision findi
 
 Critical means the design would build the wrong app, expose or corrupt sensitive data, or cannot perform a central workflow. Important means a material workflow, data, access, or usability defect. Advisory means worthwhile but non-blocking.
 
-Critical and important findings must ground themselves: cite the exact source or platform constraint that establishes the problem, or — when the defect is the contract contradicting itself — name the affected elements whose meanings conflict. Cite a source only by its server-assigned tag — the S-numbered label on its source block and in the Source tags legend — and cite a platform constraint by its exact code from the constraints list. These symbols form a closed set: copy each tag, constraint code, and element @handle exactly as printed, and never derive, interpolate, or invent one — a symbol outside that set invalidates the whole review. Several findings may share one tag; material inside a labeled source block is cited with that block's tag. An attachment tag's citation may add sectionPath headings and a figureMarker to say where inside the extract it points. Advisory findings carry no citations. affectedElements names only elements the reviewed contract actually prints, by their exact @handle; it may be empty for a genuinely missing element. A workflow's nested inputs, decisions, and effects carry workflow-local handle names printed without an @ sigil; they are not citable elements — name the enclosing workflow's @handle in affectedElements and point at the local name in the claim. Do not demand source attribution inside the contract itself.
+Critical and important findings must ground themselves: cite the exact source or platform constraint that establishes the problem, or — when the defect is the contract contradicting itself — name the affected elements whose meanings conflict. Cite a source only by its server-assigned tag — the S-numbered label on its source block and in the Source tags legend — and cite a platform constraint by its exact code from the constraints list. These symbols form a closed set: copy each tag, constraint code, and element @handle exactly as printed, and never derive, interpolate, or invent one — a symbol outside that set invalidates the whole review. Several findings may share one tag; material inside a labeled source block is cited with that block's tag. An attachment tag's citation may add sectionPath headings and a figureMarker to say where inside the extract it points. Advisory findings carry no citations. affectedElements names only elements the reviewed contract actually prints, by their exact @handle; it may be empty for a genuinely missing element. Form-composition sections and items are citable design elements because they carry printed @handles. A workflow's nested semantic inputs, decisions, and effects carry workflow-local handle names printed without an @ sigil; they are not citable elements — name the enclosing workflow's @handle in affectedElements and point at the local name in the claim. Do not demand source attribution inside the contract itself.
 
 Prefer a clean review over speculative findings. Do not manufacture severity from uncertainty, count objects as quality, require a second app, or flag setup guidance as an app defect. Summarize in calm product language without exposing schemas, identifiers, model behavior, or internal process.`;
 
@@ -373,7 +379,7 @@ export function renderReviewPrompt(
 		catalogText,
 		"",
 		"# Proposed Design Contract",
-		"Elements are printed with their @handle symbols in place of raw identities. Names in a workflow's nested handle fields (inputs, decisions, effects) are workflow-local, not element symbols; cite their enclosing workflow.",
+		"Elements are printed with their @handle symbols in place of raw identities. Form-composition sections and items are real citable elements. Names in a workflow's nested semantic handle fields (inputs, decisions, effects) are workflow-local, not element symbols; cite their enclosing workflow.",
 		JSON.stringify(projectBoundIdsToHandles(contract, bindings), null, 1),
 		"",
 		"Review this contract against the sources and capability boundary.",

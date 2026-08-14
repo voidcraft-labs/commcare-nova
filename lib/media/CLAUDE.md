@@ -66,7 +66,7 @@ A module/form/case-list menu tile can carry a curated **built-in icon** instead 
 Built-in awareness is **quarantined to `lib/media/builtinIconAssets.ts`** (the partition + synthesis) plus three other seams; the validator, the wire emitters, and the export budget stay built-in-agnostic and consume synthesized rows:
 
 - **Manifest** (`manifest.ts`) — `partitionAssetRefs` splits validated icon refs into uploaded ids (the asset-row load runs on those only) and built-in refs; `resolveBuiltinManifestEntries` synthesizes a `ResolvedMediaAsset` per catalog entry, with a **content-hash** wire path (so HQ bulk-upload path-matching + cross-app dedup work identically to an upload) and bytes read from `public/nova-icons/` only when `withBytes`.
-- **Boundary** (`boundaryValidation.ts`) — same partition; `builtinAssetRows` synthesizes `ready`/`image` rows into the map so the validator's media group passes and the budget counts them (distinct slugs, deduped). The reference-count cap is `realIds + distinct builtin slugs`.
+- **Boundary** (`boundaryValidation.ts`) — same partition; `builtinAssetRows` synthesizes `ready`/`image` rows into the map so the validator's media group passes and the budget counts them (distinct slugs, deduped). Genesis change-set diagnostics and the sequence-one materialization transaction use that same synthesis for their export-readiness proof. The reference-count cap is `realIds + distinct builtin slugs`.
 - **Reverse index** — built-in refs are filtered out because they have no asset
   row and are undeletable. `media_asset_refs(project_id, app_id, asset_id)` is
   the exact whole-app projection of every authored Blueprint reference,

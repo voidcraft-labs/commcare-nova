@@ -35,6 +35,7 @@ import {
 	tool,
 } from "ai";
 import { z } from "zod";
+import { findingFingerprint } from "@/lib/agent/change-set/diagnostics";
 import {
 	ChangeSetIntegrityError,
 	ChangeSetRequestIdCollisionError,
@@ -87,9 +88,9 @@ export type ExecutorWorkspace = Pick<
 	"stageDispatch" | "inspect" | "currentSnapshot" | "currentExecutionCheckpoint"
 >;
 
-/** Caller-owned transcript for one accepted build. The orchestrator passes the
- * same object through every slice so a workflow boundary appends a new brief
- * instead of starting another model context. */
+/** Caller-owned transcript for one durable slice attempt. The orchestrator
+ * reopens this exact generation after process replacement and rolls to a new
+ * immutable generation for every new slice or retry. */
 export interface ExecutorConversationContext {
 	readonly contextId?: string;
 	messages: ModelMessage[];
@@ -798,10 +799,85 @@ export function renderExecutorWorkspaceSummary(
 	return lines.join("\n");
 }
 
+function projectBlueprintHandles(
+	value: unknown,
+	handleByUuid: ReadonlyMap<string, string>,
+): unknown {
+	if (typeof value === "string") return handleByUuid.get(value) ?? value;
+	if (Array.isArray(value))
+		return value.map((entry) => projectBlueprintHandles(entry, handleByUuid));
+	if (value === null || typeof value !== "object") return value;
+	return Object.fromEntries(
+		Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+			handleByUuid.get(key) ?? key,
+			projectBlueprintHandles(entry, handleByUuid),
+		]),
+	);
+}
+
+/** Lossless model-facing private Blueprint checkpoint. Unlike the compact
+ * focus inventory, this carries every current field label, hint, help block,
+ * expression, ordering relation, case operation, list setting, and media
+ * decision. Authored entity identities project to their durable handles in
+ * both map keys and reference values; external identities remain canonical. */
+export function renderExecutorBlueprintCheckpoint(
+	workspace: ExecutorWorkspace,
+): string {
+	const snapshot = workspace.currentSnapshot();
+	const execution = workspace.currentExecutionCheckpoint();
+	const handleByUuid = new Map(
+		execution.handles.map((binding) => [binding.uuid, binding.handle]),
+	);
+	return JSON.stringify(
+		{
+			workspaceRevision: snapshot.revision,
+			canonicalBaseSequence: snapshot.canonicalSeq,
+			externalContextDigest: snapshot.externalContextDigest,
+			durableConstructionGroups: execution.intentCoverage,
+			blueprint: projectBlueprintHandles(snapshot.doc, handleByUuid),
+		},
+		null,
+		1,
+	);
+}
+
 /** ONE spelling for the candidate checkpoint heading: the composer writes it
  * and the compaction re-seed detects it by prefix, so a drifted copy would
  * silently stop fresh checkpoints after a compaction boundary. */
 const EXECUTOR_CANDIDATE_HEADING = "## Current authoritative private candidate";
+const EXECUTOR_BRIEF_HEADING = "## Accepted execution brief";
+const EXECUTOR_FOCUS_HEADING = "## Current slice focus";
+
+function renderExecutorSliceFocus(
+	brief: SliceExecutionBrief,
+	workspace: ExecutorWorkspace,
+): string {
+	const completed = new Set(
+		workspace
+			.currentExecutionCheckpoint()
+			.intentCoverage.map((coverage) => coverage.intentId),
+	);
+	const remaining = brief.constructionGroupIds.filter(
+		(id) => !completed.has(id),
+	);
+	return [
+		`${brief.slice.name}: ${brief.slice.goal}`,
+		`Remaining construction groups: ${remaining.join(", ") || "none; inspect and commit"}.`,
+		`Modules: ${brief.moduleRealizations
+			.map(
+				(module) =>
+					`${module.action} ${module.compositionId} (${module.role}, host ${module.hostRecord === null ? "none" : `${module.hostRecord.name} -> ${module.hostRecord.blueprintCaseType}`})`,
+			)
+			.join("; ")}.`,
+		`Forms: ${brief.formRealizations
+			.map(
+				(form) =>
+					`${form.name} (${form.blueprintFormType}) in ${form.moduleCompositionId}, ${form.layout.kind}`,
+			)
+			.join("; ")}.`,
+		"Execute this accepted composition exactly. Do not redesign, add a parallel host, flatten a sectioned form, or duplicate a role form.",
+	].join("\n");
+}
 
 function executorSliceStartMessages(
 	brief: SliceExecutionBrief,
@@ -810,7 +886,7 @@ function executorSliceStartMessages(
 	return [
 		userMessage(
 			[
-				"## Accepted execution brief",
+				EXECUTOR_BRIEF_HEADING,
 				"This is the exact current slice in the ongoing accepted build. It is immutable for this attempt.",
 				renderBriefMessage(brief),
 			].join("\n\n"),
@@ -818,14 +894,22 @@ function executorSliceStartMessages(
 		userMessage(
 			[
 				EXECUTOR_CANDIDATE_HEADING,
-				"Use this current durable checkpoint. Do not rely on an older summarized workspace.",
+				"This is the complete current private Blueprint, projected through durable authoring handles. It is authority after any compaction or recovery.",
+				renderExecutorBlueprintCheckpoint(workspace),
+			].join("\n\n"),
+		),
+		userMessage(
+			[
+				EXECUTOR_FOCUS_HEADING,
+				renderExecutorSliceFocus(brief, workspace),
+				"Compact inventory:",
 				renderExecutorWorkspaceSummary(workspace),
 			].join("\n\n"),
 		),
 	];
 }
 
-function isExecutorCandidateMessage(message: ModelMessage): boolean {
+function messageStartsWith(message: ModelMessage, heading: string): boolean {
 	if (message.role !== "user") return false;
 	const text =
 		typeof message.content === "string"
@@ -834,7 +918,7 @@ function isExecutorCandidateMessage(message: ModelMessage): boolean {
 					.filter((part) => part.type === "text")
 					.map((part) => part.text)
 					.join("");
-	return text.startsWith(EXECUTOR_CANDIDATE_HEADING);
+	return text.startsWith(heading);
 }
 
 /** The Elm-style one-liner for a rejected wire envelope's Zod issues. */
@@ -844,6 +928,23 @@ function wireIssueSummary(error: z.ZodError): string {
 		.join("; ");
 }
 
+function normalizedFailureText(value: string): string {
+	return value
+		.replace(
+			/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi,
+			"<identity>",
+		)
+		.replace(/@[a-z0-9_-]+/gi, "<handle>")
+		.replace(/\b\d+\b/g, "<number>")
+		.replace(/\s+/g, " ")
+		.trim()
+		.slice(0, 2_000);
+}
+
+function failureSignature(value: unknown): string {
+	return canonicalJsonDigest(value).slice(0, 24);
+}
+
 // ── The loop ─────────────────────────────────────────────────────────
 
 export async function runSliceExecutor(args: {
@@ -851,7 +952,7 @@ export async function runSliceExecutor(args: {
 	brief: SliceExecutionBrief;
 	budget: SliceExecutionBudget;
 	step: ExecutorStepFn;
-	/** One append-only context shared by every slice in this accepted build. */
+	/** One append-only context generation for this exact durable slice attempt. */
 	context?: ExecutorConversationContext;
 	/** Stable durable identity for this slice attempt's context appends. */
 	contextScopeKey?: string;
@@ -1138,6 +1239,165 @@ export async function runSliceExecutor(args: {
 		}
 	};
 	const scopeKey = args.contextScopeKey ?? `ephemeral:${brief.slice.id}`;
+	const failureOccurrences = new Map<string, number>();
+	const architectGuidedFailures = new Set<string>();
+	let lastFailureSignature: string | null = null;
+	const recoverFailureState = (value: unknown): void => {
+		if (Array.isArray(value)) {
+			for (const entry of value) recoverFailureState(entry);
+			return;
+		}
+		if (value === null || typeof value !== "object") return;
+		const record = value as Record<string, unknown>;
+		if (
+			typeof record.fingerprint === "string" &&
+			typeof record.occurrence === "number" &&
+			Number.isSafeInteger(record.occurrence)
+		) {
+			lastFailureSignature = record.fingerprint;
+			failureOccurrences.set(
+				record.fingerprint,
+				Math.max(
+					record.occurrence,
+					failureOccurrences.get(record.fingerprint) ?? 0,
+				),
+			);
+			if (typeof record.architectGuidance === "string")
+				architectGuidedFailures.add(record.fingerprint);
+		}
+		for (const nested of Object.values(record)) recoverFailureState(nested);
+	};
+	recoverFailureState(context.messages);
+	const clearAutomaticFailureSequence = (): void => {
+		failureOccurrences.clear();
+		architectGuidedFailures.clear();
+		lastFailureSignature = null;
+	};
+	type AutomaticFailureResult =
+		| {
+				readonly kind: "observed";
+				readonly signature: string;
+				readonly occurrence: number;
+				readonly guidance?: string;
+		  }
+		| { readonly kind: "stop"; readonly outcome: SliceExecutionOutcome };
+	const observeAutomaticFailure = async (failure: {
+		readonly signature: string;
+		readonly observations: readonly string[];
+		readonly affectedConstructionGroupIds?: readonly DesignId[];
+		readonly diagnostics?: unknown;
+	}): Promise<AutomaticFailureResult> => {
+		if (
+			lastFailureSignature !== null &&
+			lastFailureSignature !== failure.signature
+		) {
+			clearAutomaticFailureSequence();
+		}
+		lastFailureSignature = failure.signature;
+		const occurrence = (failureOccurrences.get(failure.signature) ?? 0) + 1;
+		failureOccurrences.set(failure.signature, occurrence);
+		if (occurrence < 2) {
+			return {
+				kind: "observed",
+				signature: failure.signature,
+				occurrence,
+			};
+		}
+		if (architectGuidedFailures.has(failure.signature)) {
+			return {
+				kind: "stop",
+				outcome: {
+					kind: "protocol-failure",
+					code: "repeated-failure-after-architect-guidance",
+					message:
+						"The compiler repeated the same unresolved diagnostic after the server architect supplied guidance, so Nova stopped before committing an unsafe or redesigned app.",
+				},
+			};
+		}
+		if (args.resolveBlocker === undefined) {
+			return {
+				kind: "stop",
+				outcome: {
+					kind: "protocol-failure",
+					code: "architect-resolver-unavailable",
+					message:
+						"The server-owned architect resolver is unavailable for repeated compiler diagnostics.",
+				},
+			};
+		}
+		const blockerClaim = await claimBudget(
+			"blockerReports",
+			budget.maxBlockerResolutions,
+			`auto-blocker:${scopeKey}:${failure.signature}`,
+		);
+		if (blockerClaim === "exhausted") {
+			return {
+				kind: "stop",
+				outcome: {
+					kind: "protocol-failure",
+					code: "blocker-resolution-budget-exhausted",
+					message:
+						"The compiler exhausted its bounded architect-resolution budget without reaching a safe construction.",
+				},
+			};
+		}
+		if (blockerClaim === "replayed") {
+			return {
+				kind: "stop",
+				outcome: {
+					kind: "protocol-failure",
+					code: "architect-decision-response-lost",
+					message:
+						"A paid architect decision was observed before process replacement, but its durable result was not recorded. The attempt stopped instead of purchasing or inventing a second decision.",
+				},
+			};
+		}
+		deadlineAt += BLOCKER_RESOLUTION_ALLOWANCE.ms;
+		armDeadlineTimer();
+		const affectedConstructionGroupIds = [
+			...new Set(
+				failure.affectedConstructionGroupIds?.length
+					? failure.affectedConstructionGroupIds
+					: brief.constructionGroupIds,
+			),
+		];
+		const blocker = executionBlockerSchema.parse({
+			schemaVersion: 1,
+			affectedConstructionGroupIds,
+			observations: failure.observations.slice(0, 12),
+			requestedDecision:
+				"Give exact implementation guidance for resolving this repeated compiler diagnostic without changing the frozen accepted design.",
+		});
+		let diagnostics = failure.diagnostics;
+		if (diagnostics === undefined) {
+			diagnostics = projectDiagnostics(
+				await awaitWithAbort(workspace.inspect(), boundedSignal),
+				brief,
+			);
+		}
+		const decision = await awaitWithAbort(
+			args.resolveBlocker({
+				blocker,
+				brief,
+				diagnostics,
+				signal: boundedSignal,
+			}),
+			boundedSignal,
+		);
+		if (decision.kind !== "continue") {
+			return {
+				kind: "stop",
+				outcome: { kind: "architect-decision", decision },
+			};
+		}
+		architectGuidedFailures.add(failure.signature);
+		return {
+			kind: "observed",
+			signature: failure.signature,
+			occurrence,
+			guidance: decision.guidance,
+		};
+	};
 	const compactionBoundaryOrdinal = (): number => {
 		let count = 0;
 		const visit = (value: unknown): void => {
@@ -1156,10 +1416,8 @@ export async function runSliceExecutor(args: {
 		visit(messages);
 		return count;
 	};
-	const [briefMessage, candidateMessage] = executorSliceStartMessages(
-		brief,
-		workspace,
-	);
+	const [briefMessage, candidateMessage, focusMessage] =
+		executorSliceStartMessages(brief, workspace);
 	if (briefMessage !== undefined) {
 		appendMessages(`slice-brief:${scopeKey}`, briefMessage);
 	}
@@ -1167,6 +1425,12 @@ export async function runSliceExecutor(args: {
 		appendMessages(
 			`candidate:${scopeKey}:${canonicalJsonDigest(candidateMessage)}`,
 			candidateMessage,
+		);
+	}
+	if (focusMessage !== undefined) {
+		appendMessages(
+			`focus:${scopeKey}:${canonicalJsonDigest(focusMessage)}`,
+			focusMessage,
 		);
 	}
 
@@ -1178,16 +1442,26 @@ export async function runSliceExecutor(args: {
 			const compacted = projectModelHistoryFromNewestCompaction(messages);
 			if (
 				modelMessagesContainCompaction(messages) &&
-				!compacted.some(isExecutorCandidateMessage)
+				(!compacted.some((message) =>
+					messageStartsWith(message, EXECUTOR_BRIEF_HEADING),
+				) ||
+					!compacted.some((message) =>
+						messageStartsWith(message, EXECUTOR_CANDIDATE_HEADING),
+					) ||
+					!compacted.some((message) =>
+						messageStartsWith(message, EXECUTOR_FOCUS_HEADING),
+					))
 			) {
-				const freshCandidate = executorSliceStartMessages(brief, workspace)[1];
-				if (freshCandidate !== undefined) {
+				const boundary = compactionBoundaryOrdinal();
+				const freshPackets = executorSliceStartMessages(brief, workspace);
+				for (const [index, packet] of freshPackets.entries()) {
+					if (packet === undefined) continue;
 					appendMessages(
-						`compaction-candidate:${scopeKey}:${compactionBoundaryOrdinal()}:${canonicalJsonDigest(freshCandidate)}`,
-						freshCandidate,
+						`compaction-reseed:${scopeKey}:${boundary}:${index}:${canonicalJsonDigest(packet)}`,
+						packet,
 					);
-					await persistence;
 				}
+				await persistence;
 			}
 			if (signal.aborted) {
 				return {
@@ -1418,8 +1692,13 @@ export async function runSliceExecutor(args: {
 					toolName: string;
 					result: unknown;
 				}> = [];
-				let failed: { index: number; toolName: string; error: string } | null =
-					null;
+				let failed: {
+					index: number;
+					toolName: string;
+					code: string;
+					error: string;
+					affectedConstructionGroupIds?: readonly DesignId[];
+				} | null = null;
 				for (const [index, operation] of batch.operations.entries()) {
 					const entry = CHANGE_SET_TOOL_REGISTRY.get(operation.toolName);
 					if (
@@ -1436,6 +1715,7 @@ export async function runSliceExecutor(args: {
 						failed = {
 							index,
 							toolName: operation.toolName,
+							code: batch.notAllowedCode,
 							error: batch.notAllowedError,
 						};
 						break;
@@ -1464,6 +1744,7 @@ export async function runSliceExecutor(args: {
 								failed = {
 									index,
 									toolName: operation.toolName,
+									code: admitted.code,
 									error: admitted.error,
 								};
 								break;
@@ -1500,7 +1781,9 @@ export async function runSliceExecutor(args: {
 							failed = {
 								index,
 								toolName: operation.toolName,
+								code: "TOOL_RESULT_ERROR",
 								error: (projectedResult as { error: string }).error,
+								affectedConstructionGroupIds: dispatchInput.intentIds,
 							};
 							break;
 						}
@@ -1528,6 +1811,7 @@ export async function runSliceExecutor(args: {
 							failed = {
 								index,
 								toolName: operation.toolName,
+								code: error.code,
 								error: error.message,
 							};
 							break;
@@ -1550,14 +1834,50 @@ export async function runSliceExecutor(args: {
 						};
 					}
 				}
+				let automatic: AutomaticFailureResult | null = null;
+				if (failed !== null) {
+					const signature = failureSignature({
+						kind:
+							batch.effect === "mutate-blueprint"
+								? "staging-rejection"
+								: "read-rejection",
+						code: failed.code,
+						toolName: failed.toolName,
+						message: normalizedFailureText(failed.error),
+					});
+					automatic = await observeAutomaticFailure({
+						signature,
+						observations: [
+							`${failed.toolName} repeatedly failed with ${failed.code}.`,
+							failed.error,
+						],
+						...(failed.affectedConstructionGroupIds !== undefined && {
+							affectedConstructionGroupIds: failed.affectedConstructionGroupIds,
+						}),
+					});
+					if (automatic.kind === "stop") return automatic;
+				}
 				answer({
 					completed,
 					...(failed === null
 						? { status: "completed" }
 						: {
 								status: "stopped",
-								failed,
+								failed: {
+									index: failed.index,
+									toolName: failed.toolName,
+									error: failed.error,
+								},
 								unattemptedCount: batch.operations.length - failed.index - 1,
+								...(automatic?.kind === "observed" && {
+									repeatedFailure: {
+										fingerprint: automatic.signature,
+										occurrence: automatic.occurrence,
+										...(automatic.guidance !== undefined && {
+											architectGuidance: automatic.guidance,
+										}),
+									},
+								}),
 							}),
 				});
 				return { kind: "answered", clean: failed === null };
@@ -1567,8 +1887,25 @@ export async function runSliceExecutor(args: {
 				const parsed = readBatchEnvelopeSchema.safeParse(call.input);
 				if (!parsed.success) {
 					await toolOutcome("wire-invalid", "READ_BATCH_ENVELOPE_INVALID");
+					const automatic = await observeAutomaticFailure({
+						signature: failureSignature({
+							kind: "wire-invalid",
+							code: "READ_BATCH_ENVELOPE_INVALID",
+						}),
+						observations: [
+							`The read batch envelope repeatedly failed schema admission: ${wireIssueSummary(parsed.error)}`,
+						],
+					});
+					if (automatic.kind === "stop") return automatic.outcome;
 					answer({
 						error: `The read batch shape is invalid: ${wireIssueSummary(parsed.error)}`,
+						repeatedFailure: {
+							fingerprint: automatic.signature,
+							occurrence: automatic.occurrence,
+							...(automatic.guidance !== undefined && {
+								architectGuidance: automatic.guidance,
+							}),
+						},
 					});
 					continue;
 				}
@@ -1589,8 +1926,25 @@ export async function runSliceExecutor(args: {
 				const parsed = stageBatchEnvelopeSchema.safeParse(call.input);
 				if (!parsed.success) {
 					await toolOutcome("wire-invalid", "STAGE_BATCH_ENVELOPE_INVALID");
+					const automatic = await observeAutomaticFailure({
+						signature: failureSignature({
+							kind: "wire-invalid",
+							code: "STAGE_BATCH_ENVELOPE_INVALID",
+						}),
+						observations: [
+							`The stage batch envelope repeatedly failed schema admission: ${wireIssueSummary(parsed.error)}`,
+						],
+					});
+					if (automatic.kind === "stop") return automatic.outcome;
 					answer({
 						error: `The batch shape is invalid: ${wireIssueSummary(parsed.error)}`,
+						repeatedFailure: {
+							fingerprint: automatic.signature,
+							occurrence: automatic.occurrence,
+							...(automatic.guidance !== undefined && {
+								architectGuidance: automatic.guidance,
+							}),
+						},
 					});
 					continue;
 				}
@@ -1627,6 +1981,19 @@ export async function runSliceExecutor(args: {
 								kind: "reject",
 								code: "CREATION_HANDLE_REQUIRED",
 								error: creationIssue,
+							};
+						}
+						const compositionIssue = compositionStagingIssue(
+							operation.toolName,
+							operation.input,
+							brief,
+							workspace,
+						);
+						if (compositionIssue !== null) {
+							return {
+								kind: "reject",
+								code: "COMPOSITION_HOST_FORBIDDEN",
+								error: compositionIssue,
 							};
 						}
 						const projected = extractStagingInput(operation.input, brief);
@@ -1682,7 +2049,35 @@ export async function runSliceExecutor(args: {
 							? "VALIDATOR_FINDINGS"
 							: "INSPECTION_CLEAN",
 					);
-					answer(projectDiagnostics(diagnostics, brief));
+					const projected = projectDiagnostics(diagnostics, brief);
+					if (diagnostics.allFindings.length === 0) {
+						clearAutomaticFailureSequence();
+						answer(projected);
+					} else {
+						const automatic = await observeAutomaticFailure({
+							signature: failureSignature({
+								kind: "validator-findings",
+								fingerprints: diagnostics.allFindings
+									.map(findingFingerprint)
+									.sort(),
+							}),
+							observations: diagnostics.allFindings
+								.slice(0, 12)
+								.map((finding) => `${finding.code}: ${finding.message}`),
+							diagnostics: projected,
+						});
+						if (automatic.kind === "stop") return automatic.outcome;
+						answer({
+							...(projected as Record<string, unknown>),
+							repeatedFailure: {
+								fingerprint: automatic.signature,
+								occurrence: automatic.occurrence,
+								...(automatic.guidance !== undefined && {
+									architectGuidance: automatic.guidance,
+								}),
+							},
+						});
+					}
 				} catch (error) {
 					if (deadlineExceeded()) return exhausted();
 					throw error;
@@ -1728,12 +2123,43 @@ export async function runSliceExecutor(args: {
 							? "VALIDATOR_FINDINGS"
 							: "COMMIT_PRECONDITION_FAILED",
 					);
+					const error = `The change set cannot commit yet: ${describeBlockers(
+						diagnostics,
+						remainingIntents,
+					)}`;
+					const signature =
+						diagnostics.allFindings.length > 0
+							? failureSignature({
+									kind: "validator-findings",
+									fingerprints: diagnostics.allFindings
+										.map(findingFingerprint)
+										.sort(),
+								})
+							: failureSignature({
+									kind: "commit-precondition",
+									remainingConstructionGroupIds: [...remainingIntents].sort(),
+								});
+					const automatic = await observeAutomaticFailure({
+						signature,
+						observations:
+							diagnostics.allFindings.length > 0
+								? diagnostics.allFindings
+										.slice(0, 12)
+										.map((finding) => `${finding.code}: ${finding.message}`)
+								: [error],
+						diagnostics: projectDiagnostics(diagnostics, brief),
+					});
+					if (automatic.kind === "stop") return automatic.outcome;
 					answer({
-						error: `The change set cannot commit yet: ${describeBlockers(
-							diagnostics,
-							remainingIntents,
-						)}`,
+						error,
 						remainingConstructionGroupIds: remainingIntents,
+						repeatedFailure: {
+							fingerprint: automatic.signature,
+							occurrence: automatic.occurrence,
+							...(automatic.guidance !== undefined && {
+								architectGuidance: automatic.guidance,
+							}),
+						},
 					});
 					continue;
 				}
@@ -1775,7 +2201,27 @@ export async function runSliceExecutor(args: {
 				if (result.kind === "gate-rejected") {
 					await checkpointFinalization(false);
 					await toolOutcome("stage-rejected", "CANONICAL_GATE_REJECTED");
-					answer({ error: result.message });
+					const automatic = await observeAutomaticFailure({
+						signature: failureSignature({
+							kind: "canonical-gate-rejection",
+							message: normalizedFailureText(result.message),
+						}),
+						observations: [
+							"The canonical commit gate repeatedly rejected the same private candidate.",
+							result.message,
+						],
+					});
+					if (automatic.kind === "stop") return automatic.outcome;
+					answer({
+						error: result.message,
+						repeatedFailure: {
+							fingerprint: automatic.signature,
+							occurrence: automatic.occurrence,
+							...(automatic.guidance !== undefined && {
+								architectGuidance: automatic.guidance,
+							}),
+						},
+					});
 					continue;
 				}
 				if (result.kind === "rebase-conflict") {
@@ -1891,6 +2337,162 @@ export async function runSliceExecutor(args: {
 		await persistence;
 		clearTimeout(deadlineTimer);
 	}
+}
+
+function rawObject(value: unknown): Record<string, unknown> | null {
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function resolveCheckpointIdentity(
+	value: unknown,
+	workspace: ExecutorWorkspace,
+): string | null {
+	if (typeof value === "string") return value;
+	const object = rawObject(value);
+	if (object === null || typeof object.handle !== "string") return null;
+	return (
+		workspace
+			.currentExecutionCheckpoint()
+			.handles.find((binding) => binding.handle === object.handle)?.uuid ?? null
+	);
+}
+
+/** Critical architecture admission derived from the accepted composition.
+ * This is intentionally narrower than a second Blueprint validity gate: it
+ * prevents invented module homes and wrong form host/mode choices while the
+ * final candidate remains free to realize fields, groups, prose, and layout
+ * through the ordinary canonical tools. */
+export function compositionStagingIssue(
+	toolName: string,
+	input: unknown,
+	brief: SliceExecutionBrief,
+	workspace: ExecutorWorkspace,
+): string | null {
+	const object = rawObject(input);
+	if (object === null) return null;
+	const snapshot = workspace.currentSnapshot().doc;
+	if (toolName === "generateSchema") {
+		const caseTypes = Array.isArray(object.caseTypes) ? object.caseTypes : [];
+		const expectedByKey = new Map(
+			brief.recordRealizations.map((record) => [
+				record.blueprintCaseType,
+				record,
+			]),
+		);
+		for (const caseType of caseTypes) {
+			const candidate = rawObject(caseType);
+			if (candidate === null || typeof candidate.name !== "string") continue;
+			if (!expectedByKey.has(candidate.name)) {
+				return `Record case-type names are deterministic compiler keys, not display names. Use the exact accepted lowering: ${brief.recordRealizations.map((record) => `${record.displayName} -> ${record.blueprintCaseType}`).join(", ")}.`;
+			}
+			const expectedParent = expectedByKey.get(
+				candidate.name,
+			)?.parentBlueprintCaseType;
+			const suppliedParent =
+				candidate.parent_type === null ? undefined : candidate.parent_type;
+			if (suppliedParent !== expectedParent) {
+				return `Record parent_type must use the exact accepted Blueprint key${expectedParent === undefined ? " and this record has no accepted parent" : ` ${expectedParent}`}.`;
+			}
+		}
+		return null;
+	}
+	const createModule =
+		toolName === "stageModule" || toolName === "createModule";
+	if (createModule) {
+		const caseType =
+			typeof object.case_type === "string" ? object.case_type : null;
+		const name = typeof object.name === "string" ? object.name : null;
+		const candidates = brief.moduleRealizations.filter(
+			(realization) => realization.action === "create",
+		);
+		const realization = candidates.find(
+			(entry) =>
+				(entry.hostRecord?.blueprintCaseType ?? null) === caseType &&
+				brief.moduleCompositions.find(
+					(composition) => composition.id === entry.compositionId,
+				)?.name === name,
+		);
+		if (realization === undefined) {
+			return "This slice may create only the exact accepted module composition, with its accepted display name and record host. Reuse an earlier composed module when the brief says reuse; do not create a parallel record home.";
+		}
+		if (toolName === "createModule") {
+			const forms = Array.isArray(object.forms) ? object.forms : [];
+			if (
+				realization.role === "queue-only" &&
+				(object.case_list_only !== true || forms.length > 0)
+			) {
+				return "The accepted module is queue-only. Create it as a case-list-only module with no forms.";
+			}
+			for (const form of forms) {
+				const nested = rawObject(form);
+				if (nested === null) continue;
+				const expected = brief.formRealizations.find(
+					(entry) =>
+						entry.moduleCompositionId === realization.compositionId &&
+						entry.name === nested.name &&
+						entry.blueprintFormType === nested.type,
+				);
+				if (expected === undefined) {
+					return "A form nested in this module does not match an accepted form name, mode, and module composition for this workflow slice.";
+				}
+			}
+		}
+		return null;
+	}
+
+	if (toolName === "stageForm" || toolName === "createForm") {
+		const moduleUuid = resolveCheckpointIdentity(object.moduleUuid, workspace);
+		const module =
+			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
+		const expected = brief.formRealizations.find(
+			(entry) =>
+				entry.blueprintFormType === object.type && entry.name === object.name,
+		);
+		const moduleComposition =
+			expected === undefined
+				? undefined
+				: brief.moduleCompositions.find(
+						(entry) => entry.id === expected.moduleCompositionId,
+					);
+		const host =
+			expected === undefined
+				? undefined
+				: brief.moduleRealizations.find(
+						(entry) => entry.compositionId === expected.moduleCompositionId,
+					)?.hostRecord;
+		if (module === undefined) return null;
+		if (
+			expected === undefined ||
+			moduleComposition === undefined ||
+			(module.caseType ?? null) !== (host?.blueprintCaseType ?? null)
+		) {
+			return "This form must use the exact accepted form mode and the accepted module's record host. Do not put a selected-record workflow on a child/outcome record merely because the workflow writes that record.";
+		}
+		return null;
+	}
+
+	if (toolName === "updateModule" && object.case_type !== undefined) {
+		const moduleUuid = resolveCheckpointIdentity(object.moduleUuid, workspace);
+		const module =
+			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
+		const composition = brief.moduleCompositions.find(
+			(entry) => entry.name === module?.name,
+		);
+		const host = brief.moduleRealizations.find(
+			(entry) => entry.compositionId === composition?.id,
+		)?.hostRecord;
+		const requested =
+			typeof object.case_type === "string" ? object.case_type : null;
+		if (
+			composition === undefined ||
+			requested !== (host?.blueprintCaseType ?? null)
+		) {
+			return "A module update may not move this accepted composition to a different record host.";
+		}
+	}
+	return null;
 }
 
 /** Bound an awaited operation even when its implementation fails to observe
@@ -2014,7 +2616,9 @@ function describeBlockers(
 	if (remainingIntents.length > 0) {
 		return `${remainingIntents.length} owned design intent${remainingIntents.length === 1 ? " has" : "s have"} no staged implementation`;
 	}
-	return "it holds no staged steps yet";
+	return diagnostics.snapshotRevision === 0
+		? "it holds no staged mutation steps yet"
+		: `its ${diagnostics.snapshotRevision} staged mutation step${diagnostics.snapshotRevision === 1 ? "" : "s"} have not satisfied finalization, but no specific finding was reported`;
 }
 
 function staleExternalReads(

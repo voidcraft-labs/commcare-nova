@@ -30,6 +30,10 @@ export interface DesignModelContextSpec {
 	readonly promptVersion: string;
 	readonly toolsetDigest: string;
 	readonly contextVersion: string;
+	/** Executor-only semantic generation key. A new slice attempt receives a
+	 * fresh immutable generation even when its provider contract is unchanged;
+	 * recovery of that exact attempt reopens the same generation. */
+	readonly semanticScopeKey?: string;
 	readonly authority: DesignModelContextAuthority;
 }
 
@@ -308,8 +312,14 @@ function providerContractMatches(
 		row.model_id === spec.modelId &&
 		row.prompt_version === spec.promptVersion &&
 		row.toolset_digest === spec.toolsetDigest &&
-		row.context_version === spec.contextVersion
+		row.context_version === persistedContextVersion(spec)
 	);
+}
+
+function persistedContextVersion(spec: DesignModelContextSpec): string {
+	return spec.semanticScopeKey === undefined
+		? spec.contextVersion
+		: `${spec.contextVersion}:semantic-scope:${spec.semanticScopeKey}`;
 }
 
 async function assertCurrentContext(
@@ -329,7 +339,7 @@ async function assertCurrentContext(
 		.executeTakeFirstOrThrow();
 	if (latest.id !== context.id) {
 		throw new DesignModelContextError(
-			"The model context was superseded by a newer provider contract.",
+			"The model context was superseded by a newer provider contract or semantic scope.",
 		);
 	}
 }
@@ -361,6 +371,20 @@ async function readAppendKeysThroughGeneration(
 export async function openDesignModelContext(
 	spec: DesignModelContextSpec,
 ): Promise<DesignModelContextState> {
+	if (spec.semanticScopeKey !== undefined && spec.kind !== "executor") {
+		throw new DesignModelContextError(
+			"Only an executor context may declare a semantic scope key.",
+		);
+	}
+	if (
+		spec.semanticScopeKey !== undefined &&
+		spec.semanticScopeKey.trim() === ""
+	) {
+		throw new DesignModelContextError(
+			"An executor semantic scope key must not be blank.",
+		);
+	}
+	const contextVersion = persistedContextVersion(spec);
 	return withAppTx(async (tx) => {
 		await authorize(tx, spec.designSessionId, spec.authority);
 		let row = await tx
@@ -384,7 +408,7 @@ export async function openDesignModelContext(
 						model_id: spec.modelId,
 						prompt_version: spec.promptVersion,
 						toolset_digest: spec.toolsetDigest,
-						context_version: spec.contextVersion,
+						context_version: contextVersion,
 						revision: 0,
 					})
 					.onConflict((conflict) =>
@@ -420,7 +444,7 @@ export async function openDesignModelContext(
 					model_id: spec.modelId,
 					prompt_version: spec.promptVersion,
 					toolset_digest: spec.toolsetDigest,
-					context_version: spec.contextVersion,
+					context_version: contextVersion,
 					revision: 0,
 				})
 				.returningAll()

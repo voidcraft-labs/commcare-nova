@@ -56,6 +56,106 @@ describe("deriveSliceExecutionBrief", () => {
 		]);
 	});
 
+	it("turns accepted composition into exact create/reuse and form realization instructions", () => {
+		const registration = briefAt(0);
+		const visit = briefAt(1);
+		expect(registration.moduleRealizations).toEqual([
+			expect.objectContaining({
+				compositionId: ids.modulePatients,
+				action: "create",
+				hostRecord: {
+					id: ids.recPatient,
+					name: "Patient",
+					blueprintCaseType: "patient",
+				},
+				formCompositionIds: [ids.formRegister],
+			}),
+		]);
+		expect(registration.toolProfile.mutationTools).toContain("setMenuMedia");
+		expect(visit.moduleRealizations).toEqual([
+			expect.objectContaining({
+				compositionId: ids.modulePatients,
+				action: "reuse",
+				hostRecord: {
+					id: ids.recPatient,
+					name: "Patient",
+					blueprintCaseType: "patient",
+				},
+				formCompositionIds: [ids.formVisit],
+			}),
+		]);
+		expect(visit.formRealizations).toEqual([
+			expect.objectContaining({
+				compositionId: ids.formVisit,
+				moduleCompositionId: ids.modulePatients,
+				blueprintFormType: "followup",
+				name: "Record visit",
+				layout: expect.objectContaining({ kind: "sectioned" }),
+				layoutLowering: {
+					kind: "nested-group-fields",
+					groups: [
+						expect.objectContaining({
+							compositionSectionId: ids.sectionVisit,
+							blueprintFieldKind: "group",
+							items: [
+								expect.objectContaining({
+									compositionItemId: ids.itemVisitSummary,
+									blueprintFieldKind: "workflow-input",
+									inputHandle: "visit_summary",
+								}),
+							],
+						}),
+					],
+				},
+			}),
+		]);
+		expect(visit.toolProfile.mutationTools).toContain("setMenuMedia");
+		const rendered = renderBriefMessage(visit);
+		expect(rendered).toContain("Module create or reuse instructions");
+		expect(rendered).toContain("Exact form realization instructions");
+		expect(rendered).toContain("Visit notes");
+		expect(rendered).toContain("Exact record lowering");
+		expect(visit.recordRealizations).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					recordId: ids.recPatient,
+					displayName: "Patient",
+					blueprintCaseType: "patient",
+				}),
+			]),
+		);
+	});
+
+	it("lowers semantic record names to stable Blueprint case-type keys", () => {
+		const contract = cloneContract(makeContract());
+		const patient = contract.records.find(
+			(record) => record.id === ids.recPatient,
+		);
+		if (patient === undefined) throw new Error("patient fixture missing");
+		patient.name = "Household";
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const slice = plan.slices[0];
+		if (slice === undefined) throw new Error("fixture slice missing");
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: slice.id,
+		});
+		expect(
+			brief.recordRealizations.find(
+				(record) => record.recordId === ids.recPatient,
+			),
+		).toMatchObject({
+			displayName: "Household",
+			blueprintCaseType: "household",
+		});
+		expect(brief.moduleRealizations[0]?.hostRecord).toMatchObject({
+			name: "Household",
+			blueprintCaseType: "household",
+		});
+	});
+
 	it("carries app-wide decisions only on materialization", () => {
 		expect(briefAt(0).decisions.map((decision) => decision.id)).toEqual([
 			ids.decision,

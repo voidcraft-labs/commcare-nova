@@ -30,6 +30,20 @@ describe("lean Design Contract graph", () => {
 		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
 	});
 
+	it("reads historical v1 contracts without composition but refuses them for new construction", () => {
+		const historical = cloneContract(makeContract()) as unknown as Record<
+			string,
+			unknown
+		>;
+		delete historical.moduleCompositions;
+		delete historical.formCompositions;
+		const parsed = appDesignContractSchema.parse(historical);
+		expect(parsed.moduleCompositions).toEqual([]);
+		expect(parsed.formCompositions).toEqual([]);
+		expect(constructionMessages(parsed)).toContain("module composition");
+		expect(constructionMessages(parsed)).toContain("form composition");
+	});
+
 	it("is closed and rejects duplicate semantic identities", () => {
 		const unknown = { ...makeContract(), surprise: true };
 		expect(appDesignContractSchema.safeParse(unknown).success).toBe(false);
@@ -167,8 +181,59 @@ describe("lean Design Contract graph", () => {
 		workflow.decisions = [];
 		workflow.recordEffects = [];
 		workflow.readback = [];
+		const sharedModule = fixtureValue(
+			contract.moduleCompositions[0],
+			"shared module composition",
+		);
+		sharedModule.workflowIds = [ids.taskVisit];
+		contract.moduleCompositions.push({
+			id: did(780),
+			name: "Standalone survey",
+			purpose: "Host the form-only survey without a record context.",
+			role: "form-host",
+			workflowIds: [ids.taskRegister],
+			actorIds: [ids.actorChw],
+			navigationIds: [],
+			listIds: [],
+			orderRationale: "Keep the standalone task available before record work.",
+			icon: { kind: "builtin", slug: "default" },
+			roleSeparationRationale:
+				"A standalone form cannot share the patient record host.",
+		});
+		const formComposition = fixtureValue(
+			contract.formCompositions[0],
+			"first form composition",
+		);
+		formComposition.moduleCompositionId = did(780);
+		formComposition.mode = "standalone";
+		formComposition.layout = {
+			kind: "flat",
+			rationale: "One standalone answer has no useful grouping boundary.",
+			items: [
+				{
+					kind: "input",
+					id: did(781),
+					inputHandle: "survey_answer",
+					labelMarkdown: "Survey answer",
+				},
+			],
+		};
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
 		expect(constructionMessages(contract)).toBe("");
+	});
+
+	it("keeps a child create effect from turning a selected-context workflow into registration", () => {
+		const contract = cloneContract(makeContract());
+		const visitForm = fixtureValue(
+			contract.formCompositions.find(
+				(composition) => composition.workflowId === ids.taskVisit,
+			),
+			"visit form composition",
+		);
+		visitForm.mode = "registration";
+		expect(messages(contract)).toContain(
+			"a child record it creates is an effect, not the form host",
+		);
 	});
 
 	it("rejects record and navigation cycles", () => {
@@ -228,6 +293,37 @@ describe("lean Design Contract graph", () => {
 		};
 		diamond.workflows.push(parallel, convergent);
 		diamond.charter.includedWorkflowIds.push(parallel.id, convergent.id);
+		const moduleComposition = fixtureValue(
+			diamond.moduleCompositions[0],
+			"module composition",
+		);
+		moduleComposition.workflowIds.push(parallel.id, convergent.id);
+		const visitComposition = fixtureValue(
+			diamond.formCompositions[1],
+			"visit form composition",
+		);
+		for (const [workflowId, offset] of [
+			[parallel.id, 0],
+			[convergent.id, 10],
+		] as const) {
+			diamond.formCompositions.push({
+				...structuredClone(visitComposition),
+				id: did(810 + offset),
+				workflowId,
+				layout: {
+					kind: "flat",
+					rationale: "The copied test workflow has one concise input.",
+					items: [
+						{
+							kind: "input",
+							id: did(811 + offset),
+							inputHandle: "visit_summary",
+							labelMarkdown: "Visit summary",
+						},
+					],
+				},
+			});
+		}
 		expect(appDesignContractSchema.safeParse(diamond).success).toBe(true);
 
 		const dependentRoot = cloneContract(makeContract());
