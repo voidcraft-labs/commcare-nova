@@ -839,6 +839,10 @@ function normalizedFailureText(value: string): string {
 		.slice(0, 2_000);
 }
 
+function boundedFailureText(value: string): string {
+	return value.replace(/\s+/g, " ").trim().slice(0, 2_000);
+}
+
 function failureSignature(value: unknown): string {
 	return canonicalJsonDigest(value).slice(0, 24);
 }
@@ -893,6 +897,7 @@ function failedToolResult(args: {
 		readonly fingerprint: string;
 		readonly occurrence: number;
 		readonly architectGuidance?: string;
+		readonly recoveryGuidance?: string;
 	};
 }): Record<string, unknown> {
 	return {
@@ -1057,18 +1062,31 @@ export async function runSliceExecutor(
 	const failureOccurrences = new Map<string, number>();
 	const architectGuidedFailures = new Set<string>();
 	let lastFailureSignature: string | null = null;
-	const recoverFailureState = (value: unknown): void => {
+	const clearFailureSequence = (): void => {
+		failureOccurrences.clear();
+		architectGuidedFailures.clear();
+		lastFailureSignature = null;
+	};
+	const recoverFailureState = (value: unknown): boolean => {
+		let found = false;
 		if (Array.isArray(value)) {
-			for (const entry of value) recoverFailureState(entry);
-			return;
+			for (const entry of value) found = recoverFailureState(entry) || found;
+			return found;
 		}
-		if (value === null || typeof value !== "object") return;
+		if (value === null || typeof value !== "object") return false;
 		const record = value as Record<string, unknown>;
 		if (
 			typeof record.fingerprint === "string" &&
 			typeof record.occurrence === "number" &&
 			Number.isSafeInteger(record.occurrence)
 		) {
+			found = true;
+			if (
+				lastFailureSignature !== null &&
+				lastFailureSignature !== record.fingerprint
+			) {
+				clearFailureSequence();
+			}
 			lastFailureSignature = record.fingerprint;
 			failureOccurrences.set(
 				record.fingerprint,
@@ -1081,14 +1099,29 @@ export async function runSliceExecutor(
 				architectGuidedFailures.add(record.fingerprint);
 			}
 		}
-		for (const nested of Object.values(record)) recoverFailureState(nested);
+		for (const nested of Object.values(record)) {
+			found = recoverFailureState(nested) || found;
+		}
+		return found;
 	};
-	recoverFailureState(context.messages);
-	const clearFailureSequence = (): void => {
-		failureOccurrences.clear();
-		architectGuidedFailures.clear();
-		lastFailureSignature = null;
-	};
+	for (const message of context.messages) {
+		const foundFailure = recoverFailureState(message);
+		if (message.role !== "tool" || foundFailure) continue;
+		const skippedOnly =
+			message.content.length > 0 &&
+			message.content.every((part) => {
+				if (part.type !== "tool-result" || part.output.type !== "json") {
+					return false;
+				}
+				const value = part.output.value as unknown;
+				return (
+					value !== null &&
+					typeof value === "object" &&
+					(value as { status?: unknown }).status === "skipped"
+				);
+			});
+		if (!skippedOnly) clearFailureSequence();
+	}
 	type FailureObservation =
 		| {
 				readonly kind: "observed";
@@ -1096,7 +1129,12 @@ export async function runSliceExecutor(
 				readonly occurrence: number;
 				readonly guidance?: string;
 		  }
-		| { readonly kind: "stop"; readonly outcome: SliceExecutionOutcome };
+		| {
+				readonly kind: "stop";
+				readonly signature: string;
+				readonly occurrence: number;
+				readonly outcome: SliceExecutionOutcome;
+		  };
 	const observeSemanticFailure = async (failure: {
 		readonly signature: string;
 		readonly observations: readonly string[];
@@ -1117,6 +1155,8 @@ export async function runSliceExecutor(
 		if (architectGuidedFailures.has(failure.signature)) {
 			return {
 				kind: "stop",
+				signature: failure.signature,
+				occurrence,
 				outcome: {
 					kind: "protocol-failure",
 					code: "repeated-failure-after-architect-guidance",
@@ -1128,6 +1168,8 @@ export async function runSliceExecutor(
 		if (args.resolveBlocker === undefined) {
 			return {
 				kind: "stop",
+				signature: failure.signature,
+				occurrence,
 				outcome: {
 					kind: "protocol-failure",
 					code: "architect-resolver-unavailable",
@@ -1144,6 +1186,8 @@ export async function runSliceExecutor(
 		if (blockerClaim !== "claimed") {
 			return {
 				kind: "stop",
+				signature: failure.signature,
+				occurrence,
 				outcome: {
 					kind: "protocol-failure",
 					code:
@@ -1182,6 +1226,8 @@ export async function runSliceExecutor(
 		if (decision.kind !== "continue") {
 			return {
 				kind: "stop",
+				signature: failure.signature,
+				occurrence,
 				outcome: { kind: "architect-decision", decision },
 			};
 		}
@@ -1191,6 +1237,95 @@ export async function runSliceExecutor(
 			signature: failure.signature,
 			occurrence,
 			guidance: decision.guidance,
+		};
+	};
+	const observeDeterministicRejection = (failure: {
+		readonly signature: string;
+	}): FailureObservation => {
+		if (
+			lastFailureSignature !== null &&
+			lastFailureSignature !== failure.signature
+		) {
+			clearFailureSequence();
+		}
+		lastFailureSignature = failure.signature;
+		const occurrence = (failureOccurrences.get(failure.signature) ?? 0) + 1;
+		failureOccurrences.set(failure.signature, occurrence);
+		if (occurrence >= 3) {
+			return {
+				kind: "stop",
+				signature: failure.signature,
+				occurrence,
+				outcome: {
+					kind: "protocol-failure",
+					code: "repeated-rejected-call",
+					message:
+						"The executor repeated the same rejected native call three times without changing its input or private workspace.",
+				},
+			};
+		}
+		return {
+			kind: "observed",
+			signature: failure.signature,
+			occurrence,
+			...(occurrence === 2 && {
+				guidance:
+					"This exact call was rejected twice with the same result at the same private-workspace revision. Do not retry it unchanged. Apply the operation-specific correction, choose a different allowed operation, or continue without it when the requested state already exists.",
+			}),
+		};
+	};
+	const observeNativeCallFailure = async (args: {
+		readonly call: NativeCall;
+		readonly code: string;
+		readonly error: string;
+		readonly diagnostics?: unknown;
+	}): Promise<{
+		readonly observed: FailureObservation;
+		readonly repeatedFailure: {
+			readonly fingerprint: string;
+			readonly occurrence: number;
+			readonly architectGuidance?: string;
+			readonly recoveryGuidance?: string;
+		};
+	}> => {
+		const semantic = isSemanticConstructionFailure(args.code);
+		const observed = semantic
+			? await observeSemanticFailure({
+					signature: failureSignature({
+						toolName: args.call.toolName,
+						code: args.code,
+						message: normalizedFailureText(args.error),
+					}),
+					observations: [
+						`${args.call.toolName} failed with ${args.code}.`,
+						args.error,
+					],
+					...(args.diagnostics !== undefined && {
+						diagnostics: args.diagnostics,
+					}),
+				})
+			: observeDeterministicRejection({
+					signature: failureSignature({
+						kind: "rejected-native-call",
+						toolName: args.call.toolName,
+						input: args.call.input,
+						code: args.code,
+						message: boundedFailureText(args.error),
+						workspaceRevision: workspace.currentSnapshot().revision,
+					}),
+				});
+		const guidance =
+			observed.kind === "observed" ? observed.guidance : undefined;
+		return {
+			observed,
+			repeatedFailure: {
+				fingerprint: observed.signature,
+				occurrence: observed.occurrence,
+				...(guidance !== undefined &&
+					(semantic
+						? { architectGuidance: guidance }
+						: { recoveryGuidance: guidance })),
+			},
 		};
 	};
 
@@ -1462,15 +1597,25 @@ export async function runSliceExecutor(
 						(registryEntry.policy.effect === "mutate-blueprint" &&
 							allowedMutationTools.has(call.toolName));
 					if (!allowed) {
+						const error = `${call.toolName} is not available for this workflow slice.`;
+						const failure = await observeNativeCallFailure({
+							call,
+							code: "TOOL_NOT_ALLOWED",
+							error,
+						});
 						await emitOutcome(call, index, "wire-invalid", "TOOL_NOT_ALLOWED");
 						await appendToolResult(
 							call,
 							failedToolResult({
 								code: "TOOL_NOT_ALLOWED",
-								error: `${call.toolName} is not available for this workflow slice.`,
+								error,
+								repeatedFailure: failure.repeatedFailure,
 							}),
 						);
-						dispatch = { kind: "halt-response" };
+						dispatch =
+							failure.observed.kind === "stop"
+								? { kind: "stop", outcome: failure.observed.outcome }
+								: { kind: "halt-response" };
 					} else {
 						if (registryEntry.policy.effect === "mutate-blueprint") {
 							const claim = await claimBudget(
@@ -1517,37 +1662,11 @@ export async function runSliceExecutor(
 										? "COMPOSITION_HOST_FORBIDDEN"
 										: null;
 							if (admissionError !== null && admissionCode !== null) {
-								let repeatedFailure:
-									| {
-											fingerprint: string;
-											occurrence: number;
-											architectGuidance?: string;
-									  }
-									| undefined;
-								let stop: SliceExecutionOutcome | undefined;
-								if (isSemanticConstructionFailure(admissionCode)) {
-									const observed = await observeSemanticFailure({
-										signature: failureSignature({
-											toolName: call.toolName,
-											code: admissionCode,
-											message: normalizedFailureText(admissionError),
-										}),
-										observations: [
-											`${call.toolName} failed with ${admissionCode}.`,
-											admissionError,
-										],
-									});
-									if (observed.kind === "stop") stop = observed.outcome;
-									else {
-										repeatedFailure = {
-											fingerprint: observed.signature,
-											occurrence: observed.occurrence,
-											...(observed.guidance !== undefined && {
-												architectGuidance: observed.guidance,
-											}),
-										};
-									}
-								}
+								const failure = await observeNativeCallFailure({
+									call,
+									code: admissionCode,
+									error: admissionError,
+								});
 								await emitOutcome(
 									call,
 									index,
@@ -1561,13 +1680,13 @@ export async function runSliceExecutor(
 									failedToolResult({
 										code: admissionCode,
 										error: admissionError,
-										...(repeatedFailure !== undefined && { repeatedFailure }),
+										repeatedFailure: failure.repeatedFailure,
 									}),
 								);
 								dispatch =
-									stop === undefined
-										? { kind: "halt-response" }
-										: { kind: "stop", outcome: stop };
+									failure.observed.kind === "stop"
+										? { kind: "stop", outcome: failure.observed.outcome }
+										: { kind: "halt-response" };
 							} else {
 								try {
 									const dispatched = await awaitWithAbort(
@@ -1586,37 +1705,11 @@ export async function runSliceExecutor(
 									if (resultHasError(projected)) {
 										const code = toolFailureCode(dispatched.receipt, projected);
 										const error = (projected as { error: string }).error;
-										let repeatedFailure:
-											| {
-													fingerprint: string;
-													occurrence: number;
-													architectGuidance?: string;
-											  }
-											| undefined;
-										let stop: SliceExecutionOutcome | undefined;
-										if (isSemanticConstructionFailure(code)) {
-											const observed = await observeSemanticFailure({
-												signature: failureSignature({
-													toolName: call.toolName,
-													code,
-													message: normalizedFailureText(error),
-												}),
-												observations: [
-													`${call.toolName} failed with ${code}.`,
-													error,
-												],
-											});
-											if (observed.kind === "stop") stop = observed.outcome;
-											else {
-												repeatedFailure = {
-													fingerprint: observed.signature,
-													occurrence: observed.occurrence,
-													...(observed.guidance !== undefined && {
-														architectGuidance: observed.guidance,
-													}),
-												};
-											}
-										}
+										const failure = await observeNativeCallFailure({
+											call,
+											code,
+											error,
+										});
 										await emitOutcome(
 											call,
 											index,
@@ -1630,15 +1723,13 @@ export async function runSliceExecutor(
 											failedToolResult({
 												code,
 												error,
-												...(repeatedFailure !== undefined && {
-													repeatedFailure,
-												}),
+												repeatedFailure: failure.repeatedFailure,
 											}),
 										);
 										dispatch =
-											stop === undefined
-												? { kind: "halt-response" }
-												: { kind: "stop", outcome: stop };
+											failure.observed.kind === "stop"
+												? { kind: "stop", outcome: failure.observed.outcome }
+												: { kind: "halt-response" };
 									} else {
 										clearFailureSequence();
 										await emitOutcome(
@@ -1655,15 +1746,24 @@ export async function runSliceExecutor(
 									if (deadlineExceeded()) {
 										dispatch = { kind: "stop", outcome: exhausted() };
 									} else if (error instanceof ChangeSetStagingRejectedError) {
+										const failure = await observeNativeCallFailure({
+											call,
+											code: error.code,
+											error: error.message,
+										});
 										await emitOutcome(call, index, "wire-invalid", error.code);
 										await appendToolResult(
 											call,
 											failedToolResult({
 												code: error.code,
 												error: error.message,
+												repeatedFailure: failure.repeatedFailure,
 											}),
 										);
-										dispatch = { kind: "halt-response" };
+										dispatch =
+											failure.observed.kind === "stop"
+												? { kind: "stop", outcome: failure.observed.outcome }
+												: { kind: "halt-response" };
 									} else {
 										const terminal = terminalProtocolCode(error);
 										if (terminal === null) throw error;

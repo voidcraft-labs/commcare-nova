@@ -416,7 +416,11 @@ export type FormCompositionSection = z.infer<
 export const formCompositionLayoutSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
-			kind: z.literal("sectioned"),
+			kind: z
+				.literal("sectioned")
+				.describe(
+					"A grouped visual layout on one continuous form, lowered through ordinary group fields. This is not authored FormSection pages or page navigation.",
+				),
 			rationale: z.string().min(1).max(1_000),
 			sections: z.array(formCompositionSectionSchema).min(1).max(12),
 		})

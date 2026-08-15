@@ -697,6 +697,187 @@ describe("failure and finalization policy", () => {
 		).toHaveLength(2);
 	});
 
+	it("corrects the second identical deterministic rejection and stops the third locally", async () => {
+		const resolveBlocker = vi.fn();
+		const workspace = fakeWorkspace({
+			stage: async () => ({
+				replayed: false,
+				receipt: { error: { code: "TARGET_ALREADY_ABSENT" } },
+				result: {
+					kind: "mutate",
+					mutations: [],
+					result: {
+						error:
+							"The requested state is already absent; this call has no edit.",
+					},
+				},
+			}),
+		});
+		const repeatedCall = { name: brief().charter.appName };
+		const scripted = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "no-op-1",
+						toolName: "updateApp",
+						input: repeatedCall,
+					},
+				],
+			},
+			{
+				calls: [
+					{
+						toolCallId: "no-op-2",
+						toolName: "updateApp",
+						input: repeatedCall,
+					},
+				],
+			},
+			{
+				calls: [
+					{
+						toolCallId: "no-op-3",
+						toolName: "updateApp",
+						input: repeatedCall,
+					},
+				],
+			},
+		]);
+		const context: ExecutorConversationContext = { messages: [] };
+
+		const result = await run({
+			workspace,
+			step: scripted.step,
+			context,
+			resolveBlocker,
+		});
+
+		expect(result).toMatchObject({
+			kind: "protocol-failure",
+			code: "repeated-rejected-call",
+		});
+		expect(workspace.dispatched).toHaveLength(3);
+		expect(resolveBlocker).not.toHaveBeenCalled();
+		expect(
+			toolResultValues(context.messages).find(
+				(item) => item.toolCallId === "no-op-2",
+			)?.value,
+		).toMatchObject({
+			repeatedFailure: {
+				occurrence: 2,
+				recoveryGuidance: expect.stringContaining("Do not retry it unchanged"),
+			},
+		});
+		expect(
+			toolResultValues(context.messages).find(
+				(item) => item.toolCallId === "no-op-3",
+			)?.value,
+		).toMatchObject({ repeatedFailure: { occurrence: 3 } });
+	});
+
+	it("does not collapse changed rejected inputs into one no-progress sequence", async () => {
+		const workspace = fakeWorkspace({
+			stage: async () => ({
+				replayed: false,
+				receipt: { error: { code: "TARGET_INVALID" } },
+				result: {
+					kind: "mutate",
+					mutations: [],
+					result: { error: "The requested target is invalid." },
+				},
+			}),
+		});
+		const scripted = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "bad-1",
+						toolName: "updateApp",
+						input: { name: "One" },
+					},
+				],
+			},
+			{
+				calls: [
+					{
+						toolCallId: "bad-2",
+						toolName: "updateApp",
+						input: { name: "Two" },
+					},
+				],
+			},
+			{
+				calls: [
+					{
+						toolCallId: "bad-3",
+						toolName: "updateApp",
+						input: { name: "Three" },
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
+		]);
+
+		await expect(
+			run({ workspace, step: scripted.step }),
+		).resolves.toMatchObject({
+			kind: "committed",
+		});
+	});
+
+	it("does not recover a rejection sequence that a later accepted call reset", async () => {
+		const input = { name: brief().charter.appName };
+		const priorFailure = toolResultMessage("old-failure", "updateApp", {
+			status: "failed",
+			code: "TARGET_INVALID",
+			error: "The requested target is invalid.",
+			repeatedFailure: {
+				fingerprint: "old-fingerprint",
+				occurrence: 2,
+				recoveryGuidance: "Do not retry it unchanged.",
+			},
+		});
+		const priorSuccess = toolResultMessage("old-success", "searchBlueprint", {
+			kind: "read",
+			data: { found: true },
+		});
+		const context: ExecutorConversationContext = {
+			messages: [priorFailure, priorSuccess],
+		};
+		const workspace = fakeWorkspace({
+			stage: async () => ({
+				replayed: false,
+				receipt: { error: { code: "TARGET_INVALID" } },
+				result: {
+					kind: "mutate",
+					mutations: [],
+					result: { error: "The requested target is invalid." },
+				},
+			}),
+		});
+		const scripted = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "new-failure",
+						toolName: "updateApp",
+						input,
+					},
+				],
+			},
+			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
+		]);
+
+		await expect(
+			run({ workspace, step: scripted.step, context }),
+		).resolves.toMatchObject({ kind: "committed" });
+		expect(
+			toolResultValues(context.messages).find(
+				(item) => item.toolCallId === "new-failure",
+			)?.value,
+		).toMatchObject({ repeatedFailure: { occurrence: 1 } });
+	});
+
 	it("returns validator corrections and commits only after a later clean finish", async () => {
 		let inspection = 0;
 		const workspace = fakeWorkspace({

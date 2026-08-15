@@ -264,16 +264,17 @@ Form composition records every complete workflow variant, its module home,
 registration/selected-record/close/standalone mode, actors, justified
 actor-specific duplication, icon, and exact ordered layout. Before submission,
 the author audits each form's meaningful phases, context shifts, decisions,
-error risks, and interruption recovery. A layout is either sectioned, with
-named sections, or flat with a content-specific rationale that names the real
-inputs and worker sequence and explains why one uninterrupted flow is better;
+error risks, and interruption recovery. A layout is either grouped (stored in
+the schema's `sectioned` arm), with named visual groups, or flat with a
+content-specific rationale that names the real inputs and worker sequence and
+explains why one uninterrupted flow is better;
 generic claims about shortness, linearity, or speed do not establish that.
 Its identity-bearing items place every input
 exactly once and may interleave Markdown labels, hints, help, concise guidance,
 and record summaries. The design therefore decides the worker-facing
 information architecture before construction without becoming a Blueprint or
-an executable form schema. Deterministic lowering maps each design section to
-the current Blueprint `group` field and its identity-addressed children;
+an executable form schema. Deterministic lowering maps each design visual group
+to the current Blueprint `group` field and its identity-addressed children;
 guidance and record summaries map to `label` fields, with summaries carrying
 UUID-backed prose references. This is not the future durable FormSection
 entity described by the separate complex-app unit.
@@ -656,9 +657,13 @@ writes, exposes, or protects the element. This keeps every contract element in
 one workflow-local execution brief and gives budget derivation a stable unit.
 It is not a model-authored mutation label or a commit-time coverage claim.
 
-A shared module composition is owned by its earliest workflow. Later workflow
-slices receive an exact `reuse` instruction; each form composition, section,
-and item stays with its own workflow slice.
+A shared module composition is owned by its earliest workflow. Every list
+placed in that module, plus properties used only by that list, is owned by the
+same workflow that materializes the module; `selectionWorkflowId` describes
+what opening a row does, not who constructs the shared queue. Later workflow
+slices receive exact module `reuse` and list-usage context without a second
+case-list authoring surface. Each form composition, section, and item stays
+with its own workflow slice.
 
 Decisions and assumptions inform the materialization-root execution brief but
 are not separate construction work.
@@ -771,6 +776,13 @@ tool is not a second storage shape or a mutation envelope; it lowers to the
 same granular column, input, filter, order, and module-setting mutations and
 commits them as one guarded batch. Targeted follow-up tools remain available.
 
+`configureConnect` remains a shared direct SA/MCP operation, but the reviewed
+executor does not authorize it merely because a slice contains forms. The
+current Design Contract has no semantic carrier for a complete Connect target,
+so no accepted slice can truthfully own that call. A future Connect contract
+shape must carry the exact mode and complete participant configuration before
+deterministic planning may add it to a slice profile.
+
 On model-facing tool boundaries, a direct Predicate/ValueExpression Term such
 as `{ kind: "literal", value: "open" }` or a session-context leaf is accepted
 where a value is expected and normalized before the original canonical schema
@@ -851,9 +863,15 @@ diagnostic or clean inspection resets the sequence. The sequence and guidance
 live in the durable executor result, so process recovery cannot buy the same
 decision twice.
 
-Pure input-shape, unknown-tool, permission, and allowlist errors return directly
-and never invoke the architect. The accepted contract and deterministic plan
-freeze when construction begins.
+Pure input-shape, unknown-tool, permission, allowlist, and other deterministic
+operation rejections return directly and never invoke the architect. The
+server fingerprints the exact native call, rejection code/message, and private
+workspace revision. Its first occurrence is ordinary; the second appends an
+explicit instruction not to retry the unchanged call; a third identical
+occurrence stops locally as `repeated-rejected-call`. A changed input, changed
+diagnostic, accepted call, or advanced workspace resets the sequence. This is
+a no-progress fuse, not a semantic quality gate and not a paid review step.
+The accepted contract and deterministic plan freeze when construction begins.
 The architect cannot require a contract revision, ask the user to reinterpret
 an accepted workflow, remove workflows, or replace the plan. Such a result is
 an internal build defect and stops honestly. A local tool-schema rejection is
@@ -1001,7 +1019,7 @@ and commit status; wire-invalid, private-mutation-rejected, and
 validator-repair counts;
 model steps, token and cache use, elapsed time, and estimated cost. Each
 revision also reports its worker-facing composition profile: module/form,
-sectioned/flat, section, input, guidance, record-summary, actor-specific,
+grouped (`sectioned`)/flat, section, input, guidance, record-summary, actor-specific,
 duplicate-workflow, and icon counts. The slice replay inspector exports the
 same composition profile and attempt-to-generation bindings beside the exact
 brief and optional private candidate. Inspection fails the mechanical gate when

@@ -218,6 +218,23 @@ describe("renderSourcePackage containment", () => {
 		);
 		expect(DESIGN_REVIEWER_SYSTEM).toContain("one systemic finding");
 		expect(DESIGN_REVIEWER_SYSTEM).toContain("every affected form composition");
+		for (const prompt of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {
+			expect(prompt).toContain("ordinary group fields");
+			expect(prompt).toContain("one continuous form");
+			expect(prompt).toContain("FormSection");
+		}
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"never a reason to flatten useful grouping",
+		);
+	});
+
+	it("keeps grouped fields distinct from the future FormSection gap", () => {
+		const constraints = renderPlatformConstraintsSection();
+		expect(constraints).toContain("authored FormSection pages");
+		expect(constraints).toContain(
+			"Ordinary group fields still provide visual grouping",
+		);
+		expect(constraints).toContain("are not part of this gap");
 	});
 
 	it("treats missing authoring values as blockers rather than readiness", () => {

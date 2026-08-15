@@ -270,6 +270,18 @@ export const configureConnectTool = {
 					result: { error: planned.messages.join(" ") },
 				};
 			}
+			if (planned.mutations.length === 0) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: {
+						error:
+							input.mode === null
+								? "CommCare Connect is already off. mode null only clears an existing Connect target; it does not configure case lists or ordinary forms. Continue without retrying this call."
+								: `CommCare Connect already matches this complete ${input.mode} target. This call would make no edit; continue without retrying it.`,
+					},
+				};
+			}
 			const commit = await guardedMutate(ctx, planned.mutations, "app");
 			if (!commit.ok) {
 				return {

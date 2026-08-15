@@ -118,17 +118,20 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   action timing (a `blocked` action is refused at admission until a durable
   receipt producer exists). A construction group cannot reference an
   external requirement as an element. Module composition is owned once by its
-  earliest workflow; each form composition, section, and item is owned by its
-  workflow so exact plan coverage includes the worker-facing information
-  architecture.
+  earliest workflow. A list placed in that module, and properties used only by
+  that list, travel with the workflow that materializes the module; list
+  selection remains usage context rather than a second construction owner.
+  Each form composition, section, and item is owned by its workflow so exact
+  plan coverage includes the worker-facing information architecture.
 - `executionBrief.ts` renders the bounded semantic brief consumed by a slice
   executor. It names the workflow, only properties owned or used by that
   workflow and its list/access/navigation context, a semantic checklist for
   each construction group, relevant constraints, and the exact slice tool
   profile. It also lowers relevant composition deterministically into exact
   module create/reuse, host and role instructions plus form type, name, icon,
-  ordered layout, Markdown, summary, and duplication decisions. A design
-  section lowers to the existing nested Blueprint `group` field plus handled
+  ordered layout, Markdown, summary, and duplication decisions. A grouped
+  design layout (the schema's `sectioned` arm) lowers to the existing nested
+  Blueprint `group` field plus handled
   children (not the future durable FormSection entity); guidance and record
   summaries lower to `label` fields with UUID-backed prose references.
   Semantic record names lower once into exact Blueprint case-type keys; schema,
@@ -188,6 +191,11 @@ Markdown guidance and summaries, and coherent icons. A flat rationale names
 the actual inputs and worker sequence; the reviewer reports repeated weak flat
 treatment as one systemic finding naming every affected form. There is no extra
 model-authored build-plan or visual-design pass.
+
+Grouped composition is visual hierarchy inside one continuous form, realized
+with ordinary Blueprint group fields. It is not the future authored
+FormSection-page feature, and that platform gap never justifies flattening an
+otherwise useful grouping.
 
 The same immutable semantic tool grammar is mounted in every phase so a phase
 transition never changes provider context. Durable gates refuse calls that are

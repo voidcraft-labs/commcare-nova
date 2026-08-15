@@ -229,6 +229,46 @@ function deriveOwnerByElement(
 				(rank.get(b) ?? Number.MAX_SAFE_INTEGER),
 		)[0] ?? initial;
 	const ownerByElement = new Map<string, string>();
+	const moduleOwnerById = new Map(
+		contract.moduleCompositions.map((composition) => [
+			composition.id,
+			earliest(composition.workflowIds),
+		]),
+	);
+	const moduleOwnersByListId = new Map<string, string[]>();
+	for (const composition of contract.moduleCompositions) {
+		const moduleOwner = moduleOwnerById.get(composition.id) ?? initial;
+		for (const listId of composition.listIds) {
+			const owners = moduleOwnersByListId.get(listId) ?? [];
+			owners.push(moduleOwner);
+			moduleOwnersByListId.set(listId, owners);
+		}
+	}
+	const listOwnerById = new Map(
+		contract.lists.map((list) => {
+			const containingModuleOwners = moduleOwnersByListId.get(list.id) ?? [];
+			const semanticUsers =
+				list.selectionWorkflowId !== undefined
+					? [list.selectionWorkflowId]
+					: contract.workflows
+							.filter(
+								(workflow) =>
+									workflow.contextRecordId === list.recordId ||
+									workflow.recordEffects.some(
+										(effect) => effect.recordId === list.recordId,
+									),
+							)
+							.map((workflow) => workflow.id);
+			return [
+				list.id,
+				earliest(
+					containingModuleOwners.length > 0
+						? containingModuleOwners
+						: semanticUsers,
+				),
+			] as const;
+		}),
+	);
 	for (const workflow of contract.workflows)
 		ownerByElement.set(workflow.id, workflow.id);
 	for (const actor of contract.actors) {
@@ -287,22 +327,10 @@ function deriveOwnerByElement(
 						...list.searchPropertyIds,
 					].includes(property.id),
 				)
-				.flatMap((list) =>
-					list.selectionWorkflowId !== undefined
-						? [list.selectionWorkflowId]
-						: contract.workflows
-								.filter(
-									(workflow) =>
-										workflow.contextRecordId === list.recordId ||
-										workflow.recordEffects.some(
-											(effect) => effect.recordId === list.recordId,
-										) ||
-										workflow.readback.some(
-											(readback) => readback.recordId === list.recordId,
-										),
-								)
-								.map((workflow) => workflow.id),
-				);
+				.flatMap((list) => {
+					const owner = listOwnerById.get(list.id);
+					return owner === undefined ? [] : [owner];
+				});
 			ownerByElement.set(
 				property.id,
 				earliest([...directUsers.map((workflow) => workflow.id), ...listUsers]),
@@ -310,19 +338,7 @@ function deriveOwnerByElement(
 		}
 	}
 	for (const list of contract.lists) {
-		const related =
-			list.selectionWorkflowId !== undefined
-				? [list.selectionWorkflowId]
-				: contract.workflows
-						.filter(
-							(workflow) =>
-								workflow.contextRecordId === list.recordId ||
-								workflow.recordEffects.some(
-									(effect) => effect.recordId === list.recordId,
-								),
-						)
-						.map((workflow) => workflow.id);
-		ownerByElement.set(list.id, earliest(related));
+		ownerByElement.set(list.id, listOwnerById.get(list.id) ?? initial);
 	}
 	for (const nav of contract.navigation) {
 		ownerByElement.set(
@@ -346,7 +362,10 @@ function deriveOwnerByElement(
 		);
 	}
 	for (const composition of contract.moduleCompositions) {
-		ownerByElement.set(composition.id, earliest(composition.workflowIds));
+		ownerByElement.set(
+			composition.id,
+			moduleOwnerById.get(composition.id) ?? initial,
+		);
 	}
 	for (const composition of contract.formCompositions) {
 		ownerByElement.set(composition.id, composition.workflowId);

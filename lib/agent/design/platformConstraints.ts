@@ -223,7 +223,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 	GAP_FORM_LINKS_AND_SECTIONS: {
 		code: "GAP_FORM_LINKS_AND_SECTIONS",
 		statement:
-			"End-of-form links (exhaustive-else link projection) and authored form sections are a deliberate target gap; a form cannot chain to another form or present sectioned pages yet.",
+			"End-of-form links (exhaustive-else link projection) and authored FormSection pages are a deliberate target gap; a form cannot chain to another form or present page navigation yet. Ordinary group fields still provide visual grouping within one continuous form and are not part of this gap.",
 		sourceAnchor: "docs/plans/complex-app/form-links-and-sections.md",
 		gapUnitFile: "form-links-and-sections.md",
 	},

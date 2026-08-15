@@ -275,7 +275,7 @@ describe("deterministic build planning", () => {
 		expect(workflowGroup?.blueprintAreas).toContain("case-operations");
 	});
 
-	it("assigns read-only and queue-only properties to the workflow that uses them", () => {
+	it("keeps a list and its queue-only properties with the workflow that materializes its module", () => {
 		const contract = cloneContract(makeContract());
 		const readOnly = did(34);
 		const queueOnly = did(35);
@@ -323,14 +323,22 @@ describe("deterministic build planning", () => {
 		const visitElements = visitSlice?.constructionGroups.flatMap((group) =>
 			group.elements.map((element) => element.id),
 		);
-		expect(visitElements).toEqual(
-			expect.arrayContaining([readOnly, queueOnly]),
-		);
+		expect(visitElements).toContain(readOnly);
+		expect(visitElements).not.toContain(queueOnly);
+		const rootGroups = plan.slices[0]?.constructionGroups ?? [];
 		expect(
-			plan.slices[0]?.constructionGroups.some((group) =>
-				group.elements.some(
-					(element) => element.id === readOnly || element.id === queueOnly,
-				),
+			rootGroups.some((group) =>
+				group.elements.some((element) => element.id === queueOnly),
+			),
+		).toBe(true);
+		expect(
+			rootGroups.some((group) =>
+				group.elements.some((element) => element.id === list.id),
+			),
+		).toBe(true);
+		expect(
+			rootGroups.some((group) =>
+				group.elements.some((element) => element.id === readOnly),
 			),
 		).toBe(false);
 	});

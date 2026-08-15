@@ -91,7 +91,6 @@ const MUTATIONS_BY_AREA = {
 		"removeField",
 		"removeForm",
 		"removeModule",
-		"configureConnect",
 	],
 	"case-operations": [
 		"addCaseOperations",
@@ -108,6 +107,11 @@ const MUTATIONS_BY_AREA = {
 	],
 	automations: ["addAutomations", "updateAutomation", "removeAutomation"],
 } as const satisfies Readonly<Record<BlueprintArea, readonly string[]>>;
+
+/* Reviewed construction has no Design Contract carrier for a complete
+ * CommCare Connect target. Keep the shared operation mounted in the immutable
+ * grammar, but do not authorize it from the generic forms area: a future
+ * accepted Connect shape must opt its exact target into a slice explicitly. */
 
 function uniqueInRegistryOrder(names: ReadonlySet<string>): string[] {
 	return Array.from(CHANGE_SET_TOOL_REGISTRY.keys()).filter((name) =>

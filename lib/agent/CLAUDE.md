@@ -102,7 +102,12 @@ calls then execute serially in provider order, with each result stored before
 the next call begins. Recovery answers only the durable response's unanswered
 suffix. A failed or terminal call preserves its accepted prefix and marks its
 dependent suffix skipped, so neither process replacement nor another model turn
-can accidentally execute it. `finishWorkflow` is the only server-owned
+can accidentally execute it. An exact non-semantic rejection is fingerprinted
+with its native input, code/message, and private revision: the second occurrence
+teaches the executor not to retry it unchanged, and the third stops locally as
+`repeated-rejected-call` without purchasing architect guidance. Substantive
+composition/validator repeats retain the bounded architect path.
+`finishWorkflow` is the only server-owned
 validation and commit request; there is no step-boundary auto-finalizer or
 eligibility marker. Wire-invalid, private-mutation-rejected, and
 validator-repair outcomes increment
@@ -129,6 +134,10 @@ and wall-clock limits by one bounded priced allowance
 (`BLOCKER_RESOLUTION_ALLOWANCE`), because `continue` guidance directs rework
 the deterministic slice budget never priced; `maxBlockerResolutions` caps the
 total extension.
+A reviewed forms slice does not inherit `configureConnect`: the accepted
+Design Contract currently has no exact mode/participant carrier. The shared
+operation remains available to direct chat and MCP, and a future reviewed
+Connect shape must explicitly authorize its deterministic slice.
 A deterministic failure atomically abandons its open set and closes that exact
 plan/slice under the same immutable executor model, prompt, and brief. A fresh
 attempt may open only when one of those recorded compiler inputs changes.

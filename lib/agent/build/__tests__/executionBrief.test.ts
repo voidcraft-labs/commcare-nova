@@ -108,6 +108,13 @@ describe("deriveSliceExecutionBrief", () => {
 			}),
 		]);
 		expect(registration.toolProfile.mutationTools).toContain("setMenuMedia");
+		expect(registration.toolProfile.blueprintAreas).toContain("case-list");
+		expect(registration.toolProfile.mutationTools).toContain(
+			"configureCaseList",
+		);
+		expect(registration.toolProfile.mutationTools).not.toContain(
+			"configureConnect",
+		);
 		expect(visit.moduleRealizations).toEqual([
 			expect.objectContaining({
 				compositionId: ids.modulePatients,
@@ -146,6 +153,8 @@ describe("deriveSliceExecutionBrief", () => {
 			}),
 		]);
 		expect(visit.toolProfile.mutationTools).toContain("setMenuMedia");
+		expect(visit.toolProfile.blueprintAreas).not.toContain("case-list");
+		expect(visit.toolProfile.mutationTools).not.toContain("configureConnect");
 		const rendered = renderBriefMessage(visit);
 		expect(rendered).toContain("Module create or reuse instructions");
 		expect(rendered).toContain("Exact form realization instructions");
@@ -324,7 +333,7 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(constraintCodes).toContain("SINGLE_DIRECT_CASE_WRITE_PER_FIELD");
 		expect(constraintCodes).not.toContain("PREVIEW_AUTOMATIONS_NOT_EXECUTED");
 		expect(constraintCodes).not.toContain("LOOKUP_HQ_EXPORT_CLOSED");
-		expect(constraintCodes).not.toContain("CASE_SEARCH_IS_LIVE_AND_ONLINE");
+		expect(constraintCodes).toContain("CASE_SEARCH_IS_LIVE_AND_ONLINE");
 		expect(brief.capabilityBoundary.sessionBoundary).toEqual({
 			appCount: 1,
 			projectScope: "current-project",
