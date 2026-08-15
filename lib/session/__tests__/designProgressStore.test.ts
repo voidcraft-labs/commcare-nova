@@ -416,6 +416,20 @@ describe("resumed design seed", () => {
 		expect(view(store).stage).toBe("understanding");
 	});
 
+	it("retires a completed materialized seed when an ordinary edit opens", () => {
+		const store = createDesignProgressStore();
+		store.getState().seedSession({
+			designSessionId: SESSION,
+			materializedAppId: "app-1",
+			stage: "ready",
+		});
+		expect(view(store).stage).toBe("ready");
+
+		store.getState().noteTurnOpened();
+		expect(view(store).active).toBe(false);
+		expect(view(store).stage).toBeNull();
+	});
+
 	it("lets a live turn's frames supersede the seeded stage", () => {
 		const store = createDesignProgressStore();
 		store.getState().seedSession({

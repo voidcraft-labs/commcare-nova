@@ -156,6 +156,14 @@ is admitted through `lib/generation/designProgressWire`, which fails closed on
 an unknown `eventVersion` or a foreign design session. Consumers read it
 through `useDesignProgressView`, never an inline selector.
 
+The thread's `designSessionId` is durable routing lineage, not proof that design
+work is active. After a materialized app's accepted build reaches terminal
+completion, ordinary edit turns keep that id in the chat request but do not
+reopen this store. A pre-app scope or the Builder session's unfinished-build
+latch activates progress; a load-seeded materialized `ready` stage retires when
+the next edit opens. This keeps edit and compaction activity on the ordinary
+chat status line instead of falling back to `understanding`.
+
 ## Staged media uploads
 
 `stagedUploads` is why a slot upload is session state and not doc state: the doc must never reference an asset that isn't `ready`, so a picked file lives here — keyed by carrier slot, with progress and an error state — until its upload confirms and the slot dispatches the normal gated attach (`components/builder/media/useStagedUpload.ts` is the driver). Abort handles are functions, so they live in a factory-closure registry beside the store (the `docStoreRef` pattern), never in serializable state; `cancelStagedUpload` aborts through it and `reset()` aborts everything (a torn-down session must not let an orphaned upload attach into a dead store). Keying by slot identity (not component instance) is what lets a slot that unmounts mid-upload re-render its chip from the store on remount.

@@ -15,6 +15,7 @@ import {
 	designProgressLocksInitialBuild,
 	designProgressOwnsActivityStatus,
 	designProgressTracksBuildFailure,
+	designSessionScopeTracksProgress,
 	expectedProjectIdForChatRequest,
 	mergeRetainedUserTextSuffix,
 	parseAppMaterializationReceipt,
@@ -113,6 +114,27 @@ describe("interrupted-turn request routing", () => {
 });
 
 describe("design progress activity ownership", () => {
+	it("treats completed design lineage as edit routing, not active progress", () => {
+		expect(
+			designSessionScopeTracksProgress(
+				{ designSessionId: "design", materializedAppId: "app" },
+				false,
+			),
+		).toBe(false);
+		expect(
+			designSessionScopeTracksProgress(
+				{ designSessionId: "design", materializedAppId: "app" },
+				true,
+			),
+		).toBe(true);
+		expect(
+			designSessionScopeTracksProgress(
+				{ designSessionId: "design", materializedAppId: null },
+				false,
+			),
+		).toBe(true);
+	});
+
 	it("keeps the design status through post-materialization build work", () => {
 		expect(
 			designProgressOwnsActivityStatus(

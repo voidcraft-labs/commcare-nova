@@ -63,6 +63,7 @@ import {
 } from "@/lib/domain/blueprint";
 import { uuidSchema } from "@/lib/domain/uuid";
 import {
+	type DesignSessionScope,
 	type DesignSessionSeed,
 	parseDesignSessionScope,
 } from "@/lib/generation/designProgressWire";
@@ -126,10 +127,20 @@ export function designProgressOwnsActivityStatus(
 	);
 }
 
+/** A design-session id is permanent thread lineage, but its progress UI is
+ * live only while the accepted build is unfinished. Pre-app scope is itself
+ * proof of an active build; after materialization the Builder session's
+ * durable unfinished latch is authoritative. */
+export function designSessionScopeTracksProgress(
+	scope: DesignSessionScope,
+	buildUnfinished: boolean,
+): boolean {
+	return scope.materializedAppId === null || buildUnfinished;
+}
+
 /** A design-backed conversation locks authoring only while its app still owns
- * the unfinished initial-build latch. Reopening the original thread after
- * completion may initially seed an `understanding` progress stage, but that
- * historical scope must not disable an otherwise editable composer. */
+ * the unfinished initial-build latch. Historical lineage alone must not
+ * disable an otherwise editable composer. */
 export function designProgressLocksInitialBuild(
 	_view: Pick<DesignProgressView, "active" | "stage">,
 	buildUnfinished: boolean,
@@ -1052,19 +1063,27 @@ function createChatInstance(
 			const sessionApi = sessionStoreRef.current;
 			if (!docApi || !sessionApi) return;
 
-			/* The turn's design-session scope: the id this thread echoes on
-			 * every later send (the route continues the session's build, or the
-			 * edit of its materialized app), and — while `materializedAppId` is
-			 * null — the signal that a BUILD is in flight with no app yet, which
-			 * latches the store's unfinished-build read. A replay is
-			 * idempotent. */
+			/* The turn's design-session scope always refreshes durable thread
+			 * lineage. It activates design progress only while the accepted build is
+			 * unfinished: an ordinary edit of the materialized, completed app still
+			 * names its originating design session, but that is routing context, not
+			 * new design work. */
 			if (type === "data-design-session") {
 				const scope = parseDesignSessionScope(data);
 				if (scope !== null) {
 					designSessionIdRef.current = scope.designSessionId;
-					designProgressStore.getState().beginSession(scope);
+					if (
+						designSessionScopeTracksProgress(
+							scope,
+							sessionApi.getState().buildUnfinished,
+						)
+					) {
+						designProgressStore.getState().beginSession(scope);
+					} else {
+						designProgressStore.getState().reset();
+					}
 					if (scope.materializedAppId === null) {
-						sessionStoreRef.current?.getState().markBuildUnfinished();
+						sessionApi.getState().markBuildUnfinished();
 						if (window.location.pathname === "/build/new") {
 							pushBuilderHistory(
 								`/build/new?design=${encodeURIComponent(scope.designSessionId)}`,
@@ -1426,7 +1445,8 @@ export function ChatContainer({
 			 * can start after the original `data-design-session` frame, and then
 			 * later review/revision pulses would otherwise be dropped while the
 			 * generic Builder status incorrectly kept saying "Building your app."
-			 * The replayed scope frame remains idempotent and authoritative. */
+			 * A completed app keeps the id in `designSessionIdRef` for routing but
+			 * does not reopen progress merely because its thread has lineage. */
 			const priorProgress = designProgressStore.getState();
 			rememberDesignBuildResumeEligibility(
 				resumableDesignSessionIdsRef.current,
@@ -1450,7 +1470,15 @@ export function ChatContainer({
 						materializedAppId,
 						stage: "incomplete",
 					});
-				} else {
+				} else if (
+					designSessionScopeTracksProgress(
+						{
+							designSessionId: opts.designSessionId,
+							materializedAppId,
+						},
+						opts.buildUnfinished === true,
+					)
+				) {
 					designProgressStore.getState().beginSession({
 						designSessionId: opts.designSessionId,
 						materializedAppId,

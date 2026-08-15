@@ -91,7 +91,7 @@ export interface DesignProgressState {
 	 *  orchestration head). It is the floor the fold falls back to before any
 	 *  frame arrives, so a resumed design says where it actually stopped
 	 *  instead of pretending a fresh turn is running. A live turn supersedes
-	 *  it the moment its scope frame lands. */
+	 *  it when it opens; terminal `ready` retires to ordinary edit activity. */
 	seededStage: DesignBuildStage | null;
 	/** Seed a cold page load of an existing design session. There is no
 	 *  client-side re-derivation of the outline or plan — those live only in
@@ -112,7 +112,8 @@ export interface DesignProgressState {
 	/** A turn is on its way to the server. Retires the page-load snapshot the
 	 *  moment it stops describing the present, so a resumed design cannot keep
 	 *  saying "waiting on your answer" over an answer already being sent. The
-	 *  turn's own scope frame follows within the same stream. */
+	 *  turn's own scope frame follows within the same stream and reopens progress
+	 *  only when the accepted build is still unfinished. */
 	noteTurnOpened: () => void;
 	setAwaitingInput: (awaiting: boolean) => void;
 	markFailed: (message: string, opts: { recoverable: boolean }) => void;
@@ -276,8 +277,13 @@ export function createDesignProgressStore() {
 			/* Completion belongs to the build turn that produced it. A later edit
 			 * returns to the ordinary chat status until the server explicitly opens
 			 * another design session; it must not keep saying the app is ready while
-			 * that edit is running. */
-			if (current.completion !== null) {
+			 * that edit is running. A cold page load carries only the server-derived
+			 * `ready` seed, not the completion frame itself, so retire that equivalent
+			 * terminal projection too. */
+			if (
+				current.completion !== null ||
+				(current.materializedAppId !== null && current.seededStage === "ready")
+			) {
 				set({ ...EMPTY });
 				return;
 			}
