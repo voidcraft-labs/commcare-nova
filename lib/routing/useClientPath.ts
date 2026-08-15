@@ -18,6 +18,11 @@ import { useMemo, useSyncExternalStore } from "react";
  *  `pushState`/`replaceState` calls (which don't fire `popstate`). */
 const listeners = new Set<() => void>();
 
+/** Query state that belongs to the materialized Builder rather than to one
+ * route. `design` is deliberately absent: it is a recovery token owned only
+ * by `/build/new` and must disappear when that design becomes an app. */
+const PERSISTENT_BUILDER_QUERY_KEYS = ["lang"] as const;
+
 const PROJECT_SCOPE_STATE_KEY = "__novaProjectScope";
 interface BuilderHistoryScope {
 	/** Identifies one mounted reconciler runtime, not merely an app id. */
@@ -162,10 +167,22 @@ export function deactivateBuilderHistoryScope(scopeId: string): void {
 	if (activeProjectScope?.scopeId === scopeId) activeProjectScope = null;
 }
 
+function persistentBuilderSearch(): string {
+	const current = new URLSearchParams(window.location.search);
+	const persistent = new URLSearchParams();
+	for (const key of PERSISTENT_BUILDER_QUERY_KEYS) {
+		for (const value of current.getAll(key)) persistent.append(key, value);
+	}
+	const serialized = persistent.toString();
+	return serialized.length === 0 ? "" : `?${serialized}`;
+}
+
 /** The only write path for intra-builder screen history. */
 export function pushBuilderHistory(url: string, replace = false): void {
 	const next = new URL(url, window.location.href);
-	if (!url.includes("?")) next.search = window.location.search;
+	/* An explicit query owns its complete state. Path-only navigation carries
+	 * only Builder-wide lenses, never route-scoped recovery parameters. */
+	if (!url.includes("?")) next.search = persistentBuilderSearch();
 	const relative = `${next.pathname}${next.search}${next.hash}`;
 	if (replace) window.history.replaceState(scopedHistoryState(), "", relative);
 	else window.history.pushState(scopedHistoryState(), "", relative);
