@@ -13,7 +13,12 @@ import { cn } from "@/lib/utils";
  * cursor can show, and drops out of text selection so a sweep from
  * surrounding content can't paint a highlight across its placeholder.
  */
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+function Input({
+	className,
+	type,
+	focusRing = true,
+	...props
+}: React.ComponentProps<"input"> & { focusRing?: boolean }) {
 	return (
 		<InputPrimitive
 			type={type}
@@ -21,7 +26,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
 			className={cn(
 				"h-11 w-full min-w-0 rounded-lg border border-nova-border bg-nova-violet/[0.09] px-3.5 py-1 text-[15px] transition-colors outline-none",
 				"file:inline-flex file:h-8 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-nova-text-muted",
-				"nova-focusable",
+				focusRing && "nova-focusable",
 				"disabled:cursor-not-allowed disabled:select-none disabled:opacity-(--disabled-opacity)",
 				"aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20",
 				className,
