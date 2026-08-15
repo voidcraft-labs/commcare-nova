@@ -32,6 +32,7 @@ scripts/infra/*
 scripts/lib/*
 !scripts/lib/caseTypeSchemaRetirement.ts
 !scripts/lib/caseParentRelationshipRepair.ts
+!scripts/lib/caseStatusFilterRepair.ts
 !scripts/lib/loadPersistedBlueprint.ts
 !scripts/lib/main.ts
 !scripts/lib/schemaDrift.ts

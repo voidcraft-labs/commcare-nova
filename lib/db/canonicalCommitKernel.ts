@@ -272,6 +272,45 @@ export interface StrictAppSnapshot {
 	readonly lookupContext: LookupValidationContext;
 }
 
+export interface SchemaAdmittedAppSnapshot {
+	readonly app: AppDoc;
+	readonly doc: BlueprintDoc;
+}
+
+/**
+ * Parse and hydrate the exact persisted Blueprint without applying today's
+ * absolute commit gate.
+ *
+ * This is the deliberately narrow source-side seam for a named system repair:
+ * a newly strengthened gate can expose historical state that ordinary readers
+ * correctly refuse, but the repair still needs a strictly schema-admitted
+ * document from which to derive deterministic mutations. The repair writer
+ * evaluates the requested post-state through the full current gate before it
+ * can commit. Never use this as a serving/read projection.
+ */
+export async function loadSchemaAdmittedAppSnapshotFromRowInTransaction(
+	tx: Transaction<AppDatabase>,
+	row: PersistedBlueprintAppRow,
+): Promise<SchemaAdmittedAppSnapshot> {
+	await strictAppLoadAfterRootReadHook?.(row.id);
+	const entities = await loadEntities(tx, row.id);
+	const persisted = assemblePersistedBlueprintJsonText(
+		row.id,
+		{
+			app_name: row.app_name,
+			connect_type: row.connect_type,
+			case_types_text: row.case_types_text,
+			logo: row.logo,
+		},
+		entities,
+	);
+	const doc = hydratePersistedBlueprint(persisted);
+	return {
+		app: rowToAppDoc(row, toPersistableDoc(doc)),
+		doc,
+	};
+}
+
 /**
  * The one current persisted-app admission owner.
  *
@@ -286,19 +325,11 @@ export async function loadStrictAppSnapshotFromRowInTransaction(
 	tx: Transaction<AppDatabase>,
 	row: PersistedBlueprintAppRow,
 ): Promise<StrictAppSnapshot> {
-	await strictAppLoadAfterRootReadHook?.(row.id);
-	const entities = await loadEntities(tx, row.id);
-	const persisted = assemblePersistedBlueprintJsonText(
-		row.id,
-		{
-			app_name: row.app_name,
-			connect_type: row.connect_type,
-			case_types_text: row.case_types_text,
-			logo: row.logo,
-		},
-		entities,
+	const source = await loadSchemaAdmittedAppSnapshotFromRowInTransaction(
+		tx,
+		row,
 	);
-	const doc = hydratePersistedBlueprint(persisted);
+	const doc = source.doc;
 	const targets = extractLookupReferenceTargets(doc);
 	const definitionSnapshot = await readLookupDefinitionsInTransaction(
 		tx,

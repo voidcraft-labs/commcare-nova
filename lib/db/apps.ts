@@ -107,6 +107,7 @@ import {
 	denormalize,
 	hasLookupReferenceTargets,
 	loadAppInTransaction,
+	loadSchemaAdmittedAppSnapshotFromRowInTransaction,
 	loadStrictAppSnapshotFromRowInTransaction,
 	lockAppRow,
 	lookupContextForAuthoritativeWrite,
@@ -591,10 +592,14 @@ export async function appendSyntheticBatch(
 			);
 		}
 
-		const previousSnapshot = await loadStrictAppSnapshotFromRowInTransaction(
-			tx,
-			fresh,
-		);
+		// A named system repair may be needed precisely because a strengthened
+		// absolute gate exposed historical state. It receives a strictly parsed,
+		// schema-admitted source and still has to land a fully gate-clean target.
+		// User-attributed synthetic writes retain the ordinary strict read gate.
+		const previousSnapshot =
+			args.authority.kind === "system"
+				? await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, fresh)
+				: await loadStrictAppSnapshotFromRowInTransaction(tx, fresh);
 		const previousPersistable = previousSnapshot.app.blueprint;
 		const previousDoc = previousSnapshot.doc;
 		let syntheticMutations: Mutation[];

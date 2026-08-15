@@ -1322,6 +1322,109 @@ describe("commitGuardedBatch (Postgres)", () => {
 		});
 	});
 
+	it("lets a named system repair replace a gate-invalid historical source with a gate-clean target", async () => {
+		const doc = minDoc();
+		if (doc.caseTypes === null) throw new Error("missing case types");
+		const moduleUuid = doc.moduleOrder[0];
+		const module = doc.modules[moduleUuid];
+		if (module?.caseListConfig === undefined) throw new Error("missing module");
+		const invalidFilter = {
+			kind: "eq" as const,
+			left: {
+				kind: "term" as const,
+				term: {
+					kind: "prop" as const,
+					caseType: "patient",
+					property: "status",
+					via: { kind: "self" as const },
+				},
+			},
+			right: {
+				kind: "term" as const,
+				term: {
+					kind: "literal" as const,
+					value: "collected",
+					data_type: "single_select" as const,
+				},
+			},
+		};
+		const historical: BlueprintDoc = {
+			...doc,
+			caseTypes: doc.caseTypes.map((caseType) => ({
+				...caseType,
+				properties: [
+					...caseType.properties,
+					{
+						name: "status_value",
+						label: proseText("Program status"),
+						data_type: "single_select" as const,
+						options: [{ value: "collected", label: proseText("Collected") }],
+					},
+				],
+			})),
+			modules: {
+				...doc.modules,
+				[moduleUuid]: {
+					...module,
+					caseListConfig: { ...module.caseListConfig, filter: invalidFilter },
+				},
+			},
+		};
+		const appId = await seedApp(historical);
+		await expect(loadApp(appId)).rejects.toThrow(
+			"fails the absolute commit gate (CASE_LIST_FILTER_TYPE_ERROR)",
+		);
+
+		const repairedModule = historical.modules[moduleUuid];
+		if (repairedModule?.caseListConfig === undefined) {
+			throw new Error("missing repaired module");
+		}
+		const repaired: BlueprintDoc = {
+			...historical,
+			appId,
+			modules: {
+				...historical.modules,
+				[moduleUuid]: {
+					...repairedModule,
+					caseListConfig: {
+						...repairedModule.caseListConfig,
+						filter: {
+							...invalidFilter,
+							left: {
+								...invalidFilter.left,
+								term: {
+									...invalidFilter.left.term,
+									property: "status_value",
+								},
+							},
+						},
+					},
+				},
+			},
+		};
+
+		await expect(
+			appendSyntheticBatch({
+				appId,
+				expectedBaseSeq: 0,
+				targetDoc: toPersistableDoc(repaired),
+				authority: {
+					kind: "system",
+					actorId: "system:test-gate-cutover",
+					reason: "Repair a newly exposed historical gate finding",
+				},
+			}),
+		).resolves.toEqual({ kind: "committed", seq: 1 });
+		expect(
+			(await loadApp(appId))?.blueprint.modules[moduleUuid]?.caseListConfig
+				?.filter,
+		).toEqual(repaired.modules[moduleUuid]?.caseListConfig?.filter);
+		expect((await readStream(appId))[0]).toMatchObject({
+			kind: "blueprint-migration",
+			actor_id: "system:test-gate-cutover",
+		});
+	});
+
 	it("writes nothing and does not advance seq for an exact synthetic no-op", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);
