@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "fc7c6202afa6a62a33b8692860288d14aa4a538b19df94ccbb8d4b9dd92dcfba",
+  "catalogDigest": "7a6a6cdec1cba8af6b980b297e722c0d3461d44ad61b201528e7b295bb8d0d15",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -43,7 +43,6 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "GAP_NESTED_MENUS",
     "GAP_SESSION_ENDPOINTS_DEEP_LINKS",
     "GAP_MULTI_SELECT_RELATED_CASES",
-    "GAP_MULTILINGUAL_LOCALIZATION",
   ],
   "fieldKinds": [
     "text",

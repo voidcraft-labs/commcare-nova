@@ -1,7 +1,10 @@
 /** Durable authority and recovery store for post-slice localization. */
 
 import { z } from "zod";
-import type { DesignLocalizationIntent } from "@/lib/agent/design/contract";
+import {
+	type DesignLocalizationIntent,
+	designLocalizationIntentSchema,
+} from "@/lib/agent/design/contract";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { getAppDb, withAppTx } from "@/lib/db/pg";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -141,7 +144,7 @@ function attemptFromRow(row: {
 		sourceSeq: safePersistedSequence(row.source_seq, "localization source seq"),
 		sourceSnapshotDigest: row.source_snapshot_digest,
 		intentDigest: row.intent_digest,
-		intent: z.custom<DesignLocalizationIntent>().parse(row.intent),
+		intent: designLocalizationIntentSchema.parse(row.intent),
 		status,
 		committedSeq:
 			row.committed_seq === null

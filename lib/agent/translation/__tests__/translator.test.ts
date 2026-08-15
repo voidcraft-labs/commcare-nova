@@ -76,6 +76,41 @@ describe("translation protocol", () => {
 		expect(() =>
 			decodeTranslatedValue(encoded, `${token} puis ${token}`),
 		).toThrow("exactly once");
+		expect(() =>
+			decodeTranslatedValue(encoded, `${token} puis ⟦NOVA_REF_deadbeef00_99⟧`),
+		).toThrow("foreign protected token");
+	});
+
+	it("protects marker-shaped literal source text without accepting invented markers", () => {
+		const literalMarker = "⟦NOVA_REF_user-authored-marker⟧";
+		const source: ProseTemplate = {
+			parts: [{ kind: "text", text: `Show ${literalMarker} literally` }],
+		};
+		const unit: TranslationUnit = {
+			...textUnit("literal-marker", "unused"),
+			valueKind: "prose",
+			source,
+			sourceFingerprint: translationSourceFingerprint("prose", source),
+		};
+		const encoded = encodeTranslationUnit(unit);
+		expect(encoded.sourceText).not.toContain(literalMarker);
+		const protectedLiteral = encoded.protectedTokens[0];
+		if (protectedLiteral === undefined) {
+			throw new Error("literal marker was not protected");
+		}
+		expect(
+			decodeTranslatedValue(
+				encoded,
+				`Afficher ${protectedLiteral} littéralement`,
+			),
+		).toEqual({
+			parts: [
+				{
+					kind: "text",
+					text: `Afficher ${literalMarker} littéralement`,
+				},
+			],
+		});
 	});
 
 	it("requires exactly one valid result for every requested unit", () => {

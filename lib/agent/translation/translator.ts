@@ -8,6 +8,7 @@ import {
 	canonicalProseTemplate,
 	type LanguageCode,
 	type LocalizedValue,
+	type ProsePart,
 	type ProseReferencePart,
 	type TranslationUnit,
 	translationValueIntegrityIssue,
@@ -63,7 +64,7 @@ export interface EncodedTranslationUnit {
 	readonly contentPolicy: TranslationUnit["contentPolicy"];
 	readonly protectedTokens: readonly string[];
 	readonly unit: TranslationUnit;
-	readonly tokenReferences: ReadonlyMap<string, ProseReferencePart>;
+	readonly tokenReferences: ReadonlyMap<string, ProsePart>;
 }
 
 export interface TranslationBatchInput {
@@ -99,6 +100,8 @@ function referenceToken(unitId: string, index: number, text: string): string {
 	return token;
 }
 
+const RESERVED_PROTECTED_TOKEN_PATTERN = /⟦NOVA_REF_[^⟧\r\n]*⟧/gu;
+
 export function encodeTranslationUnit(
 	unit: TranslationUnit,
 ): EncodedTranslationUnit {
@@ -121,12 +124,25 @@ export function encodeTranslationUnit(
 		.filter((part) => part.kind === "text")
 		.map((part) => part.text)
 		.join("");
-	const tokenReferences = new Map<string, ProseReferencePart>();
+	const tokenReferences = new Map<string, ProsePart>();
 	let referenceIndex = 0;
 	let sourceText = "";
 	for (const part of template.parts) {
 		if (part.kind === "text") {
-			sourceText += part.text;
+			let cursor = 0;
+			for (const match of part.text.matchAll(
+				RESERVED_PROTECTED_TOKEN_PATTERN,
+			)) {
+				const marker = match[0];
+				const index = match.index;
+				sourceText += part.text.slice(cursor, index);
+				const token = referenceToken(unit.id, referenceIndex, literalText);
+				referenceIndex += 1;
+				tokenReferences.set(token, { kind: "text", text: marker });
+				sourceText += token;
+				cursor = index + marker.length;
+			}
+			sourceText += part.text.slice(cursor);
 			continue;
 		}
 		const token = referenceToken(unit.id, referenceIndex, literalText);
@@ -176,6 +192,15 @@ export function decodeTranslatedValue(
 		if (exactOccurrenceCount(translatedText, token) !== 1) {
 			throw new Error(
 				`Translation unit ${encoded.unitId} must preserve protected token ${token} exactly once.`,
+			);
+		}
+	}
+	for (const match of translatedText.matchAll(
+		RESERVED_PROTECTED_TOKEN_PATTERN,
+	)) {
+		if (!encoded.tokenReferences.has(match[0])) {
+			throw new Error(
+				`Translation unit ${encoded.unitId} included foreign protected token ${match[0]}.`,
 			);
 		}
 	}

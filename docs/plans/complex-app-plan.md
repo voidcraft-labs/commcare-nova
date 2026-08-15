@@ -1625,6 +1625,54 @@ separate, always-available repair. Project deletion is globally disabled until
 Nova has an audited whole-tenant deletion lifecycle. `lib/db/CLAUDE.md` owns
 the move protocol and lock discipline.
 
+### Multilingual app authoring and translation
+
+An app has one canonical source language, one runtime default language, and an
+ordered catalog of target languages. The canonical values on modules, forms,
+fields, case lists, and Search remain ordinary Nova domain values; an optional
+app-level localization overlay stores only target values, provenance, source
+fingerprints, and review state. Legacy documents with no overlay are exactly an
+English-only app. Missing or stale target values resolve to the current source,
+so every document remains complete and valid throughout authoring.
+
+One domain-owned translation-unit inventory enumerates every supported static
+worker-facing string with stable identity, role, breadcrumb, semantic context,
+value policy, and protected reference parts. The Builder's global language lens,
+Languages workspace, ordinary inline editors, Preview engine, SA/MCP tools,
+translation finalizer, validator, and CommCare compiler all consume that same
+inventory and resolver. Authors can add any Classic-valid language by copying
+the complete effective content of an existing language, then edit or review each
+string without maintaining a second app model. Coverage diagnostics explicitly
+name mutable lookup labels and other carriers that cannot honestly use the
+static overlay.
+
+Manual authoring, copy, Preview, and export accept every language code CommCare
+Classic accepts; the vendored Classic picker catalog supplies discovery rather
+than an allowlist. Automatic translation is a separate exact source-to-target
+capability policy with Available, Not evaluated, and Withheld states. The
+production manifest initially has no Available direction, so no paid translation
+can run until that direction passes the checked-in quality evaluation and
+bilingual review. Conversation language is independent of app languages: the SA
+responds in the user's language while preserving exact authored identifiers.
+
+An accepted initial-build localization intent runs only after all build slices,
+when the complete string inventory exists. Its bounded structured batches use
+protected prose tokens and persist generation claims, outputs, failures, usage,
+and protocol identity before one canonical localization commit and receipt.
+Retries reuse accepted work; a failed protocol cannot be retried for random model
+variance, while a deployed protocol generation may replace it. The design
+session remains unfinished until the receipt exists, and usage accounting is
+exactly once.
+
+`lib/commcare` emits complete language maps in HQ JSON, one complete itext
+translation per XForm language, and one suite app-string table per configured
+language. A direct CCZ includes both the initialization-only `default` locale
+and every named locale including the runtime default, with `homescreen.title`,
+`app.display.name`, language endonyms, and `lang.current`. The domain, Builder,
+agent, and CommCare subtree contracts own the detailed invariants; public usage
+and MCP behavior live in `content/docs/languages.mdx` and
+`content/docs/mcp/tools.mdx`.
+
 ### Run holders and the app-write surface
 
 A run holds its app through a server-minted nonce; every claim mints one and
@@ -1642,7 +1690,7 @@ directly. Request and run timings are three independently authored fields in
 
 ## What remains
 
-Ten units, one file each. **Every entry below is a pointer, not a summary of
+Nine units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -1650,18 +1698,6 @@ withholding so you can tell when you need it. Read that file, and
 
 Units are named, not numbered: the file's name is the unit's identity, so a
 unit that ships leaves no gap and nothing ever renumbers.
-
-### Multilingual app authoring and translation
-
-[`complex-app/multilingual-localization.md`](complex-app/multilingual-localization.md)
-· depends on nothing · blocks nothing
-
-Native source, default, and target languages across authoring, Preview, build,
-and export, with direction-gated optional AI translation. **The file holds**
-the verified Classic language and wire boundaries, overlay and translation-unit
-model, complete-string fallback semantics, Builder/agent experience, Sol
-capability policy, end-of-build finalizer, and coordinated Nova/plugin release
-contract.
 
 ### Grouped case tiles
 
@@ -1771,7 +1807,6 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [multilingual localization](complex-app/multilingual-localization.md) | — |
 | [grouped case tiles](complex-app/grouped-case-tiles.md) | — |
 | [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | — |
 | [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
@@ -1782,9 +1817,9 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
 
-Six units have no outstanding prerequisites and can start in any order:
-multilingual localization, grouped case tiles, attachment emission, the
-usercase, push and provisioning, and form links and sections. They are the independent entry points — every
+Five units have no outstanding prerequisites and can start in any order:
+grouped case tiles, attachment emission, the usercase, push and provisioning,
+and form links and sections. They are the independent entry points — every
 other unit descends from one of them.
 
 Push and provisioning is the critical path: it gates the App setup UI, session
@@ -1792,12 +1827,11 @@ endpoints, and multi-select, so anything needing resources on a real HQ target
 waits on it. The navigation chain (form links → nested menus) runs
 independently until session endpoints, which needs both.
 
-Multilingual localization, grouped case tiles, attachment emission, the App
-setup UI, session endpoints, and multi-select are leaves — nothing waits on
-them, so each can land whenever its own prerequisites are met. Multilingual
-localization and grouped case tiles are both entry points and leaves: nothing
-blocks them and nothing waits on them, which makes them the
-natural filler whenever push and provisioning is blocked on something external.
+Grouped case tiles, attachment emission, the App setup UI, session endpoints,
+and multi-select are leaves — nothing waits on them, so each can land whenever
+its own prerequisites are met. Grouped case tiles are both an entry point and a
+leaf: nothing blocks them and nothing waits on them, which makes them a natural
+filler whenever push and provisioning is blocked on something external.
 The usercase unit sits off the critical path too — only the App setup UI waits
 on it, so it can proceed independently without holding up push and provisioning.
 

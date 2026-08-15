@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
@@ -319,6 +320,48 @@ describe("initial-build localization finalizer", () => {
 		const replayCalls = trackDurable.mock.calls.slice(batches.length);
 		expect(replayCalls[0]?.[0].translationBatchId).toBe(firstBatch.id);
 		expect(replayCalls[0]?.[2]?.model).toBe("gpt-5.5-persisted-test");
+	});
+
+	it("fails closed when a persisted localization intent is corrupt", async () => {
+		const contract = cloneContract(makeContract());
+		contract.charter.localization = {
+			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
+			defaultLanguage: "en",
+			targets: [],
+		};
+		const args = {
+			lineage: {
+				designSessionId: lineage.designSessionId,
+				designRevisionId: lineage.designRevisionId,
+				designRevisionDigest: lineage.designRevisionDigest,
+				buildPlanId: lineage.buildPlanId,
+				buildPlanDigest: lineage.buildPlanDigest,
+				appId: APP,
+			},
+			authority: {
+				actorUserId: ACTOR,
+				projectId: PROJECT,
+				runId: RUN,
+				holderNonce: NONCE,
+			},
+			sourceSeq: 1,
+			sourceSnapshotDigest: canonicalJsonDigest(toPersistableDoc(source)),
+			intent: contract.charter.localization,
+		};
+		const attempt = await beginOrRecoverLocalizationAttempt(args);
+		await sql`
+			UPDATE design_localization_attempts
+			SET intent = ${JSON.stringify({
+				sourceLanguage: { code: "en", name: "English", direction: "ltr" },
+				defaultLanguage: "fr",
+				targets: [],
+			})}::jsonb
+			WHERE id = ${attempt.id}
+		`.execute(h.db());
+
+		await expect(beginOrRecoverLocalizationAttempt(args)).rejects.toThrow(
+			"runtime default language",
+		);
 	});
 
 	it("refuses a random retry of a failed protocol but admits a deployed protocol replacement", async () => {
