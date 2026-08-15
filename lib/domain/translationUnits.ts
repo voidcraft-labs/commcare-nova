@@ -138,6 +138,7 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-button-label",
+	"search-input-label",
 ]);
 
 export interface LocalizedTranslationUnit extends TranslationUnit {

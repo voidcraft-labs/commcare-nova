@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	appLocalizationSchema,
 	CLASSIC_LANGUAGE_OPTIONS,
@@ -9,6 +9,7 @@ import {
 	effectiveAppLocalization,
 	makeTranslationUnitId,
 	proseText,
+	simpleSearchInputDef,
 	suggestedAppLanguage,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
@@ -202,16 +203,40 @@ describe("translation unit inventory", () => {
 
 	it("carries slot-specific blank-content policy into integrity checks", () => {
 		const { doc } = fixture();
+		doc.modules[doc.moduleOrder[0]].caseListConfig = resolveCaseListConfig({
+			columns: [],
+			searchInputs: [
+				simpleSearchInputDef(
+					testUuid("localization-search-input"),
+					"patient_name",
+					"Patient name",
+					"text",
+					"case_name",
+				),
+			],
+		});
 		const appName = collectTranslationUnits(doc).find(
 			(unit) => unit.role === "app-name",
+		);
+		const searchInput = collectTranslationUnits(doc).find(
+			(unit) => unit.role === "search-input-label",
 		);
 		const hint = collectTranslationUnits(doc).find(
 			(unit) => unit.role === "field-hint",
 		);
 		expect(appName?.contentPolicy).toBe("require-nonblank");
+		expect(searchInput?.contentPolicy).toBe("require-nonblank");
 		expect(hint?.contentPolicy).toBe("allow-blank");
-		if (appName === undefined || hint === undefined) return;
+		if (
+			appName === undefined ||
+			searchInput === undefined ||
+			hint === undefined
+		)
+			return;
 		expect(translationValueIntegrityIssue(appName, "  ")).toBe("blank-content");
+		expect(translationValueIntegrityIssue(searchInput, "  ")).toBe(
+			"blank-content",
+		);
 		expect(translationValueIntegrityIssue(hint, proseText(""))).toBeUndefined();
 	});
 });
