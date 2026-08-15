@@ -116,6 +116,20 @@ describe("design progress stage fold", () => {
 			"Register a household",
 			"Record a visit",
 		]);
+		applyProgressFrame(
+			"data-build-localization-progress",
+			envelope(
+				SESSION,
+				{
+					languageCode: "es",
+					languageName: "Español",
+					batch: 1,
+					batchCount: 2,
+				},
+				4,
+			),
+		);
+		expect(view(store).stage).toBe("translating");
 
 		applyProgressFrame(
 			"data-build-completion",

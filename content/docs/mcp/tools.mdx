@@ -93,6 +93,12 @@ The language catalog is not an AI allowlist: an agent may add, copy, read, and
 manually translate every CommCare-supported code whether or not Nova offers
 automatic translation for that exact direction.
 
+`get_languages` reports automatic translation as **Available**, **Not
+evaluated**, or **Withheld** for each exact source-to-target direction. No
+direction is currently Available. The bounded write tools below remain the
+complete MCP surface; a passing benchmark never silently grants an agent a paid
+translation action or changes production policy.
+
 | Tool | What it does |
 |---|---|
 | `get_languages` | Read the ordered language catalog, source and default languages, per-target coverage, and diagnostics for content outside the static language carrier. |

@@ -90,6 +90,15 @@ export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 		.strict(),
 	z
 		.object({
+			kind: z.literal("translating"),
+			designRevisionId: z.string().uuid(),
+			buildPlanId: z.string().uuid(),
+			appId: z.string().min(1),
+			sourceSeq: z.number().int().positive(),
+		})
+		.strict(),
+	z
+		.object({
 			kind: z.literal("finished"),
 			appId: z.string().min(1),
 			appSeq: z.number().int().positive(),

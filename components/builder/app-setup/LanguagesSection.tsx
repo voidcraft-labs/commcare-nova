@@ -69,6 +69,7 @@ import {
 	type TranslationStatus,
 } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
+import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
 import {
 	useBuilderLanguage,
 	useTranslationUnitEditor,
@@ -120,6 +121,12 @@ export function LanguagesSection() {
 	const [status, setStatus] = useState<TranslationStatusFilter>("all");
 	const [message, setMessage] = useState<string>();
 	const selectedLanguage = localization.languages[languageState.language];
+	const automaticTranslation = languageState.isSource
+		? null
+		: automaticTranslationCapability(
+				localization.sourceLanguage,
+				languageState.language,
+			);
 	const selectedUnits = useMemo(
 		() => collectLocalizedTranslationUnits(doc, languageState.language),
 		[doc, languageState.language],
@@ -316,7 +323,9 @@ export function LanguagesSection() {
 						<p className="mt-1 max-w-2xl text-sm text-nova-text-secondary">
 							{languageState.isSource
 								? "This is the canonical content. Edit it in the Builder where it appears; use this inventory to find every worker-facing string."
-								: `Manual editing and copy are available for every language. Automatic translation from ${localization.languages[localization.sourceLanguage].name} to ${selectedLanguage.name} is not offered until that exact direction passes Nova's quality evaluation.`}
+								: automaticTranslation?.status === "available"
+									? `Manual editing, copy, and automatic translation from ${localization.languages[localization.sourceLanguage].name} to ${selectedLanguage.name} are available. Automatic output starts as Needs review.`
+									: `Manual editing and copy are available for every language. Automatic translation from ${localization.languages[localization.sourceLanguage].name} to ${selectedLanguage.name} is ${automaticTranslation?.status === "withheld" ? "withheld because that direction did not pass Nova's quality threshold" : "not evaluated for quality yet"}.`}
 						</p>
 					</div>
 					<div className="flex flex-col gap-2 @md:flex-row">

@@ -10,9 +10,15 @@ mutation dialect, validity rules, exact JSON persistence, replay/diff behavior,
 shared SA/MCP read/write tools, localized CommCare emission and oracles, global
 Builder language lens, Languages workspace, inline target editing, Preview,
 coverage diagnostics, and focused tests are the current source of truth. The
-manual-language public documentation is part of that surface. The durable AI
-translation orchestrator, its capability-specific documentation, and plugin
-delivery build on those final APIs in the remaining stack layers.
+durable post-slice translation finalizer, exact-direction capability policy,
+translation model role and structured protocol, recovery and exact-once usage
+accounting, atomic localization receipt, translating progress, design intent,
+conversation-language guidance, and paid evaluation harness are also
+implemented on the current stack. The production capability manifest currently
+contains no Available direction, so none of that infrastructure can initiate a
+paid automatic run until an exact evaluation and bilingual review are accepted.
+Capability-specific public documentation is part of the Nova surface. Final
+frozen-SHA review, CI, and the dependent plugin delivery remain.
 
 Keep this document as a description of the best current design and the actual
 implementation state. When implementation teaches us something better, rewrite
@@ -349,8 +355,6 @@ The shared SA/MCP surface has one coherent language family:
 - `update_language`
 - `remove_language`
 - `update_translations`
-- a high-level request to translate or refresh one target language, supplied by
-  the durable AI orchestration layer
 
 The implemented names follow the registry's camelCase SA / snake_case MCP
 convention. `add_language` is the nonblank product operation: it composes the
@@ -361,8 +365,20 @@ source-fingerprint fence for review/keep actions. All mutations use the same
 document grammar and commit gate as the Builder. `get_translatable_content` is
 snapshot-bound, bounded, and pageable, supports language, owner, role, text,
 and status filters, and exposes context plus protected segments from the
-central inventory. An external agent may author translations itself or invoke
-Nova's durable translator.
+central inventory. An external agent may author translations through the
+bounded translation mutations. Nova's durable translator runs only as part of
+an accepted initial-build localization intent whose exact direction is
+Available.
+
+There is deliberately no dormant high-level existing-app translation tool while
+the production policy has zero Available directions. Such a tool could only
+refuse every request, while exposing the Sol runner directly through an ordinary
+mutation tool would bypass paid-run admission, durable recovery, and exact-once
+accounting. Enabling the first Available direction must ship its existing-app
+Builder/chat action on a general durable edit-translation lifecycle; it must not
+reuse design-build lineage tables or turn a long paid side effect into an
+ordinary shared mutation call. Until then, the bounded inventory and update
+tools are the honest manual/external-agent surface.
 
 The follow-up SA responds in the language the user is speaking unless the user
 asks for a different response language. That conversational choice is separate
@@ -395,12 +411,14 @@ estimated tokens rather than item count alone. Each batch includes:
 - a bounded durable terminology glossary from prior accepted batches.
 
 Output is structured and must cover the exact requested unit IDs. The server
-rejects missing, extra, duplicate, wrong-kind, blank-illegal, malformed
-markdown, or protected-token-invalid results. Paid results and usage are stored
-durably. Translation stages against a pinned source snapshot and reaches the
-canonical document only after the complete change set validates. If concurrent
-editing changes the base, unchanged results are reused by source fingerprint
-and only affected work is regenerated before one exact commit.
+rejects missing, extra, duplicate, wrong-kind, blank-illegal, or
+protected-token-invalid results. Markdown delimiter preservation is measured by
+the acceptance harness and judged by the bilingual reviewer; Nova has no
+general markdown-validity oracle and does not claim one. Paid results and usage
+are stored durably. Translation stages against a pinned source snapshot and
+reaches the canonical document only after the complete change set validates.
+The initial app is frozen throughout this finalizer; source drift refuses the
+commit rather than merging model output onto a different base.
 
 All AI output begins as Needs review. Translation failure never silently
 degrades an accepted “translate with Nova” build into copy-only output.
@@ -461,6 +479,17 @@ conversation in French, preserve French as canonical app content, and request
 English worker-facing translations. Until those paid evaluations pass, the UI
 reports them as Not evaluated rather than optimistically enabling them.
 
+`npm run eval:translations` is the explicit paid harness. It requires
+`--confirm-paid`, one `--direction source:target`, and a new output directory;
+it has no default direction and never edits the production policy. Its curated
+English, Spanish, and French source fixtures exercise compact UI copy,
+public-health terminology, related option sets, validation instructions,
+meaningful markdown delimiters, and protected references. Any Classic catalog
+target may be tested. A run writes the exact candidate, model/prompt/schema and
+fixture versions, usage, deterministic structural checks, and a separate
+bilingual-review template. Only a reviewed code change may convert that evidence
+into Available or Withheld policy.
+
 ## Initial build integration
 
 Workflow slices build canonical source-language content. Localization is a
@@ -485,9 +514,18 @@ accepted batches. A deterministic translation failure is a build failure to
 explain or recover, not permission to release a different app than the accepted
 contract.
 
-Later source edits derive Missing/Out-of-date status immediately. AI refresh is
-explicit through Builder or chat rather than an unannounced paid call after
-every keystroke.
+A failed structured-output generation is terminal for its exact
+input/model/prompt/schema identity, so an ordinary retry never purchases a
+different random sample. The accepted attempt remains resumable: a real
+deployed protocol correction appends a new immutable generation at the same
+semantic batch index, while exact-once usage accounting retains the failed
+call's cost.
+
+Later source edits derive Missing/Out-of-date status immediately. Nova never
+makes an unannounced paid call after a keystroke. The first Available direction
+ships with an explicit existing-app action backed by its own durable edit
+lifecycle; until then authors and external agents use the bounded inventory and
+translation mutations.
 
 ## CommCare emission
 
@@ -584,7 +622,9 @@ architecture layer. The expected stack is:
    implemented layer consumes the final foundation APIs directly.
 3. **AI orchestration** — Design Contract, build finalizer, durable translation
    staging/recovery, model role, prompts, capability policy/evaluation harness,
-   progress, usage accounting, and shared high-level translation action.
+   progress, exact-once usage accounting, and atomic localization receipt. The
+   first policy-enabling change also owns the general existing-app action rather
+   than shipping a permanently refusing placeholder in this layer.
 4. **Plugin release** — the dependent `nova-plugin` contract and version bump,
    based on the final Nova MCP behavior and merged only after Nova deployment.
 

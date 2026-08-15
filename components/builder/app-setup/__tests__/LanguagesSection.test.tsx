@@ -146,6 +146,11 @@ describe("LanguagesSection", () => {
 				screen.getByRole("heading", { name: "español strings" }),
 			).toBeTruthy(),
 		);
+		expect(
+			screen.getByText(
+				/Automatic translation from English to español is not evaluated/,
+			),
+		).toBeTruthy();
 		const current = store?.getState();
 		if (current === undefined) throw new Error("Expected the document store.");
 		const localization = effectiveAppLocalization(current.localization);

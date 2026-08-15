@@ -29,6 +29,7 @@ export type DesignBuildStage =
 	| "building-first-workflow"
 	| "building"
 	| "reviewing-implementation"
+	| "translating"
 	| "ready"
 	| "needs-input"
 	| "incomplete"
@@ -78,7 +79,8 @@ export function deriveDesignBuildStage(
 		deadRun &&
 		(state.kind === "designing" ||
 			state.kind === "planning" ||
-			state.kind === "executing-slice")
+			state.kind === "executing-slice" ||
+			state.kind === "translating")
 	) {
 		return "incomplete";
 	}
@@ -92,6 +94,8 @@ export function deriveDesignBuildStage(
 			return "planning";
 		case "executing-slice":
 			return session.app_id === null ? "building-first-workflow" : "building";
+		case "translating":
+			return "translating";
 		case "finished":
 			return "ready";
 		case "accepted-partial":
@@ -124,6 +128,13 @@ export interface DesignProgressEnvelope<T> {
 	readonly orchestrationEventId: string;
 	readonly orchestrationRevision: number;
 	readonly data: T;
+}
+
+export interface BuildLocalizationProjection {
+	readonly languageCode: string;
+	readonly languageName: string;
+	readonly batch: number;
+	readonly batchCount: number;
 }
 
 export function progressEnvelope<T>(

@@ -107,6 +107,15 @@ describe("shared localization tools", () => {
 				}),
 			]),
 		);
+		const languages = readData(await harness.runTool(getLanguagesTool, {}))
+			.languages as Array<Record<string, unknown>>;
+		expect(languages.find((language) => language.code === "es")).toMatchObject({
+			automaticTranslation: {
+				sourceLanguage: "en",
+				targetLanguage: "es",
+				status: "not-evaluated",
+			},
+		});
 		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
 	});
 

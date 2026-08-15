@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import type {
+	BuildLocalizationProjection as ServerBuildLocalization,
 	BuildPlanSummaryProjection as ServerBuildPlanSummary,
 	DesignBuildStage as ServerDesignBuildStage,
 	DesignOutlineProjection as ServerDesignOutline,
@@ -16,6 +17,7 @@ import type {
 	DesignProgressEnvelope as ServerEnvelope,
 } from "@/lib/agent/build/progress";
 import {
+	type BuildLocalizationProjection,
 	type BuildPlanSummaryProjection,
 	DESIGN_BUILD_STAGES,
 	DESIGN_PULSE_PHASES,
@@ -27,6 +29,7 @@ import {
 	designStageIsWorking,
 	designStageLabel,
 	parseBuildCompletion,
+	parseBuildLocalization,
 	parseBuildPlanSummary,
 	parseBuildSliceCommitted,
 	parseDesignOutline,
@@ -42,6 +45,10 @@ const outlineMatches: Exact<DesignOutlineProjection, ServerDesignOutline> =
 	true;
 const planMatches: Exact<BuildPlanSummaryProjection, ServerBuildPlanSummary> =
 	true;
+const localizationMatches: Exact<
+	BuildLocalizationProjection,
+	ServerBuildLocalization
+> = true;
 const envelopeMatches: Exact<
 	DesignProgressEnvelope<string>,
 	ServerEnvelope<string>
@@ -66,9 +73,10 @@ describe("design progress wire", () => {
 			stagesMatch,
 			outlineMatches,
 			planMatches,
+			localizationMatches,
 			envelopeMatches,
 			pulseMatches,
-		]).toEqual([true, true, true, true, true]);
+		]).toEqual([true, true, true, true, true, true]);
 	});
 
 	it("maps every pulse phase onto a working stage", () => {
@@ -92,6 +100,36 @@ describe("design progress wire", () => {
 		expect(
 			parseDesignPulse(
 				envelope({ phase: "author", chars: 5 }, "other"),
+				SESSION,
+			),
+		).toBeNull();
+	});
+
+	it("reads bounded translation progress", () => {
+		expect(
+			parseBuildLocalization(
+				envelope({
+					languageCode: "es",
+					languageName: "Español",
+					batch: 2,
+					batchCount: 4,
+				}),
+				SESSION,
+			),
+		).toEqual({
+			languageCode: "es",
+			languageName: "Español",
+			batch: 2,
+			batchCount: 4,
+		});
+		expect(
+			parseBuildLocalization(
+				envelope({
+					languageCode: "es",
+					languageName: "Español",
+					batch: 0,
+					batchCount: 4,
+				}),
 				SESSION,
 			),
 		).toBeNull();

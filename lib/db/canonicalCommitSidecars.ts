@@ -10,7 +10,7 @@
  * bypass the gate. This dispatcher is the whole vocabulary — arbitrary
  * closures never enter the kernel.
  *
- * The Atomic Change Set runtime has one variant:
+ * The server-owned build runtimes have two variants:
  *
  *   - `commit-design-change-set` — flip the locked change set
  *     `open → committed` beside the canonical write and insert the
@@ -18,6 +18,10 @@
  *     sequence, batch id, and committed snapshot digest. The change-set row
  *     lock is taken here, AFTER the kernel's app lock — the canonical
  *     order.
+ *
+ *   - `commit-design-localization` — flip the exact locked post-slice
+ *     localization attempt `running → committed` and insert its immutable
+ *     receipt beside the one canonical localization batch.
  *
  * On a kernel DEDUP hit sidecars are skipped entirely: the original commit
  * ran them, and a canonical batch without its change-set/receipt sidecars
@@ -29,22 +33,37 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { AppDatabase } from "./pg";
 import { updatedExactlyOne } from "./runHolderWrites";
 
-export type CanonicalCommitSidecar = {
-	readonly kind: "commit-design-change-set";
-	readonly changeSetId: string;
-	readonly expectedRevision: number;
-	/** Receipt-row identity, minted by the caller OUTSIDE the retryable
-	 * transaction so a retry reuses it. */
-	readonly receiptId: string;
-	readonly sliceAttemptId: string;
-	readonly designSessionId: string;
-	readonly designRevisionId: string;
-	readonly designRevisionDigest: string;
-	readonly buildPlanId: string;
-	readonly buildPlanDigest: string;
-	readonly sliceId: string;
-	readonly mutationCount: number;
-};
+export type CanonicalCommitSidecar =
+	| {
+			readonly kind: "commit-design-change-set";
+			readonly changeSetId: string;
+			readonly expectedRevision: number;
+			/** Receipt-row identity, minted by the caller OUTSIDE the retryable
+			 * transaction so a retry reuses it. */
+			readonly receiptId: string;
+			readonly sliceAttemptId: string;
+			readonly designSessionId: string;
+			readonly designRevisionId: string;
+			readonly designRevisionDigest: string;
+			readonly buildPlanId: string;
+			readonly buildPlanDigest: string;
+			readonly sliceId: string;
+			readonly mutationCount: number;
+	  }
+	| {
+			readonly kind: "commit-design-localization";
+			readonly attemptId: string;
+			readonly receiptId: string;
+			readonly designSessionId: string;
+			readonly designRevisionId: string;
+			readonly designRevisionDigest: string;
+			readonly buildPlanId: string;
+			readonly buildPlanDigest: string;
+			readonly sourceSeq: number;
+			readonly sourceSnapshotDigest: string;
+			readonly intentDigest: string;
+			readonly mutationCount: number;
+	  };
 
 export class CanonicalCommitSidecarError extends Error {
 	readonly name = "CanonicalCommitSidecarError";
@@ -72,8 +91,92 @@ export async function executeCanonicalCommitSidecars(
 				await commitDesignChangeSetSidecar(tx, args, sidecar);
 				break;
 			}
+			case "commit-design-localization": {
+				await commitDesignLocalizationSidecar(tx, args, sidecar);
+				break;
+			}
 		}
 	}
+}
+
+async function commitDesignLocalizationSidecar(
+	tx: Transaction<AppDatabase>,
+	commit: {
+		readonly appId: string;
+		readonly seq: number;
+		readonly batchId: string;
+		readonly committedSnapshot: unknown;
+	},
+	sidecar: Extract<
+		CanonicalCommitSidecar,
+		{ kind: "commit-design-localization" }
+	>,
+): Promise<void> {
+	const attempt = await tx
+		.selectFrom("design_localization_attempts")
+		.selectAll()
+		.where("id", "=", sidecar.attemptId)
+		.forUpdate()
+		.executeTakeFirst();
+	if (
+		attempt === undefined ||
+		attempt.status !== "running" ||
+		attempt.design_session_id !== sidecar.designSessionId ||
+		attempt.design_revision_id !== sidecar.designRevisionId ||
+		attempt.design_revision_digest !== sidecar.designRevisionDigest ||
+		attempt.build_plan_id !== sidecar.buildPlanId ||
+		attempt.build_plan_digest !== sidecar.buildPlanDigest ||
+		attempt.app_id !== commit.appId ||
+		Number(attempt.source_seq) !== sidecar.sourceSeq ||
+		attempt.source_snapshot_digest !== sidecar.sourceSnapshotDigest ||
+		attempt.intent_digest !== sidecar.intentDigest
+	) {
+		throw new CanonicalCommitSidecarError(
+			`Localization attempt ${sidecar.attemptId} is not the exact running attempt for this accepted design and source snapshot.`,
+		);
+	}
+	if (commit.seq !== sidecar.sourceSeq + 1) {
+		throw new CanonicalCommitSidecarError(
+			`Localization attempt ${sidecar.attemptId} was derived from app sequence ${sidecar.sourceSeq}, but the canonical commit would land at ${commit.seq}.`,
+		);
+	}
+	const committedSnapshotDigest = canonicalJsonDigest(commit.committedSnapshot);
+	const flip = await tx
+		.updateTable("design_localization_attempts")
+		.set({
+			status: "committed",
+			committed_seq: commit.seq,
+			committed_batch_id: commit.batchId,
+			committed_snapshot_digest: committedSnapshotDigest,
+			updated_at: new Date(),
+		})
+		.where("id", "=", sidecar.attemptId)
+		.where("status", "=", "running")
+		.executeTakeFirst();
+	if (!updatedExactlyOne(flip)) {
+		throw new CanonicalCommitSidecarError(
+			`Localization attempt ${sidecar.attemptId} could not flip from running to committed under its own lock.`,
+		);
+	}
+	await tx
+		.insertInto("design_localization_receipts")
+		.values({
+			id: sidecar.receiptId,
+			attempt_id: sidecar.attemptId,
+			design_session_id: sidecar.designSessionId,
+			design_revision_id: sidecar.designRevisionId,
+			design_revision_digest: sidecar.designRevisionDigest,
+			build_plan_id: sidecar.buildPlanId,
+			build_plan_digest: sidecar.buildPlanDigest,
+			app_id: commit.appId,
+			source_seq: sidecar.sourceSeq,
+			source_snapshot_digest: sidecar.sourceSnapshotDigest,
+			seq: commit.seq,
+			batch_id: commit.batchId,
+			committed_snapshot_digest: committedSnapshotDigest,
+			mutation_count: sidecar.mutationCount,
+		})
+		.execute();
 }
 
 async function commitDesignChangeSetSidecar(

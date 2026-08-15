@@ -212,6 +212,8 @@ describe("runtime row-lock privilege contract", () => {
 			"design_model_context_items",
 			"design_model_steps",
 			"design_model_step_usage_accounts",
+			"design_localization_receipts",
+			"design_localization_batch_usage_accounts",
 			"design_identity_handles",
 			"design_slice_attempt_budget_claims",
 			"case_schema_index_deletions",

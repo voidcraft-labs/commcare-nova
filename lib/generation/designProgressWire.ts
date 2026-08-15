@@ -26,6 +26,7 @@ export const DESIGN_BUILD_STAGES = [
 	"building-first-workflow",
 	"building",
 	"reviewing-implementation",
+	"translating",
 	"ready",
 	"needs-input",
 	"incomplete",
@@ -46,6 +47,7 @@ const STAGE_LABELS: Record<DesignBuildStage, string> = {
 	"building-first-workflow": "Building the first workflow",
 	building: "Building your app",
 	"reviewing-implementation": "Reviewing what was built",
+	translating: "Preparing app languages",
 	ready: "Your app is ready",
 	"needs-input": "Waiting on your answer",
 	incomplete: "Stopped before it finished",
@@ -143,6 +145,13 @@ export interface BuildSliceStartedProjection {
 export interface BuildSliceCommittedProjection
 	extends BuildSliceStartedProjection {
 	readonly seq: number;
+}
+
+export interface BuildLocalizationProjection {
+	readonly languageCode: string;
+	readonly languageName: string;
+	readonly batch: number;
+	readonly batchCount: number;
 }
 
 export interface BuildCompletionProjection {
@@ -248,6 +257,13 @@ const buildSliceCommittedSchema = buildSliceStartedSchema.extend({
 	seq: wholeCount,
 });
 
+const buildLocalizationSchema = z.object({
+	languageCode: nonBlank,
+	languageName: nonBlank,
+	batch: z.number().int().positive(),
+	batchCount: z.number().int().positive(),
+});
+
 const buildCompletionSchema = z.object({
 	appId: nonBlank,
 	appSeq: wholeCount,
@@ -298,6 +314,13 @@ export function parseBuildSliceCommitted(
 	designSessionId: string,
 ): BuildSliceCommittedProjection | null {
 	return parsePayload(frame, designSessionId, buildSliceCommittedSchema);
+}
+
+export function parseBuildLocalization(
+	frame: unknown,
+	designSessionId: string,
+): BuildLocalizationProjection | null {
+	return parsePayload(frame, designSessionId, buildLocalizationSchema);
 }
 
 export function parseBuildCompletion(

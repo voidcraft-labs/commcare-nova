@@ -75,6 +75,61 @@ describe("lean Design Contract graph", () => {
 		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
 	});
 
+	it("keeps manual localization open to every Classic-valid language code", () => {
+		const contract = cloneContract(makeContract());
+		contract.charter.localization = {
+			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
+			defaultLanguage: "zul",
+			targets: [
+				{
+					language: { code: "zul", name: "isiZulu", direction: "ltr" },
+					seedFrom: "en",
+					strategy: "copy-only",
+				},
+			],
+		};
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+		expect(designConstructionIssues(contract)).toEqual([]);
+	});
+
+	it("separates exact-direction automatic capability from manual language support", () => {
+		const contract = cloneContract(makeContract());
+		contract.charter.localization = {
+			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
+			defaultLanguage: "en",
+			targets: [
+				{
+					language: { code: "es", name: "Español", direction: "ltr" },
+					seedFrom: "en",
+					strategy: "translate-with-nova",
+				},
+			],
+		};
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+		expect(constructionMessages(contract)).toContain("not evaluated");
+	});
+
+	it("rejects cyclic target-language copy dependencies", () => {
+		const contract = cloneContract(makeContract());
+		contract.charter.localization = {
+			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
+			defaultLanguage: "en",
+			targets: [
+				{
+					language: { code: "es", name: "Español", direction: "ltr" },
+					seedFrom: "fr",
+					strategy: "copy-only",
+				},
+				{
+					language: { code: "fr", name: "Français", direction: "ltr" },
+					seedFrom: "es",
+					strategy: "copy-only",
+				},
+			],
+		};
+		expect(messages(contract)).toContain("without a cycle");
+	});
+
 	it("preserves optional semantic input validation without making it a quota", () => {
 		const contract = cloneContract(makeContract());
 		const input = fixtureValue(

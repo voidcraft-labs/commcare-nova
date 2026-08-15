@@ -32,6 +32,7 @@ import {
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { casePropertyDataTypes } from "@/lib/domain/casePropertyTypes";
 import { fieldKinds } from "@/lib/domain/fields";
+import { availableAutomaticTranslationDirections } from "@/lib/translation/capabilityPolicy";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
 export interface CatalogToolEntry {
@@ -56,6 +57,13 @@ export interface CapabilityCatalog {
 	readonly existingReferenceable: readonly string[];
 	readonly externalPrerequisites: readonly string[];
 	readonly unsupported: readonly string[];
+	readonly localization: {
+		readonly manualAuthoring: "all-commcare-language-codes";
+		readonly automaticDirections: readonly {
+			readonly sourceLanguage: string;
+			readonly targetLanguage: string;
+		}[];
+	};
 }
 
 export function buildCapabilityCatalog(): CapabilityCatalog {
@@ -92,6 +100,15 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
 			"recording, synthesizing, validating, or uploading audio or other media",
 			"promising runtime or deployment resources that do not already exist",
 		],
+		localization: {
+			manualAuthoring: "all-commcare-language-codes" as const,
+			automaticDirections: availableAutomaticTranslationDirections().map(
+				(direction) => ({
+					sourceLanguage: direction.sourceLanguage,
+					targetLanguage: direction.targetLanguage,
+				}),
+			),
+		},
 	};
 	return { ...body, catalogDigest: canonicalJsonDigest(body) };
 }
@@ -126,6 +143,19 @@ export function renderCapabilityCatalog(catalog: CapabilityCatalog): string {
 		`External prerequisites: ${catalog.externalPrerequisites.join("; ")}.`,
 	);
 	lines.push(`Unsupported promises: ${catalog.unsupported.join("; ")}.`);
+	lines.push(
+		"Localization: manual authoring, copy, Preview, and export support every CommCare language code; automatic translation is a separate exact-direction capability.",
+	);
+	lines.push(
+		catalog.localization.automaticDirections.length === 0
+			? "Automatic translation directions currently Available: none. Use copy-only localization and record human translation as the remaining content task."
+			: `Automatic translation directions currently Available: ${catalog.localization.automaticDirections
+					.map(
+						(direction) =>
+							`${direction.sourceLanguage}→${direction.targetLanguage}`,
+					)
+					.join(", ")}.`,
+	);
 	lines.push("");
 	lines.push("### Platform constraints and deliberate gaps");
 	lines.push(

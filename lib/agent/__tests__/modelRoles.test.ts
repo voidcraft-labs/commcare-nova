@@ -28,6 +28,10 @@ describe("production model roles", () => {
 				modelId: "gpt-5.6-luna",
 				reasoningEffort: "xhigh",
 			},
+			translator: {
+				modelId: "gpt-5.6-sol",
+				reasoningEffort: "medium",
+			},
 		});
 	});
 
