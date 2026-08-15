@@ -27,6 +27,13 @@ localized variables. Direct-CCZ app-string values serialize through Core's
 actual locale grammar (`\#` comments and `\n` line breaks) and fail closed for
 literal backslash-`n` or boundary content that the grammar cannot round-trip.
 
+A local CCZ emits Classic's initialization-only `default` locale resource and
+one named resource for every configured language, including the default
+language. Both tables for the default language carry the same effective values.
+CommCare Android removes only the literal `default` locale from its language
+picker, so the named copy is required to let a worker switch back to the app's
+default language.
+
 The app language catalog uses Nova codes and metadata until this boundary. HQ
 `langs`, localized property maps, itext language/default attributes,
 `default/app_strings.txt`, per-language directories, endonyms, and

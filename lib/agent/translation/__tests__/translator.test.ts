@@ -7,6 +7,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import {
+	boundedGlossary,
 	decodeTranslatedValue,
 	encodeTranslationUnit,
 	planTranslationBatches,
@@ -135,5 +136,29 @@ describe("translation protocol", () => {
 			[makeTranslationUnitId("first"), makeTranslationUnitId("same-form")],
 			[makeTranslationUnitId("app")],
 		]);
+	});
+
+	it("keeps the newest bounded glossary without admitting one oversized entry", () => {
+		const glossary = boundedGlossary([
+			{ source: "older source", target: "older target" },
+			{ source: "x".repeat(6_001), target: "oversized" },
+			{ source: "newer source", target: "newer target" },
+		]);
+		expect(glossary).toEqual([
+			{ source: "older source", target: "older target" },
+			{ source: "newer source", target: "newer target" },
+		]);
+		expect(
+			glossary.reduce(
+				(total, entry) => total + entry.source.length + entry.target.length,
+				0,
+			),
+		).toBeLessThanOrEqual(6_000);
+
+		const numbered = Array.from({ length: 45 }, (_, index) => ({
+			source: `source-${index}`,
+			target: `target-${index}`,
+		}));
+		expect(boundedGlossary(numbered)).toEqual(numbered.slice(-40));
 	});
 });

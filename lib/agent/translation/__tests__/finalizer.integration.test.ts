@@ -234,7 +234,7 @@ describe("initial-build localization finalizer", () => {
 		const batches = await h
 			.db()
 			.selectFrom("design_localization_batches")
-			.select(["id", "status", "usage"])
+			.select(["id", "model_id", "status", "usage"])
 			.orderBy("batch_index", "asc")
 			.execute();
 		expect(batches.length).toBeGreaterThan(0);
@@ -243,6 +243,9 @@ describe("initial-build localization finalizer", () => {
 		expect(
 			trackDurable.mock.calls.map((call) => call[0].translationBatchId),
 		).toEqual(batches.map((batch) => batch.id));
+		expect(trackDurable.mock.calls.map((call) => call[2]?.model)).toEqual(
+			batches.map((batch) => batch.model_id),
+		);
 		const callCount = runBatch.mock.calls.length;
 		const firstBatch = batches[0];
 		if (firstBatch === undefined) throw new Error("translation batch missing");
@@ -298,6 +301,12 @@ describe("initial-build localization finalizer", () => {
 
 		const app = await loadApp(APP);
 		if (app === null) throw new Error("localized app missing");
+		await h
+			.db()
+			.updateTable("design_localization_batches")
+			.set({ model_id: "gpt-5.5-persisted-test" })
+			.where("id", "=", firstBatch.id)
+			.execute();
 		await finalizeInitialBuildLocalization(
 			{ ...args, sourceBlueprint: app.blueprint },
 			{
@@ -307,6 +316,9 @@ describe("initial-build localization finalizer", () => {
 		);
 		expect(runBatch).toHaveBeenCalledTimes(callCount);
 		expect(trackDurable).toHaveBeenCalledTimes(batches.length * 2);
+		const replayCalls = trackDurable.mock.calls.slice(batches.length);
+		expect(replayCalls[0]?.[0].translationBatchId).toBe(firstBatch.id);
+		expect(replayCalls[0]?.[2]?.model).toBe("gpt-5.5-persisted-test");
 	});
 
 	it("refuses a random retry of a failed protocol but admits a deployed protocol replacement", async () => {

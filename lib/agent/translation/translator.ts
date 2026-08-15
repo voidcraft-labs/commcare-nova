@@ -289,15 +289,22 @@ export function planTranslationBatches(
 export function boundedGlossary(
 	entries: readonly TranslationGlossaryEntry[],
 ): readonly TranslationGlossaryEntry[] {
-	const accepted: TranslationGlossaryEntry[] = [];
+	const newestFirst: TranslationGlossaryEntry[] = [];
 	let chars = 0;
-	for (const entry of entries.slice(-MAX_GLOSSARY_ENTRIES)) {
+	for (
+		let index = entries.length - 1;
+		index >= 0 && newestFirst.length < MAX_GLOSSARY_ENTRIES;
+		index -= 1
+	) {
+		const entry = entries[index];
+		if (entry === undefined) continue;
 		const size = entry.source.length + entry.target.length;
-		if (accepted.length > 0 && chars + size > MAX_GLOSSARY_CHARS) break;
-		accepted.push(entry);
+		if (size > MAX_GLOSSARY_CHARS) continue;
+		if (chars + size > MAX_GLOSSARY_CHARS) break;
+		newestFirst.push(entry);
 		chars += size;
 	}
-	return accepted;
+	return newestFirst.reverse();
 }
 
 export function translationPromptPayload(input: TranslationBatchInput) {

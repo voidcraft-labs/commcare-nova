@@ -84,11 +84,12 @@ export interface InitialBuildLocalizationDeps {
 function meterUsage(
 	meter: SubGenerationUsageMeter | undefined,
 	batchId: string,
+	modelId: string,
 	usage: PersistedTranslationUsage | null,
 ): void {
 	if (meter === undefined || usage === null) return;
 	const opts = {
-		model: MODEL_ROLES.translator.modelId,
+		model: modelId,
 		phase: "translation" as const,
 	};
 	if (meter.trackDurable !== undefined) {
@@ -101,10 +102,14 @@ function meterUsage(
 async function meterPersistedAttemptUsage(
 	meter: SubGenerationUsageMeter | undefined,
 	attemptId: string,
-): Promise<void> {
+): Promise<Set<string>> {
+	const metered = new Set<string>();
+	if (meter === undefined) return metered;
 	for (const batch of await readTerminalLocalizationBatchUsage(attemptId)) {
-		meterUsage(meter, batch.batchId, batch.usage);
+		meterUsage(meter, batch.batchId, batch.modelId, batch.usage);
+		metered.add(batch.batchId);
 	}
+	return metered;
 }
 
 function assertReceiptLineage(
@@ -293,6 +298,7 @@ async function runOrRecoverBatch(args: {
 	readonly input: TranslationBatchInput;
 	readonly batchIndex: number;
 	readonly meter: SubGenerationUsageMeter | undefined;
+	readonly meteredBatchIds: Set<string>;
 	readonly signal: AbortSignal;
 }) {
 	const payload = translationPromptPayload(args.input);
@@ -365,7 +371,10 @@ async function runOrRecoverBatch(args: {
 			"Translation batch completion returned a nonterminal claim.",
 		);
 	}
-	meterUsage(args.meter, claimed.id, claimed.usage);
+	if (!args.meteredBatchIds.has(claimed.id)) {
+		meterUsage(args.meter, claimed.id, spec.modelId, claimed.usage);
+		args.meteredBatchIds.add(claimed.id);
+	}
 	if (claimed.kind === "failed") {
 		throw new LocalizationBuildError(
 			claimed.failureCode,
@@ -422,8 +431,20 @@ export async function finalizeInitialBuildLocalization(
 		sourceSnapshotDigest,
 		intent,
 	});
+	/* A replacement protocol generation may coexist with terminal batches from
+	 * an older deployment. Re-offer all of them while the attempt is still
+	 * running; the production meter deduplicates locally and the run-summary
+	 * admission account deduplicates across processes. Lightweight meters do not
+	 * implement that durable identity, so retain their historical terminal-only
+	 * replay behavior. */
+	const meteredBatchIds =
+		args.meter?.trackDurable === undefined
+			? new Set<string>()
+			: await meterPersistedAttemptUsage(args.meter, attempt.id);
 	if (attempt.status !== "running") {
-		await meterPersistedAttemptUsage(args.meter, attempt.id);
+		if (args.meter?.trackDurable === undefined) {
+			await meterPersistedAttemptUsage(args.meter, attempt.id);
+		}
 		const receipt = await readLocalizationReceipt(args.lineage.buildPlanId);
 		if (receipt === null) {
 			throw new Error(
@@ -489,6 +510,7 @@ export async function finalizeInitialBuildLocalization(
 				input,
 				batchIndex: globalBatchIndex,
 				meter: args.meter,
+				meteredBatchIds,
 				signal: args.signal,
 			});
 			globalBatchIndex += 1;

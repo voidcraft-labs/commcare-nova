@@ -591,13 +591,14 @@ export async function readTerminalLocalizationBatchUsage(
 ): Promise<
 	readonly {
 		readonly batchId: string;
+		readonly modelId: string;
 		readonly usage: PersistedTranslationUsage;
 	}[]
 > {
 	const db = await getAppDb();
 	const rows = await db
 		.selectFrom("design_localization_batches")
-		.select(["id", "usage"])
+		.select(["id", "model_id", "usage"])
 		.where("attempt_id", "=", attemptId)
 		.where("status", "in", ["accepted", "failed"])
 		.where("usage", "is not", null)
@@ -606,6 +607,7 @@ export async function readTerminalLocalizationBatchUsage(
 		.execute();
 	return rows.map((row) => ({
 		batchId: row.id,
+		modelId: row.model_id,
 		usage: persistedTranslationUsageSchema.parse(row.usage),
 	}));
 }

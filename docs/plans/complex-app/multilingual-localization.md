@@ -97,6 +97,12 @@ model.
   `commcare-hq/corehq/apps/app_manager/app_strings.py::_create_custom_app_strings`
   supplies language names and `lang.current`. Nova must emit the equivalent
   resources for a useful picker in a direct CCZ.
+- A direct CCZ carries the initialization-only `default` locale resource plus
+  one named locale resource for every configured language, including the
+  default language. CommCare Android removes only the literal `default` from
+  its worker-facing picker, so the named copy is what lets a worker switch back
+  to the default language. The binding sources are Classic's
+  `LocaleResourceContributor` and Android's `ChangeLocaleUtil`.
 - The app's own display name needs localized app-string overrides in addition
   to the unlocalized HQ `Application.name` authoring value.
 - Connect learn-module, delivery-unit, and task names/descriptions are plain
