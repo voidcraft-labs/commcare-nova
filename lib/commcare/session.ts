@@ -57,6 +57,7 @@ import {
 	emitNodesetFilter,
 } from "./suite/case-list/nodesetFilter";
 import type { FormActions, HqFormLink } from "./types";
+import { collectInstanceRefs } from "./xform/instanceRefs";
 
 // ── Session Datums ─────────────────────────────────────────────────────
 
@@ -718,6 +719,23 @@ export function deriveEntryDefinition(
 		seen,
 		lookupNaming,
 	);
+
+	// Post-form stack conditions/datums evaluate in this entry scope. Their
+	// strings are already projected to wire XPath by the expander, so collect
+	// literal instance() roots structurally and declare the matching sources.
+	for (const link of formLinks ?? []) {
+		const expressions = [
+			...(link.condition === undefined ? [] : [link.condition]),
+			...(link.datums ?? []).map((datum) => datum.xpath),
+		];
+		for (const expression of expressions) {
+			for (const id of collectInstanceRefs(expression)) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
+			}
+		}
+	}
 
 	// Determine stack operations. Three cases:
 	//   1. Form has form_links → emit one <create> per link plus a

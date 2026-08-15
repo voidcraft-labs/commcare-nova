@@ -525,13 +525,10 @@ export function formatIntervalForPreview(
 	};
 }
 
-/** Device `today()` is the worker's local calendar day. Construct a UTC
- * midnight from local fields before handing it to XPathDate, whose JS-Date
- * adapter intentionally reads UTC fields for deterministic date arithmetic. */
+/** Device `today()` is the worker's local calendar day. XPathDate performs the
+ * local-calendar-to-epoch-day projection exactly once. */
 function localCalendarDate(value: Date): XPathDate {
-	return XPathDate.fromJSDateOnly(
-		new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate())),
-	);
+	return XPathDate.fromJSDateOnly(value);
 }
 
 function renderPreviewValue(value: PreviewFormattedValue): React.ReactNode {

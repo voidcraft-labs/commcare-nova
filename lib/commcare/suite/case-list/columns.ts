@@ -126,6 +126,7 @@ import type {
 	OnDeviceTermEmissionContext,
 } from "../../predicate/termEmitter";
 import { escapeRegex } from "../../xml";
+import { lowerXPathForJavaRosa } from "../../xpath";
 import { buildSortBlock, type ResolvedSortDirective } from "./sortKeys";
 import { buildTileStyleBlock } from "./tileStyle";
 import type {
@@ -478,7 +479,9 @@ export function plainSelectDisplayXpath(
 	// ` tok ` window and the remainder holds only genuinely unknown tokens —
 	// duplicates of those included, matching Preview's projection. The final
 	// `normalize-space` collapses the leftover padding.
-	let unknownTokens = `concat('  ', replace(normalize-space(${field}), ' ', '  '), '  ')`;
+	let unknownTokens = `concat('  ', replace(${lowerXPathForJavaRosa(
+		`normalize-space(${field})`,
+	)}, ' ', '  '), '  ')`;
 	for (const option of tokenOptions) {
 		const pattern = quoteLiteral(
 			` ${escapeRegex(option.value)} `,
@@ -486,7 +489,9 @@ export function plainSelectDisplayXpath(
 		);
 		unknownTokens = `replace(${unknownTokens}, ${pattern}, ' ')`;
 	}
-	return `normalize-space(concat(${knownLabels}, ' ', ${unknownTokens}))`;
+	return lowerXPathForJavaRosa(
+		`normalize-space(concat(${knownLabels}, ' ', ${unknownTokens}))`,
+	);
 }
 
 /**

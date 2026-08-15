@@ -1,14 +1,13 @@
 // lib/commcare/xpath/index.ts
 //
-// Public barrel for CommCare's XPath dialect: the Lezer-generated
-// parser + the export-time transpiler that rewrites Nova's extended
-// dialect into CommCare-safe XPath 1.0.
+// Public barrel for CommCare's XPath dialect: the Lezer-generated parser,
+// proven production JavaRosa lowering, and experimental transpiler.
 //
 // Lives inside lib/commcare/ because XPath is the expression dialect
 // that CommCare defines; the package's "one-way emission boundary" rule
 // is scoped to wire-format emission (XForm XML, HqApplication JSON),
 // not to shared parsing infrastructure that other layers legitimately
-// need to read (transpiler, preview evaluator, hashtag rewriter, etc.).
+// need to read (validator, Preview evaluator, hashtag rewriter, etc.).
 //
 // Grammar source is compiled ahead-of-time into parser.ts +
 // parser.terms.ts (committed; regenerate via
@@ -27,6 +26,7 @@ export {
 	type XPathParseIssue,
 	type XPathParseResult,
 } from "./expressionAst";
+export { lowerXPathForJavaRosa } from "./javaRosaLowering";
 export { parser } from "./parser";
 export * from "./parser.terms";
 export { transpile } from "./transpiler";

@@ -78,6 +78,7 @@ import {
 } from "@/lib/commcare/xform/caseOps";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
@@ -473,7 +474,7 @@ export function buildXForm(
 		caseTypeDepths,
 	};
 	const expand = (expr: string): string =>
-		expandHashtagsInContext(expr, formCtx);
+		lowerXPathForJavaRosa(expandHashtagsInContext(expr, formCtx));
 
 	// Editor-vocabulary projector for the `vellum:*` shadow attributes, threaded
 	// like `expand`. Returns the shadow text (`#patient/x` → `#case/x`) or
@@ -491,9 +492,15 @@ export function buildXForm(
 	const shorthandMemo = new Map<string, string | undefined>();
 	const shorthand = (expr: string): string | undefined => {
 		if (shorthandMemo.has(expr)) return shorthandMemo.get(expr);
-		const projected = vellumShorthandInContext(expr, formCtx, (ref, expanded) =>
-			vellumRefs.set(ref, expanded),
+		const editorXPath = vellumShorthandInContext(
+			expr,
+			formCtx,
+			(ref, expanded) => vellumRefs.set(ref, expanded),
 		);
+		const projected =
+			editorXPath === undefined
+				? undefined
+				: lowerXPathForJavaRosa(editorXPath);
 		shorthandMemo.set(expr, projected);
 		return projected;
 	};

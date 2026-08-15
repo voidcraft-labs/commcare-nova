@@ -111,6 +111,14 @@ followup/close → `previous`, registration/survey → `app_home`. The SA only s
 
 `form_links` on a form enables conditional navigation: `condition?` (XPath) + `target` (form or module by uuid) + optional `datums`. First matching condition wins; `post_submit` is the fallback. Fully validated.
 
+Core evaluates each form-link condition and datum as a post-form session-stack
+operation, after the XForm instance has closed. These expressions may read the
+entry's session and loaded case instances, but never `#form/...` or `/data/...`.
+`expander.ts::translateFormLinks` projects typed case/user references into that
+session scope and lowers JavaRosa shims; `deriveEntryDefinition` declares every
+secondary instance the projected strings use. Empty datum XPath is invalid
+(unlike an omitted condition, which means unconditional navigation).
+
 ### Repeat modes
 
 Three modes via `repeat_mode` discriminator, each emits different wire shape:
@@ -367,7 +375,7 @@ read. Emit raw comparisons: Core's absent node-set becomes `""` for string
 comparison and NaN for numeric comparison, so a generic presence guard would
 change equality/inequality semantics.
 
-`caseSearchConfig.excludedOwnerIds` is Results availability, independent from the Search action. It resolves once from global session/Search state before any case is selected, then constrains ordinary case-list nodesets and HQ short-detail filters as well as effective remote Search; it can never read the row being filtered. `emitNormalizedExcludedOwnerIdsExpression` wraps the value in `normalize-space(...)` for BOTH local-suite remote data and HQ JSON, and the ordinary list feeds that same canonical value to `selected(...)`; this matches Preview's whitespace split instead of letting CCHQ/Core preserve empty tokens from repeated/trailing/tab whitespace. The ordinary list also short-circuits when the normalized value is blank because Core considers `selected('', '')` true for an unassigned row. Owner-only configuration emits no Search action or remote request. On the remote path the normalized expression translates to CCHQ's `commcare_blacklisted_owner_ids` `<data>` key; authoring vocabulary stays in the schema and SA tools, and that wire token lives only at the emission boundary.
+`caseSearchConfig.excludedOwnerIds` is Results availability, independent from the Search action. It resolves once from global session/Search state before any case is selected, then constrains ordinary case-list nodesets and HQ short-detail filters as well as effective remote Search; it can never read the row being filtered. `emitNormalizedExcludedOwnerIdsExpression` authors the canonical `normalize-space(...)` intent, then immediately crosses `lowerXPathForJavaRosa`, which emits only JavaRosa-native nested `replace()` calls over XML whitespace into local-suite remote data and HQ JSON. The ordinary list feeds that same lowered value to `selected(...)`; this matches Preview's whitespace split instead of letting CCHQ/Core preserve empty tokens from repeated/trailing/tab whitespace. The ordinary list also short-circuits when the normalized value is blank because Core considers `selected('', '')` true for an unassigned row. Owner-only configuration emits no Search action or remote request. On the remote path the normalized expression translates to CCHQ's `commcare_blacklisted_owner_ids` `<data>` key; authoring vocabulary stays in the schema and SA tools, and that wire token lives only at the emission boundary.
 
 ### Instance accumulation — local `.ccz` vs HQ-regenerated suite
 

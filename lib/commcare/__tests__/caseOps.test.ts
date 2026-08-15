@@ -34,6 +34,7 @@ import {
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
+import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 
 const XMLNS = "http://openrosa.org/formdesigner/nova-case-operations-test";
 const NAME = testUuid("11111111-1111-4111-8111-111111111111");
@@ -105,7 +106,7 @@ describe("case-operation XForm emission", () => {
 				resolveHashtag: () => "",
 				contextPath: "/data/name",
 				position: 1,
-				size: 1,
+				invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 			});
 		const evaluateGuard = (value: string) =>
 			evaluate(guard, {
@@ -113,7 +114,7 @@ describe("case-operation XForm emission", () => {
 				resolveHashtag: () => "",
 				contextPath: "/data/name",
 				position: 1,
-				size: 1,
+				invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 			});
 
 		for (const value of [
@@ -156,7 +157,6 @@ describe("case-operation XForm emission", () => {
 				resolveHashtag: () => "",
 				contextPath: "/data/name",
 				position: 1,
-				size: 1,
 			});
 
 		const exactKey = " External/42 ";

@@ -7,6 +7,8 @@
  * -1 for maxArgs means variadic (no upper limit).
  */
 
+import { javaRosaFunctionCapability } from "@/lib/commcare/xpath/functionCapabilities";
+
 /** XPath 1.0 types + 'any' for unknowable/polymorphic contexts. */
 export type XPathType = "string" | "number" | "boolean" | "nodeset" | "any";
 
@@ -42,7 +44,14 @@ const any = (
 	paramTypes?: XPathType[],
 ): FunctionSpec => ({ minArgs, maxArgs, returnType: "any", paramTypes });
 
-/** All known CommCare + XPath 1.0 functions. */
+/**
+ * Functions Nova admits in authored XForm XPath.
+ *
+ * Membership is intentionally narrower than "known XPath": every ordinary
+ * call is either native in JavaRosa or has a proven lowering at the wire
+ * boundary. `instance()` and `current()` are the two path-only parser
+ * intrinsics; xpathValidator enforces their position separately.
+ */
 export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	string,
 	FunctionSpec
@@ -103,14 +112,12 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	["translate", str(3, 3, ["string", "string", "string"])],
 	["replace", str(3, 3, ["string", "string", "string"])],
 	["substr", str(2, 3, ["string", "number"])],
-	["substring", str(2, 3, ["string", "number"])],
 	["regex", bool(2, 2, ["string", "string"])],
 
 	// ── Nodeset / Aggregation ─────────────────────────────────────────
 	["count", num(1, 1)],
 	["sum", num(1, 1)],
 	["position", num(0, 1)],
-	["last", num(0, 0)],
 
 	// ── Multi-select helpers ──────────────────────────────────────────
 	["selected", bool(2, 2, ["string", "string"])],
@@ -143,7 +150,6 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	// ── Volatile ──────────────────────────────────────────────────────
 	["random", num(0, 0)],
 	["uuid", str(0, 1)],
-	["here", str(0, 0)],
 
 	// ── Geo ───────────────────────────────────────────────────────────
 	["distance", num(2, 2, ["string", "string"])],
@@ -179,6 +185,14 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 			paramTypes: ["string" as XPathType],
 		},
 	],
+	[
+		"current",
+		{
+			minArgs: 0,
+			maxArgs: 0,
+			returnType: "nodeset" as XPathType,
+		},
+	],
 
 	// ── Crypto / Utility ──────────────────────────────────────────────
 	["checksum", str(2, 2, ["string", "string"])],
@@ -188,6 +202,15 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	["id-compress", str(5, 5)],
 	["sleep", any(2, 2, ["number", "number"])],
 ]);
+
+for (const name of FUNCTION_REGISTRY.keys()) {
+	const capability = javaRosaFunctionCapability(name);
+	if (capability === "unsupported" || capability === "context-handler") {
+		throw new Error(
+			`FUNCTION_REGISTRY admits ${name}(), but the JavaRosa carrier contract does not.`,
+		);
+	}
+}
 
 /** Case-insensitive lookup for suggesting corrections (e.g. "Today" → "today"). */
 export function findCaseInsensitiveMatch(name: string): string | undefined {

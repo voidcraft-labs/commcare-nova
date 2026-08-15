@@ -11,6 +11,7 @@ import { CCHQ_OPEN_CASE_EXTERNAL_ID_XML } from "@/lib/commcare/__tests__/fixture
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
@@ -231,13 +232,13 @@ describe("compileCcz", () => {
 		const suite = new AdmZip(
 			compileCcz(hq, ownerOnly.appName, ownerOnly),
 		).readAsText("suite.xml");
-
-		expect(hq.modules[0].case_details.short.filter).toBe(
+		const ownerRule = lowerXPathForJavaRosa(
 			"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
 		);
-		expect(suite).toContain(
-			"[normalize-space(&apos;owner-a owner-b&apos;) = &apos;&apos; or not(selected(normalize-space(&apos;owner-a owner-b&apos;), @owner_id))]",
-		);
+
+		expect(hq.modules[0].case_details.short.filter).toBe(ownerRule);
+		expect(suite).toContain(`[${ownerRule.replaceAll("'", "&apos;")}]`);
+		expect(suite).not.toContain("normalize-space(");
 		expect(suite).not.toContain("<remote-request");
 		expect(suite).not.toContain("<action");
 	});

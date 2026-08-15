@@ -49,6 +49,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import {
 	advancedSearchInputDef,
 	type CaseListConfig,
@@ -210,9 +211,13 @@ describe("emitSearchSession — <data> slot order", () => {
 			caseType: "patient",
 			moduleIndex: 0,
 		});
+		const normalized = lowerXPathForJavaRosa(
+			"normalize-space('owner-a owner-b')",
+		).replaceAll("'", "&apos;");
 		expect(xml).toContain(
-			`<data key="commcare_blacklisted_owner_ids" ref="normalize-space(&apos;owner-a owner-b&apos;)"/>`,
+			`<data key="commcare_blacklisted_owner_ids" ref="${normalized}"/>`,
 		);
+		expect(xml).not.toContain("normalize-space(");
 		// Order: case_type first, then commcare_blacklisted_owner_ids.
 		const caseTypeIdx = xml.indexOf(`key="case_type"`);
 		const excludedIdx = xml.indexOf(`key="commcare_blacklisted_owner_ids"`);

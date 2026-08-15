@@ -85,6 +85,12 @@ For markdown inside the app: Repeat/Group labels, field labels, and hints are re
 
 ## CommCare XPath Functions — Quick Reference
 
+This is a closed authoring list. Use only functions named here; an XPath 1.0
+or 2.0 name is not automatically available in CommCare's JavaRosa runtime.
+Nova rejects unlisted functions before they can reach an app. The one friendly
+extension below, \`normalize-space()\`, has a proven JavaRosa lowering at the
+wire boundary.
+
 Tool slots described as \`XPathExpression\` take the exact stored
 \`{"parts":[...]}\` AST, NEVER an XPath source string. Put operators, function
 calls, whitespace, and literals in \`{"kind":"text","text":"..."}\` parts.
@@ -143,7 +149,6 @@ without rewriting the AST.
 - \`false()\` → returns boolean \`false\`
 - \`today()\` → returns current date (no time)
 - \`now()\` → returns current date+time
-- \`here()\` → returns GPS position (case list/detail only, Android only)
 - \`random()\` → returns random decimal in [0.0, 1.0)
 - \`pi()\` → returns π
 - \`current()\` → returns the bind's own context node. Distinct from \`.\` (which rebinds inside predicates). Required pattern inside a query-bound repeat: \`current()/../@id\` walks from the calculate's bind up to the iteration \`<item>\` to read its \`@id\` attribute.
@@ -218,6 +223,7 @@ without rewriting the AST.
 - \`ends-with(text, suffix)\` → boolean
 - \`lower-case(text)\` → lowercase
 - \`upper-case(text)\` → uppercase
+- \`normalize-space(text)\` → trims and collapses XML spaces, tabs, carriage returns, and line feeds. Nova lowers this to JavaRosa-native \`replace()\` calls when it emits the app
 - \`replace(text, regex_pattern, replacement)\` → regex replace. No backreferences
 - \`translate(text, from_chars, to_chars)\` → character-by-character replacement
 - \`substring-before(text, query)\` → portion before first match
@@ -461,7 +467,7 @@ Bound modes (\`count_bound\`, \`query_bound\`) freeze cardinality at form load �
 
 ### Field Validation
 
-A field's \`validate\` constraint is an XPath boolean over the entered value (\`.\`) that must hold for the answer to be accepted. Set it whenever the field's value has a real valid range or format, and write that rule with the full XPath language to whatever precision correctly captures what a valid answer looks like — the most complete correct constraint the field's meaning supports, not the loosest rule that comes to mind. A constraint is only as good as how fully it pins down a valid value, so reach across the whole XPath function library to express each field's actual rule.
+A field's \`validate\` constraint is an XPath boolean over the entered value (\`.\`) that must hold for the answer to be accepted. Set it whenever the field's value has a real valid range or format, and write that rule with Nova's listed CommCare-compatible XPath vocabulary to whatever precision correctly captures what a valid answer looks like — the most complete correct constraint the field's meaning supports, not the loosest rule that comes to mind. A constraint is only as good as how fully it pins down a valid value, but never invent an unlisted function to express it.
 
 Judge each field on its own meaning, never a fixed recipe. An open-ended free-text answer or a fixed-choice field (already limited to its options) usually has no valid-value rule — leave it unconstrained **unless the spec or the user asked for a specific rule**, in which case implement exactly that.
 

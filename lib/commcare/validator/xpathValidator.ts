@@ -11,6 +11,7 @@
 
 import type { NodeType, SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/commcare/xpath";
+import { javaRosaFunctionCapability } from "@/lib/commcare/xpath/functionCapabilities";
 import { extractPathRefs } from "@/lib/preview/xpath/dependencies";
 import {
 	FUNCTION_REGISTRY,
@@ -460,11 +461,31 @@ function validateFunctionCall(
 		return;
 	}
 
+	if (
+		javaRosaFunctionCapability(funcName) === "path-initializer" &&
+		!isPathInitializer(node)
+	) {
+		errors.push({
+			code: "XPATH_SYNTAX",
+			message: `${funcName}() is only valid as the left root of a path`,
+			position: nameNode.from,
+		});
+		return;
+	}
+
 	// Count arguments
 	const argList = node.getChild(T.ArgumentList.id);
 	if (!argList) return;
 
 	const argCount = countArguments(argList, source);
+	if (funcName === "instance" && !hasOneStringLiteralArgument(argList)) {
+		errors.push({
+			code: "XPATH_SYNTAX",
+			message: "instance() requires one string-literal instance id",
+			position: nameNode.from,
+		});
+		return;
+	}
 
 	// Check custom validate first
 	if (spec.validate) {
@@ -493,6 +514,31 @@ function validateFunctionCall(
 			position: nameNode.from,
 		});
 	}
+}
+
+/** Core recognizes instance()/current() only while building a path root. */
+function isPathInitializer(node: SyntaxNode): boolean {
+	const parent = node.parent;
+	if (parent === null || !isPathNode(parent.type)) return false;
+	const first = parent.firstChild;
+	return first?.from === node.from && first.to === node.to;
+}
+
+function hasOneStringLiteralArgument(argList: SyntaxNode): boolean {
+	let expression: SyntaxNode | null = null;
+	let child = argList.firstChild;
+	while (child) {
+		if (
+			child.type.name !== "(" &&
+			child.type.name !== ")" &&
+			child.type !== T.Comma
+		) {
+			if (expression !== null) return false;
+			expression = child;
+		}
+		child = child.nextSibling;
+	}
+	return expression?.type.name === "StringLiteral";
 }
 
 /** Count comma-separated arguments in an ArgumentList node. */

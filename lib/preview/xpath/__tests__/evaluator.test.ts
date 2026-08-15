@@ -1,15 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { GEOPOINT_CENTER_PATTERN } from "@/lib/commcare/predicate/geopoint";
 import { xpathToString } from "../coerce";
 import { evaluate } from "../evaluator";
+import { invokeGeneratedJavaRosaFunction } from "../generatedJavaRosaFunctions";
 import type { EvalContext } from "../types";
 import { isXPathDate } from "../types";
 
 function makeCtx(
 	values: Record<string, string> = {},
 	caseData: Record<string, string> = {},
+	instances: Record<string, Record<string, string>> = {},
 ): EvalContext {
 	return {
 		getValue: (path) => values[path],
+		resolveInstance: (instanceId, path) =>
+			Object.hasOwn(instances, instanceId)
+				? { kind: "supported", value: instances[instanceId]?.[path] }
+				: { kind: "unsupported" },
 		resolveHashtag: (ref) => {
 			if (ref.startsWith("#form/"))
 				return values[`/data/${ref.slice(6)}`] ?? "";
@@ -19,7 +26,6 @@ function makeCtx(
 		},
 		contextPath: "/data/current",
 		position: 1,
-		size: 1,
 	};
 }
 
@@ -169,6 +175,31 @@ describe("XPath evaluator", () => {
 			expect(evaluate("/data/group/child", ctx)).toBe("value");
 		});
 
+		it("resolves an instance-rooted path through the context namespace", () => {
+			const ctx = makeCtx(
+				{},
+				{},
+				{
+					commcaresession: { "/session/context/userid": "worker-1" },
+				},
+			);
+			expect(
+				evaluate("instance('commcaresession')/session/context/userid", ctx),
+			).toBe("worker-1");
+		});
+
+		it("fails loudly for a secondary instance with no Preview resolver", () => {
+			expect(() =>
+				evaluate("instance('casedb')/casedb/case/name", makeCtx()),
+			).toThrow("Unsupported XPath instance in Preview: instance('casedb')");
+		});
+
+		it("fails loudly for path initializers Preview cannot model", () => {
+			expect(() => evaluate("current()/name", makeCtx())).toThrow(
+				"Unsupported XPath path initializer in Preview: current()",
+			);
+		});
+
 		it("resolves self step", () => {
 			const ctx = makeCtx({ "/data/current": "42" });
 			expect(evaluate(".", ctx)).toBe("42");
@@ -197,15 +228,18 @@ describe("XPath evaluator", () => {
 			expect(evaluate('if(false(), "yes", "no")', makeCtx())).toBe("no");
 		});
 
+		it("evaluates only the selected if() branch", () => {
+			expect(evaluate("if(false(), upper-case('x'), 'ok')", makeCtx())).toBe(
+				"ok",
+			);
+			expect(() =>
+				evaluate("if(true(), upper-case('x'), 'ok')", makeCtx()),
+			).toThrow("Unsupported XPath function in Preview: upper-case()");
+		});
+
 		it("not()", () => {
 			expect(evaluate("not(true())", makeCtx())).toBe(false);
 			expect(evaluate("not(false())", makeCtx())).toBe(true);
-		});
-
-		it("concat()", () => {
-			expect(evaluate('concat("hello", " ", "world")', makeCtx())).toBe(
-				"hello world",
-			);
 		});
 
 		it("string-length()", () => {
@@ -222,12 +256,15 @@ describe("XPath evaluator", () => {
 		it("selected()", () => {
 			const ctx = makeCtx({ "/data/symptoms": "fever cough" });
 			expect(evaluate('selected(/data/symptoms, "fever")', ctx)).toBe(true);
+			expect(evaluate('selected(/data/symptoms, " fever ")', ctx)).toBe(true);
 			expect(evaluate('selected(/data/symptoms, "headache")', ctx)).toBe(false);
 		});
 
 		it("count-selected()", () => {
-			const ctx = makeCtx({ "/data/items": "a b c" });
-			expect(evaluate("count-selected(/data/items)", ctx)).toBe(3);
+			const ctx = makeCtx({ "/data/items": "a  b" });
+			expect(evaluate("count-selected(/data/items)", ctx)).toBe(2);
+			const three = makeCtx({ "/data/items": "a b c" });
+			expect(evaluate("count-selected(/data/items)", three)).toBe(3);
 		});
 
 		it("selected-at() returns the Nth token and throws out of range like JavaRosa", () => {
@@ -240,6 +277,9 @@ describe("XPath evaluator", () => {
 				/select element 3 of a list with only 3 elements/,
 			);
 			expect(() => evaluate("selected-at(/data/items, -1)", ctx)).toThrow();
+			expect(evaluate("selected-at(/data/items, number('bad'))", ctx)).toBe(
+				"a",
+			);
 		});
 
 		it("today() returns an XPathDate", () => {
@@ -264,6 +304,11 @@ describe("XPath evaluator", () => {
 				"fallback",
 			);
 			expect(evaluate('coalesce("first", "second")', makeCtx())).toBe("first");
+			expect(evaluate("coalesce('ok', upper-case('x'))", makeCtx())).toBe("ok");
+			expect(evaluate("coalesce(number('bad'))", makeCtx())).toBeNaN();
+			expect(() =>
+				evaluate("coalesce('', upper-case('x'))", makeCtx()),
+			).toThrow("Unsupported XPath function in Preview: upper-case()");
 		});
 
 		it("starts-with()", () => {
@@ -273,113 +318,139 @@ describe("XPath evaluator", () => {
 
 		it("substr()", () => {
 			expect(evaluate('substr("hello", 1, 3)', makeCtx())).toBe("el");
+			expect(evaluate('substr("abc", -1)', makeCtx())).toBe("c");
+			expect(evaluate('substr("abc", 3, 1)', makeCtx())).toBe("");
+			expect(evaluate('substr("abc", number("bad"))', makeCtx())).toBe("abc");
+		});
+
+		it("uuid(length) uses JavaRosa's requested uppercase base-36 shape", () => {
+			const value = evaluate("uuid(4)", makeCtx());
+			expect(value).toMatch(/^[0-9A-Z]{4}$/);
+		});
+
+		it("preserves scalar forms of nodeset-overloaded functions", () => {
+			expect(evaluate("concat('a', 'b')", makeCtx())).toBe("ab");
+			expect(evaluate("concat('a')", makeCtx())).toBe("a");
+			expect(evaluate("join(',', 'a', 'b')", makeCtx())).toBe("a,b");
+			expect(evaluate("join(',', 'a')", makeCtx())).toBe("a");
+			expect(evaluate("min(2, 1)", makeCtx())).toBe(1);
+			expect(evaluate("max(2, 1)", makeCtx())).toBe(2);
+		});
+
+		it("rejects nodeset signatures instead of scalarizing them", () => {
+			for (const expression of ["count(/data/items)", "sum(/data/items)"]) {
+				expect(() => evaluate(expression, makeCtx())).toThrow(
+					"Unsupported XPath function in Preview",
+				);
+			}
+			for (const expression of [
+				"concat(/data/items)",
+				"concat(if(true(), /data/items, ''))",
+				"join(',', /data/items)",
+				"min(/data/items)",
+				"max(#form/items)",
+			]) {
+				expect(() => evaluate(expression, makeCtx())).toThrow(
+					"Unsupported XPath function signature in Preview",
+				);
+			}
+			expect(
+				evaluate(
+					"concat(string(/data/items))",
+					makeCtx({ "/data/items": "a" }),
+				),
+			).toBe("a");
+		});
+
+		it("rejects position(nodeset) while preserving context position()", () => {
+			expect(evaluate("position()", { ...makeCtx(), position: 3 })).toBe(3);
+			expect(() => evaluate("position(/data/items)", makeCtx())).toThrow(
+				"Unsupported XPath function signature in Preview: position(nodeset)",
+			);
 		});
 
 		it("normalize-space()", () => {
 			expect(evaluate('normalize-space("  hello   world  ")', makeCtx())).toBe(
 				"hello world",
 			);
+			// XPath XML whitespace excludes NBSP; JavaRosa leaves it intact.
+			expect(evaluate("normalize-space('a   b')", makeCtx())).toBe("a  b");
 		});
 
-		it("replace() keeps dollar substitution tokens literal like Core", () => {
-			expect(evaluate(`replace('abc', '(b)', '$1')`, makeCtx())).toBe("a$1c");
-			expect(evaluate(`replace('abc', 'b', '$&')`, makeCtx())).toBe("a$&c");
+		it("rejects Java-regex functions rather than approximating Pattern", () => {
+			for (const expression of [
+				String.raw`regex('é', '\p{L}')`,
+				"replace('abc', 'b', 'x')",
+			]) {
+				expect(() => evaluate(expression, makeCtx())).toThrow(
+					"Unsupported XPath function in Preview",
+				);
+			}
 		});
 
-		it("translates only unescaped Java whitespace shorthands", () => {
-			expect(evaluate(String.raw`regex(' ', '\s')`, makeCtx())).toBe(true);
-			expect(evaluate(String.raw`regex(' ', '\s')`, makeCtx())).toBe(false);
-			// Two backslashes make `\\s` a literal backslash followed by `s` in
-			// Java's Pattern grammar; Preview must not rewrite the second slash.
-			expect(evaluate(String.raw`regex('\s', '\\s')`, makeCtx())).toBe(true);
-			expect(evaluate(String.raw`regex(' ', '\\s')`, makeCtx())).toBe(false);
-			expect(evaluate(String.raw`replace('a\sb', '\\s', 'X')`, makeCtx())).toBe(
-				"aXb",
-			);
-		});
-
-		it("translates \\s inside a character class to members, not a nested class", () => {
-			// `[\s0-9]` must reach JS as `[ \t\n\x0B\f\r0-9]` — the old nested
-			// `[[ \t\n\x0B\f\r]0-9]` shape parsed as a different pattern (the
-			// class ends at the first `]`, leaving `0-9]` as literal text).
-			expect(evaluate(String.raw`regex('7', '^[\s0-9]+$')`, makeCtx())).toBe(
-				true,
-			);
-			expect(evaluate(String.raw`regex(' 7', '^[\s0-9]+$')`, makeCtx())).toBe(
-				true,
-			);
-			expect(evaluate(String.raw`regex('a', '^[\s0-9]+$')`, makeCtx())).toBe(
-				false,
-			);
-			// NBSP is JS-\s-only; Java's default mode excludes it in classes too.
-			expect(evaluate("regex(' ', '^[\\s]$')", makeCtx())).toBe(false);
-			// Both the space and the digit are class members and are removed;
-			// the broken nested-class translation matched neither and left
-			// the input untouched.
+		it("admits only verified machine-generated Java Pattern calls", () => {
+			const generatedCtx = {
+				...makeCtx(),
+				invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
+			};
 			expect(
-				evaluate(String.raw`replace('a 1b', '[\s0-9]', '')`, makeCtx()),
-			).toBe("ab");
-		});
-
-		it("keeps \\S complement semantics inside a character class", () => {
-			expect(evaluate(String.raw`regex('a', '^[\S]$')`, makeCtx())).toBe(true);
-			expect(evaluate(String.raw`regex(' ', '^[\S]$')`, makeCtx())).toBe(false);
-			// NBSP is non-whitespace to Java's default mode, so `[\S]` matches
-			// it — JS bare `\S` alone would not.
-			expect(evaluate("regex(' ', '^[\\S]$')", makeCtx())).toBe(true);
-			expect(evaluate(String.raw`regex(' ', '^[^\S]$')`, makeCtx())).toBe(true);
-			expect(evaluate(String.raw`regex('a', '^[^\S]$')`, makeCtx())).toBe(
-				false,
+				evaluate(`regex('42 -71', '${GEOPOINT_CENTER_PATTERN}')`, generatedCtx),
+			).toBe(true);
+			expect(
+				evaluate(
+					String.raw`replace('  $&  ', '^[\x00-\x20]+|[\x00-\x20]+$', '$1')`,
+					generatedCtx,
+				),
+			).toBe("$1$&$1");
+			expect(() => evaluate("replace('abc', 'b', 'x')", generatedCtx)).toThrow(
+				"Unsupported XPath function in Preview",
 			);
 		});
 
-		it("treats a dash directly after an in-class shorthand as a literal dash", () => {
-			// Java reads `[\s-9]` as whitespace, literal '-', literal '9'; the
-			// inlined member set must not donate `\r` to a JS `\r-9` range.
-			expect(evaluate(String.raw`regex('-', '^[\s-9]$')`, makeCtx())).toBe(
-				true,
-			);
-			expect(evaluate(String.raw`regex('9', '^[\s-9]$')`, makeCtx())).toBe(
-				true,
-			);
-			expect(evaluate(String.raw`regex('5', '^[\s-9]$')`, makeCtx())).toBe(
-				false,
-			);
+		it("translate() iterates Java UTF-16 char units", () => {
+			expect(evaluate("translate('😀', '😀', 'AB')", makeCtx())).toBe("AB");
+			// Core checks its excess-source deletion suffix before the replacement
+			// map, so a duplicated source unit in that suffix is deleted.
+			expect(evaluate("translate('a', 'aa', 'b')", makeCtx())).toBe("");
 		});
 
-		it("does not dispatch unknown or prototype method names", () => {
-			expect(evaluate("unknownFunction()", makeCtx())).toBe("");
-			expect(evaluate("valueOf()", makeCtx())).toBe("");
-			expect(evaluate("hasOwnProperty()", makeCtx())).toBe("");
+		it("uses Core's numeric boolean epsilon", () => {
+			expect(evaluate("boolean(0.0000000000001)", makeCtx())).toBe(false);
+			expect(evaluate("boolean(0.0000000000011)", makeCtx())).toBe(true);
+		});
+
+		it("fails loudly for unknown or prototype method names", () => {
+			for (const name of ["unknownFunction", "valueOf", "hasOwnProperty"]) {
+				expect(() => evaluate(`${name}()`, makeCtx())).toThrow(
+					`Unsupported XPath function in Preview: ${name}()`,
+				);
+			}
 		});
 	});
 
 	describe("date arithmetic", () => {
-		it("today() + 1 returns an XPathDate representing tomorrow", () => {
+		it("today() + 1 returns tomorrow's numeric epoch day", () => {
 			const todayPlus1 = evaluate("today() + 1", makeCtx());
-			expect(isXPathDate(todayPlus1)).toBe(true);
-			/* String output is tomorrow's ISO date */
-			const todayStr = xpathToString(evaluate("today()", makeCtx()));
-			const tomorrow = new Date(`${todayStr}T00:00:00Z`);
-			tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-			expect(xpathToString(todayPlus1)).toBe(
-				tomorrow.toISOString().slice(0, 10),
+			expect(typeof todayPlus1).toBe("number");
+			expect(todayPlus1).toBe(
+				(evaluate("number(today())", makeCtx()) as number) + 1,
 			);
 		});
 
-		it("today() - 1 returns an XPathDate representing yesterday", () => {
+		it("today() - 1 returns yesterday's numeric epoch day", () => {
 			const result = evaluate("today() - 1", makeCtx());
-			expect(isXPathDate(result)).toBe(true);
-			const todayStr = xpathToString(evaluate("today()", makeCtx()));
-			const yesterday = new Date(`${todayStr}T00:00:00Z`);
-			yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-			expect(xpathToString(result)).toBe(yesterday.toISOString().slice(0, 10));
+			expect(typeof result).toBe("number");
+			expect(result).toBe(
+				(evaluate("number(today())", makeCtx()) as number) - 1,
+			);
 		});
 
-		it("date(today() + 1) also works (idempotent wrapping)", () => {
+		it("date(today() + 1) converts the numeric result back to a date", () => {
 			const bare = evaluate("today() + 1", makeCtx());
 			const wrapped = evaluate("date(today() + 1)", makeCtx());
-			expect(xpathToString(bare)).toBe(xpathToString(wrapped));
+			expect(typeof bare).toBe("number");
+			expect(isXPathDate(wrapped)).toBe(true);
+			expect(evaluate("number(date(today() + 1))", makeCtx())).toBe(bare);
 		});
 
 		it("date - date returns a plain number (day difference)", () => {
@@ -391,16 +462,14 @@ describe("XPath evaluator", () => {
 			expect(result).toBe(5);
 		});
 
-		it("date + number returns an XPathDate", () => {
+		it("date + number returns a numeric epoch day", () => {
 			const result = evaluate("date('1970-01-01') + 0", makeCtx());
-			expect(isXPathDate(result)).toBe(true);
-			expect(xpathToString(result)).toBe("1970-01-01");
+			expect(result).toBe(0);
 		});
 
-		it("date + 1 shifts forward by one day", () => {
+		it("date + 1 increments the numeric epoch day", () => {
 			const result = evaluate("date('1970-01-01') + 1", makeCtx());
-			expect(isXPathDate(result)).toBe(true);
-			expect(xpathToString(result)).toBe("1970-01-02");
+			expect(result).toBe(1);
 		});
 
 		it("date(0) gives epoch", () => {
@@ -424,13 +493,28 @@ describe("XPath evaluator", () => {
 
 		it("format-date works with XPathDate from today()", () => {
 			const result = evaluate("format-date(today(), '%Y')", makeCtx());
-			expect(result).toBe(String(new Date().getUTCFullYear()));
+			expect(result).toBe(String(new Date().getFullYear()));
 		});
 
-		it("format-date preserves the original value for an unsupported pattern", () => {
-			expect(evaluate("format-date('2026-07-14', '%Q')", makeCtx())).toBe(
-				"2026-07-14",
-			);
+		it("format-date preserves now() time and maps NaN to blank", () => {
+			vi.useFakeTimers();
+			try {
+				vi.setSystemTime(new Date("2026-08-15T12:34:56Z"));
+				expect(evaluate("format-date(now(), '%H:%M')", makeCtx())).toBe(
+					`${String(new Date().getHours()).padStart(2, "0")}:${String(new Date().getMinutes()).padStart(2, "0")}`,
+				);
+				expect(evaluate("format-date(number('bad'), '%Y')", makeCtx())).toBe(
+					"",
+				);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("format-date fails loudly for an unsupported pattern", () => {
+			expect(() =>
+				evaluate("format-date('2026-07-14', '%Q')", makeCtx()),
+			).toThrow("XPath format-date() pattern is unsupported in Preview");
 		});
 
 		it("number(date('2008-09-05')) returns days since epoch", () => {
@@ -444,12 +528,27 @@ describe("XPath evaluator", () => {
 			expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 		});
 
-		it("concat works with date values", () => {
-			const result = evaluate(
-				"concat(\"Date: \", date('2024-01-15'))",
-				makeCtx(),
+		it("matches Core's date, now, and double coercions", () => {
+			expect(xpathToString(evaluate("date(-0.5)", makeCtx()))).toBe(
+				"1970-01-01",
 			);
-			expect(result).toBe("Date: 2024-01-15");
+			const originalTimeZone = process.env.TZ;
+			vi.useFakeTimers();
+			try {
+				process.env.TZ = "America/Los_Angeles";
+				vi.setSystemTime(new Date("2026-08-15T01:34:56Z"));
+				expect(evaluate("string(today())", makeCtx())).toBe("2026-08-14");
+				const rounded = evaluate("date(now())", makeCtx());
+				expect(isXPathDate(rounded) && rounded.time).toBeNull();
+				expect(evaluate("string(now())", makeCtx())).toBe("2026-08-14");
+				expect(Number.isInteger(evaluate("double(now())", makeCtx()))).toBe(
+					false,
+				);
+			} finally {
+				vi.useRealTimers();
+				if (originalTimeZone === undefined) delete process.env.TZ;
+				else process.env.TZ = originalTimeZone;
+			}
 		});
 	});
 
@@ -474,8 +573,8 @@ describe("XPath evaluator", () => {
 
 		it("nested function calls", () => {
 			expect(
-				evaluate('if(not(false()), concat("a", "b"), "c")', makeCtx()),
-			).toBe("ab");
+				evaluate('if(not(false()), string-length("ab"), 0)', makeCtx()),
+			).toBe(2);
 		});
 	});
 

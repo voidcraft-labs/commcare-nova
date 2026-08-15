@@ -1,13 +1,12 @@
 import type { SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/commcare/xpath";
 import {
-	compareEqual,
-	compareRelational,
-	dateAwareAdd,
-	dateAwareSubtract,
-	toBoolean,
-	toNumber,
-} from "./coerce";
+	PREVIEW_INSTANCE_IDS,
+	PREVIEW_PATH_INITIALIZERS,
+	pathInitializerStringArgument,
+	previewFunctionSignatureSupported,
+} from "@/lib/commcare/xpath/functionCapabilities";
+import { compareEqual, compareRelational, toBoolean, toNumber } from "./coerce";
 import { invokeFunction } from "./functions";
 import type { EvalContext, XPathValue } from "./types";
 
@@ -155,8 +154,20 @@ function evalNode(
 
 	// ── Path expressions (Child: expr/step, Descendant: expr//step) ──
 	if (T.Children.has(type) || T.Descendants.has(type)) {
-		const path = buildPath(node, source);
-		if (path) return ctx.getValue(path) ?? "";
+		const reference = buildPath(node, source);
+		if (reference?.instanceId !== undefined) {
+			const resolution = ctx.resolveInstance?.(
+				reference.instanceId,
+				reference.path,
+			);
+			if (resolution?.kind !== "supported") {
+				throw new Error(
+					`Unsupported XPath instance in Preview: instance('${reference.instanceId}')`,
+				);
+			}
+			return resolution.value ?? "";
+		}
+		if (reference) return ctx.getValue(reference.path) ?? "";
 		return "";
 	}
 
@@ -181,17 +192,17 @@ function evalNode(
 	if (type === T.AddExpr) {
 		const [left, right] = getBinaryOperands(node);
 		if (!left || !right) return NaN;
-		return dateAwareAdd(
-			evalNode(left, source, ctx),
-			evalNode(right, source, ctx),
+		return (
+			toNumber(evalNode(left, source, ctx)) +
+			toNumber(evalNode(right, source, ctx))
 		);
 	}
 	if (type === T.SubtractExpr) {
 		const [left, right] = getBinaryOperands(node);
 		if (!left || !right) return NaN;
-		return dateAwareSubtract(
-			evalNode(left, source, ctx),
-			evalNode(right, source, ctx),
+		return (
+			toNumber(evalNode(left, source, ctx)) -
+			toNumber(evalNode(right, source, ctx))
 		);
 	}
 	if (type === T.MultiplyExpr) {
@@ -324,60 +335,135 @@ function evalInvoke(
 	ctx: EvalContext,
 ): XPathValue {
 	let fnName = "";
-	const args: XPathValue[] = [];
+	let argNodes: SyntaxNode[] = [];
 
 	let child = node.firstChild;
 	while (child) {
 		if (child.type === T.FunctionName) {
 			fnName = source.slice(child.from, child.to);
 		} else if (child.type === T.ArgumentList) {
-			// Evaluate each argument expression
-			let arg = child.firstChild;
-			while (arg) {
-				if (
-					arg.type !== T.OpenParen &&
-					arg.type !== T.CloseParen &&
-					arg.type !== T.Comma
-				) {
-					args.push(evalNode(arg, source, ctx));
-				}
-				arg = arg.nextSibling;
-			}
+			argNodes = argumentNodes(child);
 		}
 		child = child.nextSibling;
 	}
 
-	// Handle position() and last() with context values
-	if (fnName === "position") return ctx.position;
-	if (fnName === "last") return ctx.size;
+	// JavaRosa evaluates only the selected branch of these functions. Preserve
+	// that laziness so an unsupported call in an unreachable branch cannot make
+	// Preview reject an expression the device evaluates successfully.
+	if (fnName === "if") {
+		const condition = argNodes[0];
+		const selected = toBoolean(
+			condition ? evalNode(condition, source, ctx) : "",
+		)
+			? argNodes[1]
+			: argNodes[2];
+		return selected ? evalNode(selected, source, ctx) : "";
+	}
+	if (fnName === "coalesce") {
+		for (const arg of argNodes.slice(0, -1)) {
+			const value = evalNode(arg, source, ctx);
+			if (value !== "" && !(typeof value === "number" && Number.isNaN(value))) {
+				return value;
+			}
+		}
+		const fallback = argNodes.at(-1);
+		return fallback ? evalNode(fallback, source, ctx) : "";
+	}
+
+	// Preview can preserve the context form of position(), but its scalar path
+	// model cannot represent JavaRosa's optional nodeset argument.
+	if (fnName === "position") {
+		if (argNodes.length > 0) {
+			throw new Error(
+				"Unsupported XPath function signature in Preview: position(nodeset)",
+			);
+		}
+		return ctx.position;
+	}
+
+	if (!previewFunctionSignatureSupported(node, source, fnName)) {
+		throw new Error(
+			`Unsupported XPath function signature in Preview: ${fnName}(nodeset)`,
+		);
+	}
+
+	const args = argNodes.map((arg) => evalNode(arg, source, ctx));
 
 	const invocation = invokeFunction(fnName, args);
 	if (invocation.kind === "handled") return invocation.value;
+	const generatedInvocation = ctx.invokeGeneratedFunction?.(fnName, args);
+	if (generatedInvocation?.kind === "handled") {
+		return generatedInvocation.value;
+	}
 
-	// Unknown function — return empty string
-	return "";
+	throw new Error(`Unsupported XPath function in Preview: ${fnName}()`);
+}
+function argumentNodes(argumentList: SyntaxNode): SyntaxNode[] {
+	const args: SyntaxNode[] = [];
+	let arg = argumentList.firstChild;
+	while (arg) {
+		if (
+			arg.type !== T.OpenParen &&
+			arg.type !== T.CloseParen &&
+			arg.type !== T.Comma
+		) {
+			args.push(arg);
+		}
+		arg = arg.nextSibling;
+	}
+	return args;
 }
 
 /**
  * Build an absolute path string from a path expression CST node.
  * Walks left-recursive Child/Descendant nodes to collect segments.
  */
-function buildPath(node: SyntaxNode, source: string): string | null {
+interface PreviewPathReference {
+	readonly path: string;
+	readonly instanceId?: string;
+}
+
+function buildPath(
+	node: SyntaxNode,
+	source: string,
+): PreviewPathReference | null {
 	const segments: string[] = [];
-	collectSegments(node, source, segments);
+	const root: { instanceId?: string } = {};
+	collectSegments(node, source, segments, root);
 	if (segments.length === 0) return null;
-	return `/${segments.join("/")}`;
+	return {
+		path: `/${segments.join("/")}`,
+		...(root.instanceId === undefined ? {} : { instanceId: root.instanceId }),
+	};
 }
 
 function collectSegments(
 	node: SyntaxNode,
 	source: string,
 	segments: string[],
+	root: { instanceId?: string },
 ): void {
 	let child = node.firstChild;
 	while (child) {
 		if (T.Children.has(child.type) || T.Descendants.has(child.type)) {
-			collectSegments(child, source, segments);
+			collectSegments(child, source, segments, root);
+		} else if (child.type === T.Invoke) {
+			const nameNode = child.getChild(T.FunctionName.id);
+			const name = nameNode
+				? source.slice(nameNode.from, nameNode.to)
+				: "unknown";
+			if (!PREVIEW_PATH_INITIALIZERS.has(name)) {
+				throw new Error(
+					`Unsupported XPath path initializer in Preview: ${name}()`,
+				);
+			}
+			const instanceId = pathInitializerStringArgument(child, source);
+			if (instanceId === undefined || !PREVIEW_INSTANCE_IDS.has(instanceId)) {
+				throw new Error(
+					`Unsupported XPath instance in Preview: instance('${instanceId ?? "?"}')`,
+				);
+			}
+			root.instanceId = instanceId;
 		} else if (child.type === T.NameTest) {
 			segments.push(source.slice(child.from, child.to));
 		} else if (child.type === T.RootPath || child.type === T.Slash) {

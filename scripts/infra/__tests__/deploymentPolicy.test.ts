@@ -228,6 +228,7 @@ describe("durable deployment policy", () => {
 			"main.ts",
 			"schemaDrift.ts",
 			"schemaDriftMigration.ts",
+			"xpathCarrierCompatibilityRepair.ts",
 		]) {
 			expect(dockerignore).toContain(`!scripts/lib/${helper}`);
 		}

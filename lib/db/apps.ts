@@ -2296,6 +2296,13 @@ export async function loadApp(appId: string): Promise<AppDoc | null> {
 export async function loadAppForInspection(
 	appId: string,
 ): Promise<AppDoc | null> {
+	return loadAppForReadOnlyInspection(appId, "strict");
+}
+
+async function loadAppForReadOnlyInspection(
+	appId: string,
+	admission: "strict" | "schema",
+): Promise<AppDoc | null> {
 	const db = await getAppDb();
 	return db
 		.transaction()
@@ -2313,8 +2320,25 @@ export async function loadAppForInspection(
 				.where("id", "=", appId)
 				.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
 			if (row === undefined) return null;
-			return (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app;
+			return admission === "strict"
+				? (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app
+				: (await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, row))
+						.app;
 		});
+}
+
+/**
+ * Load one schema-admitted snapshot for a read-only migration inventory.
+ *
+ * Unlike {@link loadAppForInspection}, this deliberately does not apply the
+ * current absolute commit gate: a scanner for newly-invalid historical state
+ * must be able to name that state before any repair is designed. Never use
+ * this function to serve an app or authorize an edit.
+ */
+export async function loadSchemaAdmittedAppForInspection(
+	appId: string,
+): Promise<AppDoc | null> {
+	return loadAppForReadOnlyInspection(appId, "schema");
 }
 
 /** Whoever currently HOLDS the app's run window — see {@link loadAppHolder}.

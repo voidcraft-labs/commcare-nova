@@ -33,6 +33,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import {
 	and,
 	concat,
@@ -200,10 +201,14 @@ describe("owner exclusion on the ordinary case-list nodeset", () => {
 		const excludedOwners = term(literal("owner-a owner-b"));
 
 		expect(emitExcludedOwnerFilterExpression(excludedOwners)).toBe(
-			"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
+			lowerXPathForJavaRosa(
+				"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
+			),
 		);
 		expect(emitExcludedOwnerNodesetFilter(excludedOwners)).toBe(
-			"[normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))]",
+			`[${lowerXPathForJavaRosa(
+				"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
+			)}]`,
 		);
 	});
 
@@ -224,7 +229,9 @@ describe("owner exclusion on the ordinary case-list nodeset", () => {
 		const value = "owner-a  owner-b\t ";
 		const literalXpath = `'${value}'`;
 		expect(emitExcludedOwnerFilterExpression(term(literal(value)))).toBe(
-			`normalize-space(${literalXpath}) = '' or not(selected(normalize-space(${literalXpath}), @owner_id))`,
+			lowerXPathForJavaRosa(
+				`normalize-space(${literalXpath}) = '' or not(selected(normalize-space(${literalXpath}), @owner_id))`,
+			),
 		);
 	});
 
@@ -236,7 +243,9 @@ describe("owner exclusion on the ordinary case-list nodeset", () => {
 				term(sessionUser("excluded_owner_ids")),
 			),
 		).toBe(
-			`normalize-space(${xpath}) = '' or not(selected(normalize-space(${xpath}), @owner_id))`,
+			lowerXPathForJavaRosa(
+				`normalize-space(${xpath}) = '' or not(selected(normalize-space(${xpath}), @owner_id))`,
+			),
 		);
 	});
 
@@ -280,7 +289,9 @@ describe("unanswered-Search substitution on the ordinary nodeset", () => {
 		);
 		const emitted = emitExcludedOwnerFilterExpression(exclusion);
 		expect(emitted).toBe(
-			"normalize-space(concat('', ' ', instance('commcaresession')/session/user/data/excluded_owner_ids)) = '' or not(selected(normalize-space(concat('', ' ', instance('commcaresession')/session/user/data/excluded_owner_ids)), @owner_id))",
+			lowerXPathForJavaRosa(
+				"normalize-space(concat('', ' ', instance('commcaresession')/session/user/data/excluded_owner_ids)) = '' or not(selected(normalize-space(concat('', ' ', instance('commcaresession')/session/user/data/excluded_owner_ids)), @owner_id))",
+			),
 		);
 		expect(emitted).not.toContain("search-input:results");
 	});

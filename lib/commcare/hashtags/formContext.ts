@@ -105,6 +105,37 @@ export function expandHashtagsInContext(
 }
 
 /**
+ * Expand authored case/user references for a suite post-form stack operation.
+ * Core evaluates these expressions after the XForm has closed, in the entry's
+ * session instance scope, so no `#form/...` or main `/data` projection exists.
+ */
+export function expandHashtagsForSessionStack(
+	expr: string,
+	caseTypeDepths: ReadonlyMap<string, number>,
+): string {
+	if (!expr) return expr;
+	return rewriteHashtags(expr, (typeName, segments) => {
+		if (typeName === "form") {
+			throw new Error(
+				"Form-link stack XPath cannot reference #form because the XForm instance is closed before Core evaluates it.",
+			);
+		}
+		if (typeName === "user") {
+			return resolveFlatHashtag(typeName, segments);
+		}
+		if (typeName === "case") {
+			throw new Error(
+				'Authored "#case/..." is not a Nova reference; use an explicit case-type namespace',
+			);
+		}
+		const hops = caseTypeDepths.get(typeName);
+		return hops === undefined
+			? undefined
+			: expandCaseToWire(hops, segments.join("/"));
+	});
+}
+
+/**
  * The form's readable case-type depth map, name → parent-index hop count
  * (own = 0, parent = 1, …), built from the module's case type. The ONE
  * construction both wire builders share — `xform/builder.ts::buildXForm`

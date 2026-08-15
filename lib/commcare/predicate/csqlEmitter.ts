@@ -121,6 +121,7 @@ import {
 } from "../expression/csqlEmitter";
 import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
 import type { LookupWireNaming } from "../lookup/naming";
+import { assertCsqlQueryFunction } from "../xpath/functionCapabilities";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 import {
 	type CsqlSegment,
@@ -295,6 +296,7 @@ function emitPresenceGatedClause(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
 	typeContext?: TypeContext,
 ): CsqlEmissionResult {
+	assertCsqlQueryFunction("match-all");
 	const triggerXPath = emitSearchInputXPath(p.input, {
 		searchInputNames: new Map(
 			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
@@ -346,6 +348,7 @@ function emitPresenceGatedClause(
  * internal merging.
  */
 function wrapClause(segments: readonly CsqlSegment[]): CsqlEmissionResult {
+	assertCsqlQueryFunction("match-none");
 	const merged = mergeAdjacentConstants(segments);
 	if (merged.every((seg) => seg.kind === "constant")) {
 		const text = merged
@@ -528,10 +531,12 @@ function emitPredicateSegments(
 ): CsqlSegment[] {
 	switch (p.kind) {
 		case "match-all":
+			assertCsqlQueryFunction("match-all");
 			// CCHQ's zero-arg query function `match-all` registered on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 			return [{ kind: "constant", text: "match-all()" }];
 		case "match-none":
+			assertCsqlQueryFunction("match-none");
 			// CCHQ's zero-arg query function `match-none` registered on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 			return [{ kind: "constant", text: "match-none()" }];
@@ -559,6 +564,7 @@ function emitPredicateSegments(
 				typeContext,
 			);
 		case "not": {
+			assertCsqlQueryFunction("not");
 			// `not(...)` is in CCHQ's query-function whitelist on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 			// The parens around the inner are the function-call argument
@@ -636,6 +642,7 @@ function emitWhenInputPresentSegments(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
+	assertCsqlQueryFunction("match-all");
 	const triggerXPath = emitSearchInputXPath(p.input, {
 		searchInputNames: new Map(
 			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
@@ -785,6 +792,8 @@ function emitOperandSegments(
 ): CsqlSegment[] {
 	if (expr.kind === "count") {
 		if (position === "comparison-operand" && expr.via.kind === "subcase") {
+			assertCsqlQueryFunction("subcase-count");
+			assertCsqlQueryFunction("match-all");
 			// CCHQ's `_is_subcase_count` recogniser only matches a
 			// `subcase-count(...)` function call sitting directly on a
 			// comparison's LHS. The filter argument's segments splice
@@ -1064,6 +1073,7 @@ function emitMatchSegments(
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const wireFunction = matchModeToWireFunction(p.mode);
+	assertCsqlQueryFunction(wireFunction);
 	const propEmission = emitCsqlPropertyRefSegment(p.property);
 	// The full value expression routes through the standard value-position
 	// emitter so literals, input/session refs, native CSQL value functions,
@@ -1155,6 +1165,7 @@ function matchModeToWireFunction(
 function emitMultiSelectSegments(
 	p: Extract<Predicate, { kind: "multi-select-contains" }>,
 ): CsqlSegment[] {
+	assertCsqlQueryFunction("selected");
 	const propText = emitCsqlPropertyRefText(p.property);
 	const calls = p.values.map((v) => {
 		const valueLiteral = quoteLiteral(stringifyLiteralValue(v.value), "csql");
@@ -1207,6 +1218,7 @@ function emitWithinDistanceSegments(
 	p: Extract<Predicate, { kind: "within-distance" }>,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
+	assertCsqlQueryFunction("within-distance");
 	const propText = emitCsqlPropertyRefText(p.property);
 	const centerSegments = emitGeopointCenterSegments(p.center, typeContext);
 	const distanceText = formatNumeric(p.distance);
@@ -1410,6 +1422,8 @@ function emitAncestorExistsCall(
 	where: Predicate | undefined,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
+	assertCsqlQueryFunction("ancestor-exists");
+	assertCsqlQueryFunction("match-all");
 	if (steps.some((step) => step.throughCaseType !== undefined)) {
 		return emitQualifiedAncestorExistsChain(steps, where, typeContext, 0);
 	}
@@ -1437,6 +1451,8 @@ function emitQualifiedAncestorExistsChain(
 	typeContext: TypeContext | undefined,
 	index: number,
 ): CsqlSegment[] {
+	assertCsqlQueryFunction("ancestor-exists");
+	assertCsqlQueryFunction("match-all");
 	const step = steps[index];
 	const inner =
 		index === steps.length - 1
@@ -1488,6 +1504,8 @@ function emitSubcaseExistsCall(
 	where: Predicate | undefined,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
+	assertCsqlQueryFunction("subcase-exists");
+	assertCsqlQueryFunction("match-all");
 	const identifierLiteral = quoteLiteral(identifier, "csql");
 	if (where === undefined && ofCaseType === undefined) {
 		return [{ kind: "constant", text: `subcase-exists(${identifierLiteral})` }];

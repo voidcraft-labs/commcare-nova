@@ -82,6 +82,41 @@ Every LLM call logs token counts and a cost estimate to stderr. Each phase that 
 - **Sonnet 200K context limit.** Large clusters get batched into chunks of ~140K input tokens. Keeping clustering granular (20–30 clusters) keeps most clusters under the limit in one shot.
 - **Tag-based clustering.** The LLM clusters *tags*, not pages. Page-to-cluster assignment is deterministic tag-overlap counting — this is what prevents the LLM from hallucinating page IDs.
 
+## XPath carrier compatibility inventory
+
+The XPath carrier scanner is read-only. It loads schema-admitted historical
+snapshots even when the current absolute commit gate rejects them, then uses the
+shared Lezer CST inspection and capability tables to report every proven
+JavaRosa lowering, device-unsafe call, and Preview-unsupported call.
+
+```bash
+# Local database, or one app only.
+npx tsx --conditions=react-server scripts/scan-xpath-carrier-compatibility.ts
+npx tsx --conditions=react-server scripts/scan-xpath-carrier-compatibility.ts --app <appId>
+
+# Production through the read-only operator identity.
+npx tsx --conditions=react-server scripts/scan-xpath-carrier-compatibility.ts --prod
+```
+
+The command exits nonzero when it finds a device-unsafe function or an unreadable
+app. A safe lowering such as `normalize-space()` is reported and counted but is
+not an error. There is intentionally no generic writer: a migration is valid
+only after each unsafe function has a reviewed replacement.
+
+The production inventory found exactly two legacy geopoint defaults containing
+`here()`. Core cannot evaluate that menu/detail-only function in an XForm, so
+the finite repair clears those defaults and leaves ordinary GPS capture in
+place. It is dry-run by default and has no direct production flag:
+
+```bash
+npx tsx --conditions=react-server scripts/migrate-xpath-carrier-compatibility.ts
+npx tsx --conditions=react-server scripts/migrate-xpath-carrier-compatibility.ts --app <reviewedAppId>
+```
+
+The immutable production migration Job invokes the same idempotent repair
+before traffic shifts to the new revision. Any source drift that still contains
+`here()` blocks the Job instead of being rewritten broadly.
+
 ## Search-input UUID migration
 
 `SearchInputRef` leaves store a Search input's immutable UUID. The final

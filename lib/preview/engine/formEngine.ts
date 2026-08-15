@@ -371,8 +371,8 @@ export class FormEngine {
 		/* One-time defaults for the new instance's leaves, then evaluate
 		 * EVERY instance's expressions plus every outside dependent — the
 		 * same defaults-then-evaluate order form load runs for `[0]`.
-		 * Existing instances re-evaluate too: `position()` / `last()`
-		 * expressions shift when cardinality grows, same as on remove. */
+		 * Existing instances re-evaluate too so this path stays symmetric with
+		 * removal, where `position()` and renumbered sibling reads can shift. */
 		this.applyInstanceDefaults(newLeafPaths);
 		this.evaluateRepeatCascade(`${repeatPath}[`, newLeafPaths);
 
@@ -451,7 +451,7 @@ export class FormEngine {
 			this.store.setState(updates);
 		}
 
-		/* Re-evaluate the surviving instances — `position()` / `last()` and
+		/* Re-evaluate the surviving instances — `position()` and
 		 * renumbered sibling values shift — plus every outside dependent. */
 		const survivingLeaves: string[] = [];
 		for (const [key] of this.instance.entries()) {
@@ -2373,14 +2373,11 @@ export class FormEngine {
 
 	private createEvalContext(path: string): EvalContext {
 		let position = 1;
-		let size = 1;
 		// The DEEPEST instance segment carries the evaluating node's own
 		// position — for `/data/a[1]/b[0]/c`, position() is b's index.
 		const repeatMatch = path.match(/\[(\d+)\][^[]*$/);
 		if (repeatMatch) {
 			position = Number.parseInt(repeatMatch[1], 10) + 1;
-			const repeatBase = path.slice(0, path.lastIndexOf("["));
-			size = this.instance.getRepeatCount(repeatBase);
 		}
 
 		/* References print index-free (`#form/orders/name`), but repeat
@@ -2389,9 +2386,17 @@ export class FormEngine {
 		 * semantic. Reads outside the context's repeats pass through. */
 		const read = (p: string): string | undefined =>
 			this.instance.get(rebaseOntoContext(p, path));
+		const session = previewSessionValues(this.previewIdentity);
 
 		return {
 			getValue: read,
+			resolveInstance: (instanceId, instancePath) =>
+				instanceId === "commcaresession"
+					? {
+							kind: "supported",
+							value: sessionInstancePathValue(instancePath, session),
+						}
+					: { kind: "unsupported" },
 			resolveHashtag: (ref: string) => {
 				if (ref.startsWith("#form/")) {
 					const fieldId = ref.slice(6);
@@ -2436,7 +2441,6 @@ export class FormEngine {
 			},
 			contextPath: path,
 			position,
-			size,
 		};
 	}
 
@@ -2532,6 +2536,15 @@ export class FormEngine {
 		return {
 			...base,
 			getValue: (p) => sessionInstancePathValue(p, session) ?? base.getValue(p),
+			resolveInstance: (instanceId, path) =>
+				instanceId === "commcaresession"
+					? {
+							kind: "supported",
+							value: sessionInstancePathValue(path, session),
+						}
+					: (base.resolveInstance?.(instanceId, path) ?? {
+							kind: "unsupported",
+						}),
 		};
 	}
 

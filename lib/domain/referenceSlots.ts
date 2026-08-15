@@ -695,6 +695,13 @@ export type ConnectXPathSlotId = Extract<
 	{ path: `connect.${string}` }
 >["slot"];
 
+/** Form-link XPath slot ids — fan-out form carriers validated and emitted
+ *  once per link (and, for datum XPath, once per datum). */
+export type FormLinkXPathSlotId = Extract<
+	FormSlotEntry,
+	{ kind: "xpath-ast"; path: `formLinks[]${string}` }
+>["slot"];
+
 export type FieldSlotId = FieldSlotEntry["slot"];
 export type FormSlotId = FormSlotEntry["slot"];
 export type ModuleSlotId = ModuleSlotEntry["slot"];

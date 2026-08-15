@@ -31,6 +31,7 @@ import type { ValidationError, ValidationErrorCode } from "./errors";
 import { validationError } from "./errors";
 import {
 	type ConnectXPathSlot,
+	type FormLinkXPathSlot,
 	type ProseSurface,
 	scopeHasForm,
 	scopeHasModule,
@@ -325,6 +326,29 @@ function runDeepValidation(
 					},
 				);
 
+			case "form-link-xpath": {
+				const linkNumber = (deep.indices[0] ?? 0) + 1;
+				const datumNumber = (deep.indices[1] ?? 0) + 1;
+				const carrier =
+					deep.slot === "form_link_condition"
+						? `form link ${linkNumber} ${FORM_LINK_SLOT_LABELS[deep.slot]}`
+						: `form link ${linkNumber} datum ${datumNumber} ${FORM_LINK_SLOT_LABELS[deep.slot]}`;
+				return validationError(
+					deep.error.code,
+					"form",
+					humanizeXPathError(
+						deep.error,
+						`"${deep.formName}" in "${deep.moduleName}" (${carrier})`,
+					),
+					{
+						moduleUuid: deep.moduleUuid,
+						moduleName: deep.moduleName,
+						formUuid: deep.formUuid,
+						formName: deep.formName,
+					},
+				);
+			}
+
 			case "cycle":
 				return validationError(
 					"CYCLE",
@@ -384,6 +408,12 @@ const CONNECT_SLOT_LABELS: Record<ConnectXPathSlot, string> = {
 	assessment_user_score: "Connect assessment user_score",
 	deliver_entity_id: "Connect deliver entity_id",
 	deliver_entity_name: "Connect deliver entity_name",
+};
+
+// Exhaustiveness tripwire for the registry-derived form-link XPath union.
+const FORM_LINK_SLOT_LABELS: Record<FormLinkXPathSlot, string> = {
+	form_link_condition: "condition",
+	form_link_datum_xpath: "XPath",
 };
 
 /**

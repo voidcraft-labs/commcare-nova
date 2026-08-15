@@ -50,6 +50,7 @@
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import {
 	effectiveFilterForEmission,
 	substituteUnansweredSearchInputsInExpression,
@@ -193,15 +194,17 @@ export function emitNormalizedExcludedOwnerIdsExpression(
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
 ): string {
-	return `normalize-space(${emitOnDeviceExpression(
-		excludedOwnerIds,
-		undefined,
-		relationContext,
-		undefined,
-		lookupNaming === undefined
-			? {}
-			: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
-	)})`;
+	return lowerXPathForJavaRosa(
+		`normalize-space(${emitOnDeviceExpression(
+			excludedOwnerIds,
+			undefined,
+			relationContext,
+			undefined,
+			lookupNaming === undefined
+				? {}
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+		)})`,
+	);
 }
 
 /** Bracketed form appended directly to a case-loading datum's nodeset. */

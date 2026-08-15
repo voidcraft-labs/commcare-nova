@@ -56,8 +56,13 @@ import {
 } from "@/lib/domain";
 import { buildConnectSlugMap } from "./connectSlugs";
 import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
+import {
+	caseTypeDepthMap,
+	expandHashtagsForSessionStack,
+} from "./hashtags/formContext";
 import { projectCaseListForHq } from "./hqJson/caseList";
 import { buildXForm } from "./xform/builder";
+import { lowerXPathForJavaRosa } from "./xpath";
 
 /**
  * Translate a domain form-link list into the HQ wire shape.
@@ -73,13 +78,18 @@ import { buildXForm } from "./xform/builder";
 function translateFormLinks(
 	doc: BlueprintDoc,
 	links: FormLink[],
+	moduleCaseType: string | undefined,
 	sortedModuleUuids: Uuid[],
 	sortedFormOrder: Record<string, Uuid[]>,
 ): HqFormLink[] {
 	// Canonical AST conditions/datums project to text only here, at the HQ
 	// wire boundary. Pre-cutover text is owned solely by the frozen migration.
 	const ctx = xpathPrintContext(doc);
-	const project = (value: XPathExpression): string => printXPath(value, ctx);
+	const caseTypeDepths = caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []);
+	const project = (value: XPathExpression): string =>
+		lowerXPathForJavaRosa(
+			expandHashtagsForSessionStack(printXPath(value, ctx), caseTypeDepths),
+		);
 	// The target's `moduleIndex` / `formIndex` are the SORTED menu positions —
 	// the same `orderedModule/FormUuids` sequences the suite's `<command>` ids
 	// (`m{i}-f{j}`) are emitted in — so a `form_links` navigation target resolves
@@ -90,13 +100,11 @@ function translateFormLinks(
 	for (const link of links) {
 		const target = link.target;
 		// An empty printed condition is "unconditional" — collapsed to
-		// absence so this view agrees with the session emitter's truthy
-		// check (no commit boundary stores an empty expression; a
-		// degenerate doc could).
+		// absence so this view agrees with the session emitter's truthy check.
+		const projectedCondition =
+			link.condition === undefined ? undefined : project(link.condition);
 		const condition =
-			link.condition === undefined
-				? undefined
-				: project(link.condition) || undefined;
+			projectedCondition?.trim().length === 0 ? undefined : projectedCondition;
 		const datums = link.datums?.map((datum) => ({
 			name: datum.name,
 			xpath: project(datum.xpath),
@@ -256,6 +264,7 @@ export function expandDoc(
 				? translateFormLinks(
 						doc,
 						form.formLinks,
+						mod.caseType,
 						sortedModuleUuids,
 						sortedFormOrder,
 					)

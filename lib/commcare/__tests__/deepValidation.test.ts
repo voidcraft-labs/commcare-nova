@@ -43,6 +43,9 @@ describe("validateXPath", () => {
 			expect(validateXPath("format-date(today(), '%Y-%m-%d')")).toEqual([]);
 			expect(validateXPath("count(/data/visits) > 0")).toEqual([]);
 			expect(validateXPath("#patient/total_visits + 1")).toEqual([]);
+			expect(validateXPath("normalize-space(#form/name)")).toEqual([]);
+			expect(validateXPath("instance('casedb')/casedb/case")).toEqual([]);
+			expect(validateXPath("current()/../@id")).toEqual([]);
 		});
 
 		it("returns no errors for variadic functions", () => {
@@ -87,6 +90,35 @@ describe("validateXPath", () => {
 			const errors = validateXPath("IF(true(), 'a', 'b')");
 			expect(errors).toHaveLength(1);
 			expect(errors[0].message).toContain("if()");
+		});
+
+		it.each(["here()", "last()", "substring('abc', 1)"])(
+			"rejects a function absent from Core's XForm evaluator: %s",
+			(expression) => {
+				expect(validateXPath(expression)).toEqual([
+					expect.objectContaining({ code: "UNKNOWN_FUNCTION" }),
+				]);
+			},
+		);
+
+		it("rejects path initializers used as ordinary calls", () => {
+			for (const expression of ["instance('casedb')", "current()"]) {
+				expect(validateXPath(expression)).toEqual([
+					expect.objectContaining({
+						code: "XPATH_SYNTAX",
+						message: expect.stringContaining("left root of a path"),
+					}),
+				]);
+			}
+		});
+
+		it("requires instance ids to be string literals", () => {
+			expect(validateXPath("instance(#form/id)/rows")).toEqual([
+				expect.objectContaining({
+					code: "XPATH_SYNTAX",
+					message: expect.stringContaining("string-literal instance id"),
+				}),
+			]);
 		});
 	});
 
@@ -869,6 +901,122 @@ describe("validateBlueprintDeep", () => {
 				(e) => e.kind === "field-xpath" && e.error.code === "UNKNOWN_FUNCTION",
 			),
 		).toBe(true);
+	});
+
+	it("validates every form-link XPath carrier, including on an empty form", () => {
+		const moduleUuid = testUuid("form-link-module");
+		const sourceUuid = testUuid("form-link-source");
+		const targetUuid = testUuid("form-link-target");
+		const doc = buildDoc({
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "Module",
+					forms: [
+						{
+							uuid: sourceUuid,
+							name: "Source",
+							type: "survey",
+							formLinks: [
+								{
+									condition: "here()",
+									target: {
+										type: "form",
+										moduleUuid,
+										formUuid: targetUuid,
+									},
+									datums: [
+										{
+											name: "case_id",
+											xpath: "substring('abc', 1)",
+										},
+									],
+								},
+							],
+						},
+						{
+							uuid: targetUuid,
+							name: "Target",
+							type: "survey",
+							fields: [],
+						},
+					],
+				},
+			],
+		});
+
+		const errors = validateBlueprintDeep(doc).filter(
+			(error) => error.kind === "form-link-xpath",
+		);
+		expect(errors).toMatchObject([
+			{
+				kind: "form-link-xpath",
+				slot: "form_link_condition",
+				indices: [0],
+				error: { code: "UNKNOWN_FUNCTION" },
+			},
+			{
+				kind: "form-link-xpath",
+				slot: "form_link_datum_xpath",
+				indices: [0, 0],
+				error: { code: "UNKNOWN_FUNCTION" },
+			},
+		]);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(error) => error.code === "UNKNOWN_FUNCTION",
+			),
+		).toHaveLength(2);
+	});
+
+	it("rejects form-local and empty form-link stack expressions", () => {
+		const moduleUuid = testUuid("form-link-context-module");
+		const sourceUuid = testUuid("form-link-context-source");
+		const targetUuid = testUuid("form-link-context-target");
+		const doc = buildDoc({
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "Module",
+					forms: [
+						{
+							uuid: sourceUuid,
+							name: "Source",
+							type: "survey",
+							formLinks: [
+								{
+									condition: "#form/answer = 'yes'",
+									target: {
+										type: "form",
+										moduleUuid,
+										formUuid: targetUuid,
+									},
+									datums: [{ name: "case_id", xpath: "  " }],
+								},
+							],
+							fields: [
+								f({ kind: "text", id: "answer", label: proseText("Answer") }),
+							],
+						},
+						{
+							uuid: targetUuid,
+							name: "Target",
+							type: "survey",
+							fields: [],
+						},
+					],
+				},
+			],
+		});
+
+		expect(
+			validateBlueprintDeep(doc)
+				.filter((error) => error.kind === "form-link-xpath")
+				.map((error) => ({ slot: error.slot, code: error.error.code })),
+		).toEqual([
+			{ slot: "form_link_condition", code: "INVALID_REF" },
+			{ slot: "form_link_datum_xpath", code: "XPATH_SYNTAX" },
+		]);
 	});
 
 	it("catches wrong arity", () => {

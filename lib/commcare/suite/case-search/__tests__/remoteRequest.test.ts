@@ -18,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import {
 	advancedSearchInputDef,
 	type CaseListConfig,
@@ -502,9 +503,13 @@ describe("emitRemoteRequest — Nova-shaped end-to-end composition", () => {
 		// round-trip as `&apos;` inside the double-quoted `ref`
 		// attribute values.
 		expect(xml).toContain(`<data key="case_type" ref="&apos;patient&apos;"/>`);
+		const normalized = lowerXPathForJavaRosa(
+			"normalize-space('owner-x')",
+		).replaceAll("'", "&apos;");
 		expect(xml).toContain(
-			`<data key="commcare_blacklisted_owner_ids" ref="normalize-space(&apos;owner-x&apos;)"/>`,
+			`<data key="commcare_blacklisted_owner_ids" ref="${normalized}"/>`,
 		);
+		expect(xml).not.toContain("normalize-space(");
 		expect(xml).toContain(`<data key="_xpath_query"`);
 
 		// Per-input prompt + locale.

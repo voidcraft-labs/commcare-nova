@@ -25,6 +25,7 @@ import type {
 } from "@/lib/domain/predicate";
 import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
+import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import type { EvalContext } from "@/lib/preview/xpath/types";
 import {
 	type PreviewSearchSessionValues,
@@ -143,16 +144,20 @@ function searchSessionEvalContext(
 	return {
 		contextPath: "",
 		position: 1,
-		size: 1,
 		getValue: (path) => sessionInstancePathValue(path, session),
+		resolveInstance: (instanceId, path) =>
+			instanceId === "commcaresession"
+				? { kind: "supported", value: sessionInstancePathValue(path, session) }
+				: { kind: "unsupported" },
 		resolveHashtag: () => "",
+		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 	};
 }
 
 /**
  * Resolve the session-instance path spellings the on-device emitters
- * print (`instance('commcaresession')/session/...` — the evaluator
- * drops the instance step, leaving `/session/...`). Shared with every
+ * print (`instance('commcaresession')/session/...`; the explicit instance
+ * resolver receives `/session/...`). Shared with every
  * preview surface that evaluates emitted predicates outside a form
  * context; non-session paths return `undefined` so callers can chain
  * their own resolution.

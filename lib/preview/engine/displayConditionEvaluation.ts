@@ -23,6 +23,7 @@ import type { Predicate } from "@/lib/domain/predicate";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 import { toBoolean } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
+import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import type { EvalContext } from "../xpath/types";
 import {
 	type PreviewSearchSessionValues,
@@ -135,12 +136,16 @@ function navigationEvalContext(
 	return {
 		contextPath: "",
 		position: 1,
-		size: 1,
 		getValue: (path) => sessionInstancePathValue(path, session),
+		resolveInstance: (instanceId, path) =>
+			instanceId === "commcaresession"
+				? { kind: "supported", value: sessionInstancePathValue(path, session) }
+				: { kind: "unsupported" },
 		resolveHashtag: (ref) => {
 			const match = /^#case\/(.+)$/.exec(ref);
 			if (match) return caseProjection?.get(match[1]) ?? "";
 			return "";
 		},
+		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 	};
 }
