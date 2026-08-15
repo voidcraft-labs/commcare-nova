@@ -452,6 +452,9 @@ function humanizeXPathError(error: XPathError, where: string): string {
 		case "INVALID_CASE_REF":
 			return `${where} references a case property that doesn't exist on this case type: ${error.message}. Check for a typo, or make sure a field's case destination saves to that property.`;
 
+		case "PROSE_EDITOR_ROUND_TRIP_LOSS":
+			return `${where} contains text or a reference that Nova's editor cannot preserve. Rewrite this text using plain text and supported reference parts.`;
+
 		case "TYPE_ERROR":
 			return `${where} has a type mismatch: ${error.message}. This will likely produce unexpected results at runtime.`;
 	}

@@ -173,6 +173,84 @@ describe("mutationCommitVerdict", () => {
 		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 	});
 
+	it("accepts case-ref prose whose object keys admission re-sorts", () => {
+		// A record-summary label is the prose twin of the XPath regression above.
+		// Admission sorts the case-ref's keys, while the TipTap codec parses the
+		// same semantic part back in schema order. Key order cannot make a valid
+		// direct case read fail and force an author to mirror it through hidden
+		// calculated fields.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Clients",
+					caseType: "client",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Follow up",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "notes",
+									label: proseText("Notes"),
+									caseWrite: { caseType: "client", property: "notes" },
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "client",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "notes", label: proseText("Notes") },
+					],
+				},
+			],
+		});
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "addField",
+					parentUuid: formUuid(doc),
+					field: {
+						uuid: testUuid("case-ref-summary"),
+						kind: "label",
+						id: "client_summary",
+						label: {
+							parts: [
+								{ kind: "text", text: "**Client:** " },
+								{
+									kind: "case-ref",
+									caseType: "client",
+									property: "case_name",
+								},
+							],
+						},
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		if (!verdict.ok) return;
+		const summary = verdict.nextDoc.fields[testUuid("case-ref-summary")];
+		expect(summary?.kind).toBe("label");
+		if (summary?.kind !== "label") return;
+		expect(summary.label.parts[1]).toEqual({
+			caseType: "client",
+			kind: "case-ref",
+			property: "case_name",
+		});
+	});
+
 	it("rejects raw #case text parsed by the builder before it reaches storage", () => {
 		const doc = minDoc();
 		const target = Object.values(doc.fields).find(

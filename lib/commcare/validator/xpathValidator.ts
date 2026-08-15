@@ -34,6 +34,7 @@ export interface XPathError {
 		| "WRONG_ARITY"
 		| "INVALID_REF"
 		| "INVALID_CASE_REF"
+		| "PROSE_EDITOR_ROUND_TRIP_LOSS"
 		| "TYPE_ERROR";
 	message: string;
 	position?: number;

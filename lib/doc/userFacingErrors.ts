@@ -628,6 +628,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} points to a field that isn't here. Check for a typo, or a field that was renamed or removed.`,
 	INVALID_CASE_REF: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
+	PROSE_EDITOR_ROUND_TRIP_LOSS: (e) =>
+		`The text on ${q(fieldName(e))} in ${q(formName(e))} contains something the editor can't safely preserve. Re-enter its text and references.`,
 	CYCLE: (e) =>
 		`Some field formulas or lookup choices in ${q(formName(e))} depend on each other in a loop, so their values can't settle. Remove one of the references to break it.`,
 	TYPE_ERROR: (e) =>

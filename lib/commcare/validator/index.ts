@@ -641,9 +641,9 @@ function validateTreeProse(
 				fieldId: field.id,
 				surface,
 				error: {
-					code: "INVALID_REF",
+					code: "PROSE_EDITOR_ROUND_TRIP_LOSS",
 					message:
-						"This text does not survive Nova's canonical reference-editor round trip.",
+						"This text changes when Nova's reference editor reads and writes it",
 				},
 			});
 			return;
