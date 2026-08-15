@@ -92,7 +92,7 @@ describe("lean Design Contract graph", () => {
 		expect(designConstructionIssues(contract)).toEqual([]);
 	});
 
-	it("separates exact-direction automatic capability from manual language support", () => {
+	it("admits automatic translation within the launch set", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
 			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
@@ -106,7 +106,26 @@ describe("lean Design Contract graph", () => {
 			],
 		};
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
-		expect(constructionMessages(contract)).toContain("not evaluated");
+		expect(designConstructionIssues(contract)).toEqual([]);
+	});
+
+	it("keeps automatic translation closed outside the launch set", () => {
+		const contract = cloneContract(makeContract());
+		contract.charter.localization = {
+			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
+			defaultLanguage: "en",
+			targets: [
+				{
+					language: { code: "zul", name: "isiZulu", direction: "ltr" },
+					seedFrom: "en",
+					strategy: "translate-with-nova",
+				},
+			],
+		};
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+		expect(constructionMessages(contract)).toContain(
+			"only when both languages belong to its checked-in 57-language set",
+		);
 	});
 
 	it("rejects cyclic target-language copy dependencies", () => {

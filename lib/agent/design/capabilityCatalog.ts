@@ -32,7 +32,7 @@ import {
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { casePropertyDataTypes } from "@/lib/domain/casePropertyTypes";
 import { fieldKinds } from "@/lib/domain/fields";
-import { availableAutomaticTranslationDirections } from "@/lib/translation/capabilityPolicy";
+import { AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES } from "@/lib/translation/capabilityPolicy";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
 export interface CatalogToolEntry {
@@ -59,9 +59,10 @@ export interface CapabilityCatalog {
 	readonly unsupported: readonly string[];
 	readonly localization: {
 		readonly manualAuthoring: "all-commcare-language-codes";
-		readonly automaticDirections: readonly {
-			readonly sourceLanguage: string;
-			readonly targetLanguage: string;
+		readonly automaticPolicy: "all-directions-within-launch-set";
+		readonly automaticLanguages: readonly {
+			readonly code: string;
+			readonly name: string;
 		}[];
 	};
 }
@@ -102,11 +103,9 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
 		],
 		localization: {
 			manualAuthoring: "all-commcare-language-codes" as const,
-			automaticDirections: availableAutomaticTranslationDirections().map(
-				(direction) => ({
-					sourceLanguage: direction.sourceLanguage,
-					targetLanguage: direction.targetLanguage,
-				}),
+			automaticPolicy: "all-directions-within-launch-set" as const,
+			automaticLanguages: AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES.map(
+				(language) => ({ code: language.code, name: language.name }),
 			),
 		},
 	};
@@ -144,17 +143,14 @@ export function renderCapabilityCatalog(catalog: CapabilityCatalog): string {
 	);
 	lines.push(`Unsupported promises: ${catalog.unsupported.join("; ")}.`);
 	lines.push(
-		"Localization: manual authoring, copy, Preview, and export support every CommCare language code; automatic translation is a separate exact-direction capability.",
+		"Localization: manual authoring, copy, Preview, and export support every CommCare language code; automatic translation is a separate launch policy.",
 	);
 	lines.push(
-		catalog.localization.automaticDirections.length === 0
-			? "Automatic translation directions currently Available: none. Use copy-only localization and record human translation as the remaining content task."
-			: `Automatic translation directions currently Available: ${catalog.localization.automaticDirections
-					.map(
-						(direction) =>
-							`${direction.sourceLanguage}→${direction.targetLanguage}`,
-					)
-					.join(", ")}.`,
+		`Automatic translation is Available in every direction between two distinct languages in this ${catalog.localization.automaticLanguages.length}-language launch set (ISO 639-3 identities; equivalent CommCare picker aliases resolve to the same identity): ${catalog.localization.automaticLanguages
+			.map((language) => `${language.name} (${language.code})`)
+			.join(
+				", ",
+			)}. Every machine-authored value starts Needs review. For any language outside this set, use copy-only localization and record human translation as the remaining content task.`,
 	);
 	lines.push("");
 	lines.push("### Platform constraints and deliberate gaps");

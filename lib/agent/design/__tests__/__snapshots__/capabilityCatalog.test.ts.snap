@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "7a6a6cdec1cba8af6b980b297e722c0d3461d44ad61b201528e7b295bb8d0d15",
+  "catalogDigest": "781077be434bbe144c6e9efcdf6985775add96b5baf365c4c1b88b5f6286862a",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",

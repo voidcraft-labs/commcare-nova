@@ -174,8 +174,9 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   target metadata, each target's existing seed language, and `copy-only` versus
   `translate-with-nova`. Target dependencies form an acyclic closed graph. The
   base schema preserves historical artifacts, while construction validation
-  refuses `translate-with-nova` unless the exact direction is currently
-  Available. Workflow slices remain source-language-only; the server-owned
+  refuses `translate-with-nova` unless both language codes resolve to distinct
+  members of the automatic-translation launch set. Workflow slices remain
+  source-language-only; the server-owned
   post-slice finalizer applies localization after the complete inventory exists.
 
 ## Phase protocol

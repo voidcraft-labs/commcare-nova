@@ -1648,12 +1648,15 @@ static overlay.
 
 Manual authoring, copy, Preview, and export accept every language code CommCare
 Classic accepts; the vendored Classic picker catalog supplies discovery rather
-than an allowlist. Automatic translation is a separate exact source-to-target
-capability policy with Available, Not evaluated, and Withheld states. The
-production manifest initially has no Available direction, so no paid translation
-can run until that direction passes the checked-in quality evaluation and
-bilingual review. Conversation language is independent of app languages: the SA
-responds in the user's language while preserving exact authored identifiers.
+than an allowlist. Automatic translation is a separate policy with Available,
+Not evaluated, and Withheld states. At launch, every direction between two
+distinct members of the checked-in 57-language set is Available; equivalent
+two-letter, ISO 639-2, and regional CommCare codes resolve to the same launch
+identity. This is a product allowlist rather than a claim of provider-published
+coverage or completed bilingual certification, so every machine-authored value
+starts Needs review. All other languages remain copy/manual-only. Conversation
+language is independent of app languages: the SA responds in the user's
+language while preserving exact authored identifiers.
 
 An accepted initial-build localization intent runs only after all build slices,
 when the complete string inventory exists. Its bounded structured batches use

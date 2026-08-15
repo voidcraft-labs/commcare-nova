@@ -148,7 +148,7 @@ describe("LanguagesSection", () => {
 		);
 		expect(
 			screen.getByText(
-				/Automatic translation from English to español is not evaluated/,
+				/automatic translation from English to español are available/,
 			),
 		).toBeTruthy();
 		const current = store?.getState();

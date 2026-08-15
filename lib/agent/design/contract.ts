@@ -772,7 +772,7 @@ export function designConstructionIssues(
 			if (capability.status === "available") continue;
 			issues.push({
 				path: ["charter", "localization", "targets", targetIndex, "strategy"],
-				message: `Automatic translation from ${localization.sourceLanguage.name} (${localization.sourceLanguage.code}) to ${target.language.name} (${target.language.code}) is ${capability.status === "withheld" ? "withheld because it did not pass Nova's quality threshold" : "not evaluated"}. Use copy-only and plan human translation, or choose an exact direction Nova marks Available.`,
+				message: `Automatic translation from ${localization.sourceLanguage.name} (${localization.sourceLanguage.code}) to ${target.language.name} (${target.language.code}) is not available. ${capability.explanation} Use copy-only and plan human translation, or choose two distinct languages from Nova's automatic-translation launch set.`,
 			});
 		}
 	}

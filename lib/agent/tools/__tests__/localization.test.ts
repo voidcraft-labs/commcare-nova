@@ -113,7 +113,7 @@ describe("shared localization tools", () => {
 			automaticTranslation: {
 				sourceLanguage: "en",
 				targetLanguage: "es",
-				status: "not-evaluated",
+				status: "available",
 			},
 		});
 		expect(harness.recordMutations).toHaveBeenCalledTimes(1);

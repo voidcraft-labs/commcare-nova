@@ -1,9 +1,14 @@
-import type { LanguageCode } from "@/lib/domain";
+import rawLaunchLanguages from "@/config/automatic-translation-launch-languages.json";
+import {
+	classicLanguageOption,
+	type LanguageCode,
+	languageCodeSchema,
+} from "@/lib/domain";
 
 /**
- * Automatic text translation is an exact-direction capability, independent
- * from CommCare's app-language catalog. Manual authoring, copy, Preview, and
- * emission never consult this policy.
+ * Automatic text translation is independent from CommCare's app-language
+ * catalog. Manual authoring, copy, Preview, and emission never consult this
+ * policy.
  */
 export const automaticTranslationStatuses = [
 	"available",
@@ -20,52 +25,106 @@ export interface AutomaticTranslationCapability {
 	readonly explanation: string;
 }
 
-/**
- * Only human-reviewed evaluation results belong here. The broad Classic
- * catalog is deliberately not copied into this manifest, and a benchmark run
- * never enables a direction by editing policy automatically.
- *
- * No direction is enabled until the paid evaluation harness and bilingual
- * human review have accepted it. This conservative empty manifest is a real
- * product state: every direction remains manually authorable while automatic
- * translation is honestly unavailable.
- */
-const REVIEWED_DIRECTIONS = new Map<
-	string,
-	Omit<AutomaticTranslationCapability, "sourceLanguage" | "targetLanguage">
->();
-
-export function availableAutomaticTranslationDirections(): readonly AutomaticTranslationCapability[] {
-	return [...REVIEWED_DIRECTIONS.entries()].flatMap(([key, capability]) => {
-		if (capability.status !== "available") return [];
-		const [sourceLanguage, targetLanguage] = key.split("\u0000") as [
-			LanguageCode,
-			LanguageCode,
-		];
-		return [{ sourceLanguage, targetLanguage, ...capability }];
-	});
+export interface AutomaticTranslationLaunchLanguage {
+	readonly code: LanguageCode;
+	readonly name: string;
 }
 
-function directionKey(source: LanguageCode, target: LanguageCode): string {
-	return `${source}\u0000${target}`;
+/**
+ * Product-owned launch coverage, adopted as an explicit 57-language set. It is
+ * not represented as 3,192 pair rows and does not claim a provider-published
+ * language list or completed bilingual evaluation for every direction. Every
+ * machine-authored value remains Needs review.
+ */
+export const AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES: readonly AutomaticTranslationLaunchLanguage[] =
+	rawLaunchLanguages.map((language) => ({
+		code: languageCodeSchema.parse(language.code),
+		name: language.name,
+	}));
+
+if (AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES.length !== 57) {
+	throw new Error(
+		"The automatic-translation launch manifest must contain 57 languages.",
+	);
+}
+
+const launchCodes = new Set(
+	AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES.map((language) => language.code),
+);
+if (launchCodes.size !== AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES.length) {
+	throw new Error(
+		"The automatic-translation launch manifest has duplicate codes.",
+	);
+}
+
+/**
+ * The launch source uses ISO 639-3 individual-language identities while
+ * Classic's picker uses ISO 639-2 macrolanguage codes for these eight entries.
+ * Resolve the picker code to the launch identity workers mean; direct 639-3
+ * entries (for example `arz` or `prs`) still win before this crosswalk.
+ */
+const CLASSIC_TO_LAUNCH_EQUIVALENT = new Map<LanguageCode, LanguageCode>([
+	["zho", "cmn"],
+	["ara", "arb"],
+	["swa", "swh"],
+	["fas", "pes"],
+	["ori", "ory"],
+	["nep", "npi"],
+	["msa", "zlm"],
+	["uzb", "uzn"],
+]);
+
+/** Resolve a CommCare code or regional variant to one launch-language identity. */
+export function automaticTranslationLaunchLanguage(
+	code: LanguageCode,
+): LanguageCode | undefined {
+	const base = code.split("-", 1)[0] as LanguageCode;
+	if (launchCodes.has(base)) return base;
+	const classic = classicLanguageOption(base);
+	if (classic === undefined) return undefined;
+	if (launchCodes.has(classic.iso6392)) return classic.iso6392;
+	return CLASSIC_TO_LAUNCH_EQUIVALENT.get(classic.iso6392);
 }
 
 export function automaticTranslationCapability(
 	sourceLanguage: LanguageCode,
 	targetLanguage: LanguageCode,
 ): AutomaticTranslationCapability {
-	const reviewed = REVIEWED_DIRECTIONS.get(
-		directionKey(sourceLanguage, targetLanguage),
-	);
-	if (reviewed !== undefined) {
-		return { sourceLanguage, targetLanguage, ...reviewed };
+	const sourceLaunchLanguage =
+		automaticTranslationLaunchLanguage(sourceLanguage);
+	const targetLaunchLanguage =
+		automaticTranslationLaunchLanguage(targetLanguage);
+	if (
+		sourceLaunchLanguage !== undefined &&
+		targetLaunchLanguage !== undefined &&
+		sourceLaunchLanguage !== targetLaunchLanguage
+	) {
+		return {
+			sourceLanguage,
+			targetLanguage,
+			status: "available",
+			explanation:
+				"Both languages belong to Nova's 57-language automatic-translation launch set. Machine-authored values still require human review.",
+		};
+	}
+	if (
+		sourceLaunchLanguage !== undefined &&
+		sourceLaunchLanguage === targetLaunchLanguage
+	) {
+		return {
+			sourceLanguage,
+			targetLanguage,
+			status: "withheld",
+			explanation:
+				"The source and target codes resolve to the same launch language, so translation would not change languages.",
+		};
 	}
 	return {
 		sourceLanguage,
 		targetLanguage,
 		status: "not-evaluated",
 		explanation:
-			"Nova has not completed its paid quality evaluation and bilingual human review for this exact translation direction.",
+			"At launch, Nova offers automatic translation only when both languages belong to its checked-in 57-language set.",
 	};
 }
 

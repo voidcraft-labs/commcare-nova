@@ -325,7 +325,7 @@ export function LanguagesSection() {
 								? "This is the canonical content. Edit it in the Builder where it appears; use this inventory to find every worker-facing string."
 								: automaticTranslation?.status === "available"
 									? `Manual editing, copy, and automatic translation from ${localization.languages[localization.sourceLanguage].name} to ${selectedLanguage.name} are available. Automatic output starts as Needs review.`
-									: `Manual editing and copy are available for every language. Automatic translation from ${localization.languages[localization.sourceLanguage].name} to ${selectedLanguage.name} is ${automaticTranslation?.status === "withheld" ? "withheld because that direction did not pass Nova's quality threshold" : "not evaluated for quality yet"}.`}
+									: `Manual editing and copy are available for every language. ${automaticTranslation?.explanation ?? "Automatic translation is not available for this language pair."}`}
 						</p>
 					</div>
 					<div className="flex flex-col gap-2 @md:flex-row">

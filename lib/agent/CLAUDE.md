@@ -152,8 +152,9 @@ last committed slice, pins that exact canonical snapshot, and applies the whole
 language catalog plus target overlays in one canonical commit carrying the
 localization receipt sidecar. Copy-only targets never call a model. An
 AI-translated target may run only when `lib/translation/capabilityPolicy.ts`
-marks the exact source→target direction Available; Classic language-catalog
-support never implies that status. The Sol translator uses the named
+resolves both source and target to distinct members of the checked-in
+57-language launch set; Classic language-catalog support never implies that
+status. The Sol translator uses the named
 `MODEL_ROLES.translator` role through the installed structured-output seam,
 groups batches by owning screen before a token bound, and validates exact unit
 coverage, blank rules, value kinds, and protected prose references. Every AI or
@@ -162,8 +163,8 @@ canonical commit, recovery reuses them without another model call, and the
 run-summary batch account admits their cost exactly once. A failed protocol
 generation blocks another sample with the same input/model/prompt/schema; a real
 deployed protocol change may append a replacement generation without abandoning
-the accepted build. The current production policy has no Available directions,
-so no paid translation can be initiated.
+the accepted build. The launch set is a product allowlist, not a claim of
+provider-published coverage or completed bilingual review for every direction.
 
 Conversation language and app language are independent. Follow-up chat answers
 in the language the user is speaking unless explicitly asked otherwise; that
