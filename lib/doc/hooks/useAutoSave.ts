@@ -99,6 +99,7 @@ export function projectSaveSlice(
 		appName: s.appName,
 		connectType: s.connectType,
 		caseTypes: s.caseTypes,
+		localization: s.localization,
 		logo: s.logo,
 		userProperties: s.userProperties,
 		userPropertyOrder: s.userPropertyOrder,

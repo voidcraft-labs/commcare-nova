@@ -286,6 +286,7 @@ const CONSTRAINT_AREAS: Readonly<
 	GAP_NESTED_MENUS: ["navigation"],
 	GAP_SESSION_ENDPOINTS_DEEP_LINKS: ["navigation"],
 	GAP_MULTI_SELECT_RELATED_CASES: ["case-list", "forms"],
+	GAP_MULTILINGUAL_LOCALIZATION: ["app"],
 };
 
 function checklistRequirement(

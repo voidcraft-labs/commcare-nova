@@ -475,6 +475,7 @@ async function rebuildBlueprintOnlyMediaRefs(
 				app_name: app.app_name,
 				connect_type: app.connect_type,
 				case_types_text: app.case_types_text,
+				localization_text: null,
 				logo: app.logo,
 			} as PersistedBlueprintRootText,
 			entities.rows as unknown as PersistedEntityRowText[],

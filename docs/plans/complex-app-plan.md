@@ -1642,7 +1642,7 @@ directly. Request and run timings are three independently authored fields in
 
 ## What remains
 
-Nine units, one file each. **Every entry below is a pointer, not a summary of
+Ten units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -1650,6 +1650,18 @@ withholding so you can tell when you need it. Read that file, and
 
 Units are named, not numbered: the file's name is the unit's identity, so a
 unit that ships leaves no gap and nothing ever renumbers.
+
+### Multilingual app authoring and translation
+
+[`complex-app/multilingual-localization.md`](complex-app/multilingual-localization.md)
+· depends on nothing · blocks nothing
+
+Native source, default, and target languages across authoring, Preview, build,
+and export, with direction-gated optional AI translation. **The file holds**
+the verified Classic language and wire boundaries, overlay and translation-unit
+model, complete-string fallback semantics, Builder/agent experience, Sol
+capability policy, end-of-build finalizer, and coordinated Nova/plugin release
+contract.
 
 ### Grouped case tiles
 
@@ -1759,6 +1771,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
+| [multilingual localization](complex-app/multilingual-localization.md) | — |
 | [grouped case tiles](complex-app/grouped-case-tiles.md) | — |
 | [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | — |
 | [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
@@ -1769,9 +1782,9 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
 
-Five units have no outstanding prerequisites and can start in any order:
-grouped case tiles, attachment emission, the usercase, push and provisioning,
-and form links and sections. They are the independent entry points — every
+Six units have no outstanding prerequisites and can start in any order:
+multilingual localization, grouped case tiles, attachment emission, the
+usercase, push and provisioning, and form links and sections. They are the independent entry points — every
 other unit descends from one of them.
 
 Push and provisioning is the critical path: it gates the App setup UI, session
@@ -1779,10 +1792,11 @@ endpoints, and multi-select, so anything needing resources on a real HQ target
 waits on it. The navigation chain (form links → nested menus) runs
 independently until session endpoints, which needs both.
 
-Grouped case tiles, attachment emission, the App setup UI, session endpoints,
-and multi-select are leaves — nothing waits on them, so each can land whenever
-its own prerequisites are met. Grouped case tiles are both an entry point and
-a leaf: nothing blocks them and nothing waits on them, which makes them the
+Multilingual localization, grouped case tiles, attachment emission, the App
+setup UI, session endpoints, and multi-select are leaves — nothing waits on
+them, so each can land whenever its own prerequisites are met. Multilingual
+localization and grouped case tiles are both entry points and leaves: nothing
+blocks them and nothing waits on them, which makes them the
 natural filler whenever push and provisioning is blocked on something external.
 The usercase unit sits off the critical path too — only the App setup UI waits
 on it, so it can proceed independently without holding up push and provisioning.

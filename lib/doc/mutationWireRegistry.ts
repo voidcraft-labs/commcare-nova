@@ -53,6 +53,13 @@ const MUTATION_KIND_OWNERSHIP = {
 	setAppName: "whole-value",
 	setConnectType: "whole-value",
 	setAppLogo: "whole-value",
+	relabelSourceLanguage: "whole-value",
+	addLanguage: "whole-value",
+	updateLanguage: "patch",
+	removeLanguage: "whole-value",
+	setDefaultLanguage: "whole-value",
+	setTranslation: "whole-value",
+	reviewTranslation: "whole-value",
 	renameCaseProperties: "whole-value",
 	declareCaseType: "whole-value",
 	retireCaseType: "whole-value",
@@ -637,6 +644,7 @@ function nullMeaning(
 				jsonPointer.includes("/caseOperationPatch/"))) ||
 		(kind === "updateField" && jsonPointer.startsWith("/patch/")) ||
 		kind === "setAppLogo" ||
+		kind === "setTranslation" ||
 		kind === "setCaseTypeMeta" ||
 		((kind === "updateUserProperty" ||
 			kind === "updateUserType" ||

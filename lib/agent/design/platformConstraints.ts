@@ -54,6 +54,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"GAP_NESTED_MENUS",
 	"GAP_SESSION_ENDPOINTS_DEEP_LINKS",
 	"GAP_MULTI_SELECT_RELATED_CASES",
+	"GAP_MULTILINGUAL_LOCALIZATION",
 ] as const;
 
 export type PlatformConstraintCode = (typeof PLATFORM_CONSTRAINT_CODES)[number];
@@ -256,5 +257,12 @@ export const PLATFORM_CONSTRAINTS: Record<
 		sourceAnchor:
 			"docs/plans/complex-app/multi-select-related-cases-and-profile.md",
 		gapUnitFile: "multi-select-related-cases-and-profile.md",
+	},
+	GAP_MULTILINGUAL_LOCALIZATION: {
+		code: "GAP_MULTILINGUAL_LOCALIZATION",
+		statement:
+			"Nova's language model and shared authoring tools exist, but multilingual CommCare emission, localized Preview and Builder surfaces, and the accepted end-of-build translation phase remain one coordinated target gap; designs must not promise translated worker content until that complete unit ships.",
+		sourceAnchor: "docs/plans/complex-app/multilingual-localization.md",
+		gapUnitFile: "multilingual-localization.md",
 	},
 };

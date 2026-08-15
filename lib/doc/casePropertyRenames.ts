@@ -7,6 +7,8 @@ import {
 	type BlueprintDoc,
 	blueprintDocSchema,
 	CASE_SCALAR_PROPERTY_NAMES,
+	collectTranslationUnits,
+	makeTranslationUnitId,
 	mapCasePropertiesInProse,
 	mapCasePropertiesInXPath,
 	materializableCaseTypes,
@@ -196,6 +198,9 @@ export function rewriteCasePropertyCarriers(
 	doc: BlueprintDoc,
 	resolve: (caseType: string, property: string) => string | undefined,
 ): void {
+	const translationUnitsBefore = new Map(
+		collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
+	);
 	for (const field of Object.values(doc.fields)) {
 		rewriteFieldReferenceSlots(field, { resolveCaseProperty: resolve });
 	}
@@ -228,6 +233,46 @@ export function rewriteCasePropertyCarriers(
 			}
 			const destination = resolve(caseType.name, property.name);
 			if (destination !== undefined) property.name = destination;
+		}
+	}
+	if (doc.localization !== undefined) {
+		const translationUnitsAfter = new Map(
+			collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
+		);
+		for (const translations of Object.values(doc.localization.translations)) {
+			for (const [oldUnitId, entry] of Object.entries(translations)) {
+				const oldUnit = translationUnitsBefore.get(oldUnitId);
+				if (oldUnit === undefined) continue;
+				let newUnitId = oldUnit.id;
+				if (oldUnit.owner.kind === "case-property-option") {
+					const destination = resolve(
+						oldUnit.owner.caseType,
+						oldUnit.owner.property,
+					);
+					if (destination !== undefined) {
+						newUnitId = makeTranslationUnitId(
+							"case-property-option",
+							oldUnit.owner.caseType,
+							destination,
+							oldUnit.owner.value,
+						);
+					}
+				}
+				if (typeof entry.value === "object" && entry.value !== null) {
+					mapCasePropertiesInProse(entry.value, resolve);
+				}
+				const newUnit = translationUnitsAfter.get(newUnitId);
+				if (
+					newUnit !== undefined &&
+					entry.sourceFingerprint === oldUnit.sourceFingerprint
+				) {
+					entry.sourceFingerprint = newUnit.sourceFingerprint;
+				}
+				if (newUnitId !== oldUnitId) {
+					delete translations[oldUnitId];
+					translations[newUnitId] = entry;
+				}
+			}
 		}
 	}
 }

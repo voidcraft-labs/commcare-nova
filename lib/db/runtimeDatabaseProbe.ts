@@ -52,6 +52,7 @@ interface RuntimeProbePersistedAppRow {
 	readonly connect_type: PersistableDoc["connectType"];
 	readonly logo: PersistableDoc["logo"];
 	readonly case_types_text: string | null;
+	readonly localization_text: string | null;
 }
 
 interface RuntimeProbeRollbackVerificationRow {
@@ -615,6 +616,7 @@ async function readRuntimeProbeCarriers(
 	readonly connectType: PersistableDoc["connectType"];
 	readonly logo: PersistableDoc["logo"];
 	readonly caseTypesText: string | null;
+	readonly localizationText: string | null;
 	readonly entities: readonly PersistedEntityRowText[];
 }> {
 	const root = (await tx
@@ -630,6 +632,11 @@ async function readRuntimeProbeCarriers(
 		.select(
 			sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
 				"case_types_text",
+			),
+		)
+		.select(
+			sql<string | null>`${sql.ref("apps.localization")}::text`.as(
+				"localization_text",
 			),
 		)
 		.where("id", "=", appId)
@@ -655,6 +662,7 @@ async function readRuntimeProbeCarriers(
 		connectType: root.connect_type,
 		logo: root.logo,
 		caseTypesText: root.case_types_text,
+		localizationText: root.localization_text,
 		entities: entities.map((entity) => ({
 			...entity,
 			parent_uuid: entity.parent_uuid ?? null,
@@ -672,6 +680,7 @@ function decodeRuntimeProbeCarriers(
 			app_name: carriers.appName,
 			connect_type: carriers.connectType,
 			case_types_text: carriers.caseTypesText,
+			localization_text: carriers.localizationText,
 			logo: carriers.logo ?? null,
 		},
 		carriers.entities,

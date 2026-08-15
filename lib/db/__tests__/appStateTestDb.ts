@@ -311,6 +311,10 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 							persistable?.caseTypes == null
 								? null
 								: JSON.stringify(persistable.caseTypes),
+						localization:
+							persistable?.localization === undefined
+								? null
+								: JSON.stringify(persistable.localization),
 						logo: persistable?.logo ?? null,
 						module_count:
 							opts.module_count ?? persistable?.moduleOrder.length ?? 0,

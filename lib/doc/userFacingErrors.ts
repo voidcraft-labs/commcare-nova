@@ -141,6 +141,14 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"That change was not represented exactly enough to save safely. Retry it so Nova can preserve every value as authored.",
 	CASE_PROPERTY_REFERENCE_INVALID: (e) =>
 		`${q(det(e, "caseType", "A case type"))}.${det(e, "property", "property")}'s ${det(e, "slot", "default")} setting contains a reference that isn't available there. Replace it with case, worker, or fixed information that exists in every form using this property.`,
+	TRANSLATION_UNIT_UNKNOWN: () =>
+		"A translation is attached to content that no longer exists. Open Languages and remove that orphaned translation.",
+	TRANSLATION_VALUE_KIND_MISMATCH: () =>
+		"A translation no longer matches the kind of content it belongs to. Open Languages and enter that translation again.",
+	TRANSLATION_REQUIRED_CONTENT_BLANK: () =>
+		"One translated name or heading is blank. Open Languages and add the text workers should see.",
+	TRANSLATION_PROTECTED_CONTENT_CHANGED: () =>
+		"A translation changed one of the linked values inside its text. Open Languages, restore each protected value, and translate only the surrounding words.",
 
 	// ── Worker information, roles, personas ──────────────────────────
 	// The rule's own message already carries the specific reason (an illegal

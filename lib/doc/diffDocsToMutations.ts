@@ -111,6 +111,7 @@ import {
 	updateUserTypeMutations,
 } from "@/lib/doc/userMutations";
 import type {
+	AppLanguage,
 	Automation,
 	CaseListConfig,
 	CaseType,
@@ -126,6 +127,7 @@ import {
 	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
 	convertNeedsOptionSeed,
+	effectiveAppLocalization,
 	emptyCaseListConfig,
 	fieldKindDeclaresKey,
 	hasOwnRecordKey,
@@ -801,8 +803,122 @@ export function diffDocsToMutations(
 			}).caseTypes
 		: prev.caseTypes;
 	structural.push(...diffCatalog(fromCatalog, next.caseTypes));
+	structural.push(...diffLocalization(prev, next));
 
 	return structural;
+}
+
+export class LocalizationEndpointNotRepresentableError extends Error {
+	readonly name = "LocalizationEndpointNotRepresentableError";
+
+	constructor() {
+		super(
+			"The localization endpoint changes source identity or language order in a way the product mutation dialect cannot represent.",
+		);
+	}
+}
+
+/** Diff app-language metadata and per-unit overlays after structural edits. */
+function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
+	if (deepEqual(prev.localization, next.localization)) return [];
+	const out: Mutation[] = [];
+	const before = effectiveAppLocalization(prev.localization);
+	const after = effectiveAppLocalization(next.localization);
+
+	if (before.sourceLanguage !== after.sourceLanguage) {
+		if (before.languageOrder.length !== 1 || after.languageOrder.length !== 1) {
+			throw new LocalizationEndpointNotRepresentableError();
+		}
+		out.push({
+			kind: "relabelSourceLanguage",
+			language: cloneEntity(
+				after.languages[after.sourceLanguage] as AppLanguage,
+			),
+		});
+	}
+
+	let working = produce(prev, (draft) => {
+		applyMutations(draft, out);
+	});
+	let current = effectiveAppLocalization(working.localization);
+	for (const code of after.languageOrder) {
+		if (current.languages[code] === undefined) {
+			out.push({
+				kind: "addLanguage",
+				language: cloneEntity(after.languages[code] as AppLanguage),
+			});
+		}
+	}
+	working = produce(prev, (draft) => {
+		applyMutations(draft, out);
+	});
+	current = effectiveAppLocalization(working.localization);
+	if (current.defaultLanguage !== after.defaultLanguage) {
+		out.push({ kind: "setDefaultLanguage", code: after.defaultLanguage });
+	}
+	for (const code of current.languageOrder) {
+		if (after.languages[code] === undefined) {
+			out.push({ kind: "removeLanguage", code });
+		}
+	}
+	for (const code of after.languageOrder) {
+		const currentLanguage = current.languages[code];
+		const nextLanguage = after.languages[code];
+		if (currentLanguage === undefined || nextLanguage === undefined) continue;
+		const patch: Extract<Mutation, { kind: "updateLanguage" }>["patch"] = {};
+		if (currentLanguage.name !== nextLanguage.name)
+			patch.name = nextLanguage.name;
+		if (currentLanguage.direction !== nextLanguage.direction) {
+			patch.direction = nextLanguage.direction;
+		}
+		if (Object.keys(patch).length > 0) {
+			out.push({ kind: "updateLanguage", code, patch });
+		}
+	}
+
+	working = produce(prev, (draft) => {
+		applyMutations(draft, out);
+	});
+	current = effectiveAppLocalization(working.localization);
+	if (
+		!deepEqual(current.languageOrder, after.languageOrder) ||
+		current.sourceLanguage !== after.sourceLanguage
+	) {
+		throw new LocalizationEndpointNotRepresentableError();
+	}
+	for (const code of after.languageOrder) {
+		if (code === after.sourceLanguage) continue;
+		const currentEntries = current.translations[code] ?? {};
+		const nextEntries = after.translations[code] ?? {};
+		for (const [unitId, entry] of Object.entries(nextEntries)) {
+			if (!deepEqual(currentEntries[unitId], entry)) {
+				out.push({
+					kind: "setTranslation",
+					language: code,
+					unitId,
+					entry: cloneEntity(entry),
+				});
+			}
+		}
+		for (const unitId of Object.keys(currentEntries)) {
+			if (nextEntries[unitId] === undefined) {
+				out.push({
+					kind: "setTranslation",
+					language: code,
+					unitId,
+					entry: null,
+				});
+			}
+		}
+	}
+
+	const replayed = produce(prev, (draft) => {
+		applyMutations(draft, out);
+	});
+	if (!deepEqual(replayed.localization, next.localization)) {
+		throw new LocalizationEndpointNotRepresentableError();
+	}
+	return out;
 }
 
 function diffCaseOperations(

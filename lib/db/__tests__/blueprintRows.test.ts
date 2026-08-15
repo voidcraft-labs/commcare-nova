@@ -79,6 +79,21 @@ describe("blueprint entity-row round trip", () => {
 		expect(assembled).toEqual(toPersistableDoc(doc));
 	});
 
+	it("round-trips the app-level localization overlay outside entity rows", () => {
+		const doc = emptyDoc("rt-app-localization");
+		doc.localization = {
+			sourceLanguage: "en",
+			defaultLanguage: "en",
+			languageOrder: ["en", "es"],
+			languages: {
+				en: { code: "en", name: "English", direction: "ltr" },
+				es: { code: "es", name: "Español", direction: "ltr" },
+			},
+			translations: { es: {} },
+		};
+		expect(roundTrip(doc)).toEqual(toPersistableDoc(doc));
+	});
+
 	it("preserves a dormant lookup-backed select through entity-row hydration", () => {
 		const moduleUuid = testUuid("10000000-0000-4000-8000-000000000001");
 		const formUuid = testUuid("20000000-0000-4000-8000-000000000001");

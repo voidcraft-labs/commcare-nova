@@ -3,8 +3,13 @@
 ## Current state
 
 This is the binding implementation plan for multilingual CommCare Nova apps.
-The architecture is approved for implementation. The feature code does not yet
-exist on this branch.
+The architecture is approved and its language foundation is implemented on the
+current stack branch: the domain overlay, exact Classic picker catalog,
+translation-unit inventory and resolver, granular mutation dialect, validity
+rules, exact JSON persistence, replay/diff behavior, shared SA/MCP read/write
+tools, and focused tests are the current source of truth. CommCare emission,
+Builder/Preview surfaces, AI orchestration, and plugin delivery build on that
+foundation in the remaining stack layers.
 
 Keep this document as a description of the best current design and the actual
 implementation state. When implementation teaches us something better, rewrite
@@ -53,6 +58,13 @@ model.
   Nova uses the stricter nonempty-suffix form
   `^[a-z]{2,3}(?:-[a-z]+)?$` and normalizes user input to lower case before it
   becomes identity.
+- Nova vendors Classic's picker data byte-for-byte from
+  `commcare-hq/submodules/langcodes/langs.json`; the reviewed source snapshot
+  and `config/commcare-classic-languages.json` both have SHA-256
+  `50cc621456e6e7a1b14afcbf5cccaa5a59b03f82271fc4d8a80bf6756ad5e4a4`.
+  The vendored file is formatter-excluded so source provenance remains directly
+  verifiable. It supplies discovery names and Classic's preferred two- versus
+  three-letter picker code, but it is not an authoring allowlist.
 - The first member of `Application.langs` is the runtime default language.
   Module, form, detail, and Search labels are language maps in the HQ JSON.
 - An XForm itext block contains one `<translation lang="...">` per language.
@@ -84,8 +96,10 @@ model.
 `BlueprintDoc` gains an optional localization value. Absence has one exact
 meaning for legacy apps: source `en`, default `en`, ordered languages `[en]`,
 and no translation overlays. The first language mutation materializes that
-effective state. Existing apps therefore need no one-off database migration or
-reinterpretation of their text.
+effective state, and returning to that exact legacy state dematerializes the
+optional value again. The database has an optional `apps.localization` JSONB
+root added by an ordinary schema migration; existing rows remain null and need
+no data migration or reinterpretation of their text.
 
 The persisted shape is conceptually:
 
@@ -113,8 +127,7 @@ interface TranslationEntry {
 }
 ```
 
-The final schema names may change to fit the surrounding domain vocabulary,
-but these semantics do not:
+These are the implemented domain names and semantics:
 
 - Language code is the language's stable external identity. Changing a code is
   remove-and-add, because CommCare also treats it as locale identity.
@@ -135,13 +148,17 @@ but these semantics do not:
   copy-from-existing, Preview, and export. AI capability policy governs only
   whether Nova offers automatic translation for an exact source→target
   direction; it can never make a Classic-supported language unavailable.
+- `translatedFrom` is historical provenance. It may continue to name a source
+  language that was later removed; target overlay keys, not provenance values,
+  are what remain closed over the current catalog.
 
 ## Translation units and inventory
 
-`lib/domain` owns one pure `collectTranslationUnits(doc)`-style derivation and
-one effective-value resolver. The exact exported names may follow local naming
-conventions. Every other surface consumes them rather than walking display
-slots independently.
+`lib/domain` owns the pure `collectTranslationUnits(doc)` derivation,
+`collectLocalizedTranslationUnits(doc, language)` status projection, and
+`resolveTranslationUnitValue(doc, language, id)` effective-value resolver.
+Every other surface consumes them rather than walking display slots
+independently.
 
 A translation unit contains:
 
@@ -165,8 +182,10 @@ Existing UUIDs identify app structure wherever possible. Nested values without
 UUID identity, such as an ID-mapping row or case-property option, use their
 existing stable semantic key under the UUID-bearing owner. The mutation that
 changes such a key also remaps or removes the corresponding translation entry
-atomically. Deleting an owner prunes its overlay entries in the same semantic
-mutation path. Orphan translation entries are not a valid stored state.
+atomically. Deleting an owner prunes its overlay entries as a deterministic
+dependent effect of that same replayed command. Source text edits preserve the
+unit and the old overlay as out of date. Orphan translation entries are not a
+valid stored state.
 
 The unit registry is exhaustive over worker-facing display slots and derived
 defaults. A reviewed slot classification and fixtures containing every carrier
@@ -182,9 +201,12 @@ the target grammar but must contain each token exactly as many times as the
 source. The server maps the tokens back to the original typed field, case, user
 property, or external-user reference.
 
-Neither AI nor human tooling reparses rendered `#form/...` text. Identity-only
-renames structurally remap the source and target reference atoms and refresh the
-fingerprint without falsely declaring the surrounding translation stale.
+Neither AI nor human tooling reparses rendered `#form/...` text. UUID-backed
+identity moves and display renames leave the source and target reference atoms,
+unit identity, and fingerprint unchanged. The semantic case-property rename
+command rewrites both source and target reference atoms and refreshes a current
+entry's fingerprint without falsely declaring the surrounding translation
+stale.
 
 ## Effective values and status
 
@@ -285,7 +307,7 @@ to be emitted app content.
 
 ## Solutions Architect and MCP experience
 
-The shared SA/MCP surface gains one coherent language family, conceptually:
+The shared SA/MCP surface has one coherent language family:
 
 - `get_languages`
 - `get_translatable_content`
@@ -293,12 +315,18 @@ The shared SA/MCP surface gains one coherent language family, conceptually:
 - `update_language`
 - `remove_language`
 - `update_translations`
-- a high-level request to translate or refresh one target language
+- a high-level request to translate or refresh one target language (added with
+  the durable AI orchestration layer)
 
-Final names follow the registry's existing camelCase SA / snake_case MCP
-convention. All mutations use the same document grammar and commit gate as the
-Builder. `get_translatable_content` is bounded and pageable, supports language,
-owner, and status filters, and exposes context plus protected segments from the
+The implemented names follow the registry's camelCase SA / snake_case MCP
+convention. `add_language` is the nonblank product operation: it composes the
+raw language mutation with one explicit copied entry per current unit in a
+single commit. `update_translations` accepts at most 50 unique units, treats
+machine-authored values as Needs review, and uses an exact prior-value and
+source-fingerprint fence for review/keep actions. All mutations use the same
+document grammar and commit gate as the Builder. `get_translatable_content` is
+snapshot-bound, bounded, and pageable, supports language, owner, role, text,
+and status filters, and exposes context plus protected segments from the
 central inventory. An external agent may author translations itself or invoke
 Nova's durable translator.
 
@@ -456,10 +484,13 @@ grounded in the current HQ/Core functions named under Binding CommCare facts.
 
 ## Persistence, mutations, and validity
 
-Language catalog operations and bounded translation updates are granular public
-mutations. They participate in schema generation, admission, reducer replay,
-undo/redo, diffing, accepted app-change rows, multiplayer, agent/MCP projection,
-and entity-row decomposition exactly like existing Blueprint mutations.
+Language catalog operations and bounded translation updates use the granular
+`relabelSourceLanguage`, `addLanguage`, `updateLanguage`, `removeLanguage`,
+`setDefaultLanguage`, `setTranslation`, and exact-value-fenced
+`reviewTranslation` mutations. They participate in admission, reducer replay,
+undo/redo, diffing, accepted app-change rows, and multiplayer exactly like
+existing Blueprint mutations. Shared agent/MCP tools compose these same
+commands rather than introducing a second write dialect.
 
 The localization schema and document-aware validator enforce catalog closure,
 default ordering, source/target rules, entry kinds, unit existence, reference
@@ -468,11 +499,9 @@ are quality states, not validator findings, because an effective source fallback
 always exists. An invalid language catalog or malformed translation entry can
 never commit.
 
-Legacy stored documents parse without a migration. Persisted-shape and fold
-fixtures prove that the optional field does not reinterpret old data. If
-implementation reveals a persistence requirement that cannot be satisfied by
-the optional shape, this plan must be updated to the cleaner model before any
-migration is written; a compatibility bridge is not an acceptable shortcut.
+Legacy stored documents parse without a data migration. The forward schema
+migration adds only the nullable app root, and persisted-shape, exact-text, and
+fold fixtures prove that the optional value does not reinterpret old data.
 
 ## Documentation and plugin release
 

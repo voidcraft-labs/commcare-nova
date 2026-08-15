@@ -13,6 +13,7 @@ export { asUuid } from "@/lib/domain";
 
 import { z } from "zod";
 import {
+	appLanguageSchema,
 	authoredCasePropertyNameSchema,
 	automationAlertCriterionSchema,
 	automationCaseUpdateCriterionSchema,
@@ -37,6 +38,8 @@ import {
 	fieldSchema,
 	formIconRefSchema,
 	formSchema,
+	languageCodeSchema,
+	localizedValueSchema,
 	locationPropertySchema,
 	mediaAssetIdSchema,
 	mediaSchema,
@@ -51,6 +54,8 @@ import {
 	selectOptionSchema,
 	selectOptionsSourceSchema,
 	tileCellSchema,
+	translationEntrySchema,
+	translationUnitIdSchema,
 	userPropertySchema,
 	userTypeSchema,
 	uuidSchema,
@@ -940,6 +945,46 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("setAppLogo"),
 			logo: mediaAssetIdSchema.nullable(),
+		}),
+		// App language identity and translation overlays. The canonical source
+		// strings remain on their owning Blueprint entities; these commands edit
+		// only language metadata and target-language values.
+		z.object({
+			kind: z.literal("relabelSourceLanguage"),
+			language: appLanguageSchema,
+		}),
+		z.object({ kind: z.literal("addLanguage"), language: appLanguageSchema }),
+		z.object({
+			kind: z.literal("updateLanguage"),
+			code: languageCodeSchema,
+			patch: z
+				.object({
+					name: z.string().trim().min(1).optional(),
+					direction: z.enum(["ltr", "rtl"]).optional(),
+				})
+				.strict()
+				.refine((value) => Object.keys(value).length > 0, {
+					message: "A language update must change at least one property.",
+				}),
+		}),
+		z.object({ kind: z.literal("removeLanguage"), code: languageCodeSchema }),
+		z.object({
+			kind: z.literal("setDefaultLanguage"),
+			code: languageCodeSchema,
+		}),
+		z.object({
+			kind: z.literal("setTranslation"),
+			language: languageCodeSchema,
+			unitId: translationUnitIdSchema,
+			entry: translationEntrySchema.nullable(),
+		}),
+		z.object({
+			kind: z.literal("reviewTranslation"),
+			language: languageCodeSchema,
+			unitId: translationUnitIdSchema,
+			expectedSourceFingerprint: z.string().min(1),
+			sourceFingerprint: z.string().min(1),
+			value: localizedValueSchema,
 		}),
 		// A case-property rename is an app-wide semantic operation, not a
 		// field-id patch. Its batch is required to be exclusive at the admitted

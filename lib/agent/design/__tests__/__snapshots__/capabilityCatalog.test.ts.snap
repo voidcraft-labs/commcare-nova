@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "81523d744fe775cb78cfbebed3f7999e34052693d2541130a3fce9f64266aad5",
+  "catalogDigest": "dcfdcf1571b1660edbbccbfdd27b10f8bc80e9f0fcdad8972fcd5f1631ecad6a",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -43,6 +43,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "GAP_NESTED_MENUS",
     "GAP_SESSION_ENDPOINTS_DEEP_LINKS",
     "GAP_MULTI_SELECT_RELATED_CASES",
+    "GAP_MULTILINGUAL_LOCALIZATION",
   ],
   "fieldKinds": [
     "text",
@@ -89,6 +90,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "add_fields",
       "saName": "addFields",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "add_language",
+      "saName": "addLanguage",
       "staging": "allowed",
     },
     {
@@ -207,6 +214,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     },
     {
       "effect": "read-blueprint",
+      "mcpName": "get_languages",
+      "saName": "getLanguages",
+      "staging": "allowed",
+    },
+    {
+      "effect": "read-blueprint",
       "mcpName": "get_lookup_tables",
       "saName": "getLookupTables",
       "staging": "allowed",
@@ -221,6 +234,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "read-blueprint",
       "mcpName": "get_organization",
       "saName": "getOrganization",
+      "staging": "allowed",
+    },
+    {
+      "effect": "read-blueprint",
+      "mcpName": "get_translatable_content",
+      "saName": "getTranslatableContent",
       "staging": "allowed",
     },
     {
@@ -287,6 +306,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "remove_form",
       "saName": "removeForm",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "remove_language",
+      "saName": "removeLanguage",
       "staging": "allowed",
     },
     {
@@ -440,6 +465,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "staging": "allowed",
     },
     {
+      "effect": "mutate-blueprint",
+      "mcpName": "update_language",
+      "saName": "updateLanguage",
+      "staging": "allowed",
+    },
+    {
       "effect": "mutate-external",
       "mcpName": "update_location",
       "saName": "updateLocation",
@@ -473,6 +504,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "update_search_input",
       "saName": "updateSearchInput",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "update_translations",
+      "saName": "updateTranslations",
       "staging": "allowed",
     },
     {

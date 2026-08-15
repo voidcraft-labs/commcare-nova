@@ -1,6 +1,10 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import type { CaseType } from "@/lib/domain";
+import {
+	type AppLocalization,
+	type CaseType,
+	effectiveAppLocalization,
+} from "@/lib/domain";
 
 /**
  * App-level mutations: name, connect mode, case-type catalog, logo. The
@@ -24,6 +28,13 @@ export function applyAppMutation(
 				| "setAppName"
 				| "setConnectType"
 				| "setAppLogo"
+				| "relabelSourceLanguage"
+				| "addLanguage"
+				| "updateLanguage"
+				| "removeLanguage"
+				| "setDefaultLanguage"
+				| "setTranslation"
+				| "reviewTranslation"
 				| "declareCaseType"
 				| "retireCaseType"
 				| "addCaseProperty"
@@ -49,6 +60,94 @@ export function applyAppMutation(
 			if (mut.logo === null) delete draft.logo;
 			else draft.logo = mut.logo;
 			return;
+		case "relabelSourceLanguage": {
+			const current = effectiveAppLocalization(draft.localization);
+			if (current.languageOrder.length !== 1) return;
+			draft.localization = {
+				sourceLanguage: mut.language.code,
+				defaultLanguage: mut.language.code,
+				languageOrder: [mut.language.code],
+				languages: { [mut.language.code]: structuredClone(mut.language) },
+				translations: {},
+			};
+			return;
+		}
+		case "addLanguage": {
+			const localization = materializeLocalization(draft);
+			if (localization.languages[mut.language.code] !== undefined) return;
+			localization.languageOrder.push(mut.language.code);
+			localization.languages[mut.language.code] = structuredClone(mut.language);
+			localization.translations[mut.language.code] = {};
+			return;
+		}
+		case "updateLanguage": {
+			const localization = materializeLocalization(draft);
+			const language = localization.languages[mut.code];
+			if (language === undefined) return;
+			if (mut.patch.name !== undefined) language.name = mut.patch.name;
+			if (mut.patch.direction !== undefined) {
+				language.direction = mut.patch.direction;
+			}
+			return;
+		}
+		case "removeLanguage": {
+			const localization = materializeLocalization(draft);
+			if (
+				mut.code === localization.sourceLanguage ||
+				mut.code === localization.defaultLanguage ||
+				localization.languages[mut.code] === undefined
+			) {
+				return;
+			}
+			localization.languageOrder = localization.languageOrder.filter(
+				(code) => code !== mut.code,
+			);
+			delete localization.languages[mut.code];
+			delete localization.translations[mut.code];
+			return;
+		}
+		case "setDefaultLanguage": {
+			const localization = materializeLocalization(draft);
+			if (localization.languages[mut.code] === undefined) return;
+			localization.defaultLanguage = mut.code;
+			localization.languageOrder = [
+				mut.code,
+				...localization.languageOrder.filter((code) => code !== mut.code),
+			];
+			return;
+		}
+		case "setTranslation": {
+			const localization = materializeLocalization(draft);
+			const translations = localization.translations[mut.language];
+			if (translations === undefined) return;
+			if (mut.entry === null) delete translations[mut.unitId];
+			else translations[mut.unitId] = structuredClone(mut.entry);
+			return;
+		}
+		case "reviewTranslation": {
+			const localization = materializeLocalization(draft);
+			const entry = localization.translations[mut.language]?.[mut.unitId];
+			if (
+				entry === undefined ||
+				entry.sourceFingerprint !== mut.expectedSourceFingerprint ||
+				JSON.stringify(entry.value) !== JSON.stringify(mut.value)
+			) {
+				return;
+			}
+			// Translation maps are normalized null-prototype records. A stored
+			// entry may remain a frozen shared value until this exact key is
+			// replaced, so never mutate its nested fields in place.
+			const translations = localization.translations[mut.language];
+			if (translations === undefined) return;
+			translations[mut.unitId] = {
+				value: structuredClone(mut.value),
+				sourceFingerprint: mut.sourceFingerprint,
+				origin: entry.origin,
+				review: "reviewed",
+				translatedFrom: entry.translatedFrom,
+			};
+			return;
+		}
 		case "declareCaseType": {
 			// Idempotent: an existing declaration is left untouched (its
 			// properties + ancestry survive a re-declare).
@@ -129,6 +228,17 @@ export function applyAppMutation(
 			return;
 		}
 	}
+}
+
+/** Materialize the optional legacy state only when an edit needs storage. */
+function materializeLocalization(
+	draft: Draft<BlueprintDoc>,
+): Draft<AppLocalization> {
+	if (draft.localization === undefined) {
+		const legacy = effectiveAppLocalization(undefined);
+		draft.localization = structuredClone(legacy) as AppLocalization;
+	}
+	return draft.localization;
 }
 
 /** Resolve a case-type record by name on the draft catalog. */

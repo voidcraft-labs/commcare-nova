@@ -204,10 +204,19 @@ async function main() {
 		const db = await getAppDb();
 		const stored = await db
 			.selectFrom("apps")
-			.select(sql<string>`(to_jsonb(apps) - 'case_types')::text`.as("row_text"))
+			.select(
+				sql<string>`(to_jsonb(apps) - 'case_types' - 'localization')::text`.as(
+					"row_text",
+				),
+			)
 			.select(
 				sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
 					"case_types_text",
+				),
+			)
+			.select(
+				sql<string | null>`${sql.ref("apps.localization")}::text`.as(
+					"localization_text",
 				),
 			)
 			.where("id", "=", appId)
@@ -226,6 +235,13 @@ async function main() {
 					: parsePersistedJsonText(
 							stored?.case_types_text ?? "",
 							`apps.case_types for ${appId}`,
+						);
+			row.localization =
+				stored?.localization_text === null
+					? null
+					: parsePersistedJsonText(
+							stored?.localization_text ?? "",
+							`apps.localization for ${appId}`,
 						);
 		}
 		printSection("Raw App Row (apps table)");

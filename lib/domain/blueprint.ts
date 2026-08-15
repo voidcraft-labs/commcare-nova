@@ -17,6 +17,7 @@ import {
 } from "./casePropertyTypes";
 import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
+import { appLocalizationSchema } from "./localization";
 import { isOwnerOnlyCaseSearchConfig, moduleSchema } from "./modules";
 import { mediaAssetIdSchema } from "./multimedia";
 import {
@@ -92,6 +93,12 @@ const blueprintDocObjectSchema = z
 		appName: z.string(),
 		connectType: z.enum(CONNECT_TYPES).nullable(),
 		caseTypes: z.array(caseTypeSchema).nullable(),
+		/**
+		 * Optional app-level target-language overlay. Absence is the exact legacy
+		 * single-English state; canonical source strings stay on their ordinary
+		 * owning entities rather than being duplicated here.
+		 */
+		localization: appLocalizationSchema.optional(),
 
 		modules: ownRecordSchema(uuidSchema, moduleSchema),
 		forms: ownRecordSchema(uuidSchema, formSchema),

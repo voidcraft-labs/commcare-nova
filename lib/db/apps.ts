@@ -276,7 +276,7 @@ export interface SearchAppsResult {
 }
 
 type AppRow = Selectable<AppsTable>;
-type AppRowWithoutCaseTypes = Omit<AppRow, "case_types">;
+type AppSummaryRow = Omit<AppRow, "case_types" | "localization">;
 
 /**
  * Delete one media metadata row for a live chat run under the same app-row,
@@ -748,7 +748,7 @@ async function authorizeProjectMoveGovernance(
 }
 
 function projectMoveRunDisposition(
-	fresh: Omit<AppRow, "case_types">,
+	fresh: Omit<AppRow, "case_types" | "localization">,
 ): Extract<
 	PrepareProjectMoveResult,
 	{ kind: "busy" | "reapable" | "corrupt_holder" }
@@ -2317,6 +2317,11 @@ async function loadAppForReadOnlyInspection(
 						"case_types_text",
 					),
 				)
+				.select(
+					sql<string | null>`${sql.ref("apps.localization")}::text`.as(
+						"localization_text",
+					),
+				)
 				.where("id", "=", appId)
 				.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
 			if (row === undefined) return null;
@@ -2472,10 +2477,7 @@ function cursorFor(
 /** The summary projection + the scan-side reapers: a stale build reads as
  *  `error` immediately (the reap settles asynchronously), and a stranded edit
  *  hold fires the refund-only reaper without changing the row shown. */
-function projectAppSummary(
-	row: AppRowWithoutCaseTypes,
-	now: number,
-): AppSummary {
+function projectAppSummary(row: AppSummaryRow, now: number): AppSummary {
 	const lease = runLeaseState(leaseView(row), now);
 	const isStale = lease.reapableStaleBuild;
 	const exactIdentity = toExactRunHolderIdentity(lease.holderIdentity);
@@ -2585,7 +2587,7 @@ async function queryAppsByScope(
 			);
 		}
 	}
-	const rows = (await query.limit(limit).execute()) as AppRowWithoutCaseTypes[];
+	const rows = (await query.limit(limit).execute()) as AppSummaryRow[];
 	const now = Date.now();
 	const apps = rows.map((row) => projectAppSummary(row, now));
 	const last = rows[rows.length - 1];
@@ -2709,7 +2711,7 @@ export async function listDeletedApps(
 		.orderBy("deleted_at", "desc")
 		.orderBy("id", "asc")
 		.limit(options.limit)
-		.execute()) as AppRowWithoutCaseTypes[];
+		.execute()) as AppSummaryRow[];
 	const now = Date.now();
 	const apps: DeletedAppSummary[] = [];
 	for (const row of rows) {

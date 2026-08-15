@@ -21,7 +21,7 @@ import {
 	referencingSlotsOf,
 } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { casePropertyTargetKey } from "@/lib/domain";
+import { casePropertyTargetKey, collectTranslationUnits } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 
@@ -151,6 +151,66 @@ function expectRoundTrip(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 }
 
 describe("explicit app-wide case-property rename", () => {
+	it("rewrites target prose tokens and keeps a current translation current", () => {
+		const start = fixture();
+		const field = start.fields[FIELD_A];
+		expect(field.kind).toBe("text");
+		if (field.kind !== "text") return;
+		field.label = {
+			parts: [
+				{ kind: "text", text: "Current " },
+				{ kind: "case-ref", caseType: "patient", property: "a" },
+			],
+		};
+		const beforeUnit = collectTranslationUnits(start).find(
+			(unit) => unit.owner.kind === "field" && unit.owner.fieldUuid === FIELD_A,
+		);
+		expect(beforeUnit).toBeDefined();
+		if (beforeUnit === undefined) return;
+		start.localization = {
+			sourceLanguage: "en",
+			defaultLanguage: "en",
+			languageOrder: ["en", "es"],
+			languages: {
+				en: { code: "en", name: "English", direction: "ltr" },
+				es: { code: "es", name: "Español", direction: "ltr" },
+			},
+			translations: {
+				es: {
+					[beforeUnit.id]: {
+						value: {
+							parts: [
+								{ kind: "case-ref", caseType: "patient", property: "a" },
+								{ kind: "text", text: " actual" },
+							],
+						},
+						sourceFingerprint: beforeUnit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "en",
+					},
+				},
+			},
+		};
+
+		const renamed = apply(
+			start,
+			admittedRename({ caseType: "patient", from: "a", to: "fresh" }),
+		);
+		const afterUnit = collectTranslationUnits(renamed).find(
+			(unit) => unit.id === beforeUnit.id,
+		);
+		expect(afterUnit).toBeDefined();
+		const entry = renamed.localization?.translations.es?.[beforeUnit.id];
+		expect(entry?.sourceFingerprint).toBe(afterUnit?.sourceFingerprint);
+		expect(entry?.value).toMatchObject({
+			parts: [
+				{ kind: "case-ref", caseType: "patient", property: "fresh" },
+				{ kind: "text", text: " actual" },
+			],
+		});
+	});
+
 	it("applies chains, swaps, and cycles simultaneously while field ids stay local", () => {
 		const start = fixture();
 		const chain = apply(

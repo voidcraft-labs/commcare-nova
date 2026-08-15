@@ -74,6 +74,17 @@ export function normalizeBlueprintOwnRecords(doc: BlueprintDoc): void {
 	if (doc.automations !== undefined) {
 		doc.automations = normalizeOwnRecord(doc.automations);
 	}
+	if (doc.localization !== undefined) {
+		doc.localization.languages = normalizeOwnRecord(doc.localization.languages);
+		doc.localization.translations = normalizeOwnRecord(
+			doc.localization.translations,
+		);
+		for (const [code, translations] of Object.entries(
+			doc.localization.translations,
+		)) {
+			doc.localization.translations[code] = normalizeOwnRecord(translations);
+		}
+	}
 }
 
 /**

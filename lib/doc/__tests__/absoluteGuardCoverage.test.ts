@@ -647,6 +647,29 @@ const GUARD_COVERAGE = {
 			batch: [{ kind: "setAppLogo", logo: null }],
 		}),
 	},
+	relabelSourceLanguage: {
+		neverGates:
+			"relabeling the sole source language changes metadata without changing authored content",
+	},
+	addLanguage: {
+		neverGates: "a target language may start with an empty translation overlay",
+	},
+	updateLanguage: {
+		neverGates: "editable language name and text direction are metadata",
+	},
+	removeLanguage: {
+		neverGates: "removing a non-source, non-default target closes its overlay",
+	},
+	setDefaultLanguage: {
+		neverGates: "the selected existing default remains first in language order",
+	},
+	setTranslation: {
+		neverGates:
+			"a target overlay changes presentation without changing canonical app structure",
+	},
+	reviewTranslation: {
+		neverGates: "review changes provenance only after an exact value fence",
+	},
 	renameCaseProperties: {
 		neverGates:
 			"the admitted exclusive command proves a complete bijection over materialized sources, then rewrites every declaration, writer, and reference as one semantic relation",

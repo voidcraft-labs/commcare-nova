@@ -37,6 +37,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			app_name_lower text NOT NULL,
 			connect_type text,
 			case_types jsonb,
+			localization jsonb,
 			logo text,
 			module_count integer NOT NULL DEFAULT 0,
 			form_count integer NOT NULL DEFAULT 0,

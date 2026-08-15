@@ -1,10 +1,15 @@
+import { deepEqual } from "@/lib/doc/deepEqual";
 import { mutationIdentityAdmissionIssue } from "@/lib/doc/mutationIdentityAdmission";
 import { mutationSequenceAdmissionIssue } from "@/lib/doc/mutationSequenceAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
+	collectTranslationUnits,
+	effectiveAppLocalization,
 	fieldKindDeclaresKey,
 	getConvertibleTypes,
+	type TranslationEntry,
+	translationValueIntegrityIssue,
 } from "@/lib/domain";
 import { assertNever } from "@/lib/utils/assertNever";
 
@@ -290,6 +295,18 @@ export function mutationTargetsInvalid(
 		}
 		return undefined;
 	};
+	const initialLocalization = effectiveAppLocalization(doc.localization);
+	let sourceLanguage = initialLocalization.sourceLanguage;
+	let defaultLanguage = initialLocalization.defaultLanguage;
+	const languages = new Set(initialLocalization.languageOrder);
+	const translations = new Map<string, Map<string, TranslationEntry>>(
+		Object.entries(initialLocalization.translations).map(
+			([language, entries]) => [language, new Map(Object.entries(entries))],
+		),
+	);
+	const translationUnits = new Map(
+		collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
+	);
 	for (const m of mutations) {
 		switch (m.kind) {
 			case "addModule":
@@ -891,6 +908,86 @@ export function mutationTargetsInvalid(
 			case "setAppName":
 			case "setConnectType":
 			case "setAppLogo":
+				break;
+			case "relabelSourceLanguage":
+				if (languages.size !== 1) return true;
+				languages.clear();
+				languages.add(m.language.code);
+				translations.clear();
+				sourceLanguage = m.language.code;
+				defaultLanguage = m.language.code;
+				break;
+			case "addLanguage":
+				if (languages.has(m.language.code)) return true;
+				languages.add(m.language.code);
+				translations.set(m.language.code, new Map());
+				break;
+			case "updateLanguage":
+				if (!languages.has(m.code)) return true;
+				break;
+			case "removeLanguage":
+				if (
+					!languages.has(m.code) ||
+					m.code === sourceLanguage ||
+					m.code === defaultLanguage
+				) {
+					return true;
+				}
+				languages.delete(m.code);
+				translations.delete(m.code);
+				break;
+			case "setDefaultLanguage":
+				if (!languages.has(m.code)) return true;
+				defaultLanguage = m.code;
+				break;
+			case "setTranslation": {
+				const unit = translationUnits.get(m.unitId);
+				if (
+					m.language === sourceLanguage ||
+					unit === undefined ||
+					(m.entry !== null &&
+						(m.entry.sourceFingerprint !== unit.sourceFingerprint ||
+							translationValueIntegrityIssue(unit, m.entry.value) !==
+								undefined))
+				) {
+					return true;
+				}
+				const target = translations.get(m.language);
+				if (target === undefined) return true;
+				if (m.entry === null) {
+					if (!target.has(m.unitId)) return true;
+					target.delete(m.unitId);
+				} else {
+					target.set(m.unitId, m.entry);
+				}
+				break;
+			}
+			case "reviewTranslation": {
+				const unit = translationUnits.get(m.unitId);
+				if (
+					unit === undefined ||
+					m.sourceFingerprint !== unit.sourceFingerprint ||
+					translationValueIntegrityIssue(unit, m.value) !== undefined
+				) {
+					return true;
+				}
+				const target = translations.get(m.language);
+				const entry = target?.get(m.unitId);
+				if (
+					target === undefined ||
+					entry === undefined ||
+					entry.sourceFingerprint !== m.expectedSourceFingerprint ||
+					!deepEqual(entry.value, m.value)
+				) {
+					return true;
+				}
+				target.set(m.unitId, {
+					...entry,
+					sourceFingerprint: m.sourceFingerprint,
+					review: "reviewed",
+				});
+				break;
+			}
 			case "renameCaseProperties":
 				break;
 			default:
