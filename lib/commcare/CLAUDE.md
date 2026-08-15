@@ -111,6 +111,14 @@ followup/close → `previous`, registration/survey → `app_home`. The SA only s
 
 `form_links` on a form enables conditional navigation: `condition?` (XPath) + `target` (form or module by uuid) + optional `datums`. First matching condition wins; `post_submit` is the fallback. Fully validated.
 
+Core evaluates each form-link condition and datum as a post-form session-stack
+operation, after the XForm instance has closed. These expressions may read the
+entry's session and loaded case instances, but never `#form/...` or `/data/...`.
+`expander.ts::translateFormLinks` projects typed case/user references into that
+session scope and lowers JavaRosa shims; `deriveEntryDefinition` declares every
+secondary instance the projected strings use. Empty datum XPath is invalid
+(unlike an omitted condition, which means unconditional navigation).
+
 ### Repeat modes
 
 Three modes via `repeat_mode` discriminator, each emits different wire shape:

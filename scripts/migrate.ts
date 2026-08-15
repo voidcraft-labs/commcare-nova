@@ -41,6 +41,7 @@ import {
 } from "@/lib/db/privilegeConvergence";
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
 import { runCaseStatusFilterRepair } from "@/scripts/lib/caseStatusFilterRepair";
+import { runXPathCarrierCompatibilityRepair } from "@/scripts/lib/xpathCarrierCompatibilityRepair";
 
 async function main(): Promise<void> {
 	const args = process.argv.slice(2);
@@ -104,6 +105,18 @@ async function main(): Promise<void> {
 			severity: "INFO",
 			message: "[migrate] case-status filter cutover converged",
 			...statusFilterRepair,
+		}),
+	);
+
+	// The XForm XPath carrier gate deliberately has no compatibility reader.
+	// Clear the two exact legacy here() geopoint defaults found by the production
+	// scan before the new runtime revision begins loading apps through that gate.
+	const xpathCarrierRepair = await runXPathCarrierCompatibilityRepair();
+	console.log(
+		JSON.stringify({
+			severity: "INFO",
+			message: "[migrate] XPath carrier compatibility converged",
+			...xpathCarrierRepair,
 		}),
 	);
 

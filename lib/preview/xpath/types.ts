@@ -7,14 +7,13 @@
  * naturally produces tomorrow's day-number. Wrapping the result in
  * `date()` converts it back to an ISO string.
  *
- * The optional `time` field preserves HMS for `now()` so that
- * `xpathToString` can emit a full ISO-8601 timestamp, while numeric
- * coercion still truncates to whole days (matching CommCare behavior).
+ * The optional `time` field preserves HMS for `double(now())` and date
+ * formatting. XPath string coercion still emits Core's local date only.
  */
 export class XPathDate {
 	/** Days since 1970-01-01 (always an integer). */
 	readonly days: number;
-	/** Original JS Date — retained only for time-of-day in string output. */
+	/** Original JS Date — retained for double() and date formatting. */
 	readonly time: Date | null;
 
 	private constructor(days: number, time: Date | null) {
@@ -24,7 +23,7 @@ export class XPathDate {
 
 	/** Create a date-only value (midnight, no time component). */
 	static fromDays(days: number): XPathDate {
-		return new XPathDate(Math.floor(days), null);
+		return new XPathDate(Math.trunc(days), null);
 	}
 
 	/** Create a date-only value from a JS Date, stripping the time component. */
@@ -32,7 +31,7 @@ export class XPathDate {
 		return new XPathDate(daysSinceEpoch(d), null);
 	}
 
-	/** Create a date from a JS Date, preserving time-of-day for string output. */
+	/** Create a date from a JS Date, preserving time-of-day for date functions. */
 	static fromJSDate(d: Date): XPathDate {
 		return new XPathDate(daysSinceEpoch(d), d);
 	}
@@ -75,7 +74,7 @@ export class XPathDate {
 		) {
 			return null;
 		}
-		return XPathDate.fromDays(daysSinceEpoch(d));
+		return XPathDate.fromDays(Math.round(d.getTime() / MS_PER_DAY));
 	}
 
 	/** Convert this date back to a JS Date (midnight UTC for date-only). */
@@ -84,13 +83,19 @@ export class XPathDate {
 		return new Date(this.days * 86_400_000);
 	}
 
-	/** ISO-8601 date string (YYYY-MM-DD), or full timestamp if time is present. */
+	/** XPath string coercion for a Date is always the local YYYY-MM-DD date.
+	 * Core's `FunctionUtils.toString(Date)` deliberately discards time. */
 	toISOString(): string {
-		if (this.time) return this.time.toISOString();
-		const d = new Date(this.days * 86_400_000);
-		const y = d.getUTCFullYear();
-		const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-		const day = String(d.getUTCDate()).padStart(2, "0");
+		const d = this.time ?? new Date(this.days * 86_400_000);
+		const y = this.time ? d.getFullYear() : d.getUTCFullYear();
+		const m = String((this.time ? d.getMonth() : d.getUTCMonth()) + 1).padStart(
+			2,
+			"0",
+		);
+		const day = String(this.time ? d.getDate() : d.getUTCDate()).padStart(
+			2,
+			"0",
+		);
 		return `${y}-${m}-${day}`;
 	}
 }
@@ -102,6 +107,14 @@ export function isXPathDate(v: unknown): v is XPathDate {
 
 /** XPath value types — primitives plus first-class dates. */
 export type XPathValue = string | number | boolean | XPathDate;
+
+/** Result from a deliberately context-scoped function implementation. The
+ * ordinary Preview registry remains the complete user-authored function set;
+ * generated carriers can opt into exact handlers for expressions Nova itself
+ * emitted without advertising those handlers as general XPath support. */
+export type XPathFunctionInvocation =
+	| { readonly kind: "handled"; readonly value: XPathValue }
+	| { readonly kind: "unsupported" };
 
 /** Explicit result from a secondary-instance resolver. Missing values inside
  * a known instance are distinct from an unsupported namespace. */
@@ -122,6 +135,12 @@ export interface EvalContext {
 	contextPath: string;
 	/** Current repeat position (for position()) — 1-based */
 	position: number;
+	/** Exact, context-scoped handlers for machine-emitted carrier expressions.
+	 * An unsupported result falls through to Preview's ordinary loud failure. */
+	invokeGeneratedFunction?(
+		name: string,
+		args: readonly XPathValue[],
+	): XPathFunctionInvocation;
 }
 
 // ── Internal helpers ────────────────────────────────────────────────
@@ -133,15 +152,13 @@ const MS_PER_DAY = 86_400_000;
  * `DateUtils.daysSinceEpoch()` — rounds to midnight then divides.
  */
 function daysSinceEpoch(d: Date): number {
-	/* Round to midnight UTC to avoid DST / timezone fractional-day drift.
+	/* Encode the browser's LOCAL calendar date at UTC midnight. Core rounds a
+	 * Date in the device timezone before computing the epoch-day count, so UTC
+	 * fields would move today() a day forward in negative offsets after 00:00Z.
 	 * Fields copy via `setUTCFullYear`, never `Date.UTC(year, ...)`, whose
 	 * two-digit-year remapping (years 0-99 → 1900-1999) would shift a
 	 * year 0001-0099 date nineteen centuries forward. */
 	const utcMidnight = new Date(0);
-	utcMidnight.setUTCFullYear(
-		d.getUTCFullYear(),
-		d.getUTCMonth(),
-		d.getUTCDate(),
-	);
+	utcMidnight.setUTCFullYear(d.getFullYear(), d.getMonth(), d.getDate());
 	return Math.round(utcMidnight.getTime() / MS_PER_DAY);
 }

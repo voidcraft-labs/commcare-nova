@@ -1,14 +1,10 @@
 import { PREVIEW_NATIVE_FUNCTIONS } from "@/lib/commcare/xpath/functionCapabilities";
-import { toBoolean, toDate, toNumber, xpathToString } from "./coerce";
+import { toBoolean, toDate, toDouble, toNumber, xpathToString } from "./coerce";
 import { formatCommCareDate } from "./dateFormatting";
-import type { XPathValue } from "./types";
-import { XPathDate } from "./types";
+import type { XPathFunctionInvocation, XPathValue } from "./types";
+import { isXPathDate, XPathDate } from "./types";
 
 type XPathFn = (args: XPathValue[]) => XPathValue;
-
-export type XPathFunctionInvocation =
-	| { readonly kind: "handled"; readonly value: XPathValue }
-	| { readonly kind: "unsupported" };
 
 /** Registry of supported XPath/CommCare functions. */
 const registry = new Map<string, XPathFn>();
@@ -64,13 +60,13 @@ register("if", (args) => {
 
 register("string", (args) => xpathToString(args[0] ?? ""));
 register("number", (args) => toNumber(args[0] ?? ""));
-register("double", (args) => toNumber(args[0] ?? ""));
+register("double", (args) => toDouble(args[0] ?? ""));
 register("int", (args) => {
 	const n = toNumber(args[0] ?? "");
 	return Number.isNaN(n) ? NaN : Math.trunc(n);
 });
 register("round", (args) => {
-	const n = toNumber(args[0] ?? "");
+	const n = toDouble(args[0] ?? "");
 	const decimals = args.length > 1 ? toNumber(args[1] ?? 0) : 0;
 	if (Number.isNaN(n)) return NaN;
 	const factor = 10 ** decimals;
@@ -79,7 +75,7 @@ register("round", (args) => {
 
 // ── String functions ────────────────────────────────────────────────
 
-register("concat", (args) => args.map((a) => xpathToString(a)).join(""));
+register("concat", (args) => args.map((arg) => xpathToString(arg)).join(""));
 register("string-length", (args) => xpathToString(args[0] ?? "").length);
 register("contains", (args) =>
 	xpathToString(args[0] ?? "").includes(xpathToString(args[1] ?? "")),
@@ -96,37 +92,32 @@ register("translate", (args) => {
 	const str = xpathToString(args[0] ?? "");
 	const from = xpathToString(args[1] ?? "");
 	const to = xpathToString(args[2] ?? "");
+	const replacementLimit = Math.min(from.length, to.length);
+	const replacements = new Map<string, string>();
+	for (let index = 0; index < replacementLimit; index += 1) {
+		const fromUnit = from[index] ?? "";
+		if (!replacements.has(fromUnit)) {
+			replacements.set(fromUnit, to[index] ?? "");
+		}
+	}
+	const toDelete = from.slice(replacementLimit);
 	let result = "";
-	for (const ch of str) {
-		const idx = from.indexOf(ch);
-		if (idx === -1) result += ch;
-		else if (idx < to.length) result += to[idx];
-		// else: character is removed (no replacement)
+	// Java iterates UTF-16 `char` units, not Unicode code points. Indexed JS
+	// strings expose the same units, including the two halves of an astral char.
+	for (let index = 0; index < str.length; index += 1) {
+		const ch = str[index] ?? "";
+		if (toDelete.includes(ch)) continue;
+		result += replacements.get(ch) ?? ch;
 	}
 	return result;
-});
-register("replace", (args) => {
-	try {
-		const value = xpathToString(args[0] ?? "");
-		const pattern = javaDefaultRegexPattern(xpathToString(args[1] ?? ""));
-		const replacement = xpathToString(args[2] ?? "");
-		// Core treats the XPath replacement argument as literal output. Passing a
-		// string directly to JavaScript replace would reinterpret `$1`, `$&`, and
-		// friends as substitution syntax; a callback preserves the authored bytes.
-		return value.replace(new RegExp(pattern, "g"), () => replacement);
-	} catch (error) {
-		throw new Error("The XPath replace() pattern is invalid in Preview.", {
-			cause: error,
-		});
-	}
 });
 register("substr", (args) => {
 	const str = xpathToString(args[0] ?? "");
 	// JavaRosa is 0-based, accepts negative offsets from the end, and returns
 	// blank (rather than swapping indices like String.substring) for an invalid
 	// adjusted range.
-	let start = Math.trunc(toNumber(args[1] ?? 0));
-	let end = args.length > 2 ? Math.trunc(toNumber(args[2] ?? 0)) : str.length;
+	let start = javaIntValue(toNumber(args[1] ?? 0));
+	let end = args.length > 2 ? javaIntValue(toNumber(args[2] ?? 0)) : str.length;
 	if (start < 0) start = str.length + start;
 	if (end < 0) end = str.length + end;
 	start = Math.min(Math.max(0, start), end);
@@ -134,20 +125,18 @@ register("substr", (args) => {
 	return start <= end && end <= str.length ? str.slice(start, end) : "";
 });
 register("join", (args) => {
-	// join(separator, ...items)
-	const sep = xpathToString(args[0] ?? "");
+	const separator = xpathToString(args[0] ?? "");
 	return args
 		.slice(1)
-		.map((a) => xpathToString(a))
-		.join(sep);
+		.map((arg) => xpathToString(arg))
+		.join(separator);
 });
-
 // ── CommCare selected() — multi-select check ────────────────────────
 
 register("selected", (args) => {
 	const value = xpathToString(args[0] ?? "");
-	const option = xpathToString(args[1] ?? "");
-	return value.split(" ").includes(option);
+	const option = xpathToString(args[1] ?? "").trim();
+	return ` ${value} `.includes(` ${option} `);
 });
 register("count-selected", (args) => {
 	const value = xpathToString(args[0] ?? "");
@@ -166,7 +155,7 @@ register("selected-at", (args) => {
 	// rather than rendering an empty string, and Preview must fail the same
 	// way instead of green-lighting an expression that crashes the real app.
 	const selection = xpathToString(args[0] ?? "");
-	const index = Math.trunc(toNumber(args[1] ?? 0));
+	const index = javaIntValue(toNumber(args[1] ?? 0));
 	const entries = selection === "" ? [] : selection.split(/ +/);
 	while (entries.length > 0 && entries[entries.length - 1] === "") {
 		entries.pop();
@@ -191,12 +180,12 @@ register("coalesce", (args) => {
 
 // ── Math ────────────────────────────────────────────────────────────
 
-register("ceiling", (args) => Math.ceil(toNumber(args[0] ?? "")));
-register("floor", (args) => Math.floor(toNumber(args[0] ?? "")));
-register("abs", (args) => Math.abs(toNumber(args[0] ?? "")));
-register("pow", (args) => toNumber(args[0] ?? 0) ** toNumber(args[1] ?? 0));
-register("min", (args) => Math.min(...args.map((a) => toNumber(a))));
-register("max", (args) => Math.max(...args.map((a) => toNumber(a))));
+register("ceiling", (args) => Math.ceil(toDouble(args[0] ?? "")));
+register("floor", (args) => Math.floor(toDouble(args[0] ?? "")));
+register("abs", (args) => Math.abs(toDouble(args[0] ?? "")));
+register("pow", (args) => toDouble(args[0] ?? 0) ** toDouble(args[1] ?? 0));
+register("min", (args) => Math.min(...args.map((arg) => toNumber(arg))));
+register("max", (args) => Math.max(...args.map((arg) => toNumber(arg))));
 
 // ── Position ────────────────────────────────────────────────────────
 // Handled directly by the evaluator via context.position; registered so the
@@ -212,9 +201,8 @@ register("position", () => 1);
 register("today", () => XPathDate.fromJSDateOnly(new Date()));
 
 /**
- * now() → XPathDate with time component preserved.
- * String coercion emits full ISO-8601 timestamp; numeric coercion
- * still truncates to whole days (matching CommCare behavior).
+ * now() → XPathDate with time retained for double()/format-date(). Core's
+ * ordinary string/number coercions still use the local calendar date.
  */
 register("now", () => XPathDate.fromJSDate(new Date()));
 
@@ -223,13 +211,13 @@ register("now", () => XPathDate.fromJSDate(new Date()));
  *
  * - number → days since epoch (e.g. `date(0)` = 1970-01-01)
  * - string → parse ISO-8601 date
- * - XPathDate → returned as-is
+ * - XPathDate → rounded to its local date
  *
  * Matches CommCare core's XPathDateFunc / FunctionUtils.toDate().
  */
 register("date", (args) => {
 	const v = args[0] ?? "";
-	const d = toDate(v);
+	const d = isXPathDate(v) ? XPathDate.fromDays(v.days) : toDate(v);
 	if (d) return d;
 	if (v === "" || (typeof v === "number" && Number.isNaN(v))) return v;
 	throw new Error("The XPath date() value is invalid in Preview.");
@@ -248,7 +236,10 @@ register("format-date", (args) => {
 
 	/* Coerce first arg to a date, then to a JS Date for field extraction. */
 	const xd = toDate(raw);
-	if (!xd) return xpathToString(raw);
+	if (!xd) {
+		if (raw === "" || (typeof raw === "number" && Number.isNaN(raw))) return "";
+		throw new Error("The XPath format-date() value is invalid in Preview.");
+	}
 	const result = formatCommCareDate(xd, format);
 	if (result.kind === "formatted") return result.text;
 	throw new Error("The XPath format-date() pattern is unsupported in Preview.");
@@ -265,101 +256,11 @@ register("uuid", (args) => {
 	}
 	return value.toUpperCase();
 });
-register("regex", (args) => {
-	try {
-		const str = xpathToString(args[0] ?? "");
-		const pattern = javaDefaultRegexPattern(xpathToString(args[1] ?? ""));
-		return new RegExp(pattern).test(str);
-	} catch (error) {
-		throw new Error("The XPath regex() pattern is invalid in Preview.", {
-			cause: error,
-		});
-	}
-});
-/**
- * JavaRosa delegates these functions to Java's default `Pattern` mode, where
- * `\s` is the ASCII whitespace class unless UNICODE_CHARACTER_CLASS is enabled.
- * JavaScript's `\s` additionally matches NBSP and other Unicode separators.
- * Rewriting the two shorthands keeps Preview from accepting location text that
- * the exported app rejects (and preserves the same rule for user-authored
- * regex/replace expressions).
- */
 
-/** Java's default-mode `\s` membership, as bare class members. */
-const JAVA_ASCII_WHITESPACE = " \\t\\n\\x0B\\f\\r";
-/**
- * JS `\s` minus Java-default `\s` — the Unicode separators JavaScript's
- * shorthand matches that Java's ASCII-only default mode does not. Added
- * back onto `\S` inside a class so the complement covers them.
- */
-const JS_ONLY_WHITESPACE =
-	"\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff";
-
-function javaDefaultRegexPattern(pattern: string): string {
-	let translated = "";
-	let index = 0;
-	// Depth, not a flag: Java supports nested classes (`[a[b]]`, union
-	// semantics JS lacks) — depth-tracking keeps the "inside a class"
-	// answer right through them; the nested-class pattern itself still
-	// fails JS RegExp parsing and falls to the caller's catch.
-	let classDepth = 0;
-	while (index < pattern.length) {
-		const char = pattern[index];
-		if (char !== "\\") {
-			if (char === "[") classDepth += 1;
-			else if (char === "]" && classDepth > 0) classDepth -= 1;
-			translated += char;
-			index += 1;
-			continue;
-		}
-
-		const slashStart = index;
-		while (pattern[index] === "\\") index += 1;
-		const slashCount = index - slashStart;
-		if (slashCount % 2 === 0) {
-			// Even run: literal backslash pairs only. The following char is
-			// unescaped — re-enter the loop so bracket bookkeeping sees it.
-			translated += "\\".repeat(slashCount);
-			continue;
-		}
-
-		// Odd run: pairs are literal backslashes; the final one escapes the
-		// next char.
-		translated += "\\".repeat(slashCount - 1);
-		const escaped = pattern[index];
-		if (escaped === "s" || escaped === "S") {
-			translated +=
-				classDepth > 0
-					? // Inside a class, contribute MEMBERS — wrapping in `[...]`
-						// would nest a bracket JS reads as a different pattern
-						// (`[\s0-9]` must become `[ \t\n\x0B\f\r0-9]`, not
-						// `[[ \t\n\x0B\f\r]0-9]`). `\S` keeps the JS shorthand and
-						// adds back the Unicode whitespace Java's complement holds.
-						escaped === "s"
-						? JAVA_ASCII_WHITESPACE
-						: `\\S${JS_ONLY_WHITESPACE}`
-					: escaped === "s"
-						? `[${JAVA_ASCII_WHITESPACE}]`
-						: `[^${JAVA_ASCII_WHITESPACE}]`;
-			index += 1;
-			// A dash directly after a class shorthand can only be a LITERAL
-			// dash in a Java pattern (a range can't start from a class), but
-			// JS would pair it with the inlined set's last member as a range
-			// — escape it.
-			if (classDepth > 0 && pattern[index] === "-") {
-				translated += "\\-";
-				index += 1;
-			}
-			continue;
-		}
-		if (escaped !== undefined) {
-			translated += `\\${escaped}`;
-			index += 1;
-			continue;
-		}
-		// Trailing lone backslash — invalid in both dialects; preserved so
-		// the caller's RegExp constructor rejects it the same way.
-		translated += "\\";
-	}
-	return translated;
+/** Java's final `Double.intValue()` narrowing after FunctionUtils.toInt(). */
+function javaIntValue(value: number): number {
+	if (Number.isNaN(value)) return 0;
+	if (value >= 2_147_483_647) return 2_147_483_647;
+	if (value <= -2_147_483_648) return -2_147_483_648;
+	return Math.trunc(value);
 }

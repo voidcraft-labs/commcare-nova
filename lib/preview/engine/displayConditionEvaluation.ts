@@ -23,6 +23,7 @@ import type { Predicate } from "@/lib/domain/predicate";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 import { toBoolean } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
+import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import type { EvalContext } from "../xpath/types";
 import {
 	type PreviewSearchSessionValues,
@@ -145,5 +146,6 @@ function navigationEvalContext(
 			if (match) return caseProjection?.get(match[1]) ?? "";
 			return "";
 		},
+		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 	};
 }

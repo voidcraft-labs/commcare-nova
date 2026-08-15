@@ -969,6 +969,56 @@ describe("validateBlueprintDeep", () => {
 		).toHaveLength(2);
 	});
 
+	it("rejects form-local and empty form-link stack expressions", () => {
+		const moduleUuid = testUuid("form-link-context-module");
+		const sourceUuid = testUuid("form-link-context-source");
+		const targetUuid = testUuid("form-link-context-target");
+		const doc = buildDoc({
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "Module",
+					forms: [
+						{
+							uuid: sourceUuid,
+							name: "Source",
+							type: "survey",
+							formLinks: [
+								{
+									condition: "#form/answer = 'yes'",
+									target: {
+										type: "form",
+										moduleUuid,
+										formUuid: targetUuid,
+									},
+									datums: [{ name: "case_id", xpath: "  " }],
+								},
+							],
+							fields: [
+								f({ kind: "text", id: "answer", label: proseText("Answer") }),
+							],
+						},
+						{
+							uuid: targetUuid,
+							name: "Target",
+							type: "survey",
+							fields: [],
+						},
+					],
+				},
+			],
+		});
+
+		expect(
+			validateBlueprintDeep(doc)
+				.filter((error) => error.kind === "form-link-xpath")
+				.map((error) => ({ slot: error.slot, code: error.error.code })),
+		).toEqual([
+			{ slot: "form_link_condition", code: "INVALID_REF" },
+			{ slot: "form_link_datum_xpath", code: "XPATH_SYNTAX" },
+		]);
+	});
+
 	it("catches wrong arity", () => {
 		const doc = makeDoc([
 			f({ kind: "text", id: "name", label: proseText("Name") }),

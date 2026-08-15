@@ -86,6 +86,9 @@ const SOURCE_CLASSIFICATION = {
 	// submits its semantic batch through appendSyntheticBatch, whose canonical
 	// commit kernel re-admits the target document before writing anything.
 	"scripts/lib/caseStatusFilterRepair.ts": "admits-proposal",
+	// The finite XPath-carrier cutover follows the same named-system repair
+	// path for the two scan-proven historical here() defaults.
+	"scripts/lib/xpathCarrierCompatibilityRepair.ts": "admits-proposal",
 } as const satisfies Readonly<Record<string, LifecycleMode>>;
 
 /**
@@ -118,6 +121,7 @@ const MUTATION_LIFECYCLE_FAMILIES = [
 		[
 			"scripts/repair-canonical-identity-foundation.ts",
 			"scripts/lib/caseStatusFilterRepair.ts",
+			"scripts/lib/xpathCarrierCompatibilityRepair.ts",
 			"lib/db/apps.ts",
 		],
 	],

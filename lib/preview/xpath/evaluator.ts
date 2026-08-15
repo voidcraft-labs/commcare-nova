@@ -4,15 +4,9 @@ import {
 	PREVIEW_INSTANCE_IDS,
 	PREVIEW_PATH_INITIALIZERS,
 	pathInitializerStringArgument,
+	previewFunctionSignatureSupported,
 } from "@/lib/commcare/xpath/functionCapabilities";
-import {
-	compareEqual,
-	compareRelational,
-	dateAwareAdd,
-	dateAwareSubtract,
-	toBoolean,
-	toNumber,
-} from "./coerce";
+import { compareEqual, compareRelational, toBoolean, toNumber } from "./coerce";
 import { invokeFunction } from "./functions";
 import type { EvalContext, XPathValue } from "./types";
 
@@ -198,17 +192,17 @@ function evalNode(
 	if (type === T.AddExpr) {
 		const [left, right] = getBinaryOperands(node);
 		if (!left || !right) return NaN;
-		return dateAwareAdd(
-			evalNode(left, source, ctx),
-			evalNode(right, source, ctx),
+		return (
+			toNumber(evalNode(left, source, ctx)) +
+			toNumber(evalNode(right, source, ctx))
 		);
 	}
 	if (type === T.SubtractExpr) {
 		const [left, right] = getBinaryOperands(node);
 		if (!left || !right) return NaN;
-		return dateAwareSubtract(
-			evalNode(left, source, ctx),
-			evalNode(right, source, ctx),
+		return (
+			toNumber(evalNode(left, source, ctx)) -
+			toNumber(evalNode(right, source, ctx))
 		);
 	}
 	if (type === T.MultiplyExpr) {
@@ -387,14 +381,23 @@ function evalInvoke(
 		return ctx.position;
 	}
 
+	if (!previewFunctionSignatureSupported(node, source, fnName)) {
+		throw new Error(
+			`Unsupported XPath function signature in Preview: ${fnName}(nodeset)`,
+		);
+	}
+
 	const args = argNodes.map((arg) => evalNode(arg, source, ctx));
 
 	const invocation = invokeFunction(fnName, args);
 	if (invocation.kind === "handled") return invocation.value;
+	const generatedInvocation = ctx.invokeGeneratedFunction?.(fnName, args);
+	if (generatedInvocation?.kind === "handled") {
+		return generatedInvocation.value;
+	}
 
 	throw new Error(`Unsupported XPath function in Preview: ${fnName}()`);
 }
-
 function argumentNodes(argumentList: SyntaxNode): SyntaxNode[] {
 	const args: SyntaxNode[] = [];
 	let arg = argumentList.firstChild;

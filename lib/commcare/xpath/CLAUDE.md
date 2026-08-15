@@ -20,6 +20,11 @@ CommCare's XPath dialect: the Lezer grammar + generated parser, the carrier capa
 
 `FUNCTION_REGISTRY` may admit only functions classified as JavaRosa native, proven-lowered, or path initializers used in their required path-root position. Do not infer compatibility from an XPath version or a familiar function name: JavaRosa omits some XPath 1.0 functions and adds its own, while CCHQ CSQL exposes a separate value/query whitelist. Preview declares its implemented subset independently and throws on an unsupported call instead of returning a plausible blank value.
 
+Form-link XPath is a distinct carrier context: Core evaluates it from the
+suite entry after the XForm has closed. The boundary expands typed case/user
+refs against the session stack, rejects form-local refs and empty datum
+expressions, and declares every projected secondary instance on the entry.
+
 The source tables are pinned to upstream SHAs in `functionCapabilities.ts`. Update a table only after reading the owning runtime dispatch and exercising the behavior against that frozen source. A new lowered function must have evaluator and XForm-initialization proof, artifact tests that find no unlowered call, and an explicit decision for Preview and CSQL.
 
 `lowerXPathForJavaRosa` preserves all source bytes outside the replacement ranges and applies nested edits from the CST; never replace function text with regex. Malformed input passes through because the commit validator owns syntax. Production emitters must not call the experimental transpiler: activating an unrelated pass changes already-valid app semantics.

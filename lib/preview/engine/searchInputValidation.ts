@@ -14,6 +14,7 @@ import {
 import type { TypeContext } from "@/lib/domain/predicate";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
+import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import { dateRangeInputErrors } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -195,6 +196,7 @@ function runtimeRejectionApplies(
 			position: 1,
 			getValue: () => undefined,
 			resolveHashtag: () => "",
+			invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 		}),
 	);
 }

@@ -101,7 +101,21 @@ npx tsx --conditions=react-server scripts/scan-xpath-carrier-compatibility.ts --
 The command exits nonzero when it finds a device-unsafe function or an unreadable
 app. A safe lowering such as `normalize-space()` is reported and counted but is
 not an error. There is intentionally no generic writer: a migration is valid
-only after each unsafe function has a semantics-preserving replacement.
+only after each unsafe function has a reviewed replacement.
+
+The production inventory found exactly two legacy geopoint defaults containing
+`here()`. Core cannot evaluate that menu/detail-only function in an XForm, so
+the finite repair clears those defaults and leaves ordinary GPS capture in
+place. It is dry-run by default and has no direct production flag:
+
+```bash
+npx tsx --conditions=react-server scripts/migrate-xpath-carrier-compatibility.ts
+npx tsx --conditions=react-server scripts/migrate-xpath-carrier-compatibility.ts --app <reviewedAppId>
+```
+
+The immutable production migration Job invokes the same idempotent repair
+before traffic shifts to the new revision. Any source drift that still contains
+`here()` blocks the Job instead of being rewritten broadly.
 
 ## Search-input UUID migration
 

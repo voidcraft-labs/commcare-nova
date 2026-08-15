@@ -48,6 +48,18 @@ describe("XPath carrier capability contract", () => {
 		expect([...PREVIEW_INSTANCE_IDS]).toEqual(["commcaresession"]);
 		expect(PREVIEW_NATIVE_FUNCTIONS.has("count")).toBe(false);
 		expect(PREVIEW_NATIVE_FUNCTIONS.has("sum")).toBe(false);
+		for (const name of ["concat", "join", "min", "max"]) {
+			expect(PREVIEW_NATIVE_FUNCTIONS.has(name), name).toBe(true);
+		}
+		for (const name of ["regex", "replace"]) {
+			expect(PREVIEW_NATIVE_FUNCTIONS.has(name), name).toBe(false);
+		}
+		expect(inspectXPathFunctionCalls("concat('a', 'b')")).toMatchObject([
+			{ name: "concat", preview: "native", validPreviewSignature: true },
+		]);
+		expect(inspectXPathFunctionCalls("concat(/data/items)")).toMatchObject([
+			{ name: "concat", preview: "native", validPreviewSignature: false },
+		]);
 		expect(
 			inspectXPathFunctionCalls(
 				"instance('commcaresession')/session/context/userid",

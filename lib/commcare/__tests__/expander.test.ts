@@ -3776,20 +3776,22 @@ describe("form_links emission", () => {
 				{
 					uuid: moduleUuid,
 					name: "M",
+					caseType: "patient",
 					forms: [
 						{
 							uuid: intakeUuid,
 							name: "Intake",
-							type: "survey",
+							type: "followup",
 							postSubmit: "module",
 							formLinks: [
 								{
-									condition: "normalize-space(/data/outcome) = 'yes'",
+									condition: "normalize-space(#patient/status) = 'open'",
 									target: {
 										type: "form",
 										moduleUuid: testUuid(moduleUuid),
 										formUuid: testUuid(followupUuid),
 									},
+									datums: [{ name: "worker", xpath: "#user/username" }],
 								},
 							],
 							fields: [
@@ -3815,6 +3817,12 @@ describe("form_links emission", () => {
 					],
 				},
 			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "status", label: proseText("Status") }],
+				},
+			],
 		});
 
 		// Validator accepts the configuration.
@@ -3830,9 +3838,16 @@ describe("form_links emission", () => {
 		expect(hq.modules[0].forms[0].form_links).toEqual([
 			{
 				condition: lowerXPathForJavaRosa(
-					"normalize-space(/data/outcome) = 'yes'",
+					"normalize-space(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/status) = 'open'",
 				),
 				target: { type: "form", moduleIndex: 0, formIndex: 1 },
+				datums: [
+					{
+						name: "worker",
+						xpath:
+							"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username",
+					},
+				],
 			},
 		]);
 	});
@@ -3882,7 +3897,7 @@ describe("form_links emission", () => {
 		]);
 	});
 
-	it("forwards condition + datum overrides verbatim", () => {
+	it("forwards literal condition + datum overrides", () => {
 		const moduleUuid = "mod-d";
 		const intakeUuid = "frm-i";
 		const triageUuid = "frm-t";
@@ -3901,13 +3916,13 @@ describe("form_links emission", () => {
 							postSubmit: "module",
 							formLinks: [
 								{
-									condition: "/data/severity = 'high'",
+									condition: "true()",
 									target: {
 										type: "form",
 										moduleUuid: testUuid(moduleUuid),
 										formUuid: testUuid(triageUuid),
 									},
-									datums: [{ name: "case_id", xpath: "/data/patient_id" }],
+									datums: [{ name: "case_id", xpath: "'patient-id'" }],
 								},
 							],
 							fields: [
@@ -3934,9 +3949,9 @@ describe("form_links emission", () => {
 		const hq = expandDoc(doc);
 		expect(hq.modules[0].forms[0].form_links).toEqual([
 			{
-				condition: "/data/severity = 'high'",
+				condition: "true()",
 				target: { type: "form", moduleIndex: 0, formIndex: 1 },
-				datums: [{ name: "case_id", xpath: "/data/patient_id" }],
+				datums: [{ name: "case_id", xpath: "'patient-id'" }],
 			},
 		]);
 	});

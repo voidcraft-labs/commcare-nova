@@ -450,7 +450,39 @@ export function validateBlueprintDeep(
 			// so preserve their indices for an actionable form-level finding.
 			for (const slot of FORM_LINK_XPATH_SLOT_IDS) {
 				for (const read of formExpressionSourceEntries(form, slot, doc)) {
-					if (!read.text) continue;
+					if (read.text.trim().length === 0) {
+						if (slot === "form_link_datum_xpath") {
+							errors.push({
+								...loc,
+								kind: "form-link-xpath",
+								slot,
+								indices: read.indices,
+								error: {
+									code: "XPATH_SYNTAX",
+									message: "A form-link datum XPath must not be empty",
+									position: 0,
+								},
+							});
+						}
+						continue;
+					}
+					const formLocalReference = read.expr?.parts.find(
+						(part) => part.kind === "field-ref" || part.kind === "path-ref",
+					);
+					if (formLocalReference !== undefined) {
+						errors.push({
+							...loc,
+							kind: "form-link-xpath",
+							slot,
+							indices: read.indices,
+							error: {
+								code: "INVALID_REF",
+								message:
+									"Form-link stack XPath cannot read form fields because Core evaluates it after the XForm instance has closed.",
+							},
+						});
+						continue;
+					}
 					const canonicalError = canonicalXPathError(
 						doc,
 						formUuid,

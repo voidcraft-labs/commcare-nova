@@ -46,8 +46,8 @@ export function toNumber(v: XPathValue): number {
 /**
  * XPath 1.0 type coercion: value → string.
  *
- * XPathDate emits ISO-8601 (`YYYY-MM-DD`, or full timestamp if it
- * carries a time component from `now()`).
+ * XPathDate emits Core's local ISO date (`YYYY-MM-DD`); even `now()` loses its
+ * time component under `FunctionUtils.toString(Date)`.
  */
 export function xpathToString(v: XPathValue): string {
 	if (typeof v === "string") return v;
@@ -59,6 +59,19 @@ export function xpathToString(v: XPathValue): string {
 	return String(v);
 }
 
+/** CommCare's `FunctionUtils.toDouble` differs from ordinary XPath numeric
+ * coercion only for Date values: it preserves the local time-of-day as a
+ * fractional day instead of rounding to the local calendar day. */
+export function toDouble(v: XPathValue): number {
+	if (!isXPathDate(v)) return toNumber(v);
+	const instant = v.toJSDate();
+	if (v.time === null) return v.days;
+	const epoch = new Date(1970, 0, 1);
+	const timezoneDriftMs =
+		(instant.getTimezoneOffset() - epoch.getTimezoneOffset()) * 60_000;
+	return (instant.getTime() - epoch.getTime() - timezoneDriftMs) / 86_400_000;
+}
+
 /**
  * XPath 1.0 type coercion: value → boolean.
  *
@@ -66,7 +79,7 @@ export function xpathToString(v: XPathValue): string {
  */
 export function toBoolean(v: XPathValue): boolean {
 	if (typeof v === "boolean") return v;
-	if (typeof v === "number") return v !== 0 && !Number.isNaN(v);
+	if (typeof v === "number") return Math.abs(v) > 1.0e-12 && !Number.isNaN(v);
 	if (isXPathDate(v)) return true;
 	return (v as string).length > 0;
 }
@@ -89,50 +102,6 @@ export function toDate(v: XPathValue): XPathDate | null {
 	if (typeof v === "string") return XPathDate.parse(v);
 	/* boolean — no date interpretation */
 	return null;
-}
-
-/**
- * Date-aware addition: if either operand is an XPathDate, the result
- * is an XPathDate shifted by the other operand's numeric value.
- *
- * - `date + number` → date shifted forward by N days
- * - `number + date` → same (commutative)
- * - `date + date`   → numeric sum of days (unusual, but consistent)
- * - otherwise        → plain numeric addition
- */
-export function dateAwareAdd(a: XPathValue, b: XPathValue): XPathValue {
-	const aIsDate = isXPathDate(a);
-	const bIsDate = isXPathDate(b);
-	if (!aIsDate && !bIsDate) return toNumber(a) + toNumber(b);
-	/* At least one operand is a date — compute the numeric sum */
-	const sum = toNumber(a) + toNumber(b);
-	if (Number.isNaN(sum)) return NaN;
-	/* Preserve date type when shifting (date + number or number + date) */
-	if (aIsDate !== bIsDate) return XPathDate.fromDays(sum);
-	/* Both dates — return raw number (day sum has no date semantics) */
-	return sum;
-}
-
-/**
- * Date-aware subtraction: preserves date type when shifting backward,
- * returns a plain number for date differences.
- *
- * - `date - number` → date shifted backward by N days
- * - `date - date`   → number of days between them
- * - `number - date`  → raw number (no date semantics)
- * - otherwise         → plain numeric subtraction
- */
-export function dateAwareSubtract(a: XPathValue, b: XPathValue): XPathValue {
-	const aIsDate = isXPathDate(a);
-	const bIsDate = isXPathDate(b);
-	if (!aIsDate && !bIsDate) return toNumber(a) - toNumber(b);
-	const diff = toNumber(a) - toNumber(b);
-	if (Number.isNaN(diff)) return NaN;
-	/* date - number → shifted date */
-	if (aIsDate && !bIsDate) return XPathDate.fromDays(diff);
-	/* date - date → day difference (plain number) */
-	/* number - date → plain number (no meaningful date semantics) */
-	return diff;
 }
 
 /**

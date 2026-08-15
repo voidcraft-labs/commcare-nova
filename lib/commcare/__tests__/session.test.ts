@@ -647,6 +647,36 @@ describe("deriveEntryDefinition", () => {
 		expect(ops).toBeDefined();
 		expect(ops?.[0].ifClause).toBe("/data/go = 'yes'");
 	});
+
+	it("declares every secondary instance used by form-link stack XPath", () => {
+		const links: HqFormLink[] = [
+			{
+				condition:
+					"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/status = 'open'",
+				target: { type: "form", moduleIndex: 1, formIndex: 0 },
+				datums: [
+					{
+						name: "worker",
+						xpath: "instance('commcaresession')/session/user/data/username",
+					},
+				],
+			},
+		];
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/xyz",
+			0,
+			0,
+			"followup",
+			"previous",
+			"patient",
+			links,
+		);
+
+		expect(entry.instances).toEqual([
+			{ id: "casedb", src: "jr://instance/casedb" },
+			{ id: "commcaresession", src: "jr://instance/session" },
+		]);
+	});
 });
 
 // ── renderStackXml ─────────────────────────────────────────────────

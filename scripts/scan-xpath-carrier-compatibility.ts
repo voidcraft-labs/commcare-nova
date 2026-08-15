@@ -75,12 +75,13 @@ async function main(): Promise<void> {
 					!call.validPathInitializer;
 				const previewUnsafe =
 					call.preview === "unsupported" ||
+					!call.validPreviewSignature ||
 					(call.preview === "path-initializer" && !call.validPathInitializer);
 				if (unsafe) javaRosaUnsafe += 1;
 				if (previewUnsafe) previewUnsupported += 1;
 				if (unsafe || call.javaRosa === "lowered" || previewUnsafe) {
 					console.log(
-						`${id}\t${occurrence.path}\t${call.name}()\tJavaRosa=${unsafe ? "UNSAFE" : call.javaRosa.toUpperCase()}\tPreview=${call.preview}`,
+						`${id}\t${occurrence.path}\t${call.name}()\tJavaRosa=${unsafe ? "UNSAFE" : call.javaRosa.toUpperCase()}\tPreview=${call.validPreviewSignature ? call.preview : "unsupported-signature"}`,
 					);
 				}
 			}

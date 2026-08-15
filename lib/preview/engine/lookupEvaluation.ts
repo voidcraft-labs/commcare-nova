@@ -175,6 +175,9 @@ function rowEvalContext(
 		...(outer.resolveInstance === undefined
 			? {}
 			: { resolveInstance: outer.resolveInstance }),
+		...(outer.invokeGeneratedFunction === undefined
+			? {}
+			: { invokeGeneratedFunction: outer.invokeGeneratedFunction }),
 		getValue: (path) => {
 			const segments = path.split("/").filter(Boolean);
 			if (segments.length === 1) {
