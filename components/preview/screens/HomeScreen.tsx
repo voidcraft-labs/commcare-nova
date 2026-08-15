@@ -6,6 +6,11 @@ import { useCallback, useMemo } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import { EditableTitle } from "@/components/builder/EditableTitle";
+import {
+	useBuilderLanguage,
+	useLocalizedValues,
+	useTranslationUnitEditor,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Badge } from "@/components/shadcn/badge";
@@ -20,6 +25,7 @@ import {
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { makeTranslationUnitId } from "@/lib/domain";
 import { moduleDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -28,7 +34,14 @@ import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
 export function HomeScreen() {
-	const appName = useAppName();
+	const canonicalAppName = useAppName();
+	const language = useBuilderLanguage();
+	const localizedValues = useLocalizedValues();
+	const appNameUnitId = makeTranslationUnitId("app", "name");
+	const appName =
+		(localizedValues.get(appNameUnitId) as string | undefined) ??
+		canonicalAppName;
+	const appNameEditor = useTranslationUnitEditor(appNameUnitId);
 	/* Read only the `formOrder` slice of the app structure: the module
 	 * sequence is served separately by `useOrderedModules()` below.
 	 * `useAppStructure` returns a shallow-stable pair, so destructuring
@@ -82,7 +95,10 @@ export function HomeScreen() {
 				.filter((mod) => moduleVisibility.get(mod.uuid) === "hidden")
 				.map((mod) => ({
 					key: mod.uuid,
-					name: mod.name,
+					name:
+						(localizedValues.get(
+							makeTranslationUnitId("module", mod.uuid, "name"),
+						) as string | undefined) ?? mod.name,
 					summary: summarizeFilter(mod.displayCondition, {
 						...(mod.caseType !== undefined && {
 							currentCaseType: mod.caseType,
@@ -90,15 +106,18 @@ export function HomeScreen() {
 						projectProse,
 					}),
 				})),
-		[modules, moduleVisibility, projectProse],
+		[modules, moduleVisibility, projectProse, localizedValues],
 	);
 
 	/* Forward the gated dispatch's outcome: a refused rename keeps the
 	 * editor open with the draft and surfaces the finding inline; the
 	 * saved checkmark only fires on a committed rename. */
 	const saveAppName = useCallback(
-		(name: string) => inline.updateApp({ app_name: name }),
-		[inline],
+		(name: string) =>
+			language.isSource
+				? inline.updateApp({ app_name: name })
+				: appNameEditor.saveTarget(name),
+		[appNameEditor, inline, language.isSource],
 	);
 
 	if (!hasData) return null;
@@ -133,6 +152,10 @@ export function HomeScreen() {
 			</div>
 			<div className="grid gap-3">
 				{modules.map((mod, mIdx) => {
+					const localizedModuleName =
+						(localizedValues.get(
+							makeTranslationUnitId("module", mod.uuid, "name"),
+						) as string | undefined) ?? mod.name;
 					const visibility = moduleVisibility.get(mod.uuid) ?? "shown";
 					if (visibility === "hidden") return null;
 					if (visibility === "pending") {
@@ -182,7 +205,7 @@ export function HomeScreen() {
 							)}
 							<div className="flex-1 min-w-0">
 								<div className="font-medium text-nova-text group-hover:text-pv-accent-bright transition-colors">
-									{mod.name}
+									{localizedModuleName}
 								</div>
 								{mod.caseType && (
 									<Badge variant="muted" className="mt-1">

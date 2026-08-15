@@ -16,6 +16,7 @@ import {
 	type TranslationUnitId,
 	translationSourceFingerprint,
 } from "./localization";
+import { collectAssetRefs } from "./mediaRefs";
 import {
 	caseListColumnIsEmitted,
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
@@ -28,6 +29,8 @@ import {
 	type ProseTemplate,
 	projectProseTemplate,
 } from "./prose";
+import { SEARCH_RUNTIME_VALIDATION_MESSAGES } from "./searchRuntimeValidationMessages";
+import type { Uuid } from "./uuid";
 
 export const translationUnitRoles = [
 	"app-name",
@@ -45,6 +48,7 @@ export const translationUnitRoles = [
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-button-label",
+	"search-runtime-validation-message",
 	"case-property-option-label",
 ] as const;
 export type TranslationUnitRole = (typeof translationUnitRoles)[number];
@@ -64,34 +68,34 @@ export type TranslationUnitOwnerKind =
 
 export type TranslationUnitOwner =
 	| { readonly kind: "app" }
-	| { readonly kind: "module"; readonly moduleUuid: string }
+	| { readonly kind: "module"; readonly moduleUuid: Uuid }
 	| {
 			readonly kind: "form";
-			readonly moduleUuid: string;
-			readonly formUuid: string;
+			readonly moduleUuid: Uuid;
+			readonly formUuid: Uuid;
 	  }
 	| {
 			readonly kind: "field";
-			readonly moduleUuid: string;
-			readonly formUuid: string;
-			readonly fieldUuid: string;
+			readonly moduleUuid: Uuid;
+			readonly formUuid: Uuid;
+			readonly fieldUuid: Uuid;
 	  }
 	| {
 			readonly kind: "select-option";
-			readonly moduleUuid: string;
-			readonly formUuid: string;
-			readonly fieldUuid: string;
-			readonly optionUuid: string;
+			readonly moduleUuid: Uuid;
+			readonly formUuid: Uuid;
+			readonly fieldUuid: Uuid;
+			readonly optionUuid: Uuid;
 	  }
 	| {
 			readonly kind: "case-list-column";
-			readonly moduleUuid: string;
-			readonly columnUuid: string;
+			readonly moduleUuid: Uuid;
+			readonly columnUuid: Uuid;
 	  }
 	| {
 			readonly kind: "search-input";
-			readonly moduleUuid: string;
-			readonly searchInputUuid: string;
+			readonly moduleUuid: Uuid;
+			readonly searchInputUuid: Uuid;
 	  }
 	| {
 			readonly kind: "case-property-option";
@@ -109,6 +113,7 @@ export interface TranslationUnitContext {
 	readonly optionValue?: string;
 	readonly caseType?: string;
 	readonly caseProperty?: string;
+	readonly systemMessageDescription?: string;
 }
 
 export interface TranslationUnit {
@@ -139,6 +144,7 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"search-screen-subtitle",
 	"search-button-label",
 	"search-input-label",
+	"search-runtime-validation-message",
 ]);
 
 export interface LocalizedTranslationUnit extends TranslationUnit {
@@ -146,6 +152,79 @@ export interface LocalizedTranslationUnit extends TranslationUnit {
 	readonly explicit?: TranslationEntry;
 	readonly effective: LocalizedValue;
 	readonly status: TranslationStatus;
+}
+
+export const translationCoverageDiagnosticCodes = [
+	"lookup-labels-need-localized-data",
+	"connect-text-has-no-locale-carrier",
+	"media-is-shared-across-locales",
+	"automation-language-is-recipient-owned",
+] as const;
+export type TranslationCoverageDiagnosticCode =
+	(typeof translationCoverageDiagnosticCodes)[number];
+
+export interface TranslationCoverageDiagnostic {
+	readonly code: TranslationCoverageDiagnosticCode;
+	readonly title: string;
+	readonly explanation: string;
+	readonly affectedCount: number;
+}
+
+/**
+ * Honest limits adjacent to the static translation inventory. These carriers
+ * remain valid app content, but counting them as translated would promise a
+ * runtime behavior their current data or CommCare wire does not provide.
+ */
+export function collectTranslationCoverageDiagnostics(
+	doc: BlueprintDoc,
+): readonly TranslationCoverageDiagnostic[] {
+	const diagnostics: TranslationCoverageDiagnostic[] = [];
+	const lookupFields = Object.values(doc.fields).filter(
+		(field) =>
+			"optionsSource" in field && field.optionsSource.kind === "lookup",
+	).length;
+	if (lookupFields > 0) {
+		diagnostics.push({
+			code: "lookup-labels-need-localized-data",
+			title: "Lookup-table labels use Project data",
+			explanation:
+				"Localize those labels in the lookup table itself after Nova gains localized lookup columns; this app language overlay cannot safely copy changing Project rows.",
+			affectedCount: lookupFields,
+		});
+	}
+	const connectForms = Object.values(doc.forms).filter(
+		(form) => form.connect !== undefined,
+	).length;
+	if (connectForms > 0) {
+		diagnostics.push({
+			code: "connect-text-has-no-locale-carrier",
+			title: "CommCare Connect names stay in one language",
+			explanation:
+				"The accepted Connect XForm data carrier has no per-language slot for learn modules, delivery units, tasks, or their descriptions.",
+			affectedCount: connectForms,
+		});
+	}
+	const mediaRefs = collectAssetRefs(doc).size;
+	if (mediaRefs > 0) {
+		diagnostics.push({
+			code: "media-is-shared-across-locales",
+			title: "Media is shared across languages",
+			explanation:
+				"Every locale currently uses the same image, audio, video, file, and signature assets; Nova does not claim language-specific media coverage.",
+			affectedCount: mediaRefs,
+		});
+	}
+	const automationCount = Object.keys(doc.automations ?? {}).length;
+	if (automationCount > 0) {
+		diagnostics.push({
+			code: "automation-language-is-recipient-owned",
+			title: "Automation messages follow recipient language",
+			explanation:
+				"Automation messages need their own recipient-language policy and are not translated from the app's currently selected worker locale.",
+			affectedCount: automationCount,
+		});
+	}
+	return diagnostics;
 }
 
 function unit(
@@ -171,14 +250,14 @@ function proseLabel(field: Field, doc: BlueprintDoc): string {
 
 interface FormWalkContext {
 	readonly module: Module;
-	readonly formUuid: string;
+	readonly formUuid: Uuid;
 	readonly formName: string;
 }
 
 function fieldUnits(
 	doc: BlueprintDoc,
 	context: FormWalkContext,
-	parentUuid: string,
+	parentUuid: Uuid,
 	ancestorLabels: readonly string[],
 	out: TranslationUnit[],
 ): void {
@@ -344,6 +423,7 @@ export function collectTranslationUnits(
 		}),
 	];
 	const seenCaseOptions = new Set<TranslationUnitId>();
+	let hasSearchInputs = false;
 
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
@@ -466,12 +546,13 @@ export function collectTranslationUnits(
 		}
 
 		for (const input of list?.searchInputs ?? []) {
+			hasSearchInputs = true;
 			out.push(
 				unit({
 					id: makeTranslationUnitId("search-input", input.uuid, "label"),
 					valueKind: "text",
 					role: "search-input-label",
-					source: input.label,
+					source: input.label !== "" ? input.label : input.name,
 					owner: {
 						kind: "search-input",
 						moduleUuid,
@@ -520,6 +601,27 @@ export function collectTranslationUnits(
 					owner: searchOwner,
 					breadcrumb: [doc.appName, module.name, "Search", "button"],
 					context: { moduleName: module.name },
+				}),
+			);
+		}
+	}
+
+	if (hasSearchInputs) {
+		for (const message of SEARCH_RUNTIME_VALIDATION_MESSAGES) {
+			out.push(
+				unit({
+					id: makeTranslationUnitId("system", "search-validation", message.key),
+					valueKind: "text",
+					role: "search-runtime-validation-message",
+					source: message.message,
+					owner: { kind: "app" },
+					breadcrumb: [
+						doc.appName,
+						"Search",
+						"System messages",
+						message.description,
+					],
+					context: { systemMessageDescription: message.description },
 				}),
 			);
 		}

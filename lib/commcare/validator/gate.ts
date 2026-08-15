@@ -297,7 +297,9 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	XFORM_TRANSLATION_NONE: "oracle",
 	XFORM_TRANSLATION_NO_LANG: "oracle",
 	XFORM_TRANSLATION_DUPLICATE_LANG: "oracle",
+	XFORM_TRANSLATION_NO_DEFAULT: "oracle",
 	XFORM_TRANSLATION_MULTIPLE_DEFAULT: "oracle",
+	XFORM_TRANSLATION_INCOMPLETE: "oracle",
 	XFORM_DANGLING_MEDIA_REF: "oracle",
 	// ── suite.xml oracle ─────────────────────────────────────────────
 	SUITE_PARSE_ERROR: "oracle",

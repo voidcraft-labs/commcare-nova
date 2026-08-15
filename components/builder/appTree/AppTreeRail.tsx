@@ -29,12 +29,13 @@ import tablerSettings from "@iconify-icons/tabler/settings";
 import tablerTable from "@iconify-icons/tabler/table";
 import { memo, useCallback, useState } from "react";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
+import { useLocalizedText } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormIds, useModuleIds } from "@/lib/doc/hooks/useModuleIds";
-import type { Uuid } from "@/lib/domain";
+import { makeTranslationUnitId, type Uuid } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
 	useIsCaseListSelected,
@@ -169,6 +170,9 @@ const RailModuleGroup = memo(function RailModuleGroup({
 	moduleUuid: Uuid;
 }) {
 	const mod = useModule(moduleUuid);
+	const localizedModuleName = useLocalizedText(
+		makeTranslationUnitId("module", moduleUuid, "name"),
+	);
 	const formIds = useFormIds(moduleUuid);
 	const onSelect = useAppTreeSelection();
 	const loc = useLocation();
@@ -179,12 +183,13 @@ const RailModuleGroup = memo(function RailModuleGroup({
 	const isModuleScreen = loc.kind === "module" && loc.moduleUuid === moduleUuid;
 
 	if (!mod) return null;
+	const moduleName = localizedModuleName ?? mod.name;
 
 	return (
 		<>
 			<div className="w-7 h-px bg-nova-border my-1" aria-hidden="true" />
 			<RailButton
-				label={mod.name}
+				label={moduleName}
 				active={isModuleScreen}
 				onClick={() => onSelect({ kind: "module", moduleUuid })}
 			>
@@ -200,7 +205,7 @@ const RailModuleGroup = memo(function RailModuleGroup({
 			</RailButton>
 			{mod.caseType && (
 				<RailButton
-					label={`${mod.name}, case list and search`}
+					label={`${moduleName}, case list and search`}
 					active={isCaseListSelected}
 					onClick={() => onSelect({ kind: "cases", moduleUuid })}
 				>
@@ -226,12 +231,16 @@ function RailFormButton({
 	formUuid: Uuid;
 }) {
 	const form = useForm(formUuid);
+	const localizedFormName = useLocalizedText(
+		makeTranslationUnitId("form", formUuid, "name"),
+	);
 	const onSelect = useAppTreeSelection();
 	const isSelected = useIsFormSelected(formUuid);
 	if (!form) return null;
+	const formName = localizedFormName ?? form.name;
 	return (
 		<RailButton
-			label={form.name}
+			label={formName}
 			active={isSelected}
 			onClick={() => onSelect({ kind: "form", moduleUuid, formUuid })}
 		>

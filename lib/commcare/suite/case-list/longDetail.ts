@@ -64,6 +64,7 @@ import {
 	effectiveCaseTypes,
 	type Module,
 	orderedColumns,
+	type TranslationUnitId,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -122,7 +123,11 @@ export function buildLongDetail(args: {
 	readonly target?: DetailTarget;
 	readonly assets?: AssetManifest;
 	readonly lookupNaming?: LookupWireNaming;
-}): { readonly element: Element; readonly strings: Record<string, string> } {
+}): {
+	readonly element: Element;
+	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, TranslationUnitId>;
+} {
 	const { module: mod, moduleIndex } = args;
 	const target: DetailTarget = args.target ?? "case";
 	const detailId = `m${moduleIndex}_${target}_long`;
@@ -133,7 +138,11 @@ export function buildLongDetail(args: {
 	// model declares `title` as a non-optional `NodeField`, so a
 	// zero-field detail still emits the `<title>` element.
 	if (!mod.caseType || !mod.caseListConfig) {
-		return { element: buildDetailShell(detailId, []), strings: {} };
+		return {
+			element: buildDetailShell(detailId, []),
+			strings: {},
+			translationUnits: {},
+		};
 	}
 
 	const config = mod.caseListConfig;
@@ -156,6 +165,7 @@ export function buildLongDetail(args: {
 
 	const fields: Element[] = [];
 	const strings: Record<string, string> = {};
+	const translationUnits: Record<string, TranslationUnitId> = {};
 
 	// Walk every column in the config's exact Details UUID permutation,
 	// independently of Results. Position is 1-based against the complete long-
@@ -175,9 +185,14 @@ export function buildLongDetail(args: {
 		});
 		fields.push(emission.element);
 		Object.assign(strings, emission.strings);
+		Object.assign(translationUnits, emission.translationUnits);
 	}
 
-	return { element: buildDetailShell(detailId, fields), strings };
+	return {
+		element: buildDetailShell(detailId, fields),
+		strings,
+		translationUnits,
+	};
 }
 
 /**
@@ -191,8 +206,8 @@ export function emitLongDetail(args: {
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
 }): CaseListEmission {
-	const { element, strings } = buildLongDetail(args);
-	return { xml: render(element, RENDER_OPTS), strings };
+	const { element, strings, translationUnits } = buildLongDetail(args);
+	return { xml: render(element, RENDER_OPTS), strings, translationUnits };
 }
 
 /**

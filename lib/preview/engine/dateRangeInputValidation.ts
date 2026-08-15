@@ -1,5 +1,9 @@
 import { isValid, parseISO } from "date-fns";
 import {
+	DATE_RANGE_CONFIGURATION_MESSAGE,
+	DATE_RANGE_INVALID_MESSAGE,
+	DATE_RANGE_ORDER_MESSAGE,
+	DATE_RANGE_PAIR_REQUIRED_MESSAGE,
 	type SearchInputDef,
 	simpleSearchInputHasCoherentRangeWidget,
 } from "@/lib/domain";
@@ -7,13 +11,12 @@ import {
 /** Wire-form calendar date accepted by CommCare's daterange encoding. */
 export const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-export const DATE_RANGE_PAIR_REQUIRED_MESSAGE =
-	"Choose both a start date and an end date";
-export const DATE_RANGE_ORDER_MESSAGE =
-	"Choose an end date on or after the start date";
-export const DATE_RANGE_INVALID_MESSAGE = "Choose valid start and end dates";
-export const DATE_RANGE_CONFIGURATION_MESSAGE =
-	"This search field's date settings don't match. Return to edit and choose Date range with Between dates";
+export {
+	DATE_RANGE_CONFIGURATION_MESSAGE,
+	DATE_RANGE_INVALID_MESSAGE,
+	DATE_RANGE_ORDER_MESSAGE,
+	DATE_RANGE_PAIR_REQUIRED_MESSAGE,
+} from "@/lib/domain";
 
 export type SearchInputValuesLike = ReadonlyMap<string, string>;
 

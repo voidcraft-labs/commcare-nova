@@ -38,6 +38,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	BlueprintDocProvider,
@@ -391,10 +392,12 @@ function renderCaseListScreen(opts: {
 						},
 			}}
 		>
-			<CaptureDocStore />
-			<CaseListScreen
-				screen={{ type: "caseList", moduleIndex: 0, formIndex: 0 }}
-			/>
+			<BuilderLocalizationProvider>
+				<CaptureDocStore />
+				<CaseListScreen
+					screen={{ type: "caseList", moduleIndex: 0, formIndex: 0 }}
+				/>
+			</BuilderLocalizationProvider>
 		</BlueprintDocProvider>
 	);
 	const result = render(tree());

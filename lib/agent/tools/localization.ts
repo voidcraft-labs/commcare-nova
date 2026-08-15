@@ -8,6 +8,7 @@ import {
 	appLanguageSchema,
 	CLASSIC_LANGUAGE_OPTIONS,
 	collectLocalizedTranslationUnits,
+	collectTranslationCoverageDiagnostics,
 	collectTranslationUnits,
 	effectiveAppLocalization,
 	type LanguageCode,
@@ -442,6 +443,7 @@ export const getLanguagesTool = {
 					),
 				})),
 				classicCatalogSize: CLASSIC_LANGUAGE_OPTIONS.length,
+				coverageDiagnostics: collectTranslationCoverageDiagnostics(doc),
 				codePolicy:
 					"Every Classic picker code and every Classic wire-valid lower-case regional code can be added manually or by copying an existing language.",
 			},

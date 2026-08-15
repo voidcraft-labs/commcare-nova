@@ -86,6 +86,35 @@ never table tags, export names, or display labels.
 | `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, personas, and its organization model. |
 | `get_app_hq_feature_flags` | List only the CommCare HQ feature flags the app currently requires, with app-specific reasons, plain-language explanations, and public documentation links. Optionally pass one explicit connected `domain` to separate confirmed missing flags from checks HQ could not answer. |
 
+## Languages and translations
+
+App languages use the same source/default/target overlay as the visual Builder.
+The language catalog is not an AI allowlist: an agent may add, copy, read, and
+manually translate every CommCare-supported code whether or not Nova offers
+automatic translation for that exact direction.
+
+| Tool | What it does |
+|---|---|
+| `get_languages` | Read the ordered language catalog, source and default languages, per-target coverage, and diagnostics for content outside the static language carrier. |
+| `get_translatable_content` | Page through the snapshot-bound translation inventory for one language, including source/effective values, status, breadcrumb context, and protected reference parts. |
+| `add_language` | Add one target and atomically seed every current unit from an existing `copyFrom` language. |
+| `update_language` | Edit language metadata, set the runtime default, or relabel the sole source language. |
+| `remove_language` | Remove a target language and its overlay. The source language and the final remaining language cannot be removed. |
+| `update_translations` | Atomically set, clear, or review at most 50 distinct target units using stable unit IDs and exact review fences. |
+
+Read `get_languages`, then call `get_translatable_content` for the target before
+writing. A `set` operation is machine-authored and starts as Needs review. A
+`review` operation must repeat the exact current source fingerprint and target
+value returned by the read, so it cannot approve a value after either side
+changed concurrently. Prose values keep typed reference parts; do not flatten a
+protected field reference into its displayed text.
+
+`add_language` always copies a complete effective projection. If the copy
+source itself falls back for one unit, the new target receives the value workers
+would actually see. Missing and out-of-date target entries also fall back to the
+current canonical source at runtime, so incomplete translation work never
+creates an invalid app.
+
 ## Checking CommCare HQ feature flags
 
 `get_app_hq_feature_flags` is a read-only check. An agent can call it without

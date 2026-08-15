@@ -70,6 +70,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { CaseListScreen } from "@/components/preview/screens/CaseListScreen";
 import { FormScreen } from "@/components/preview/screens/FormScreen";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -435,18 +436,20 @@ function buildStore(): CaseStore {
 function renderCaseListScreen(doc: BlueprintDoc) {
 	return render(
 		<BlueprintDocProvider appId={APP_ID} initialDoc={doc}>
-			<BuilderSessionProvider
-				init={{
-					appId: APP_ID,
-					projectId: "project-case-list-search-int",
-					role: "editor",
-					canEdit: true,
-				}}
-			>
-				<CaseListScreen
-					screen={{ type: "caseList", moduleIndex: 0, formIndex: 0 }}
-				/>
-			</BuilderSessionProvider>
+			<BuilderLocalizationProvider>
+				<BuilderSessionProvider
+					init={{
+						appId: APP_ID,
+						projectId: "project-case-list-search-int",
+						role: "editor",
+						canEdit: true,
+					}}
+				>
+					<CaseListScreen
+						screen={{ type: "caseList", moduleIndex: 0, formIndex: 0 }}
+					/>
+				</BuilderSessionProvider>
+			</BuilderLocalizationProvider>
 		</BlueprintDocProvider>,
 	);
 }
@@ -463,26 +466,28 @@ function renderFormScreen(doc: BlueprintDoc, formUuid: Uuid, caseId?: string) {
 	currentLocation = { kind: "form", moduleUuid: MODULE_UUID, formUuid };
 	return render(
 		<BlueprintDocProvider appId={APP_ID} initialDoc={doc}>
-			<BuilderSessionProvider
-				init={{
-					appId: APP_ID,
-					projectId: "project-case-list-search-int",
-					role: "editor",
-					canEdit: true,
-				}}
-			>
-				<BuilderFormEngineProvider>
-					<FormScreen
-						screen={{
-							type: "form",
-							moduleIndex: 0,
-							formIndex: 0,
-							caseId,
-						}}
-						onBack={() => {}}
-					/>
-				</BuilderFormEngineProvider>
-			</BuilderSessionProvider>
+			<BuilderLocalizationProvider>
+				<BuilderSessionProvider
+					init={{
+						appId: APP_ID,
+						projectId: "project-case-list-search-int",
+						role: "editor",
+						canEdit: true,
+					}}
+				>
+					<BuilderFormEngineProvider>
+						<FormScreen
+							screen={{
+								type: "form",
+								moduleIndex: 0,
+								formIndex: 0,
+								caseId,
+							}}
+							onBack={() => {}}
+						/>
+					</BuilderFormEngineProvider>
+				</BuilderSessionProvider>
+			</BuilderLocalizationProvider>
 		</BlueprintDocProvider>,
 	);
 }

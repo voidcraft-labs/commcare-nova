@@ -3,6 +3,7 @@ import { asUuid } from "@/lib/domain";
 
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { proseText } from "@/lib/domain/prose";
@@ -107,9 +108,11 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 
 		render(
 			<BlueprintDocProvider appId={APP_ID} initialDoc={doc}>
-				<FormLayoutProvider>
-					<InteractiveFormRenderer parentEntityId={formUuid} />
-				</FormLayoutProvider>
+				<BuilderLocalizationProvider>
+					<FormLayoutProvider>
+						<InteractiveFormRenderer parentEntityId={formUuid} />
+					</FormLayoutProvider>
+				</BuilderLocalizationProvider>
 			</BlueprintDocProvider>,
 		);
 
@@ -213,9 +216,11 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 
 		render(
 			<BlueprintDocProvider appId={APP_ID} initialDoc={doc}>
-				<FormLayoutProvider>
-					<InteractiveFormRenderer parentEntityId={formUuid} />
-				</FormLayoutProvider>
+				<BuilderLocalizationProvider>
+					<FormLayoutProvider>
+						<InteractiveFormRenderer parentEntityId={formUuid} />
+					</FormLayoutProvider>
+				</BuilderLocalizationProvider>
 			</BlueprintDocProvider>,
 		);
 

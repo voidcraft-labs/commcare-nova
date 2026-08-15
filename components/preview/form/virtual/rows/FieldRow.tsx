@@ -18,6 +18,11 @@
 import { attachClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { memo, useCallback, useMemo } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
+import {
+	useBuilderLanguage,
+	useLocalizedField,
+	useTranslationUnitEditor,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import { FieldHelp } from "@/components/preview/form/FieldHelp";
@@ -27,9 +32,13 @@ import { HiddenField } from "@/components/preview/form/fields/HiddenField";
 import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useField } from "@/lib/doc/hooks/useEntity";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import type { FieldPatchFor, ProseTemplate, Uuid } from "@/lib/domain";
+import {
+	type FieldPatchFor,
+	makeTranslationUnitId,
+	type ProseTemplate,
+	type Uuid,
+} from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -53,7 +62,14 @@ export const FieldRow = memo(function FieldRow({
 	siblingIndex,
 	depth,
 }: FieldRowProps) {
-	const q = useField(uuid);
+	const q = useLocalizedField(uuid);
+	const language = useBuilderLanguage();
+	const labelEditor = useTranslationUnitEditor(
+		makeTranslationUnitId("field", uuid, "label"),
+	);
+	const hintEditor = useTranslationUnitEditor(
+		makeTranslationUnitId("field", uuid, "hint"),
+	);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
 	const projectProse = useProseProjection();
@@ -75,11 +91,23 @@ export const FieldRow = memo(function FieldRow({
 	>(() => {
 		if (mode !== "edit" || fieldKind === undefined) return null;
 		return (property, value) => {
+			if (!language.isSource) {
+				(property === "hint" ? hintEditor : labelEditor).saveTarget(value);
+				return;
+			}
 			updateField(uuid, fieldKind, {
 				[property]: value,
 			} as FieldPatchFor<typeof fieldKind>);
 		};
-	}, [mode, uuid, fieldKind, updateField]);
+	}, [
+		mode,
+		uuid,
+		fieldKind,
+		updateField,
+		language.isSource,
+		labelEditor,
+		hintEditor,
+	]);
 
 	const buildDropData = useCallback<
 		Parameters<typeof useRowDnd>[0]["buildDropData"]

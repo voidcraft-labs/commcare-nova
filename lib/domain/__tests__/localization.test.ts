@@ -5,8 +5,11 @@ import {
 	appLocalizationSchema,
 	CLASSIC_LANGUAGE_OPTIONS,
 	collectLocalizedTranslationUnits,
+	collectTranslationCoverageDiagnostics,
 	collectTranslationUnits,
 	effectiveAppLocalization,
+	type LookupColumnId,
+	type LookupTableId,
 	makeTranslationUnitId,
 	proseText,
 	simpleSearchInputDef,
@@ -238,5 +241,48 @@ describe("translation unit inventory", () => {
 			"blank-content",
 		);
 		expect(translationValueIntegrityIssue(hint, proseText(""))).toBeUndefined();
+	});
+
+	it("reports carriers that cannot honestly count toward static coverage", () => {
+		const doc = buildDoc({
+			appName: "Clinic",
+			modules: [
+				{
+					uuid: "localization-diagnostics-module",
+					name: "Patients",
+					forms: [
+						{
+							uuid: "localization-diagnostics-form",
+							name: "Intake",
+							type: "survey",
+							fields: [
+								f({
+									uuid: "localization-diagnostics-field",
+									kind: "single_select",
+									id: "facility",
+									label: "Facility",
+									optionsSource: {
+										kind: "lookup",
+										tableId:
+											"018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId,
+										valueColumnId:
+											"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId,
+										labelColumnId:
+											"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId,
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+		expect(collectTranslationCoverageDiagnostics(doc)).toEqual([
+			expect.objectContaining({
+				code: "lookup-labels-need-localized-data",
+				affectedCount: 1,
+			}),
+		]);
 	});
 });

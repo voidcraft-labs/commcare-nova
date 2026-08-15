@@ -6,6 +6,11 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
+import {
+	useBuilderLanguage,
+	useLocalizedValues,
+	useTranslationUnitEditor,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import {
 	formLaunch,
@@ -21,6 +26,7 @@ import {
 	useOrderedForms,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { makeTranslationUnitId } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
@@ -59,6 +65,14 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 
 	const mod = useModuleEntity(moduleUuid);
 	const forms = useOrderedForms(moduleUuid);
+	const language = useBuilderLanguage();
+	const localizedValues = useLocalizedValues();
+	const moduleNameUnitId = makeTranslationUnitId(
+		"module",
+		moduleUuid ?? "missing",
+		"name",
+	);
+	const moduleNameEditor = useTranslationUnitEditor(moduleNameUnitId);
 	const lookup = usePreviewLookupStatus();
 	/* Whoever Preview is running as: the member, or the persona they
 	 * picked. One identity across every preview surface. */
@@ -92,10 +106,13 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 				.filter((form) => formVisibility.get(form.uuid) === "hidden")
 				.map((form) => ({
 					key: form.uuid,
-					name: form.name,
+					name:
+						(localizedValues.get(
+							makeTranslationUnitId("form", form.uuid, "name"),
+						) as string | undefined) ?? form.name,
 					summary: summarizeFilter(form.displayCondition, { projectProse }),
 				})),
-		[forms, formVisibility, projectProse],
+		[forms, formVisibility, projectProse, localizedValues],
 	);
 
 	/* The home screen already routes both redirecting shapes; this covers landing
@@ -124,8 +141,12 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	 * checkmark only fires on a committed rename. */
 	const saveModuleName = useCallback(
 		(name: string) =>
-			moduleUuid ? inline.updateModule(moduleUuid, { name }) : undefined,
-		[inline, moduleUuid],
+			moduleUuid
+				? language.isSource
+					? inline.updateModule(moduleUuid, { name })
+					: moduleNameEditor.saveTarget(name)
+				: undefined,
+		[inline, language.isSource, moduleNameEditor, moduleUuid],
 	);
 
 	if (!mod) return null;
@@ -134,18 +155,24 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 
 	const hasCase = !!mod.caseType;
 	const canEdit = mode === "edit" && isReady;
+	const localizedModuleName =
+		(localizedValues.get(moduleNameUnitId) as string | undefined) ?? mod.name;
 
 	return (
 		<ContentFrame width="5xl" className="p-6 space-y-4">
 			<div className="flex items-center gap-2">
 				{canEdit ? (
 					<EditableTitle
-						value={mod.name}
+						value={localizedModuleName}
 						onSave={saveModuleName}
 						ariaLabel="Module name"
 					/>
 				) : (
-					<EditableTitle value={mod.name} readOnly ariaLabel="Module name" />
+					<EditableTitle
+						value={localizedModuleName}
+						readOnly
+						ariaLabel="Module name"
+					/>
 				)}
 				{/* Module-settings gear: the module-level analog of
 				 *  `FormScreen`'s `FormSettingsButton` on the form header.
@@ -159,6 +186,10 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 
 			<div className="space-y-2">
 				{forms.map((form, fIdx) => {
+					const localizedFormName =
+						(localizedValues.get(
+							makeTranslationUnitId("form", form.uuid, "name"),
+						) as string | undefined) ?? form.name;
 					const visibility = formVisibility.get(form.uuid) ?? "shown";
 					if (visibility === "hidden") return null;
 					if (visibility === "pending") {
@@ -216,7 +247,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 							)}
 							<div className="flex-1 min-w-0">
 								<div className="text-sm font-medium text-nova-text">
-									{form.name}
+									{localizedFormName}
 								</div>
 							</div>
 						</motion.button>

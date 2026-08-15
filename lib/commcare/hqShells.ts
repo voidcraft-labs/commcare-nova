@@ -236,13 +236,17 @@ export function applicationShell(
 	appName: string,
 	modules: HqModule[],
 	attachments: Record<string, string>,
-	options?: { autoGpsCapture?: boolean },
+	options?: {
+		autoGpsCapture?: boolean;
+		langs?: string[];
+		translations?: Record<string, Record<string, string>>;
+	},
 ): HqApplication {
 	return {
 		doc_type: "Application",
 		application_version: "2.0",
 		name: appName,
-		langs: ["en"],
+		langs: options?.langs ?? ["en"],
 		build_spec: {
 			doc_type: "BuildSpec",
 			// Nova emits one current wire shape. This is an export target, never
@@ -257,7 +261,7 @@ export function applicationShell(
 		case_sharing: false,
 		secure_submissions: false,
 		multimedia_map: {},
-		translations: {},
+		translations: options?.translations ?? {},
 		// Standard HQ app properties before _attachments — secondary WAF defense.
 		// Primary bypass is the 16KB multipart padding in client.ts importApp().
 		// These add ~1.9KB of buffer; insufficient alone for small apps but
@@ -337,7 +341,7 @@ export function applicationShell(
 
 export function formShell(
 	uniqueId: string,
-	name: string,
+	name: string | Record<string, string>,
 	xmlns: string,
 	requires: string,
 	actions: FormActions,
@@ -349,7 +353,7 @@ export function formShell(
 		doc_type: "Form",
 		form_type: "module_form",
 		unique_id: uniqueId,
-		name: { en: name },
+		name: typeof name === "string" ? { en: name } : name,
 		xmlns,
 		requires,
 		version: null,
@@ -374,7 +378,7 @@ export function formShell(
 
 export function moduleShell(
 	uniqueId: string,
-	name: string,
+	name: string | Record<string, string>,
 	caseType: string,
 	forms: HqForm[],
 	caseDetails: DetailPair,
@@ -383,7 +387,7 @@ export function moduleShell(
 		doc_type: "Module",
 		module_type: "basic",
 		unique_id: uniqueId,
-		name: { en: name },
+		name: typeof name === "string" ? { en: name } : name,
 		case_type: caseType,
 		put_in_root: false,
 		root_module_id: null,

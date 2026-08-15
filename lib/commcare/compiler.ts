@@ -37,6 +37,7 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import type { HqApplication } from "@/lib/commcare";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import { commCareLocalization } from "@/lib/commcare/localization";
 import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildMediaBundle } from "@/lib/commcare/multimedia/bundle";
@@ -71,6 +72,8 @@ import {
 	caseListColumnIsEmitted,
 	defaultPostSubmit,
 	effectiveCaseSearchConfig,
+	makeTranslationUnitId,
+	type TranslationUnitId,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
@@ -125,6 +128,7 @@ export function compileCcz(
 	const assets = opts.assets;
 	const lookupNaming = opts.lookup?.naming;
 	const userPropertySlugs = userPropertySlugsByUuid(doc);
+	const localization = commCareLocalization(doc);
 
 	// Output file map — each entry becomes a zip entry at the end.
 	const files: Record<string, string> = {};
@@ -155,6 +159,16 @@ export function compileCcz(
 	// `appStrings` is populated as we walk modules/forms; flushed once
 	// per language at the end.
 	const appStrings: Record<string, string> = { "app.name": appName };
+	const appStringUnits: Record<string, TranslationUnitId> = {
+		"app.name": makeTranslationUnitId("app", "name"),
+	};
+	const mergeLocalizedStrings = (emission: {
+		readonly strings: Record<string, string>;
+		readonly translationUnits: Record<string, TranslationUnitId>;
+	}): void => {
+		Object.assign(appStrings, emission.strings);
+		Object.assign(appStringUnits, emission.translationUnits);
+	};
 	// Top-level `<suite>` children accumulate as typed `Element[]`. The
 	// orchestrator splices everything into one `<suite>` Element at the
 	// end and serializes via `dom-serializer` exactly once. The spread
@@ -187,7 +201,7 @@ export function compileCcz(
 		const formUuids = orderedFormUuids(doc, moduleUuid);
 
 		const mod = doc.modules[moduleUuid];
-		const modName = hqMod.name.en;
+		const modName = mod.name;
 		const caseType = hqMod.case_type;
 		const hqForms = hqMod.forms;
 		const caseSearchConfig = effectiveCaseSearchConfig(mod);
@@ -219,6 +233,11 @@ export function compileCcz(
 					);
 
 		appStrings[`modules.m${mIdx}`] = modName;
+		appStringUnits[`modules.m${mIdx}`] = makeTranslationUnitId(
+			"module",
+			moduleUuid,
+			"name",
+		);
 
 		// The persistent case tile. When the case list's tile layout asks to
 		// stay on screen above the module's forms, every case-loading datum in
@@ -313,7 +332,7 @@ export function compileCcz(
 				: undefined;
 			if (remoteRequestEmission !== undefined) {
 				suiteRemoteRequests.push(remoteRequestEmission.element);
-				Object.assign(appStrings, remoteRequestEmission.strings);
+				mergeLocalizedStrings(remoteRequestEmission);
 			}
 
 			const shortEmission = buildShortDetail({
@@ -332,7 +351,7 @@ export function compileCcz(
 				}),
 			});
 			suiteDetails.push(shortEmission.element);
-			Object.assign(appStrings, shortEmission.strings);
+			mergeLocalizedStrings(shortEmission);
 
 			const longEmission = buildLongDetail({
 				module: mod,
@@ -342,7 +361,7 @@ export function compileCcz(
 				...(lookupNaming && { lookupNaming }),
 			});
 			suiteDetails.push(longEmission.element);
-			Object.assign(appStrings, longEmission.strings);
+			mergeLocalizedStrings(longEmission);
 
 			// Search-target dual emission. Same `caseListConfig` walked
 			// against the `"search"` target — produces `m{N}_search_short`
@@ -363,7 +382,7 @@ export function compileCcz(
 					...(lookupNaming && { lookupNaming }),
 				});
 				suiteDetails.push(searchShort.element);
-				Object.assign(appStrings, searchShort.strings);
+				mergeLocalizedStrings(searchShort);
 
 				const searchLong = buildLongDetail({
 					module: mod,
@@ -374,7 +393,7 @@ export function compileCcz(
 					...(lookupNaming && { lookupNaming }),
 				});
 				suiteDetails.push(searchLong.element);
-				Object.assign(appStrings, searchLong.strings);
+				mergeLocalizedStrings(searchLong);
 			}
 		}
 
@@ -400,13 +419,18 @@ export function compileCcz(
 				userPropertySlugs,
 			);
 
-			const formName = hqForm.name.en;
+			const formName = form.name;
 			const xmlns = hqForm.xmlns;
 			const uniqueId = hqForm.unique_id;
 			const cmdId = `m${mIdx}-f${fIdx}`;
 			const filePath = `modules-${mIdx}/forms-${fIdx}.xml`;
 
 			appStrings[`forms.m${mIdx}f${fIdx}`] = formName;
+			appStringUnits[`forms.m${mIdx}f${fIdx}`] = makeTranslationUnitId(
+				"form",
+				formUuid,
+				"name",
+			);
 
 			// Build-time injection. The emitter produces a clean XForm (no case
 			// blocks, no meta — those are CCHQ render-time artifacts the HQ-upload
@@ -584,6 +608,11 @@ export function compileCcz(
 			// stamping in `expander.ts`. Its media locales (when present)
 			// merge in alongside.
 			appStrings[`case_lists.m${mIdx}`] = modName;
+			appStringUnits[`case_lists.m${mIdx}`] = makeTranslationUnitId(
+				"module",
+				moduleUuid,
+				"name",
+			);
 			Object.assign(appStrings, caseListNav.strings);
 
 			// The browse entry: no `<form>`, a `case_id` datum carrying both
@@ -641,7 +670,7 @@ export function compileCcz(
 	// HQ convention — the first entry of `hqJson.langs` is the default
 	// locale (its resources live in the `default/` directory). Every
 	// other language gets its own directory named after the lang code.
-	const langs = hqJson.langs;
+	const langs = localization.languages;
 	const langDirs: Array<[lang: string, dir: string]> = langs.map((lang, i) => [
 		lang,
 		i === 0 ? "default" : lang,
@@ -746,14 +775,38 @@ export function compileCcz(
 
 	files["suite.xml"] = suiteXml;
 
-	// Per-language app_strings.txt — every language gets the same string
-	// table (content isn't translated per-locale; only the default locale
-	// is authored).
-	const langStrings = Object.entries(appStrings)
-		.map(([k, v]) => `${k}=${v}`)
-		.join("\n");
-	for (const [, dir] of langDirs) {
-		files[`${dir}/app_strings.txt`] = langStrings;
+	// Materialize every runtime table from the one canonical source registry.
+	// A linked value resolves through the domain translation unit (including
+	// stale/missing fallback); language-neutral media paths repeat unchanged.
+	for (const [language, dir] of langDirs) {
+		const table: Record<string, string> = {};
+		for (const [localeId, source] of Object.entries(appStrings)) {
+			const unitId = appStringUnits[localeId];
+			table[localeId] =
+				unitId === undefined ? source : localization.wireText(language, unitId);
+		}
+		for (const code of localization.languages) {
+			table[code] = localization.metadata[code].name;
+		}
+		table["lang.current"] = language;
+		const localizedSuiteErrors = validateSuite(
+			suiteXml,
+			new Set(Object.keys(table)),
+			{
+				appStringValues: new Map(Object.entries(table)),
+				manifest: bundledWirePaths,
+			},
+		);
+		if (localizedSuiteErrors.length > 0) {
+			throw new Error(
+				`Generated suite.xml failed against the ${language} app-string table:\n${localizedSuiteErrors
+					.map((error) => `  - ${errorToString(error)}`)
+					.join("\n")}`,
+			);
+		}
+		files[`${dir}/app_strings.txt`] = Object.entries(table)
+			.map(([key, value]) => `${key}=${value}`)
+			.join("\n");
 	}
 
 	return packageCcz(files, mediaBundle.cczEntries);

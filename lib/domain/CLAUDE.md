@@ -48,6 +48,12 @@ exact multiset and identity of every protected reference part. A source edit
 therefore makes overlays stale rather than rewriting them, while removal of the
 owning slot prunes its now-orphaned entries.
 
+`collectTranslationCoverageDiagnostics` is the adjacent honesty boundary for
+worker-facing carriers that the static overlay cannot represent. Lookup-backed
+labels, Connect text, shared media, and recipient-owned automation messages are
+reported to Builder and agents but never counted as untranslated inventory or
+silently promised per-locale behavior.
+
 ## Automations describe HQ behavior; they never execute here
 
 `automations.ts` owns one closed union: automatic case updates and conditional

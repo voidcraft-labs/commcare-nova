@@ -40,6 +40,7 @@ import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { BuilderAccessStatus } from "@/components/builder/AccessStatus";
+import { LanguageSelector } from "@/components/builder/localization/LanguageSelector";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
 import { PreviewIdentityMenu } from "@/components/builder/PreviewIdentityMenu";
 import { PreviewToggle } from "@/components/builder/PreviewToggle";
@@ -260,6 +261,7 @@ export function BuilderHeader({
 			className="flex min-w-0 items-center gap-1"
 		>
 			<PreviewToggle onSetPreviewing={onSetPreviewing} />
+			<LanguageSelector />
 			{/* Sits beside the toggle because it answers the question the
 			 *  toggle raises: the app is running, as whom? It renders
 			 *  nothing outside Preview. */}

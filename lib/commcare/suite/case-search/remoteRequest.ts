@@ -18,7 +18,9 @@ import {
 	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	type Module,
+	makeTranslationUnitId,
 	type OrdinaryCaseSearchConfig,
+	type TranslationUnitId,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { instanceSourceFor } from "../../predicate";
@@ -49,6 +51,7 @@ export const DEFAULT_PLATFORM_CONTEXT: PlatformContext = { platform: "web" };
 export interface RemoteRequestEmission {
 	readonly xml: string;
 	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, TranslationUnitId>;
 	readonly wire: WireShape;
 }
 
@@ -61,6 +64,7 @@ export interface RemoteRequestEmission {
 export interface RemoteRequestBuild {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, TranslationUnitId>;
 	readonly wire: WireShape;
 }
 
@@ -174,8 +178,34 @@ export function buildRemoteRequest(args: {
 		[commandLocaleId]: commandLabel,
 		...sessionEmission.strings,
 	};
+	const translationUnits: Record<string, TranslationUnitId> = {
+		...sessionEmission.translationUnits,
+		[commandLocaleId]: makeTranslationUnitId(
+			"module",
+			mod.uuid,
+			"search-button",
+		),
+		[`case_search.${moduleId}.inputs`]: makeTranslationUnitId(
+			"module",
+			mod.uuid,
+			"search-title",
+		),
+		...(caseSearchConfig.searchScreenSubtitle !== undefined
+			? {
+					[`case_search.${moduleId}.description`]: makeTranslationUnitId(
+						"module",
+						mod.uuid,
+						"search-subtitle",
+					),
+				}
+			: {}),
+	};
+	for (const input of caseListConfig.searchInputs) {
+		translationUnits[`search_property.${moduleId}.${input.name}`] =
+			makeTranslationUnitId("search-input", input.uuid, "label");
+	}
 
-	return { element: remoteRequestEl, strings, wire };
+	return { element: remoteRequestEl, strings, translationUnits, wire };
 }
 
 /**
@@ -189,6 +219,11 @@ export function emitRemoteRequest(args: {
 	readonly platformContext?: PlatformContext;
 	readonly typeContext?: TypeContext;
 }): RemoteRequestEmission {
-	const { element, strings, wire } = buildRemoteRequest(args);
-	return { xml: render(element, RENDER_OPTS), strings, wire };
+	const { element, strings, translationUnits, wire } = buildRemoteRequest(args);
+	return {
+		xml: render(element, RENDER_OPTS),
+		strings,
+		translationUnits,
+		wire,
+	};
 }

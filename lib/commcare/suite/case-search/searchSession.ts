@@ -15,6 +15,7 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
 	searchInputDefault,
+	type TranslationUnitId,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { validateCaseType } from "../../identifierValidation";
@@ -75,6 +76,7 @@ const XPATH_QUERY_KEY = "_xpath_query";
 export interface SearchSessionEmission {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, TranslationUnitId>;
 	readonly instances: ReadonlySet<string>;
 }
 
@@ -278,6 +280,7 @@ export function buildSearchSession(args: {
 			: {}),
 		...promptEmission.strings,
 	};
+	const translationUnits = { ...promptEmission.translationUnits };
 
 	// `casedb` and `commcaresession` are always required (the `<post
 	// relevant>` guard references both); the chosen results instance
@@ -376,7 +379,7 @@ export function buildSearchSession(args: {
 		}
 	}
 
-	return { element: sessionEl, strings, instances };
+	return { element: sessionEl, strings, translationUnits, instances };
 }
 
 /**
@@ -397,10 +400,17 @@ export function emitSearchSession(args: {
 }): {
 	readonly xml: string;
 	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, TranslationUnitId>;
 	readonly instances: ReadonlySet<string>;
 } {
-	const { element, strings, instances } = buildSearchSession(args);
-	return { xml: render(element, RENDER_OPTS), strings, instances };
+	const { element, strings, translationUnits, instances } =
+		buildSearchSession(args);
+	return {
+		xml: render(element, RENDER_OPTS),
+		strings,
+		translationUnits,
+		instances,
+	};
 }
 
 /**

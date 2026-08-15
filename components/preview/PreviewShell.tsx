@@ -47,6 +47,7 @@ import { CaseOperationsCanvas } from "@/components/builder/case-operations/CaseO
 import { DisplayConditionCanvas } from "@/components/builder/conditions/DisplayConditionCanvas";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
 import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectDataWorkspace } from "@/components/builder/project-data/ProjectDataWorkspace";
 import { Button } from "@/components/shadcn/button";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
@@ -131,6 +132,7 @@ function locationToScreen(
 }
 
 export function PreviewShell({ onBack }: PreviewShellProps) {
+	const { direction } = useBuilderLanguage();
 	/* ── Location → PreviewScreen adapter ─────────────────────────────
 	 * Read the URL location and translate to the legacy index-based screen
 	 * shape so the Activity boundaries and interact-mode pipeline keep working. */
@@ -463,7 +465,9 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						}
 						name="HomeScreen"
 					>
-						<HomeScreen />
+						<div dir={direction} className="contents">
+							<HomeScreen />
+						</div>
 					</Activity>
 				)}
 				{moduleScreenRef.current && (
@@ -475,7 +479,9 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						}
 						name="ModuleScreen"
 					>
-						<ModuleScreen screen={moduleScreenRef.current} />
+						<div dir={direction} className="contents">
+							<ModuleScreen screen={moduleScreenRef.current} />
+						</div>
 					</Activity>
 				)}
 				{projectDataRef.current && (
@@ -571,7 +577,9 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						}
 						name="CaseListScreen"
 					>
-						<CaseListScreen screen={caseListScreenRef.current} />
+						<div dir={direction} className="contents">
+							<CaseListScreen screen={caseListScreenRef.current} />
+						</div>
 					</Activity>
 				)}
 				{formScreenRef.current && (
@@ -583,7 +591,9 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						}
 						name="FormScreen"
 					>
-						<FormScreen screen={formScreenRef.current} onBack={handleBack} />
+						<div dir={direction} className="contents">
+							<FormScreen screen={formScreenRef.current} onBack={handleBack} />
+						</div>
 					</Activity>
 				)}
 				{caseOperationsRef.current && (

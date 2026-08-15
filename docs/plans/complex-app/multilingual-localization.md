@@ -3,13 +3,16 @@
 ## Current state
 
 This is the binding implementation plan for multilingual CommCare Nova apps.
-The architecture is approved and its language foundation is implemented on the
-current stack branch: the domain overlay, exact Classic picker catalog,
-translation-unit inventory and resolver, granular mutation dialect, validity
-rules, exact JSON persistence, replay/diff behavior, shared SA/MCP read/write
-tools, and focused tests are the current source of truth. CommCare emission,
-Builder/Preview surfaces, AI orchestration, and plugin delivery build on that
-foundation in the remaining stack layers.
+The architecture is approved. The language foundation and the complete manual
+authoring/runtime path are implemented on the current stack: the domain overlay,
+exact Classic picker catalog, translation-unit inventory and resolver, granular
+mutation dialect, validity rules, exact JSON persistence, replay/diff behavior,
+shared SA/MCP read/write tools, localized CommCare emission and oracles, global
+Builder language lens, Languages workspace, inline target editing, Preview,
+coverage diagnostics, and focused tests are the current source of truth. The
+manual-language public documentation is part of that surface. The durable AI
+translation orchestrator, its capability-specific documentation, and plugin
+delivery build on those final APIs in the remaining stack layers.
 
 Keep this document as a description of the best current design and the actual
 implementation state. When implementation teaches us something better, rewrite
@@ -251,9 +254,10 @@ faithfully today:
 - Search input labels, screen title/subtitle, and action label, including
   effective Nova defaults.
 
-The same inventory API also returns explicit coverage diagnostics for content
-that cannot honestly participate. These values do not disappear behind a
-misleading 100 percent score:
+The same inventory boundary also returns explicit coverage diagnostics through
+the Languages workspace and `get_languages` for content that cannot honestly
+participate. These values do not disappear behind a misleading 100 percent
+score:
 
 - lookup-backed option labels are mutable Project table data and require a
   separate localized-lookup-column model;
@@ -290,15 +294,15 @@ the exact direction passes the current AI capability policy.
 
 The translation workspace uses source/target rows grouped by owning screen and
 form. Context is concrete, for example “Intake → Patient name → Hint.” It has
-status filters, protected reference chips, and a jump to the owning Builder
+status filters, reference-safe prose tokens, and a jump to the owning Builder
 screen. Wide layouts show source and target side by side; narrow layouts edit
 one target row without compressing two columns below usability.
 
 When a target language is selected in the ordinary Builder, editing a
-worker-facing value writes the target overlay. Controls show an unambiguous
-language badge and nearby source value so the author cannot mistake a target
-edit for a source edit. Structural IDs and authoring-only values never change
-with the language lens.
+worker-facing value writes the target overlay. The global selector remains
+visible while editing, and the Languages workspace is the authoritative
+side-by-side source/target review surface. Structural IDs and authoring-only
+values never change with the language lens.
 
 Preview consumes the same effective-value resolver and selected locale. It
 applies language direction to worker content and input controls. Preview-only
@@ -315,8 +319,8 @@ The shared SA/MCP surface has one coherent language family:
 - `update_language`
 - `remove_language`
 - `update_translations`
-- a high-level request to translate or refresh one target language (added with
-  the durable AI orchestration layer)
+- a high-level request to translate or refresh one target language, supplied by
+  the durable AI orchestration layer
 
 The implemented names follow the registry's camelCase SA / snake_case MCP
 convention. `add_language` is the nonblank product operation: it composes the
@@ -535,7 +539,8 @@ architecture layer. The expected stack is:
    tools. It has complete tests and no dormant alternative representation.
 2. **Runtime and authoring surfaces** — CommCare emission/oracles, Preview,
    global selector, Languages workspace, inline target editing, accessibility,
-   and public docs. It consumes the final foundation APIs directly.
+   coverage diagnostics, and public manual-language documentation. This
+   implemented layer consumes the final foundation APIs directly.
 3. **AI orchestration** — Design Contract, build finalizer, durable translation
    staging/recovery, model role, prompts, capability policy/evaluation harness,
    progress, usage accounting, and shared high-level translation action.

@@ -35,14 +35,6 @@ import type { IconRef } from "@/lib/domain/builtinIcons";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { type AssetManifest, requireAssetRef } from "./assetWirePath";
 
-/**
- * Nova's single authoring language. CommCare's media dicts are keyed by
- * language code; Nova is single-language throughout (the XForm builder
- * hardcodes `lang="en"`, field text is a plain string not a lang-map),
- * so every stamped dict uses this one key.
- */
-const NOVA_LANG = "en";
-
 /** The HQ-shell media dicts a carrier needs stamped. Empty objects when
  *  the carrier has no media — matching the shell's default and the
  *  `media_image: {}` shape CCHQ accepts. */
@@ -53,8 +45,8 @@ export interface NavMediaDicts {
 
 /**
  * Build the `media_image` / `media_audio` dicts for a nav carrier's HQ
- * shell. Each present slot becomes a `{ en: "jr://file/..." }` entry;
- * absent slots (or media-off) stay `{}`. Used by the expander to stamp
+ * shell. Each present slot repeats the language-neutral media reference for
+ * every configured locale; absent slots (or media-off) stay `{}`. Used by the expander to stamp
  * Module / Form / CaseList shells for the upload path.
  */
 export function buildNavMediaDicts(
@@ -62,13 +54,19 @@ export function buildNavMediaDicts(
 	audioLabel: MediaAssetId | undefined,
 	manifest: AssetManifest | undefined,
 	where: string,
+	languages: readonly string[] = ["en"],
 ): NavMediaDicts {
 	const media_image: Record<string, string> = {};
 	const media_audio: Record<string, string> = {};
 	if (manifest) {
-		if (icon) media_image[NOVA_LANG] = requireAssetRef(icon, manifest, where);
-		if (audioLabel)
-			media_audio[NOVA_LANG] = requireAssetRef(audioLabel, manifest, where);
+		if (icon) {
+			const ref = requireAssetRef(icon, manifest, where);
+			for (const language of languages) media_image[language] = ref;
+		}
+		if (audioLabel) {
+			const ref = requireAssetRef(audioLabel, manifest, where);
+			for (const language of languages) media_audio[language] = ref;
+		}
 	}
 	return { media_image, media_audio };
 }

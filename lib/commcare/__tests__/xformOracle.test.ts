@@ -1083,6 +1083,31 @@ describe("oracle defensive branches — every guarded code fires on its shape", 
 		);
 	});
 
+	it("requires one explicit default locale (XFORM_TRANSLATION_NO_DEFAULT)", () => {
+		const xml = wrapXForm(
+			`<instance><data><q/></data></instance><bind nodeset="/data/q"/>` +
+				`<itext><translation lang="en"><text id="q-label"><value>Q</value></text></translation></itext>`,
+			`<input ref="/data/q"><label ref="jr:itext('q-label')"/></input>`,
+		);
+		expect(
+			has(validateXForm(xml, "F", "M"), "XFORM_TRANSLATION_NO_DEFAULT"),
+		).toBe(true);
+	});
+
+	it("requires identical itext keys in every locale (XFORM_TRANSLATION_INCOMPLETE)", () => {
+		const xml = wrapXForm(
+			`<instance><data><q/></data></instance><bind nodeset="/data/q"/>` +
+				`<itext>` +
+				`<translation lang="en" default=""><text id="q-label"><value>Q</value><value form="markdown">Q</value></text></translation>` +
+				`<translation lang="es"><text id="q-label"><value>Pregunta</value></text></translation>` +
+				`</itext>`,
+			`<input ref="/data/q"><label ref="jr:itext('q-label')"/></input>`,
+		);
+		expect(
+			has(validateXForm(xml, "F", "M"), "XFORM_TRANSLATION_INCOMPLETE"),
+		).toBe(true);
+	});
+
 	// ── #21 (extended) — `jr:constraintMsg` itext reference resolution ──
 	//
 	// The body-element scan (`<label ref="jr:itext(...)">`, `<hint ref>`,

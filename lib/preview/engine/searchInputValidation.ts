@@ -10,6 +10,7 @@ import {
 	type CaseListConfig,
 	ownRecordValue,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	searchRuntimeGlobalValidationMessage,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
@@ -133,20 +134,7 @@ export function searchInputRuntimeGlobalError(
 		if (!runtimeRejectionApplies(rejection, caseListConfig, values, session)) {
 			continue;
 		}
-		switch (rejection.kind) {
-			case "quote":
-				return "This search can't use the current value because it contains both single and double quotation marks";
-			case "geopoint":
-				return "This search's current location value needs a valid latitude and longitude";
-			case "whole-number":
-				return "This search's current value needs to be a whole number";
-			case "nonnegative-whole-number":
-				return "This search's current value needs to be a whole number that is zero or greater";
-			default: {
-				const _exhaustive: never = rejection.kind;
-				return String(_exhaustive);
-			}
-		}
+		return searchRuntimeGlobalValidationMessage(rejection.kind).message;
 	}
 	return undefined;
 }

@@ -4182,13 +4182,19 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		});
 		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
 
-		expect(column.format).toBe("calculate");
+		expect(column.format).toBe("translatable-enum");
 		expect(column.useXpathExpression).toBe(true);
-		expect(column.field).toContain("if(selected(tags, 'vip'), 'VIP', '')");
+		expect(column.field).toContain(
+			"if(selected(tags, 'vip'), $nova_text_0, '')",
+		);
 		expect(column.field).toContain(
 			lowerXPathForJavaRosa("normalize-space(tags)"),
 		);
 		expect(column.field).not.toContain("normalize-space(");
+		expect(column.enum).toContainEqual({
+			key: "nova_text_0",
+			value: { en: "VIP" },
+		});
 	});
 
 	it("projects date columns with `date` format and the authored `date_format` pattern", () => {
@@ -4259,10 +4265,8 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 	});
 
 	it("projects id-mapping columns with `enum` format and per-language label entries", () => {
-		// ID-mapping rows lower to CCHQ's `enum` format. Each entry's
-		// label lifts under the `en` lang key per CCHQ's
-		// `MappingItem.value = DictProperty()` shape. The wire field
-		// stays the bare property reference.
+		// ID-mapping rows lower to CCHQ's translatable enum-variable format.
+		// The display expression keeps raw ids separate from localized labels.
 		const doc = buildHqProjectionDoc(
 			resolveCaseListConfig({
 				columns: [
@@ -4277,11 +4281,14 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			}),
 		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
-		expect(shortCols[0].format).toBe("enum");
-		expect(shortCols[0].field).toBe("region");
+		expect(shortCols[0].format).toBe("translatable-enum");
+		expect(shortCols[0].useXpathExpression).toBe(true);
+		expect(shortCols[0].field).toContain(
+			"if(selected(region, 'N'), $nova_text_0, '')",
+		);
 		expect(shortCols[0].enum).toEqual([
-			{ key: "N", value: { en: "North" } },
-			{ key: "S", value: { en: "South" } },
+			{ key: "nova_text_0", value: { en: "North" } },
+			{ key: "nova_text_1", value: { en: "South" } },
 		]);
 	});
 
@@ -4303,11 +4310,14 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			}),
 		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
-		expect(shortCols[0].format).toBe("calculate");
+		expect(shortCols[0].format).toBe("translatable-enum");
 		expect(shortCols[0].useXpathExpression).toBe(true);
 		expect(shortCols[0].field).toBe(
-			"if(last_visit = '', '', if(today() - date(last_visit) > 3, 'OVERDUE', string(int((today() - date(last_visit)) div 1))))",
+			"if(last_visit = '', '', if(today() - date(last_visit) > 3, $nova_text_0, string(int((today() - date(last_visit)) div 1))))",
 		);
+		expect(shortCols[0].enum).toEqual([
+			{ key: "nova_text_0", value: { en: "OVERDUE" } },
+		]);
 	});
 
 	it("preserves a flag interval's threshold and authored text in HQ JSON", () => {
@@ -4328,11 +4338,14 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			}),
 		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
-		expect(shortCols[0].format).toBe("calculate");
+		expect(shortCols[0].format).toBe("translatable-enum");
 		expect(shortCols[0].useXpathExpression).toBe(true);
 		expect(shortCols[0].field).toBe(
-			"if(last_visit = '', 'OVERDUE', if(today() - date(last_visit) > 14, 'OVERDUE', ''))",
+			"if(last_visit = '', $nova_text_0, if(today() - date(last_visit) > 14, $nova_text_0, ''))",
 		);
+		expect(shortCols[0].enum).toEqual([
+			{ key: "nova_text_0", value: { en: "OVERDUE" } },
+		]);
 	});
 
 	it("projects calculated columns with `useXpathExpression: true` and the lowered XPath as `field`", () => {

@@ -26,9 +26,12 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import {
+	useBuilderLanguage,
+	useLocalizedField,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { PeerBadge, usePeerEditingColor } from "@/components/builder/PeerBadge";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
-import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
@@ -68,7 +71,8 @@ export const FieldRow = memo(function FieldRow({
 	parentPath?: FieldPath;
 }) {
 	/** Subscribe to this field's entity by UUID from the doc store. */
-	const field = useField(uuid);
+	const field = useLocalizedField(uuid);
+	const language = useBuilderLanguage();
 
 	/** Subscribe to children UUIDs (for groups/repeats) from the doc store.
 	 *  `useOrderedFields` returns the reference-stable empty-array sentinel
@@ -102,7 +106,9 @@ export const FieldRow = memo(function FieldRow({
 		(searchResult?.forceExpand?.has(fieldPath)
 			? false
 			: collapsed.has(fieldPath));
-	const labelIndices = searchResult?.matchMap?.get(fieldPath);
+	const labelIndices = language.isSource
+		? searchResult?.matchMap?.get(fieldPath)
+		: undefined;
 	const idIndices = searchResult?.matchMap?.get(`${fieldPath}__id`);
 	// `label` is absent from `hidden` and optional on `group` (empty/absent
 	// label = transparent group). The `in` narrowing alone leaves `string |

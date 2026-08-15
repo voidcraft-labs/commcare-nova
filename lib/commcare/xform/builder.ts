@@ -54,6 +54,7 @@ import {
 	type FormHashtagContext,
 	vellumShorthandInContext,
 } from "@/lib/commcare/hashtags/formContext";
+import { commCareLocalization } from "@/lib/commcare/localization";
 import {
 	type LookupWireNaming,
 	lookupFixtureSrc,
@@ -86,8 +87,10 @@ import {
 	type FieldKind,
 	isCaptureFieldKind,
 	type Media,
+	makeTranslationUnitId,
 	type ProseTemplate,
 	printProseTemplate,
+	type TranslationUnitId,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -429,6 +432,7 @@ export function buildXForm(
 	opts: BuildXFormOptions,
 ): string {
 	const form = doc.forms[formUuid];
+	const localization = commCareLocalization(doc);
 
 	// The case types this form can READ, name → parent-index hop depth (own = 0,
 	// parent = 1, …). Built from the owning module's case type via the shared
@@ -450,7 +454,46 @@ export function buildXForm(
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
 	const bodyElements: Element[] = [];
-	const itextEntries: Element[] = [];
+	const itextEntries = new Map(
+		localization.languages.map((language) => [language, [] as Element[]]),
+	);
+	const itextUnitIds = new Map<string, TranslationUnitId>();
+	const indexItextUnits = (parentUuid: Uuid, keyPrefix: string): void => {
+		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
+			const field = doc.fields[fieldUuid];
+			if (field === undefined) continue;
+			const key = keyPrefix + field.id;
+			const carrier = field as unknown as Record<string, unknown>;
+			for (const [suffix, slot] of [
+				["label", "label"],
+				["hint", "hint"],
+				["help", "help"],
+				["constraintMsg", "validate_msg"],
+			] as const) {
+				if (carrier[slot] !== undefined) {
+					itextUnitIds.set(
+						`${key}-${suffix}`,
+						makeTranslationUnitId("field", fieldUuid, slot),
+					);
+				}
+			}
+			if (
+				(field.kind === "single_select" || field.kind === "multi_select") &&
+				field.optionsSource.kind === "inline"
+			) {
+				field.optionsSource.options.forEach((option, index) => {
+					itextUnitIds.set(
+						`${key}-opt${index}-label`,
+						makeTranslationUnitId("field", fieldUuid, "option", option.uuid),
+					);
+				});
+			}
+			if (field.kind === "group" || field.kind === "repeat") {
+				indexItextUnits(fieldUuid, `${key}-`);
+			}
+		}
+	};
+	indexItextUnits(formUuid, "");
 
 	// The OpenRosa `<meta>` block is NOT emitted here. It is a CCHQ build-time
 	// artifact (`xform.py::_add_meta_2`): the HQ-upload source omits it and CCHQ
@@ -539,25 +582,44 @@ export function buildXForm(
 		// lowered: a `#<case_type>/<prop>` in a `validate_msg` or option label
 		// forces the `casedb` `<instance>` exactly as one in a `label` does.
 		if (label) instances.scanTemplate(label);
-		const mediaValues = itextMediaValues(media, opts.assets, "buildXForm");
+		const sourceMediaValues = itextMediaValues(
+			media,
+			opts.assets,
+			"buildXForm",
+		);
 		if (
 			!force &&
 			(label === undefined || label.parts.length === 0) &&
-			mediaValues.length === 0
+			sourceMediaValues.length === 0
 		)
 			return;
-		const labelTemplate = label ?? { parts: [] };
-		itextEntries.push(
-			el("text", { id }, [
-				el("value", {}, buildLabelNodes(labelTemplate, doc, expand, shorthand)),
-				el(
-					"value",
-					{ form: "markdown" },
-					buildLabelNodes(labelTemplate, doc, expand, shorthand),
-				),
-				...mediaValues,
-			]),
-		);
+		const sourceTemplate = label ?? { parts: [] };
+		const unitId = itextUnitIds.get(id);
+		for (const language of localization.languages) {
+			const languageEntries = itextEntries.get(language);
+			if (languageEntries === undefined) {
+				throw new Error(`Missing XForm itext table for ${language}.`);
+			}
+			const labelTemplate =
+				unitId === undefined
+					? sourceTemplate
+					: localization.prose(language, unitId);
+			languageEntries.push(
+				el("text", { id }, [
+					el(
+						"value",
+						{},
+						buildLabelNodes(labelTemplate, doc, expand, shorthand),
+					),
+					el(
+						"value",
+						{ form: "markdown" },
+						buildLabelNodes(labelTemplate, doc, expand, shorthand),
+					),
+					...itextMediaValues(media, opts.assets, "buildXForm"),
+				]),
+			);
+		}
 	};
 
 	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
@@ -641,7 +703,18 @@ export function buildXForm(
 		...binds,
 		...setvalues,
 		el("itext", {}, [
-			el("translation", { lang: "en", default: "" }, itextEntries),
+			...localization.languages.map((language) =>
+				el(
+					"translation",
+					{
+						lang: language,
+						...(language === localization.defaultLanguage
+							? { default: "" }
+							: {}),
+					},
+					itextEntries.get(language) ?? [],
+				),
+			),
 		]),
 	];
 

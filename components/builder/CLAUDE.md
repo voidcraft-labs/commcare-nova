@@ -88,6 +88,24 @@ The builder's state is split across three stores, each with a distinct lifecycle
 
 Under multiplayer, a fourth, non-store owner mediates persistence: the **reconciler** (`lib/collab`, mounted by `ReconcilerProvider` inside this stack for non-replay sessions). The doc store is still the display + undo source of truth, but `useAutoSave` never PUTs directly — it dispatches the human delta to the reconciler, which owns the diff base (`confirmedDoc ⊕ sentPending`), the durable stream, and 409/reload recovery. A remote peer's edit arrives as an inbound frame the reconciler folds into the store via a `beginRemoteApply` bracket; `useAutoSave`'s first gate is `remoteFrameApplyInProgress` so a server-applied change never bounces back out as a PUT. See `lib/collab/CLAUDE.md`.
 
+## Worker-content language lens
+
+`BuilderLocalizationProvider` is the one Builder/Preview projection from the
+canonical source document to the selected worker language. The selection is
+owned by the `lang` URL query parameter, falls back to the app default, and is
+preserved by every History-API navigation. Structure rows, canvases, case-list
+authoring, and running Preview consume the provider's localized projections;
+they never walk `doc.localization` or implement fallback independently.
+
+The global header selector stays visible while a target is active. App setup's
+Languages workspace is the authoritative source/target review surface: it owns
+catalog management, copy-from-an-existing-language, status filtering, coverage
+diagnostics, reference-safe prose-token editing, and navigation to each unit's
+owning Builder screen. Ordinary Builder edits to worker-facing text write the
+selected target overlay; structural IDs and authoring-only metadata always edit
+their canonical slots. Preview applies the selected language's text direction
+only to worker content, never to Nova's authoring chrome.
+
 ## View-only members (read-only builder)
 
 A Project **viewer** (the `view`-only role) opens the builder read-only. The build page resolves one atomic `{projectId, role, canEdit, baseSeq}` snapshot; `/build/new` resolves the same tuple from the active Project with `baseSeq: 0` while its in-memory store and reconciler remain dormant. Both creation paths carry that captured `projectId` back as `expectedProjectId` and authorize it directly, so another tab changing the session's active Project cannot redirect the pending build. Chat creation returns the complete server-derived tuple plus the exact sequence-1 canonical starter blueprint and its module/form/field UUIDs. The client strictly validates that receipt, installs its blueprint under a remote-apply bracket, and only then activates multiplayer against that same confirmed base; it never reconstructs a starter or promotes a persisted empty app. The session store owns its mutable capability tuple (`useCanEdit()` / `useAccessPhase()`), and `BlueprintEditableBridge` reacts to it through `BlueprintEditableContext`. Three layers make it airtight without per-control paranoia:

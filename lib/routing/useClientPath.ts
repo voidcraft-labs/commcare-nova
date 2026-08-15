@@ -72,7 +72,11 @@ function scrubCurrentCaseEntry(): boolean {
 	const nextPath = isCaseRecord
 		? `/${[parts[0], parts[1], parts[2], "results"].join("/")}`
 		: currentPath;
-	window.history.replaceState(scopedHistoryState(), "", nextPath);
+	window.history.replaceState(
+		scopedHistoryState(),
+		"",
+		`${nextPath}${window.location.search}`,
+	);
 	return nextPath !== currentPath;
 }
 
@@ -150,7 +154,7 @@ export function activateBuilderHistoryScope(
 	window.history.replaceState(
 		scopedHistoryState(),
 		"",
-		window.location.pathname,
+		`${window.location.pathname}${window.location.search}`,
 	);
 }
 
@@ -160,9 +164,22 @@ export function deactivateBuilderHistoryScope(scopeId: string): void {
 
 /** The only write path for intra-builder screen history. */
 export function pushBuilderHistory(url: string, replace = false): void {
-	if (replace) window.history.replaceState(scopedHistoryState(), "", url);
-	else window.history.pushState(scopedHistoryState(), "", url);
+	const next = new URL(url, window.location.href);
+	if (!url.includes("?")) next.search = window.location.search;
+	const relative = `${next.pathname}${next.search}${next.hash}`;
+	if (replace) window.history.replaceState(scopedHistoryState(), "", relative);
+	else window.history.pushState(scopedHistoryState(), "", relative);
 	notifyPathChange();
+}
+
+/** URL-owned builder query state. Uses the same history notification channel
+ * as pathname navigation so push/replace and back/forward stay coherent. */
+export function useBuilderSearch(): string {
+	return useSyncExternalStore(
+		subscribe,
+		() => window.location.search,
+		() => "",
+	);
 }
 
 /**

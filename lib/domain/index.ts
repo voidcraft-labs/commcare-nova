@@ -39,6 +39,7 @@ export * from "./prose";
 export * from "./records";
 export * from "./referenceIndex";
 export * from "./referenceSlots";
+export * from "./searchRuntimeValidationMessages";
 export * from "./standardCaseProperties";
 export * from "./temporalValues";
 export * from "./translationUnits";

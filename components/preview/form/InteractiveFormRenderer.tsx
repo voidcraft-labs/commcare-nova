@@ -37,9 +37,9 @@
 
 "use client";
 import { memo, useId } from "react";
+import { useLocalizedField } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
-import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { asUuid, type Uuid } from "@/lib/domain";
@@ -160,7 +160,7 @@ const InteractiveField = memo(function InteractiveField({
 	accessibleContext,
 	position,
 }: InteractiveFieldProps) {
-	const field = useField(uuid);
+	const field = useLocalizedField(uuid);
 	// Engine state is keyed by the CONCRETE path so each repeat instance
 	// carries its own value / visibility / validity; the uuid covers the
 	// render before the doc row resolves.

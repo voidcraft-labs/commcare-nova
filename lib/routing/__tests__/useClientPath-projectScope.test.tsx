@@ -7,6 +7,7 @@ import {
 	deactivateBuilderHistoryScope,
 	pushBuilderHistory,
 	useBuilderPathSegments,
+	useBuilderSearch,
 } from "@/lib/routing/useClientPath";
 
 afterEach(() => {
@@ -16,6 +17,28 @@ afterEach(() => {
 });
 
 describe("Project-scoped builder history", () => {
+	it("preserves the language lens across path changes and publishes explicit query changes", () => {
+		window.history.replaceState(null, "", "/build/app-1?lang=es");
+		const view = renderHook(() => ({
+			segments: useBuilderPathSegments(),
+			search: useBuilderSearch(),
+		}));
+
+		act(() => pushBuilderHistory("/build/app-1/module-1"));
+		expect(window.location.search).toBe("?lang=es");
+		expect(view.result.current).toEqual({
+			segments: ["module-1"],
+			search: "?lang=es",
+		});
+
+		act(() => pushBuilderHistory("/build/app-1/module-1?lang=fr"));
+		expect(view.result.current.search).toBe("?lang=fr");
+
+		window.history.pushState(null, "", "/build/app-1?lang=es");
+		act(() => window.dispatchEvent(new PopStateEvent("popstate")));
+		expect(view.result.current).toEqual({ segments: [], search: "?lang=es" });
+	});
+
 	it("preserves and stamps a freshly loaded direct case deep link", () => {
 		window.history.replaceState(
 			null,

@@ -103,6 +103,8 @@ interface SearchInputFormProps {
 	 *  immediately, without waiting for the typing debounce. */
 	readonly onSubmit?: (value: SearchInputValues) => void;
 	readonly submitLabel?: string;
+	/** Project compiler-owned runtime validation copy through the selected locale. */
+	readonly localizeValidationMessage?: (source: string) => string;
 }
 
 const DEBOUNCE_MS = 300;
@@ -125,6 +127,7 @@ export function SearchInputForm({
 	onChange,
 	onSubmit,
 	submitLabel = "Search",
+	localizeValidationMessage = (source) => source,
 }: SearchInputFormProps) {
 	const [validationState, setValidationState] = useState({
 		scopeKey,
@@ -265,7 +268,12 @@ export function SearchInputForm({
 								setKey={setKey}
 								error={
 									validationAttempted
-										? submissionErrors.get(input.name)
+										? (() => {
+												const source = submissionErrors.get(input.name);
+												return source === undefined
+													? undefined
+													: localizeValidationMessage(source);
+											})()
 										: undefined
 								}
 							/>

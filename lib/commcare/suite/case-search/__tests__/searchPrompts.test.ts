@@ -318,6 +318,7 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 					{
 						test: `not(contains(., "'") and contains(., '"'))`,
 						message: RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE,
+						messageKey: "quote",
 					},
 				],
 			]),

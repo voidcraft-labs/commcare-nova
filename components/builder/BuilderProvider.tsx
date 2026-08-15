@@ -32,6 +32,7 @@ import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContex
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { DeploymentTargetProvider } from "@/components/builder/DeploymentTargetProvider";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { BuilderLookupCatalogProvider } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { ProjectDataWorkspaceProvider } from "@/components/builder/project-data/ProjectDataWorkspaceProvider";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
@@ -181,14 +182,16 @@ function BuilderProviderInner({
 						<DeploymentTargetProvider
 							initialProjectSpace={initialProjectSpace ?? null}
 						>
-							<BuilderFormEngineProvider>
-								<SyncBridge />
-								<LocationRecoveryEffect />
-								<PreviewLookupDataProvider>
-									{initialDoc ? <LoadAppHydrator /> : null}
-									{children}
-								</PreviewLookupDataProvider>
-							</BuilderFormEngineProvider>
+							<BuilderLocalizationProvider>
+								<BuilderFormEngineProvider>
+									<SyncBridge />
+									<LocationRecoveryEffect />
+									<PreviewLookupDataProvider>
+										{initialDoc ? <LoadAppHydrator /> : null}
+										{children}
+									</PreviewLookupDataProvider>
+								</BuilderFormEngineProvider>
+							</BuilderLocalizationProvider>
 						</DeploymentTargetProvider>
 					</ProjectDataWorkspaceProvider>
 				</CaseListWorkspaceProvider>

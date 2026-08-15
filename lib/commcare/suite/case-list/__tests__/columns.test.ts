@@ -28,6 +28,7 @@ import {
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
+	makeTranslationUnitId,
 	ProseProjectionError,
 	phoneColumn,
 	plainColumn,
@@ -126,8 +127,12 @@ describe("emitColumnField — plain", () => {
 		// option ("routine check") by chain order, diverging from
 		// Preview's exact-match projection.
 		expect(out.xml).toContain(
-			"if(priority = &apos;routine&apos;, &apos;Routine&apos;, if(priority = &apos;urgent&apos;, &apos;Urgent&apos;, priority))",
+			"if(priority = &apos;routine&apos;, $knova_text_0, if(priority = &apos;urgent&apos;, $knova_text_1, priority))",
 		);
+		expect(out.strings).toMatchObject({
+			"m0.case_short.case_priority_1.enum.knova_text_0": "Routine",
+			"m0.case_short.case_priority_1.enum.knova_text_1": "Urgent",
+		});
 	});
 
 	it("fails closed when a select label's authored identity is unresolved", () => {
@@ -184,7 +189,7 @@ describe("emitColumnField — plain", () => {
 		// chain's first arm (region = 'north') is false for it, unlike the
 		// old selected() membership which was true and won by chain order.
 		expect(out.xml).toContain(
-			"if(region = &apos;north&apos;, &apos;North&apos;, if(region = &apos;north region&apos;, &apos;North Region&apos;, region))",
+			"if(region = &apos;north&apos;, $knova_text_0, if(region = &apos;north region&apos;, $knova_text_1, region))",
 		);
 	});
 
@@ -210,10 +215,10 @@ describe("emitColumnField — plain", () => {
 		// remainder removes known tokens with escaped regex literals, so an
 		// unknown historical token survives the final normalize-space(concat()).
 		expect(out.xml).toContain(
-			"if(selected(tags, &apos;vip&apos;), &apos;VIP&apos;, &apos;&apos;)",
+			"if(selected(tags, &apos;vip&apos;), $knova_text_0, &apos;&apos;)",
 		);
 		expect(out.xml).toContain(
-			"if(selected(tags, &apos;follow.up&apos;), &apos;Needs follow-up&apos;, &apos;&apos;)",
+			"if(selected(tags, &apos;follow.up&apos;), $knova_text_1, &apos;&apos;)",
 		);
 		expect(out.xml).toContain("&apos; follow\\.up &apos;");
 		expect(out.xml).not.toContain("normalize-space(");
@@ -292,8 +297,14 @@ describe("emitColumnField — interval (display: always)", () => {
 		// Overdue branch: `if(today() - date(last_visit) > 28, 'Overdue', ...)`.
 		// XPath single-quote literals round-trip as `&apos;`.
 		expect(out.xml).toContain(
-			"if(today() - date(last_visit) &gt; 28, &apos;Overdue&apos;,",
+			"if(today() - date(last_visit) &gt; 28, $knova_text_0,",
 		);
+		expect(
+			out.strings["m0.case_short.case_last_visit_1.enum.knova_text_0"],
+		).toBe("Overdue");
+		expect(
+			out.translationUnits["m0.case_short.case_last_visit_1.enum.knova_text_0"],
+		).toBe(makeTranslationUnitId("column", COL_UUIDS.a, "text"));
 		// Outer empty-string short-circuit.
 		expect(out.xml).toContain("if(last_visit = &apos;&apos;, &apos;&apos;,");
 	});
@@ -362,8 +373,11 @@ describe("emitColumnField — interval (display: flag)", () => {
 		// `if({xpath} = '', '<flag>', if(today() - date({xpath}) > <threshold>, '<flag>', ''))`.
 		// XPath single-quote literals round-trip as `&apos;`.
 		expect(out.xml).toContain(
-			"if(last_visit = &apos;&apos;, &apos;!&apos;, if(today() - date(last_visit) &gt; 30, &apos;!&apos;, &apos;&apos;))",
+			"if(last_visit = &apos;&apos;, $knova_text_0, if(today() - date(last_visit) &gt; 30, $knova_text_0, &apos;&apos;))",
 		);
+		expect(
+			out.strings["m0.case_short.case_last_visit_1.enum.knova_text_0"],
+		).toBe("!");
 	});
 
 	it("multiplies by the days-equivalent divisor for non-day units", () => {
@@ -392,9 +406,11 @@ describe("emitColumnField — interval (display: flag)", () => {
 			"I'm late",
 		);
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
-		// Concat-fallback flips a single-quoted literal to a concat
-		// shape because the value carries `'`.
-		expect(out.xml).toContain("concat(");
+		// Display text is a locale resource, so punctuation never enters XPath.
+		expect(out.xml).toContain("$knova_text_0");
+		expect(
+			out.strings["m0.case_short.case_last_visit_1.enum.knova_text_0"],
+		).toBe("I'm late");
 	});
 });
 
@@ -423,8 +439,12 @@ describe("emitColumnField — id-mapping", () => {
 		// chain in `replace(join(' ', ..., ''), '\s+', ' ')`).
 		// XPath single-quote literals round-trip as `&apos;`.
 		expect(out.xml).toContain(
-			"replace(join(&apos; &apos;, if(selected(region_code, &apos;N&apos;), &apos;North&apos;, &apos;&apos;), if(selected(region_code, &apos;S&apos;), &apos;South&apos;, &apos;&apos;)), &apos;\\s+&apos;, &apos; &apos;)",
+			"replace(join(&apos; &apos;, if(selected(region_code, &apos;N&apos;), $knova_text_0, &apos;&apos;), if(selected(region_code, &apos;S&apos;), $knova_text_1, &apos;&apos;)), &apos;\\s+&apos;, &apos; &apos;)",
 		);
+		expect(out.strings).toMatchObject({
+			"m0.case_short.case_region_code_1.enum.knova_text_0": "North",
+			"m0.case_short.case_region_code_1.enum.knova_text_1": "South",
+		});
 	});
 
 	it("emits the empty-string XPath for a zero-entry mapping", () => {

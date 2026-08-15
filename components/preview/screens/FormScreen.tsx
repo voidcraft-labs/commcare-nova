@@ -15,6 +15,11 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
+import {
+	useBuilderLanguage,
+	useLocalizedText,
+	useTranslationUnitEditor,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { PersistentCaseTile } from "@/components/preview/shared/PersistentCaseTile";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
@@ -28,6 +33,7 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	defaultPostSubmit,
 	type FormType,
+	makeTranslationUnitId,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
@@ -262,6 +268,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
+	const language = useBuilderLanguage();
+	const formNameUnitId = makeTranslationUnitId(
+		"form",
+		formUuid ?? "missing",
+		"name",
+	);
+	const localizedFormName = useLocalizedText(formNameUnitId);
+	const formNameEditor = useTranslationUnitEditor(formNameUnitId);
 
 	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
 	const hasFields = useHasFieldsInForm(formUuid);
@@ -1064,18 +1078,26 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					/>
 					{canEdit ? (
 						<EditableTitle
-							value={form.name}
+							value={localizedFormName ?? form.name}
 							ariaLabel="Form name"
 							/* Forward the gated dispatch's outcome: a refused rename
 							 * keeps the editor open with the draft and surfaces the
 							 * finding inline; the saved checkmark only fires on a
 							 * committed rename. */
 							onSave={(name) =>
-								formUuid ? inline.updateForm(formUuid, { name }) : undefined
+								formUuid
+									? language.isSource
+										? inline.updateForm(formUuid, { name })
+										: formNameEditor.saveTarget(name)
+									: undefined
 							}
 						/>
 					) : (
-						<EditableTitle value={form.name} readOnly ariaLabel="Form name" />
+						<EditableTitle
+							value={localizedFormName ?? form.name}
+							readOnly
+							ariaLabel="Form name"
+						/>
 					)}
 					{canEdit && (
 						<FormSettingsButton moduleUuid={moduleUuid} formUuid={formUuid} />

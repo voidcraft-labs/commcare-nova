@@ -37,6 +37,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
@@ -494,28 +495,30 @@ function renderFormScreen(opts: {
 				},
 			}}
 		>
-			<BuilderSessionProvider
-				init={{
-					appId: currentAppId,
-					projectId: "project-form-screen-test",
-					role: "editor",
-					canEdit: true,
-				}}
-			>
-				<BuilderFormEngineProvider>
-					<CaptureRuntimeHandles />
-					<CaseDataRevisionProbe />
-					<FormScreen
-						screen={{
-							type: "form",
-							moduleIndex: 0,
-							formIndex: 0,
-							caseId: opts.caseId,
-						}}
-						onBack={onBackMock}
-					/>
-				</BuilderFormEngineProvider>
-			</BuilderSessionProvider>
+			<BuilderLocalizationProvider>
+				<BuilderSessionProvider
+					init={{
+						appId: currentAppId,
+						projectId: "project-form-screen-test",
+						role: "editor",
+						canEdit: true,
+					}}
+				>
+					<BuilderFormEngineProvider>
+						<CaptureRuntimeHandles />
+						<CaseDataRevisionProbe />
+						<FormScreen
+							screen={{
+								type: "form",
+								moduleIndex: 0,
+								formIndex: 0,
+								caseId: opts.caseId,
+							}}
+							onBack={onBackMock}
+						/>
+					</BuilderFormEngineProvider>
+				</BuilderSessionProvider>
+			</BuilderLocalizationProvider>
 		</BlueprintDocProvider>,
 	);
 }
