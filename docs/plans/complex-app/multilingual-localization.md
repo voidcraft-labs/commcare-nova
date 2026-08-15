@@ -21,8 +21,9 @@ Capability-specific public documentation is part of the Nova surface. The
 dependent `nova-plugin` 1.19.0 release is prepared in
 `voidcraft-labs/nova-plugin#43` with the complete language tool family,
 conversation-language rule, and source-contract CI. Final frozen-SHA review,
-CI, explicit merge approval, Nova deployment verification, and the ordered
-plugin release remain.
+local validation, and plugin contract validation are complete. GitHub CI must
+remain green at the approval boundary. Explicit merge approval, Nova deployment
+verification, and the ordered plugin release remain.
 
 Keep this document as a description of the best current design and the actual
 implementation state. When implementation teaches us something better, rewrite
