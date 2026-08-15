@@ -19,6 +19,8 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "../dialog";
+import { Popover, PopoverContent } from "../popover";
+import { PortaledContentDirectionProvider } from "../portaled-content-direction";
 
 const LONG_NAME =
 	"ThisIsAnAuthoredNameWithNoNaturalBreakThatMustNeverForceTheDialogOutsideTheViewport";
@@ -33,6 +35,33 @@ async function settleBaseUiMount(): Promise<void> {
 }
 
 describe("dialog viewport containment", () => {
+	it("carries the worker-content direction into dialog and popover portals", async () => {
+		render(
+			<PortaledContentDirectionProvider direction="rtl">
+				<Dialog open>
+					<DialogContent showCloseButton={false}>
+						<DialogTitle>تفاصيل</DialogTitle>
+					</DialogContent>
+				</Dialog>
+				<Popover open>
+					<PopoverContent>التاريخ</PopoverContent>
+				</Popover>
+			</PortaledContentDirectionProvider>,
+		);
+		await settleBaseUiMount();
+
+		expect(
+			document
+				.querySelector('[data-slot="dialog-content"]')
+				?.getAttribute("dir"),
+		).toBe("rtl");
+		expect(
+			document
+				.querySelector('[data-slot="popover-content"]')
+				?.getAttribute("dir"),
+		).toBe("rtl");
+	});
+
 	it("wraps authored alert copy and keeps actions in one horizontal row", async () => {
 		render(
 			<AlertDialog open>

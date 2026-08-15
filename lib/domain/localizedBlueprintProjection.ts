@@ -163,12 +163,21 @@ export function projectLocalizedField(
 		return field;
 	}
 	const units = translationUnitsById(doc);
+	return projectFieldWithUnits(doc, language, field, units);
+}
+
+function projectFieldWithUnits(
+	doc: BlueprintDoc,
+	language: LanguageCode,
+	field: Field,
+	units: ReturnType<typeof translationUnitsById>,
+): Field {
 	const localized = structuredClone(field) as Field;
 	const sourceRecord = field as unknown as Record<string, unknown>;
 	const record = localized as unknown as Record<string, unknown>;
 	for (const slot of ["label", "hint", "help", "validate_msg"] as const) {
 		if (sourceRecord[slot] === undefined) continue;
-		const unit = units.get(makeTranslationUnitId("field", uuid, slot));
+		const unit = units.get(makeTranslationUnitId("field", field.uuid, slot));
 		if (unit !== undefined) {
 			record[slot] = localizeTranslationUnit(doc, language, unit).effective;
 		}
@@ -180,7 +189,7 @@ export function projectLocalizedField(
 		localized.optionsSource.options = localized.optionsSource.options.map(
 			(option) => {
 				const unit = units.get(
-					makeTranslationUnitId("field", uuid, "option", option.uuid),
+					makeTranslationUnitId("field", field.uuid, "option", option.uuid),
 				);
 				if (unit === undefined) return option;
 				return {
@@ -192,4 +201,25 @@ export function projectLocalizedField(
 		);
 	}
 	return localized;
+}
+
+/**
+ * Project the complete field map while building the translation-unit index
+ * once. The Preview engine consumes the whole map, so calling the single-field
+ * projector for every field would rebuild the same document inventory N times.
+ */
+export function projectLocalizedFields(
+	doc: BlueprintDoc,
+	language: LanguageCode,
+): Record<string, Field> {
+	if (language === effectiveAppLocalization(doc.localization).sourceLanguage) {
+		return doc.fields;
+	}
+	const units = translationUnitsById(doc);
+	return Object.fromEntries(
+		Object.entries(doc.fields).map(([uuid, field]) => [
+			uuid,
+			projectFieldWithUnits(doc, language, field, units),
+		]),
+	);
 }

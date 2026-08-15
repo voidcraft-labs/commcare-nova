@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -15,7 +16,12 @@ import {
 	BlueprintDocProvider,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
-import { effectiveAppLocalization, proseText } from "@/lib/domain";
+import {
+	collectTranslationUnits,
+	effectiveAppLocalization,
+	makeTranslationUnitId,
+	proseText,
+} from "@/lib/domain";
 import { LanguagesSection } from "../LanguagesSection";
 
 const APP_ID = "languages-section-test";
@@ -141,5 +147,55 @@ describe("LanguagesSection", () => {
 				),
 			).toBe(true);
 		});
+	});
+
+	it("reconciles an open translation draft when a remote edit changes its entry", async () => {
+		renderSection();
+
+		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
+		fireEvent.change(screen.getByLabelText("Language code"), {
+			target: { value: "es" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add and copy strings" }),
+		);
+		await screen.findByRole("heading", { name: "español strings" });
+
+		const row = screen
+			.getAllByText("Care visits › Visits › Visit › Client name")
+			.map((breadcrumb) => breadcrumb.closest("article"))
+			.find((candidate) => candidate?.textContent?.includes("field label"));
+		if (row === undefined || row === null || store === undefined) {
+			throw new Error("Expected the field-label translation row and store.");
+		}
+		const input = within(row).getByLabelText("Reference-safe translation");
+		fireEvent.change(input, { target: { value: "Borrador local" } });
+
+		const unitId = makeTranslationUnitId("field", FIELD_UUID, "label");
+		const unit = collectTranslationUnits(store.getState()).find(
+			(candidate) => candidate.id === unitId,
+		);
+		if (unit === undefined) throw new Error("Expected the field-label unit.");
+		act(() => {
+			store?.getState().applyMany([
+				{
+					kind: "setTranslation",
+					language: "es",
+					unitId,
+					entry: {
+						value: proseText("Nombre remoto"),
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "en",
+					},
+				},
+			]);
+		});
+
+		await waitFor(() =>
+			expect(screen.getByDisplayValue("Nombre remoto")).toBeTruthy(),
+		);
+		expect(screen.queryByDisplayValue("Borrador local")).toBeNull();
 	});
 });

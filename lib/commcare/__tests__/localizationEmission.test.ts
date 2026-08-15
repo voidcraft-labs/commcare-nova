@@ -114,6 +114,8 @@ describe("multilingual CommCare emission", () => {
 		});
 		expect(hq.translations.es["homescreen.title"]).toBe("Aplicación de salud");
 		expect(hq.translations.en["homescreen.title"]).toBe("Health app");
+		expect(hq.translations.es).toMatchObject({ es: "Español", en: "English" });
+		expect(hq.translations.en).toMatchObject({ es: "Español", en: "English" });
 	});
 
 	it("writes the default and named app-string tables plus complete XForm itext", () => {
@@ -124,12 +126,15 @@ describe("multilingual CommCare emission", () => {
 		const suite = zip.readAsText("suite.xml");
 		const xform = zip.readAsText("modules-0/forms-0.xml");
 
-		expect(defaultStrings).toContain("app.name=Aplicación de salud");
+		expect(defaultStrings).toContain("homescreen.title=Aplicación de salud");
+		expect(defaultStrings).toContain("app.display.name=Aplicación de salud");
+		expect(defaultStrings).not.toContain("app.name=");
 		expect(defaultStrings).toContain("modules.m0=Pacientes");
 		expect(defaultStrings).toContain("forms.m0f0=Registrar");
 		expect(defaultStrings).toContain("lang.current=es");
 		expect(defaultStrings).toContain("es=Español");
-		expect(englishStrings).toContain("app.name=Health app");
+		expect(englishStrings).toContain("homescreen.title=Health app");
+		expect(englishStrings).toContain("app.display.name=Health app");
 		expect(englishStrings).toContain("modules.m0=Patients");
 		expect(englishStrings).toContain("lang.current=en");
 		expect(suite).toContain('language="default"');

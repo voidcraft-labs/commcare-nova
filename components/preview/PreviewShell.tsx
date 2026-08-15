@@ -50,6 +50,7 @@ import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScr
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectDataWorkspace } from "@/components/builder/project-data/ProjectDataWorkspace";
 import { Button } from "@/components/shadcn/button";
+import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
@@ -465,9 +466,11 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						}
 						name="HomeScreen"
 					>
-						<div dir={direction} className="contents">
-							<HomeScreen />
-						</div>
+						<PortaledContentDirectionProvider direction={direction}>
+							<div dir={direction} className="contents">
+								<HomeScreen />
+							</div>
+						</PortaledContentDirectionProvider>
 					</Activity>
 				)}
 				{moduleScreenRef.current && (
@@ -479,9 +482,11 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						}
 						name="ModuleScreen"
 					>
-						<div dir={direction} className="contents">
-							<ModuleScreen screen={moduleScreenRef.current} />
-						</div>
+						<PortaledContentDirectionProvider direction={direction}>
+							<div dir={direction} className="contents">
+								<ModuleScreen screen={moduleScreenRef.current} />
+							</div>
+						</PortaledContentDirectionProvider>
 					</Activity>
 				)}
 				{projectDataRef.current && (
@@ -577,9 +582,11 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						}
 						name="CaseListScreen"
 					>
-						<div dir={direction} className="contents">
-							<CaseListScreen screen={caseListScreenRef.current} />
-						</div>
+						<PortaledContentDirectionProvider direction={direction}>
+							<div dir={direction} className="contents">
+								<CaseListScreen screen={caseListScreenRef.current} />
+							</div>
+						</PortaledContentDirectionProvider>
 					</Activity>
 				)}
 				{formScreenRef.current && (
@@ -591,9 +598,14 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						}
 						name="FormScreen"
 					>
-						<div dir={direction} className="contents">
-							<FormScreen screen={formScreenRef.current} onBack={handleBack} />
-						</div>
+						<PortaledContentDirectionProvider direction={direction}>
+							<div dir={direction} className="contents">
+								<FormScreen
+									screen={formScreenRef.current}
+									onBack={handleBack}
+								/>
+							</div>
+						</PortaledContentDirectionProvider>
 					</Activity>
 				)}
 				{caseOperationsRef.current && (

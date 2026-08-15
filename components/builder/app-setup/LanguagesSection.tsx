@@ -364,7 +364,7 @@ export function LanguagesSection() {
 				<div className="mt-3 space-y-3">
 					{visibleUnits.map((unit) => (
 						<TranslationUnitRow
-							key={`${languageState.language}:${unit.id}:${unit.sourceFingerprint}:${unit.explicit?.sourceFingerprint ?? "fallback"}`}
+							key={`${languageState.language}:${unit.id}:${unit.sourceFingerprint}:${JSON.stringify(unit.explicit ?? null)}`}
 							doc={doc}
 							unit={unit}
 							isSource={languageState.isSource}

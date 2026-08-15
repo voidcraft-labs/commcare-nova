@@ -428,6 +428,12 @@ export function expandDoc(
 				{
 					"homescreen.title": appNameByLanguage[language],
 					"app.display.name": appNameByLanguage[language],
+					...Object.fromEntries(
+						localization.languages.map((code) => [
+							code,
+							localization.metadata[code].name,
+						]),
+					),
 				},
 			]),
 		),

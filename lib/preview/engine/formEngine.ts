@@ -1935,28 +1935,44 @@ export class FormEngine {
 		}
 	}
 
-	/** Snapshot all values and touched state for persisting across schema updates. */
-	getValueSnapshot(): { values: Map<string, string>; touched: Set<string> } {
+	/** Snapshot values and touched state for persisting across engine rebuilds.
+	 * Schema changes normally retain only touched answers. Presentation-only
+	 * rebuilds can request every value because their value schema is identical,
+	 * including an in-focus edit that has not blurred yet. */
+	getValueSnapshot(options?: { includeAllValues?: boolean }): {
+		values: Map<string, string>;
+		touched: Set<string>;
+	} {
 		const values = new Map<string, string>();
 		const touched = new Set<string>();
 		for (const [path, state] of Object.entries(this.store.getState())) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
-			if (state.value || state.touched) values.set(path, state.value);
+			if (options?.includeAllValues || state.value || state.touched) {
+				values.set(path, state.value);
+			}
 			if (state.touched) touched.add(path);
 		}
 		return { values, touched };
 	}
 
 	/** Restore values from a snapshot and re-evaluate expressions. */
-	restoreValues(snapshot: {
-		values: Map<string, string>;
-		touched: Set<string>;
-	}): void {
+	restoreValues(
+		snapshot: {
+			values: Map<string, string>;
+			touched: Set<string>;
+		},
+		options?: { restoreAllValues?: boolean },
+	): void {
 		const updates: EngineStoreState = {};
 		const currentState = this.store.getState();
 
-		/* Restore user-touched values; untouched fields keep new defaults */
-		for (const path of snapshot.touched) {
+		/* Schema changes restore user-touched values so new defaults win. A
+		 * presentation-only rebuild restores all values because no value-bearing
+		 * schema changed and an active input may not have blurred yet. */
+		const restoredPaths = options?.restoreAllValues
+			? snapshot.values.keys()
+			: snapshot.touched;
+		for (const path of restoredPaths) {
 			const value = snapshot.values.get(path);
 			const current = currentState[path];
 			if (value !== undefined && current) {

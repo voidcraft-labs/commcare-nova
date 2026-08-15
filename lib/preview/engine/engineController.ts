@@ -52,7 +52,9 @@ import {
 	type Field,
 	type Form,
 	isCaptureFieldKind,
+	type LanguageCode,
 	materializableCaseTypes,
+	projectLocalizedFields,
 	type Uuid,
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
@@ -156,13 +158,17 @@ export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
 function buildEngineInput(
 	state: BlueprintDocState,
 	formUuid: Uuid,
+	language: LanguageCode | null,
 ): FormEngineInput | undefined {
 	const form = state.forms[formUuid];
 	if (!form) return undefined;
 	return {
 		form: form as Form,
 		formUuid,
-		fields: state.fields as unknown as Record<string, Field>,
+		fields:
+			language === null
+				? (state.fields as unknown as Record<string, Field>)
+				: projectLocalizedFields(state, language),
 		fieldOrder: state.fieldOrder as unknown as Record<string, Uuid[]>,
 		caseTypes: materializableCaseTypes(state),
 		userProperties: state.userProperties,
@@ -430,6 +436,9 @@ export class EngineController {
 	 *  its capture fails to COVER the form's carriers (cold load, or a
 	 *  valid rebind the capture predates), with touched values restored. */
 	private lookupData: PreviewLookupData | null = null;
+	/** Selected worker-content language for presentation-bearing engine input.
+	 * `null` keeps standalone/non-Builder controller consumers canonical. */
+	private presentationLanguage: LanguageCode | null = null;
 
 	constructor() {
 		this.store = createStore<RuntimeStoreState>(() => ({}));
@@ -556,6 +565,21 @@ export class EngineController {
 		this.rebuildActiveForm(formUuid, this.activeCaseData);
 	}
 
+	/**
+	 * Install the selected worker-content language. A live form rebuilds in the
+	 * same entry so dynamic prose, option labels, and validation messages use
+	 * the same projection as the rendered field without rotating attachments or
+	 * discarding touched answers.
+	 */
+	setPresentationLanguage(language: LanguageCode | null): void {
+		if (this.presentationLanguage === language) return;
+		this.presentationLanguage = language;
+		const formUuid = this.activeFormUuid;
+		if (formUuid !== undefined) {
+			this.rebuildActiveForm(formUuid, this.activeCaseData, true);
+		}
+	}
+
 	// ── Lifecycle ────────────────────────────────────────────────────
 
 	/**
@@ -579,12 +603,18 @@ export class EngineController {
 	 * The answer world may be reconstructed, but the upload namespace must not
 	 * rotate underneath already staged captures.
 	 */
-	rebuildActiveForm(formUuid: Uuid, caseData?: CaseDataByType): void {
+	rebuildActiveForm(
+		formUuid: Uuid,
+		caseData?: CaseDataByType,
+		preserveAllValues = false,
+	): void {
 		const entryKey =
 			this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
 				? this.currentEntryKey
 				: crypto.randomUUID();
-		const values = this.engine?.getValueSnapshot();
+		const values = this.engine?.getValueSnapshot({
+			includeAllValues: preserveAllValues,
+		});
 		const repeatCounts = this.engine?.getRepeatCountSnapshot();
 		const repeatInstanceKeys = this.engine?.getRepeatInstanceKeySnapshot();
 		this.mountForm(formUuid, caseData, entryKey);
@@ -595,7 +625,9 @@ export class EngineController {
 			this.engine?.restoreRepeatInstanceKeySnapshot(repeatInstanceKeys);
 		}
 		if (values !== undefined && this.engine !== undefined) {
-			this.engine.restoreValues(values);
+			this.engine.restoreValues(values, {
+				restoreAllValues: preserveAllValues,
+			});
 			this.syncAllToStore();
 		}
 	}
@@ -627,7 +659,7 @@ export class EngineController {
 		}
 
 		/* Build the FormEngine input from the doc store */
-		const input = buildEngineInput(s, formUuid);
+		const input = buildEngineInput(s, formUuid, this.presentationLanguage);
 		if (!input) {
 			this.publishEntryState();
 			return;
@@ -668,6 +700,7 @@ export class EngineController {
 		this.setupStructuralSubscription(formUuid);
 		this.setupMetadataSubscription();
 		this.setupUserPropertySubscription();
+		this.setupLocalizationSubscription();
 		this.publishEntryState();
 	}
 
@@ -944,8 +977,16 @@ export class EngineController {
 		const store = this.docStore;
 		const unsub = store.subscribe((current, previous) => {
 			if (!this.engine) return;
-			const previousInput = buildEngineInput(previous, formUuid);
-			const currentInput = buildEngineInput(current, formUuid);
+			const previousInput = buildEngineInput(
+				previous,
+				formUuid,
+				this.presentationLanguage,
+			);
+			const currentInput = buildEngineInput(
+				current,
+				formUuid,
+				this.presentationLanguage,
+			);
 			if (previousInput === undefined || currentInput === undefined) return;
 
 			const previousMaps = buildPathMaps(
@@ -1216,6 +1257,23 @@ export class EngineController {
 		this.unsubscribers.push(unsub);
 	}
 
+	/** Target overlays are app-level state, so ordinary per-field selectors do
+	 * not fire when a translated label changes. Rebuild the same entry whenever
+	 * that projection changes; the rebuild path preserves answers and repeats. */
+	private setupLocalizationSubscription(): void {
+		if (!this.docStore || this.presentationLanguage === null) return;
+		const unsub = this.docStore.subscribe(
+			(s) => s.localization,
+			() => {
+				const formUuid = this.activeFormUuid;
+				if (formUuid !== undefined) {
+					this.rebuildActiveForm(formUuid, this.activeCaseData, true);
+				}
+			},
+		);
+		this.unsubscribers.push(unsub);
+	}
+
 	// ── Targeted change handlers ─────────────────────────────────────
 
 	/** Helper: resolve the active form's FormEngineInput from the current
@@ -1226,7 +1284,7 @@ export class EngineController {
 		const formUuid = this.activeFormUuid;
 		if (!formUuid) return undefined;
 		const s = this.docStore.getState();
-		return buildEngineInput(s, formUuid);
+		return buildEngineInput(s, formUuid, this.presentationLanguage);
 	}
 
 	/**

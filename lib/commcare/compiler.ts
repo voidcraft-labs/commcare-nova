@@ -158,9 +158,13 @@ export function compileCcz(
 
 	// `appStrings` is populated as we walk modules/forms; flushed once
 	// per language at the end.
-	const appStrings: Record<string, string> = { "app.name": appName };
+	const appStrings: Record<string, string> = {
+		"homescreen.title": appName,
+		"app.display.name": appName,
+	};
 	const appStringUnits: Record<string, TranslationUnitId> = {
-		"app.name": makeTranslationUnitId("app", "name"),
+		"homescreen.title": makeTranslationUnitId("app", "name"),
+		"app.display.name": makeTranslationUnitId("app", "name"),
 	};
 	const mergeLocalizedStrings = (emission: {
 		readonly strings: Record<string, string>;
