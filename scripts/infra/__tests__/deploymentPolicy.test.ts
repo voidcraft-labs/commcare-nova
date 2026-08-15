@@ -258,6 +258,12 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).not.toContain(
 			"gcloud run jobs execute commcare-nova-legacy-preplan-repair",
 		);
+		expect(deployPolicy).toContain(
+			'"commcare-nova-legacy-preplan-repair": JobTemplateContract(',
+		);
+		expect(deployPolicy).toContain(
+			'if short_name == "commcare-nova-legacy-preplan-repair"',
+		);
 	});
 
 	test("packages the ordinary extension-edge repair as a dormant immutable Job", () => {
