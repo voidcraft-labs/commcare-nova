@@ -10,9 +10,9 @@
  * model. (Structured-output constraints apply to the `Output.object` path,
  * which these tools do not use, so they aren't exercised here.)
  *
- * Usage: `npx tsx scripts/test-schema.ts [sol] [schema-name]`
- *   - Pass `sol` to test against the production SA build model
- *     (`SA_BUILD_MODEL`); default is GPT-5.6 Luna (cheap + fast —
+ * Usage: `npx tsx scripts/test-schema.ts [design] [schema-name]`
+ *   - Pass `design` to test against the production design-author model;
+ *     default is the production Luna executor (cheap + fast —
  *     tool-input acceptance is the same across models).
  *   - Pass a schema name to test only that schema; omit to test every
  *     registered schema. Known names: `addFields`,
@@ -63,7 +63,7 @@ import {
 	updateModuleTool,
 } from "../lib/agent/tools/updateModule";
 import { uploadMediaAssetInputSchema } from "../lib/mcp/tools/uploadMediaAsset";
-import { OPENAI_BASE_OPTIONS, SA_BUILD_MODEL } from "../lib/models";
+import { MODEL_ROLES, OPENAI_BASE_OPTIONS } from "../lib/models";
 
 /**
  * One tool-input schema test: register the tool with a no-op `execute`,
@@ -300,9 +300,11 @@ if (!apiKey) {
 
 const openai = createOpenAI({ apiKey });
 const args = process.argv.slice(2);
-const useSol = args.includes("sol");
-const explicitName = args.find((a) => a !== "sol");
-const model = useSol ? SA_BUILD_MODEL : "gpt-5.6-luna";
+const useDesignModel = args.includes("design");
+const explicitName = args.find((a) => a !== "design");
+const model = useDesignModel
+	? MODEL_ROLES.designAuthor.modelId
+	: MODEL_ROLES.buildExecutor.modelId;
 
 const tests = explicitName
 	? SCHEMA_TESTS.filter((t) => t.name === explicitName)

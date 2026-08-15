@@ -102,7 +102,7 @@ import {
 import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
 import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
-import { DESIGN_AUTHOR_MODEL, MODEL_CONTEXT_VERSION } from "@/lib/models";
+import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	appendDesignModelContext,
@@ -681,7 +681,7 @@ export async function runDesignAgentLoop(
 		const persisted = await openDesignModelContext({
 			designSessionId: args.designSessionId,
 			kind: "design",
-			modelId: DESIGN_AUTHOR_MODEL,
+			modelId: MODEL_ROLES.designAuthor.modelId,
 			promptVersion: DESIGN_PROMPT_VERSIONS.agent,
 			toolsetDigest,
 			contextVersion: MODEL_CONTEXT_VERSION,
@@ -707,7 +707,7 @@ export async function runDesignAgentLoop(
 					contextId: completed.contextId,
 					stepKey: completed.stepKey,
 				},
-				DESIGN_AUTHOR_MODEL,
+				MODEL_ROLES.designAuthor.modelId,
 				{ step: true, phase: "design-author" },
 			);
 		}
@@ -745,7 +745,7 @@ export async function runDesignAgentLoop(
 		let activeRequiredQuestionBatch: readonly OpenQuestion[] = [];
 		let activeRequiredQuestionAuthorizationKey: string | null = null;
 		const agent = createDesignAgent({
-			model: args.designCtx.model(DESIGN_AUTHOR_MODEL),
+			model: args.designCtx.model(MODEL_ROLES.designAuthor.modelId),
 			tools,
 			phase,
 			catalogText,
@@ -882,11 +882,11 @@ export async function runDesignAgentLoop(
 		);
 		const repaired = sanitizeHistoricalReasoningParts(
 			sanitized,
-			DESIGN_AUTHOR_MODEL,
+			MODEL_ROLES.designAuthor.modelId,
 		);
 		const compacted = projectCompatibleCompactedHistory(
 			repaired,
-			DESIGN_AUTHOR_MODEL,
+			MODEL_ROLES.designAuthor.modelId,
 		);
 		const projected = applySourceProjection(
 			compacted,

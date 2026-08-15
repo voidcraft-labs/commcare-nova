@@ -210,12 +210,10 @@ interface AccumulatorRunConfig {
 	holderNonce: string;
 	promptMode: "build" | "edit";
 	appReady: boolean;
-	/** The model the run actually uses — re-stated alongside `promptMode` at SA
+	/** The model the run actually uses — re-stated alongside `promptMode` at
 	 * construction because a serialize-wait's stale-mode adoption can change
-	 * the mode (and with it the model constant) after the seed was built.
-	 * Inert while `SA_BUILD_MODEL === SA_EDIT_MODEL`; correct the day they
-	 * diverge. No priced call precedes the SA, so the rate never shifts
-	 * mid-metering. */
+	 * the mode, and therefore the selected model role, after the seed was built.
+	 * No priced call precedes this correction. */
 	model: string;
 	moduleCount: number;
 	/** Input-context composition for the finalize log — see `AccumulatorSeed`. */

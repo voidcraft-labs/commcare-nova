@@ -18,7 +18,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
-import { reasoningProviderOptions, SA_EDIT_MODEL } from "@/lib/models";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import {
 	buildAppStateMessage,
 	buildSolutionsArchitectPrompt,
@@ -108,7 +108,7 @@ async function captureEditTurnBody(): Promise<CapturedBody> {
 		throw new Error("populated doc must yield an app-state message");
 
 	await generateText({
-		model: openai(SA_EDIT_MODEL),
+		model: openai(MODEL_ROLES.followUpEditor.modelId),
 		system: buildSolutionsArchitectPrompt(),
 		messages: [...markStablePrefixBoundary(history), appState],
 		maxRetries: 0,
@@ -120,9 +120,12 @@ async function captureEditTurnBody(): Promise<CapturedBody> {
 				execute: async () => "ok",
 			}),
 		},
-		providerOptions: reasoningProviderOptions("medium", {
-			promptCacheKey: "nova:app:a-probe",
-		}),
+		providerOptions: reasoningProviderOptions(
+			MODEL_ROLES.followUpEditor.reasoningEffort,
+			{
+				promptCacheKey: "nova:app:a-probe",
+			},
+		),
 	}).catch(() => {
 		// expected — the capturing fetch answers 500 after recording the body
 	});
@@ -135,12 +138,14 @@ describe("SA edit-turn Responses wire body", () => {
 	it("carries the full cache + statelessness configuration", async () => {
 		const body = await captureEditTurnBody();
 
-		expect(body.model).toBe(SA_EDIT_MODEL);
+		expect(body.model).toBe(MODEL_ROLES.followUpEditor.modelId);
 		// Stateless: nothing retained server-side, reasoning comes back as
 		// self-contained encrypted items the thread can replay.
 		expect(body.store).toBe(false);
 		expect(body.include).toContain("reasoning.encrypted_content");
-		expect(body.reasoning?.effort).toBe("medium");
+		expect(body.reasoning?.effort).toBe(
+			MODEL_ROLES.followUpEditor.reasoningEffort,
+		);
 		expect(body.reasoning?.summary).toBeTruthy();
 		// The documented GPT-5.6 cache triple, as ONE unit.
 		expect(body.prompt_cache_key).toBe("nova:app:a-probe");

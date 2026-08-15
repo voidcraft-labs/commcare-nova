@@ -13,8 +13,6 @@ export type ReasoningEffort = NonNullable<
 	OpenAIResponsesProviderOptions["reasoningEffort"]
 >;
 
-export const MODEL_DEFAULT = "gpt-5.6-luna";
-
 /**
  * Ask OpenAI's server-side context management to compact before the 272k-token
  * long-context price boundary. OpenAI creates the opaque encrypted checkpoint
@@ -88,38 +86,42 @@ export function reasoningProviderOptions(
 	};
 }
 
-export const SA_BUILD_MODEL = "gpt-5.6-luna";
+interface ModelRoleConfig {
+	readonly modelId: string;
+	readonly reasoningEffort: ReasoningEffort;
+}
 
-export const SA_EDIT_MODEL = "gpt-5.6-luna";
-
-export const SA_BUILD_REASONING: { effort: ReasoningEffort } = {
-	effort: "xhigh",
-};
-
-export const SA_EDIT_REASONING: { effort: ReasoningEffort } = {
-	effort: "xhigh",
-};
-
-export const DESIGN_AUTHOR_MODEL = "gpt-5.6-luna";
-
-export const DESIGN_REVIEWER_MODEL = "gpt-5.6-luna";
-
-export const DESIGN_EXECUTOR_MODEL = "gpt-5.6-luna";
-
-export const DESIGN_EXECUTOR_REASONING: { effort: ReasoningEffort } = {
-	effort: "xhigh",
-};
-
-/** Backward-compatible name for the design author/planner role. */
-export const DESIGN_MODEL = DESIGN_AUTHOR_MODEL;
-
-export const DESIGN_AUTHOR_REASONING: { effort: ReasoningEffort } = {
-	effort: "xhigh",
-};
-
-export const DESIGN_REVIEWER_REASONING: { effort: ReasoningEffort } = {
-	effort: "xhigh",
-};
+/**
+ * The complete production LLM roster. Every call selects one semantic role;
+ * there is no generic default, build-era alias, or compatibility name that can
+ * silently route a call through the wrong model.
+ */
+export const MODEL_ROLES = {
+	designAuthor: {
+		modelId: "gpt-5.6-sol",
+		reasoningEffort: "medium",
+	},
+	designReviewer: {
+		modelId: "gpt-5.6-sol",
+		reasoningEffort: "medium",
+	},
+	executorHelper: {
+		modelId: "gpt-5.6-sol",
+		reasoningEffort: "medium",
+	},
+	buildExecutor: {
+		modelId: "gpt-5.6-luna",
+		reasoningEffort: "xhigh",
+	},
+	followUpEditor: {
+		modelId: "gpt-5.6-sol",
+		reasoningEffort: "medium",
+	},
+	documentExtractor: {
+		modelId: "gpt-5.6-luna",
+		reasoningEffort: "xhigh",
+	},
+} as const satisfies Record<string, ModelRoleConfig>;
 
 /**
  * Pricing per million tokens, keyed by model ID.

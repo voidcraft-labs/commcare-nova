@@ -17,9 +17,8 @@
  *    the blueprint snapshot on `AppDoc` is still authoritative.
  *  - **Usage (`UsageAccumulator`)** — per-request token + cost aggregation
  *    flushed once at request end. Outer agent steps carry `{ step: true }`;
- *    sub-gens (internal `generate` / `streamGenerate` /
- *    `extractDocumentStructured` calls) accumulate tokens without stepping
- *    the counter.
+ *    structured document extraction accumulates tokens without stepping the
+ *    counter.
  *
  * Implements `CanonicalMutationHost` — the persistence seam the canonical
  * Tool Workspace executes shared tools over. `recordMutations` /
@@ -28,11 +27,10 @@
  * implementations they delegate to. Tool bodies never see this class: they
  * run against `ToolInvocationContext` (lib/agent/workspace/types.ts).
  *
- * Sub-generation prompts/outputs (from `generate`, `streamGenerate`,
- * `extractDocumentStructured`) are intentionally NOT persisted in the event log — only
- * aggregate token usage. The log is supplemental and does not carry
- * per-tool payloads. Admin inspection surfaces should rely on per-run
- * summary docs and on agent-step-granularity conversation events.
+ * Document-extraction prompts/outputs are intentionally NOT persisted in the
+ * event log — only aggregate token usage. The log is supplemental and does
+ * not carry per-tool payloads. Admin inspection surfaces should rely on
+ * per-run summary docs and on agent-step-granularity conversation events.
  *
  * The context owns nothing stateful beyond a monotonic `seq` counter used to
  * preserve chronological order inside a single millisecond (multiple events
@@ -47,8 +45,6 @@ import type {
 	StepResultPerformance,
 	UIMessageStreamWriter,
 } from "ai";
-import { generateText, Output, streamText } from "ai";
-import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
@@ -94,12 +90,6 @@ import type {
 } from "@/lib/log/types";
 import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import {
-	MODEL_DEFAULT,
-	OPENAI_BASE_OPTIONS,
-	type ReasoningEffort,
-	reasoningProviderOptions,
-} from "@/lib/models";
 import type {
 	ExtractDocumentStructuredOpts,
 	StructuredExtractResult,
@@ -1026,7 +1016,7 @@ export class GenerationContext
 	handleAgentStep(
 		step: AgentStep,
 		label: string,
-		model = MODEL_DEFAULT,
+		model: string,
 		phase?: DesignBuildCostPhase,
 	): void {
 		logWarnings(`runAgent:${label}`, step.warnings);
@@ -1187,7 +1177,7 @@ export class GenerationContext
 	 * prompt/output observability becomes a product requirement, it will
 	 * live on a separate admin-only collection, not here.
 	 */
-	trackSubGeneration(usage: LanguageModelUsage, model = MODEL_DEFAULT): void {
+	trackSubGeneration(usage: LanguageModelUsage, model: string): void {
 		meterSubGenerationUsage(this.usage, usage, { model });
 	}
 
@@ -1216,7 +1206,7 @@ export class GenerationContext
 			// Streaming lets `onProgress` pulse the signal grid with real read
 			// progress during the send-time backstop; only the final object is used.
 			const result = await streamObjectWith<T>({
-				model: this.model(opts.model ?? MODEL_DEFAULT),
+				model: this.model(opts.model),
 				system: opts.system,
 				schema: opts.schema,
 				prompt: opts.prompt,
@@ -1228,8 +1218,7 @@ export class GenerationContext
 				onProgress: opts.onProgress,
 			});
 			logWarnings(`extractDocument:${opts.label}`, result.warnings);
-			if (result.usage)
-				this.trackSubGeneration(result.usage, opts.model ?? MODEL_DEFAULT);
+			if (result.usage) this.trackSubGeneration(result.usage, opts.model);
 			return {
 				object: result.object,
 				truncated: result.finishReason === "length",
@@ -1244,78 +1233,5 @@ export class GenerationContext
 			}
 			throw error;
 		}
-	}
-
-	/** One-shot structured generation with automatic usage tracking. */
-	async generate<T>(
-		schema: z.ZodType<T>,
-		opts: {
-			system: string;
-			prompt: string;
-			label: string;
-			model?: string;
-			maxOutputTokens?: number;
-			reasoning?: { effort: ReasoningEffort };
-		},
-	): Promise<T | null> {
-		try {
-			const model = opts.model ?? MODEL_DEFAULT;
-			const result = await generateText({
-				model: this.model(model),
-				output: Output.object({ schema }),
-				instructions: opts.system,
-				prompt: opts.prompt,
-				maxOutputTokens: opts.maxOutputTokens,
-				providerOptions: opts.reasoning
-					? reasoningProviderOptions(opts.reasoning.effort)
-					: { openai: OPENAI_BASE_OPTIONS },
-			});
-			logWarnings(`generate:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(result.usage, model);
-			return result.output ?? null;
-		} catch (error) {
-			this.emitError(classifyError(error), `generate:${opts.label}`);
-			throw error;
-		}
-	}
-
-	/** Streaming structured generation with partial callbacks and automatic usage tracking. */
-	async streamGenerate<T>(
-		schema: z.ZodType<T>,
-		opts: {
-			system: string;
-			prompt: string;
-			label: string;
-			model?: string;
-			maxOutputTokens?: number;
-			onPartial?: (partial: Partial<T>) => void;
-			reasoning?: { effort: ReasoningEffort };
-		},
-	): Promise<T | null> {
-		const model = opts.model ?? MODEL_DEFAULT;
-		const result = streamText({
-			model: this.model(model),
-			output: Output.object({ schema }),
-			instructions: opts.system,
-			prompt: opts.prompt,
-			maxOutputTokens: opts.maxOutputTokens,
-			providerOptions: opts.reasoning
-				? reasoningProviderOptions(opts.reasoning.effort)
-				: { openai: OPENAI_BASE_OPTIONS },
-			onError: ({ error }) => {
-				this.emitError(classifyError(error), `streamGenerate:${opts.label}`);
-			},
-		});
-
-		let last: T | null = null;
-		for await (const partial of result.partialOutputStream) {
-			opts.onPartial?.(partial as Partial<T>);
-			last = partial as T;
-		}
-
-		logWarnings(`streamGenerate:${opts.label}`, await result.warnings);
-		const usage = await result.usage;
-		if (usage) this.trackSubGeneration(usage, model);
-		return last;
 	}
 }

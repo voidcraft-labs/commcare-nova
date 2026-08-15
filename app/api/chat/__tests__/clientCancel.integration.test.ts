@@ -52,6 +52,7 @@ import { CREDITS_PER_BUILD, CREDITS_PER_EDIT } from "@/lib/db/creditPolicy";
 import { getCurrentPeriod } from "@/lib/db/period";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { MODEL_ROLES } from "@/lib/models";
 
 const {
 	resolveOpenAIKeyMock,
@@ -433,6 +434,7 @@ function configurePausedAgent(): void {
 					],
 				},
 				"Solutions Architect",
+				MODEL_ROLES.followUpEditor.modelId,
 			);
 			const feed = new ChunkFeed();
 			feed.push(
@@ -1443,6 +1445,7 @@ describe("server-derived build-vs-edit mode", () => {
 					ctx.handleAgentStep(
 						{ usage: PAUSED_USAGE, toolCalls: [] },
 						"Solutions Architect",
+						MODEL_ROLES.followUpEditor.modelId,
 					);
 					const feed = new ChunkFeed();
 					feed.push(

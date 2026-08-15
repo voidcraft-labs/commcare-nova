@@ -84,12 +84,7 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { log } from "@/lib/logger";
-import {
-	DESIGN_AUTHOR_MODEL,
-	DESIGN_EXECUTOR_MODEL,
-	DESIGN_EXECUTOR_REASONING,
-	MODEL_CONTEXT_VERSION,
-} from "@/lib/models";
+import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import {
@@ -334,7 +329,7 @@ export async function runBuildOrchestration(
 			type: "start",
 			messageId: args.responseMessageId,
 			messageMetadata: {
-				model: DESIGN_AUTHOR_MODEL,
+				model: MODEL_ROLES.designAuthor.modelId,
 				contextVersion: MODEL_CONTEXT_VERSION,
 			},
 		});
@@ -539,7 +534,7 @@ export async function runBuildOrchestration(
 			const persisted = await openDesignModelContext({
 				designSessionId: args.designSessionId,
 				kind: "executor",
-				modelId: DESIGN_EXECUTOR_MODEL,
+				modelId: MODEL_ROLES.buildExecutor.modelId,
 				promptVersion: EXECUTOR_PROMPT_VERSION,
 				toolsetDigest: canonicalJsonDigest(buildExecutorTools()),
 				contextVersion: MODEL_CONTEXT_VERSION,
@@ -563,7 +558,7 @@ export async function runBuildOrchestration(
 						completed.usage,
 						{
 							step: true,
-							model: DESIGN_EXECUTOR_MODEL,
+							model: MODEL_ROLES.buildExecutor.modelId,
 							phase: "build-executor",
 						},
 					);
@@ -667,7 +662,7 @@ export async function runBuildOrchestration(
 									digest: emptyGenesisBase(args.proposedAppId).digest,
 								}
 							: await appBaseTarget(appId as string),
-						executorModel: DESIGN_EXECUTOR_MODEL,
+						executorModel: MODEL_ROLES.buildExecutor.modelId,
 						promptVersion: EXECUTOR_PROMPT_VERSION,
 						briefDigest: digest,
 					});
@@ -1003,8 +998,8 @@ function productionDeps(
 		executorStep:
 			overrides.executorStep ??
 			productionExecutorStep(
-				executorContext.model(DESIGN_EXECUTOR_MODEL),
-				DESIGN_EXECUTOR_REASONING.effort,
+				executorContext.model(MODEL_ROLES.buildExecutor.modelId),
+				MODEL_ROLES.buildExecutor.reasoningEffort,
 				`nova:design-executor:${args.designSessionId}`,
 			),
 		resolveBlocker:
@@ -1494,7 +1489,7 @@ async function executeOneSlice(
 						usage,
 						{
 							step: true,
-							model: DESIGN_EXECUTOR_MODEL,
+							model: MODEL_ROLES.buildExecutor.modelId,
 							phase: "build-executor",
 						},
 					),

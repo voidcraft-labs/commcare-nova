@@ -21,7 +21,7 @@ import type {
 	DesignRevisionResult,
 	FindingDisposition,
 } from "@/lib/agent/design/review";
-import { DESIGN_AUTHOR_MODEL, DESIGN_REVIEWER_MODEL } from "@/lib/models";
+import { MODEL_ROLES } from "@/lib/models";
 
 function producer(modelId: string, finishReason: string | null | undefined) {
 	return {
@@ -51,7 +51,7 @@ export function contractEnvelope(args: {
 		sourcePackageDigest: args.packageDigest,
 		inputArtifactDigests: args.inputDigests,
 		promptVersion: args.promptVersion,
-		producer: producer(DESIGN_AUTHOR_MODEL, args.finishReason),
+		producer: producer(MODEL_ROLES.designAuthor.modelId, args.finishReason),
 		createdAt: new Date().toISOString(),
 		complexity: computeDesignComplexity(args.contract),
 		payload: args.contract,
@@ -75,7 +75,7 @@ export function reviewEnvelope(args: {
 		sourcePackageDigest: args.draft.sourcePackageDigest,
 		inputArtifactDigests: [args.draft.artifactDigest],
 		promptVersion: DESIGN_PROMPT_VERSIONS.reviewer,
-		producer: producer(DESIGN_REVIEWER_MODEL, args.finishReason),
+		producer: producer(MODEL_ROLES.designReviewer.modelId, args.finishReason),
 		createdAt: new Date().toISOString(),
 		payload: args.review,
 	});

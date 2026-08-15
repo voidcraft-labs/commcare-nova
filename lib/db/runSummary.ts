@@ -317,8 +317,8 @@ async function writeRunSummaryInternal(
  * - `prompt_mode` — a thread that starts as "build" stays a build thread
  *   in the summary, even after the follow-up edits switch prompts.
  * - `app_ready` — same logic: was the app ready when the thread opened?
- * - `model` — pinned at the thread's first turn, so a build thread keeps
- *   `SA_BUILD_MODEL` even after follow-up edits switch to `SA_EDIT_MODEL`.
+ * - `model` — pinned at the thread's first turn, so a build thread keeps its
+ *   design-author model even after follow-up edits use the editor model.
  *   Cost is unaffected: each turn's accumulator prices its own tokens at
  *   that turn's model.
  *

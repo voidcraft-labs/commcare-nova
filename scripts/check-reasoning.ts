@@ -2,11 +2,7 @@ import "dotenv/config";
 import { createOpenAI } from "@ai-sdk/openai";
 import { Output, streamText } from "ai";
 import { z } from "zod";
-import {
-	reasoningProviderOptions,
-	SA_BUILD_MODEL,
-	SA_BUILD_REASONING,
-} from "../lib/models";
+import { MODEL_ROLES, reasoningProviderOptions } from "../lib/models";
 
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey) throw new Error("OPENAI_API_KEY is required");
@@ -15,11 +11,13 @@ const openai = createOpenAI({ apiKey });
 
 async function main() {
 	const result = streamText({
-		model: openai(SA_BUILD_MODEL),
+		model: openai(MODEL_ROLES.designAuthor.modelId),
 		output: Output.object({ schema: z.object({ answer: z.string() }) }),
 		prompt: "What is 15 * 37? Show your work.",
 		maxOutputTokens: 256,
-		providerOptions: reasoningProviderOptions(SA_BUILD_REASONING.effort),
+		providerOptions: reasoningProviderOptions(
+			MODEL_ROLES.designAuthor.reasoningEffort,
+		),
 	});
 
 	for await (const _p of result.partialOutputStream) {

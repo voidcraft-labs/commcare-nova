@@ -34,11 +34,7 @@ import {
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import type { BlueprintDoc } from "@/lib/domain";
-import {
-	reasoningProviderOptions,
-	SA_EDIT_MODEL,
-	SA_EDIT_REASONING,
-} from "@/lib/models";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import {
@@ -246,7 +242,7 @@ export function createSolutionsArchitect(
 	// tool — the route finalizes a build when the run's drain ends.
 
 	const agent = new ToolLoopAgent({
-		model: ctx.model(SA_EDIT_MODEL),
+		model: ctx.model(MODEL_ROLES.followUpEditor.modelId),
 		// The prompt is static and contributes no per-app bytes, so the
 		// provider's exact-prefix cache survives doc mutations. The current
 		// blueprint summary rides the per-turn message the route appends
@@ -274,9 +270,12 @@ export function createSolutionsArchitect(
 			// that metadata does not alter the model-visible transcript.
 			return {
 				messages: projectModelHistoryFromNewestCompaction(messages),
-				providerOptions: reasoningProviderOptions(SA_EDIT_REASONING.effort, {
-					promptCacheKey: `nova:app:${ctx.appId}`,
-				}),
+				providerOptions: reasoningProviderOptions(
+					MODEL_ROLES.followUpEditor.reasoningEffort,
+					{
+						promptCacheKey: `nova:app:${ctx.appId}`,
+					},
+				),
 			};
 		},
 		onStepEnd: (step) => {
@@ -308,7 +307,7 @@ export function createSolutionsArchitect(
 					warnings: step.warnings,
 				},
 				"Solutions Architect",
-				SA_EDIT_MODEL,
+				MODEL_ROLES.followUpEditor.modelId,
 			);
 		},
 		tools: sharedTools,

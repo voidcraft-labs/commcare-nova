@@ -8,11 +8,7 @@ import {
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
-import {
-	DESIGN_AUTHOR_MODEL,
-	DESIGN_AUTHOR_REASONING,
-	reasoningProviderOptions,
-} from "@/lib/models";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { renderBriefMessage, type SliceExecutionBrief } from "./executionBrief";
 
 export const executionBlockerSchema = z
@@ -86,7 +82,7 @@ export async function resolveExecutionBlocker(
 ): Promise<ArtifactResult<ArchitectBlockerDecision>> {
 	const result = await ctx.runStructured({
 		schema: architectBlockerDecisionWireSchemaFor(),
-		modelId: DESIGN_AUTHOR_MODEL,
+		modelId: MODEL_ROLES.executorHelper.modelId,
 		system: ARCHITECT_SYSTEM,
 		prompt: [
 			"## Accepted design contract",
@@ -101,7 +97,9 @@ export async function resolveExecutionBlocker(
 			JSON.stringify(args.diagnostics),
 		].join("\n\n"),
 		maxOutputTokens: 12_000,
-		providerOptions: reasoningProviderOptions(DESIGN_AUTHOR_REASONING.effort),
+		providerOptions: reasoningProviderOptions(
+			MODEL_ROLES.executorHelper.reasoningEffort,
+		),
 		signal,
 	});
 	const artifactResult = toArtifactResult(result, signal);

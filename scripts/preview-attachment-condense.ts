@@ -5,9 +5,9 @@
  *
  * Drives the REAL extraction core (`extractDocument`: same prompt, same
  * docx/xlsx/PDF routing the upload route uses) against local files, on the
- * production condenser (OpenAI GPT-5.6 Luna — the exact model id + reasoning
- * options the upload route uses, so the preview can't drift from what the
- * route stores). Images carry no extract (the model reads them directly), so
+ * production document extractor — the exact model id + reasoning options the
+ * upload route uses, so the preview can't drift from what the route stores.
+ * Images carry no extract (the model reads them directly), so
  * they're reported and skipped.
  *
  * For each file it prints the extract plus input/output tokens and an
@@ -17,7 +17,7 @@
  *   npx tsx scripts/preview-attachment-condense.ts <file...>
  *
  * Reads OPENAI_API_KEY from .env (no key = cleanly skipped, not a crash).
- * Cost: one Luna call per file (cents) — never the SA.
+ * Cost: one extractor call per file — never the SA.
  */
 
 import "dotenv/config";
@@ -27,8 +27,6 @@ import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import {
 	type AttachmentCondenser,
-	CONDENSER_MODEL,
-	CONDENSER_PROVIDER_OPTIONS,
 	extractDocument,
 } from "../lib/agent/documentExtraction";
 import { generateObjectWith } from "../lib/agent/subGeneration";
@@ -36,20 +34,25 @@ import {
 	assetKindForExtension,
 	isDocumentKind,
 } from "../lib/domain/multimedia";
-import { MODEL_PRICING } from "../lib/models";
+import {
+	MODEL_PRICING,
+	MODEL_ROLES,
+	reasoningProviderOptions,
+} from "../lib/models";
 
 // ── Model + pricing config ──────────────────────────────────────────────────
 
-/** Single-sourced from the production extractor so the preview can't drift from
- *  the model the route actually calls. */
-const LUNA_ID = CONDENSER_MODEL;
+const EXTRACTOR = MODEL_ROLES.documentExtractor;
+const EXTRACTOR_PROVIDER_OPTIONS = reasoningProviderOptions(
+	EXTRACTOR.reasoningEffort,
+);
 
 /**
- * Luna's rates come from the app's own `MODEL_PRICING` (single source of
+ * The extractor's rates come from the app's own `MODEL_PRICING` (single source of
  * truth). The estimate prices all input at the base uncached rate: extraction
  * is a single one-shot call per document, so no cached prefix is reused.
  */
-const LUNA_PRICING = MODEL_PRICING[LUNA_ID]?.short;
+const EXTRACTOR_PRICING = MODEL_PRICING[EXTRACTOR.modelId]?.short;
 
 /** MIME type by file extension — mirrors the client's accept set. Drives the
  *  PDF native-block media type; the kind is resolved from the extension. */
@@ -67,7 +70,7 @@ const MIME_BY_EXT: Record<string, string> = {
 function resolveModel(): { model: LanguageModel } | { skip: string } {
 	const apiKey = process.env.OPENAI_API_KEY;
 	if (!apiKey) return { skip: "OPENAI_API_KEY not set" };
-	return { model: createOpenAI({ apiKey })(LUNA_ID) };
+	return { model: createOpenAI({ apiKey })(EXTRACTOR.modelId) };
 }
 
 // ── Condenser backend ───────────────────────────────────────────────────────
@@ -100,7 +103,7 @@ function makeCondenser(
 				instruction: opts.instruction,
 				images: opts.images,
 				maxOutputTokens: opts.maxOutputTokens,
-				providerOptions: CONDENSER_PROVIDER_OPTIONS,
+				providerOptions: EXTRACTOR_PROVIDER_OPTIONS,
 			});
 			stats.calls += 1;
 			stats.inputTokens += r.usage?.inputTokens ?? 0;
@@ -128,7 +131,9 @@ function estimateCost(
 
 /** Run the condenser against one file and print the extract block. */
 async function runFile(path: string): Promise<void> {
-	console.log(`\n### GPT-5.6 Luna (${LUNA_ID}, reasoning: xhigh)`);
+	console.log(
+		`\n### Document extractor (${EXTRACTOR.modelId}, reasoning: ${EXTRACTOR.reasoningEffort})`,
+	);
 
 	const ext = extname(path).toLowerCase();
 	const kind = assetKindForExtension(ext);
@@ -166,7 +171,7 @@ async function runFile(path: string): Promise<void> {
 	}
 	const { extract, title, summary } = result;
 
-	const cost = estimateCost(stats, LUNA_PRICING);
+	const cost = estimateCost(stats, EXTRACTOR_PRICING);
 	console.log(
 		`  tokens: ${stats.inputTokens.toLocaleString()} in → ${stats.outputTokens.toLocaleString()} out  ·  est. cost ${DOLLARS(cost)}  ·  ${stats.calls} call(s)`,
 	);

@@ -71,7 +71,7 @@ import {
 	type DesignSourcePackage,
 } from "../lib/agent/design/sourcePackage";
 import { stripNullProperties } from "../lib/agent/strictStructuredOutput";
-import { DESIGN_MODEL } from "../lib/models";
+import { MODEL_ROLES } from "../lib/models";
 
 function usage(): never {
 	console.log(
@@ -554,7 +554,7 @@ async function main(): Promise<void> {
 	for (let turn = 0; turn < 20 && state.plan === null; turn += 1) {
 		const phase = phaseFor(state);
 		const agent = createDesignAgent({
-			model: ctx.model(DESIGN_MODEL),
+			model: ctx.model(MODEL_ROLES.designAuthor.modelId),
 			tools: tools as never,
 			phase,
 			catalogText,

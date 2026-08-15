@@ -22,11 +22,7 @@ import { designReviewSchemaFor } from "@/lib/agent/design/reviewerSchema";
 import type { ReviewHandleBinding } from "@/lib/agent/design/reviewVocabulary";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
-import {
-	DESIGN_REVIEWER_MODEL,
-	DESIGN_REVIEWER_REASONING,
-	reasoningProviderOptions,
-} from "@/lib/models";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 
 export const DESIGN_REVIEWER_MAX_OUTPUT_TOKENS = 60_000;
 
@@ -50,7 +46,7 @@ export async function runDesignReviewer(
 			pkg: args.pkg,
 			bindings: args.bindings,
 		}),
-		modelId: DESIGN_REVIEWER_MODEL,
+		modelId: MODEL_ROLES.designReviewer.modelId,
 		system: DESIGN_REVIEWER_SYSTEM,
 		prompt: renderReviewPrompt(
 			args.pkg,
@@ -60,7 +56,9 @@ export async function runDesignReviewer(
 		),
 		images: sourcePackageImages(args.pkg),
 		maxOutputTokens: DESIGN_REVIEWER_MAX_OUTPUT_TOKENS,
-		providerOptions: reasoningProviderOptions(DESIGN_REVIEWER_REASONING.effort),
+		providerOptions: reasoningProviderOptions(
+			MODEL_ROLES.designReviewer.reasoningEffort,
+		),
 		signal,
 		...(onProgress && { onProgress }),
 	});

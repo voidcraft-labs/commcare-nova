@@ -12,6 +12,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { MODEL_ROLES } from "@/lib/models";
 import type { GenerationContext } from "../generationContext";
 import { makeTestContext } from "./fixtures";
 
@@ -71,6 +72,7 @@ async function* throwingStream(): AsyncGenerator<StreamPart> {
 }
 
 describe("GenerationContext.extractDocumentStructured", () => {
+	const TEST_MODEL = MODEL_ROLES.documentExtractor.modelId;
 	let ctx: GenerationContext;
 	// The real accumulator + the SSE writer stub — to assert the usage fan-in and
 	// the error-event emission.
@@ -90,7 +92,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 			prompt: "the document body",
 			schema,
 			label: "attachment-txt",
-			model: "gpt-5.6-luna",
+			model: TEST_MODEL,
 			maxOutputTokens: 4096,
 		});
 
@@ -127,6 +129,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 			instruction: "Extract requirements.",
 			schema,
 			label: "attachment-pdf",
+			model: TEST_MODEL,
 		});
 
 		// The user turn carries the instruction text followed by the file block —
@@ -159,6 +162,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 			],
 			schema,
 			label: "attachment-docx",
+			model: TEST_MODEL,
 		});
 
 		// The figures pass through to the shared structured core: the document
@@ -189,6 +193,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 			prompt: "a very long document body",
 			schema,
 			label: "attachment-txt",
+			model: TEST_MODEL,
 		});
 		expect(out.truncated).toBe(true);
 	});
@@ -206,6 +211,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 				prompt: "body",
 				schema,
 				label: "attachment-txt",
+				model: TEST_MODEL,
 			}),
 		).rejects.toThrow("gemini down");
 
@@ -232,6 +238,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 				prompt: "body",
 				schema,
 				label: "attachment-txt",
+				model: TEST_MODEL,
 				emitErrors: false,
 			}),
 		).rejects.toThrow("gemini down");

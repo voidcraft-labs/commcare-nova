@@ -26,10 +26,7 @@ import {
 	projectModelHistoryFromNewestCompaction,
 } from "@/lib/chat/compaction";
 import type { DurableUsageIdentity } from "@/lib/db/usage";
-import {
-	DESIGN_AUTHOR_REASONING,
-	reasoningProviderOptions,
-} from "@/lib/models";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { designLoopStepBudget } from "./gates";
 import { DESIGN_STATE_MESSAGE_HEADING } from "./packageRender";
 import type { createDesignLoopTools } from "./tools";
@@ -556,7 +553,7 @@ export function createDesignAgent(args: DesignAgentArgs) {
 					? withFreshState
 					: [...withFreshState, requiredQuestionMessage];
 			const providerOptions = reasoningProviderOptions(
-				DESIGN_AUTHOR_REASONING.effort,
+				MODEL_ROLES.designAuthor.reasoningEffort,
 				{ promptCacheKey: args.promptCacheKey },
 			);
 			await args.onStepPrepared?.({

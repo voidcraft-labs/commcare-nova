@@ -36,7 +36,7 @@ import { proseText } from "@/lib/domain/prose";
 
 import { conversationPayloadSchema } from "@/lib/log/types";
 import { log } from "@/lib/logger";
-import { MODEL_DEFAULT } from "@/lib/models";
+import { MODEL_ROLES } from "@/lib/models";
 import type { GenerationContext } from "../generationContext";
 import { makeMinimalDoc, makeTestContext } from "./fixtures";
 
@@ -805,6 +805,7 @@ describe("GenerationContext.emitError", () => {
 });
 
 describe("GenerationContext.handleAgentStep", () => {
+	const TEST_MODEL = MODEL_ROLES.followUpEditor.modelId;
 	const MINIMAL_USAGE: LanguageModelUsage = {
 		inputTokens: 100,
 		outputTokens: 50,
@@ -828,6 +829,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolCalls: [{ toolCallId: "q-1", toolName: "askQuestions", input: {} }],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		expect(ctx.pausedOnInput()).toBe(true);
@@ -841,6 +843,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolCalls: [{ toolCallId: "tc-1", toolName: "addFields", input: {} }],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 		expect(ctx.pausedOnInput()).toBe(false);
 	});
@@ -863,6 +866,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolResults: [{ toolCallId: "tc-1", output: { success: true } }],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(5);
@@ -875,7 +879,7 @@ describe("GenerationContext.handleAgentStep", () => {
 			 * separator for log readers decomposing per-step billing. */
 			{
 				type: "step-usage",
-				model: MODEL_DEFAULT,
+				model: TEST_MODEL,
 				pricingTier: "short",
 				inputTokens: 100,
 				outputTokens: 50,
@@ -918,6 +922,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				} as unknown as LanguageModelUsage,
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
@@ -926,7 +931,7 @@ describe("GenerationContext.handleAgentStep", () => {
 		const payload = (call[0] as { payload: unknown }).payload;
 		expect(payload).toEqual({
 			type: "step-usage",
-			model: MODEL_DEFAULT,
+			model: TEST_MODEL,
 			pricingTier: "short",
 			inputTokens: 10,
 			outputTokens: 5,
@@ -947,6 +952,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolCalls: [{ toolCallId: "tc-x", toolName: "foo", input: {} }],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		expect(logWriter.logEvent).not.toHaveBeenCalled();
@@ -967,6 +973,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolResults: [],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		// step-usage always leads; the bare tool-call follows with no result.
@@ -1004,6 +1011,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(3);
@@ -1037,6 +1045,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolErrors: [{ toolCallId: "tc-1", error: "ignored" }],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		const resultPayload = logWriter.logEvent.mock.calls
@@ -1095,6 +1104,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				],
 			},
 			"Design agent",
+			TEST_MODEL,
 		);
 
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(2);

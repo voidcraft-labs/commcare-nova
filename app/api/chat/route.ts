@@ -106,12 +106,7 @@ import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import {
-	DESIGN_AUTHOR_MODEL,
-	MODEL_CONTEXT_VERSION,
-	SA_BUILD_MODEL,
-	SA_EDIT_MODEL,
-} from "@/lib/models";
+import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
 import { creditGateDecision } from "./creditGate";
 import { chatRequestSchema, chatRunIdSchema } from "./schema";
 import { isFatalStreamErrorChunk } from "./streamFailure";
@@ -1109,10 +1104,11 @@ export async function POST(req: Request) {
 		userId,
 		runId: effectiveRunId,
 		holderNonce,
-		// Must match the model `createSolutionsArchitect` picks off the same
-		// signal (one model today; the constants stay separate so the roles
-		// can diverge again).
-		model: appReady ? SA_EDIT_MODEL : SA_BUILD_MODEL,
+		// Must match the role selected from the same readiness signal: the
+		// design author owns a new build, while the editor owns follow-up turns.
+		model: appReady
+			? MODEL_ROLES.followUpEditor.modelId
+			: MODEL_ROLES.designAuthor.modelId,
 		promptMode: appReady ? "edit" : "build",
 		appReady,
 		moduleCount: loadedApp?.module_count ?? 0,
@@ -1960,7 +1956,9 @@ export async function POST(req: Request) {
 						...(reservation ? { chargePeriod: reservation.period } : {}),
 						promptMode: claimedRun.mode,
 						appReady: wonEdit,
-						model: wonEdit ? SA_EDIT_MODEL : SA_BUILD_MODEL,
+						model: wonEdit
+							? MODEL_ROLES.followUpEditor.modelId
+							: MODEL_ROLES.designAuthor.modelId,
 					});
 					/* The context was built with the PRE-WAIT mode, and a stale-mode
 					 * adoption above may have won under the other one. Everything
@@ -2308,7 +2306,7 @@ export async function POST(req: Request) {
 									ctx.handleAgentStep(
 										step,
 										"Design agent",
-										DESIGN_AUTHOR_MODEL,
+										MODEL_ROLES.designAuthor.modelId,
 										"design-author",
 									),
 								/* Reasoning summaries from the calls that never touch a
@@ -2687,7 +2685,7 @@ export async function POST(req: Request) {
 							"[chat] compiler invariant: an app-target SA turn reached the executor without edit shape",
 						);
 					}
-					const saModel = SA_EDIT_MODEL;
+					const saModel = MODEL_ROLES.followUpEditor.modelId;
 
 					/* Backfill the accumulator seed now that we know the real
 					 * editing signals. These fields land on the per-run

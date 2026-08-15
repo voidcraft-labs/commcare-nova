@@ -9,7 +9,7 @@
  *    workspace effects in response order;
  *  - the per-session prompt-cache triple and the statelessness pair are on
  *    the wire exactly as the SA's (`wireCacheConfig.test.ts` discipline);
- *  - the loop runs at the drafting ceiling (xhigh).
+ *  - the loop carries the configured design-author reasoning effort.
  */
 
 import { createOpenAI } from "@ai-sdk/openai";
@@ -37,7 +37,7 @@ import {
 } from "@/lib/agent/design/loop/tools";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import { computeSourcePackageDigest } from "@/lib/agent/design/sourcePackage";
-import { DESIGN_MODEL } from "@/lib/models";
+import { MODEL_ROLES } from "@/lib/models";
 
 interface CapturedBody {
 	model?: string;
@@ -143,7 +143,7 @@ async function captureDesignTurnBody(
 			projectId: "p",
 			runId: "run-1",
 			target: { kind: "design-session", designSessionId: pkg.designSessionId },
-			model: () => openai(DESIGN_MODEL),
+			model: () => openai(MODEL_ROLES.designAuthor.modelId),
 			trackSubGeneration: () => {},
 			runStructured: async () => {
 				throw new Error("never called at registration time");
@@ -158,7 +158,7 @@ async function captureDesignTurnBody(
 		rebuildPackageForDigest: async () => null,
 	});
 	const agent = createDesignAgent({
-		model: openai(DESIGN_MODEL),
+		model: openai(MODEL_ROLES.designAuthor.modelId),
 		tools,
 		phase,
 		catalogText: "CATALOG",
@@ -618,13 +618,15 @@ describe("design agent Responses wire body", () => {
 		}
 	});
 
-	it("carries strict ordered tools, the cache triple, and xhigh reasoning", async () => {
+	it("carries strict ordered tools, the cache triple, and configured reasoning", async () => {
 		const body = await captureDesignTurnBody();
 
-		expect(body.model).toBe(DESIGN_MODEL);
+		expect(body.model).toBe(MODEL_ROLES.designAuthor.modelId);
 		expect(body.store).toBe(false);
 		expect(body.include).toContain("reasoning.encrypted_content");
-		expect(body.reasoning?.effort).toBe("xhigh");
+		expect(body.reasoning?.effort).toBe(
+			MODEL_ROLES.designAuthor.reasoningEffort,
+		);
 		expect(body.reasoning?.summary).toBeTruthy();
 		expect(body.prompt_cache_key).toBe("nova:design:session-probe");
 		expect(body.prompt_cache_options).toEqual({ mode: "implicit", ttl: "30m" });

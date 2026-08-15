@@ -30,7 +30,7 @@ import { z } from "zod";
 import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import { createNovaOpenAI } from "@/lib/agent/openaiProvider";
 import { strictWireJsonSchema } from "@/lib/agent/strictStructuredOutput";
-import { MODEL_DEFAULT, reasoningProviderOptions } from "@/lib/models";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 
 const SESSION_ID = "00000000-0000-4000-8000-000000000600";
 
@@ -127,7 +127,9 @@ describe("design structured-call wire body", () => {
 			}),
 		);
 
-		const model = createNovaOpenAI("sk-fake-never-sent")(MODEL_DEFAULT);
+		const model = createNovaOpenAI("sk-fake-never-sent")(
+			MODEL_ROLES.designReviewer.modelId,
+		);
 		const controller = new AbortController();
 		await expect(
 			model.doStream({
@@ -150,7 +152,7 @@ describe("design structured-call wire body", () => {
 
 		const request = captured as CapturedRequest | null;
 		if (!request) throw new Error("no request captured");
-		expect(request.body.model).toBe(MODEL_DEFAULT);
+		expect(request.body.model).toBe(MODEL_ROLES.designReviewer.modelId);
 		expect(request.body.store).toBe(false);
 		// Streaming is the seam's law, not a caller choice: blocking-mode
 		// headers arrive only after the full generation, which undici's 300s
