@@ -1,8 +1,9 @@
 /**
  * Resource-level case-list authoring: one coherent call can add known fields,
  * add known search inputs, set the available-case filter, compose the search
- * screen, and arrange all three visible sequences. The tool still emits only
- * the existing granular mutations and commits them as one guarded batch.
+ * screen through the same root display fields as `setCaseSearchDisplay`, and
+ * arrange all three visible sequences. The tool still emits only the existing
+ * granular mutations and commits them as one guarded batch.
  */
 
 import { z } from "zod";
@@ -27,6 +28,7 @@ import {
 	applyClusterPatch,
 	collapseUnauthoredCaseSearchConfig,
 	DISPLAY_SLOT_NAMES,
+	type DisplaySlotName,
 	pickAdvancedCluster,
 	pickSearchActionIntent,
 	setCaseSearchDisplayBodySchema,
@@ -52,6 +54,8 @@ import {
 	uuidInputSchema,
 } from "./shared";
 
+const configureSearchDisplaySchema = setCaseSearchDisplayBodySchema.partial();
+
 export const configureCaseListInputSchema = z
 	.object({
 		...moduleAddressSchema.shape,
@@ -75,11 +79,7 @@ export const configureCaseListInputSchema = z
 			.describe(
 				"Replacement always-on case-list filter. null clears it; omission leaves it unchanged. Ordinary case lists already omit closed cases.",
 			),
-		searchDisplay: setCaseSearchDisplayBodySchema
-			.optional()
-			.describe(
-				"Complete search-screen display cluster. Each nested slot is set or explicitly cleared with null; omit the cluster to leave it unchanged.",
-			),
+		...configureSearchDisplaySchema.shape,
 		resultsColumnOrder: z
 			.array(uuidInputSchema)
 			.optional()
@@ -101,11 +101,25 @@ export const configureCaseListInputSchema = z
 	})
 	.strict()
 	.superRefine((input, ctx) => {
+		const displaySlots = displaySlotsPresent(input);
+		if (
+			displaySlots.length > 0 &&
+			displaySlots.length < DISPLAY_SLOT_NAMES.length
+		) {
+			const missing = DISPLAY_SLOT_NAMES.filter(
+				(slot) => !displaySlots.includes(slot),
+			);
+			ctx.addIssue({
+				code: "custom",
+				path: [missing[0]],
+				message: `The search-screen display is one complete cluster. Provide all four root fields together; use null to clear a slot. Missing: ${missing.join(", ")}.`,
+			});
+		}
 		if (
 			input.columns === undefined &&
 			input.searchInputs === undefined &&
 			!("filter" in input) &&
-			input.searchDisplay === undefined &&
+			displaySlots.length === 0 &&
 			input.resultsColumnOrder === undefined &&
 			input.detailsColumnOrder === undefined &&
 			input.searchInputOrder === undefined
@@ -122,6 +136,22 @@ export type ConfigureCaseListInput = z.infer<
 	typeof configureCaseListInputSchema
 >;
 
+type SearchDisplayInput = z.infer<typeof setCaseSearchDisplayBodySchema>;
+
+function displaySlotsPresent(
+	input: Partial<Record<DisplaySlotName, unknown>>,
+): DisplaySlotName[] {
+	return DISPLAY_SLOT_NAMES.filter((slot) => slot in input);
+}
+
+function hasCompleteSearchDisplay(
+	input: ConfigureCaseListInput,
+): input is ConfigureCaseListInput & SearchDisplayInput {
+	return DISPLAY_SLOT_NAMES.every(
+		(slot) => slot in input && input[slot] !== undefined,
+	);
+}
+
 export interface ConfigureCaseListSuccess {
 	readonly message: string;
 	readonly columnUuids: readonly Uuid[];
@@ -133,10 +163,7 @@ export type ConfigureCaseListResult =
 	| ConfigureCaseListSuccess
 	| { readonly error: string };
 
-function displayMutations(
-	mod: Module,
-	input: NonNullable<ConfigureCaseListInput["searchDisplay"]>,
-): Mutation[] {
+function displayMutations(mod: Module, input: SearchDisplayInput): Mutation[] {
 	const existing = snapshotCaseSearchConfig(mod);
 	const displayPatch = applyClusterPatch(input, DISPLAY_SLOT_NAMES);
 	const authoredDisplaySetting = Object.keys(displayPatch).length > 0;
@@ -153,7 +180,7 @@ function displayMutations(
 
 export const configureCaseListTool = {
 	description:
-		"Configure a module's case list as one coherent resource: add known columns and search inputs, set or clear its filter, compose the search screen, and arrange Results, Details, and search-input order. Omit any part that should stay unchanged. Returns created UUIDs.",
+		"Configure a module's case list as one coherent resource: add known columns and search inputs, set or clear its filter, compose the search screen, and arrange Results, Details, and search-input order. Search display uses the four root fields searchScreenTitle, searchScreenSubtitle, searchButtonLabel, and searchButtonDisplayCondition, matching setCaseSearchDisplay; provide all four together and use null to clear a slot. Omit any other part that should stay unchanged. Returns created UUIDs.",
 	inputSchema: configureCaseListInputSchema,
 	async execute(
 		input: ConfigureCaseListInput,
@@ -230,8 +257,8 @@ export const configureCaseListTool = {
 					},
 				]);
 			}
-			if (input.searchDisplay !== undefined) {
-				append(displayMutations(workingModule, input.searchDisplay));
+			if (hasCompleteSearchDisplay(input)) {
+				append(displayMutations(workingModule, input));
 			}
 
 			for (const [order, surface] of [
@@ -299,7 +326,7 @@ export const configureCaseListTool = {
 								: "set the available-case filter",
 						]
 					: []),
-				...(input.searchDisplay !== undefined
+				...(hasCompleteSearchDisplay(input)
 					? ["composed the search screen"]
 					: []),
 				...(input.resultsColumnOrder !== undefined ? ["arranged Results"] : []),

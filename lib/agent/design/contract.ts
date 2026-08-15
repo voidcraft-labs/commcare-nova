@@ -17,18 +17,68 @@ import { z } from "zod";
 import { validateDesignGraph } from "@/lib/agent/design/graph";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { FORM_ICON_SLUGS, MODULE_ICON_SLUGS } from "@/lib/domain/builtinIcons";
+import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
+import type { FieldKind } from "@/lib/domain/fields";
 
-export const factDataShapeSchema = z.enum([
+/**
+ * Semantic fact shapes the accepted design can lower to at least one real
+ * Blueprint field kind. `unknown` is the authoring-only escape hatch below;
+ * construction refuses it until the model chooses a concrete shape.
+ *
+ * This vocabulary intentionally has no generic boolean. Nova has boolean
+ * predicates, but no boolean field or case-property carrier. A durable yes/no
+ * answer is an explicit single-choice fact with real values instead.
+ */
+export const constructibleFactDataShapes = [
 	"text",
 	"integer",
 	"decimal",
-	"boolean",
 	"date",
 	"datetime",
 	"single-choice",
 	"multiple-choice",
 	"location",
 	"attachment",
+] as const;
+
+export type ConstructibleFactDataShape =
+	(typeof constructibleFactDataShapes)[number];
+
+interface FactDataShapeCarriers {
+	readonly fieldKinds: readonly FieldKind[];
+	readonly caseDataShapes: readonly CasePropertyDataType[];
+}
+
+/**
+ * Executable carriers behind every concrete semantic shape. This explicit
+ * relation is a drift tripwire between design vocabulary and the generated
+ * capability catalog; tests prove every named carrier still exists in the
+ * domain registries. Attachment capture is form-only until case attachment
+ * emission ships, so it deliberately has no case-data carrier.
+ */
+export const factDataShapeCarriers = {
+	text: { fieldKinds: ["text"], caseDataShapes: ["text"] },
+	integer: { fieldKinds: ["int"], caseDataShapes: ["int"] },
+	decimal: { fieldKinds: ["decimal"], caseDataShapes: ["decimal"] },
+	date: { fieldKinds: ["date"], caseDataShapes: ["date"] },
+	datetime: { fieldKinds: ["datetime"], caseDataShapes: ["datetime"] },
+	"single-choice": {
+		fieldKinds: ["single_select"],
+		caseDataShapes: ["single_select"],
+	},
+	"multiple-choice": {
+		fieldKinds: ["multi_select"],
+		caseDataShapes: ["multi_select"],
+	},
+	location: { fieldKinds: ["geopoint"], caseDataShapes: ["geopoint"] },
+	attachment: {
+		fieldKinds: ["image", "audio", "video", "file", "signature"],
+		caseDataShapes: [],
+	},
+} as const satisfies Record<ConstructibleFactDataShape, FactDataShapeCarriers>;
+
+export const factDataShapeSchema = z.enum([
+	...constructibleFactDataShapes,
 	"unknown",
 ]);
 export type FactDataShape = z.infer<typeof factDataShapeSchema>;
@@ -249,7 +299,13 @@ export const workflowRecordEffectSchema = z
 		recordId: designIdSchema,
 		kind: z.enum(["create", "update", "close", "link", "reassign"]),
 		sourceRecordId: designIdSchema.optional(),
-		condition: z.string().min(1).optional(),
+		condition: z
+			.string()
+			.min(1)
+			.optional()
+			.describe(
+				"Semantic condition under which this effect is skipped while submission may otherwise succeed. Never condition a registration form's hosted primary create: use a standalone form for a conditional create, or input validation when the whole ineligible submission must be blocked.",
+			),
 		writes: z.array(workflowPropertyWriteSchema),
 		outcome: z.string().min(1),
 	})

@@ -136,6 +136,12 @@ describe("renderSourcePackage containment", () => {
 			"An optional input's rule must allow no answer",
 		);
 		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"promises that its answer matches another selection",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"do not leave correctness only in prose",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
 			"Validation is a design choice, not a completeness quota",
 		);
 		expect(DESIGN_AGENT_SYSTEM).toContain(
@@ -143,6 +149,31 @@ describe("renderSourcePackage containment", () => {
 		);
 		expect(DESIGN_AGENT_SYSTEM).toContain(
 			"standalone form with a conditional create effect",
+		);
+	});
+
+	it("keeps creativity distinct from invented policy gates", () => {
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"Do not invent consent, eligibility, approval, signature, or authorization gates",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"necessary to the requested workflow's actual outcome",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain("not silently add governance");
+	});
+
+	it("explains when native design calls belong in one response", () => {
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"Keeping settled work together preserves your attention on the whole design",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"unnecessary tool round-trips add completed mechanics",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"genuinely depends on a result, a rejection, or new information",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"not merely to reassure yourself that a successful call was saved",
 		);
 	});
 

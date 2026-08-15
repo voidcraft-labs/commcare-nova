@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { eq, literal, prop } from "@/lib/domain/predicate";
-import { configureCaseListTool } from "../configureCaseList";
+import {
+	configureCaseListInputSchema,
+	configureCaseListTool,
+} from "../configureCaseList";
 import { BASE_COLUMN, MOD_A, makeCaseListFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
@@ -48,12 +51,10 @@ describe("configureCaseList", () => {
 				},
 			],
 			filter: eq(prop("patient", "case_name"), literal("Ada")),
-			searchDisplay: {
-				searchScreenTitle: "Find a patient",
-				searchScreenSubtitle: "Search by the name on the record.",
-				searchButtonLabel: "Find patient",
-				searchButtonDisplayCondition: null,
-			},
+			searchScreenTitle: "Find a patient",
+			searchScreenSubtitle: "Search by the name on the record.",
+			searchButtonLabel: "Find patient",
+			searchButtonDisplayCondition: null,
 			resultsColumnOrder: [PHONE_COLUMN, BASE_COLUMN],
 			detailsColumnOrder: [BASE_COLUMN, PHONE_COLUMN],
 			searchInputOrder: [NAME_SEARCH],
@@ -92,6 +93,33 @@ describe("configureCaseList", () => {
 				"updateModule",
 			]),
 		);
+	});
+
+	it("uses the targeted display tool's root field shape", () => {
+		const display = {
+			searchScreenTitle: "Find a patient",
+			searchScreenSubtitle: "Search by the name on the record.",
+			searchButtonLabel: "Find patient",
+			searchButtonDisplayCondition: null,
+		};
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				...display,
+			}).success,
+		).toBe(true);
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				searchDisplay: display,
+			}).success,
+		).toBe(false);
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				searchScreenTitle: "Find a patient",
+			}).success,
+		).toBe(false);
 	});
 
 	it("returns no mutations when a requested order is not complete", async () => {

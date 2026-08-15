@@ -10,17 +10,22 @@ import {
 
 describe("reviewed-build presentation", () => {
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v9");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v10");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain(
-			"Use several native calls in one response when their inputs are already known",
+			"Use several native calls in one response when their inputs and identities are already known",
 		);
 		expect(EXECUTOR_SYSTEM).toContain("finishWorkflow");
 		expect(EXECUTOR_SYSTEM).not.toContain("stageModule");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"an empty property catalog is not by itself a stale external dependency",
 		);
-		expect(EXECUTOR_SYSTEM).toContain("Batch the longest safe known prefix");
+		expect(EXECUTOR_SYSTEM).toContain(
+			"this keeps the accepted workflow in view instead of filling your working context with success receipts",
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"Pause when a read result, rejection, or newly returned identity or value changes what the next call must contain",
+		);
 		expect(EXECUTOR_SYSTEM).toContain(
 			"A registration form's direct `caseWrite` fields create its hosted record on every successful submission",
 		);
@@ -44,6 +49,9 @@ describe("reviewed-build presentation", () => {
 			"The record's display name is never a second case-type key",
 		);
 		expect(EXECUTOR_SYSTEM).toContain("Use `configureCaseList`");
+		expect(EXECUTOR_SYSTEM).toContain(
+			"its four search-display fields live at the root",
+		);
 		expect(EXECUTOR_SYSTEM).toContain(
 			"it is not a request to create a Blueprint user type",
 		);

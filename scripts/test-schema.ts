@@ -98,7 +98,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: configureCaseListTool.description,
 		schema: configureCaseListTool.inputSchema,
 		prompt:
-			"Use configureCaseList with moduleUuid 11111111-1111-4111-8111-111111111111 to add a plain case_name column with columnUuid 33333333-3333-4333-8333-333333333333, set a title of Find a patient while clearing the other search display slots, and set Results order to that column UUID.",
+			"Use configureCaseList with moduleUuid 11111111-1111-4111-8111-111111111111 to add a plain case_name column with columnUuid 33333333-3333-4333-8333-333333333333, use the four root search-display fields to set the title to Find a patient while clearing the other display slots, and set Results order to that column UUID.",
 	},
 	{
 		name: "addCaseListColumns",

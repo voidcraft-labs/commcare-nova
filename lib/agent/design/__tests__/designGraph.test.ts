@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
 	appDesignContractSchema,
+	constructibleFactDataShapes,
 	designConstructionIssues,
+	factDataShapeCarriers,
+	factDataShapeSchema,
+	workflowRecordEffectSchema,
 } from "@/lib/agent/design/contract";
+import { casePropertyDataTypes } from "@/lib/domain/casePropertyTypes";
+import { fieldKinds } from "@/lib/domain/fields";
 import {
 	cloneContract,
 	did,
@@ -25,6 +31,45 @@ function constructionMessages(value: ReturnType<typeof makeContract>): string {
 }
 
 describe("lean Design Contract graph", () => {
+	it("advertises only concrete fact shapes backed by real domain carriers", () => {
+		expect(factDataShapeSchema.options).toEqual([
+			...constructibleFactDataShapes,
+			"unknown",
+		]);
+		expect(factDataShapeSchema.options).not.toContain("boolean");
+
+		const registeredFieldKinds = new Set<string>(fieldKinds);
+		const registeredCaseDataShapes = new Set<string>(casePropertyDataTypes);
+		for (const shape of constructibleFactDataShapes) {
+			const carriers = factDataShapeCarriers[shape];
+			expect(
+				carriers.fieldKinds.length,
+				`${shape} needs at least one constructible field carrier`,
+			).toBeGreaterThan(0);
+			for (const kind of carriers.fieldKinds) {
+				expect(
+					registeredFieldKinds.has(kind),
+					`${shape} names field ${kind}`,
+				).toBe(true);
+			}
+			for (const dataShape of carriers.caseDataShapes) {
+				expect(
+					registeredCaseDataShapes.has(dataShape),
+					`${shape} names case data shape ${dataShape}`,
+				).toBe(true);
+			}
+		}
+	});
+
+	it("teaches conditional effects at the schema slot where they are chosen", () => {
+		expect(workflowRecordEffectSchema.shape.condition.description).toContain(
+			"Never condition a registration form's hosted primary create",
+		);
+		expect(workflowRecordEffectSchema.shape.condition.description).toContain(
+			"input validation when the whole ineligible submission must be blocked",
+		);
+	});
+
 	it("accepts and round-trips a task-complete contract", () => {
 		const contract = makeContract();
 		expect(appDesignContractSchema.parse(contract)).toEqual(contract);

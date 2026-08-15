@@ -65,7 +65,13 @@ solely for the notice.
   source-package boundary, independent reviewer, deterministic workflow build
   plan, and generated capability catalog. The contract records actors, records,
   workflow behavior, lists, access, navigation, external requirements,
-  decisions, assumptions, and questions once. Its `CLAUDE.md` is the contract;
+  decisions, assumptions, and questions once. Its concrete fact-shape
+  vocabulary is tied to registered field/case carriers; Boolean predicates do
+  not imply a Boolean fact carrier, so persisted yes/no meaning is an explicit
+  single-choice fact. The author prompt keeps speculative policy gates out of
+  otherwise ordinary workflows and requires prose promises about answer
+  compatibility to be backed by broad safe validation or weakened. Its
+  `CLAUDE.md` is the contract;
   nothing there reaches a canonical store. The chat route mounts it through
   `build/`. Whole-plan completion distinguishes deterministic proof failures
   from transient reads: only exact receipt/attempt/validation/compilation
@@ -227,7 +233,10 @@ The `caseListConfig` shape has four slots — `columns`, `filter?`, `searchInput
   column/search-input additions, filter set/clear, search-display composition,
   and Results/Details/search-input ordering. It returns created UUIDs and
   commits one guarded batch made only from the same granular mutation kinds;
-  the targeted operations below remain the correction/edit surface.
+  the targeted operations below remain the correction/edit surface. Its four
+  search-display slots are root fields with the same names and schemas as
+  `setCaseSearchDisplay`; provide the complete cluster together, using `null`
+  to clear a slot. There is no one-off `searchDisplay` envelope.
 
 - **Two arrays decompose into ops.** Each of `columns` and `searchInputs` has a list-`add` (`addCaseListColumns` / `addSearchInputs`) plus `update` / `remove` / `reorder`. The `add` takes a list — minting a uuid per item and surfacing them positionally in `result.uuids` — so a module's whole set authors in one call; `update` / `remove` consume a single uuid as the addressing key. Reference the minted uuids directly on follow-up edits without re-reading.
 - **One wholesale tool for `filter`.** A filter is one Predicate, so a wholesale `setCaseListFilter` (with a `null`-clears convention) fits.

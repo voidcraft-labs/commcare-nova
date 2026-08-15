@@ -199,6 +199,14 @@ A record owns its properties. Each property records:
 - optional required condition;
 - allowed values for a choice property.
 
+Every concrete semantic data shape is tied to at least one registered
+Blueprint field carrier, and storage-capable shapes additionally name their
+case-property carrier. The Design Contract does not offer a generic Boolean
+fact: Nova has Boolean predicates but no Boolean question or case-property
+type. A durable yes/no answer is an explicit single-choice fact with real
+values. `unknown` remains an authoring-only placeholder and cannot pass
+construction finalization.
+
 Properties are declared once under their record. Writer and reader relations
 are derived from workflows and lists rather than copied into the property.
 There is no separate identity marker: a record's display identity is spelled
@@ -766,15 +774,23 @@ then dispatches calls serially in provider order and persists each result
 independently. A rejected call preserves its accepted prefix and marks the
 dependent suffix skipped. Process recovery runs only unanswered calls; it
 never replays a successful prefix or runs a suffix after a durable failed or
-terminal result.
+terminal result. The author and executor prompts explain the useful boundary:
+keep calls together while accepted intent, current state, and declared handles
+already determine their inputs, because needless success round-trips fill the
+model's working context with completed mechanics. Start a new response when a
+read result, rejection, new information, or returned value genuinely changes
+what the next call must contain.
 
 The ordinary shared surface also includes `configureCaseList`, one
 resource-level call for a known case-list refinement: it may add columns and
 search inputs, replace or clear the always-on filter, compose the search-screen
-display cluster, and arrange Results, Details, and search-input order. The
-tool is not a second storage shape or a mutation envelope; it lowers to the
-same granular column, input, filter, order, and module-setting mutations and
-commits them as one guarded batch. Targeted follow-up tools remain available.
+display cluster, and arrange Results, Details, and search-input order. Its four
+display slots are root fields with the same names and value schemas as
+`setCaseSearchDisplay`; supplying display in the resource call names the whole
+cluster, with `null` clearing a slot. The tool is not a second storage shape or
+a mutation envelope; it lowers to the same granular column, input, filter,
+order, and module-setting mutations and commits them as one guarded batch.
+Targeted follow-up tools remain available.
 
 `configureConnect` remains a shared direct SA/MCP operation, but the reviewed
 executor does not authorize it merely because a slice contains forms. The
