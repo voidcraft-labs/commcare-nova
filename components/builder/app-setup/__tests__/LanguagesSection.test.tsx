@@ -23,6 +23,7 @@ import {
 	collectTranslationUnits,
 	effectiveAppLocalization,
 	makeTranslationUnitId,
+	type ProseTemplate,
 	proseText,
 } from "@/lib/domain";
 import { LanguagesSection } from "../LanguagesSection";
@@ -149,6 +150,89 @@ describe("LanguagesSection", () => {
 						JSON.stringify(entry.value).includes("Nombre del cliente"),
 				),
 			).toBe(true);
+		});
+	});
+
+	it("round-trips target literals that resemble protected-reference markers", async () => {
+		renderSection();
+		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
+		fireEvent.change(screen.getByLabelText("Language code"), {
+			target: { value: "es" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add and copy strings" }),
+		);
+		await screen.findByRole("heading", { name: "español strings" });
+		if (store === undefined) throw new Error("Expected the document store.");
+
+		const source: ProseTemplate = {
+			parts: [
+				{ kind: "text", text: "Worker " },
+				{ kind: "user-ref", property: "username" },
+			],
+		};
+		act(() => {
+			store?.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: FIELD_UUID,
+					targetKind: "text",
+					patch: { label: source },
+				},
+			]);
+		});
+		const unitId = makeTranslationUnitId("field", FIELD_UUID, "label");
+		const unit = collectTranslationUnits(store.getState()).find(
+			(candidate) => candidate.id === unitId,
+		);
+		if (unit === undefined) throw new Error("Expected the field-label unit.");
+		act(() => {
+			store?.getState().applyMany([
+				{
+					kind: "setTranslation",
+					language: "es",
+					unitId,
+					entry: {
+						value: {
+							parts: [
+								{ kind: "text", text: "Literal [[NOVA_REF_1]] " },
+								{ kind: "user-ref", property: "username" },
+							],
+						},
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "en",
+					},
+				},
+			]);
+		});
+
+		const input = (await screen.findByDisplayValue(
+			"Literal [[NOVA_REF_1]] [[NOVA_REF__1]]",
+		)) as HTMLTextAreaElement;
+		const row = input.closest("article");
+		if (row === null) throw new Error("Expected the translation row.");
+		fireEvent.change(input, {
+			target: {
+				value: "Literal [[NOVA_REF_1]] [[NOVA_REF__1]] actualizado",
+			},
+		});
+		fireEvent.click(
+			within(row).getByRole("button", { name: "Save translation" }),
+		);
+
+		await waitFor(() => {
+			expect(
+				effectiveAppLocalization(store?.getState().localization).translations
+					.es?.[unitId]?.value,
+			).toEqual({
+				parts: [
+					{ kind: "text", text: "Literal [[NOVA_REF_1]] " },
+					{ kind: "user-ref", property: "username" },
+					{ kind: "text", text: " actualizado" },
+				],
+			});
 		});
 	});
 

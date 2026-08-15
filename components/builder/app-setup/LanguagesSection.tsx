@@ -983,9 +983,10 @@ function sameReference(left: ProseReferencePart, right: ProseReferencePart) {
 
 function protectedTokens(
 	source: ProseTemplate,
+	target: ProseTemplate,
 	doc: BlueprintDoc,
 ): readonly ProtectedToken[] {
-	const literalText = source.parts
+	const literalText = [...source.parts, ...target.parts]
 		.filter((part) => part.kind === "text")
 		.map((part) => part.text)
 		.join("");
@@ -1064,7 +1065,10 @@ function ProtectedProseEditor({
 	readonly value: ProseTemplate;
 	readonly onChange: (value: ProseTemplate) => void;
 }) {
-	const tokens = useMemo(() => protectedTokens(source, doc), [doc, source]);
+	/* Freeze collision-free markers for this editor instance. Parent draft
+	 * updates must not change the marker alphabet midway through an edit; the
+	 * row remounts when its persisted source or target value changes. */
+	const [tokens] = useState(() => protectedTokens(source, value, doc));
 	const [draft, setDraft] = useState(() => serializeProse(value, tokens));
 	const [error, setError] = useState<string>();
 	return (
