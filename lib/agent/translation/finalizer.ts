@@ -419,7 +419,7 @@ export async function finalizeInitialBuildLocalization(
 		) {
 			throw new LocalizationBuildError(
 				"translation-direction-unavailable",
-				`Automatic translation from ${intent.sourceLanguage.name} to ${target.language.name} is not Available under Nova's exact-direction quality policy. Manual authoring and copy remain available.`,
+				`Automatic translation from ${intent.sourceLanguage.name} to ${target.language.name} is not available under Nova's exact-direction quality policy. Manual authoring and copy remain available.`,
 			);
 		}
 	}

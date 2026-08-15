@@ -999,16 +999,20 @@ export async function runBuildOrchestration(
 				});
 			} catch (error) {
 				if (error instanceof LocalizationBuildError) {
+					/* The exact failed protocol row remains terminal, so an unchanged
+					 * retry cannot purchase another random sample. Keep the enclosing
+					 * build resumable so a deployed model/prompt/schema generation can
+					 * append its permitted replacement and finish the frozen app. */
 					head = await appendFailure(args, head, {
 						errorType: error.code,
-						recoverable: false,
+						recoverable: true,
 					});
 					return {
 						kind: "failed",
 						appId,
 						errorType: error.code,
 						message: error.message,
-						recoverable: false,
+						recoverable: true,
 					};
 				}
 				if (!(error instanceof BuildCompletionVerificationError)) throw error;
