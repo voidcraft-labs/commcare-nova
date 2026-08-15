@@ -263,7 +263,11 @@ Project, or missing Better Auth Project blocks. Its `down` is forward-only.
 `appendSyntheticBatch` requires an exact expected sequence and explicit user or
 named-system authority. After locking fresh state it diffs to the requested
 target, proves replay identity, and persists the actual mutations; a true no-op
-writes no row and advances no sequence. `repairLookupReferenceEdges` is the
+writes no row and advances no sequence. A named-system repair may load a source
+that strictly parses but fails today's absolute gate—the reason the repair is
+needed—while its requested target still passes the complete current gate before
+anything commits; user-attributed synthetic writes retain strict source
+admission. `repairLookupReferenceEdges` is the
 app-locked maintenance sibling for derived edge state only: it rederives the
 structural target set from the committed blueprint and replaces the stored
 edge sets, writing no entity, history, or sequence. It is server-only and
