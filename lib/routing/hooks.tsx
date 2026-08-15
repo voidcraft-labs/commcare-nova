@@ -33,10 +33,8 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useRef } from "react";
 import { useConsultEditGuard } from "@/components/builder/contexts/EditGuardContext";
-import {
-	useBlueprintDoc,
-	useBlueprintDocShallow,
-} from "@/lib/doc/hooks/useBlueprintDoc";
+import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useField, useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
@@ -87,9 +85,7 @@ export function useLocation(): Location {
 export function useSelectedField(): Field | null {
 	const loc = useLocation();
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
-	const field = useBlueprintDoc((s) =>
-		selectedUuid ? s.fields[selectedUuid] : undefined,
-	);
+	const field = useField(selectedUuid);
 	return field ?? null;
 }
 
@@ -105,12 +101,8 @@ export function useSelectedFormContext(): {
 	const loc = useLocation();
 	const moduleUuid = loc.kind === "form" ? loc.moduleUuid : undefined;
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
-	const mod = useBlueprintDoc((s) =>
-		moduleUuid ? s.modules[moduleUuid] : undefined,
-	);
-	const form = useBlueprintDoc((s) =>
-		formUuid ? s.forms[formUuid] : undefined,
-	);
+	const mod = useModule(moduleUuid);
+	const form = useForm(formUuid);
 	if (!mod || !form) return null;
 	return { module: mod, form };
 }
@@ -277,12 +269,8 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			? loc.formUuid
 			: undefined;
 
-	const moduleName = useBlueprintDoc((s) =>
-		moduleUuid ? s.modules[moduleUuid]?.name : undefined,
-	);
-	const formName = useBlueprintDoc((s) =>
-		formUuid ? s.forms[formUuid]?.name : undefined,
-	);
+	const moduleName = useModule(moduleUuid)?.name;
+	const formName = useForm(formUuid)?.name;
 	/* A bare case list (a `caseListOnly` module) has no module screen — it IS
 	 * its Results screen. Its module crumb points straight at Results, and the
 	 * intermediate "Results" crumb is dropped (below) so the trail doesn't

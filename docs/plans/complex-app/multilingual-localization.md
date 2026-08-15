@@ -302,7 +302,13 @@ When a target language is selected in the ordinary Builder, editing a
 worker-facing value writes the target overlay. The global selector remains
 visible while editing, and the Languages workspace is the authoritative
 side-by-side source/target review surface. Structural IDs and authoring-only
-values never change with the language lens.
+values never change with the language lens. An existing target edit may share
+one gesture with a structural edit; the target string and canonical structure
+still land as separate mutations in one admitted batch. A newly-created entity
+is born with canonical source content. An optional worker-facing slot that has
+no source content yet is added under the source lens before a target can
+translate it, so selecting a target can never put that target language into the
+canonical source by accident.
 
 Preview consumes the same effective-value resolver and selected locale. It
 applies language direction to worker content and input controls. Preview-only

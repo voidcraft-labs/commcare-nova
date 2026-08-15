@@ -42,6 +42,7 @@
 
 import { useContext, useMemo } from "react";
 import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import {
 	type CaseTypeRetirement,
 	planCaseTypeRetirementOnRemove,
@@ -67,6 +68,7 @@ import {
 	removeOrganizationLevelPlan,
 	setPersonaLocationsMutations,
 } from "@/lib/doc/organizationMutations";
+import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
 import {
 	BlueprintDocContext,
 	BlueprintEditableContext,
@@ -666,6 +668,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 	 * even if its control wasn't individually hidden. The agent-stream / replay
 	 * writers bypass this hook and stay unaffected — a viewer triggers neither. */
 	const canEdit = useContext(BlueprintEditableContext);
+	const authoringLanguage = useContext(BlueprintAuthoringLanguageContext);
 	const lookupCommitState = useLookupCommitState();
 
 	// Memoize against the store instance so the returned action object is
@@ -730,9 +733,20 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					if (announce) notifyRejectedCommit(lines);
 					return { ok: false, messages: lines };
 				}
-				const verdict = mutationCommitVerdict(
-					get(),
+				const doc = get();
+				const projected = projectBuilderLanguageMutations(
+					doc,
+					authoringLanguage,
 					mutations,
+				);
+				if (!projected.ok) {
+					const lines = [projected.message];
+					if (announce) notifyRejectedCommit(lines);
+					return { ok: false, messages: lines };
+				}
+				const verdict = mutationCommitVerdict(
+					doc,
+					projected.mutations,
 					lookupCommitState.lookupContext,
 				);
 				if (!verdict.ok) {
@@ -1754,5 +1768,5 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 		};
 
 		return { ...makeApi(true), inline: makeApi(false) };
-	}, [store, canEdit, lookupCommitState]);
+	}, [store, canEdit, authoringLanguage, lookupCommitState]);
 }

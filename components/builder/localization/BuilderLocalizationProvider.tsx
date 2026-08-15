@@ -7,6 +7,7 @@ import {
 	useContext,
 	useMemo,
 } from "react";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import {
 	useBlueprintDoc,
 	useBlueprintDocEq,
@@ -24,7 +25,8 @@ import {
 	type LocalizedValue,
 	localizeTranslationUnit,
 	type Module,
-	makeTranslationUnitId,
+	projectLocalizedField,
+	projectLocalizedModule,
 	type TranslationUnitId,
 	translationUnitsById,
 	type Uuid,
@@ -87,9 +89,11 @@ export function BuilderLocalizationProvider({
 	}, [effective, language, selectLanguage]);
 
 	return (
-		<BuilderLocalizationContext value={value}>
-			{children}
-		</BuilderLocalizationContext>
+		<BlueprintAuthoringLanguageContext value={language}>
+			<BuilderLocalizationContext value={value}>
+				{children}
+			</BuilderLocalizationContext>
+		</BlueprintAuthoringLanguageContext>
 	);
 }
 
@@ -186,90 +190,14 @@ function sameModule(
 
 /** Selected-language module chrome, case-list labels, and Search copy. */
 export function useLocalizedModule(uuid: Uuid | undefined): Module | undefined {
-	const { language, isSource } = useBuilderLanguage();
-	return useBlueprintDocEq((doc) => {
-		const module = uuid === undefined ? undefined : doc.modules[uuid];
-		if (module === undefined || isSource) return module;
-		const units = translationUnitsById(doc);
-		const text = (id: TranslationUnitId, fallback: string): string => {
-			const unit = units.get(id);
-			if (unit === undefined) return fallback;
-			const value = localizeTranslationUnit(doc, language, unit).effective;
-			return typeof value === "string" ? value : fallback;
-		};
-		const localized = structuredClone(module);
-		localized.name = text(
-			makeTranslationUnitId("module", module.uuid, "name"),
-			module.name,
-		);
-		if (localized.caseListConfig !== undefined) {
-			localized.caseListConfig.columns = localized.caseListConfig.columns.map(
-				(column) => {
-					const next = {
-						...column,
-						header: text(
-							makeTranslationUnitId("column", column.uuid, "header"),
-							column.header,
-						),
-					};
-					if (next.kind === "id-mapping") {
-						next.mapping = next.mapping.map((mapping) => ({
-							...mapping,
-							label: text(
-								makeTranslationUnitId(
-									"column",
-									column.uuid,
-									"mapping",
-									mapping.value,
-								),
-								mapping.label,
-							),
-						}));
-					}
-					if (next.kind === "interval") {
-						next.text = text(
-							makeTranslationUnitId("column", column.uuid, "text"),
-							next.text,
-						);
-					}
-					return next;
-				},
-			);
-			localized.caseListConfig.searchInputs =
-				localized.caseListConfig.searchInputs.map((input) => ({
-					...input,
-					label: text(
-						makeTranslationUnitId("search-input", input.uuid, "label"),
-						input.label !== "" ? input.label : input.name,
-					),
-				}));
-		}
-		if (
-			localized.caseSearchConfig !== undefined &&
-			!("searchActionEnabled" in localized.caseSearchConfig)
-		) {
-			const search = localized.caseSearchConfig;
-			if (search.searchScreenTitle !== undefined) {
-				search.searchScreenTitle = text(
-					makeTranslationUnitId("module", module.uuid, "search-title"),
-					search.searchScreenTitle,
-				);
-			}
-			if (search.searchScreenSubtitle !== undefined) {
-				search.searchScreenSubtitle = text(
-					makeTranslationUnitId("module", module.uuid, "search-subtitle"),
-					search.searchScreenSubtitle,
-				);
-			}
-			if (search.searchButtonLabel !== undefined) {
-				search.searchButtonLabel = text(
-					makeTranslationUnitId("module", module.uuid, "search-button"),
-					search.searchButtonLabel,
-				);
-			}
-		}
-		return localized;
-	}, sameModule);
+	const { language } = useBuilderLanguage();
+	return useBlueprintDocEq(
+		(doc) =>
+			uuid === undefined
+				? undefined
+				: projectLocalizedModule(doc, language, uuid),
+		sameModule,
+	);
 }
 
 /**
@@ -278,41 +206,11 @@ export function useLocalizedModule(uuid: Uuid | undefined): Module | undefined {
  * inline option labels can differ from the canonical entity.
  */
 export function useLocalizedField(uuid: Uuid): Field | undefined {
-	const { language, isSource } = useBuilderLanguage();
-	return useBlueprintDocEq((doc) => {
-		const field = doc.fields[uuid];
-		if (field === undefined || isSource) return field;
-		const units = translationUnitsById(doc);
-		const localized = structuredClone(field) as Field;
-		const sourceRecord = field as unknown as Record<string, unknown>;
-		const record = localized as unknown as Record<string, unknown>;
-		for (const slot of ["label", "hint", "help", "validate_msg"] as const) {
-			if (sourceRecord[slot] === undefined) continue;
-			const unit = units.get(makeTranslationUnitId("field", uuid, slot));
-			if (unit !== undefined) {
-				record[slot] = localizeTranslationUnit(doc, language, unit).effective;
-			}
-		}
-		if (
-			"optionsSource" in localized &&
-			localized.optionsSource.kind === "inline"
-		) {
-			localized.optionsSource.options = localized.optionsSource.options.map(
-				(option) => {
-					const unit = units.get(
-						makeTranslationUnitId("field", uuid, "option", option.uuid),
-					);
-					if (unit === undefined) return option;
-					return {
-						...option,
-						label: localizeTranslationUnit(doc, language, unit)
-							.effective as typeof option.label,
-					};
-				},
-			);
-		}
-		return localized;
-	}, sameField);
+	const { language } = useBuilderLanguage();
+	return useBlueprintDocEq(
+		(doc) => projectLocalizedField(doc, language, uuid),
+		sameField,
+	);
 }
 
 export interface TranslationUnitEditor {

@@ -10,8 +10,14 @@
 
 "use client";
 
+import { useContext } from "react";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
+import { projectLocalizedAppName } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
 export function useAppName(): string {
-	return useBlueprintDoc((s) => s.appName);
+	const language = useContext(BlueprintAuthoringLanguageContext);
+	return useBlueprintDoc((doc) =>
+		language === null ? doc.appName : projectLocalizedAppName(doc, language),
+	);
 }

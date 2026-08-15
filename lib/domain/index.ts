@@ -30,6 +30,7 @@ export * from "./jsonNumber";
 export * from "./kinds";
 export * from "./languageCatalog";
 export * from "./localization";
+export * from "./localizedBlueprintProjection";
 export * from "./lookupCarriers";
 export * from "./lookupIds";
 export * from "./modules";
