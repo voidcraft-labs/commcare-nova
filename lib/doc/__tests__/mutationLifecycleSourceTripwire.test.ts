@@ -82,6 +82,10 @@ const SOURCE_CLASSIFICATION = {
 	"lib/mcp/context.ts": "admits-proposal",
 	"lib/organization/service.ts": "admits-proposal",
 	"lib/preview/engine/casePropertyRenamePreflight.ts": "admits-proposal",
+	// The finite status-filter cutover names an allowlisted system repair and
+	// submits its semantic batch through appendSyntheticBatch, whose canonical
+	// commit kernel re-admits the target document before writing anything.
+	"scripts/lib/caseStatusFilterRepair.ts": "admits-proposal",
 } as const satisfies Readonly<Record<string, LifecycleMode>>;
 
 /**
@@ -111,7 +115,11 @@ const MUTATION_LIFECYCLE_FAMILIES = [
 	["whole-document diff", ["lib/doc/diffDocsToMutations.ts"]],
 	[
 		"frozen repair and synthetic writers",
-		["scripts/repair-canonical-identity-foundation.ts", "lib/db/apps.ts"],
+		[
+			"scripts/repair-canonical-identity-foundation.ts",
+			"scripts/lib/caseStatusFilterRepair.ts",
+			"lib/db/apps.ts",
+		],
 	],
 	["Project-move media remap", ["lib/db/apps.ts"]],
 	["autosave route", ["app/api/apps/[id]/route.ts"]],
