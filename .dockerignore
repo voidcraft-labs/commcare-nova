@@ -34,6 +34,7 @@ scripts/lib/*
 !scripts/lib/caseParentRelationshipRepair.ts
 !scripts/lib/caseStatusFilterRepair.ts
 !scripts/lib/xpathCarrierCompatibilityRepair.ts
+!scripts/lib/xpathCompatibilityScan.ts
 !scripts/lib/loadPersistedBlueprint.ts
 !scripts/lib/main.ts
 !scripts/lib/schemaDrift.ts

@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { build } from "esbuild";
 import { describe, expect, test } from "vitest";
 
 const cloudBuild = readFileSync("cloudbuild.yaml", "utf8");
@@ -204,7 +205,7 @@ describe("durable deployment policy", () => {
 		expect(cloudSqlProvisioning).not.toContain("compute@developer");
 	});
 
-	test("ships only the final deployment and maintenance Job entrypoints", () => {
+	test("ships only the final deployment and maintenance Job entrypoints", async () => {
 		const esbuildEntrypoints = [
 			...dockerfile.matchAll(/npx esbuild (scripts\/[^\s\\]+)/g),
 		].map((match) => match[1]);
@@ -218,20 +219,33 @@ describe("durable deployment policy", () => {
 			"scripts/migrate-schema-drift.ts",
 			"scripts/migrate-legacy-preplan-builds.ts",
 		]);
-		for (const entrypoint of esbuildEntrypoints) {
-			expect(dockerignore).toContain(`!${entrypoint}`);
-		}
-		for (const helper of [
-			"caseParentRelationshipRepair.ts",
-			"caseTypeSchemaRetirement.ts",
-			"loadPersistedBlueprint.ts",
-			"main.ts",
-			"schemaDrift.ts",
-			"schemaDriftMigration.ts",
-			"xpathCarrierCompatibilityRepair.ts",
-		]) {
-			expect(dockerignore).toContain(`!scripts/lib/${helper}`);
-		}
+		const dockerContextAllowlist = new Set(
+			dockerignore
+				.split(/\r?\n/)
+				.filter((line) => line.startsWith("!"))
+				.map((line) => line.slice(1)),
+		);
+		const bundle = await build({
+			entryPoints: esbuildEntrypoints,
+			bundle: true,
+			platform: "node",
+			target: "node24",
+			format: "cjs",
+			conditions: ["react-server"],
+			tsconfig: "tsconfig.json",
+			external: ["pg-native"],
+			outdir: ".deployment-policy-test-output",
+			metafile: true,
+			write: false,
+			logLevel: "silent",
+		});
+		const omittedScriptInputs = Object.keys(bundle.metafile.inputs)
+			.filter(
+				(input) =>
+					input.startsWith("scripts/") && !dockerContextAllowlist.has(input),
+			)
+			.sort();
+		expect(omittedScriptInputs).toEqual([]);
 		expect(migrateEntrypoint).not.toContain("DatabaseCapacityPreflight");
 		expect(migrateEntrypoint).toContain("runCanonicalRuntimeDatabaseProbe");
 		expect(migrateEntrypoint).toContain(
