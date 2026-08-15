@@ -85,6 +85,15 @@ JOB_TEMPLATE_CONTRACTS = {
         max_retries=0,
         timeout="3000s",
     ),
+    "commcare-nova-legacy-preplan-repair": JobTemplateContract(
+        service_account="nova-migrate@commcare-nova.iam.gserviceaccount.com",
+        command=("node",),
+        stored_args=("legacy-preplan-repair.cjs",),
+        task_count=1,
+        parallelism=1,
+        max_retries=0,
+        timeout="900s",
+    ),
     "commcare-nova-capture-cleanup": JobTemplateContract(
         service_account="nova-capture-cleanup@commcare-nova.iam.gserviceaccount.com",
         command=("node",),
@@ -567,6 +576,12 @@ def _effective_execution_args(
         },
     }
     if requested in exact_overrides.get(short_name, set()):
+        return requested
+
+    if short_name == "commcare-nova-legacy-preplan-repair" and requested == (
+        "legacy-preplan-repair.cjs",
+        "--execute",
+    ):
         return requested
 
     if short_name == "commcare-nova-case-type-schema-retirement":
@@ -1369,6 +1384,10 @@ def _policy_self_test() -> None:
     job_name = "projects/p/locations/r/jobs/commcare-nova-migrate"
     migrate_contract = JOB_TEMPLATE_CONTRACTS["commcare-nova-migrate"]
     assert _effective_execution_args(job_name, ()) == migrate_contract.stored_args
+    assert _effective_execution_args(
+        "projects/p/locations/r/jobs/commcare-nova-legacy-preplan-repair",
+        ("legacy-preplan-repair.cjs", "--execute"),
+    ) == ("legacy-preplan-repair.cjs", "--execute")
     assert _effective_execution_args(
         "projects/p/locations/r/jobs/commcare-nova-case-type-schema-retirement",
         ("schema-drift.cjs", "--execute", "--app", "app_123"),
