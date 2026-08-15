@@ -72,6 +72,13 @@ export async function resolveGenerationTargetScope(
 	}
 	const session = await loadDesignSession(target.designSessionId);
 	if (!session) throw new AppAccessError("not_found");
+	/* Before materialization the design is owner-private even inside a shared
+	 * Project. The app becomes the Project-shared authority boundary only once
+	 * the session has a bound app. Collapse this denial with every other
+	 * cross-tenant probe. */
+	if (session.app_id === null && session.owner_user_id !== userId) {
+		throw new AppAccessError("not_found");
+	}
 	const role = await projectRoleFor(userId, session.project_id);
 	if (role === null) throw new AppAccessError("not_member");
 	if (!roleAllowsApp(role, required)) {

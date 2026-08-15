@@ -612,17 +612,17 @@ export function mutationWireCanonicalityRejection(
  * candidate has zero shape, soundness, or completeness findings, including for
  * an empty batch. This separate boundary function exists because export
  * readiness additionally evaluates manifest-gated environment rules. With the
- * deliberately empty manifest below, any media reference is reported missing.
- *
- * Only callers whose docs hold no media may use this helper (today: canonical
- * app genesis). The real export path threads the Project's external-resource
- * snapshots through `lib/export/boundaryValidation.ts`.
+ * supplied manifest, media references are evaluated against the exact external
+ * rows (including synthesized built-in icons) the caller proved. The real
+ * export path threads the Project's complete external-resource snapshots
+ * through `lib/export/boundaryValidation.ts`.
  */
 export function exportReadinessFindings(
 	doc: BlueprintDoc,
 	lookupContext: LookupValidationContext,
+	mediaAssets: Parameters<typeof evaluateBoundary>[1] = new Map(),
 ): ValidationError[] {
-	return evaluateBoundary(doc, new Map(), lookupContext);
+	return evaluateBoundary(doc, mediaAssets, lookupContext);
 }
 
 /**

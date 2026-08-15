@@ -100,8 +100,8 @@ function askQuestionsPartToText(part: Part): string {
 }
 
 /**
- * Apply the reasoning-part contract above. `turnModel` is the model id
- * the SA will run THIS turn (`SA_EDIT_MODEL` / `SA_BUILD_MODEL` by mode).
+ * Apply the reasoning-part contract above. `turnModel` is the exact model id
+ * that will run this turn; reasoning items replay only within that model.
  */
 export function sanitizeHistoricalReasoningParts<M extends UIMessage>(
 	messages: M[],

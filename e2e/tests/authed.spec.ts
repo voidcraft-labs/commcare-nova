@@ -48,6 +48,20 @@ interface SeedManifest {
 	scrollQuestionOneText: string;
 	scrollQuestionTwoText: string;
 	scrollQuestionFinalOption: string;
+	designBuildActivation: {
+		eventVersion: 1;
+		designSessionId: string;
+		appId: string;
+		projectId: string;
+		role: string;
+		canEdit: boolean;
+		seq: 1;
+		batchId: string;
+		changeSetId: string;
+		snapshotDigest: string;
+		blueprint: Record<string, unknown>;
+		starter: null;
+	};
 	moveAppName: string;
 	moveProjectName: string;
 	moveAppIds: string[];
@@ -164,6 +178,189 @@ async function stubChatSends(
 		});
 	});
 	return { reply: replyText };
+}
+
+type ScriptedChunk = { type: string; [key: string]: unknown };
+
+function designProgressEnvelope(
+	designSessionId: string,
+	revision: number,
+	data: unknown,
+): Record<string, unknown> {
+	return {
+		eventVersion: 1,
+		designSessionId,
+		orchestrationEventId: `scripted-event-${revision}`,
+		orchestrationRevision: revision,
+		data,
+	};
+}
+
+/** Three deterministic responses exercise the real chat/UI state machine:
+ * pre-app question → materialized but still locked question → completion.
+ * The route never reaches Nova's server, provider, or usage meter. */
+async function stubDesignBuildJourney(
+	page: Page,
+	activation: SeedManifest["designBuildActivation"],
+): Promise<void> {
+	let sends = 0;
+	const sessionId = activation.designSessionId;
+	const ask = (
+		toolCallId: string,
+		header: string,
+		question: string,
+		options: { label: string }[],
+	): ScriptedChunk[] => [
+		{ type: "tool-input-start", toolCallId, toolName: "askQuestions" },
+		{
+			type: "tool-input-available",
+			toolCallId,
+			toolName: "askQuestions",
+			input: { header, questions: [{ question, options }] },
+		},
+	];
+	const textChunks = (id: string, text: string): ScriptedChunk[] => [
+		{ type: "text-start", id },
+		{ type: "text-delta", id, delta: text },
+		{ type: "text-end", id },
+	];
+
+	await page.route("**/api/chat", async (route) => {
+		if (route.request().method() !== "POST") {
+			await route.fallback();
+			return;
+		}
+		sends += 1;
+		let chunks: ScriptedChunk[];
+		if (sends === 1) {
+			chunks = [
+				{ type: "start", messageId: "scripted-design-1" },
+				{ type: "start-step" },
+				{
+					type: "data-design-session",
+					data: { designSessionId: sessionId, materializedAppId: null },
+				},
+				{
+					type: "data-design-pulse",
+					data: designProgressEnvelope(sessionId, 1, {
+						phase: "review",
+						chars: 120,
+					}),
+				},
+				...textChunks(
+					"scripted-design-text",
+					"I’ve outlined the referral flow. One detail will make the follow-up queue fit your team.",
+				),
+				{
+					type: "data-design-outline",
+					data: designProgressEnvelope(sessionId, 2, {
+						objective: "Track referrals from intake through follow-up",
+						actors: ["Intake worker", "Follow-up coordinator"],
+						tasks: ["Register a referral", "Record follow-up"],
+						records: ["Referral"],
+						lists: ["Open referrals"],
+						assumptions: [],
+						blockingQuestions: ["How quickly should follow-up begin?"],
+						outOfScope: [],
+						reviewed: true,
+					}),
+				},
+				{
+					type: "data-build-plan-summary",
+					data: designProgressEnvelope(sessionId, 3, {
+						sliceCount: 1,
+						sliceNames: ["Referral intake and follow-up"],
+						externalActionCount: 0,
+					}),
+				},
+				...ask(
+					"scripted-design-question",
+					"A follow-up detail",
+					"How quickly should follow-up begin?",
+					[],
+				),
+				{ type: "finish-step" },
+				{ type: "finish" },
+			];
+		} else if (sends === 2) {
+			chunks = [
+				{ type: "start", messageId: "scripted-design-2" },
+				{ type: "start-step" },
+				{
+					type: "data-design-session",
+					data: { designSessionId: sessionId, materializedAppId: null },
+				},
+				...textChunks(
+					"scripted-build-text",
+					"Thanks. I’m building the referral workflow now.",
+				),
+				{
+					type: "data-build-slice-started",
+					data: designProgressEnvelope(sessionId, 4, {
+						sliceId: "scripted-slice-1",
+						sliceName: "Referral intake and follow-up",
+					}),
+				},
+				{
+					type: "data-build-slice-committed",
+					data: designProgressEnvelope(sessionId, 5, {
+						sliceId: "scripted-slice-1",
+						sliceName: "Referral intake and follow-up",
+						seq: 1,
+					}),
+				},
+				{ type: "data-app-materialized", data: activation },
+				...ask(
+					"scripted-build-question",
+					"One final choice",
+					"Who should see the follow-up queue?",
+					[{ label: "Follow-up coordinators" }],
+				),
+				{ type: "finish-step" },
+				{ type: "finish" },
+			];
+		} else {
+			chunks = [
+				{ type: "start", messageId: "scripted-design-3" },
+				{ type: "start-step" },
+				{
+					type: "data-design-session",
+					data: {
+						designSessionId: sessionId,
+						materializedAppId: activation.appId,
+					},
+				},
+				...textChunks(
+					"scripted-finish-text",
+					"Your referral app is ready to try.",
+				),
+				{
+					type: "data-build-completion",
+					data: designProgressEnvelope(sessionId, 6, {
+						appId: activation.appId,
+						appSeq: 1,
+						plannedSlices: 1,
+					}),
+				},
+				{
+					type: "data-done",
+					data: { doc: activation.blueprint, seq: 1, success: true },
+				},
+				{ type: "finish-step" },
+				{ type: "finish" },
+			];
+		}
+		await route.fulfill({
+			status: 200,
+			headers: {
+				"content-type": "text/event-stream",
+				"x-workflow-run-id": `00000000-0000-4000-8000-00000000001${sends}`,
+			},
+			body: `${chunks
+				.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+				.join("")}data: [DONE]\n\n`,
+		});
+	});
 }
 
 /**
@@ -2953,6 +3150,107 @@ test.describe("authenticated builder", () => {
 		await expect(startFromScratch).toHaveCount(0);
 	});
 
+	test("a scripted reviewed build stays plain-language and read-only until every workflow finishes", async ({
+		page,
+	}) => {
+		const activation = seed.designBuildActivation;
+		await stubDesignBuildJourney(page, activation);
+		await page.goto("/build/new");
+
+		await page
+			.getByPlaceholder("Describe your app")
+			.fill("Build a small referral tracker with intake and follow-up");
+		await page.getByRole("button", { name: "Send" }).click();
+
+		/* The first pause shows the reviewed design in human terms. Internal
+		 * design tools and their model-facing receipts never become chat UI. */
+		await expect(
+			page
+				.locator('[data-question-card="waiting"]')
+				.getByText("How quickly should follow-up begin?"),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByText("Reviewed design")).toBeVisible();
+		await expect(
+			page.getByText("Type your answer below", { exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByText("or type your answer below", { exact: true }),
+		).toHaveCount(0);
+		for (const internalName of [
+			"finishDesign",
+			"requestReview",
+			"updateFindingDispositions",
+			"submitPlan",
+		]) {
+			await expect(page.getByText(internalName, { exact: true })).toHaveCount(
+				0,
+			);
+		}
+		await expect(page).toHaveURL(
+			new RegExp(`/build/new\\?design=${activation.designSessionId}$`),
+		);
+
+		/* The one truthful status line is the final row immediately above the
+		 * composer, not stranded above the outline or elsewhere in the log. */
+		const firstStatus = page
+			.getByRole("status")
+			.filter({ hasText: "Waiting on your answer" });
+		await expect(firstStatus).toBeVisible();
+		const firstComposer = page.getByPlaceholder(
+			"What would you like to change?",
+		);
+		const [firstStatusBox, firstComposerBox] = await Promise.all([
+			firstStatus.boundingBox(),
+			firstComposer.boundingBox(),
+		]);
+		expect(firstStatusBox).not.toBeNull();
+		expect(firstComposerBox).not.toBeNull();
+		expect(
+			(firstStatusBox?.y ?? 0) + (firstStatusBox?.height ?? 0),
+		).toBeLessThanOrEqual(firstComposerBox?.y ?? 0);
+
+		await firstComposer.fill("Within two days");
+		await page.getByRole("button", { name: "Send" }).click();
+
+		/* Genesis activates the real tree, but the initial-build latch keeps every
+		 * direct editor locked and the center canvas on progress. */
+		await page.waitForURL(`/build/${activation.appId}`, { timeout: 20_000 });
+		await expect(
+			page.getByText("Who should see the follow-up queue?"),
+		).toBeVisible();
+		await expect(page.locator("[data-generation-progress-card]")).toBeVisible();
+		await expect(
+			page.getByRole("textbox", { name: "Find in app" }),
+		).toBeDisabled();
+		await expect(page.getByRole("button", { name: "Add module" })).toHaveCount(
+			0,
+		);
+		await expect(
+			page.getByText("or type your answer below", { exact: true }),
+		).toBeVisible();
+
+		await page
+			.getByRole("button", { name: "Follow-up coordinators", exact: true })
+			.click();
+
+		/* Completion releases the same store latch: progress leaves the canvas
+		 * and the ordinary authoring controls become available without a reload. */
+		await expect(
+			page.getByText("Your referral app is ready to try."),
+		).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(page.locator("[data-generation-progress-card]")).toHaveCount(
+			0,
+		);
+		await expect(
+			page.getByRole("textbox", { name: "Find in app" }),
+		).toBeEnabled();
+		await expect(
+			page.getByRole("button", { name: "Add module" }),
+		).toBeVisible();
+	});
+
 	test("conversations open at the bottom and switch without exposing the prior transcript", async ({
 		page,
 	}) => {
@@ -3023,6 +3321,51 @@ test.describe("authenticated builder", () => {
 		});
 	});
 
+	test("assistant text can be selected without unmounting the chat shell", async ({
+		page,
+	}) => {
+		await page.goto(`/build/${seed.threadsAppId}`);
+
+		const assistantMessage = page.getByText(seed.threadAssistantText);
+		await expect(assistantMessage).toBeVisible({ timeout: 20_000 });
+		const chatPanel = page.locator("[data-builder-chat-panel]");
+		const panelBeforeDrag = await chatPanel.boundingBox();
+		expect(panelBeforeDrag).not.toBeNull();
+		const messageBox = await assistantMessage.boundingBox();
+		expect(messageBox).not.toBeNull();
+		if (!messageBox) return;
+
+		const y = messageBox.y + Math.min(messageBox.height / 2, 12);
+		await page.mouse.move(messageBox.x + 4, y);
+		await page.mouse.down();
+		await page.mouse.move(
+			messageBox.x + Math.min(messageBox.width - 4, 180),
+			y,
+			{
+				steps: 8,
+			},
+		);
+
+		/* Drawer.Popup without Drawer.Content interpreted this ordinary selection
+		 * as a dismiss swipe and translated the whole chat surface away. DOM-only
+		 * visibility still passed, so assert its painted viewport geometry while
+		 * the pointer remains held. */
+		await expect(page.locator("[data-app-header]")).toBeVisible();
+		await expect(page.getByRole("log")).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Collapse chat sidebar" }),
+		).toBeVisible();
+		const panelDuringDrag = await chatPanel.boundingBox();
+		expect(panelDuringDrag).not.toBeNull();
+		expect(panelDuringDrag?.x).toBeCloseTo(panelBeforeDrag?.x ?? 0, 0);
+
+		const selectedText = await page.evaluate(
+			() => window.getSelection()?.toString() ?? "",
+		);
+		expect(selectedText.trim().length).toBeGreaterThan(0);
+		await page.mouse.up();
+	});
+
 	test("sending a message returns the view to it — a jump, never an animated trip", async ({
 		page,
 	}) => {
@@ -3036,7 +3379,7 @@ test.describe("authenticated builder", () => {
 		expect(await bottomGap(page)).toBeLessThanOrEqual(1);
 
 		const composer = page.getByPlaceholder("What would you like to change?");
-		const submit = page.getByRole("button", { name: "Submit" });
+		const submit = page.getByRole("button", { name: "Send" });
 
 		// Re-reading history escapes the bottom pin: the view holds still and
 		// the return affordance appears — nothing yanks the reader around.
@@ -3103,7 +3446,7 @@ test.describe("authenticated builder", () => {
 		const preAnswerMax = await armScrollTrace(page);
 		const composer = page.getByPlaceholder("What would you like to change?");
 		await composer.fill("The community team handles it");
-		await page.getByRole("button", { name: "Submit" }).click();
+		await page.getByRole("button", { name: "Send" }).click();
 		await expect(page.getByText(seed.scrollQuestionTwoText)).toBeVisible();
 		await expect.poll(() => bottomGap(page)).toBeLessThanOrEqual(1);
 		const trace = await readScrollTrace(page);

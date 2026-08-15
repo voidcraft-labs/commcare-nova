@@ -25,6 +25,7 @@ import { blueprintDocSchema } from "@/lib/domain";
 import type { CanonicalMutationHost } from "../../workspace/canonicalHost";
 import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
 import type { ToolInvocationContext } from "../../workspace/types";
+import { addFieldsTool } from "../addFields";
 import { createFormInputSchema, createFormTool } from "../createForm";
 import { createModuleInputSchema, createModuleTool } from "../createModule";
 import { updateFormTool } from "../updateForm";
@@ -151,7 +152,67 @@ function formAddress(doc: BlueprintDoc) {
 	return { moduleUuid, formUuid };
 }
 
+describe("field assembly — whole-call admission", () => {
+	it("addFields rejects the complete batch when one field cannot be assembled", async () => {
+		const doc = completeDoc();
+		const harness = makeHarness(doc);
+		const before = Object.keys(doc.fields);
+		const out = await harness.runTool(addFieldsTool, {
+			...formAddress(doc),
+			fields: [
+				{
+					kind: "text",
+					id: "visit_note",
+					label: proseText("Visit note"),
+				} as never,
+				{
+					kind: "single_select",
+					id: "catchment_site_code",
+					label: proseText("Catchment site"),
+				} as never,
+			],
+		});
+
+		expect("error" in out.result && out.result.error).toContain(
+			"catchment_site_code",
+		);
+		expect(out.mutations).toEqual([]);
+		expect(harness.recordMutations).not.toHaveBeenCalled();
+		expect(Object.keys(harness.currentDoc().fields)).toEqual(before);
+	});
+});
+
 describe("createForm — atomic form + fields", () => {
+	it("rejects the complete form when one requested field cannot be assembled", async () => {
+		const doc = completeDoc();
+		const harness = makeHarness(doc);
+		const before = doc.formOrder[moduleAddress(doc).moduleUuid]?.length;
+		const out = await harness.runTool(createFormTool, {
+			...moduleAddress(doc),
+			name: "Referral",
+			type: "followup",
+			fields: [
+				{
+					kind: "text",
+					id: "referral_note",
+					label: proseText("Referral note"),
+				} as never,
+				{
+					kind: "single_select",
+					id: "commune_code",
+					label: proseText("Commune"),
+				} as never,
+			],
+		});
+
+		expect("error" in out.result && out.result.error).toContain("commune_code");
+		expect(out.mutations).toEqual([]);
+		expect(harness.recordMutations).not.toHaveBeenCalled();
+		expect(
+			harness.currentDoc().formOrder[moduleAddress(doc).moduleUuid]?.length,
+		).toBe(before);
+	});
+
 	it("grows a COMPLETE app: a followup form lands with its fields in one batch", async () => {
 		const doc = completeDoc();
 		const harness = makeHarness(doc);
@@ -280,6 +341,55 @@ describe("createForm — atomic form + fields", () => {
 });
 
 describe("createModule — atomic module + forms + case list", () => {
+	it("rejects the complete module when one nested field cannot be assembled", async () => {
+		const doc = completeDoc();
+		const harness = makeHarness(doc);
+		const out = await harness.runTool(createModuleTool, {
+			name: "Households",
+			case_type: "household",
+			forms: [
+				{
+					name: "Register household",
+					type: "registration",
+					fields: [
+						{
+							kind: "text",
+							id: "case_name",
+							label: proseText("Household name"),
+							caseWrite: {
+								caseType: "household",
+								property: "case_name",
+							},
+						} as never,
+						{
+							kind: "single_select",
+							id: "catchment_site_code",
+							label: proseText("Catchment site"),
+							caseWrite: {
+								caseType: "household",
+								property: "catchment_site_code",
+							},
+						} as never,
+					],
+				},
+			],
+			case_list_columns: [
+				{
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				} as never,
+			],
+		});
+
+		expect("error" in out.result && out.result.error).toContain(
+			"catchment_site_code",
+		);
+		expect(out.mutations).toEqual([]);
+		expect(harness.recordMutations).not.toHaveBeenCalled();
+		expect(harness.currentDoc().moduleOrder).toEqual(doc.moduleOrder);
+	});
+
 	it("grows a COMPLETE app: a case-managing module lands with forms and columns in one batch", async () => {
 		const harness = makeHarness(completeDoc());
 		const moduleUuid = testUuid("receipt-household-module");
@@ -317,6 +427,7 @@ describe("createModule — atomic module + forms + case list", () => {
 							kind: "text",
 							id: "head_of_household",
 							label: proseText("Head of household"),
+							help: proseText("Use the name the household recognizes."),
 							caseWrite: {
 								caseType: "household",
 								property: "head_of_household",
@@ -368,6 +479,13 @@ describe("createModule — atomic module + forms + case list", () => {
 				m.kind === "addModule",
 		);
 		expect(addModule?.module.caseListConfig?.columns).toHaveLength(1);
+		const addedHead = out.mutations.find(
+			(m): m is Extract<typeof m, { kind: "addField" }> =>
+				m.kind === "addField" && m.field.uuid === headUuid,
+		);
+		expect(addedHead?.field).toMatchObject({
+			help: proseText("Use the name the household recognizes."),
+		});
 		if (!("moduleUuid" in out.result)) throw new Error("expected success");
 		expect(out.result).toMatchObject({
 			moduleUuid,

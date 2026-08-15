@@ -3,7 +3,10 @@
  * tools.
  *
  * The case-list config has four slots — `columns`, `filter?`,
- * `searchInputs`, `tile?` — and the SA tool surface decomposes into:
+ * `searchInputs`, `tile?`. `configureCaseList` is the preferred resource-level
+ * call when several known changes belong together; it lowers to the same
+ * granular mutations described below and commits once. The granular surface
+ * remains available for focused edits:
  *
  *   - One wholesale tool for `filter` (`setCaseListFilter`) — a filter
  *     is one Predicate, so the wholesale shape fits.

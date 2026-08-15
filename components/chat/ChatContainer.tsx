@@ -31,11 +31,15 @@
  */
 "use client";
 import { Chat, useChat } from "@ai-sdk/react";
-import type { UIMessage } from "ai";
+import type { ChatStatus, UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createStarterApp } from "@/app/(app)/build/actions";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
+import {
+	DesignProgressDetails,
+	DesignProgressStatus,
+} from "@/components/chat/DesignProgressPanel";
 import { StartFromScratch } from "@/components/chat/StartFromScratch";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import {
@@ -59,20 +63,36 @@ import {
 } from "@/lib/domain/blueprint";
 import { uuidSchema } from "@/lib/domain/uuid";
 import {
+	type DesignSessionScope,
+	type DesignSessionSeed,
+	parseDesignSessionScope,
+} from "@/lib/generation/designProgressWire";
+import {
 	applyStreamEvent,
 	conversationEventError,
 } from "@/lib/generation/streamDispatcher";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import {
+	createDesignProgressStore,
+	type DesignProgressState,
+	type DesignProgressStoreApi,
+	type DesignProgressView,
+	useDesignProgressView,
+} from "@/lib/session/designProgressStore";
+import {
 	deriveChatAppReady,
 	useAccessPhase,
-	useCanEdit,
+	useProjectCanEdit,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
-import { BuilderSessionContext } from "@/lib/session/provider";
+import {
+	BuilderSessionContext,
+	useBuilderSession,
+} from "@/lib/session/provider";
 import { markAppListStale } from "@/lib/ui/appListFreshness";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 type ProjectToastEmitter = (
 	severity: ToastSeverity,
@@ -80,6 +100,146 @@ type ProjectToastEmitter = (
 	message?: string,
 	options?: ToastOptions,
 ) => string;
+
+/**
+ * A design session owns the composer's one activity line for every unfinished
+ * design/build stage, including the read-only post-materialization build. Once
+ * the durable completion frame arrives it keeps ownership only until the
+ * transport closes, so the final confirmation cannot briefly uncover an older
+ * generic run warning and a settled app returns to the normal quiet composer.
+ */
+export function designProgressOwnsActivityStatus(
+	view: Pick<DesignProgressView, "active" | "stage">,
+	status: ChatStatus,
+): boolean {
+	/* A transport error must be visible until the effect that projects it into
+	 * design progress has committed. Otherwise a stale working stage can hide
+	 * the generic terminal error for one render, or indefinitely if ownership
+	 * changed before the effect ran. */
+	if (status === "error") {
+		return (
+			view.active && (view.stage === "failed" || view.stage === "incomplete")
+		);
+	}
+	return (
+		view.active &&
+		(view.stage !== "ready" || status === "submitted" || status === "streaming")
+	);
+}
+
+/** A design-session id is permanent thread lineage, but its progress UI is
+ * live only while the accepted build is unfinished. Pre-app scope is itself
+ * proof of an active build; after materialization the Builder session's
+ * durable unfinished latch is authoritative. */
+export function designSessionScopeTracksProgress(
+	scope: DesignSessionScope,
+	buildUnfinished: boolean,
+): boolean {
+	return scope.materializedAppId === null || buildUnfinished;
+}
+
+/** A design-backed conversation locks authoring only while its app still owns
+ * the unfinished initial-build latch. Historical lineage alone must not
+ * disable an otherwise editable composer. */
+export function designProgressLocksInitialBuild(
+	_view: Pick<DesignProgressView, "active" | "stage">,
+	buildUnfinished: boolean,
+): boolean {
+	return buildUnfinished;
+}
+
+/** A design lineage persists after materialization, including through later
+ * ordinary edits. Only an unfinished design build owns build-progress failure
+ * presentation; an edit on the completed app remains on the generic chat path. */
+export function designProgressTracksBuildFailure(
+	progress: Pick<
+		DesignProgressState,
+		"designSessionId" | "materializedAppId" | "activeSlice"
+	>,
+	buildUnfinished: boolean,
+): boolean {
+	return (
+		progress.designSessionId !== null &&
+		(progress.materializedAppId === null ||
+			buildUnfinished ||
+			progress.activeSlice !== null)
+	);
+}
+
+/** A sealed recoverable build failure has no live stream marker to re-drive
+ * automatically, while the ordinary composer must stay frozen so a message
+ * cannot revise the accepted contract. Offer one explicit continuation that
+ * resubmits the exact transcript with `redrive`, adding no user text. */
+export function designBuildCanResume(
+	progress: Pick<DesignProgressState, "failure" | "seededStage">,
+	buildUnfinished: boolean,
+	status: ChatStatus,
+): boolean {
+	return (
+		buildUnfinished &&
+		(progress.failure?.recoverable === true ||
+			(progress.failure === null && progress.seededStage === "incomplete")) &&
+		status !== "submitted" &&
+		status !== "streaming"
+	);
+}
+
+/** Remember only durable/recoverable resume eligibility while a conversation
+ * is inactive. The progress store itself resets on every thread switch, but an
+ * unfinished accepted build must regain its server-derived `incomplete` floor
+ * when its original design thread becomes active again. Fatal failure and
+ * completion evidence revoke an older recoverable marker. */
+export function rememberDesignBuildResumeEligibility(
+	designSessionIds: Set<string>,
+	progress: Pick<
+		DesignProgressState,
+		"designSessionId" | "failure" | "seededStage" | "completion"
+	>,
+): void {
+	const designSessionId = progress.designSessionId;
+	if (designSessionId === null) return;
+	if (
+		progress.failure?.recoverable === true ||
+		(progress.failure === null && progress.seededStage === "incomplete")
+	) {
+		designSessionIds.add(designSessionId);
+		return;
+	}
+	if (
+		progress.failure !== null ||
+		progress.completion !== null ||
+		progress.seededStage === "failed" ||
+		progress.seededStage === "ready"
+	) {
+		designSessionIds.delete(designSessionId);
+	}
+}
+
+export function threadActivationNeedsIncompleteSeed(args: {
+	readonly designSessionId: string;
+	readonly buildUnfinished: boolean;
+	readonly resume: boolean;
+	readonly redrive: boolean;
+	readonly resumableDesignSessionIds: ReadonlySet<string>;
+}): boolean {
+	return (
+		args.buildUnfinished &&
+		!args.resume &&
+		!args.redrive &&
+		args.resumableDesignSessionIds.has(args.designSessionId)
+	);
+}
+
+/** The request-level duplicate/clawback semantics for an interrupted turn.
+ * Ordinary chat re-drives use the SDK's regenerate trigger; a design build
+ * must preserve its accumulated answered-question message, so its explicit
+ * retry send carries the same capability through the request options body. */
+export function chatRequestIsRedrive(
+	trigger: "submit-message" | "regenerate-message",
+	body: Record<string, unknown> | undefined,
+): boolean {
+	return trigger === "regenerate-message" || body?.redrive === true;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -230,14 +390,14 @@ export function adoptTranscriptKeepingRicherLocal(
 
 export function chatGenerationCanWrite(
 	session:
-		| { accessPhase: string; canEdit: boolean; scopeEpoch: number }
+		| { accessPhase: string; projectCanEdit: boolean; scopeEpoch: number }
 		| undefined,
 	ownerScopeEpoch: number,
 	threadHydrationState: "ready" | "pending" | "failed",
 ): boolean {
 	return (
 		chatCallbackCanPublish(session, ownerScopeEpoch, threadHydrationState) &&
-		session?.canEdit === true
+		session?.projectCanEdit === true
 	);
 }
 
@@ -316,6 +476,7 @@ export function authoritativeThreadActivationOptions(
 		| "resume_interrupted"
 		| "run_paused"
 		| "messages"
+		| "design_session_id"
 	>,
 	buildUnfinished: boolean,
 	options?: { allowRedrive?: boolean },
@@ -329,6 +490,10 @@ export function authoritativeThreadActivationOptions(
 		resume,
 		redrive,
 		buildResume: (resume || redrive) && buildUnfinished,
+		buildUnfinished,
+		/* The thread's design lineage rides every activation so the sends it
+		 * feeds keep addressing the session scope. */
+		designSessionId: thread.design_session_id ?? null,
 	};
 }
 
@@ -342,35 +507,89 @@ export function expectedProjectIdForChatRequest(session: {
 	return session.appId === undefined ? session.projectId : undefined;
 }
 
-export interface CreatedAppActivation {
+export type ThreadResumeHealTarget =
+	| { readonly kind: "app"; readonly id: string }
+	| { readonly kind: "design-session"; readonly id: string };
+
+/** Resolve the authoritative transcript endpoint after a reconnect closes.
+ * Pre-app design threads have no app id yet, but are no less durable: their
+ * design-session identity is the read scope until materialization. */
+export function threadResumeHealTarget(
+	appId: string | undefined,
+	designSessionId: string | undefined,
+): ThreadResumeHealTarget | null {
+	return appId
+		? { kind: "app", id: appId }
+		: designSessionId
+			? { kind: "design-session", id: designSessionId }
+			: null;
+}
+
+export function threadResumeHealPath(
+	target: ThreadResumeHealTarget,
+	threadId: string,
+): string {
+	const targetPath =
+		target.kind === "app"
+			? `/api/apps/${encodeURIComponent(target.id)}`
+			: `/api/design-sessions/${encodeURIComponent(target.id)}`;
+	return `${targetPath}/threads/${encodeURIComponent(threadId)}`;
+}
+
+export interface AppMaterializationActivation {
+	readonly eventVersion: 1;
+	readonly designSessionId: string | null;
 	readonly appId: string;
 	readonly projectId: string;
 	readonly role: string;
 	readonly canEdit: boolean;
-	readonly baseSeq: 1;
+	readonly seq: 1;
+	readonly batchId: string;
+	readonly changeSetId: string | null;
+	readonly snapshotDigest: string;
 	readonly blueprint: PersistableDoc;
 	readonly starter: {
 		readonly moduleUuid: string;
 		readonly formUuid: string;
 		readonly fieldUuid: string;
-	};
+	} | null;
 }
 
-/** Strict boundary for the server's one-shot new-app handoff. Never activate
- * multiplayer from a partial event: app identity, Project capability, exact
- * sequence-1 blueprint, and starter identities are one authority. */
-export function parseCreatedAppActivation(
+/** Strict boundary for the server's one-shot app-birth handoff — the
+ * `data-app-materialized` frame (design-slice genesis) and the blank-app
+ * action's return value share this exact shape. Never activate multiplayer
+ * from a partial event: identity, Project capability, exact sequence-1
+ * blueprint, and its canonical digest are one authority. `starter` is
+ * non-null only on the explicit-blank path, where the blueprint must be
+ * exactly the canonical Survey/Form/Question starter; a design-slice
+ * blueprint is the first meaningful workflow and only its validity and
+ * identity are asserted here (the digest pins the exact bytes). */
+export function parseAppMaterializationReceipt(
 	data: Record<string, unknown>,
-): CreatedAppActivation | null {
+): AppMaterializationActivation | null {
 	if (
 		Object.keys(data).sort().join(",") !==
-		"appId,baseSeq,blueprint,canEdit,projectId,role,starter"
+		"appId,batchId,blueprint,canEdit,changeSetId,designSessionId,eventVersion,projectId,role,seq,snapshotDigest,starter"
 	) {
 		return null;
 	}
-	const { appId, projectId, role, canEdit, baseSeq, starter } = data;
+	const {
+		eventVersion,
+		designSessionId,
+		appId,
+		projectId,
+		role,
+		canEdit,
+		seq,
+		batchId,
+		changeSetId,
+		snapshotDigest,
+		starter,
+	} = data;
 	const parsedBlueprint = blueprintDocSchema.safeParse(data.blueprint);
 	if (
+		eventVersion !== 1 ||
+		seq !== 1 ||
 		typeof appId !== "string" ||
 		appId.trim().length === 0 ||
 		typeof projectId !== "string" ||
@@ -378,12 +597,52 @@ export function parseCreatedAppActivation(
 		typeof role !== "string" ||
 		role.trim().length === 0 ||
 		typeof canEdit !== "boolean" ||
-		baseSeq !== 1 ||
-		!parsedBlueprint.success ||
+		typeof batchId !== "string" ||
+		batchId.trim().length === 0 ||
+		!(
+			designSessionId === null ||
+			(typeof designSessionId === "string" && designSessionId.trim().length > 0)
+		) ||
+		!(
+			changeSetId === null ||
+			(typeof changeSetId === "string" && changeSetId.trim().length > 0)
+		) ||
+		typeof snapshotDigest !== "string" ||
+		!/^[0-9a-f]{64}$/.test(snapshotDigest) ||
+		!parsedBlueprint.success
+	) {
+		return null;
+	}
+	const blueprint = parsedBlueprint.data;
+	if (
+		blueprint.appId !== appId ||
+		blueprint.appName.trim().length === 0 ||
+		blueprint.moduleOrder.length === 0
+	) {
+		return null;
+	}
+	if (starter === null) {
+		return {
+			eventVersion: 1,
+			designSessionId,
+			appId,
+			projectId,
+			role,
+			canEdit,
+			seq: 1,
+			batchId,
+			changeSetId,
+			snapshotDigest,
+			blueprint,
+			starter: null,
+		};
+	}
+	if (
 		typeof starter !== "object" ||
-		starter === null ||
 		Array.isArray(starter) ||
-		Object.keys(starter).sort().join(",") !== "fieldUuid,formUuid,moduleUuid"
+		Object.keys(starter as object)
+			.sort()
+			.join(",") !== "fieldUuid,formUuid,moduleUuid"
 	) {
 		return null;
 	}
@@ -394,10 +653,7 @@ export function parseCreatedAppActivation(
 	if (!moduleUuid.success || !formUuid.success || !fieldUuid.success) {
 		return null;
 	}
-	const blueprint = parsedBlueprint.data;
 	if (
-		blueprint.appId !== appId ||
-		blueprint.appName.trim().length === 0 ||
 		blueprint.connectType !== null ||
 		blueprint.caseTypes !== null ||
 		blueprint.moduleOrder.length !== 1 ||
@@ -414,11 +670,16 @@ export function parseCreatedAppActivation(
 		return null;
 	}
 	return {
+		eventVersion: 1,
+		designSessionId,
 		appId,
 		projectId,
 		role,
 		canEdit,
-		baseSeq,
+		seq: 1,
+		batchId,
+		changeSetId,
+		snapshotDigest,
 		blueprint,
 		starter: {
 			moduleUuid: moduleUuid.data,
@@ -428,10 +689,50 @@ export function parseCreatedAppActivation(
 	};
 }
 
+/** Digest-verify an admitted receipt in the background: SHA-256 over the
+ * shared canonical JSON text, compared to the server's `snapshotDigest`. The
+ * install itself is synchronous (later frames in the same stream must land
+ * on the installed doc), so a mismatch — a should-never corruption signal —
+ * surfaces as the reload toast rather than blocking activation. Skipped
+ * where WebCrypto is unavailable. */
+function verifyActivationDigest(
+	activation: AppMaterializationActivation,
+	projectToast: ProjectToastEmitter,
+): void {
+	const subtle = globalThis.crypto?.subtle;
+	if (!subtle) return;
+	void subtle
+		.digest(
+			"SHA-256",
+			new TextEncoder().encode(canonicalJsonText(activation.blueprint)),
+		)
+		.then((bytes) => {
+			const hex = Array.from(new Uint8Array(bytes))
+				.map((b) => b.toString(16).padStart(2, "0"))
+				.join("");
+			if (hex !== activation.snapshotDigest) {
+				projectToast(
+					"error",
+					"Reload to finish opening this app",
+					"The app Nova sent this tab didn't verify against its receipt. Reload to fetch it fresh.",
+					{
+						persistent: true,
+						action: {
+							label: "Reload page",
+							onPress: () => window.location.reload(),
+						},
+					},
+				);
+			}
+		})
+		.catch(() => {});
+}
+
 /**
- * Land a validated creation receipt. Nova has two ways an app is born, the SA's
- * `data-app-id` frame and the blank-app action's return value, and both arrive
- * here, so a new app cannot land two different ways.
+ * Land a validated creation receipt. Nova has two ways an app is born, the
+ * design build's `data-app-materialized` frame and the blank-app action's
+ * return value, and both arrive here, so a new app cannot land two different
+ * ways.
  *
  * The order is the contract. Identity and capability first, then the exact
  * sequence-1 blueprint under a remote-apply bracket (which is what keeps this
@@ -454,7 +755,7 @@ export function parseCreatedAppActivation(
  * history stack.
  */
 function installCreatedApp(
-	activation: CreatedAppActivation,
+	activation: AppMaterializationActivation,
 	docApi: BlueprintDocStore,
 	sessionApi: BuilderSessionStoreApi,
 	reconcilerCtx: ReconcilerContextValue | null,
@@ -472,7 +773,7 @@ function installCreatedApp(
 		store.endRemoteApply();
 	}
 	pushBuilderHistory(`/build/${activation.appId}`, true);
-	reconcilerCtx?.activate(activation.appId, activation.baseSeq);
+	reconcilerCtx?.activate(activation.appId, activation.seq);
 	markAppListStale();
 }
 
@@ -492,19 +793,25 @@ function createChatInstance(
 	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
 	holderNonceRef: { current: string | undefined },
+	designSessionIdRef: { current: string | undefined },
+	designProgressStore: DesignProgressStoreApi,
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
 	autoResendFatalStrikesRef: { current: number },
+	pendingAnswerAttachmentsRef: { current: AttachmentRef[] },
 	threadHydrationStateRef: {
 		current: "ready" | "pending" | "failed";
 	},
 	projectToast: ProjectToastEmitter,
 	ownerScopeEpoch: number,
+	onContextActivity: (active: boolean) => void,
 ): Chat<NovaUIMessage> {
 	/* A fresh Chat instance starts with a clean slate: the strike count
 	 * guards runs of THIS instance, not whatever a previously open thread
-	 * ended on. */
+	 * ended on — and files staged against another conversation's question
+	 * round must not ride a send in this one. */
 	autoResendFatalStrikesRef.current = 0;
+	pendingAnswerAttachmentsRef.current = [];
 	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
 	 * sent: the route loads the persisted doc server-side off the
 	 * authorization read. We send only the `appId`.
@@ -528,6 +835,12 @@ function createChatInstance(
 			runId: runIdRef.current,
 			holderNonce: holderNonceRef.current,
 			appId: sessionState.appId,
+			/* The thread's design lineage, when it has one: a build thread is
+			 * session-targeted for its whole life, so the route needs the id on
+			 * every send — the session resolves its own bound app. Learned from
+			 * the thread's own row on activation or from the stream's
+			 * `data-design-session` frame. */
+			designSessionId: designSessionIdRef.current,
 			expectedProjectId: expectedProjectIdForChatRequest(sessionState),
 			appReady: deriveChatAppReady(sessionState, hasData),
 		};
@@ -548,7 +861,7 @@ function createChatInstance(
 			 * the headers: the transport sends exactly what this returns, and a
 			 * JSON POST without an explicit content-type goes out as
 			 * `text/plain` (fetch's default for a string body). */
-			prepareSendMessagesRequest: ({ api, messages, trigger }) => {
+			prepareSendMessagesRequest: ({ api, messages, trigger, body }) => {
 				/* Deliberately NO strike reset here: this callback fires for the
 				 * automatic resends too, and a reset per outbound attempt would
 				 * unbound the very loop the strike cap exists to stop. The resets
@@ -560,12 +873,13 @@ function createChatInstance(
 					body: {
 						messages,
 						...requestFields(),
-						/* `regenerate()` fires in exactly one place: the instance-death
-						 * re-drive, so the trigger doubles as the wire flag. The route
+						/* `regenerate()` fires for an instance-death re-drive and omits
+						 * the dead run's trailing assistant suffix. Its trigger carries the
+						 * same wire flag for app and design-session threads. The route
 						 * treats a re-drive's claim conflict as "someone else already
 						 * re-drove this" and closes clean instead of queueing a
 						 * duplicate run. */
-						...(trigger === "regenerate-message" ? { redrive: true } : {}),
+						...(chatRequestIsRedrive(trigger, body) ? { redrive: true } : {}),
 					},
 				};
 			},
@@ -625,6 +939,11 @@ function createChatInstance(
 			 * unconditional resend provided. */
 			if (autoResendFatalStrikesRef.current >= AUTO_RESEND_FATAL_HALT_STRIKES)
 				return false;
+			/* Files staged with answers own the resume: `handleToolOutput`
+			 * flushes them as the attachment-bearing user message the model
+			 * needs, so the bare auto-resend must stand down or the turn would
+			 * run without the files the answers reference. */
+			if (pendingAnswerAttachmentsRef.current.length > 0) return false;
 			const owner = sessionStoreRef.current?.getState();
 			return (
 				chatGenerationCanWrite(
@@ -651,6 +970,12 @@ function createChatInstance(
 				type: string;
 				data: Record<string, unknown>;
 			};
+			if (type === "data-context-activity") {
+				const phase = data.phase;
+				if (phase === "start") onContextActivity(true);
+				if (phase === "done") onContextActivity(false);
+				return;
+			}
 			/* Count the fatal strike the moment a run reports a FATAL error
 			 * (the same envelope the dispatcher toasts, read through the same
 			 * typed reader). It must be read off the stream here, not inferred
@@ -658,11 +983,45 @@ function createChatInstance(
 			 * evaluates `sendAutomaticallyWhen` the failed response has left no
 			 * message behind to tell this round apart from one that was never
 			 * tried. */
-			if (
-				type === "data-conversation-event" &&
-				conversationEventError(data)?.fatal === true
-			) {
-				autoResendFatalStrikesRef.current += 1;
+			if (type === "data-conversation-event") {
+				const error = conversationEventError(data);
+				if (error?.fatal === true) {
+					autoResendFatalStrikesRef.current += 1;
+					/* A design build's progress region has to say the run stopped:
+					 * the transcript's error toast is the only other signal, and a
+					 * stage line still reading "Building your app" over a dead run
+					 * is the exact dishonesty §15.12 forbids. */
+					const progress = designProgressStore.getState();
+					if (
+						designProgressTracksBuildFailure(
+							progress,
+							ownerSession?.buildUnfinished === true,
+						)
+					) {
+						progress.markFailed(error.message, {
+							recoverable: false,
+						});
+					}
+				} else if (error !== null && !error.runContinues) {
+					/* A RECOVERABLE error stops the run just as dead — the server
+					 * settled and refunded; only a fresh send restarts it. Marking
+					 * only fatal errors left the stage line spinning "Designing
+					 * your app" over a toast that said retry (observed live). The
+					 * unfinished build after materialization must halt too, including
+					 * design/review work before a slice starts. An ordinary app-edit turn
+					 * remains outside this progress region. */
+					const progress = designProgressStore.getState();
+					if (
+						designProgressTracksBuildFailure(
+							progress,
+							ownerSession?.buildUnfinished === true,
+						)
+					) {
+						progress.markFailed(error.message, {
+							recoverable: true,
+						});
+					}
+				}
 			}
 			if (type === "data-run-id") {
 				runIdRef.current = data.runId as string;
@@ -704,10 +1063,53 @@ function createChatInstance(
 			const sessionApi = sessionStoreRef.current;
 			if (!docApi || !sessionApi) return;
 
-			/* `data-app-id` is the one-shot authoritative creation handoff. It
-			 * carries identity, Project capability, and cursor together; a replay is
-			 * idempotent, while a partial or cross-scope frame must not activate the
-			 * dormant reconciler. */
+			/* The turn's design-session scope always refreshes durable thread
+			 * lineage. It activates design progress only while the accepted build is
+			 * unfinished: an ordinary edit of the materialized, completed app still
+			 * names its originating design session, but that is routing context, not
+			 * new design work. */
+			if (type === "data-design-session") {
+				const scope = parseDesignSessionScope(data);
+				if (scope !== null) {
+					designSessionIdRef.current = scope.designSessionId;
+					if (
+						designSessionScopeTracksProgress(
+							scope,
+							sessionApi.getState().buildUnfinished,
+						)
+					) {
+						designProgressStore.getState().beginSession(scope);
+					} else {
+						designProgressStore.getState().reset();
+					}
+					if (scope.materializedAppId === null) {
+						sessionApi.getState().markBuildUnfinished();
+						if (window.location.pathname === "/build/new") {
+							pushBuilderHistory(
+								`/build/new?design=${encodeURIComponent(scope.designSessionId)}`,
+								true,
+							);
+						}
+					} else if (
+						sessionStoreRef.current?.getState().appId !==
+						scope.materializedAppId
+					) {
+						/* The session says genesis committed but this tab missed the
+						 * activation receipt. Reload the authoritative app instead of
+						 * leaving `/build/new` able to start a duplicate design. */
+						window.location.replace(`/build/${scope.materializedAppId}`);
+					}
+				}
+				return;
+			}
+
+			/* The durable progress projections (§15.4). Each is validated
+			 * against this conversation's design session inside the store and
+			 * dropped when it doesn't match, so an out-of-scope or
+			 * unknown-version frame renders nothing rather than half a card. */
+			if (designProgressStore.getState().applyProgressFrame(type, data)) {
+				return;
+			}
 			/* The build finished: release the store's unfinished-build latch so
 			 * `deriveChatAppReady` reads edit-mode from here on. Without the
 			 * release, its `buildUnfinished && runCompletedAt === undefined`
@@ -728,8 +1130,14 @@ function createChatInstance(
 				return;
 			}
 
-			if (type === "data-app-id") {
-				const activation = parseCreatedAppActivation(data);
+			/* `data-app-materialized` is the one-shot authoritative birth
+			 * handoff: the first meaningful workflow committed, and this frame
+			 * carries identity, Project capability, the exact sequence-1
+			 * blueprint, and its canonical digest together. A replay is
+			 * idempotent, while a partial or cross-scope frame must not
+			 * activate the dormant reconciler. */
+			if (type === "data-app-materialized") {
+				const activation = parseAppMaterializationReceipt(data);
 				const current = sessionApi.getState();
 				if (activation === null || current.projectId !== activation.projectId) {
 					projectToast(
@@ -746,13 +1154,18 @@ function createChatInstance(
 					);
 					return;
 				}
+				/* The strict receipt activates app scope. The root's ordinary
+				 * committed progress frame arrives immediately before it; the
+				 * store keeps a compatibility fold for older reconnect logs. */
+				designProgressStore.getState().markMaterialized(activation.appId);
+				if (current.appId === activation.appId) return; // replayed frame
 				/* This tab now owns an UNFINISHED build. The RSC page only seeds
 				 * the latch for tabs that LOADED a generating app; a `/build/new`
-				 * tab must latch it at creation or its later sends read as
-				 * edit-mode the moment the phase derivation loses the run (an
+				 * tab must carry it from materialization or its later sends read
+				 * as edit-mode the moment the phase derivation loses the run (an
 				 * askQuestions pause clears the events buffer, and the committed
-				 * starter modules make the doc read Ready). `data-done` above is
-				 * the matching release. */
+				 * modules make the doc read Ready). `data-done` above is the
+				 * matching release. */
 				sessionApi.getState().markBuildUnfinished();
 				installCreatedApp(
 					activation,
@@ -760,6 +1173,7 @@ function createChatInstance(
 					sessionApi,
 					reconcilerCtxRef.current,
 				);
+				verifyActivationDigest(activation, projectToast);
 				return;
 			}
 
@@ -808,6 +1222,13 @@ interface ChatContainerProps {
 	/** The signed-in user: a replayed run's credit-refund notice is shown
 	 *  only to the actor who was actually charged. */
 	currentUserId?: string;
+	/** A cold load of an existing design session (`/build/new?design=<id>`).
+	 *  The stage is the SERVER's derivation over the durable session plus its
+	 *  orchestration head, so a resumed design says where it stopped instead
+	 *  of showing nothing until the next turn streams a frame. The outline and
+	 *  plan are not seeded: they exist only in the frames a run streams, and
+	 *  inventing them would be the fake-progress §15.1 rules out. */
+	initialDesignSession?: DesignSessionSeed | null;
 }
 
 export function ChatContainer({
@@ -817,6 +1238,7 @@ export function ChatContainer({
 	initialThread,
 	appGenerating,
 	currentUserId,
+	initialDesignSession,
 }: ChatContainerProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
@@ -827,7 +1249,8 @@ export function ChatContainer({
 	/* Viewers (view-only Project members) get a read-only conversation, the
 	 * SA is the edit mechanism, so the composer hides. The write paths reject
 	 * their edits server-side regardless. */
-	const canEdit = useCanEdit();
+	const canEdit = useProjectCanEdit();
+	const buildUnfinished = useBuilderSession((state) => state.buildUnfinished);
 
 	// ── Stable refs so Chat callbacks always read the latest stores ──────
 	const docStoreRef = useRef(docStore);
@@ -843,7 +1266,7 @@ export function ChatContainer({
 	ownUserIdRef.current = currentUserId;
 	/** The LIVE unfinished-build signal, read at decision time. It lives in
 	 *  the session store: seeded by the page's `initialBuildUnfinished`,
-	 *  latched by `data-app-id`, released by `data-done` /
+	 *  latched by a pre-app `data-design-session` frame, released by `data-done` /
 	 *  `data-build-complete` or by a remote `app-status: complete` frame. A
 	 *  component ref synced from the `appGenerating` prop cannot carry it:
 	 *  the prop is frozen at page load (`/build/new` promotes via the History
@@ -868,6 +1291,40 @@ export function ChatContainer({
 	const holderNonceRef = useRef<string | undefined>(
 		initialThread?.holder_nonce,
 	);
+	/** The active thread's design lineage: seeded from the loaded thread row,
+	 *  re-stamped on every thread activation, and updated by the stream's
+	 *  `data-design-session` frame. Undefined for app-born edit threads and
+	 *  for a fresh `/build/new` conversation until its first turn's frame
+	 *  arrives. A RESUMED design also seeds it from the page's own session, so
+	 *  a send continues that design even if its transcript came back empty
+	 *  rather than quietly starting a second one. */
+	const designSessionIdRef = useRef<string | undefined>(
+		initialThread?.design_session_id ??
+			initialDesignSession?.designSessionId ??
+			undefined,
+	);
+	/** This conversation's design-build progress: the stage, the reviewed
+	 *  design outline, and which planned workflows have committed. One store
+	 *  per mounted conversation, fed only by the durable frames the run
+	 *  streams (plus the page-load seed below), reset on every thread swap. */
+	const [designProgressStore] = useState(() => {
+		const store = createDesignProgressStore();
+		if (initialDesignSession)
+			store.getState().seedSession(initialDesignSession);
+		return store;
+	});
+	/** Thread switches intentionally reset the detailed progress projection.
+	 * Keep only the bounded fact needed to restore an explicit Resume action
+	 * when the user returns to a recoverably stopped accepted build. */
+	const resumableDesignSessionIdsRef = useRef(
+		new Set<string>(
+			initialDesignSession?.stage === "incomplete"
+				? [initialDesignSession.designSessionId]
+				: [],
+		),
+	);
+	const designProgress = useDesignProgressView(designProgressStore);
+	const [contextCompacting, setContextCompacting] = useState(false);
 	/** Whether the SSE transport was open on the previous render, used
 	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
 	 *  for the `beginRun` / `endRun` handoff. Local to this component so
@@ -971,29 +1428,82 @@ export function ChatContainer({
 				holderNonce?: string;
 				resume?: boolean;
 				buildResume?: boolean;
+				buildUnfinished?: boolean;
 				redrive?: boolean;
+				designSessionId?: string | null;
 			},
 		): Chat<NovaUIMessage> => {
 			runIdRef.current = opts?.runId;
 			holderNonceRef.current = opts?.holderNonce;
+			designSessionIdRef.current = opts?.designSessionId ?? undefined;
 			pendingResumeRef.current = opts?.resume ? init.threadId : null;
 			pendingRedriveRef.current = opts?.redrive ? init.threadId : null;
 			pendingBuildResumeRef.current = !!opts?.buildResume;
+			/* A different conversation is a different design: its stage, outline,
+			 * and slice progress belong to the run that streamed them. Re-open a
+			 * known design scope immediately, before resume replay: a cold resume
+			 * can start after the original `data-design-session` frame, and then
+			 * later review/revision pulses would otherwise be dropped while the
+			 * generic Builder status incorrectly kept saying "Building your app."
+			 * A completed app keeps the id in `designSessionIdRef` for routing but
+			 * does not reopen progress merely because its thread has lineage. */
+			const priorProgress = designProgressStore.getState();
+			rememberDesignBuildResumeEligibility(
+				resumableDesignSessionIdsRef.current,
+				priorProgress,
+			);
+			designProgressStore.getState().reset();
+			if (opts?.designSessionId) {
+				const materializedAppId =
+					sessionStoreRef.current?.getState().appId ?? null;
+				if (
+					threadActivationNeedsIncompleteSeed({
+						designSessionId: opts.designSessionId,
+						buildUnfinished: opts.buildUnfinished === true,
+						resume: opts.resume === true,
+						redrive: opts.redrive === true,
+						resumableDesignSessionIds: resumableDesignSessionIdsRef.current,
+					})
+				) {
+					designProgressStore.getState().seedSession({
+						designSessionId: opts.designSessionId,
+						materializedAppId,
+						stage: "incomplete",
+					});
+				} else if (
+					designSessionScopeTracksProgress(
+						{
+							designSessionId: opts.designSessionId,
+							materializedAppId,
+						},
+						opts.buildUnfinished === true,
+					)
+				) {
+					designProgressStore.getState().beginSession({
+						designSessionId: opts.designSessionId,
+						materializedAppId,
+					});
+				}
+			}
 			return createChatInstance(
 				init,
 				docStoreRef,
 				sessionStoreRef,
 				runIdRef,
 				holderNonceRef,
+				designSessionIdRef,
+				designProgressStore,
 				reconcilerCtxRef,
 				ownUserIdRef,
 				autoResendFatalStrikesRef,
+				pendingAnswerAttachmentsRef,
 				threadHydrationStateRef,
 				projectToast,
 				scopeEpoch,
+				setContextCompacting,
 			);
 		},
-		[projectToast, scopeEpoch],
+		[designProgressStore, projectToast, scopeEpoch],
 	);
 
 	/* The session store is recreated inside `BuilderSessionProvider` on every
@@ -1002,6 +1512,16 @@ export function ChatContainer({
 	 * identity. Clear stale local state from the previous app: run ID and
 	 * the Chat instance. (The mount initializer reads the refs the component
 	 * seeded above rather than restamping them.) */
+	/* Attachments the user staged WHILE ANSWERING a question round. An answer
+	 * itself rides the tool output (no user message), so its files buffer here
+	 * — extraction keeps running server-side the whole time — and flush as one
+	 * attachment-bearing user message the moment the round's last answer
+	 * lands. That message is what both pipelines already understand (the SA
+	 * resolves the extracts; a design session extends its source package), so
+	 * the model reads the files exactly where the answers reference them. The
+	 * chat-instance factory clears it: a new conversation must not inherit
+	 * files staged against another one's round. */
+	const pendingAnswerAttachmentsRef = useRef<AttachmentRef[]>([]);
 	const prevSessionRef = useRef(sessionApi);
 	const [chat, setChat] = useState(() =>
 		createChatInstance(
@@ -1013,12 +1533,16 @@ export function ChatContainer({
 			sessionStoreRef,
 			runIdRef,
 			holderNonceRef,
+			designSessionIdRef,
+			designProgressStore,
 			reconcilerCtxRef,
 			ownUserIdRef,
 			autoResendFatalStrikesRef,
+			pendingAnswerAttachmentsRef,
 			threadHydrationStateRef,
 			projectToast,
 			scopeEpoch,
+			setContextCompacting,
 		),
 	);
 
@@ -1038,14 +1562,42 @@ export function ChatContainer({
 		setMessages,
 		status,
 		error: chatError,
+		clearError,
 		stop,
 		resumeStream,
 		regenerate,
 	} = useChat({ chat });
+	/* Context activity is a transient stream hint, not durable session state. A
+	 * process loss can strand its closing hint, so every terminal transport state
+	 * releases the override and reveals the ordinary derived status again. */
+	useEffect(() => {
+		if (status !== "submitted" && status !== "streaming") {
+			setContextCompacting(false);
+		}
+	}, [status]);
 	const stopRef = useRef(stop);
 	stopRef.current = stop;
 	const messagesRef = useRef(messages);
 	messagesRef.current = messages;
+	const designStreamOpenRef = useRef(false);
+
+	/* A blocking question round parks the run (§15.8), and the transcript is
+	 * the only place that pause is visible from here: the stream closes and an
+	 * unanswered card is left standing. Report it so the progress region stops
+	 * claiming work is moving while it waits on a person. Retire the previous
+	 * turn's progress only on the CLOSED -> OPEN transport edge. Calling
+	 * `noteTurnOpened` after every streamed message update would erase the live
+	 * review/revision/planning pulse between its two-second frames and make the
+	 * status fall back to first-turn copy during long reasoning stretches. */
+	useEffect(() => {
+		const streamOpen = status === "submitted" || status === "streaming";
+		const store = designProgressStore.getState();
+		if (streamOpen && !designStreamOpenRef.current) store.noteTurnOpened();
+		designStreamOpenRef.current = streamOpen;
+		store.setAwaitingInput(
+			!streamOpen && trailingAskPosture(messages) === "awaiting-input",
+		);
+	}, [designProgressStore, messages, status]);
 	const chatRef = useRef(chat);
 	chatRef.current = chat;
 	const activeThreadReadsRef = useRef(new Set<AbortController>());
@@ -1267,7 +1819,11 @@ export function ChatContainer({
 	 * arm this ref: `shouldAutoRedrive` excludes an answered ask round
 	 * (whose trailing message holds the user's answers) and a genuinely
 	 * paused one. The one-shot ref can't loop: a re-driven run that fails
-	 * again finalizes cleanly, so no future load sees another heal. The heal
+	 * again finalizes cleanly, so no future load sees another heal. A design
+	 * build uses the same regenerate path: the auto-redrive gate above
+	 * has already excluded any message carrying answered design questions, so
+	 * trimming the dead assistant suffix preserves all valid evidence while
+	 * preventing failed output from becoming the next run's fold seed. The heal
 	 * ref covers the lost-race close (another session's re-drive won the
 	 * claim): this send bails clean, the refetch attaches to the winner. */
 	useEffect(() => {
@@ -1289,8 +1845,12 @@ export function ChatContainer({
 	 * row now holds. */
 	const healAfterResume = useCallback(async () => {
 		const start = sessionStoreRef.current?.getState();
-		if (!start?.appId || start.accessPhase !== "authorized") return;
-		const appId = start.appId;
+		if (start?.accessPhase !== "authorized") return;
+		const target = threadResumeHealTarget(
+			start.appId,
+			designSessionIdRef.current,
+		);
+		if (target === null) return;
 		const readEpoch = start.scopeEpoch;
 		const controller = new AbortController();
 		activeThreadReadsRef.current.add(controller);
@@ -1300,17 +1860,32 @@ export function ChatContainer({
 				!controller.signal.aborted &&
 				current?.accessPhase === "authorized" &&
 				current.scopeEpoch === readEpoch &&
-				current.appId === appId
+				(target.kind === "app"
+					? current.appId === target.id
+					: current.appId === undefined &&
+						designSessionIdRef.current === target.id)
 			);
 		};
 		try {
-			const res = await fetch(
-				`/api/apps/${appId}/threads/${encodeURIComponent(chat.id)}`,
-				{ cache: "no-store", signal: controller.signal },
-			);
+			const res = await fetch(threadResumeHealPath(target, chat.id), {
+				cache: "no-store",
+				signal: controller.signal,
+			});
 			if (!res.ok || !ownsRead()) return;
-			const { thread } = (await res.json()) as { thread: LoadedThreadDoc };
+			const { thread, materializedAppId } = (await res.json()) as {
+				thread: LoadedThreadDoc;
+				materializedAppId?: string | null;
+			};
 			if (!ownsRead()) return;
+			/* A pre-app run may have materialized and finished between the RSC
+			 * page read and this post-resume heal. The app page is now the only
+			 * complete authority: it hydrates the canonical Blueprint as well as
+			 * this session-targeted thread, so do not leave the user in an
+			 * app-less shell with merely the recovered transcript. */
+			if (target.kind === "design-session" && materializedAppId) {
+				window.location.replace(`/build/${materializedAppId}`);
+				return;
+			}
 			/* A LIVE marker here means another session's run owns this thread
 			 * right now: the shape a lost re-drive race leaves behind (this
 			 * send bailed clean while the winner streams). Attach to it: swap in
@@ -1572,14 +2147,21 @@ export function ChatContainer({
 			},
 		});
 		projectToast("error", "Generation failed", message);
+		const progress = designProgressStore.getState();
+		if (designProgressTracksBuildFailure(progress, session.buildUnfinished)) {
+			progress.markFailed(message, {
+				recoverable: false,
+			});
+		}
 
 		/* A pre-stream rejection (out of credits, a build already running in
 		 * another tab, a 5xx) fails before the route mints an app, leaving the
 		 * user on `/build/new` with nothing. Re-arm the from-scratch path they were
 		 * offered a moment ago: the send had latched it shut, and without this
 		 * the only ways out are a reload or navigating away. A failure that got
-		 * far enough to mint an app already announced it via `data-app-id`, so
-		 * `appId` is set and the escape hatch correctly stays closed. */
+		 * far enough to materialize an app already announced it via
+		 * `data-app-materialized`, so `appId` is set and the escape hatch
+		 * correctly stays closed. */
 		if (!session.appId) {
 			agentEngagedRef.current = false;
 			setSendFailedBeforeApp(true);
@@ -1629,6 +2211,16 @@ export function ChatContainer({
 		};
 	}, [status]);
 
+	const handleAnswerAttachments = useCallback((refs: AttachmentRef[]) => {
+		const seen = new Set(
+			pendingAnswerAttachmentsRef.current.map((ref) => ref.assetId),
+		);
+		pendingAnswerAttachmentsRef.current = [
+			...pendingAnswerAttachmentsRef.current,
+			...refs.filter((ref) => !seen.has(ref.assetId)),
+		];
+	}, []);
+
 	const handleSend = useCallback(
 		({
 			text,
@@ -1638,12 +2230,13 @@ export function ChatContainer({
 			attachments?: AttachmentRef[];
 		}) => {
 			if (creatingStarterAppRef.current) return;
-			if (threadHydrationStateRef.current !== "ready") return;
 			const session = sessionStoreRef.current?.getState();
 			if (
-				session?.accessPhase !== "authorized" ||
-				!session.canEdit ||
-				session.scopeEpoch !== scopeEpoch
+				!chatGenerationCanWrite(
+					session,
+					scopeEpoch,
+					threadHydrationStateRef.current,
+				)
 			)
 				return;
 			if (!text.trim() && !attachments?.length) return;
@@ -1664,14 +2257,54 @@ export function ChatContainer({
 		[scopeEpoch, sendMessage],
 	);
 
+	const resumeAcceptedBuild = useCallback(() => {
+		const session = sessionStoreRef.current?.getState();
+		if (
+			!chatGenerationCanWrite(
+				session,
+				scopeEpoch,
+				threadHydrationStateRef.current,
+			) ||
+			!designBuildCanResume(
+				designProgressStore.getState(),
+				session?.buildUnfinished === true,
+				status,
+			)
+		) {
+			/* The card promised a resume; a guard that has since gone stale
+			 * (hydration lost, scope changed, a run already claimed) must say
+			 * so rather than swallow the click. */
+			projectToast(
+				"error",
+				"Couldn't start the resume",
+				"Reload the page, then use Resume build again.",
+			);
+			return;
+		}
+		autoResendFatalStrikesRef.current = 0;
+		clearError();
+		/* No message is appended: the accepted revision/plan already carry all
+		 * construction meaning. `redrive` asks the route to claim and resume that
+		 * exact frozen attempt without turning recovery into a design instruction. */
+		void sendMessage(undefined, { body: { redrive: true } });
+	}, [
+		clearError,
+		designProgressStore,
+		projectToast,
+		scopeEpoch,
+		sendMessage,
+		status,
+	]);
+
 	const handleToolOutput = useCallback(
 		(params: { tool: string; toolCallId: string; output: unknown }) => {
-			if (threadHydrationStateRef.current !== "ready") return;
 			const session = sessionStoreRef.current?.getState();
 			if (
-				session?.accessPhase !== "authorized" ||
-				!session.canEdit ||
-				session.scopeEpoch !== scopeEpoch
+				!chatGenerationCanWrite(
+					session,
+					scopeEpoch,
+					threadHydrationStateRef.current,
+				)
 			)
 				return;
 			/* A fresh answer is the user asking to try again: clear the fatal
@@ -1680,8 +2313,28 @@ export function ChatContainer({
 			 * strike cap still stops unattended loops. */
 			autoResendFatalStrikesRef.current = 0;
 			addToolOutput(params);
+			/* The round's last answer just landed. If files were staged with the
+			 * answers, resume the turn OURSELVES with the attachment-bearing
+			 * user message (the auto-resend stands down while the buffer is
+			 * non-empty): the server resolves the refs into stored extracts —
+			 * waiting on any still-running extraction — and a design session
+			 * extends its source package from the same message. The text is the
+			 * plain manifest of what the user did, nothing invented. */
+			const buffered = pendingAnswerAttachmentsRef.current;
+			if (
+				params.tool === "askQuestions" &&
+				buffered.length > 0 &&
+				trailingAskPosture(chat.messages) === "answered"
+			) {
+				pendingAnswerAttachmentsRef.current = [];
+				const names = buffered.map((ref) => ref.filename).join(", ");
+				sendMessage({
+					text: `Attached: ${names}`,
+					metadata: { attachments: buffered },
+				});
+			}
 		},
-		[addToolOutput, scopeEpoch],
+		[addToolOutput, chat, scopeEpoch, sendMessage],
 	);
 
 	const handleCreateStarterApp = useCallback(() => {
@@ -1714,7 +2367,7 @@ export function ChatContainer({
 				 * the same reason: identity, capability, blueprint, and cursor are
 				 * one authority, and multiplayer must never be activated from a
 				 * partial one. */
-				const activation = parseCreatedAppActivation(
+				const activation = parseAppMaterializationReceipt(
 					result.receipt as unknown as Record<string, unknown>,
 				);
 				const docApi = docStoreRef.current;
@@ -1753,6 +2406,7 @@ export function ChatContainer({
 					sessionApi,
 					reconcilerCtxRef.current,
 				);
+				verifyActivationDigest(activation, projectToast);
 				release();
 			},
 			/* The action itself never rejects: it returns its failures. Landing
@@ -1792,6 +2446,10 @@ export function ChatContainer({
 	 * from the active Project's server-resolved role, so a viewer never sees this
 	 * authoring action; the create route remains the enforcement authority. */
 	const showFromScratch = centered && !isExistingApp && !readOnly;
+	const designProgressOwnsStatus = designProgressOwnsActivityStatus(
+		designProgress,
+		status,
+	);
 
 	return (
 		<ChatSidebar
@@ -1817,11 +2475,26 @@ export function ChatContainer({
 							actionLabel: "Reload page",
 							onAction: () => window.location.reload(),
 						}
-					: undefined
+					: canEdit &&
+							!readOnly &&
+							designBuildCanResume(
+								designProgressStore.getState(),
+								buildUnfinished,
+								status,
+							)
+						? {
+								title: "Build paused",
+								message:
+									"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
+								actionLabel: "Resume build",
+								onAction: resumeAcceptedBuild,
+							}
+						: undefined
 			}
 			messages={messages}
 			status={status}
 			onSend={handleSend}
+			onAnswerAttachments={handleAnswerAttachments}
 			addToolOutput={handleToolOutput}
 			readOnly={readOnly}
 			readOnlyNotice={
@@ -1835,6 +2508,32 @@ export function ChatContainer({
 			activeThreadId={chat.id}
 			onSelectThread={openThread}
 			onNewChat={startNewChat}
+			designProgressDetails={
+				designProgress.active ? (
+					<DesignProgressDetails view={designProgress} />
+				) : undefined
+			}
+			designProgressStatus={
+				designProgressOwnsStatus ? (
+					<DesignProgressStatus view={designProgress} />
+				) : undefined
+			}
+			initialBuildLocked={designProgressLocksInitialBuild(
+				designProgress,
+				buildUnfinished,
+			)}
+			/* The design session owns the one activity row until the complete
+			 * frame and transport close. Its details collapse after materialization,
+			 * but its status remains the authoritative current slice/build phase. */
+			activityStatusHidden={designProgressOwnsStatus}
+			activityOverride={
+				contextCompacting
+					? {
+							state: "progress",
+							label: "Organizing what we’ve covered",
+						}
+					: null
+			}
 		/>
 	);
 }

@@ -108,6 +108,24 @@ describe("organization authoring tools", () => {
 		).toMatchObject({ slug: "phone", levelUuids: [levelUuid] });
 	});
 
+	it("honors a predeclared place-information identity", async () => {
+		const h = makeHarness(makeCanonicalGenesisDoc("Organization", APP_ID));
+		const locationPropertyUuid = testUuid("declared-location-property");
+		const property = await h.runTool(addLocationPropertiesTool, {
+			properties: [
+				{
+					locationPropertyUuid,
+					slug: "facility_code",
+					label: "Facility code",
+				},
+			],
+		});
+		expect(property.result).toMatchObject({ uuids: [locationPropertyUuid] });
+		expect(
+			h.currentDoc().locationProperties?.[locationPropertyUuid],
+		).toMatchObject({ slug: "facility_code" });
+	});
+
 	it("does not expose the create-once level code on updates", () => {
 		const json = z.toJSONSchema(updateOrganizationLevelInputSchema, {
 			target: "draft-7",
@@ -245,17 +263,9 @@ describe("organization authoring tools", () => {
 				orderKey: String(index),
 			})),
 		} as const;
-		vi.spyOn(organizationService, "readOrganizationAuthoringSnapshot")
-			.mockResolvedValueOnce({
-				blueprint: doc,
-				blueprintSeq: 3,
-				organization: snapshot,
-			})
-			.mockResolvedValueOnce({
-				blueprint: doc,
-				blueprintSeq: 3,
-				organization: snapshot,
-			});
+		vi.spyOn(organizationService, "readOrganization").mockResolvedValue(
+			snapshot,
+		);
 		const first = await h.runTool(getOrganizationTool, {
 			query: "clinic",
 			limit: 25,
@@ -326,13 +336,9 @@ describe("organization authoring tools", () => {
 			archivedAt: null,
 			orderKey: String(index),
 		}));
-		vi.spyOn(
-			organizationService,
-			"readOrganizationAuthoringSnapshot",
-		).mockResolvedValue({
-			blueprint: doc,
-			blueprintSeq: 3,
-			organization: { revision: "7", locations },
+		vi.spyOn(organizationService, "readOrganization").mockResolvedValue({
+			revision: "7",
+			locations,
 		});
 		const h = makeHarness(doc);
 
@@ -490,23 +496,15 @@ describe("organization authoring tools", () => {
 			archivedAt: null,
 			orderKey: "1",
 		} as const;
-		vi.spyOn(organizationService, "readOrganizationAuthoringSnapshot")
+		vi.spyOn(organizationService, "readOrganization")
 			.mockResolvedValueOnce({
-				blueprint: doc,
-				blueprintSeq: 3,
-				organization: {
-					revision: "7",
-					locations: [
-						location,
-						{ ...location, id: testUuid("paged-location-2") },
-					],
-				},
+				revision: "7",
+				locations: [
+					location,
+					{ ...location, id: testUuid("paged-location-2") },
+				],
 			})
-			.mockResolvedValueOnce({
-				blueprint: doc,
-				blueprintSeq: 3,
-				organization: { revision: "8", locations: [location] },
-			});
+			.mockResolvedValueOnce({ revision: "8", locations: [location] });
 		const first = await h.runTool(getOrganizationTool, { limit: 1 });
 		const cursor = (first.data as { page: { nextCursor: string } }).page
 			.nextCursor;
@@ -514,7 +512,7 @@ describe("organization authoring tools", () => {
 		expect(second.data).toMatchObject({ restart: true, revision: "8" });
 	});
 
-	it("rejects a continuation cursor after only the Blueprint changes", async () => {
+	it("rejects a continuation cursor after only the organization shape changes", async () => {
 		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
 		const h = makeHarness(doc);
 		const location = {
@@ -530,26 +528,29 @@ describe("organization authoring tools", () => {
 			archivedAt: null,
 			orderKey: "1",
 		} as const;
-		vi.spyOn(organizationService, "readOrganizationAuthoringSnapshot")
-			.mockResolvedValueOnce({
-				blueprint: doc,
-				blueprintSeq: 3,
-				organization: {
-					revision: "7",
-					locations: [
-						location,
-						{ ...location, id: testUuid("blueprint-paged-location-2") },
-					],
-				},
-			})
-			.mockResolvedValueOnce({
-				blueprint: doc,
-				blueprintSeq: 4,
-				organization: { revision: "7", locations: [location] },
-			});
+		vi.spyOn(organizationService, "readOrganization").mockResolvedValue({
+			revision: "7",
+			locations: [
+				location,
+				{ ...location, id: testUuid("blueprint-paged-location-2") },
+			],
+		});
 		const first = await h.runTool(getOrganizationTool, { limit: 1 });
 		const cursor = (first.data as { page: { nextCursor: string } }).page
 			.nextCursor;
+		/* The shape half now comes from the workspace document, so a real
+		 * level add — not a bumped sequence — is what moves it between pages. */
+		await h.runTool(addOrganizationLevelsTool, {
+			levels: [
+				{
+					uuid: testUuid("blueprint-paged-new-level"),
+					code: "district",
+					name: "District",
+					caseFlow: { workers: "none", ownsCases: false },
+					addressBook: { reach: "own-branch" },
+				},
+			],
+		});
 		const second = await h.runTool(getOrganizationTool, { cursor, limit: 1 });
 		expect(second.data).toMatchObject({ restart: true, revision: "7" });
 	});

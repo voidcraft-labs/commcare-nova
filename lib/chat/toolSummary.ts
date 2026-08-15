@@ -14,6 +14,7 @@
 
 import type { ToolUIPart } from "ai";
 import type { ToolCallSummary } from "@/lib/agent/tools/shared/toolCallSummary";
+import { isDesignProtocolToolPartType } from "@/lib/chat/internalToolParts";
 
 /** The two tenses a row can read in: `doing` while the call is in flight (or
  *  failed — the act never completed, so the past tense would claim a change
@@ -39,11 +40,16 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	createModule: { doing: "Creating module", done: "Created module" },
 	updateModule: { doing: "Renaming module", done: "Renamed module" },
 	removeModule: { doing: "Removing module", done: "Removed module" },
+	moveModule: { doing: "Moving module", done: "Moved module" },
 	renameCaseProperties: {
 		doing: "Renaming case properties",
 		done: "Renamed case properties",
 	},
 	addCaseListColumns: { doing: "Adding columns", done: "Added columns" },
+	configureCaseList: {
+		doing: "Configuring the case list",
+		done: "Configured the case list",
+	},
 	updateCaseListColumn: { doing: "Updating column", done: "Updated column" },
 	removeCaseListColumn: { doing: "Removing column", done: "Removed column" },
 	reorderCaseListColumns: {
@@ -144,6 +150,64 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	generateSchema: {
 		doing: "Recording the data model",
 		done: "Recorded the data model",
+	},
+	// The design protocol. The phrases speak for the whole call; the raw
+	// payloads (model-facing teaching prose, rejection diagnostics, workspace
+	// views) are suppressed in `toolDetail`, so these rows never leak protocol
+	// vocabulary. A failed row here is Nova's own validation refusing a draft
+	// part, which Nova then reworks: honest, and explained by Nova's prose.
+	setDesignRoot: { doing: "Setting app direction", done: "Set app direction" },
+	updateActors: { doing: "Designing roles", done: "Designed roles" },
+	updateRecords: { doing: "Designing records", done: "Designed records" },
+	updateWorkflows: {
+		doing: "Designing workflows",
+		done: "Designed workflows",
+	},
+	updateLists: { doing: "Designing worklists", done: "Designed worklists" },
+	updateAccess: { doing: "Designing access", done: "Designed access" },
+	updateNavigation: {
+		doing: "Designing navigation",
+		done: "Designed navigation",
+	},
+	updateModuleCompositions: {
+		doing: "Composing menus",
+		done: "Composed menus",
+	},
+	updateFormCompositions: {
+		doing: "Composing forms",
+		done: "Composed forms",
+	},
+	updateExternalRequirements: {
+		doing: "Checking setup needs",
+		done: "Checked setup needs",
+	},
+	updateDecisions: {
+		doing: "Recording design decisions",
+		done: "Recorded design decisions",
+	},
+	updateAssumptions: {
+		doing: "Recording assumptions",
+		done: "Recorded assumptions",
+	},
+	updateOpenQuestions: {
+		doing: "Recording open questions",
+		done: "Recorded open questions",
+	},
+	updateFindingDispositions: {
+		doing: "Applying review feedback",
+		done: "Applied review feedback",
+	},
+	finishDesign: {
+		doing: "Completing the design",
+		done: "Completed the design",
+	},
+	requestReview: {
+		doing: "Reviewing the design",
+		done: "Reviewed the design",
+	},
+	inspectDesign: {
+		doing: "Checking the design draft",
+		done: "Checked the design draft",
 	},
 	// Historical threads only — these tools are retired, but runs
 	// persisted before their retirement still carry these parts.
@@ -380,6 +444,12 @@ export const toolLocation = (part: ToolUIPart): string | null => {
  *  not yet wired) — its raw prose so nothing renders blank. Null when the
  *  action + location already say everything. */
 export const toolDetail = (part: ToolUIPart): string | null => {
+	// Design protocol calls carry model-facing payloads on both branches: the
+	// success `message` is an instruction to the model, and the `error` is a
+	// rejection diagnostic in protocol vocabulary (@handles, validation
+	// stages). Neither faces the user — the action phrase and status glyph
+	// carry the row, and Nova's own prose narrates the work.
+	if (isDesignProtocolToolPartType(part.type)) return null;
 	const cerrors = completionErrors(part);
 	if (cerrors) return cerrors.join("\n");
 	if (COMPLETION_TOOLS.has(toolName(part)) && toolStatus(part) === "done") {

@@ -10,11 +10,210 @@ import {
 	authoritativeThreadActivationOptions,
 	chatCallbackCanPublish,
 	chatGenerationCanWrite,
+	chatRequestIsRedrive,
+	designBuildCanResume,
+	designProgressLocksInitialBuild,
+	designProgressOwnsActivityStatus,
+	designProgressTracksBuildFailure,
+	designSessionScopeTracksProgress,
 	expectedProjectIdForChatRequest,
 	mergeRetainedUserTextSuffix,
-	parseCreatedAppActivation,
+	parseAppMaterializationReceipt,
+	rememberDesignBuildResumeEligibility,
 	retireProjectAttachmentRefs,
+	threadActivationNeedsIncompleteSeed,
+	threadResumeHealPath,
+	threadResumeHealTarget,
 } from "./ChatContainer";
+
+describe("interrupted-turn request routing", () => {
+	it("preserves automatic regenerate redrive semantics", () => {
+		expect(chatRequestIsRedrive("regenerate-message", undefined)).toBe(true);
+		expect(chatRequestIsRedrive("submit-message", { redrive: true })).toBe(
+			true,
+		);
+		expect(chatRequestIsRedrive("submit-message", undefined)).toBe(false);
+	});
+
+	it("offers only a stopped recoverable build an exact-plan resume", () => {
+		expect(
+			designBuildCanResume(
+				{
+					failure: { message: "Temporary failure", recoverable: true },
+					seededStage: null,
+				},
+				true,
+				"ready",
+			),
+		).toBe(true);
+		expect(
+			designBuildCanResume(
+				{
+					failure: { message: "Build defect", recoverable: false },
+					seededStage: null,
+				},
+				true,
+				"ready",
+			),
+		).toBe(false);
+		expect(
+			designBuildCanResume(
+				{
+					failure: { message: "Temporary failure", recoverable: true },
+					seededStage: null,
+				},
+				true,
+				"streaming",
+			),
+		).toBe(false);
+		expect(
+			designBuildCanResume(
+				{ failure: null, seededStage: "incomplete" },
+				true,
+				"ready",
+			),
+		).toBe(true);
+	});
+
+	it("retains recoverable resume eligibility across a thread reset and revokes it on terminal evidence", () => {
+		const resumable = new Set<string>();
+		rememberDesignBuildResumeEligibility(resumable, {
+			designSessionId: "design-1",
+			failure: { message: "Infrastructure stopped", recoverable: true },
+			seededStage: null,
+			completion: null,
+		});
+		expect([...resumable]).toEqual(["design-1"]);
+		expect(
+			threadActivationNeedsIncompleteSeed({
+				designSessionId: "design-1",
+				buildUnfinished: true,
+				resume: false,
+				redrive: false,
+				resumableDesignSessionIds: resumable,
+			}),
+		).toBe(true);
+		expect(
+			threadActivationNeedsIncompleteSeed({
+				designSessionId: "design-1",
+				buildUnfinished: true,
+				resume: true,
+				redrive: false,
+				resumableDesignSessionIds: resumable,
+			}),
+		).toBe(false);
+
+		rememberDesignBuildResumeEligibility(resumable, {
+			designSessionId: "design-1",
+			failure: null,
+			seededStage: null,
+			completion: { appId: "app-1", appSeq: 13, plannedSlices: 13 },
+		});
+		expect(resumable.size).toBe(0);
+	});
+});
+
+describe("design progress activity ownership", () => {
+	it("treats completed design lineage as edit routing, not active progress", () => {
+		expect(
+			designSessionScopeTracksProgress(
+				{ designSessionId: "design", materializedAppId: "app" },
+				false,
+			),
+		).toBe(false);
+		expect(
+			designSessionScopeTracksProgress(
+				{ designSessionId: "design", materializedAppId: "app" },
+				true,
+			),
+		).toBe(true);
+		expect(
+			designSessionScopeTracksProgress(
+				{ designSessionId: "design", materializedAppId: null },
+				false,
+			),
+		).toBe(true);
+	});
+
+	it("keeps the design status through post-materialization build work", () => {
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "building" },
+				"streaming",
+			),
+		).toBe(true);
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "reviewing-implementation" },
+				"streaming",
+			),
+		).toBe(true);
+	});
+
+	it("shows completion until stream close, then returns to a quiet composer", () => {
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "ready" },
+				"streaming",
+			),
+		).toBe(true);
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "ready" },
+				"ready",
+			),
+		).toBe(false);
+	});
+
+	it("releases stale working status on a transport error", () => {
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "building" },
+				"error",
+			),
+		).toBe(false);
+		expect(
+			designProgressOwnsActivityStatus(
+				{ active: true, stage: "failed" },
+				"error",
+			),
+		).toBe(true);
+	});
+
+	it("tracks failures across unfinished materialized build phases, not edits", () => {
+		const preApp = {
+			designSessionId: "design",
+			materializedAppId: null,
+			activeSlice: null,
+		};
+		const materialized = { ...preApp, materializedAppId: "app" };
+		expect(designProgressTracksBuildFailure(preApp, false)).toBe(true);
+		expect(designProgressTracksBuildFailure(materialized, true)).toBe(true);
+		expect(designProgressTracksBuildFailure(materialized, false)).toBe(false);
+	});
+
+	it("locks only an actually unfinished initial build", () => {
+		const historicalDesignThread = {
+			active: true,
+			stage: "understanding",
+		} as const;
+		expect(designProgressLocksInitialBuild(historicalDesignThread, true)).toBe(
+			true,
+		);
+		expect(designProgressLocksInitialBuild(historicalDesignThread, false)).toBe(
+			false,
+		);
+		expect(
+			designProgressLocksInitialBuild(
+				{ active: false, stage: "understanding" },
+				true,
+			),
+		).toBe(true);
+		expect(
+			designProgressLocksInitialBuild({ active: true, stage: "ready" }, true),
+		).toBe(true);
+	});
+});
 
 describe("authoritative thread activation", () => {
 	it("passes through the actor-bound holder nonce and clears it when omitted", () => {
@@ -34,6 +233,8 @@ describe("authoritative thread activation", () => {
 			resume: true,
 			redrive: false,
 			buildResume: true,
+			buildUnfinished: true,
+			designSessionId: null,
 		});
 		expect(
 			authoritativeThreadActivationOptions(
@@ -236,11 +437,16 @@ describe("new-app Project handoff", () => {
 		);
 		expect(verdict.ok).toBe(true);
 		const receipt = {
+			eventVersion: 1,
+			designSessionId: null,
 			appId: "app-1",
 			projectId: "project-1",
 			role: "editor",
 			canEdit: true,
-			baseSeq: 1,
+			seq: 1,
+			batchId: "genesis:app-1",
+			changeSetId: null,
+			snapshotDigest: "ab".repeat(32),
 			blueprint: toPersistableDoc(verdict.nextDoc),
 			starter: {
 				moduleUuid: genesis.moduleUuid,
@@ -249,20 +455,56 @@ describe("new-app Project handoff", () => {
 			},
 		};
 
-		expect(parseCreatedAppActivation(receipt)).toEqual(receipt);
+		expect(parseAppMaterializationReceipt(receipt)).toEqual(receipt);
 		expect(
-			parseCreatedAppActivation({ ...receipt, role: undefined }),
+			parseAppMaterializationReceipt({ ...receipt, role: undefined }),
 		).toBeNull();
-		expect(parseCreatedAppActivation({ ...receipt, baseSeq: 0 })).toBeNull();
+		expect(parseAppMaterializationReceipt({ ...receipt, seq: 0 })).toBeNull();
 		expect(
-			parseCreatedAppActivation({
+			parseAppMaterializationReceipt({
 				...receipt,
 				starter: { ...receipt.starter, fieldUuid: genesis.formUuid },
 			}),
 		).toBeNull();
 		expect(
-			parseCreatedAppActivation({ ...receipt, unexpected: true }),
+			parseAppMaterializationReceipt({ ...receipt, unexpected: true }),
 		).toBeNull();
+		/* A design-slice receipt has no starter and an arbitrary meaningful
+		 * blueprint; only identity + digest shape are asserted structurally. */
+		expect(
+			parseAppMaterializationReceipt({
+				...receipt,
+				designSessionId: "0b944e00-722d-48ab-8d4d-47e922970b5f",
+				changeSetId: "cs-1",
+				starter: null,
+			}),
+		).toMatchObject({ starter: null });
+		expect(
+			parseAppMaterializationReceipt({
+				...receipt,
+				snapshotDigest: "not-a-digest",
+			}),
+		).toBeNull();
+	});
+});
+
+describe("post-resume transcript healing", () => {
+	it("uses the design-session authority before an app exists", () => {
+		const target = threadResumeHealTarget(undefined, "design-1");
+		expect(target).toEqual({ kind: "design-session", id: "design-1" });
+		if (target === null) throw new Error("Expected a design-session target.");
+		expect(threadResumeHealPath(target, "thread/1")).toBe(
+			"/api/design-sessions/design-1/threads/thread%2F1",
+		);
+	});
+
+	it("switches to the app authority after materialization", () => {
+		const target = threadResumeHealTarget("app-1", "design-1");
+		expect(target).toEqual({ kind: "app", id: "app-1" });
+		if (target === null) throw new Error("Expected an app target.");
+		expect(threadResumeHealPath(target, "thread-1")).toBe(
+			"/api/apps/app-1/threads/thread-1",
+		);
 	});
 });
 
@@ -440,7 +682,7 @@ describe("chatGenerationCanWrite", () => {
 	it("fails closed for a held destination hydration, old epoch, or missing session", () => {
 		const destination = {
 			accessPhase: "authorized",
-			canEdit: true,
+			projectCanEdit: true,
 			scopeEpoch: 2,
 		};
 
@@ -450,10 +692,28 @@ describe("chatGenerationCanWrite", () => {
 		expect(chatGenerationCanWrite(destination, 2, "ready")).toBe(true);
 	});
 
+	it("uses Project authority while the initial-build lock keeps direct editors read-only", () => {
+		const initialBuild = {
+			accessPhase: "authorized",
+			projectCanEdit: true,
+			canEdit: false,
+			scopeEpoch: 2,
+		};
+
+		expect(chatGenerationCanWrite(initialBuild, 2, "ready")).toBe(true);
+		expect(
+			chatGenerationCanWrite(
+				{ ...initialBuild, projectCanEdit: false },
+				2,
+				"ready",
+			),
+		).toBe(false);
+	});
+
 	it("keeps a failed same-thread hydration unable to overwrite its stored transcript", () => {
 		const destination = {
 			accessPhase: "authorized",
-			canEdit: true,
+			projectCanEdit: true,
 			scopeEpoch: 2,
 		};
 

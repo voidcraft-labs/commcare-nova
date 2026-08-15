@@ -20,6 +20,12 @@ local unmount. And the builder's clusters arrive animated but leave instantly
 (no `AnimatePresence`): they go when app access stops being resolved, and a
 control mid-fade is still visible and still takes a click.
 
+**`/build/new` has a second form**: `?design=<designSessionId>` reopens a
+pre-app design from the Designs-in-progress list — still the app-less builder
+(conversation + derived progress stage, no tree, no Preview), hydrated with
+that design's session-targeted thread; a session that has since materialized
+redirects to its app.
+
 **`/build/new` claims nothing until a build starts.** No app exists there, so
 the screen is still the site with a composer on it and the nav, the Project
 switcher, and Help all still belong; the band changes hands at the moment the
@@ -54,11 +60,13 @@ chat's centered-to-docked morph are one gesture on one tick.
 
 ## Creation never navigates
 
-Both ways an app is born — the SA's `data-app-id` frame and the blank-app
-Server Action's return value — hand the client the SAME receipt (identity, the
-server-resolved Project capability, the exact sequence-1 blueprint, the cursor)
-and land it through ONE installer, `ChatContainer.installCreatedApp`, behind the
-same strict `parseCreatedAppActivation` boundary. It promotes `/build/new` to
+Both ways an app is born — the design build's `data-app-materialized` frame
+and the blank-app Server Action's return value — hand the client the SAME
+receipt (identity, the server-resolved Project capability, the exact
+sequence-1 blueprint and its canonical digest, the cursor) and land it
+through ONE installer, `ChatContainer.installCreatedApp`, behind the same
+strict `parseAppMaterializationReceipt` boundary (the digest verifies in the
+background over the shared canonical JSON text). It promotes `/build/new` to
 `/build/{id}` through `pushBuilderHistory`, the builder's own History-API path,
 never the Next router: a route change swaps `BuilderProvider`'s `key={buildId}`
 and rebuilds every store under it, severing a live run and discarding the
@@ -87,6 +95,27 @@ A Project **viewer** (the `view`-only role) opens the builder read-only. The bui
 1. **Data backstop (the choke point).** `useBlueprintMutations` reads `BlueprintEditableContext` — when `false`, every gated dispatch no-ops with a "view-only access" message, so no canvas affordance can mutate the doc even if its control wasn't hidden. `useAutoSave` and the reconciler both refuse to PUT when `!canEdit`.
 2. **Affordances hide.** The chat composer (the SA is the edit mechanism) hides like replay; `BuilderHeader` swaps the edit cluster (save indicator, undo/redo) for a "View only" badge and the structure sidebar's app-settings gear (`AppSettingsButton`, in its app row) renders nothing; the app-tree "+" insertion strips, `TreeRowDelete`, inline `EditableTitle`/`TextEditable`, form-row drag, and the field-inspector destructive controls all gate on `useCanEdit()`. Preview + local Export stay (a viewer may preview and download), but HQ upload and media upload/delete/attach/replace/remove do not. Their event handlers re-read `session.getState().canEdit` so a stale rendered control still cannot start a Project write. The account file manager stays browse/preview-capable for viewers.
 3. **Server enforcement is the authority.** Every write path (`PUT /api/apps/[id]`, `/api/chat`, MCP) independently re-gates at `edit`, so the UI flag is a UX nicety, never the security boundary.
+
+The same effective capability enforces the initial-build boundary for an
+editor. After design materialization, `projectCanEdit` keeps chat available but
+`canEdit` stays false while `buildUnfinished` is true: the committed app tree
+fills in read-only around the central progress card, and no human autosave can
+race Nova's remaining slices. Whole-build completion releases it. After a
+settled interruption with committed work, the app tree remains inspectable but
+locked: no partial-plan transition can mark it complete or unlock authoring. A
+viewer sees the same stopped state without controls. Provider, transport,
+transaction, and lost-response recovery resume the exact attempt. A recoverable
+turn that has already sealed its stream exposes one **Resume build** action;
+the durable incomplete stage restores that action after a cold reload. An error
+app with a nonterminal orchestration head also projects incomplete, closing the
+window where an infrastructure fault settled the app before it could append a
+failure event. It is
+editor-only, submits no new message, and carries only the redrive capability,
+which makes a fresh exact-build claim without redesigning the frozen plan. A
+deterministic failed plan/slice exposes no retry control and cannot be reopened
+by another chat turn. A completed app's original design-backed
+conversation remains ordinary editable history: its retained design-session
+identity does not re-arm the lock after `buildUnfinished` is released.
 
 ## Publishing
 
@@ -911,13 +940,14 @@ vocabulary, and `caseDataScope`.
 decisions, and `__tests__/caseOperationValidByConstruction.test.ts` drives every
 slot × both module shapes against the validator rule itself):
 
-- `caseDataScope` follows the MODULE, not the operation. `validateCaseSnapshotUse`
-  refuses a case property, a relationship count, and a presence test in ANY slot
-  unless the module selects a case before opening its forms — spelled with
-  exactly the walks `expressionReadsCaseData` performs, which is `"global"`'s own
-  admission oracle. So a module holding a registration form is `"global"`, and its
-  seeds compare a session value rather than a property (neutral, so adding a
-  condition does not change when the change runs until the author edits it).
+- `caseDataScope` follows the FORM, not the operation or the module's landing
+  order. `validateCaseSnapshotUse` refuses a case property, a relationship count,
+  and a presence test in ANY slot unless this exact form opens with a case. A
+  follow-up or close form therefore uses `"per-case"` even when a registration
+  sibling makes the module forms-first; a registration or survey form uses
+  `"global"`, and its seeds compare a session value rather than a property
+  (neutral, so adding a condition does not change when the change runs until the
+  author edits it).
   `"selected-case"` is deliberately not the middle answer: it admits the chosen
   case's own properties and the gate admits none.
 - A RUNTIME TARGET slot — the operation's own "which case to change", and a link's

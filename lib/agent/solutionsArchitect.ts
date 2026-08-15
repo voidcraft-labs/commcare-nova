@@ -25,6 +25,7 @@
  */
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
 import type { ZodType } from "zod";
+import { projectModelHistoryFromNewestCompaction } from "@/lib/chat/compaction";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
@@ -33,13 +34,7 @@ import {
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
 import type { BlueprintDoc } from "@/lib/domain";
-import {
-	reasoningProviderOptions,
-	SA_BUILD_MODEL,
-	SA_BUILD_REASONING,
-	SA_EDIT_MODEL,
-	SA_EDIT_REASONING,
-} from "@/lib/models";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import {
@@ -60,20 +55,18 @@ interface ToolCallOptionsLike {
 }
 
 /**
- * Create the Solutions Architect agent.
+ * Create the Solutions Architect agent — the direct canonical EDIT executor.
+ * A chat BUILD never mounts it: the design pipeline's orchestrator and slice
+ * executor (`lib/agent/build/`) own new-app construction, so the SA always
+ * runs the edit prompt over an app's current persisted state (the blueprint
+ * summary arrives as a per-turn message the route appends).
  *
- * @param initialDoc - The workspace's starting `BlueprintDoc`. On initial
- *   builds this is the exact canonical starter returned by `createApp`; during
- *   edits it's the app's current state loaded from Postgres.
- * @param editing - True when the app already exists (appReady). The SA gets
- *   the editing preamble in its prompt (the blueprint summary arrives as a
- *   per-turn message the route appends). False during initial builds, where
- *   the SA gets the build-mode prompt.
+ * @param initialDoc - The workspace's starting `BlueprintDoc`: the app's
+ *   current state loaded from Postgres.
  */
 export function createSolutionsArchitect(
 	ctx: GenerationContext,
 	initialDoc: BlueprintDoc,
-	editing = false,
 ) {
 	/* The workspace owns the current document and the invocation order.
 	 *
@@ -249,17 +242,12 @@ export function createSolutionsArchitect(
 	// tool — the route finalizes a build when the run's drain ends.
 
 	const agent = new ToolLoopAgent({
-		// Build and edit run the same model at different reasoning efforts:
-		// a ground-up build reasons at the ceiling, an edit of an existing
-		// app at medium (`SA_BUILD_REASONING` / `SA_EDIT_REASONING`).
-		model: ctx.model(editing ? SA_EDIT_MODEL : SA_BUILD_MODEL),
-		// The doc picks the build-vs-edit branch and contributes no bytes —
-		// both prompts are static so the provider's exact-prefix cache
-		// survives doc mutations. The current blueprint summary rides
-		// the per-turn message the route appends (`buildAppStateMessage`).
-		instructions: buildSolutionsArchitectPrompt(
-			editing ? initialDoc : undefined,
-		),
+		model: ctx.model(MODEL_ROLES.followUpEditor.modelId),
+		// The prompt is static and contributes no per-app bytes, so the
+		// provider's exact-prefix cache survives doc mutations. The current
+		// blueprint summary rides the per-turn message the route appends
+		// (`buildAppStateMessage`).
+		instructions: buildSolutionsArchitectPrompt(),
 		stopWhen: stepCountIs(80),
 		/* Provider 5xx / 429 at request establishment retries with the SDK's
 		 * exponential backoff — 5 attempts (~30s of patience) instead of the
@@ -268,7 +256,7 @@ export function createSolutionsArchitect(
 		 * retry layer; the chat route's turn-level re-run (`lib/agent/turnRetry`)
 		 * owns those. */
 		maxRetries: 4,
-		prepareStep: () => {
+		prepareStep: ({ messages }) => {
 			// A tool execution error is a non-fatal AI SDK content part. Stop the
 			// loop explicitly once an authoritative scope error has been latched;
 			// otherwise the SDK would ask the model for another step in a run whose
@@ -277,13 +265,16 @@ export function createSolutionsArchitect(
 			// The canonical reasoning literal
 			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the
 			// streamed reasoning summaries the live-thinking feed needs, plus
-			// the SA's per-app prompt-cache configuration (key + options; the
-			// route's `markStablePrefixBoundary` marker is the third piece of
-			// the documented triple — see the helper's doc).
+			// the SA's stable per-app cache affinity (key + options). The route adds
+			// one request-local explicit boundary before its volatile state tail;
+			// that metadata does not alter the model-visible transcript.
 			return {
+				messages: projectModelHistoryFromNewestCompaction(messages),
 				providerOptions: reasoningProviderOptions(
-					(editing ? SA_EDIT_REASONING : SA_BUILD_REASONING).effort,
-					{ promptCacheKey: `nova:app:${ctx.appId}` },
+					MODEL_ROLES.followUpEditor.reasoningEffort,
+					{
+						promptCacheKey: `nova:app:${ctx.appId}`,
+					},
 				),
 			};
 		},
@@ -316,6 +307,7 @@ export function createSolutionsArchitect(
 					warnings: step.warnings,
 				},
 				"Solutions Architect",
+				MODEL_ROLES.followUpEditor.modelId,
 			);
 		},
 		tools: sharedTools,

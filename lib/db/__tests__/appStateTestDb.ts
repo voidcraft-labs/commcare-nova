@@ -21,6 +21,7 @@
 // handle inside test bodies (`h.db()` / `h.pool()` throw outside a test, the
 // same guard `setupPerTestDatabase` imposes).
 
+import { createHash } from "node:crypto";
 import { produce } from "immer";
 import {
 	Kysely,
@@ -166,6 +167,28 @@ export interface AppStateTestDb {
 	 *  returns its id. Seeds the owner's Project membership like the app
 	 *  seeder does. */
 	seedDesignSession(opts?: SeedDesignSessionOptions): Promise<string>;
+	/**
+	 * Insert a full FK-valid design lineage — session, accepted revision,
+	 * build plan, and one running slice attempt — and return the identity set
+	 * a change set's `ChangeSetLineage` needs. The artifact rows are raw
+	 * digest-valid stubs (never read back through the artifact store); suites
+	 * whose subject is artifact CONTENT write through the real store instead.
+	 */
+	seedDesignLineage(
+		opts?: SeedDesignSessionOptions & {
+			/** Attach the artifact rows to an already-created session (one a
+			 *  suite claimed through the real protocol) instead of seeding one. */
+			existingSessionId?: string;
+		},
+	): Promise<{
+		designSessionId: string;
+		designRevisionId: string;
+		designRevisionDigest: string;
+		buildPlanId: string;
+		buildPlanDigest: string;
+		sliceId: string;
+		attemptId: string;
+	}>;
 	/** Read the full `design_sessions` row (raw columns). */
 	readDesignSessionRow(
 		designSessionId: string,
@@ -546,6 +569,98 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		return id;
 	}
 
+	async function seedDesignLineage(
+		opts: SeedDesignSessionOptions & { existingSessionId?: string } = {},
+	) {
+		const designSessionId =
+			opts.existingSessionId ?? (await seedDesignSession(opts));
+		const designRevisionId = crypto.randomUUID();
+		const buildPlanId = crypto.randomUUID();
+		const sliceId = crypto.randomUUID();
+		const attemptId = crypto.randomUUID();
+		const digestOf = (seed: string) =>
+			createHash("sha256").update(seed).digest("hex");
+		const designRevisionDigest = digestOf(`revision:${designRevisionId}`);
+		const buildPlanDigest = digestOf(`plan:${buildPlanId}`);
+		const packageDigest = digestOf(`package:${designSessionId}`);
+		await db()
+			.insertInto("design_source_packages")
+			.values({
+				id: crypto.randomUUID(),
+				design_session_id: designSessionId,
+				project_id: opts.project_id ?? "project-test",
+				package_digest: packageDigest,
+				created_by_run_id: "run-lineage-seed",
+				payload: JSON.stringify({}),
+			})
+			.execute();
+		await db()
+			.insertInto("design_revisions")
+			.values({
+				id: designRevisionId,
+				design_session_id: designSessionId,
+				revision: 1,
+				parent_revision_id: null,
+				lifecycle: "accepted",
+				artifact_digest: designRevisionDigest,
+				contract_digest: digestOf(`contract:${designRevisionId}`),
+				source_package_digest: packageDigest,
+				producer_model: "seed-model",
+				prompt_version: "seed-v1",
+				created_by_run_id: "run-lineage-seed",
+				envelope: JSON.stringify({}),
+			})
+			.execute();
+		await db()
+			.insertInto("design_build_plans")
+			.values({
+				id: buildPlanId,
+				design_session_id: designSessionId,
+				design_revision_id: designRevisionId,
+				design_revision_digest: designRevisionDigest,
+				plan_digest: buildPlanDigest,
+				artifact_digest: buildPlanDigest,
+				producer_model: "seed-model",
+				prompt_version: "seed-v1",
+				created_by_run_id: "run-lineage-seed",
+				envelope: JSON.stringify({}),
+			})
+			.execute();
+		await db()
+			.insertInto("design_slice_attempts")
+			.values({
+				id: attemptId,
+				design_session_id: designSessionId,
+				design_revision_id: designRevisionId,
+				design_revision_digest: designRevisionDigest,
+				build_plan_id: buildPlanId,
+				build_plan_digest: buildPlanDigest,
+				slice_id: sliceId,
+				attempt: 1,
+				base_kind: "empty-genesis",
+				base_app_id: null,
+				base_proposed_app_id: crypto.randomUUID(),
+				base_seq: null,
+				base_snapshot_digest: digestOf(`base:${attemptId}`),
+				change_set_id: null,
+				executor_model: "seed-model",
+				prompt_version: "seed-v1",
+				brief_digest: digestOf(`brief:${attemptId}`),
+				status: "running",
+				failure_code: null,
+			})
+			.execute();
+		return {
+			designSessionId,
+			designRevisionId,
+			designRevisionDigest,
+			buildPlanId,
+			buildPlanDigest,
+			sliceId,
+			attemptId,
+		};
+	}
+
 	async function readDesignSessionRow(
 		designSessionId: string,
 	): Promise<Record<string, unknown> | undefined> {
@@ -598,6 +713,7 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		readReservation,
 		readRunLock,
 		seedDesignSession,
+		seedDesignLineage,
 		readDesignSessionRow,
 		readDesignSessionReservation,
 	};

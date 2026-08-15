@@ -1,37 +1,108 @@
 /**
- * The Design Contract — the typed, versioned, NON-EXECUTABLE representation
- * of what an app is for: actors, tasks, records, facts, rules, read models,
- * access, navigation, decisions, assumptions, and acceptance scenarios.
+ * The lean Design Contract v1.
  *
- * This vocabulary is deliberately NOT Blueprint vocabulary. A task describes
- * a real-world transaction — a CommCare form is one possible lowering of it;
- * a read model describes a work queue — a case list is its primary lowering
- * target. Nothing here has a wire emitter, can be previewed, or can execute:
- * design artifacts influence a build brief and nothing else. Design identity
- * is the separate `DesignId` brand (`ids.ts`) — never a Blueprint UUID.
+ * The contract records only app semantics that a person or executor needs to
+ * understand: the one-app boundary, actors, records and their properties,
+ * task-complete workflows, work lists, access/navigation, external
+ * prerequisites, decisions, assumptions, and unresolved questions. It is not
+ * a traceability matrix and it is not a second Blueprint.
  *
- * The Zod schemas are the authority: the author/reviser structured calls
- * produce against them and every persisted artifact reads back through them,
- * unknown keys failing closed. The root contract proves its internal graph
- * (`graph.ts::validateDesignGraph`) inside the parse, so an incoherent
- * contract is an invalid structured output, never a persisted artifact.
+ * Properties are declared once beneath their record. A workflow owns its
+ * inputs, decisions, record effects, readback, exceptions, and acceptance
+ * examples. Writers, readers, sources, and reverse references are derived from
+ * those declarations by `graph.ts`; they are never mirrored in the artifact.
  */
 
 import { z } from "zod";
-import { sourceClaimSchema } from "@/lib/agent/design/evidence";
 import { validateDesignGraph } from "@/lib/agent/design/graph";
 import { designIdSchema } from "@/lib/agent/design/ids";
-import { uuidSchema } from "@/lib/domain/uuid";
-
-const evidenceSchema = z.array(designIdSchema);
+import { FORM_ICON_SLUGS, MODULE_ICON_SLUGS } from "@/lib/domain/builtinIcons";
+import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
+import type { FieldKind } from "@/lib/domain/fields";
 
 /**
- * A UX-level description of a person doing work — who they are, what they
- * are trying to achieve, and what constrains them. NOT a Blueprint user type
- * and NOT a Preview persona: a later implementation binding maps an actor to
- * those concepts (`actorRuntimeBindingSchema`), and the binding is
- * implementation provenance, never part of the actor's meaning.
+ * Semantic fact shapes the accepted design can lower to at least one real
+ * Blueprint field kind. `unknown` is the authoring-only escape hatch below;
+ * construction refuses it until the model chooses a concrete shape.
+ *
+ * This vocabulary intentionally has no generic boolean. Nova has boolean
+ * predicates, but no boolean field or case-property carrier. A durable yes/no
+ * answer is an explicit single-choice fact with real values instead.
  */
+export const constructibleFactDataShapes = [
+	"text",
+	"integer",
+	"decimal",
+	"date",
+	"datetime",
+	"single-choice",
+	"multiple-choice",
+	"location",
+	"attachment",
+] as const;
+
+export type ConstructibleFactDataShape =
+	(typeof constructibleFactDataShapes)[number];
+
+interface FactDataShapeCarriers {
+	readonly fieldKinds: readonly FieldKind[];
+	readonly caseDataShapes: readonly CasePropertyDataType[];
+}
+
+/**
+ * Executable carriers behind every concrete semantic shape. This explicit
+ * relation is a drift tripwire between design vocabulary and the generated
+ * capability catalog; tests prove every named carrier still exists in the
+ * domain registries. Attachment capture is form-only until case attachment
+ * emission ships, so it deliberately has no case-data carrier.
+ */
+export const factDataShapeCarriers = {
+	text: { fieldKinds: ["text"], caseDataShapes: ["text"] },
+	integer: { fieldKinds: ["int"], caseDataShapes: ["int"] },
+	decimal: { fieldKinds: ["decimal"], caseDataShapes: ["decimal"] },
+	date: { fieldKinds: ["date"], caseDataShapes: ["date"] },
+	datetime: { fieldKinds: ["datetime"], caseDataShapes: ["datetime"] },
+	"single-choice": {
+		fieldKinds: ["single_select"],
+		caseDataShapes: ["single_select"],
+	},
+	"multiple-choice": {
+		fieldKinds: ["multi_select"],
+		caseDataShapes: ["multi_select"],
+	},
+	location: { fieldKinds: ["geopoint"], caseDataShapes: ["geopoint"] },
+	attachment: {
+		fieldKinds: ["image", "audio", "video", "file", "signature"],
+		caseDataShapes: [],
+	},
+} as const satisfies Record<ConstructibleFactDataShape, FactDataShapeCarriers>;
+
+export const factDataShapeSchema = z.enum([
+	...constructibleFactDataShapes,
+	"unknown",
+]);
+export type FactDataShape = z.infer<typeof factDataShapeSchema>;
+
+/** One session builds one app in the current Project — a server law stated
+ * by the capability catalog's session boundary, never a charter field the
+ * model spends tokens re-affirming. */
+export const appCharterSchema = z
+	.object({
+		appName: z.string().min(1),
+		objective: z.string().min(1),
+		includedWorkflowIds: z.array(designIdSchema).min(1),
+		excludedWorkflows: z.array(z.string().min(1)),
+		deliveryContext: z.enum([
+			"offline-first",
+			"online-first",
+			"mixed",
+			"not-decided",
+		]),
+		initialWorkflowId: designIdSchema,
+	})
+	.strict();
+export type AppCharter = z.infer<typeof appCharterSchema>;
+
 export const designActorSchema = z
 	.object({
 		id: designIdSchema,
@@ -39,32 +110,82 @@ export const designActorSchema = z
 		goals: z.array(z.string().min(1)).min(1),
 		responsibilities: z.array(z.string().min(1)),
 		workContext: z.array(z.string().min(1)),
-		authority: z.array(z.string().min(1)),
 		constraints: z.array(z.string().min(1)),
-		failureRisks: z.array(z.string().min(1)),
-		evidence: evidenceSchema,
 	})
 	.strict();
 export type DesignActor = z.infer<typeof designActorSchema>;
 
-/** Implementation provenance mapping an actor to Blueprint user types and
- *  Preview personas. Lives beside the actor schema because the two are read
- *  together, but it is never part of the contract payload. */
-export const actorRuntimeBindingSchema = z
+/** Semantic intent to use a lookup table that already exists in the current
+ * Project. Names stay human-readable in the Design Contract; the executor
+ * resolves the current stable table/column identities before authoring. */
+export const existingLookupChoiceSourceSchema = z
 	.object({
-		actorId: designIdSchema,
-		userTypeUuid: uuidSchema.optional(),
-		personaUuids: z.array(uuidSchema).default([]),
+		kind: z.literal("existing-project-lookup"),
+		table: z.string().min(1),
+		valueColumn: z.string().min(1),
+		labelColumn: z.string().min(1),
 	})
 	.strict();
-export type ActorRuntimeBinding = z.infer<typeof actorRuntimeBindingSchema>;
+export type ExistingLookupChoiceSource = z.infer<
+	typeof existingLookupChoiceSourceSchema
+>;
 
-/**
- * A real-world thing the workflow tracks over time. The primary lowering
- * target is a case type; `parentRecordId` names a real-world containment or
- * responsibility relationship (`relationshipMeaning` states what it means),
- * which lowers to a case parent relationship when implemented.
- */
+export const recordPropertySchema = z
+	.object({
+		id: designIdSchema,
+		name: z.string().min(1),
+		meaning: z.string().min(1),
+		dataShape: factDataShapeSchema,
+		sensitivity: z
+			.enum(["ordinary", "sensitive", "highly-sensitive"])
+			.default("ordinary"),
+		requiredWhen: z.string().min(1).optional(),
+		choiceValues: z.array(z.string().min(1)).optional(),
+		choiceSource: existingLookupChoiceSourceSchema.optional(),
+	})
+	.strict()
+	.superRefine((value, ctx) => {
+		const choice =
+			value.dataShape === "single-choice" ||
+			value.dataShape === "multiple-choice";
+		if (
+			choice &&
+			(value.choiceValues?.length ?? 0) === 0 &&
+			value.choiceSource === undefined
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceValues"],
+				message:
+					"A choice property must name its allowed values or an existing Project lookup source.",
+			});
+		}
+		if (
+			choice &&
+			value.choiceValues !== undefined &&
+			value.choiceSource !== undefined
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceSource"],
+				message:
+					"A choice property must use either inline values or an existing Project lookup source, not both.",
+			});
+		}
+		if (
+			!choice &&
+			(value.choiceValues !== undefined || value.choiceSource !== undefined)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceValues"],
+				message:
+					"Only a choice property may declare choice values or a lookup source.",
+			});
+		}
+	});
+export type RecordProperty = z.infer<typeof recordPropertySchema>;
+
 export const recordConceptSchema = z
 	.object({
 		id: designIdSchema,
@@ -73,257 +194,416 @@ export const recordConceptSchema = z
 		parentRecordId: designIdSchema.optional(),
 		relationshipMeaning: z.string().min(1).optional(),
 		lifecycleStates: z.array(z.string().min(1)),
-		evidence: evidenceSchema,
+		properties: z.array(recordPropertySchema),
 	})
 	.strict();
 export type RecordConcept = z.infer<typeof recordConceptSchema>;
 
-/**
- * Where a fact's value comes from — load-bearing for lowering: an `answer`
- * fact lowers to a direct field-to-case write, a `derived` fact needs a
- * calculated writer, a `session` fact reads worker/session context, a
- * `lookup` fact reads Project reference data, `external` arrives outside the
- * app, and `constant` is fixed. The conformance analyzer compares this
- * declared source with the implementation to find unjustified hidden writers.
- *
- * The `lookup` arm's intent ids name a lookup-table/column intent vocabulary
- * that does not exist in the contract root yet; they are exempt from graph
- * closure until that vocabulary lands with the new-build cutover (the
- * reviewed-intent plan's Unit E, work item 19 — see `graph.ts`).
- */
-export const factSourceSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("answer"), taskInputId: designIdSchema }).strict(),
-	z.object({ kind: z.literal("derived"), ruleId: designIdSchema }).strict(),
-	z.object({ kind: z.literal("session"), value: z.string().min(1) }).strict(),
-	z
-		.object({
-			kind: z.literal("lookup"),
-			lookupIntentId: designIdSchema,
-			columnIntentId: designIdSchema,
-		})
-		.strict(),
-	z.object({ kind: z.literal("external") }).strict(),
-	z.object({ kind: z.literal("constant"), value: z.unknown() }).strict(),
-]);
-export type FactSource = z.infer<typeof factSourceSchema>;
-
-export const factDataShapeSchema = z.enum([
-	"text",
-	"integer",
-	"decimal",
-	"boolean",
-	"date",
-	"datetime",
-	"single-choice",
-	"multiple-choice",
-	"location",
-	"attachment",
-	"unknown",
-]);
-export type FactDataShape = z.infer<typeof factDataShapeSchema>;
-
-/**
- * One durable piece of information about a record — the design-level
- * counterpart of a case property. `writerTaskIds` and `readerIds` are the
- * read/write coherence graph the validator proves and the conformance
- * analyzer replays against the implementation.
- */
-export const factDefinitionSchema = z
+export const workflowInputSchema = z
 	.object({
-		id: designIdSchema,
-		recordId: designIdSchema,
-		name: z.string().min(1),
-		meaning: z.string().min(1),
-		dataShape: factDataShapeSchema,
-		source: factSourceSchema,
-		sensitivity: z
-			.enum(["ordinary", "sensitive", "highly-sensitive"])
-			.default("ordinary"),
-		requiredIntent: z.string().min(1).optional(),
-		writerTaskIds: z.array(designIdSchema),
-		readerIds: z.array(designIdSchema),
-		evidence: evidenceSchema,
-	})
-	.strict();
-export type FactDefinition = z.infer<typeof factDefinitionSchema>;
-
-/** One thing a worker is asked during a task. `factId` names the fact this
- *  answer persists to (absent for ephemeral inputs used only in decisions). */
-export const taskInputSchema = z
-	.object({
-		id: designIdSchema,
+		handle: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
 		name: z.string().min(1),
 		purpose: z.string().min(1),
-		factId: designIdSchema.optional(),
-		requiredIntent: z.string().min(1).optional(),
-		choiceSetIntent: z.array(z.string().min(1)).optional(),
-		evidence: evidenceSchema,
+		propertyId: designIdSchema.optional(),
+		dataShape: factDataShapeSchema.optional(),
+		requiredWhen: z.string().min(1).optional(),
+		choiceValues: z.array(z.string().min(1)).optional(),
+		choiceSource: existingLookupChoiceSourceSchema.optional(),
+		validation: z
+			.object({
+				rule: z
+					.string()
+					.min(1)
+					.describe(
+						"Semantic condition that entered answers must satisfy; this is design intent, not an XPath expression.",
+					),
+				message: z
+					.string()
+					.min(1)
+					.describe("Worker-facing message shown when the answer is invalid."),
+			})
+			.strict()
+			.optional()
+			.describe(
+				"Optional data-quality intent for this input. Optional inputs must still accept an unanswered value.",
+			),
 	})
-	.strict();
-export type TaskInput = z.infer<typeof taskInputSchema>;
+	.strict()
+	.superRefine((value, ctx) => {
+		if (value.propertyId !== undefined) return;
+		const choice =
+			value.dataShape === "single-choice" ||
+			value.dataShape === "multiple-choice";
+		if (
+			choice &&
+			(value.choiceValues?.length ?? 0) === 0 &&
+			value.choiceSource === undefined
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceValues"],
+				message:
+					"A form-only choice input must name its allowed values or an existing Project lookup source.",
+			});
+		}
+		if (
+			choice &&
+			value.choiceValues !== undefined &&
+			value.choiceSource !== undefined
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceSource"],
+				message:
+					"A form-only choice input must use either inline values or an existing Project lookup source, not both.",
+			});
+		}
+		if (
+			!choice &&
+			(value.choiceValues !== undefined || value.choiceSource !== undefined)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceValues"],
+				message:
+					"Only a form-only choice input may declare choice values or a lookup source.",
+			});
+		}
+	});
+export type WorkflowInput = z.infer<typeof workflowInputSchema>;
 
-/** One intended durable write: which fact changes, from what, under which
- *  rule. */
-export const writeIntentSchema = z
+export const workflowDecisionSchema = z
 	.object({
-		id: designIdSchema,
-		targetFactId: designIdSchema,
-		sourceDescription: z.string().min(1),
-		ruleId: designIdSchema.optional(),
-	})
-	.strict();
-export type WriteIntent = z.infer<typeof writeIntentSchema>;
-
-/**
- * A record lifecycle change a task can cause — create, update, close, link,
- * or reassign. Its writes must target facts of its target record (the graph
- * validator proves it).
- */
-export const lifecycleTransitionSchema = z
-	.object({
-		id: designIdSchema,
+		handle: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
 		name: z.string().min(1),
+		statement: z.string().min(1),
+		inputPropertyIds: z.array(designIdSchema),
+		outcomes: z.array(z.string().min(1)).min(1),
+	})
+	.strict();
+export type WorkflowDecision = z.infer<typeof workflowDecisionSchema>;
+
+export const workflowPropertyWriteSchema = z
+	.object({
+		propertyId: designIdSchema,
+		value: z.string().min(1),
+		when: z.string().min(1).optional(),
+		unanswered: z.enum(["preserve", "clear"]).default("preserve"),
+	})
+	.strict();
+export type WorkflowPropertyWrite = z.infer<typeof workflowPropertyWriteSchema>;
+
+export const workflowRecordEffectSchema = z
+	.object({
+		handle: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+		recordId: designIdSchema,
+		kind: z.enum(["create", "update", "close", "link", "reassign"]),
 		sourceRecordId: designIdSchema.optional(),
-		targetRecordId: designIdSchema,
-		transitionKind: z.enum(["create", "update", "close", "link", "reassign"]),
-		conditionRuleId: designIdSchema.optional(),
-		writes: z.array(writeIntentSchema),
-		outcomeDescription: z.string().min(1),
-		evidence: evidenceSchema,
+		condition: z
+			.string()
+			.min(1)
+			.optional()
+			.describe(
+				"Semantic condition under which this effect is skipped while submission may otherwise succeed. Never condition a registration form's hosted primary create: use a standalone form for a conditional create, or input validation when the whole ineligible submission must be blocked.",
+			),
+		writes: z.array(workflowPropertyWriteSchema),
+		outcome: z.string().min(1),
 	})
 	.strict();
-export type LifecycleTransition = z.infer<typeof lifecycleTransitionSchema>;
+export type WorkflowRecordEffect = z.infer<typeof workflowRecordEffectSchema>;
 
-/**
- * A real-world transaction one actor performs: its trigger, context record,
- * inputs, decisions, writes, lifecycle transitions, and what the actor reads
- * back afterwards. A CommCare form is one possible lowering of a task; it is
- * not the task itself.
- */
-export const taskSchema = z
+/** Supported Blueprint features whose authored state is workflow-local but is
+ * not otherwise represented by a record effect. This is semantic intent, not
+ * a tool list: the deterministic plan compiler lowers it to Blueprint areas. */
+export const workflowAuthoredFeatureSchema = z.enum([
+	"existing-media",
+	"automation",
+]);
+export type WorkflowAuthoredFeature = z.infer<
+	typeof workflowAuthoredFeatureSchema
+>;
+
+export const workflowReadbackSchema = z
+	.object({
+		recordId: designIdSchema,
+		purpose: z.string().min(1),
+		propertyIds: z.array(designIdSchema),
+	})
+	.strict();
+export type WorkflowReadback = z.infer<typeof workflowReadbackSchema>;
+
+export const workflowAcceptanceExampleSchema = z
+	.object({
+		name: z.string().min(1),
+		given: z.array(z.string().min(1)),
+		when: z.array(z.string().min(1)).min(1),
+		expectedResults: z.array(z.string().min(1)).min(1),
+	})
+	.strict();
+export type WorkflowAcceptanceExample = z.infer<
+	typeof workflowAcceptanceExampleSchema
+>;
+
+export const workflowSchema = z
 	.object({
 		id: designIdSchema,
 		name: z.string().min(1),
-		actorId: designIdSchema,
+		actorIds: z.array(designIdSchema).min(1),
 		goal: z.string().min(1),
 		trigger: z.string().min(1),
 		contextRecordId: designIdSchema.optional(),
-		preconditions: z.array(z.string().min(1)),
-		inputs: z.array(taskInputSchema),
-		decisionRuleIds: z.array(designIdSchema),
-		writes: z.array(writeIntentSchema),
-		transitionIds: z.array(designIdSchema),
-		readBackIds: z.array(designIdSchema),
-		exceptionPaths: z.array(z.string().min(1)),
-		evidence: evidenceSchema,
+		prerequisiteWorkflowIds: z.array(designIdSchema),
+		prerequisites: z.array(z.string().min(1)),
+		inputs: z.array(workflowInputSchema),
+		decisions: z.array(workflowDecisionSchema),
+		recordEffects: z.array(workflowRecordEffectSchema),
+		authoredFeatures: z.array(workflowAuthoredFeatureSchema),
+		readback: z.array(workflowReadbackSchema),
+		exceptions: z.array(z.string().min(1)),
+		externalRequirementIds: z.array(designIdSchema),
+		acceptanceExamples: z.array(workflowAcceptanceExampleSchema).min(1),
 	})
 	.strict();
-export type Task = z.infer<typeof taskSchema>;
+export type Workflow = z.infer<typeof workflowSchema>;
 
-/**
- * A business rule as typed references plus an exact semantic statement —
- * deliberately NOT a second executable expression language. The build
- * executor lowers a rule into the canonical Predicate/ValueExpression/XPath
- * representation; conformance compares that implementation with the
- * statement. No design rule executes directly.
- */
-export const ruleIntentSchema = z
+const compositionMarkdownSchema = z
+	.string()
+	.min(1)
+	.max(4_000)
+	.describe(
+		"Concise user-facing Markdown. Use structure only when it helps a worker scan or act; do not add decorative filler.",
+	);
+
+const moduleIconDecisionSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			kind: z.literal("builtin"),
+			slug: z.enum(MODULE_ICON_SLUGS),
+			rationale: z.string().min(1).max(500).optional(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("none"),
+			rationale: z.string().min(1).max(500),
+		})
+		.strict(),
+]);
+
+const formIconDecisionSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			kind: z.literal("builtin"),
+			slug: z.enum(FORM_ICON_SLUGS),
+			rationale: z.string().min(1).max(500).optional(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("none"),
+			rationale: z.string().min(1).max(500),
+		})
+		.strict(),
+]);
+
+/** One deliberate home-screen/menu container. These are product-composition
+ * decisions, not Blueprint modules: every reference stays in Design IDs and
+ * the deterministic compiler later chooses construction ownership. */
+export const moduleCompositionSchema = z
 	.object({
 		id: designIdSchema,
-		name: z.string().min(1),
-		statement: z.string().min(1),
-		inputIds: z.array(designIdSchema),
-		outputFactIds: z.array(designIdSchema),
-		evidence: evidenceSchema,
+		name: z.string().min(1).max(160),
+		purpose: z.string().min(1).max(1_000),
+		role: z.enum(["form-host", "queue-only", "form-and-queue"]),
+		workflowIds: z.array(designIdSchema).min(1).max(32),
+		hostRecordId: designIdSchema.optional(),
+		actorIds: z.array(designIdSchema).min(1).max(32),
+		navigationIds: z.array(designIdSchema).max(16),
+		listIds: z.array(designIdSchema).max(16),
+		orderRationale: z.string().min(1).max(1_000),
+		icon: moduleIconDecisionSchema,
+		roleSeparationRationale: z.string().min(1).max(1_000),
 	})
 	.strict();
-export type RuleIntent = z.infer<typeof ruleIntentSchema>;
+export type ModuleComposition = z.infer<typeof moduleCompositionSchema>;
 
-/**
- * A task-oriented work queue: who opens it, what decision it supports, what
- * they scan, how urgency is ordered, and what happens after selection. A
- * CommCare case list is the primary lowering target.
- */
-export const readModelSchema = z
+export const formCompositionItemSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			kind: z.literal("input"),
+			id: designIdSchema,
+			inputHandle: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+			labelMarkdown: compositionMarkdownSchema,
+			hintMarkdown: compositionMarkdownSchema.optional(),
+			helpMarkdown: compositionMarkdownSchema.optional(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("guidance"),
+			id: designIdSchema,
+			markdown: compositionMarkdownSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("record-summary"),
+			id: designIdSchema,
+			recordId: designIdSchema,
+			propertyIds: z.array(designIdSchema).min(1).max(16),
+			purpose: z.string().min(1).max(1_000),
+		})
+		.strict(),
+]);
+export type FormCompositionItem = z.infer<typeof formCompositionItemSchema>;
+
+export const formCompositionSectionSchema = z
+	.object({
+		id: designIdSchema,
+		headingMarkdown: compositionMarkdownSchema,
+		purpose: z.string().min(1).max(1_000),
+		items: z.array(formCompositionItemSchema).min(1).max(64),
+	})
+	.strict();
+export type FormCompositionSection = z.infer<
+	typeof formCompositionSectionSchema
+>;
+
+export const formCompositionLayoutSchema = z.discriminatedUnion("kind", [
+	z
+		.object({
+			kind: z
+				.literal("sectioned")
+				.describe(
+					"A grouped visual layout on one continuous form, lowered through ordinary group fields. This is not authored FormSection pages or page navigation.",
+				),
+			rationale: z.string().min(1).max(1_000),
+			sections: z.array(formCompositionSectionSchema).min(1).max(12),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("flat"),
+			rationale: z.string().min(1).max(1_000),
+			items: z.array(formCompositionItemSchema).min(1).max(64),
+		})
+		.strict(),
+]);
+export type FormCompositionLayout = z.infer<typeof formCompositionLayoutSchema>;
+
+/** Exact worker-facing form composition for one complete workflow variant. */
+export const formCompositionSchema = z
+	.object({
+		id: designIdSchema,
+		workflowId: designIdSchema,
+		moduleCompositionId: designIdSchema,
+		name: z.string().min(1).max(160),
+		purpose: z.string().min(1).max(1_000),
+		mode: z.enum(["registration", "selected-record", "close", "standalone"]),
+		icon: formIconDecisionSchema,
+		variant: z.enum(["shared", "actor-specific"]),
+		actorIds: z.array(designIdSchema).min(1).max(32),
+		duplicateRationale: z.string().min(1).max(1_000).optional(),
+		layout: formCompositionLayoutSchema,
+	})
+	.strict();
+export type FormComposition = z.infer<typeof formCompositionSchema>;
+
+export const workListSchema = z
 	.object({
 		id: designIdSchema,
 		name: z.string().min(1),
 		actorIds: z.array(designIdSchema).min(1),
 		recordId: designIdSchema,
-		decisionSupported: z.string().min(1),
+		purpose: z.string().min(1),
 		filters: z.array(z.string().min(1)),
-		sortIntent: z.array(z.string().min(1)),
-		scanFactIds: z.array(designIdSchema),
-		detailFactIds: z.array(designIdSchema),
-		searchFactIds: z.array(designIdSchema),
-		selectionTaskId: designIdSchema.optional(),
+		sort: z.array(z.string().min(1)),
+		scanPropertyIds: z.array(designIdSchema),
+		detailPropertyIds: z.array(designIdSchema),
+		searchPropertyIds: z.array(designIdSchema),
+		selectionWorkflowId: designIdSchema.optional(),
 		emptyStateMeaning: z.string().min(1),
-		evidence: evidenceSchema,
 	})
 	.strict();
-export type ReadModel = z.infer<typeof readModelSchema>;
+export type WorkList = z.infer<typeof workListSchema>;
 
-/** Who may do what to which intents, and under what condition. */
 export const accessPolicySchema = z
 	.object({
 		id: designIdSchema,
 		actorId: designIdSchema,
-		targetIntentIds: z.array(designIdSchema).min(1),
-		capability: z.enum([
-			"discover",
-			"view",
-			"create",
-			"update",
-			"close",
-			"administer",
-		]),
+		targets: z
+			.array(
+				z
+					.object({
+						kind: z.enum(["record", "workflow", "list", "navigation"]),
+						id: designIdSchema,
+					})
+					.strict(),
+			)
+			.min(1),
+		capabilities: z
+			.array(
+				z.enum(["discover", "view", "create", "update", "close", "administer"]),
+			)
+			.min(1),
 		condition: z.string().min(1).optional(),
-		locationScopeIntent: z.string().min(1).optional(),
-		evidence: evidenceSchema,
+		locationScope: z.string().min(1).optional(),
 	})
 	.strict();
 export type AccessPolicy = z.infer<typeof accessPolicySchema>;
 
-/**
- * A navigation destination decided from worker tasks and read models —
- * module/menu hierarchy is the lowering target. The parent graph is acyclic
- * (proved by the graph validator).
- */
 export const navigationIntentSchema = z
 	.object({
 		id: designIdSchema,
-		actorIds: z.array(designIdSchema).min(1),
 		name: z.string().min(1),
 		purpose: z.string().min(1),
-		entryTaskIds: z.array(designIdSchema),
-		readModelIds: z.array(designIdSchema),
+		actorIds: z.array(designIdSchema).min(1),
+		workflowIds: z.array(designIdSchema),
+		listIds: z.array(designIdSchema),
 		parentNavigationId: designIdSchema.optional(),
-		orderRationale: z.string().min(1),
+		orderRationale: z.string().min(1).optional(),
 	})
 	.strict();
 export type NavigationIntent = z.infer<typeof navigationIntentSchema>;
 
-/** A recorded architecture decision: the question, the options considered
- *  (ids local to this decision), the selected option, and why. */
+export const externalRequirementSchema = z
+	.object({
+		id: designIdSchema,
+		name: z.string().min(1),
+		kind: z.enum([
+			"existing-reference",
+			"user-prerequisite",
+			"runtime-readiness",
+			"deployment-readiness",
+			"unsupported",
+		]),
+		description: z.string().min(1),
+		relatedWorkflowIds: z.array(designIdSchema),
+		/** Missing runtime/deployment assets do not block app construction. */
+		blocksConstruction: z.boolean(),
+	})
+	.strict()
+	.superRefine((value, ctx) => {
+		if (
+			value.blocksConstruction &&
+			(value.kind === "runtime-readiness" ||
+				value.kind === "deployment-readiness")
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["blocksConstruction"],
+				message: "Runtime and deployment readiness may not block construction.",
+			});
+		}
+	});
+export type ExternalRequirement = z.infer<typeof externalRequirementSchema>;
+
 export const architectureDecisionSchema = z
 	.object({
 		id: designIdSchema,
 		question: z.string().min(1),
-		options: z
-			.array(
-				z
-					.object({
-						id: designIdSchema,
-						description: z.string().min(1),
-						consequences: z.array(z.string().min(1)),
-					})
-					.strict(),
-			)
-			.min(1)
-			.max(3),
-		selectedOptionId: designIdSchema,
+		decision: z.string().min(1),
 		rationale: z.string().min(1),
-		evidence: evidenceSchema,
 	})
 	.strict();
 export type ArchitectureDecision = z.infer<typeof architectureDecisionSchema>;
@@ -333,7 +613,6 @@ export const assumptionSchema = z
 		id: designIdSchema,
 		statement: z.string().min(1),
 		consequenceIfWrong: z.string().min(1),
-		evidence: evidenceSchema,
 	})
 	.strict();
 export type Assumption = z.infer<typeof assumptionSchema>;
@@ -342,74 +621,292 @@ export const openQuestionSchema = z
 	.object({
 		id: designIdSchema,
 		question: z.string().min(1),
-		structuralImpact: z.enum(["none", "local", "architecture"]),
 		blocking: z.boolean(),
-		relatedIntentIds: z.array(designIdSchema),
+		relatedElementIds: z.array(designIdSchema),
 	})
 	.strict();
 export type OpenQuestion = z.infer<typeof openQuestionSchema>;
 
-/** Given/when/then acceptance evidence tied to the intents it exercises. A
- *  structural-path check over these is design-level evidence only — never a
- *  runtime proof. */
-export const acceptanceScenarioSchema = z
-	.object({
-		id: designIdSchema,
-		name: z.string().min(1),
-		actorId: designIdSchema,
-		given: z.array(z.string().min(1)),
-		when: z.array(z.string().min(1)).min(1),
-		/* Given/when/THEN is the scenario vocabulary; the value is an array,
-		 * never a function, so a scenario object is not thenable. */
-		// biome-ignore lint/suspicious/noThenProperty: given/when/then vocabulary; array value, not a thenable
-		then: z.array(z.string().min(1)).min(1),
-		relatedIntentIds: z.array(designIdSchema),
-		evidence: evidenceSchema,
-	})
-	.strict();
-export type AcceptanceScenario = z.infer<typeof acceptanceScenarioSchema>;
-
-/**
- * The root Design Contract. `schemaVersion` is the artifact dialect —
- * a prompt/schema change that alters meaning bumps it and re-produces
- * artifacts; it never silently reinterprets an old persisted body.
- */
-const appDesignContractBaseSchema = z
+export const appDesignContractBaseSchema = z
 	.object({
 		schemaVersion: z.literal(1),
 		id: designIdSchema,
-		title: z.string().min(1),
-		objective: z.string().min(1),
-		inScope: z.array(z.string().min(1)),
-		outOfScope: z.array(z.string().min(1)),
-		sourceClaims: z.array(sourceClaimSchema),
+		charter: appCharterSchema,
 		actors: z.array(designActorSchema).min(1),
 		records: z.array(recordConceptSchema),
-		facts: z.array(factDefinitionSchema),
-		rules: z.array(ruleIntentSchema),
-		tasks: z.array(taskSchema).min(1),
-		transitions: z.array(lifecycleTransitionSchema),
-		readModels: z.array(readModelSchema),
-		accessPolicies: z.array(accessPolicySchema),
+		workflows: z.array(workflowSchema).min(1),
+		lists: z.array(workListSchema),
+		access: z.array(accessPolicySchema),
 		navigation: z.array(navigationIntentSchema),
+		moduleCompositions: z.array(moduleCompositionSchema).default([]),
+		formCompositions: z.array(formCompositionSchema).default([]),
+		externalRequirements: z.array(externalRequirementSchema),
 		decisions: z.array(architectureDecisionSchema),
 		assumptions: z.array(assumptionSchema),
 		openQuestions: z.array(openQuestionSchema),
-		acceptanceScenarios: z.array(acceptanceScenarioSchema).min(1),
-		deferredRequirements: z.array(
-			z
-				.object({
-					claimId: designIdSchema,
-					reason: z.string().min(1),
-				})
-				.strict(),
-		),
 	})
 	.strict();
 
 export type AppDesignContract = z.infer<typeof appDesignContractBaseSchema>;
 
-/** The parse-time authority: structural shape plus the full deterministic
- *  graph proof. Every producer and every persisted read uses THIS schema. */
 export const appDesignContractSchema =
 	appDesignContractBaseSchema.superRefine(validateDesignGraph);
+
+export interface DesignConstructionIssue {
+	readonly path: readonly (string | number)[];
+	readonly message: string;
+}
+
+function distinctRealChoices(values: readonly string[] | undefined): number {
+	return new Set(
+		(values ?? []).map((value) => value.trim()).filter((value) => value !== ""),
+	).size;
+}
+
+/** New-artifact admission for semantics that the Blueprint field grammar must
+ * be able to construct. The base v1 parser remains compatible with already-
+ * persisted artifacts; finalization and deterministic plan derivation apply
+ * this stricter buildability proof to every newly accepted design. */
+export function designConstructionIssues(
+	contract: AppDesignContract,
+): DesignConstructionIssue[] {
+	const issues: DesignConstructionIssue[] = [];
+	contract.records.forEach((record, recordIndex) => {
+		record.properties.forEach((property, propertyIndex) => {
+			if (property.dataShape === "unknown") {
+				issues.push({
+					path: [
+						"records",
+						recordIndex,
+						"properties",
+						propertyIndex,
+						"dataShape",
+					],
+					message:
+						"A record property needs a concrete data shape before its field and storage can be authored.",
+				});
+			}
+			if (
+				(property.dataShape === "single-choice" ||
+					property.dataShape === "multiple-choice") &&
+				property.choiceSource === undefined &&
+				distinctRealChoices(property.choiceValues) < 2
+			) {
+				issues.push({
+					path: [
+						"records",
+						recordIndex,
+						"properties",
+						propertyIndex,
+						"choiceValues",
+					],
+					message:
+						"A controlled-choice property needs at least two distinct real values before it can be built.",
+				});
+			}
+		});
+	});
+	contract.workflows.forEach((workflow, workflowIndex) => {
+		if (
+			workflow.inputs.length === 0 &&
+			workflow.decisions.length === 0 &&
+			workflow.recordEffects.length === 0 &&
+			workflow.authoredFeatures.length === 0 &&
+			workflow.readback.length === 0
+		) {
+			issues.push({
+				path: ["workflows", workflowIndex],
+				message:
+					"An included workflow needs executable inputs, decisions, record effects, readback, or an explicitly authored feature; an empty workflow shell cannot be constructed.",
+			});
+		}
+		workflow.inputs.forEach((input, inputIndex) => {
+			if (input.propertyId === undefined && input.dataShape === "unknown") {
+				issues.push({
+					path: ["workflows", workflowIndex, "inputs", inputIndex, "dataShape"],
+					message:
+						"A form-only input needs a concrete data shape before it can be authored.",
+				});
+			}
+			if (
+				input.propertyId === undefined &&
+				(input.dataShape === "single-choice" ||
+					input.dataShape === "multiple-choice") &&
+				input.choiceSource === undefined &&
+				distinctRealChoices(input.choiceValues) < 2
+			) {
+				issues.push({
+					path: [
+						"workflows",
+						workflowIndex,
+						"inputs",
+						inputIndex,
+						"choiceValues",
+					],
+					message:
+						"A controlled-choice form input needs at least two distinct real values before it can be built.",
+				});
+			}
+		});
+		workflow.decisions.forEach((decision, decisionIndex) => {
+			if (decision.inputPropertyIds.length === 0) {
+				issues.push({
+					path: [
+						"workflows",
+						workflowIndex,
+						"decisions",
+						decisionIndex,
+						"inputPropertyIds",
+					],
+					message:
+						"A workflow decision must name the accepted property inputs that determine it.",
+				});
+			}
+			if (distinctRealChoices(decision.outcomes) < 2) {
+				issues.push({
+					path: [
+						"workflows",
+						workflowIndex,
+						"decisions",
+						decisionIndex,
+						"outcomes",
+					],
+					message:
+						"A workflow decision needs at least two distinct concrete outcomes before construction.",
+				});
+			}
+		});
+	});
+	const includedWorkflowIds = new Set(contract.charter.includedWorkflowIds);
+	for (const [workflowIndex, workflow] of contract.workflows.entries()) {
+		if (!includedWorkflowIds.has(workflow.id)) continue;
+		if (
+			!contract.formCompositions.some(
+				(composition) => composition.workflowId === workflow.id,
+			)
+		) {
+			issues.push({
+				path: ["workflows", workflowIndex],
+				message:
+					"Every included workflow needs at least one complete form composition before construction.",
+			});
+		}
+	}
+	if (contract.moduleCompositions.length === 0) {
+		issues.push({
+			path: ["moduleCompositions"],
+			message:
+				"The accepted design needs deliberate menu/module composition before construction.",
+		});
+	}
+	const includedIds = new Set<string>([
+		...contract.charter.includedWorkflowIds,
+		...contract.actors.map((actor) => actor.id),
+		...contract.records.map((record) => record.id),
+		...contract.records.flatMap((record) =>
+			record.properties.map((property) => property.id),
+		),
+		...contract.lists.map((list) => list.id),
+		...contract.access.map((policy) => policy.id),
+		...contract.navigation.map((navigation) => navigation.id),
+		...contract.moduleCompositions.map((composition) => composition.id),
+		...contract.formCompositions.flatMap((composition) => [
+			composition.id,
+			...(composition.layout.kind === "sectioned"
+				? composition.layout.sections.flatMap((section) => [
+						section.id,
+						...section.items.map((item) => item.id),
+					])
+				: composition.layout.items.map((item) => item.id)),
+		]),
+	]);
+	/* The authored `blocking` flag is the construction gate, honoring a user
+	 * who delegated the decision: a non-blocking question is a recorded caveat
+	 * beside concrete design, and the concreteness checks above catch design
+	 * that is not actually buildable regardless of what any question claims. */
+	contract.openQuestions.forEach((question, questionIndex) => {
+		if (
+			question.blocking &&
+			question.relatedElementIds.some((id) => includedIds.has(id))
+		) {
+			issues.push({
+				path: ["openQuestions", questionIndex],
+				message:
+					"A blocking question must be answered or its workflow explicitly excluded before a plan can exist.",
+			});
+		}
+	});
+	return issues;
+}
+
+/** Exact user questions when every remaining construction issue is already
+ * represented by one authored open question. A mixed set still belongs to
+ * model repair, so it deliberately returns null rather than hiding the
+ * non-question defects behind a user pause. */
+export function designConstructionQuestionRequirements(
+	contract: AppDesignContract,
+	issues: readonly DesignConstructionIssue[] = designConstructionIssues(
+		contract,
+	),
+): OpenQuestion[] | null {
+	const questions = issues.flatMap((issue) => {
+		const [collection, index] = issue.path;
+		if (collection !== "openQuestions" || typeof index !== "number") return [];
+		const question = contract.openQuestions[index];
+		return question?.question.trim() ? [{ ...question }] : [];
+	});
+	return questions.length === issues.length && questions.length > 0
+		? questions
+		: null;
+}
+
+/** Customer-facing text projection of construction question requirements.
+ * Server protocol code must retain the identity-bearing requirements above so
+ * two questions with identical prose cannot inherit one another's answers. */
+export function designConstructionQuestions(
+	contract: AppDesignContract,
+	issues: readonly DesignConstructionIssue[] = designConstructionIssues(
+		contract,
+	),
+): string[] | null {
+	return (
+		designConstructionQuestionRequirements(contract, issues)?.map((question) =>
+			question.question.trim(),
+		) ?? null
+	);
+}
+
+/** Every stable semantic identity carried by a contract. */
+export function collectContractIds(
+	contract: AppDesignContract,
+): ReadonlySet<string> {
+	const ids = new Set<string>([contract.id]);
+	for (const actor of contract.actors) ids.add(actor.id);
+	for (const record of contract.records) {
+		ids.add(record.id);
+		for (const property of record.properties) ids.add(property.id);
+	}
+	for (const workflow of contract.workflows) ids.add(workflow.id);
+	for (const list of contract.lists) ids.add(list.id);
+	for (const policy of contract.access) ids.add(policy.id);
+	for (const nav of contract.navigation) ids.add(nav.id);
+	for (const composition of contract.moduleCompositions)
+		ids.add(composition.id);
+	for (const composition of contract.formCompositions) {
+		ids.add(composition.id);
+		if (composition.layout.kind === "sectioned") {
+			for (const section of composition.layout.sections) {
+				ids.add(section.id);
+				for (const item of section.items) ids.add(item.id);
+			}
+		} else {
+			for (const item of composition.layout.items) ids.add(item.id);
+		}
+	}
+	for (const requirement of contract.externalRequirements)
+		ids.add(requirement.id);
+	for (const decision of contract.decisions) ids.add(decision.id);
+	for (const assumption of contract.assumptions) ids.add(assumption.id);
+	for (const question of contract.openQuestions) ids.add(question.id);
+	return ids;
+}

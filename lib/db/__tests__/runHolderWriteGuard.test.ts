@@ -51,7 +51,7 @@ function exportedFunction(relativePath: string, name: string): string {
  *  with the run lifecycle in `apps.ts`. */
 const LIFECYCLE_APP_WRITERS = [
 	{ file: "lib/db/canonicalCommitKernel.ts", name: "writeCommittedBatch" },
-	{ file: "lib/db/apps.ts", name: "completeAndSettleRun" },
+	{ file: "lib/db/apps.ts", name: "completeAndSettleRunInTransaction" },
 	{ file: "lib/db/apps.ts", name: "refreshEditLease" },
 	{ file: "lib/db/apps.ts", name: "refreshBuildLiveness" },
 	{ file: "lib/db/apps.ts", name: "clearRunLock" },
@@ -79,6 +79,7 @@ describe("run-holder write structural guard", () => {
 			.sort();
 
 		expect(writers).toEqual([
+			"lib/db/appGenesis.ts",
 			"lib/db/apps.ts",
 			"lib/db/canonicalCommitKernel.ts",
 			"lib/db/credits.ts",
@@ -114,7 +115,12 @@ describe("run-holder write structural guard", () => {
 		).not.toMatch(appDml);
 		expect(
 			source("lib/db/apps.ts").match(new RegExp(appDml, "g"))?.length,
-		).toBe(17);
+		).toBe(16);
+		// The genesis owner holds exactly one apps DML site — the sequence-1
+		// insert inside `writePreparedGenesisInTransaction` (pinned above).
+		expect(
+			source("lib/db/appGenesis.ts").match(new RegExp(appDml, "g"))?.length,
+		).toBe(1);
 		// The canonical commit kernel owns exactly one apps DML site — the
 		// committed-batch write tail — and its holder fence is pinned by the
 		// lifecycle-writer sweep below (`writeCommittedBatch`).
@@ -122,7 +128,7 @@ describe("run-holder write structural guard", () => {
 			source("lib/db/canonicalCommitKernel.ts").match(new RegExp(appDml, "g"))
 				?.length,
 		).toBe(1);
-		// The seventeenth apps.ts site is `writeProjectMoveChange`. A bare count would let
+		// The sixteenth apps.ts site is `writeProjectMoveChange`. A bare count would let
 		// a future writer drop its fence and still pass, so pin the fence itself:
 		// the Project move is a compare-and-set on BOTH the source Project and the
 		// prior head, and it throws rather than reporting success when either has
@@ -142,13 +148,20 @@ describe("run-holder write structural guard", () => {
 	});
 
 	it("mints or proves a holder at every creation and claim transaction", () => {
-		// A build is born holding its app, so `createApp` may only open a
-		// generating row through the claim it also writes.
-		const createApp = exportedFunction("lib/db/apps.ts", "createApp");
-		expect(createApp).toContain(
-			'(opts?.status ?? "generating") === "generating"',
+		// A `generating` creation is born holding its app, so explicit-blank
+		// genesis may only open a generating row through the holder it also
+		// writes (the nonce mints exactly when the status arms the lease).
+		const blankGenesis = exportedFunction(
+			"lib/db/appGenesis.ts",
+			"createExplicitBlankApp",
 		);
-		expect(createApp).toContain('.insertInto("apps")');
+		expect(blankGenesis).toContain('status === "generating"');
+		expect(
+			exportedFunction(
+				"lib/db/appGenesis.ts",
+				"writePreparedGenesisInTransaction",
+			),
+		).toContain('.insertInto("apps")');
 
 		// A claim books its reservation inside the same transaction that takes the
 		// row, so the reservation marker can never name a generation that never ran.
@@ -164,6 +177,13 @@ describe("run-holder write structural guard", () => {
 		const reserve = exportedFunction("lib/db/apps.ts", "reserveForNewBuild");
 		expect(reserve).toContain("debitAndBookReservation(tx");
 		expect(reserve).toContain("exactRunHolderMatches");
+
+		const completion = exportedFunction(
+			"lib/db/apps.ts",
+			"completeAndSettleRun",
+		);
+		expect(completion).toContain("lockActorGenerationGateForAppHolder");
+		expect(completion).toContain("completeAndSettleRunInTransaction");
 	});
 
 	it("requires exact SQL holder predicates on lifecycle and recovery app writes", () => {
@@ -178,7 +198,7 @@ describe("run-holder write structural guard", () => {
 		// The one sanctioned absent-holder exception: a falsely reaped build
 		// repairing its own error row.
 		expect(
-			exportedFunction("lib/db/apps.ts", "completeAndSettleRun"),
+			exportedFunction("lib/db/apps.ts", "completeAndSettleRunInTransaction"),
 		).toContain("expectedReapedBuildCompletionPredicate");
 		// Operator recovery asserts the app is FREE, never that a holder matches.
 		expect(exportedFunction("lib/db/apps.ts", "recoverAppStatus")).toContain(

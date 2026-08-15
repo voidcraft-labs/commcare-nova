@@ -67,6 +67,7 @@ import { Button } from "@/components/shadcn/button";
 import {
 	Drawer,
 	DrawerBackdrop,
+	DrawerContent,
 	DrawerPopup,
 	DrawerPortal,
 	DrawerTitle,
@@ -75,6 +76,7 @@ import {
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
+import type { DesignSessionSeed } from "@/lib/generation/designProgressWire";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
@@ -160,6 +162,9 @@ interface BuilderContentAreaProps {
 	appGenerating?: boolean;
 	/** The signed-in user, for owner-scoped chat notices. */
 	currentUserId?: string;
+	/** A resumed pre-app design, passed straight through to the conversation
+	 *  that owns its progress region. */
+	initialDesignSession?: DesignSessionSeed | null;
 }
 
 export function BuilderContentArea({
@@ -169,6 +174,7 @@ export function BuilderContentArea({
 	initialThread,
 	appGenerating,
 	currentUserId,
+	initialDesignSession,
 }: BuilderContentAreaProps) {
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
@@ -629,8 +635,10 @@ export function BuilderContentArea({
 								className="border-r border-nova-border-bright [transform:translateX(var(--drawer-swipe-movement-x))] transition-transform duration-200 data-[ending-style]:-translate-x-full data-[starting-style]:-translate-x-full"
 								style={{ width: `min(${openRailWidth}px, 100vw)` }}
 							>
-								<DrawerTitle className="sr-only">App structure</DrawerTitle>
-								<StructureSidebar />
+								<DrawerContent className="h-full">
+									<DrawerTitle className="sr-only">App structure</DrawerTitle>
+									<StructureSidebar />
+								</DrawerContent>
 							</DrawerPopup>
 						</DrawerViewport>
 					</DrawerPortal>
@@ -734,19 +742,22 @@ export function BuilderContentArea({
 							data-builder-overlay={narrowRightOpen ? "right" : undefined}
 							inert={chatParked}
 						>
-							<DrawerTitle className="sr-only">
-								{inspectorActive ? "Properties" : "Chat"}
-							</DrawerTitle>
-							<ErrorBoundary>
-								<ChatContainer
-									centered={isCentered}
-									isExistingApp={isExistingApp}
-									threads={threads}
-									initialThread={initialThread}
-									appGenerating={appGenerating}
-									currentUserId={currentUserId}
-								/>
-							</ErrorBoundary>
+							<DrawerContent className="h-full">
+								<DrawerTitle className="sr-only">
+									{inspectorActive ? "Properties" : "Chat"}
+								</DrawerTitle>
+								<ErrorBoundary>
+									<ChatContainer
+										centered={isCentered}
+										isExistingApp={isExistingApp}
+										threads={threads}
+										initialThread={initialThread}
+										appGenerating={appGenerating}
+										currentUserId={currentUserId}
+										initialDesignSession={initialDesignSession}
+									/>
+								</ErrorBoundary>
+							</DrawerContent>
 						</DrawerPopup>
 					</DrawerViewport>
 				</DrawerPortal>

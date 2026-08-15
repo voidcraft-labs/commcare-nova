@@ -216,6 +216,7 @@ export type CheckErrorCode =
 	| "operation-context-value"
 	| "unknown-case-type"
 	| "property-scope"
+	| "case-status-value"
 	| "incompatible-values"
 	| "ordered-values"
 	| "location-value"
@@ -583,6 +584,7 @@ function checkComparison(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
+	checkCaseStatusComparison(left, right, errors, path);
 	const leftType = checkExpression(left, ctx, errors, [...path, "left"]);
 	const rightType = checkExpression(right, ctx, errors, [...path, "right"]);
 	if (leftType === undefined || rightType === undefined) return;
@@ -611,6 +613,49 @@ function checkComparison(
 			message: `Type mismatch: '${describe(leftType)}' and '${describe(rightType)}' are not comparable.`,
 		});
 	}
+}
+
+const CASE_STATUS_VALUES = new Set(["open", "closed"]);
+
+function directProperty(expression: ValueExpression): string | undefined {
+	return expression.kind === "term" && expression.term.kind === "prop"
+		? expression.term.property
+		: undefined;
+}
+
+function directLiteral(expression: ValueExpression): Literal | undefined {
+	return expression.kind === "term" && expression.term.kind === "literal"
+		? expression.term
+		: undefined;
+}
+
+function invalidCaseStatusLiteral(literal: Literal): boolean {
+	return (
+		typeof literal.value !== "string" || !CASE_STATUS_VALUES.has(literal.value)
+	);
+}
+
+/** Built-in case status is a two-value lifecycle, not an app-defined state. */
+function checkCaseStatusComparison(
+	left: ValueExpression,
+	right: ValueExpression,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	const candidate =
+		directProperty(left) === "status"
+			? { literal: directLiteral(right), slot: "right" }
+			: directProperty(right) === "status"
+				? { literal: directLiteral(left), slot: "left" }
+				: undefined;
+	if (candidate?.literal === undefined) return;
+	if (!invalidCaseStatusLiteral(candidate.literal)) return;
+	errors.push({
+		path: [...path, candidate.slot],
+		code: "case-status-value",
+		message:
+			"The built-in case status can only be compared with 'open' or 'closed'. Use 'open' for an active case, or declare a separate property for program-specific workflow states",
+	});
 }
 
 /**
@@ -666,6 +711,18 @@ function checkIn(
 	const leftType = checkExpression(p.left, ctx, errors, [...path, "left"]);
 	if (leftType === undefined) return;
 	for (let i = 0; i < p.values.length; i++) {
+		if (
+			directProperty(p.left) === "status" &&
+			invalidCaseStatusLiteral(p.values[i])
+		) {
+			errors.push({
+				path: [...path, "values", i],
+				code: "case-status-value",
+				message:
+					"The built-in case status membership values can only be 'open' or 'closed'. Use 'open' for an active case, or declare a separate property for program-specific workflow states",
+			});
+			continue;
+		}
 		const valType = literalType(p.values[i]);
 		if (!typesCompatible(leftType, valType)) {
 			errors.push({

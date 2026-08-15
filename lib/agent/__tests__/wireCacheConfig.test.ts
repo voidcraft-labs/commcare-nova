@@ -6,11 +6,8 @@
  *
  * This is the drift guard for the whole cache + statelessness configuration:
  * every assertion here is a field the provider must emit for caching or
- * privacy to work, and several (the breakpoint especially) would vanish
- * SILENTLY if a refactor moved them somewhere the Responses input converter
- * has no slot for — e.g. an assistant message's `output_text` items, which
- * carry no `prompt_cache_breakpoint`. Cheaper and stricter than a live
- * probe: the request body is asserted byte-level, offline, on every run.
+ * privacy to work. Cheaper and stricter than a live probe: the request body
+ * is asserted byte-level, offline, on every run.
  */
 
 import { createOpenAI } from "@ai-sdk/openai";
@@ -21,7 +18,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
-import { reasoningProviderOptions, SA_EDIT_MODEL } from "@/lib/models";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import {
 	buildAppStateMessage,
 	buildSolutionsArchitectPrompt,
@@ -111,8 +108,8 @@ async function captureEditTurnBody(): Promise<CapturedBody> {
 		throw new Error("populated doc must yield an app-state message");
 
 	await generateText({
-		model: openai(SA_EDIT_MODEL),
-		system: buildSolutionsArchitectPrompt(doc),
+		model: openai(MODEL_ROLES.followUpEditor.modelId),
+		system: buildSolutionsArchitectPrompt(),
 		messages: [...markStablePrefixBoundary(history), appState],
 		maxRetries: 0,
 		tools: {
@@ -123,9 +120,12 @@ async function captureEditTurnBody(): Promise<CapturedBody> {
 				execute: async () => "ok",
 			}),
 		},
-		providerOptions: reasoningProviderOptions("medium", {
-			promptCacheKey: "nova:app:a-probe",
-		}),
+		providerOptions: reasoningProviderOptions(
+			MODEL_ROLES.followUpEditor.reasoningEffort,
+			{
+				promptCacheKey: "nova:app:a-probe",
+			},
+		),
 	}).catch(() => {
 		// expected — the capturing fetch answers 500 after recording the body
 	});
@@ -138,12 +138,14 @@ describe("SA edit-turn Responses wire body", () => {
 	it("carries the full cache + statelessness configuration", async () => {
 		const body = await captureEditTurnBody();
 
-		expect(body.model).toBe(SA_EDIT_MODEL);
+		expect(body.model).toBe(MODEL_ROLES.followUpEditor.modelId);
 		// Stateless: nothing retained server-side, reasoning comes back as
 		// self-contained encrypted items the thread can replay.
 		expect(body.store).toBe(false);
 		expect(body.include).toContain("reasoning.encrypted_content");
-		expect(body.reasoning?.effort).toBe("medium");
+		expect(body.reasoning?.effort).toBe(
+			MODEL_ROLES.followUpEditor.reasoningEffort,
+		);
 		expect(body.reasoning?.summary).toBeTruthy();
 		// The documented GPT-5.6 cache triple, as ONE unit.
 		expect(body.prompt_cache_key).toBe("nova:app:a-probe");
@@ -154,7 +156,7 @@ describe("SA edit-turn Responses wire body", () => {
 		);
 	});
 
-	it("emits exactly one breakpoint, before the volatile tail", async () => {
+	it("emits one request-local boundary before the volatile state tail", async () => {
 		const body = await captureEditTurnBody();
 		const input = body.input ?? [];
 
@@ -171,16 +173,9 @@ describe("SA edit-turn Responses wire body", () => {
 					: [],
 			),
 		);
-		expect(breakpoints).toHaveLength(1);
-		const bp = breakpoints[0];
-		expect(bp?.mode).toBe("explicit");
-		// On a markable item (a user message — assistant output_text has no
-		// breakpoint slot on this wire) …
-		expect(bp?.role).toBe("user");
-		// … the FINAL history user message: the item just before the
-		// app-state tail. The next turn replays it verbatim, so the entry it
-		// writes is the deepest prefix that turn can read.
-		expect(bp?.index).toBe(input.length - 2);
+		expect(breakpoints).toEqual([
+			{ index: input.length - 2, role: "user", mode: "explicit" },
+		]);
 
 		// The app-state summary is the very last input item.
 		const last = input[input.length - 1];

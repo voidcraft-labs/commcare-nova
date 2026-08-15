@@ -1,7 +1,7 @@
 # lib/agent/change-set — the Atomic Change Set runtime
 
 A private, durable workspace where one slice executor assembles exact
-canonical mutations across idempotent staging calls before ONE canonical
+canonical mutations across idempotent native tool calls before ONE canonical
 commit. The private candidate may be incomplete (gating findings are
 diagnostics here, never persistence outcomes), but it is never executable,
 never visible, and never a second app state: **no staged state reaches any
@@ -12,20 +12,23 @@ gate, and integrity services every other write uses.
 
 ## Authority
 
-- `store.ts` — the durable protocol. The STAGE TRANSACTION is the
+- `store.ts` — the durable protocol. The private-mutation transaction is the
   correctness spine: authority carrier first (an app-edit set's app row
-  `FOR SHARE`, holder capability proved on it; a genesis set's change-set
-  row remains its serialization point and its owner columns the proof —
-  `design_sessions` exists now with the FK bound, and Unit E's
-  materialization transaction is what re-homes genesis authority onto the
-  locked session row when it starts claiming sessions for real builds),
-  fresh Project
+  `FOR SHARE`, holder capability proved on it; a genesis set locks its
+  CLAIMED design-session row — state `active`, the presented chat-run
+  holder proved against the session lease — and the change-set owner
+  columns are attribution only), fresh Project
   `edit` membership, change-set row `FOR UPDATE` second, the idempotency-
   ledger replay, the exact-revision fence, then receipt + step + stage
   ranges + handle bindings + revision advance in ONE transaction. There is
   no durable in-progress state; a concurrent duplicate converges through
   the `(change_set_id, request_id)` primary key. Fault injection rides
-  `__setStageTransactionFaultHookForTests`.
+  `__setStageTransactionFaultHookForTests`. Production slice creation also
+  locks the exact delegated holder and running attempt, inserts the change
+  set, and binds its id onto that attempt in one transaction; recovery may
+  adopt only an open set whose complete lineage, kind, and base match, and the
+  current authorized session holder transfers its owner attribution in that
+  same recovery transaction.
 - `workspace.ts` — `ChangeSetMutationWorkspace`, the same tool-facing
   contract as the canonical workspace (`lib/agent/workspace/types.ts`) over
   durable staging. It owns: serialized synchronous ordinals, one write per
@@ -48,8 +51,21 @@ gate, and integrity services every other write uses.
   `ChangeSetRebaseReport` (never a name/position retarget) with every step
   retained; a retry converges on the stored `design_committed_slices`
   receipt, and a canonical batch without that receipt is corruption, not a
-  commit. Genesis sets refuse this path — materialization is the prepared
-  genesis kernel's separate unit.
+  commit. Genesis sets refuse this path — their commit is
+  `materializeGenesis.ts`.
+- `materializeGenesis.ts` — `materializeAppFromGenesis`, the design-slice
+  birth: pre-read → committed-replay short-circuit (rebuilds the exact
+  receipt from `design_committed_slices` + the sequence-1 canonical fold) →
+  read-set preflight → ONE transaction ordering actor gate →
+  `lockSessionRow` (mode/state/Project/proposed-app/exact-holder verified)
+  → change-set row → step replay proved against the empty-genesis digest →
+  `prepareGenesisCandidate` → reservation check →
+  `writePreparedGenesisInTransaction` with the holder+reservation transfer
+  → commit sidecars (the exact attempt `running → committed`, change-set flip,
+  committed-slice receipt at seq 1) → the session's atomic
+  `authority-cleared + materialized + app_id` flip (table CHECKs make a
+  partial transfer unrepresentable). Gate rejection rolls the whole
+  transaction back; pending case-index work drains post-commit.
 - `baseLoader.ts` / `runtime.ts` — the candidate is DERIVED, never stored:
   the exact canonical base (greatest fold baseline at-or-below the recorded
   sequence plus the admitted suffix, digest-proved via the gate-free
@@ -64,7 +80,22 @@ gate, and integrity services every other write uses.
   classification over the identity-pointer registry — only Blueprint-entity
   families are handle-eligible; app/Project/media/lookup/location/external
   identities stay canonical. Executor-facing `uuid | { handle }` wire
-  schemas emit from this map in the executor unit.
+  schemas emit from this map in the executor unit. Every creator declares in
+  its existing canonical identity slot; worker properties, user types,
+  personas, and place-information properties use `userPropertyUuid`,
+  `userTypeUuid`, `personaUuid`, and `locationPropertyUuid`. A later change
+  set in the same frozen accepted plan inherits bindings from earlier
+  committed slices, including the genesis set through its immutable committed
+  receipt's app identity, only after `runtime.ts` proves each UUID and entity
+  kind still exists in its exact base revision and in the replayed private
+  overlay. A correction that deletes a locally created entity prunes its
+  binding in the same stage transaction; deleting an inherited entity prunes
+  that symbol on process recovery too, and an earlier slice's handle whose
+  entity was later deleted is omitted from the next seed.
+  Case-catalog select defaults are not allowed to mint anonymous options on the
+  executor path: the executor explicitly supplies the same options with
+  handled `optionUuid` creation slots. The executor checkpoint projects those
+  symbols and never returns raw UUID binding maps.
 - `readSets.ts` / `diagnostics.ts` — external read sets are captured
   automatically (lookup reads via the wrapped readers, the organization
   fence from the write's `expectedOrganizationRevision`, media identities
@@ -73,23 +104,41 @@ gate, and integrity services every other write uses.
   revision through the kernel; lookup/media re-resolve under the kernel's
   fresh locked verdicts. `canCommit` = zero gating findings + current read
   sets + (genesis) export readiness; it is advisory until the kernel's gate
-  — nothing here redefines validity.
-- `registry.ts` / `stageTools.ts` — which tools a change set may dispatch:
+  — nothing here redefines validity. Genesis readiness loads Project-filtered
+  uploaded rows and synthesizes built-in-icon rows through the same media seam
+  as ordinary export. Its boundary-only findings join `allFindings` and the
+  diagnostic fingerprint summary, so a blocked workflow finalizer is actionable and
+  cannot masquerade as an empty change set.
+- `registry.ts` / `handleDeclarations.ts` — which tools a change set may dispatch:
   every shared registry entry whose reviewed staging classification is not
-  `forbidden`, plus the executor-only granular tools (`stageModule`,
-  `stageForm`, `moveStagedModule`) that create deliberately incomplete
-  private structure. External-effect tools are structurally absent from the
-  map. The batch-exclusive mutation KINDS (`renameCaseProperties`,
+  `forbidden`. The executor mounts those ordinary semantic tools directly;
+  it has no alternate read/batch/creation protocol. Ordinary reordering rides
+  the shared canonical `moveModule`. Every shared body
+  reads `ctx.snapshot.doc`, so a dispatched read answers from the overlay's
+  own staged state; the organization-deriving tools keep only their PLACE
+  reads external (rows, not Blueprint), and `updateAutomation`'s zero-diff
+  arm proves its no-op from the overlay instead of adopting an
+  authoritative snapshot. External-effect tools are structurally absent from
+  the map. The batch-exclusive mutation KINDS (`renameCaseProperties`,
   `retireCaseType`) fence at admission: such a batch owns its change set
-  alone (`exclusive_kind` closes the set).
+  alone (`exclusive_kind` closes the set). Shared structural creation tools
+  bind handles from their explicit identity slots before canonical parsing,
+  including nested forms, fields, inline options, columns, search inputs, case
+  operations, worker properties, roles, personas, organization levels,
+  location properties, and automation entities. Inline-option replacement
+  slots preserve an existing bound option or bind a newly created one; target,
+  parent, and anchor slots remain reference-only.
 
 ## Invariants
 
 1. Staged mutations are exact admitted canonical mutations after handle
    resolution; steps never contain handles.
-2. A stage request is idempotent by stable request id + input digest; a
+2. A private mutation call is idempotent by stable request id + input digest; a
    reused id with different content latches
-   (`ChangeSetRequestIdCollisionError`), and rejection receipts replay too.
+   (`ChangeSetRequestIdCollisionError`), and rejection receipts replay too. A
+   successful call that proves itself a no-op records an accepted no-op receipt
+   without advancing the private revision, so process recovery does not lose
+   that tool boundary.
 3. Admission failures (wire canonicality, identity collision, invalid
    anchor, missing target, rename-plan issues, reducer throws, policy
    fences, unbound handles) reject BEFORE a step appends; validator
@@ -99,7 +148,11 @@ gate, and integrity services every other write uses.
    change-set row while waiting for an app row, and the membership gate is
    only ever taken while already holding the authority rows — membership
    writers never take change-set or app locks, so gate-after-row cannot
-   cycle (a genesis set has no app row yet; its change-set row leads). The
+   cycle. A GENESIS set has no app row: its authority carrier is the
+   CLAIMED design-session row, locked first (`lockSessionRow`, state
+   `active`, the presented chat-run holder proved against the session's
+   lease), then the change-set row — the session holder is the ownership
+   proof, and the change-set owner columns are attribution only. The
    staging ledgers are append-only at the privilege level; the row-locked
    authority table serializes them.
 5. `base_project_id` is captured scope, not live tenancy: a Project move
@@ -108,22 +161,48 @@ gate, and integrity services every other write uses.
 6. Every digest is the shared canonical-JS discipline
    (`lib/utils/canonicalJson.ts`); fold-baseline SQL digests are a separate
    domain, never compared against these.
+7. A canonical design commit accepts only the exact bound slice attempt in
+   `running` state and transitions that attempt in the same transaction as
+   the canonical revision and committed-slice receipt.
+8. A semantic replay conflict never amends an append-only failed step. A real
+   changed canonical base may supersede the open set plus running attempt under
+   the current delegated holder. A deterministic failure instead abandons the
+   set and permanently closes that exact plan/slice. Recovery reuses a bound
+   open set only when its actor/run owner matches the current holder.
+9. Executor recovery proves private-work authority from the current candidate,
+   exact lineage, durable call receipts, and handle bindings. Separately, each slice attempt owns one
+   exact append-only executor context generation: process recovery of that
+   attempt reopens it, while the next attempt starts a fresh generation instead
+   of inheriting the prior tool transcript. Each generation opens with the
+   accepted brief, a full handle-projected Blueprint checkpoint, and a short
+   slice focus; every compaction boundary reappends all three. Each returned
+   provider response and its usage-bearing payload-free
+   completed-step event commit atomically. Recovery replays any unanswered tool call under its
+   original call id before another provider request. Each mutation call,
+   commit, and blocker request has an idempotent durable sub-budget claim, so
+   replay cannot consume a second unit. A paid blocker result is durably
+   appended before execution continues; a response lost before that write
+   stops rather than purchasing another decision. A canonical commit receipt
+   supplies the lost commit output before a later slice begins. The attempt
+   transcript preserves local reasoning continuity but never decides what
+   committed or was already applied privately. Repeating one identical compiler failure
+   automatically invokes the bounded architect on occurrence two; occurrence
+   three after durable guidance stops rather than retrying or redesigning.
 
 ## Tests
 
 `__tests__/changeSetStore.integration.test.ts` (the fault matrix +
 idempotency/authority/lifecycle), `changeSetRuntime.integration.test.ts`
 (workspace replay/process death, isolation gate, exclusivity, commit +
-rebase + provenance), and the pure suites (`digest`, `handles`,
+rebase), and the pure suites (`digest`, `handles`,
 `stagingProjection` — classification completeness + collision freedom,
 `changeSetSourceGuards` — the package-level import isolation).
 
 ## Adjacent boundaries
 
 The tool-facing contract lives in `lib/agent/workspace/` (this package's
-host implements it; the extensions — nullable `appId`,
-`externalContextDigest`, `intentIds`/`readSet` — are change-set-only, and
-the canonical workspace rejects them). The kernel sidecar vocabulary lives
+host implements it; nullable `appId` and automatic external read-set capture
+are private-workspace concerns). The kernel sidecar vocabulary lives
 in `lib/db/canonicalCommitSidecars.ts` (server-owned, closed). The
 executor loop, model-facing tool wrappers, and materialization consume this
 package in later units; nothing mounts these tools on chat or MCP today.

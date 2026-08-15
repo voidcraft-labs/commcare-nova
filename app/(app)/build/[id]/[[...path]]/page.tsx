@@ -26,11 +26,22 @@
  * recently active thread's full transcript, so a refresh always lands
  * back in the conversation the user was in, including a thread whose
  * run is still streaming (the client reconnects to it by thread id).
+ *
+ * `/build/new` has a second form: `?design=<designSessionId>` reopens a design
+ * that has not produced an app yet (§15.9's Resume). It is still the app-less
+ * builder — no tree, no Preview — with that design's conversation hydrated and
+ * its server-derived stage seeded; a design that has since materialized
+ * redirects to its app.
  */
 
 import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
+import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
+import {
+	deriveDesignBuildStage,
+	deriveInterruptedMaterializedBuildStage,
+} from "@/lib/agent/build/progress";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
@@ -38,7 +49,15 @@ import {
 	resolveAuthorizedAppSnapshot,
 	resolveProjectAccess,
 } from "@/lib/db/appAccess";
-import { getCommCareSettings } from "@/lib/db/settings";
+import {
+	loadDesignSession,
+	loadMaterializedSessionForApp,
+} from "@/lib/db/designSessions";
+import { resolveGenerationTargetScope } from "@/lib/db/generationTargetScope";
+import {
+	type CommCareSettingsPublic,
+	getCommCareSettings,
+} from "@/lib/db/settings";
 import {
 	type LoadedThread,
 	type LoadedThreadMeta,
@@ -52,8 +71,10 @@ import { log } from "@/lib/logger";
 
 export default async function BuilderPage({
 	params,
+	searchParams,
 }: {
 	params: Promise<{ id: string }>;
+	searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
 	const { id } = await params;
 
@@ -61,32 +82,11 @@ export default async function BuilderPage({
 	if (!session) redirect("/");
 	const commcareSettings = await getCommCareSettings(session.user.id);
 
-	/* New apps have no blueprint/cursor yet, but they DO have a Project
-	 * authority: creation targets the active Project. Resolve that role on the
-	 * server and seed `{ baseSeq: 0 }` so a viewer's first client frame is
-	 * truthfully read-only instead of defaulting to editor until the write route
-	 * refuses them. The reconciler remains dormant until `data-app-id`. */
 	if (id === "new") {
-		const projectId = await resolveActiveProjectId(session);
-		const access = await resolveProjectAccess(
-			session.user.id,
-			projectId,
-			"view",
-		);
-		return (
-			<BuilderProvider
-				buildId={id}
-				userId={session.user.id}
-				initialAccess={{
-					projectId,
-					role: access.role,
-					canEdit: roleAllowsApp(access.role, "edit"),
-					baseSeq: 0,
-				}}
-			>
-				<BuilderLayout commcareSettings={commcareSettings} />
-			</BuilderProvider>
-		);
+		const { design } = await searchParams;
+		return typeof design === "string" && design.trim().length > 0
+			? await resumedDesignPage(design, session.user.id, commcareSettings)
+			: await freshBuildPage(session, commcareSettings);
 	}
 
 	/* Project-membership gate (view): any member may open the builder; edit
@@ -116,15 +116,12 @@ export default async function BuilderPage({
 		if (err instanceof AppAccessError) notFound();
 		throw err;
 	}
-	/* `complete` apps open normally, and so does a `generating` build, the
+	/* `complete` apps open normally, and so does a `generating` build: the
 	 * builder hydrates its thread and reconnects to the live stream, so a
 	 * refresh mid-build resumes instead of locking the user out. `error`
-	 * builds are decided BELOW, off the thread load: a build whose run died
-	 * mid-flight (instance kill: the reaper flipped it to `error`, the
-	 * thread heal just stripped its dead stream marker) is admitted so the
-	 * client can auto-re-drive the interrupted turn; every other error app
-	 * still redirects: there is no run to rejoin and no usable app behind
-	 * it. */
+	 * builds are decided BELOW, from both thread state and durable design
+	 * lineage: an interrupted turn can be re-driven, while a materialized
+	 * design remains a usable earlier revision even when a later slice failed. */
 	if (
 		app.status !== "complete" &&
 		app.status !== "generating" &&
@@ -175,16 +172,38 @@ export default async function BuilderPage({
 		if (app.status !== "complete") redirect("/");
 	}
 
-	/* An `error` app earns admission ONLY as an interrupted build: the
-	 * hydrated thread carries a dead live-stream marker (`loadThread` derives
-	 * `resume_interrupted` itself: the detection is level-triggered, so it
-	 * doesn't matter which loader read the row first, and a NON-most-recent
-	 * interrupted thread keeps its own signal for the Conversations list to
-	 * act on). Anything else: a build that failed and finalized cleanly, a
-	 * faulted hydration: keeps the old redirect. */
+	/* An `error` app is reachable when either its hydrated thread carries a
+	 * dead live-stream marker (`loadThread` derives `resume_interrupted`) or a
+	 * materialized design session proves sequence 1 already committed. The
+	 * former may auto-redrive; the latter simply preserves the usable earlier
+	 * revision and its ordinary user-driven continuation path. Other error
+	 * apps keep the existing redirect. */
 	const buildInterrupted =
 		app.status === "error" && initialThread?.resume_interrupted === true;
-	if (app.status === "error" && !buildInterrupted) redirect("/");
+	const failedMaterializedDesign =
+		app.status === "error" ? await loadMaterializedSessionForApp(id) : null;
+	const failedMaterializedHead =
+		failedMaterializedDesign === null
+			? null
+			: await readOrchestrationHead(failedMaterializedDesign.id);
+	const failedMaterializedStage =
+		failedMaterializedDesign === null
+			? null
+			: deriveInterruptedMaterializedBuildStage(
+					failedMaterializedDesign,
+					failedMaterializedHead,
+				);
+	if (
+		app.status === "error" &&
+		!buildInterrupted &&
+		failedMaterializedDesign === null
+	) {
+		redirect("/");
+	}
+	const buildUnfinished =
+		app.status === "generating" ||
+		buildInterrupted ||
+		failedMaterializedDesign !== null;
 
 	const initialDoc = toRscSerializableDoc(app.blueprint);
 	const previewProjectSpace = await previewProjectSpacePromise;
@@ -199,7 +218,7 @@ export default async function BuilderPage({
 			 * Seeds the session store's `buildUnfinished` latch, the same
 			 * value the `appGenerating` prop below carries for mount-time
 			 * thread-activation decisions. */
-			initialBuildUnfinished={app.status === "generating" || buildInterrupted}
+			initialBuildUnfinished={buildUnfinished}
 			initialProjectSpace={previewProjectSpace}
 			userId={session.user.id}
 		>
@@ -208,8 +227,135 @@ export default async function BuilderPage({
 				commcareSettings={commcareSettings}
 				threads={threads}
 				initialThread={initialThread}
-				appGenerating={app.status === "generating" || buildInterrupted}
+				appGenerating={buildUnfinished}
 				currentUserId={session.user.id}
+				initialDesignSession={
+					failedMaterializedDesign !== null && failedMaterializedStage !== null
+						? {
+								designSessionId: failedMaterializedDesign.id,
+								materializedAppId: id,
+								stage: failedMaterializedStage,
+							}
+						: undefined
+				}
+			/>
+		</BuilderProvider>
+	);
+}
+
+/**
+ * `/build/new` with nothing to resume. No blueprint and no cursor yet, but a
+ * Project authority all the same: creation targets the active Project, so the
+ * role is resolved on the server and seeded with `{ baseSeq: 0 }`, and a
+ * viewer's first client frame is truthfully read-only rather than editor until
+ * the write route refuses them. The reconciler stays dormant until
+ * `data-app-materialized`.
+ */
+async function freshBuildPage(
+	session: NonNullable<Awaited<ReturnType<typeof getSession>>>,
+	commcareSettings: CommCareSettingsPublic,
+) {
+	const projectId = await resolveActiveProjectId(session);
+	const access = await resolveProjectAccess(session.user.id, projectId, "view");
+	return (
+		<BuilderProvider
+			buildId="new"
+			userId={session.user.id}
+			initialAccess={{
+				projectId,
+				role: access.role,
+				canEdit: roleAllowsApp(access.role, "edit"),
+				baseSeq: 0,
+			}}
+		>
+			<BuilderLayout commcareSettings={commcareSettings} />
+		</BuilderProvider>
+	);
+}
+
+/**
+ * `/build/new?design=<id>` — Resume from the Designs-in-progress section
+ * (§15.9). Still the app-less builder: the conversation is primary, there is
+ * no tree and no Preview, and the only thing carried over from the server is
+ * the design's transcript plus the stage its durable orchestration is at.
+ *
+ * Authorization runs through the shared generation-target resolver, so every
+ * denial — unknown id, another tenant's id, an under-privileged member —
+ * collapses to the same 404. A session that has since produced an app is not
+ * a design in progress any more, so it redirects to that app rather than
+ * offering a second surface onto it.
+ */
+async function resumedDesignPage(
+	designSessionId: string,
+	userId: string,
+	commcareSettings: CommCareSettingsPublic,
+) {
+	let scope: Awaited<ReturnType<typeof resolveGenerationTargetScope>>;
+	try {
+		scope = await resolveGenerationTargetScope(
+			{ kind: "design-session", designSessionId },
+			userId,
+			"view",
+		);
+	} catch (err) {
+		if (err instanceof AppAccessError) notFound();
+		throw err;
+	}
+	if (scope.appId !== null) redirect(`/build/${scope.appId}`);
+	if (scope.state !== "active") notFound();
+
+	/* The session row and its orchestration head are the two durable facts the
+	 * stage folds from; the outline and build plan live only in the frames a
+	 * run streams, so a cold load deliberately shows the stage alone rather
+	 * than a reconstructed card. */
+	const designSession = await loadDesignSession(designSessionId);
+	if (designSession?.mode !== "build") notFound();
+	const orchestrationHead = await readOrchestrationHead(designSessionId);
+	const stage = deriveDesignBuildStage(designSession, orchestrationHead);
+
+	const target = { kind: "design-session", designSessionId } as const;
+	let threads: LoadedThreadMeta[] = [];
+	let initialThread: LoadedThread | null = null;
+	try {
+		threads = await listThreadMetas(target);
+		if (threads.length > 0) {
+			initialThread = await loadThread(target, threads[0].thread_id, userId);
+		}
+	} catch (err) {
+		/* A design IS its conversation — there is no tree, no Preview, and no
+		 * document to fall back on — so a failed hydration has nothing left to
+		 * render. Go back to the list, where the design is still listed and
+		 * still resumable, rather than showing an empty room. */
+		log.error("[build-page] design thread hydration failed", err, {
+			designSessionId,
+		});
+		redirect("/");
+	}
+
+	return (
+		<BuilderProvider
+			buildId="new"
+			userId={userId}
+			initialAccess={{
+				projectId: scope.projectId,
+				role: scope.role,
+				canEdit: roleAllowsApp(scope.role, "edit"),
+				baseSeq: 0,
+			}}
+			/* No app row exists, so nothing about this session is "complete":
+			 * every send continues the build. */
+			initialBuildUnfinished
+		>
+			<BuilderLayout
+				commcareSettings={commcareSettings}
+				threads={threads}
+				initialThread={initialThread}
+				currentUserId={userId}
+				initialDesignSession={{
+					designSessionId,
+					materializedAppId: null,
+					stage,
+				}}
 			/>
 		</BuilderProvider>
 	);

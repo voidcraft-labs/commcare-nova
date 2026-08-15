@@ -55,6 +55,14 @@ Four session fields describe "what phase is the builder in":
   (hooks) composes it with the phase for the chat surface's build-vs-edit
   read: the advisory `appReady` request field and the cost chip both ride it,
   mirroring the server's authoritative app-row-status rule.
+  It is also the initial-build authoring lock: the store retains the raw
+  Project capability in `projectCanEdit`, while effective `canEdit` remains
+  false from materialization through authoritative whole-build completion.
+  A stopped partial plan stays locked. Chat reads `useProjectCanEdit`; every
+  builder editor, stale imperative handler, doc gate, and reconciler reads
+  effective `canEdit`. `derivePhase` keeps a materialized unfinished app in
+  `Generating`, so its real tree surrounds the central progress card instead
+  of opening the edit canvas after the first slice.
 
 Run-boundary actions are orthogonal and atomic:
 
@@ -98,11 +106,63 @@ controller retires the old form entry. Chat owns the matching transport stop
 and closes any open document run bracket. Authoring state and the unsent
 composer draft are deliberately retained.
 
-**Generation stages are cumulative milestones, not the latest tool label.** The live model is `Foundation → Build`: `updateApp` and the optional `generateSchema` establish the foundation; atomic module/form tools establish Build. A later schema enrichment cannot undo already-committed content, so `deriveAgentStage` folds the whole event prefix into those facts instead of reading the last recognized tag or clamping against hidden state. Historical `schema` / `scaffold` / `fix:*` tags are projected into the current model at read time; stage values themselves are ephemeral and are not stored beside the event log, so this model needs no data migration.
+**Generation stages are cumulative milestones, not the latest tool label.** The live model is `Foundation → Build`: `updateApp` and the optional `generateSchema` establish the foundation; atomic module/form tools establish Build. A later schema enrichment cannot undo already-committed content, so `deriveAgentStage` folds the whole event prefix into those facts instead of reading the last recognized tag. Strict materialization is the one additional proof: its private genesis mutations do not enter the client event buffer, so an unfinished build with an app identity establishes Build for the central progress card. Historical `schema` / `scaffold` / `fix:*` tags are projected into the current model at read time; stage values themselves are ephemeral and are not stored beside the event log, so this model needs no data migration.
 
 **Disambiguation: initial build vs post-build edit.** Both emit the same stage tags (`module:create` during construction, `form:M-F` for field work). `derivePhase` and `derivePostBuildEdit` key on `runStartedWithData` as a run-mode fact captured before canonical genesis is activated — an initial build uses the Generating layout even though its persisted app is already the born-valid survey starter; an edit keeps the builder Ready/interactive while the agent works.
 
 When adding a new lifecycle signal: add a derivation in `lifecycle.ts`, expose a named hook in `hooks.tsx`. Don't add a field to the store for anything derivable from the existing base facts. A store field is only for a genuinely NEW base fact the derivations cannot reach — `buildUnfinished` is the example (the buffer it would derive from clears on every stream close), and it carries the burden that earned it: explicit seed, latch, and release channels documented on the field.
+
+## Design-build progress is its own store
+
+`designProgressStore.ts` is a SECOND, deliberately separate store: a chat build
+has no app until its first workflow commits, so everything BuilderSession
+describes (preview mode, sidebars, the run event buffer, `buildUnfinished`)
+is about a document that does not exist yet. It holds only the durable
+projections the build orchestrator streams — the reviewed-design outline, the
+build plan's slice names, which slices committed — plus the two facts only the
+client can see: a paused askQuestions round (read off the transcript) and a
+run-stopping stream error. BOTH error kinds stop the stage line — a
+recoverable error reads `incomplete` ("Stopped before it finished") and a fatal
+one `failed`; neither creates a user retry action. Marking only fatal
+errors left the line spinning over a dead run, observed live. An automatic
+provider-retry warning is explicitly marked `runContinues` on the conversation
+event and does not become a terminal progress failure; later pulses and commits
+continue to drive the same run.
+
+**Stage is derived, never stored.** `deriveDesignStage` folds "which frames
+have arrived" into the §15.2 vocabulary, so the line on screen cannot disagree
+with the durable events that produced it, and the plan's ban on a client-only
+state machine holds. The live refinement inside the design span is the
+`data-design-pulse` frame — the SERVER naming which pipeline call is streaming
+right now (author/review/revise/plan) — which is the only source that can say
+`reviewing-design`/`revising-design` while those calls run; the store keeps
+just the latest phase (`pulsePhase`), outranked by any real progress frame and
+cleared on the closed-to-open edge of a new turn because a pulse describes
+only the stream it rode on. Ordinary message updates inside that open stream
+do not clear it between the throttled pulse frames. A slice-start frame also
+clears it immediately, so the last planning
+sub-step can never appear beneath live build work. Two details are
+load-bearing: the FIRST slice emits an ordinary `slice-committed` progress
+projection immediately before its strict `data-app-materialized` receipt
+(with a narrow `markMaterialized` compatibility fold for older reconnect
+logs); and `seededStage` carries the SERVER's
+load-time derivation for a resumed design (`/build/new?design=<id>`) so a cold
+load says where the design stopped, retired by `noteTurnOpened` the moment a
+new turn is in flight.
+
+One instance per mounted conversation, created and owned by `ChatContainer`
+(the frames arrive on its `onData`) and reset on every thread swap. Every frame
+is admitted through `lib/generation/designProgressWire`, which fails closed on
+an unknown `eventVersion` or a foreign design session. Consumers read it
+through `useDesignProgressView`, never an inline selector.
+
+The thread's `designSessionId` is durable routing lineage, not proof that design
+work is active. After a materialized app's accepted build reaches terminal
+completion, ordinary edit turns keep that id in the chat request but do not
+reopen this store. A pre-app scope or the Builder session's unfinished-build
+latch activates progress; a load-seeded materialized `ready` stage retires when
+the next edit opens. This keeps edit and compaction activity on the ordinary
+chat status line instead of falling back to `understanding`.
 
 ## Staged media uploads
 

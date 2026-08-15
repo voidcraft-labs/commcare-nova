@@ -24,7 +24,10 @@
 
 import { type Kysely, sql, type Transaction } from "kysely";
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
-import { buildPlanSchema } from "@/lib/agent/design/buildPlan";
+import {
+	buildPlanSchema,
+	newPlanAdmissionMessages,
+} from "@/lib/agent/design/buildPlan";
 import {
 	type AppDesignContract,
 	appDesignContractSchema,
@@ -45,8 +48,10 @@ import {
 	type DesignSourcePackage,
 	type PersistedSourcePackage,
 	persistedSourcePackageSchema,
+	sourcePackageProofExtends,
 	toPersistedSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
+import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -56,6 +61,68 @@ import { safePersistedSequence } from "@/lib/utils/persistedSequence";
  *  read something the artifact discipline forbids. */
 export class DesignArtifactStoreError extends Error {
 	readonly name = "DesignArtifactStoreError";
+}
+
+export interface DesignArtifactWriteAuthority {
+	readonly actorUserId: string;
+	readonly runId: string;
+	readonly holderNonce: string;
+	readonly expectedProjectId: string;
+}
+
+export interface DesignArtifactWorkspaceFinalization {
+	readonly workspaceId: string;
+	readonly expectedRevision: number;
+	readonly artifactKind: "contract" | "revision" | "plan";
+}
+
+async function finalizeArtifactWorkspaceInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		designSessionId: string;
+		artifactId: string;
+		runId: string;
+		workspace: DesignArtifactWorkspaceFinalization;
+	},
+): Promise<void> {
+	const now = new Date();
+	const result = await tx
+		.updateTable("design_artifact_workspaces")
+		.set({
+			status: "finalized",
+			finalized_artifact_id: args.artifactId,
+			updated_by_run_id: args.runId,
+			updated_at: now,
+			finalized_at: now,
+		})
+		.where("id", "=", args.workspace.workspaceId)
+		.where("design_session_id", "=", args.designSessionId)
+		.where("artifact_kind", "=", args.workspace.artifactKind)
+		.where("status", "=", "open")
+		.where("revision", "=", args.workspace.expectedRevision)
+		.executeTakeFirst();
+	if (result.numUpdatedRows !== BigInt(1)) {
+		throw new DesignArtifactStoreError(
+			"The design workspace changed or closed before its artifact finalized. Inspect the current workspace and retry from its latest revision.",
+		);
+	}
+}
+
+async function authorizeArtifactWrite(
+	tx: Transaction<AppDatabase>,
+	designSessionId: string,
+	authority: DesignArtifactWriteAuthority,
+): Promise<void> {
+	await assertDesignSessionRunAuthorityInTransaction(tx, {
+		designSessionId,
+		actorUserId: authority.actorUserId,
+		expectedProjectId: authority.expectedProjectId,
+		holder: {
+			mode: "build",
+			runId: authority.runId,
+			nonce: authority.holderNonce,
+		},
+	});
 }
 
 const contractEnvelopeSchema = designArtifactEnvelopeSchema(
@@ -83,6 +150,9 @@ export interface DesignRevisionRecord {
 	contractDigest: string;
 	sourcePackageDigest: string;
 	envelope: DesignArtifactEnvelope<AppDesignContract>;
+	/** The run that produced this artifact: the join key to its reasoning
+	 *  summaries and diagnostics in the run event log. */
+	createdByRunId: string;
 	createdAt: Date;
 }
 
@@ -94,6 +164,9 @@ export interface DesignReviewRecord {
 	reviewedRevisionDigest: string;
 	artifactDigest: string;
 	envelope: DesignArtifactEnvelope<DesignReview>;
+	/** The run that produced this artifact: the join key to its reasoning
+	 *  summaries and diagnostics in the run event log. */
+	createdByRunId: string;
 	createdAt: Date;
 }
 
@@ -136,9 +209,9 @@ export interface DispositionRecord {
  */
 export async function insertDesignSourcePackage(args: {
 	pkg: DesignSourcePackage;
-	runId: string;
+	authority: DesignArtifactWriteAuthority;
 }): Promise<DesignSourcePackageRecord> {
-	const { pkg, runId } = args;
+	const { pkg, authority } = args;
 	const { packageDigest: claimedDigest, ...unsealed } = pkg;
 	if (computeSourcePackageDigest(unsealed) !== claimedDigest) {
 		throw new DesignArtifactStoreError(
@@ -148,6 +221,12 @@ export async function insertDesignSourcePackage(args: {
 	const payload = toPersistedSourcePackage(pkg);
 	const id = crypto.randomUUID();
 	return withAppTx(async (tx) => {
+		await authorizeArtifactWrite(tx, pkg.designSessionId, authority);
+		if (pkg.projectId !== authority.expectedProjectId) {
+			throw new DesignArtifactStoreError(
+				"The source package Project does not match its authorized design session.",
+			);
+		}
 		await tx
 			.insertInto("design_source_packages")
 			.values({
@@ -155,7 +234,7 @@ export async function insertDesignSourcePackage(args: {
 				design_session_id: pkg.designSessionId,
 				project_id: pkg.projectId,
 				package_digest: pkg.packageDigest,
-				created_by_run_id: runId,
+				created_by_run_id: authority.runId,
 				payload: JSON.stringify(payload),
 			})
 			.onConflict((oc) =>
@@ -230,6 +309,34 @@ async function readSourcePackageInTx(
 	};
 }
 
+/** Workspace lineage asks the artifact boundary—not the workspace store—to
+ * compare persisted package projections. Missing pre-release proofs fail
+ * closed, so only a cryptographically demonstrated cumulative extension can
+ * inherit staged authoring work. */
+export async function isCumulativeDesignSourcePackageExtensionInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		designSessionId: string;
+		previousPackageDigest: string;
+		nextPackageDigest: string;
+	},
+): Promise<boolean> {
+	const previous = await readSourcePackageInTx(
+		tx,
+		args.designSessionId,
+		args.previousPackageDigest,
+	);
+	const next = await readSourcePackageInTx(
+		tx,
+		args.designSessionId,
+		args.nextPackageDigest,
+	);
+	return sourcePackageProofExtends(
+		previous?.payload.extensionProof,
+		next?.payload.extensionProof,
+	);
+}
+
 /* ------------------------------------------------------------------ */
 /* Contract revisions                                                  */
 /* ------------------------------------------------------------------ */
@@ -250,20 +357,46 @@ async function readSourcePackageInTx(
 export async function insertDesignRevision(args: {
 	envelope: DesignArtifactEnvelope<AppDesignContract>;
 	lifecycle: RevisionLifecycle;
-	runId: string;
+	authority: DesignArtifactWriteAuthority;
+	/** A newer source package is replacing a planned design. Retire every open
+	 * carrier from the historical plan in this same authority-locked write. */
+	supersedeUncommittedExecution?: boolean;
 	/** Required for an accepted revision: every disposition plus the review
 	 *  row ids whose findings they close. */
 	dispositions?: ReadonlyArray<{
 		reviewId: string;
 		disposition: FindingDisposition;
 	}>;
+	/** When present, artifact insertion and the exact open-workspace terminal
+	 * transition are one transaction. */
+	workspaceFinalization?: DesignArtifactWorkspaceFinalization;
 }): Promise<DesignRevisionRecord> {
-	const { envelope, lifecycle, runId } = args;
+	const { envelope, lifecycle, authority } = args;
 	const parsed = contractEnvelopeSchema.parse(envelope);
 	verifyArtifactEnvelope(parsed);
 	const contractDigest = canonicalJsonDigest(parsed.payload);
 
 	return withAppTx(async (tx) => {
+		await authorizeArtifactWrite(tx, parsed.designSessionId, authority);
+		if (args.supersedeUncommittedExecution) {
+			const now = new Date();
+			await tx
+				.updateTable("design_change_sets")
+				.set({ status: "superseded", updated_at: now })
+				.where("design_session_id", "=", parsed.designSessionId)
+				.where("status", "=", "open")
+				.execute();
+			await tx
+				.updateTable("design_slice_attempts")
+				.set({
+					status: "superseded",
+					failure_code: "artifact-superseded",
+					updated_at: now,
+				})
+				.where("design_session_id", "=", parsed.designSessionId)
+				.where("status", "=", "running")
+				.execute();
+		}
 		const pkg = await tx
 			.selectFrom("design_source_packages")
 			.select(["id"])
@@ -345,7 +478,7 @@ export async function insertDesignRevision(args: {
 				source_package_digest: parsed.sourcePackageDigest,
 				producer_model: parsed.producer.modelId,
 				prompt_version: parsed.promptVersion,
-				created_by_run_id: runId,
+				created_by_run_id: authority.runId,
 				envelope: JSON.stringify(parsed),
 			})
 			.execute();
@@ -362,6 +495,20 @@ export async function insertDesignRevision(args: {
 					payload: JSON.stringify(disposition),
 				})
 				.execute();
+		}
+
+		if (args.workspaceFinalization !== undefined) {
+			if (args.workspaceFinalization.artifactKind === "plan") {
+				throw new DesignArtifactStoreError(
+					"A Design Contract revision cannot finalize a plan workspace.",
+				);
+			}
+			await finalizeArtifactWorkspaceInTransaction(tx, {
+				designSessionId: parsed.designSessionId,
+				artifactId: parsed.artifactId,
+				runId: authority.runId,
+				workspace: args.workspaceFinalization,
+			});
 		}
 
 		const record = await readRevisionRecordInTx(tx, parsed.artifactId);
@@ -398,24 +545,19 @@ export async function readLatestAcceptedDesignRevision(
 	return readRevisionRecordInTx(db, row.id);
 }
 
-/** Every revision of one session, ascending, each read through the
- *  verified record reader — the inspector's integrity walk. */
+/** Every revision of one session, ascending, each row through the same
+ *  verified record conversion — the inspector's integrity walk. ONE query:
+ *  the gate loader runs this on every tool call, so a per-row fetch would be
+ *  an N+1 against the session's whole history. */
 export async function readDesignRevisionsForSession(
 	designSessionId: string,
 ): Promise<DesignRevisionRecord[]> {
 	const db = await getAppDb();
-	const rows = await db
-		.selectFrom("design_revisions")
-		.select(["id"])
+	const rows = await revisionRowsQuery(db)
 		.where("design_session_id", "=", designSessionId)
 		.orderBy("revision", "asc")
 		.execute();
-	const records: DesignRevisionRecord[] = [];
-	for (const row of rows) {
-		const record = await readRevisionRecordInTx(db, row.id);
-		if (record) records.push(record);
-	}
-	return records;
+	return rows.map(revisionRecordFromRow);
 }
 
 /** The session's newest revision of ANY lifecycle — the pipeline's resume
@@ -449,7 +591,9 @@ export async function countDesignRevisions(
 	return Number(row?.n ?? 0);
 }
 
-async function readRevisionRowInTx(db: Db, id: string) {
+/** The revision columns every record read selects — one spelling, so the
+ *  by-id and whole-session readers cannot drift. */
+function revisionRowsQuery(db: Db) {
 	return db
 		.selectFrom("design_revisions")
 		.select([
@@ -461,27 +605,29 @@ async function readRevisionRowInTx(db: Db, id: string) {
 			"artifact_digest",
 			"contract_digest",
 			"source_package_digest",
+			"created_by_run_id",
 			"created_at",
 		])
 		.select(
 			sql<string>`${sql.ref("design_revisions.envelope")}::text`.as(
 				"envelope_text",
 			),
-		)
-		.where("id", "=", id)
-		.executeTakeFirst();
+		);
 }
 
-async function readRevisionRecordInTx(
-	db: Db,
-	id: string,
-): Promise<DesignRevisionRecord | null> {
-	const row = await readRevisionRowInTx(db, id);
-	if (!row) return null;
+type RevisionRow = Awaited<
+	ReturnType<ReturnType<typeof revisionRowsQuery>["execute"]>
+>[number];
+
+async function readRevisionRowInTx(db: Db, id: string) {
+	return revisionRowsQuery(db).where("id", "=", id).executeTakeFirst();
+}
+
+function revisionRecordFromRow(row: RevisionRow): DesignRevisionRecord {
 	const envelope = contractEnvelopeSchema.parse(
 		parsePersistedJsonText(
 			row.envelope_text,
-			`design_revisions.envelope for revision ${id}`,
+			`design_revisions.envelope for revision ${row.id}`,
 		),
 	);
 	verifyArtifactEnvelope(envelope);
@@ -491,13 +637,13 @@ async function readRevisionRecordInTx(
 		envelope.designSessionId !== row.design_session_id
 	) {
 		throw new DesignArtifactStoreError(
-			`The stored revision ${id} disagrees with its own envelope about identity or digest — corruption, not drift to repair.`,
+			`The stored revision ${row.id} disagrees with its own envelope about identity or digest — corruption, not drift to repair.`,
 		);
 	}
 	const lifecycle = row.lifecycle;
 	if (lifecycle !== "draft" && lifecycle !== "accepted") {
 		throw new DesignArtifactStoreError(
-			`The stored revision ${id} carries an unknown lifecycle "${lifecycle}".`,
+			`The stored revision ${row.id} carries an unknown lifecycle "${lifecycle}".`,
 		);
 	}
 	return {
@@ -505,7 +651,7 @@ async function readRevisionRecordInTx(
 		designSessionId: row.design_session_id,
 		revision: safePersistedSequence(
 			row.revision,
-			`design_revisions.revision for ${id}`,
+			`design_revisions.revision for ${row.id}`,
 		),
 		parentRevisionId: row.parent_revision_id,
 		lifecycle,
@@ -513,8 +659,17 @@ async function readRevisionRecordInTx(
 		contractDigest: row.contract_digest,
 		sourcePackageDigest: row.source_package_digest,
 		envelope,
+		createdByRunId: row.created_by_run_id,
 		createdAt: row.created_at,
 	};
+}
+
+async function readRevisionRecordInTx(
+	db: Db,
+	id: string,
+): Promise<DesignRevisionRecord | null> {
+	const row = await readRevisionRowInTx(db, id);
+	return row ? revisionRecordFromRow(row) : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -529,12 +684,13 @@ async function readRevisionRecordInTx(
 export async function insertDesignReview(args: {
 	envelope: DesignArtifactEnvelope<DesignReview>;
 	designRevisionId: string;
-	runId: string;
+	authority: DesignArtifactWriteAuthority;
 }): Promise<DesignReviewRecord> {
 	const parsed = reviewEnvelopeSchema.parse(args.envelope);
 	verifyArtifactEnvelope(parsed);
 
 	return withAppTx(async (tx) => {
+		await authorizeArtifactWrite(tx, parsed.designSessionId, args.authority);
 		const revision = await readRevisionRowInTx(tx, args.designRevisionId);
 		if (!revision || revision.design_session_id !== parsed.designSessionId) {
 			throw new DesignArtifactStoreError(
@@ -569,7 +725,7 @@ export async function insertDesignReview(args: {
 				artifact_digest: parsed.artifactDigest,
 				producer_model: parsed.producer.modelId,
 				prompt_version: parsed.promptVersion,
-				created_by_run_id: args.runId,
+				created_by_run_id: args.authority.runId,
 				envelope: JSON.stringify(parsed),
 			})
 			.execute();
@@ -587,26 +743,40 @@ export async function insertDesignReview(args: {
 export async function readDesignReviews(
 	designRevisionId: string,
 ): Promise<DesignReviewRecord[]> {
-	const db = await getAppDb();
-	const rows = await db
-		.selectFrom("design_reviews")
-		.select(["id"])
-		.where("design_revision_id", "=", designRevisionId)
-		.orderBy("review_ordinal", "asc")
-		.execute();
-	const records: DesignReviewRecord[] = [];
-	for (const row of rows) {
-		const record = await readReviewRecordInTx(db, row.id);
-		if (record) records.push(record);
-	}
-	return records;
+	const reviews = await readDesignReviewsForRevisions([designRevisionId]);
+	return [...(reviews.get(designRevisionId) ?? [])];
 }
 
-async function readReviewRecordInTx(
-	db: Db,
-	id: string,
-): Promise<DesignReviewRecord | null> {
-	const row = await db
+/**
+ * Every review of the named revisions, keyed by revision id (every requested
+ * id gets an entry, empty when unreviewed), each list ascending by
+ * `review_ordinal`. ONE query: the gate loader reads reviews for the whole
+ * session's revision list on every tool call, so a per-revision-per-review
+ * fetch would be a nested N+1.
+ */
+export async function readDesignReviewsForRevisions(
+	designRevisionIds: readonly string[],
+): Promise<ReadonlyMap<string, readonly DesignReviewRecord[]>> {
+	const reviews = new Map<string, DesignReviewRecord[]>(
+		designRevisionIds.map((id) => [id, []]),
+	);
+	if (designRevisionIds.length === 0) return reviews;
+	const db = await getAppDb();
+	const rows = await reviewRowsQuery(db)
+		.where("design_revision_id", "in", [...designRevisionIds])
+		.orderBy("design_revision_id")
+		.orderBy("review_ordinal", "asc")
+		.execute();
+	for (const row of rows) {
+		reviews.get(row.design_revision_id)?.push(reviewRecordFromRow(row));
+	}
+	return reviews;
+}
+
+/** The review columns every record read selects — one spelling, so the
+ *  by-id and batch readers cannot drift. */
+function reviewRowsQuery(db: Db) {
+	return db
 		.selectFrom("design_reviews")
 		.select([
 			"id",
@@ -615,20 +785,25 @@ async function readReviewRecordInTx(
 			"review_ordinal",
 			"reviewed_revision_digest",
 			"artifact_digest",
+			"created_by_run_id",
 			"created_at",
 		])
 		.select(
 			sql<string>`${sql.ref("design_reviews.envelope")}::text`.as(
 				"envelope_text",
 			),
-		)
-		.where("id", "=", id)
-		.executeTakeFirst();
-	if (!row) return null;
+		);
+}
+
+type ReviewRow = Awaited<
+	ReturnType<ReturnType<typeof reviewRowsQuery>["execute"]>
+>[number];
+
+function reviewRecordFromRow(row: ReviewRow): DesignReviewRecord {
 	const envelope = reviewEnvelopeSchema.parse(
 		parsePersistedJsonText(
 			row.envelope_text,
-			`design_reviews.envelope for review ${id}`,
+			`design_reviews.envelope for review ${row.id}`,
 		),
 	);
 	verifyArtifactEnvelope(envelope);
@@ -637,7 +812,7 @@ async function readReviewRecordInTx(
 		envelope.artifactId !== row.id
 	) {
 		throw new DesignArtifactStoreError(
-			`The stored review ${id} disagrees with its own envelope — corruption.`,
+			`The stored review ${row.id} disagrees with its own envelope — corruption.`,
 		);
 	}
 	return {
@@ -648,8 +823,17 @@ async function readReviewRecordInTx(
 		reviewedRevisionDigest: row.reviewed_revision_digest,
 		artifactDigest: row.artifact_digest,
 		envelope,
+		createdByRunId: row.created_by_run_id,
 		createdAt: row.created_at,
 	};
+}
+
+async function readReviewRecordInTx(
+	db: Db,
+	id: string,
+): Promise<DesignReviewRecord | null> {
+	const row = await reviewRowsQuery(db).where("id", "=", id).executeTakeFirst();
+	return row ? reviewRecordFromRow(row) : null;
 }
 
 export async function readDispositions(
@@ -692,14 +876,20 @@ export async function readDispositions(
  */
 export async function insertDesignBuildPlan(args: {
 	envelope: DesignArtifactEnvelope<BuildPlan>;
-	runId: string;
+	authority: DesignArtifactWriteAuthority;
+	workspaceFinalization?: DesignArtifactWorkspaceFinalization;
 }): Promise<DesignBuildPlanRecord> {
 	const parsed = buildPlanEnvelopeSchema.parse(args.envelope);
 	verifyArtifactEnvelope(parsed);
 	const plan = parsed.payload;
+	const admissionMessages = newPlanAdmissionMessages(plan);
+	if (admissionMessages.length > 0) {
+		throw new DesignArtifactStoreError(admissionMessages.join("\n"));
+	}
 	const planDigest = canonicalJsonDigest(plan);
 
 	return withAppTx(async (tx) => {
+		await authorizeArtifactWrite(tx, parsed.designSessionId, args.authority);
 		const revision = await readRevisionRowInTx(tx, plan.designRevisionId);
 		if (!revision || revision.design_session_id !== parsed.designSessionId) {
 			throw new DesignArtifactStoreError(
@@ -733,10 +923,24 @@ export async function insertDesignBuildPlan(args: {
 				artifact_digest: parsed.artifactDigest,
 				producer_model: parsed.producer.modelId,
 				prompt_version: parsed.promptVersion,
-				created_by_run_id: args.runId,
+				created_by_run_id: args.authority.runId,
 				envelope: JSON.stringify(parsed),
 			})
 			.execute();
+
+		if (args.workspaceFinalization !== undefined) {
+			if (args.workspaceFinalization.artifactKind !== "plan") {
+				throw new DesignArtifactStoreError(
+					"A build plan can finalize only a plan workspace.",
+				);
+			}
+			await finalizeArtifactWorkspaceInTransaction(tx, {
+				designSessionId: parsed.designSessionId,
+				artifactId: plan.id,
+				runId: args.authority.runId,
+				workspace: args.workspaceFinalization,
+			});
+		}
 
 		const record = await readBuildPlanRecordInTx(tx, plan.id);
 		if (!record) {

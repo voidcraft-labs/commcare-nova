@@ -27,6 +27,7 @@ import {
 	publishClaimedAssetExtract,
 } from "@/lib/db/mediaAssets";
 import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
+import { MODEL_ROLES } from "@/lib/models";
 import { deleteAsset, writeTextObject } from "@/lib/storage/media";
 import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
 
@@ -85,10 +86,9 @@ vi.mock("@/lib/utils/delay", () => ({
 }));
 // Mock the extraction core wholesale: keeps the real module (mammoth + the
 // Google provider) from loading, and lets us assert claim-vs-reuse without a
-// model call. The store reads these constants and calls `extractDocument`.
+// model call. The store calls only `extractDocument` from this module.
 vi.mock("@/lib/agent/documentExtraction", () => ({
 	extractDocument: extractDocumentMock,
-	CONDENSER_MODEL: "gpt-5.6-luna",
 	EXTRACT_MAX_BYTES: 4 * 1024 * 1024,
 }));
 
@@ -127,7 +127,7 @@ function extractRecord(
 	return {
 		status,
 		version,
-		model: "gpt-5.6-luna",
+		model: MODEL_ROLES.documentExtractor.modelId,
 		truncated: false,
 		charCount: 0,
 		extractedAt: Date.now() - ageMs,
@@ -163,7 +163,7 @@ beforeEach(() => {
 		kind: "claimed",
 		claim: {
 			version: EXTRACTOR_VERSION,
-			model: "gpt-5.6-luna",
+			model: MODEL_ROLES.documentExtractor.modelId,
 			extractedAt: 123,
 		},
 	});
@@ -624,7 +624,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 				extract: {
 					status: "failed",
 					version: EXTRACTOR_VERSION,
-					model: "gpt-5.6-luna",
+					model: MODEL_ROLES.documentExtractor.modelId,
 					truncated: false,
 					charCount: 0,
 					extractedAt: 789,
@@ -672,7 +672,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 				extract: {
 					status: "ready",
 					version: EXTRACTOR_VERSION,
-					model: "gpt-5.6-luna",
+					model: MODEL_ROLES.documentExtractor.modelId,
 					truncated: false,
 					charCount: 17,
 					extractedAt: 789,

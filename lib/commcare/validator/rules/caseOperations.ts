@@ -20,6 +20,7 @@ import {
 } from "@/lib/doc/caseOperationOrder";
 import {
 	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
@@ -31,7 +32,6 @@ import {
 	type Form,
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
-	isCaseFirstModule,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
 	isWritableStandardCaseProperty,
@@ -89,7 +89,10 @@ interface OperationRuleContext {
 		string,
 		ReturnType<typeof effectiveCaseTypes>[number]
 	>;
-	readonly caseFirst: boolean;
+	/** A follow-up or close form always receives a selected case before the
+	 * XForm opens. Whether CommCare hoists that selection ahead of the module's
+	 * form menu is only a navigation-order concern. */
+	readonly sessionCaseAvailable: boolean;
 	readonly writerTypes: ReturnType<typeof concreteCasePropertyWriterTypes>;
 	readonly lookupTables?: LookupTypeIndex;
 }
@@ -107,9 +110,6 @@ export function validateCaseOperations(
 
 	const caseTypes = effectiveCaseTypes(doc);
 	const fields = collectFormFields(doc, formUuid);
-	const formTypes = (doc.formOrder[moduleUuid] ?? [])
-		.map((uuid) => doc.forms[uuid]?.type)
-		.filter((type): type is Form["type"] => type !== undefined);
 	const ctx: OperationRuleContext = {
 		doc,
 		form,
@@ -121,7 +121,8 @@ export function validateCaseOperations(
 		caseTypesByName: new Map(
 			caseTypes.map((caseType) => [caseType.name, caseType]),
 		),
-		caseFirst: isCaseFirstModule(formTypes, module.caseType !== undefined),
+		sessionCaseAvailable:
+			module.caseType !== undefined && CASE_LOADING_FORM_TYPES.has(form.type),
 		writerTypes: concreteCasePropertyWriterTypes(doc),
 		lookupTables,
 	};
@@ -573,7 +574,7 @@ function validateTarget(
 		case "new":
 			return;
 		case "session":
-			if (!ctx.caseFirst) {
+			if (!ctx.sessionCaseAvailable) {
 				errors.push(
 					opError(
 						ctx,
@@ -1007,7 +1008,7 @@ function validateCaseSnapshotUse(
 	usesCaseSnapshot: boolean,
 	errors: ValidationError[],
 ): void {
-	if (ctx.caseFirst || !usesCaseSnapshot) return;
+	if (ctx.sessionCaseAvailable || !usesCaseSnapshot) return;
 	errors.push(
 		opError(
 			ctx,

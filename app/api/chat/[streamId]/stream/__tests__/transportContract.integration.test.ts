@@ -65,7 +65,7 @@ const { appendStreamChunks } = await import("@/lib/db/streamChunks");
 const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
-const { createApp } = await import("@/lib/db/apps");
+const { createExplicitBlankApp } = await import("@/lib/db/appGenesis");
 const { persistResponseSnapshot, upsertThreadTurn } = await import(
 	"@/lib/db/threads"
 );
@@ -216,7 +216,9 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		 * `reconnectToStream({chatId})` with the Chat instance's id, the
 		 * THREAD id, and the endpoint resolves the thread's live stream and
 		 * replays it whole. */
-		const { appId } = await createApp(USER, "project-1", "run-1");
+		const { appId } = await createExplicitBlankApp(USER, "project-1", "run-1", {
+			status: "generating",
+		});
 		await upsertThreadTurn({
 			target: { kind: "app", appId },
 			threadId: "thread-1",
@@ -280,7 +282,9 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		 * 0, because they live nowhere but this log. Folding what's left into
 		 * a message seeded from the barrier transcript must not duplicate the
 		 * completed step's parts. */
-		const { appId } = await createApp(USER, "project-1", "run-3");
+		const { appId } = await createExplicitBlankApp(USER, "project-1", "run-3", {
+			status: "generating",
+		});
 		await upsertThreadTurn({
 			target: { kind: "app", appId },
 			threadId: "thread-3",
@@ -404,7 +408,9 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		/* The transport THROWS on any non-OK reconnect response, so "nothing
 		 * to resume" must be a 200 that terminates on its first chunk, this
 		 * pins that the real parser consumes it without erroring or looping. */
-		const { appId } = await createApp(USER, "project-1", "run-2");
+		const { appId } = await createExplicitBlankApp(USER, "project-1", "run-2", {
+			status: "generating",
+		});
 		await upsertThreadTurn({
 			target: { kind: "app", appId },
 			threadId: "thread-2",

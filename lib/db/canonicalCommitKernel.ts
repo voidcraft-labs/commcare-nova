@@ -25,8 +25,7 @@
  * server-owned: hooks run inside the same retryable transaction and must be
  * deterministic, idempotent, and free of network/object-store effects. They
  * cannot alter the candidate Blueprint or bypass the gate. (Typed sidecar
- * variants — design change-set receipts, intent provenance — extend this seam
- * when the private change-set runtime lands.)
+ * variants such as the design change-set receipt extend this seam.)
  *
  * This module also owns the shared transaction plumbing every locked app
  * protocol composes: the strict persisted-app admission (`loadAppInTransaction`
@@ -128,6 +127,7 @@ import {
 	type ClientAppChangeKind,
 	parsePersistedAppLifecycleStatus,
 } from "./types";
+import { hasUnfinishedMaterializedDesignInTransaction } from "./unfinishedMaterializedDesign";
 
 // ── Holder capability ──────────────────────────────────────────────
 
@@ -708,9 +708,8 @@ export interface CanonicalCommitTransactionHooks {
 	/**
 	 * Closed, typed SQL-only sidecars (`canonicalCommitSidecars.ts`) executed
 	 * AFTER the committed-batch write tail, in the same transaction, with the
-	 * kernel's authoritative sequence/batch id/candidate — so a provenance
-	 * row's FK onto the fresh `app_changes` row is immediately checkable and
-	 * a lost holder CAS has already aborted. The change-set commit's
+	 * kernel's authoritative sequence/batch id/candidate after the write tail,
+	 * once a lost holder CAS has already aborted. The change-set commit's
 	 * `open → committed` flip and receipt ride here. Skipped entirely on a
 	 * dedup hit — the original commit ran them.
 	 */
@@ -719,6 +718,10 @@ export interface CanonicalCommitTransactionHooks {
 
 export interface CanonicalCommitKernelOptions
 	extends CanonicalCommitTransactionHooks {
+	/** Absolute executor deadline. The transaction wrapper installs the
+	 * matching PostgreSQL transaction timeout so a canonical write cannot
+	 * commit after the slice's wall-clock authority expires. */
+	readonly deadlineAt?: number;
 	/**
 	 * Existing transaction used only by infrastructure probes that must exercise
 	 * the exact guarded writer and then roll the surrounding transaction back.
@@ -743,7 +746,8 @@ export function isUniqueViolation(err: unknown): boolean {
  * dedup hit on `(app_id, batch_id)` returns the recorded seq + the current
  * committed doc, writing nothing; lock + reauthorize the actor's exact Project
  * membership against the fresh row (a concurrent MOVE rejects retryably);
- * when chat supplied holder authority,
+ * while an initial build owns the app, reject every caller that does not carry
+ * that exact build-holder authority; when chat supplied holder authority,
  * compare its exact mode/run identity before evaluation and again on the final
  * app-row SQL update (MCP's attribution-only run id supplies no authority);
  * re-check media expectations against rows read `FOR SHARE` (a racing delete
@@ -833,6 +837,20 @@ export async function commitCanonicalBatch(
 			!exactRunHolderMatches(lease.holderIdentity, args.chatRunHolder)
 		) {
 			throw new RunHolderLostError(lease.present ? "superseded" : "released");
+		}
+		/* The accepted initial contract and plan stay frozen until authoritative
+		 * completion, not merely until the live lease disappears. A failed partial
+		 * build is still unfinished after `failApp` changes status to `error`.
+		 * Chat construction commits carry the exact live holder; MCP/autosave do
+		 * not. */
+		if (
+			args.chatRunHolder === undefined &&
+			(lease.mode === "build" ||
+				(await hasUnfinishedMaterializedDesignInTransaction(tx, appId)))
+		) {
+			throw new BlueprintCommitRejectedError(
+				"This app's reviewed initial build has not finished. Wait for it to complete before editing the app.",
+			);
 		}
 		if (mutations.length === 0) {
 			throw new BlueprintCommitRejectedError(
@@ -962,9 +980,7 @@ export async function commitCanonicalBatch(
 			}),
 		});
 		/* Typed sidecars run AFTER the committed-batch write, in the same
-		 * transaction: the provenance rows' foreign key onto the just-written
-		 * `app_changes` row is checkable immediately, and a lost holder CAS
-		 * above has already aborted before any sidecar state exists. */
+		 * transaction, after a lost holder CAS has already aborted. */
 		if (
 			internalOptions.sidecars !== undefined &&
 			internalOptions.sidecars.length > 0
@@ -985,7 +1001,11 @@ export async function commitCanonicalBatch(
 	};
 	const commitOnce = (): Promise<CanonicalCommitReceipt> =>
 		internalOptions.transaction === undefined
-			? withAppTx(commitInTransaction)
+			? withAppTx(commitInTransaction, {
+					...(internalOptions.deadlineAt !== undefined && {
+						deadlineAt: internalOptions.deadlineAt,
+					}),
+				})
 			: commitInTransaction(internalOptions.transaction);
 
 	let result: CanonicalCommitReceipt;

@@ -13,8 +13,9 @@
  *    through their content digest, not re-hashed base64) — the proof of
  *    what the models saw.
  *  - `persistedSourcePackageSchema` is what `design_source_packages` rows
- *    store: the digest, the normalized claims, and the labeled source
- *    INDEX. Raw extracts, transcripts, and attachment bodies are never
+ *    store: the digest, the normalized claims, the labeled source INDEX, and
+ *    content-free hashes that can prove a later package preserved every prior
+ *    projection. Raw extracts, transcripts, and attachment bodies are never
  *    duplicated into design tables — the reference is the persisted fact,
  *    and re-reading the material goes through its own authorized boundary.
  *
@@ -38,7 +39,9 @@
 
 import { z } from "zod";
 import {
+	type SourceRef,
 	sourceClaimSchema,
+	sourceRefKey,
 	sourceRefSchema,
 } from "@/lib/agent/design/evidence";
 import {
@@ -157,8 +160,10 @@ export interface DesignSourcePackage {
 	attachments: AuthorizedAttachmentProjection[];
 	images: AuthorizedImage[];
 	platformConstraints: PlatformConstraint[];
-	/** The labeled index of every projected source — the closed set of
-	 *  references a reviewer may cite (plus catalog constraints). */
+	/** The labeled index of every projected source — request blocks, document
+	 *  extracts, and images — as the closed set of references a reviewer may
+	 *  cite (plus catalog constraints). An image's entry carries the digest of
+	 *  the exact bytes projected, so a citation binds to that content. */
 	sources: Array<{ ref: z.infer<typeof sourceRefSchema> }>;
 }
 
@@ -167,8 +172,54 @@ export interface DesignSourcePackage {
  *  authored claim. */
 export type SourceClaimSeed = z.infer<typeof sourceClaimSchema>;
 
-/** What `design_source_packages.payload` stores: references and normalized
- *  claims only — no extract bodies, no transcripts, no image bytes. */
+/**
+ * The closed, deduplicated set of references a reviewer may cite from this
+ * package: every projected source-index entry plus every normalized claim's
+ * references. Citation validation (`review.ts`) and the review prompt's
+ * citable-coordinates section both derive from exactly this function, so
+ * what the reviewer is shown and what the validator admits cannot drift.
+ */
+export function citableSourceRefs(pkg: DesignSourcePackage): SourceRef[] {
+	const seen = new Set<string>();
+	const refs: SourceRef[] = [];
+	for (const ref of [
+		...pkg.sources.map((source) => source.ref),
+		...pkg.claims.flatMap((claim) => claim.sourceRefs),
+	]) {
+		const key = sourceRefKey(ref);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		refs.push(ref);
+	}
+	return refs;
+}
+
+const sha256DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
+
+/**
+ * Content-free proof that one package is a cumulative extension of another.
+ * Every digest binds one complete projected unit, including its source
+ * coordinate. Prefixes are deliberate: answered rounds append source units;
+ * changing, removing, or reordering prior material is a different source, not
+ * an extension that may inherit staged authoring work.
+ */
+export const sourcePackageExtensionProofSchema = z
+	.object({
+		foundationDigest: sha256DigestSchema,
+		requestBlockDigests: z.array(sha256DigestSchema),
+		claimDigests: z.array(sha256DigestSchema),
+		attachmentDigests: z.array(sha256DigestSchema),
+		imageDigests: z.array(sha256DigestSchema),
+		sourceIndexDigests: z.array(sha256DigestSchema),
+	})
+	.strict();
+export type SourcePackageExtensionProof = z.infer<
+	typeof sourcePackageExtensionProofSchema
+>;
+
+/** What `design_source_packages.payload` stores: references, normalized
+ *  claims, and content-free projection hashes — no extract bodies,
+ *  transcripts, or image bytes. */
 export const persistedSourcePackageSchema = z
 	.object({
 		schemaVersion: z.literal(1),
@@ -183,6 +234,7 @@ export const persistedSourcePackageSchema = z
 		attachmentCount: z.number().int().nonnegative(),
 		imageCount: z.number().int().nonnegative(),
 		projectedBytes: z.number().int().nonnegative(),
+		extensionProof: sourcePackageExtensionProofSchema,
 	})
 	.strict();
 export type PersistedSourcePackage = z.infer<
@@ -204,6 +256,73 @@ export function computeSourcePackageDigest(
 		...pkg,
 		images: pkg.images.map(({ dataUrl: _transport, ...identity }) => identity),
 	});
+}
+
+export function computeSourcePackageExtensionProof(
+	pkg: Omit<DesignSourcePackage, "packageDigest">,
+): SourcePackageExtensionProof {
+	const digests = (values: readonly unknown[]) =>
+		values.map((value) => canonicalJsonDigest(value));
+	return {
+		foundationDigest: canonicalJsonDigest({
+			schemaVersion: pkg.schemaVersion,
+			designSessionId: pkg.designSessionId,
+			projectId: pkg.projectId,
+			platformConstraints: pkg.platformConstraints,
+		}),
+		requestBlockDigests: digests(pkg.request.blocks),
+		claimDigests: digests(pkg.claims),
+		attachmentDigests: digests(pkg.attachments),
+		imageDigests: digests(
+			pkg.images.map(({ dataUrl: _transport, ...identity }) => identity),
+		),
+		sourceIndexDigests: digests(pkg.sources),
+	};
+}
+
+function isDigestPrefix(
+	previous: readonly string[],
+	next: readonly string[],
+): boolean {
+	return (
+		previous.length <= next.length &&
+		previous.every((digest, index) => next[index] === digest)
+	);
+}
+
+function isDigestSubset(
+	previous: readonly string[],
+	next: readonly string[],
+): boolean {
+	const nextDigests = new Set(next);
+	return previous.every((digest) => nextDigests.has(digest));
+}
+
+/** True only when every prior projected unit remains byte-identical. Authored
+ * source families must remain positional prefixes; the derived citable index
+ * must retain the same closed-set members even when kind grouping moves them. */
+export function sourcePackageProofExtends(
+	previous: SourcePackageExtensionProof | undefined,
+	next: SourcePackageExtensionProof | undefined,
+): boolean {
+	if (
+		previous === undefined ||
+		next === undefined ||
+		previous.foundationDigest !== next.foundationDigest
+	) {
+		return false;
+	}
+	return (
+		isDigestPrefix(previous.requestBlockDigests, next.requestBlockDigests) &&
+		isDigestPrefix(previous.claimDigests, next.claimDigests) &&
+		isDigestPrefix(previous.attachmentDigests, next.attachmentDigests) &&
+		isDigestPrefix(previous.imageDigests, next.imageDigests) &&
+		/* The citable index is derived in kind groups (messages, documents,
+		 * images), so appending a message legitimately shifts unchanged document
+		 * and image refs. Its closed-set meaning requires subset preservation, not
+		 * positional prefix preservation. */
+		isDigestSubset(previous.sourceIndexDigests, next.sourceIndexDigests)
+	);
 }
 
 /** Derive the persisted row payload from the in-memory package. */
@@ -230,6 +349,7 @@ export function toPersistedSourcePackage(
 		attachmentCount: pkg.attachments.length,
 		imageCount: pkg.images.length,
 		projectedBytes,
+		extensionProof: computeSourcePackageExtensionProof(pkg),
 	});
 }
 
@@ -425,6 +545,13 @@ export async function buildDesignSourcePackage(
 					assetId: attachment.assetId,
 					extractorVersion: attachment.extractorVersion,
 					sectionPath: [],
+				},
+			})),
+			...images.map((image) => ({
+				ref: {
+					kind: "image" as const,
+					assetId: image.assetId,
+					bytesDigest: image.bytesDigest,
 				},
 			})),
 		],

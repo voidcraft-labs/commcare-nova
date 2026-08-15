@@ -203,7 +203,10 @@ import {
 	submitFormAction,
 } from "@/lib/preview/engine/caseDataBinding";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
-import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
+import {
+	invalidateCaseData,
+	useCaseDataRevision,
+} from "@/lib/preview/hooks/caseDataInvalidation";
 import {
 	__resetAttachmentCoordinatorForTests,
 	getAttachmentSlotDraft,
@@ -242,6 +245,11 @@ function CaptureRuntimeHandles() {
 	const mutations = useBlueprintMutations().inline;
 	updateCapturedPersonaValue = mutations.updatePersonaValue;
 	return null;
+}
+
+function CaseDataRevisionProbe() {
+	const revision = useCaseDataRevision(APP_ID, CASE_TYPE);
+	return <div data-testid="case-data-revision">{revision}</div>;
 }
 
 /* Mount FormScreen against a BlueprintDocProvider that carries every
@@ -496,6 +504,7 @@ function renderFormScreen(opts: {
 			>
 				<BuilderFormEngineProvider>
 					<CaptureRuntimeHandles />
+					<CaseDataRevisionProbe />
 					<FormScreen
 						screen={{
 							type: "form",
@@ -699,6 +708,9 @@ describe("FormScreen — registration submit", () => {
 		});
 
 		renderFormScreen({ formUuid: REG_FORM_UUID });
+		const initialRevision = Number(
+			screen.getByTestId("case-data-revision").textContent,
+		);
 
 		const submit = await screen.findByRole("button", { name: /^submit$/i });
 		fireEvent.click(submit);
@@ -720,6 +732,9 @@ describe("FormScreen — registration submit", () => {
 		await waitFor(() => {
 			expect(navigateMock.goHome).toHaveBeenCalledTimes(1);
 		});
+		expect(Number(screen.getByTestId("case-data-revision").textContent)).toBe(
+			initialRevision + 1,
+		);
 	});
 });
 

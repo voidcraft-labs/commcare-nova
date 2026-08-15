@@ -1,240 +1,512 @@
-/**
- * validateSlicePlan — structural rules plus the contract-bound factory:
- * exact ownership, one dependency-closed materialization root, honest
- * external-action timing, scenario coverage, parent-selection reachability.
- */
-
 import { describe, expect, it } from "vitest";
 import {
 	buildPlanSchema,
 	buildPlanSchemaFor,
+	deriveBuildPlan,
+	newPlanAdmissionMessages,
 } from "@/lib/agent/design/buildPlan";
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import {
 	cloneContract,
 	did,
 	ids,
 	makeBuildPlan,
 	makeContract,
+	makeThirteenWorkflowContract,
 } from "./fixtures";
 
-const contract = appDesignContractSchema.parse(makeContract());
-
-function messages(result: {
-	success: boolean;
-	error?: { issues: Array<{ message: string }> };
-}) {
+function messages(
+	result: ReturnType<typeof buildPlanSchema.safeParse>,
+): string {
 	return result.success
 		? ""
-		: (result.error?.issues ?? []).map((i) => i.message).join("\n");
+		: result.error.issues.map((issue) => issue.message).join("\n");
 }
 
-describe("buildPlanSchema (structural)", () => {
-	it("accepts the fixture plan", () => {
-		const result = buildPlanSchema.safeParse(makeBuildPlan());
-		expect(result.success, messages(result)).toBe(true);
-	});
-
-	it("rejects zero and two materialization roots", () => {
-		const none = makeBuildPlan();
-		const first = none.slices[0];
-		if (!first) throw new Error("fixture has slices");
-		first.role = "ordinary";
-		expect(messages(buildPlanSchema.safeParse(none))).toContain(
-			"No slice is the materialization root",
-		);
-
-		const two = makeBuildPlan();
-		const second = two.slices[1];
-		if (!second) throw new Error("fixture has two slices");
-		second.role = "materialization-root";
-		expect(messages(buildPlanSchema.safeParse(two))).toContain(
-			"More than one slice",
-		);
-	});
-
-	it("rejects a prerequisite cycle", () => {
+describe("deterministic build planning", () => {
+	it("derives one dependency-ordered slice per workflow", () => {
 		const plan = makeBuildPlan();
-		plan.slices[0]?.prerequisiteSliceIds.push(ids.sliceVisit);
-		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
-			"prerequisite cycle",
-		);
+		expect(plan.slices.map((slice) => slice.workflowId)).toEqual([
+			ids.taskRegister,
+			ids.taskVisit,
+		]);
+		expect(plan.slices[0]?.role).toBe("materialization-root");
+		expect(plan.slices[1]?.prerequisiteSliceIds).toEqual([plan.slices[0]?.id]);
 	});
 
-	it("rejects an unknown prerequisite and self-prerequisite", () => {
-		const plan = makeBuildPlan();
-		plan.slices[1]?.prerequisiteSliceIds.push(did(8888));
-		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
-			"not a slice in this plan",
-		);
-
-		const self = makeBuildPlan();
-		self.slices[1]?.prerequisiteSliceIds.push(ids.sliceVisit);
-		expect(messages(buildPlanSchema.safeParse(self))).toContain("lists itself");
-	});
-
-	it("rejects an owned intent the slice does not name", () => {
-		const plan = makeBuildPlan();
-		plan.slices[1]?.ownedIntentIds.push(ids.navMain);
-		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
-			"owns an intent it does not list",
-		);
-	});
-
-	it("rejects ownership disagreement between rows and slices", () => {
-		const plan = makeBuildPlan();
-		const row = plan.intentOwnership.find(
-			(entry) => entry.intentId === ids.recVisit,
-		);
-		if (!row) throw new Error("fixture owns recVisit");
-		row.owningSliceId = ids.sliceRegister;
-		expect(messages(buildPlanSchema.safeParse(plan))).toContain("disagree");
-	});
-
-	it("rejects a contributor that is also the owner", () => {
-		const plan = makeBuildPlan();
-		const row = plan.intentOwnership.find(
-			(entry) => entry.intentId === ids.rmPatients,
-		);
-		if (!row) throw new Error("fixture owns rmPatients");
-		row.contributingSliceIds = [ids.sliceRegister];
-		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
-			"cannot also be listed as a contributor",
-		);
-	});
-
-	it("rejects a data-migration slice inside the root closure", () => {
-		const plan = makeBuildPlan();
-		const root = plan.slices[0];
-		if (!root) throw new Error("fixture has a root");
-		root.risk = "data-migration";
-		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
-			"no data to migrate",
-		);
-	});
-
-	it("rejects a post-materialization external action in the root closure", () => {
-		const plan = makeBuildPlan();
-		plan.externalActions.push({
-			id: did(500),
-			kind: "hq-setup",
-			timing: "after-slice",
-			requiredFor: "runtime",
-			description: "Configure the reminder rule in HQ.",
-			idempotencyOwner: "user",
-			completionEvidence: "The HQ rule list shows the reminder.",
-		});
-		plan.slices[0]?.externalActionIds.push(did(500));
-		expect(messages(buildPlanSchema.safeParse(plan))).toContain(
-			"before materialization or named as manual setup",
-		);
-	});
-
-	it("accepts a manual-setup action in the root closure", () => {
-		const plan = makeBuildPlan();
-		plan.externalActions.push({
-			id: did(501),
-			kind: "manual",
-			timing: "manual-setup",
-			requiredFor: "deployment",
-			description: "Create the HQ project space.",
-			idempotencyOwner: "user",
-			completionEvidence: "The project space exists.",
-		});
-		plan.slices[0]?.externalActionIds.push(did(501));
-		const result = buildPlanSchema.safeParse(plan);
-		expect(result.success, messages(result)).toBe(true);
-	});
-});
-
-describe("buildPlanSchemaFor (contract-bound)", () => {
-	it("accepts the fixture plan against the fixture contract", () => {
-		const result = buildPlanSchemaFor(contract).safeParse(makeBuildPlan());
-		expect(result.success, messages(result)).toBe(true);
-	});
-
-	it("rejects a slice intent that is not implementable in the contract", () => {
-		const plan = makeBuildPlan();
-		plan.slices[1]?.intentIds.push(ids.actorChw);
-		expect(messages(buildPlanSchemaFor(contract).safeParse(plan))).toContain(
-			"not an implementable intent",
-		);
-	});
-
-	it("rejects a plan that leaves an implementable intent unowned", () => {
-		const plan = makeBuildPlan();
-		plan.intentOwnership = plan.intentOwnership.filter(
-			(entry) => entry.intentId !== ids.navMain,
-		);
-		const slice = plan.slices[0];
-		if (!slice) throw new Error("fixture has a root slice");
-		slice.ownedIntentIds = slice.ownedIntentIds.filter(
-			(id) => id !== ids.navMain,
-		);
-		expect(messages(buildPlanSchemaFor(contract).safeParse(plan))).toContain(
-			"no owning slice",
-		);
-	});
-
-	it("rejects an unclaimed acceptance scenario", () => {
-		const plan = makeBuildPlan();
-		const root = plan.slices[0];
-		if (!root) throw new Error("fixture has a root slice");
-		root.acceptanceScenarioIds = [ids.scenarioRegister];
-		expect(messages(buildPlanSchemaFor(contract).safeParse(plan))).toContain(
-			"belongs to no slice",
-		);
-	});
-
-	it("rejects a child-creating slice that cannot reach a parent read model", () => {
-		const plan = makeBuildPlan();
-		const visit = plan.slices[1];
-		if (!visit) throw new Error("fixture has the visit slice");
-		visit.prerequisiteSliceIds = [];
-		visit.intentIds = visit.intentIds.filter((id) => id !== ids.rmPatients);
-		expect(messages(buildPlanSchemaFor(contract).safeParse(plan))).toContain(
-			"read model over the parent record",
-		);
-	});
-
-	it("accepts the child-creating slice when the parent read model is its own intent", () => {
-		const plan = makeBuildPlan();
-		const visit = plan.slices[1];
-		if (!visit) throw new Error("fixture has the visit slice");
-		visit.prerequisiteSliceIds = [];
-		// rmPatients stays in intentIds — the slice carries its own selection
-		// surface, so the closure is intact without the prerequisite.
-		const result = buildPlanSchemaFor(contract).safeParse(plan);
-		expect(result.success, messages(result)).toBe(true);
-	});
-});
-
-describe("makeContract/makeBuildPlan fixture agreement", () => {
-	it("the plan's ownership covers exactly the contract's implementable intents", () => {
-		const plan = makeBuildPlan();
-		const owned = new Set(plan.intentOwnership.map((entry) => entry.intentId));
-		const implementable = [
-			...contract.records,
-			...contract.facts,
-			...contract.rules,
-			...contract.tasks,
-			...contract.transitions,
-			...contract.readModels,
-			...contract.accessPolicies,
-			...contract.navigation,
-		].map((intent) => intent.id);
-		expect([...owned].sort()).toEqual([...implementable].sort());
-	});
-
-	it("cloned fixture edits never leak between tests", () => {
+	it("is stable for the same accepted revision", () => {
 		const first = makeBuildPlan();
-		first.slices[0]?.ownedIntentIds.push(did(777));
-		expect(makeBuildPlan().slices[0]?.ownedIntentIds.includes(did(777))).toBe(
+		const second = makeBuildPlan();
+		expect(second).toEqual(first);
+	});
+
+	it("assigns every buildable design element exactly once", () => {
+		const contract = makeContract();
+		const plan = makeBuildPlan();
+		const assigned = plan.slices.flatMap((slice) =>
+			slice.constructionGroups.flatMap((group) =>
+				group.elements.map((element) => element.id),
+			),
+		);
+		expect(new Set(assigned).size).toBe(assigned.length);
+		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
+	});
+
+	it("owns shared module composition once and keeps each form layout with its workflow", () => {
+		const plan = makeBuildPlan();
+		const first = plan.slices.find(
+			(slice) => slice.workflowId === ids.taskRegister,
+		);
+		const second = plan.slices.find(
+			(slice) => slice.workflowId === ids.taskVisit,
+		);
+		const elements = (slice: NonNullable<typeof first>) =>
+			slice.constructionGroups.flatMap((group) => group.elements);
+		expect(elements(first as NonNullable<typeof first>)).toEqual(
+			expect.arrayContaining([
+				{ kind: "module-composition", id: ids.modulePatients },
+				{ kind: "form-composition", id: ids.formRegister },
+				{ kind: "composition-section", id: ids.sectionRegisterIdentity },
+				{ kind: "composition-item", id: ids.itemRegisterGuidance },
+			]),
+		);
+		expect(elements(second as NonNullable<typeof second>)).toEqual(
+			expect.arrayContaining([
+				{ kind: "form-composition", id: ids.formVisit },
+				{ kind: "composition-section", id: ids.sectionVisit },
+				{ kind: "composition-item", id: ids.itemVisitSummary },
+			]),
+		);
+		expect(
+			plan.slices
+				.flatMap((slice) => elements(slice))
+				.filter((element) => element.id === ids.modulePatients),
+		).toHaveLength(1);
+	});
+
+	it("derives thirteen exact workflow slices with unique construction ownership", () => {
+		const contract = makeThirteenWorkflowContract();
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		expect(plan.slices).toHaveLength(13);
+		expect(plan.slices.map((slice) => slice.workflowId)).toEqual(
+			contract.charter.includedWorkflowIds,
+		);
+		const owned = plan.slices.flatMap((slice) =>
+			slice.constructionGroups.flatMap((group) =>
+				group.elements.map((element) => `${element.kind}:${element.id}`),
+			),
+		);
+		expect(new Set(owned).size).toBe(owned.length);
+		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
+	});
+
+	it("puts the materialization root first and gives it the only app-area owner", () => {
+		const contract = cloneContract(makeContract());
+		contract.records = [];
+		contract.lists = [];
+		contract.access = [];
+		contract.workflows.forEach((workflow, index) => {
+			workflow.contextRecordId = undefined;
+			workflow.prerequisiteWorkflowIds = [];
+			workflow.prerequisites = [];
+			workflow.inputs = [
+				{
+					handle: `answer_${index}`,
+					name: `Answer ${index}`,
+					purpose: "Collect one standalone answer",
+					dataShape: "text",
+				},
+			];
+			workflow.decisions = [];
+			workflow.recordEffects = [];
+			workflow.readback = [];
+		});
+		contract.navigation.forEach((navigation) => {
+			navigation.listIds = [];
+		});
+		contract.charter.initialWorkflowId = ids.taskVisit;
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "9".repeat(64) },
+			planId: ids.planId,
+		});
+		expect(plan.slices[0]?.workflowId).toBe(ids.taskVisit);
+		expect(plan.slices[0]?.role).toBe("materialization-root");
+		const appOwners = plan.slices.flatMap((slice) =>
+			slice.constructionGroups
+				.filter((group) => group.blueprintAreas.includes("app"))
+				.map((group) => ({ slice, group })),
+		);
+		expect(appOwners).toHaveLength(1);
+		expect(appOwners[0]?.slice.role).toBe("materialization-root");
+		expect(appOwners[0]?.group.kind).toBe("workflow");
+	});
+
+	it("reads prior v1 plans while enforcing exact app ownership for new plans", () => {
+		const contract = makeContract();
+		const legacyPlan = makeBuildPlan();
+		const laterGroup = legacyPlan.slices
+			.slice(1)
+			.flatMap((slice) => slice.constructionGroups)
+			.find((group) => !group.blueprintAreas.includes("app"));
+		if (laterGroup === undefined)
+			throw new Error("fixture needs a later group");
+		laterGroup.blueprintAreas.push("app");
+
+		expect(buildPlanSchema.safeParse(legacyPlan).success).toBe(true);
+		expect(buildPlanSchemaFor(contract).safeParse(legacyPlan).success).toBe(
+			false,
+		);
+	});
+
+	it("derives media and automation areas from explicit workflow semantics", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows[0];
+		if (workflow === undefined) throw new Error("fixture workflow missing");
+		workflow.authoredFeatures = ["existing-media", "automation"];
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const group = plan.slices[0]?.constructionGroups.find((candidate) =>
+			candidate.elements.some((element) => element.kind === "workflow"),
+		);
+		expect(group?.blueprintAreas).toEqual(
+			expect.arrayContaining(["media-references", "automations"]),
+		);
+	});
+
+	it("mounts case operations for a single effect targeting a non-context record", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows.find(
+			(candidate) => candidate.id === ids.taskVisit,
+		);
+		if (workflow === undefined) throw new Error("visit workflow missing");
+		const effect = workflow.recordEffects[0];
+		if (effect === undefined) throw new Error("visit effect missing");
+		delete effect.sourceRecordId;
+		expect(effect.recordId).not.toBe(workflow.contextRecordId);
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const workflowGroup = plan.slices
+			.find((slice) => slice.workflowId === workflow.id)
+			?.constructionGroups.find((group) => group.kind === "workflow");
+		expect(workflowGroup?.blueprintAreas).toContain("case-operations");
+	});
+
+	it("plans a standalone form workflow without inventing a record effect", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows[0];
+		if (workflow === undefined) throw new Error("fixture workflow missing");
+		workflow.inputs = [
+			{
+				handle: "survey_answer",
+				name: "Survey answer",
+				purpose: "Collect a standalone response",
+				dataShape: "text",
+			},
+		];
+		workflow.decisions = [];
+		workflow.recordEffects = [];
+		workflow.readback = [];
+		expect(() =>
+			deriveBuildPlan({
+				contract,
+				revision: { id: ids.revisionId, digest: "1".repeat(64) },
+				planId: ids.planId,
+			}),
+		).not.toThrow();
+	});
+
+	it("authorizes case operations for a standalone conditional primary create", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows.find(
+			(candidate) => candidate.id === ids.taskRegister,
+		);
+		if (workflow === undefined)
+			throw new Error("registration workflow missing");
+		const effect = workflow.recordEffects[0];
+		if (effect === undefined) throw new Error("create effect missing");
+		effect.condition = "The worker gave consent";
+		const existingModule = contract.moduleCompositions[0];
+		if (existingModule === undefined) throw new Error("module missing");
+		existingModule.workflowIds = existingModule.workflowIds.filter(
+			(id) => id !== workflow.id,
+		);
+		const standaloneModuleId = did(880);
+		contract.moduleCompositions.push({
+			id: standaloneModuleId,
+			name: "Consent registration",
+			purpose: "Host conditional registration without selected record context.",
+			role: "form-host",
+			workflowIds: [workflow.id],
+			actorIds: workflow.actorIds,
+			navigationIds: [],
+			listIds: [],
+			orderRationale: "Registration precedes patient follow-up.",
+			icon: { kind: "builtin", slug: "default" },
+			roleSeparationRationale:
+				"Conditional creation cannot use the patient-hosted registration form.",
+		});
+		const form = contract.formCompositions.find(
+			(candidate) => candidate.workflowId === workflow.id,
+		);
+		if (form === undefined) throw new Error("registration form missing");
+		form.moduleCompositionId = standaloneModuleId;
+		form.mode = "standalone";
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const workflowGroup = plan.slices
+			.find((slice) => slice.workflowId === workflow.id)
+			?.constructionGroups.find((group) => group.kind === "workflow");
+		expect(workflowGroup?.blueprintAreas).toContain("case-operations");
+	});
+
+	it("keeps a list and its queue-only properties with the workflow that materializes its module", () => {
+		const contract = cloneContract(makeContract());
+		const readOnly = did(34);
+		const queueOnly = did(35);
+		const patient = contract.records.find(
+			(record) => record.id === ids.recPatient,
+		);
+		const visit = contract.workflows.find(
+			(workflow) => workflow.id === ids.taskVisit,
+		);
+		const list = contract.lists.find((entry) => entry.id === ids.rmPatients);
+		if (patient === undefined || visit === undefined || list === undefined) {
+			throw new Error("fixture needs patient, visit, and patient list");
+		}
+		patient.properties.push(
+			{
+				id: readOnly,
+				name: "Imported status",
+				meaning: "A status displayed during visits.",
+				dataShape: "text",
+				sensitivity: "ordinary",
+			},
+			{
+				id: queueOnly,
+				name: "Queue marker",
+				meaning: "A marker displayed only in the patient queue.",
+				dataShape: "text",
+				sensitivity: "ordinary",
+			},
+		);
+		visit.readback.push({
+			recordId: ids.recPatient,
+			purpose: "Show the imported patient status",
+			propertyIds: [readOnly],
+		});
+		list.detailPropertyIds.push(queueOnly);
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const visitSlice = plan.slices.find(
+			(slice) => slice.workflowId === ids.taskVisit,
+		);
+		const visitElements = visitSlice?.constructionGroups.flatMap((group) =>
+			group.elements.map((element) => element.id),
+		);
+		expect(visitElements).toContain(readOnly);
+		expect(visitElements).not.toContain(queueOnly);
+		const rootGroups = plan.slices[0]?.constructionGroups ?? [];
+		expect(
+			rootGroups.some((group) =>
+				group.elements.some((element) => element.id === queueOnly),
+			),
+		).toBe(true);
+		expect(
+			rootGroups.some((group) =>
+				group.elements.some((element) => element.id === list.id),
+			),
+		).toBe(true);
+		expect(
+			rootGroups.some((group) =>
+				group.elements.some((element) => element.id === readOnly),
+			),
+		).toBe(false);
+	});
+
+	it("rejects duplicate workflow slices and construction groups", () => {
+		const duplicateWorkflow = makeBuildPlan();
+		if (!duplicateWorkflow.slices[0] || !duplicateWorkflow.slices[1]) {
+			throw new Error("fixture needs two slices");
+		}
+		duplicateWorkflow.slices[1].workflowId =
+			duplicateWorkflow.slices[0].workflowId;
+		expect(messages(buildPlanSchema.safeParse(duplicateWorkflow))).toContain(
+			"exactly one slice",
+		);
+
+		const duplicateGroup = makeBuildPlan();
+		const firstGroup = duplicateGroup.slices[0]?.constructionGroups[0];
+		const secondGroup = duplicateGroup.slices[1]?.constructionGroups[0];
+		if (!firstGroup || !secondGroup) throw new Error("fixture needs groups");
+		secondGroup.id = firstGroup.id;
+		expect(messages(buildPlanSchema.safeParse(duplicateGroup))).toContain(
+			"group ids must be unique",
+		);
+	});
+
+	it("rejects prerequisite cycles and unknown prerequisites", () => {
+		const cyclic = makeBuildPlan();
+		const first = cyclic.slices[0];
+		const second = cyclic.slices[1];
+		if (!first || !second) throw new Error("fixture needs two slices");
+		first.prerequisiteSliceIds = [second.id];
+		expect(messages(buildPlanSchema.safeParse(cyclic))).toContain("acyclic");
+
+		const unknown = makeBuildPlan();
+		unknown.slices[1]?.prerequisiteSliceIds.push(did(9999));
+		expect(messages(buildPlanSchema.safeParse(unknown))).toContain(
+			"does not exist",
+		);
+	});
+
+	it("rejects missing or foreign contract elements", () => {
+		const missing = makeBuildPlan();
+		missing.slices[0]?.constructionGroups[0]?.elements.pop();
+		expect(buildPlanSchemaFor(makeContract()).safeParse(missing).success).toBe(
 			false,
 		);
 
-		const contractCopy = cloneContract(makeContract());
-		contractCopy.tasks[0]?.writes.pop();
-		expect(makeContract().tasks[0]?.writes).toHaveLength(3);
+		const foreign = makeBuildPlan();
+		foreign.slices[0]?.constructionGroups[0]?.elements.push({
+			kind: "record",
+			id: did(7777),
+		});
+		expect(buildPlanSchemaFor(makeContract()).safeParse(foreign).success).toBe(
+			false,
+		);
+	});
+
+	it("changes slice identities when the accepted revision digest changes", () => {
+		const contract = cloneContract(makeContract());
+		const changed = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "c".repeat(64) },
+			planId: ids.planId,
+		});
+		expect(changed.slices[0]?.id).not.toBe(makeBuildPlan().slices[0]?.id);
+	});
+
+	it("refuses to derive construction for a one-value controlled choice", () => {
+		const contract = cloneContract(makeContract());
+		const risk = contract.records[0]?.properties.find(
+			(property) => property.id === ids.factRisk,
+		);
+		if (!risk) throw new Error("fixture risk property missing");
+		risk.choiceValues = ["priority"];
+		expect(() =>
+			deriveBuildPlan({
+				contract,
+				revision: { id: ids.revisionId, digest: "a".repeat(64) },
+				planId: ids.planId,
+			}),
+		).toThrow(/not constructible/);
+	});
+
+	it("derives construction for a specifically named existing lookup choice", () => {
+		const contract = cloneContract(makeContract());
+		const risk = contract.records[0]?.properties.find(
+			(property) => property.id === ids.factRisk,
+		);
+		if (!risk) throw new Error("fixture risk property missing");
+		delete risk.choiceValues;
+		risk.choiceSource = {
+			kind: "existing-project-lookup",
+			table: "Referral urgency",
+			valueColumn: "code",
+			labelColumn: "name",
+		};
+		const visit = contract.workflows.find(
+			(workflow) => workflow.id === ids.taskVisit,
+		);
+		if (visit === undefined) throw new Error("visit workflow missing");
+		visit.inputs.push({
+			handle: "risk_confirmation",
+			name: "Risk confirmation",
+			purpose: "Confirm the selected patient's current risk",
+			propertyId: ids.factRisk,
+		});
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "a".repeat(64) },
+			planId: ids.planId,
+		});
+		const visitSlice = plan.slices.find(
+			(slice) => slice.workflowId === ids.taskVisit,
+		);
+		const workflowGroup = visitSlice?.constructionGroups.find(
+			(group) => group.kind === "workflow",
+		);
+		expect(workflowGroup?.blueprintAreas).toContain("lookup-references");
+	});
+
+	it("refuses blocking external actions until a receipt producer exists", () => {
+		const contract = cloneContract(makeContract());
+		contract.externalRequirements.push({
+			id: ids.externalSetup,
+			name: "Existing media",
+			kind: "existing-reference",
+			description: "Select an existing Project media asset.",
+			relatedWorkflowIds: [ids.taskRegister],
+			blocksConstruction: true,
+		});
+		contract.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
+		contract.openQuestions.push({
+			id: ids.question,
+			question: "Which existing media asset should be attached?",
+			blocking: true,
+			relatedElementIds: [ids.externalSetup],
+		});
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "d".repeat(64) },
+			planId: ids.planId,
+		});
+		expect(newPlanAdmissionMessages(plan)).toHaveLength(1);
+		expect(newPlanAdmissionMessages(plan)[0]).toContain(
+			"no registered completion producer",
+		);
+	});
+
+	it("keeps non-blocking workflow readiness out of construction gating", () => {
+		const contract = cloneContract(makeContract());
+		contract.externalRequirements.push({
+			id: ids.externalSetup,
+			name: "Worker setup",
+			kind: "runtime-readiness",
+			description: "Configure the worker role before people run this workflow.",
+			relatedWorkflowIds: [ids.taskRegister],
+			blocksConstruction: false,
+		});
+		contract.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "e".repeat(64) },
+			planId: ids.planId,
+		});
+		expect(plan.externalActions[0]).toMatchObject({
+			kind: "runtime-readiness",
+			timing: "after-slice",
+		});
+		expect(newPlanAdmissionMessages(plan)).toEqual([]);
 	});
 });

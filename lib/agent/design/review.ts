@@ -1,55 +1,14 @@
-/**
- * Design review and finding dispositions — the reviewer's typed critique of
- * one exact contract revision, and the reviser's typed resolution of it.
- *
- * The reviewer CANNOT rewrite the contract: a review is findings only, and
- * every critical/important finding must later carry exactly one disposition
- * (`validateDispositionClosure`). Grounding is enforced at parse time:
- * severity is earned by basis — a heuristic can never be critical, a
- * source-supported critical finding must point at authorized evidence, a
- * platform-constraint critical finding must cite a catalogued code.
- *
- * Two schema layers, deliberately:
- *  - the STRUCTURAL schemas (`designReviewSchema`,
- *    `designRevisionResultSchema`) carry every self-contained rule and are
- *    what persisted reads parse — digest binding proves a stored artifact
- *    unchanged since its validated write;
- *  - the FACTORY schemas (`designReviewSchemaFor`,
- *    `designRevisionResultSchemaFor`) additionally bind the cross-artifact
- *    rules (intent existence in the reviewed revision, evidence membership
- *    in the reviewed source package, disposition closure over the review
- *    passes) into the parse, so an ungrounded model response is an invalid
- *    structured output — retriable, never persisted.
- *
- * One rule is deliberately prompt-enforced rather than schema-enforced: "a
- * rejected source-supported finding contains a contradiction/evidence
- * rationale, not 'model disagreed'" judges prose, which no deterministic
- * layer can do honestly. The reviser prompt states it; the disposition
- * schema requires a nonempty rationale and nothing stronger.
- */
+/** Independent review and blocking-finding dispositions for Design v1. */
 
 import { z } from "zod";
 import {
 	type AppDesignContract,
 	appDesignContractSchema,
+	collectContractIds,
 } from "@/lib/agent/design/contract";
 import { type SourceRef, sourceRefSchema } from "@/lib/agent/design/evidence";
 import { designIdSchema } from "@/lib/agent/design/ids";
-import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
-
-export const designFindingCategorySchema = z.enum([
-	"requirement-coverage",
-	"workflow-gap",
-	"data-model",
-	"read-write-coherence",
-	"access-and-actor",
-	"privacy-and-sensitivity",
-	"usability",
-	"unsupported-assumption",
-	"unnecessary-complexity",
-	"platform-constraint",
-]);
-export type DesignFindingCategory = z.infer<typeof designFindingCategorySchema>;
+import { deriveFindingHandleBindings } from "@/lib/agent/design/reviewVocabulary";
 
 export const designFindingSeveritySchema = z.enum([
 	"critical",
@@ -58,112 +17,74 @@ export const designFindingSeveritySchema = z.enum([
 ]);
 export type DesignFindingSeverity = z.infer<typeof designFindingSeveritySchema>;
 
-export const designFindingBasisSchema = z.enum([
-	"source-supported",
-	"contract-internal",
-	"platform-constraint",
-	"heuristic",
+/** What happens next: a design correction blocks at critical/important
+ * severity, an unresolved user decision always blocks, and a note (readiness
+ * work outside construction, or an optional improvement) never does. */
+export const designFindingDispositionClassSchema = z.enum([
+	"design-correction",
+	"user-decision",
+	"note",
 ]);
-export type DesignFindingBasis = z.infer<typeof designFindingBasisSchema>;
+export type DesignFindingDispositionClass = z.infer<
+	typeof designFindingDispositionClassSchema
+>;
 
 export const designFindingSchema = z
 	.object({
 		id: designIdSchema,
-		category: designFindingCategorySchema,
 		severity: designFindingSeveritySchema,
-		basis: designFindingBasisSchema,
+		dispositionClass: designFindingDispositionClassSchema,
 		claim: z.string().min(1),
+		/** The review is the contract's only attribution surface. */
 		evidenceRefs: z.array(sourceRefSchema),
-		affectedIntentIds: z.array(designIdSchema),
+		affectedElementIds: z.array(designIdSchema),
 		proposedResolution: z.string().min(1).optional(),
-		confidence: z.number().min(0).max(1),
 	})
 	.strict()
 	.superRefine(validateFindingEvidence);
 export type DesignFinding = z.infer<typeof designFindingSchema>;
 
-/**
- * The self-contained grounding rules — severity is earned by basis:
- *  - a heuristic finding is never critical;
- *  - a source-supported critical/important finding carries a message or
- *    attachment reference;
- *  - a platform-constraint finding carries a catalogued constraint
- *    reference (the code enum in `sourceRefSchema` closes the vocabulary);
- *  - a contract-internal critical finding names the contradicting intents;
- *  - a missing-intent flag (empty `affectedIntentIds`) is tied to evidence.
- */
+export function findingBlocksAcceptance(finding: DesignFinding): boolean {
+	if (finding.dispositionClass === "user-decision") return true;
+	return (
+		finding.dispositionClass === "design-correction" &&
+		(finding.severity === "critical" || finding.severity === "important")
+	);
+}
+
 export function validateFindingEvidence(
 	finding: {
 		severity: DesignFindingSeverity;
-		basis: DesignFindingBasis;
+		dispositionClass: DesignFindingDispositionClass;
 		evidenceRefs: SourceRef[];
-		affectedIntentIds: string[];
+		affectedElementIds: string[];
 	},
 	ctx: z.RefinementCtx,
 ): void {
-	const gated =
+	const gatedSeverity =
 		finding.severity === "critical" || finding.severity === "important";
-	if (finding.basis === "heuristic" && finding.severity === "critical") {
-		ctx.addIssue({
-			code: "custom",
-			path: ["severity"],
-			message:
-				"A heuristic finding cannot be critical — critical severity requires source, contract-internal, or platform grounding. Downgrade it, or ground it.",
-		});
-	}
-	if (finding.basis === "source-supported" && gated) {
-		const sourced = finding.evidenceRefs.some(
-			(ref) => ref.kind === "message" || ref.kind === "attachment-extract",
-		);
-		if (!sourced) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["evidenceRefs"],
-				message:
-					"A source-supported critical or important finding must point at the message or attachment evidence that supports it.",
-			});
-		}
-	}
-	if (finding.basis === "platform-constraint") {
-		const cited = finding.evidenceRefs.some(
-			(ref) => ref.kind === "platform-constraint",
-		);
-		if (!cited) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["evidenceRefs"],
-				message:
-					"A platform-constraint finding must cite a catalogued constraint code as evidence.",
-			});
-		}
-	}
 	if (
-		finding.basis === "contract-internal" &&
-		finding.severity === "critical" &&
-		finding.affectedIntentIds.length === 0
-	) {
-		ctx.addIssue({
-			code: "custom",
-			path: ["affectedIntentIds"],
-			message:
-				"A contract-internal critical finding claims the contract contradicts itself — name the contradicting intents.",
-		});
-	}
-	if (
-		finding.affectedIntentIds.length === 0 &&
-		finding.evidenceRefs.length === 0
+		gatedSeverity &&
+		finding.evidenceRefs.length === 0 &&
+		finding.affectedElementIds.length === 0
 	) {
 		ctx.addIssue({
 			code: "custom",
 			path: ["evidenceRefs"],
 			message:
-				"A finding that names no affected intent is flagging something MISSING — tie it to the evidence that shows what is missing.",
+				"A critical or important finding must ground itself: cite the exact source or platform constraint that establishes it, or name the affected contract elements when the contract contradicts itself.",
+		});
+	}
+	if (!gatedSeverity && finding.evidenceRefs.length > 0) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["evidenceRefs"],
+			message:
+				"Advisory findings do not carry source attribution; reserve citations for critical and important outcomes.",
 		});
 	}
 }
 
-/** The reviewer's structured output: findings plus a short overall reading.
- *  No contract rewrite, no dispositions — those are the reviser's. */
 export const designReviewSchema = z
 	.object({
 		schemaVersion: z.literal(1),
@@ -174,87 +95,15 @@ export const designReviewSchema = z
 	.strict();
 export type DesignReview = z.infer<typeof designReviewSchema>;
 
-/**
- * The parse-time reviewer schema, bound to the exact reviewed inputs:
- * a finding cannot cite an intent absent from the reviewed revision, and its
- * source evidence must belong to the reviewed source package (platform
- * references are catalog-owned and always citable).
- */
-export function designReviewSchemaFor(
-	contract: AppDesignContract,
-	sourcePackage: DesignSourcePackage,
-) {
-	const knownIds = collectContractIds(contract);
-	const allowed = allowedSourceRefKeys(sourcePackage);
-	return designReviewSchema.superRefine((review, ctx) => {
-		review.findings.forEach((finding, i) => {
-			finding.affectedIntentIds.forEach((id, j) => {
-				if (!knownIds.has(id)) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["findings", i, "affectedIntentIds", j],
-						message:
-							"This finding cites an intent id that does not exist in the reviewed contract revision. Cite ids from the revision under review, or leave the list empty for a missing-intent finding.",
-					});
-				}
-			});
-			finding.evidenceRefs.forEach((ref, j) => {
-				if (ref.kind === "platform-constraint") return;
-				if (!allowed.has(sourceRefKey(ref))) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["findings", i, "evidenceRefs", j],
-						message:
-							"This evidence reference does not belong to the reviewed source package. Cite only the sources that were actually provided for review.",
-					});
-				}
-			});
-		});
-	});
-}
-
-/* ------------------------------------------------------------------ */
-/* Dispositions                                                        */
-/* ------------------------------------------------------------------ */
-
 export const findingDispositionSchema = z
 	.object({
 		findingId: designIdSchema,
-		status: z.enum([
-			"accepted",
-			"rejected-with-rationale",
-			"deferred-with-user-visible-consequence",
-		]),
+		status: z.enum(["accepted", "rejected", "deferred"]),
 		rationale: z.string().min(1),
-		resultingIntentIds: z.array(designIdSchema),
-		userVisibleConsequence: z.string().min(1).optional(),
 	})
-	.strict()
-	.superRefine((value, ctx) => {
-		if (
-			value.status === "deferred-with-user-visible-consequence" &&
-			value.userVisibleConsequence === undefined
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["userVisibleConsequence"],
-				message: "A deferred finding must state its user-visible consequence.",
-			});
-		}
-		if (value.status === "accepted" && value.resultingIntentIds.length === 0) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["resultingIntentIds"],
-				message:
-					"An accepted finding must name the changed or newly linked intents that resolve it — acceptance with no resulting change resolves nothing.",
-			});
-		}
-	});
+	.strict();
 export type FindingDisposition = z.infer<typeof findingDispositionSchema>;
 
-/** The reviser's structural output: the revised contract plus one
- *  disposition per required finding. Cross-review closure lives in the
- *  factory (`designRevisionResultSchemaFor`). */
 export const designRevisionResultSchema = z
 	.object({
 		contract: appDesignContractSchema,
@@ -263,18 +112,6 @@ export const designRevisionResultSchema = z
 	.strict();
 export type DesignRevisionResult = z.infer<typeof designRevisionResultSchema>;
 
-/**
- * The parse-time reviser schema, bound to every review pass of the parent
- * draft. `validateDispositionClosure` proves:
- *  - every critical/important finding across those passes has exactly one
- *    disposition;
- *  - no disposition names an unknown finding;
- *  - accepted resolutions point at intents that exist in the REVISED
- *    contract;
- *  - a deferred CRITICAL finding surfaces in the revised contract as a
- *    blocking open question or an explicitly deferred requirement — it can
- *    never be silently hidden from completion policy.
- */
 export function designRevisionResultSchemaFor(
 	reviews: readonly DesignReview[],
 ) {
@@ -288,180 +125,135 @@ export function validateDispositionClosure(
 	reviews: readonly DesignReview[],
 	ctx: z.RefinementCtx,
 ): void {
-	const findingsById = new Map<string, DesignFinding>();
-	for (const review of reviews) {
-		for (const finding of review.findings) {
-			findingsById.set(finding.id, finding);
-		}
-	}
+	const findings = new Map(
+		reviews
+			.flatMap((review) => review.findings)
+			.map((finding) => [finding.id, finding]),
+	);
+	/* Every issue names the finding by its printed `@f` handle — the model's
+	 * only vocabulary for findings. A positional `dispositions.<index>` path
+	 * alone reads as a finding number and sends the correction at the wrong
+	 * entry, and each wrong removal reindexes the array so the next rejection
+	 * moves the target (observed live as a nonconvergent three-strike chase). */
+	const handles = new Map(
+		deriveFindingHandleBindings(reviews).map((binding) => [
+			binding.designId,
+			binding.handle,
+		]),
+	);
+	const nameFinding = (findingId: string) => handles.get(findingId);
 	const required = new Set(
-		[...findingsById.values()]
-			.filter((f) => f.severity === "critical" || f.severity === "important")
-			.map((f) => f.id),
+		[...findings.values()]
+			.filter(findingBlocksAcceptance)
+			.map((finding) => finding.id),
 	);
 	const seen = new Set<string>();
-	const revisedIds = collectContractIds(result.contract);
-	const blockingQuestionIds = new Set(
-		result.contract.openQuestions.filter((q) => q.blocking).map((q) => q.id),
-	);
-	const deferredClaimIds = new Set(
-		result.contract.deferredRequirements.map((d) => d.claimId),
-	);
-
-	result.dispositions.forEach((disposition, i) => {
-		const finding = findingsById.get(disposition.findingId);
+	result.dispositions.forEach((disposition, index) => {
+		const finding = findings.get(disposition.findingId);
 		if (finding === undefined) {
 			ctx.addIssue({
 				code: "custom",
-				path: ["dispositions", i, "findingId"],
+				path: ["dispositions", index, "findingId"],
 				message:
-					"This disposition names a finding that no review pass raised. Disposition exactly the reviewer's findings.",
+					"This disposition names a finding that does not exist on this review. Remove it, and disposition only the blocking findings by their printed @f handles.",
+			});
+			return;
+		}
+		if (!findingBlocksAcceptance(finding)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["dispositions", index, "findingId"],
+				message: `The finding ${nameFinding(finding.id) ?? finding.id} does not block acceptance, and only blocking design corrections and unresolved user decisions receive dispositions. Remove the disposition whose findingId is ${nameFinding(finding.id) ?? finding.id}.`,
 			});
 			return;
 		}
 		if (seen.has(disposition.findingId)) {
 			ctx.addIssue({
 				code: "custom",
-				path: ["dispositions", i, "findingId"],
-				message:
-					"This finding already has a disposition — each finding is dispositioned exactly once.",
+				path: ["dispositions", index, "findingId"],
+				message: `The blocking finding ${nameFinding(finding.id) ?? finding.id} already has a disposition; a blocking finding may be dispositioned only once. Remove the duplicate.`,
 			});
-			return;
 		}
 		seen.add(disposition.findingId);
-		disposition.resultingIntentIds.forEach((id, j) => {
-			if (!revisedIds.has(id)) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["dispositions", i, "resultingIntentIds", j],
-					message:
-						"A resulting intent must exist in the revised contract — this id resolves to nothing there.",
-				});
-			}
-		});
+		const relatedBlockingQuestions = result.contract.openQuestions.filter(
+			(question) =>
+				question.blocking &&
+				(finding.affectedElementIds.length === 0 ||
+					question.relatedElementIds.some((id) =>
+						finding.affectedElementIds.includes(id),
+					)),
+		);
 		if (
-			disposition.status === "deferred-with-user-visible-consequence" &&
-			finding.severity === "critical"
+			finding.dispositionClass === "user-decision" &&
+			disposition.status === "accepted" &&
+			relatedBlockingQuestions.length > 0
 		) {
-			const surfaced = disposition.resultingIntentIds.some(
-				(id) => blockingQuestionIds.has(id) || deferredClaimIds.has(id),
-			);
-			if (!surfaced) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["dispositions", i, "resultingIntentIds"],
-					message:
-						"Deferring a CRITICAL finding must leave a visible trace: point the disposition at a blocking open question or an explicitly deferred requirement in the revised contract, so completion policy cannot miss it.",
-				});
-			}
+			ctx.addIssue({
+				code: "custom",
+				path: ["dispositions", index, "status"],
+				message:
+					"A user decision is not resolved while the revised contract still carries a blocking question.",
+			});
+		}
+		if (
+			finding.dispositionClass === "user-decision" &&
+			disposition.status === "deferred" &&
+			relatedBlockingQuestions.length === 0
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["dispositions", index, "status"],
+				message:
+					"A deferred user decision must remain represented by a related blocking question.",
+			});
 		}
 	});
-	for (const findingId of required) {
-		if (!seen.has(findingId)) {
-			const finding = findingsById.get(findingId);
+	for (const id of required) {
+		if (!seen.has(id)) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["dispositions"],
-				message: `The ${finding?.severity ?? "required"} finding "${truncate(
-					finding?.claim ?? findingId,
-				)}" has no disposition. Every critical and important finding must be accepted, rejected with rationale, or deferred with its user-visible consequence.`,
+				message: `The blocking finding ${nameFinding(id) ?? id} has no disposition yet, and every blocking finding requires exactly one.`,
 			});
 		}
 	}
 }
 
-/**
- * The revision-pair sensitivity rule (§ design-graph validation's one
- * cross-revision clause): a reviser may not LOWER a fact's declared
- * sensitivity unless a dispositioned finding drove the change — the
- * disposition (and through it the finding's evidence) is the rationale.
- */
 export function validateSensitivityNotSilentlyLowered(
 	parent: AppDesignContract,
 	result: DesignRevisionResult,
+	reviews: readonly DesignReview[] = [],
 ): string[] {
 	const rank = { ordinary: 0, sensitive: 1, "highly-sensitive": 2 } as const;
-	const changedByDisposition = new Set(
-		result.dispositions.flatMap((d) => d.resultingIntentIds),
+	const parentProperties = new Map(
+		parent.records.flatMap((record) =>
+			record.properties.map((property) => [property.id, property] as const),
+		),
 	);
-	const parentFacts = new Map(parent.facts.map((fact) => [fact.id, fact]));
-	const violations: string[] = [];
-	for (const fact of result.contract.facts) {
-		const before = parentFacts.get(fact.id);
-		if (!before) continue;
-		if (
-			rank[fact.sensitivity] < rank[before.sensitivity] &&
-			!changedByDisposition.has(fact.id)
-		) {
-			violations.push(
-				`The fact "${fact.name}" was quietly downgraded from ${before.sensitivity} to ${fact.sensitivity}. Lowering sensitivity needs a dispositioned finding naming this fact — otherwise the revision keeps the parent's grade.`,
-			);
-		}
-	}
-	return violations;
+	const resolvedFindingIds = new Set(
+		result.dispositions
+			.filter((disposition) => disposition.status === "accepted")
+			.map((disposition) => disposition.findingId),
+	);
+	const justifiedPropertyIds = new Set(
+		reviews.flatMap((review) =>
+			review.findings
+				.filter((finding) => resolvedFindingIds.has(finding.id))
+				.flatMap((finding) => finding.affectedElementIds),
+		),
+	);
+	return result.contract.records.flatMap((record) =>
+		record.properties.flatMap((property) => {
+			const before = parentProperties.get(property.id);
+			return before !== undefined &&
+				rank[property.sensitivity] < rank[before.sensitivity] &&
+				!justifiedPropertyIds.has(property.id)
+				? [
+						`The property "${property.name}" was quietly downgraded from ${before.sensitivity} to ${property.sensitivity}.`,
+					]
+				: [];
+		}),
+	);
 }
 
-/* ------------------------------------------------------------------ */
-/* Shared helpers                                                      */
-/* ------------------------------------------------------------------ */
-
-/** Every design id the contract carries, nested ids included — the "does
- *  this id exist in this revision" oracle the factories share. */
-export function collectContractIds(
-	contract: AppDesignContract,
-): ReadonlySet<string> {
-	const ids = new Set<string>([contract.id]);
-	for (const claim of contract.sourceClaims) ids.add(claim.id);
-	for (const actor of contract.actors) ids.add(actor.id);
-	for (const record of contract.records) ids.add(record.id);
-	for (const fact of contract.facts) ids.add(fact.id);
-	for (const rule of contract.rules) ids.add(rule.id);
-	for (const task of contract.tasks) {
-		ids.add(task.id);
-		for (const input of task.inputs) ids.add(input.id);
-		for (const write of task.writes) ids.add(write.id);
-	}
-	for (const transition of contract.transitions) {
-		ids.add(transition.id);
-		for (const write of transition.writes) ids.add(write.id);
-	}
-	for (const model of contract.readModels) ids.add(model.id);
-	for (const policy of contract.accessPolicies) ids.add(policy.id);
-	for (const nav of contract.navigation) ids.add(nav.id);
-	for (const decision of contract.decisions) {
-		ids.add(decision.id);
-		for (const option of decision.options) ids.add(option.id);
-	}
-	for (const assumption of contract.assumptions) ids.add(assumption.id);
-	for (const question of contract.openQuestions) ids.add(question.id);
-	for (const scenario of contract.acceptanceScenarios) ids.add(scenario.id);
-	return ids;
-}
-
-/** Canonical comparison key for a source reference. */
-export function sourceRefKey(ref: SourceRef): string {
-	switch (ref.kind) {
-		case "message":
-			return `message:${ref.threadId}:${ref.messageId}:${ref.partIndex}`;
-		case "attachment-extract":
-			return `attachment:${ref.assetId}:${ref.extractorVersion}`;
-		case "platform-constraint":
-			return `platform:${ref.code}`;
-	}
-}
-
-function allowedSourceRefKeys(
-	sourcePackage: DesignSourcePackage,
-): ReadonlySet<string> {
-	const keys = new Set<string>();
-	for (const source of sourcePackage.sources)
-		keys.add(sourceRefKey(source.ref));
-	for (const claim of sourcePackage.claims) {
-		for (const ref of claim.sourceRefs) keys.add(sourceRefKey(ref));
-	}
-	return keys;
-}
-
-function truncate(text: string): string {
-	return text.length > 80 ? `${text.slice(0, 77)}…` : text;
-}
+export { collectContractIds };

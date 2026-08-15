@@ -1,0 +1,79 @@
+---
+title: Building an app with Nova
+description: How Nova turns a conversation into a reviewed, working app and how to resume unfinished work.
+---
+
+## From a description to an app
+
+When you describe a new app in chat, Nova first works out its purpose, who uses
+it, what it records, and how each workflow behaves from start to finish. It
+also covers the lists people need, access, navigation, and setup outside the
+app. An independent review checks that design before construction starts. Nova
+asks questions only when an answer materially changes the app or isn't safe to
+assume.
+
+The live status immediately above the chat box names the current phase. Nova
+also gives a conservative rough estimate based on the design's assigned effort
+level: about 30 minutes for compact designs, an hour for standard designs,
+and 90 minutes for extended designs. Internal design submissions and technical
+review details stay out of the conversation.
+
+No placeholder app appears while that design is still being worked out. The
+first app you see contains a coherent, valid workflow that you can open in the
+builder. Its tree stays read-only around the build progress while Nova adds the
+remaining parts as valid updates, so you never edit underneath the initial
+build. Direct editing and Preview become available when the whole build is
+finished; unfinished private work never appears in the app.
+
+## Resume an unfinished design
+
+An app design that has not produced its first workflow appears under **Designs
+in progress** on the app list. Choose **Resume** to return to the same
+conversation and continue from its saved stage. Choose **Discard** when you no
+longer want Nova to take that design further.
+
+Nova saves completed parts of a large design as it works. If the connection,
+server process, or model context is interrupted, it resumes from that exact
+saved work instead of rewriting completed sections. Only a complete, checked
+design advances to review or construction. Nova derives construction work from
+the accepted workflows, so it can't silently omit part of the design.
+
+If the final check reveals that an included workflow still needs a decision
+from you, Nova returns to the question card and keeps the design in progress.
+It does not describe that unfinished workspace as reviewed or start building
+around the missing decision.
+
+The design also has its own recovery address as soon as the first chat turn
+starts. Refreshing the page returns to that design. If the app was created while
+an update was lost in transit, Nova opens the authoritative app instead of
+starting a second copy.
+
+## If a later step stops
+
+The app remains available when its first workflow was saved and a later part of
+the build stops. Open its app card to inspect what committed, but Nova keeps the
+initial-build editor locked and does not call that partial plan complete. A
+failed later step does not invalidate or hide the working revision that already
+exists. Temporary provider, connection, and database interruptions resume the
+same saved attempt automatically. A schema, validation, compiler, or budget
+failure stops as an internal build defect; Nova does not ask you to retry or
+reduce the accepted workflows. When a temporary failure has already closed its
+connection cleanly and cannot auto-reconnect, **Resume build** continues the
+same accepted plan from its last durable workflow without adding a new design
+instruction. That action remains available after a refresh and appears only to
+Project members who can edit the app.
+
+## Start with a blank app
+
+Choose **Start with a blank app** when you want to begin directly in the
+builder. That path creates Nova's smallest valid Survey, Form, and Question
+starter immediately, without the reviewed conversational design flow.
+
+## External setup
+
+Some workflows depend on work outside the app, such as loading Project data,
+providing an existing media asset, or configuring an automation in CommCare
+HQ. Nova names those prerequisites and never claims that it completed them.
+Preview does not pretend to run external automations. One design session builds
+one app in your current Project; if a request describes several apps, Nova asks
+which one to build first.

@@ -372,7 +372,7 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 		expect(row.active_holder_nonce).toBe(NONCE);
 	});
 
-	it("claws back a failed turn's partial with a tombstone that refuses stale resurrection", async () => {
+	it("claws back a failed turn keeping its partial for display, with a tombstone that refuses stale resurrection", async () => {
 		const { target, threadId, streamId, runId } = await seedThread("claw");
 		await persistResponseSnapshot({
 			target,
@@ -394,10 +394,15 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 			.select(["messages", "active_stream_id", "clawed_back_ids"])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirstOrThrow();
-		expect((row.messages as UIMessage[]).map((m) => m.id)).toEqual(["m1"]);
+		/* The fresh failed turn's partial stays as the user-visible record. */
+		expect((row.messages as UIMessage[]).map((m) => m.id)).toEqual([
+			"m1",
+			"a-dead",
+		]);
 		expect(row.active_stream_id).toBeNull();
-		expect(row.clawed_back_ids).toEqual(["a-dead"]);
-		/* The tombstone refuses the partial riding the next send. */
+		expect(row.clawed_back_ids).toEqual([{ id: "a-dead", cap: 0 }]);
+		/* The tombstone refuses a client copy of the partial riding the next
+		 * send: the stored copy stays exactly as the barriers left it. */
 		await upsertThreadTurn({
 			target,
 			threadId,
@@ -407,7 +412,14 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 			threadType: "build",
 			messages: [
 				userMsg("m1", "question"),
-				assistantMsg("a-dead", "partial ans"),
+				{
+					id: "a-dead",
+					role: "assistant",
+					parts: [
+						{ type: "text", text: "partial ans" },
+						{ type: "text", text: "an unpersisted tail" },
+					],
+				} as UIMessage,
 				userMsg("m2", "retry"),
 			],
 			expectedProjectId: PROJECT,
@@ -418,10 +430,9 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 			.select(["messages"])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirstOrThrow();
-		expect((afterRetry.messages as UIMessage[]).map((m) => m.id)).toEqual([
-			"m1",
-			"m2",
-		]);
+		const messages = afterRetry.messages as UIMessage[];
+		expect(messages.map((m) => m.id)).toEqual(["m1", "a-dead", "m2"]);
+		expect(messages[1]?.parts).toHaveLength(1);
 	});
 
 	it("a re-drive claim removes the dead run's trailing partial (re-drive marker replacement)", async () => {

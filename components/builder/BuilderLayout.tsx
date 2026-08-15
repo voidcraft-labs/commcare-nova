@@ -46,6 +46,7 @@ import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { DesignSessionSeed } from "@/lib/generation/designProgressWire";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
@@ -79,6 +80,10 @@ interface BuilderLayoutProps {
 	/** CommCare HQ settings read by the RSC page: drives the export
 	 *  dropdown's configured/unconfigured state and upload dialog domain. */
 	commcareSettings?: CommCareSettingsPublic;
+	/** A resumed pre-app design (`/build/new?design=<id>`): its id and the
+	 *  stage the server derived from the durable orchestration, so the
+	 *  conversation opens saying where the design actually stopped. */
+	initialDesignSession?: DesignSessionSeed | null;
 }
 
 /**
@@ -96,6 +101,7 @@ export function BuilderLayout({
 	currentUserId,
 	isExistingApp,
 	commcareSettings,
+	initialDesignSession,
 }: BuilderLayoutProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
@@ -420,6 +426,7 @@ export function BuilderLayout({
 							initialThread={initialThread}
 							appGenerating={appGenerating}
 							currentUserId={currentUserId}
+							initialDesignSession={initialDesignSession}
 						/>
 					</BuilderAccessGate>
 				</div>

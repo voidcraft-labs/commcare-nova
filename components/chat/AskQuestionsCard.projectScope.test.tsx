@@ -13,6 +13,36 @@ const input = {
 };
 
 describe("AskQuestionsCard Project hydration gate", () => {
+	it("describes typing as the only path for a free-text question", () => {
+		render(
+			<AskQuestionsCard
+				toolCallId="tool-free-text"
+				input={{
+					header: "A few details",
+					questions: [{ question: "Who will use it?", options: [] }],
+				}}
+				state="input-available"
+				addToolOutput={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByText("Type your answer below")).toBeTruthy();
+		expect(screen.queryByText("or type your answer below")).toBeNull();
+	});
+
+	it("keeps typing as an alternative when the question has options", () => {
+		render(
+			<AskQuestionsCard
+				toolCallId="tool-options"
+				input={input}
+				state="input-available"
+				addToolOutput={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByText("or type your answer below")).toBeTruthy();
+	});
+
 	it("makes options inert while preserving partial app-owned answers", () => {
 		const addToolOutput = vi.fn();
 		const view = render(

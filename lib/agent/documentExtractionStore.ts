@@ -42,6 +42,7 @@ import {
 	type MediaExtractStatus,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
+import { MODEL_ROLES } from "@/lib/models";
 import {
 	deleteAsset as deleteGcsObject,
 	downloadAssetBytes,
@@ -52,7 +53,6 @@ import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
 import { delay } from "@/lib/utils/delay";
 import {
 	type AttachmentCondenser,
-	CONDENSER_MODEL,
 	EXTRACT_MAX_BYTES,
 	extractDocument,
 } from "./documentExtraction";
@@ -661,7 +661,7 @@ export async function ensureStoredExtract(opts: {
 			now: Date.now(),
 			staleMs: EXTRACTING_STALE_MS,
 			currentVersion: EXTRACTOR_VERSION,
-			model: CONDENSER_MODEL,
+			model: MODEL_ROLES.documentExtractor.modelId,
 		});
 	let claimed: AssetExtractionClaimResult;
 	try {

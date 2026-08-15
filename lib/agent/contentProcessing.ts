@@ -10,21 +10,17 @@
  *      array the SA sends to absence. The single-field `addField` path has
  *      no in-batch parent to resolve and skips this step.
  *   2. **`applyDefaults`** — both surfaces. Case-type property defaulting
- *      (seed `kind` / `label` / `hint` /
- *      `required` / `validate` / `options` from the catalog wherever the
- *      payload left them unset). Case preload is NOT seeded here — it's
- *      emitted structurally at the wire layer (`xform/caseBlocks.ts`).
+ *      seeds only intrinsic field shape (`kind`, canonical `label`, and
+ *      choice `options`) wherever the payload left it unset. Form-context
+ *      behavior (`hint`, `required`, and `validate`) is authored on the field
+ *      itself. Case preload is NOT seeded here — it's emitted structurally at
+ *      the wire layer (`xform/caseBlocks.ts`).
  *   3. **`flatFieldToField`** — both surfaces. Per-kind
  *      `fieldSchema.safeParse` validation + domain `Field` assembly,
  *      returning a tagged success/reason result.
  *
  * Vocabulary is domain-side (`kind`, `validate`, `validate_msg`,
- * `caseWrite`); there is no CommCare → domain translation inside
- * the agent. The one boundary translation this file does is
- * case-type → field: case-type property metadata uses CommCare-flavored
- * `validation` / `validation_msg` (case-type properties describe the
- * CommCare data model directly), and `applyDefaults` maps those onto
- * their domain equivalents when seeding a field's defaults.
+ * `caseWrite`); there is no CommCare → domain translation inside the agent.
  */
 import type { z } from "zod";
 import type {
@@ -174,11 +170,13 @@ export function stripEmpty(q: PreparedFlatField): Partial<PreparedFlatField> & {
  *      matching case type and property metadata seed any unset keys on
  *      the field:
  *        - `kind` from `property.data_type` (defaulting to "text")
- *        - `label`, `hint`, `required`, `options` verbatim
- *        - `validate` from `property.validation` (case-type vocab is
- *          CommCare-flavored; we translate onto the field's domain
- *          vocab at this boundary)
- *        - `validate_msg` from `property.validation_msg`
+ *        - canonical `label` and choice `options` verbatim
+ *
+ * A catalog property's `hint`, `required`, `validation`, and
+ * `validation_msg` do not seed a form field. Supporting copy, answer
+ * requiredness, and validation belong to the workflow context and can
+ * legitimately differ between registration and later editing forms that
+ * write the same property.
  *
  * Case preload is NOT seeded here. A case-loading form's primary properties
  * are read back from the case at the wire layer — `xform/caseBlocks.ts`
@@ -216,26 +214,6 @@ export function applyDefaults<E extends object = object>(
 
 			if (declares("label") && isUnset(result.label)) {
 				result.label = prop.label;
-			}
-			if (declares("hint") && isUnset(result.hint)) {
-				result.hint = prop.hint;
-			}
-			if (declares("required") && isUnset(result.required)) {
-				result.required = prop.required;
-			}
-			// Case-type → field vocabulary translation. CaseProperty uses
-			// CommCare-flavored `validation` / `validation_msg` because the
-			// case-type record directly models the CommCare data layer; the
-			// field's SA tool surface uses a nested `validate: { expr, msg }`
-			// object. Seed it only when the kind supports validation and the
-			// SA didn't provide a usable `expr` (an SA stub like
-			// `validate: { expr: "" }` must not suppress the catalog default,
-			// so we check for a truthy `expr`, not the object's presence).
-			if (declares("validate") && prop.validation && !result.validate?.expr) {
-				result.validate = {
-					expr: prop.validation,
-					...(prop.validation_msg && { msg: prop.validation_msg }),
-				};
 			}
 			if (declares("optionsSource") && isUnset(result.optionsSource)) {
 				const options = prop.options?.map((option) => ({
@@ -335,6 +313,7 @@ export function flatFieldToField(
 		id: q.id,
 		...(q.label !== undefined && q.label !== null && { label: q.label }),
 		...(q.hint !== undefined && q.hint !== null && { hint: q.hint }),
+		...(q.help !== undefined && q.help !== null && { help: q.help }),
 		...(q.required !== undefined &&
 			q.required !== null && { required: q.required }),
 		...(q.relevant !== undefined &&

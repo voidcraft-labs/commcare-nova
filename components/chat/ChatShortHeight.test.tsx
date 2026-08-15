@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
+	chatComposerIsDisabled,
 	PersistentChatComposer,
 	ShortChatFallback,
 	shouldShowShortChatFallback,
@@ -113,5 +114,26 @@ describe("short-height chat", () => {
 			"Keep this thought",
 		);
 		expect(screen.getByText("intake.pdf")).toBeDefined();
+	});
+});
+
+describe("composer activity state", () => {
+	it("keeps a stopped accepted build locked except for a persisted question", () => {
+		const base = {
+			isLoading: false,
+			isGenerating: false,
+			initialBuildLocked: true,
+			activeQuestionCount: 0,
+			composerBusy: false,
+			readOnly: false,
+			authorized: true,
+		};
+		expect(chatComposerIsDisabled(base)).toBe(true);
+		expect(chatComposerIsDisabled({ ...base, activeQuestionCount: 1 })).toBe(
+			false,
+		);
+		expect(chatComposerIsDisabled({ ...base, initialBuildLocked: false })).toBe(
+			false,
+		);
 	});
 });

@@ -147,7 +147,7 @@ follow the app structure; the referenced worker information cannot.
 |---|---|
 | `update_app` | Set the app's name. |
 | `configure_connect` | Set the exact app-wide CommCare Connect target atomically, or turn Connect off and clear every form block. |
-| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write, `create_module` references the recorded types by name, and a form field that writes a recorded property inherits its label, options, and validation. Also how a new case type enters an existing app. |
+| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write, `create_module` references the recorded types by name, and a form field that writes a recorded property may inherit its intrinsic type, canonical label, and choice catalog. Field hint, requiredness, and validation remain specific to each form. Also how a new case type enters an existing app. |
 
 ### Configuring CommCare Connect
 
@@ -456,14 +456,16 @@ its time of day.
 | `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Its case type must already be recorded on the app (`generate_schema`). A module lands complete or not at all. It returns every created UUID; predeclare only identities referenced inside the call. Refine the case list afterward via the case-list tools below. |
 | `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs), set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module by `moduleUuid`. |
+| `move_module` | Reorder a module in the app's menu, addressed by `moduleUuid`. `after` names the module it should follow, `null` puts it first; the module keeps its identity and every reference to it. |
 | `get_module` | Read one module by `moduleUuid`, including form and field UUIDs, the structured case-list config, its display condition, and each menu tile's current icon and audio label. |
 
 ## Working on the case list
 
-A module's case list is the screen that lists existing cases and the search bar that filters them. Each case-list configuration has three slots: the columns shown in the list, an optional filter predicate, and the search inputs the user types into.
+A module's case list is the screen that lists existing cases and the search bar that filters them. Its configuration covers the columns shown in Results and Details, an optional filter predicate, the search inputs the user types into, their ordering, and an optional card layout.
 
 | Tool | What it does |
 |---|---|
+| `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs. |
 | `add_case_list_columns` | Add one or more columns to the case list (plain / date / phone / id-mapping / image-map / interval / calculated). Each may predeclare `columnUuid`; the result returns the final UUIDs. |
 | `update_case_list_column` | Replace a column's body, addressed by `moduleUuid` and `columnUuid`. |
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |

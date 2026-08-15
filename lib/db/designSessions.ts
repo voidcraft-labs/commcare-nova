@@ -27,13 +27,12 @@
  * so every terminal writer settles/refunds and clears BOTH groups in one
  * transaction, and there is no reaper-signature/false-reap self-heal arm.
  * A failed or reaped session stays `active` with `last_error_type` set —
- * recoverable (a new chargeable claim re-drives it) or discardable; only
- * `discardDesignSession` moves it to `abandoned`, and only Unit E's
- * materialization will move a build session to `materialized`.
+ * recoverable (a new chargeable claim re-drives it) or discardable;
+ * `discardDesignSession` moves it to `abandoned`, while materialization
+ * transfers its authority once and moves it to `materialized`.
  *
- * No route mounts these yet: the chat route still serves app targets only.
- * Unit E's orchestrator consumes this surface; until then it is exercised
- * by the §20.9–§20.11 suites.
+ * The chat route and build recovery UI consume this surface; the integration
+ * suites pin its holder, billing, authorization, and recovery invariants.
  */
 
 import type { Transaction } from "kysely";
@@ -50,7 +49,7 @@ import {
 	reapStaleGenerating,
 } from "./apps";
 import { assertProjectCapabilityInTransaction } from "./canonicalCommitKernel";
-import { AppProjectChangedError } from "./commitGuard";
+import { AppProjectChangedError, RunHolderLostError } from "./commitGuard";
 import {
 	debitForDesignSessionReservation,
 	type Reservation,
@@ -58,7 +57,11 @@ import {
 	refundToMonthInTransaction,
 	settleAndReleaseDesignSessionRun,
 } from "./credits";
-import { designSessionReservation } from "./leaseView";
+import {
+	designSessionReservation,
+	LEASE_COLUMNS,
+	leaseView,
+} from "./leaseView";
 import { getCurrentPeriod } from "./period";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import {
@@ -74,6 +77,7 @@ import {
 	type DesignSessionLeaseRow,
 	designSessionLeaseDeadlineMs,
 	designSessionLeaseState,
+	runLeaseState,
 } from "./runLiveness";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -124,7 +128,13 @@ export interface DesignSessionDoc {
 	run_id: string | null;
 	run_holder_nonce: string | null;
 	run_actor_user_id: string | null;
+	run_mode: string | null;
 	run_lease_expires_at: Date | null;
+	res_period: string | null;
+	res_reserved: number | null;
+	res_settled: boolean | null;
+	res_user_id: string | null;
+	res_run_id: string | null;
 	last_error_type: string | null;
 	active_design_revision_id: string | null;
 	active_build_plan_id: string | null;
@@ -189,7 +199,7 @@ const SESSION_LEASE_SELECT = [
 	"updated_at",
 ] as const;
 
-type LockedSessionRow = DesignSessionLeaseRow & {
+export type LockedSessionRow = DesignSessionLeaseRow & {
 	id: string;
 	mode: string;
 	project_id: string;
@@ -199,7 +209,14 @@ type LockedSessionRow = DesignSessionLeaseRow & {
 	created_at: Date;
 };
 
-async function lockSessionRow(
+/**
+ * Lock one design-session row `FOR UPDATE` — the authority-carrier lock every
+ * session-first transaction takes (the lifecycle writers here, a genesis
+ * change set's stage/commit transactions, and the materialization transfer).
+ * Callers own the §11.13 ordering around it: lifecycle writers take the actor
+ * gate first; unchanged-holder staging takes no gate and leads with this row.
+ */
+export async function lockSessionRow(
 	tx: Transaction<AppDatabase>,
 	designSessionId: string,
 ): Promise<LockedSessionRow | undefined> {
@@ -209,6 +226,98 @@ async function lockSessionRow(
 		.where("id", "=", designSessionId)
 		.forUpdate()
 		.executeTakeFirst()) as LockedSessionRow | undefined;
+}
+
+/**
+ * Lock and prove the exact live authority carrier for a build design session.
+ * Before materialization the session row carries the holder; afterwards its
+ * write-once app mapping delegates authority to the app row. Membership and
+ * Project scope are reauthorized under the same transaction and lock.
+ */
+export async function assertDesignSessionRunAuthorityInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		readonly designSessionId: string;
+		readonly actorUserId: string;
+		readonly expectedProjectId: string;
+		readonly holder: ExactRunHolderIdentity;
+		/** Terminal reviewed-build completion alone may adopt the exact
+		 * reaped-but-unclaimed app signature. All ordinary artifact, attempt, and
+		 * orchestration writes still require a live holder. */
+		readonly allowReapedBuildCompletion?: boolean;
+	},
+): Promise<{ appId: string | null }> {
+	const mapping = await tx
+		.selectFrom("design_sessions")
+		.select(["app_id"])
+		.where("id", "=", args.designSessionId)
+		.executeTakeFirst();
+	if (mapping === undefined) throw new RunHolderLostError("released");
+	if (mapping.app_id !== null) {
+		const app = await tx
+			.selectFrom("apps")
+			.select([...LEASE_COLUMNS, "project_id"])
+			.where("id", "=", mapping.app_id)
+			.forUpdate()
+			.executeTakeFirst();
+		if (app === undefined || app.project_id !== args.expectedProjectId) {
+			throw new RunHolderLostError("released");
+		}
+		await assertProjectCapabilityInTransaction(
+			tx,
+			args.actorUserId,
+			app.project_id,
+			"edit",
+			"You no longer have edit access to this design's Project.",
+		);
+		const lease = runLeaseState(leaseView(app));
+		const holderActor =
+			args.holder.mode === "edit"
+				? app.lock_actor_user_id
+				: (app.res_user_id ?? app.owner);
+		const exactLiveHolder =
+			lease.live && exactRunHolderMatches(lease.holderIdentity, args.holder);
+		const exactReapedBuild =
+			args.allowReapedBuildCompletion === true &&
+			args.holder.mode === "build" &&
+			app.status === "error" &&
+			lease.mode === "none" &&
+			lease.reaperResolved &&
+			app.run_id === args.holder.runId &&
+			app.run_holder_nonce === args.holder.nonce;
+		if (
+			holderActor !== args.actorUserId ||
+			(!exactLiveHolder && !exactReapedBuild)
+		) {
+			throw new RunHolderLostError();
+		}
+		return { appId: mapping.app_id };
+	}
+	const session = await lockSessionRow(tx, args.designSessionId);
+	if (
+		session === undefined ||
+		session.app_id !== null ||
+		session.project_id !== args.expectedProjectId ||
+		session.owner_user_id !== args.actorUserId ||
+		session.run_actor_user_id !== args.actorUserId
+	) {
+		throw new RunHolderLostError("released");
+	}
+	await assertProjectCapabilityInTransaction(
+		tx,
+		args.actorUserId,
+		session.project_id,
+		"edit",
+		"You no longer have edit access to this design's Project.",
+	);
+	const lease = designSessionLeaseState(session);
+	if (
+		!lease.live ||
+		!exactRunHolderMatches(lease.holderIdentity, args.holder)
+	) {
+		throw new RunHolderLostError();
+	}
+	return { appId: null };
 }
 
 function assertExpectedSessionProject(
@@ -413,6 +522,12 @@ export async function claimAndReserveDesignSessionRun(
 			}
 			requireActiveBuildSession(row);
 			assertExpectedSessionProject(row, expectedProjectId);
+			if (row.owner_user_id !== actorUserId) {
+				throw new DesignSessionStateError(
+					"not_found",
+					"This design session no longer exists.",
+				);
+			}
 			await assertProjectCapabilityInTransaction(
 				tx,
 				actorUserId,
@@ -502,6 +617,7 @@ export async function reacquireDesignSessionLease(
 		const row = await lockSessionRow(tx, designSessionId);
 		if (row?.state !== "active") return { outcome: "released" };
 		assertExpectedSessionProject(row, expectedProjectId);
+		if (row.owner_user_id !== actorUserId) return { outcome: "released" };
 		await assertProjectCapabilityInTransaction(
 			tx,
 			actorUserId,
@@ -600,6 +716,7 @@ export async function setDesignSessionAwaitingInput(
 		const row = await lockSessionRow(tx, designSessionId);
 		if (row?.state !== "active") return "released";
 		assertExpectedSessionProject(row, expectedProjectId);
+		if (row.owner_user_id !== actorUserId) return "released";
 		await assertProjectCapabilityInTransaction(
 			tx,
 			actorUserId,
@@ -646,7 +763,8 @@ export type DesignSessionTerminalOutcome = "owned" | "superseded" | "released";
  * here), so a later flush refund finds no owned marker and no-ops — the same
  * post-completion posture an app's settled marker produces. The session
  * stays `active`: a question-only conversational run leaves no app and the
- * session remains resumable; `materialized` is Unit E's transfer.
+ * session remains resumable; materialization is the separate authority
+ * transfer that moves it to `materialized`.
  */
 export async function completeAndSettleDesignSessionRun(
 	designSessionId: string,
@@ -792,6 +910,44 @@ export async function discardDesignSession(
 				reservation.reserved,
 			);
 		}
+		/* No live holder may survive the busy guard above. Retire every mutable
+		 * recovery carrier with the abandonment so a discarded design cannot
+		 * leave an apparently resumable workspace, attempt, or stream marker. */
+		await tx
+			.updateTable("design_change_sets")
+			.set({ status: "abandoned", updated_at: new Date() })
+			.where("design_session_id", "=", designSessionId)
+			.where("status", "=", "open")
+			.execute();
+		await tx
+			.updateTable("design_slice_attempts")
+			.set({
+				status: "superseded",
+				failure_code: "design-session-abandoned",
+				updated_at: new Date(),
+			})
+			.where("design_session_id", "=", designSessionId)
+			.where("status", "=", "running")
+			.execute();
+		await tx
+			.updateTable("design_artifact_workspaces")
+			.set({
+				status: "superseded",
+				updated_by_run_id: "system:design-session-discard",
+				updated_at: new Date(),
+			})
+			.where("design_session_id", "=", designSessionId)
+			.where("status", "=", "open")
+			.execute();
+		await tx
+			.updateTable("threads")
+			.set({
+				active_stream_id: null,
+				active_holder_nonce: null,
+				updated_at: new Date().toISOString(),
+			})
+			.where("design_session_id", "=", designSessionId)
+			.execute();
 		await tx
 			.updateTable("design_sessions")
 			.set({
@@ -803,6 +959,86 @@ export async function discardDesignSession(
 			.execute();
 		return { outcome: "discarded" };
 	});
+}
+
+/**
+ * Point the session at its accepted design revision and active build plan —
+ * the explicit selection §18.4 requires (never "latest timestamp"). The
+ * delegated session/app authority carrier, current membership, and complete
+ * same-session accepted lineage are proved in the update transaction.
+ */
+export async function setDesignSessionActiveArtifacts(args: {
+	designSessionId: string;
+	actorUserId: string;
+	runId: string;
+	holderNonce: string;
+	expectedProjectId: string;
+	activeDesignRevisionId: string;
+	activeBuildPlanId: string;
+}): Promise<void> {
+	await withAppTx(async (tx) => {
+		await setDesignSessionActiveArtifactsInTransaction(tx, args);
+	});
+}
+
+/** The active-artifact selection transaction body. The authority carrier,
+ * membership, accepted revision, and same-session plan are proved here so a
+ * caller that also transitions execution control can make both writes one
+ * atomic decision. */
+export async function setDesignSessionActiveArtifactsInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: {
+		designSessionId: string;
+		actorUserId: string;
+		runId: string;
+		holderNonce: string;
+		expectedProjectId: string;
+		activeDesignRevisionId: string;
+		activeBuildPlanId: string;
+	},
+): Promise<void> {
+	await assertDesignSessionRunAuthorityInTransaction(tx, {
+		designSessionId: args.designSessionId,
+		actorUserId: args.actorUserId,
+		expectedProjectId: args.expectedProjectId,
+		holder: {
+			mode: "build",
+			runId: args.runId,
+			nonce: args.holderNonce,
+		},
+	});
+	const revision = await tx
+		.selectFrom("design_revisions")
+		.select(["id", "design_session_id", "lifecycle"])
+		.where("id", "=", args.activeDesignRevisionId)
+		.executeTakeFirst();
+	const plan = await tx
+		.selectFrom("design_build_plans")
+		.select(["id", "design_session_id", "design_revision_id"])
+		.where("id", "=", args.activeBuildPlanId)
+		.executeTakeFirst();
+	if (
+		revision === undefined ||
+		revision.design_session_id !== args.designSessionId ||
+		revision.lifecycle !== "accepted" ||
+		plan === undefined ||
+		plan.design_session_id !== args.designSessionId ||
+		plan.design_revision_id !== revision.id
+	) {
+		throw new DesignSessionStateError(
+			"not_found",
+			"The selected design revision and build plan do not form one accepted lineage in this session.",
+		);
+	}
+	await tx
+		.updateTable("design_sessions")
+		.set({
+			active_design_revision_id: args.activeDesignRevisionId,
+			active_build_plan_id: args.activeBuildPlanId,
+			updated_at: new Date(),
+		})
+		.where("id", "=", args.designSessionId)
+		.execute();
 }
 
 // ── Loads ──────────────────────────────────────────────────────────
@@ -823,25 +1059,36 @@ export async function loadDesignSession(
 		.where("id", "=", designSessionId)
 		.executeTakeFirst();
 	if (!row) return null;
+	/* The spread carries the exact selected columns — including the holder +
+	 * reservation groups the stage projection's lease derivation reads — into
+	 * the doc without member-reading any liveness column here (the
+	 * single-reader guard's rule); only the parsed/normalized fields are
+	 * restated. */
 	return {
-		id: row.id,
+		...row,
 		mode: parsePersistedDesignSessionMode(row.mode),
-		project_id: row.project_id,
-		owner_user_id: row.owner_user_id,
-		proposed_app_id: row.proposed_app_id,
-		app_id: row.app_id,
 		state: parsePersistedDesignSessionState(row.state),
-		awaiting_input: row.awaiting_input,
-		run_id: row.run_id,
-		run_holder_nonce: row.run_holder_nonce,
-		run_actor_user_id: row.run_actor_user_id,
-		run_lease_expires_at: row.run_lease_expires_at,
-		last_error_type: row.last_error_type,
 		active_design_revision_id: row.active_design_revision_id ?? null,
 		active_build_plan_id: row.active_build_plan_id ?? null,
-		created_at: row.created_at,
-		updated_at: row.updated_at,
 	};
+}
+
+/** The MATERIALIZED build session bound to an app, or null — how an
+ *  app-target build turn (a re-drive of an interrupted design build) finds
+ *  the orchestration scope its run resumes. At most one exists: `app_id` is
+ *  write-once at materialization. */
+export async function loadMaterializedSessionForApp(
+	appId: string,
+): Promise<DesignSessionDoc | null> {
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("design_sessions")
+		.select(["id"])
+		.where("app_id", "=", appId)
+		.where("state", "=", "materialized")
+		.executeTakeFirst();
+	if (!row) return null;
+	return loadDesignSession(row.id);
 }
 
 /** Whether ANY run currently holds this design session live — the stream

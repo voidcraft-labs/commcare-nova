@@ -37,6 +37,8 @@ interface AppListBodyProps {
 	canMoveApp: boolean;
 	/** The other Projects they may move an app into. */
 	moveTargets: AppProjectMoveTarget[];
+	/** Error apps whose durable build state the build page can reopen. */
+	resumableErrorAppIds: string[];
 }
 
 type View = "active" | "deleted";
@@ -47,6 +49,7 @@ export function AppListBody({
 	canDeleteApp,
 	canMoveApp,
 	moveTargets,
+	resumableErrorAppIds,
 }: AppListBodyProps) {
 	const [view, setView] = useState<View>("active");
 
@@ -61,6 +64,10 @@ export function AppListBody({
 					} as const)
 				: undefined,
 		[canMoveApp, moveTargets],
+	);
+	const resumableErrors = useMemo(
+		() => new Set(resumableErrorAppIds),
+		[resumableErrorAppIds],
 	);
 
 	/* Tab strip is suppressed entirely when the user has nothing in the
@@ -88,7 +95,9 @@ export function AppListBody({
 								<AppCard
 									app={app}
 									index={i}
-									href={app.status === "error" ? undefined : `/build/${app.id}`}
+									{...(app.status !== "error" || resumableErrors.has(app.id)
+										? { href: `/build/${app.id}` }
+										: {})}
 									onDelete={canDeleteApp ? deleteApp : undefined}
 									projectMove={projectMove}
 								/>

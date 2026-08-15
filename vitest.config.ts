@@ -75,7 +75,7 @@ export default defineConfig({
 			...vitestConfigDefaults.exclude,
 			"**/.claude/worktrees/**",
 			"e2e/tests/**",
-			// Under the async-leak gate ONLY, skip two suites that drive AI SDK
+			// Under the async-leak gate ONLY, skip three suites that drive AI SDK
 			// code whose internals pipe web streams. Node's web-streams
 			// `pipeThrough`/`pipeTo` machinery leaves internal promises pending
 			// FOREVER even after the pipe is fully drained and closed (reduced
@@ -93,6 +93,9 @@ export default defineConfig({
 			//    response IS `createUIMessageStreamResponse`'s pipe chain
 			//    (`JsonToSseTransformStream` → `TextEncoderStream`) — any
 			//    full-POST test flags those internals, cancelled or drained.
+			//  - designBuild drives that same REAL chat POST through completed,
+			//    paused, and failed design-session outcomes and fully drains every
+			//    response; the identical AI SDK pipe chain remains flagged.
 			// Both suites still run in every normal `vitest run` / CI test
 			// job; only `--detect-async-leaks` skips them — and the exemption
 			// blinds the gate ONLY to the SDK's stream internals: the resume
@@ -106,6 +109,7 @@ export default defineConfig({
 				? [
 						"**/transportContract.integration.test.ts",
 						"**/clientCancel.integration.test.ts",
+						"**/designBuild.integration.test.ts",
 					]
 				: []),
 		],

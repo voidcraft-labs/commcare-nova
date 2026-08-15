@@ -12,6 +12,7 @@ import {
 	type ProseTemplate,
 	prosePartSchema,
 } from "@/lib/domain";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 export interface ProseTiptapNode {
 	readonly type?: string;
@@ -89,8 +90,8 @@ export function proseTemplateSurvivesTiptapRoundTrip(
 	template: ProseTemplate,
 ): boolean {
 	return (
-		JSON.stringify(
+		canonicalJsonText(
 			tiptapContentToProseTemplate(proseTemplateToTiptapContent(template)),
-		) === JSON.stringify(template)
+		) === canonicalJsonText(template)
 	);
 }

@@ -1,0 +1,150 @@
+/**
+ * Bounded slice execution (the plan's §13.8).
+ *
+ * Every axis a slice attempt can spend is capped before the first model call,
+ * and every cap is a pure function of the admitted construction strategy — so a budget is
+ * reproducible from the plan alone, comparable across attempts, and provable
+ * in a test rather than tuned at runtime. Exceeding any axis ends the attempt
+ * as `budget-exhausted`: it never commits a partial canonical prefix and never
+ * reports completion. There is no unbounded "amend until valid" loop.
+ *
+ * Wall time is ACTIVE time. The attempt row's durable integrator
+ * (`sliceAttempts.ts`) accrues it at genuine budget claims and recovery
+ * resets the accrual point without accruing, so a process-death resume —
+ * which can only run after the build liveness horizon lapses — receives the
+ * unspent remainder instead of a deadline the dead gap already burned.
+ */
+
+import type { BuildSlice } from "@/lib/agent/design/buildPlan";
+
+export interface SliceExecutionBudget {
+	readonly maxModelSteps: number;
+	readonly maxMutationCalls: number;
+	readonly maxCommitAttempts: number;
+	readonly maxRebaseAttempts: number;
+	readonly maxBlockerResolutions: number;
+	readonly maxWallClockMs: number;
+}
+
+/** Attempt-local spend axes that are claimed durably before work begins. */
+export type SliceAttemptBudgetCounter =
+	| "modelSteps"
+	| "mutationCalls"
+	| "commitAttempts"
+	| "blockerReports";
+
+export type SliceAttemptBudgetClaimResult =
+	| "claimed"
+	| "replayed"
+	| "exhausted";
+
+export interface SliceAttemptBudgetSpent {
+	readonly modelSteps: number;
+	readonly mutationCalls: number;
+	readonly commitAttempts: number;
+	readonly blockerReports: number;
+}
+
+/**
+ * The floor every slice gets. Sized for the smallest real slice — one record,
+ * one form, its case list — with room for reads and bounded correction after
+ * a rejected private mutation.
+ */
+const BASE_BUDGET: SliceExecutionBudget = {
+	maxModelSteps: 10,
+	maxMutationCalls: 16,
+	/* Three commit attempts: the first, one after a rebase refresh, one after
+	 * a diagnostics fix. A fourth is a replan, not a retry. */
+	maxCommitAttempts: 3,
+	maxRebaseAttempts: 2,
+	/* Two fresh architect decisions are enough to turn compiler evidence into
+	 * exact guidance. A third unresolved report is a construction defect. */
+	maxBlockerResolutions: 2,
+	maxWallClockMs: 4 * 60_000,
+};
+
+const MODEL_STEPS_PER_GROUP = 3;
+const MUTATION_CALLS_PER_GROUP = 3;
+const WALL_CLOCK_MS_PER_GROUP = 75_000;
+
+const RISK_ALLOWANCE: Readonly<
+	Record<
+		BuildSlice["risk"],
+		{ modelSteps: number; mutationCalls: number; ms: number }
+	>
+> = {
+	ordinary: { modelSteps: 0, mutationCalls: 0, ms: 0 },
+	"cross-record": { modelSteps: 3, mutationCalls: 6, ms: 90_000 },
+	"external-effect": { modelSteps: 2, mutationCalls: 4, ms: 60_000 },
+};
+
+/**
+ * Hard global ceilings. A slice that would need more than this is mis-sized:
+ * the planner owns splitting it, and letting one attempt grow past these
+ * numbers only converts a planning defect into a long, expensive failure.
+ */
+const CEILINGS = {
+	maxModelSteps: 40,
+	maxMutationCalls: 96,
+	maxWallClockMs: 12 * 60_000,
+} as const;
+
+/**
+ * Priced rework for one answered architect blocker. A `continue` decision
+ * directs construction the deterministic plan never priced — a lowering, a
+ * rehosting — so each paid resolution grows the attempt's step, mutation-call, and
+ * wall-clock limits by this much. `maxBlockerResolutions` bounds the total:
+ * the worst case adds exactly two allowances, never an open-ended stream.
+ */
+export const BLOCKER_RESOLUTION_ALLOWANCE = {
+	modelSteps: 5,
+	mutationCalls: 8,
+	ms: 150_000,
+} as const;
+
+/** The wall clock an attempt may still spend: its budget plus the priced
+ * allowance for every durably paid architect blocker, minus durable active
+ * spend, floored at zero. The executor deadline is now plus this — never
+ * elapsed time since the attempt's original start, which would count the
+ * dead gap a process-death recovery necessarily sits behind. */
+export function remainingWallClockMs(
+	budget: SliceExecutionBudget,
+	wallClockMsUsed: number,
+	blockerReportsUsed = 0,
+): number {
+	return Math.max(
+		0,
+		budget.maxWallClockMs +
+			blockerReportsUsed * BLOCKER_RESOLUTION_ALLOWANCE.ms -
+			wallClockMsUsed,
+	);
+}
+
+/** Deterministic budget for one slice — pure, and pinned by test. */
+export function budgetForSlice(slice: BuildSlice): SliceExecutionBudget {
+	const groupCount = slice.constructionGroups.length;
+	const risk = RISK_ALLOWANCE[slice.risk];
+	return {
+		maxModelSteps: Math.min(
+			CEILINGS.maxModelSteps,
+			BASE_BUDGET.maxModelSteps +
+				groupCount * MODEL_STEPS_PER_GROUP +
+				risk.modelSteps,
+		),
+		maxMutationCalls: Math.min(
+			CEILINGS.maxMutationCalls,
+			BASE_BUDGET.maxMutationCalls +
+				groupCount * MUTATION_CALLS_PER_GROUP +
+				risk.mutationCalls,
+		),
+		maxCommitAttempts: BASE_BUDGET.maxCommitAttempts,
+		maxRebaseAttempts: BASE_BUDGET.maxRebaseAttempts,
+		maxBlockerResolutions: BASE_BUDGET.maxBlockerResolutions,
+		maxWallClockMs: Math.min(
+			CEILINGS.maxWallClockMs,
+			BASE_BUDGET.maxWallClockMs +
+				groupCount * WALL_CLOCK_MS_PER_GROUP +
+				risk.ms,
+		),
+	};
+}

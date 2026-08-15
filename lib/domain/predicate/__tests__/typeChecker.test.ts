@@ -162,6 +162,45 @@ describe("checkPredicate — comparison operators", () => {
 		expect(result.ok).toBe(true);
 	});
 
+	it("accepts only the canonical built-in case status values", () => {
+		expect(
+			checkPredicate(eq(prop("patient", "status"), literal("open")), ctx).ok,
+		).toBe(true);
+		expect(
+			checkPredicate(eq(literal("closed"), prop("patient", "status")), ctx).ok,
+		).toBe(true);
+
+		const result = checkPredicate(
+			eq(prop("patient", "status"), literal("active")),
+			ctx,
+		);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toContainEqual({
+				path: ["right"],
+				code: "case-status-value",
+				message: expect.stringMatching(
+					/only be compared with 'open' or 'closed'/,
+				),
+			});
+		}
+	});
+
+	it("rejects noncanonical built-in case status membership values", () => {
+		const result = checkPredicate(
+			isIn(prop("patient", "status"), literal("open"), literal("active")),
+			ctx,
+		);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toContainEqual({
+				path: ["values", 1],
+				code: "case-status-value",
+				message: expect.stringMatching(/only be 'open' or 'closed'/),
+			});
+		}
+	});
+
 	it("rejects int = string-literal mismatch", () => {
 		const p = eq(prop("patient", "age"), literal("forty-two"));
 		const result = checkPredicate(p, ctx);

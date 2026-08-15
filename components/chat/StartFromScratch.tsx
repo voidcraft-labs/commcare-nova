@@ -17,9 +17,9 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerFilePlus from "@iconify-icons/tabler/file-plus";
+import tablerProgress from "@iconify-icons/tabler/progress";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/shadcn/button";
-import { Spinner } from "@/components/shadcn/spinner";
 
 interface StartFromScratchProps {
 	/** The user has sent a message: the SA is taking over, so this collapses away. */
@@ -90,7 +90,7 @@ export function StartFromScratch({
 							onClick={onCreate}
 							aria-busy={creating || undefined}
 						>
-							{creating ? <Spinner /> : <Icon icon={tablerFilePlus} />}
+							<Icon icon={creating ? tablerProgress : tablerFilePlus} />
 							{creating ? "Creating blank app" : "Start with a blank app"}
 						</Button>
 

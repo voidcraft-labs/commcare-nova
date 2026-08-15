@@ -5,7 +5,10 @@ lookup tables, and settings lives in Postgres tables on the shared Cloud SQL poo
 owns the wire: `getAppDb()` (a `Kysely<AppDatabase>` on the pool
 `lib/case-store/postgres/connection.ts` owns), `withAppTx` (the one
 transaction entry point — bounded deadlock/serialization retry; a body re-runs
-from scratch on retry, so it stays pure of side effects), the table types
+from scratch on retry, so it stays pure of side effects; a build-slice commit
+may also supply one absolute deadline, which every retry converts to
+PostgreSQL 18 `transaction_timeout` so the transaction cannot commit after
+executor authority expires), the table types
 (lock-stepped with the DDL in `lib/case-store/migrations/`), and the
 LISTEN/NOTIFY poke helpers. `types.ts` owns the assembled record shapes.
 
@@ -108,8 +111,8 @@ transaction. `project-move` carries `[]` or the nonempty media-remap batch and
 requires distinct nonblank source and destination Project ids. Runtime never
 updates or deletes either table. Its grants differ: `app_changes` is append-only
 runtime DML (`SELECT, INSERT`), while `app_change_fold_baselines` is a control
-table the runtime may only read. That is load-bearing — `createApp` reaches its
-genesis baseline through the `SECURITY DEFINER` routine
+table the runtime may only read. That is load-bearing — the genesis writer
+(`appGenesis.ts`) reaches its baseline through the `SECURITY DEFINER` routine
 `nova_insert_app_change_genesis_fold_baseline`, and a direct runtime insert
 fails with `42501`. Every fixed public table is registered once by runtime
 capability in `privilegeConvergence.ts`; inventory, grants, owned-sequence
@@ -191,17 +194,27 @@ without a Project filter, and replaces complete sets child-delete/parent-delete
 then parent-insert/child-insert. Empty replacement can clear stale source-Project
 edges; missing/foreign targets share one opaque error.
 
-`apps.ts` is the authoritative protocol. Every `createApp`,
+`apps.ts` is the authoritative protocol for existing-app writes, and
+`appGenesis.ts` is the ONE closed birth owner (`explicit-blank |
+design-slice`): `prepareGenesisCandidate` reduces the construction batch from
+the canonical empty Blueprint (`lib/doc/scaffolds.ts::emptyBlueprintDoc`, the
+one spelling both genesis and change-set base loading share) exactly once
+outside the retryable transaction, and `writePreparedGenesisInTransaction`
+then asserts membership in-transaction, inserts the root (with the run's
+holder + reservation columns when a transfer rides the birth), locks/reads
+lookup definitions, evaluates the absolute verdict, checks full export
+readiness, applies organization cross-store integrity, admits media references,
+replaces exact edges, admits runtime
+case schemas (`applySchemaChangePhaseA` at synced seq 1; concurrent index
+work drains post-commit off `index_pending_seq`), and inserts entity rows,
+the sequence-one `fold-baseline` change, and immutable baseline atomically.
+`createExplicitBlankApp` (the builder action + MCP `create_app`) births the
+canonical survey starter `complete`; the design-slice arm is
+`lib/agent/change-set/materializeGenesis.ts`, which replays the genesis
+change set's committed steps and transfers the design session's holder +
+reservation onto the app row in that same transaction. Every
 `commitGuardedBatch`, `appendSyntheticBatch`, and `commitAppProjectMove`
-transaction declares lookup writer v1 from the shared runtime manifest. Creation prepares
-the mandatory canonical name + survey/module/form/field genesis exactly once
-outside the retryable transaction, then takes the
-shared Project-membership advisory gate, authorizes, inserts the root,
-locks/reads lookup definitions, evaluates the absolute verdict, checks full
-export readiness, admits media references, replaces exact edges, and inserts
-entity rows, the sequence-one `fold-baseline` change, and immutable baseline
-atomically. It returns the exact committed blueprint, base sequence, and starter
-UUIDs; callers neither seed nor reconstruct birth state. Ordinary
+transaction declares lookup writer v1 from the shared runtime manifest. Ordinary
 commits lock the app, compare the caller's required `expectedProjectId`, check
 the dedup latch, take the shared membership gate,
 lock and authorize the actor's exact `auth_member` row in the SAME transaction,
@@ -261,8 +274,9 @@ owner retention, rejects deleted apps, classifies runs only through
 `runLeaseState`, and requires structural/stored lookup targets to match exactly
 and both be empty. The final transaction locks threads and destination assets,
 remaps blueprint and canonical transcript attachment ids, re-tenants all cases,
-purges presence, flips `project_id`, appends one attributed `project-move`
-change, and
+purges presence, flips `project_id`, re-tenants the app's materialized design
+sessions and Project-scoped external-action receipts, appends one attributed
+`project-move` change, and
 emits app/presence notifications atomically. Media byte copies are the only
 non-destructive pre-transaction work. Exact same-Project recovery instead locks
 the app, derives its fresh Project, and repairs only case tenancy: no migration
@@ -405,13 +419,16 @@ settles/refunds and clears BOTH groups in one transaction
 (`designSessionAuthorityCleared`) — there is no reaper-signature/self-heal
 arm to preserve. A failed or reaped session stays `active` with
 `last_error_type` set (recoverable by a fresh chargeable claim, or
-`discardDesignSession` → `abandoned`); `materialized` is Unit E's transfer.
+`discardDesignSession` → `abandoned`); materialization transfers authority to
+the app exactly once.
 Liveness derives from the explicit lease column via
 `runLiveness.ts::designSessionLeaseState` (same module, same
 `MAX_GENERATION_MINUTES` horizon — never a second timeout arithmetic).
 `generationTargetScope.ts` is the ONE resolver boundary for target
 authorization (`resolveGenerationTargetScope` — opaque
 `AppAccessError("not_found")` on every denial, exactly like app routes);
+an active pre-app build session additionally requires exact owner identity, so
+Project co-members gain visibility only after the session binds an app;
 `generationTargets.ts` stays a dependency-free TYPE LEAF holding
 the closed `GenerationTarget` union every target-polymorphic table speaks
 plus the column mappers. Keep them split: the leaf is imported across the
@@ -431,8 +448,35 @@ so run authority delegates exactly as §11.7 orders the locks — and target
 LIVENESS delegates the same way (`generationTargetHeldLive`: a session
 carrying an `app_id` answers with the app's liveness, so a stream reconnect
 after materialization never reads the terminal session row as a dead run).
-No route mounts the session surface yet — the chat route serves app targets
-unchanged until Unit E's cutover.
+The chat route mounts the session surface: a fresh build creates+claims a
+session pre-stream, a presented `designSessionId` continues one, and an
+app-target BUILD turn resolves its bound `materialized` session (a
+sessionless non-complete app is a legacy row the route refuses pending the
+one-off repair). Materialization is one transfer transaction — app insert
+with the session's holder + reservation, verdicts, entities, baseline,
+sidecar receipts, then the session's atomic
+`authority-cleared + materialized + app_id` flip. Thread READS on an app
+target additionally include its bound materialized session's rows
+(`appScopeThreadFilter`) so the build conversation stays on the app page;
+every thread WRITE keeps the row's exact target guard.
+`designInProgress.ts` is the §15.9 list read: the caller's own active
+pre-app build sessions in the active Project, stage derived through
+`lib/agent/build`'s orchestration fold (a deliberate data→agent import —
+restating the fold here is how a list starts disagreeing with the
+conversation it links to; no runtime cycle, the fold reaches only `pg` +
+`persistedJson`).
+
+The legacy pre-plan cutover scanner reads app snapshots through the lock-free
+repeatable-read inspection loader, so the production scan identity needs no
+write privilege. Its writer sibling handles a stale build holder only through
+the result-bearing exact run/nonce reaper, re-reads the app after that locked
+transition, and then invokes holder-free operator recovery. Live holders wait;
+stale holders without an exact identity fail closed for operator inspection.
+
+Discard is one cleanup transaction after its owner/busy checks: refund the
+unsettled reservation, abandon open change sets, supersede running slice
+attempts, clear thread stream-holder markers, clear session authority, and
+mark the session `abandoned`.
 
 **`chat_stream_chunks` is the live-stream catch-up log — operational, not
 history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
@@ -482,9 +526,16 @@ delete an answer a completed successor already finished), then
 fold of the chunk sequence fires `onStepEnd` per completed step, and that
 callback — never any Nova chunk interpretation — merges the growing
 assistant message) and once at stream end (final state + marker retirement).
-A FAILED turn's terminal write is `clawBackThreadResponse`: the message
-reverts to its pre-run state and the marker clears in one transaction — the
-record holds completed-unit turns only, on every turn end, uniformly. "A
+A FAILED turn's terminal write is `clawBackThreadResponse`: the marker
+clears and the id is tombstoned in one transaction, with the transcript
+settled by arm — a FRESH turn's streamed partial is KEPT as the
+user-visible record (the tab that watched it fail still shows it, and a
+reload must not show less; its dangling tool calls are closed as
+`output-error` so nothing renders forever in flight, and its `{ id, cap: 0 }`
+tombstone refuses every client copy so a stale tab can never grow the stored
+record), while a CONTINUATION reverts to its pre-run seed (its retry
+re-authors the same message id, and a kept partial would win the
+richer-version merge over the retry's growing fold). "A
 failed TURN" means the turn's own stream failed: a post-drain bookkeeping
 fault (schema materialization, the settle) finalizes with `turnComplete`, so
 the finished, fully-streamed answer is never clawed back over it. A
@@ -566,17 +617,27 @@ message is scanned, not its last step) or is genuinely paused. The
 re-drive re-runs the interrupted turn through the normal
 POST/claim/charge machinery (`redrive: true` on the wire; a claim conflict
 there means another session already re-drove, so the request closes clean
-instead of serialize-waiting a duplicate). A died BUILD (reaped to `error`)
+instead of serialize-waiting a duplicate). The same capability is the explicit
+continuation for a sealed recoverable reviewed build: even when its frozen
+transcript ends in an assistant answer round, it takes a fresh claim rather
+than trying to reacquire the released holder. A died BUILD (reaped to `error`)
 is admitted by the build page only on this signal, and its re-drive claim
 flips the row back to `generating`.
 The reconnect endpoint resolves a GET id as stream-first, thread-second, so
 `useChat`'s `resumeStream({chatId: threadId})` reconnects a refreshed page
 to the in-flight run by thread id alone; a thread with nothing in flight
 answers a bare `finish` (the transport errors on any non-OK response).
+When that reconnect closes, the client performs one authoritative transcript
+heal through the app-scoped thread route, or through the owner-private
+`/api/design-sessions/{id}/threads/{threadId}` route before materialization.
+The latter also returns a newly bound app id so a completion race leaves the
+app-less shell and hydrates the canonical Blueprint from the app page.
 `updated_at` orders the list (a refresh opens the most recent thread);
 `thread_id` is the PK (client-minted uuid) with writers app-guarded so a
-forged id can't write across apps. Every POST sends the thread's FULL
-history — there is no cache-window trim (the run summary's
+forged id can't write across apps. Every POST sends the thread's FULL durable
+history — there is no UI/history trim; the server may project the model input
+from a compatible provider compaction item and re-inject authoritative state
+(the run summary's
 `fresh_edit`/`cache_expired` fields retired with it).
 
 ## Two ledgers, different lifecycles
@@ -585,7 +646,9 @@ Cost and quota live in **separate tables** so an admin intervention on one
 never disturbs the other:
 
 - `usage_months` (`UsageDoc`) — dollar cost, **accumulate-only**: the
-  `cost_estimate` counter (token math over `MODEL_PRICING`, which with a
+  `cost_estimate` counter (per-model, per-call token math over
+  `MODEL_PRICING`, with short/long selected for that call at `>272k` input
+  tokens before run aggregation; which with a
   direct OpenAI key is the deterministic bill). Resets never touch it. Its
   sole gate consumer is the invisible dollar backstop (`COST_BACKSTOP_USD`),
   read via `getMonthlyUsage`.
@@ -713,6 +776,23 @@ affects zero rows rather than clobbering its successor. A failed EDIT never
 flips its `complete` app to `error` (that would brick a working app over a
 transient model error).
 
+The reviewed initial-build path composes `completeAndSettleRunInTransaction`
+with its append-only `finished` orchestration event after case-schema
+convergence. It takes the actor gate, proves the still-live delegated app
+holder or the exact unreclaimed false-reap signature, exact-sequence-CASes the
+app, settles the charge, and inserts the event in one transaction. The reaped
+arm still re-proves Project membership, actor, root run/nonce, canonical
+sequence, and event head. Completion therefore cannot release the authority
+required to record its own terminal state, and a rolled-back terminal event
+cannot leave an app marked complete.
+
+The canonical commit guard keeps a materialized reviewed build frozen until
+its orchestration head is terminal. `finished` is the only current successful
+terminal state; the retired `accepted-partial` arm remains terminal solely so
+apps released through the historical **Use what’s built** path stay editable.
+A failed or interrupted current build remains frozen even after its live lease
+has gone away.
+
 **Reapers re-validate staleness IN-TXN.** `reapStaleGenerating` →
 `refundStaleGeneration` (stale build: refund + `generating → error` +
 `paused_timeout` classification for an abandoned pause) and
@@ -770,29 +850,25 @@ apps → kernel.
 **Kernel sidecars are a closed, typed vocabulary** —
 `canonicalCommitSidecars.ts`, never arbitrary closures. A sidecar runs inside
 the same retryable app-locked transaction AFTER the committed-batch write
-tail (so a provenance row's FK onto the fresh `app_changes` row is
-immediately checkable and a lost holder CAS has already aborted), with the
+tail (so a lost holder CAS has already aborted), with the
 kernel's authoritative seq/batch id/candidate — never caller-asserted ones.
-The two variants are the Atomic Change Set runtime's: `commit-design-change-
+The Atomic Change Set runtime has one variant: `commit-design-change-
 set` (lock the `design_change_sets` row AFTER the app lock — canonical order
 — verify status/revision/lineage, flip `open → committed`, insert the
-immutable `design_committed_slices` receipt) and `write-intent-provenance`
-(`app_change_intents` rows, coordinate payloads strict-parsed through the
-closed implementation-coordinate union). A dedup hit skips sidecars entirely:
+immutable `design_committed_slices` receipt). A dedup hit skips sidecars entirely:
 the original commit ran them, and a canonical batch without its receipt is
 corruption for the caller to detect, never a new commit.
 
 **The change-set tables are private staging state, not app history.**
 `design_change_sets` is the one mutable authority row (read-write; row-locked
 to serialize its ledgers); `design_change_set_requests` / `_steps` /
-`_step_stages` / `_handles`, `design_committed_slices`, and
-`app_change_intents` are append-only runtime DML — never row-locked, never
+`_step_stages` / `_handles` and `design_committed_slices` are append-only runtime DML — never row-locked, never
 updated, never streamed (no NOTIFY channel exists for them; nothing here may
-poke realtime). Step mutations, receipts, read sets, and intent ids are
+poke realtime). Step mutations, receipts, and read sets are
 authoritative persisted JSON: `::text` reads through `persistedJson.ts` +
-strict schemas only. `design_session_id` is bound to `design_sessions(id)`;
-the remaining design/plan identity columns stay opaque until the
-orchestrator unit lands its tables. A Project
+strict schemas only. `design_session_id`, design revision, build plan, and
+attempt identities are foreign-key-bound to the durable design/orchestration
+tables. A Project
 move deliberately does NOT re-tenant change-set rows: `base_project_id` is
 captured base scope, an open set strands terminally (its commit rejects),
 and committed lineage is app-keyed. The runtime contract lives in
@@ -810,10 +886,56 @@ boundary and
 integrity rules live in `lib/agent/design/artifactStore.ts`
 (`lib/agent/design/CLAUDE.md` is the contract).
 
+`design_artifact_workspaces` is the private mutable authoring carrier for one
+contract, revision, or plan candidate; `design_artifact_workspace_steps` is
+its append-only operation ledger. Every open/read/stage/finalize transaction
+locks and authorizes the exact live design-session/app holder plus current
+Project membership before touching the workspace. The operation ledger is
+never row-locked. A stage is idempotent only for the same provider
+`tool_call_id` and input digest, advances an exact expected revision, and is
+invisible to app history and user surfaces. Finalization validates the replayed
+candidate and changes `open → finalized` in the same transaction that inserts
+the immutable artifact; lineage binds the exact source package plus immutable
+base/reviews. A source-package change rebinds same-phase/base/review work only
+when content-free projection digests prove a byte-identical prefix extension;
+different or missing source and different immutable ancestry supersede the open
+workspace. Per-call and cumulative per-POST bounds prevent runaway work
+without a persistent stage cliff that could strand a candidate after final
+validation.
+
+`design_model_contexts` is the mutable ordinal carrier for the exact private
+model transcript of each reviewed-design role. Its item and step children are
+append-only tenant data: model-visible bytes live only in
+`design_model_context_items`, while `design_model_steps` carries payload-free
+request/response evidence. A model, prompt, tool digest, or context-format
+change inserts the next linked generation and leaves the prior generation
+immutable; stale writers are rejected once that successor exists. Ordinary
+phase and workflow transitions append to the current generation rather than
+creating another context.
+
+`design_model_step_usage_accounts` is the exact-once bridge from a completed
+provider step to cost accounting. The response bytes and usage-bearing
+completion event commit together first. On request finalization, insertion of
+its `(context_id, step_key)` account, the cumulative `run_summaries` delta, and
+the `usage_months` dollar/token delta share one transaction. Recovery may offer
+the same completed response repeatedly; only the transaction that inserts its
+account includes that contribution. No timestamp or process-local watermark
+decides whether paid work counts. The transaction also returns the cumulative
+run cost; a zero-cost credit refund is legal only after that authoritative write
+succeeds and proves the complete run still has no paid work.
+
+`design_slice_attempt_budget_claims` is the append-only idempotency ledger for
+executor sub-budget units. The mutable attempt row is locked while one stable
+claim key is inserted and its matching counter advances; replay of that key
+returns the existing claim without incrementing the counter again.
+
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
 → reject when the row no longer matches the caller's required
 `expectedProjectId` → reauth against the fresh Project membership row →
+while a materialized initial design is unfinished, reject MCP/autosave callers
+that cannot carry its exact live chat holder capability (the durable terminal
+head keeps failed partial builds frozen after their lease is gone) →
 assemble + hydrate the fresh doc →
 `mutationTargetsInvalid` → re-run verdict → literal `seq + 1` → entity-row diff
 write + the permanent app-change row + the in-commit NOTIFY. The per-commit edit
@@ -828,7 +950,10 @@ transaction; every THREAD writer replaces only ITS thread's
 same asset locks and verdicts, row written after the thread row it is a
 child of) in the transcript transaction. Neither family can overwrite the
 other, and deletion checks BOTH. Atomic creation, `appendSyntheticBatch`,
-and Project move apply the identical rule — the move additionally rewrites
+and Project move apply the identical rule. A Project move refuses an unfinished
+materialized reviewed build even after its holder is reaped, so it cannot
+advance the canonical sequence out from under the frozen plan. The move
+additionally rewrites
 each thread's rows from its remapped transcript with destination ids and
 Project, and re-tenants the app's bound design sessions
 (materialized/completed/edit; an active pre-app session never moves).

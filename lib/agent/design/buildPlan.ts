@@ -1,66 +1,24 @@
 /**
- * The build-slice plan — how an accepted Design Contract becomes ordered,
- * dependency-closed Build Slices, with every external effect named as a
- * typed external action rather than smuggled in as a Blueprint mutation.
+ * Deterministic BuildPlan v1.
  *
- * A slice is organized around actor tasks and observable outcomes, never
- * modules. Exactly one slice is the materialization root: the smallest
- * task-complete, dependency-closed, USEFUL first app — not the smallest
- * mutation count. Ownership is exact: every implementable intent of the
- * accepted contract has exactly one owning slice, and contribution never
- * double-counts completion.
- *
- * Two schema layers, like `review.ts`: the structural
- * `buildPlanSchema` carries every self-contained rule (unique ids, acyclic
- * DAG, one root, ownership coherence, root-closure external-action timing)
- * and is what persisted reads parse; `buildPlanSchemaFor(contract)` binds
- * the cross-artifact rules (intent existence and exact ownership coverage,
- * scenario coverage, parent-selection reachability) into the parse.
- *
- * Identity note: the planner model mints slice/action DesignIds; the SERVER
- * stamps `id`, `designRevisionId`, and `designRevisionDigest` when it
- * composes the persisted payload — a model never chooses server identity.
+ * Planning is a compiler pass over an accepted lean Design Contract, not a
+ * model-authored artifact. The server creates one task-complete slice per
+ * workflow, derives dependencies and external actions, and assigns every
+ * other semantic element to the earliest workflow that creates, writes,
+ * exposes, or protects it. Construction groups describe real units of work;
+ * they are the executor's coverage identities and replace mirrored intent
+ * ownership/lowering tables.
  */
 
 import { z } from "zod";
-import type { AppDesignContract } from "@/lib/agent/design/contract";
+import {
+	type AppDesignContract,
+	designConstructionIssues,
+} from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
-
-export const externalActionSchema = z
-	.object({
-		id: designIdSchema,
-		kind: z.enum([
-			"media-upload",
-			"place-write",
-			"lookup-write",
-			"hq-setup",
-			"deployment",
-			"worker-provisioning",
-			"manual",
-		]),
-		timing: z.enum([
-			"before-materialization",
-			"before-slice",
-			"after-slice",
-			"manual-setup",
-		]),
-		requiredFor: z.enum(["construction", "runtime", "deployment", "optional"]),
-		description: z.string().min(1),
-		idempotencyOwner: z.enum(["nova", "user", "external-system"]),
-		completionEvidence: z.string().min(1),
-	})
-	.strict();
-export type ExternalAction = z.infer<typeof externalActionSchema>;
-
-export const buildSliceRiskSchema = z.enum([
-	"ordinary",
-	"cross-record",
-	"external-effect",
-	"data-migration",
-]);
-export type BuildSliceRisk = z.infer<typeof buildSliceRiskSchema>;
 
 export const blueprintAreaSchema = z.enum([
 	"app",
@@ -71,418 +29,933 @@ export const blueprintAreaSchema = z.enum([
 	"case-list",
 	"forms",
 	"case-operations",
+	"lookup-references",
 	"media-references",
 	"automations",
 ]);
 export type BlueprintArea = z.infer<typeof blueprintAreaSchema>;
 
+export const designElementRefSchema = z
+	.object({
+		kind: z.enum([
+			"workflow",
+			"actor",
+			"record",
+			"property",
+			"list",
+			"access",
+			"navigation",
+			"module-composition",
+			"form-composition",
+			"composition-section",
+			"composition-item",
+		]),
+		id: designIdSchema,
+	})
+	.strict();
+export type DesignElementRef = z.infer<typeof designElementRefSchema>;
+
+export const constructionGroupSchema = z
+	.object({
+		id: designIdSchema,
+		workflowId: designIdSchema,
+		name: z.string().min(1),
+		kind: z.enum(["foundation", "workflow", "work-queue", "access-navigation"]),
+		elements: z.array(designElementRefSchema).min(1),
+		blueprintAreas: z.array(blueprintAreaSchema).min(1),
+	})
+	.strict();
+export type ConstructionGroup = z.infer<typeof constructionGroupSchema>;
+
+/** External requirements are plan actions, not Blueprint mutations. */
+export const externalActionSchema = z
+	.object({
+		id: designIdSchema,
+		requirementId: designIdSchema,
+		/** Copied from the requirement so the receipt gate can match evidence
+		 * kinds without loading the contract. */
+		kind: z.enum([
+			"existing-reference",
+			"user-prerequisite",
+			"runtime-readiness",
+			"deployment-readiness",
+			"unsupported",
+		]),
+		/** `blocked` marks a construction-blocking requirement; admission
+		 * refuses it until a durable receipt producer exists. */
+		timing: z.enum(["blocked", "manual-setup", "after-slice"]),
+		description: z.string().min(1),
+	})
+	.strict();
+export type ExternalAction = z.infer<typeof externalActionSchema>;
+
+export const buildSliceRiskSchema = z.enum([
+	"ordinary",
+	"cross-record",
+	"external-effect",
+]);
+export type BuildSliceRisk = z.infer<typeof buildSliceRiskSchema>;
+
 export const buildSliceSchema = z
 	.object({
 		id: designIdSchema,
+		workflowId: designIdSchema,
 		name: z.string().min(1),
 		goal: z.string().min(1),
-		intentIds: z.array(designIdSchema).min(1),
-		ownedIntentIds: z.array(designIdSchema).min(1),
 		prerequisiteSliceIds: z.array(designIdSchema),
-		acceptanceScenarioIds: z.array(designIdSchema),
-		risk: buildSliceRiskSchema,
-		role: z.enum(["materialization-root", "ordinary", "exclusive"]),
-		expectedBlueprintAreas: z.array(blueprintAreaSchema),
+		constructionGroups: z.array(constructionGroupSchema).min(1),
 		externalActionIds: z.array(designIdSchema),
+		risk: buildSliceRiskSchema,
+		role: z.enum(["materialization-root", "ordinary"]),
 	})
 	.strict();
 export type BuildSlice = z.infer<typeof buildSliceSchema>;
 
-export const intentOwnershipEntrySchema = z
-	.object({
-		intentId: designIdSchema,
-		owningSliceId: designIdSchema,
-		contributingSliceIds: z.array(designIdSchema),
-	})
-	.strict();
-export type IntentOwnershipEntry = z.infer<typeof intentOwnershipEntrySchema>;
-
 const buildPlanBaseSchema = z
 	.object({
-		schemaVersion: z.literal(2),
+		schemaVersion: z.literal(1),
 		designRevisionId: z.string().uuid(),
 		designRevisionDigest: sha256HexSchema,
 		id: z.string().uuid(),
 		slices: z.array(buildSliceSchema).min(1),
 		externalActions: z.array(externalActionSchema),
-		intentOwnership: z.array(intentOwnershipEntrySchema),
 	})
 	.strict();
 export type BuildPlan = z.infer<typeof buildPlanBaseSchema>;
 
-/** The structural authority — every self-contained plan rule, used by
- *  persisted reads and composed by the contract-bound factory. */
-export const buildPlanSchema = buildPlanBaseSchema.superRefine(
-	validateSlicePlanStructure,
-);
-
-/**
- * The PLANNER MODEL's output shape: slices, external actions, and intent
- * ownership only. `schemaVersion`, the plan id, and the revision identity
- * are server-stamped when the pipeline composes the persisted plan — a
- * model never chooses server identity (§22.8). The composed plan then
- * parses through `buildPlanSchemaFor(contract)`, which is where every
- * structural and cross-contract rule runs.
- */
-export const buildPlanDraftSchema = z
-	.object({
-		slices: z.array(buildSliceSchema).min(1),
-		externalActions: z.array(externalActionSchema),
-		intentOwnership: z.array(intentOwnershipEntrySchema),
-	})
-	.strict();
-export type BuildPlanDraft = z.infer<typeof buildPlanDraftSchema>;
-
-/** The intents a plan must give exactly one owner: the implementable
- *  intents of the accepted contract. Actors, decisions, assumptions, open
- *  questions, scenarios, and claims are context, not implementable units. */
-export function implementableIntentIds(
-	contract: AppDesignContract,
-): ReadonlySet<string> {
-	const ids = new Set<string>();
-	for (const record of contract.records) ids.add(record.id);
-	for (const fact of contract.facts) ids.add(fact.id);
-	for (const rule of contract.rules) ids.add(rule.id);
-	for (const task of contract.tasks) ids.add(task.id);
-	for (const transition of contract.transitions) ids.add(transition.id);
-	for (const model of contract.readModels) ids.add(model.id);
-	for (const policy of contract.accessPolicies) ids.add(policy.id);
-	for (const nav of contract.navigation) ids.add(nav.id);
-	return ids;
-}
-
-export function validateSlicePlanStructure(
-	plan: BuildPlan,
-	ctx: z.RefinementCtx,
-): void {
-	const issue = (path: Array<string | number>, message: string) =>
-		ctx.addIssue({ code: "custom", path, message });
-
-	/* Unique plan-local identities. */
-	const sliceById = new Map<string, BuildSlice>();
-	plan.slices.forEach((slice, i) => {
-		if (sliceById.has(slice.id)) {
-			issue(
-				["slices", i, "id"],
-				"Two slices share one id — slice ids are identity, mint a fresh one.",
-			);
-			return;
-		}
-		sliceById.set(slice.id, slice);
-	});
-	const actionById = new Map<string, ExternalAction>();
-	plan.externalActions.forEach((action, i) => {
-		if (actionById.has(action.id) || sliceById.has(action.id)) {
-			issue(
-				["externalActions", i, "id"],
-				"An external action's id collides with another plan object — plan ids share one namespace.",
-			);
-			return;
-		}
-		actionById.set(action.id, action);
-	});
-
-	/* References resolve; owned ⊆ named intents. */
-	plan.slices.forEach((slice, i) => {
-		slice.prerequisiteSliceIds.forEach((id, j) => {
-			if (!sliceById.has(id)) {
-				issue(
-					["slices", i, "prerequisiteSliceIds", j],
-					`The slice "${slice.name}" names a prerequisite that is not a slice in this plan.`,
-				);
-			} else if (id === slice.id) {
-				issue(
-					["slices", i, "prerequisiteSliceIds", j],
-					`The slice "${slice.name}" lists itself as a prerequisite.`,
-				);
-			}
-		});
-		slice.externalActionIds.forEach((id, j) => {
-			if (!actionById.has(id)) {
-				issue(
-					["slices", i, "externalActionIds", j],
-					`The slice "${slice.name}" names an external action that is not in this plan.`,
-				);
-			}
-		});
-		const named = new Set(slice.intentIds);
-		slice.ownedIntentIds.forEach((id, j) => {
-			if (!named.has(id)) {
-				issue(
-					["slices", i, "ownedIntentIds", j],
-					`The slice "${slice.name}" owns an intent it does not list in its intentIds — an owned intent is always one of the slice's intents.`,
-				);
-			}
-		});
-	});
-
-	/* Acyclic prerequisite DAG. */
-	const visiting = new Set<string>();
-	const done = new Set<string>();
-	const cyclic = new Set<string>();
-	const visit = (id: string): boolean => {
-		if (done.has(id)) return cyclic.has(id);
-		if (visiting.has(id)) return true;
-		visiting.add(id);
-		let inCycle = false;
-		const slice = sliceById.get(id);
-		for (const prereq of slice?.prerequisiteSliceIds ?? []) {
-			if (sliceById.has(prereq) && visit(prereq)) inCycle = true;
-		}
-		visiting.delete(id);
-		done.add(id);
-		if (inCycle) cyclic.add(id);
-		return inCycle;
-	};
-	plan.slices.forEach((slice, i) => {
-		if (visiting.size === 0 && visit(slice.id) && cyclic.has(slice.id)) {
-			issue(
-				["slices", i, "prerequisiteSliceIds"],
-				`The slice "${slice.name}" sits in a prerequisite cycle — the dependency graph must be a DAG.`,
-			);
-		}
-	});
-
-	/* Exactly one materialization root. */
-	const roots = plan.slices.filter((s) => s.role === "materialization-root");
-	if (roots.length !== 1) {
-		issue(
-			["slices"],
-			roots.length === 0
-				? "No slice is the materialization root. Exactly one slice must be the first, dependency-closed, export-ready app."
-				: "More than one slice claims the materialization root. Exactly one slice materializes the app; later slices are ordinary canonical commits.",
-		);
-	}
-
-	/* Root-closure rules: nothing post-materialization inside it, and no
-	 * data migration before an app exists. */
-	const root = roots[0];
-	if (root !== undefined) {
-		const closure = new Set<string>();
-		const queue = [root.id];
-		while (queue.length > 0) {
-			const id = queue.pop() as string;
-			if (closure.has(id)) continue;
-			closure.add(id);
-			for (const prereq of sliceById.get(id)?.prerequisiteSliceIds ?? []) {
-				if (sliceById.has(prereq)) queue.push(prereq);
-			}
-		}
-		plan.slices.forEach((slice, i) => {
-			if (!closure.has(slice.id)) return;
-			if (slice.risk === "data-migration") {
-				issue(
-					["slices", i, "risk"],
-					`The slice "${slice.name}" is a data migration inside the materialization root's closure — before the app exists there is no data to migrate.`,
-				);
-			}
-			slice.externalActionIds.forEach((actionId, j) => {
-				const action = actionById.get(actionId);
-				if (!action) return;
-				if (
-					action.timing !== "before-materialization" &&
-					action.timing !== "manual-setup"
-				) {
-					issue(
-						["slices", i, "externalActionIds", j],
-						`The slice "${slice.name}" is in the materialization root's closure but depends on an external action timed "${action.timing}" — everything the first app needs must be satisfied before materialization or named as manual setup.`,
-					);
-				}
+function validatePlan(plan: BuildPlan, ctx: z.RefinementCtx): void {
+	const sliceIds = new Set<string>();
+	const workflowIds = new Set<string>();
+	const groupIds = new Set<string>();
+	let roots = 0;
+	plan.slices.forEach((slice, sliceIndex) => {
+		if (sliceIds.has(slice.id)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["slices", sliceIndex, "id"],
+				message: "Slice ids must be unique.",
 			});
+		}
+		sliceIds.add(slice.id);
+		if (workflowIds.has(slice.workflowId)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["slices", sliceIndex, "workflowId"],
+				message: "Each workflow must have exactly one slice.",
+			});
+		}
+		workflowIds.add(slice.workflowId);
+		if (slice.role === "materialization-root") roots += 1;
+		slice.constructionGroups.forEach((group, groupIndex) => {
+			if (group.workflowId !== slice.workflowId) {
+				ctx.addIssue({
+					code: "custom",
+					path: [
+						"slices",
+						sliceIndex,
+						"constructionGroups",
+						groupIndex,
+						"workflowId",
+					],
+					message: "A construction group belongs to its slice workflow.",
+				});
+			}
+			if (groupIds.has(group.id)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["slices", sliceIndex, "constructionGroups", groupIndex, "id"],
+					message: "Construction group ids must be unique.",
+				});
+			}
+			groupIds.add(group.id);
+		});
+	});
+	if (roots !== 1) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["slices"],
+			message: "A build plan requires exactly one materialization root.",
 		});
 	}
-
-	/* Ownership coherence between the two representations. */
-	const ownerBySliceList = new Map<string, string>();
-	plan.slices.forEach((slice, i) => {
-		for (const intentId of slice.ownedIntentIds) {
-			const other = ownerBySliceList.get(intentId);
-			if (other !== undefined && other !== slice.id) {
-				issue(
-					["slices", i, "ownedIntentIds"],
-					`Two slices both claim to own the same intent — ownership is exact, one owner per intent.`,
-				);
-			}
-			ownerBySliceList.set(intentId, slice.id);
-		}
-	});
-	const ownershipByIntent = new Map<string, IntentOwnershipEntry>();
-	plan.intentOwnership.forEach((entry, i) => {
-		if (ownershipByIntent.has(entry.intentId)) {
-			issue(
-				["intentOwnership", i, "intentId"],
-				"This intent already has an ownership row — one row per intent.",
-			);
-			return;
-		}
-		ownershipByIntent.set(entry.intentId, entry);
-		if (!sliceById.has(entry.owningSliceId)) {
-			issue(
-				["intentOwnership", i, "owningSliceId"],
-				"The owning slice does not exist in this plan.",
-			);
-		}
-		entry.contributingSliceIds.forEach((id, j) => {
-			if (!sliceById.has(id)) {
-				issue(
-					["intentOwnership", i, "contributingSliceIds", j],
-					"A contributing slice does not exist in this plan.",
-				);
-			} else if (id === entry.owningSliceId) {
-				issue(
-					["intentOwnership", i, "contributingSliceIds", j],
-					"The owning slice cannot also be listed as a contributor — contribution never double-counts ownership.",
-				);
-			}
+	plan.slices.forEach((slice, sliceIndex) => {
+		slice.prerequisiteSliceIds.forEach((id, index) => {
+			if (!sliceIds.has(id))
+				ctx.addIssue({
+					code: "custom",
+					path: ["slices", sliceIndex, "prerequisiteSliceIds", index],
+					message: "The prerequisite slice does not exist.",
+				});
+			if (id === slice.id)
+				ctx.addIssue({
+					code: "custom",
+					path: ["slices", sliceIndex, "prerequisiteSliceIds", index],
+					message: "A slice cannot depend on itself.",
+				});
 		});
-		const listedOwner = ownerBySliceList.get(entry.intentId);
-		if (listedOwner !== undefined && listedOwner !== entry.owningSliceId) {
-			issue(
-				["intentOwnership", i, "owningSliceId"],
-				"The ownership row and the slices' ownedIntentIds disagree about who owns this intent.",
-			);
-		}
 	});
-	for (const [intentId, sliceId] of ownerBySliceList) {
-		const entry = ownershipByIntent.get(intentId);
-		if (entry === undefined) {
-			const sliceIndex = plan.slices.findIndex((s) => s.id === sliceId);
-			issue(
-				["slices", sliceIndex, "ownedIntentIds"],
-				"An owned intent has no matching intentOwnership row — the two representations must agree.",
-			);
-		}
-	}
-}
-
-/**
- * The parse-time planner schema, bound to the accepted contract:
- *  - every slice intent resolves to an implementable intent of the
- *    contract, and ownership covers EXACTLY that set (each intent one
- *    owner, nothing extra, nothing missing);
- *  - every slice scenario resolves, and every contract scenario belongs to
- *    at least one slice;
- *  - a slice owning a child-creating task can reach a read model over the
- *    parent record in itself or its prerequisite closure (the worker must
- *    select the parent before creating the child).
- */
-export function buildPlanSchemaFor(contract: AppDesignContract) {
-	return buildPlanSchema.superRefine((plan, ctx) =>
-		validateSlicePlanAgainstContract(plan, contract, ctx),
-	);
-}
-
-export function validateSlicePlanAgainstContract(
-	plan: BuildPlan,
-	contract: AppDesignContract,
-	ctx: z.RefinementCtx,
-): void {
-	const issue = (path: Array<string | number>, message: string) =>
-		ctx.addIssue({ code: "custom", path, message });
-	const implementable = implementableIntentIds(contract);
-	const scenarioIds = new Set(contract.acceptanceScenarios.map((s) => s.id));
-	const sliceById = new Map<string, BuildSlice>(
+	const byId = new Map<string, BuildSlice>(
 		plan.slices.map((slice) => [slice.id, slice]),
 	);
+	for (const [sliceIndex, slice] of plan.slices.entries()) {
+		const visiting = new Set<string>([slice.id]);
+		const cycle = (id: string): boolean => {
+			if (visiting.has(id)) return true;
+			visiting.add(id);
+			const found = (byId.get(id)?.prerequisiteSliceIds ?? []).some(cycle);
+			visiting.delete(id);
+			return found;
+		};
+		if (slice.prerequisiteSliceIds.some(cycle))
+			ctx.addIssue({
+				code: "custom",
+				path: ["slices", sliceIndex, "prerequisiteSliceIds"],
+				message: "Slice prerequisites must be acyclic.",
+			});
+	}
+}
 
-	plan.slices.forEach((slice, i) => {
-		slice.intentIds.forEach((id, j) => {
-			if (!implementable.has(id)) {
-				issue(
-					["slices", i, "intentIds", j],
-					`The slice "${slice.name}" names an intent that is not an implementable intent of the accepted contract (records, facts, rules, tasks, transitions, read models, access policies, navigation).`,
-				);
-			}
-		});
-		slice.acceptanceScenarioIds.forEach((id, j) => {
-			if (!scenarioIds.has(id)) {
-				issue(
-					["slices", i, "acceptanceScenarioIds", j],
-					`The slice "${slice.name}" claims an acceptance scenario the contract does not contain.`,
-				);
-			}
-		});
-	});
+export const buildPlanSchema = buildPlanBaseSchema.superRefine(validatePlan);
 
-	/* Exact ownership coverage. */
-	const owned = new Map<string, IntentOwnershipEntry>(
-		plan.intentOwnership.map((e) => [e.intentId, e]),
+function deriveOwnerByElement(
+	contract: AppDesignContract,
+	orderedWorkflowIds: readonly string[],
+): Map<string, string> {
+	const initial = contract.charter.initialWorkflowId;
+	const rank = new Map(orderedWorkflowIds.map((id, index) => [id, index]));
+	const earliest = (ids: readonly string[]): string =>
+		[...ids].sort(
+			(a, b) =>
+				(rank.get(a) ?? Number.MAX_SAFE_INTEGER) -
+				(rank.get(b) ?? Number.MAX_SAFE_INTEGER),
+		)[0] ?? initial;
+	const ownerByElement = new Map<string, string>();
+	const moduleOwnerById = new Map(
+		contract.moduleCompositions.map((composition) => [
+			composition.id,
+			earliest(composition.workflowIds),
+		]),
 	);
-	for (const intentId of implementable) {
-		if (!owned.has(intentId)) {
-			issue(
-				["intentOwnership"],
-				"An implementable intent of the accepted contract has no owning slice. Every record, fact, rule, task, transition, read model, access policy, and navigation intent needs exactly one owner.",
-			);
-			break; /* one message; the planner regenerates wholesale */
+	const moduleOwnersByListId = new Map<string, string[]>();
+	for (const composition of contract.moduleCompositions) {
+		const moduleOwner = moduleOwnerById.get(composition.id) ?? initial;
+		for (const listId of composition.listIds) {
+			const owners = moduleOwnersByListId.get(listId) ?? [];
+			owners.push(moduleOwner);
+			moduleOwnersByListId.set(listId, owners);
 		}
 	}
-	plan.intentOwnership.forEach((entry, i) => {
-		if (!implementable.has(entry.intentId)) {
-			issue(
-				["intentOwnership", i, "intentId"],
-				"This ownership row names an id that is not an implementable intent of the accepted contract.",
-			);
-		}
-	});
-
-	/* Every scenario is somebody's acceptance evidence. */
-	const claimedScenarios = new Set(
-		plan.slices.flatMap((slice) => slice.acceptanceScenarioIds),
+	const listOwnerById = new Map(
+		contract.lists.map((list) => {
+			const containingModuleOwners = moduleOwnersByListId.get(list.id) ?? [];
+			const semanticUsers =
+				list.selectionWorkflowId !== undefined
+					? [list.selectionWorkflowId]
+					: contract.workflows
+							.filter(
+								(workflow) =>
+									workflow.contextRecordId === list.recordId ||
+									workflow.recordEffects.some(
+										(effect) => effect.recordId === list.recordId,
+									),
+							)
+							.map((workflow) => workflow.id);
+			return [
+				list.id,
+				earliest(
+					containingModuleOwners.length > 0
+						? containingModuleOwners
+						: semanticUsers,
+				),
+			] as const;
+		}),
 	);
-	contract.acceptanceScenarios.forEach((scenario, i) => {
-		if (!claimedScenarios.has(scenario.id)) {
-			issue(
-				["slices"],
-				`The acceptance scenario "${scenario.name}" belongs to no slice — every scenario is owned acceptance evidence (contract scenario index ${i}).`,
+	for (const workflow of contract.workflows)
+		ownerByElement.set(workflow.id, workflow.id);
+	for (const actor of contract.actors) {
+		ownerByElement.set(
+			actor.id,
+			earliest(
+				contract.workflows
+					.filter((workflow) => workflow.actorIds.includes(actor.id))
+					.map((workflow) => workflow.id),
+			),
+		);
+	}
+	for (const record of contract.records) {
+		const references = contract.workflows.filter(
+			(workflow) =>
+				workflow.contextRecordId === record.id ||
+				workflow.recordEffects.some(
+					(effect) =>
+						effect.recordId === record.id ||
+						effect.sourceRecordId === record.id,
+				) ||
+				workflow.readback.some((readback) => readback.recordId === record.id),
+		);
+		const creators = references.filter((workflow) =>
+			workflow.recordEffects.some(
+				(effect) => effect.recordId === record.id && effect.kind === "create",
+			),
+		);
+		ownerByElement.set(
+			record.id,
+			earliest(
+				(creators.length > 0 ? creators : references).map(
+					(workflow) => workflow.id,
+				),
+			),
+		);
+		for (const property of record.properties) {
+			const directUsers = contract.workflows.filter(
+				(workflow) =>
+					workflow.inputs.some((input) => input.propertyId === property.id) ||
+					workflow.decisions.some((decision) =>
+						decision.inputPropertyIds.includes(property.id),
+					) ||
+					workflow.recordEffects.some((effect) =>
+						effect.writes.some((write) => write.propertyId === property.id),
+					) ||
+					workflow.readback.some((readback) =>
+						readback.propertyIds.includes(property.id),
+					),
+			);
+			const listUsers = contract.lists
+				.filter((list) =>
+					[
+						...list.scanPropertyIds,
+						...list.detailPropertyIds,
+						...list.searchPropertyIds,
+					].includes(property.id),
+				)
+				.flatMap((list) => {
+					const owner = listOwnerById.get(list.id);
+					return owner === undefined ? [] : [owner];
+				});
+			ownerByElement.set(
+				property.id,
+				earliest([...directUsers.map((workflow) => workflow.id), ...listUsers]),
 			);
 		}
-	});
+	}
+	for (const list of contract.lists) {
+		ownerByElement.set(list.id, listOwnerById.get(list.id) ?? initial);
+	}
+	for (const nav of contract.navigation) {
+		ownerByElement.set(
+			nav.id,
+			earliest([
+				...nav.workflowIds,
+				...nav.listIds.map((id) => ownerByElement.get(id) ?? initial),
+			]),
+		);
+	}
+	for (const policy of contract.access) {
+		ownerByElement.set(
+			policy.id,
+			earliest(
+				policy.targets.map((target) =>
+					target.kind === "workflow"
+						? target.id
+						: (ownerByElement.get(target.id) ?? initial),
+				),
+			),
+		);
+	}
+	for (const composition of contract.moduleCompositions) {
+		ownerByElement.set(
+			composition.id,
+			moduleOwnerById.get(composition.id) ?? initial,
+		);
+	}
+	for (const composition of contract.formCompositions) {
+		ownerByElement.set(composition.id, composition.workflowId);
+		if (composition.layout.kind === "sectioned") {
+			for (const section of composition.layout.sections) {
+				ownerByElement.set(section.id, composition.workflowId);
+				for (const item of section.items)
+					ownerByElement.set(item.id, composition.workflowId);
+			}
+		} else {
+			for (const item of composition.layout.items)
+				ownerByElement.set(item.id, composition.workflowId);
+		}
+	}
+	return ownerByElement;
+}
 
-	/* Parent selection precedes child creation. */
-	const recordById = new Map(contract.records.map((r) => [r.id, r]));
-	const transitionById = new Map(contract.transitions.map((t) => [t.id, t]));
-	const taskById = new Map(contract.tasks.map((t) => [t.id, t]));
-	const parentReadModelRecordIds = (sliceId: string): Set<string> => {
-		const seen = new Set<string>();
-		const records = new Set<string>();
-		const queue = [sliceId];
-		while (queue.length > 0) {
-			const id = queue.pop() as string;
-			if (seen.has(id)) continue;
-			seen.add(id);
-			const slice = sliceById.get(id);
-			if (!slice) continue;
-			for (const intentId of slice.intentIds) {
-				const model = contract.readModels.find((m) => m.id === intentId);
-				if (model) records.add(model.recordId);
-			}
-			queue.push(...slice.prerequisiteSliceIds);
+function expectedElementKinds(
+	contract: AppDesignContract,
+): Map<string, DesignElementRef["kind"]> {
+	return new Map([
+		...contract.actors.map((value) => [value.id, "actor"] as const),
+		...contract.records.flatMap((record) => [
+			[record.id, "record"] as const,
+			...record.properties.map(
+				(property) => [property.id, "property"] as const,
+			),
+		]),
+		...contract.workflows.map((value) => [value.id, "workflow"] as const),
+		...contract.lists.map((value) => [value.id, "list"] as const),
+		...contract.access.map((value) => [value.id, "access"] as const),
+		...contract.navigation.map((value) => [value.id, "navigation"] as const),
+		...contract.moduleCompositions.map(
+			(value) => [value.id, "module-composition"] as const,
+		),
+		...contract.formCompositions.flatMap((composition) => [
+			[composition.id, "form-composition"] as const,
+			...(composition.layout.kind === "sectioned"
+				? composition.layout.sections.flatMap((section) => [
+						[section.id, "composition-section"] as const,
+						...section.items.map(
+							(item) => [item.id, "composition-item"] as const,
+						),
+					])
+				: composition.layout.items.map(
+						(item) => [item.id, "composition-item"] as const,
+					)),
+		]),
+	]);
+}
+
+/** Contract-bound persisted-read proof. */
+export function buildPlanSchemaFor(contract: AppDesignContract) {
+	return buildPlanSchema.superRefine((plan, ctx) => {
+		/* These are producer invariants for plans derived from an accepted
+		 * contract, not v1 wire-format invariants. Earlier v1 producers placed
+		 * the app area on every foundation group, so the generic persisted reader
+		 * must remain permissive while newly derived plans stay exact. */
+		if (plan.slices[0]?.role !== "materialization-root") {
+			ctx.addIssue({
+				code: "custom",
+				path: ["slices", 0, "role"],
+				message: "The materialization root must be the first build slice.",
+			});
 		}
-		return records;
-	};
-	plan.slices.forEach((slice, i) => {
-		const reachable = parentReadModelRecordIds(slice.id);
-		for (const intentId of slice.ownedIntentIds) {
-			const task = taskById.get(intentId);
-			if (!task) continue;
-			for (const transitionId of task.transitionIds) {
-				const transition = transitionById.get(transitionId);
-				if (transition?.transitionKind !== "create") continue;
-				const record = recordById.get(transition.targetRecordId);
-				if (!record?.parentRecordId) continue;
-				if (!reachable.has(record.parentRecordId)) {
-					issue(
-						["slices", i, "intentIds"],
-						`The slice "${slice.name}" owns the task "${task.name}", which creates a child record — but no slice in its prerequisite closure carries a read model over the parent record. The worker must be able to select the parent first; plan that read model into this slice or a prerequisite.`,
-					);
-				}
+		const appAreaOwners = plan.slices.flatMap((slice, sliceIndex) =>
+			slice.constructionGroups.flatMap((group, groupIndex) =>
+				group.blueprintAreas.includes("app")
+					? [{ sliceIndex, groupIndex }]
+					: [],
+			),
+		);
+		if (
+			appAreaOwners.length !== 1 ||
+			plan.slices[appAreaOwners[0]?.sliceIndex ?? -1]?.role !==
+				"materialization-root"
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["slices"],
+				message:
+					"Exactly one construction group must own the app area, and it must belong to the materialization root.",
+			});
+		}
+		const workflowIds = new Set(
+			contract.workflows.map((workflow) => workflow.id),
+		);
+		const constructibleElementIds = new Set<string>([
+			...contract.actors.map((value) => value.id),
+			...contract.records.flatMap((record) => [
+				record.id,
+				...record.properties.map((property) => property.id),
+			]),
+			...contract.workflows.map((value) => value.id),
+			...contract.lists.map((value) => value.id),
+			...contract.access.map((value) => value.id),
+			...contract.navigation.map((value) => value.id),
+			...contract.moduleCompositions.map((value) => value.id),
+			...contract.formCompositions.flatMap((composition) => [
+				composition.id,
+				...(composition.layout.kind === "sectioned"
+					? composition.layout.sections.flatMap((section) => [
+							section.id,
+							...section.items.map((item) => item.id),
+						])
+					: composition.layout.items.map((item) => item.id)),
+			]),
+		]);
+		const assigned = new Map<string, string>();
+		const orderedWorkflowIds = workflowOrder(contract);
+		const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
+		const kindsByElement = expectedElementKinds(contract);
+		const planWorkflowIds = new Set<string>(
+			plan.slices.map((slice) => slice.workflowId),
+		);
+		for (const workflowId of orderedWorkflowIds) {
+			if (!planWorkflowIds.has(workflowId)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["slices"],
+					message: `Included workflow ${workflowId} has no build slice.`,
+				});
 			}
+		}
+		if (plan.slices.length !== orderedWorkflowIds.length) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["slices"],
+				message:
+					"A BuildPlan must contain exactly one slice for every included workflow and no extra slices.",
+			});
+		}
+		plan.slices.forEach((slice, sliceIndex) => {
+			if (!workflowIds.has(slice.workflowId))
+				ctx.addIssue({
+					code: "custom",
+					path: ["slices", sliceIndex, "workflowId"],
+					message: "This slice workflow is absent from the accepted design.",
+				});
+			slice.constructionGroups.forEach((group, groupIndex) => {
+				group.elements.forEach((element, elementIndex) => {
+					if (!constructibleElementIds.has(element.id))
+						ctx.addIssue({
+							code: "custom",
+							path: [
+								"slices",
+								sliceIndex,
+								"constructionGroups",
+								groupIndex,
+								"elements",
+								elementIndex,
+								"id",
+							],
+							message:
+								"This construction element is absent from the accepted design.",
+						});
+					const expectedKind = kindsByElement.get(element.id);
+					if (expectedKind !== undefined && element.kind !== expectedKind) {
+						ctx.addIssue({
+							code: "custom",
+							path: [
+								"slices",
+								sliceIndex,
+								"constructionGroups",
+								groupIndex,
+								"elements",
+								elementIndex,
+								"kind",
+							],
+							message: `Design element ${element.id} must retain kind ${expectedKind}.`,
+						});
+					}
+					const ownerWorkflowId = ownerByElement.get(element.id);
+					const groupKey =
+						element.kind === "actor" ||
+						element.kind === "record" ||
+						element.kind === "property"
+							? "foundation"
+							: element.kind === "workflow" ||
+									element.kind === "form-composition" ||
+									element.kind === "composition-section" ||
+									element.kind === "composition-item"
+								? "workflow"
+								: element.kind === "list"
+									? "queues"
+									: "access";
+					const expectedGroupId =
+						ownerWorkflowId === undefined
+							? undefined
+							: stableId(
+									plan.designRevisionDigest,
+									`group:${groupKey}`,
+									ownerWorkflowId,
+								);
+					if (
+						ownerWorkflowId !== slice.workflowId ||
+						expectedGroupId !== group.id
+					) {
+						ctx.addIssue({
+							code: "custom",
+							path: [
+								"slices",
+								sliceIndex,
+								"constructionGroups",
+								groupIndex,
+								"elements",
+								elementIndex,
+								"id",
+							],
+							message:
+								"This design element is not owned by its deterministic workflow construction group.",
+						});
+					}
+					const owner = assigned.get(element.id);
+					if (owner !== undefined && owner !== group.id)
+						ctx.addIssue({
+							code: "custom",
+							path: [
+								"slices",
+								sliceIndex,
+								"constructionGroups",
+								groupIndex,
+								"elements",
+								elementIndex,
+								"id",
+							],
+							message:
+								"A semantic element may belong to only one construction group.",
+						});
+					assigned.set(element.id, group.id);
+				});
+			});
+		});
+		for (const id of constructibleElementIds) {
+			if (!assigned.has(id))
+				ctx.addIssue({
+					code: "custom",
+					path: ["slices"],
+					message: `Design element ${id} is not assigned to a construction group.`,
+				});
 		}
 	});
+}
+
+function stableId(
+	revisionDigest: string,
+	kind: string,
+	id: string,
+): z.infer<typeof designIdSchema> {
+	return designIdSchema.parse(
+		deterministicDesignId(`build-plan-v1:${revisionDigest}:${kind}:${id}`),
+	);
+}
+
+function workflowOrder(contract: AppDesignContract): string[] {
+	const initial = contract.charter.initialWorkflowId;
+	const order = new Map(
+		contract.workflows.map((workflow, index) => [workflow.id, index]),
+	);
+	const remaining = new Set(contract.workflows.map((workflow) => workflow.id));
+	const emitted: string[] = [];
+	while (remaining.size > 0) {
+		const ready = [...remaining]
+			.filter((id) =>
+				(
+					contract.workflows.find((workflow) => workflow.id === id)
+						?.prerequisiteWorkflowIds ?? []
+				).every((dependency) => !remaining.has(dependency)),
+			)
+			.sort((a, b) => {
+				if (a === initial) return -1;
+				if (b === initial) return 1;
+				return (order.get(a) ?? 0) - (order.get(b) ?? 0);
+			});
+		if (ready.length === 0)
+			throw new Error("Accepted design has cyclic workflow prerequisites.");
+		for (const id of ready) {
+			remaining.delete(id);
+			emitted.push(id);
+		}
+	}
+	return emitted;
+}
+
+/** Derive the complete BuildPlan from one exact accepted revision. */
+export function deriveBuildPlan(args: {
+	readonly contract: AppDesignContract;
+	readonly revision: { readonly id: string; readonly digest: string };
+	readonly planId?: string;
+}): BuildPlan {
+	const { contract, revision } = args;
+	const constructionIssues = designConstructionIssues(contract);
+	if (constructionIssues.length > 0) {
+		throw new Error(
+			`Accepted design is not constructible: ${constructionIssues
+				.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+				.join("; ")}`,
+		);
+	}
+	const orderedWorkflowIds = workflowOrder(contract);
+	const workflowById = new Map<string, AppDesignContract["workflows"][number]>(
+		contract.workflows.map((workflow) => [workflow.id, workflow]),
+	);
+	const initial = contract.charter.initialWorkflowId;
+	const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
+	const refsFor = (
+		workflowId: string,
+		kinds: DesignElementRef["kind"][],
+	): DesignElementRef[] => {
+		const refs: DesignElementRef[] = [];
+		const push = (kind: DesignElementRef["kind"], id: string): void => {
+			if (ownerByElement.get(id) === workflowId && kinds.includes(kind))
+				refs.push({ kind, id: designIdSchema.parse(id) });
+		};
+		contract.actors.forEach((value) => {
+			push("actor", value.id);
+		});
+		contract.records.forEach((record) => {
+			push("record", record.id);
+			record.properties.forEach((property) => {
+				push("property", property.id);
+			});
+		});
+		contract.workflows.forEach((value) => {
+			push("workflow", value.id);
+		});
+		contract.lists.forEach((value) => {
+			push("list", value.id);
+		});
+		contract.access.forEach((value) => {
+			push("access", value.id);
+		});
+		contract.navigation.forEach((value) => {
+			push("navigation", value.id);
+		});
+		contract.moduleCompositions.forEach((value) => {
+			push("module-composition", value.id);
+		});
+		contract.formCompositions.forEach((composition) => {
+			push("form-composition", composition.id);
+			if (composition.layout.kind === "sectioned") {
+				composition.layout.sections.forEach((section) => {
+					push("composition-section", section.id);
+					section.items.forEach((item) => {
+						push("composition-item", item.id);
+					});
+				});
+			} else {
+				composition.layout.items.forEach((item) => {
+					push("composition-item", item.id);
+				});
+			}
+		});
+		return refs;
+	};
+	const groupsFor = (workflowId: string): ConstructionGroup[] => {
+		const workflow = workflowById.get(workflowId);
+		const propertyById = new Map(
+			contract.records.flatMap((record) =>
+				record.properties.map(
+					(property) => [property.id as string, property] as const,
+				),
+			),
+		);
+		const authoredFeatures = new Set(workflow?.authoredFeatures);
+		const formCompositions = contract.formCompositions.filter(
+			(composition) => composition.workflowId === workflowId,
+		);
+		const needsAdvancedCaseOperations =
+			(workflow?.recordEffects.length ?? 0) > 1 ||
+			(formCompositions.some(
+				(composition) => composition.mode === "standalone",
+			) &&
+				(workflow?.recordEffects.length ?? 0) > 0) ||
+			workflow?.recordEffects.some(
+				(effect) =>
+					effect.kind === "link" ||
+					effect.kind === "reassign" ||
+					effect.sourceRecordId !== undefined ||
+					(workflow.contextRecordId !== undefined &&
+						effect.recordId !== workflow.contextRecordId),
+			) === true;
+		const specs: Array<{
+			key: string;
+			name: string;
+			kind: ConstructionGroup["kind"];
+			kinds: DesignElementRef["kind"][];
+			areas: (elements: readonly DesignElementRef[]) => BlueprintArea[];
+		}> = [
+			{
+				key: "foundation",
+				name: "Data and people",
+				kind: "foundation",
+				kinds: ["actor", "record", "property"],
+				areas: (elements) => [
+					...(elements.some(
+						(element) =>
+							element.kind === "record" || element.kind === "property",
+					)
+						? (["case-catalog"] as const)
+						: []),
+					...(elements.some((element) => element.kind === "actor")
+						? (["users"] as const)
+						: []),
+					...(elements.some((element) => {
+						if (element.kind !== "property") return false;
+						return contract.records.some((record) =>
+							record.properties.some(
+								(property) =>
+									property.id === element.id &&
+									property.choiceSource !== undefined,
+							),
+						);
+					})
+						? (["lookup-references"] as const)
+						: []),
+				],
+			},
+			{
+				key: "workflow",
+				name: "Workflow",
+				kind: "workflow",
+				kinds: [
+					"workflow",
+					"form-composition",
+					"composition-section",
+					"composition-item",
+				],
+				areas: (elements) => [
+					...(workflowId === initial ? (["app"] as const) : []),
+					"forms",
+					...(needsAdvancedCaseOperations
+						? (["case-operations"] as const)
+						: []),
+					...(workflow?.inputs.some(
+						(input) =>
+							input.choiceSource !== undefined ||
+							(input.propertyId !== undefined &&
+								propertyById.get(input.propertyId as string)?.choiceSource !==
+									undefined),
+					)
+						? (["lookup-references"] as const)
+						: []),
+					...(authoredFeatures.has("existing-media") ||
+					elements.some(
+						(element) =>
+							element.kind === "form-composition" &&
+							contract.formCompositions.some(
+								(composition) =>
+									composition.id === element.id &&
+									composition.icon.kind === "builtin",
+							),
+					)
+						? (["media-references"] as const)
+						: []),
+					...(authoredFeatures.has("automation")
+						? (["automations"] as const)
+						: []),
+				],
+			},
+			{
+				key: "queues",
+				name: "Lists and search",
+				kind: "work-queue",
+				kinds: ["list"],
+				areas: () => ["case-list"],
+			},
+			{
+				key: "access",
+				name: "Access and navigation",
+				kind: "access-navigation",
+				kinds: ["access", "navigation", "module-composition"],
+				areas: (elements) => [
+					"navigation",
+					...(elements.some(
+						(element) =>
+							element.kind === "module-composition" &&
+							contract.moduleCompositions.some(
+								(composition) =>
+									composition.id === element.id &&
+									composition.icon.kind === "builtin",
+							),
+					)
+						? (["media-references"] as const)
+						: []),
+					...(elements.some((element) => element.kind === "access")
+						? (["users"] as const)
+						: []),
+					...(elements.some((element) => {
+						if (element.kind !== "access") return false;
+						return contract.access.some(
+							(policy) =>
+								policy.id === element.id && policy.locationScope !== undefined,
+						);
+					})
+						? (["organization-shape"] as const)
+						: []),
+				],
+			},
+		];
+		return specs.flatMap((spec) => {
+			const elements = refsFor(workflowId, spec.kinds);
+			return elements.length === 0
+				? []
+				: [
+						{
+							id: stableId(revision.digest, `group:${spec.key}`, workflowId),
+							workflowId: designIdSchema.parse(workflowId),
+							name: spec.name,
+							kind: spec.kind,
+							elements,
+							blueprintAreas: spec.areas(elements),
+						},
+					];
+		});
+	};
+
+	const externalActions: ExternalAction[] = contract.externalRequirements.map(
+		(requirement) => ({
+			id: stableId(revision.digest, "external-action", requirement.id),
+			requirementId: requirement.id,
+			kind: requirement.kind,
+			timing: requirement.blocksConstruction
+				? "blocked"
+				: requirement.kind === "deployment-readiness"
+					? "manual-setup"
+					: "after-slice",
+			description: requirement.description,
+		}),
+	);
+	const actionByRequirement = new Map(
+		externalActions.map((action) => [action.requirementId, action.id]),
+	);
+	const sliceIdByWorkflow = new Map(
+		orderedWorkflowIds.map((id) => [
+			id,
+			stableId(revision.digest, "slice", id),
+		]),
+	);
+	const slices: BuildSlice[] = orderedWorkflowIds.map((workflowId) => {
+		const workflow = workflowById.get(workflowId);
+		if (workflow === undefined)
+			throw new Error(`Missing workflow ${workflowId}.`);
+		const crossRecord =
+			new Set(workflow.recordEffects.map((effect) => effect.recordId)).size >
+				1 ||
+			workflow.recordEffects.some(
+				(effect) => effect.kind === "link" || effect.kind === "reassign",
+			);
+		return {
+			id: sliceIdByWorkflow.get(workflowId) as z.infer<typeof designIdSchema>,
+			workflowId: workflow.id,
+			name: workflow.name,
+			goal: workflow.goal,
+			prerequisiteSliceIds: workflow.prerequisiteWorkflowIds.map(
+				(id) => sliceIdByWorkflow.get(id) as z.infer<typeof designIdSchema>,
+			),
+			constructionGroups: groupsFor(workflowId),
+			externalActionIds: workflow.externalRequirementIds
+				.map((id) => actionByRequirement.get(id))
+				.filter((id): id is z.infer<typeof designIdSchema> => id !== undefined),
+			risk: crossRecord
+				? "cross-record"
+				: workflow.externalRequirementIds.length > 0
+					? "external-effect"
+					: "ordinary",
+			role: workflowId === initial ? "materialization-root" : "ordinary",
+		};
+	});
+	return buildPlanSchemaFor(contract).parse({
+		schemaVersion: 1,
+		designRevisionId: revision.id,
+		designRevisionDigest: revision.digest,
+		id: args.planId ?? crypto.randomUUID(),
+		slices,
+		externalActions,
+	});
+}
+
+/** Environment-dependent admission policy. The v1 schema retains producer-
+ * bound blocking-action timings, but this deployment may not persist one
+ * until its durable receipt producer is registered. */
+export function newPlanAdmissionMessages(
+	plan: Pick<BuildPlan, "externalActions">,
+): string[] {
+	return plan.externalActions.flatMap((action) =>
+		action.timing === "blocked"
+			? [
+					`External action ${action.id} blocks construction, but no registered completion producer can issue its durable receipt. The design must resolve this requirement or defer its workflow before a plan can be admitted.`,
+				]
+			: [],
+	);
 }

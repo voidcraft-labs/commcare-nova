@@ -134,7 +134,7 @@ export interface BuilderSessionState {
 
 	/** This session's app has a BUILD that never completed. Seeded true when
 	 *  the page loads a `generating` app or an interrupted build admitted for
-	 *  re-drive; latched true when this tab's `data-app-id` creation handoff
+	 *  re-drive; latched true when this tab's materialization handoff
 	 *  lands; released by `markBuildFinished()` from two channels: this tab's
 	 *  own stream `onData` (`data-done`, or the doc-less `data-build-complete`
 	 *  a conversational build turn emits instead), and the reconciler's
@@ -178,6 +178,10 @@ export interface BuilderSessionState {
 	 *  server-resolved role while `appId` remains absent until creation. */
 	projectId: string | undefined;
 	role: string | undefined;
+	/** Project membership capability before the initial-build authoring lock.
+	 * Chat uses this while `canEdit` remains false until the first complete
+	 * build is explicitly finished or accepted. */
+	projectCanEdit: boolean;
 	canEdit: boolean;
 	/** Whether the tuple is authoritative, being refreshed, waiting on a
 	 *  retryable GET, or confirmed lost. */
@@ -637,7 +641,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				appId: init?.appId as string | undefined,
 				projectId: initialAccess.projectId,
 				role: initialAccess.role,
-				canEdit: initialAccess.canEdit,
+				projectCanEdit: initialAccess.canEdit,
+				canEdit: initialAccess.canEdit && !(init?.buildUnfinished ?? false),
 				accessPhase: "authorized" as AccessPhase,
 				scopeEpoch: 0,
 				hasWaitingAccessChanges: false,
@@ -734,13 +739,17 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * lifecycle, so an arming signal after an observed completion
 					 * is a stale frame, never fresh truth. */
 					if (s.buildCompleted || s.buildUnfinished) return;
-					set({ buildUnfinished: true });
+					set({ buildUnfinished: true, canEdit: false });
 				},
 
 				markBuildFinished() {
 					const s = get();
 					if (s.buildCompleted && !s.buildUnfinished) return;
-					set({ buildUnfinished: false, buildCompleted: true });
+					set({
+						buildUnfinished: false,
+						buildCompleted: true,
+						canEdit: s.projectCanEdit,
+					});
 				},
 
 				pushEvents(events: Event[]) {
@@ -762,7 +771,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						appId: id,
 						projectId: snapshot.projectId,
 						role: snapshot.role,
-						canEdit: snapshot.canEdit,
+						projectCanEdit: snapshot.canEdit,
+						canEdit: snapshot.canEdit && !get().buildUnfinished,
 						accessPhase: "authorized",
 						hasWaitingAccessChanges: false,
 					});
@@ -779,7 +789,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return state.scopeEpoch;
 					}
 					const scopeEpoch = state.scopeEpoch + 1;
-					set({ canEdit: false, accessPhase: "refreshing", scopeEpoch });
+					set({
+						projectCanEdit: false,
+						canEdit: false,
+						accessPhase: "refreshing",
+						scopeEpoch,
+					});
 					return scopeEpoch;
 				},
 
@@ -791,7 +806,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					)
 						return;
 					if (!state.canEdit && state.accessPhase === "reconnecting") return;
-					set({ canEdit: false, accessPhase: "reconnecting" });
+					set({
+						projectCanEdit: false,
+						canEdit: false,
+						accessPhase: "reconnecting",
+					});
 				},
 
 				applyAccessSnapshot(
@@ -805,7 +824,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return {
 							projectId: snapshot.projectId,
 							role: snapshot.role,
-							canEdit: snapshot.canEdit,
+							projectCanEdit: snapshot.canEdit,
+							canEdit: snapshot.canEdit && !state.buildUnfinished,
 							accessPhase: "authorized",
 							hasWaitingAccessChanges:
 								!snapshot.canEdit && (options?.hasWaitingChanges ?? false),
@@ -828,13 +848,21 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				revokeAccess() {
 					const state = get();
 					if (!state.canEdit && state.accessPhase === "revoked") return;
-					set({ canEdit: false, accessPhase: "revoked" });
+					set({
+						projectCanEdit: false,
+						canEdit: false,
+						accessPhase: "revoked",
+					});
 				},
 
 				requireClientUpgrade() {
 					const state = get();
 					if (!state.canEdit && state.accessPhase === "upgradeRequired") return;
-					set({ canEdit: false, accessPhase: "upgradeRequired" });
+					set({
+						projectCanEdit: false,
+						canEdit: false,
+						accessPhase: "upgradeRequired",
+					});
 				},
 
 				setLoading(loading: boolean) {
@@ -1281,7 +1309,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						appId: undefined,
 						projectId: initialAccess.projectId,
 						role: initialAccess.role,
-						canEdit: initialAccess.canEdit,
+						projectCanEdit: initialAccess.canEdit,
+						canEdit: initialAccess.canEdit && !get().buildUnfinished,
 						accessPhase: "authorized",
 						scopeEpoch: 0,
 						hasWaitingAccessChanges: false,

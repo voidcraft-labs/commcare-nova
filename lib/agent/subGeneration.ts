@@ -22,7 +22,7 @@
  * the schema via the provider's controlled generation.
  */
 
-import type { FinishReason, LanguageModelUsage } from "ai";
+import type { FinishReason, FlexibleSchema, LanguageModelUsage } from "ai";
 import {
 	type CallWarning,
 	generateObject,
@@ -31,7 +31,7 @@ import {
 	Output,
 	streamText,
 } from "ai";
-import type { ZodType } from "zod";
+import { ZodError } from "zod";
 import { log } from "@/lib/logger";
 
 /**
@@ -52,6 +52,55 @@ function classifyUnparseableText(
 	if (trimmed.startsWith("```")) return "fenced";
 	if (trimmed.startsWith("{") || trimmed.startsWith("[")) return "json-like";
 	return "prose";
+}
+
+/** The failing PATHS from a Zod validation failure, each with its issue
+ *  code, and, for `custom` issues, the refinement MESSAGE itself: those are
+ *  Nova's own person-to-person prose (the schemas' superRefines), they name
+ *  the exact rule that failed, and without them a died run's diagnostics
+ *  say only that "something custom" rejected (the $3.49 lesson). Built-in
+ *  Zod messages stay as bare codes: they can embed received values, which
+ *  are the model's rendering of customer content and must stay out of the
+ *  mirrored logs. */
+function schemaIssueSummary(
+	err: NoObjectGeneratedError,
+): readonly string[] | undefined {
+	let cause: unknown = err.cause;
+	for (let depth = 0; depth < 4 && cause !== undefined; depth += 1) {
+		if (cause instanceof ZodError) {
+			return cause.issues.slice(0, 20).map((issue) => {
+				const path = issue.path.join(".") || "<root>";
+				return issue.code === "custom"
+					? `${path}: ${issue.message.slice(0, 300)}`
+					: `${path}: ${issue.code}`;
+			});
+		}
+		cause = (cause as { cause?: unknown }).cause;
+	}
+	return undefined;
+}
+
+/**
+ * Dev-only escape hatch: when `NOVA_DEBUG_STRUCTURED_OUTPUT_DIR` names a
+ * directory, the complete unparseable text is written there so a local
+ * smoke can be diagnosed exactly. Deliberately env-gated and best-effort:
+ * the PRODUCTION policy stands — model output is a rendering of customer
+ * content and never lands in Cloud Logging or Sentry.
+ */
+function debugDumpUnparseableText(err: NoObjectGeneratedError): void {
+	const dir = process.env.NOVA_DEBUG_STRUCTURED_OUTPUT_DIR;
+	if (!dir || !err.text) return;
+	void import("node:fs/promises")
+		.then((fs) =>
+			fs.writeFile(
+				`${dir}/unparseable-${err.response?.id ?? Date.now()}.json.txt`,
+				err.text ?? "",
+				"utf8",
+			),
+		)
+		.catch(() => {
+			// debugging aid only — never let it alter the failure path
+		});
 }
 
 /**
@@ -77,7 +126,9 @@ function logUnparseableStructuredOutput(err: NoObjectGeneratedError): void {
 		outputTokens: err.usage?.outputTokens,
 		textLength: err.text?.length ?? 0,
 		textShape: classifyUnparseableText(err.text),
+		schemaIssues: schemaIssueSummary(err),
 	};
+	debugDumpUnparseableText(err);
 	if (err.finishReason === "length") {
 		log.warn(
 			"[subGeneration] structured output truncated at the output ceiling",
@@ -161,6 +212,11 @@ export interface SubGenerationObjectResult<T> {
 	usage: LanguageModelUsage | undefined;
 	warnings: CallWarning[] | undefined;
 	finishReason: FinishReason | undefined;
+	/** The call's display-safe reasoning SUMMARY text, accumulated from the
+	 *  streamed `reasoning-delta` parts (streaming path only; it requires
+	 *  `reasoningSummary: 'auto'` in the provider options). Callers that
+	 *  persist it write it to the run event log, never a design table. */
+	reasoningText?: string;
 }
 
 /**
@@ -181,7 +237,7 @@ export interface SubGenerationObjectResult<T> {
 export async function generateObjectWith<T>(opts: {
 	model: LanguageModel;
 	system: string;
-	schema: ZodType<T>;
+	schema: FlexibleSchema<T>;
 	/** Decoded text body (text/docx/xlsx). Mutually exclusive with `file`. */
 	prompt?: string;
 	/** Native document block (PDF) the model reads directly. */
@@ -275,8 +331,8 @@ export async function generateObjectWith<T>(opts: {
  * `onProgress` fires per streamed chunk with its character count.
  *
  * Built on `streamText` + `Output.object`, NOT `streamObject`, on purpose: the
- * summarizer runs at high reasoning effort, where MOST of the wall-clock is silent
- * reasoning before any output token — `streamObject` exposes only the output text,
+ * summarizer may spend most of the wall-clock before any output token —
+ * `streamObject` exposes only the output text,
  * so progress wouldn't start until the very end. `streamText`'s `stream`
  * carries `reasoning-delta` parts too (with OpenAI `reasoningSummary`), so progress
  * tracks the reasoning phase as well — which is where the time actually goes.
@@ -291,7 +347,7 @@ export async function generateObjectWith<T>(opts: {
 export async function streamObjectWith<T>(opts: {
 	model: LanguageModel;
 	system: string;
-	schema: ZodType<T>;
+	schema: FlexibleSchema<T>;
 	/** Decoded text body (text/docx/xlsx). Mutually exclusive with `file`. */
 	prompt?: string;
 	/** Native document block (PDF) the model reads directly. */
@@ -311,6 +367,10 @@ export async function streamObjectWith<T>(opts: {
 	 *  which propagates like any other non-object failure. */
 	abortSignal?: AbortSignal;
 }): Promise<SubGenerationObjectResult<T>> {
+	// A dead signal must not construct the stream machinery at all: streamText
+	// tees internal streams whose promises only settle by being consumed, and
+	// a call aborted before its first byte strands them all.
+	opts.abortSignal?.throwIfAborted();
 	// The result promises are consumed on the happy path; tracked here so the catch
 	// can observe any it didn't await (a stream-stopping error jumps to the catch
 	// before they're awaited — see below). PromiseLike, so wrap to attach a handler.
@@ -365,15 +425,24 @@ export async function streamObjectWith<T>(opts: {
 			result.warnings,
 			result.finishReason,
 		];
+		// `output` (and its siblings) are GETTERS minting a fresh promise per
+		// access, so the instances captured above are never the ones handled
+		// below — observe them NOW or an invalid object's rejection surfaces
+		// as an unhandled rejection even on the clean-drain path.
+		for (const p of pending) void Promise.resolve(p).catch(() => {});
 
 		// Draining `stream` advances generation; the result promises resolve once
 		// it's done. Feed progress from BOTH reasoning and output deltas — reasoning
 		// is most of the work. `onProgress` is best-effort: a throwing callback (e.g.
 		// a write to a disconnected client) must NEVER break extraction — the model
 		// run persists regardless of who's listening — so it's swallowed here at the
-		// source rather than relied on at each call site.
+		// source rather than relied on at each call site. Reasoning deltas also
+		// accumulate into the result's `reasoningText`, the display-safe summary
+		// a caller may persist to the run event log.
+		let reasoningText = "";
 		for await (const part of result.stream) {
 			if (part.type === "reasoning-delta" || part.type === "text-delta") {
+				if (part.type === "reasoning-delta") reasoningText += part.text;
 				if (part.text.length > 0) {
 					try {
 						opts.onProgress?.(part.text.length);
@@ -423,7 +492,13 @@ export async function streamObjectWith<T>(opts: {
 				return null;
 			},
 		);
-		return { object, usage, warnings, finishReason };
+		return {
+			object,
+			usage,
+			warnings,
+			finishReason,
+			...(reasoningText.length > 0 && { reasoningText }),
+		};
 	} catch (err) {
 		// A stream-stopping error (transport failure) reaches here before the result
 		// promises are awaited and may reject them too. Observe each (wrapped, since

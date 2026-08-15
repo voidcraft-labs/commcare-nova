@@ -130,6 +130,9 @@ function classifyIdentity(
 	}
 
 	if (property === "moduleUuid") return "module";
+	/* `move_module` anchors on the module it now follows. The slot is named
+	 * for the mutation it emits, so the family comes from the tool. */
+	if (property === "after" && tool === "move_module") return "module";
 	if (property === "formUuid") return "form";
 	if (property === "automationUuid" || property === "afterAutomationUuid") {
 		return "automation";
@@ -156,14 +159,25 @@ function classifyIdentity(
 		return "field";
 	}
 	if (property === "optionUuid") return "select-option";
-	if (property === "columnUuid" || property === "columnUuids") {
+	if (
+		property === "columnUuid" ||
+		property === "columnUuids" ||
+		property === "resultsColumnOrder" ||
+		property === "detailsColumnOrder"
+	) {
 		return "case-list-column";
 	}
-	if (property === "searchInputUuid" || property === "searchInputUuids") {
+	if (
+		property === "searchInputUuid" ||
+		property === "searchInputUuids" ||
+		property === "searchInputOrder"
+	) {
 		return "search-input";
 	}
 	if (property === "userPropertyUuid") return "worker-property";
 	if (property === "userTypeUuid") return "user-type";
+	if (property === "personaUuid") return "persona";
+	if (property === "locationPropertyUuid") return "location-property";
 	if (
 		property === "levelUuid" ||
 		property === "levelUuids" ||

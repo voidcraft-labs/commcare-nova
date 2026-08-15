@@ -17,6 +17,10 @@ export type ArtifactResult<T> =
 			artifact: T;
 			usage: LanguageModelUsage | undefined;
 			finishReason: string | undefined;
+			/** The call's display-safe reasoning summary, when one streamed;
+			 *  persisted by the caller to the run event log beside the
+			 *  artifact it explains, never into a design table. */
+			reasoningText?: string;
 	  }
 	| {
 			kind: "not-produced";
@@ -38,6 +42,9 @@ export function toArtifactResult<T>(
 			artifact: result.object,
 			usage: result.usage,
 			finishReason: result.finishReason,
+			...(result.reasoningText !== undefined && {
+				reasoningText: result.reasoningText,
+			}),
 		};
 	}
 	if (signal.aborted) {

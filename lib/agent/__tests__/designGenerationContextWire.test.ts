@@ -2,18 +2,35 @@
  * Wire pin for the design pipeline's structured calls — the same
  * capturing-fetch discipline as `wireCacheConfig.test.ts`, nothing sent.
  *
- * What must hold for every author/reviewer/reviser/planner call:
- * `store: false` (stateless, no provider retention, excluded from training
- * by API terms), the reasoning options riding the `openai` key, the exact
- * model id, and a live abort signal on the request — cancellation is part
- * of the §7.5 contract, not an afterthought. A successful body also proves
- * the shared adapter parses the object and meters usage.
+ * What must hold on the wire for every author/reviewer/reviser/planner
+ * call: `store: false` (stateless, no provider retention, excluded from
+ * training by API terms), `stream: true` (a blocking call's headers wait
+ * on the whole generation, which undici's 300s headersTimeout kills for
+ * every long reasoning call — observed live), a STRICT json_schema
+ * response format carrying the projected schema (grammar-enforced
+ * structure; a non-strict format let a complete 57k-char author response
+ * fail the Zod parse — observed live — and the raw schemas' `oneOf`
+ * spelling 400s strict mode, so the PROJECTION is what ships), the
+ * reasoning options riding the `openai` key, the exact model id, and a
+ * live abort signal on the request.
+ *
+ * The pin is SPLIT across two seams because a real `streamText` run —
+ * success or failure — strands internal tee/stitch machinery the
+ * async-leak gate flags: `modelRunContext.test.ts` proves Nova hands
+ * `streamText` the strict projection, and this file proves the provider
+ * maps it onto the wire body by invoking the model's `doStream` directly
+ * — the full streaming request body is built and captured, and the
+ * rejected fetch means no stream machinery exists to strand. The abort
+ * contract stays at the full `runStructured` level, which refuses a dead
+ * signal before any construction.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
-import { MODEL_DEFAULT, reasoningProviderOptions } from "@/lib/models";
+import { createNovaOpenAI } from "@/lib/agent/openaiProvider";
+import { strictWireJsonSchema } from "@/lib/agent/strictStructuredOutput";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 
 const SESSION_ID = "00000000-0000-4000-8000-000000000600";
 
@@ -32,89 +49,127 @@ interface CapturedRequest {
 	body: {
 		model?: string;
 		store?: boolean;
+		stream?: boolean;
 		reasoning?: { effort?: string; summary?: string };
 		max_output_tokens?: number;
+		text?: {
+			format?: { type?: string; strict?: boolean; schema?: unknown };
+		};
 	};
 	signal: AbortSignal | null | undefined;
-}
-
-/** A minimal COMPLETE Responses API body the SDK parses into an object. */
-function completedResponseBody(json: string) {
-	return {
-		id: "resp_fake",
-		object: "response",
-		created_at: 0,
-		status: "completed",
-		model: "gpt-test",
-		output: [
-			{
-				type: "message",
-				id: "msg_fake",
-				status: "completed",
-				role: "assistant",
-				content: [{ type: "output_text", text: json, annotations: [] }],
-			},
-		],
-		usage: {
-			input_tokens: 11,
-			output_tokens: 7,
-			input_tokens_details: { cached_tokens: 4 },
-			output_tokens_details: { reasoning_tokens: 0 },
-		},
-	};
 }
 
 afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-describe("DesignGenerationContext.runStructured wire body", () => {
-	it("sends store:false + reasoning options + model id, carries the abort signal, parses, and meters", async () => {
+describe("design structured-call wire body", () => {
+	it("meters recovered durable usage without invoking the ordinary live sink", () => {
+		const meter = {
+			track: vi.fn(),
+			trackDurable: vi.fn(),
+		};
+		const ctx = makeContext(meter);
+		const usage = {
+			inputTokens: 100,
+			outputTokens: 25,
+			totalTokens: 125,
+			inputTokenDetails: {
+				noCacheTokens: 60,
+				cacheReadTokens: 40,
+				cacheWriteTokens: 0,
+			},
+			outputTokenDetails: { textTokens: 15, reasoningTokens: 10 },
+		};
+		const identity = { contextId: "context-1", stepKey: "step-1" };
+
+		ctx.trackDurableSubGeneration(usage, identity, "gpt-5.6-luna", {
+			step: true,
+			phase: "design-author",
+		});
+
+		expect(meter.track).not.toHaveBeenCalled();
+		expect(meter.trackDurable).toHaveBeenCalledWith(
+			identity,
+			expect.objectContaining({
+				inputTokens: 100,
+				outputTokens: 25,
+				cacheReadTokens: 40,
+			}),
+			{
+				step: true,
+				model: "gpt-5.6-luna",
+				phase: "design-author",
+			},
+		);
+	});
+
+	it("streams a store:false + STRICT json_schema request carrying the projection, reasoning options, and the abort signal", async () => {
 		let captured: CapturedRequest | null = null;
 		vi.stubGlobal("fetch", async (_url: unknown, init?: RequestInit) => {
 			captured = {
 				body: JSON.parse(init?.body as string),
 				signal: init?.signal,
 			};
-			return new Response(
-				JSON.stringify(completedResponseBody('{"answer":"yes"}')),
-				{ status: 200, headers: { "content-type": "application/json" } },
-			);
+			return new Response("captured", { status: 500 });
 		});
 
-		const tracked: unknown[] = [];
-		const ctx = makeContext({ track: (u) => tracked.push(u) });
+		// The seam's projection of a design-shaped schema: a discriminated
+		// union (raw spelling: oneOf — the exact construct that 400'd live)
+		// plus an optional slot.
+		const projected = strictWireJsonSchema(
+			z.object({
+				answer: z.discriminatedUnion("kind", [
+					z.object({ kind: z.literal("text"), value: z.string() }).strict(),
+					z.object({ kind: z.literal("count"), value: z.number() }).strict(),
+				]),
+				note: z.string().optional(),
+			}),
+		);
+
+		const model = createNovaOpenAI("sk-fake-never-sent")(
+			MODEL_ROLES.designReviewer.modelId,
+		);
 		const controller = new AbortController();
-		// The provider forwards reasoning options only for reasoning-family
-		// model ids, so the pin runs against the real default model.
-		const result = await ctx.runStructured({
-			schema: z.object({ answer: z.string() }),
-			modelId: MODEL_DEFAULT,
-			system: "You answer.",
-			prompt: "Say yes.",
-			maxOutputTokens: 500,
-			providerOptions: reasoningProviderOptions("high"),
-			signal: controller.signal,
-		});
-
-		expect(result.object).toEqual({ answer: "yes" });
+		await expect(
+			model.doStream({
+				prompt: [
+					{ role: "user", content: [{ type: "text", text: "Say yes." }] },
+				],
+				maxOutputTokens: 500,
+				responseFormat: {
+					type: "json",
+					name: "response",
+					schema: projected as never,
+				},
+				providerOptions: {
+					openai: reasoningProviderOptions("high").openai,
+				},
+				abortSignal: controller.signal,
+				includeRawChunks: false,
+			}),
+		).rejects.toThrow();
 
 		const request = captured as CapturedRequest | null;
 		if (!request) throw new Error("no request captured");
-		expect(request.body.model).toBe(MODEL_DEFAULT);
+		expect(request.body.model).toBe(MODEL_ROLES.designReviewer.modelId);
 		expect(request.body.store).toBe(false);
+		// Streaming is the seam's law, not a caller choice: blocking-mode
+		// headers arrive only after the full generation, which undici's 300s
+		// headersTimeout kills for every long reasoning call.
+		expect(request.body.stream).toBe(true);
 		expect(request.body.reasoning?.effort).toBe("high");
 		expect(request.body.max_output_tokens).toBe(500);
+		// STRICT json_schema (the provider default Nova keeps): the wire
+		// carries the projection — no oneOf, every property required.
+		expect(request.body.text?.format?.type).toBe("json_schema");
+		expect(request.body.text?.format?.strict).toBe(true);
+		const wireSchema = request.body.text?.format?.schema as {
+			required?: string[];
+		};
+		expect(JSON.stringify(wireSchema)).not.toContain('"oneOf"');
+		expect(wireSchema.required).toEqual(["answer", "note"]);
 		expect(request.signal).toBeInstanceOf(AbortSignal);
-
-		expect(tracked).toEqual([
-			{
-				inputTokens: 11,
-				outputTokens: 7,
-				cacheReadTokens: 4,
-				cacheWriteTokens: undefined,
-			},
-		]);
 	});
 
 	it("rejects on an already-aborted signal without swallowing the abort", async () => {
@@ -134,27 +189,5 @@ describe("DesignGenerationContext.runStructured wire body", () => {
 				signal: controller.signal,
 			}),
 		).rejects.toThrow();
-	});
-
-	it("returns null (with usage) when the model output does not fit the schema", async () => {
-		vi.stubGlobal("fetch", async () => {
-			return new Response(
-				JSON.stringify(completedResponseBody('{"wrong":"shape"}')),
-				{ status: 200, headers: { "content-type": "application/json" } },
-			);
-		});
-		const tracked: unknown[] = [];
-		const ctx = makeContext({ track: (u) => tracked.push(u) });
-		const result = await ctx.runStructured({
-			schema: z.object({ answer: z.string() }),
-			modelId: "gpt-test",
-			system: "You answer.",
-			prompt: "Say yes.",
-			maxOutputTokens: 500,
-			signal: new AbortController().signal,
-		});
-		expect(result.object).toBeNull();
-		// Spent tokens are spent: the failed parse still meters.
-		expect(tracked).toHaveLength(1);
 	});
 });

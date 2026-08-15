@@ -108,6 +108,11 @@ describe("deriveAgentStage", () => {
 		expect(deriveAgentStage([])).toBeNull();
 	});
 
+	it("shows Build once an unfinished build has materialized", () => {
+		expect(deriveAgentStage([], true)).toBe(GenerationStage.Build);
+		expect(deriveAgentStage([mut("app")], true)).toBe(GenerationStage.Build);
+	});
+
 	it("derives the furthest milestone established across the run", () => {
 		expect(
 			deriveAgentStage([

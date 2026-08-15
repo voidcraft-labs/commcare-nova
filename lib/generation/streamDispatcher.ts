@@ -24,7 +24,7 @@
  *      Stream-close lifecycle is owned by ChatContainer's chat-status
  *      effect via `endRun` — separate concern.
  *
- * `data-run-id` and `data-app-id` are handled inline in
+ * `data-run-id` and `data-app-materialized` are handled inline in
  * ChatContainer's `onData` and never reach this dispatcher.
  *
  * ## Reconciler integration
@@ -40,7 +40,7 @@
  * instead of `docStore.load()` (the agent suppression bracket is still open).
  * A brand-new build's reconciler is DORMANT (no app id yet): `registerChatBatch`
  * / `onDataDone` no-op, and the mutations apply directly to the store — the
- * reconciler activates on `data-app-id`.
+ * reconciler activates on `data-app-materialized`.
  *
  * Signal grid energy is injected BEFORE processing so the animation
  * responds to event arrival, not post-mutation.
@@ -98,14 +98,17 @@ function injectSignalEnergy(type: string): void {
  * storm coming back with nothing failing at compile time. Returns null for
  * every non-error conversation event.
  */
-export function conversationEventError(
-	data: Record<string, unknown>,
-): { message: string; fatal: boolean } | null {
+export function conversationEventError(data: Record<string, unknown>): {
+	message: string;
+	fatal: boolean;
+	runContinues: boolean;
+} | null {
 	const event = data as unknown as ConversationEvent;
 	if (event.payload?.type !== "error") return null;
 	return {
 		message: event.payload.error.message,
 		fatal: !!event.payload.error.fatal,
+		runContinues: event.payload.error.runContinues === true,
 	};
 }
 
@@ -240,7 +243,7 @@ export function applyStreamEvent(
 			 *    assert — the agent suppression bracket is still open, closing
 			 *    only on stream-close via `endRun`). `onDataDone` is
 			 *    bracket-safe even for a still-dormant reconciler (a new build
-			 *    whose `data-app-id` hasn't activated it yet), so it is the ONE
+			 *    whose `data-app-materialized` hasn't activated it yet), so it is the ONE
 			 *    reconcile path — a `load()` fallback would crash on the open
 			 *    bracket. A null reconciler (replay) never emits `data-done`.
 			 *
@@ -274,7 +277,8 @@ export function applyStreamEvent(
 		}
 	}
 
-	// `data-run-id` and `data-app-id` are handled inline by
-	// ChatContainer's `onData` and never reach this dispatcher. Any other
-	// type is ignored.
+	// `data-run-id`, `data-design-session`, and `data-app-materialized` are
+	// handled inline by ChatContainer's `onData` and never reach this
+	// dispatcher. Any other type — including the design-build progress
+	// frames — is ignored here.
 }

@@ -13,7 +13,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { StickToBottomContext } from "use-stick-to-bottom";
 import {
 	Conversation,
 	ConversationContent,
@@ -24,6 +23,7 @@ import { Message, MessageContent } from "@/components/ai-elements/message";
 import { useActiveInspector } from "@/components/builder/inspector/activeInspector";
 import { InspectorPanel } from "@/components/builder/inspector/InspectorPanel";
 import {
+	type ChatActivity,
 	ChatActivityStatus,
 	deriveChatActivity,
 } from "@/components/chat/ChatActivityStatus";
@@ -48,6 +48,7 @@ import {
 	useSetSidebarOpen,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import type { ChatScrollController } from "@/lib/ui/chatScroll";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { INSPECTOR_RAIL_WIDTH } from "@/lib/ui/inspector";
 
@@ -84,6 +85,12 @@ interface ChatSidebarProps {
 	/** Send a turn. `attachments` are asset-id refs to files picked from the file
 	 *  manager; the server resolves each to its stored extract or image bytes. */
 	onSend: (message: { text: string; attachments?: AttachmentRef[] }) => void;
+	/** Files attached WHILE ANSWERING a question round. The answer itself rides
+	 *  the tool output, so its files buffer with the owner (ChatContainer) and
+	 *  flush as one attachment-bearing user message when the round completes;
+	 *  extraction keeps running the whole time and never blocks the next
+	 *  question. */
+	onAnswerAttachments?: (refs: AttachmentRef[]) => void;
 	addToolOutput: (params: {
 		tool: string;
 		toolCallId: string;
@@ -101,6 +108,22 @@ interface ChatSidebarProps {
 	onSelectThread?: (threadId: string) => Promise<boolean>;
 	/** Start a fresh conversation. */
 	onNewChat?: () => void;
+	/** Reviewed-design and planned-work cards. They scroll with the transcript. */
+	designProgressDetails?: ReactNode;
+	/** The design stage line. Like every live activity row, it stays directly
+	 * above the composer instead of moving upward as transcript cards arrive. */
+	designProgressStatus?: ReactNode;
+	/** Freeze ordinary composer sends from the first persisted design artifact
+	 * through whole-plan completion. A persisted question round is the only
+	 * pre-build input the composer may route. */
+	initialBuildLocked?: boolean;
+	/** Suppress the generic activity row while `designProgress` owns the
+	 *  status. The design stage line is a live region of its own and says the
+	 *  same thing more precisely; announcing both reads as a stutter. */
+	activityStatusHidden?: boolean;
+	/** Temporary root-model work that supersedes, then yields back to, the
+	 * ordinary activity or design stage without changing either owner. */
+	activityOverride?: ChatActivity | null;
 }
 
 interface ShortChatFallbackOptions {
@@ -140,6 +163,32 @@ export function shouldShowShortChatFallback({
 	return !centered && !docked && veryShortViewport;
 }
 
+export function chatComposerIsDisabled({
+	isLoading,
+	isGenerating,
+	initialBuildLocked,
+	activeQuestionCount,
+	composerBusy,
+	readOnly,
+	authorized,
+}: {
+	readonly isLoading: boolean;
+	readonly isGenerating: boolean;
+	readonly initialBuildLocked: boolean;
+	readonly activeQuestionCount: number;
+	readonly composerBusy: boolean;
+	readonly readOnly: boolean;
+	readonly authorized: boolean;
+}): boolean {
+	return (
+		isLoading ||
+		((isGenerating || initialBuildLocked) && activeQuestionCount === 0) ||
+		composerBusy ||
+		readOnly ||
+		!authorized
+	);
+}
+
 export function ChatSidebar({
 	centered,
 	startFromScratch,
@@ -149,6 +198,7 @@ export function ChatSidebar({
 	messages,
 	status,
 	onSend,
+	onAnswerAttachments,
 	addToolOutput,
 	readOnly,
 	readOnlyNotice,
@@ -156,6 +206,11 @@ export function ChatSidebar({
 	activeThreadId,
 	onSelectThread,
 	onNewChat,
+	designProgressDetails,
+	designProgressStatus,
+	initialBuildLocked = false,
+	activityStatusHidden = false,
+	activityOverride = null,
 }: ChatSidebarProps) {
 	const sessionApi = useBuilderSessionApi();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -333,34 +388,12 @@ export function ChatSidebar({
 
 	const pendingAnswerRef = useRef<((text: string) => void) | null>(null);
 
-	/* The StickToBottom scroll context, captured from Conversation. The library's
-	 * initial="instant" path still waits for ResizeObserver + rAF, which leaves one
-	 * top-positioned frame when this scroll root remounts after closing History.
-	 * Initialize each NEW scroll element synchronously from the imperative-ref
-	 * commit instead: DOM refs and layout are ready, but the browser has not painted.
-	 * Tracking element identity keeps later context updates from fighting manual
-	 * scrolling; use-stick-to-bottom owns all pinning after this first position. */
-	const stickContextRef = useRef<StickToBottomContext | null>(null);
-	const initializedScrollElementRef = useRef<HTMLElement | null>(null);
-	const captureStickContext = useCallback(
-		(context: StickToBottomContext | null) => {
-			stickContextRef.current = context;
-			const scrollElement = context?.scrollRef.current;
-			if (
-				!scrollElement ||
-				scrollElement === initializedScrollElementRef.current
-			) {
-				return;
-			}
-
-			initializedScrollElementRef.current = scrollElement;
-			if (getComputedStyle(scrollElement).overflow === "visible") {
-				scrollElement.style.overflow = "auto";
-			}
-			scrollElement.scrollTop = scrollElement.scrollHeight;
-		},
-		[],
-	);
+	/* The conversation's scroll controller (`lib/ui/chatScroll.ts` is the one
+	 * scroll model: pinned-to-bottom through content growth, resizes, and the
+	 * centered↔sidebar morph; the question-card anchor; escape beyond the
+	 * near-bottom range; re-entry within it). Conversation hands it up so the send
+	 * handlers below can jump the view back to the latest content. */
+	const scrollControllerRef = useRef<ChatScrollController | null>(null);
 
 	const markLocalSend = useCallback(() => {
 		/* Mark the coming `submitted` window as a real send. A resume or re-drive
@@ -368,33 +401,44 @@ export function ChatSidebar({
 		localSendRef.current = true;
 	}, []);
 
-	/* A local turn always returns the view to the bottom, wherever the user had
-	 * scrolled: jump (no animated travel through the transcript) and re-engage
-	 * use-stick-to-bottom's pin, which an upward scroll releases. The jump lands
-	 * on the CURRENT bottom: the new message commits a render later, and the
-	 * re-engaged pin then carries it (and the streamed reply) into view via the
-	 * resize follow. Incoming content alone never scrolls an escaped view; only
-	 * the user's own send does. */
+	/* A local turn always returns the view to the pinned position, wherever
+	 * the user had scrolled: an instant jump (no animated travel through the
+	 * transcript) that re-engages the pin an upward scroll releases. The jump
+	 * lands on the CURRENT bottom (or the waiting card's top): the new message
+	 * commits a render later, and the re-engaged pin then carries it (and the
+	 * streamed reply) into view via the resize follow. Incoming content alone
+	 * never scrolls an escaped view; only the user's own send does. */
 	const scrollToLatest = useCallback(() => {
-		void stickContextRef.current?.scrollToBottom({ animation: "instant" });
+		scrollControllerRef.current?.scrollToLatest();
 	}, []);
 
 	// Route typed messages as question answers when an AskQuestionsCard is waiting.
-	// Answers are text-only (the question UI is multiple-choice); any staged
-	// attachments are forwarded only on a normal send, never folded into an answer.
-	// Sending returns attention to the conversation, so the thread list closes.
+	// Files attached with an answer buffer with the owner (extraction keeps
+	// running, the next question stays answerable) and the answer text names
+	// them, so the model can tie each file to the answer it came with; the
+	// buffered refs flush as one attachment-bearing message when the round
+	// completes. Sending returns attention to the conversation, so the thread
+	// list closes.
 	const handleSend = useCallback(
 		(message: { text: string; attachments?: AttachmentRef[] }) => {
 			setThreadListOpen(false);
 			if (pendingAnswerRef.current) {
-				pendingAnswerRef.current(message.text);
+				const attachments = message.attachments ?? [];
+				if (attachments.length > 0) {
+					onAnswerAttachments?.(attachments);
+				}
+				const note =
+					attachments.length > 0
+						? ` (attached: ${attachments.map((ref) => ref.filename).join(", ")})`
+						: "";
+				pendingAnswerRef.current(`${message.text}${note}`);
 			} else {
 				markLocalSend();
 				onSend(message);
 			}
 			scrollToLatest();
 		},
-		[markLocalSend, onSend, scrollToLatest],
+		[markLocalSend, onAnswerAttachments, onSend, scrollToLatest],
 	);
 
 	// An answered question starts the same outgoing-message status as the composer
@@ -411,7 +455,11 @@ export function ChatSidebar({
 		[addToolOutput, markLocalSend, scrollToLatest],
 	);
 
-	// ── Auto-scroll question cards into view when they appear ──
+	/* Waiting question cards need no scroll effect of their own: the scroll
+	 * model's pinned target anchors on the last waiting card, so a pinned view
+	 * opens each arriving card at its top, and an escaped reader is left
+	 * where they are (the status line says an answer is waited on). The count
+	 * still feeds the composer-disabled derivation below. */
 	let activeQuestionCount = 0;
 	for (const msg of messages) {
 		for (const part of msg.parts) {
@@ -423,30 +471,6 @@ export function ChatSidebar({
 			}
 		}
 	}
-
-	// use-stick-to-bottom keeps the view pinned to the latest message, but it does
-	// not scroll a mid-list element into view. A new waiting question card can land
-	// above the fold, so when the count of waiting cards rises we scroll the last
-	// one into view. We reach the live content element through the StickToBottom
-	// context (ConversationContent owns its own ref internally and exposes none),
-	// then let scrollIntoView locate its own scroll ancestor.
-	const prevActiveQCountRef = useRef(0);
-	useEffect(() => {
-		if (activeQuestionCount > prevActiveQCountRef.current) {
-			requestAnimationFrame(() => {
-				const content = stickContextRef.current?.contentRef.current;
-				if (!content) return;
-				const cards = content.querySelectorAll(
-					'[data-question-card="waiting"]',
-				);
-				const lastCard = cards[cards.length - 1] as HTMLElement | undefined;
-				if (lastCard) {
-					lastCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
-				}
-			});
-		}
-		prevActiveQCountRef.current = activeQuestionCount;
-	}, [activeQuestionCount]);
 
 	return (
 		<motion.div
@@ -604,11 +628,12 @@ export function ChatSidebar({
 				)}
 
 				{/* Messages: the open conversation's transcript (hydrated
-				 *  history + live turns through one render path).
-				 *  Conversation (a use-stick-to-bottom root) owns the scroll: it
-				 *  keeps the view pinned to the latest message and across the
-				 *  center↔sidebar morph. contextRef hands us the scroll context so
-				 *  the question-card autoscroll can reach the content element. */}
+				 *  history + live turns through one render path). Conversation
+				 *  owns the scroll via ChatScrollController: pinned to the
+				 *  latest content across streaming and the center↔sidebar
+				 *  morph, anchored to a waiting question card's top, released
+				 *  by scrolling beyond the near-bottom range. controllerRef hands the controller up
+				 *  for the send handlers' jump-to-latest. */}
 				{/* The card is `overflow-hidden`; the activity status + composer below are
 				 *  `shrink-0` and must NEVER be clipped, so the Conversation absorbs all
 				 *  flex pressure (it's the scroll region).
@@ -625,7 +650,7 @@ export function ChatSidebar({
 					<Conversation
 						key={activeThreadId}
 						className={centered ? "flex-auto min-h-0" : "flex-1"}
-						contextRef={captureStickContext}
+						controllerRef={scrollControllerRef}
 						inert={interactionBlocked}
 						aria-busy={interactionBlocked || undefined}
 					>
@@ -662,6 +687,12 @@ export function ChatSidebar({
 									isStreaming={isLoading && msgIndex === messages.length - 1}
 								/>
 							))}
+
+							{/* Below the transcript, inside the same scroll region: a
+							 *  design build's progress and outline belong to the
+							 *  conversation, and stick-to-bottom keeps them in view
+							 *  while the build runs. */}
+							{designProgressDetails}
 						</ConversationContent>
 						<ConversationScrollButton />
 					</Conversation>
@@ -669,10 +700,6 @@ export function ChatSidebar({
 
 				{/* Resting chat has no status chrome. Work in progress uses one compact,
 				 * plain-language row that yields entirely in a short inspector dock. */}
-				{!shortInspectorDock && !shortChatFallback && (
-					<ChatActivityStatus state={activity.state} label={activity.label} />
-				)}
-
 				{interactionBlockedRecovery && !shortChatFallback && (
 					<div
 						role="alert"
@@ -713,6 +740,22 @@ export function ChatSidebar({
 					<ShortChatFallback onCollapse={() => setSidebarOpen("chat", false)} />
 				)}
 
+				{/* The one live status is the final line before the input. A temporary
+				 * root-model activity supersedes the ordinary owner, then removing it
+				 * reveals the previous derived status unchanged. */}
+				{!shortInspectorDock &&
+					!shortChatFallback &&
+					(activityOverride ? (
+						<ChatActivityStatus
+							state={activityOverride.state}
+							label={activityOverride.label}
+						/>
+					) : designProgressStatus ? (
+						designProgressStatus
+					) : !activityStatusHidden ? (
+						<ChatActivityStatus state={activity.state} label={activity.label} />
+					) : null)}
+
 				{/* Input: absent only in read-only mode. Short layouts keep its
 				 * subtree mounted so opening an inspector cannot erase a draft or
 				 * staged attachment. */}
@@ -725,21 +768,15 @@ export function ChatSidebar({
 				>
 					<ChatInput
 						onSend={handleSend}
-						disabled={
-							isLoading ||
-							isGenerating ||
-							composerBusy ||
-							readOnly ||
-							accessPhase !== "authorized"
-						}
-						// The spinner means "your turn is on its way to the SA", so it
-						// tracks only the chat sources. `composerBusy` locks the composer
-						// for a reason that has nothing to do with a message.
-						submitting={isLoading || isGenerating}
-						// A waiting question card routes the next composer send to it as
-						// a text-only answer, so the composer disables attaching and
-						// preserves any staged files instead of dropping them.
-						answerPending={activeQuestionCount > 0}
+						disabled={chatComposerIsDisabled({
+							isLoading,
+							isGenerating,
+							initialBuildLocked,
+							activeQuestionCount,
+							composerBusy: composerBusy === true,
+							readOnly: readOnly === true,
+							authorized: accessPhase === "authorized",
+						})}
 						centered={centered}
 						// "Describe the app" fits only the opening prompt of a
 						// brand-new build; the moment a message exists (sent or

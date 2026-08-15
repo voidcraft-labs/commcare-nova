@@ -16,7 +16,7 @@
  *   - exposes the reconciler + both subscriptions via `ReconcilerContext`.
  *
  * A brand-new build mounts DORMANT (no `appId`): no stream opens and human
- * PUTs are disabled until `data-app-id` activates the reconciler (via
+ * PUTs are disabled until `data-app-materialized` activates the reconciler (via
  * the chat wiring), which then opens the stream at the receipt's authoritative
  * cursor.
  *

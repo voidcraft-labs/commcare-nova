@@ -51,6 +51,12 @@ export const chatRequestSchema = z.object({
 	 * admission branch both key on it), so an empty string must be a parse
 	 * error rather than a value the two checks read differently. */
 	appId: z.string().min(1).optional(),
+	/** Design-session ID: the pre-app build scope this turn continues (an
+	 *  answered question round, a recoverable failed design's re-drive, or a
+	 *  resume from Designs in progress). A fresh build sends neither this nor
+	 *  `appId` — the route creates and claims a new session. Never sent
+	 *  beside `appId`; a materialized session's turns address the app. */
+	designSessionId: z.string().uuid().optional(),
 	/** Project captured by the server-rendered `/build/new` page. New-app
 	 *  creation targets this exact Project after a fresh server-side edit gate;
 	 *  it never re-resolves the session's mutable active Project mid-request. */
@@ -68,12 +74,11 @@ export const chatRequestSchema = z.object({
 	 *  presence, deliberately never on a client-claimed mode). It stays on the
 	 *  wire so the server can see when a client's phase read has drifted. */
 	appReady: z.boolean().optional(),
-	/** True on the client's automatic re-drive of an instance-killed run (the
-	 *  loader detected a dead live-stream marker and the thread's last turn is
-	 *  an unanswered user message). One behavioral difference from a normal
-	 *  send: on a CLAIM CONFLICT the request bails with a clean close instead
-	 *  of serialize-waiting: a conflict means another session's re-drive (or
-	 *  a real run) already owns the turn, and a queued duplicate would re-run
-	 *  it a second time when the holder finishes. */
+	/** True on an exact-turn re-drive: either the loader found a dead live-stream
+	 *  marker or the user explicitly resumed a sealed recoverable reviewed
+	 *  build. It is always a fresh chargeable claim even when the frozen
+	 *  transcript ends in an assistant question round. On a CLAIM CONFLICT the
+	 *  request bails with a clean close instead of serialize-waiting: another
+	 *  session already owns the same recovery, and queueing would duplicate it. */
 	redrive: z.boolean().optional(),
 });

@@ -48,8 +48,18 @@ one usage shape events DO carry is the `step-usage` conversation
 annotation (`GenerationContext.handleAgentStep`, one per agent step):
 per-step input / cached-input / output tokens, because "which step
 re-billed uncached input" is a per-step question the run summary's
-aggregates cannot answer. No money values on events; sub-generation usage
+aggregates cannot answer. Steps with tools also carry their opaque tool-call
+ids, which correlate private payload-free outcome annotations without exposing
+the tool input or result. No money values on events; sub-generation usage
 (document extraction etc.) stays summary-only.
+
+The private design loop emits `design-tool-outcome` annotations with opaque
+call identity, tool name, input character count, duration, a closed outcome
+category, a stable code, and optional validation stage plus issue count. The
+private build executor emits `executor-tool-outcome` annotations with only
+model step, tool name, operation index, workspace revision, a closed outcome
+category, and a stable code. Raw inputs, outputs, rejection prose, and
+customer-authored names never enter either event.
 
 ## Writer semantics
 

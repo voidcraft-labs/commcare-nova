@@ -18,7 +18,7 @@ import {
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import { createApp } from "@/lib/db/apps";
+import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 
 const dbHandle = setupPerTestDatabase({
@@ -444,10 +444,15 @@ describe("Project-reference auth-app exact cutover", () => {
 		__setAppDbForTests(dbHandle.db as Kysely<AppDatabase>);
 		let appId: string;
 		try {
-			const receipt = await createApp(userId, projectId, randomUUID(), {
-				status: "complete",
-				name: "Fold baseline orphan probe",
-			});
+			const receipt = await createExplicitBlankApp(
+				userId,
+				projectId,
+				randomUUID(),
+				{
+					status: "complete",
+					name: "Fold baseline orphan probe",
+				},
+			);
 			appId = receipt.appId;
 		} finally {
 			__setAppDbForTests(null);

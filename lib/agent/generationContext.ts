@@ -17,9 +17,8 @@
  *    the blueprint snapshot on `AppDoc` is still authoritative.
  *  - **Usage (`UsageAccumulator`)** — per-request token + cost aggregation
  *    flushed once at request end. Outer agent steps carry `{ step: true }`;
- *    sub-gens (internal `generate` / `streamGenerate` /
- *    `extractDocumentStructured` calls) accumulate tokens without stepping
- *    the counter.
+ *    structured document extraction accumulates tokens without stepping the
+ *    counter.
  *
  * Implements `CanonicalMutationHost` — the persistence seam the canonical
  * Tool Workspace executes shared tools over. `recordMutations` /
@@ -28,25 +27,24 @@
  * implementations they delegate to. Tool bodies never see this class: they
  * run against `ToolInvocationContext` (lib/agent/workspace/types.ts).
  *
- * Sub-generation prompts/outputs (from `generate`, `streamGenerate`,
- * `extractDocumentStructured`) are intentionally NOT persisted in the event log — only
- * aggregate token usage. The log is supplemental and does not carry
- * per-tool payloads. Admin inspection surfaces should rely on per-run
- * summary docs and on agent-step-granularity conversation events.
+ * Document-extraction prompts/outputs are intentionally NOT persisted in the
+ * event log — only aggregate token usage. The log is supplemental and does
+ * not carry per-tool payloads. Admin inspection surfaces should rely on
+ * per-run summary docs and on agent-step-granularity conversation events.
  *
  * The context owns nothing stateful beyond a monotonic `seq` counter used to
  * preserve chronological order inside a single millisecond (multiple events
  * in one SSE burst share `ts`).
  */
 
-import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
+import type { OpenAIProvider } from "@ai-sdk/openai";
 import type {
 	CallWarning,
+	FinishReason,
 	LanguageModelUsage,
+	StepResultPerformance,
 	UIMessageStreamWriter,
 } from "ai";
-import { generateText, Output, streamText } from "ai";
-import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
@@ -69,7 +67,11 @@ import {
 } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
-import type { UsageAccumulator } from "@/lib/db/usage";
+import type {
+	DesignBuildCostPhase,
+	DurableUsageIdentity,
+} from "@/lib/db/usage";
+import { pricingTierForInput, type UsageAccumulator } from "@/lib/db/usage";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -88,12 +90,6 @@ import type {
 } from "@/lib/log/types";
 import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import {
-	MODEL_DEFAULT,
-	OPENAI_BASE_OPTIONS,
-	type ReasoningEffort,
-	reasoningProviderOptions,
-} from "@/lib/models";
 import type {
 	ExtractDocumentStructuredOpts,
 	StructuredExtractResult,
@@ -109,6 +105,7 @@ import {
 	type StructuredModelRunArgs,
 	type StructuredModelRunContext,
 } from "./modelRunContext";
+import { createNovaOpenAI } from "./openaiProvider";
 import {
 	type SubGenerationObjectResult,
 	streamObjectWith,
@@ -198,6 +195,8 @@ interface GenerationContextOptions {
  */
 export interface AgentStep {
 	usage?: LanguageModelUsage;
+	/** Exact persisted response identity for recovery-safe usage accounting. */
+	durableUsageIdentity?: DurableUsageIdentity;
 	text?: string;
 	reasoningText?: string;
 	toolCalls?: Array<{
@@ -224,6 +223,12 @@ export interface AgentStep {
 		error: unknown;
 	}>;
 	warnings?: CallWarning[];
+	finishReason?: FinishReason;
+	rawFinishReason?: string;
+	performance?: StepResultPerformance;
+	/** Private protocols keep raw tool inputs/results out of the supplemental
+	 * event log while retaining usage, tool counts, and pause detection. */
+	toolEventMode?: "full" | "metadata-only";
 }
 
 export class GenerationContext
@@ -310,7 +315,7 @@ export class GenerationContext
 	private leaseHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(opts: GenerationContextOptions) {
-		this.openai = createOpenAI({ apiKey: opts.apiKey });
+		this.openai = createNovaOpenAI(opts.apiKey);
 		this.writer = opts.writer;
 		this.logWriter = opts.logWriter;
 		this.usage = opts.usage;
@@ -413,7 +418,7 @@ export class GenerationContext
 		args: StructuredModelRunArgs<T>,
 	): Promise<SubGenerationObjectResult<T>> {
 		return runStructuredWith(this.model(args.modelId), args, (usage) =>
-			this.trackSubGeneration(usage),
+			this.trackSubGeneration(usage, args.modelId),
 		);
 	}
 
@@ -519,7 +524,7 @@ export class GenerationContext
 	 *   - `data-done` — the route's drain-end build-finished signal,
 	 *     carrying the final doc snapshot for client reconciliation.
 	 *   - `data-blueprint-updated` — edit-mode coarse-tool replacements.
-	 *   - `data-app-id` — the one-shot canonical genesis receipt that installs
+	 *   - `data-app-materialized` — the one-shot genesis receipt that installs
 	 *     the exact blueprint/cursor before driving the `/build/new` →
 	 *     `/build/{id}` URL swap and multiplayer activation.
 	 *   - `data-run-id` — server-minted run identifier the client echoes
@@ -555,7 +560,11 @@ export class GenerationContext
 	 * the known external conditions (rate limit, auth, overload, …) log at
 	 * `warn` so they don't flood Error Reporting with expected states.
 	 */
-	emitError(error: ClassifiedError, context?: string): void {
+	emitError(
+		error: ClassifiedError,
+		context?: string,
+		opts?: { runContinues?: boolean },
+	): void {
 		const cause = {
 			raw: error.raw ?? "",
 			context: context ?? "",
@@ -574,6 +583,7 @@ export class GenerationContext
 			type: error.type,
 			message: error.message,
 			fatal: !error.recoverable,
+			...(opts?.runContinues === true && { runContinues: true }),
 		};
 		try {
 			this.emitConversation({ type: "error", error: payload });
@@ -1003,7 +1013,12 @@ export class GenerationContext
 		}
 	}
 
-	handleAgentStep(step: AgentStep, label: string): void {
+	handleAgentStep(
+		step: AgentStep,
+		label: string,
+		model: string,
+		phase?: DesignBuildCostPhase,
+	): void {
 		logWarnings(`runAgent:${label}`, step.warnings);
 		// Refresh the run's liveness horizon off SA activity (debounced) — the
 		// cheap early beat; the wall-clock timer covers a long no-step turn.
@@ -1012,15 +1027,26 @@ export class GenerationContext
 		if (!usage) return;
 
 		/* Outer agent step — increments stepCount on the run summary. */
-		this.usage.track(
-			{
-				inputTokens: usage.inputTokens ?? 0,
-				outputTokens: usage.outputTokens ?? 0,
-				cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
-				cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-			},
-			{ step: true },
-		);
+		const normalizedUsage = {
+			inputTokens: usage.inputTokens ?? 0,
+			outputTokens: usage.outputTokens ?? 0,
+			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+		};
+		const usageOptions = {
+			step: true,
+			model,
+			...(phase !== undefined && { phase }),
+		};
+		if (step.durableUsageIdentity !== undefined) {
+			this.usage.trackDurable(
+				step.durableUsageIdentity,
+				normalizedUsage,
+				usageOptions,
+			);
+		} else {
+			this.usage.track(normalizedUsage, usageOptions);
+		}
 
 		/* Per-step usage annotation — the same numbers the accumulator just
 		 * folded into the run aggregate, preserved per step on the event log
@@ -1029,10 +1055,31 @@ export class GenerationContext
 		 * the step's event burst, acting as the step separator for readers. */
 		this.emitConversation({
 			type: "step-usage",
+			model,
+			pricingTier: pricingTierForInput(usage.inputTokens ?? 0),
 			inputTokens: usage.inputTokens ?? 0,
 			outputTokens: usage.outputTokens ?? 0,
-			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
-			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+			...(usage.inputTokenDetails?.cacheReadTokens !== undefined && {
+				cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,
+			}),
+			...(usage.inputTokenDetails?.cacheWriteTokens !== undefined && {
+				cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens,
+			}),
+			...(step.finishReason !== undefined && {
+				finishReason: step.finishReason,
+			}),
+			...(step.rawFinishReason !== undefined && {
+				rawFinishReason: step.rawFinishReason,
+			}),
+			...(step.performance?.stepTimeMs !== undefined && {
+				stepTimeMs: step.performance.stepTimeMs,
+			}),
+			...(step.performance?.responseTimeMs !== undefined && {
+				responseTimeMs: step.performance.responseTimeMs,
+			}),
+			...(step.toolCalls !== undefined && step.toolCalls.length > 0
+				? { toolCallIds: step.toolCalls.map((call) => call.toolCallId) }
+				: {}),
 		});
 
 		if (step.reasoningText) {
@@ -1061,7 +1108,9 @@ export class GenerationContext
 			if (resultByCallId.has(te.toolCallId)) continue;
 			const message =
 				te.error instanceof Error ? te.error.message : String(te.error);
-			resultByCallId.set(te.toolCallId, { error: message });
+			resultByCallId.set(te.toolCallId, {
+				error: step.toolEventMode === "metadata-only" ? "tool-error" : message,
+			});
 			// Surface it in Cloud Logging too — the fold above only records it in
 			// the per-run event log (Postgres). A tool call reaching the SDK's
 			// error path (invalid input, or an execution throw) is abnormal: tool
@@ -1076,7 +1125,9 @@ export class GenerationContext
 				toolCallId: te.toolCallId,
 				toolName: step.toolCalls?.find((c) => c.toolCallId === te.toolCallId)
 					?.toolName,
-				error: message,
+				...(step.toolEventMode === "metadata-only"
+					? { code: "private-tool-error" }
+					: { error: message }),
 			});
 		}
 		for (const tc of step.toolCalls ?? []) {
@@ -1086,6 +1137,15 @@ export class GenerationContext
 			 * the run is PAUSING for input, not finishing — the signal the route needs
 			 * to mark the app `awaiting_input`. */
 			if (tc.toolName === "askQuestions") this._pausedOnInput = true;
+			// Clarification questions are user-visible conversation history, not
+			// private design protocol payloads. Keep them inspectable even when
+			// stage/inspect/finalize calls from the same agent are suppressed.
+			if (
+				step.toolEventMode === "metadata-only" &&
+				tc.toolName !== "askQuestions"
+			) {
+				continue;
+			}
 			this.emitConversation({
 				type: "tool-call",
 				toolCallId: tc.toolCallId,
@@ -1117,8 +1177,8 @@ export class GenerationContext
 	 * prompt/output observability becomes a product requirement, it will
 	 * live on a separate admin-only collection, not here.
 	 */
-	trackSubGeneration(usage: LanguageModelUsage): void {
-		meterSubGenerationUsage(this.usage, usage);
+	trackSubGeneration(usage: LanguageModelUsage, model: string): void {
+		meterSubGenerationUsage(this.usage, usage, { model });
 	}
 
 	/**
@@ -1146,7 +1206,7 @@ export class GenerationContext
 			// Streaming lets `onProgress` pulse the signal grid with real read
 			// progress during the send-time backstop; only the final object is used.
 			const result = await streamObjectWith<T>({
-				model: this.model(opts.model ?? MODEL_DEFAULT),
+				model: this.model(opts.model),
 				system: opts.system,
 				schema: opts.schema,
 				prompt: opts.prompt,
@@ -1158,7 +1218,7 @@ export class GenerationContext
 				onProgress: opts.onProgress,
 			});
 			logWarnings(`extractDocument:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(result.usage);
+			if (result.usage) this.trackSubGeneration(result.usage, opts.model);
 			return {
 				object: result.object,
 				truncated: result.finishReason === "length",
@@ -1173,78 +1233,5 @@ export class GenerationContext
 			}
 			throw error;
 		}
-	}
-
-	/** One-shot structured generation with automatic usage tracking. */
-	async generate<T>(
-		schema: z.ZodType<T>,
-		opts: {
-			system: string;
-			prompt: string;
-			label: string;
-			model?: string;
-			maxOutputTokens?: number;
-			reasoning?: { effort: ReasoningEffort };
-		},
-	): Promise<T | null> {
-		try {
-			const model = opts.model ?? MODEL_DEFAULT;
-			const result = await generateText({
-				model: this.model(model),
-				output: Output.object({ schema }),
-				instructions: opts.system,
-				prompt: opts.prompt,
-				maxOutputTokens: opts.maxOutputTokens,
-				providerOptions: opts.reasoning
-					? reasoningProviderOptions(opts.reasoning.effort)
-					: { openai: OPENAI_BASE_OPTIONS },
-			});
-			logWarnings(`generate:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(result.usage);
-			return result.output ?? null;
-		} catch (error) {
-			this.emitError(classifyError(error), `generate:${opts.label}`);
-			throw error;
-		}
-	}
-
-	/** Streaming structured generation with partial callbacks and automatic usage tracking. */
-	async streamGenerate<T>(
-		schema: z.ZodType<T>,
-		opts: {
-			system: string;
-			prompt: string;
-			label: string;
-			model?: string;
-			maxOutputTokens?: number;
-			onPartial?: (partial: Partial<T>) => void;
-			reasoning?: { effort: ReasoningEffort };
-		},
-	): Promise<T | null> {
-		const model = opts.model ?? MODEL_DEFAULT;
-		const result = streamText({
-			model: this.model(model),
-			output: Output.object({ schema }),
-			instructions: opts.system,
-			prompt: opts.prompt,
-			maxOutputTokens: opts.maxOutputTokens,
-			providerOptions: opts.reasoning
-				? reasoningProviderOptions(opts.reasoning.effort)
-				: { openai: OPENAI_BASE_OPTIONS },
-			onError: ({ error }) => {
-				this.emitError(classifyError(error), `streamGenerate:${opts.label}`);
-			},
-		});
-
-		let last: T | null = null;
-		for await (const partial of result.partialOutputStream) {
-			opts.onPartial?.(partial as Partial<T>);
-			last = partial as T;
-		}
-
-		logWarnings(`streamGenerate:${opts.label}`, await result.warnings);
-		const usage = await result.usage;
-		if (usage) this.trackSubGeneration(usage);
-		return last;
 	}
 }

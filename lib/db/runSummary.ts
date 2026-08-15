@@ -1,11 +1,11 @@
 /**
  * Per-run cost/behavior summary writer. One row per generation run in
- * `run_summaries`, keyed `(app_id, run_id)`. Awaited from the usage
- * accumulator's flush path so Cloud Run cold-kills can't drop the write;
- * errors log but never bubble, so a storage outage degrades observability
- * without blocking the response.
+ * `run_summaries`, keyed by one `GenerationTarget` plus `run_id`. Awaited from
+ * the usage accumulator's flush path so Cloud Run cold-kills can't drop the
+ * write; errors log but never bubble, so a storage outage degrades
+ * observability without blocking the response.
  */
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { log } from "@/lib/logger";
 import {
 	type GenerationTarget,
@@ -40,6 +40,264 @@ export type RunSummaryWriteAction =
 	| "overwritten"
 	| "failed";
 
+export interface DurableRunSummaryContribution {
+	readonly contextId: string;
+	readonly stepKey: string;
+	readonly stepCount: number;
+	readonly inputTokens: number;
+	readonly outputTokens: number;
+	readonly cacheReadTokens: number;
+	readonly cacheWriteTokens: number;
+	readonly costEstimate: number;
+}
+
+export interface DurableRunSummaryWriteResult {
+	readonly action: RunSummaryWriteAction;
+	/** Only identities inserted by this transaction. */
+	readonly admittedContributions: readonly DurableRunSummaryContribution[];
+	/** True only when this transaction also advanced the monthly dollar ledger. */
+	readonly monthlyUsageAccrued: boolean;
+	/** Authoritative cumulative cost for this run after the transaction. Null
+	 * means accounting failed, so callers must not infer a zero-cost run. */
+	readonly runCostEstimate: number | null;
+}
+
+export interface RunSummaryBillingTarget {
+	readonly userId: string;
+	readonly period: string;
+}
+
+/** The slice of a summary the monthly dollar ledger accrues. */
+export interface MonthlyUsageTotals {
+	readonly inputTokens: number;
+	readonly outputTokens: number;
+	readonly costEstimate: number;
+}
+
+/** The one `usage_months` UPSERT — shared by the summary transaction and the
+ * standalone fallback so the two accrual paths cannot drift. */
+function insertMonthlyUsage(
+	db: Pick<Kysely<AppDatabase>, "insertInto">,
+	billing: RunSummaryBillingTarget,
+	totals: MonthlyUsageTotals,
+) {
+	return db
+		.insertInto("usage_months")
+		.values({
+			user_id: billing.userId,
+			period: billing.period,
+			input_tokens: totals.inputTokens,
+			output_tokens: totals.outputTokens,
+			cost_estimate: totals.costEstimate,
+			request_count: 1,
+			updated_at: new Date(),
+		})
+		.onConflict((conflict) =>
+			conflict.columns(["user_id", "period"]).doUpdateSet({
+				input_tokens: sql<number>`usage_months.input_tokens + excluded.input_tokens`,
+				output_tokens: sql<number>`usage_months.output_tokens + excluded.output_tokens`,
+				cost_estimate: sql<number>`usage_months.cost_estimate + excluded.cost_estimate`,
+				request_count: sql<number>`usage_months.request_count + 1`,
+				updated_at: new Date(),
+			}),
+		)
+		.execute();
+}
+
+/**
+ * Best-effort monthly accrual OUTSIDE the summary transaction — the fallback
+ * for a failed `writeRunSummaryWithDurableContributions`. The monthly dollar
+ * backstop must always see real spend (retry spam included), so the caller
+ * re-accrues the run's PROCESS-LOCAL portion here when the transaction
+ * failed: that portion is never re-offered by recovery, while the failed
+ * transaction's durable contributions rolled their admission accounts back
+ * and remain claimable by a later finalizer — accruing them here would
+ * double-count that later admission. Returns whether the accrual committed;
+ * errors log and return false so finalization never blocks on it.
+ */
+export async function accrueMonthlyUsageBestEffort(
+	billing: RunSummaryBillingTarget,
+	totals: MonthlyUsageTotals,
+): Promise<boolean> {
+	try {
+		const db = await getAppDb();
+		await insertMonthlyUsage(db, billing, totals);
+		return true;
+	} catch (err) {
+		log.error("[accrueMonthlyUsage] monthly accrual fallback failed", err, {
+			userId: billing.userId,
+			period: billing.period,
+		});
+		return false;
+	}
+}
+
+function withContributions(
+	summary: RunSummaryDoc,
+	contributions: readonly DurableRunSummaryContribution[],
+): RunSummaryDoc {
+	const total = { ...summary };
+	for (const contribution of contributions) {
+		total.stepCount += contribution.stepCount;
+		total.inputTokens += contribution.inputTokens;
+		total.outputTokens += contribution.outputTokens;
+		total.cacheReadTokens += contribution.cacheReadTokens;
+		total.cacheWriteTokens += contribution.cacheWriteTokens;
+		total.costEstimate += contribution.costEstimate;
+	}
+	return total;
+}
+
+async function writeRunSummaryInternal(
+	target: RunSummaryTarget,
+	runId: string,
+	summary: RunSummaryDoc,
+	contributions: readonly DurableRunSummaryContribution[],
+	billing?: RunSummaryBillingTarget,
+): Promise<DurableRunSummaryWriteResult> {
+	const attempt = () =>
+		withAppTx(async (tx): Promise<DurableRunSummaryWriteResult> => {
+			/* Inline `selectFrom` + row lock (not the shared target-query
+			 * helper): the row-lock privilege scanner must statically prove
+			 * the locked table. */
+			const existingQuery = tx
+				.selectFrom("run_summaries")
+				.selectAll()
+				.where("run_id", "=", runId)
+				.forUpdate();
+			const existing = await (target.kind === "app"
+				? existingQuery.where("app_id", "=", target.appId)
+				: existingQuery.where("design_session_id", "=", target.designSessionId)
+			).executeTakeFirst();
+
+			const insertedAccounts =
+				contributions.length === 0
+					? []
+					: await tx
+							.insertInto("design_model_step_usage_accounts")
+							.values(
+								contributions.map((contribution) => ({
+									context_id: contribution.contextId,
+									step_key: contribution.stepKey,
+									event_kind: "completed",
+									run_id: runId,
+								})),
+							)
+							.onConflict((conflict) => conflict.doNothing())
+							.returning(["context_id", "step_key"])
+							.execute();
+			const insertedKeys = new Set(
+				insertedAccounts.map(
+					(account) => `${account.context_id}\u0000${account.step_key}`,
+				),
+			);
+			const admittedContributions = contributions.filter((contribution) =>
+				insertedKeys.has(
+					`${contribution.contextId}\u0000${contribution.stepKey}`,
+				),
+			);
+			const admittedSummary = withContributions(summary, admittedContributions);
+			const monthlyUsageAccrued =
+				billing !== undefined && admittedSummary.costEstimate > 0;
+			if (monthlyUsageAccrued) {
+				await insertMonthlyUsage(tx, billing, admittedSummary);
+			}
+
+			if (!existing) {
+				await tx
+					.insertInto("run_summaries")
+					.values({
+						...generationTargetColumns(target),
+						run_id: runId,
+						started_at: admittedSummary.startedAt,
+						finished_at: admittedSummary.finishedAt,
+						prompt_mode: admittedSummary.promptMode,
+						app_ready: admittedSummary.appReady,
+						module_count: admittedSummary.moduleCount,
+						step_count: admittedSummary.stepCount,
+						model: admittedSummary.model,
+						input_tokens: admittedSummary.inputTokens,
+						output_tokens: admittedSummary.outputTokens,
+						cache_read_tokens: admittedSummary.cacheReadTokens,
+						cache_write_tokens: admittedSummary.cacheWriteTokens,
+						cost_estimate: admittedSummary.costEstimate,
+						tool_call_count: admittedSummary.toolCallCount,
+					})
+					.execute();
+				return {
+					action: "created",
+					admittedContributions,
+					monthlyUsageAccrued,
+					runCostEstimate: admittedSummary.costEstimate,
+				};
+			}
+
+			/* Pinned fields (started_at / prompt_mode / app_ready / model) are
+			 * omitted from the SET, so the first write's values stand. Keep the
+			 * latest-finish projection monotonic when overlapping POSTs finalize out
+			 * of order. */
+			const incomingIsLatest =
+				existing.finished_at <= admittedSummary.finishedAt;
+			let update = tx
+				.updateTable("run_summaries")
+				.set({
+					finished_at: incomingIsLatest
+						? admittedSummary.finishedAt
+						: existing.finished_at,
+					module_count: incomingIsLatest
+						? admittedSummary.moduleCount
+						: existing.module_count,
+					step_count: existing.step_count + admittedSummary.stepCount,
+					tool_call_count:
+						existing.tool_call_count + admittedSummary.toolCallCount,
+					input_tokens:
+						Number(existing.input_tokens) + admittedSummary.inputTokens,
+					output_tokens:
+						Number(existing.output_tokens) + admittedSummary.outputTokens,
+					cache_read_tokens:
+						Number(existing.cache_read_tokens) +
+						admittedSummary.cacheReadTokens,
+					cache_write_tokens:
+						Number(existing.cache_write_tokens) +
+						admittedSummary.cacheWriteTokens,
+					cost_estimate: existing.cost_estimate + admittedSummary.costEstimate,
+				})
+				.where("run_id", "=", runId);
+			update =
+				target.kind === "app"
+					? update.where("app_id", "=", target.appId)
+					: update.where("design_session_id", "=", target.designSessionId);
+			await update.execute();
+			return {
+				action: "incremented",
+				admittedContributions,
+				monthlyUsageAccrued,
+				runCostEstimate: existing.cost_estimate + admittedSummary.costEstimate,
+			};
+		});
+	try {
+		try {
+			return await attempt();
+		} catch (err) {
+			if ((err as { code?: unknown })?.code !== "23505") throw err;
+			// Lost the concurrent first-insert race — its account inserts rolled
+			// back with the transaction, so the retry can derive the exact subset.
+			return await attempt();
+		}
+	} catch (err) {
+		log.error("[writeRunSummary] Postgres write failed", err, {
+			target,
+			runId,
+		});
+		return {
+			action: "failed",
+			admittedContributions: [],
+			monthlyUsageAccrued: false,
+			runCostEstimate: null,
+		};
+	}
+}
+
 /**
  * Persist the run summary for one request inside a chat thread.
  *
@@ -59,17 +317,18 @@ export type RunSummaryWriteAction =
  * - `prompt_mode` — a thread that starts as "build" stays a build thread
  *   in the summary, even after the follow-up edits switch prompts.
  * - `app_ready` — same logic: was the app ready when the thread opened?
- * - `model` — pinned at the thread's first turn, so a build thread keeps
- *   `SA_BUILD_MODEL` even after follow-up edits switch to `SA_EDIT_MODEL`.
+ * - `model` — pinned at the thread's first turn, so a build thread keeps its
+ *   design-author model even after follow-up edits use the editor model.
  *   Cost is unaffected: each turn's accumulator prices its own tokens at
  *   that turn's model.
  *
- * **Scalar overwrite (latest turn wins):**
+ * **Latest projection (greatest finish timestamp wins):**
  * - `finished_at` — last turn's finalize time. Note this means
  *   `finished_at − started_at` is the span of the thread's activity,
  *   including any idle gaps between turns. Not the agent's wall-clock
  *   runtime.
- * - `module_count` — reflects the blueprint as of the latest turn, so
+ * - `module_count` — travels with that latest finish, so an older overlapping
+ *   flush cannot regress it. It reflects the blueprint as of the latest turn, so
  *   "apps with N modules" filters in admin tools match reality. Pinning
  *   at turn-1 would permanently mark every successful build→edit thread
  *   as a zero-module app.
@@ -103,85 +362,23 @@ export async function writeRunSummary(
 	runId: string,
 	summary: RunSummaryDoc,
 ): Promise<RunSummaryWriteAction> {
-	const attempt = () =>
-		withAppTx(async (tx): Promise<RunSummaryWriteAction> => {
-			/* Inline `selectFrom` + row lock (not the shared target-query
-			 * helper): the row-lock privilege scanner must statically prove
-			 * the locked table. */
-			const existingQuery = tx
-				.selectFrom("run_summaries")
-				.selectAll()
-				.where("run_id", "=", runId)
-				.forUpdate();
-			const existing = await (target.kind === "app"
-				? existingQuery.where("app_id", "=", target.appId)
-				: existingQuery.where("design_session_id", "=", target.designSessionId)
-			).executeTakeFirst();
+	return (await writeRunSummaryInternal(target, runId, summary, [])).action;
+}
 
-			if (!existing) {
-				await tx
-					.insertInto("run_summaries")
-					.values({
-						...generationTargetColumns(target),
-						run_id: runId,
-						started_at: summary.startedAt,
-						finished_at: summary.finishedAt,
-						prompt_mode: summary.promptMode,
-						app_ready: summary.appReady,
-						module_count: summary.moduleCount,
-						step_count: summary.stepCount,
-						model: summary.model,
-						input_tokens: summary.inputTokens,
-						output_tokens: summary.outputTokens,
-						cache_read_tokens: summary.cacheReadTokens,
-						cache_write_tokens: summary.cacheWriteTokens,
-						cost_estimate: summary.costEstimate,
-						tool_call_count: summary.toolCallCount,
-					})
-					.execute();
-				return "created";
-			}
-
-			/* Pinned fields (started_at / prompt_mode / app_ready / model) are
-			 * omitted from the SET, so the first write's values stand. */
-			let update = tx
-				.updateTable("run_summaries")
-				.set({
-					finished_at: summary.finishedAt,
-					module_count: summary.moduleCount,
-					step_count: existing.step_count + summary.stepCount,
-					tool_call_count: existing.tool_call_count + summary.toolCallCount,
-					input_tokens: Number(existing.input_tokens) + summary.inputTokens,
-					output_tokens: Number(existing.output_tokens) + summary.outputTokens,
-					cache_read_tokens:
-						Number(existing.cache_read_tokens) + summary.cacheReadTokens,
-					cache_write_tokens:
-						Number(existing.cache_write_tokens) + summary.cacheWriteTokens,
-					cost_estimate: existing.cost_estimate + summary.costEstimate,
-				})
-				.where("run_id", "=", runId);
-			update =
-				target.kind === "app"
-					? update.where("app_id", "=", target.appId)
-					: update.where("design_session_id", "=", target.designSessionId);
-			await update.execute();
-			return "incremented";
-		});
-	try {
-		try {
-			return await attempt();
-		} catch (err) {
-			if ((err as { code?: unknown })?.code !== "23505") throw err;
-			// Lost the concurrent first-insert race — the row exists now.
-			return await attempt();
-		}
-	} catch (err) {
-		log.error("[writeRunSummary] Postgres write failed", err, {
-			target,
-			runId,
-		});
-		return "failed";
-	}
+export async function writeRunSummaryWithDurableContributions(
+	target: RunSummaryTarget,
+	runId: string,
+	summary: RunSummaryDoc,
+	contributions: readonly DurableRunSummaryContribution[],
+	billing: RunSummaryBillingTarget,
+): Promise<DurableRunSummaryWriteResult> {
+	return writeRunSummaryInternal(
+		target,
+		runId,
+		summary,
+		contributions,
+		billing,
+	);
 }
 
 /** A SELECT pre-guarded by run id + exact target columns. */

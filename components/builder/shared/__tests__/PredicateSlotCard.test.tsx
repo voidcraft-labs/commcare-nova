@@ -105,10 +105,7 @@ describe("PredicateSlotCard — slot empty", () => {
 
 describe("PredicateSlotCard — slot populated", () => {
 	it("surfaces the Clear button and hides the Add CTA when the slot is defined", () => {
-		const populated: Predicate = eq(
-			prop("patient", "status"),
-			literal("active"),
-		);
+		const populated: Predicate = eq(prop("patient", "status"), literal("open"));
 		render(
 			<PredicateSlotCard
 				{...baseProps}
@@ -157,10 +154,7 @@ describe("PredicateSlotCard — validity", () => {
 	});
 
 	it("reports valid: true when the slot is a well-typed predicate", () => {
-		const populated: Predicate = eq(
-			prop("patient", "status"),
-			literal("active"),
-		);
+		const populated: Predicate = eq(prop("patient", "status"), literal("open"));
 		const onValidityChange = vi.fn<(valid: boolean) => void>();
 		render(
 			<PredicateSlotCard

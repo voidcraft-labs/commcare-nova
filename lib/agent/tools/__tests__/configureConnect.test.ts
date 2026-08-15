@@ -170,6 +170,44 @@ describe("configureConnect exact target-state tool", () => {
 		expect(new Set(connectIds(harness.currentDoc())).size).toBe(2);
 	});
 
+	it("explains that clearing an already-disabled target is not a list or form operation", async () => {
+		const doc = fixture();
+		const harness = makeToolWorkspaceHarness(doc);
+		const outcome = await harness.runTool(configureConnectTool, { mode: null });
+
+		expect(outcome).toMatchObject({
+			mutations: [],
+			result: {
+				error: expect.stringContaining("does not configure case lists"),
+			},
+		});
+		expect(outcome.result).toEqual({
+			error: expect.stringContaining("Continue without retrying"),
+		});
+		expect(harness.recordMutations).not.toHaveBeenCalled();
+		expect(harness.currentDoc()).toBe(doc);
+	});
+
+	it("explains an exact non-null target no-op without persisting", async () => {
+		const harness = makeToolWorkspaceHarness(fixture());
+		const input = {
+			mode: "learn" as const,
+			participants: [
+				{ formUuid: FIRST, connect: learnModule("lesson_identity") },
+			],
+		};
+		await harness.runTool(configureConnectTool, input);
+		harness.recordMutations.mockClear();
+
+		const outcome = await harness.runTool(configureConnectTool, input);
+
+		expect(outcome).toMatchObject({
+			mutations: [],
+			result: { error: expect.stringContaining("already matches") },
+		});
+		expect(harness.recordMutations).not.toHaveBeenCalled();
+	});
+
 	it("reserves explicit ids and derives omissions in canonical document order", async () => {
 		const base = fixture();
 		const forwardHarness = makeToolWorkspaceHarness(structuredClone(base));
@@ -223,7 +261,9 @@ describe("configureConnect exact target-state tool", () => {
 			],
 		});
 
-		expect(reconfigured.result).not.toHaveProperty("error");
+		expect(reconfigured.result).toEqual({
+			error: expect.stringContaining("already matches"),
+		});
 		expect(harness.currentDoc().forms[FIRST]?.connect).toHaveProperty(
 			"learn_module.id",
 			"lesson_identity",
@@ -249,7 +289,9 @@ describe("configureConnect exact target-state tool", () => {
 			participants: [{ formUuid: FIRST, connect: learnModule() }],
 		});
 
-		expect(reconfigured.result).not.toHaveProperty("error");
+		expect(reconfigured.result).toEqual({
+			error: expect.stringContaining("already matches"),
+		});
 		expect(renamedHarness.currentDoc().forms[FIRST]?.connect).toHaveProperty(
 			"learn_module.id",
 			"learning",

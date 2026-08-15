@@ -16,6 +16,7 @@ import {
 } from "@/lib/agent/tools/automations";
 import { addCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "@/lib/agent/tools/case-list-config/addSearchInputs";
+import { configureCaseListTool } from "@/lib/agent/tools/case-list-config/configureCaseList";
 import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/removeCaseListColumn";
 import { removeSearchInputTool } from "@/lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/reorderCaseListColumns";
@@ -47,6 +48,7 @@ import { removeMediaAssetTool } from "@/lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "@/lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "@/lib/agent/tools/media/setMenuMedia";
 import { moveFieldTool } from "@/lib/agent/tools/moveField";
+import { moveModuleTool } from "@/lib/agent/tools/moveModule";
 import {
 	addLocationPropertiesTool,
 	addOrganizationLevelsTool,
@@ -104,7 +106,6 @@ export type ExternalReadSetKind =
  */
 export type ToolRuntimeCapability =
 	| "canonical-blueprint-write"
-	| "change-set-stage"
 	| "organization-read"
 	| "organization-write"
 	| "media-read"
@@ -336,6 +337,13 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
+		saName: "moveModule",
+		mcpName: "move_module",
+		tool: moveModuleTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
 		saName: "removeField",
 		mcpName: "remove_field",
 		tool: removeFieldTool,
@@ -407,6 +415,13 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "addCaseListColumns",
 		mcpName: "add_case_list_columns",
 		tool: addCaseListColumnsTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "configureCaseList",
+		mcpName: "configure_case_list",
+		tool: configureCaseListTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

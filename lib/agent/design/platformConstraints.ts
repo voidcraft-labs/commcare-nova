@@ -1,6 +1,6 @@
 /**
  * The closed platform-constraint vocabulary — the catalogued codes a source
- * claim, review finding, or design issue may cite when its basis is a Nova or
+ * claim, review finding, or design blocker may cite when its basis is a Nova or
  * CommCare platform fact rather than user evidence.
  *
  * Dependency-free leaf on purpose: the graph validator (`graph.ts`), the
@@ -31,12 +31,19 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"WORKER_PROVISIONING_NOT_SHIPPED",
 	"LOCATION_OWNER_EXPORT_CLOSED",
 	// Case / data shape rules
+	"CASE_SEARCH_IS_LIVE_AND_ONLINE",
+	"CASE_STATUS_IS_OPEN_OR_CLOSED",
+	"CASE_UPDATES_ARE_NOT_COMPARE_AND_SET",
 	"SINGLE_DIRECT_CASE_WRITE_PER_FIELD",
 	"STANDARD_SCALAR_WRITERS_LIMITED",
 	"CASE_NAME_REQUIRED_ON_CREATE",
+	"REGISTRATION_CREATE_IS_UNCONDITIONAL",
 	"RESERVED_CASE_IDENTIFIERS_REJECTED",
 	"CASE_WRITE_TARGETS_MODULE_LINEAGE",
+	"CASE_PROPERTY_CLEAR_UNAVAILABLE",
+	"CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES",
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
+	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
 	"GAP_GROUPED_CASE_TILES",
 	"GAP_CASE_ATTACHMENT_EMISSION",
@@ -103,6 +110,25 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"Typed location-based case ownership executes in Preview, but every export mode for it stays closed until the usercase/deployment work ships the persona-scoped locations fixture and HQ identity mapping.",
 		sourceAnchor: "docs/plans/complex-app-plan.md#what-is-built",
 	},
+	CASE_SEARCH_IS_LIVE_AND_ONLINE: {
+		code: "CASE_SEARCH_IS_LIVE_AND_ONLINE",
+		statement:
+			"Case search queries the server live: a Web Apps user is connected anyway, but on mobile a search (and the claim that follows selecting a result) fails without connectivity, so an offline-first design must not gate its primary workflow behind case search.",
+		sourceAnchor: "lib/commcare/suite/case-search/remoteRequest.ts",
+	},
+	CASE_STATUS_IS_OPEN_OR_CLOSED: {
+		code: "CASE_STATUS_IS_OPEN_OR_CLOSED",
+		statement:
+			"The built-in case status has exactly two values: open and closed. New cases are open, and ordinary case lists already exclude closed cases. Treat an active case as open; program-specific states such as pending, enrolled, or inactive belong in a separate declared property.",
+		sourceAnchor:
+			"lib/domain/standardCaseProperties.ts::CANONICAL_STANDARD_CASE_PROPERTY_LABELS",
+	},
+	CASE_UPDATES_ARE_NOT_COMPARE_AND_SET: {
+		code: "CASE_UPDATES_ARE_NOT_COMPARE_AND_SET",
+		statement:
+			"A form decides whether to include a case operation using the case state loaded into that form. CommCare HQ receives only the resulting case update, not the condition, and applies it without comparing the condition to current server state. An app-only claim can hide later work after sync but cannot guarantee one winner when two users submit from the same prior state; a design requiring exclusive concurrent claiming needs a server endpoint or must disclose that limitation.",
+		sourceAnchor: "lib/commcare/xform/caseOps.ts::buildCaseOperations",
+	},
 	SINGLE_DIRECT_CASE_WRITE_PER_FIELD: {
 		code: "SINGLE_DIRECT_CASE_WRITE_PER_FIELD",
 		statement:
@@ -122,6 +148,12 @@ export const PLATFORM_CONSTRAINTS: Record<
 		sourceAnchor:
 			"lib/commcare/caseWriteAdmission.ts::assertAndProjectCaseWriteInventory",
 	},
+	REGISTRATION_CREATE_IS_UNCONDITIONAL: {
+		code: "REGISTRATION_CREATE_IS_UNCONDITIONAL",
+		statement:
+			"Submitting a registration form always creates its hosted record. A workflow that must submit successfully while conditionally skipping that create uses a standalone form with a conditional create operation; validation is the alternative only when the ineligible submission itself must be blocked.",
+		sourceAnchor: "lib/commcare/formActions.ts::buildFormActions",
+	},
 	RESERVED_CASE_IDENTIFIERS_REJECTED: {
 		code: "RESERVED_CASE_IDENTIFIERS_REJECTED",
 		statement:
@@ -134,11 +166,31 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"A form's writable case destination is exactly the module's own case type or a declared child type whose parent_type is that module type; sibling, grandchild, and unrelated types are not writable from that form.",
 		sourceAnchor: "lib/domain/caseWriteInventory.ts::deriveCaseWriteInventory",
 	},
+	CASE_PROPERTY_CLEAR_UNAVAILABLE: {
+		code: "CASE_PROPERTY_CLEAR_UNAVAILABLE",
+		statement:
+			"A case-property operation can write a typed value or use a condition to skip that write; Nova cannot explicitly clear an existing property. When status or closure removes a record from active work, preserve an earlier scheduling or detail value as history unless the request specifically requires erasure, in which case the design must surface the platform gap rather than inventing a blank or null write.",
+		sourceAnchor:
+			"lib/domain/predicate/typeChecker.ts::checkValueAssignmentExpression",
+	},
+	CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES: {
+		code: "CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES",
+		statement:
+			"In a selected-record or close form, a visible input that writes directly to the selected record opens with that property's current saved value. Leaving it untouched preserves the value; clearing it is an edit. A blank replacement input that conditionally skips its write is a separate interaction and should be designed only when the workflow genuinely needs sparse replacement.",
+		sourceAnchor: "lib/preview/engine/formEngine.ts::preloadCaseData",
+	},
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: {
 		code: "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 		statement:
-			"Display conditions govern what a worker is shown, not what they may access: a deep link that ignores relevancy traverses hidden menus and cases, so access rules must not be designed as display conditions.",
-		sourceAnchor: "lib/commcare/validator/rules/displayConditions.ts",
+			"Display conditions, including conditions over worker properties, are the supported in-app role and navigation gate. They do not decide which cases a worker restores or which cases live search can return, so a role-safe design pairs those gates with the intended ownership or location model and with search filters that enforce the same boundary; remote search may reach beyond assigned restore ownership when its query permits it. A remote case-search comparison must be anchored to a case property, so different role populations normally use separate role-gated navigation entries over the same case type, each with its own case-property filter, rather than a standalone worker-role clause inside one shared query.",
+		sourceAnchor: "docs/research/advanced-case-actions.md::2.1-2.4",
+	},
+	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: {
+		code: "ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
+		statement:
+			"On-device date arithmetic can faithfully add fixed seconds through weeks to a date. Calendar-relative months or years, and date-add over a datetime, are rejected because JavaRosa cannot preserve their semantics; a design that requires true calendar milestones must resolve that requirement instead of lowering it to hand-built leap-year arithmetic or an unstated day approximation.",
+		sourceAnchor:
+			"lib/commcare/expression/onDeviceCompatibility.ts::onDeviceDateAddIssue",
 	},
 	GAP_GROUPED_CASE_TILES: {
 		code: "GAP_GROUPED_CASE_TILES",
@@ -178,7 +230,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 	GAP_FORM_LINKS_AND_SECTIONS: {
 		code: "GAP_FORM_LINKS_AND_SECTIONS",
 		statement:
-			"End-of-form links (exhaustive-else link projection) and authored form sections are a deliberate target gap; a form cannot chain to another form or present sectioned pages yet.",
+			"End-of-form links (exhaustive-else link projection) and authored FormSection pages are a deliberate target gap; a form cannot chain to another form or present page navigation yet. Ordinary group fields still provide visual grouping within one continuous form and are not part of this gap.",
 		sourceAnchor: "docs/plans/complex-app/form-links-and-sections.md",
 		gapUnitFile: "form-links-and-sections.md",
 	},

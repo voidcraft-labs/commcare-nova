@@ -3,28 +3,27 @@
  *
  * Every LLM call goes straight to OpenAI through `@ai-sdk/openai` (the
  * Responses API) with the ONE server credential, `OPENAI_API_KEY`. Model ids
- * are OpenAI's own (e.g. "gpt-5.6-sol"); swapping a constant here switches
+ * are OpenAI's own (e.g. "gpt-5.6-luna"); swapping a constant here switches
  * the model on every surface that uses it.
  */
 
 import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 
-/**
- * Reasoning effort levels for OpenAI reasoning models (GPT-5.6 family) —
- * exactly the values the API accepts for these models (verified against the
- * wire's own error enumeration; there is no `max` tier here). `xhigh` is the
- * quality-first ceiling.
- */
-export type ReasoningEffort =
-	| "none"
-	| "minimal"
-	| "low"
-	| "medium"
-	| "high"
-	| "xhigh";
+export type ReasoningEffort = NonNullable<
+	OpenAIResponsesProviderOptions["reasoningEffort"]
+>;
 
-/** Fallback model for GenerationContext methods when no model is specified. */
-export const MODEL_DEFAULT = "gpt-5.6-sol";
+/**
+ * Ask OpenAI's server-side context management to compact before the 272k-token
+ * long-context price boundary. OpenAI creates the opaque encrypted checkpoint
+ * and the AI SDK converts it to/from a first-class Responses item; Nova keeps
+ * the complete transcript for people and projects only a compatible checkpoint
+ * plus its later suffix back to the model.
+ */
+export const OPENAI_COMPACTION_THRESHOLD = 256_000;
+
+/** A compaction item is replayable only inside this model-context contract. */
+export const MODEL_CONTEXT_VERSION = "v1";
 
 /**
  * The `openai` provider options EVERY Nova LLM call carries. `store: false`
@@ -39,6 +38,9 @@ export const MODEL_DEFAULT = "gpt-5.6-sol";
  */
 export const OPENAI_BASE_OPTIONS = {
 	store: false,
+	contextManagement: [
+		{ type: "compaction", compactThreshold: OPENAI_COMPACTION_THRESHOLD },
+	],
 } as const satisfies OpenAIResponsesProviderOptions;
 
 /**
@@ -55,13 +57,12 @@ export const OPENAI_BASE_OPTIONS = {
  * configuration as ONE unit — `promptCacheKey` (cache-routing affinity; the
  * SA passes one key per app) together with `promptCacheOptions
  * { mode: 'implicit', ttl: '30m' }` (contractual 30-minute lifetime;
- * implicit keeps the automatic breakpoint on the latest message that lets
- * each tool-loop step cache-read the previous step's suffix, and honors the
- * explicit stable-boundary marker `markStablePrefixBoundary` places). The
- * provider doc specifies key + options + marker as one configuration —
- * never wire a subset: key-without-marker and marker-without-key were both
- * live-measured to read zero across requests. One-shot calls (extraction,
- * scripts) pass no cache config.
+ * implicit supplies automatic placement and also honors an explicit boundary).
+ * Ordinary edit POSTs add a request-local boundary before their volatile
+ * app-state tail; it changes no transcript token. The reviewed design and
+ * executor loops preserve an actually growing prefix under one stable tool
+ * grammar, so their latest automatic entry remains reusable without moving a
+ * marker. One-shot calls (extraction, scripts) pass no cache config.
  */
 export function reasoningProviderOptions(
 	effort: ReasoningEffort,
@@ -85,94 +86,84 @@ export function reasoningProviderOptions(
 	};
 }
 
-/** Model ID for the Solutions Architect agent building a NEW app. */
-export const SA_BUILD_MODEL = "gpt-5.6-sol";
+interface ModelRoleConfig {
+	readonly modelId: string;
+	readonly reasoningEffort: ReasoningEffort;
+}
 
-/** Model ID for the Solutions Architect agent editing an EXISTING app.
- * Same model as builds, at a lower reasoning effort (`SA_EDIT_REASONING`):
- * per the intelligence-per-cost leaderboards, every terra effort tier is
- * dominated by sol or luna at a lower price, so terra holds no SA role —
- * edits buy their savings through effort, not a weaker model. One model
- * across both roles also keeps a thread's reasoning items replayable:
- * encrypted reasoning is model-bound, so a build→edit continuation never
- * crosses models mid-thread. */
-export const SA_EDIT_MODEL = "gpt-5.6-sol";
-
-/** Reasoning effort for the Solutions Architect building a NEW app —
- * the quality-first ceiling; a ground-up design is the hardest call site. */
-export const SA_BUILD_REASONING: { effort: ReasoningEffort } = {
-	effort: "xhigh",
-};
-
-/** Reasoning effort for the Solutions Architect editing an EXISTING app —
- * edits are narrower than a ground-up build, so they run medium effort. */
-export const SA_EDIT_REASONING: { effort: ReasoningEffort } = {
-	effort: "medium",
-};
-
-/** Model ID for the design pipeline's structured calls — author, reviewer,
- * reviser, and planner all run the SA build model: the design IS the
- * hardest half of a ground-up build, and one model keeps pricing and
- * behavior aligned with the SA it feeds. */
-export const DESIGN_MODEL = "gpt-5.6-sol";
-
-/** The design author drafts the whole contract from raw sources — the same
- * quality-first ceiling as an SA build. */
-export const DESIGN_AUTHOR_REASONING: { effort: ReasoningEffort } = {
-	effort: "xhigh",
-};
-
-/** The reviewer critiques an already-typed contract against the same
- * sources; high effort reads deeply without re-paying the drafting
- * ceiling. */
-export const DESIGN_REVIEWER_REASONING: { effort: ReasoningEffort } = {
-	effort: "high",
-};
-
-/** The reviser resolves enumerated findings against an existing draft —
- * narrower than authoring, wider than an ordinary edit. */
-export const DESIGN_REVISER_REASONING: { effort: ReasoningEffort } = {
-	effort: "high",
-};
-
-/** The planner decomposes an accepted contract into slices — structural
- * work over already-validated intent. */
-export const DESIGN_PLANNER_REASONING: { effort: ReasoningEffort } = {
-	effort: "high",
-};
+/**
+ * The complete production LLM roster. Every call selects one semantic role;
+ * there is no generic default, build-era alias, or compatibility name that can
+ * silently route a call through the wrong model.
+ */
+export const MODEL_ROLES = {
+	designAuthor: {
+		modelId: "gpt-5.6-sol",
+		reasoningEffort: "medium",
+	},
+	designReviewer: {
+		modelId: "gpt-5.6-sol",
+		reasoningEffort: "medium",
+	},
+	executorHelper: {
+		modelId: "gpt-5.6-sol",
+		reasoningEffort: "medium",
+	},
+	buildExecutor: {
+		modelId: "gpt-5.6-luna",
+		reasoningEffort: "xhigh",
+	},
+	followUpEditor: {
+		modelId: "gpt-5.6-sol",
+		reasoningEffort: "medium",
+	},
+	documentExtractor: {
+		modelId: "gpt-5.6-luna",
+		reasoningEffort: "xhigh",
+	},
+} as const satisfies Record<string, ModelRoleConfig>;
 
 /**
  * Pricing per million tokens, keyed by model ID.
  *
- * These are OpenAI's published rates, and with a direct key the token-math
- * estimate IS the bill: uncached input at the base rate (the 2× long-context
- * rate starts past 272k tokens per request, which Nova's prompts stay
- * under), cache reads at 0.1×, cache writes at the published 1.25× write
- * surcharge whenever usage reports a write bucket, output at the output
- * rate. There is no separate metered "actual" — `estimateCost` is the one
- * cost figure every ledger and summary records.
+ * These are OpenAI's published short- and long-context rates. The threshold
+ * applies to each call's total input independently; `UsageAccumulator` prices
+ * the call before aggregating the run, so mixed models and a single
+ * over-threshold call remain exact. There is no separate metered "actual" —
+ * `estimateCost` is the one cost figure every ledger and summary records.
  */
-export const MODEL_PRICING: Record<
-	string,
-	{ input: number; output: number; cacheWrite: number; cacheRead: number }
-> = {
+export const LONG_CONTEXT_INPUT_THRESHOLD = 272_000;
+
+export type ModelPricing = {
+	input: number;
+	output: number;
+	cacheWrite: number;
+	cacheRead: number;
+};
+
+export type ModelPricingCard = {
+	short: ModelPricing;
+	long: ModelPricing;
+};
+
+export const MODEL_PRICING: Record<string, ModelPricingCard> = {
 	"gpt-5.6-sol": {
-		input: 5,
-		output: 30,
-		cacheWrite: 6.25,
-		cacheRead: 0.5,
+		short: { input: 5, output: 30, cacheWrite: 6.25, cacheRead: 0.5 },
+		long: { input: 10, output: 45, cacheWrite: 12.5, cacheRead: 1 },
+	},
+	"gpt-5.6-terra": {
+		short: { input: 2, output: 12, cacheWrite: 2.5, cacheRead: 0.2 },
+		long: { input: 4, output: 18, cacheWrite: 5, cacheRead: 0.4 },
 	},
 	"gpt-5.6-luna": {
-		input: 1,
-		output: 6,
-		cacheWrite: 1.25,
-		cacheRead: 0.1,
+		short: { input: 0.2, output: 1.2, cacheWrite: 0.25, cacheRead: 0.02 },
+		long: { input: 0.4, output: 1.8, cacheWrite: 0.5, cacheRead: 0.04 },
 	},
 };
 
-export const DEFAULT_PRICING = {
-	input: 2.5,
-	output: 15,
-	cacheWrite: 3.125,
-	cacheRead: 0.25,
+/** gpt-5.6-terra's published card, the mid-family rate, so an unknown
+ * model id still produces a believable estimate. */
+export const DEFAULT_PRICING: ModelPricingCard = {
+	short: { input: 2, output: 12, cacheWrite: 2.5, cacheRead: 0.2 },
+	long: { input: 4, output: 18, cacheWrite: 5, cacheRead: 0.4 },
 };

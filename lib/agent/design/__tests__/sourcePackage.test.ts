@@ -9,10 +9,12 @@ import { describe, expect, it } from "vitest";
 import {
 	buildDesignSourcePackage,
 	computeSourcePackageDigest,
+	computeSourcePackageExtensionProof,
 	MAX_DOCUMENT_ATTACHMENTS,
 	MAX_REQUEST_BLOCK_CHARS,
 	type SourcePackageDeps,
 	SourcePackageError,
+	sourcePackageProofExtends,
 	toPersistedSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
@@ -110,16 +112,29 @@ describe("buildDesignSourcePackage", () => {
 		expect(pkg.attachments).toHaveLength(1);
 		expect(pkg.attachments[0]?.title).toBe("Program spec");
 		expect(pkg.images).toHaveLength(1);
-		// The source index carries message + attachment refs; images are cited
-		// through the message that attached them.
-		expect(pkg.sources).toHaveLength(3);
+		// The source index carries every projected source: two message blocks,
+		// the document extract, and the image — each with its citable ref.
+		expect(pkg.sources).toHaveLength(4);
+		expect(pkg.sources.map((source) => source.ref)).toContainEqual({
+			kind: "image",
+			assetId: IMG_ASSET,
+			bytesDigest: "f".repeat(64),
+		});
 		// Sealed digest recomputes.
 		const { packageDigest, ...unsealed } = pkg;
 		expect(computeSourcePackageDigest(unsealed)).toBe(packageDigest);
 
 		const persisted = toPersistedSourcePackage(pkg);
 		expect(persisted.imageCount).toBe(1);
+		// The persisted index round-trips the image coordinate — the reference
+		// persists, the bytes never do.
+		expect(persisted.sources).toContainEqual({
+			kind: "image",
+			assetId: IMG_ASSET,
+			bytesDigest: "f".repeat(64),
+		});
 		expect(JSON.stringify(persisted)).not.toContain("Register patients");
+		expect(JSON.stringify(persisted)).not.toContain("base64");
 	});
 
 	it("the digest binds image CONTENT, not the base64 transport", async () => {
@@ -141,6 +156,54 @@ describe("buildDesignSourcePackage", () => {
 			}),
 		});
 		expect(second.packageDigest).toBe(first.packageDigest);
+	});
+
+	it("proves only byte-identical cumulative source extensions", async () => {
+		const first = await buildDesignSourcePackage(
+			baseArgs([userMessage("m1", "Build it.")]),
+		);
+		const extended = await buildDesignSourcePackage(
+			baseArgs([
+				userMessage("m1", "Build it."),
+				userMessage("m2", "The intake team owns the queue."),
+			]),
+		);
+		const changed = await buildDesignSourcePackage(
+			baseArgs([userMessage("m1", "Build something else.")]),
+		);
+		expect(
+			sourcePackageProofExtends(
+				computeSourcePackageExtensionProof(first),
+				computeSourcePackageExtensionProof(extended),
+			),
+		).toBe(true);
+		expect(
+			sourcePackageProofExtends(
+				computeSourcePackageExtensionProof(first),
+				computeSourcePackageExtensionProof(changed),
+			),
+		).toBe(false);
+
+		const attachment = {
+			assetId: DOC_ASSET,
+			filename: "spec.pdf",
+			kind: "pdf" as const,
+		};
+		const withAttachment = await buildDesignSourcePackage(
+			baseArgs([userMessage("m1", "Build it.", [attachment])]),
+		);
+		const attachmentThenAnswer = await buildDesignSourcePackage(
+			baseArgs([
+				userMessage("m1", "Build it.", [attachment]),
+				userMessage("m2", "The intake team owns the queue."),
+			]),
+		);
+		expect(
+			sourcePackageProofExtends(
+				computeSourcePackageExtensionProof(withAttachment),
+				computeSourcePackageExtensionProof(attachmentThenAnswer),
+			),
+		).toBe(true);
 	});
 
 	it("clips an oversized message part and flags the truncation", async () => {

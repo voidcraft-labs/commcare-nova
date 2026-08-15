@@ -2,14 +2,15 @@
  * StructuredModelRunContext — the app-independent structured-generation
  * seam (plan §7.5).
  *
- * The design pipeline's author/reviewer/reviser/planner calls need exactly
- * this much of a generation context: who is running (user/Project/run),
+ * The design method's structured calls (the independent reviewer; the
+ * retired pipeline's one-shots before it) need exactly this much of a
+ * generation context: who is running (user/Project/run),
  * WHAT scope it bills against (the closed `GenerationTarget` union), a
  * model resolver, one cancellation-aware structured call, and usage
  * metering. They must not need an app row, an SSE writer, or a commit host.
  *
  * There is ONE adapter over the provider (`runStructuredWith`, composing
- * `subGeneration.ts`'s `generateObjectWith`/`streamObjectWith`): both
+ * `subGeneration.ts`'s `streamObjectWith`): both
  * implementations — `GenerationContext` for an app-bound run and
  * `DesignGenerationContext` (`lib/agent/design/designGenerationContext.ts`)
  * for a pre-app design session — delegate here, so provider privacy
@@ -20,8 +21,12 @@
 import type { LanguageModel, LanguageModelUsage } from "ai";
 import type { z } from "zod";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
+import type {
+	DesignBuildCostPhase,
+	DurableUsageIdentity,
+} from "@/lib/db/usage";
+import { strictStructuredSchema } from "./strictStructuredOutput";
 import {
-	generateObjectWith,
 	type SubGenerationImage,
 	type SubGenerationObjectResult,
 	type SubGenerationProviderOptions,
@@ -45,12 +50,33 @@ export interface StructuredModelRunArgs<T> {
  *  satisfies it structurally (a bare `track(usage)` call is a sub-generation:
  *  tokens accrue, the step counter does not move). */
 export interface SubGenerationUsageMeter {
-	track(usage: {
-		inputTokens: number;
-		outputTokens: number;
-		cacheReadTokens?: number;
-		cacheWriteTokens?: number;
-	}): void;
+	track(
+		usage: {
+			inputTokens: number;
+			outputTokens: number;
+			cacheReadTokens?: number;
+			cacheWriteTokens?: number;
+		},
+		opts?: {
+			step?: boolean;
+			model?: string;
+			phase?: DesignBuildCostPhase;
+		},
+	): void;
+	trackDurable?(
+		identity: DurableUsageIdentity,
+		usage: {
+			inputTokens: number;
+			outputTokens: number;
+			cacheReadTokens?: number;
+			cacheWriteTokens?: number;
+		},
+		opts?: {
+			step?: boolean;
+			model?: string;
+			phase?: DesignBuildCostPhase;
+		},
+	): void;
 }
 
 export interface StructuredModelRunContext {
@@ -71,34 +97,38 @@ export interface StructuredModelRunContext {
 	): Promise<SubGenerationObjectResult<T>>;
 
 	/** Meter a sub-generation's tokens without stepping the run counter. */
-	trackSubGeneration(usage: LanguageModelUsage): void;
+	trackSubGeneration(usage: LanguageModelUsage, model: string): void;
 }
 
 /**
- * The one adapter both implementations delegate to. Streams when the caller
- * wants progress (reasoning deltas are where the wall-clock goes); blocks
- * otherwise. Usage is metered through `track` even when the model produced
- * no parseable object — spent tokens are spent.
+ * The one adapter both implementations delegate to. Every call STREAMS
+ * (a blocking Responses call sends no response headers until the whole
+ * generation finishes, so any call whose reasoning outruns undici's 300s
+ * `headersTimeout` dies on the transport — observed live killing the
+ * design author call on all three SDK attempts), and every call ships a
+ * STRICT wire schema through `strictStructuredSchema`: the provider
+ * grammar-enforces the structure during generation, and the original Zod
+ * schema (refinements included) remains the SDK-side gate. Usage is
+ * metered through `track` even when the model produced no parseable
+ * object — spent tokens are spent.
  */
 export async function runStructuredWith<T>(
 	model: LanguageModel,
 	args: StructuredModelRunArgs<T>,
 	track: (usage: LanguageModelUsage) => void,
 ): Promise<SubGenerationObjectResult<T>> {
-	const shared = {
+	const result = await streamObjectWith<T>({
 		model,
 		system: args.system,
-		schema: args.schema,
+		schema: strictStructuredSchema(args.schema),
 		prompt: args.prompt,
 		file: args.file,
 		images: args.images,
 		maxOutputTokens: args.maxOutputTokens,
 		providerOptions: args.providerOptions,
 		abortSignal: args.signal,
-	};
-	const result = args.onProgress
-		? await streamObjectWith<T>({ ...shared, onProgress: args.onProgress })
-		: await generateObjectWith<T>(shared);
+		onProgress: args.onProgress,
+	});
 	if (result.usage) track(result.usage);
 	return result;
 }
@@ -108,11 +138,46 @@ export async function runStructuredWith<T>(
 export function meterSubGenerationUsage(
 	meter: SubGenerationUsageMeter,
 	usage: LanguageModelUsage,
+	opts: {
+		step?: boolean;
+		model?: string;
+		phase?: DesignBuildCostPhase;
+	} = {},
 ): void {
-	meter.track({
+	meter.track(
+		{
+			inputTokens: usage.inputTokens ?? 0,
+			outputTokens: usage.outputTokens ?? 0,
+			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+		},
+		opts,
+	);
+}
+
+/** Meter a persisted provider response under its exact context/step identity.
+ * Production accumulators defer cross-process deduplication to the atomic run-
+ * summary write. Lightweight test meters without that extension retain the
+ * ordinary structural sink behavior. */
+export function meterDurableSubGenerationUsage(
+	meter: SubGenerationUsageMeter,
+	identity: DurableUsageIdentity,
+	usage: LanguageModelUsage,
+	opts: {
+		step?: boolean;
+		model?: string;
+		phase?: DesignBuildCostPhase;
+	} = {},
+): void {
+	const normalized = {
 		inputTokens: usage.inputTokens ?? 0,
 		outputTokens: usage.outputTokens ?? 0,
 		cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
 		cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
-	});
+	};
+	if (meter.trackDurable !== undefined) {
+		meter.trackDurable(identity, normalized, opts);
+		return;
+	}
+	meter.track(normalized, opts);
 }

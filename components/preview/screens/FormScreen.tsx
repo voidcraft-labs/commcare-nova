@@ -41,7 +41,10 @@ import {
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { InvalidFieldTarget } from "@/lib/preview/engine/formEngine";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
-import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
+import {
+	invalidateCaseData,
+	useCaseDataReplacementRevision,
+} from "@/lib/preview/hooks/caseDataInvalidation";
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
@@ -870,6 +873,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				result.kind === "close" ||
 				result.kind === "survey"
 			) {
+				if (result.kind !== "survey") {
+					/* A case-bearing submission may update the primary case plus
+					 * operation-created or related cases. Announce the settled write
+					 * against the live materializable catalog before leaving the form so
+					 * Results, Details, bound forms, and the Case data count all converge
+					 * from the same shared revision signal. */
+					for (const caseType of caseTypes) {
+						invalidateCaseData(submittedAppId, caseType.name);
+					}
+				}
 				settleAttempt({ kind: "idle" });
 				dispatchPostSubmit(submitted.destination, submitted.moduleUuid);
 				return;

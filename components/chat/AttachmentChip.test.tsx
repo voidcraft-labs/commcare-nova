@@ -14,7 +14,7 @@ vi.mock("@/components/shadcn/tooltip", () => ({
 }));
 
 describe("AttachmentChip", () => {
-	it("uses shared full-size controls for preview and removal", () => {
+	it("keeps preview and removal as compact chip-local controls", () => {
 		const onPreview = vi.fn();
 		const onRemove = vi.fn();
 		render(
@@ -29,10 +29,15 @@ describe("AttachmentChip", () => {
 		const preview = screen.getByRole("button", { name: "intake.pdf" });
 		const remove = screen.getByRole("button", { name: "Remove intake.pdf" });
 
-		expect(preview.getAttribute("data-slot")).toBe("button");
-		expect(preview.className).toContain("h-11");
-		expect(remove.getAttribute("data-slot")).toBe("button");
-		expect(remove.className).toContain("size-11");
+		// Chip controls are plain buttons clipped to the chip, not the 44px
+		// shadcn Button: the standard height would extend hover bounds past the
+		// visible pill (the sanctioned exception in components/CLAUDE.md).
+		expect(preview.getAttribute("data-slot")).toBeNull();
+		expect(preview.className).toContain("nova-focusable-inset");
+		expect(preview.className).toContain("h-full");
+		expect(remove.getAttribute("data-slot")).toBeNull();
+		expect(remove.className).toContain("nova-focusable-inset");
+		expect(remove.className).toContain("h-full");
 
 		fireEvent.click(preview);
 		fireEvent.click(remove);
@@ -51,6 +56,7 @@ describe("AttachmentChip", () => {
 				previewDisabled
 				onRemove={onRemove}
 				removeDisabled
+				reading
 			/>,
 		);
 
@@ -63,10 +69,32 @@ describe("AttachmentChip", () => {
 		expect(preview.className).toContain("cursor-not-allowed");
 		expect(remove.getAttribute("aria-disabled")).toBe("true");
 		expect(remove.className).toContain("cursor-not-allowed");
+		expect(screen.queryByRole("status", { name: "Loading" })).toBeNull();
 
 		fireEvent.click(preview);
 		fireEvent.click(remove);
 		expect(onPreview).not.toHaveBeenCalled();
 		expect(onRemove).not.toHaveBeenCalled();
+	});
+
+	it("offers retry only for a failed extract", () => {
+		const onRetry = vi.fn();
+		const { rerender } = render(
+			<AttachmentChip kind="pdf" filename="intake.pdf" />,
+		);
+		expect(
+			screen.queryByRole("button", {
+				name: "Nova couldn't read intake.pdf. Try again",
+			}),
+		).toBeNull();
+
+		rerender(
+			<AttachmentChip kind="pdf" filename="intake.pdf" onRetry={onRetry} />,
+		);
+		const retry = screen.getByRole("button", {
+			name: "Nova couldn't read intake.pdf. Try again",
+		});
+		fireEvent.click(retry);
+		expect(onRetry).toHaveBeenCalledOnce();
 	});
 });

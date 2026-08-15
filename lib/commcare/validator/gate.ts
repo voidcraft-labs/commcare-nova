@@ -393,6 +393,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	WRONG_ARITY: "soundness",
 	INVALID_REF: "soundness",
 	INVALID_CASE_REF: "soundness",
+	PROSE_EDITOR_ROUND_TRIP_LOSS: "soundness",
 	CYCLE: "soundness",
 	TYPE_ERROR: "soundness",
 };

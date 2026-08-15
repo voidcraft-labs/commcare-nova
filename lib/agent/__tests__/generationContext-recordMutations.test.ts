@@ -36,6 +36,7 @@ import { proseText } from "@/lib/domain/prose";
 
 import { conversationPayloadSchema } from "@/lib/log/types";
 import { log } from "@/lib/logger";
+import { MODEL_ROLES } from "@/lib/models";
 import type { GenerationContext } from "../generationContext";
 import { makeMinimalDoc, makeTestContext } from "./fixtures";
 
@@ -733,6 +734,33 @@ describe("GenerationContext.emitError", () => {
 		expect(writerCall.type).toBe("data-conversation-event");
 	});
 
+	it("marks an automatic retry warning as non-terminal", () => {
+		const { ctx, logWriter } = makeTestContext();
+		ctx.emitError(
+			{
+				type: "api_server",
+				message: "Trying again",
+				recoverable: true,
+			},
+			"route:turn-retry",
+			{ runContinues: true },
+		);
+
+		expect(logWriter.logEvent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				payload: {
+					type: "error",
+					error: {
+						type: "api_server",
+						message: "Trying again",
+						fatal: false,
+						runContinues: true,
+					},
+				},
+			}),
+		);
+	});
+
 	it("logs an internal error's raw cause server-side so it isn't swallowed", () => {
 		vi.mocked(log.error).mockClear();
 		const { ctx } = makeTestContext();
@@ -777,6 +805,7 @@ describe("GenerationContext.emitError", () => {
 });
 
 describe("GenerationContext.handleAgentStep", () => {
+	const TEST_MODEL = MODEL_ROLES.followUpEditor.modelId;
 	const MINIMAL_USAGE: LanguageModelUsage = {
 		inputTokens: 100,
 		outputTokens: 50,
@@ -800,6 +829,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolCalls: [{ toolCallId: "q-1", toolName: "askQuestions", input: {} }],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		expect(ctx.pausedOnInput()).toBe(true);
@@ -813,6 +843,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolCalls: [{ toolCallId: "tc-1", toolName: "addFields", input: {} }],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 		expect(ctx.pausedOnInput()).toBe(false);
 	});
@@ -835,6 +866,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolResults: [{ toolCallId: "tc-1", output: { success: true } }],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(5);
@@ -847,10 +879,13 @@ describe("GenerationContext.handleAgentStep", () => {
 			 * separator for log readers decomposing per-step billing. */
 			{
 				type: "step-usage",
+				model: TEST_MODEL,
+				pricingTier: "short",
 				inputTokens: 100,
 				outputTokens: 50,
 				cacheReadTokens: 0,
 				cacheWriteTokens: 0,
+				toolCallIds: ["tc-1"],
 			},
 			{ type: "assistant-reasoning", text: "thinking about the answer" },
 			{ type: "assistant-text", text: "the visible answer" },
@@ -887,6 +922,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				} as unknown as LanguageModelUsage,
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
@@ -895,6 +931,8 @@ describe("GenerationContext.handleAgentStep", () => {
 		const payload = (call[0] as { payload: unknown }).payload;
 		expect(payload).toEqual({
 			type: "step-usage",
+			model: TEST_MODEL,
+			pricingTier: "short",
 			inputTokens: 10,
 			outputTokens: 5,
 		});
@@ -914,6 +952,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolCalls: [{ toolCallId: "tc-x", toolName: "foo", input: {} }],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		expect(logWriter.logEvent).not.toHaveBeenCalled();
@@ -934,6 +973,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolResults: [],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		// step-usage always leads; the bare tool-call follows with no result.
@@ -971,6 +1011,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(3);
@@ -1004,6 +1045,7 @@ describe("GenerationContext.handleAgentStep", () => {
 				toolErrors: [{ toolCallId: "tc-1", error: "ignored" }],
 			},
 			"Solutions Architect",
+			TEST_MODEL,
 		);
 
 		const resultPayload = logWriter.logEvent.mock.calls
@@ -1013,5 +1055,75 @@ describe("GenerationContext.handleAgentStep", () => {
 			)
 			.find((p) => p.type === "tool-result");
 		expect(resultPayload?.output).toEqual({ success: true });
+	});
+
+	it("keeps private design tool payloads out of events while retaining finish diagnostics", () => {
+		const { ctx, logWriter, usage } = makeTestContext();
+
+		ctx.handleAgentStep(
+			{
+				usage: MINIMAL_USAGE,
+				finishReason: "length",
+				rawFinishReason: "max_output_tokens",
+				performance: {
+					effectiveOutputTokensPerSecond: 10,
+					outputTokensPerSecond: 11,
+					inputTokensPerSecond: 12,
+					effectiveTotalTokensPerSecond: 13,
+					stepTimeMs: 321.75,
+					responseTimeMs: 123.25,
+					toolExecutionMs: { "private-1": 17 },
+					timeToFirstOutputMs: 40,
+				},
+				toolEventMode: "metadata-only",
+				toolCalls: [
+					{
+						toolCallId: "private-1",
+						toolName: "stageContract",
+						input: { customerDesign: "must-not-enter-the-log" },
+					},
+					{
+						toolCallId: "question-1",
+						toolName: "askQuestions",
+						input: {
+							questions: [
+								{
+									id: "clinic",
+									question: "Which clinic should own the queue?",
+									options: [],
+								},
+							],
+						},
+					},
+				],
+				toolResults: [
+					{
+						toolCallId: "private-1",
+						output: { candidate: "must-not-enter-the-log" },
+					},
+				],
+			},
+			"Design agent",
+			TEST_MODEL,
+		);
+
+		expect(logWriter.logEvent).toHaveBeenCalledTimes(2);
+		const payloads = logWriter.logEvent.mock.calls.map(
+			(call) => (call[0] as { payload: unknown }).payload,
+		);
+		expect(payloads[0]).toMatchObject({
+			type: "step-usage",
+			finishReason: "length",
+			rawFinishReason: "max_output_tokens",
+			stepTimeMs: 321.75,
+			responseTimeMs: 123.25,
+		});
+		expect(payloads[1]).toMatchObject({
+			type: "tool-call",
+			toolCallId: "question-1",
+			toolName: "askQuestions",
+		});
+		expect(JSON.stringify(payloads)).not.toContain("must-not-enter-the-log");
+		expect(usage.snapshot().toolCallCount).toBe(2);
 	});
 });

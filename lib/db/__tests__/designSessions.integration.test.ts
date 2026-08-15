@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { AppAccessError } from "../appAccess";
-import { GenerationInProgressError, RunConflictError } from "../apps";
+import { GenerationInProgressError } from "../apps";
 import { OutOfCreditsError, refundDesignSessionReservation } from "../credits";
 import {
 	claimAndReserveDesignSessionRun,
@@ -26,6 +26,7 @@ import {
 	failAndRefundDesignSessionRun,
 	reacquireDesignSessionLease,
 	refreshDesignSessionLiveness,
+	setDesignSessionActiveArtifacts,
 	setDesignSessionAwaitingInput,
 } from "../designSessions";
 import { resolveGenerationTargetScope } from "../generationTargetScope";
@@ -37,6 +38,71 @@ const ACTOR = "owner-test";
 const PROJECT = "project-test";
 const PERIOD = getCurrentPeriod();
 const NONCE = "00000000-0000-4000-8000-0000000000d1";
+
+describe("active design artifact selection", () => {
+	it("requires the exact holder and one accepted same-session lineage", async () => {
+		const runId = "run-active-artifacts";
+		const sessionId = await h.seedDesignSession({
+			owner_user_id: ACTOR,
+			project_id: PROJECT,
+			run_id: runId,
+			run_holder_nonce: NONCE,
+			run_actor_user_id: ACTOR,
+			run_lease_expires_at: new Date(Date.now() + 60_000),
+		});
+		const lineage = await h.seedDesignLineage({ existingSessionId: sessionId });
+		await setDesignSessionActiveArtifacts({
+			designSessionId: sessionId,
+			actorUserId: ACTOR,
+			runId,
+			holderNonce: NONCE,
+			expectedProjectId: PROJECT,
+			activeDesignRevisionId: lineage.designRevisionId,
+			activeBuildPlanId: lineage.buildPlanId,
+		});
+		expect(await h.readDesignSessionRow(sessionId)).toMatchObject({
+			active_design_revision_id: lineage.designRevisionId,
+			active_build_plan_id: lineage.buildPlanId,
+		});
+
+		const foreignSessionId = await h.seedDesignSession({
+			owner_user_id: ACTOR,
+			project_id: PROJECT,
+		});
+		const foreign = await h.seedDesignLineage({
+			existingSessionId: foreignSessionId,
+		});
+		await expect(
+			setDesignSessionActiveArtifacts({
+				designSessionId: sessionId,
+				actorUserId: ACTOR,
+				runId,
+				holderNonce: NONCE,
+				expectedProjectId: PROJECT,
+				activeDesignRevisionId: foreign.designRevisionId,
+				activeBuildPlanId: foreign.buildPlanId,
+			}),
+		).rejects.toBeInstanceOf(DesignSessionStateError);
+
+		await h
+			.db()
+			.updateTable("design_sessions")
+			.set({ run_holder_nonce: crypto.randomUUID() })
+			.where("id", "=", sessionId)
+			.execute();
+		await expect(
+			setDesignSessionActiveArtifacts({
+				designSessionId: sessionId,
+				actorUserId: ACTOR,
+				runId,
+				holderNonce: NONCE,
+				expectedProjectId: PROJECT,
+				activeDesignRevisionId: lineage.designRevisionId,
+				activeBuildPlanId: lineage.buildPlanId,
+			}),
+		).rejects.toMatchObject({ name: "RunHolderLostError" });
+	});
+});
 
 async function seedActor(balance = 2000): Promise<void> {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
@@ -230,7 +296,7 @@ describe("claimAndReserveDesignSessionRun", () => {
 		});
 	});
 
-	it("conflicts on another actor's paused round and on any live holder", async () => {
+	it("collapses a co-member's pre-app claim to opaque not-found", async () => {
 		await seedActor();
 		await h.seedProjectMember("other-actor", PROJECT, "editor");
 		const sessionId = await h.seedDesignSession({
@@ -248,17 +314,12 @@ describe("claimAndReserveDesignSessionRun", () => {
 				runId: "run-theirs",
 			},
 		});
-		/* The conflict speaks the DESIGN vocabulary — a pre-app session has
-		 * no app to name (the person-to-person error rule). */
-		const conflict = await claimAndReserveDesignSessionRun(
-			sessionId,
-			"run-x",
-			ACTOR,
-			100,
-			PROJECT,
-		).catch((error: unknown) => error);
-		expect(conflict).toBeInstanceOf(RunConflictError);
-		expect((conflict as Error).message).toContain("this design");
+		await expect(
+			claimAndReserveDesignSessionRun(sessionId, "run-x", ACTOR, 100, PROJECT),
+		).rejects.toMatchObject({
+			name: "DesignSessionStateError",
+			reason: "not_found",
+		});
 	});
 
 	it("claim racing the reaper on a lapsed session: exactly one holder or none survives (§20.9)", async () => {
@@ -619,6 +680,91 @@ describe("terminal writers (§20.10)", () => {
 });
 
 describe("discard (§11.12) and edit sessions", () => {
+	it("retires open workspaces, running attempts, and stream markers atomically", async () => {
+		await seedActor();
+		const sessionId = await h.seedDesignSession({ owner_user_id: ACTOR });
+		const lineage = await h.seedDesignLineage({ existingSessionId: sessionId });
+		const proposedAppId = crypto.randomUUID();
+		await h
+			.db()
+			.insertInto("design_change_sets")
+			.values({
+				id: crypto.randomUUID(),
+				design_session_id: sessionId,
+				design_revision_id: lineage.designRevisionId,
+				design_revision_digest: lineage.designRevisionDigest,
+				build_plan_id: lineage.buildPlanId,
+				build_plan_digest: lineage.buildPlanDigest,
+				slice_id: lineage.sliceId,
+				attempt_id: lineage.attemptId,
+				kind: "genesis",
+				app_id: null,
+				proposed_app_id: proposedAppId,
+				base_seq: null,
+				base_project_id: PROJECT,
+				base_snapshot_digest: "d".repeat(64),
+				revision: 0,
+				next_ordinal: 0,
+				exclusive_kind: null,
+				owner_user_id: ACTOR,
+				owner_run_id: "run-discard",
+				status: "open",
+				committed_seq: null,
+				committed_batch_id: null,
+				committed_snapshot_digest: null,
+			})
+			.execute();
+		const now = new Date().toISOString();
+		await h
+			.db()
+			.insertInto("threads")
+			.values({
+				thread_id: crypto.randomUUID(),
+				app_id: null,
+				design_session_id: sessionId,
+				created_at: now,
+				updated_at: now,
+				thread_type: "build",
+				summary: "",
+				run_id: "run-discard",
+				active_stream_id: crypto.randomUUID(),
+				active_holder_nonce: NONCE,
+				messages: JSON.stringify([]),
+				clawed_back_ids: JSON.stringify([]),
+			})
+			.execute();
+
+		await discardDesignSession(sessionId, ACTOR, PROJECT);
+
+		expect(
+			await h
+				.db()
+				.selectFrom("design_change_sets")
+				.select("status")
+				.where("design_session_id", "=", sessionId)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "abandoned" });
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select(["status", "failure_code"])
+				.where("id", "=", lineage.attemptId)
+				.executeTakeFirstOrThrow(),
+		).toEqual({
+			status: "superseded",
+			failure_code: "design-session-abandoned",
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("threads")
+				.select(["active_stream_id", "active_holder_nonce"])
+				.where("design_session_id", "=", sessionId)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ active_stream_id: null, active_holder_nonce: null });
+	});
+
 	it("discard refunds the remaining hold, abandons, and is owner-only + busy-guarded", async () => {
 		await seedActor();
 		await h.seedProjectMember("co-member", PROJECT, "editor");
@@ -814,6 +960,7 @@ describe("target resolver (§ opaque authorization)", () => {
 	it("resolves an authorized session and collapses foreign/missing ids to opaque not-found", async () => {
 		await seedActor();
 		const sessionId = await h.seedDesignSession({ owner_user_id: ACTOR });
+		await h.seedProjectMember("co-member", PROJECT, "editor");
 		const resolved = await resolveGenerationTargetScope(
 			{ kind: "design-session", designSessionId: sessionId },
 			ACTOR,
@@ -824,6 +971,14 @@ describe("target resolver (§ opaque authorization)", () => {
 			appId: null,
 			state: "active",
 		});
+		/* Project co-members do not acquire pre-app design visibility. */
+		await expect(
+			resolveGenerationTargetScope(
+				{ kind: "design-session", designSessionId: sessionId },
+				"co-member",
+				"view",
+			),
+		).rejects.toMatchObject({ name: "AppAccessError", reason: "not_found" });
 		/* A non-member reads exactly what a missing id reads. */
 		await expect(
 			resolveGenerationTargetScope(

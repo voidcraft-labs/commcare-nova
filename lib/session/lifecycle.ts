@@ -54,9 +54,14 @@ export function stageTagToGenerationStage(
  */
 export function deriveAgentStage(
 	events: readonly Event[],
+	materializedBuildActive = false,
 ): GenerationStage | null {
 	let establishedFoundation = false;
-	let establishedBuild = false;
+	/* Strict materialization installs the complete sequence-one document, but
+	 * its private genesis mutations never enter the client's event buffer.
+	 * The app-level unfinished-build latch plus a materialized app identity is
+	 * therefore independent proof that content construction has begun. */
+	let establishedBuild = materializedBuildActive;
 	let enteredHistoricalFix = false;
 
 	for (const e of events) {

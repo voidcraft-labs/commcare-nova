@@ -5,6 +5,7 @@ import type { CaseType } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { eq, formField, literal } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
 	buildDoc,
 	caseListConfig,
@@ -954,6 +955,60 @@ describe("validateBlueprintDeep", () => {
 			),
 		).toBe(true);
 	});
+
+	it("accepts a stored case-ref whose object keys admission re-sorted", () => {
+		// Mutation admission re-serializes every committed value with sorted
+		// object keys, and `case-ref` is the one XPath part whose sorted
+		// spelling ({caseType, kind, property}) differs from its parse
+		// spelling ({kind, caseType, property}). Key order is not AST
+		// identity, so the round-trip oracle compares canonically.
+		// Regression: a live build rejected every case-reading guard as
+		// INVALID_REF.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Update",
+							type: "followup",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "readiness",
+									calculate: "#patient/closure_readiness",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "closure_readiness", label: proseText("Readiness") },
+					],
+				},
+			],
+		});
+		const field = Object.values(doc.fields).find(
+			(fld) => fld.id === "readiness",
+		);
+		if (field?.kind !== "hidden" || field.calculate === undefined) {
+			throw new Error("fixture must hold the hidden case-ref field");
+		}
+		const sorted = JSON.parse(
+			canonicalJsonText(field.calculate),
+		) as typeof field.calculate;
+		// The fixture must actually exercise the divergent arm — if no
+		// part's sorted spelling differs, this regression stops testing.
+		expect(JSON.stringify(sorted)).not.toBe(JSON.stringify(field.calculate));
+		doc.fields[field.uuid] = { ...field, calculate: sorted };
+		expect(validateBlueprintDeep(doc)).toEqual([]);
+	});
 });
 
 // ── Full Integration (runValidation calls deep) ────────────────────
@@ -995,6 +1050,69 @@ describe("runValidation with deep validation", () => {
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
+	});
+
+	it("accepts a catalog default whose case-ref keys admission re-sorted", () => {
+		// The catalog-default canonicality rule (`rules/app.ts`) runs the
+		// same parse-and-print round trip as the field-slot oracle and must
+		// tolerate the same admission key re-sort on `case-ref` parts.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{
+							name: "status",
+							label: proseText("Status"),
+							validation: "#patient/priority != ''",
+						},
+						{ name: "priority", label: proseText("Priority") },
+					],
+				},
+			],
+		});
+		const property = doc.caseTypes
+			?.find((caseType) => caseType.name === "patient")
+			?.properties.find((candidate) => candidate.name === "status");
+		if (!property || property.validation === undefined) {
+			throw new Error("fixture must hold the case-ref validation default");
+		}
+		const sorted = JSON.parse(
+			canonicalJsonText(property.validation),
+		) as typeof property.validation;
+		expect(JSON.stringify(sorted)).not.toBe(
+			JSON.stringify(property.validation),
+		);
+		(property as { validation: typeof sorted }).validation = sorted;
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(
+			errors.filter((e) => e.code === "CASE_PROPERTY_REFERENCE_INVALID"),
+		).toEqual([]);
 	});
 });
 

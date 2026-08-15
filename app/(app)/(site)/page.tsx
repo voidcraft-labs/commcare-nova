@@ -9,6 +9,7 @@ import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import { resolveProjectAccess } from "@/lib/db/appAccess";
 import { projectHasApps } from "@/lib/db/apps";
+import { userHasDesignsInProgress } from "@/lib/db/designInProgress";
 import { listIncomingInvitations } from "@/lib/projects/membership";
 import { AppList } from "./app-list";
 import { Landing } from "./landing";
@@ -27,16 +28,17 @@ interface HomePageProps {
  *    carries `?error=…` (set by Better Auth when an OAuth attempt is
  *    rejected), the message is forwarded to the landing page so it can
  *    render an inline banner.
- * 2. Authenticated, no apps → role-aware empty state (rendered immediately,
- *    no Suspense skeleton). Editors may start `/build/new`; viewers see who can.
- * 3. Authenticated, has apps → App list skeleton streams via Suspense
+ * 2. Authenticated, no apps or active designs → role-aware empty state
+ *    (rendered immediately, no Suspense skeleton). Editors may start
+ *    `/build/new`; viewers see who can.
+ * 3. Authenticated, has apps or active designs → App list skeleton streams via Suspense
  *    while the active + recently-deleted lists load from Postgres.
  *    The active/deleted toggle lives in the client island below the
  *    fetch: it's a UI filter, not a routable state, so it stays out
  *    of the URL.
  *
- * The `projectHasApps` existence check (`limit(1)`) runs before the
- * Suspense boundary so a Project with no apps never shows the skeleton.
+ * The app/design existence probes run before the Suspense boundary so only a
+ * genuinely empty Project bypasses the list and its resumable-design section.
  */
 export default async function HomePage({ searchParams }: HomePageProps) {
 	const session = await getSession();
@@ -51,14 +53,18 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		resolveActiveProjectId(session),
 		listIncomingInvitations(session.user.email, new Date()),
 	]);
-	const [hasApps, activeAccess] = await Promise.all([
+	const [hasApps, hasDesigns, activeAccess] = await Promise.all([
 		projectHasApps(activeProjectId),
+		userHasDesignsInProgress({
+			userId: session.user.id,
+			projectId: activeProjectId,
+		}),
 		resolveProjectAccess(session.user.id, activeProjectId, "view"),
 	]);
 	const canCreateApp = roleAllowsApp(activeAccess.role, "edit");
 	const inviteCount = incoming.length;
 
-	if (!hasApps) {
+	if (!hasApps && !hasDesigns) {
 		return (
 			<main className="min-h-full flex flex-col items-center justify-center px-6">
 				{inviteCount > 0 && (

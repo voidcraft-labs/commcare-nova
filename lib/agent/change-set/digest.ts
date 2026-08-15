@@ -15,23 +15,23 @@ export {
 
 import { canonicalJsonDigest as digest } from "@/lib/utils/canonicalJson";
 
-/** The staging idempotency protocol version, hashed into every input digest
+/** The private-workspace call protocol version, hashed into every input digest
  *  so a future protocol change cannot silently replay old receipts. */
-export const STAGING_PROTOCOL_VERSION = 1;
+export const WORKSPACE_CALL_PROTOCOL_VERSION = 1;
 
 /**
- * The staging request's input digest: the caller's ACTUAL request — computed
+ * A private-workspace call's input digest: the caller's ACTUAL request — computed
  * over the raw projected input BEFORE handle resolution, so a retry compares
  * what the caller sent, while the stored mutation digest proves the resolved
  * canonical result.
  */
-export function stagingInputDigest(args: {
+export function workspaceCallInputDigest(args: {
 	readonly toolName: string;
 	readonly expectedWorkspaceRevision: number;
 	readonly projectedInput: unknown;
 }): string {
 	return digest({
-		stagingProtocolVersion: STAGING_PROTOCOL_VERSION,
+		workspaceCallProtocolVersion: WORKSPACE_CALL_PROTOCOL_VERSION,
 		toolName: args.toolName,
 		expectedWorkspaceRevision: args.expectedWorkspaceRevision,
 		projectedInput: args.projectedInput,

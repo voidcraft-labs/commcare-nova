@@ -26,6 +26,7 @@ scripts/infra/*
 !scripts/migrate-case-type-schema-retirement.ts
 !scripts/migrate-case-parent-relationships.ts
 !scripts/migrate-schema-drift.ts
+!scripts/migrate-legacy-preplan-builds.ts
 !scripts/infra/databaseOwnerBootstrap.ts
 !scripts/lib/
 scripts/lib/*

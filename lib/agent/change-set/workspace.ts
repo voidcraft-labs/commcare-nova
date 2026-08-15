@@ -26,7 +26,7 @@
  * peer surface. Committing is `commit.ts`'s separate server-owned operation.
  */
 
-import type { DesignId } from "@/lib/agent/design/ids";
+import { normalizeModelAstInput } from "@/lib/agent/modelAstInput";
 import type {
 	ConversionImpactFn,
 	ToolInvocationContext,
@@ -35,9 +35,11 @@ import type {
 	WorkspaceSnapshot,
 } from "@/lib/agent/workspace/types";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
+import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import {
 	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
+	exportReadinessFindings,
 	type PreparedMutationCandidate,
 	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
@@ -55,14 +57,19 @@ import {
 	admitMutationStages,
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
-import type { BlueprintDoc } from "@/lib/domain";
-import { asWalkableDoc, walkAuthoredAssetRefs } from "@/lib/domain/mediaRefs";
+import { authoredBlueprintIdentities, type BlueprintDoc } from "@/lib/domain";
+import { collectAssetRefs, collectRealAssetRefs } from "@/lib/domain/mediaRefs";
+import {
+	builtinAssetRows,
+	partitionAssetRefs,
+} from "@/lib/media/builtinIconAssets";
 import {
 	type ChangeSetDiagnostics,
 	computeChangeSetDiagnostics,
+	evaluateOverlayFindings,
 	summarizeDiagnostics,
 } from "./diagnostics";
-import { canonicalJsonDigest, stagingInputDigest } from "./digest";
+import { canonicalJsonDigest, workspaceCallInputDigest } from "./digest";
 import {
 	ChangeSetIntegrityError,
 	ChangeSetRequestIdCollisionError,
@@ -93,6 +100,14 @@ import {
 	type DesignChangeSet,
 } from "./types";
 
+export interface ChangeSetExecutionCheckpoint {
+	readonly handles: readonly {
+		readonly handle: string;
+		readonly uuid: string;
+		readonly entityKind: string;
+	}[];
+}
+
 /** The Project data readers + services a change-set workspace runs over. */
 export interface ChangeSetWorkspaceHost {
 	readonly actorUserId: string;
@@ -111,6 +126,27 @@ export interface StageDispatchResult<T> {
 	readonly receipt?: StageRequestReceipt;
 }
 
+async function genesisFinalizationFindings(args: {
+	readonly changeSet: Pick<DesignChangeSet, "kind" | "baseProjectId">;
+	readonly overlay: BlueprintDoc;
+	readonly lookupContext: LookupValidationContext;
+}): Promise<ReturnType<typeof exportReadinessFindings>> {
+	if (args.changeSet.kind !== "genesis") return [];
+	const { realIds, builtinSlugs } = partitionAssetRefs([
+		...collectAssetRefs(args.overlay),
+	]);
+	const realRows =
+		realIds.length === 0
+			? []
+			: await loadAssetsByIds(realIds, args.changeSet.baseProjectId);
+	const rows = [...realRows, ...builtinAssetRows(builtinSlugs)];
+	return exportReadinessFindings(
+		args.overlay,
+		args.lookupContext,
+		new Map(rows.map((row) => [row.id as string, row])),
+	);
+}
+
 interface DispatchArgs<T> {
 	readonly toolName: string;
 	readonly requestId?: string;
@@ -118,6 +154,7 @@ interface DispatchArgs<T> {
 	 * idempotency digest); optional in the type only so the shared
 	 * `ToolWorkspace` contract remains satisfied. */
 	readonly input?: unknown;
+	readonly deadlineAt?: number;
 	execute(ctx: ToolInvocationContext, resolvedInput?: unknown): Promise<T>;
 }
 
@@ -183,6 +220,19 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		};
 	}
 
+	/** Bounded identity state a recovered compiler cannot infer from the
+	 * Blueprint alone. The projection comes from the durable handle ledger;
+	 * no transcript is authoritative here. */
+	currentExecutionCheckpoint(): ChangeSetExecutionCheckpoint {
+		return {
+			handles: this.handleTable.entries().map(([handle, binding]) => ({
+				handle,
+				uuid: binding.uuid,
+				entityKind: binding.entityKind,
+			})),
+		};
+	}
+
 	/** The change set's authority row as this workspace last observed it. */
 	current(): DesignChangeSet {
 		return this.changeSet;
@@ -208,11 +258,13 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly toolName: string;
 		readonly requestId: string;
 		readonly input: unknown;
+		/** Absolute executor deadline. Direct/non-executor callers omit it. */
+		readonly deadlineAt?: number;
 	}): Promise<StageDispatchResult<unknown>> {
 		const entry = changeSetToolEntry(args.toolName);
 		if (entry === undefined) {
 			throw new ChangeSetStagingRejectedError(
-				"STAGING_FORBIDDEN",
+				"TOOL_NOT_ALLOWED",
 				`Tool ${args.toolName} is not available in a change set. External-effect and lifecycle tools run only on canonical surfaces.`,
 			);
 		}
@@ -220,16 +272,30 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			toolName: args.toolName,
 			requestId: args.requestId,
 			input: args.input,
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			execute: async (ctx, resolvedInput) => {
-				const parsed = entry.tool.inputSchema.parse(resolvedInput);
-				return entry.tool.execute(parsed, ctx);
+				const parsed = entry.tool.inputSchema.safeParse(
+					normalizeModelAstInput(resolvedInput),
+				);
+				if (!parsed.success) {
+					throw new ChangeSetStagingRejectedError(
+						"TOOL_INPUT_INVALID",
+						`The ${args.toolName} input was invalid: ${parsed.error.issues
+							.map(
+								(issue) =>
+									`${issue.path.join(".") || "(root)"}: ${issue.message}`,
+							)
+							.join("; ")}`,
+					);
+				}
+				return entry.tool.execute(parsed.data, ctx);
 			},
 		});
 	}
 
 	/**
-	 * Full diagnostics over the CURRENT rehydrated candidate — what
-	 * `inspectChangeSet` projects and what commit preconditions consult.
+	 * Full diagnostics over the CURRENT rehydrated candidate. The executor's
+	 * server-owned workflow finalizer and commit preconditions consult this.
 	 */
 	async inspect(): Promise<ChangeSetDiagnostics> {
 		const lookupContext = await this.lookupContextFor(
@@ -240,11 +306,21 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			appId: this.changeSet.appId,
 			dependencies: this.accumulatedReadSet,
 		});
+		const findings = evaluateOverlayFindings(this.overlayDoc, lookupContext);
+		const finalizationFindings =
+			findings.length === 0
+				? await genesisFinalizationFindings({
+						changeSet: this.changeSet,
+						overlay: this.overlayDoc,
+						lookupContext,
+					})
+				: [];
 		return computeChangeSetDiagnostics({
 			changeSet: this.changeSet,
 			overlaySnapshot: toPersistableDoc(this.overlayDoc),
 			overlay: this.overlayDoc,
-			lookupContext,
+			findings,
+			finalizationFindings,
 			steps: this.steps,
 			readSetStatus,
 			previousFingerprints: this.lastSummaryFingerprints,
@@ -278,10 +354,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			 * receipt; divergence latches as a collision. */
 			const stored = await lookupStageRequest(this.changeSet.id, requestId);
 			if (stored !== undefined) {
-				const replayDigest = stagingInputDigest({
+				const replayDigest = workspaceCallInputDigest({
 					toolName: args.toolName,
 					expectedWorkspaceRevision: stored.expectedRevision,
-					projectedInput: args.input,
+					projectedInput: { input: args.input },
 				});
 				if (
 					stored.toolName !== args.toolName ||
@@ -297,10 +373,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			}
 
 			const expectedRevision = this.changeSet.revision;
-			const inputDigest = stagingInputDigest({
+			const inputDigest = workspaceCallInputDigest({
 				toolName: args.toolName,
 				expectedWorkspaceRevision: expectedRevision,
-				projectedInput: args.input,
+				projectedInput: { input: args.input },
 			});
 
 			/* Handle declaration + structural resolution, against a SCRATCH
@@ -315,6 +391,13 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			try {
 				if (entry?.declaredHandles !== undefined) {
 					for (const declaration of entry.declaredHandles(args.input)) {
+						const existing = scratch.lookup(declaration.handle);
+						if (
+							declaration.referenceIfBound === true &&
+							existing?.entityKind === declaration.entityKind
+						) {
+							continue;
+						}
 						const uuid = scratch.declare(
 							declaration.handle,
 							declaration.entityKind,
@@ -336,6 +419,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 					expectedRevision,
 					code: error.code,
 					message: error.message,
+					...(args.deadlineAt !== undefined && {
+						deadlineAt: args.deadlineAt,
+					}),
 				});
 				return {
 					replayed: false,
@@ -358,8 +444,25 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				allocations,
 				scratch,
 				state: invocationState,
+				...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			});
 			const result = await args.execute(ctx, resolvedInput);
+			if (
+				invocationState.receipt === undefined &&
+				entry?.policy.effect === "mutate-blueprint" &&
+				isSuccessfulMutationNoop(result)
+			) {
+				/* A successful mutation no-op is still the durable answer to this native
+				 * call. Record it so process replacement replays the exact call identity
+				 * instead of re-running tool logic. */
+				invocationState.receipt = await this.persistMutationNoop({
+					toolName: args.toolName,
+					requestId,
+					inputDigest,
+					expectedRevision,
+					...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
+				});
+			}
 			return {
 				replayed: false,
 				result,
@@ -386,6 +489,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		allocations: readonly StageHandleAllocation[];
 		scratch: HandleTable;
 		state: InvocationWriteState;
+		deadlineAt?: number;
 	}): ToolInvocationContext {
 		const snapshot = this.currentSnapshot();
 		const { state } = args;
@@ -411,8 +515,6 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			readonly mutations: AdmittedMutationBatch;
 			readonly slices: readonly AdmittedMutationStageSlice[];
 			readonly policyOrganizationRevision?: string;
-			readonly intentIds?: readonly DesignId[];
-			readonly readSet?: readonly ExternalReadDependency[];
 		}): Promise<WorkspaceMutationOutcome> => {
 			const outcome = await this.applyStagedBatch({
 				toolName: args.toolName,
@@ -422,6 +524,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				allocations: args.allocations,
 				scratch: args.scratch,
 				lookupCaptures: state.lookupCaptures,
+				...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 				...staged,
 			});
 			if (outcome.kind === "staged") {
@@ -468,13 +571,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				},
 			}),
 			conversionImpact: (impactArgs) => this.host.conversionImpact(impactArgs),
-			applyBatch: async ({
-				mutations,
-				stage: stageTag,
-				policy,
-				intentIds,
-				readSet,
-			}) => {
+			applyBatch: async ({ mutations, stage: stageTag, policy }) => {
 				consumeWriteBudget("applyBatch");
 				let admitted: AdmittedMutationBatch;
 				try {
@@ -488,6 +585,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 						expectedRevision: args.expectedRevision,
 						code: "WIRE_CANONICALITY_INVALID",
 						message: error.message,
+						...(args.deadlineAt !== undefined && {
+							deadlineAt: args.deadlineAt,
+						}),
 					});
 					return { ok: false, error: error.message };
 				}
@@ -502,11 +602,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 							policy.expectedOrganizationRevision,
 						),
 					}),
-					...(intentIds !== undefined && { intentIds }),
-					...(readSet !== undefined && { readSet }),
 				});
 			},
-			applyStages: async ({ stages, intentIds, readSet }) => {
+			applyStages: async ({ stages }) => {
 				consumeWriteBudget("applyStages");
 				let admitted: ReturnType<typeof admitMutationStages>;
 				try {
@@ -520,14 +618,15 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 						expectedRevision: args.expectedRevision,
 						code: "WIRE_CANONICALITY_INVALID",
 						message: error.message,
+						...(args.deadlineAt !== undefined && {
+							deadlineAt: args.deadlineAt,
+						}),
 					});
 					return { ok: false, error: error.message };
 				}
 				return stage({
 					mutations: admitted.batch,
 					slices: admitted.slices,
-					...(intentIds !== undefined && { intentIds }),
-					...(readSet !== undefined && { readSet }),
 				});
 			},
 			adoptAuthoritativeSnapshot: () => {
@@ -564,6 +663,13 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		if (receipt.disposition === "rejected") {
 			return { error: receipt.error?.message ?? "This request was rejected." };
 		}
+		if (receipt.disposition === "noop") {
+			return {
+				kind: "mutate",
+				mutations: [],
+				result: { message: "This no-op correction was already accepted." },
+			};
+		}
 		/* The receipt IS the replay contract: identical handles, mutation
 		 * digest, diagnostics, and workspace revision, with the minted
 		 * identities recoverable from the receipt's handle map and the step's
@@ -592,6 +698,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly expectedRevision: number;
 		readonly code: ChangeSetStageErrorCode;
 		readonly message: string;
+		readonly deadlineAt?: number;
 	}): Promise<StageRequestReceipt> {
 		const { receipt } = await stageChangeSetRequest({
 			changeSetId: this.changeSet.id,
@@ -604,7 +711,32 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			...(this.host.chatRunHolder !== undefined && {
 				chatRunHolder: this.host.chatRunHolder,
 			}),
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			outcome: { kind: "reject", code: args.code, message: args.message },
+		});
+		return receipt;
+	}
+
+	private async persistMutationNoop(args: {
+		readonly toolName: string;
+		readonly requestId: string;
+		readonly inputDigest: string;
+		readonly expectedRevision: number;
+		readonly deadlineAt?: number;
+	}): Promise<StageRequestReceipt> {
+		const { receipt } = await stageChangeSetRequest({
+			changeSetId: this.changeSet.id,
+			requestId: args.requestId,
+			toolName: args.toolName,
+			inputDigest: args.inputDigest,
+			expectedRevision: args.expectedRevision,
+			actorUserId: this.host.actorUserId,
+			runId: this.host.runId,
+			...(this.host.chatRunHolder !== undefined && {
+				chatRunHolder: this.host.chatRunHolder,
+			}),
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
+			outcome: { kind: "noop" },
 		});
 		return receipt;
 	}
@@ -638,11 +770,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly allocations: readonly StageHandleAllocation[];
 		readonly scratch: HandleTable;
 		readonly lookupCaptures: readonly ExternalReadDependency[];
+		readonly deadlineAt?: number;
 		readonly mutations: AdmittedMutationBatch;
 		readonly slices: readonly AdmittedMutationStageSlice[];
 		readonly policyOrganizationRevision?: string;
-		readonly intentIds?: readonly DesignId[];
-		readonly readSet?: readonly ExternalReadDependency[];
 	}): Promise<
 		| {
 				kind: "staged";
@@ -672,6 +803,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				expectedRevision: args.expectedRevision,
 				code,
 				message,
+				...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			}),
 			message,
 		});
@@ -735,14 +867,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			);
 		}
 
-		/* Read-set capture: lookup reads recorded by the wrapped readers AND
-		 * by this step's own diagnostics resolution, the organization fence
-		 * from the write policy, media identities from the authored-asset-ref
-		 * delta, plus any explicit entries. */
-		const captured: ExternalReadDependency[] = [
-			...args.lookupCaptures,
-			...(args.readSet ?? []),
-		];
+		/* Read-set capture is automatic: lookup reads recorded by the wrapped
+		 * readers and diagnostics resolution, the organization fence from the
+		 * write policy, and media identities from the authored-asset-ref delta. */
+		const captured: ExternalReadDependency[] = [...args.lookupCaptures];
 		if (args.policyOrganizationRevision !== undefined) {
 			captured.push({
 				kind: "organization",
@@ -750,16 +878,16 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				revision: args.policyOrganizationRevision,
 			});
 		}
-		const prevAssets = new Set(
-			[...walkAuthoredAssetRefs(asWalkableDoc(this.overlayDoc))].map(
-				(ref) => ref.assetId,
-			),
-		);
+		/* Built-in menu icons are Project-independent shipped bytes, not media
+		 * rows. Only real uploaded assets belong in the external read set. Using
+		 * the authored reference walk directly would feed `nova-icon:*` through
+		 * the MediaAssetId parser and reject a perfectly valid built-in icon. */
+		const prevAssets = new Set(collectRealAssetRefs(this.overlayDoc));
 		const newAssets = [
 			...new Set(
-				[...walkAuthoredAssetRefs(asWalkableDoc(prepared.nextDoc))]
-					.map((ref) => ref.assetId)
-					.filter((assetId) => !prevAssets.has(assetId)),
+				collectRealAssetRefs(prepared.nextDoc).filter(
+					(assetId) => !prevAssets.has(assetId),
+				),
 			),
 		];
 		captured.push(
@@ -833,7 +961,6 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				toolName: args.toolName,
 				mutations: args.mutations,
 				mutationDigest: canonicalJsonDigest(args.mutations),
-				intentIds: args.intentIds ?? [],
 				readSet: stepReadSet,
 				stages: args.slices.map((slice, index) => ({
 					stageOrdinal: index,
@@ -847,6 +974,15 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			appId: this.changeSet.appId,
 			dependencies: nextAccumulated,
 		});
+		const findings = evaluateOverlayFindings(prepared.nextDoc, lookupContext);
+		const finalizationFindings =
+			findings.length === 0
+				? await genesisFinalizationFindings({
+						changeSet: this.changeSet,
+						overlay: prepared.nextDoc,
+						lookupContext,
+					})
+				: [];
 		const diagnostics = computeChangeSetDiagnostics({
 			changeSet: {
 				kind: this.changeSet.kind,
@@ -855,12 +991,22 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			},
 			overlaySnapshot: nextSnapshot,
 			overlay: prepared.nextDoc,
-			lookupContext,
+			findings,
+			finalizationFindings,
 			steps: nextSteps,
 			readSetStatus,
 			previousFingerprints: this.lastSummaryFingerprints,
 		});
 		const summary = summarizeDiagnostics(diagnostics);
+		const retainedHandleUuids = new Set(
+			authoredBlueprintIdentities(prepared.nextDoc).map(
+				(identity) => identity.uuid,
+			),
+		);
+		const retainedAllocations = args.allocations.filter((allocation) =>
+			retainedHandleUuids.has(allocation.uuid),
+		);
+		const retainedScratch = args.scratch.retainingUuids(retainedHandleUuids);
 
 		const { replayed, receipt } = await stageChangeSetRequest({
 			changeSetId: this.changeSet.id,
@@ -873,12 +1019,13 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			...(this.host.chatRunHolder !== undefined && {
 				chatRunHolder: this.host.chatRunHolder,
 			}),
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			outcome: {
 				kind: "stage",
 				mutations: args.mutations,
 				stageSlices: args.slices,
-				handles: args.allocations,
-				intentIds: args.intentIds ?? [],
+				handles: retainedAllocations,
+				retainedHandleUuids: [...retainedHandleUuids],
 				readSet: stepReadSet,
 				exclusiveKind: exclusive,
 				diagnostics: summary,
@@ -907,7 +1054,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		 * next invocation builds on it. */
 		this.overlayDoc = prepared.nextDoc;
 		this.steps = nextSteps;
-		this.handleTable = args.scratch;
+		this.handleTable = retainedScratch;
 		this.accumulatedReadSet = nextAccumulated;
 		this.lastSummaryFingerprints = summary.findingFingerprints;
 		this.changeSet = {
@@ -924,4 +1071,22 @@ interface InvocationWriteState {
 	writesUsed: number;
 	lookupCaptures: ExternalReadDependency[];
 	receipt: StageRequestReceipt | undefined;
+}
+
+function isSuccessfulMutationNoop(value: unknown): boolean {
+	if (value === null || typeof value !== "object") return false;
+	const candidate = value as {
+		kind?: unknown;
+		mutations?: unknown;
+		result?: unknown;
+	};
+	if (candidate.kind !== "mutate" || !Array.isArray(candidate.mutations)) {
+		return false;
+	}
+	if (candidate.mutations.length !== 0) return false;
+	return !(
+		candidate.result !== null &&
+		typeof candidate.result === "object" &&
+		typeof (candidate.result as { error?: unknown }).error === "string"
+	);
 }

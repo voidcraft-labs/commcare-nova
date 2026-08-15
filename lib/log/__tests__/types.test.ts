@@ -179,6 +179,40 @@ describe("eventSchema", () => {
 					},
 				},
 			},
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 7,
+				seq: 7,
+				source: "chat",
+				payload: {
+					type: "executor-tool-outcome",
+					modelStep: 3,
+					toolName: "addUserProperties",
+					operationIndex: 0,
+					workspaceRevision: 2,
+					outcome: "mutation-rejected",
+					code: "TARGET_INVALID",
+				},
+			},
+			{
+				kind: "conversation",
+				runId: "r",
+				ts: 8,
+				seq: 8,
+				source: "chat",
+				payload: {
+					type: "design-tool-outcome",
+					toolCallId: "design-call-1",
+					toolName: "stageContract",
+					inputChars: 2400,
+					durationMs: 812,
+					outcome: "needs-input",
+					code: "design-construction-needs-input",
+					validationStage: "construction",
+					issueCount: 7,
+				},
+			},
 		];
 		for (const ev of samples) {
 			expect(eventSchema.parse(ev)).toEqual(ev);
@@ -225,6 +259,47 @@ describe("eventSchema", () => {
 				payload: { ...base.payload, futurePayload: true },
 			}),
 		).toThrow();
+	});
+
+	it("refuses raw executor payloads in outcome annotations", () => {
+		const event = {
+			kind: "conversation" as const,
+			runId: "r",
+			ts: 0,
+			seq: 0,
+			source: "chat" as const,
+			payload: {
+				type: "executor-tool-outcome",
+				modelStep: 1,
+				toolName: "createModule",
+				workspaceRevision: 1,
+				outcome: "wire-invalid",
+				code: "TOOL_INPUT_INVALID",
+				input: { customerAuthored: "must not persist" },
+			},
+		};
+		expect(() => eventSchema.parse(event)).toThrow();
+	});
+
+	it("refuses raw design payloads in outcome annotations", () => {
+		const event = {
+			kind: "conversation" as const,
+			runId: "r",
+			ts: 0,
+			seq: 0,
+			source: "chat" as const,
+			payload: {
+				type: "design-tool-outcome",
+				toolCallId: "design-call-1",
+				toolName: "updateWorkflows",
+				inputChars: 24,
+				durationMs: 12,
+				outcome: "accepted",
+				code: "tool-completed",
+				input: { customerAuthored: "must not persist" },
+			},
+		};
+		expect(() => eventSchema.parse(event)).toThrow();
 	});
 
 	it("keeps archived bytes opaque while enforcing their envelope", () => {

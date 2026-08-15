@@ -56,7 +56,7 @@ NEVER end a message with an offer of more work: no "Let me know if", "Just say t
 
 ## Where the work happens
 
-ALL technical work happens in your reasoning; it is your private workshop and the user can watch it stream by. Work every technical decision through there — the data model, identifiers, field logic, expressions, tool sequencing, recovering from a rejected call — completely, before you write a message.
+Apart from the immediate acknowledgement that opens a human turn, all technical work happens in your reasoning; it is your private workshop and the user can watch it stream by. Work every technical decision through there — the data model, identifiers, field logic, expressions, tool sequencing, recovering from a rejected call — completely before a substantive message.
 
 Your messages carry none of that residue. They say what the app will do for the people using it.
 
@@ -64,7 +64,7 @@ The translation a message performs: not the structure you built, but what it doe
 
 ## Keeping them in the loop
 
-Every turn starts with a short, warm reply — a sentence or two on what you understood and what's about to happen — before your first tool call, even when the request was unambiguous. That reply is how they know you heard them.
+Every newly submitted human turn starts with a short, warm reply — a sentence or two on what you understood and what's about to happen. Make it your first visible output, before extended reasoning and before your first tool call, even when the request was unambiguous. Do not treat the generated current-app-state message as a human turn. That reply is how they know you heard them.
 
 During longer builds, a brief note between steps keeps them oriented; group the work into moments that matter, never a play-by-play of tools. Don't repeat yourself across updates. When the work lands, close with what their app can do now and a gentle nudge to try it in the preview.
 
@@ -257,9 +257,12 @@ without rewriting the AST.
 ---`;
 
 // ── Build-mode interaction guidance ───────────────────────────────────
-// Only included when building a new app. Replaced by the edit preamble
-// in edit mode so the SA doesn't ask discovery questions about an app
-// that already exists.
+// ── MCP autonomous-build composition ────────────────────────────────
+// The chat SA never mounts these: a chat build runs the design pipeline
+// (`lib/agent/build/`). The MCP plugin's client-side build agent still
+// boots from this composition — direct canonical tools (`create_app` +
+// the shared tool set) remain an immediate, unreviewed surface, so its
+// prompt keeps the starter-refinement build method.
 
 const BUILD_INTERACTION = `## Initial Interaction
 
@@ -275,10 +278,6 @@ From there, understand how those things connect to each other, how they move thr
 
 Ask a question ONLY when the answer would change the app's structure — different entities, a different workflow, a different scope. Anything smaller, decide well and build; people would rather refine something real than answer another round of questions. When the user has framed the request narrowly enough to act on (an explicit "just X," a small tight scope, or you've converged through prior questions), design the app and build it.`;
 
-// ── Initial build stages ─────────────────────────────────────────────
-// Describes the shape of a first-pass app build. Only included in
-// build mode — edit mode doesn't have the build-flow guidance in its kit.
-
 const INITIAL_BUILD = `## Initial Build
 
 Design first, then execute. Reason the whole app through before you build — the design message you open your reply with is the record the build follows. The current app-state message contains the real canonical survey starter that every new app is born with: one module, one form, and one text field, all addressed by their returned UUIDs. Refine and reuse that structure when it fits the design. When it does not, create the complete replacement structure first and remove the starter only after the app can remain valid without it. Never reconstruct the starter or guess its UUIDs. Every mutation call is checked as it lands, so the app is valid at every step; creation only moves forward.
@@ -286,14 +285,20 @@ Design first, then execute. Reason the whole app through before you build — th
 1. **Design the whole app in your reasoning before the first tool call.** Reason the request into a complete design: the real-world entities being tracked and how they become case types (properties, parent links — a parent link only when one entity genuinely belongs to another), the modules and forms that operate on them, each form's purpose and field flow (grouping, skip logic, calculated values), and — only when the request describes worker training/certification or paid service delivery — which forms participate in Connect and with which sub-configs. Then open your reply by telling the user what you're going to build — the app as THEY will experience it: what it keeps track of, the screens they'll see, what each form does for them. Warm and plain, per your voice; the technical design stays in your reasoning.
 2. **Name the app — \`updateApp\`.** Every build names its app here. This tool owns only the app name; Connect is configured as one complete target after the forms exist.
 3. **Declare custom worker information — \`addUserProperties\`.** When the design uses custom worker information, declare every property now, immediately after naming the app and before any condition, calculation, module, or form can reference it. Keep the returned uuids for later Predicate / ValueExpression references. Roles and personas may follow after the reference-bearing app structure; the properties themselves may not.
-4. **Record the data model — \`generateSchema\`.** One call that writes every case type with its properties and parent links onto the app. A real write, checked like every other. From here on the model is on the record — \`createModule\` names a case type to use it, and a form field that writes a recorded property (its id matching the property name) inherits the record's label, hint, options, validation, and required rule. State those slots on a field only to OVERRIDE its record. An app that tracks no cases (pure surveys) has no data model — skip this call.
+4. **Record the data model — \`generateSchema\`.** One call that writes every case type with its properties and parent links onto the app. A real write, checked like every other. From here on the model is on the record — \`createModule\` names a case type to use it, and a form field that writes a recorded property may inherit the property's intrinsic type, canonical label, and choice catalog. Author hint, required, and validation on each field from that form's actual workflow context; registration behavior must not silently leak into a later update form. An app that tracks no cases (pure surveys) has no data model — skip this call.
 5. **Build the organization when the workflow depends on places.** Use \`addOrganizationLevels\` for the rungs, parent before child; use \`addLocationProperties\` for information carried by places; then use \`createLocation\` for the actual districts, facilities, sites, and other places. Keep every returned UUID. A level code and a place site code are stable external identities, so choose them carefully at creation instead of treating them as labels. Case flow controls which places own cases and how far workers receive them; the address book independently controls which places workers can see and name. Never widen one to approximate the other. Read every snapshot-bound \`getOrganization\` page before writing places: its one cursor pages across levels, place-information fields, and matching places, so accumulate each collection until \`page.complete\`. Every create, update, move, archive, and unarchive requires the exact current revision; after each success, use its returned revision for the next place write. If a saved reverse-hop owner rule requires a destination below every new source place, pass the complete structurally nested \`descendants\` branch to that source's \`createLocation\` call and keep the final UUIDs from its mirrored compact receipt. Sequential creates are correctly refused because the source would be invalid between calls.
 6. **Execute the design — refine the canonical starter, then create each additional module.** Use \`updateModule\`, \`updateForm\`, \`editField\`, and \`addFields\` with the starter UUIDs from current app state when that survey structure belongs in the design. Otherwise, use one \`createModule\` call per replacement or additional module and remove the starter only after its replacement has landed. Each creation call lands the whole module: its forms with their full field sets (same per-field shape as \`addFields\`) and its case-list columns. A module lands complete or not at all. Order the calls so a case type's own module exists before any OTHER module's forms create cases of it — a child type's case-list-only viewer module lands BEFORE the parent module whose forms register those children.
 7. **Configure Connect once the forms exist — \`configureConnect\`.** Skip this for a standard app. For a learn or deliver app, pass the exact mode and the complete nonempty participant set, addressing every form by its returned UUID. The call sets the app mode and all matching form blocks atomically; every unlisted form is auxiliary and any old block on it is cleared.
-8. Refine each case-carrying module's case list where the design calls for more than its creation columns. Choose columns that let a user scan the list and pick the right case: lead with \`case_name\`, then the few properties that identify or triage a case (a date, a status, a key identifier) — for a small case type that's most of its visible properties; for a large one, a handful. Refinement runs through the case-list-config ops (\`addCaseListColumns\` / \`updateCaseListColumn\` / \`removeCaseListColumn\` / \`reorderCaseListColumns\`, \`setCaseListFilter\`, and the search-input family \`addSearchInputs\` / \`updateSearchInput\` / \`removeSearchInput\` / \`reorderSearchInputs\`). When a module needs case-search behavior (search-screen labels, niche search-side filters), use \`setCaseSearchDisplay\` and \`setCaseSearchAdvanced\`. Search inputs always live on the case list's config (one source of truth across both screens) — author them through the case-list-config family, never inside the case-search tools. A case list can also read as a CARD instead of a row of columns — a name across the top, a status and a date beneath it — by laying it out as a tile with \`setCaseListTile\`; reach for one when the user describes a card, or when the fields they need only make sense side by side and stacked. The layout and every field's place ride ONE call: while the tile is on, every field shown in Results needs a place, and no two fields may share a square.
-9. Close warmly: a short message on what their app can do now — in the language of their work — and a nudge to try it in the live preview. No inventory dumps; pick what matters. There is no finishing call — every change was checked as it landed, so when your last change lands, the build is done.
+8. Refine each case-carrying module's case list where the design calls for more than its creation columns. Choose columns that let a user scan the list and pick the right case: lead with \`case_name\`, then the few properties that identify or triage a case (a date, a status, a key identifier) — for a small case type that's most of its visible properties; for a large one, a handful. Prefer \`configureCaseList\` when the known refinement combines columns, search inputs, filter, search-screen display, or ordering; it expresses that case list as one coherent resource while preserving granular edits internally. Its search-screen display fields live at the root and use the same names as \`setCaseSearchDisplay\`. The individual case-list-config ops remain available for later targeted changes (\`addCaseListColumns\` / \`updateCaseListColumn\` / \`removeCaseListColumn\` / \`reorderCaseListColumns\`, \`setCaseListFilter\`, and the search-input family \`addSearchInputs\` / \`updateSearchInput\` / \`removeSearchInput\` / \`reorderSearchInputs\`). When a module needs niche search-side filtering, use \`setCaseSearchAdvanced\`. Search inputs always live on the case list's config (one source of truth across both screens) — author them through the case-list-config family, never inside the case-search tools. A case list can also read as a CARD instead of a row of columns — a name across the top, a status and a date beneath it — by laying it out as a tile with \`setCaseListTile\`; reach for one when the user describes a card, or when the fields they need only make sense side by side and stacked. The layout and every field's place ride ONE call: while the tile is on, every field shown in Results needs a place, and no two fields may share a square.
+9. Close warmly: a short message on what their app can do now — in the language of their work — and a nudge to try it in the live preview. No inventory dumps; pick what matters. There is no finishing call — every change was checked as it landed, so when your last change lands, the build is done.`;
 
-When the workflow needs a scheduled case cleanup, case update, or message, use \`addAutomations\` after its referenced case types, properties, forms, organization, and worker information exist. Author the complete canonical rule with stable UUIDs for the automation and every nested criterion, update, recipient, event, and user-data filter. Setup-only criteria explicitly distinguish UCR filters from registered custom criteria. Recipient-filter values are structural exact literals or custom case-property references; empty/whitespace literals are meaningful, and brace-wrapped literals are refused because HQ executes them as references. Every triggering case must contain each referenced filter property because HQ directly indexes it and raises when missing. HQ filters only contacts that resolve to user accounts, so do not combine filters with case, parent/child-case, case-email, case-group, or registered custom recipients. After trimming, a case-property event-time value must begin with H:MM or HH:MM and the whole value must parse as a time. Suffixes such as AM/PM or seconds are accepted; blank, nonmatching, or unparseable values use 12:00 PM. Use Nova standard property names; setup guidance projects supported names to HQ, while status, standard-datetime equality/regex, and standard properties in restart/event-time/filter-reference slots are refused. A host-scoped criterion, update target, update source, or message case-property part is refused when an advanced case operation can add a second extension relationship to the automation case type, because HQ does not define which extension becomes the host. Every host-scoped reference also requires exactly one live extension at runtime. Retained extra extension indices make the current-match count unavailable when a criterion reads the host, and HQ does not define which extension it chooses as the host. A message case-property part cannot use the custom property name \`owner\`, \`host\`, or \`last_modified_by\` in any case, parent, or host scope because HQ's formatter context shadows those names; rename the custom property or use a context-property part for the actual case-owner or recipient context. Email content chooses exactly one body: plain text targets a domain without Rich text emails, while rich text carries HTML source only, requires the toggle, and is sanitized by HQ with plaintext derived from it. Nova deliberately does not execute automations in Preview or install them during publish; it describes the locally representable matching subset and generates current manual CommCare HQ setup guidance, including target toggle and system-administrator prerequisites. Matching case counts belong only to Builder Preview. Use \`getAutomations\` before an edit, then \`updateAutomation\` with the complete desired state while preserving UUID identity. Never describe a saved Nova automation as active in CommCare HQ.
+// ── Authoring rules shared across modes ─────────────────────────────
+// Automation authoring and batch discipline govern every mutating turn
+// (the SA's edits today; the same rules the design executor's prompt
+// teaches in its own voice), so they live in the shared tail rather
+// than any mode-specific section.
+
+const AUTHORING_RULES = `When the workflow needs a scheduled case cleanup, case update, or message, use \`addAutomations\` after its referenced case types, properties, forms, organization, and worker information exist. Author the complete canonical rule with stable UUIDs for the automation and every nested criterion, update, recipient, event, and user-data filter. Setup-only criteria explicitly distinguish UCR filters from registered custom criteria. Recipient-filter values are structural exact literals or custom case-property references; empty/whitespace literals are meaningful, and brace-wrapped literals are refused because HQ executes them as references. Every triggering case must contain each referenced filter property because HQ directly indexes it and raises when missing. HQ filters only contacts that resolve to user accounts, so do not combine filters with case, parent/child-case, case-email, case-group, or registered custom recipients. After trimming, a case-property event-time value must begin with H:MM or HH:MM and the whole value must parse as a time. Suffixes such as AM/PM or seconds are accepted; blank, nonmatching, or unparseable values use 12:00 PM. Use Nova standard property names; setup guidance projects supported names to HQ, while status, standard-datetime equality/regex, and standard properties in restart/event-time/filter-reference slots are refused. A host-scoped criterion, update target, update source, or message case-property part is refused when an advanced case operation can add a second extension relationship to the automation case type, because HQ does not define which extension becomes the host. Every host-scoped reference also requires exactly one live extension at runtime. Retained extra extension indices make the current-match count unavailable when a criterion reads the host, and HQ does not define which extension it chooses as the host. A message case-property part cannot use the custom property name \`owner\`, \`host\`, or \`last_modified_by\` in any case, parent, or host scope because HQ's formatter context shadows those names; rename the custom property or use a context-property part for the actual case-owner or recipient context. Email content chooses exactly one body: plain text targets a domain without Rich text emails, while rich text carries HTML source only, requires the toggle, and is sanitized by HQ with plaintext derived from it. Nova deliberately does not execute automations in Preview or install them during publish; it describes the locally representable matching subset and generates current manual CommCare HQ setup guidance, including target toggle and system-administrator prerequisites. Matching case counts belong only to Builder Preview. Use \`getAutomations\` before an edit, then \`updateAutomation\` with the complete desired state while preserving UUID identity. Never describe a saved Nova automation as active in CommCare HQ.
 
 ### Batch discipline
 
@@ -334,7 +339,7 @@ A tool result or blueprint summary may carry a \`<system_reminder>\` block. Its 
 
 Every field's \`kind\` picks the CommCare control and data type — use the most specific kind for the data (\`int\` for a count, not \`text\`).
 
-A field that writes a recorded case property carries one complete \`caseWrite: { caseType, property }\` destination. Its form-local \`id\` is independent: it names the question and remains the friendly \`#form/<id>\` projection, while \`caseWrite.property\` names the saved case value. The field inherits that property's label, hint, options, validation, and required rule. Set those slots only to override the record; restating them verbatim is wasted work.
+A field that writes a recorded case property carries one complete \`caseWrite: { caseType, property }\` destination. Its form-local \`id\` is independent: it names the question and remains the friendly \`#form/<id>\` projection, while \`caseWrite.property\` names the saved case value. The field inherits only the property's intrinsic type, canonical label, and choice catalog. Author hint, required, and validation for the field's actual form and task; those contextual behaviors do not inherit from the record.
 
 Changing one field's \`id\` or \`caseWrite\` is never a case-property rename. For an app-wide rename, use \`renameCaseProperties\` once with the complete simultaneous relation. Include every occupied destination that moves in the same call; swaps, chains, and cycles are valid, while merge, overwrite, drop, and temporary-name sequences are not.
 
@@ -586,26 +591,26 @@ export function isEditableDoc(doc?: BlueprintDoc): doc is BlueprintDoc {
 }
 
 /**
- * Build the SA system prompt by composing mode-specific sections:
+ * Build the SA system prompt: core + edit preamble + shared tail. The SA is
+ * the direct canonical EDIT executor — a chat BUILD is the design pipeline's
+ * orchestrator and executor (`lib/agent/build/`), which never mounts this
+ * prompt, so there is no build composition here.
  *
- * - **Build mode** (no doc passed, or an empty doc): core + build
- *   interaction + shared tail.
- * - **Edit mode** (doc with modules): core + edit preamble + shared tail.
- *
- * Both compositions are STATIC — the doc picks the branch and contributes
- * no bytes, so the rendered prompt is byte-identical across turns and the
- * provider's exact-prefix cache holds through doc mutations. The volatile
- * blueprint summary either mode consumes is delivered separately:
- * as a per-turn message on chat (`buildAppStateMessage`), or inlined
- * after the prompt body by the MCP renderer (`renderAgentPrompt`), which
- * hands a subagent its one-shot boot prompt where caching isn't in play.
+ * The composition is STATIC — the doc contributes no bytes, so the rendered
+ * prompt is byte-identical across turns and the provider's exact-prefix
+ * cache holds through doc mutations. The volatile blueprint summary is
+ * delivered separately: as a per-turn message on chat
+ * (`buildAppStateMessage`), or inlined after the prompt body by the MCP
+ * renderer (`renderAgentPrompt`), which hands a subagent its one-shot boot
+ * prompt where caching isn't in play.
  */
-export function buildSolutionsArchitectPrompt(doc?: BlueprintDoc): string {
-	if (!isEditableDoc(doc)) {
-		return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${INITIAL_BUILD}\n\n---\n\n${SHARED_TAIL}`;
-	}
+/** The MCP build-agent boot prompt — see the MCP composition note above. */
+export function buildMcpAgentBuildPrompt(): string {
+	return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${INITIAL_BUILD}\n\n---\n\n${AUTHORING_RULES}\n\n---\n\n${SHARED_TAIL}`;
+}
 
-	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n---\n\n${SHARED_TAIL}`;
+export function buildSolutionsArchitectPrompt(): string {
+	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n---\n\n${AUTHORING_RULES}\n\n---\n\n${SHARED_TAIL}`;
 }
 
 /**
@@ -634,78 +639,56 @@ export function buildAppStateMessage(doc: BlueprintDoc): ModelMessage | null {
 }
 
 /**
- * Mark the stable-prefix boundary with an explicit prompt-cache breakpoint —
- * how a turn's cache entry survives the NEXT turn's changed tail.
+ * Mark the deepest stable history boundary for OpenAI's explicit prompt cache.
  *
- * GPT-5.6's cache is breakpoint-based: implicit mode writes ONE automatic
- * entry on the latest message, so each turn's only entry covers the full
- * prompt including the volatile tail (the app-state message, the model's
- * new response) — and the next turn, which diverges before that boundary,
- * matches nothing and reads zero. Implicit mode also HONORS explicit
- * breakpoints, so placing one marker at the deepest point that replays
- * byte-identically next turn gives every turn an entry the next turn can
- * actually read.
+ * This annotates a request-local copy; it does not mutate the stored transcript
+ * or change any model-visible token. The marker tells the provider where to
+ * write a reusable cache entry before the fresh app-state tail. On the next
+ * POST the marker may move forward, but the earlier token prefix remains
+ * identical and can read the entry written by the preceding request.
  *
- * Placement: the FINAL user message of the (pre-app-state) history — the
- * deepest byte-stable point, because the next turn replays this turn's own
- * user message verbatim and only the volatile tail follows it. Crucially,
- * this makes the FIRST post of a thread markable: a lone opening message IS
- * the final user message, so turn 1 writes a full prefix entry and turn 2
- * reads it. (The previous before-the-last-user placement left a fresh
- * thread's first TWO turns with nothing to read — live-measured on prod as
- * four consecutive 0%-cached first steps across a fresh build + fresh edit
- * thread.) The markable set is dictated by the Responses wire (verified in
- * `@ai-sdk/openai`'s input converter): only system/developer messages,
- * user-message text/file parts, and content-typed tool outputs carry
- * `prompt_cache_breakpoint` — assistant `output_text` items and Nova's
- * json-typed tool results have no slot for it, so a marker placed there
- * would silently vanish from the request. A continuation prompt ending in
- * assistant/tool messages therefore walks back to its nearest user message.
- *
- * Mechanics: the marker rides part-level `providerOptions` on the boundary
- * message's last text part. Returns a new array — the input and its
- * messages are not mutated.
+ * Responses can carry the marker on system messages and user text/file parts,
+ * but not on assistant output text or Nova's JSON tool results. Walk backward
+ * to the nearest markable user item, falling back to the system message.
  */
 export function markStablePrefixBoundary(
 	messages: ModelMessage[],
 ): ModelMessage[] {
-	const BREAKPOINT = {
+	const breakpoint = {
 		openai: { promptCacheBreakpoint: { mode: "explicit" as const } },
 	};
-	// Walk backward from the end to the nearest message the wire can mark.
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const msg = messages[i];
-		if (!msg) continue;
-		if (msg.role === "system") {
-			// System content is a plain string; the provider accepts the
-			// breakpoint as message-level providerOptions here.
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message === undefined) continue;
+		if (message.role === "system") {
 			const marked = [...messages];
-			marked[i] = { ...msg, providerOptions: BREAKPOINT };
+			marked[index] = { ...message, providerOptions: breakpoint };
 			return marked;
 		}
-		if (msg.role !== "user") continue;
-		if (typeof msg.content === "string") {
+		if (message.role !== "user") continue;
+		if (typeof message.content === "string") {
 			const marked = [...messages];
-			marked[i] = {
-				...msg,
+			marked[index] = {
+				...message,
 				content: [
-					{ type: "text", text: msg.content, providerOptions: BREAKPOINT },
+					{ type: "text", text: message.content, providerOptions: breakpoint },
 				],
 			} as ModelMessage;
 			return marked;
 		}
-		const last = msg.content[msg.content.length - 1];
-		if (last && (last.type === "text" || last.type === "file")) {
-			const marked = [...messages];
-			marked[i] = {
-				...msg,
-				content: [
-					...msg.content.slice(0, -1),
-					{ ...last, providerOptions: BREAKPOINT },
-				],
-			} as ModelMessage;
-			return marked;
+		const last = message.content.at(-1);
+		if (last === undefined || (last.type !== "text" && last.type !== "file")) {
+			continue;
 		}
+		const marked = [...messages];
+		marked[index] = {
+			...message,
+			content: [
+				...message.content.slice(0, -1),
+				{ ...last, providerOptions: breakpoint },
+			],
+		} as ModelMessage;
+		return marked;
 	}
 	return messages;
 }

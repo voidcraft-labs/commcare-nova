@@ -19,6 +19,7 @@ import {
 	xpathPrintContext,
 } from "@/lib/domain";
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
 import { AUTOMATION_RULES } from "./automations";
@@ -137,9 +138,12 @@ function canonicalCasePropertyDefaults(doc: BlueprintDoc): ValidationError[] {
 					() => undefined,
 					resolveUserProperty,
 				);
+				// Canonicalized comparison: admission may have re-serialized
+				// the stored AST with sorted object keys, and key order is
+				// not part of the identity being proved here.
 				if (
 					parsed.issues.length > 0 ||
-					JSON.stringify(parsed.expression) !== JSON.stringify(expression)
+					canonicalJsonText(parsed.expression) !== canonicalJsonText(expression)
 				) {
 					flag(
 						caseType.name,

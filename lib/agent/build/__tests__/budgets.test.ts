@@ -1,0 +1,92 @@
+import { describe, expect, it } from "vitest";
+import {
+	BLOCKER_RESOLUTION_ALLOWANCE,
+	budgetForSlice,
+	remainingWallClockMs,
+} from "@/lib/agent/build/budgets";
+import {
+	did,
+	fixtureValue,
+	makeBuildPlan,
+} from "@/lib/agent/design/__tests__/fixtures";
+import type { BuildSlice } from "@/lib/agent/design/buildPlan";
+
+function sliceWithGroups(count: number): BuildSlice {
+	return {
+		id: did(900),
+		workflowId: did(901),
+		name: "Sized slice",
+		goal: "Exercise budget scaling.",
+		prerequisiteSliceIds: [],
+		constructionGroups: Array.from({ length: count }, (_, index) => ({
+			id: did(1000 + index),
+			workflowId: did(901),
+			name: `Group ${index + 1}`,
+			kind: "workflow" as const,
+			elements: [{ kind: "workflow" as const, id: did(2000 + index) }],
+			blueprintAreas: ["forms" as const],
+		})),
+		externalActionIds: [],
+		risk: "ordinary",
+		role: "ordinary",
+	};
+}
+
+describe("budgetForSlice", () => {
+	it("scales from real construction groups", () => {
+		expect(budgetForSlice(sliceWithGroups(1))).toMatchObject({
+			maxModelSteps: 13,
+			maxMutationCalls: 19,
+			maxWallClockMs: 315_000,
+		});
+		expect(budgetForSlice(sliceWithGroups(5))).toMatchObject({
+			maxModelSteps: 25,
+			maxMutationCalls: 31,
+			maxWallClockMs: 615_000,
+		});
+	});
+
+	it("holds scaled axes at hard ceilings", () => {
+		expect(budgetForSlice(sliceWithGroups(500))).toMatchObject({
+			maxModelSteps: 40,
+			maxMutationCalls: 96,
+			maxWallClockMs: 720_000,
+		});
+	});
+
+	it("is pure for a derived slice", () => {
+		const slice = fixtureValue(makeBuildPlan().slices[0], "first slice");
+		expect(budgetForSlice(slice)).toEqual(
+			budgetForSlice(structuredClone(slice)),
+		);
+	});
+});
+
+describe("remainingWallClockMs", () => {
+	it("grants the full budget to a fresh attempt and the unspent remainder to a recovered one", () => {
+		const budget = budgetForSlice(sliceWithGroups(1));
+		expect(remainingWallClockMs(budget, 0)).toBe(budget.maxWallClockMs);
+		expect(remainingWallClockMs(budget, 200_000)).toBe(
+			budget.maxWallClockMs - 200_000,
+		);
+	});
+
+	it("prices answered architect blockers into the remaining wall clock", () => {
+		const budget = budgetForSlice(sliceWithGroups(1));
+		expect(remainingWallClockMs(budget, budget.maxWallClockMs, 1)).toBe(
+			BLOCKER_RESOLUTION_ALLOWANCE.ms,
+		);
+		expect(remainingWallClockMs(budget, 0, 2)).toBe(
+			budget.maxWallClockMs + 2 * BLOCKER_RESOLUTION_ALLOWANCE.ms,
+		);
+	});
+
+	it("floors at zero once active spend reaches the budget", () => {
+		const budget = budgetForSlice(sliceWithGroups(1));
+		expect(remainingWallClockMs(budget, budget.maxWallClockMs)).toBe(0);
+		/* The pre-integrator failure shape: a recovery arriving after a long
+		 * dead gap must NOT be modeled as spend — but if genuine active spend
+		 * ever exceeds the budget, the remainder still floors at zero. */
+		expect(remainingWallClockMs(budget, budget.maxWallClockMs + 1)).toBe(0);
+	});
+});

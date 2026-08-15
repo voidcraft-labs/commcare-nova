@@ -322,10 +322,14 @@ export type PromptInputProps = Omit<
 		code: "max_files" | "max_file_size" | "accept" | "duplicate";
 		message: string;
 	}) => void;
+	/** Return `false` (sync or resolved) to signal the send was refused: the
+	 *  typed draft and staged attachments are kept instead of cleared, so a
+	 *  submit the handler rejected (wrong scope, empty text) leaves the
+	 *  composer exactly as the user had it. */
 	onSubmit: (
 		message: PromptInputMessage,
 		event: FormEvent<HTMLFormElement>,
-	) => void | Promise<void>;
+	) => void | boolean | Promise<void> | Promise<boolean>;
 };
 
 export const PromptInput = ({
@@ -757,19 +761,10 @@ export const PromptInput = ({
 
 				const result = onSubmit({ files: convertedFiles, text }, event);
 
-				// Handle both sync and async onSubmit
-				if (result instanceof Promise) {
-					try {
-						await result;
-						clear();
-						if (usingProvider) {
-							controller.textInput.clear();
-						}
-					} catch {
-						// Don't clear on error - user may want to retry
-					}
-				} else {
-					// Sync function completed without throwing, clear inputs
+				// Handle both sync and async onSubmit; a `false` outcome means the
+				// handler refused the send, so the draft stays put.
+				const outcome = result instanceof Promise ? await result : result;
+				if (outcome !== false) {
 					clear();
 					if (usingProvider) {
 						controller.textInput.clear();
@@ -938,9 +933,26 @@ export const PromptInputTextarea = ({
 			}
 
 			if (files.length > 0) {
-				// Pasted-file staging is disabled (see the drop handlers): swallow the
-				// paste so a file never becomes an in-browser blob attachment.
+				// Pasted-file staging is disabled (see the drop handlers): block the
+				// default paste so a file never becomes an in-browser blob attachment.
+				// The clipboard's text flavor still belongs in the box, though: a copy
+				// from a spreadsheet or a document commonly carries an image alongside
+				// its text, and swallowing the whole paste would drop the text the
+				// user meant to paste. Insert it at the caret and fire a native input
+				// event so React's onChange path (and the controlled value) see it.
 				event.preventDefault();
+				const text = event.clipboardData.getData("text/plain");
+				if (!text) {
+					return;
+				}
+				const el = event.currentTarget;
+				el.setRangeText(
+					text,
+					el.selectionStart ?? el.value.length,
+					el.selectionEnd ?? el.value.length,
+					"end",
+				);
+				el.dispatchEvent(new Event("input", { bubbles: true }));
 			}
 		},
 		[],
@@ -1051,9 +1063,11 @@ export type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
 
 export const PromptInputSubmit = ({
 	className,
-	// Ghost (transparent), not the filled primary: Nova's send button is a violet
-	// glyph on transparent that lifts to the full text tier on hover. A filled
-	// violet button would wash the violet glyph out against its own background.
+	// Icon-only ghost by default: a violet glyph on transparent that lifts to
+	// the full text tier on hover. A caller after a conspicuous send passes
+	// `variant="default"` (the lilac action keycap, icon-only square) and
+	// names it via `aria-label`; the keycap owns its own ink. Children render
+	// beside the status glyph when a caller does want a visible label.
 	variant = "ghost",
 	size = "icon",
 	status,
@@ -1064,9 +1078,9 @@ export const PromptInputSubmit = ({
 }: PromptInputSubmitProps) => {
 	const isGenerating = status === "submitted" || status === "streaming";
 
-	// Default glyph is the violet send arrow (Nova's ChatInput idiom). While a
-	// request is in flight the button flips to a spinner, then a stop square once
-	// tokens stream; an errored turn shows the dismiss glyph.
+	// Default glyph is the send arrow. While a request is in flight the button
+	// flips to a spinner, then a stop square once tokens stream; an errored
+	// turn shows the dismiss glyph.
 	let statusIcon = <Icon icon={tablerArrowUp} className="size-4" />;
 
 	if (status === "submitted") {
@@ -1097,9 +1111,15 @@ export const PromptInputSubmit = ({
 
 	return (
 		<InputGroupButton
-			aria-label={isGenerating ? "Stop" : "Submit"}
+			// A label names the button itself; only the icon-only form needs an
+			// aria-label (and it must not override a visible label, per
+			// label-in-name).
+			aria-label={children ? undefined : isGenerating ? "Stop" : "Submit"}
 			className={cn(
-				"text-nova-violet-bright transition-colors not-disabled:hover:text-nova-text disabled:opacity-(--disabled-opacity)",
+				// The violet-glyph tier belongs to the ghost idiom only: a keycap
+				// variant carries its own ink and hover.
+				variant === "ghost" &&
+					"text-nova-violet-bright transition-colors not-disabled:hover:text-nova-text",
 				className,
 			)}
 			onClick={handleClick}
@@ -1108,7 +1128,8 @@ export const PromptInputSubmit = ({
 			variant={variant}
 			{...props}
 		>
-			{children ?? statusIcon}
+			{statusIcon}
+			{children}
 		</InputGroupButton>
 	);
 };

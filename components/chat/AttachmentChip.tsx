@@ -1,9 +1,8 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerX from "@iconify-icons/tabler/x";
-import type { ReactNode } from "react";
 import { ASSET_KIND_META } from "@/components/builder/media/assetKindMeta";
-import { Button } from "@/components/shadcn/button";
 import {
 	Tooltip,
 	TooltipContent,
@@ -33,20 +32,34 @@ interface AttachmentChipProps {
 	removeDisabled?: boolean;
 	/** Tooltip shown on the disabled × in place of "Remove". */
 	removeDisabledTooltip?: string;
-	/** Trailing status slot: the extraction indicator badge. */
-	trailing?: ReactNode;
+	/** The document is still being read. The type glyph takes the active tint but
+	 *  stays still; the composer's activity status is the one moving indicator
+	 *  and the surface that narrates the wait. */
+	reading?: boolean;
+	/** Extraction failed: renders a compact rose retry between name and ×. The
+	 *  one state that grows the chip, because a file Nova can't read would
+	 *  otherwise fail silently. */
+	onRetry?: () => void;
 }
 
 /**
  * One attachment chip: the shared presentational unit for both the composer's
  * pending-attachment bar and the transcript's per-message manifest. Kept dumb:
- * it knows how to show a file (glyph + name + optional status + actions), not
- * where the data comes from, so the composer (asset views) and the message
- * (asset refs) both feed it the same `{ kind, filename }`.
+ * it knows how to show a file (glyph + name + actions), not where the data
+ * comes from, so the composer (asset views) and the message (asset refs) both
+ * feed it the same `{ kind, filename }`.
  *
- * The clickable body is a sibling of the remove button, never its parent, HTML
- * forbids nesting interactive content inside a `<button>`, and an SSR parser
- * would mangle the tree.
+ * The chip is deliberately COMPACT: its controls are 32px chip-local buttons,
+ * not the 44px shadcn Button. Inside a small pill the standard control height
+ * extends every hover/press bound past the visible chip, so three overlapping
+ * halos float around a sliver of chrome. The chip clips its children
+ * (`overflow-hidden`), each control fills the chip's own height, and focus
+ * uses the inset ring so the clip can't crop it. This is the one sanctioned
+ * exception to the 44px floor (see `components/CLAUDE.md`).
+ *
+ * The clickable body is a sibling of the retry/remove buttons, never their
+ * parent: HTML forbids nesting interactive content inside a `<button>`, and an
+ * SSR parser would mangle the tree.
  */
 export function AttachmentChip({
 	kind,
@@ -57,26 +70,27 @@ export function AttachmentChip({
 	onRemove,
 	removeDisabled,
 	removeDisabledTooltip,
-	trailing,
+	reading,
+	onRetry,
 }: AttachmentChipProps) {
 	const meta = ASSET_KIND_META[kind];
-	// Only the glyph + filename go inside the preview button. `trailing` (the
-	// extraction badge, which can itself be a Retry BUTTON on failure) and the
-	// remove button are SIBLINGS of it: HTML forbids interactive content nested
-	// inside a `<button>`, and nesting would also bubble a Retry/remove click
-	// through to the preview handler.
 	const label = (
 		<>
 			<Icon
+				aria-hidden="true"
 				icon={meta.icon}
-				className="size-3.5 shrink-0 text-nova-text-muted"
+				className={cn(
+					"size-3.5 shrink-0",
+					reading ? "text-nova-violet-bright" : "text-nova-text-muted",
+				)}
 			/>
 			<span className="truncate">{filename}</span>
 		</>
 	);
+	const bodyClass = "flex h-full min-w-0 items-center gap-1.5 px-2";
 
 	return (
-		<div className="inline-flex min-h-11 max-w-[14rem] items-center gap-0.5 rounded-lg border border-nova-border bg-nova-surface pr-0.5 pl-1.5 text-xs text-nova-text-secondary">
+		<div className="inline-flex h-8 max-w-56 items-center overflow-hidden rounded-lg border border-nova-border bg-nova-surface text-xs text-nova-text-secondary">
 			{onPreview ? (
 				/* While the document is still reading, the preview body goes inert the
 				 * same way the × does: `aria-disabled` (not native `disabled`) and no
@@ -85,20 +99,20 @@ export function AttachmentChip({
 				<Tooltip>
 					<TooltipTrigger
 						render={
-							<Button
+							<button
 								type="button"
-								variant="ghost"
 								onClick={previewDisabled ? undefined : onPreview}
 								aria-disabled={previewDisabled || undefined}
 								className={cn(
-									"min-w-0 flex-1 justify-start",
+									"nova-focusable-inset",
+									bodyClass,
 									previewDisabled
-										? "cursor-not-allowed hover:bg-transparent hover:text-nova-text-secondary dark:hover:bg-transparent"
-										: "hover:text-nova-text",
+										? "cursor-not-allowed"
+										: "cursor-pointer transition-colors hover:bg-white/[0.06] hover:text-nova-text",
 								)}
 							>
 								{label}
-							</Button>
+							</button>
 						}
 					/>
 					<TooltipContent>
@@ -106,11 +120,27 @@ export function AttachmentChip({
 					</TooltipContent>
 				</Tooltip>
 			) : (
-				<span className="flex min-h-11 min-w-0 items-center gap-1.5 px-1.5">
-					{label}
-				</span>
+				<span className={bodyClass}>{label}</span>
 			)}
-			{trailing}
+			{onRetry && (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<button
+								type="button"
+								onClick={onRetry}
+								aria-label={`Nova couldn't read ${filename}. Try again`}
+								className="nova-focusable-inset flex h-full w-7 shrink-0 cursor-pointer items-center justify-center text-nova-rose transition-colors hover:bg-white/[0.06]"
+							>
+								<Icon icon={tablerRefresh} className="size-3.5" />
+							</button>
+						}
+					/>
+					<TooltipContent>
+						Nova couldn't read this file. Try again
+					</TooltipContent>
+				</Tooltip>
+			)}
 			{onRemove && (
 				/* The × stays VISIBLE while disabled so the affordance doesn't flicker
 				 * in/out as a doc finishes reading. `aria-disabled` (not the native
@@ -121,26 +151,24 @@ export function AttachmentChip({
 				<Tooltip>
 					<TooltipTrigger
 						render={
-							<Button
+							<button
 								type="button"
-								variant="ghost"
-								size="icon"
 								onClick={removeDisabled ? undefined : onRemove}
 								aria-disabled={removeDisabled || undefined}
-								className={cn(
-									"shrink-0",
-									removeDisabled
-										? "cursor-not-allowed hover:bg-transparent hover:text-nova-text-muted dark:hover:bg-transparent"
-										: "hover:bg-white/[0.06] hover:text-nova-text",
-								)}
 								aria-label={
 									removeDisabled
 										? `${filename} can't be removed while it's being read`
 										: `Remove ${filename}`
 								}
+								className={cn(
+									"nova-focusable-inset flex h-full w-7 shrink-0 items-center justify-center",
+									removeDisabled
+										? "cursor-not-allowed"
+										: "cursor-pointer transition-colors hover:bg-white/[0.06] hover:text-nova-text",
+								)}
 							>
-								<Icon icon={tablerX} className="size-4" />
-							</Button>
+								<Icon icon={tablerX} className="size-3.5" />
+							</button>
 						}
 					/>
 					<TooltipContent>

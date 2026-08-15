@@ -12,10 +12,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { commitGuardedBatch, createApp } from "@/lib/db/apps";
+import { createExplicitBlankApp } from "@/lib/db/appGenesis";
+import { commitGuardedBatch } from "@/lib/db/apps";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import type {
+	Automation,
+	BlueprintDoc,
+	Field,
+	Form,
+	Module,
+	Uuid,
+} from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { asUuid } from "@/lib/domain/uuid";
 import { emptyGenesisBase } from "../baseLoader";
 import { commitDesignChangeSet } from "../commit";
@@ -24,12 +33,14 @@ import {
 	ChangeSetScopeLostError,
 	ChangeSetStagingRejectedError,
 } from "../errors";
+import { CHANGE_SET_TOOL_REGISTRY } from "../registry";
 import { changeSetHandleSchema } from "../schemas";
 import {
 	beginAppEditChangeSet,
 	beginGenesisChangeSet,
 	loadChangeSet,
 	loadChangeSetSteps,
+	loadHandleBindings,
 	stageChangeSetRequest,
 } from "../store";
 import type { ChangeSetLineage } from "../types";
@@ -52,18 +63,19 @@ const host: ChangeSetWorkspaceHost = {
 	}),
 };
 
-/* The design_sessions FK landed with the design-session unit: a change
- * set's session id must reference a real session row, so the lineage
- * helper seeds one. */
+/* Every change-set identity column is FK-bound (design_sessions with the
+ * design-session unit; revision/plan/attempt with the orchestrator unit),
+ * so the lineage helper seeds the whole FK-valid chain. */
 async function lineage(): Promise<ChangeSetLineage> {
+	const seeded = await h.seedDesignLineage();
 	return {
-		designSessionId: await h.seedDesignSession(),
-		designRevisionId: crypto.randomUUID(),
-		designRevisionDigest: canonicalJsonDigest("design"),
-		buildPlanId: crypto.randomUUID(),
-		buildPlanDigest: canonicalJsonDigest("plan"),
-		sliceId: asDesignId(crypto.randomUUID()),
-		attemptId: crypto.randomUUID(),
+		designSessionId: seeded.designSessionId,
+		designRevisionId: seeded.designRevisionId,
+		designRevisionDigest: seeded.designRevisionDigest,
+		buildPlanId: seeded.buildPlanId,
+		buildPlanDigest: seeded.buildPlanDigest,
+		sliceId: asDesignId(seeded.sliceId),
+		attemptId: seeded.attemptId,
 	};
 }
 
@@ -79,10 +91,15 @@ interface TestApp {
 
 async function createTestApp(): Promise<TestApp> {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
-	const receipt = await createApp(ACTOR, PROJECT, crypto.randomUUID(), {
-		name: "Change-set runtime app",
-		status: "complete",
-	});
+	const receipt = await createExplicitBlankApp(
+		ACTOR,
+		PROJECT,
+		crypto.randomUUID(),
+		{
+			name: "Change-set runtime app",
+			status: "complete",
+		},
+	);
 	const doc = structuredClone(receipt.blueprint) as unknown as BlueprintDoc;
 	return { appId: receipt.appId, starter: receipt.starter, doc };
 }
@@ -107,6 +124,12 @@ async function openWorkspace(appId: string) {
 		ownerUserId: ACTOR,
 		ownerRunId: RUN,
 	});
+	await h
+		.db()
+		.updateTable("design_slice_attempts")
+		.set({ change_set_id: changeSet.id })
+		.where("id", "=", changeSet.attemptId)
+		.execute();
 	const workspace = await ChangeSetMutationWorkspace.open(host, changeSet.id);
 	return { changeSet, workspace };
 }
@@ -143,87 +166,201 @@ beforeEach(() => {
 });
 
 describe("private staging isolation", () => {
-	it("stages module + form + fields with handles while NO canonical row changes", async () => {
+	it("keeps built-in menu icons out of the uploaded-media read set", async () => {
 		const app = await createTestApp();
-		const before = await canonicalTableCounts(app.appId);
 		const { changeSet, workspace } = await openWorkspace(app.appId);
-
 		const staged = await workspace.stageDispatch({
-			toolName: "stageModule",
-			requestId: "call-1",
-			input: { moduleUuid: { handle: "@intake" }, name: "Intake" },
-		});
-		expect(staged.replayed).toBe(false);
-		expect(staged.receipt?.disposition).toBe("staged");
-		const moduleUuid =
-			staged.receipt?.handles[changeSetHandleSchema.parse("@intake")];
-		expect(moduleUuid).toMatch(/^[0-9a-f-]{36}$/);
-
-		const stagedForm = await workspace.stageDispatch({
-			toolName: "stageForm",
-			requestId: "call-2",
+			toolName: "setMenuMedia",
+			requestId: "built-in-menu-icon",
 			input: {
-				formUuid: { handle: "@reg" },
-				moduleUuid: { handle: "@intake" },
-				name: "Register client",
-				type: "survey",
+				items: [
+					{
+						target: "module",
+						moduleUuid: app.starter.moduleUuid,
+						icon: "nutrition",
+						audioLabel: null,
+					},
+				],
 			},
 		});
-		expect(stagedForm.receipt?.disposition).toBe("staged");
 
-		/* The private candidate holds an EMPTY form — a gating finding class
-		 * (`EMPTY_FORM`) that could never persist canonically. */
-		const diagnostics = await workspace.inspect();
-		expect(diagnostics.allFindings.map((finding) => finding.code)).toContain(
-			"EMPTY_FORM",
-		);
-		expect(diagnostics.canCommit).toBe(false);
+		expect(staged.receipt?.disposition).toBe("staged");
+		expect(
+			workspace.currentSnapshot().doc.modules[app.starter.moduleUuid]?.icon,
+		).toBe("nova-icon:nutrition");
+		expect((await loadChangeSetSteps(changeSet.id))[0]?.readSet).toEqual([]);
+	});
 
-		/* The isolation gate: nothing canonical moved. */
-		expect(await canonicalTableCounts(app.appId)).toEqual(before);
+	it("returns resolved shared-tool schema misses as ordinary staging rejections", async () => {
+		const app = await createTestApp();
+		const { workspace } = await openWorkspace(app.appId);
 
-		/* Completing the form through a SHARED tool staged over the overlay
-		 * resolves the finding — same module, same admission, private grain. */
-		const formUuid =
-			stagedForm.receipt?.handles[changeSetHandleSchema.parse("@reg")];
-		if (formUuid === undefined) throw new Error("@reg was not bound");
-		const field = starterFieldClone(app.doc, app.starter.fieldUuid);
-		const completed = await workspace.invoke({
-			toolName: "addField-direct",
-			requestId: "call-3",
-			input: { fieldUuid: field.uuid },
-			execute: async (ctx) =>
-				ctx.applyBatch({
-					mutations: [
-						{ kind: "addField", parentUuid: formUuid, field },
-					] satisfies Mutation[],
-					intentIds: [asDesignId(crypto.randomUUID())],
-				}),
+		await expect(
+			workspace.stageDispatch({
+				toolName: "createModule",
+				requestId: "malformed-complete-module",
+				input: {
+					moduleUuid: { handle: "@registry" },
+					name: "Household registry",
+					case_type: null,
+					displayCondition: null,
+					forms: [
+						{
+							formUuid: { handle: "@survey" },
+							name: "Household survey",
+							type: "survey",
+							fields: [
+								{
+									fieldUuid: { handle: "@status" },
+									kind: "single_select",
+									id: "status",
+								},
+							],
+						},
+					],
+				},
+			}),
+		).rejects.toMatchObject({
+			name: "ChangeSetStagingRejectedError",
+			code: "TOOL_INPUT_INVALID",
+			message: expect.stringContaining("forms.0.fields.0.label"),
 		});
-		expect(completed.ok).toBe(true);
-		const after = await workspace.inspect();
-		expect(after.allFindings).toEqual([]);
-		expect(after.canCommit).toBe(true);
-		expect(after.sliceIntentCoverage).toHaveLength(1);
+	});
 
-		/* Still nothing canonical. */
+	it("creates a complete shared module with handles and reuses those bindings", async () => {
+		const app = await createTestApp();
+		const before = await canonicalTableCounts(app.appId);
+		const { workspace } = await openWorkspace(app.appId);
+		const created = await workspace.stageDispatch({
+			toolName: "createModule",
+			requestId: "complete-module",
+			input: {
+				moduleUuid: { handle: "@registry" },
+				name: "Household registry",
+				case_type: null,
+				forms: [
+					{
+						formUuid: { handle: "@survey" },
+						name: "Household survey",
+						type: "survey",
+						fields: [
+							{
+								fieldUuid: { handle: "@status" },
+								kind: "single_select",
+								id: "status",
+								label: proseText("Status"),
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											optionUuid: { handle: "@active" },
+											value: "active",
+											label: proseText("Active"),
+										},
+										{
+											optionUuid: { handle: "@closed" },
+											value: "closed",
+											label: proseText("Closed"),
+										},
+									],
+								},
+							},
+						],
+					},
+				],
+			},
+		});
+		expect(created.receipt?.disposition).toBe("staged");
+		expect(created.result).not.toHaveProperty("error");
+		expect(created.receipt?.handles).toMatchObject({
+			"@registry": expect.stringMatching(/^[0-9a-f-]{36}$/),
+			"@survey": expect.stringMatching(/^[0-9a-f-]{36}$/),
+			"@status": expect.stringMatching(/^[0-9a-f-]{36}$/),
+			"@active": expect.stringMatching(/^[0-9a-f-]{36}$/),
+			"@closed": expect.stringMatching(/^[0-9a-f-]{36}$/),
+		});
+
+		const edited = await workspace.stageDispatch({
+			toolName: "editField",
+			requestId: "reuse-field",
+			input: {
+				moduleUuid: { handle: "@registry" },
+				formUuid: { handle: "@survey" },
+				fieldUuid: { handle: "@status" },
+				updates: {
+					kind: "single_select",
+					label: proseText("Current status"),
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								optionUuid: { handle: "@active" },
+								value: "active",
+								label: proseText("Active"),
+							},
+							{
+								optionUuid: { handle: "@pending" },
+								value: "pending",
+								label: proseText("Pending"),
+							},
+						],
+					},
+				},
+			},
+		});
+		expect(edited.receipt?.disposition).toBe("staged");
+		expect(edited.result).not.toHaveProperty("error");
+		expect(edited.receipt?.handles).toMatchObject({
+			"@pending": expect.stringMatching(/^[0-9a-f-]{36}$/),
+		});
+		const statusUuid =
+			created.receipt?.handles[changeSetHandleSchema.parse("@status")];
+		const activeUuid =
+			created.receipt?.handles[changeSetHandleSchema.parse("@active")];
+		if (statusUuid === undefined || activeUuid === undefined) {
+			throw new Error("creation handles missing");
+		}
+		const status = workspace.currentSnapshot().doc.fields[statusUuid];
+		if (status?.kind !== "single_select")
+			throw new Error("status field missing");
+		if (status.optionsSource.kind !== "inline")
+			throw new Error("status options missing");
+		expect(status.optionsSource.options[0]?.uuid).toBe(activeUuid);
 		expect(await canonicalTableCounts(app.appId)).toEqual(before);
-		expect((await loadChangeSet(changeSet.id))?.status).toBe("open");
 	});
 
 	it("replays a lost response with identical receipt, handles, and revision — and survives process death", async () => {
 		const app = await createTestApp();
 		const { changeSet, workspace } = await openWorkspace(app.appId);
-		const input = { moduleUuid: { handle: "@m" }, name: "Visits" };
+		const input = {
+			moduleUuid: { handle: "@m" },
+			name: "Visits",
+			case_type: null,
+			forms: [
+				{
+					formUuid: { handle: "@visit_form" },
+					name: "Record visit",
+					type: "survey",
+					fields: [
+						{
+							fieldUuid: { handle: "@visit_note" },
+							kind: "text",
+							id: "visit_note",
+							label: proseText("Visit note"),
+						},
+					],
+				},
+			],
+		};
 		const first = await workspace.stageDispatch({
-			toolName: "stageModule",
+			toolName: "createModule",
 			requestId: "call-1",
 			input,
 		});
 
 		/* Same workspace instance. */
 		const replay = await workspace.stageDispatch({
-			toolName: "stageModule",
+			toolName: "createModule",
 			requestId: "call-1",
 			input,
 		});
@@ -236,13 +373,367 @@ describe("private staging isolation", () => {
 		expect(canonicalJsonDigest(reopened.currentSnapshot().doc.modules)).toBe(
 			canonicalJsonDigest(workspace.currentSnapshot().doc.modules),
 		);
+		expect(reopened.currentExecutionCheckpoint().handles).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ handle: "@m", entityKind: "module" }),
+			]),
+		);
 		const replayAfterDeath = await reopened.stageDispatch({
-			toolName: "stageModule",
+			toolName: "createModule",
 			requestId: "call-1",
 			input,
 		});
 		expect(replayAfterDeath.replayed).toBe(true);
 		expect(replayAfterDeath.receipt).toEqual(first.receipt);
+	});
+
+	it("prunes a removed handle from the verified projection while retaining its append-only declaration", async () => {
+		const app = await createTestApp();
+		const { changeSet, workspace } = await openWorkspace(app.appId);
+		await workspace.stageDispatch({
+			toolName: "createModule",
+			requestId: "temporary-module",
+			input: {
+				moduleUuid: { handle: "@temporary" },
+				name: "Temporary",
+				case_type: null,
+				forms: [
+					{
+						formUuid: { handle: "@temporary_form" },
+						name: "Temporary form",
+						type: "survey",
+						fields: [
+							{
+								fieldUuid: { handle: "@temporary_note" },
+								kind: "text",
+								id: "temporary_note",
+								label: proseText("Temporary note"),
+							},
+						],
+					},
+				],
+			},
+		});
+		expect(workspace.currentExecutionCheckpoint().handles).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ handle: "@temporary", entityKind: "module" }),
+			]),
+		);
+		await workspace.stageDispatch({
+			toolName: "removeModule",
+			requestId: "remove-temporary-module",
+			input: { moduleUuid: { handle: "@temporary" } },
+		});
+		expect(workspace.currentExecutionCheckpoint().handles).not.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ handle: "@temporary" }),
+			]),
+		);
+		expect(await loadHandleBindings(changeSet.id)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					handle: "@temporary",
+					entityKind: "module",
+				}),
+				expect.objectContaining({ handle: "@temporary_form" }),
+				expect.objectContaining({ handle: "@temporary_note" }),
+			]),
+		);
+		const reopened = await ChangeSetMutationWorkspace.open(host, changeSet.id);
+		expect(reopened.currentExecutionCheckpoint().handles).toEqual([]);
+	});
+
+	it("carries worker symbols across model steps, process recovery, commit, and a later slice", async () => {
+		const app = await createTestApp();
+		const sharedLineage = await lineage();
+		const first = await beginAppEditChangeSet({
+			appId: app.appId,
+			expectedProjectId: PROJECT,
+			lineage: sharedLineage,
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+		});
+		await h
+			.db()
+			.updateTable("design_slice_attempts")
+			.set({ change_set_id: first.id })
+			.where("id", "=", first.attemptId)
+			.execute();
+		const firstWorkspace = await ChangeSetMutationWorkspace.open(
+			host,
+			first.id,
+		);
+
+		const workerProperty = await firstWorkspace.stageDispatch({
+			toolName: "addUserProperties",
+			requestId: "worker-property-step",
+			input: {
+				properties: [
+					{
+						userPropertyUuid: { handle: "@worker_role" },
+						slug: "worker_role",
+						label: "Worker role",
+						choices: ["supervisor", "agent"],
+					},
+				],
+			},
+		});
+		const workerPropertyUuid =
+			workerProperty.receipt?.handles[
+				changeSetHandleSchema.parse("@worker_role")
+			];
+		if (workerPropertyUuid === undefined)
+			throw new Error("worker property handle was not bound");
+
+		/* This is the original failure boundary: the worker property was created
+		 * in one model step, then the in-memory workspace disappeared before a
+		 * later createModule referenced it. */
+		const recovered = await ChangeSetMutationWorkspace.open(host, first.id);
+		expect(recovered.currentExecutionCheckpoint()).toMatchObject({
+			handles: [
+				{
+					handle: "@worker_role",
+					uuid: workerPropertyUuid,
+					entityKind: "worker_property",
+				},
+			],
+		});
+
+		await recovered.stageDispatch({
+			toolName: "addUserTypes",
+			requestId: "worker-type-step",
+			input: {
+				userTypes: [
+					{
+						userTypeUuid: { handle: "@supervisor_type" },
+						name: "Supervisor",
+						values: [
+							{
+								userPropertyUuid: { handle: "@worker_role" },
+								value: "supervisor",
+							},
+						],
+					},
+				],
+			},
+		});
+		await recovered.stageDispatch({
+			toolName: "addPersonas",
+			requestId: "persona-step",
+			input: {
+				personas: [
+					{
+						personaUuid: { handle: "@asha" },
+						name: "Asha",
+						userTypeUuid: { handle: "@supervisor_type" },
+						values: [
+							{
+								userPropertyUuid: { handle: "@worker_role" },
+								value: "supervisor",
+							},
+						],
+					},
+				],
+			},
+		});
+		await recovered.stageDispatch({
+			toolName: "addLocationProperties",
+			requestId: "location-property-step",
+			input: {
+				properties: [
+					{
+						locationPropertyUuid: { handle: "@facility_code" },
+						slug: "facility_code",
+						label: "Facility code",
+					},
+				],
+			},
+		});
+		const module = await recovered.stageDispatch({
+			toolName: "createModule",
+			requestId: "later-module-step",
+			input: {
+				moduleUuid: { handle: "@restricted_module" },
+				name: "Restricted workflow",
+				case_type: null,
+				forms: [
+					{
+						formUuid: { handle: "@restricted_form" },
+						name: "Restricted survey",
+						type: "survey",
+						fields: [
+							{
+								fieldUuid: { handle: "@restricted_note" },
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
+								relevant: {
+									parts: [
+										{
+											kind: "user-property-ref",
+											userPropertyUuid: { handle: "@worker_role" },
+										},
+										{ kind: "text", text: " = 'supervisor'" },
+									],
+								},
+							},
+						],
+					},
+				],
+			},
+		});
+		const noteUuid =
+			module.receipt?.handles[changeSetHandleSchema.parse("@restricted_note")];
+		if (noteUuid === undefined) throw new Error("note handle was not bound");
+		expect(recovered.currentSnapshot().doc.fields[noteUuid]?.relevant).toEqual({
+			parts: [
+				{
+					kind: "user-property-ref",
+					userPropertyUuid: workerPropertyUuid,
+				},
+				{ kind: "text", text: " = 'supervisor'" },
+			],
+		});
+		expect((await recovered.inspect()).canCommit).toBe(true);
+		const firstCommit = await commitDesignChangeSet({
+			changeSetId: first.id,
+			actorUserId: ACTOR,
+			runId: RUN,
+			kind: "mcp",
+			expectedRevision: 5,
+		});
+		expect(firstCommit.kind).toBe("committed");
+		if (firstCommit.kind !== "committed") throw new Error("first slice failed");
+
+		const priorAttempt = await h
+			.db()
+			.selectFrom("design_slice_attempts")
+			.selectAll()
+			.where("id", "=", sharedLineage.attemptId)
+			.executeTakeFirstOrThrow();
+		const secondAttemptId = crypto.randomUUID();
+		const secondSliceId = asDesignId(crypto.randomUUID());
+		await h
+			.db()
+			.insertInto("design_slice_attempts")
+			.values({
+				...priorAttempt,
+				id: secondAttemptId,
+				slice_id: secondSliceId,
+				attempt: 1,
+				base_kind: "app",
+				base_app_id: app.appId,
+				base_proposed_app_id: null,
+				base_seq: firstCommit.receipt.seq,
+				base_snapshot_digest: firstCommit.receipt.committedSnapshotDigest,
+				change_set_id: null,
+				brief_digest: canonicalJsonDigest(`brief:${secondAttemptId}`),
+				execution_run_ids: JSON.stringify([RUN]),
+				status: "running",
+				failure_code: null,
+				wall_clock_ms_used: 0,
+				wall_clock_accrued_at: new Date(),
+				created_at: new Date(),
+				updated_at: new Date(),
+			})
+			.execute();
+		const secondLineage: ChangeSetLineage = {
+			...sharedLineage,
+			sliceId: secondSliceId,
+			attemptId: secondAttemptId,
+		};
+		const second = await beginAppEditChangeSet({
+			appId: app.appId,
+			expectedProjectId: PROJECT,
+			lineage: secondLineage,
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+		});
+		await h
+			.db()
+			.updateTable("design_slice_attempts")
+			.set({ change_set_id: second.id })
+			.where("id", "=", secondAttemptId)
+			.execute();
+		const secondWorkspace = await ChangeSetMutationWorkspace.open(
+			host,
+			second.id,
+		);
+		expect(secondWorkspace.currentExecutionCheckpoint().handles).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					handle: "@worker_role",
+					uuid: workerPropertyUuid,
+					entityKind: "worker_property",
+				}),
+				expect.objectContaining({
+					handle: "@supervisor_type",
+					entityKind: "user_type",
+				}),
+				expect.objectContaining({
+					handle: "@facility_code",
+					entityKind: "location_property",
+				}),
+			]),
+		);
+		const laterPersona = await secondWorkspace.stageDispatch({
+			toolName: "addPersonas",
+			requestId: "later-slice-persona",
+			input: {
+				personas: [
+					{
+						personaUuid: { handle: "@later_persona" },
+						name: "Later slice persona",
+						userTypeUuid: { handle: "@supervisor_type" },
+						values: [
+							{
+								userPropertyUuid: { handle: "@worker_role" },
+								value: "supervisor",
+							},
+						],
+					},
+				],
+			},
+		});
+		expect(laterPersona.result).not.toHaveProperty("error");
+		const reopenedSecond = await ChangeSetMutationWorkspace.open(
+			host,
+			second.id,
+		);
+		expect(reopenedSecond.currentExecutionCheckpoint().handles).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ handle: "@worker_role" }),
+				expect.objectContaining({ handle: "@later_persona" }),
+			]),
+		);
+		await reopenedSecond.stageDispatch({
+			toolName: "removeModule",
+			requestId: "remove-inherited-module",
+			input: { moduleUuid: { handle: "@restricted_module" } },
+		});
+		const reopenedAfterInheritedDelete = await ChangeSetMutationWorkspace.open(
+			host,
+			second.id,
+		);
+		expect(
+			reopenedAfterInheritedDelete.currentExecutionCheckpoint().handles,
+		).not.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ handle: "@restricted_module" }),
+				expect.objectContaining({ handle: "@restricted_form" }),
+				expect.objectContaining({ handle: "@restricted_note" }),
+			]),
+		);
+		expect((await reopenedAfterInheritedDelete.inspect()).canCommit).toBe(true);
+		expect(
+			await commitDesignChangeSet({
+				changeSetId: second.id,
+				actorUserId: ACTOR,
+				runId: RUN,
+				kind: "mcp",
+				expectedRevision: 2,
+			}),
+		).toMatchObject({ kind: "committed" });
 	});
 
 	it("rejects admission failures before a step appends, with a durable rejection receipt", async () => {
@@ -277,22 +768,137 @@ describe("private staging isolation", () => {
 		).rejects.toBeInstanceOf(ChangeSetStagingRejectedError);
 	});
 
-	it("fences the not-yet-overlay-native tools out of the change-set registry", async () => {
-		const app = await createTestApp();
-		const { workspace } = await openWorkspace(app.appId);
+	it("dispatches the organization-deriving tools, whose reads answer from the overlay", async () => {
+		/* These three used to be fenced out of the registry because their
+		 * bodies read the persisted app instead of the workspace snapshot —
+		 * which would have made an executor's own staged state invisible to
+		 * its read-backs. They are overlay-native now, so membership alone is
+		 * not the claim: each read must SEE what this change set staged. */
 		for (const toolName of [
 			"getAutomations",
 			"getOrganization",
 			"updateAutomation",
 		]) {
-			await expect(
-				workspace.stageDispatch({
-					toolName,
-					requestId: `fence-${toolName}`,
-					input: {},
-				}),
-			).rejects.toBeInstanceOf(ChangeSetStagingRejectedError);
+			expect(CHANGE_SET_TOOL_REGISTRY.has(toolName)).toBe(true);
 		}
+
+		const app = await createTestApp();
+		const { changeSet, workspace } = await openWorkspace(app.appId);
+
+		const levelUuid = asUuid(crypto.randomUUID());
+		const stagedLevel = await workspace.stageDispatch({
+			toolName: "addOrganizationLevels",
+			requestId: "add-level",
+			input: {
+				levels: [
+					{
+						uuid: levelUuid,
+						code: "district",
+						name: "District",
+						description: null,
+						parentLevelUuid: null,
+						caseFlow: { workers: "none", ownsCases: false },
+						addressBook: { reach: "own-branch" },
+					},
+				],
+			},
+		});
+		expect(stagedLevel.receipt?.disposition).toBe("staged");
+
+		const organization = await workspace.stageDispatch({
+			toolName: "getOrganization",
+			requestId: "read-organization",
+			input: { limit: 25 },
+		});
+		const organizationData = (
+			organization.result as { data: { levels: { uuid: string }[] } }
+		).data;
+		expect(organizationData.levels.map((level) => level.uuid)).toEqual([
+			levelUuid,
+		]);
+
+		const automationUuid = asUuid(crypto.randomUUID());
+		const stagedAutomation = await workspace.stageDispatch({
+			toolName: "addAutomations",
+			requestId: "add-automation",
+			input: {
+				automations: [
+					{
+						uuid: automationUuid,
+						kind: "case-update",
+						name: "Close stale visits",
+						caseType: "visit",
+						criteriaOperator: "all",
+						criteria: [],
+						setupOnlyCriteria: [],
+						updates: [],
+						closeCase: true,
+					},
+				],
+			},
+		});
+		expect(stagedAutomation.receipt?.disposition).toBe("staged");
+
+		const automations = await workspace.stageDispatch({
+			toolName: "getAutomations",
+			requestId: "read-automations",
+			input: {},
+		});
+		const automationData = (
+			automations.result as {
+				data: { automation: { uuid: string; name: string } }[];
+			}
+		).data;
+		expect(automationData.map((entry) => entry.automation.uuid)).toEqual([
+			automationUuid,
+		]);
+
+		/* The zero-diff arm: on a private overlay the snapshot itself is the
+		 * proof, so the no-op returns from the overlay with no adoption (which
+		 * the change-set workspace refuses outright). */
+		const noop = await workspace.stageDispatch({
+			toolName: "updateAutomation",
+			requestId: "update-automation-noop",
+			input: {
+				automation: {
+					uuid: automationUuid,
+					kind: "case-update",
+					name: "Close stale visits",
+					caseType: "visit",
+					criteriaOperator: "all",
+					criteria: [],
+					setupOnlyCriteria: [],
+					updates: [],
+					closeCase: true,
+				},
+			},
+		});
+		expect(noop.result).toMatchObject({
+			mutations: [],
+			result: { message: expect.stringContaining("already has") },
+		});
+		expect(noop.receipt?.disposition).toBe("noop");
+
+		const reopened = await ChangeSetMutationWorkspace.open(host, changeSet.id);
+		const replay = await reopened.stageDispatch({
+			toolName: "updateAutomation",
+			requestId: "update-automation-noop",
+			input: {
+				automation: {
+					uuid: automationUuid,
+					kind: "case-update",
+					name: "Close stale visits",
+					caseType: "visit",
+					criteriaOperator: "all",
+					criteria: [],
+					setupOnlyCriteria: [],
+					updates: [],
+					closeCase: true,
+				},
+			},
+		});
+		expect(replay.replayed).toBe(true);
+		expect(replay.receipt).toEqual(noop.receipt);
 	});
 
 	it("rejects an organization-deriving write that carried no revision fence (READ_SET_UNRECORDED)", async () => {
@@ -362,9 +968,28 @@ describe("private staging isolation", () => {
 		const app = await createTestApp();
 		const { workspace } = await openWorkspace(app.appId);
 		await workspace.stageDispatch({
-			toolName: "stageModule",
+			toolName: "createModule",
 			requestId: "call-1",
-			input: { name: "Ordinary first" },
+			input: {
+				moduleUuid: { handle: "@ordinary" },
+				name: "Ordinary first",
+				case_type: null,
+				forms: [
+					{
+						formUuid: { handle: "@ordinary_form" },
+						name: "Ordinary form",
+						type: "survey",
+						fields: [
+							{
+								fieldUuid: { handle: "@ordinary_field" },
+								kind: "text",
+								id: "ordinary_field",
+								label: proseText("Ordinary field"),
+							},
+						],
+					},
+				],
+			},
 		});
 
 		const notAlone = await workspace.invoke({
@@ -406,7 +1031,7 @@ describe("private staging isolation", () => {
 				]),
 				stageSlices: [],
 				handles: [],
-				intentIds: [],
+				retainedHandleUuids: [],
 				readSet: [],
 				exclusiveKind: "renameCaseProperties",
 				diagnostics: {
@@ -425,9 +1050,28 @@ describe("private staging isolation", () => {
 			"renameCaseProperties",
 		);
 		const closed = await reopened.stageDispatch({
-			toolName: "stageModule",
+			toolName: "createModule",
 			requestId: "call-2",
-			input: { name: "After exclusive" },
+			input: {
+				moduleUuid: { handle: "@after_exclusive" },
+				name: "After exclusive",
+				case_type: null,
+				forms: [
+					{
+						formUuid: { handle: "@after_exclusive_form" },
+						name: "After exclusive form",
+						type: "survey",
+						fields: [
+							{
+								fieldUuid: { handle: "@after_exclusive_field" },
+								kind: "text",
+								id: "after_exclusive_field",
+								label: proseText("After exclusive field"),
+							},
+						],
+					},
+				],
+			},
 		});
 		expect(closed.receipt?.disposition).toBe("rejected");
 		expect(closed.receipt?.error?.code).toBe("EXCLUSIVE_SET_CLOSED");
@@ -435,6 +1079,40 @@ describe("private staging isolation", () => {
 });
 
 describe("genesis staging", () => {
+	it("stages automation writes against the honest revision-zero place snapshot", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const proposedAppId = crypto.randomUUID();
+		const changeSet = await beginGenesisChangeSet({
+			proposedAppId,
+			projectId: PROJECT,
+			baseSnapshotDigest: emptyGenesisBase(proposedAppId).digest,
+			lineage: await lineage(),
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+		});
+		const workspace = await ChangeSetMutationWorkspace.open(host, changeSet.id);
+		const automation: Automation = {
+			uuid: asUuid(crypto.randomUUID()),
+			kind: "case-update",
+			name: "Close stale visits",
+			caseType: "visit",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			updates: [],
+			closeCase: true,
+		};
+		const staged = await workspace.stageDispatch({
+			toolName: "addAutomations",
+			requestId: "genesis-automation",
+			input: { automations: [automation] },
+		});
+		expect(staged.receipt?.disposition).toBe("staged");
+		expect((await loadChangeSetSteps(changeSet.id))[0]?.readSet).toEqual([
+			{ kind: "organization", projectId: PROJECT, revision: "0" },
+		]);
+	});
+
 	it("builds a private candidate over the empty base and reaches export readiness", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
 		const proposedAppId = crypto.randomUUID();
@@ -451,43 +1129,46 @@ describe("genesis staging", () => {
 		expect(workspace.currentSnapshot().canonicalSeq).toBeNull();
 
 		await workspace.stageDispatch({
-			toolName: "stageModule",
+			toolName: "createModule",
 			requestId: "g-1",
-			input: { moduleUuid: { handle: "@m" }, name: "Survey" },
-		});
-		const formStaged = await workspace.stageDispatch({
-			toolName: "stageForm",
-			requestId: "g-2",
 			input: {
-				formUuid: { handle: "@f" },
 				moduleUuid: { handle: "@m" },
-				name: "Survey form",
-				type: "survey",
+				name: "Survey",
+				case_type: null,
+				forms: [
+					{
+						formUuid: { handle: "@f" },
+						name: "Survey form",
+						type: "survey",
+						fields: [
+							{
+								fieldUuid: { handle: "@question" },
+								kind: "text",
+								id: "question",
+								label: proseText("Question"),
+							},
+						],
+					},
+				],
 			},
 		});
-		const incomplete = await workspace.inspect();
-		expect(incomplete.canCommit).toBe(false);
-
-		/* One text question completes the smallest export-ready shape —
-		 * proven by the genesis export-readiness preflight in canCommit. */
-		const donor = await createTestApp();
-		const field = starterFieldClone(donor.doc, donor.starter.fieldUuid);
-		const formUuid =
-			formStaged.receipt?.handles[changeSetHandleSchema.parse("@f")];
-		if (formUuid === undefined) throw new Error("@f was not bound");
-		await workspace.invoke({
-			toolName: "addField-direct",
-			requestId: "g-3",
-			input: { fieldUuid: field.uuid },
-			execute: async (ctx) =>
-				ctx.applyBatch({
-					mutations: [
-						{ kind: "addField", parentUuid: formUuid, field },
-					] satisfies Mutation[],
-				}),
+		await workspace.stageDispatch({
+			toolName: "setMenuMedia",
+			requestId: "g-2",
+			input: {
+				items: [
+					{
+						target: "module",
+						moduleUuid: { handle: "@m" },
+						icon: "nutrition",
+						audioLabel: null,
+					},
+				],
+			},
 		});
 		const complete = await workspace.inspect();
 		expect(complete.allFindings).toEqual([]);
+		expect(complete.finalizationFindings).toEqual([]);
 		expect(complete.canCommit).toBe(true);
 
 		/* No app row exists for the proposed identity — genesis is private. */
@@ -513,67 +1194,65 @@ describe("genesis staging", () => {
 				runId: RUN,
 				kind: "mcp",
 				expectedRevision: 0,
-				owningIntentIds: [],
 			}),
 		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
 	});
 });
 
 describe("commitDesignChangeSet", () => {
-	async function stageCompleteWorkflow(appId: string, donor: TestApp) {
+	async function stageCompleteWorkflow(appId: string) {
 		const { changeSet, workspace } = await openWorkspace(appId);
 		await workspace.stageDispatch({
-			toolName: "stageModule",
+			toolName: "createModule",
 			requestId: "c-1",
-			input: { moduleUuid: { handle: "@m" }, name: "Committed module" },
-		});
-		const form = await workspace.stageDispatch({
-			toolName: "stageForm",
-			requestId: "c-2",
 			input: {
-				formUuid: { handle: "@f" },
 				moduleUuid: { handle: "@m" },
-				name: "Committed form",
-				type: "survey",
+				name: "Committed module",
+				case_type: null,
+				forms: [
+					{
+						formUuid: { handle: "@f" },
+						name: "Committed form",
+						type: "survey",
+						fields: [
+							{
+								fieldUuid: { handle: "@field" },
+								kind: "text",
+								id: "committed_field",
+								label: proseText("Committed field"),
+							},
+						],
+					},
+				],
 			},
-		});
-		const field = starterFieldClone(donor.doc, donor.starter.fieldUuid);
-		const formUuid = form.receipt?.handles[changeSetHandleSchema.parse("@f")];
-		if (formUuid === undefined) throw new Error("@f was not bound");
-		await workspace.invoke({
-			toolName: "addField-direct",
-			requestId: "c-3",
-			input: { fieldUuid: field.uuid },
-			execute: async (ctx) =>
-				ctx.applyBatch({
-					mutations: [
-						{ kind: "addField", parentUuid: formUuid, field },
-					] satisfies Mutation[],
-					stage: "fields",
-				}),
 		});
 		return { changeSet, workspace };
 	}
 
 	it("commits all steps as ONE canonical batch with the receipt sidecar, atomically", async () => {
 		const app = await createTestApp();
-		const { changeSet } = await stageCompleteWorkflow(app.appId, app);
+		const { changeSet } = await stageCompleteWorkflow(app.appId);
 		const before = await canonicalTableCounts(app.appId);
+		await h
+			.db()
+			.updateTable("design_slice_attempts")
+			.set({ outcome_evidence_state: "collecting" })
+			.where("id", "=", changeSet.attemptId)
+			.executeTakeFirstOrThrow();
 
 		const outcome = await commitDesignChangeSet({
 			changeSetId: changeSet.id,
 			actorUserId: ACTOR,
 			runId: RUN,
 			kind: "mcp",
-			expectedRevision: 3,
-			owningIntentIds: [asDesignId(crypto.randomUUID())],
+			expectedRevision: 1,
 		});
 		expect(outcome.kind).toBe("committed");
 		if (outcome.kind !== "committed") throw new Error("unreachable");
 		expect(outcome.replayed).toBe(false);
 		expect(outcome.receipt.seq).toBe(before.mutationSeq + 1);
 		expect(outcome.receipt.batchId).toMatch(
-			new RegExp(`^design-change-set:${changeSet.id}:r3:[a-f0-9]{24}$`),
+			new RegExp(`^design-change-set:${changeSet.id}:r1:[a-f0-9]{24}$`),
 		);
 		expect(outcome.receipt.mutationCount).toBe(3);
 
@@ -584,6 +1263,14 @@ describe("commitDesignChangeSet", () => {
 		expect(row?.status).toBe("committed");
 		expect(row?.committedSeq).toBe(outcome.receipt.seq);
 		expect(row?.committedBatchId).toBe(outcome.receipt.batchId);
+		const attempt = await h
+			.db()
+			.selectFrom("design_slice_attempts")
+			.select(["status", "outcome_evidence_state"])
+			.where("change_set_id", "=", changeSet.id)
+			.executeTakeFirst();
+		expect(attempt?.status).toBe("committed");
+		expect(attempt?.outcome_evidence_state).toBe("complete");
 
 		/* A commit retry converges on the stored receipt. */
 		const retry = await commitDesignChangeSet({
@@ -591,8 +1278,7 @@ describe("commitDesignChangeSet", () => {
 			actorUserId: ACTOR,
 			runId: RUN,
 			kind: "mcp",
-			expectedRevision: 3,
-			owningIntentIds: [],
+			expectedRevision: 1,
 		});
 		expect(retry.kind).toBe("committed");
 		if (retry.kind !== "committed") throw new Error("unreachable");
@@ -603,7 +1289,7 @@ describe("commitDesignChangeSet", () => {
 
 	it("merges cleanly over a newer canonical head (clean replay)", async () => {
 		const app = await createTestApp();
-		const { changeSet } = await stageCompleteWorkflow(app.appId, app);
+		const { changeSet } = await stageCompleteWorkflow(app.appId);
 
 		await commitGuardedBatch({
 			appId: app.appId,
@@ -621,8 +1307,7 @@ describe("commitDesignChangeSet", () => {
 			actorUserId: ACTOR,
 			runId: RUN,
 			kind: "mcp",
-			expectedRevision: 3,
-			owningIntentIds: [],
+			expectedRevision: 1,
 		});
 		expect(outcome.kind).toBe("committed");
 		if (outcome.kind !== "committed") throw new Error("unreachable");
@@ -692,7 +1377,6 @@ describe("commitDesignChangeSet", () => {
 			runId: RUN,
 			kind: "mcp",
 			expectedRevision: 1,
-			owningIntentIds: [],
 		});
 		expect(outcome.kind).toBe("rebase-conflict");
 		if (outcome.kind !== "rebase-conflict") throw new Error("unreachable");
@@ -708,7 +1392,6 @@ describe("commitDesignChangeSet", () => {
 	it("rejects a candidate the fresh gate refuses, retaining amendable steps", async () => {
 		const app = await createTestApp();
 		const { changeSet, workspace } = await openWorkspace(app.appId);
-
 		/* Removing the starter question leaves EMPTY_FORM — stageable
 		 * privately, refused canonically. */
 		const staged = await workspace.invoke({
@@ -731,7 +1414,6 @@ describe("commitDesignChangeSet", () => {
 			runId: RUN,
 			kind: "mcp",
 			expectedRevision: 1,
-			owningIntentIds: [],
 		});
 		expect(outcome.kind).toBe("gate-rejected");
 		expect(await canonicalTableCounts(app.appId)).toEqual(before);
@@ -741,7 +1423,7 @@ describe("commitDesignChangeSet", () => {
 
 	it("is terminal after a Project move", async () => {
 		const app = await createTestApp();
-		const { changeSet } = await stageCompleteWorkflow(app.appId, app);
+		const { changeSet } = await stageCompleteWorkflow(app.appId);
 		await h.seedProjectMember(ACTOR, "project-b", "owner");
 		await h.moveAppToProject(app.appId, "project-b", ACTOR);
 
@@ -751,44 +1433,8 @@ describe("commitDesignChangeSet", () => {
 				actorUserId: ACTOR,
 				runId: RUN,
 				kind: "mcp",
-				expectedRevision: 3,
-				owningIntentIds: [],
+				expectedRevision: 1,
 			}),
 		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
-	});
-
-	it("writes intent provenance rows in the commit transaction", async () => {
-		const app = await createTestApp();
-		const { changeSet } = await stageCompleteWorkflow(app.appId, app);
-		const intentId = crypto.randomUUID();
-
-		const outcome = await commitDesignChangeSet({
-			changeSetId: changeSet.id,
-			actorUserId: ACTOR,
-			runId: RUN,
-			kind: "mcp",
-			expectedRevision: 3,
-			owningIntentIds: [asDesignId(intentId)],
-			intentProvenance: [
-				{
-					designSessionId: changeSet.designSessionId,
-					designRevisionId: changeSet.designRevisionId,
-					buildPlanId: changeSet.buildPlanId,
-					sliceId: changeSet.sliceId,
-					intentId,
-					coordinate: { kind: "app", appId: app.appId },
-				},
-			],
-		});
-		expect(outcome.kind).toBe("committed");
-		if (outcome.kind !== "committed") throw new Error("unreachable");
-
-		const rows = await h
-			.db()
-			.selectFrom("app_change_intents")
-			.select(["intent_id", "coordinate_kind"])
-			.where("app_id", "=", app.appId)
-			.execute();
-		expect(rows).toEqual([{ intent_id: intentId, coordinate_kind: "app" }]);
 	});
 });

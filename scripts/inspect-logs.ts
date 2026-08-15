@@ -21,6 +21,11 @@
  * the Cloud SQL connector in the migrate-job image); `--prod` targets the
  * production instance over its public IP (see `./lib/prodDb.ts`). Never
  * writes. Run with `--help` for the flag reference.
+ *
+ * Reviewed-design sessions span additional artifact, orchestration, context,
+ * attempt, and stream ledgers. Start those investigations with
+ * `inspect-design-session.ts <anyRelatedId>`; use this app-centric reader for
+ * a focused event-log analysis after materialization.
  */
 import "dotenv/config";
 import { Command, InvalidArgumentError } from "commander";
@@ -261,8 +266,16 @@ function summarizeConversation(payload: ConversationPayload): string {
 				payload.cacheReadTokens !== undefined
 					? ` (${payload.inputTokens - payload.cacheReadTokens} uncached, ${payload.cacheReadTokens} cached)`
 					: "";
-			return `step-usage: in ${payload.inputTokens}${uncached}, out ${payload.outputTokens}`;
+			const calls =
+				payload.toolCallIds === undefined
+					? ""
+					: `, tools [${payload.toolCallIds.join(", ")}]`;
+			return `step-usage: in ${payload.inputTokens}${uncached}, out ${payload.outputTokens}${calls}`;
 		}
+		case "executor-tool-outcome":
+			return `executor ${payload.outcome}: ${payload.toolName}${payload.operationIndex === undefined ? "" : `[${payload.operationIndex}]`} (${payload.code}) at workspace r${payload.workspaceRevision}`;
+		case "design-tool-outcome":
+			return `design ${payload.outcome}: ${payload.toolName} [${payload.toolCallId}] (${payload.code}${payload.validationStage === undefined ? "" : `, ${payload.validationStage}`}${payload.issueCount === undefined ? "" : `, ${payload.issueCount} issues`}, ${payload.inputChars} chars, ${payload.durationMs}ms)`;
 	}
 }
 
@@ -337,6 +350,29 @@ function printEventVerbose(event: Event): void {
 				`  │ cacheWriteTokens: ${p.cacheWriteTokens ?? "not reported"}`,
 			);
 			console.log(`  │ outputTokens:     ${p.outputTokens}`);
+			console.log(
+				`  │ toolCallIds:     ${p.toolCallIds?.join(", ") ?? "none"}`,
+			);
+			break;
+		case "design-tool-outcome":
+			console.log(`  │ toolCallId:        ${p.toolCallId}`);
+			console.log(`  │ toolName:          ${p.toolName}`);
+			console.log(`  │ inputChars:        ${p.inputChars}`);
+			console.log(`  │ durationMs:        ${p.durationMs}`);
+			console.log(`  │ outcome:           ${p.outcome}`);
+			console.log(`  │ code:              ${p.code}`);
+			console.log(
+				`  │ validationStage:   ${p.validationStage ?? "not applicable"}`,
+			);
+			console.log(`  │ issueCount:        ${p.issueCount ?? "not reported"}`);
+			break;
+		case "executor-tool-outcome":
+			console.log(`  │ modelStep:         ${p.modelStep}`);
+			console.log(`  │ toolName:          ${p.toolName}`);
+			console.log(`  │ operationIndex:    ${p.operationIndex ?? "batch"}`);
+			console.log(`  │ workspaceRevision: ${p.workspaceRevision}`);
+			console.log(`  │ outcome:           ${p.outcome}`);
+			console.log(`  │ code:              ${p.code}`);
 			break;
 	}
 	console.log("  └─");

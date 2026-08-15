@@ -106,3 +106,29 @@ mutation history, records deterministic canonical mutations, and advances the
 app stream as a migration so open clients reload. The production sequence is:
 read-only scan, dry run in the write-capable deployment environment, reviewed
 `--execute`, then the read-only scan again with zero references.
+
+## Reviewed-build cutover repair
+
+The reviewed-build runtime reads only design-session-backed build lineage.
+Valid apps left non-complete by the former pre-plan build flow converge through
+one holder-aware repair after the new deployment is green. No traffic drain is
+required: the writer locks each app and skips any live run holder.
+
+```bash
+# Read-only production inventory. It prints the exact Job command when work exists.
+npx tsx scripts/scan-legacy-preplan-builds.ts --prod
+
+# Execute the immutable write-capable Job deployed from the same image.
+python3 scripts/rollout/deploy-cloud-run.py --execute-job \
+  --project=commcare-nova --region=us-central1 \
+  --job=commcare-nova-legacy-preplan-repair --service=commcare-nova \
+  --wait-seconds=960 \
+  --execution-arg=legacy-preplan-repair.cjs --execution-arg=--execute
+
+# Required independent postcondition.
+npx tsx scripts/scan-legacy-preplan-builds.ts --prod
+```
+
+The Cloud Run Job is dry-run by default. Held rows remain untouched until the
+run finishes or the reaper releases them; empty rows require an explicit
+operator decision instead of automatic recovery.

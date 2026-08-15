@@ -44,9 +44,14 @@ export function AskQuestionsCard({
 
 	const isWaiting = state === "input-available";
 	const isComplete = state === "output-available";
+	/* A round whose turn failed before it was answered: the claw-back keeps
+	 * the failed turn's partial in the transcript and closes its dangling
+	 * tool calls as `output-error`, so this card renders as an ended round,
+	 * never as a skeleton forever loading. */
+	const isInterrupted = state === "output-error";
 	const displayAnswers = isComplete ? output || {} : answers;
 	const questions = input?.questions ?? [];
-	const isLoading = !isWaiting && !isComplete;
+	const isLoading = !isWaiting && !isComplete && !isInterrupted;
 
 	/**
 	 * Stable ID map for questions within this tool call. Questions arrive from
@@ -93,7 +98,13 @@ export function AskQuestionsCard({
 	return (
 		<div
 			data-question-card={
-				isWaiting ? "waiting" : isComplete ? "done" : "loading"
+				isWaiting
+					? "waiting"
+					: isComplete
+						? "done"
+						: isInterrupted
+							? "interrupted"
+							: "loading"
 			}
 		>
 			<div className="rounded-xl border border-nova-violet/20 bg-nova-violet/5 overflow-hidden">
@@ -127,6 +138,18 @@ export function AskQuestionsCard({
 								<div className="h-10 w-full rounded-lg border border-nova-border bg-nova-surface/50" />
 								<div className="h-10 w-full rounded-lg border border-nova-border bg-nova-surface/50" />
 							</div>
+						</div>
+					)}
+					{isInterrupted && (
+						<div className="space-y-2">
+							{questions.map((q, i) => (
+								<p
+									key={questionIds.current[i]}
+									className="text-sm text-nova-text-muted"
+								>
+									{q.question}
+								</p>
+							))}
 						</div>
 					)}
 					{questions.map((q, i) => {
@@ -202,7 +225,16 @@ export function AskQuestionsCard({
 				{isWaiting && (
 					<div className="px-3.5 py-2 border-t border-nova-violet/10">
 						<span className="text-xs text-nova-text-muted">
-							or type your answer below
+							{(questions[currentIndex]?.options.length ?? 0) > 0
+								? "or type your answer below"
+								: "Type your answer below"}
+						</span>
+					</div>
+				)}
+				{isInterrupted && (
+					<div className="px-3.5 py-2 border-t border-nova-violet/10">
+						<span className="text-xs text-nova-text-muted">
+							This question round ended before it was answered
 						</span>
 					</div>
 				)}

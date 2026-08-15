@@ -421,6 +421,146 @@ describe("commitGuardedBatch (Postgres)", () => {
 		expect(stream[0].mutations).toHaveLength(1);
 	});
 
+	it("freezes MCP and autosave writes while the accepted initial build owns the app", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const buildRun = "active-build";
+		await h
+			.db()
+			.updateTable("apps")
+			.set({
+				status: "generating",
+				run_id: buildRun,
+				run_holder_nonce: HOLDER_NONCE,
+				res_period: "2026-08",
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: OWNER,
+				res_run_id: buildRun,
+			})
+			.where("id", "=", appId)
+			.executeTakeFirstOrThrow();
+		const before = await readRunFenceState(appId);
+
+		for (const kind of ["mcp", "autosave"] as const) {
+			await expect(
+				commitGuardedBatch({
+					appId,
+					expectedProjectId: PROJECT,
+					batchId: crypto.randomUUID(),
+					...(kind === "mcp" && { runId: "external-mcp" }),
+					mutations: renameVillageLabel(doc, `${kind} write`),
+					actorUserId: OWNER,
+					kind,
+				}),
+			).rejects.toThrow("reviewed initial build has not finished");
+		}
+		expect(await readRunFenceState(appId)).toEqual(before);
+		expect(await readStream(appId)).toEqual([]);
+
+		const committed = await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			runId: buildRun,
+			chatRunHolder: {
+				source: "chat",
+				mode: "build",
+				runId: buildRun,
+				nonce: HOLDER_NONCE,
+			},
+			mutations: renameVillageLabel(doc, "Owned build write"),
+			actorUserId: OWNER,
+			kind: "chat",
+		});
+
+		expect(committed.seq).toBe(1);
+		expect(await readStream(appId)).toHaveLength(1);
+		expect(await readRunFenceState(appId)).toMatchObject({
+			mutation_seq: "1",
+			status: "generating",
+			run_id: buildRun,
+			res_run_id: buildRun,
+		});
+	});
+
+	it("keeps a failed materialized initial build frozen after its live lease is gone", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		await h
+			.db()
+			.updateTable("apps")
+			.set({ status: "error", error_type: "internal", run_id: "failed-build" })
+			.where("id", "=", appId)
+			.executeTakeFirstOrThrow();
+		await h.seedDesignSession({
+			mode: "build",
+			project_id: PROJECT,
+			owner_user_id: OWNER,
+			proposed_app_id: appId,
+			app_id: appId,
+			state: "materialized",
+		});
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT,
+				batchId: crypto.randomUUID(),
+				runId: "external-mcp",
+				mutations: renameVillageLabel(doc, "Post-failure edit"),
+				actorUserId: OWNER,
+				kind: "mcp",
+			}),
+		).rejects.toThrow("reviewed initial build has not finished");
+		expect(await readSeq(appId)).toBe(0);
+		expect(await readStream(appId)).toEqual([]);
+	});
+
+	it("keeps historical accepted-partial apps editable", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const sessionId = await h.seedDesignSession({
+			mode: "build",
+			project_id: PROJECT,
+			owner_user_id: OWNER,
+			proposed_app_id: appId,
+			app_id: appId,
+			state: "materialized",
+		});
+		await h
+			.db()
+			.insertInto("design_orchestration_events")
+			.values({
+				design_session_id: sessionId,
+				revision: 1,
+				event_id: crypto.randomUUID(),
+				predecessor_event_id: null,
+				predecessor_digest: null,
+				run_id: "historical-partial-run",
+				holder_nonce_digest: "a".repeat(64),
+				kind: "accepted-partial",
+				payload: JSON.stringify({
+					kind: "accepted-partial",
+					appId,
+					appSeq: 1,
+				}),
+			})
+			.execute();
+
+		await expect(
+			commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT,
+				batchId: crypto.randomUUID(),
+				mutations: renameVillageLabel(doc, "Editable historical app"),
+				actorUserId: OWNER,
+				kind: "autosave",
+			}),
+		).resolves.toMatchObject({ seq: 1 });
+		expect(await readSeq(appId)).toBe(1);
+	});
+
 	it("rejects chat attribution without explicit holder authority", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);

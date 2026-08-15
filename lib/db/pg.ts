@@ -43,6 +43,8 @@ import { delay } from "@/lib/utils/delay";
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
 /** `bigint` counters read through the shared nonnegative safe-integer boundary. */
 type BigIntColumn = ColumnType<string | number, number, number>;
+/** Integer counter with a database default, optional only on INSERT. */
+type DefaultedNumberColumn = ColumnType<number, number | undefined, number>;
 /** Lookup revisions stay exact decimal strings on every application boundary. */
 type LookupRevisionColumn = ColumnType<string, string, string>;
 /** Exact lookup revision with a database default, so INSERT may omit it. */
@@ -193,12 +195,26 @@ export interface ThreadsTable {
 		string | null
 	>;
 	messages: JSONColumnType<unknown[]>;
-	/** Assistant message ids the server deliberately removed or reverted (a
-	 * failed turn's claw-back, a re-drive claim's dead-partial trim) and has
-	 * not re-authored since. The history-admission gate refuses a client copy
-	 * of these ids; a fold snapshot that re-authors one clears it. */
-	clawed_back_ids: JSONColumnType<string[], string | undefined, string>;
+	/** Claw-back tombstones for assistant message ids the server has ruled on
+	 * and not re-authored since. Two shapes coexist:
+	 *  - a plain string — the id's stored copy was removed or reverted to its
+	 *    pre-run seed (a continuation claw-back, a re-drive trim); a client
+	 *    copy is capped to that stored copy, or refused when none exists.
+	 *  - `{ id, cap }` — the display-keeping claw-back: the failed turn's
+	 *    partial STAYS in `messages` as the user-visible record, and `cap`
+	 *    bounds what a client copy may contribute (0 = never admitted; the
+	 *    stored partial is the one authentic copy).
+	 * A fold snapshot that re-authors an id clears its tombstone. */
+	clawed_back_ids: JSONColumnType<
+		ClawedBackEntry[],
+		string | undefined,
+		string
+	>;
 }
+
+/** See `threads.clawed_back_ids`. Defined here beside the column it types;
+ *  `lib/db/threads.ts` owns the semantics. */
+export type ClawedBackEntry = string | { id: string; cap: number };
 
 /**
  * The durable chat-stream chunk log — one row per flushed batch of UI message
@@ -608,7 +624,6 @@ export interface DesignChangeSetStepsTable {
 	/** Exact admitted batch — read as `::text` through mutation admission. */
 	mutations: JSONColumnType<Mutation[]>;
 	mutation_digest: string;
-	intent_ids: JSONColumnType<string[]>;
 	read_set: JSONColumnType<Record<string, unknown>[]>;
 	created_at: Timestamp;
 }
@@ -648,9 +663,162 @@ export interface DesignCommittedSlicesTable {
 	seq: BigIntColumn;
 	batch_id: string;
 	committed_snapshot_digest: string;
-	owning_intent_ids: JSONColumnType<string[]>;
 	mutation_count: number;
 	committed_at: Timestamp;
+}
+
+/**
+ * One append-only orchestration transition — the chain the build
+ * orchestrator folds into its current state (`lib/agent/build/`). Every
+ * event names its predecessor by id AND digest; the partial unique index on
+ * `(design_session_id, predecessor_event_id)` makes two continuations
+ * structurally unable to advance the same state. Raw holder nonces never
+ * land here — `holder_nonce_digest` is the safe audit projection.
+ */
+export interface DesignOrchestrationEventsTable {
+	design_session_id: string;
+	revision: BigIntColumn;
+	event_id: string;
+	predecessor_event_id: string | null;
+	predecessor_digest: string | null;
+	run_id: string;
+	holder_nonce_digest: string;
+	kind: string;
+	/** The strict per-kind state payload — read as `::text`, strict-parsed. */
+	payload: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
+/**
+ * One bounded executor run over one build slice — the mutable
+ * execution-control row (`lib/agent/build/executor.ts`). Input identities
+ * are immutable; only `status` (+ failure metadata and the once-set
+ * `change_set_id`) moves. A partial unique index permits one `running`
+ * attempt per `(design_session_id, build_plan_id, slice_id)`.
+ */
+export interface DesignSliceAttemptsTable {
+	id: string;
+	design_session_id: string;
+	design_revision_id: string;
+	design_revision_digest: string;
+	build_plan_id: string;
+	build_plan_digest: string;
+	slice_id: string;
+	attempt: number;
+	base_kind: string;
+	base_app_id: string | null;
+	base_proposed_app_id: string | null;
+	base_seq: BigIntColumn | null;
+	base_snapshot_digest: string;
+	change_set_id: string | null;
+	executor_model: string;
+	prompt_version: string;
+	brief_digest: string;
+	model_steps_used: DefaultedNumberColumn;
+	mutation_calls_used: DefaultedNumberColumn;
+	commit_attempts_used: DefaultedNumberColumn;
+	blocker_reports_used: DefaultedNumberColumn;
+	execution_run_ids: JSONColumnType<string[], string | undefined, string>;
+	wire_invalid_count: DefaultedNumberColumn;
+	private_mutation_rejected_count: DefaultedNumberColumn;
+	validator_repair_count: DefaultedNumberColumn;
+	outcome_evidence_state: ColumnType<string, string | undefined, string>;
+	/** Active wall-clock spend in milliseconds — accrued only at genuine
+	 * budget claims, so the gap a dead process leaves never counts. */
+	wall_clock_ms_used: ColumnType<string | number, number | undefined, number>;
+	/** The instant the wall-clock integrator last accrued to; recovery
+	 * resets it without accruing. */
+	wall_clock_accrued_at: Timestamp;
+	status: string;
+	failure_code: string | null;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+/** One idempotency fence for a slice attempt's externally meaningful budget
+ * unit. Replaying the same executor call reuses this row instead of spending
+ * another unit. */
+export interface DesignSliceAttemptBudgetClaimsTable {
+	attempt_id: string;
+	claim_key: string;
+	counter: string;
+	created_at: Timestamp;
+}
+
+export interface DesignExternalActionReceiptsTable {
+	id: string;
+	design_session_id: string;
+	build_plan_id: string;
+	external_action_id: string;
+	project_id: string;
+	app_id: string | null;
+	action_digest: string;
+	outcome: string;
+	evidence: JSONColumnType<Record<string, unknown>>;
+	completed_at: Timestamp;
+}
+
+/** One immutable provider-contract generation and mutable append ordinal per
+ * long-lived reviewed-design role. The item table owns model-visible bytes;
+ * a linked successor is inserted only when that provider contract changes. */
+export interface DesignModelContextsTable {
+	id: string;
+	design_session_id: string;
+	context_kind: string;
+	generation: number;
+	supersedes_context_id: string | null;
+	model_id: string;
+	prompt_version: string;
+	toolset_digest: string;
+	context_version: string;
+	revision: BigIntColumn;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+/** Exact append-only ModelMessages. These are tenant data, not operational
+ * logs; payload-free logging remains a separate boundary. */
+export interface DesignModelContextItemsTable {
+	context_id: string;
+	ordinal: BigIntColumn;
+	append_key: string;
+	append_index: number;
+	item_digest: string;
+	message: JSONColumnType<Record<string, unknown>, string, never>;
+	created_by_run_id: string;
+	created_at: Timestamp;
+}
+
+/** Payload-free, append-only request lifecycle evidence for one model step. */
+export interface DesignModelStepsTable {
+	context_id: string;
+	step_key: string;
+	event_kind: string;
+	event_digest: string;
+	request_digest: string | null;
+	response_digest: string | null;
+	usage: JSONColumnType<Record<string, unknown> | null, string | null, never>;
+	created_by_run_id: string;
+	created_at: Timestamp;
+}
+
+export interface DesignModelStepUsageAccountsTable {
+	context_id: string;
+	step_key: string;
+	event_kind: string;
+	run_id: string;
+	accounted_at: Timestamp;
+}
+
+export interface DesignIdentityHandlesTable {
+	design_session_id: string;
+	handle: string;
+	design_id: string;
+	entity_kind: string;
+	workspace_id: string;
+	tool_call_id: string;
+	created_by_run_id: string;
+	created_at: Timestamp;
 }
 
 /**
@@ -734,6 +902,36 @@ export interface DesignBuildPlansTable {
 	created_at: Timestamp;
 }
 
+/** Mutable authority row for one private contract/revision/plan authoring
+ * workspace. Its append-only steps are replayed into the candidate; only a
+ * complete validated candidate can atomically finalize an immutable artifact. */
+export interface DesignArtifactWorkspacesTable {
+	id: string;
+	design_session_id: string;
+	artifact_kind: string;
+	lineage_digest: string;
+	lineage: JSONColumnType<Record<string, unknown>>;
+	revision: BigIntColumn;
+	status: string;
+	finalized_artifact_id: string | null;
+	created_by_run_id: string;
+	updated_by_run_id: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+	finalized_at: Timestamp | null;
+}
+
+/** One exact, idempotent, bounded operation in an artifact workspace. */
+export interface DesignArtifactWorkspaceStepsTable {
+	workspace_id: string;
+	revision: BigIntColumn;
+	tool_call_id: string;
+	input_digest: string;
+	operation: JSONColumnType<Record<string, unknown>>;
+	created_by_run_id: string;
+	created_at: Timestamp;
+}
+
 /**
  * One design session — the pre-app generation target (mode `build`) or a
  * design-aware edit's artifact scope (mode `edit`, whose bound app row stays
@@ -771,20 +969,6 @@ export interface DesignSessionsTable {
 	active_build_plan_id: string | null;
 	created_at: Timestamp;
 	updated_at: Timestamp;
-}
-
-/** Committed design provenance — intent → implementation coordinate. */
-export interface AppChangeIntentsTable {
-	app_id: string;
-	seq: BigIntColumn;
-	design_session_id: string;
-	design_revision_id: string;
-	build_plan_id: string;
-	slice_id: string;
-	intent_id: string;
-	coordinate_kind: string;
-	coordinate_payload: JSONColumnType<Record<string, unknown>>;
-	created_at: Timestamp;
 }
 
 /**
@@ -892,13 +1076,23 @@ export interface AppDatabase {
 	design_change_set_step_stages: DesignChangeSetStepStagesTable;
 	design_change_set_handles: DesignChangeSetHandlesTable;
 	design_committed_slices: DesignCommittedSlicesTable;
-	app_change_intents: AppChangeIntentsTable;
 	design_source_packages: DesignSourcePackagesTable;
 	design_revisions: DesignRevisionsTable;
 	design_reviews: DesignReviewsTable;
 	design_review_dispositions: DesignReviewDispositionsTable;
 	design_build_plans: DesignBuildPlansTable;
+	design_artifact_workspaces: DesignArtifactWorkspacesTable;
+	design_artifact_workspace_steps: DesignArtifactWorkspaceStepsTable;
 	design_sessions: DesignSessionsTable;
+	design_orchestration_events: DesignOrchestrationEventsTable;
+	design_slice_attempts: DesignSliceAttemptsTable;
+	design_slice_attempt_budget_claims: DesignSliceAttemptBudgetClaimsTable;
+	design_external_action_receipts: DesignExternalActionReceiptsTable;
+	design_model_contexts: DesignModelContextsTable;
+	design_model_context_items: DesignModelContextItemsTable;
+	design_model_steps: DesignModelStepsTable;
+	design_model_step_usage_accounts: DesignModelStepUsageAccountsTable;
+	design_identity_handles: DesignIdentityHandlesTable;
 	thread_media_refs: ThreadMediaRefsTable;
 }
 
@@ -970,16 +1164,36 @@ const TX_RETRY_DELAYS_MS = [50, 150, 400];
  */
 export async function withAppTx<T>(
 	body: (tx: Transaction<AppDatabase>) => Promise<T>,
-	options?: { readonly isolationLevel?: IsolationLevel },
+	options?: {
+		readonly isolationLevel?: IsolationLevel;
+		/** Absolute wall-clock deadline for this transaction. PostgreSQL 18's
+		 * transaction timeout is the rollback authority; retry attempts consume
+		 * the same deadline rather than receiving a fresh budget. */
+		readonly deadlineAt?: number;
+	},
 ): Promise<T> {
 	const db = await getAppDb();
 	for (let attempt = 0; ; attempt++) {
 		try {
 			const transaction = db.transaction();
+			const executeBody = async (tx: Transaction<AppDatabase>): Promise<T> => {
+				if (options?.deadlineAt !== undefined) {
+					const remainingMs = Math.floor(options.deadlineAt - Date.now());
+					if (remainingMs <= 0) {
+						throw new Error(
+							"The transaction deadline expired before it began.",
+						);
+					}
+					await sql`SELECT set_config('transaction_timeout', ${`${remainingMs}ms`}, true)`.execute(
+						tx,
+					);
+				}
+				return body(tx);
+			};
 			return await (options?.isolationLevel === undefined
 				? transaction
 				: transaction.setIsolationLevel(options.isolationLevel)
-			).execute(body);
+			).execute(executeBody);
 		} catch (err) {
 			if (attempt === TX_RETRY_DELAYS_MS.length || !isRetryableTxError(err)) {
 				throw err;

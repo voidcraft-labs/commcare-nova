@@ -51,8 +51,8 @@ import {
 } from "@/lib/doc/caseOperationIntents";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
+	useFormHasSessionCase,
 	useModuleCaseType,
-	useModuleSelectsCaseFirst,
 } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
@@ -136,16 +136,16 @@ export function CaseOperationDetailCanvas({
 
 	const fieldEntries = useFormFieldEntries(formUuid);
 	const userProperties = useUserProperties();
-	const caseFirst = useModuleSelectsCaseFirst(moduleUuid);
+	const sessionCaseAvailable = useFormHasSessionCase(moduleUuid, formUuid);
 	/* Clearing the condition unmounts the control that cleared it, so focus
 	 * has to be handed forward to the Add button that replaces the editor. */
 	const conditionCleared = useClearedSlotFocus(operation?.condition);
 	/* Same shape for a removed row: the button pressed goes away with it. */
 	const writeFocus = useRemovedRowFocus((operation?.writes ?? []).length);
-	/* Whether a slot here may read the case at all. The gate refuses every
-	 * case-data read in a form the module opens without choosing a case
-	 * first: see `editorScope.ts` for why that maps onto `"global"`. */
-	const caseDataScope = operationCaseDataScope(caseFirst);
+	/* Whether a slot here may read the case at all. A case-loading form has
+	 * one even in a forms-first mixed module; see `editorScope.ts` for why a
+	 * form without one maps onto `"global"`. */
+	const caseDataScope = operationCaseDataScope(sessionCaseAvailable);
 	/* The scope an operation EXPRESSION resolves against is the module's case
 	 * type: what `rules/caseOperations.ts::expressionContext` hands the
 	 * checker, not the operation's destination type. The destination decides
@@ -153,12 +153,11 @@ export function CaseOperationDetailCanvas({
 	 * read. A module with no case type has no walkable origin, and the empty
 	 * string is how the editor says so. */
 	const expressionCaseType = useModuleCaseType(moduleUuid) ?? "";
-	/* A link may point at "the case this form opened" only where the module
-	 * actually hands its forms one: the same rule the validator applies to
-	 * a session target. */
-	const sessionUnavailableReason = caseFirst
+	/* A link may point at "the case this form opened" only where this exact
+	 * form loads one: the same rule the validator applies to a session target. */
+	const sessionUnavailableReason = sessionCaseAvailable
 		? undefined
-		: "This module doesn't choose a case before opening its forms, so there is no case in hand";
+		: "This form doesn't open with a case in hand";
 	const formFields = useMemo(
 		() => operationFormFieldDecls(fieldEntries, operation?.forEach?.repeat),
 		[fieldEntries, operation?.forEach?.repeat],
@@ -400,7 +399,7 @@ export function CaseOperationDetailCanvas({
 									operation,
 									{ kind: "expression", expr },
 									operations.slice(0, index),
-									caseFirst ? expressionCaseType : undefined,
+									sessionCaseAvailable ? expressionCaseType : undefined,
 								);
 								if (commit(next)) targetDraft.clear();
 							}}
@@ -544,7 +543,11 @@ export function CaseOperationDetailCanvas({
 								operation.caseType
 							}
 							precedingOperations={operations.slice(0, index)}
-							initialSessionCaseType={expressionCaseType || undefined}
+							initialSessionCaseType={
+								sessionCaseAvailable
+									? expressionCaseType || undefined
+									: undefined
+							}
 							// The only editor a link mounts is a runtime target, so
 							// `operationScope` is withheld here rather than overridden
 							// there: the rows fix it to the target scope themselves.

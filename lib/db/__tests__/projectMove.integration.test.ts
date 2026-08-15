@@ -635,13 +635,14 @@ describe("atomic Project move", () => {
 			]),
 		];
 		await seedThread(appId, "thread-atomic", originalMessages);
-		/* A build conversation stays design-session-targeted after
-		 * materialization — the move must carry ITS transcript and
+		/* A completed design-aware conversation stays session-targeted — the
+		 * move must carry ITS transcript and
 		 * conversation references exactly like the app-targeted thread's. */
 		const sessionId = await h.seedDesignSession({
+			mode: "edit",
 			project_id: SOURCE,
 			owner_user_id: ACTOR,
-			state: "materialized",
+			state: "completed",
 			app_id: appId,
 		});
 		const sessionMessages = [
@@ -1018,6 +1019,29 @@ describe("atomic Project move", () => {
 			kind: "ready",
 			assetIds: [],
 		});
+	});
+
+	it("keeps a reaped reviewed initial build frozen against Project moves", async () => {
+		const appId = await seedMoveableApp({
+			id: crypto.randomUUID(),
+			state: { status: "error" },
+		});
+		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+		await h.seedDesignSession({
+			owner_user_id: ACTOR,
+			project_id: SOURCE,
+			proposed_app_id: appId,
+			app_id: appId,
+			state: "materialized",
+		});
+
+		await expect(prepareMove(appId)).rejects.toThrow(
+			/reviewed initial build has not finished/,
+		);
+		await expect(commitMove(appId)).rejects.toThrow(
+			/reviewed initial build has not finished/,
+		);
+		expect((await h.readAppRow(appId))?.project_id).toBe(SOURCE);
 	});
 
 	it("same-Project repair is an idempotent case-only check on both sides of a true move", async () => {

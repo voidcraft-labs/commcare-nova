@@ -2,7 +2,7 @@
 //
 // The small document facts the case-operation surfaces read without
 // needing the whole doc: how many changes a form makes, one change by
-// identity, and whether a module hands its forms a case.
+// identity, and whether this exact form opens with a case in hand.
 //
 // Named hooks rather than selectors at the call site — selector-
 // accepting store hooks are lib-private — and each one narrow, so a
@@ -11,7 +11,7 @@
 
 "use client";
 
-import { type CaseOperation, isCaseFirstModule } from "@/lib/domain";
+import { CASE_LOADING_FORM_TYPES, type CaseOperation } from "@/lib/domain";
 import type { Uuid } from "../types";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
@@ -37,18 +37,25 @@ export function useCaseOperation(
 }
 
 /**
- * Whether this module picks a case before opening its forms — which is
- * exactly when a change may act on "the case this form opened".
- * `isCaseFirstModule` is the same rule the validator applies to the
- * session target, so the picker and the gate cannot disagree.
+ * Whether this exact form opens with a case in hand. A follow-up or close
+ * form always selects its case before its XForm opens; whether every sibling
+ * does the same only decides if CommCare hoists that selection ahead of the
+ * module's form menu. Keep this on the centralized form-type set used by the
+ * validator so mixed registration/follow-up modules remain authorable.
  */
-export function useModuleSelectsCaseFirst(moduleUuid: Uuid): boolean {
+export function useFormHasSessionCase(
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): boolean {
 	return useBlueprintDoc((state) => {
 		const module = state.modules[moduleUuid];
-		const formTypes = (state.formOrder[moduleUuid] ?? [])
-			.map((uuid) => state.forms[uuid]?.type)
-			.filter((type): type is NonNullable<typeof type> => type !== undefined);
-		return isCaseFirstModule(formTypes, module?.caseType !== undefined);
+		const form = state.forms[formUuid];
+		return (
+			module?.caseType !== undefined &&
+			form !== undefined &&
+			(state.formOrder[moduleUuid] ?? []).includes(formUuid) &&
+			CASE_LOADING_FORM_TYPES.has(form.type)
+		);
 	});
 }
 

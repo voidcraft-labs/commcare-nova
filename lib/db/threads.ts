@@ -22,12 +22,16 @@
  *      own marker (a terminal write's finished ANSWER still merges — a
  *      completed unit is the record's to keep — while mid-run barriers stop
  *      once a successor owns the thread).
- *   3. `clawBackThreadResponse` — a FAILED turn's terminal write: the turn's
- *      message reverts to its pre-run state, the marker clears, and the id
- *      is TOMBSTONED (`clawed_back_ids`), in one transaction. A partial
- *      serves nobody (no API resumes a partial turn; no surface renders one
- *      as history), so its removal is not an event — and the tombstone keeps
- *      a stale tab's next send from merging the partial right back.
+ *   3. `clawBackThreadResponse` — a FAILED turn's terminal write, in one
+ *      transaction: the marker clears and the id is TOMBSTONED
+ *      (`clawed_back_ids`). A FRESH turn's streamed partial is KEPT in the
+ *      transcript as the user-visible record (the tab that watched it fail
+ *      still shows it, and a reload must not show less), with dangling tool
+ *      calls closed and a cap-0 tombstone so a stale tab's copy can never
+ *      grow the stored record; no API ever resumes it. A CONTINUATION
+ *      reverts to its pre-run seed instead — its retry re-authors the same
+ *      message id, and a kept partial would win the richer-version merge
+ *      over the retry's growing fold.
  *
  * All writers are row-locked read-modify-writes (`withAppTx` +
  * `FOR UPDATE`), and the merge writers MERGE by message id
@@ -46,7 +50,7 @@
  * Action, so no client-callable RPC surface exists.
  */
 import type { UIMessage } from "ai";
-import { sql, type Transaction } from "kysely";
+import { type ExpressionBuilder, sql, type Transaction } from "kysely";
 import { holderNonceReplayDigest } from "@/lib/chat/privateHolderNonce";
 import { preserveStoredThreadAttachments } from "@/lib/chat/threadAttachments";
 import { log } from "@/lib/logger";
@@ -62,7 +66,12 @@ import {
 	MediaReferenceProjectionError,
 	replaceExactThreadMediaReferences,
 } from "./mediaAssets";
-import { type AppDatabase, getAppDb, withAppTx } from "./pg";
+import {
+	type AppDatabase,
+	type ClawedBackEntry,
+	getAppDb,
+	withAppTx,
+} from "./pg";
 import { exactRunHolderMatches } from "./runHolderWrites";
 import {
 	type DesignSessionLease,
@@ -139,13 +148,53 @@ type StoredMessage = { id?: string; role?: string; parts?: unknown[] };
  *  matters under pathological failure spam; oldest entries age out first. */
 const CLAWED_BACK_CAP = 32;
 
-/** Add an id to the tombstone list — deduped, oldest-out past the cap. */
-function withClawedBackId(ids: readonly string[], add: string): string[] {
-	if (ids.includes(add)) return [...ids];
-	const next = [...ids, add];
+/** The message id a tombstone entry rules on (see `ClawedBackEntry`). */
+const clawedEntryId = (entry: ClawedBackEntry): string =>
+	typeof entry === "string" ? entry : entry.id;
+
+/** Add a tombstone entry — replacing any same-id entry, oldest-out past the
+ *  cap. */
+function withClawedBackEntry(
+	entries: readonly ClawedBackEntry[],
+	add: ClawedBackEntry,
+): ClawedBackEntry[] {
+	const next = [
+		...entries.filter((entry) => clawedEntryId(entry) !== clawedEntryId(add)),
+		add,
+	];
 	return next.length > CLAWED_BACK_CAP
 		? next.slice(next.length - CLAWED_BACK_CAP)
 		: next;
+}
+
+/**
+ * Close a kept partial's dangling tool calls so the durable record of a
+ * failed turn reads as what happened — steps that were interrupted — instead
+ * of steps forever in flight (an `input-available` part renders a spinner,
+ * and nothing will ever complete it). Display state only: the model-side
+ * request sanitizers close dangling calls independently at request time.
+ */
+function closeDanglingToolParts(message: StoredMessage): StoredMessage {
+	const parts = message.parts;
+	if (!Array.isArray(parts)) return message;
+	return {
+		...message,
+		parts: parts.map((part) => {
+			const p = part as { type?: unknown; state?: unknown };
+			if (
+				typeof p.type === "string" &&
+				(p.type.startsWith("tool-") || p.type === "dynamic-tool") &&
+				(p.state === "input-streaming" || p.state === "input-available")
+			) {
+				return {
+					...(part as object),
+					state: "output-error",
+					errorText: "This step was interrupted before it finished.",
+				};
+			}
+			return part;
+		}),
+	};
 }
 
 /**
@@ -163,6 +212,12 @@ function withClawedBackId(ids: readonly string[], add: string): string[] {
  *    answered askQuestions round), but the failed turn's appended partial
  *    parts are sliced off before the merge — a message's parts are
  *    append-only within a turn, so the stored-length prefix IS the seed.
+ *  - An id the server clawed back and KEPT for display (`{ id, cap }`
+ *    tombstones — a fresh failed turn's partial stays in the transcript as
+ *    the user-visible record) admits a client copy only up to `cap`; at
+ *    cap 0 the client copy is refused outright, because the stored partial
+ *    is the one authentic copy and a stale tab's richer version is the
+ *    failed turn's unpersisted tail riding a later send.
  *  - Every other assistant message merges by id as always, INCLUDING one the
  *    store doesn't know: that is the self-heal for a turn whose persistence
  *    writes all failed — the client's copy is the only surviving record, and
@@ -171,11 +226,13 @@ function withClawedBackId(ids: readonly string[], add: string): string[] {
 function admissibleHistory(
 	stored: StoredMessage[],
 	incoming: UIMessage[],
-	clawedBackIds: readonly string[],
+	clawedBackIds: readonly ClawedBackEntry[],
 	ctx: { target: ThreadTarget; threadId: string },
 ): UIMessage[] {
 	if (clawedBackIds.length === 0) return incoming;
-	const clawed = new Set(clawedBackIds);
+	const clawed = new Map(
+		clawedBackIds.map((entry) => [clawedEntryId(entry), entry] as const),
+	);
 	const storedById = new Map(
 		stored.filter((m) => m.id).map((m) => [m.id, m] as const),
 	);
@@ -183,16 +240,26 @@ function admissibleHistory(
 	let capped = 0;
 	const admitted: UIMessage[] = [];
 	for (const message of incoming) {
-		if (message.role !== "assistant" || !clawed.has(message.id)) {
+		const entry =
+			message.role === "assistant" ? clawed.get(message.id) : undefined;
+		if (entry === undefined) {
 			admitted.push(message);
 			continue;
 		}
-		const storedCopy = storedById.get(message.id);
-		if (!storedCopy) {
+		/* String tombstones cap at the stored copy (the reverted seed) and
+		 * refuse an id with no stored copy at all; `{ id, cap }` tombstones
+		 * carry their bound explicitly, with 0 meaning never admitted. */
+		const cap =
+			typeof entry === "string"
+				? (storedById.get(message.id)?.parts?.length ?? 0)
+				: entry.cap;
+		if (
+			cap <= 0 &&
+			(typeof entry !== "string" || !storedById.has(message.id))
+		) {
 			dropped += 1;
 			continue;
 		}
-		const cap = storedCopy.parts?.length ?? 0;
 		if (message.parts.length > cap) {
 			capped += 1;
 			admitted.push({ ...message, parts: message.parts.slice(0, cap) });
@@ -394,6 +461,30 @@ function threadTargetSelect(
 	return target.kind === "app"
 		? base.where("app_id", "=", target.appId)
 		: base.where("design_session_id", "=", target.designSessionId);
+}
+
+/** The READ-side widening of an app target's thread scope: an app's
+ * conversations include the SESSION-targeted threads of its bound
+ * materialized design session — a build thread stays session-targeted for
+ * its whole life, and the app page is where the user finds it after
+ * materialization. Reads only: every WRITE stays guarded by the row's exact
+ * target columns (`threadRowMatchesTarget` / `threadTargetUpdate`), and run
+ * authority for those rows already delegates to the app
+ * (`lockThreadTargetAuthority`). */
+function appScopeThreadFilter(appId: string) {
+	return (eb: ExpressionBuilder<AppDatabase, "threads">) =>
+		eb.or([
+			eb("app_id", "=", appId),
+			eb(
+				"design_session_id",
+				"in",
+				eb
+					.selectFrom("design_sessions")
+					.select("design_sessions.id")
+					.where("design_sessions.app_id", "=", appId)
+					.where("design_sessions.state", "=", "materialized"),
+			),
+		]);
 }
 
 /**
@@ -603,8 +694,12 @@ export async function upsertThreadTurn(args: {
 				trailing.role === "assistant" &&
 				!args.messages.some((m) => m.id === trailing.id)
 			) {
+				/* Removal (not display-keeping) is deliberate here: the client's
+				 * own `regenerate()` already trimmed this partial from the view
+				 * the user is watching, so keeping it durably would make a later
+				 * reload show a message the live recovery never did. */
 				stored = stored.slice(0, -1);
-				clawedBackIds = withClawedBackId(clawedBackIds, trailing.id);
+				clawedBackIds = withClawedBackEntry(clawedBackIds, trailing.id);
 			}
 		}
 		const merged = mergeTranscript(
@@ -805,8 +900,9 @@ export async function persistResponseSnapshot(args: {
 		const mergedId = responseMessage?.id;
 		const tombstones = row.clawed_back_ids ?? [];
 		const clearedTombstones =
-			mergedId !== undefined && tombstones.includes(mergedId)
-				? tombstones.filter((id) => id !== mergedId)
+			mergedId !== undefined &&
+			tombstones.some((entry) => clawedEntryId(entry) === mergedId)
+				? tombstones.filter((entry) => clawedEntryId(entry) !== mergedId)
 				: undefined;
 		await threadTargetUpdate(tx, args.target, args.threadId)
 			.set({
@@ -825,17 +921,21 @@ export async function persistResponseSnapshot(args: {
 }
 
 /**
- * Revert a FAILED turn's message to its pre-run state and clear the run's
- * marker — one transaction. The uniform turn-end rule: the record holds
- * completed units only, and a failed turn's partial is not a unit anyone can
- * use, so it comes back out.
+ * A FAILED turn's terminal thread write: clear the run's marker, tombstone
+ * the message id, and settle what the transcript keeps — one transaction.
+ * A FRESH turn's streamed partial STAYS, as the user-visible record of what
+ * they watched happen (dangling tool calls closed so nothing renders as
+ * forever in flight); a CONTINUATION reverts to its pre-run seed, because
+ * its retry re-authors the same message id and a kept partial would win the
+ * richer-version merge over the retry's growing fold.
  *
- * This is the one writer allowed to SHRINK a transcript, so it stacks three
- * guards: the route calls it only under the failed/aborted directive, it
- * touches only the exact message id the run's fold owns, and it acts only
- * while `active_stream_id` still names this run's stream (a successor that
- * claimed the thread owns everything — this write then does nothing at all).
- * A misfire is bounded to that one message in that one thread.
+ * This is the one writer allowed to SHRINK a transcript (the continuation
+ * arm), so it stacks three guards: the route calls it only under the
+ * failed/aborted directive, it touches only the exact message id the run's
+ * fold owns, and it acts only while `active_stream_id` still names this
+ * run's stream (a successor that claimed the thread owns everything — this
+ * write then does nothing at all). A misfire is bounded to that one message
+ * in that one thread.
  *
  * `revertTo` is the continuation case's pre-run seed (the raw incoming
  * trailing assistant message of an answered askQuestions round): the message
@@ -885,9 +985,20 @@ export async function clawBackThreadResponse(args: {
 					})
 				: undefined;
 		const stored = (row.messages ?? []) as StoredMessage[];
+		/* The CONTINUATION arm (`revertTo`) reverts to the pre-run seed: the
+		 * retry re-authors this very message id, and a kept partial would win
+		 * the richer-version merge over the retry's growing fold. The FRESH
+		 * arm KEEPS the streamed partial for display — the tab that watched it
+		 * still shows it, and a reload must not show less than the live view
+		 * did — with its dangling tool calls closed so nothing spins forever.
+		 * A fresh retry mints a new message id, so nothing ever collides with
+		 * the kept copy; its cap-0 tombstone keeps stale client versions of it
+		 * from growing the stored record. */
 		const reverted = stored.flatMap((msg) => {
 			if (msg.id !== args.messageId) return [msg];
-			return revertTo ? [revertTo as StoredMessage] : [];
+			return revertTo
+				? [revertTo as StoredMessage]
+				: [closeDanglingToolParts(msg)];
 		});
 		await threadTargetUpdate(tx, args.target, args.threadId)
 			.set({
@@ -896,7 +1007,10 @@ export async function clawBackThreadResponse(args: {
 				active_holder_nonce: null,
 				messages: JSON.stringify(reverted),
 				clawed_back_ids: JSON.stringify(
-					withClawedBackId(row.clawed_back_ids ?? [], args.messageId),
+					withClawedBackEntry(
+						row.clawed_back_ids ?? [],
+						revertTo ? args.messageId : { id: args.messageId, cap: 0 },
+					),
 				),
 			})
 			.execute();
@@ -1099,11 +1213,12 @@ export async function listThreadMetas(
 			"summary",
 			"run_id",
 			"active_stream_id",
+			"design_session_id",
 			sql<number>`jsonb_array_length(messages)`.as("message_count"),
 		]);
 	query =
 		target.kind === "app"
-			? query.where("app_id", "=", target.appId)
+			? query.where(appScopeThreadFilter(target.appId))
 			: query.where("design_session_id", "=", target.designSessionId);
 	const rows = await query
 		/* `thread_id` tiebreaks a same-millisecond `updated_at` (ISO text has
@@ -1133,7 +1248,12 @@ export async function loadThread(
 	actorUserId?: string,
 ): Promise<LoadedThread | null> {
 	const db = await getAppDb();
-	const row = await threadTargetSelect(db, target, threadId)
+	const base = db.selectFrom("threads").where("thread_id", "=", threadId);
+	const scoped =
+		target.kind === "app"
+			? base.where(appScopeThreadFilter(target.appId))
+			: base.where("design_session_id", "=", target.designSessionId);
+	const row = await scoped
 		.select([
 			"thread_id",
 			"created_at",
@@ -1143,6 +1263,7 @@ export async function loadThread(
 			"run_id",
 			"active_stream_id",
 			"active_holder_nonce",
+			"design_session_id",
 			"messages",
 		])
 		.executeTakeFirst();

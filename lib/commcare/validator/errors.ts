@@ -357,6 +357,7 @@ export type ValidationErrorCode =
 	| "WRONG_ARITY"
 	| "INVALID_REF"
 	| "INVALID_CASE_REF"
+	| "PROSE_EDITOR_ROUND_TRIP_LOSS"
 	| "CYCLE"
 	| "TYPE_ERROR";
 

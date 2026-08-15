@@ -37,11 +37,15 @@ import {
 	createLocation,
 	describeArchiveImpact,
 	moveLocation,
-	readOrganizationAuthoringSnapshot,
+	readOrganization,
 	setLocationArchived,
 	updateLocation,
 } from "@/lib/organization/service";
-import type { OrganizationScope } from "@/lib/organization/types";
+import type {
+	OrganizationScope,
+	OrganizationSnapshot,
+} from "@/lib/organization/types";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	applyToDoc,
@@ -126,12 +130,39 @@ const propertyCreateSchema = locationPropertySchema
 		levelUuids: locationPropertySchema.shape.levelUuids.nullable(),
 	});
 
+/**
+ * The place catalog for a read against a workspace with no app row yet — a
+ * genesis change set. No app row means no place row can exist, so an empty
+ * catalog at revision 0 is the honest reading rather than a lookup against an
+ * app id that does not exist. See the twin in `automations.ts`.
+ */
+async function readPlaces(
+	ctx: ToolInvocationContext,
+): Promise<OrganizationSnapshot> {
+	if (ctx.appId === null) return { revision: "0", locations: [] };
+	return readOrganization(scope(ctx));
+}
+
 const ORGANIZATION_PAGE_SIZE = 25;
 const ORGANIZATION_PAGE_MAX = 50;
 const organizationCursorPayloadSchema = z
 	.object({
 		revision: organizationRevisionSchema,
-		blueprintSeq: z.number().int().nonnegative(),
+		/**
+		 * Digest of the exact Blueprint-derived halves this page was computed
+		 * over — the ordered levels and place-information fields.
+		 *
+		 * The document now comes from the workspace snapshot rather than a
+		 * fresh persisted read, and the workspace's own tokens cannot bind it:
+		 * `canonicalSeq` is null for a whole chat run until its first commit
+		 * and for a genesis change set forever, and `revision` restarts at 0
+		 * on every fresh canonical workspace, so an MCP cursor would be honored
+		 * across a peer's commit. The content the page slices is the one thing
+		 * that is exactly comparable on every surface — and it restarts a page
+		 * only when the paged shape genuinely changed, not on any unrelated
+		 * Blueprint edit.
+		 */
+		shapeDigest: z.string(),
 		offset: z.number().int().nonnegative(),
 		query: z.string().max(255).nullable(),
 		includeValues: z.boolean(),
@@ -193,7 +224,20 @@ export const removeOrganizationLevelInputSchema = z
 	.object({ uuid: uuidSchema })
 	.strict();
 export const addLocationPropertiesInputSchema = z
-	.object({ properties: z.array(propertyCreateSchema).min(1).max(100) })
+	.object({
+		properties: z
+			.array(
+				propertyCreateSchema.extend({
+					locationPropertyUuid: uuidSchema
+						.optional()
+						.describe(
+							"Optional stable identity for this new place-information field. Omit it to let Nova mint one.",
+						),
+				}),
+			)
+			.min(1)
+			.max(100),
+	})
 	.strict();
 export const updateLocationPropertyInputSchema = z
 	.object({
@@ -270,8 +314,21 @@ export const getOrganizationTool = {
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
 		try {
-			const authoring = await readOrganizationAuthoringSnapshot(scope(ctx));
-			const snapshot = authoring.organization;
+			/* The workspace owns the document, so the organization SHAPE — levels
+			 * and place-information fields — comes from this invocation's
+			 * snapshot. A private change set's staged shape is then visible to the
+			 * executor that staged it, and a canonical read never jumps ahead of
+			 * its own working doc. Places stay external: they are rows in the
+			 * app's store, not Blueprint. Each half carries its own generation
+			 * into the cursor, so a page can never mix two. */
+			const doc = ctx.snapshot.doc;
+			const snapshot = await readPlaces(ctx);
+			const allLevels = orderedOrganizationLevels(doc);
+			const allPlaceInformation = orderedLocationProperties(doc);
+			const shapeDigest = canonicalJsonDigest({
+				levels: allLevels,
+				placeInformation: allPlaceInformation,
+			});
 			const cursor =
 				input.cursor === undefined || input.cursor === null
 					? undefined
@@ -279,7 +336,7 @@ export const getOrganizationTool = {
 			if (
 				cursor !== undefined &&
 				(cursor.revision !== snapshot.revision ||
-					cursor.blueprintSeq !== authoring.blueprintSeq)
+					cursor.shapeDigest !== shapeDigest)
 			) {
 				return {
 					kind: "read",
@@ -322,10 +379,6 @@ export const getOrganizationTool = {
 						);
 			const start = cursor?.offset ?? 0;
 			const pageEnd = start + input.limit;
-			const allLevels = orderedOrganizationLevels(authoring.blueprint);
-			const allPlaceInformation = orderedLocationProperties(
-				authoring.blueprint,
-			);
 			// One cursor covers one logical stream. Each response therefore carries
 			// at most `limit` total entities, rather than independently taking a full
 			// page from levels, fields, and places. Shape comes first so a caller can
@@ -372,7 +425,10 @@ export const getOrganizationTool = {
 				data: {
 					levels,
 					placeInformation,
-					blueprintSeq: authoring.blueprintSeq,
+					/* The canonical sequence the shape half is KNOWN to be at, or
+					 * null when the workspace never observed one (a chat run before
+					 * its first commit, a change set with no app row). */
+					blueprintSeq: ctx.snapshot.canonicalSeq,
 					revision: snapshot.revision,
 					locations,
 					page: {
@@ -388,7 +444,7 @@ export const getOrganizationTool = {
 						nextCursor: !complete
 							? encodeOrganizationCursor({
 									revision: snapshot.revision,
-									blueprintSeq: authoring.blueprintSeq,
+									shapeDigest,
 									offset: pageEnd,
 									query,
 									includeValues,
@@ -543,7 +599,10 @@ export const addLocationPropertiesTool = {
 	): Promise<MutatingToolResult<AddResult>> {
 		const doc = ctx.snapshot.doc;
 		try {
-			const uuids = input.properties.map(() => asUuid(crypto.randomUUID()));
+			const uuids = input.properties.map(
+				(property) =>
+					property.locationPropertyUuid ?? asUuid(crypto.randomUUID()),
+			);
 			let cursor = doc;
 			const mutations: Mutation[] = [];
 			for (const [index, property] of input.properties.entries()) {

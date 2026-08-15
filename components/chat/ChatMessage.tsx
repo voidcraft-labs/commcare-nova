@@ -12,6 +12,7 @@ import { AskQuestionsCard } from "@/components/chat/AskQuestionsCard";
 import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { ToolRunSummary } from "@/components/chat/ToolRunSummary";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import { isOpenAICompactionPart } from "@/lib/chat/compaction";
 import { isEditToolPart } from "@/lib/chat/toolSummary";
 import { ChatMarkdown } from "@/lib/markdown";
 
@@ -121,12 +122,34 @@ export function ChatMessage({
 	};
 
 	for (const [partIndex, part] of message.parts.entries()) {
+		/* Bookkeeping parts (step boundaries, data-* events) render nothing, so
+		 * they must not split a visible run: the design loop emits one tool
+		 * call per step, and flushing on each step-start would shatter its
+		 * grouped card into single-row fragments. */
+		if (part.type === "step-start" || part.type.startsWith("data-")) {
+			continue;
+		}
+		/* Provider compaction is model context, never conversation content. */
+		if (isOpenAICompactionPart(part)) {
+			flushTools();
+			flushReasoning();
+			continue;
+		}
+		/* Design protocol calls ride the same grouped tool cards as build
+		 * edits: `toolSummary` projects them to plain-language action phrases
+		 * and suppresses their model-facing payloads, so the transcript shows
+		 * the work happening without exposing protocol vocabulary. */
 		if (isEditToolPart(part)) {
 			flushReasoning();
 			toolRun.push(part as ToolUIPart);
 			continue;
 		}
 		if (part.type === "reasoning") {
+			/* A reasoning part with no visible text renders nothing (the design
+			 * roles often reason encrypted-only), so it must not split a run of
+			 * tool cards into single-row fragments. If deltas later fill it, the
+			 * walker regroups on the next render. */
+			if (!part.text.trim()) continue;
 			flushTools();
 			reasoningRunKey ??= `${message.id}-reasoning-${partIndex}`;
 			reasoningRun.push(part.text);

@@ -43,6 +43,7 @@
  */
 
 import {
+	buildMcpAgentBuildPrompt,
 	buildSolutionsArchitectPrompt,
 	isEditableDoc,
 } from "@/lib/agent/prompts";
@@ -183,7 +184,14 @@ export function renderAgentPrompt(
 	interactive: boolean,
 	editDoc?: BlueprintDoc,
 ): string {
-	const baseSystem = buildSolutionsArchitectPrompt(editDoc);
+	/* Edit mode boots the SA's edit prompt; build mode boots the MCP-only
+	 * build composition — the plugin's client-side agent drives direct
+	 * canonical tools (`create_app` + the shared set), which remain an
+	 * immediate, unreviewed surface (the chat design pipeline never runs
+	 * here). */
+	const baseSystem = isEditableDoc(editDoc)
+		? buildSolutionsArchitectPrompt()
+		: buildMcpAgentBuildPrompt();
 	const interactivityBlock = interactive
 		? INTERACTIVITY_INSTRUCTIONS.interactive
 		: INTERACTIVITY_INSTRUCTIONS.autonomous;

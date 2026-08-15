@@ -14,8 +14,8 @@ import { describe, expect, it } from "vitest";
 import {
 	canonicalJsonDigest,
 	canonicalJsonText,
-	STAGING_PROTOCOL_VERSION,
-	stagingInputDigest,
+	WORKSPACE_CALL_PROTOCOL_VERSION,
+	workspaceCallInputDigest,
 } from "@/lib/agent/change-set/digest";
 import {
 	canonicalJsonDigest as leafDigest,
@@ -85,25 +85,25 @@ describe("canonicalJsonDigest", () => {
 	});
 });
 
-describe("stagingInputDigest", () => {
+describe("workspaceCallInputDigest", () => {
 	const base = {
-		toolName: "stage_add_fields",
+		toolName: "addFields",
 		expectedWorkspaceRevision: 3,
 		projectedInput: { formUuid: "f", items: [{ label: "Name" }] },
 	} as const;
 
 	it("digests the exact protocol envelope, so the protocol version participates", () => {
-		expect(stagingInputDigest(base)).toBe(
+		expect(workspaceCallInputDigest(base)).toBe(
 			canonicalJsonDigest({
-				stagingProtocolVersion: STAGING_PROTOCOL_VERSION,
+				workspaceCallProtocolVersion: WORKSPACE_CALL_PROTOCOL_VERSION,
 				toolName: base.toolName,
 				expectedWorkspaceRevision: base.expectedWorkspaceRevision,
 				projectedInput: base.projectedInput,
 			}),
 		);
-		expect(stagingInputDigest(base)).not.toBe(
+		expect(workspaceCallInputDigest(base)).not.toBe(
 			canonicalJsonDigest({
-				stagingProtocolVersion: STAGING_PROTOCOL_VERSION + 1,
+				workspaceCallProtocolVersion: WORKSPACE_CALL_PROTOCOL_VERSION + 1,
 				toolName: base.toolName,
 				expectedWorkspaceRevision: base.expectedWorkspaceRevision,
 				projectedInput: base.projectedInput,
@@ -113,35 +113,35 @@ describe("stagingInputDigest", () => {
 
 	it("changes when the tool name changes", () => {
 		expect(
-			stagingInputDigest({ ...base, toolName: "stage_add_form" }),
-		).not.toBe(stagingInputDigest(base));
+			workspaceCallInputDigest({ ...base, toolName: "createForm" }),
+		).not.toBe(workspaceCallInputDigest(base));
 	});
 
 	it("changes when the expected workspace revision changes", () => {
 		expect(
-			stagingInputDigest({ ...base, expectedWorkspaceRevision: 4 }),
-		).not.toBe(stagingInputDigest(base));
+			workspaceCallInputDigest({ ...base, expectedWorkspaceRevision: 4 }),
+		).not.toBe(workspaceCallInputDigest(base));
 	});
 
 	it("changes when the projected input changes", () => {
 		expect(
-			stagingInputDigest({
+			workspaceCallInputDigest({
 				...base,
 				projectedInput: { formUuid: "f", items: [{ label: "Age" }] },
 			}),
-		).not.toBe(stagingInputDigest(base));
+		).not.toBe(workspaceCallInputDigest(base));
 	});
 
 	it("is stable across key order inside the projected input", () => {
 		expect(
-			stagingInputDigest({
+			workspaceCallInputDigest({
 				...base,
 				projectedInput: { items: [{ label: "Name" }], formUuid: "f" },
 			}),
-		).toBe(stagingInputDigest(base));
+		).toBe(workspaceCallInputDigest(base));
 	});
 
 	it("is 64 lowercase hex characters", () => {
-		expect(stagingInputDigest(base)).toMatch(HEX_64);
+		expect(workspaceCallInputDigest(base)).toMatch(HEX_64);
 	});
 });

@@ -7,9 +7,11 @@ import {
 	PromptInputBody,
 	PromptInputFooter,
 	type PromptInputMessage,
+	PromptInputProvider,
 	PromptInputSubmit,
 	PromptInputTextarea,
 	PromptInputTools,
+	usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import {
 	AssetPreviewDialog,
@@ -83,15 +85,6 @@ interface ChatInputProps {
 	/** The composer can't be typed in or submitted. Says nothing about WHY:
 	 *  a turn may be in flight, or something else may simply own the screen. */
 	disabled?: boolean;
-	/** A turn is actually in flight, so the submit button shows a spinner. A
-	 *  strict subset of `disabled`: locking the composer for a non-chat reason
-	 *  (creating the starter) must not claim the user's message is being sent. */
-	submitting?: boolean;
-	/** True while an AskQuestionsCard is waiting for a reply: a composer send
-	 *  routes to that card as a text-only answer, so attachments can't go with it.
-	 *  Disables the attach button and preserves any staged files for the next
-	 *  normal turn rather than dropping them. */
-	answerPending?: boolean;
 	/** Centered (Idle) card layout vs docked sidebar: drives the input chrome
 	 *  (the docked variant gets a top divider). */
 	centered?: boolean;
@@ -111,19 +104,28 @@ interface ChatInputProps {
 }
 
 /**
- * The chat composer, built on AI Elements `PromptInput`. PromptInput owns its own
- * text state and resets on submit; THIS component owns the staged attachments:
- * assets the user picks from the media library (file manager), not files staged
- * in the browser. The "+" opens the picker; picked assets show as chips above the
- * textarea and ride the next send as id refs. There is no raw-file path: every
- * attachment is a stored asset Nova reads via its extract (or, for images, its
- * bytes).
+ * The chat composer, built on AI Elements `PromptInput`. The typed draft lives
+ * in `PromptInputProvider` so the textarea is controlled: the send gate and the
+ * character counter derive from the same value the box displays, and no event
+ * bookkeeping can let the two disagree (paste, drop, undo, any path that puts
+ * text in the box enables the send). THIS component owns the staged
+ * attachments: assets the user picks from the media library (file manager),
+ * not files staged in the browser. The "+" opens the picker; picked assets
+ * show as chips above the textarea and ride the next send as id refs. There is
+ * no raw-file path: every attachment is a stored asset Nova reads via its
+ * extract (or, for images, its bytes).
  */
-export function ChatInput({
+export function ChatInput(props: ChatInputProps) {
+	return (
+		<PromptInputProvider>
+			<ChatInputComposer {...props} />
+		</PromptInputProvider>
+	);
+}
+
+function ChatInputComposer({
 	onSend,
 	disabled,
-	submitting,
-	answerPending,
 	centered,
 	openingPrompt,
 	onReadingChange,
@@ -137,12 +139,12 @@ export function ChatInput({
 	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
 		null,
 	);
-	/** Live shadow of the typed text: PromptInput owns the textarea value; we
-	 *  mirror only what the footer needs: its length (counter + over-limit gate)
-	 *  and whether it holds any non-whitespace (`hasText`, the require-text send
-	 *  gate, so a staged attachment alone can't send an empty turn). */
-	const [textLength, setTextLength] = useState(0);
-	const [hasText, setHasText] = useState(false);
+	/** The one source of truth for the typed draft: the provider's controlled
+	 *  value. Everything the footer needs is a pure derivation of it, so the
+	 *  send gate is "is there content to send", never "did an event fire". */
+	const { textInput } = usePromptInputController();
+	const textLength = textInput.value.length;
+	const hasText = textInput.value.trim().length > 0;
 	const overLimit = textLength > MAX_CHAT_MESSAGE_CHARS;
 	const accessPhase = useAccessPhase();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -157,7 +159,7 @@ export function ChatInput({
 	useEffect(() => {
 		if (previousScopeEpochRef.current === scopeEpoch) return;
 		previousScopeEpochRef.current = scopeEpoch;
-		/* PromptInput owns the typed draft and remains mounted. Only stored
+		/* The provider owns the typed draft and remains mounted. Only stored
 		 * Project asset handles and their portaled surfaces are discarded. */
 		setPicked([]);
 		setPickerOpen(false);
@@ -260,36 +262,29 @@ export function ChatInput({
 		}
 	};
 
-	const handleSubmit = (message: PromptInputMessage) => {
+	const handleSubmit = (message: PromptInputMessage): boolean | undefined => {
 		/* PromptInput can dispatch a queued submit in the synchronous reset stack,
 		 * before React supplies new access props. The registry advances this ref
-		 * immediately; refuse before clearing the text shadow so the draft remains. */
-		if (!ownsCurrentProjectScope() || disabled) return;
-		// PromptInput resets the textarea on every submit it processes; mirror that
-		// in the text shadow (form.reset() doesn't fire onChange). (Over-limit
-		// submits never reach here: they're blocked at the keydown + the disabled
-		// button, so their text isn't reset.)
-		setTextLength(0);
-		setHasText(false);
+		 * immediately; returning false keeps the draft in the box for the send
+		 * the user will retry once the surface settles. */
+		if (!ownsCurrentProjectScope() || disabled) return false;
 		const text = (message.text ?? "").trim();
 		// Require typed text to send: a staged attachment alone never sends an
 		// empty turn (the SA reads an attachment as context for a request, not as
 		// the request itself). The disabled submit button covers the click path;
 		// this guards every other submit route.
-		if (!text) return;
-		if (answerPending) {
-			// This send answers a waiting question card (text-only). Forward the
-			// text and KEEP the staged attachments: they're not part of an answer,
-			// but they shouldn't vanish; they ride the next normal turn.
-			onSend({ text });
-			return;
-		}
+		if (!text) return false;
+		// A normal send carries the staged refs directly; an answer send routes
+		// through the sidebar, which buffers the refs and delivers them with the
+		// round's answers (a question can ask for data, and the file IS part of
+		// the answer). Either way the files leave the composer with this send.
 		const attachments = visiblePicked.map(toAttachmentRef);
 		onSend({
 			text,
 			attachments: attachments.length > 0 ? attachments : undefined,
 		});
-		// PromptInput clears its own text; we clear the staged attachments.
+		// PromptInput clears the draft after we return; we clear the staged
+		// attachments.
 		setPicked([]);
 	};
 
@@ -326,11 +321,6 @@ export function ChatInput({
 				<PromptInputBody>
 					<PromptInputTextarea
 						disabled={disabled}
-						onChange={(e) => {
-							const { value } = e.target;
-							setTextLength(value.length);
-							setHasText(value.trim().length > 0);
-						}}
 						onKeyDown={handleTextareaKeyDown}
 						/* The opening prompt sits directly under a heading that
 						 * already asks what you would like to build, so this names
@@ -344,10 +334,10 @@ export function ChatInput({
 				</PromptInputBody>
 				<PromptInputFooter>
 					<PromptInputTools>
-						{/* Attach from the file manager. Disabled while a turn is in
-						 *  flight (staging something you can't yet send reads as broken)
-						 *  AND while a question card is awaiting a reply: that send is a
-						 *  text-only answer, so an attachment couldn't ride it anyway. */}
+						{/* Attach from the file manager. Disabled only while a turn is in
+						 *  flight (staging something you can't yet send reads as broken).
+						 *  While a question card waits the button stays live: a question
+						 *  can ask for data, and the file rides the answer. */}
 						<Tooltip>
 							<TooltipTrigger
 								render={
@@ -358,7 +348,7 @@ export function ChatInput({
 										onClick={() => {
 											if (ownsCurrentProjectScope()) setPickerOpen(true);
 										}}
-										disabled={disabled || answerPending}
+										disabled={disabled}
 										aria-label="Attach a file"
 										className="text-nova-text-muted"
 									>
@@ -377,8 +367,8 @@ export function ChatInput({
 					 *  The submit is disabled when the text is empty (a staged attachment
 					 *  alone can't send) or over the limit (the text is never truncated:
 					 *  only sending is blocked). While a turn is in flight the whole input
-					 *  is disabled (Nova shows progress in the activity status, not a stop
-					 *  button), so the submit shows the spinner. */}
+					 *  is disabled. The send arrow stays still because the one activity row
+					 *  above the composer already narrates progress. */}
 					<div className="flex items-center gap-2">
 						<CharCounter length={textLength} max={MAX_CHAT_MESSAGE_CHARS} />
 						<Tooltip>
@@ -395,11 +385,21 @@ export function ChatInput({
 								)}
 							</TooltipContent>
 						</Tooltip>
-						<PromptInputSubmit
-							disabled={disabled || overLimit || !hasText}
-							status={submitting ? "submitted" : "ready"}
-							className="size-11 rounded-xl"
-						/>
+						{/* The send is the composer's primary action, so it wears the
+						 *  lilac action keycap: the bright square is what makes the
+						 *  arrow read as the button that sends, no text label needed. */}
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<PromptInputSubmit
+										disabled={disabled || overLimit || !hasText}
+										variant="default"
+										aria-label="Send"
+									/>
+								}
+							/>
+							<TooltipContent>Send</TooltipContent>
+						</Tooltip>
 					</div>
 				</PromptInputFooter>
 			</PromptInput>

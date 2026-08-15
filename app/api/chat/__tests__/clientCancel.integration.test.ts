@@ -17,7 +17,12 @@
  * exactly when the "model" produces output relative to the disconnect; auth
  * and Project access are mocked; everything else: claim + reservation,
  * durable chunk log, thread persistence, run finalization: is the real
- * code against the real schema.
+ * code against the real schema. The feed-driven turns run as EDITS against
+ * a seeded complete app — the SA is edit-only after the design-pipeline
+ * cutover, and every contract here (disconnect, pause admission, barriers)
+ * is machinery both modes share. Build turns run the orchestrator, mocked
+ * at the module seam; the design-turn wire has its own pins in
+ * `designBuild.integration.test.ts`.
  *
  * The "barrier persistence" describe pins the record-as-produced contract on
  * the same harness: each completed step lands in the thread at its own
@@ -47,6 +52,7 @@ import { CREDITS_PER_BUILD, CREDITS_PER_EDIT } from "@/lib/db/creditPolicy";
 import { getCurrentPeriod } from "@/lib/db/period";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { MODEL_ROLES } from "@/lib/models";
 
 const {
 	resolveOpenAIKeyMock,
@@ -56,6 +62,7 @@ const {
 	resolveProjectAccessMock,
 	projectRoleForInTransactionMock,
 	createSolutionsArchitectMock,
+	runBuildOrchestrationMock,
 	claimAndReserveRunMock,
 	reacquireLeaseMock,
 	setAwaitingInputMock,
@@ -75,6 +82,7 @@ const {
 	resolveProjectAccessMock: vi.fn(),
 	projectRoleForInTransactionMock: vi.fn(),
 	createSolutionsArchitectMock: vi.fn(),
+	runBuildOrchestrationMock: vi.fn(),
 	claimAndReserveRunMock: vi.fn(),
 	reacquireLeaseMock: vi.fn(),
 	setAwaitingInputMock: vi.fn(),
@@ -159,6 +167,20 @@ vi.mock("@/lib/agent", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/agent")>()),
 	createSolutionsArchitect: createSolutionsArchitectMock,
 }));
+/* The build orchestrator is a module seam: a design-session turn never
+ * mounts the SA, and the real orchestrator would drive the design pipeline
+ * (live model calls). Tests that exercise a BUILD-shaped claim configure
+ * this mock per test; the unconfigured default throws so an accidental
+ * design-turn invocation fails loudly instead of reaching the network. */
+vi.mock("@/lib/agent/build/orchestrator", () => ({
+	runBuildOrchestration: runBuildOrchestrationMock,
+}));
+/* Case-store schema convergence is Postgres-case-schema bookkeeping outside
+ * this suite's contracts (the app-state harness carries no case-store
+ * workload context); the design wire suite pins its ordering. */
+vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
+	materializeCaseStoreSchemas: vi.fn(async () => undefined),
+}));
 /* Real thread persistence, with one injectable fault: the honesty test flips
  * `failClearMarkerWrites.on` so every marker-retiring write fails while the
  * per-barrier writes keep landing. */
@@ -209,6 +231,12 @@ const DIRECT_ADOPT_THREAD = "thread-direct-adopt-readmit";
 const WAITFAIL_APP = "app-wait-adopt-summary";
 const WAITFAIL_THREAD = "thread-wait-adopt-summary";
 const MEMBER = "user-cancel-member";
+const FEED_APP = "app-feed-edit";
+const PAUSED_BUILD_SESSION = "00000000-0000-4000-8000-0000000000d1";
+const ADOPT_SESSION = "00000000-0000-4000-8000-0000000000d2";
+const FASTFAIL_SESSION = "00000000-0000-4000-8000-0000000000d3";
+const DIRECT_ADOPT_SESSION = "00000000-0000-4000-8000-0000000000d4";
+const WAITFAIL_SESSION = "00000000-0000-4000-8000-0000000000d5";
 
 const PAUSED_USAGE = {
 	inputTokens: 10,
@@ -284,18 +312,59 @@ class ChunkFeed {
 	}
 }
 
-function chatRequest(): Request {
+/** Seed the complete app the feed-driven EDIT turns run against, and point
+ *  the snapshot mock at it. */
+async function seedFeedEditApp() {
+	return seedSnapshotApp({ id: FEED_APP, name: "Feed edit app" });
+}
+
+/** Insert a materialized design session bound to `appId` — the orchestration
+ *  scope every non-complete app must carry after the cutover (a sessionless
+ *  one is a legacy row the route refuses pending repair). */
+async function seedBoundSession(sessionId: string, appId: string) {
+	await appDb
+		.insertInto("design_sessions")
+		.values({
+			id: sessionId,
+			mode: "build",
+			project_id: PROJECT,
+			owner_user_id: USER,
+			proposed_app_id: appId,
+			app_id: appId,
+			state: "materialized",
+			awaiting_input: false,
+			run_id: null,
+			run_holder_nonce: null,
+			run_actor_user_id: null,
+			run_mode: null,
+			run_lease_expires_at: null,
+			res_period: null,
+			res_reserved: null,
+			res_settled: null,
+			res_user_id: null,
+			res_run_id: null,
+			last_error_type: null,
+			active_design_revision_id: null,
+			active_build_plan_id: null,
+			created_at: new Date(),
+			updated_at: new Date(),
+		})
+		.execute();
+}
+
+function editTurnRequest(): Request {
 	return new Request("http://localhost/api/chat", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
+			appId: FEED_APP,
+			appReady: true,
 			threadId: THREAD,
-			expectedProjectId: PROJECT,
 			messages: [
 				{
 					id: "u1",
 					role: "user",
-					parts: [{ type: "text", text: "build me a simple survey app" }],
+					parts: [{ type: "text", text: "add a status field" }],
 				},
 			],
 		}),
@@ -365,6 +434,7 @@ function configurePausedAgent(): void {
 					],
 				},
 				"Solutions Architect",
+				MODEL_ROLES.followUpEditor.modelId,
 			);
 			const feed = new ChunkFeed();
 			feed.push(
@@ -618,6 +688,10 @@ beforeEach(async () => {
 	resolveProjectAccessMock.mockReset();
 	projectRoleForInTransactionMock.mockReset();
 	createSolutionsArchitectMock.mockReset();
+	runBuildOrchestrationMock.mockReset();
+	runBuildOrchestrationMock.mockRejectedValue(
+		new Error("runBuildOrchestration invoked without a per-test configuration"),
+	);
 	claimAndReserveRunMock.mockClear();
 	reacquireLeaseMock.mockClear();
 	setAwaitingInputMock.mockClear();
@@ -650,13 +724,14 @@ afterEach(async () => {
 
 describe("mid-run client disconnect", () => {
 	it("changes nothing server-side: the run streams on, finalizes once, and persists in full", async () => {
+		await seedFeedEditApp();
 		const feed = new ChunkFeed();
 		createSolutionsArchitectMock.mockReturnValue({
 			tools: {},
 			stream: async () => feed.asAgentResult(),
 		});
 
-		const response = await POST(chatRequest());
+		const response = await POST(editTurnRequest());
 		expect(response.status).toBe(200);
 		const streamId = response.headers.get("x-workflow-run-id");
 		expect(streamId).toBeTruthy();
@@ -693,7 +768,7 @@ describe("mid-run client disconnect", () => {
 
 		/* Nothing terminal may exist while the run is still live: no sealed
 		 * chunk log, no run summary (the premature zero-usage flush), and the
-		 * app still generating. */
+		 * edit's run_lock still held. */
 		const midRows = await chunkRows(streamId);
 		expect(midRows.some((row) => row.terminal)).toBe(false);
 		const midSummaries = await appDb
@@ -703,10 +778,11 @@ describe("mid-run client disconnect", () => {
 		expect(midSummaries).toHaveLength(0);
 		const midApp = await appDb
 			.selectFrom("apps")
-			.select(["status"])
+			.select(["status", "lock_run_id"])
 			.where("owner", "=", USER)
 			.executeTakeFirstOrThrow();
-		expect(midApp.status).toBe("generating");
+		expect(midApp.status).toBe("complete");
+		expect(midApp.lock_run_id).not.toBeNull();
 
 		/* The run finishes AFTER the client left. */
 		feed.push(
@@ -717,17 +793,18 @@ describe("mid-run client disconnect", () => {
 		);
 		feed.end();
 
-		/* The real finalize lands on the drain's terminal state: the build
-		 * flips complete... */
+		/* The real finalize lands on the drain's terminal state: the edit's
+		 * run_lock releases with the kept charge settled... */
 		const app = await pollFor(async () => {
 			const row = await appDb
 				.selectFrom("apps")
-				.select(["id", "status"])
+				.select(["id", "status", "lock_run_id", "res_settled"])
 				.where("owner", "=", USER)
 				.executeTakeFirstOrThrow();
-			return row.status === "complete" ? row : undefined;
+			return row.lock_run_id === null ? row : undefined;
 		});
 		expect(app.status).toBe("complete");
+		expect(app.res_settled).toBe(true);
 
 		/* ...the chunk log carries the POST-disconnect chunks and exactly one
 		 * terminal row, sealed by finalize rather than the disconnect... */
@@ -736,26 +813,6 @@ describe("mid-run client disconnect", () => {
 			return all.some((row) => row.terminal) ? all : undefined;
 		});
 		const logged = rows.flatMap((row) => row.chunks as UIMessageChunk[]);
-		const creation = logged.find((chunk) => chunk.type === "data-app-id") as
-			| { data: Record<string, unknown> }
-			| undefined;
-		expect(creation?.data).toMatchObject({
-			appId: app.id,
-			projectId: PROJECT,
-			role: "editor",
-			canEdit: true,
-			baseSeq: 1,
-			blueprint: {
-				appId: app.id,
-				appName: "Untitled",
-				moduleOrder: [expect.any(String)],
-			},
-			starter: {
-				moduleUuid: expect.any(String),
-				formUuid: expect.any(String),
-				fieldUuid: expect.any(String),
-			},
-		});
 		const deltas = logged
 			.filter((c) => c.type === "text-delta")
 			.map((c) => (c as { delta: string }).delta)
@@ -829,6 +886,7 @@ describe("serialize-with-wait authorized snapshot admission", () => {
 
 describe("pause-stamp ownership admission", () => {
 	it("ends as superseded without publishing a resumable pause when a replacement owns the app", async () => {
+		await seedFeedEditApp();
 		configurePausedAgent();
 		setAwaitingInputMock.mockImplementationOnce(
 			async (appId: string): Promise<"superseded"> => {
@@ -847,7 +905,7 @@ describe("pause-stamp ownership admission", () => {
 		);
 
 		const app = await expectNoResumablePause(
-			await POST(chatRequest()),
+			await POST(editTurnRequest()),
 			"generation_in_progress",
 		);
 
@@ -855,17 +913,18 @@ describe("pause-stamp ownership admission", () => {
 			expect.any(String),
 			expect.any(String),
 			expect.any(String),
-			"build",
+			"edit",
 			true,
 			USER,
 			PROJECT,
 		);
-		expect(app.status).toBe("generating");
+		expect(app.status).toBe("complete");
 		expect(app.res_run_id).toBe("replacement-run");
 		expect(app.res_settled).toBe(false);
 	}, 30_000);
 
 	it("ends as released without publishing a resumable pause after the holder was reaped", async () => {
+		await seedFeedEditApp();
 		configurePausedAgent();
 		setAwaitingInputMock.mockImplementationOnce(
 			async (appId: string): Promise<"released"> => {
@@ -886,7 +945,7 @@ describe("pause-stamp ownership admission", () => {
 		);
 
 		const app = await expectNoResumablePause(
-			await POST(chatRequest()),
+			await POST(editTurnRequest()),
 			"run_released",
 		);
 
@@ -897,19 +956,23 @@ describe("pause-stamp ownership admission", () => {
 	}, 30_000);
 
 	it("takes the failure funnel when pause persistence faults instead of claiming a resumable pause", async () => {
+		await seedFeedEditApp();
 		configurePausedAgent();
 		setAwaitingInputMock.mockRejectedValueOnce(
 			new Error("pause write connection dropped"),
 		);
 
 		const app = await expectNoResumablePause(
-			await POST(chatRequest()),
+			await POST(editTurnRequest()),
 			"internal",
 		);
 
-		expect(app.status).toBe("error");
-		expect(app.error_type).toBe("internal");
+		/* A failed EDIT refunds and releases its lock but never flips the
+		 * committed app's status. */
+		expect(app.status).toBe("complete");
+		expect(app.error_type).toBeNull();
 		expect(app.res_settled).toBe(true);
+		expect(app.lock_run_id).toBeNull();
 	}, 30_000);
 });
 
@@ -1081,11 +1144,13 @@ describe("server-derived build-vs-edit mode", () => {
 				res_run_id: PAUSED_BUILD_RUN,
 			},
 		});
+		await seedBoundSession(PAUSED_BUILD_SESSION, PAUSED_BUILD_APP);
 		await appDb
 			.insertInto("threads")
 			.values({
 				thread_id: PAUSED_BUILD_THREAD,
-				app_id: PAUSED_BUILD_APP,
+				app_id: null,
+				design_session_id: PAUSED_BUILD_SESSION,
 				created_at: new Date().toISOString(),
 				updated_at: new Date().toISOString(),
 				thread_type: "build",
@@ -1111,7 +1176,9 @@ describe("server-derived build-vs-edit mode", () => {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
-					appId: PAUSED_BUILD_APP,
+					/* The new-world answering tab names its design session; the
+					 * bound app and the BUILD shape are the server's derivation. */
+					designSessionId: PAUSED_BUILD_SESSION,
 					appReady: true,
 					threadId: PAUSED_BUILD_THREAD,
 					runId: PAUSED_BUILD_RUN,
@@ -1143,6 +1210,7 @@ describe("server-derived build-vs-edit mode", () => {
 			PROJECT,
 		);
 		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+		expect(runBuildOrchestrationMock).not.toHaveBeenCalled();
 		expect(wire).toContain('"type":"run_released"');
 	}, 30_000);
 
@@ -1160,7 +1228,7 @@ describe("server-derived build-vs-edit mode", () => {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
-					appId: PAUSED_BUILD_APP,
+					designSessionId: PAUSED_BUILD_SESSION,
 					appReady: true,
 					threadId: "thread-paused-build-chargeable",
 					messages: [
@@ -1211,6 +1279,7 @@ describe("server-derived build-vs-edit mode", () => {
 				res_run_id: "run-other-build",
 			},
 		});
+		await seedBoundSession(ADOPT_SESSION, ADOPT_APP);
 		/* The fake SA performs ONE real guarded commit: that write presents the
 		 * context's `(mode, runId, nonce)` holder capability, which is exactly
 		 * what a stale (pre-adoption) context corrupts — without
@@ -1327,6 +1396,7 @@ describe("server-derived build-vs-edit mode", () => {
 			res_user_id: USER,
 		});
 		expect(failAppMock).not.toHaveBeenCalled();
+		expect(runBuildOrchestrationMock).not.toHaveBeenCalled();
 	}, 30_000);
 
 	it("queues a turn affordable at the edit floor behind a live build instead of rejecting it at the derived build rate", async () => {
@@ -1353,6 +1423,7 @@ describe("server-derived build-vs-edit mode", () => {
 				res_run_id: "run-other-build-live",
 			},
 		});
+		await seedBoundSession(FASTFAIL_SESSION, FASTFAIL_APP);
 		await appDb
 			.insertInto("credit_months")
 			.values({
@@ -1374,6 +1445,7 @@ describe("server-derived build-vs-edit mode", () => {
 					ctx.handleAgentStep(
 						{ usage: PAUSED_USAGE, toolCalls: [] },
 						"Solutions Architect",
+						MODEL_ROLES.followUpEditor.modelId,
 					);
 					const feed = new ChunkFeed();
 					feed.push(
@@ -1458,6 +1530,13 @@ describe("server-derived build-vs-edit mode", () => {
 			overrides: { status: "error" },
 			mock: false,
 		});
+		const adoptedBuildSeq = 1;
+		await appDb
+			.updateTable("apps")
+			.set({ mutation_seq: adoptedBuildSeq })
+			.where("id", "=", DIRECT_ADOPT_APP)
+			.executeTakeFirstOrThrow();
+		await seedBoundSession(DIRECT_ADOPT_SESSION, DIRECT_ADOPT_APP);
 		resolveAuthorizedAppSnapshotMock
 			.mockResolvedValueOnce({
 				...snapshot,
@@ -1468,20 +1547,24 @@ describe("server-derived build-vs-edit mode", () => {
 				},
 			})
 			.mockResolvedValue(snapshot);
-		createSolutionsArchitectMock.mockImplementation(() => ({
-			tools: {},
-			stream: async () => {
-				const feed = new ChunkFeed();
-				feed.push(
-					{ type: "start" },
-					{ type: "start-step" },
-					{ type: "finish-step" },
-					{ type: "finish" },
-				);
-				feed.end();
-				return feed.asAgentResult();
-			},
-		}));
+		/* The adopted BUILD runs the orchestrator; completing it exercises the
+		 * route's real build finalize (schema converge → settle → data-done)
+		 * against the claim this adoption booked. */
+		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			args.writer.write({ type: "start", messageId: args.responseMessageId });
+			const finalized = await args.finalizeCompletion({
+				appId: DIRECT_ADOPT_APP,
+				expectedSeq: adoptedBuildSeq,
+				expectedHead: null,
+			});
+			args.writer.write({ type: "finish" });
+			return {
+				kind: "completed",
+				appId: DIRECT_ADOPT_APP,
+				finalSeq: adoptedBuildSeq,
+				finalBlueprint: finalized.blueprint,
+			};
+		});
 
 		const response = await POST(
 			new Request("http://localhost/api/chat", {
@@ -1514,14 +1597,27 @@ describe("server-derived build-vs-edit mode", () => {
 		expect(lastClaim?.[1]).toBe("build");
 		expect(lastClaim?.[4]).toBe(CREDITS_PER_BUILD);
 
-		/* The adoption re-read the snapshot, and the SA seeded from the FRESH
-		 * document, not the stale pre-flip capture. */
+		/* The adoption re-read the snapshot, resolved the bound session, and
+		 * ran the ORCHESTRATOR (never the SA) against the materialized scope. */
 		expect(
 			resolveAuthorizedAppSnapshotMock.mock.calls.length,
 		).toBeGreaterThanOrEqual(2);
-		const saCall = createSolutionsArchitectMock.mock.calls[0];
-		expect(saCall?.[1]?.appName).toBe("Fresh build app");
-		expect(saCall?.[2]).toBe(false);
+		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
+		expect(runBuildOrchestrationMock).toHaveBeenCalledTimes(1);
+		expect(runBuildOrchestrationMock.mock.calls[0]?.[0]).toMatchObject({
+			designSessionId: DIRECT_ADOPT_SESSION,
+			proposedAppId: DIRECT_ADOPT_APP,
+			materializedAppId: DIRECT_ADOPT_APP,
+		});
+
+		/* The completed-build finalize settled the claim and flipped the app
+		 * back to a committed, exported-ready state. */
+		const finalRow = await appDb
+			.selectFrom("apps")
+			.select(["status", "res_settled"])
+			.where("id", "=", DIRECT_ADOPT_APP)
+			.executeTakeFirstOrThrow();
+		expect(finalRow).toEqual({ status: "complete", res_settled: true });
 	}, 30_000);
 
 	it("a wait-path adoption that fails before SA construction still flushes the ADOPTED mode to its run summary", async () => {
@@ -1546,6 +1642,7 @@ describe("server-derived build-vs-edit mode", () => {
 			},
 			mock: false,
 		});
+		await seedBoundSession(WAITFAIL_SESSION, WAITFAIL_APP);
 		resolveAuthorizedAppSnapshotMock
 			.mockResolvedValueOnce(snapshot)
 			.mockRejectedValue(new Error("post-win snapshot connection dropped"));
@@ -1593,10 +1690,12 @@ describe("server-derived build-vs-edit mode", () => {
 		/* The winning claim adopted edit; the flushed summary must say so. */
 		const lastClaim = claimAndReserveRunMock.mock.calls.at(-1);
 		expect(lastClaim?.[1]).toBe("edit");
+		/* A BUILD-admitted app turn carries its design lineage, so its summary
+		 * books against the session even though the claim adopted edit. */
 		const summary = await appDb
 			.selectFrom("run_summaries")
 			.select(["prompt_mode", "app_ready"])
-			.where("app_id", "=", WAITFAIL_APP)
+			.where("design_session_id", "=", WAITFAIL_SESSION)
 			.executeTakeFirstOrThrow();
 		expect(summary).toEqual({ prompt_mode: "edit", app_ready: true });
 	}, 30_000);
@@ -1615,7 +1714,12 @@ describe("barrier persistence", () => {
 	async function threadRowMaybe(threadId: string) {
 		const row = await appDb
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id", "active_holder_nonce"])
+			.select([
+				"messages",
+				"active_stream_id",
+				"active_holder_nonce",
+				"clawed_back_ids",
+			])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirst();
 		if (!row) return undefined;
@@ -1630,13 +1734,14 @@ describe("barrier persistence", () => {
 	}
 
 	it("persists each completed step at its barrier, with the step's chunks durable in the log first", async () => {
+		await seedFeedEditApp();
 		const feed = new ChunkFeed();
 		createSolutionsArchitectMock.mockReturnValue({
 			tools: {},
 			stream: async () => feed.asAgentResult(),
 		});
 
-		const response = await POST(chatRequest());
+		const response = await POST(editTurnRequest());
 		expect(response.status).toBe(200);
 		const streamId = response.headers.get("x-workflow-run-id");
 		if (!streamId) throw new Error("no stream id");
@@ -1706,14 +1811,15 @@ describe("barrier persistence", () => {
 		await wirePromise;
 	}, 30_000);
 
-	it("claws a failed turn back to its pre-run state: the barrier-persisted partial is removed with the marker", async () => {
+	it("claws a failed turn back keeping its partial for display, with the marker cleared and the id tombstoned", async () => {
+		await seedFeedEditApp();
 		const feed = new ChunkFeed();
 		createSolutionsArchitectMock.mockReturnValue({
 			tools: {},
 			stream: async () => feed.asAgentResult(),
 		});
 
-		const response = await POST(chatRequest());
+		const response = await POST(editTurnRequest());
 		expect(response.status).toBe(200);
 		const wirePromise = response.text();
 
@@ -1734,10 +1840,10 @@ describe("barrier persistence", () => {
 		});
 
 		/* ...then the generation dies with a FATAL stream error (classified
-		 * non-transient, so no in-route retry). The failure funnel must revert
-		 * the turn: a partial serves nobody, so the record returns to its
-		 * pre-run state — the user's message alone — with the marker cleared
-		 * in the same write. */
+		 * non-transient, so no in-route retry). The failure funnel's terminal
+		 * write clears the marker and tombstones the id, but the streamed
+		 * partial STAYS in the transcript: the tab that watched it fail still
+		 * shows it, and a reload must not show less than the live view did. */
 		feed.push(
 			{ type: "error", errorText: "model exploded" } as UIMessageChunk,
 			{
@@ -1746,23 +1852,42 @@ describe("barrier persistence", () => {
 		);
 		feed.end();
 
-		const app = await pollFor(async () => {
-			const row = await appDb
-				.selectFrom("apps")
-				.select(["status", "error_type"])
-				.where("owner", "=", USER)
-				.executeTakeFirstOrThrow();
-			return row.status === "error" ? row : undefined;
-		});
-		expect(app.status).toBe("error");
-
-		const thread = await pollFor(async () => {
-			const row = await threadRowMaybe(THREAD);
-			return row?.active_stream_id === null ? row : undefined;
-		});
-		expect(thread.messages.map((m) => m.role)).toEqual(["user"]);
-		expect(thread.active_holder_nonce).toBeNull();
+		/* The stream closes only after finalize completes, and finalize runs
+		 * the claw-back and the settle+release as SEQUENTIAL transactions —
+		 * so the closed body is the one deterministic "every terminal write
+		 * landed" signal. Polling for the claw-back alone raced the lock
+		 * release on a loaded CI shard. */
 		await wirePromise;
+
+		const thread = await threadRowMaybe(THREAD);
+		expect(thread?.active_stream_id).toBeNull();
+		expect(thread?.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+		const kept = thread?.messages.at(-1) as
+			| { id?: string; parts: Array<{ type: string; text?: string }> }
+			| undefined;
+		expect(
+			kept?.parts
+				.filter((p) => p.type === "text")
+				.map((p) => p.text)
+				.join(""),
+		).toBe("Half an answer");
+		/* The cap-0 tombstone refuses every client copy of the kept id, so a
+		 * stale tab can never grow the stored record of the failed turn. */
+		expect(thread?.clawed_back_ids).toEqual([{ id: kept?.id, cap: 0 }]);
+		expect(thread?.active_holder_nonce).toBeNull();
+
+		/* A failed EDIT releases its lock and refunds without touching the
+		 * committed app's status. */
+		const app = await appDb
+			.selectFrom("apps")
+			.select(["status", "error_type", "lock_run_id"])
+			.where("owner", "=", USER)
+			.executeTakeFirstOrThrow();
+		expect(app).toEqual({
+			status: "complete",
+			error_type: null,
+			lock_run_id: null,
+		});
 	}, 30_000);
 
 	it("a bailed POST leaves the owning run's marker and transcript alone (merge-only)", async () => {
@@ -1811,13 +1936,14 @@ describe("barrier persistence", () => {
 		expect(thread.messages.every((m) => m.role === "user")).toBe(true);
 	}, 30_000);
 
-	it("a completed BUILD whose marker retirement cannot land projects RETIRED, not interrupted — no phantom re-drive", async () => {
+	it("a completed run whose marker retirement cannot land projects RETIRED, not interrupted — no phantom re-drive", async () => {
 		/* Every marker-retiring write fails (fold terminal write AND all of
 		 * finalize's fallback retries), so the row keeps its marker — but the
 		 * app reached `complete` under this same claim, and that breadcrumb
 		 * proves the run FINISHED. The loaders must project the marker retired
 		 * rather than stamping `resume_interrupted`: an auto-re-drive here
 		 * would trim (destroy) the finished answer and re-charge the turn. */
+		await seedFeedEditApp();
 		failClearMarkerWrites.on = true;
 		const feed = new ChunkFeed();
 		createSolutionsArchitectMock.mockReturnValue({
@@ -1825,7 +1951,7 @@ describe("barrier persistence", () => {
 			stream: async () => feed.asAgentResult(),
 		});
 
-		const response = await POST(chatRequest());
+		const response = await POST(editTurnRequest());
 		expect(response.status).toBe(200);
 		const streamId = response.headers.get("x-workflow-run-id");
 		const wirePromise = response.text();
@@ -1841,15 +1967,17 @@ describe("barrier persistence", () => {
 		);
 		feed.end();
 
-		/* The run itself completes fully — the failure is persistence-side. */
+		/* The run itself completes fully — the failure is persistence-side.
+		 * The released lock is the finalize-done signal. */
 		const app = await pollFor(async () => {
 			const row = await appDb
 				.selectFrom("apps")
-				.select(["id", "status"])
+				.select(["id", "status", "lock_run_id"])
 				.where("owner", "=", USER)
 				.executeTakeFirstOrThrow();
-			return row.status === "complete" ? row : undefined;
+			return row.lock_run_id === null ? row : undefined;
 		});
+		expect(app.status).toBe("complete");
 		await wirePromise;
 
 		/* The barrier-persisted transcript is intact; only the marker strands
@@ -1876,13 +2004,14 @@ describe("barrier persistence", () => {
 		/* Same stranded-marker row shape, but the app never reached `complete`
 		 * under this claim — the run died mid-answer and was reaped to `error`.
 		 * The level-triggered re-drive signal must stand. */
+		await seedFeedEditApp();
 		const feed = new ChunkFeed();
 		createSolutionsArchitectMock.mockReturnValue({
 			tools: {},
 			stream: async () => feed.asAgentResult(),
 		});
 
-		const response = await POST(chatRequest());
+		const response = await POST(editTurnRequest());
 		expect(response.status).toBe(200);
 		const streamId = response.headers.get("x-workflow-run-id");
 		const wirePromise = response.text();
@@ -1910,7 +2039,7 @@ describe("barrier persistence", () => {
 			.select(["id", "status"])
 			.where("owner", "=", USER)
 			.executeTakeFirstOrThrow();
-		expect(app.status).toBe("error");
+		expect(app.status).toBe("complete");
 
 		const thread = await threadRow(THREAD);
 		expect(thread.active_stream_id).toBe(streamId);
@@ -1926,7 +2055,8 @@ describe("barrier persistence", () => {
 		 * `turnComplete`: the transcript keeps the answer and the marker
 		 * retires normally. Before this rule, the claw-back deleted a
 		 * finished, fully-delivered answer over a transient DB fault. */
-		completeAndSettleRunMock.mockImplementationOnce(async () => {
+		await seedFeedEditApp();
+		clearRunLockAndSettleMock.mockImplementationOnce(async () => {
 			throw new Error("settle connection dropped");
 		});
 		const feed = new ChunkFeed();
@@ -1935,7 +2065,7 @@ describe("barrier persistence", () => {
 			stream: async () => feed.asAgentResult(),
 		});
 
-		const response = await POST(chatRequest());
+		const response = await POST(editTurnRequest());
 		expect(response.status).toBe(200);
 		const wirePromise = response.text();
 
@@ -1951,12 +2081,16 @@ describe("barrier persistence", () => {
 		feed.end();
 		await wirePromise;
 
+		/* The RUN failed (refund + release), but the committed app's status
+		 * never flips for an edit fault. */
 		const app = await appDb
 			.selectFrom("apps")
-			.select(["status"])
+			.select(["status", "error_type"])
 			.where("owner", "=", USER)
 			.executeTakeFirstOrThrow();
-		expect(app.status).toBe("error");
+		expect(app.status).toBe("complete");
+		expect(app.error_type).toBeNull();
+		expect(refundReservationMock).toHaveBeenCalled();
 
 		const thread = await pollFor(async () => {
 			const row = await threadRowMaybe(THREAD);
@@ -1979,6 +2113,7 @@ describe("barrier persistence", () => {
 		 * history no writer may ever trim. With every claw-back failing, the
 		 * marker deliberately stays — the next load reads an interruption and
 		 * the re-drive claim removes the partial. */
+		await seedFeedEditApp();
 		failClawBackWrites.on = true;
 		const feed = new ChunkFeed();
 		createSolutionsArchitectMock.mockReturnValue({
@@ -1986,7 +2121,7 @@ describe("barrier persistence", () => {
 			stream: async () => feed.asAgentResult(),
 		});
 
-		const response = await POST(chatRequest());
+		const response = await POST(editTurnRequest());
 		expect(response.status).toBe(200);
 		const streamId = response.headers.get("x-workflow-run-id");
 		const wirePromise = response.text();
@@ -2010,13 +2145,14 @@ describe("barrier persistence", () => {
 	}, 30_000);
 
 	it("the incident shape at scale: per-token tool-input deltas never reach the log, and the transcript is complete at the last barrier", async () => {
+		await seedFeedEditApp();
 		const feed = new ChunkFeed();
 		createSolutionsArchitectMock.mockReturnValue({
 			tools: {},
 			stream: async () => feed.asAgentResult(),
 		});
 
-		const response = await POST(chatRequest());
+		const response = await POST(editTurnRequest());
 		expect(response.status).toBe(200);
 		const streamId = response.headers.get("x-workflow-run-id");
 		if (!streamId) throw new Error("no stream id");

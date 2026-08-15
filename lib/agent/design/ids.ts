@@ -25,3 +25,12 @@ export type DesignId = z.infer<typeof designIdSchema>;
 export function asDesignId(value: string): DesignId {
 	return designIdSchema.parse(value);
 }
+
+/**
+ * The model-facing symbol grammar for design identities. The design loop's
+ * stage tools accept `{ "handle": "@x" }` objects wherever a design-ID slot
+ * appears, and the reviewer's output schema accepts the same bare symbols in
+ * its element slots. Lives here (a leaf) so the reviewer schema can share it
+ * without importing the loop's tool machinery.
+ */
+export const DESIGN_HANDLE_PATTERN = /^@[a-z][a-z0-9_-]{0,62}$/;

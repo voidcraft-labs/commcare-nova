@@ -25,11 +25,10 @@ protocol error, never a silent overwrite.
   implementation both canonical surfaces use. The private change-set
   workspace (`lib/agent/change-set/workspace.ts`) implements the same
   tool-facing contract over durable staged state; its extensions —
-  `appId: string | null` (a genesis change set has no app row),
-  `WorkspaceSnapshot.externalContextDigest`, and the `intentIds`/`readSet`
-  arguments on `applyBatch`/`applyStages` — are change-set-only, and the
-  canonical workspace REJECTS the staged arguments as a protocol error
-  rather than fabricating records for them.
+  `appId: string | null` (a genesis change set has no app row) and automatic
+  external read-set capture — stay inside that host. Shared tool bodies receive
+  one workspace contract and never supply design attribution or explicit
+  read-set bookkeeping.
 
 ## Invariants
 
@@ -50,7 +49,8 @@ protocol error, never a silent overwrite.
    property it always was: an await inserted upstream of `invoke` reorders
    dispatch itself, which a dependent sibling call surfaces as a visible
    missing-target error, never as silent state corruption. Ordering-
-   dependent creation therefore rides single batched calls.
+   dependent creation therefore rides one semantic creation call or the
+   executor's server-ordered native call sequence.
 3. **The optimistic gate lives in the workspace.** `applyBatch` /
    `applyStages` run the whole-document verdict (with the unioned lookup
    context) against the invocation's snapshot before anything reaches the

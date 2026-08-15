@@ -22,7 +22,6 @@
  * genesis kernel's separate unit, and this module refuses them loudly.
  */
 
-import { sql } from "kysely";
 import type { DesignId } from "@/lib/agent/design/ids";
 import {
 	applyBlueprintChange,
@@ -30,19 +29,13 @@ import {
 } from "@/lib/db/applyBlueprintChange";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import { loadApp } from "@/lib/db/apps";
-import {
-	CanonicalCommitSidecarError,
-	type IntentProvenanceRow,
-} from "@/lib/db/canonicalCommitSidecars";
+import { CanonicalCommitSidecarError } from "@/lib/db/canonicalCommitSidecars";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
 	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
-import {
-	parsePersistedJsonText,
-	parsePersistedMutationBatchText,
-} from "@/lib/db/persistedJson";
+import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
 import { getAppDb } from "@/lib/db/pg";
 import type { ClientAppChangeKind } from "@/lib/db/types";
 import {
@@ -51,10 +44,7 @@ import {
 } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import {
-	type AdmittedMutationBatch,
-	encodeAdmittedMutationEnvelope,
-} from "@/lib/doc/mutationAdmission";
+import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
 import { parseOrganizationRevision } from "@/lib/organization/schema";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { canonicalJsonDigest } from "./digest";
@@ -63,7 +53,7 @@ import {
 	ChangeSetScopeLostError,
 	ChangeSetWorkspaceRevisionStaleError,
 } from "./errors";
-import { type ExternalReadDependency, intentIdsSchema } from "./schemas";
+import type { ExternalReadDependency } from "./schemas";
 import { loadChangeSet, loadChangeSetSteps } from "./store";
 import {
 	type ChangeSetStep,
@@ -123,8 +113,8 @@ export interface CommitDesignChangeSetArgs {
 	readonly chatRunHolder?: ChatRunHolderCapability;
 	readonly kind: ClientAppChangeKind;
 	readonly expectedRevision: number;
-	readonly owningIntentIds: readonly DesignId[];
-	readonly intentProvenance?: readonly IntentProvenanceRow[];
+	/** Absolute executor wall-clock deadline; direct callers omit it. */
+	readonly deadlineAt?: number;
 }
 
 /**
@@ -134,6 +124,7 @@ export interface CommitDesignChangeSetArgs {
 export async function commitDesignChangeSet(
 	args: CommitDesignChangeSetArgs,
 ): Promise<CommitDesignChangeSetOutcome> {
+	if (deadlineExpired(args.deadlineAt)) return deadlineRejection(0);
 	const changeSet = await loadChangeSet(args.changeSetId);
 	if (changeSet === undefined) {
 		throw new ChangeSetScopeLostError("This change set no longer exists.");
@@ -170,6 +161,9 @@ export async function commitDesignChangeSet(
 		);
 	}
 	const steps = await loadChangeSetSteps(args.changeSetId);
+	if (deadlineExpired(args.deadlineAt)) {
+		return deadlineRejection(changeSet.baseSeq ?? 0);
+	}
 	if (steps.length !== changeSet.nextOrdinal) {
 		throw new ChangeSetIntegrityError(
 			`Change set ${args.changeSetId} records ${changeSet.nextOrdinal} step(s) but ${steps.length} are stored.`,
@@ -183,7 +177,6 @@ export async function commitDesignChangeSet(
 			currentSeq: changeSet.baseSeq ?? 0,
 		};
 	}
-
 	/* One concatenated admitted batch, in exact ordinal order, re-admitted
 	 * from its exact JSON bytes (already-admitted values carry the internal
 	 * protector marks the raw admission rejects, so the round trip goes
@@ -222,6 +215,9 @@ export async function commitDesignChangeSet(
 		steps,
 		organizationRevision,
 	});
+	if (deadlineExpired(args.deadlineAt)) {
+		return deadlineRejection(changeSet.baseSeq ?? 0);
+	}
 	if (preflight !== undefined) {
 		const committed = await committedReplayIfWon(changeSet);
 		return committed ?? preflight;
@@ -242,6 +238,7 @@ export async function commitDesignChangeSet(
 			}),
 			batchId,
 			kind: args.kind,
+			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			guard: { mutations: batch },
 			sidecars: [
 				{
@@ -256,18 +253,8 @@ export async function commitDesignChangeSet(
 					buildPlanId: changeSet.buildPlanId,
 					buildPlanDigest: changeSet.buildPlanDigest,
 					sliceId: changeSet.sliceId,
-					owningIntentIds: [...args.owningIntentIds],
 					mutationCount: batch.length,
 				},
-				...(args.intentProvenance !== undefined &&
-				args.intentProvenance.length > 0
-					? [
-							{
-								kind: "write-intent-provenance" as const,
-								rows: args.intentProvenance,
-							},
-						]
-					: []),
 			],
 		});
 		const receipt = await requireStoredReceipt(changeSet);
@@ -343,6 +330,18 @@ export async function commitDesignChangeSet(
 	}
 }
 
+function deadlineExpired(deadlineAt: number | undefined): boolean {
+	return deadlineAt !== undefined && Date.now() >= deadlineAt;
+}
+
+function deadlineRejection(currentSeq: number): CommitDesignChangeSetOutcome {
+	return {
+		kind: "gate-rejected",
+		message: "The slice execution deadline expired before commit.",
+		currentSeq,
+	};
+}
+
 /** The concurrent-duplicate check: when the change set has meanwhile
  *  committed (another attempt of this run won), the stored receipt is the
  *  outcome — never a conflict report against its own committed work. */
@@ -358,54 +357,6 @@ async function committedReplayIfWon(
 		receipt: await requireStoredReceipt(fresh),
 		replayed: true,
 	};
-}
-
-// ── Post-commit envelope derivation (Unit E wiring point) ──────────
-
-export interface CommittedStageEnvelope {
-	readonly stepOrdinal: number;
-	readonly toolName: string;
-	readonly stageName: string | null;
-	readonly mutations: AdmittedMutationBatch;
-}
-
-/**
- * Derive the per-stage event-envelope inputs from the stored step-stage
- * ranges — POST-commit projection only (the executor surface emits them;
- * nothing in Unit B streams or logs staged state).
- */
-export function committedStageEnvelopes(
-	steps: readonly ChangeSetStep[],
-): CommittedStageEnvelope[] {
-	const envelopes: CommittedStageEnvelope[] = [];
-	for (const step of steps) {
-		if (step.stages.length === 0) {
-			envelopes.push({
-				stepOrdinal: step.ordinal,
-				toolName: step.toolName,
-				stageName: null,
-				mutations: step.mutations,
-			});
-			continue;
-		}
-		for (const stage of step.stages) {
-			envelopes.push({
-				stepOrdinal: step.ordinal,
-				toolName: step.toolName,
-				stageName: stage.stageName,
-				mutations: parsePersistedMutationBatchText(
-					encodeAdmittedMutationEnvelope(
-						step.mutations.slice(
-							stage.mutationStart,
-							stage.mutationStart + stage.mutationCount,
-						),
-					).json,
-					`step ${step.ordinal} stage ${stage.stageOrdinal} slice`,
-				),
-			});
-		}
-	}
-	return envelopes;
 }
 
 // ── Internals ──────────────────────────────────────────────────────
@@ -433,11 +384,6 @@ async function requireStoredReceipt(
 			"mutation_count",
 			"committed_at",
 		])
-		.select(
-			sql<string>`${sql.ref("design_committed_slices.owning_intent_ids")}::text`.as(
-				"owning_intent_ids_text",
-			),
-		)
 		.where("change_set_id", "=", changeSet.id)
 		.executeTakeFirst();
 	if (row === undefined) {
@@ -459,15 +405,68 @@ async function requireStoredReceipt(
 		seq: safePersistedSequence(row.seq, "design_committed_slices.seq"),
 		batchId: row.batch_id,
 		committedSnapshotDigest: row.committed_snapshot_digest,
-		owningIntentIds: intentIdsSchema.parse(
-			parsePersistedJsonText(
-				row.owning_intent_ids_text,
-				`design_committed_slices.owning_intent_ids for change set ${changeSet.id}`,
-			),
-		),
 		mutationCount: row.mutation_count,
 		committedAt: row.committed_at,
 	};
+}
+
+/** Read-only reconciliation for a canonical commit whose response raced the
+ * executor deadline. `null` means no commit became durable before the read;
+ * this function never retries or starts a write. */
+export async function readCommittedSliceReceipt(
+	changeSetId: string,
+): Promise<CommittedSliceReceipt | null> {
+	const changeSet = await loadChangeSet(changeSetId);
+	if (changeSet === undefined || changeSet.status !== "committed") return null;
+	return await requireStoredReceipt(changeSet);
+}
+
+/** Read every immutable receipt for one plan through the same strict JSON and
+ * sequence boundary as the commit replay path. Completion policy uses this
+ * aggregate; row presence alone is never enough to call a build finished. */
+export async function readCommittedSliceReceiptsForPlan(
+	buildPlanId: string,
+): Promise<CommittedSliceReceipt[]> {
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("design_committed_slices")
+		.select([
+			"id",
+			"design_session_id",
+			"design_revision_id",
+			"design_revision_digest",
+			"build_plan_id",
+			"build_plan_digest",
+			"slice_id",
+			"slice_attempt_id",
+			"change_set_id",
+			"app_id",
+			"seq",
+			"batch_id",
+			"committed_snapshot_digest",
+			"mutation_count",
+			"committed_at",
+		])
+		.where("build_plan_id", "=", buildPlanId)
+		.orderBy("seq", "asc")
+		.execute();
+	return rows.map((row) => ({
+		id: row.id,
+		designSessionId: row.design_session_id,
+		designRevisionId: row.design_revision_id,
+		designRevisionDigest: row.design_revision_digest,
+		buildPlanId: row.build_plan_id,
+		buildPlanDigest: row.build_plan_digest,
+		sliceId: row.slice_id as DesignId,
+		attemptId: row.slice_attempt_id,
+		changeSetId: row.change_set_id,
+		appId: row.app_id,
+		seq: safePersistedSequence(row.seq, "design_committed_slices.seq"),
+		batchId: row.batch_id,
+		committedSnapshotDigest: row.committed_snapshot_digest,
+		mutationCount: row.mutation_count,
+		committedAt: row.committed_at,
+	}));
 }
 
 async function currentAppSeq(appId: string): Promise<number> {

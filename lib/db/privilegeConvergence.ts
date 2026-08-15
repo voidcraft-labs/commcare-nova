@@ -147,14 +147,18 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"app_deployment_resources",
 	"design_change_sets",
 	"design_sessions",
+	"design_slice_attempts",
+	"design_external_action_receipts",
+	"design_artifact_workspaces",
+	"design_model_contexts",
 	...Object.values(AUTH_TABLE_NAMES),
 	"auth_oauth_grant_revocation",
 ] as const;
 
 /** The change-set runtime's durable staging ledgers are append-only: the
  * mutable authority row (`design_change_sets`) serializes them, so no code
- * may row-lock or update a request, step, stage, handle, receipt, or
- * provenance row — retention is a future, separately-owned service path. */
+ * may row-lock or update a request, step, stage, handle, or receipt row —
+ * retention is a future, separately-owned service path. */
 const RUNTIME_APPEND_ONLY_TABLES = [
 	"app_changes",
 	"design_change_set_requests",
@@ -162,12 +166,18 @@ const RUNTIME_APPEND_ONLY_TABLES = [
 	"design_change_set_step_stages",
 	"design_change_set_handles",
 	"design_committed_slices",
-	"app_change_intents",
 	"design_source_packages",
 	"design_revisions",
 	"design_reviews",
 	"design_review_dispositions",
 	"design_build_plans",
+	"design_orchestration_events",
+	"design_artifact_workspace_steps",
+	"design_model_context_items",
+	"design_model_steps",
+	"design_model_step_usage_accounts",
+	"design_identity_handles",
+	"design_slice_attempt_budget_claims",
 ] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a

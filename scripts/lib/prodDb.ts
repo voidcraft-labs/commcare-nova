@@ -7,8 +7,8 @@
  * IAM-authenticated TLS path — the same connector Cloud Run rides over the
  * private IP, here carrying your gcloud identity instead of the runtime SA.
  *
- * Prerequisites, per developer (provisioned by
- * `scripts/infra/provision-cloud-sql.sh` Phases 4–5 for the dogfooding team):
+ * Developer prerequisites (provisioned by
+ * `scripts/infra/provision-cloud-sql.sh` Phases 4–5):
  *
  *   - your account is a `CLOUD_IAM_USER` on the instance and holds
  *     `roles/cloudsql.client` + `roles/cloudsql.instanceUser` on the project

@@ -57,8 +57,8 @@ import {
 import { caseOperationTargetTypeAfter } from "@/lib/doc/caseOperationIntents";
 import type { CaseOperationMoveVerdict } from "@/lib/doc/caseOperationReview";
 import {
+	useFormHasSessionCase,
 	useModuleCaseType,
-	useModuleSelectsCaseFirst,
 } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { asUuid, type Uuid } from "@/lib/doc/types";
@@ -387,6 +387,7 @@ export function CaseOperationsCanvas({
 			{canEdit && (
 				<AddChangeControl
 					moduleUuid={moduleUuid}
+					formUuid={formUuid}
 					operations={operations}
 					addVerdict={view.addVerdict}
 					open={addOpen}
@@ -444,6 +445,7 @@ type SessionChangeChoice =
  */
 function AddChangeControl({
 	moduleUuid,
+	formUuid,
 	operations,
 	addVerdict,
 	open,
@@ -451,6 +453,7 @@ function AddChangeControl({
 	onAdd,
 }: {
 	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
 	readonly operations: readonly CaseOperation[];
 	readonly addVerdict: ReturnType<typeof useCaseOperations>["addVerdict"];
 	readonly open: boolean;
@@ -459,7 +462,7 @@ function AddChangeControl({
 }) {
 	const [mode, setMode] = useState<"intent" | "create-type">("intent");
 	const moduleCaseType = useModuleCaseType(moduleUuid);
-	const sessionAvailable = useModuleSelectsCaseFirst(moduleUuid);
+	const sessionAvailable = useFormHasSessionCase(moduleUuid, formUuid);
 	const sessionCaseType =
 		sessionAvailable && moduleCaseType !== undefined
 			? caseOperationTargetTypeAfter(
@@ -469,7 +472,7 @@ function AddChangeControl({
 				)
 			: undefined;
 	const sessionReason = !sessionAvailable
-		? "This module doesn't choose a case before opening its forms, so there is no case in hand to change"
+		? "This form doesn't open with a case in hand to change"
 		: sessionCaseType === undefined
 			? "Nova cannot determine which kind of case this form has in hand at this point"
 			: RESERVED_CASE_OPERATION_TYPES.has(sessionCaseType)

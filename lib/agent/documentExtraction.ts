@@ -18,19 +18,19 @@
 // from being re-condensed — or re-billed at the SA's input rate across dozens of
 // tool-loop steps — on every send.
 
-import { createOpenAI } from "@ai-sdk/openai";
 import AdmZip from "adm-zip";
 import { fileTypeFromBuffer } from "file-type";
 import mammoth, { type MammothImage } from "mammoth";
 import * as XLSX from "xlsx";
 import { z } from "zod";
+import { createNovaOpenAI } from "@/lib/agent/openaiProvider";
 import {
 	type DocumentKind,
 	IMAGE_MIME_TYPES,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
-import { reasoningProviderOptions } from "@/lib/models";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { normalizeExtractText } from "./extractNormalization";
 import {
 	type SubGenerationImage,
@@ -79,7 +79,7 @@ export interface ExtractDocumentStructuredOpts<T> {
 	images?: SubGenerationImage[];
 	schema: z.ZodType<T>;
 	label: string;
-	model?: string;
+	model: string;
 	maxOutputTokens?: number;
 	providerOptions?: SubGenerationProviderOptions;
 	/** When false, a failure is logged but NOT surfaced as a user-facing generation
@@ -147,27 +147,8 @@ export const EXTRACT_MAX_BYTES = 4 * 1024 * 1024;
 
 // ── Summarizer model + provider options ──────────────────────────────────
 
-/**
- * The official document summarizer: OpenAI GPT-5.6 Luna, on the same
- * `OPENAI_API_KEY` credential as every other model. Extraction is a platform
- * feature, so a missing key fails loud rather than silently degrading. The
- * preview script reuses the same id + options so what it tests matches
- * production.
- */
-export const CONDENSER_MODEL = "gpt-5.6-luna";
-
-/**
- * Provider options for the summarizer — the canonical reasoning literal
- * (`lib/models.ts::reasoningProviderOptions`) at `xhigh`. Extraction is
- * mostly silent reasoning before any output token, so the streamed
- * reasoning summaries the literal enables ARE the live progress —
- * without them the feed (`streamObjectWith`) stays dark for the whole
- * reasoning phase. A PDF rides as a native file block the model reads
- * directly — there is no rasterization dial to set. Reasoning depth is
- * the cost lever here — see `EXTRACT_MAX_OUTPUT_TOKENS`.
- */
-export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions =
-	reasoningProviderOptions("xhigh");
+const DOCUMENT_EXTRACTOR_PROVIDER_OPTIONS: SubGenerationProviderOptions =
+	reasoningProviderOptions(MODEL_ROLES.documentExtractor.reasoningEffort);
 
 /**
  * System prompt for the extraction step. The contract is FAITHFUL relay, never
@@ -1160,8 +1141,8 @@ export async function extractDocument(opts: {
 			instruction: `Extract every requirement from this document. Filename: ${filename}.`,
 			schema: extractDocumentSchema,
 			label: `extract:${filename}`,
-			model: CONDENSER_MODEL,
-			providerOptions: CONDENSER_PROVIDER_OPTIONS,
+			model: MODEL_ROLES.documentExtractor.modelId,
+			providerOptions: DOCUMENT_EXTRACTOR_PROVIDER_OPTIONS,
 			maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
 			emitErrors: false,
 			onProgress,
@@ -1198,8 +1179,8 @@ export async function extractDocument(opts: {
 			images,
 			schema: extractDocumentSchema,
 			label: `extract:${filename}`,
-			model: CONDENSER_MODEL,
-			providerOptions: CONDENSER_PROVIDER_OPTIONS,
+			model: MODEL_ROLES.documentExtractor.modelId,
+			providerOptions: DOCUMENT_EXTRACTOR_PROVIDER_OPTIONS,
 			maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
 			emitErrors: false,
 			onProgress,
@@ -1233,7 +1214,7 @@ export async function extractDocument(opts: {
 }
 
 /**
- * The production document condenser: a `CONDENSER_MODEL`-bound
+ * The production document condenser, bound to the document-extractor role,
  * `AttachmentCondenser` over the provider-agnostic `subGeneration` helpers.
  * Built per call (cheap) by the upload-time extract route, which runs OUTSIDE a
  * chat `GenerationContext` and so needs its own provider-bound backend.
@@ -1252,7 +1233,7 @@ export function createExtractionCondenser(): AttachmentCondenser {
 			"OPENAI_API_KEY is unset. Document feature extraction needs the OpenAI key to reach the summarizer model. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
 		);
 	}
-	const model = createOpenAI({ apiKey })(CONDENSER_MODEL);
+	const model = createNovaOpenAI(apiKey)(MODEL_ROLES.documentExtractor.modelId);
 	return {
 		async extractDocumentStructured(args) {
 			const r = await streamObjectWith({

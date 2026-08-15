@@ -15,9 +15,10 @@
  *
  * The module's CASE TYPE references the app's case-type catalog by
  * NAME — the record itself lands earlier, via `generateSchema` (the
- * data-model tool), so the model is stated once and the field
- * assembly's catalog defaulting (`applyDefaults`) seeds this module's
- * own fields from it. An unrecorded `case_type` is rejected with the
+ * data-model tool), so the model is stated once and the field assembly's
+ * catalog defaulting (`applyDefaults`) seeds intrinsic type, canonical label,
+ * and choice catalog. Form-context hint, requiredness, and validation remain
+ * explicit on each field. An unrecorded `case_type` is rejected with the
  * generateSchema pointer.
  *
  * Follow-up case-list refinement (sort, filter, search inputs) still
@@ -67,7 +68,7 @@ import {
 import {
 	assembleFieldMutations,
 	type CreatedFieldIdentity,
-	describeRejectedFieldIds,
+	describeRejectedFields,
 	resolveCloseCondition,
 } from "./shared/fieldAssembly";
 import type {
@@ -263,7 +264,6 @@ export const createModuleTool = {
 				name: string;
 				fields: CreatedFieldIdentity[];
 			}> = [];
-			const skipped: Array<{ id: string; reason: string }> = [];
 			const callEntityUuids = new Set([
 				moduleUuid,
 				...columns.map((column) => column.uuid),
@@ -332,27 +332,11 @@ export const createModuleTool = {
 						kind: "mutate" as const,
 						mutations: [],
 						result: {
-							error: describeRejectedFieldIds(
+							error: describeRejectedFields(
 								formInput.name,
 								formInput.fields.length,
 								assembly.rejected,
 							),
-						},
-					};
-				}
-				if (assembly.mutations.length === 0) {
-					// Every supplied field failed assembly — landing the form
-					// would land it EMPTY, the dead shape atomic creation exists
-					// to prevent. Name each skip so the corrected re-issue
-					// carries usable fields.
-					const reasons = assembly.skipped
-						.map((s) => `- "${s.id}": ${s.reason}`)
-						.join("\n");
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error: `Module "${name}" wasn't created — none of form "${formInput.name}"'s ${formInput.fields.length} field(s) could be assembled, so the form would have no content:\n${reasons}\nFix the listed field(s) and re-issue the call.`,
 						},
 					};
 				}
@@ -410,7 +394,6 @@ export const createModuleTool = {
 				fieldCount += assembly.mutations.filter(
 					(m) => m.kind === "addField",
 				).length;
-				skipped.push(...assembly.skipped);
 			}
 
 			const commit = await guardedMutate(ctx, mutations, "module:create");
@@ -430,17 +413,11 @@ export const createModuleTool = {
 					: columns.length > 0
 						? ` with ${columns.length} case-list column${columns.length === 1 ? "" : "s"}`
 						: "";
-			const skippedNote =
-				skipped.length > 0
-					? ` Skipped ${skipped.length} field(s): ${skipped
-							.map((s) => `${s.id} (${s.reason})`)
-							.join("; ")}.`
-					: "";
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully created module "${name}" (UUID ${moduleUuid})${case_type ? ` (case type: ${case_type})` : ""}${structureNote}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${skippedNote}`,
+					message: `Successfully created module "${name}" (UUID ${moduleUuid})${case_type ? ` (case type: ${case_type})` : ""}${structureNote}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.`,
 					moduleUuid,
 					forms: createdForms,
 					columns: columns.map((column) => ({ uuid: column.uuid })),

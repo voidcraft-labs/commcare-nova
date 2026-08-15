@@ -49,7 +49,6 @@ import {
 import {
 	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
-	exportReadinessFindings,
 	prepareMutationCandidate,
 } from "../doc/commitVerdicts";
 import { deepEqual } from "../doc/deepEqual";
@@ -71,13 +70,11 @@ import {
 	admitMutationBatch,
 	encodeAdmittedMutationEnvelope,
 } from "../doc/mutationAdmission";
-import { canonicalAppGenesis } from "../doc/scaffolds";
 import type { Mutation } from "../doc/types";
-import {
-	APP_GENESIS_FALLBACK_NAME,
-	type BlueprintDoc,
-	type PersistableDoc,
-	type PersistedBlueprint,
+import type {
+	BlueprintDoc,
+	PersistableDoc,
+	PersistedBlueprint,
 } from "../domain/blueprint";
 import {
 	asWalkableDoc,
@@ -89,14 +86,12 @@ import {
 	asMediaAssetId,
 	type MediaAssetId,
 } from "../domain/multimedia";
-import type { Uuid } from "../domain/uuid";
 import {
 	lockActorGenerationGate,
 	lockActorGenerationGateForAppHolder,
 	type ReapableGenerationTarget,
 	scanActorGenerationTargets,
 } from "./actorGenerationGate";
-import { decomposeBlueprint } from "./blueprintRows";
 import {
 	admitExactMediaReferences,
 	assertAppCapabilityInTransaction,
@@ -179,6 +174,7 @@ import {
 	runLeaseState,
 } from "./runLiveness";
 import { type AppDoc, parsePersistedAppLifecycleStatus } from "./types";
+import { hasUnfinishedMaterializedDesignInTransaction } from "./unfinishedMaterializedDesign";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -383,181 +379,13 @@ export async function projectHasApps(projectId: string): Promise<boolean> {
 
 // ── CRUD ───────────────────────────────────────────────────────────
 
-/** Optional lifecycle and naming inputs for `createApp`. */
-export interface CreateAppOptions {
-	/** Initial name authored by the canonical genesis mutation batch. An omitted
-	 *  or whitespace-only value becomes the real persisted name `Untitled`. */
-	name?: string;
-	/**
-	 * Initial lifecycle status. `"generating"` arms the staleness clock (the
-	 * chat build's run-liveness marker); `"complete"` is the at-rest default
-	 * for every other creation. `"error"` is excluded — a fresh
-	 * app has failed at nothing and soft-delete is out-of-band.
-	 */
-	status?: "generating" | "complete";
-	/** Internal chat lifecycle generation. The chat route mints this server-side
-	 * before creating a build; non-chat complete app creation leaves it null. */
-	runHolderNonce?: string;
-}
-
-/** Exact committed sequence-1 state and identities returned by app genesis. */
-export interface CreateAppReceipt {
-	appId: string;
-	baseSeq: 1;
-	blueprint: PersistableDoc;
-	starter: {
-		moduleUuid: Uuid;
-		formUuid: Uuid;
-		fieldUuid: Uuid;
-	};
-}
-
-/**
- * Create a new app in its one legal persisted birth state. The canonical name,
- * survey module, form, and field are prepared and admitted before the retryable
- * transaction; the app root, locked lookup verdict, media admission, lookup
- * edges, entities, empty sequence-1 fold-baseline change, and immutable baseline
- * then commit together or not at all.
+/*
+ * App CREATION lives in `lib/db/appGenesis.ts` — the closed
+ * `explicit-blank | design-slice` genesis owner. No generic `createApp`
+ * remains: every persisted app is born through `createExplicitBlankApp` or
+ * the design-slice materialization, and no caller inserts an app row and
+ * seeds it later.
  */
-export async function createApp(
-	owner: string,
-	projectId: string,
-	runId: string,
-	opts?: CreateAppOptions,
-): Promise<CreateAppReceipt> {
-	const appId = crypto.randomUUID();
-	const runHolderNonce =
-		(opts?.status ?? "generating") === "generating"
-			? (opts?.runHolderNonce ?? crypto.randomUUID())
-			: null;
-	const emptyDoc: BlueprintDoc = {
-		appId,
-		appName: APP_GENESIS_FALLBACK_NAME,
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
-	// Atomic creation is the app-lock exception: a SQL retry may re-run the
-	// transaction closure, so UUID minting and the reducer stay outside it. The
-	// prepared canonical value is then safe to evaluate repeatedly under the
-	// transaction's locked Project lookup definition snapshot.
-	const genesis = canonicalAppGenesis(emptyDoc, opts?.name);
-	const genesisMutations = admitMutationBatch(genesis.mutations);
-	const prepared = prepareMutationCandidate(emptyDoc, genesisMutations);
-	const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
-	const persistable = toPersistableDoc(prepared.nextDoc);
-	const denorm = denormalize(persistable);
-	await withAppTx(async (tx) => {
-		await assertProjectCapabilityInTransaction(
-			tx,
-			owner,
-			projectId,
-			"edit",
-			"You no longer have edit access to this Project.",
-		);
-		await tx
-			.insertInto("apps")
-			.values({
-				id: appId,
-				owner,
-				project_id: projectId,
-				...denorm,
-				mutation_seq: 1,
-				status: opts?.status ?? "generating",
-				awaiting_input: false,
-				error_type: null,
-				deleted_at: null,
-				recoverable_until: null,
-				run_id: runId,
-				run_holder_nonce: runHolderNonce,
-			})
-			.execute();
-		const lookupContext = await lookupContextForAuthoritativeWrite(
-			tx,
-			projectId,
-			candidateTargets,
-		);
-		const verdict = evaluatePreparedMutationCandidate(prepared, lookupContext);
-		if (!verdict.ok) {
-			throw new Error(
-				`App template is not valid by construction: ${describeCommitFindings(
-					verdict.findings,
-				)}`,
-			);
-		}
-		const notExportable = exportReadinessFindings(
-			verdict.nextDoc,
-			lookupContext,
-		);
-		if (notExportable.length > 0) {
-			throw new Error(
-				`App genesis must be export-ready, but the canonical starter could not be exported:\n${notExportable
-					.map((error) => `- ${error.message}`)
-					.join("\n")}`,
-			);
-		}
-		await admitExactMediaReferences(tx, {
-			appId,
-			projectId,
-			candidateDoc: verdict.nextDoc,
-		});
-		await replaceLookupReferenceEdges(tx, {
-			appId,
-			projectId,
-			targets: candidateTargets,
-		});
-		const rows = decomposeBlueprint(persistable);
-		if (rows.length > 0) {
-			await tx
-				.insertInto("blueprint_entities")
-				.values(
-					rows.map((r) => ({
-						app_id: appId,
-						uuid: r.uuid,
-						kind: r.kind,
-						parent_uuid: r.parent_uuid,
-						ordinal: r.ordinal,
-						data: JSON.stringify(r.data),
-					})),
-				)
-				.execute();
-		}
-		const baselineMutations = admitMutationBatch([]);
-		await tx
-			.insertInto("app_changes")
-			.values({
-				app_id: appId,
-				seq: 1,
-				batch_id: `genesis:${appId}`,
-				run_id: runId,
-				actor_id: owner,
-				kind: "fold-baseline",
-				mutations: encodeAdmittedMutationEnvelope(baselineMutations).json,
-				from_project_id: null,
-				to_project_id: null,
-			})
-			.execute();
-		await sql`SELECT nova_insert_app_change_genesis_fold_baseline(${appId})`.execute(
-			tx,
-		);
-	});
-	return {
-		appId,
-		baseSeq: 1,
-		blueprint: persistable,
-		starter: {
-			moduleUuid: genesis.moduleUuid,
-			formUuid: genesis.formUuid,
-			fieldUuid: genesis.fieldUuid,
-		},
-	};
-}
 
 // ── Committed-batch writer ──────────────────────────────────────────
 
@@ -1139,6 +967,11 @@ export async function prepareAppProjectMoveInTransaction(
 	await authorizeProjectMoveGovernance(tx, args);
 	const runDisposition = projectMoveRunDisposition(fresh);
 	if (runDisposition) return runDisposition;
+	if (await hasUnfinishedMaterializedDesignInTransaction(tx, args.appId)) {
+		throw new BlueprintCommitRejectedError(
+			"This app's reviewed initial build has not finished. Resume or discard that exact build before moving the app to another Project.",
+		);
+	}
 	const { doc } = await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
 	await assertMoveLookupClosureEmpty(tx, args.appId, doc);
 	await assertMoveCaptureClosureEmpty(tx, args.appId);
@@ -1228,6 +1061,11 @@ export async function commitAppProjectMoveInTransaction(
 	await authorizeProjectMoveGovernance(tx, args);
 	const runDisposition = projectMoveRunDisposition(fresh);
 	if (runDisposition) return runDisposition;
+	if (await hasUnfinishedMaterializedDesignInTransaction(tx, args.appId)) {
+		throw new BlueprintCommitRejectedError(
+			"This app's reviewed initial build has not finished. Resume or discard that exact build before moving the app to another Project.",
+		);
+	}
 
 	const { persisted: previousPersisted, doc: previousDoc } =
 		await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
@@ -1373,6 +1211,14 @@ export async function commitAppProjectMoveInTransaction(
 	await tx
 		.updateTable("design_sessions")
 		.set({ project_id: args.toProjectId, updated_at: new Date() })
+		.where("app_id", "=", args.appId)
+		.execute();
+	/* Completed external prerequisites are Project-scoped evidence. They follow
+	 * their materialized app in the same move transaction; pre-app receipts
+	 * have no app id and therefore never move. */
+	await tx
+		.updateTable("design_external_action_receipts")
+		.set({ project_id: args.toProjectId })
 		.where("app_id", "=", args.appId)
 		.execute();
 	const fullTx = tx as unknown as Transaction<AppDatabase & CaseDatabase>;
@@ -1753,60 +1599,93 @@ export async function reserveForNewBuild(
  * flips the row back to `complete` without touching the marker; the reaper's
  * refund stands. A pre-settled stale marker retains `runId`, so it is not this
  * signature and cannot enter the self-heal branch.
+ *
+ * `expectedMutationSeq` is the optional canonical-head fence used by
+ * authoritative initial-build completion after receipt and compile proof.
  */
 export async function completeAndSettleRun(
 	appId: string,
 	runId: string,
 	holderNonce: string,
+	expectedMutationSeq?: number,
 ): Promise<RunHolderWriteOutcome> {
 	return await withAppTx(async (tx) => {
 		/* Lifecycle lock order: the holder's actor gate first (settle is a
 		 * holder/reservation transition — see `actorGenerationGate.ts`). */
 		await lockActorGenerationGateForAppHolder(tx, appId);
-		const fresh = await lockAppRow(tx, appId);
-		if (!fresh) return "released";
-		const lease = runLeaseState(leaseView(fresh));
-		const expectedHolder = {
-			mode: "build",
+		return await completeAndSettleRunInTransaction(
+			tx,
+			appId,
 			runId,
-			nonce: holderNonce,
-		} as const;
-		if (
-			!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
-			!lease.terminalWriteOwned(runId)
-		) {
-			if (
-				fresh.status === "error" &&
-				lease.mode === "none" &&
-				lease.reaperResolved &&
-				fresh.run_id === runId &&
-				fresh.run_holder_nonce === holderNonce
-			) {
-				const result = await tx
-					.updateTable("apps")
-					.set({ status: "complete", error_type: null })
-					.where("id", "=", appId)
-					.where(expectedReapedBuildCompletionPredicate(expectedHolder))
-					.executeTakeFirst();
-				if (!updatedExactlyOne(result)) return "released";
-				await notifyAppStatus(tx, appId);
-				return "owned";
-			}
-			return lease.present ? "superseded" : "released";
-		}
-		const result = await tx
-			.updateTable("apps")
-			.set({ status: "complete", error_type: null, res_settled: true })
-			.where("id", "=", appId)
-			.where(expectedRunHolderPredicate(expectedHolder))
-			.executeTakeFirst();
-		if (!updatedExactlyOne(result)) return "superseded";
-		/* Delivered on commit: connected builder streams re-read + re-announce
-		 * the app status, so a co-member tab's build-rate latch releases the
-		 * moment the build completes instead of on the next reauth cadence. */
-		await notifyAppStatus(tx, appId);
-		return "owned";
+			holderNonce,
+			expectedMutationSeq,
+		);
 	});
+}
+
+/**
+ * Transaction body for {@link completeAndSettleRun}. The caller MUST already
+ * hold the current app holder's actor-generation gate. Kept separate so the
+ * reviewed-build finalizer can commit the exact terminal orchestration event,
+ * the `generating -> complete` transition, and reservation settlement as one
+ * database decision instead of releasing its authority between those writes.
+ */
+export async function completeAndSettleRunInTransaction(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	runId: string,
+	holderNonce: string,
+	expectedMutationSeq?: number,
+): Promise<RunHolderWriteOutcome> {
+	const fresh = await lockAppRow(tx, appId);
+	if (!fresh) return "released";
+	const lease = runLeaseState(leaseView(fresh));
+	const expectedHolder = {
+		mode: "build",
+		runId,
+		nonce: holderNonce,
+	} as const;
+	if (
+		!exactRunHolderMatches(lease.holderIdentity, expectedHolder) ||
+		!lease.terminalWriteOwned(runId)
+	) {
+		if (
+			fresh.status === "error" &&
+			lease.mode === "none" &&
+			lease.reaperResolved &&
+			fresh.run_id === runId &&
+			fresh.run_holder_nonce === holderNonce
+		) {
+			let query = tx
+				.updateTable("apps")
+				.set({ status: "complete", error_type: null })
+				.where("id", "=", appId)
+				.where(expectedReapedBuildCompletionPredicate(expectedHolder));
+			if (expectedMutationSeq !== undefined) {
+				query = query.where("mutation_seq", "=", expectedMutationSeq);
+			}
+			const result = await query.executeTakeFirst();
+			if (!updatedExactlyOne(result)) return "released";
+			await notifyAppStatus(tx, appId);
+			return "owned";
+		}
+		return lease.present ? "superseded" : "released";
+	}
+	let query = tx
+		.updateTable("apps")
+		.set({ status: "complete", error_type: null, res_settled: true })
+		.where("id", "=", appId)
+		.where(expectedRunHolderPredicate(expectedHolder));
+	if (expectedMutationSeq !== undefined) {
+		query = query.where("mutation_seq", "=", expectedMutationSeq);
+	}
+	const result = await query.executeTakeFirst();
+	if (!updatedExactlyOne(result)) return "superseded";
+	/* Delivered on commit: connected builder streams re-read + re-announce
+	 * the app status, so a co-member tab's build-rate latch releases the
+	 * moment the build completes instead of on the next reauth cadence. */
+	await notifyAppStatus(tx, appId);
+	return "owned";
 }
 
 /**
@@ -2274,7 +2153,7 @@ export async function reapStaleGenerating(
 ): Promise<void> {
 	try {
 		if (expectedIdentity.mode !== "build") return;
-		await refundStaleGeneration(appId, expectedIdentity);
+		await reapStaleRun(appId, expectedIdentity);
 	} catch (err) {
 		log.error("[reapStaleGenerating] stale-build reap failed", err, { appId });
 	}
@@ -2293,7 +2172,7 @@ export async function reapStaleReservation(
 ): Promise<void> {
 	try {
 		if (expectedIdentity.mode !== "edit") return;
-		await refundStaleReservation(appId, expectedIdentity);
+		await reapStaleRun(appId, expectedIdentity);
 	} catch (err) {
 		log.error("[reapStaleReservation] reservation refund failed", err, {
 			appId,
@@ -2302,17 +2181,29 @@ export async function reapStaleReservation(
 }
 
 /**
- * Result-bearing canonical reaper used by the Project-move orchestrator. Unlike
- * the scan-side wrappers above, storage failures propagate and a stale identity
- * returns `state_changed`; neither can be mistaken for a successful release.
+ * Result-bearing canonical reaper for callers that must prove convergence.
+ * Storage failures propagate and a stale identity returns `state_changed`, so
+ * neither can be mistaken for a successful release. The credit writers lock
+ * the authority row and re-prove the exact holder plus staleness themselves.
  */
-export async function normalizeReapableRunForProjectMove(
+export async function reapStaleRun(
 	appId: string,
 	expectedIdentity: ExactRunHolderIdentity,
 ): Promise<StaleRunReapOutcome> {
 	return expectedIdentity.mode === "build"
 		? refundStaleGeneration(appId, expectedIdentity)
 		: refundStaleReservation(appId, expectedIdentity);
+}
+
+/**
+ * Project-move spelling retained at that boundary; it delegates to the one
+ * result-bearing exact-holder reaper above.
+ */
+export async function normalizeReapableRunForProjectMove(
+	appId: string,
+	expectedIdentity: ExactRunHolderIdentity,
+): Promise<StaleRunReapOutcome> {
+	return reapStaleRun(appId, expectedIdentity);
 }
 
 // ── Soft delete / restore ───────────────────────────────────────────

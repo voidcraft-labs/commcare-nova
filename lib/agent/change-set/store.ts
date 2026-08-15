@@ -4,20 +4,21 @@
  *
  * One module owns every read and write of the change-set tables. The
  * correctness spine is the STAGE TRANSACTION: lock the authority carrier
- * first (an app-edit set's app row `FOR SHARE`; a genesis set has none until
- * the design-session unit lands its row), lock the change-set row
- * `FOR UPDATE` second, prove owner/run/holder/Project/status, replay the
+ * first (an app-edit set's app row `FOR SHARE`; a genesis set's claimed
+ * design-session row `FOR UPDATE` — the session is the run/credit authority
+ * a pre-app build holds, so its holder is the ownership proof), lock the
+ * change-set row second, prove owner/run/holder/Project/status, replay the
  * request ledger for an idempotent retry, then commit the request receipt,
  * step, stage ranges, handle bindings, and the revision advance as ONE
  * transaction. There is no durable in-progress state: a request either
  * committed everything it staged or nothing.
  *
- * Lock order (the plan's rule for existing-app staging): apps →
- * design_change_sets → membership gate/member row. No path holds a
- * change-set row while waiting for an app row, and the membership gate is
- * only ever taken while already holding the authority rows — membership
- * writers never take change-set or app locks, so gate-after-row cannot
- * cycle. (A genesis set has no app row yet; its change-set row leads.)
+ * Lock order (the plan's §11.13 staging rules): authority row (`apps`, or
+ * `design_sessions` for a genesis set) → design_change_sets → membership
+ * gate/member row. No path holds a change-set row while waiting for an
+ * authority row, and the membership gate is only ever taken while already
+ * holding the authority rows — membership writers never take change-set,
+ * app, or session locks, so gate-after-row cannot cycle.
  *
  * The staging ledgers (requests/steps/stages/handles) are append-only at the
  * database privilege level; this row-locked authority table is what
@@ -29,6 +30,10 @@ import type { DesignId } from "@/lib/agent/design/ids";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import { loadAppInTransaction } from "@/lib/db/apps";
+import {
+	assertDesignSessionRunAuthorityInTransaction,
+	lockSessionRow,
+} from "@/lib/db/designSessions";
 import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
 import {
 	parsePersistedJsonText,
@@ -41,7 +46,7 @@ import {
 	exactRunHolderMatches,
 	updatedExactlyOne,
 } from "@/lib/db/runHolderWrites";
-import { runLeaseState } from "@/lib/db/runLiveness";
+import { designSessionLeaseState, runLeaseState } from "@/lib/db/runLiveness";
 import type {
 	AdmittedMutationBatch,
 	AdmittedMutationStageSlice,
@@ -61,7 +66,6 @@ import {
 	type ChangeSetHandle,
 	changeSetHandleSchema,
 	type ExternalReadDependency,
-	intentIdsSchema,
 	readSetSchema,
 	SHA256_HEX_PATTERN,
 	type StagedEntityKind,
@@ -264,7 +268,7 @@ export async function loadChangeSet(
 		: parseChangeSetRow(row as unknown as ChangeSetRow);
 }
 
-async function lockChangeSetRow(
+export async function lockChangeSetRow(
 	tx: Transaction<AppDatabase>,
 	id: string,
 ): Promise<DesignChangeSet | undefined> {
@@ -292,11 +296,6 @@ export async function loadChangeSetSteps(
 			.select(
 				sql<string>`${sql.ref("design_change_set_steps.mutations")}::text`.as(
 					"mutations_text",
-				),
-			)
-			.select(
-				sql<string>`${sql.ref("design_change_set_steps.intent_ids")}::text`.as(
-					"intent_ids_text",
 				),
 			)
 			.select(
@@ -365,12 +364,6 @@ export async function loadChangeSetSteps(
 			toolName: row.tool_name,
 			mutations,
 			mutationDigest,
-			intentIds: intentIdsSchema.parse(
-				parsePersistedJsonText(
-					row.intent_ids_text,
-					`design_change_set_steps.intent_ids for change set ${changeSetId}, ordinal ${ordinal}`,
-				),
-			),
 			readSet: readSetSchema.parse(
 				parsePersistedJsonText(
 					row.read_set_text,
@@ -402,6 +395,59 @@ export async function loadHandleBindings(
 	}));
 }
 
+/** Load durable symbols declared by earlier committed slices of the same
+ * accepted plan. The current change set's exact base sequence is the upper
+ * bound: a historical rehydrate can never see a symbol committed later. The
+ * runtime independently proves each returned UUID and kind against that base
+ * before exposing it. */
+export async function loadPriorCommittedPlanHandleBindings(
+	changeSet: DesignChangeSet,
+	dbHandle?: Db,
+): Promise<ChangeSetHandleBinding[]> {
+	if (changeSet.kind !== "app-edit" || changeSet.baseSeq === null) return [];
+	const db = dbHandle ?? (await getAppDb());
+	const rows = await db
+		.selectFrom("design_change_sets as source")
+		.innerJoin(
+			"design_committed_slices as receipt",
+			"receipt.change_set_id",
+			"source.id",
+		)
+		.innerJoin(
+			"design_change_set_handles as handle",
+			"handle.change_set_id",
+			"source.id",
+		)
+		.select([
+			"handle.handle",
+			"handle.uuid",
+			"handle.entity_kind",
+			"handle.binding_request_id",
+			"source.id as source_change_set_id",
+		])
+		.where("source.design_session_id", "=", changeSet.designSessionId)
+		.where("source.design_revision_id", "=", changeSet.designRevisionId)
+		.where("source.design_revision_digest", "=", changeSet.designRevisionDigest)
+		.where("source.build_plan_id", "=", changeSet.buildPlanId)
+		.where("source.build_plan_digest", "=", changeSet.buildPlanDigest)
+		/* A genesis source has `app_id = NULL` forever; the immutable receipt is
+		 * the canonical binding from that root change set to the materialized app.
+		 * Scope through it so later slices inherit root handles too. */
+		.where("receipt.app_id", "=", changeSet.appId)
+		.where("source.status", "=", "committed")
+		.where("source.committed_seq", "<=", changeSet.baseSeq)
+		.where("source.id", "!=", changeSet.id)
+		.orderBy("source.committed_seq", "asc")
+		.orderBy("handle.handle", "asc")
+		.execute();
+	return rows.map((row) => ({
+		handle: changeSetHandleSchema.parse(row.handle),
+		uuid: row.uuid as Uuid,
+		entityKind: stagedEntityKindSchema.parse(row.entity_kind),
+		bindingRequestId: `${row.source_change_set_id}:${row.binding_request_id}`,
+	}));
+}
+
 /** Look up one stored staging request — the idempotent-replay read. */
 export async function lookupStageRequest(
 	changeSetId: string,
@@ -428,7 +474,11 @@ export async function lookupStageRequest(
 		.where("request_id", "=", requestId)
 		.executeTakeFirst();
 	if (row === undefined) return undefined;
-	if (row.status !== "staged" && row.status !== "rejected") {
+	if (
+		row.status !== "staged" &&
+		row.status !== "noop" &&
+		row.status !== "rejected"
+	) {
 		throw new ChangeSetIntegrityError(
 			`design_change_set_requests.status holds unknown value "${row.status}".`,
 		);
@@ -479,9 +529,11 @@ async function lockAndVerifyOpenChangeSet(
 	tx: Transaction<AppDatabase>,
 	args: {
 		readonly changeSetId: string;
-		/** From the unlocked pre-read — which authority row to lock FIRST.
-		 * The row's own immutable kind/app columns are re-proved after. */
+		/** From the unlocked pre-read — which authority row to lock FIRST
+		 * (`apps` for an app-edit set, `design_sessions` for genesis). The
+		 * row's own immutable kind/app columns are re-proved after. */
 		readonly appId: string | null;
+		readonly designSessionId: string | null;
 		readonly actorUserId: string;
 		readonly runId: string;
 		readonly chatRunHolder?: ChatRunHolderCapability;
@@ -526,10 +578,31 @@ async function lockAndVerifyOpenChangeSet(
 		verifyOpenOwnership(changeSet, args);
 		return changeSet;
 	}
-	/* Genesis arm: the design-session authority row ships with the
-	 * design-session unit; until then the change-set row is the serialization
-	 * point and its own owner-attribution columns are the ownership proof
-	 * (docs/plans/reviewed-intent-atomic-change-sets-plan.md §10.4). */
+	/* Genesis arm: the CLAIMED design-session row is the authority carrier —
+	 * locked first, exactly as the app row leads an app-edit set. The
+	 * session's live holder is the ownership proof (the run that claimed the
+	 * session is the run staging into its genesis set); the change-set row's
+	 * owner columns remain attribution, not authority. */
+	if (args.designSessionId === null) {
+		throw new ChangeSetIntegrityError(
+			`Change set ${args.changeSetId} resolved to no app and no design session before its lock.`,
+		);
+	}
+	const session = await lockSessionRow(tx, args.designSessionId);
+	if (session === undefined || session.state !== "active") {
+		throw new ChangeSetScopeLostError(
+			"This design session is no longer active, so its genesis change set can no longer be used.",
+		);
+	}
+	const sessionLease = designSessionLeaseState(session);
+	if (
+		args.chatRunHolder !== undefined &&
+		!exactRunHolderMatches(sessionLease.holderIdentity, args.chatRunHolder)
+	) {
+		throw new ChangeSetScopeLostError(
+			"A newer request took over this design, so this change set's run no longer holds it.",
+		);
+	}
 	const changeSet = await lockChangeSetRow(tx, args.changeSetId);
 	if (changeSet === undefined) {
 		throw new ChangeSetScopeLostError("This change set no longer exists.");
@@ -537,6 +610,16 @@ async function lockAndVerifyOpenChangeSet(
 	if (changeSet.appId !== null) {
 		throw new ChangeSetIntegrityError(
 			`Change set ${args.changeSetId} resolved to no app before its lock but names app ${changeSet.appId} under it.`,
+		);
+	}
+	if (changeSet.designSessionId !== args.designSessionId) {
+		throw new ChangeSetIntegrityError(
+			`Change set ${args.changeSetId} resolved to design session ${args.designSessionId} before its lock but names ${changeSet.designSessionId} under it.`,
+		);
+	}
+	if (session.project_id !== changeSet.baseProjectId) {
+		throw new ChangeSetScopeLostError(
+			"This design session's Project no longer matches the change set's captured scope, so the change set can no longer be used.",
 		);
 	}
 	await assertEditMembership(tx, args.actorUserId, changeSet.baseProjectId);
@@ -571,6 +654,131 @@ export interface BeginChangeSetCommonArgs {
 	readonly lineage: ChangeSetLineage;
 	readonly ownerUserId: string;
 	readonly ownerRunId: string;
+	/** Production slice execution supplies the exact delegated holder. The
+	 * opener then binds the new set to its running attempt atomically. Direct
+	 * store fixtures may omit this only to exercise the lower-level store. */
+	readonly attemptAuthority?: {
+		readonly holderNonce: string;
+		readonly expectedProjectId: string;
+	};
+}
+
+async function assertAuthorizedAttemptForBegin(
+	tx: Transaction<AppDatabase>,
+	args: BeginChangeSetCommonArgs,
+	target:
+		| {
+				readonly kind: "genesis";
+				readonly proposedAppId: string;
+				readonly digest: string;
+		  }
+		| {
+				readonly kind: "app";
+				readonly appId: string;
+				readonly seq: number;
+				readonly digest: string;
+		  },
+): Promise<void> {
+	const authority = args.attemptAuthority;
+	if (authority === undefined) return;
+	const carrier = await assertDesignSessionRunAuthorityInTransaction(tx, {
+		designSessionId: args.lineage.designSessionId,
+		actorUserId: args.ownerUserId,
+		expectedProjectId: authority.expectedProjectId,
+		holder: {
+			mode: "build",
+			runId: args.ownerRunId,
+			nonce: authority.holderNonce,
+		},
+	});
+	if (
+		(target.kind === "genesis" && carrier.appId !== null) ||
+		(target.kind === "app" && carrier.appId !== target.appId)
+	) {
+		throw new ChangeSetScopeLostError(
+			"The design session no longer delegates to this change set's base target.",
+		);
+	}
+	if (target.kind === "genesis") {
+		const session = await tx
+			.selectFrom("design_sessions")
+			.select("proposed_app_id")
+			.where("id", "=", args.lineage.designSessionId)
+			.executeTakeFirst();
+		if (session?.proposed_app_id !== target.proposedAppId) {
+			throw new ChangeSetScopeLostError(
+				"The design session no longer names this proposed app for genesis.",
+			);
+		}
+	}
+	const attempt = await tx
+		.selectFrom("design_slice_attempts")
+		.select([
+			"design_revision_id",
+			"design_revision_digest",
+			"build_plan_id",
+			"build_plan_digest",
+			"slice_id",
+			"base_kind",
+			"base_app_id",
+			"base_proposed_app_id",
+			"base_seq",
+			"base_snapshot_digest",
+			"change_set_id",
+			"status",
+		])
+		.where("id", "=", args.lineage.attemptId)
+		.where("design_session_id", "=", args.lineage.designSessionId)
+		.forUpdate()
+		.executeTakeFirst();
+	const baseMatches =
+		target.kind === "genesis"
+			? attempt?.base_kind === "empty-genesis" &&
+				attempt.base_app_id === null &&
+				attempt.base_proposed_app_id === target.proposedAppId &&
+				attempt.base_seq === null &&
+				attempt.base_snapshot_digest === target.digest
+			: attempt?.base_kind === "app" &&
+				attempt.base_app_id === target.appId &&
+				attempt.base_proposed_app_id === null &&
+				Number(attempt.base_seq) === target.seq &&
+				attempt.base_snapshot_digest === target.digest;
+	if (
+		attempt === undefined ||
+		attempt.status !== "running" ||
+		attempt.change_set_id !== null ||
+		attempt.design_revision_id !== args.lineage.designRevisionId ||
+		attempt.design_revision_digest !== args.lineage.designRevisionDigest ||
+		attempt.build_plan_id !== args.lineage.buildPlanId ||
+		attempt.build_plan_digest !== args.lineage.buildPlanDigest ||
+		attempt.slice_id !== args.lineage.sliceId ||
+		!baseMatches
+	) {
+		throw new ChangeSetScopeLostError(
+			"The slice attempt no longer authorizes a new change set over this exact base.",
+		);
+	}
+}
+
+async function bindAuthorizedAttemptAfterBegin(
+	tx: Transaction<AppDatabase>,
+	args: BeginChangeSetCommonArgs,
+	changeSetId: string,
+): Promise<void> {
+	if (args.attemptAuthority === undefined) return;
+	const result = await tx
+		.updateTable("design_slice_attempts")
+		.set({ change_set_id: changeSetId, updated_at: new Date() })
+		.where("id", "=", args.lineage.attemptId)
+		.where("design_session_id", "=", args.lineage.designSessionId)
+		.where("status", "=", "running")
+		.where("change_set_id", "is", null)
+		.executeTakeFirst();
+	if (!updatedExactlyOne(result)) {
+		throw new ChangeSetScopeLostError(
+			"The slice attempt stopped authorizing this change set before it could bind.",
+		);
+	}
 }
 
 /**
@@ -598,8 +806,16 @@ export async function beginAppEditChangeSet(
 					"This app moved to a different Project, so no change set can open against the captured scope.",
 				);
 			}
-			await assertEditMembership(tx, args.ownerUserId, app.project_id);
 			const digest = canonicalJsonDigest(app.blueprint);
+			await assertAuthorizedAttemptForBegin(tx, args, {
+				kind: "app",
+				appId: args.appId,
+				seq: safePersistedSequence(app.mutation_seq, "apps.mutation_seq"),
+				digest,
+			});
+			if (args.attemptAuthority === undefined) {
+				await assertEditMembership(tx, args.ownerUserId, app.project_id);
+			}
 			await tx
 				.insertInto("design_change_sets")
 				.values({
@@ -626,6 +842,7 @@ export async function beginAppEditChangeSet(
 					committed_snapshot_digest: null,
 				})
 				.execute();
+			await bindAuthorizedAttemptAfterBegin(tx, args, id);
 			const created = await loadChangeSet(id, tx);
 			if (created === undefined) {
 				throw new ChangeSetIntegrityError(
@@ -652,7 +869,14 @@ export async function beginGenesisChangeSet(
 	const id = crypto.randomUUID();
 	return beginWithOpenAttemptFence(args.lineage.attemptId, () =>
 		withAppTx(async (tx) => {
-			await assertEditMembership(tx, args.ownerUserId, args.projectId);
+			await assertAuthorizedAttemptForBegin(tx, args, {
+				kind: "genesis",
+				proposedAppId: args.proposedAppId,
+				digest: args.baseSnapshotDigest,
+			});
+			if (args.attemptAuthority === undefined) {
+				await assertEditMembership(tx, args.ownerUserId, args.projectId);
+			}
 			await tx
 				.insertInto("design_change_sets")
 				.values({
@@ -679,6 +903,7 @@ export async function beginGenesisChangeSet(
 					committed_snapshot_digest: null,
 				})
 				.execute();
+			await bindAuthorizedAttemptAfterBegin(tx, args, id);
 			const created = await loadChangeSet(id, tx);
 			if (created === undefined) {
 				throw new ChangeSetIntegrityError(
@@ -729,12 +954,18 @@ export type StageRequestOutcome =
 			readonly mutations: AdmittedMutationBatch;
 			readonly stageSlices: readonly AdmittedMutationStageSlice[];
 			readonly handles: readonly StageHandleAllocation[];
-			readonly intentIds: readonly DesignId[];
+			/** Complete set of local binding UUIDs still represented by the
+			 * post-step candidate. The workspace uses this to prune its verified
+			 * projection; the durable handle ledger itself remains append-only. */
+			readonly retainedHandleUuids: readonly Uuid[];
 			readonly readSet: readonly ExternalReadDependency[];
 			/** Non-null when this batch is batch-exclusive — the fence closes
 			 * the set to any other step. */
 			readonly exclusiveKind: ChangeSetExclusiveKind | null;
 			readonly diagnostics: ChangeSetDiagnosticsSummary;
+	  }
+	| {
+			readonly kind: "noop";
 	  }
 	| {
 			readonly kind: "reject";
@@ -746,13 +977,15 @@ export interface StageChangeSetRequestArgs {
 	readonly changeSetId: string;
 	readonly requestId: string;
 	readonly toolName: string;
-	/** Canonical digest of the caller's ACTUAL request (`stagingInputDigest`),
+	/** Canonical digest of the caller's ACTUAL request (`workspaceCallInputDigest`),
 	 * computed before handle resolution. */
 	readonly inputDigest: string;
 	readonly expectedRevision: number;
 	readonly actorUserId: string;
 	readonly runId: string;
 	readonly chatRunHolder?: ChatRunHolderCapability;
+	/** Absolute executor deadline. The stage transaction cannot commit past it. */
+	readonly deadlineAt?: number;
 	readonly outcome: StageRequestOutcome;
 }
 
@@ -817,7 +1050,12 @@ export async function stageChangeSetRequest(
 		throw new ChangeSetScopeLostError("This change set no longer exists.");
 	}
 	try {
-		return await withAppTx(async (tx) => stageInTransaction(tx, args, preRead));
+		return await withAppTx(
+			async (tx) => stageInTransaction(tx, args, preRead),
+			args.deadlineAt === undefined
+				? undefined
+				: { deadlineAt: args.deadlineAt },
+		);
 	} catch (err) {
 		if (!isUniqueViolation(err)) throw err;
 		/* A concurrent identical request raced past the in-transaction ledger
@@ -844,6 +1082,7 @@ async function stageInTransaction(
 	const changeSet = await lockAndVerifyOpenChangeSet(tx, {
 		changeSetId: args.changeSetId,
 		appId: preRead.appId,
+		designSessionId: preRead.appId === null ? preRead.designSessionId : null,
 		actorUserId: args.actorUserId,
 		runId: args.runId,
 		...(args.chatRunHolder !== undefined && {
@@ -897,6 +1136,31 @@ async function stageInTransaction(
 				receipt: JSON.stringify(receipt),
 			})
 			.execute();
+		return { replayed: false, receipt };
+	}
+	if (outcome.kind === "noop") {
+		const receipt = stageRequestReceiptSchema.parse({
+			requestId: args.requestId,
+			disposition: "noop",
+			workspaceRevision: changeSet.revision,
+			handles: {},
+		} satisfies StageRequestReceipt);
+		await tx
+			.insertInto("design_change_set_requests")
+			.values({
+				change_set_id: args.changeSetId,
+				request_id: args.requestId,
+				tool_name: args.toolName,
+				input_digest: args.inputDigest,
+				expected_revision: changeSet.revision,
+				resulting_revision: changeSet.revision,
+				status: "noop",
+				rejection_code: null,
+				receipt: JSON.stringify(receipt),
+			})
+			.execute();
+		await faultBoundary("after-request-insert");
+		await faultBoundary("after-advance");
 		return { replayed: false, receipt };
 	}
 
@@ -959,7 +1223,6 @@ async function stageInTransaction(
 			tool_name: args.toolName,
 			mutations: encodeAdmittedMutationEnvelope(outcome.mutations).json,
 			mutation_digest: mutationDigest,
-			intent_ids: JSON.stringify(intentIdsSchema.parse(outcome.intentIds)),
 			read_set: JSON.stringify(readSetSchema.parse(outcome.readSet)),
 		})
 		.execute();
@@ -994,6 +1257,11 @@ async function stageInTransaction(
 			)
 			.execute();
 	}
+	/* Handle declarations are an append-only audit ledger. A correction may
+	 * remove the authored entity a symbol once named, but pruning belongs to
+	 * the workspace/runtime's verified candidate projection; production grants
+	 * this table SELECT + INSERT only, and historical declarations must never
+	 * be rewritten to resemble a different execution. */
 	await faultBoundary("after-handle-insert");
 	const advance = await tx
 		.updateTable("design_change_sets")
@@ -1058,6 +1326,7 @@ async function transitionOpenChangeSet(
 		const changeSet = await lockAndVerifyOpenChangeSet(tx, {
 			changeSetId: args.changeSetId,
 			appId: preRead.appId,
+			designSessionId: preRead.appId === null ? preRead.designSessionId : null,
 			actorUserId: args.actorUserId,
 			runId: args.runId,
 		});

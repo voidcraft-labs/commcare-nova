@@ -87,10 +87,17 @@ function fixtureEmptyDoc(): BlueprintDoc {
 }
 
 describe("buildSolutionsArchitectPrompt", () => {
-	it("edit prompt carries the editing framing but ZERO doc bytes", () => {
-		const sp = buildSolutionsArchitectPrompt(
-			fixtureDoc("Vaccine Tracker", "Patients"),
+	it("opens a human turn before extended reasoning", () => {
+		const sp = buildSolutionsArchitectPrompt();
+		expect(sp).toContain("Make it your first visible output");
+		expect(sp).toContain("before extended reasoning");
+		expect(sp).toContain(
+			"Do not treat the generated current-app-state message as a human turn",
 		);
+	});
+
+	it("edit prompt carries the editing framing but ZERO doc bytes", () => {
+		const sp = buildSolutionsArchitectPrompt();
 		expect(sp).toContain("Editing Mode");
 		expect(sp).toContain("full visibility");
 		/* The doc picks the branch and contributes nothing — an app name or
@@ -101,9 +108,7 @@ describe("buildSolutionsArchitectPrompt", () => {
 	});
 
 	it("teaches the user-identity bridge and explicit-clear contract", () => {
-		const sp = buildSolutionsArchitectPrompt(
-			fixtureDoc("Vaccine Tracker", "Patients"),
-		);
+		const sp = buildSolutionsArchitectPrompt();
 		expect(sp).toContain("addUserProperties");
 		expect(sp).toContain("userPropertyUuid");
 		expect(sp).toContain("valuePatch");
@@ -112,7 +117,7 @@ describe("buildSolutionsArchitectPrompt", () => {
 	});
 
 	it("keeps automation match counts on Builder Preview instead of SA reads", () => {
-		const sp = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
+		const sp = buildSolutionsArchitectPrompt();
 		expect(sp).toContain("Matching case counts belong only to Builder Preview");
 		expect(sp).not.toContain(
 			"counts the locally representable matching subset",
@@ -120,7 +125,7 @@ describe("buildSolutionsArchitectPrompt", () => {
 	});
 
 	it("teaches contextual automation host and message-property refusals", () => {
-		const sp = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
+		const sp = buildSolutionsArchitectPrompt();
 		expect(sp).toContain(
 			"advanced case operation can add a second extension relationship",
 		);
@@ -151,49 +156,15 @@ describe("buildSolutionsArchitectPrompt", () => {
 	});
 
 	it("edit prompt is byte-identical across different apps", () => {
-		const a = buildSolutionsArchitectPrompt(
-			fixtureDoc("Vaccine Tracker", "Patients"),
-		);
-		const b = buildSolutionsArchitectPrompt(
-			fixtureDoc("Household Census", "Households"),
-		);
+		const a = buildSolutionsArchitectPrompt();
+		const b = buildSolutionsArchitectPrompt();
 		expect(a).toBe(b);
 	});
 
-	it("no doc, or an empty doc, renders the build prompt", () => {
-		for (const sp of [
-			buildSolutionsArchitectPrompt(),
-			buildSolutionsArchitectPrompt(fixtureEmptyDoc()),
-		]) {
-			expect(sp).toContain("Initial Build");
-			expect(sp).toContain("canonical survey starter");
-			expect(sp).toContain("Never reconstruct the starter or guess its UUIDs");
-			expect(sp).toContain(
-				"remove the starter only after its replacement has landed",
-			);
-			expect(sp).not.toContain("Editing Mode");
-		}
-	});
-
-	it("declares custom worker information before every reference-bearing build step", () => {
-		const prompt = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
-		const nameApp = prompt.indexOf("**Name the app");
-		const workerInformation = prompt.indexOf(
-			"**Declare custom worker information",
-		);
-		const dataModel = prompt.indexOf("**Record the data model");
-		const modules = prompt.indexOf("**Execute the design");
-
-		expect(nameApp).toBeGreaterThan(-1);
-		expect(workerInformation).toBeGreaterThan(nameApp);
-		expect(dataModel).toBeGreaterThan(workerInformation);
-		expect(modules).toBeGreaterThan(workerInformation);
-		expect(prompt.slice(workerInformation, dataModel)).toContain(
-			"addUserProperties",
-		);
-		expect(prompt.slice(workerInformation, dataModel)).toContain(
-			"before any condition, calculation, module, or form",
-		);
+	it("has no build composition — the design pipeline owns new-app builds", () => {
+		const sp = buildSolutionsArchitectPrompt();
+		expect(sp).not.toContain("Initial Build");
+		expect(sp).toContain("Editing Mode");
 	});
 });
 
@@ -219,87 +190,56 @@ describe("buildAppStateMessage", () => {
 });
 
 describe("markStablePrefixBoundary", () => {
-	const BREAKPOINT = {
-		openai: { promptCacheBreakpoint: { mode: "explicit" } },
-	};
-
-	/** Collect every marker location as "index:role:partType" strings. */
-	function markerLocations(messages: ModelMessage[]): string[] {
-		return messages.flatMap((m, i) => [
-			...(m.providerOptions ? [`${i}:${m.role}:message`] : []),
-			...(Array.isArray(m.content)
-				? m.content.flatMap((p) =>
-						(p as { providerOptions?: unknown }).providerOptions
-							? [`${i}:${m.role}:${p.type}`]
-							: [],
-					)
-				: []),
-		]);
-	}
-
-	it("marks the FINAL user message — the next turn replays it verbatim", () => {
-		/* NOT the assistant message or an earlier user turn: the final user
-		 * message is the deepest byte-stable point (only the volatile tail
-		 * follows it), and the Responses wire can carry the marker on user
-		 * text parts — assistant `output_text` items have no slot. */
+	it("marks a request-local copy of the final user item", () => {
 		const messages: ModelMessage[] = [
-			{ role: "system", content: "SYSTEM" },
-			{ role: "user", content: [{ type: "text", text: "u1" }] },
-			{ role: "assistant", content: [{ type: "text", text: "a1" }] },
-			{ role: "user", content: [{ type: "text", text: "new question" }] },
+			{ role: "user", content: [{ type: "text", text: "first" }] },
+			{ role: "assistant", content: [{ type: "text", text: "answer" }] },
+			{ role: "user", content: [{ type: "text", text: "next" }] },
 		];
 		const marked = markStablePrefixBoundary(messages);
-		expect(markerLocations(marked)).toEqual(["3:user:text"]);
-		const content = marked[3]?.content as Array<{ providerOptions?: unknown }>;
-		expect(content[0]?.providerOptions).toEqual(BREAKPOINT);
-		// Inputs are never mutated — the base array is reused across retries.
-		expect(markerLocations(messages)).toEqual([]);
+		const markedPart = Array.isArray(marked[2]?.content)
+			? marked[2].content[0]
+			: undefined;
+		expect(
+			markedPart !== undefined && "providerOptions" in markedPart
+				? markedPart.providerOptions
+				: undefined,
+		).toEqual({
+			openai: { promptCacheBreakpoint: { mode: "explicit" } },
+		});
+		const originalPart = Array.isArray(messages[2]?.content)
+			? messages[2].content[0]
+			: undefined;
+		expect(
+			originalPart !== undefined && "providerOptions" in originalPart
+				? originalPart.providerOptions
+				: undefined,
+		).toBeUndefined();
 	});
 
-	it("marks a lone opening message — the first post of a thread writes a readable entry", () => {
-		/* The pattern that cost prod its first cross-POST reads: a fresh
-		 * thread's turn 1 has ONLY its own user message. Marking it is what
-		 * gives turn 2 an entry to read. */
-		const messages: ModelMessage[] = [
-			{ role: "system", content: "SYSTEM" },
-			{ role: "user", content: [{ type: "text", text: "only question" }] },
-		];
-		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
-			"1:user:text",
-		]);
-	});
-
-	it("walks past unmarkable trailing messages (tool results, assistant turns) to the nearest user message", () => {
-		// A continuation prompt ends with assistant/tool messages — the wire
-		// can't mark those, so the marker lands on the turn's user message.
-		const messages: ModelMessage[] = [
-			{ role: "system", content: "SYSTEM" },
-			{ role: "user", content: [{ type: "text", text: "u1" }] },
-			{ role: "assistant", content: [{ type: "text", text: "a1" }] },
+	it("walks past unmarkable assistant and tool items", () => {
+		const marked = markStablePrefixBoundary([
+			{ role: "user", content: [{ type: "text", text: "question" }] },
+			{ role: "assistant", content: [{ type: "text", text: "answer" }] },
 			{
 				role: "tool",
 				content: [
 					{
 						type: "tool-result",
-						toolCallId: "t1",
-						toolName: "askQuestions",
+						toolCallId: "call-1",
+						toolName: "probe",
 						output: { type: "json", value: {} },
 					},
 				],
 			},
-		];
-		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
-			"1:user:text",
 		]);
-	});
-
-	it("falls back to the system message when no user message exists", () => {
-		const messages: ModelMessage[] = [
-			{ role: "system", content: "SYSTEM" },
-			{ role: "assistant", content: [{ type: "text", text: "a1" }] },
-		];
-		expect(markerLocations(markStablePrefixBoundary(messages))).toEqual([
-			"0:system:message",
-		]);
+		const part = Array.isArray(marked[0]?.content)
+			? marked[0].content[0]
+			: undefined;
+		expect(
+			part !== undefined && "providerOptions" in part
+				? part.providerOptions
+				: undefined,
+		).toBeDefined();
 	});
 });

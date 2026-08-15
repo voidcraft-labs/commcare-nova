@@ -22,11 +22,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { createApp } from "@/lib/db/apps";
+import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { asUuid } from "@/lib/domain/uuid";
 import { emptyGenesisBase } from "../baseLoader";
-import { canonicalJsonDigest, stagingInputDigest } from "../digest";
+import { canonicalJsonDigest, workspaceCallInputDigest } from "../digest";
 import {
 	ChangeSetRequestIdCollisionError,
 	ChangeSetScopeLostError,
@@ -56,27 +56,33 @@ const ACTOR = "actor-user";
 const PROJECT = "project-test";
 const RUN = "run-1";
 
-/* The design_sessions FK landed with the design-session unit: a change
- * set's session id must reference a real session row, so the lineage
- * helper seeds one. */
+/* Every change-set identity column is FK-bound (design_sessions with the
+ * design-session unit; revision/plan/attempt with the orchestrator unit),
+ * so the lineage helper seeds the whole FK-valid chain. */
 async function lineage(): Promise<ChangeSetLineage> {
+	const seeded = await h.seedDesignLineage();
 	return {
-		designSessionId: await h.seedDesignSession(),
-		designRevisionId: crypto.randomUUID(),
-		designRevisionDigest: canonicalJsonDigest("design"),
-		buildPlanId: crypto.randomUUID(),
-		buildPlanDigest: canonicalJsonDigest("plan"),
-		sliceId: asDesignId(crypto.randomUUID()),
-		attemptId: crypto.randomUUID(),
+		designSessionId: seeded.designSessionId,
+		designRevisionId: seeded.designRevisionId,
+		designRevisionDigest: seeded.designRevisionDigest,
+		buildPlanId: seeded.buildPlanId,
+		buildPlanDigest: seeded.buildPlanDigest,
+		sliceId: asDesignId(seeded.sliceId),
+		attemptId: seeded.attemptId,
 	};
 }
 
 async function createTestApp(): Promise<string> {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
-	const receipt = await createApp(ACTOR, PROJECT, crypto.randomUUID(), {
-		name: "Change-set store app",
-		status: "complete",
-	});
+	const receipt = await createExplicitBlankApp(
+		ACTOR,
+		PROJECT,
+		crypto.randomUUID(),
+		{
+			name: "Change-set store app",
+			status: "complete",
+		},
+	);
 	return receipt.appId;
 }
 
@@ -109,7 +115,7 @@ function stageArgs(
 		changeSetId,
 		requestId: "req-1",
 		toolName: "updateApp",
-		inputDigest: stagingInputDigest({
+		inputDigest: workspaceCallInputDigest({
 			toolName: "updateApp",
 			expectedWorkspaceRevision: 0,
 			projectedInput: input,
@@ -122,7 +128,7 @@ function stageArgs(
 			mutations,
 			stageSlices: [],
 			handles: [],
-			intentIds: [],
+			retainedHandleUuids: [],
 			readSet: [],
 			exclusiveKind: null,
 			diagnostics: CLEAN_DIAGNOSTICS,
@@ -178,6 +184,20 @@ describe("beginChangeSet", () => {
 });
 
 describe("stage request idempotency", () => {
+	it("cannot persist a staging side effect after its absolute deadline", async () => {
+		const appId = await createTestApp();
+		const changeSet = await openAppEditSet(appId);
+
+		await expect(
+			stageChangeSetRequest(
+				stageArgs(changeSet.id, { deadlineAt: Date.now() - 1 }),
+			),
+		).rejects.toThrow("transaction deadline expired");
+		expect(await lookupStageRequest(changeSet.id, "req-1")).toBeUndefined();
+		expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(0);
+		expect((await loadChangeSet(changeSet.id))?.revision).toBe(0);
+	});
+
 	it("stages once, then replays the identical receipt for the same request", async () => {
 		const appId = await createTestApp();
 		const changeSet = await openAppEditSet(appId);
@@ -288,6 +308,7 @@ describe("statement-boundary fault injection", () => {
 			const appId = await createTestApp();
 			const changeSet = await openAppEditSet(appId);
 			const handle = changeSetHandleSchema.parse("@fault");
+			const handleUuid = asUuid(crypto.randomUUID());
 			const args = stageArgs(changeSet.id, {
 				outcome: {
 					kind: "stage",
@@ -295,10 +316,8 @@ describe("statement-boundary fault injection", () => {
 						{ kind: "setAppName", name: "Renamed by staging" },
 					]),
 					stageSlices: [{ stage: "structure", start: 0, end: 1 }],
-					handles: [
-						{ handle, uuid: asUuid(crypto.randomUUID()), entityKind: "module" },
-					],
-					intentIds: [],
+					handles: [{ handle, uuid: handleUuid, entityKind: "module" }],
+					retainedHandleUuids: [handleUuid],
 					readSet: [],
 					exclusiveKind: null,
 					diagnostics: CLEAN_DIAGNOSTICS,

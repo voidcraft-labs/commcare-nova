@@ -19,7 +19,7 @@
  *
  * The app id is read from the SESSION STORE (`useAppId`), not the static build
  * page prop: a brand-new build mounts with no id, and the SA mints it mid-run
- * (`data-app-id` → atomic identity/access promotion + `reconciler.activate`,
+ * (`data-app-materialized` → atomic identity/access promotion + `reconciler.activate`,
  * URL rewritten via the History API) WITHOUT remounting the builder, so the
  * `buildId` prop stays `'new'`. Reading the session store's live `appId` is how
  * the creator starts heartbeating — and joins a collaborator's roster — the

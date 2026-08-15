@@ -33,12 +33,10 @@ import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
  * - `platform-constraint` — a catalogued Nova/CommCare platform fact. The
  *   `code` is closed (`platformConstraints.ts`); `sourceAnchor` names the
  *   repository/doc anchor that states the constraint.
- *
- * There is no image-coordinate kind YET: a requirement visible only in an
- * attached image is cited through the MESSAGE that attached it, and the
- * source package binds the image bytes by content digest. The image
- * evidence arm ships with the new-build cutover (the reviewed-intent
- * plan's Unit E, work item 20), which retires this interim rule.
+ * - `image` — one projected image, named by its asset id and the digest of
+ *   the exact bytes the model was shown. A requirement visible only in an
+ *   attached image cites the image itself; the digest binds the citation to
+ *   that content, so re-projected or replaced bytes never inherit it.
  */
 export const sourceRefSchema = z.discriminatedUnion("kind", [
 	z
@@ -65,41 +63,52 @@ export const sourceRefSchema = z.discriminatedUnion("kind", [
 			sourceAnchor: z.string().min(1),
 		})
 		.strict(),
+	z
+		.object({
+			kind: z.literal("image"),
+			assetId: mediaAssetIdSchema,
+			/** SHA-256 of the exact projected image bytes — binds the citation to
+			 *  the content the model actually saw. */
+			bytesDigest: z.string().regex(/^[a-f0-9]{64}$/),
+		})
+		.strict(),
 ]);
 export type SourceRef = z.infer<typeof sourceRefSchema>;
 
 /**
- * One normalized requirement claim. The `statement` is the normalized
- * requirement in Nova's own words — never a raw excerpt, unless an exact
- * label/choice/value is itself the requirement. `status` is the epistemic
- * grade: `explicit` claims restate what the source says and MUST carry a
- * message or attachment reference (the graph validator proves it);
- * `inferred` claims are derived from source material; `assumption` claims
- * fill a gap the source leaves open. A claim grounded only in platform
- * knowledge uses a `platform-constraint` reference.
+ * The canonical identity key of one source reference — the coordinate that
+ * makes two references "the same citation". Attachment `sectionPath` /
+ * `figureMarker` deliberately stay out of the key: they narrow WHERE inside
+ * an extract a citation points, not WHICH source it cites.
+ */
+export function sourceRefKey(ref: SourceRef): string {
+	switch (ref.kind) {
+		case "message":
+			return `message:${ref.threadId}:${ref.messageId}:${ref.partIndex}`;
+		case "attachment-extract":
+			return `attachment:${ref.assetId}:${ref.extractorVersion}`;
+		case "platform-constraint":
+			return `platform:${ref.code}`;
+		case "image":
+			return `image:${ref.assetId}:${ref.bytesDigest}`;
+	}
+}
+
+/**
+ * One normalized requirement claim: a statement in Nova's own words plus the
+ * source coordinates that carry it. Claims are DETERMINISTIC SERVER OUTPUT —
+ * the answered-question seeding in `loop/claimSeeding.ts` is the only
+ * producer, so the shape holds exactly what that producer states and its
+ * consumers read (the claims dump in the prompts, the citable-ref set). No
+ * epistemic-status grade and no confidence score: one producer hardcoded
+ * both, nothing read either, and the author prompt itself forbids
+ * confidence scores.
  */
 export const sourceClaimSchema = z
 	.object({
 		id: designIdSchema,
 		statement: z.string().min(1),
 		sourceRefs: z.array(sourceRefSchema).min(1),
-		status: z.enum(["explicit", "inferred", "assumption"]),
-		confidence: z.number().min(0).max(1),
 	})
-	.strict()
-	.superRefine((claim, ctx) => {
-		if (
-			claim.status === "explicit" &&
-			!claim.sourceRefs.some(
-				(ref) => ref.kind === "message" || ref.kind === "attachment-extract",
-			)
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["sourceRefs"],
-				message:
-					"An explicit claim restates what the user said, so it needs a message or attachment source reference — a platform-constraint reference alone supports an inferred claim or an assumption, not an explicit one.",
-			});
-		}
-	});
+	.strict();
 export type SourceClaim = z.infer<typeof sourceClaimSchema>;

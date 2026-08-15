@@ -2,8 +2,7 @@
  * Strict persisted-JSON schemas for the change-set tables.
  *
  * Producer and reader share these exact schemas: every JSONB payload a
- * change-set row carries (`receipt`, `read_set`, `intent_ids`,
- * `owning_intent_ids`) is written from a value these schemas accepted and
+ * change-set row carries (`receipt`, `read_set`) is written from a value these schemas accepted and
  * read back through `parsePersistedJsonText` + the same schema, unknown keys
  * failing closed. Mutation bytes are NOT here — a step's `mutations` column
  * goes through `parsePersistedMutationBatchText` (the one mutation-admission
@@ -11,7 +10,6 @@
  */
 
 import { z } from "zod";
-import { designIdSchema } from "@/lib/agent/design/ids";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -48,6 +46,18 @@ export const stagedEntityKindSchema = z.enum([
 	"case_list_column",
 	"search_input",
 	"case_operation",
+	"worker_property",
+	"user_type",
+	"persona",
+	"organization_level",
+	"location_property",
+	"automation",
+	"automation_criterion",
+	"automation_setup_criterion",
+	"automation_update",
+	"automation_recipient",
+	"automation_event",
+	"automation_user_data_filter",
 ]);
 export type StagedEntityKind = z.infer<typeof stagedEntityKindSchema>;
 
@@ -104,7 +114,6 @@ export type ExternalReadDependency = z.infer<
 >;
 
 export const readSetSchema = z.array(externalReadDependencySchema);
-export const intentIdsSchema = z.array(designIdSchema);
 
 /**
  * The compact diagnostics summary a stage receipt persists — stable finding
@@ -130,7 +139,8 @@ const stageErrorCodeSchema = z.enum([
 	"TARGET_INVALID",
 	"RENAME_PLAN_INVALID",
 	"REDUCER_FAILURE",
-	"STAGING_FORBIDDEN",
+	"TOOL_INPUT_INVALID",
+	"TOOL_NOT_ALLOWED",
 	"EXCLUSIVE_NOT_ALONE",
 	"EXCLUSIVE_SET_CLOSED",
 	"READ_SET_UNRECORDED",
@@ -138,17 +148,18 @@ const stageErrorCodeSchema = z.enum([
 ]);
 
 /**
- * The closed durable receipt one staging request commits beside its step —
- * what an idempotent retry replays, verbatim. Only safe structured facts:
- * no prose payloads, no raw mutations (the step row holds those), no
- * secrets.
+ * The closed durable receipt one staging request records in its append-only
+ * ledger — beside the step when staged, or beside the unchanged workspace
+ * when accepted as a final no-op or rejected. An idempotent retry replays it
+ * verbatim. Only safe structured facts: no prose payloads, no raw mutations
+ * (the step row holds those), no secrets.
  */
 export const stageRequestReceiptSchema = z
 	.object({
 		requestId: z.string().min(1),
-		disposition: z.enum(["staged", "rejected"]),
+		disposition: z.enum(["staged", "noop", "rejected"]),
 		/** The workspace revision AFTER this request (staged: expected + 1;
-		 * rejected: unchanged). */
+		 * no-op or rejected: unchanged). */
 		workspaceRevision: z.number().int().nonnegative(),
 		/** The appended step's ordinal — staged dispositions only. */
 		ordinal: z.number().int().nonnegative().optional(),
@@ -187,6 +198,18 @@ export const stageRequestReceiptSchema = z
 					code: "custom",
 					path: ["error"],
 					message: "A staged receipt cannot carry a rejection.",
+				});
+			}
+		} else if (receipt.disposition === "noop") {
+			if (
+				receipt.ordinal !== undefined ||
+				receipt.mutationDigest !== undefined ||
+				receipt.error !== undefined
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["ordinal"],
+					message: "An accepted no-op receipt appends no mutation step.",
 				});
 			}
 		} else {

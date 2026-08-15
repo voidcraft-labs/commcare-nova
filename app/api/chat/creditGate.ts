@@ -32,9 +32,11 @@ import {
  * edit rate, so a derived-rate reject would break this floor property.)
  *
  * CRITICAL: `rawMessages` must be the array straight off `body.messages`.
- * The last message's ROLE is the charge signal (a fresh instruction ends with
- * `user`; an answered-askQuestions auto-resend ends with `assistant` and
- * rides free), so any transform of the history the SA receives, the
+ * The last message's ROLE is the ordinary charge signal (a fresh instruction
+ * ends with `user`; an answered-askQuestions auto-resend ends with `assistant`
+ * and rides free). The one explicit exception is `redrive`, which is a fresh
+ * exact-turn claim even when its frozen history ends in `assistant`. Any
+ * transform of the history the SA receives, the
  * tool-part sanitizer today, anything else tomorrow: must never feed back
  * into this read: a transform that leaves a `user` message last would mark
  * every clarification round-trip chargeable and silently break the
@@ -43,8 +45,12 @@ import {
 export function creditGateDecision(input: {
 	rawMessages: readonly UIMessage[];
 	existingApp: boolean;
+	/** An explicit exact-turn re-drive is a fresh claim even when the frozen
+	 * transcript ends in an assistant question/answer round. */
+	redrive?: boolean;
 }): { chargeable: boolean; preflightCost: number } {
-	const chargeable = isChargeableTurn(input.rawMessages);
+	const chargeable =
+		input.redrive === true || isChargeableTurn(input.rawMessages);
 	// A non-chargeable continuation costs nothing: no reservation, no debit. The
 	// amount is only meaningful when `chargeable` is true. Spelled with the rate
 	// constants directly, NOT `chargeAmount(...)`: its parameter is `appReady`,

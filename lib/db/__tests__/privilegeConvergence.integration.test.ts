@@ -26,7 +26,7 @@ import {
 	quoteIdentifier,
 } from "@/scripts/infra/databaseOwnerBootstrap";
 import { readAppChangeStreamRowsSince } from "../appChangeStream";
-import { createApp } from "../apps";
+import { createExplicitBlankApp } from "../appGenesis";
 import { runCaptureCleanupSchemaProbe } from "../captureCleanupSchemaProbe";
 import { __setAppDbForTests, type AppDatabase } from "../pg";
 import {
@@ -529,7 +529,7 @@ describe("database privilege convergence", () => {
 				)
 			`.execute(migration.db);
 			__setAppDbForTests(migration.db as Kysely<AppDatabase>);
-			const probeApp = await createApp(
+			const probeApp = await createExplicitBlankApp(
 				probeUserId,
 				probeProjectId,
 				crypto.randomUUID(),
@@ -624,7 +624,7 @@ describe("database privilege convergence", () => {
 
 			runtime = await createRoleDatabase(config.runtimeRole);
 			__setAppDbForTests(runtime.db as Kysely<AppDatabase>);
-			const genesis = await createApp(
+			const genesis = await createExplicitBlankApp(
 				probeUserId,
 				probeProjectId,
 				crypto.randomUUID(),

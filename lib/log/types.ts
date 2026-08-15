@@ -54,6 +54,8 @@ export const classifiedErrorPayloadSchema = z.strictObject({
 	 * derived from the classifier's `recoverable` flag at emit time.
 	 */
 	fatal: z.boolean(),
+	/** The error describes a retry already in flight; this run has not ended. */
+	runContinues: z.literal(true).optional(),
 });
 export type ClassifiedErrorPayload = z.infer<
 	typeof classifiedErrorPayloadSchema
@@ -124,10 +126,74 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 	 * cost stays on the run summary (see lib/log/CLAUDE.md). */
 	z.strictObject({
 		type: z.literal("step-usage"),
+		model: z.string().min(1).optional(),
+		pricingTier: z.enum(["short", "long"]).optional(),
 		inputTokens: z.number().int().nonnegative(),
 		outputTokens: z.number().int().nonnegative(),
 		cacheReadTokens: z.number().int().nonnegative().optional(),
 		cacheWriteTokens: z.number().int().nonnegative().optional(),
+		finishReason: z
+			.enum([
+				"stop",
+				"length",
+				"content-filter",
+				"tool-calls",
+				"error",
+				"other",
+			])
+			.optional(),
+		rawFinishReason: z.string().min(1).optional(),
+		// AI SDK timings derive from performance.now(), so fractional
+		// milliseconds are valid and should not make event recording fail.
+		stepTimeMs: z.number().finite().nonnegative().optional(),
+		responseTimeMs: z.number().finite().nonnegative().optional(),
+		toolCallIds: z.array(z.string().min(1)).min(1).optional(),
+	}),
+	/* Design-tool-outcome annotation — payload-free observability for private
+	 * contract/revision/plan staging. Candidate content and validation prose
+	 * remain in the private workspace, never this supplemental event log. */
+	z.strictObject({
+		type: z.literal("design-tool-outcome"),
+		toolCallId: z.string().min(1),
+		toolName: z.string().min(1),
+		inputChars: z.number().int().nonnegative(),
+		durationMs: z.number().int().nonnegative(),
+		outcome: z.enum([
+			"accepted",
+			"needs-input",
+			"rejected",
+			"wire-invalid",
+			"incomplete",
+		]),
+		code: z.string().min(1),
+		validationStage: z
+			.enum(["partial", "schema", "construction", "sensitivity"])
+			.optional(),
+		issueCount: z.number().int().nonnegative().optional(),
+	}),
+	/* Executor-tool-outcome annotation — the payload-free audit trail for the
+	 * private slice compiler. Raw executor inputs, outputs, and rejection prose
+	 * may contain customer-authored design material and never enter this log;
+	 * these stable categories and codes are enough to distinguish wire-shape
+	 * friction, operation refusal, validator repair, finalization, and completion. */
+	z.strictObject({
+		type: z.literal("executor-tool-outcome"),
+		modelStep: z.number().int().positive(),
+		toolName: z.string().min(1),
+		operationIndex: z.number().int().nonnegative().optional(),
+		workspaceRevision: z.number().int().nonnegative(),
+		outcome: z.enum([
+			"accepted",
+			"skipped",
+			"wire-invalid",
+			"operation-rejected",
+			"mutation-rejected",
+			"validator-repair",
+			"finalization-rejected",
+			"committed",
+			"terminal-protocol",
+		]),
+		code: z.string().min(1),
 	}),
 	/* Attachment-prep annotation — brackets the pre-Opus resolve step
 	 * (`resolveAttachments`), which reads each document ref's stored extract
