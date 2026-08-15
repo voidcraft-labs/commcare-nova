@@ -249,6 +249,19 @@ describe("renderSourcePackage containment", () => {
 		);
 		expect(DESIGN_REVIEWER_SYSTEM).toContain("one systemic finding");
 		expect(DESIGN_REVIEWER_SYSTEM).toContain("every affected form composition");
+		expect(DESIGN_AGENT_SYSTEM).toContain("one information hierarchy");
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"information the worker cannot infer nearby",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"place shared guidance once at the level where it applies",
+		);
+		expect(DESIGN_REVIEWER_SYSTEM).toContain(
+			"Read each form as one information hierarchy",
+		);
+		expect(DESIGN_REVIEWER_SYSTEM).toContain(
+			"validation messages should each contribute information",
+		);
 		for (const prompt of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {
 			expect(prompt).toContain("ordinary group fields");
 			expect(prompt).toContain("one continuous form");
@@ -256,6 +269,23 @@ describe("renderSourcePackage containment", () => {
 		}
 		expect(DESIGN_AGENT_SYSTEM).toContain(
 			"never a reason to flatten useful grouping",
+		);
+	});
+
+	it("teaches native selected-record editing without forcing sparse replacement", () => {
+		const constraints = renderPlatformConstraintsSection();
+		for (const text of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {
+			expect(text).toContain("current value");
+			expect(text).toContain("clearing");
+		}
+		expect(constraints).toContain("current saved value");
+		expect(constraints).toContain("clearing");
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"Leaving the input untouched preserves the value",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain("separate sparse replacement input");
+		expect(constraints).toContain(
+			"blank replacement input that conditionally skips its write",
 		);
 	});
 

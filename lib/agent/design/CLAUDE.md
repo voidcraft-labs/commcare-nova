@@ -184,10 +184,17 @@ server-governed semantic phases:
    planner model call.
 
 The author makes architectural and worker-facing composition decisions in the
-same durable pass. The stateless reviewer checks module minimality/reuse,
-parent-versus-child form hosts, queue-only roles, actor-specific duplication,
-meaningful phases, context changes, error risk, interruption recovery,
-Markdown guidance and summaries, and coherent icons. A flat rationale names
+same durable pass. Form composition is one information hierarchy: native
+interaction and clear labels carry familiar work, while supporting copy adds
+distinct information once at the scope where it applies. Selected-record and
+close inputs that write directly to the selected record edit their preloaded
+current values in place; sparse blank replacement is a distinct interaction,
+not explanatory copy layered onto the native one. The stateless reviewer reads
+the whole form for repeated information and runtime-copy mismatches, then
+checks module minimality/reuse, parent-versus-child form hosts, queue-only
+roles, actor-specific duplication, meaningful phases, context changes, error
+risk, interruption recovery, Markdown guidance and summaries, validation
+promises, and coherent icons. A flat rationale names
 the actual inputs and worker sequence; the reviewer reports repeated weak flat
 treatment as one systemic finding naming every affected form. There is no extra
 model-authored build-plan or visual-design pass.

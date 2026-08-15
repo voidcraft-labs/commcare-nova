@@ -41,6 +41,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"RESERVED_CASE_IDENTIFIERS_REJECTED",
 	"CASE_WRITE_TARGETS_MODULE_LINEAGE",
 	"CASE_PROPERTY_CLEAR_UNAVAILABLE",
+	"CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES",
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
@@ -171,6 +172,12 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"A case-property operation can write a typed value or use a condition to skip that write; Nova cannot explicitly clear an existing property. When status or closure removes a record from active work, preserve an earlier scheduling or detail value as history unless the request specifically requires erasure, in which case the design must surface the platform gap rather than inventing a blank or null write.",
 		sourceAnchor:
 			"lib/domain/predicate/typeChecker.ts::checkValueAssignmentExpression",
+	},
+	CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES: {
+		code: "CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES",
+		statement:
+			"In a selected-record or close form, a visible input that writes directly to the selected record opens with that property's current saved value. Leaving it untouched preserves the value; clearing it is an edit. A blank replacement input that conditionally skips its write is a separate interaction and should be designed only when the workflow genuinely needs sparse replacement.",
+		sourceAnchor: "lib/preview/engine/formEngine.ts::preloadCaseData",
 	},
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: {
 		code: "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",

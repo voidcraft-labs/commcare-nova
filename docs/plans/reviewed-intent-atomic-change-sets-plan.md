@@ -279,7 +279,14 @@ explains why one uninterrupted flow is better;
 generic claims about shortness, linearity, or speed do not establish that.
 Its identity-bearing items place every input
 exactly once and may interleave Markdown labels, hints, help, concise guidance,
-and record summaries. The design therefore decides the worker-facing
+and record summaries. Those carriers form one information hierarchy rather
+than a per-input completeness checklist: native interaction and clear labels
+carry familiar work, supporting copy contributes information the worker cannot
+infer nearby, and shared guidance appears once at the scope where it applies.
+In selected-record and close forms, a direct case-bound input edits its
+preloaded current value in place. Sparse blank replacement is a distinct
+interaction with a conditional write, not copy layered over the native field.
+The design therefore decides the worker-facing
 information architecture before construction without becoming a Blueprint or
 an executable form schema. Deterministic lowering maps each design visual group
 to the current Blueprint `group` field and its identity-addressed children;
@@ -562,7 +569,12 @@ a user-decision finding to hand the choice back.
 Composition is an independent review concern even when the same contract has
 more serious record or workflow findings. Repeated weak flat treatment is one
 systemic finding naming every affected form composition, not one duplicate
-finding per form and not an omission behind the higher-severity issue.
+finding per form and not an omission behind the higher-severity issue. The
+reviewer reads each complete form as one information hierarchy: supporting
+copy must add distinct information at the right scope, prose must match native
+runtime behavior, and a promised recognizable or cross-input format is backed
+by broad low-risk validation or weaker wording rather than an unsupported
+claim.
 
 ### 4.5 Revision and review depth
 
@@ -711,7 +723,8 @@ Each executor receives one exact brief containing:
   parent, module, field-write, and case-operation calls;
 - the exact relevant module and form compositions, including create/reuse,
   record host and role, form mode, name, icon, ordered sections/items,
-  Markdown, summaries, and any duplication or flat-layout rationale;
+  Markdown, summaries, the exact form-local field ID for every workflow input,
+  and any duplication or flat-layout rationale;
 - a slice-specific read/mutation profile and only relevant capability and
   platform constraints;
 - exact accepted revision and plan digests.
@@ -735,6 +748,12 @@ selected-record form onto a child/outcome record, put forms in a queue-only
 module, or change an accepted form mode. This is a narrow architecture fence,
 not a second Blueprint validator; ordinary tools still realize the accepted
 fields, groups, prose, icons, and layout.
+
+Case-property catalog defaulting supplies only intrinsic field shape: data
+type, canonical label, and choice catalog. Hint, requiredness, and validation
+remain explicit form-context behavior. A registration declaration therefore
+cannot silently impose its behavior on a later update field writing the same
+property.
 
 The complete ordinary tool grammar plus the two server-owned controls remains
 immutable across the accepted plan, preserving one cacheable context. The
@@ -826,8 +845,12 @@ mutation-touch coordinate as proof that a semantic requirement was implemented.
 
 `finishWorkflow` is only a request. The server independently inspects the
 current private candidate, proves current holder, Project membership, artifact
-lineage, read sets, validator and export readiness, then enters the canonical
-kernel. A finding returns exact correction diagnostics and commits nothing. A
+lineage, read sets, validator and export readiness, and the presence or absence
+of each accepted workflow input's required condition on its exact realized
+field ID, then enters the canonical kernel. Requirement-parity diagnostics join
+the ordinary validator findings in the same response so correction does not
+cost an avoidable extra finalization turn. A finding returns exact correction
+diagnostics and commits nothing. A
 clean finalizer creates the slice's one canonical revision. There is no
 step-boundary auto-commit, finalization-eligibility marker, or model assertion
 that substitutes for this call. A successful no-op mutation call is still

@@ -145,6 +145,7 @@ describe("deriveSliceExecutionBrief", () => {
 									compositionItemId: ids.itemVisitSummary,
 									blueprintFieldKind: "workflow-input",
 									inputHandle: "visit_summary",
+									blueprintFieldId: "visit_summary",
 								}),
 							],
 						}),

@@ -15,9 +15,10 @@
  *
  * The module's CASE TYPE references the app's case-type catalog by
  * NAME — the record itself lands earlier, via `generateSchema` (the
- * data-model tool), so the model is stated once and the field
- * assembly's catalog defaulting (`applyDefaults`) seeds this module's
- * own fields from it. An unrecorded `case_type` is rejected with the
+ * data-model tool), so the model is stated once and the field assembly's
+ * catalog defaulting (`applyDefaults`) seeds intrinsic type, canonical label,
+ * and choice catalog. Form-context hint, requiredness, and validation remain
+ * explicit on each field. An unrecorded `case_type` is rejected with the
  * generateSchema pointer.
  *
  * Follow-up case-list refinement (sort, filter, search inputs) still

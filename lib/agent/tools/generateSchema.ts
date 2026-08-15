@@ -6,9 +6,10 @@
  * `declareCaseType` → `setCaseTypeMeta` (parent link) → one
  * `addCaseProperty` per property. From then on the catalog is doc
  * state: `createModule` references a case type by NAME, and the field
- * assembly's catalog defaulting (`applyDefaults`) seeds every
- * case-bound field's label / hint / options / validation from the
- * record — the model is stated once, here, and inherited everywhere.
+ * assembly's catalog defaulting (`applyDefaults`) seeds every case-bound
+ * field's intrinsic type, canonical label, and choice catalog from the
+ * record. Hint, requiredness, and validation stay on each contextual form
+ * field instead of leaking between workflows that write the same property.
  *
  * The app's NAME is deliberately not an input: naming lives on
  * `updateApp` alone. A required name here would force an existing
@@ -64,7 +65,7 @@ export type GenerateSchemaResult = MutationSuccess | { error: string };
 
 export const generateSchemaTool = {
 	description:
-		"Record the app's data model onto the app. A call may declare complete new case types or append genuinely new properties to an existing authored type; it never replaces an existing property or changes an existing parent relation. When extending a type, pass only the new property definitions. A bare auto-declared type is filled in. createModule then references a case type by name, and fields writing a recorded property inherit its label, options, and validation.",
+		"Record the app's data model onto the app. A call may declare complete new case types or append genuinely new properties to an existing authored type; it never replaces an existing property or changes an existing parent relation. When extending a type, pass only the new property definitions. A bare auto-declared type is filled in. createModule then references a case type by name, and fields writing a recorded property may inherit its intrinsic type, canonical label, and choice catalog; field hint, requiredness, and validation remain specific to each form.",
 	inputSchema: generateSchemaInputSchema,
 	async execute(
 		input: GenerateSchemaInput,
@@ -233,7 +234,7 @@ export const generateSchemaTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Recorded the data model: ${typeNames.length} case type${typeNames.length === 1 ? "" : "s"} (${typeNames.join(", ")}) with ${propertyCount} supplied properties.${enriched.length > 0 ? ` ${enriched.map((n) => `"${n}"`).join(", ")} existed as a bare declaration and now carries the recorded model.` : ""}${extended.length > 0 ? ` Added new properties to ${extended.map((n) => `"${n}"`).join(", ")} without changing its existing definitions.` : ""} createModule now references these by name; fields writing a recorded property inherit its label, options, and validation.`,
+					message: `Recorded the data model: ${typeNames.length} case type${typeNames.length === 1 ? "" : "s"} (${typeNames.join(", ")}) with ${propertyCount} supplied properties.${enriched.length > 0 ? ` ${enriched.map((n) => `"${n}"`).join(", ")} existed as a bare declaration and now carries the recorded model.` : ""}${extended.length > 0 ? ` Added new properties to ${extended.map((n) => `"${n}"`).join(", ")} without changing its existing definitions.` : ""} createModule now references these by name; fields writing a recorded property may inherit its type, canonical label, and choices, while hint, requiredness, and validation stay form-specific.`,
 					summary,
 				},
 			};

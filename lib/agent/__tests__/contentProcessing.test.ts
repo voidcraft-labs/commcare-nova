@@ -12,11 +12,9 @@ import {
 } from "../contentProcessing";
 import { projectedOptionsSourceSchema } from "../toolSchemaGenerator";
 
-// Fixture: case types model the CommCare case data layer, so their
-// property metadata uses CommCare-flavored `validation` / `validation_msg`.
-// `applyDefaults` is the one place in the agent where the case-type
-// vocabulary meets the field vocabulary: the output field uses domain
-// names (`validate`, `kind`, `caseWrite`).
+// Fixture: case types model the record catalog. `applyDefaults` may reuse its
+// intrinsic type, canonical label, and choices, but form-context behavior is
+// deliberately authored on each field.
 const testCaseType: CaseType = {
 	name: "patient",
 	properties: [
@@ -97,7 +95,7 @@ describe("applyDefaults", () => {
 		expect(result.label && proseTemplateText(result.label)).toBe("Full Name");
 	});
 
-	it("applies exact catalog metadata to a case-bound field id", () => {
+	it("applies intrinsic catalog metadata without contextual hint text", () => {
 		const result = applyDefaults(
 			{
 				id: "enrollment_number",
@@ -121,9 +119,7 @@ describe("applyDefaults", () => {
 		expect(result.label && proseTemplateText(result.label)).toBe(
 			"Enrollment number",
 		);
-		expect(result.hint && proseTemplateText(result.hint)).toBe(
-			"Printed on the card",
-		);
+		expect(result.hint).toBeUndefined();
 	});
 
 	it("preserves explicit label when provided", () => {
@@ -141,12 +137,7 @@ describe("applyDefaults", () => {
 		);
 	});
 
-	it("fills in validate (nested), required, and msg from case-type vocab", () => {
-		// SA tool surface uses a nested `validate: { expr, msg? }` object
-		// (so the 8-optional batch ceiling stays at 8). `applyDefaults`
-		// translates the case-type's flat `validation` / `validation_msg`
-		// into that nested shape — only when the SA didn't provide its
-		// own validate object.
+	it("does not leak record-level validation or requiredness into a form", () => {
 		const result = applyDefaults(
 			{
 				id: "reported_age",
@@ -155,10 +146,32 @@ describe("applyDefaults", () => {
 			},
 			[testCaseType],
 		);
+		expect(result.required).toBeUndefined();
+		expect(result.validate).toBeUndefined();
+	});
+
+	it("preserves explicitly authored form-context behavior", () => {
+		const result = applyDefaults(
+			{
+				id: "reported_age",
+				kind: "int",
+				caseWrite: { caseType: "patient", property: "age" },
+				hint: proseText("Enter the age measured today."),
+				required: xp("true()"),
+				validate: {
+					expr: xp(". >= 0"),
+					msg: proseText("Age cannot be negative."),
+				},
+			},
+			[testCaseType],
+		);
+		expect(result.hint && proseTemplateText(result.hint)).toBe(
+			"Enter the age measured today.",
+		);
 		expect(result.required).toEqual(xp("true()"));
 		expect(result.validate).toEqual({
-			expr: xp(". > 0 and . < 150"),
-			msg: proseText("Age must be between 1 and 149"),
+			expr: xp(". >= 0"),
+			msg: proseText("Age cannot be negative."),
 		});
 	});
 
@@ -205,11 +218,10 @@ describe("applyDefaults", () => {
 		expect(result.kind).toBe("hidden");
 	});
 
-	it("does NOT seed validate onto a kind that doesn't declare it (geopoint)", () => {
+	it("does not seed contextual behavior onto a different field kind", () => {
 		const result = applyDefaults(
-			// geopoint has no `validate` slot, so the `age` property's
-			// `validation` must not be seeded — but `required`, which geopoint
-			// DOES declare, still is.
+			// Neither record-level validation nor requiredness belongs to this
+			// form question, even if its field kind could carry requiredness.
 			{
 				id: "location",
 				kind: "geopoint",
@@ -218,7 +230,7 @@ describe("applyDefaults", () => {
 			[testCaseType],
 		);
 		expect(result.validate).toBeUndefined();
-		expect(result.required).toEqual(xp("true()"));
+		expect(result.required).toBeUndefined();
 	});
 
 	it("treats an explicit empty-string label as unset and seeds from the catalog", () => {
@@ -236,7 +248,7 @@ describe("applyDefaults", () => {
 		expect(result.label && proseTemplateText(result.label)).toBe("Full Name");
 	});
 
-	it("fills in hint from case type", () => {
+	it("does not fill in hint from the record catalog", () => {
 		const result = applyDefaults(
 			{
 				id: "contact_number",
@@ -245,9 +257,7 @@ describe("applyDefaults", () => {
 			},
 			[testCaseType],
 		);
-		expect(result.hint && proseTemplateText(result.hint)).toBe(
-			"Include country code",
-		);
+		expect(result.hint).toBeUndefined();
 	});
 
 	it("derives kind from case type data_type", () => {

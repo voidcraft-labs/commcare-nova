@@ -55,6 +55,10 @@ import type { DurableUsageIdentity } from "@/lib/db/usage";
 import { type ReasoningEffort, reasoningProviderOptions } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
+	type AcceptedInputRequirementIssue,
+	acceptedInputRequirementIssues,
+} from "./acceptedInputParity";
+import {
 	BLOCKER_RESOLUTION_ALLOWANCE,
 	type SliceAttemptBudgetClaimResult,
 	type SliceAttemptBudgetCounter,
@@ -1815,6 +1819,10 @@ export async function runSliceExecutor(
 							boundedSignal,
 						);
 						const stale = staleExternalReads(diagnostics);
+						const requirementIssues = acceptedInputRequirementIssues(
+							workspace.currentSnapshot().doc,
+							brief,
+						);
 						if (stale.length > 0) {
 							await emitOutcome(
 								call,
@@ -1832,21 +1840,37 @@ export async function runSliceExecutor(
 								kind: "stop",
 								outcome: { kind: "read-set-stale", stale },
 							};
-						} else if (!diagnostics.canCommit) {
-							const projected = projectDiagnostics(diagnostics, brief);
+						} else if (!diagnostics.canCommit || requirementIssues.length > 0) {
+							const projected = projectDiagnostics(
+								diagnostics,
+								brief,
+								requirementIssues,
+							);
 							const observed = await observeSemanticFailure({
 								signature: failureSignature({
 									kind: "workflow-needs-correction",
 									fingerprints: diagnostics.allFindings
 										.map(findingFingerprint)
+										.concat(
+											requirementIssues.map((issue) =>
+												canonicalJsonDigest(issue),
+											),
+										)
 										.sort(),
-									canCommit: diagnostics.canCommit,
+									canCommit:
+										diagnostics.canCommit && requirementIssues.length === 0,
 								}),
 								observations:
-									diagnostics.allFindings.length > 0
-										? diagnostics.allFindings
-												.slice(0, 12)
-												.map((finding) => `${finding.code}: ${finding.message}`)
+									diagnostics.allFindings.length > 0 ||
+									requirementIssues.length > 0
+										? [
+												...requirementIssues.map(
+													(issue) => `${issue.code}: ${issue.message}`,
+												),
+												...diagnostics.allFindings.map(
+													(finding) => `${finding.code}: ${finding.message}`,
+												),
+											].slice(0, 12)
 										: [describeBlockers(diagnostics)],
 								diagnostics: projected,
 							});
@@ -2296,27 +2320,28 @@ function terminalProtocolCode(error: unknown): string | null {
 function projectDiagnostics(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
 	_brief: SliceExecutionBrief,
+	acceptedRequirementIssues: readonly AcceptedInputRequirementIssue[] = [],
 ): unknown {
 	const MAX_REPORTED_FINDINGS = 20;
+	const validatorFindings = diagnostics.allFindings.map((finding) => ({
+		code: finding.code,
+		message: finding.message,
+		/* Coordinates and structured details are what distinguish several
+		 * instances of the same validator code. They stay inside the private
+		 * executor context; stripping them made the worker guess which carrier
+		 * to repair and turn a local correction into a false design blocker. */
+		location: finding.location,
+		details: finding.details,
+	}));
+	const allFindings = [...acceptedRequirementIssues, ...validatorFindings];
 	return {
 		revision: diagnostics.snapshotRevision,
-		findingCount: diagnostics.allFindings.length,
-		findings: diagnostics.allFindings
-			.slice(0, MAX_REPORTED_FINDINGS)
-			.map((finding) => ({
-				code: finding.code,
-				message: finding.message,
-				/* Coordinates and structured details are what distinguish several
-				 * instances of the same validator code. They stay inside the private
-				 * executor context; stripping them made the worker guess which carrier
-				 * to repair and turn a local correction into a false design blocker. */
-				location: finding.location,
-				details: finding.details,
-			})),
-		...(diagnostics.allFindings.length > MAX_REPORTED_FINDINGS && {
+		findingCount: allFindings.length,
+		findings: allFindings.slice(0, MAX_REPORTED_FINDINGS),
+		...(allFindings.length > MAX_REPORTED_FINDINGS && {
 			truncated: {
 				shown: MAX_REPORTED_FINDINGS,
-				total: diagnostics.allFindings.length,
+				total: allFindings.length,
 			},
 		}),
 		introducedSincePreviousStep: diagnostics.introducedSincePreviousStep,
@@ -2325,7 +2350,7 @@ function projectDiagnostics(
 			kind: status.dependency.kind,
 			state: status.state,
 		})),
-		canCommit: diagnostics.canCommit,
+		canCommit: diagnostics.canCommit && acceptedRequirementIssues.length === 0,
 	};
 }
 

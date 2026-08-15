@@ -147,7 +147,7 @@ follow the app structure; the referenced worker information cannot.
 |---|---|
 | `update_app` | Set the app's name. |
 | `configure_connect` | Set the exact app-wide CommCare Connect target atomically, or turn Connect off and clear every form block. |
-| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write, `create_module` references the recorded types by name, and a form field that writes a recorded property inherits its label, options, and validation. Also how a new case type enters an existing app. |
+| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write, `create_module` references the recorded types by name, and a form field that writes a recorded property may inherit its intrinsic type, canonical label, and choice catalog. Field hint, requiredness, and validation remain specific to each form. Also how a new case type enters an existing app. |
 
 ### Configuring CommCare Connect
 

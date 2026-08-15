@@ -8,7 +8,7 @@
 
 import type { ModelMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, xp } from "@/lib/__tests__/docHelpers";
 import type { ChangeSetDiagnostics } from "@/lib/agent/change-set/diagnostics";
 import {
 	ChangeSetScopeLostError,
@@ -27,6 +27,7 @@ import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import type { WorkspaceSnapshot } from "@/lib/agent/workspace/types";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
+import { acceptedInputRequirementIssues } from "../acceptedInputParity";
 import { budgetForSlice, type SliceExecutionBudget } from "../budgets";
 import {
 	deriveSliceExecutionBrief,
@@ -991,6 +992,105 @@ describe("failure and finalization policy", () => {
 			kind: "protocol-failure",
 			code: "no-tool-call",
 		});
+	});
+});
+
+describe("accepted input requirement parity", () => {
+	function visitBrief(requiredWhen?: string): SliceExecutionBrief {
+		const base = makeContract();
+		const contract = appDesignContractSchema.parse({
+			...base,
+			workflows: base.workflows.map((workflow) =>
+				workflow.id !== ids.taskVisit
+					? workflow
+					: {
+							...workflow,
+							inputs: workflow.inputs.map((input) =>
+								input.handle !== "visit_summary" || requiredWhen === undefined
+									? input
+									: { ...input, requiredWhen },
+							),
+						},
+			),
+		});
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+		});
+		const slice = fixtureValue(
+			plan.slices.find((entry) => entry.workflowId === ids.taskVisit),
+			"visit workflow slice",
+		);
+		return deriveSliceExecutionBrief({
+			contract,
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+			plan,
+			sliceId: slice.id,
+		});
+	}
+
+	function visitDoc(required: boolean): BlueprintDoc {
+		return buildDoc({
+			appName: "Patient tracker",
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patient care",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Record visit",
+							type: "followup",
+							fields: [
+								{
+									kind: "group",
+									id: "visit_notes",
+									children: [
+										{
+											kind: "text",
+											id: "visit_summary",
+											...(required && { required: xp("true()") }),
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	it("rejects record-level requiredness that leaked onto an optional workflow input", () => {
+		const issues = acceptedInputRequirementIssues(visitDoc(true), visitBrief());
+		expect(issues).toHaveLength(1);
+		expect(issues[0]).toMatchObject({
+			code: "ACCEPTED_INPUT_REQUIREMENT_MISMATCH",
+			details: {
+				inputHandle: "visit_summary",
+				blueprintFieldId: "visit_summary",
+				acceptedRequiredWhen: null,
+				realizedRequired: true,
+			},
+		});
+	});
+
+	it("requires the realized field to carry an accepted input requirement", () => {
+		const issues = acceptedInputRequirementIssues(
+			visitDoc(false),
+			visitBrief("Always during a visit"),
+		);
+		expect(issues).toHaveLength(1);
+		expect(issues[0]?.details).toMatchObject({
+			acceptedRequiredWhen: "Always during a visit",
+			realizedRequired: false,
+		});
+		expect(
+			acceptedInputRequirementIssues(
+				visitDoc(true),
+				visitBrief("Always during a visit"),
+			),
+		).toEqual([]);
 	});
 });
 

@@ -10,7 +10,7 @@ import {
 
 describe("reviewed-build presentation", () => {
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v10");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v11");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"Use several native calls in one response when their inputs and identities are already known",
@@ -47,6 +47,15 @@ describe("reviewed-build presentation", () => {
 		);
 		expect(EXECUTOR_SYSTEM).toContain(
 			"The record's display name is never a second case-type key",
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"A workflow-input lowering's `blueprintFieldId` is the exact form-local field id",
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"opens with its current property value and edits it in place",
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"those contextual behaviors never inherit from the record",
 		);
 		expect(EXECUTOR_SYSTEM).toContain("Use `configureCaseList`");
 		expect(EXECUTOR_SYSTEM).toContain(

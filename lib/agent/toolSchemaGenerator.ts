@@ -369,7 +369,8 @@ function gateRepeatSlot(
  * vocabulary. The kind policy enforces per-kind requiredness the
  * flat shape can't state: a non-empty `label` on every visible kind, ≥2
  * `options` on the selects (case-bound fields exempt from both floors —
- * their catalog record seeds those slots), a `repeat` config on `repeat` —
+ * their catalog record seeds canonical label and choice catalog), a `repeat`
+ * config on `repeat` —
  * and rejects any slot the kind doesn't declare.
  */
 function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {

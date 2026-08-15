@@ -186,6 +186,10 @@ interface FormCompositionItemLowering {
 	readonly compositionItemId: DesignId;
 	readonly blueprintFieldKind: "workflow-input" | "label";
 	readonly inputHandle?: string;
+	/** Exact form-local field id for an accepted workflow input. Keeping this
+	 * deterministic lets finalization compare the realized field's contextual
+	 * behavior with the accepted input instead of guessing by label or order. */
+	readonly blueprintFieldId?: string;
 	readonly markdown?: string;
 	readonly recordSummary?: {
 		readonly recordId: DesignId;
@@ -203,6 +207,7 @@ function lowerCompositionItems(
 				compositionItemId: item.id,
 				blueprintFieldKind: "workflow-input" as const,
 				inputHandle: item.inputHandle,
+				blueprintFieldId: item.inputHandle,
 			};
 		}
 		if (item.kind === "guidance") {
@@ -265,6 +270,7 @@ const CONSTRAINT_AREAS: Readonly<
 	RESERVED_CASE_IDENTIFIERS_REJECTED: ["case-catalog", "forms"],
 	CASE_WRITE_TARGETS_MODULE_LINEAGE: ["forms", "case-operations"],
 	CASE_PROPERTY_CLEAR_UNAVAILABLE: ["forms", "case-operations"],
+	CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES: ["forms"],
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: ["navigation", "users", "case-list"],
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: ["forms", "case-operations"],
 	GAP_GROUPED_CASE_TILES: ["case-list"],
