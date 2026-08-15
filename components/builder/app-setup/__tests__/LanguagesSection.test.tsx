@@ -9,9 +9,12 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import {
 	BlueprintDocProvider,
 	type BlueprintDocStore,
@@ -197,5 +200,68 @@ describe("LanguagesSection", () => {
 			expect(screen.getByDisplayValue("Nombre remoto")).toBeTruthy(),
 		);
 		expect(screen.queryByDisplayValue("Borrador local")).toBeNull();
+	});
+
+	it("falls back to a current copy source when a collaborator removes the selected language", async () => {
+		renderSection();
+
+		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
+		fireEvent.change(screen.getByLabelText("Language code"), {
+			target: { value: "es" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add and copy strings" }),
+		);
+		await screen.findByRole("heading", { name: "español strings" });
+
+		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Start with strings from" }),
+		);
+		await settleBaseUiTransitions();
+		const spanish = screen.getByRole("option", { name: "español (es)" });
+		fireEvent.pointerDown(spanish, { pointerType: "mouse" });
+		fireEvent.click(spanish);
+		await settleBaseUiTransitions();
+
+		if (store === undefined) throw new Error("Expected the document store.");
+		const remote = prepareMutationCandidate(
+			store.getState(),
+			admitMutationBatch([{ kind: "removeLanguage", code: "es" }]),
+		);
+		act(() => {
+			store?.getState().beginRemoteApply();
+			try {
+				store?.getState().commitDoc(remote.nextDoc, remote.mutations);
+			} finally {
+				store?.getState().endRemoteApply();
+			}
+		});
+		expect(
+			effectiveAppLocalization(store.getState().localization).languageOrder,
+		).toEqual(["en"]);
+		await waitFor(() =>
+			expect(
+				screen.getByRole("combobox", { name: "Start with strings from" })
+					.textContent,
+			).toContain("English (en)"),
+		);
+		fireEvent.change(screen.getByLabelText("Language code"), {
+			target: { value: "fr" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add and copy strings" }),
+		);
+		await screen.findByRole("heading", { name: "français strings" });
+
+		const localization = effectiveAppLocalization(
+			store.getState().localization,
+		);
+		expect(localization.languageOrder).toEqual(["en", "fr"]);
+		expect(
+			Object.values(localization.translations.fr ?? {}).every(
+				(entry) => entry.translatedFrom === "en",
+			),
+		).toBe(true);
 	});
 });

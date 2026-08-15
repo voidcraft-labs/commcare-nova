@@ -361,6 +361,11 @@ export function projectBuilderLanguageMutations(
 						(candidate) => candidate.value === option.value,
 					);
 					if (prior === undefined) return option;
+					// Kind conversions re-declare the complete case property from the
+					// canonical catalog. That structural snapshot is not a target-language
+					// edit, so it must not replace an existing translation with the source
+					// label merely because the Builder is currently showing a target lens.
+					if (sameValue(prior.label, option.label)) return option;
 					const source = redirect(
 						makeTranslationUnitId(
 							"case-property-option",

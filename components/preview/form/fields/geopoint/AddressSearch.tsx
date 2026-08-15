@@ -15,6 +15,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerLoader from "@iconify-icons/tabler/loader-2";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useEffect, useRef, useState } from "react";
+import { usePortaledContentDirection } from "@/components/shadcn/portaled-content-direction";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useAccessPhase } from "@/lib/session/hooks";
 import {
@@ -52,6 +53,7 @@ interface AddressSearchProps {
 export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 	const reconciler = useReconcilerContext();
 	const accessPhase = useAccessPhase();
+	const direction = usePortaledContentDirection();
 	// Local input text, seeded from `value` and re-synced when the picker
 	// pushes a new resolved label (mirrors SearchInputForm's pattern).
 	const [query, setQuery] = useState(value);
@@ -215,6 +217,7 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 
 			<Autocomplete.Portal>
 				<Autocomplete.Positioner
+					dir={direction}
 					side="bottom"
 					align="start"
 					sideOffset={4}

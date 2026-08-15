@@ -5,7 +5,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -402,6 +402,14 @@ function AddLanguageDialog({
 	const [query, setQuery] = useState("");
 	const [error, setError] = useState<string>();
 	const existing = new Set(languages.map((language) => language.code));
+	const copySource =
+		languages.find((language) => language.code === copyFrom) ?? languages[0];
+	const copySourceCode = copySource?.code;
+	useEffect(() => {
+		if (copySourceCode !== undefined && copySourceCode !== copyFrom) {
+			setCopyFrom(copySourceCode);
+		}
+	}, [copyFrom, copySourceCode]);
 	const options = CLASSIC_LANGUAGE_OPTIONS.filter(
 		(option) => !existing.has(option.code),
 	);
@@ -441,13 +449,17 @@ function AddLanguageDialog({
 			setError("Enter the worker-facing language name.");
 			return;
 		}
+		if (copySource === undefined) {
+			setError("Add a source language before copying strings.");
+			return;
+		}
 		const language: AppLanguage = {
 			code: parsedCode.data,
 			name: name.trim(),
 			direction,
 		};
 		const mutations: Mutation[] = [{ kind: "addLanguage", language }];
-		for (const unit of collectLocalizedTranslationUnits(doc, copyFrom)) {
+		for (const unit of collectLocalizedTranslationUnits(doc, copySource.code)) {
 			mutations.push({
 				kind: "setTranslation",
 				language: language.code,
@@ -457,7 +469,7 @@ function AddLanguageDialog({
 					sourceFingerprint: unit.sourceFingerprint,
 					origin: "copied",
 					review: "needs-review",
-					translatedFrom: copyFrom,
+					translatedFrom: copySource.code,
 				},
 			});
 		}
@@ -587,14 +599,19 @@ function AddLanguageDialog({
 								Start with strings from
 							</span>
 							<Select
-								value={copyFrom}
+								key={copySourceCode ?? "no-copy-source"}
+								value={copySource?.code ?? null}
 								onValueChange={(value) => value !== null && setCopyFrom(value)}
 							>
 								<SelectTrigger
 									aria-label="Start with strings from"
 									className="w-full"
 								>
-									<SelectValue />
+									<SelectValue>
+										{copySource === undefined
+											? "No source language"
+											: `${copySource.name} (${copySource.code})`}
+									</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
 									{languages.map((language) => (

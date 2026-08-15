@@ -220,36 +220,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
-	const localizedCaseProperties = useMemo(
-		() =>
-			(caseType?.properties ?? NO_CASE_PROPERTIES).map((property) => {
-				if (
-					property.data_type !== "single_select" &&
-					property.data_type !== "multi_select"
-				)
-					return property;
-				return {
-					...property,
-					options: property.options?.map((option) => ({
-						...option,
-						label:
-							(localizedValues.get(
-								makeTranslationUnitId(
-									"case-property-option",
-									mod?.caseType ?? "",
-									property.name,
-									option.value,
-								),
-							) as typeof option.label | undefined) ?? option.label,
-					})),
-				};
-			}),
-		[caseType?.properties, localizedValues, mod?.caseType],
-	);
 	const columnDisplayContext = useColumnDisplayContext(
 		config,
 		mod?.caseType,
-		localizedCaseProperties,
+		caseType?.properties ?? NO_CASE_PROPERTIES,
 	);
 	const projectProse = useProseProjection();
 	const { signIn } = useAuth();

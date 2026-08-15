@@ -24,6 +24,7 @@ const OPTION_OPEN = testUuid("localized-builder-option-open");
 const OPTION_CLOSED = testUuid("localized-builder-option-closed");
 const OPTION_NEW = testUuid("localized-builder-option-new");
 const COLUMN = testUuid("localized-builder-column");
+const CASE_OPTION_COLUMN = testUuid("localized-builder-case-option-column");
 const SEARCH_INPUT = testUuid("localized-builder-search-input");
 
 function spanishValue(unit: TranslationUnit) {
@@ -56,6 +57,20 @@ function spanishValue(unit: TranslationUnit) {
 			return "Use cualquier dato conocido";
 		case makeTranslationUnitId("module", MODULE, "search-button"):
 			return "Buscar";
+		case makeTranslationUnitId(
+			"case-property-option",
+			"patient",
+			"status",
+			"open",
+		):
+			return proseText("Abierto");
+		case makeTranslationUnitId(
+			"case-property-option",
+			"patient",
+			"status",
+			"closed",
+		):
+			return proseText("Cerrado");
 		default:
 			return unit.source;
 	}
@@ -65,6 +80,22 @@ function fixture(): BlueprintDoc {
 	const doc = buildDoc({
 		appId: "localized-builder",
 		appName: "Clinic",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{
+						name: "status",
+						label: "Status",
+						data_type: "single_select",
+						options: [
+							{ value: "open", label: "Open" },
+							{ value: "closed", label: "Closed" },
+						],
+					},
+				],
+			},
+		],
 		modules: [
 			{
 				uuid: MODULE,
@@ -82,6 +113,12 @@ function fixture(): BlueprintDoc {
 								{ value: "open", label: "Open" },
 								{ value: "closed", label: "Closed" },
 							],
+						},
+						{
+							uuid: CASE_OPTION_COLUMN,
+							kind: "plain",
+							field: "status",
+							header: "Current status",
 						},
 					],
 					searchInputs: [
@@ -274,6 +311,35 @@ describe("projectBuilderLanguageMutations", () => {
 				makeTranslationUnitId("field", FIELD, "option", OPTION_OPEN)
 			]?.value,
 		).toEqual(proseText("Abierto ahora"));
+	});
+
+	it("preserves case-option translations across a structural kind conversion", () => {
+		const doc = fixture();
+		const current = doc.caseTypes?.[0]?.properties[0];
+		if (current === undefined) throw new Error("Expected the case property.");
+		const mutations = project(doc, [
+			{
+				kind: "setCaseProperty",
+				caseType: "patient",
+				property: { ...current, data_type: "multi_select" },
+			},
+		]);
+
+		expect(mutations.map((mutation) => mutation.kind)).toEqual([
+			"setCaseProperty",
+		]);
+		const next = apply(doc, mutations);
+		expect(next.caseTypes?.[0]?.properties[0]?.data_type).toBe("multi_select");
+		expect(
+			effectiveAppLocalization(next.localization).translations.es?.[
+				makeTranslationUnitId(
+					"case-property-option",
+					"patient",
+					"status",
+					"open",
+				)
+			]?.value,
+		).toEqual(proseText("Abierto"));
 	});
 
 	it("does not promote unchanged localized column snapshots into new human reviews", () => {
