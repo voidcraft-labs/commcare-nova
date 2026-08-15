@@ -803,7 +803,13 @@ export function diffDocsToMutations(
 			}).caseTypes
 		: prev.caseTypes;
 	structural.push(...diffCatalog(fromCatalog, next.caseTypes));
-	structural.push(...diffLocalization(prev, next));
+	const localizationBase =
+		structural.length === 0
+			? prev
+			: produce(prev, (draft) => {
+					applyMutations(draft, admitMutationBatch(structural));
+				});
+	structural.push(...diffLocalization(localizationBase, next));
 
 	return structural;
 }

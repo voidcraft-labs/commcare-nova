@@ -1,14 +1,18 @@
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	makeCanonicalGenesisDoc,
 	makeToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { updateAppTool } from "@/lib/agent/tools/updateApp";
+import { applyMutation } from "@/lib/doc/mutations";
 import {
 	collectLocalizedTranslationUnits,
 	collectTranslationUnits,
 	effectiveAppLocalization,
+	proseText,
 } from "@/lib/domain";
 import {
 	addLanguageInputSchema,
@@ -145,6 +149,61 @@ describe("shared localization tools", () => {
 				language: "es",
 				limit: 1,
 				cursor: page.nextCursor,
+			}),
+		);
+		expect(stalePage.error).toContain("changed");
+	});
+
+	it("invalidates a filtered cursor when only returned context changes", async () => {
+		const genesis = makeCanonicalGenesisDoc("Clinic");
+		const form = Object.values(genesis.forms)[0];
+		expect(form).toBeDefined();
+		if (form === undefined) return;
+		const initial = produce(genesis, (draft) => {
+			applyMutation(draft, {
+				kind: "addField",
+				parentUuid: form.uuid,
+				field: {
+					kind: "text",
+					uuid: testUuid("translation-cursor-second-field"),
+					id: "second_question",
+					label: proseText("Second question"),
+				},
+			});
+		});
+		const firstHarness = makeToolWorkspaceHarness(initial);
+		await firstHarness.runTool(addLanguageTool, {
+			code: "es",
+			name: "Español",
+			copyFrom: "en",
+		});
+		const module = Object.values(firstHarness.currentDoc().modules)[0];
+		const first = readData(
+			await firstHarness.runTool(getTranslatableContentTool, {
+				language: "es",
+				role: "field-label",
+				limit: 1,
+			}),
+		);
+		const cursor = (first.page as { nextCursor: string }).nextCursor;
+		expect(cursor).toEqual(expect.any(String));
+		expect(module).toBeDefined();
+		if (module === undefined) return;
+
+		const renamed = produce(firstHarness.currentDoc(), (draft) => {
+			applyMutation(draft, {
+				kind: "renameModule",
+				uuid: module.uuid,
+				newId: "Community intake",
+			});
+		});
+		const secondHarness = makeToolWorkspaceHarness(renamed);
+		const stalePage = readData(
+			await secondHarness.runTool(getTranslatableContentTool, {
+				language: "es",
+				role: "field-label",
+				limit: 1,
+				cursor,
 			}),
 		);
 		expect(stalePage.error).toContain("changed");

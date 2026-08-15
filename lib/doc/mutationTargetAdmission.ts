@@ -1,6 +1,8 @@
+import { produce } from "immer";
 import { deepEqual } from "@/lib/doc/deepEqual";
 import { mutationIdentityAdmissionIssue } from "@/lib/doc/mutationIdentityAdmission";
 import { mutationSequenceAdmissionIssue } from "@/lib/doc/mutationSequenceAdmission";
+import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -304,9 +306,21 @@ export function mutationTargetsInvalid(
 			([language, entries]) => [language, new Map(Object.entries(entries))],
 		),
 	);
-	const translationUnits = new Map(
+	let translationUnits = new Map(
 		collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
 	);
+	const admittedPrefix: Mutation[] = [];
+	let translationUnitsDirty = false;
+	const refreshTranslationUnits = (): void => {
+		if (!translationUnitsDirty) return;
+		const projected = produce(doc, (draft) => {
+			applyMutations(draft, admittedPrefix);
+		});
+		translationUnits = new Map(
+			collectTranslationUnits(projected).map((unit) => [unit.id, unit]),
+		);
+		translationUnitsDirty = false;
+	};
 	for (const m of mutations) {
 		switch (m.kind) {
 			case "addModule":
@@ -941,6 +955,7 @@ export function mutationTargetsInvalid(
 				defaultLanguage = m.code;
 				break;
 			case "setTranslation": {
+				refreshTranslationUnits();
 				const unit = translationUnits.get(m.unitId);
 				if (
 					m.language === sourceLanguage ||
@@ -963,6 +978,7 @@ export function mutationTargetsInvalid(
 				break;
 			}
 			case "reviewTranslation": {
+				refreshTranslationUnits();
 				const unit = translationUnits.get(m.unitId);
 				if (
 					unit === undefined ||
@@ -992,6 +1008,18 @@ export function mutationTargetsInvalid(
 				break;
 			default:
 				assertNever(m, "mutationTargetsInvalid");
+		}
+		admittedPrefix.push(m);
+		if (
+			m.kind !== "relabelSourceLanguage" &&
+			m.kind !== "addLanguage" &&
+			m.kind !== "updateLanguage" &&
+			m.kind !== "removeLanguage" &&
+			m.kind !== "setDefaultLanguage" &&
+			m.kind !== "setTranslation" &&
+			m.kind !== "reviewTranslation"
+		) {
+			translationUnitsDirty = true;
 		}
 	}
 	return false;

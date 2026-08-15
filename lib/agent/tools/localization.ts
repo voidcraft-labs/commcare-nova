@@ -363,12 +363,21 @@ function translationPageDigest(
 	return createHash("sha256")
 		.update(
 			JSON.stringify(
-				units.map((unit) => [
-					unit.id,
-					unit.sourceFingerprint,
-					unit.status,
-					unit.explicit ?? null,
-				]),
+				units.map((unit) => ({
+					id: unit.id,
+					role: unit.role,
+					valueKind: unit.valueKind,
+					contentPolicy: unit.contentPolicy,
+					source: unit.source,
+					sourceFingerprint: unit.sourceFingerprint,
+					effective: unit.effective,
+					explicit: unit.explicit ?? null,
+					status: unit.status,
+					owner: unit.owner,
+					breadcrumb: unit.breadcrumb,
+					context: unit.context,
+					protectedParts: protectedParts(unit),
+				})),
 			),
 		)
 		.digest("hex");

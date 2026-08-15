@@ -1,6 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import type { BlueprintDoc } from "@/lib/doc/types";
@@ -155,6 +155,105 @@ describe("applyMutation: app localization", () => {
 				es: { [unit.id]: { value: "Original", origin: "copied" } },
 			},
 		});
+	});
+
+	it("admits a translation for a unit created or changed earlier in the batch", () => {
+		const doc = emptyDoc();
+		const renamed = produce(doc, (draft) => {
+			applyMutation(draft, { kind: "setAppName", name: "Updated" });
+		});
+		const updatedUnit = collectTranslationUnits(renamed)[0];
+		const batch = [
+			{
+				kind: "addLanguage" as const,
+				language: { code: "es", name: "Español", direction: "ltr" as const },
+			},
+			{ kind: "setAppName" as const, name: "Updated" },
+			{
+				kind: "setTranslation" as const,
+				language: "es",
+				unitId: updatedUnit.id,
+				entry: {
+					value: "Actualizada",
+					sourceFingerprint: updatedUnit.sourceFingerprint,
+					origin: "human" as const,
+					review: "reviewed" as const,
+					translatedFrom: "en",
+				},
+			},
+		];
+
+		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
+		const next = produce(doc, (draft) => {
+			applyMutations(draft, batch);
+		});
+		expect(next.localization?.translations.es?.[updatedUnit.id]).toMatchObject({
+			value: "Actualizada",
+			sourceFingerprint: updatedUnit.sourceFingerprint,
+		});
+	});
+
+	it("admits a translation for a field born earlier in the batch", () => {
+		const moduleUuid = testUuid("translated-new-field-module");
+		const formUuid = testUuid("translated-new-field-form");
+		const fieldUuid = testUuid("translated-new-field");
+		const doc: BlueprintDoc = {
+			...emptyDoc(),
+			modules: {
+				[moduleUuid]: {
+					uuid: moduleUuid,
+					id: "survey",
+					name: "Survey",
+				},
+			},
+			forms: {
+				[formUuid]: {
+					uuid: formUuid,
+					id: "intake",
+					name: "Intake",
+					type: "survey",
+				},
+			},
+			moduleOrder: [moduleUuid],
+			formOrder: { [moduleUuid]: [formUuid] },
+			fieldOrder: { [formUuid]: [] },
+		};
+		const field = {
+			kind: "text" as const,
+			uuid: fieldUuid,
+			id: "patient_name",
+			label: proseText("Patient name"),
+		};
+		const withField = produce(doc, (draft) => {
+			applyMutation(draft, { kind: "addField", parentUuid: formUuid, field });
+		});
+		const unit = collectTranslationUnits(withField).find(
+			(candidate) =>
+				candidate.owner.kind === "field" && candidate.id.includes(fieldUuid),
+		);
+		expect(unit).toBeDefined();
+		if (unit === undefined) return;
+		const batch = [
+			{
+				kind: "addLanguage" as const,
+				language: { code: "es", name: "Español", direction: "ltr" as const },
+			},
+			{ kind: "addField" as const, parentUuid: formUuid, field },
+			{
+				kind: "setTranslation" as const,
+				language: "es",
+				unitId: unit.id,
+				entry: {
+					value: proseText("Nombre del paciente"),
+					sourceFingerprint: unit.sourceFingerprint,
+					origin: "human" as const,
+					review: "reviewed" as const,
+					translatedFrom: "en",
+				},
+			},
+		];
+
+		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
 	});
 
 	it("relabels only the single source and canonicalizes legacy English", () => {
