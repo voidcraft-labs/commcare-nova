@@ -27,7 +27,6 @@ const CONTEXT: EvalContext = {
 	resolveHashtag: () => "",
 	contextPath: "/data/current",
 	position: 1,
-	size: 1,
 };
 
 const TEST_INPUTS = ["query"].map((name) => ({

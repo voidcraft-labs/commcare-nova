@@ -1,0 +1,22 @@
+<h:html xmlns="http://www.w3.org/2002/xforms"
+        xmlns:h="http://www.w3.org/1999/xhtml"
+        xmlns:jr="http://openrosa.org/javarosa"
+        xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <h:head>
+    <h:title>Nova XPath compatibility proof</h:title>
+    <model>
+      <instance>
+        <data xmlns="http://openrosa.org/formdesigner/nova-xpath-compatibility">
+          <source>  alpha&#9;beta&#10;gamma  </source>
+          <normalized/>
+        </data>
+      </instance>
+      <bind nodeset="/data/source" type="xsd:string"/>
+      <bind
+        nodeset="/data/normalized"
+        type="xsd:string"
+        calculate="replace(replace(/data/source, '[ \t\r\n]+', ' '), '^ | $', '')"/>
+    </model>
+  </h:head>
+  <h:body/>
+</h:html>

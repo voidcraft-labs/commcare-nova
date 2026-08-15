@@ -43,6 +43,9 @@ describe("validateXPath", () => {
 			expect(validateXPath("format-date(today(), '%Y-%m-%d')")).toEqual([]);
 			expect(validateXPath("count(/data/visits) > 0")).toEqual([]);
 			expect(validateXPath("#patient/total_visits + 1")).toEqual([]);
+			expect(validateXPath("normalize-space(#form/name)")).toEqual([]);
+			expect(validateXPath("instance('casedb')/casedb/case")).toEqual([]);
+			expect(validateXPath("current()/../@id")).toEqual([]);
 		});
 
 		it("returns no errors for variadic functions", () => {
@@ -87,6 +90,35 @@ describe("validateXPath", () => {
 			const errors = validateXPath("IF(true(), 'a', 'b')");
 			expect(errors).toHaveLength(1);
 			expect(errors[0].message).toContain("if()");
+		});
+
+		it.each(["here()", "last()", "substring('abc', 1)"])(
+			"rejects a function absent from Core's XForm evaluator: %s",
+			(expression) => {
+				expect(validateXPath(expression)).toEqual([
+					expect.objectContaining({ code: "UNKNOWN_FUNCTION" }),
+				]);
+			},
+		);
+
+		it("rejects path initializers used as ordinary calls", () => {
+			for (const expression of ["instance('casedb')", "current()"]) {
+				expect(validateXPath(expression)).toEqual([
+					expect.objectContaining({
+						code: "XPATH_SYNTAX",
+						message: expect.stringContaining("left root of a path"),
+					}),
+				]);
+			}
+		});
+
+		it("requires instance ids to be string literals", () => {
+			expect(validateXPath("instance(#form/id)/rows")).toEqual([
+				expect.objectContaining({
+					code: "XPATH_SYNTAX",
+					message: expect.stringContaining("string-literal instance id"),
+				}),
+			]);
 		});
 	});
 

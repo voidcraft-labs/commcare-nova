@@ -822,7 +822,6 @@ const EMPTY_PREVIEW_CONTEXT: EvalContext = {
 	resolveHashtag: () => "",
 	contextPath: "/data/current",
 	position: 1,
-	size: 1,
 };
 
 // ---------------------------------------------------------------

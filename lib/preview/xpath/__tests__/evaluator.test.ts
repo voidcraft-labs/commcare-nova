@@ -19,7 +19,6 @@ function makeCtx(
 		},
 		contextPath: "/data/current",
 		position: 1,
-		size: 1,
 	};
 }
 
@@ -169,6 +168,19 @@ describe("XPath evaluator", () => {
 			expect(evaluate("/data/group/child", ctx)).toBe("value");
 		});
 
+		it("resolves an instance-rooted path through the context namespace", () => {
+			const ctx = makeCtx({ "/session/context/userid": "worker-1" });
+			expect(
+				evaluate("instance('commcaresession')/session/context/userid", ctx),
+			).toBe("worker-1");
+		});
+
+		it("fails loudly for path initializers Preview cannot model", () => {
+			expect(() => evaluate("current()/name", makeCtx())).toThrow(
+				"Unsupported XPath path initializer in Preview: current()",
+			);
+		});
+
 		it("resolves self step", () => {
 			const ctx = makeCtx({ "/data/current": "42" });
 			expect(evaluate(".", ctx)).toBe("42");
@@ -279,6 +291,8 @@ describe("XPath evaluator", () => {
 			expect(evaluate('normalize-space("  hello   world  ")', makeCtx())).toBe(
 				"hello world",
 			);
+			// XPath XML whitespace excludes NBSP; JavaRosa leaves it intact.
+			expect(evaluate("normalize-space('a   b')", makeCtx())).toBe("a  b");
 		});
 
 		it("replace() keeps dollar substitution tokens literal like Core", () => {
@@ -347,10 +361,12 @@ describe("XPath evaluator", () => {
 			);
 		});
 
-		it("does not dispatch unknown or prototype method names", () => {
-			expect(evaluate("unknownFunction()", makeCtx())).toBe("");
-			expect(evaluate("valueOf()", makeCtx())).toBe("");
-			expect(evaluate("hasOwnProperty()", makeCtx())).toBe("");
+		it("fails loudly for unknown or prototype method names", () => {
+			for (const name of ["unknownFunction", "valueOf", "hasOwnProperty"]) {
+				expect(() => evaluate(`${name}()`, makeCtx())).toThrow(
+					`Unsupported XPath function in Preview: ${name}()`,
+				);
+			}
 		});
 	});
 

@@ -3447,7 +3447,7 @@ describe("FormEngine", () => {
 			expect(engine.getRepeatCount("/data/households[0]/members")).toBe(3);
 		});
 
-		it("addRepeat re-evaluates existing instances whose position()/last() shifted", () => {
+		it("removeRepeat re-evaluates surviving instances whose position() shifted", () => {
 			const input = dTree([
 				{
 					id: "orders",
@@ -3457,15 +3457,20 @@ describe("FormEngine", () => {
 							id: "final_note",
 							kind: "text",
 							label: proseText("Note"),
-							relevant: xp("position() = last()"),
+							relevant: xp("position() = 2"),
 						},
 					],
 				},
 			]);
 			const engine = new FormEngine(input);
-			expect(engine.getState("/data/orders[0]/final_note").visible).toBe(true);
+			expect(engine.getState("/data/orders[0]/final_note").visible).toBe(false);
 
 			engine.addRepeat("/data/orders");
+			expect(engine.getState("/data/orders[1]/final_note").visible).toBe(true);
+			engine.addRepeat("/data/orders");
+			expect(engine.getState("/data/orders[2]/final_note").visible).toBe(false);
+
+			engine.removeRepeat("/data/orders", 0);
 			expect(engine.getState("/data/orders[0]/final_note").visible).toBe(false);
 			expect(engine.getState("/data/orders[1]/final_note").visible).toBe(true);
 		});

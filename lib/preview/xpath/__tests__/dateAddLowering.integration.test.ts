@@ -10,7 +10,6 @@ const context: EvalContext = {
 	resolveHashtag: () => "",
 	contextPath: "/data/current",
 	position: 1,
-	size: 1,
 };
 
 function evaluateDateAdd(

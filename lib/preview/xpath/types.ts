@@ -113,8 +113,6 @@ export interface EvalContext {
 	contextPath: string;
 	/** Current repeat position (for position()) — 1-based */
 	position: number;
-	/** Current repeat size (for last()) */
-	size: number;
 }
 
 // ── Internal helpers ────────────────────────────────────────────────

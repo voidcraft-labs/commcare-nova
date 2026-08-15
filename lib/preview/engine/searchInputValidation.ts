@@ -193,7 +193,6 @@ function runtimeRejectionApplies(
 		evaluate(boundCondition, {
 			contextPath: "",
 			position: 1,
-			size: 1,
 			getValue: () => undefined,
 			resolveHashtag: () => "",
 		}),

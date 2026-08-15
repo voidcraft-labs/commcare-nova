@@ -1,0 +1,8 @@
+gradle.projectsEvaluated {
+    def proofDir = gradle.startParameter.projectProperties.get('novaProofDir')
+    if (proofDir == null) {
+        throw new GradleException('Pass -PnovaProofDir=<commcare-nova>/scripts/fixtures/javarosa')
+    }
+    rootProject.sourceSets.test.java.srcDir(proofDir)
+    rootProject.sourceSets.test.resources.srcDir(new File(proofDir, 'resources'))
+}

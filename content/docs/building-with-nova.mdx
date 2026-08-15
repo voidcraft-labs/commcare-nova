@@ -69,6 +69,23 @@ Choose **Start with a blank app** when you want to begin directly in the
 builder. That path creates Nova's smallest valid Survey, Form, and Question
 starter immediately, without the reviewed conversational design flow.
 
+## XPath that will run in CommCare
+
+Nova checks formulas against the functions CommCare's device runtime actually
+implements. A function being part of XPath 1.0 or XPath 2.0 is not enough by
+itself. Functions that CommCare does not provide are refused while you edit,
+before they can cause a runtime error for a worker.
+
+Nova can also accept a small extension when it has an exact, tested translation
+to the device runtime. For example, you may write `normalize-space(...)` in the
+visual XPath editor; Nova exports an equivalent expression made from CommCare's
+native functions. CommCare HQ case-search formulas are checked separately
+because their server-side function list is different from the device's.
+
+Preview never treats an unknown function as an empty answer. If a historical
+formula uses something Preview cannot faithfully run, Preview reports that
+boundary instead of showing a result that may disagree with the installed app.
+
 ## External setup
 
 Some workflows depend on work outside the app, such as loading Project data,

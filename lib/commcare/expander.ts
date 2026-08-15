@@ -58,6 +58,7 @@ import { buildConnectSlugMap } from "./connectSlugs";
 import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
 import { projectCaseListForHq } from "./hqJson/caseList";
 import { buildXForm } from "./xform/builder";
+import { lowerXPathForJavaRosa } from "./xpath";
 
 /**
  * Translate a domain form-link list into the HQ wire shape.
@@ -79,7 +80,8 @@ function translateFormLinks(
 	// Canonical AST conditions/datums project to text only here, at the HQ
 	// wire boundary. Pre-cutover text is owned solely by the frozen migration.
 	const ctx = xpathPrintContext(doc);
-	const project = (value: XPathExpression): string => printXPath(value, ctx);
+	const project = (value: XPathExpression): string =>
+		lowerXPathForJavaRosa(printXPath(value, ctx));
 	// The target's `moduleIndex` / `formIndex` are the SORTED menu positions —
 	// the same `orderedModule/FormUuids` sequences the suite's `<command>` ids
 	// (`m{i}-f{j}`) are emitted in — so a `form_links` navigation target resolves

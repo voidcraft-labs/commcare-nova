@@ -66,6 +66,7 @@ import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/s
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import {
 	advancedSearchInputDef,
 	type BlueprintDoc,
@@ -961,7 +962,7 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 		// `excludedOwnerIds: toValueExpression(literal("excluded-owner-id"))`
 		// lowers to the shared normalized on-device value.
 		expect(searchConfig.blacklisted_owner_ids_expression).toBe(
-			"normalize-space('excluded-owner-id')",
+			lowerXPathForJavaRosa("normalize-space('excluded-owner-id')"),
 		);
 	});
 
@@ -1073,7 +1074,9 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 		const doc = buildSearchBlueprint();
 		const filter = expandDoc(doc).modules[0].case_details.short.filter;
 		expect(filter).toBe(
-			"(region = 'North') and (normalize-space('excluded-owner-id') = '' or not(selected(normalize-space('excluded-owner-id'), @owner_id)))",
+			lowerXPathForJavaRosa(
+				"(region = 'North') and (normalize-space('excluded-owner-id') = '' or not(selected(normalize-space('excluded-owner-id'), @owner_id)))",
+			),
 		);
 	});
 

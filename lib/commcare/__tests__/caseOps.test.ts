@@ -105,7 +105,6 @@ describe("case-operation XForm emission", () => {
 				resolveHashtag: () => "",
 				contextPath: "/data/name",
 				position: 1,
-				size: 1,
 			});
 		const evaluateGuard = (value: string) =>
 			evaluate(guard, {
@@ -113,7 +112,6 @@ describe("case-operation XForm emission", () => {
 				resolveHashtag: () => "",
 				contextPath: "/data/name",
 				position: 1,
-				size: 1,
 			});
 
 		for (const value of [
@@ -156,7 +154,6 @@ describe("case-operation XForm emission", () => {
 				resolveHashtag: () => "",
 				contextPath: "/data/name",
 				position: 1,
-				size: 1,
 			});
 
 		const exactKey = " External/42 ";

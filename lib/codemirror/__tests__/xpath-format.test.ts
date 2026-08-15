@@ -82,7 +82,7 @@ describe("prettyPrintXPath", () => {
 
 	it("expands predicates with newlines after [ and before ]", () => {
 		const expr =
-			"instance('casedb')/casedb/case[@case_type = 'mother' and @status = 'open'][last()]/case_name";
+			"instance('casedb')/casedb/case[@case_type = 'mother' and @status = 'open'][position() = 2]/case_name";
 		const result = prettyPrintXPath(expr);
 		expect(result).toBe(
 			"instance(\n" +
@@ -91,7 +91,7 @@ describe("prettyPrintXPath", () => {
 				"    @case_type = 'mother'\n" +
 				"    and @status = 'open'\n" +
 				"][\n" +
-				"    last()\n" +
+				"    position() = 2\n" +
 				"]/case_name",
 		);
 	});

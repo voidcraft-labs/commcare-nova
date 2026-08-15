@@ -135,7 +135,6 @@ function navigationEvalContext(
 	return {
 		contextPath: "",
 		position: 1,
-		size: 1,
 		getValue: (path) => sessionInstancePathValue(path, session),
 		resolveHashtag: (ref) => {
 			const match = /^#case\/(.+)$/.exec(ref);

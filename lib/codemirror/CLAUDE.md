@@ -1,6 +1,6 @@
 # lib/codemirror — XPath editor extensions
 
-CodeMirror 6 extensions for editing CommCare XPath inside the builder: language binding, autocomplete, linting, hashtag chips, source formatting, theme. The grammar + parser live in `lib/commcare/xpath/` (shared with the transpiler and deep validator); this package only consumes `parser` + the term constants it re-exports.
+CodeMirror 6 extensions for editing CommCare XPath inside the builder: language binding, autocomplete, linting, hashtag chips, source formatting, theme. The grammar + parser live in `lib/commcare/xpath/` (shared with the carrier capability contract, lowerer, and deep validator); this package only consumes `parser` + the term constants it re-exports.
 
 ## No offer-then-reject
 

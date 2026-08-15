@@ -2317,6 +2317,39 @@ export async function loadAppForInspection(
 		});
 }
 
+/**
+ * Load one schema-admitted snapshot for a read-only migration inventory.
+ *
+ * Unlike {@link loadAppForInspection}, this deliberately does not apply the
+ * current absolute commit gate: a scanner for newly-invalid historical state
+ * must be able to name that state before any repair is designed. Never use
+ * this function to serve an app or authorize an edit.
+ */
+export async function loadSchemaAdmittedAppForInspection(
+	appId: string,
+): Promise<AppDoc | null> {
+	const db = await getAppDb();
+	return db
+		.transaction()
+		.setIsolationLevel("repeatable read")
+		.setAccessMode("read only")
+		.execute(async (tx) => {
+			const row = (await tx
+				.selectFrom("apps")
+				.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
+				.select(
+					sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
+						"case_types_text",
+					),
+				)
+				.where("id", "=", appId)
+				.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
+			if (row === undefined) return null;
+			return (await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, row))
+				.app;
+		});
+}
+
 /** Whoever currently HOLDS the app's run window — see {@link loadAppHolder}.
  *  `userId` is undefined when no holder could be resolved. */
 export interface AppHolder {

@@ -37,6 +37,7 @@ import type {
 	AssetManifest,
 	ResolvedMediaAsset,
 } from "@/lib/commcare/multimedia/assetWirePath";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import { type ModuleIconRef, plainColumn } from "@/lib/domain";
 import { eq, literal, sessionUser, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
@@ -241,9 +242,11 @@ describe("caseListOnly browse-entry emission (local .ccz)", () => {
 		// The raw owner rule narrows the ordinary casedb nodeset. The
 		// internal false marker means this rule did not author a Search action,
 		// so neither a remote request nor an action is invented on export.
-		expect(entry).toContain(
-			"[normalize-space(&apos;owner-a owner-b&apos;) = &apos;&apos; or not(selected(normalize-space(&apos;owner-a owner-b&apos;), @owner_id))]",
-		);
+		const ownerRule = lowerXPathForJavaRosa(
+			"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
+		).replaceAll("'", "&apos;");
+		expect(entry).toContain(`[${ownerRule}]`);
+		expect(entry).not.toContain("normalize-space(");
 		expect(suite).not.toContain("<remote-request");
 		expect(suite).not.toContain("<action");
 	});

@@ -19,7 +19,7 @@ const SAMPLES = [
 	"if(#patient/status='active',concat(#patient/first_name,' ',#patient/last_name),'Closed')",
 	"selected(#form/symptoms,'fever') and #patient/age<5",
 	"today()-date(#patient/dob)",
-	"instance('casedb')/casedb/case[@case_type = 'mother' and @status = 'open'][last()]/case_name",
+	"instance('casedb')/casedb/case[@case_type = 'mother' and @status = 'open'][position() = 2]/case_name",
 ];
 
 export default function XPathTestPage() {

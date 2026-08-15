@@ -12,6 +12,7 @@ import {
 	type StackOperation,
 	toHqWorkflow,
 } from "@/lib/commcare/session";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import {
 	concat as concatExpr,
 	eq,
@@ -100,8 +101,11 @@ describe("deriveSessionDatums", () => {
 			excludedOwners,
 		);
 
+		const ownerRule = lowerXPathForJavaRosa(
+			"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
+		);
 		expect(datums[0].nodeset).toBe(
-			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][is_priority = 'true'][normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))]",
+			`instance('casedb')/casedb/case[@case_type='patient'][@status='open'][is_priority = 'true'][${ownerRule}]`,
 		);
 	});
 
@@ -482,9 +486,10 @@ describe("deriveEntryDefinition", () => {
 			id: "commcaresession",
 			src: "jr://instance/session",
 		});
-		expect(entry.session?.datums[0].nodeset).toContain(
-			"[normalize-space(instance('commcaresession')/session/user/data/excluded_owner_ids) = '' or not(selected(normalize-space(instance('commcaresession')/session/user/data/excluded_owner_ids), @owner_id))]",
+		const ownerRule = lowerXPathForJavaRosa(
+			"normalize-space(instance('commcaresession')/session/user/data/excluded_owner_ids) = '' or not(selected(normalize-space(instance('commcaresession')/session/user/data/excluded_owner_ids), @owner_id))",
 		);
+		expect(entry.session?.datums[0].nodeset).toContain(`[${ownerRule}]`);
 	});
 
 	it("omits detail-confirm when a case-list viewer has no Details fields", () => {

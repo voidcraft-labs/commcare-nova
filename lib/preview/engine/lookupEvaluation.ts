@@ -159,20 +159,18 @@ function requireColumn(
  * column wire name (the emitter's row-scope printing) and reads the
  * row's lexicalized cell; everything else — absolute form paths,
  * session paths, hashtags — delegates to the outer context.
- * `position`/`last()` are the row's position over the COMPLETE row
- * sequence, the device's nodeset-predicate context.
+ * `position()` is the row's position over the COMPLETE row sequence, the
+ * device's nodeset-predicate context.
  */
 function rowEvalContext(
 	columnsByWireName: ReadonlyMap<string, LookupColumn>,
 	row: LookupFixtureRow,
 	position: number,
-	size: number,
 	outer: EvalContext,
 ): EvalContext {
 	return {
 		contextPath: "",
 		position,
-		size,
 		resolveHashtag: (ref) => outer.resolveHashtag(ref),
 		getValue: (path) => {
 			const segments = path.split("/").filter(Boolean);
@@ -255,13 +253,7 @@ function matchingRows(
 			toBoolean(
 				evaluate(
 					emitted,
-					rowEvalContext(
-						columnsByWireName,
-						row,
-						index + 1,
-						rows.length,
-						bindings.outer,
-					),
+					rowEvalContext(columnsByWireName, row, index + 1, bindings.outer),
 				),
 			),
 	};

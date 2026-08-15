@@ -1,5 +1,6 @@
 import type { SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/commcare/xpath";
+import { PREVIEW_PATH_INITIALIZERS } from "@/lib/commcare/xpath/functionCapabilities";
 import {
 	compareEqual,
 	compareRelational,
@@ -347,15 +348,13 @@ function evalInvoke(
 		child = child.nextSibling;
 	}
 
-	// Handle position() and last() with context values
+	// Handle position() with the current repeat context.
 	if (fnName === "position") return ctx.position;
-	if (fnName === "last") return ctx.size;
 
 	const invocation = invokeFunction(fnName, args);
 	if (invocation.kind === "handled") return invocation.value;
 
-	// Unknown function — return empty string
-	return "";
+	throw new Error(`Unsupported XPath function in Preview: ${fnName}()`);
 }
 
 /**
@@ -378,6 +377,19 @@ function collectSegments(
 	while (child) {
 		if (T.Children.has(child.type) || T.Descendants.has(child.type)) {
 			collectSegments(child, source, segments);
+		} else if (child.type === T.Invoke) {
+			const nameNode = child.getChild(T.FunctionName.id);
+			const name = nameNode
+				? source.slice(nameNode.from, nameNode.to)
+				: "unknown";
+			if (!PREVIEW_PATH_INITIALIZERS.has(name)) {
+				throw new Error(
+					`Unsupported XPath path initializer in Preview: ${name}()`,
+				);
+			}
+			// `instance('id')` establishes a secondary-instance root. Preview's
+			// context resolver owns that instance namespace, so the remaining
+			// path is its lookup key (for example `/session/context/userid`).
 		} else if (child.type === T.NameTest) {
 			segments.push(source.slice(child.from, child.to));
 		} else if (child.type === T.RootPath || child.type === T.Slash) {

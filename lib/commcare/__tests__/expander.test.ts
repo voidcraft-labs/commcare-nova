@@ -12,6 +12,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { expandCaseToWire } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
@@ -1478,7 +1479,8 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "hidden",
 									id: "full_name",
-									calculate: "concat(#form/first_name, ' ', #form/last_name)",
+									calculate:
+										"normalize-space(concat(#form/first_name, ' ', #form/last_name))",
 								}),
 							],
 						},
@@ -1488,12 +1490,15 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain(
-			'calculate="concat(/data/first_name, &apos; &apos;, /data/last_name)"',
-		);
-		expect(xform).toContain(
-			'vellum:calculate="concat(#form/first_name, &apos; &apos;, #form/last_name)"',
-		);
+		const wire = lowerXPathForJavaRosa(
+			"normalize-space(concat(/data/first_name, ' ', /data/last_name))",
+		).replaceAll("'", "&apos;");
+		const vellum = lowerXPathForJavaRosa(
+			"normalize-space(concat(#form/first_name, ' ', #form/last_name))",
+		).replaceAll("'", "&apos;");
+		expect(xform).toContain(`calculate="${wire}"`);
+		expect(xform).toContain(`vellum:calculate="${vellum}"`);
+		expect(xform).not.toContain("normalize-space(");
 	});
 
 	it("expands #form/ in relevant to /data/, keeps shorthand in vellum:relevant", () => {
@@ -3779,7 +3784,7 @@ describe("form_links emission", () => {
 							postSubmit: "module",
 							formLinks: [
 								{
-									condition: "/data/outcome = 'yes'",
+									condition: "normalize-space(/data/outcome) = 'yes'",
 									target: {
 										type: "form",
 										moduleUuid: testUuid(moduleUuid),
@@ -3824,7 +3829,9 @@ describe("form_links emission", () => {
 		// followup form is index 1 within module 0.
 		expect(hq.modules[0].forms[0].form_links).toEqual([
 			{
-				condition: "/data/outcome = 'yes'",
+				condition: lowerXPathForJavaRosa(
+					"normalize-space(/data/outcome) = 'yes'",
+				),
 				target: { type: "form", moduleIndex: 0, formIndex: 1 },
 			},
 		]);
@@ -4163,7 +4170,10 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(column.format).toBe("calculate");
 		expect(column.useXpathExpression).toBe(true);
 		expect(column.field).toContain("if(selected(tags, 'vip'), 'VIP', '')");
-		expect(column.field).toContain("normalize-space(tags)");
+		expect(column.field).toContain(
+			lowerXPathForJavaRosa("normalize-space(tags)"),
+		);
+		expect(column.field).not.toContain("normalize-space(");
 	});
 
 	it("projects date columns with `date` format and the authored `date_format` pattern", () => {
@@ -4628,7 +4638,9 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 		const module = expandDoc(doc).modules[0];
 
 		expect(module.case_details.short.filter).toBe(
-			"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
+			lowerXPathForJavaRosa(
+				"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
+			),
 		);
 		expect(module.search_config.properties).toEqual([]);
 		expect(module.search_config.default_properties).toEqual([]);
@@ -4657,7 +4669,9 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 		);
 
 		expect(expandDoc(doc).modules[0].case_details.short.filter).toBe(
-			"(region = 'North') and (normalize-space('owner-a') = '' or not(selected(normalize-space('owner-a'), @owner_id)))",
+			lowerXPathForJavaRosa(
+				"(region = 'North') and (normalize-space('owner-a') = '' or not(selected(normalize-space('owner-a'), @owner_id)))",
+			),
 		);
 	});
 });
@@ -4775,7 +4789,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		);
 		const searchConfig = expandDoc(doc).modules[0].search_config;
 		expect(searchConfig.blacklisted_owner_ids_expression).toBe(
-			"normalize-space('excluded-owner-id')",
+			lowerXPathForJavaRosa("normalize-space('excluded-owner-id')"),
 		);
 	});
 
@@ -5252,7 +5266,9 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		// `case_details.short.filter`; owner exclusion is not limited to the
 		// remote Search request.
 		expect(module.case_details.short.filter).toBe(
-			"(region = 'North') and (normalize-space('excluded') = '' or not(selected(normalize-space('excluded'), @owner_id)))",
+			lowerXPathForJavaRosa(
+				"(region = 'North') and (normalize-space('excluded') = '' or not(selected(normalize-space('excluded'), @owner_id)))",
+			),
 		);
 
 		// Search-config chrome lands on the matching CCHQ slots.
@@ -5261,7 +5277,7 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			en: "Search patients",
 		});
 		expect(module.search_config.blacklisted_owner_ids_expression).toBe(
-			"normalize-space('excluded')",
+			lowerXPathForJavaRosa("normalize-space('excluded')"),
 		);
 
 		// Both arms land on `properties`: CCHQ creates runtime prompt

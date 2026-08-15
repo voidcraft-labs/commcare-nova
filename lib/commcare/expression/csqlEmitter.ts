@@ -82,6 +82,7 @@ import {
 	quoteRuntimeCsqlValue,
 	type RuntimeCsqlQuoteStyle,
 } from "../predicate/termEmitter";
+import { assertCsqlValueFunction } from "../xpath/functionCapabilities";
 import { emitOnDeviceExpression } from "./onDeviceEmitter";
 
 /**
@@ -136,11 +137,13 @@ export function emitCsqlExpressionSegments(
 			);
 		}
 		case "today":
+			assertCsqlValueFunction("today");
 			// CCHQ value function registered on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
 			// (the `today` entry).
 			return [{ kind: "constant", text: "today()" }];
 		case "now":
+			assertCsqlValueFunction("now");
 			// CCHQ value function registered on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
 			// (the `now` entry).
@@ -223,6 +226,7 @@ function emitFunctionCallSegments(
 	fnName: string,
 	argSegments: readonly CsqlSegment[],
 ): CsqlSegment[] {
+	assertCsqlValueFunction(fnName);
 	return [
 		{ kind: "constant", text: `${fnName}(` },
 		...argSegments,
@@ -299,6 +303,7 @@ function emitDateAddSegments(
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const functionName = dateAddFunctionName(expr.date, typeContext);
+	assertCsqlValueFunction(functionName);
 	const dateSegments = emitCsqlFunctionArgumentSegments(
 		expr.date,
 		typeContext,

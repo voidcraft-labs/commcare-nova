@@ -102,7 +102,6 @@ function outerContext(values: Record<string, string> = {}): EvalContext {
 	return {
 		contextPath: "",
 		position: 1,
-		size: 1,
 		resolveHashtag: () => "",
 		getValue: (path) => values[path],
 	};

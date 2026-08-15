@@ -1,3 +1,4 @@
+import { PREVIEW_NATIVE_FUNCTIONS } from "@/lib/commcare/xpath/functionCapabilities";
 import { toBoolean, toDate, toNumber, xpathToString } from "./coerce";
 import { formatCommCareDate } from "./dateFormatting";
 import type { XPathValue } from "./types";
@@ -13,7 +14,17 @@ export type XPathFunctionInvocation =
 const registry = new Map<string, XPathFn>();
 
 function register(name: string, fn: XPathFn) {
+	if (!PREVIEW_NATIVE_FUNCTIONS.has(name)) {
+		throw new Error(
+			`Preview registered ${name}(), but the XPath carrier contract does not classify it as implemented.`,
+		);
+	}
 	registry.set(name, fn);
+}
+
+/** Test/audit surface: the implementation must equal the carrier contract. */
+export function registeredPreviewFunctions(): ReadonlySet<string> {
+	return new Set(registry.keys());
 }
 
 /**
@@ -78,8 +89,8 @@ register("starts-with", (args) =>
 );
 register("normalize-space", (args) =>
 	xpathToString(args[0] ?? "")
-		.trim()
-		.replace(/\s+/g, " "),
+		.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "")
+		.replace(/[ \t\r\n]+/g, " "),
 );
 register("translate", (args) => {
 	const str = xpathToString(args[0] ?? "");
@@ -190,11 +201,10 @@ register("sum", (args) => {
 	return toNumber(args[0] ?? 0);
 });
 
-// ── Position / Size ─────────────────────────────────────────────────
-// These are handled directly by the evaluator via context.position/size
-// but we register stubs so they don't error when called as functions.
+// ── Position ────────────────────────────────────────────────────────
+// Handled directly by the evaluator via context.position; registered so the
+// implementation table still names every supported function.
 register("position", () => 1);
-register("last", () => 1);
 
 // ── Date / Time ─────────────────────────────────────────────────────
 
@@ -261,8 +271,6 @@ register("regex", (args) => {
 		return false;
 	}
 });
-register("instance", () => "");
-
 /**
  * JavaRosa delegates these functions to Java's default `Pattern` mode, where
  * `\s` is the ASCII whitespace class unless UNICODE_CHARACTER_CLASS is enabled.
