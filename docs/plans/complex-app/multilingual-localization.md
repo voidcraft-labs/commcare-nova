@@ -361,11 +361,43 @@ The production allowlist is informed by:
    low-resource-language failure behavior;
 4. an explicit quality threshold and human review of the acceptance languages.
 
-The online evidence and Nova evaluation results belong in this section before
-automatic directions are enabled. English↔Spanish is the first required
-acceptance direction. The UI distinguishes supported, experimental, and manual
-only when there is evidence for those labels, and explains limitations before a
-paid run rather than after poor output appears.
+The current public evidence does not justify a broad Sol allowlist:
+
+- OpenAI's current [Sol model page](https://developers.openai.com/api/docs/models/gpt-5.6-sol),
+  [GPT-5.6 announcement](https://openai.com/index/gpt-5-6/), and
+  [system card](https://deploymentsafety.openai.com/gpt-5-6-preview/gpt-5-6-preview.pdf)
+  publish no multilingual or text-translation coverage table for Sol. The model
+  accepts and produces text and supports structured output, but those interface
+  capabilities are not translation-quality evidence.
+- The older GPT-5 system card's translated MMLU evaluation covers thirteen
+  languages, but it measures translated knowledge questions on a different
+  model family rather than translation fidelity. It is a useful prior for
+  selecting evaluation candidates, not a product support contract for Sol.
+- The narrow third-party [BelinDoc translation review](https://belindoc.com/blog/gpt-5-6-translation-review-sol-terra-luna)
+  reports strong Sol results on clean English-to-Chinese, Chinese-to-English,
+  and Japanese-to-English passages. It contains only eight short passages,
+  relies on LLM judges, keeps raw results private, and found a material OCR
+  weakness. It demonstrates plausible capability in those tested directions;
+  it does not establish broad language coverage.
+
+Nova therefore enables no direction merely from an ISO code, model-family
+reputation, or a generic multilingual score. Automatic translation has three
+plain-language availability states:
+
+- **Available**: this exact direction and deployed model snapshot pass Nova's
+  current acceptance suite and human review.
+- **Not evaluated**: manual authoring and copy are fully available, but Nova
+  makes no quality claim and does not offer a paid automatic run.
+- **Withheld**: current evidence failed the quality threshold; Nova explains
+  the tested limitation without describing the language itself as unsupported.
+
+The policy is direction-specific: passing English→Spanish says nothing by
+itself about Spanish→English or Spanish→French. English↔Spanish is the first
+required bidirectional acceptance pair. French→English is also an initial
+acceptance direction so an end-to-end reverse test can conduct the Nova
+conversation in French, preserve French as canonical app content, and request
+English worker-facing translations. Until those paid evaluations pass, the UI
+reports them as Not evaluated rather than optimistically enabling them.
 
 ## Initial build integration
 
@@ -486,6 +518,19 @@ unreachable or misleading capability. It must not grow merely to make diffs
 small. Every stacked Nova branch is based on the preceding branch, CI-clean,
 reviewable on its own, and contains no feature flag, temporary adapter, dual
 schema, or planned cleanup.
+
+Nova uses GitHub's native stacked-pull-request public preview through the
+official `gh stack` extension. The installed GitHub CLI satisfies its current
+version requirement. Each Nova PR targets the branch immediately below it and
+the bottom targets `main`; lower-layer fixes are rebased through the remaining
+stack. After every frozen head and the complete stack are approved and green,
+the contiguous Nova stack is merged together in dependency order as one
+all-or-nothing product landing. No layer is intentionally deployed by itself.
+The workflow follows GitHub's current
+[stack tutorial](https://docs.github.com/en/pull-requests/tutorials/stack-code-changes-in-pull-requests)
+and [stack management guidance](https://docs.github.com/en/pull-requests/how-tos/create-pull-requests/managing-stacked-pull-requests);
+because the feature is in public preview, its behavior is rechecked before
+submission and merge rather than assumed stable.
 
 ## Verification and completion
 
