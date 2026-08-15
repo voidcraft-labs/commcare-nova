@@ -61,7 +61,8 @@ languages and clean those values up explicitly.
 Some labels contain references to fields or other app values. The translation
 editor represents those parts as protected tokens. They can move to a natural
 place in the translated sentence, but cannot be deleted, duplicated, or changed
-into plain text.
+into plain text. Prefix a token-looking literal or a literal backslash with a
+backslash so it remains ordinary text rather than becoming structure.
 
 Every configured language always has a complete runtime projection. A missing
 or out-of-date target uses the current source value, so the app remains valid

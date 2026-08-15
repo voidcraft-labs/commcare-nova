@@ -95,6 +95,37 @@ describe("LanguagesSection", () => {
 		window.history.replaceState(null, "", "/");
 	});
 
+	it("saves only locally edited language settings after a peer update", async () => {
+		renderSection();
+		fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+		fireEvent.change(screen.getByLabelText("Worker-facing language name"), {
+			target: { value: "Local English" },
+		});
+
+		if (store === undefined) throw new Error("Expected the document store.");
+		const remote = prepareMutationCandidate(
+			store.getState(),
+			admitMutationBatch([
+				{ kind: "updateLanguage", code: "en", patch: { direction: "rtl" } },
+			]),
+		);
+		act(() => {
+			store?.getState().beginRemoteApply();
+			try {
+				store?.getState().commitDoc(remote.nextDoc, remote.mutations);
+			} finally {
+				store?.getState().endRemoteApply();
+			}
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+		await waitFor(() => {
+			expect(
+				effectiveAppLocalization(store?.getState().localization).languages.en,
+			).toEqual({ code: "en", name: "Local English", direction: "rtl" });
+		});
+	});
+
 	it("adds every current string by copying an existing language, then saves a reviewed human translation", async () => {
 		renderSection();
 
@@ -231,6 +262,64 @@ describe("LanguagesSection", () => {
 					{ kind: "text", text: "Literal [[NOVA_REF_1]] " },
 					{ kind: "user-ref", property: "username" },
 					{ kind: "text", text: " actualizado" },
+				],
+			});
+		});
+	});
+
+	it("escapes newly entered literals that equal a protected-reference marker", async () => {
+		renderSection();
+		if (store === undefined) throw new Error("Expected the document store.");
+		act(() => {
+			store?.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: FIELD_UUID,
+					targetKind: "text",
+					patch: {
+						label: {
+							parts: [
+								{ kind: "text", text: "Worker " },
+								{ kind: "user-ref", property: "username" },
+							],
+						},
+					},
+				},
+			]);
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
+		fireEvent.change(screen.getByLabelText("Language code"), {
+			target: { value: "es" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add and copy strings" }),
+		);
+		await screen.findByRole("heading", { name: "español strings" });
+
+		const input = (await screen.findByDisplayValue(
+			"Worker [[NOVA_REF_1]]",
+		)) as HTMLTextAreaElement;
+		const row = input.closest("article");
+		if (row === null) throw new Error("Expected the translation row.");
+		fireEvent.change(input, {
+			target: {
+				value: "Literal \\[[NOVA_REF_1]] then [[NOVA_REF_1]] and \\\\ path",
+			},
+		});
+		fireEvent.click(
+			within(row).getByRole("button", { name: "Save translation" }),
+		);
+
+		const unitId = makeTranslationUnitId("field", FIELD_UUID, "label");
+		await waitFor(() => {
+			expect(
+				effectiveAppLocalization(store?.getState().localization).translations
+					.es?.[unitId]?.value,
+			).toEqual({
+				parts: [
+					{ kind: "text", text: "Literal [[NOVA_REF_1]] then " },
+					{ kind: "user-ref", property: "username" },
+					{ kind: "text", text: " and \\ path" },
 				],
 			});
 		});

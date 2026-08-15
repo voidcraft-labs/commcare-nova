@@ -649,10 +649,19 @@ function LanguageSettingsDialog({
 	readonly onCommit: (mutations: Mutation[]) => boolean;
 }) {
 	const [open, setOpen] = useState(false);
-	const [code, setCode] = useState(language.code);
-	const [name, setName] = useState(language.name);
-	const [direction, setDirection] = useState(language.direction);
+	/* A missing draft property follows the current document value. This keeps an
+	 * untouched control live when a multiplayer peer edits it, while preserving
+	 * only the property this user is actively drafting. */
+	const [draft, setDraft] = useState<Partial<AppLanguage>>({});
 	const [error, setError] = useState<string>();
+	const code = soleSource ? (draft.code ?? language.code) : language.code;
+	const name = draft.name ?? language.name;
+	const direction = draft.direction ?? language.direction;
+	const setDialogOpen = (nextOpen: boolean) => {
+		setOpen(nextOpen);
+		setDraft({});
+		setError(undefined);
+	};
 	const save = () => {
 		const parsedCode = languageCodeSchema.safeParse(code.trim().toLowerCase());
 		if (!parsedCode.success) {
@@ -670,20 +679,37 @@ function LanguageSettingsDialog({
 			name: name.trim(),
 			direction,
 		};
-		const mutation: Mutation =
+		const mutation: Mutation | undefined =
 			soleSource && next.code !== language.code
 				? { kind: "relabelSourceLanguage", language: next }
-				: {
-						kind: "updateLanguage",
-						code: language.code,
-						patch: { name: next.name, direction: next.direction },
-					};
-		if (!onCommit([mutation])) return;
-		setOpen(false);
-		setError(undefined);
+				: draft.name !== undefined || draft.direction !== undefined
+					? {
+							kind: "updateLanguage",
+							code: language.code,
+							patch: {
+								...(draft.name !== undefined && next.name !== language.name
+									? { name: next.name }
+									: {}),
+								...(draft.direction !== undefined &&
+								next.direction !== language.direction
+									? { direction: next.direction }
+									: {}),
+							},
+						}
+					: undefined;
+		if (
+			mutation !== undefined &&
+			mutation.kind === "updateLanguage" &&
+			Object.keys(mutation.patch).length === 0
+		) {
+			setDialogOpen(false);
+			return;
+		}
+		if (mutation !== undefined && !onCommit([mutation])) return;
+		setDialogOpen(false);
 	};
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={setDialogOpen}>
 			<DialogTrigger render={<Button type="button" variant="ghost" />}>
 				Settings
 			</DialogTrigger>
@@ -704,7 +730,12 @@ function LanguageSettingsDialog({
 							aria-label="Language code"
 							value={code}
 							disabled={!soleSource}
-							onChange={(event) => setCode(event.target.value.toLowerCase())}
+							onChange={(event) =>
+								setDraft((current) => ({
+									...current,
+									code: event.target.value.toLowerCase(),
+								}))
+							}
 							className="font-mono"
 						/>
 					</div>
@@ -715,7 +746,12 @@ function LanguageSettingsDialog({
 						<Input
 							aria-label="Worker-facing language name"
 							value={name}
-							onChange={(event) => setName(event.target.value)}
+							onChange={(event) =>
+								setDraft((current) => ({
+									...current,
+									name: event.target.value,
+								}))
+							}
 						/>
 					</div>
 					<div className="block">
@@ -724,10 +760,13 @@ function LanguageSettingsDialog({
 						</span>
 						<Select
 							value={direction}
-							onValueChange={(value) =>
-								value !== null &&
-								setDirection(value as AppLanguage["direction"])
-							}
+							onValueChange={(value) => {
+								if (value === null) return;
+								setDraft((current) => ({
+									...current,
+									direction: value as AppLanguage["direction"],
+								}));
+							}}
 						>
 							<SelectTrigger aria-label="Text direction" className="w-full">
 								<SelectValue />
@@ -1009,7 +1048,15 @@ function serializeProse(
 	let output = "";
 	for (const part of value.parts) {
 		if (part.kind === "text") {
-			output += part.text;
+			if (tokens.length === 0) {
+				output += part.text;
+				continue;
+			}
+			let escaped = part.text.replaceAll("\\", "\\\\");
+			for (const token of tokens) {
+				escaped = escaped.replaceAll(token.token, `\\${token.token}`);
+			}
+			output += escaped;
 			continue;
 		}
 		const index = unused.findIndex((token) => sameReference(token.part, part));
@@ -1020,19 +1067,10 @@ function serializeProse(
 	return output;
 }
 
-function escapeRegex(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function parseProtectedProse(
 	value: string,
 	tokens: readonly ProtectedToken[],
 ): { value?: ProseTemplate; error?: string } {
-	for (const token of tokens) {
-		if (value.split(token.token).length - 1 !== 1) {
-			return { error: `Keep ${token.token} exactly once.` };
-		}
-	}
 	if (tokens.length === 0) {
 		return {
 			value: canonicalProseTemplate(
@@ -1040,16 +1078,43 @@ function parseProtectedProse(
 			),
 		};
 	}
-	const byToken = new Map(tokens.map((token) => [token.token, token.part]));
-	const pattern = new RegExp(
-		`(${tokens.map((token) => escapeRegex(token.token)).join("|")})`,
-		"g",
-	);
+	const counts = new Map(tokens.map((token) => [token.token, 0]));
 	const parts: ProsePart[] = [];
-	for (const segment of value.split(pattern)) {
-		if (segment === "") continue;
-		const reference = byToken.get(segment);
-		parts.push(reference ?? { kind: "text", text: segment });
+	let literal = "";
+	const flushLiteral = () => {
+		if (literal === "") return;
+		parts.push({ kind: "text", text: literal });
+		literal = "";
+	};
+	for (let index = 0; index < value.length; ) {
+		if (value[index] === "\\") {
+			if (index + 1 < value.length) {
+				literal += value[index + 1];
+				index += 2;
+			} else {
+				literal += "\\";
+				index += 1;
+			}
+			continue;
+		}
+		const token = tokens.find((candidate) =>
+			value.startsWith(candidate.token, index),
+		);
+		if (token === undefined) {
+			literal += value[index];
+			index += 1;
+			continue;
+		}
+		flushLiteral();
+		parts.push(token.part);
+		counts.set(token.token, (counts.get(token.token) ?? 0) + 1);
+		index += token.token.length;
+	}
+	flushLiteral();
+	for (const token of tokens) {
+		if (counts.get(token.token) !== 1) {
+			return { error: `Keep ${token.token} exactly once.` };
+		}
 	}
 	return { value: canonicalProseTemplate(parts) };
 }
@@ -1085,14 +1150,20 @@ function ProtectedProseEditor({
 				aria-label="Reference-safe translation"
 			/>
 			{tokens.length > 0 && (
-				<div className="mt-2 flex flex-wrap gap-1.5">
-					{tokens.map((token) => (
-						<Badge key={token.token} variant="violet">
-							<span className="font-mono">{token.token}</span>
-							<span aria-hidden="true">·</span>
-							{token.label}
-						</Badge>
-					))}
+				<div className="mt-2 space-y-1.5">
+					<div className="flex flex-wrap gap-1.5">
+						{tokens.map((token) => (
+							<Badge key={token.token} variant="violet">
+								<span className="font-mono">{token.token}</span>
+								<span aria-hidden="true">·</span>
+								{token.label}
+							</Badge>
+						))}
+					</div>
+					<p className="text-xs text-nova-text-muted">
+						Keep each reference token once. Prefix a token-looking literal or a
+						backslash with <span className="font-mono">\</span>.
+					</p>
 				</div>
 			)}
 			{error !== undefined && (

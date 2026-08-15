@@ -201,8 +201,11 @@ test failure.
 atoms as protected tokens with friendly renderings, for example `REF_1`
 alongside “the Patient name answer.” Translation output may reorder tokens for
 the target grammar but must contain each token exactly as many times as the
-source. The server maps the tokens back to the original typed field, case, user
-property, or external-user reference.
+source. Human editing uses a reversible backslash escape for literal backslashes
+and text that exactly resembles a protected token, so every literal remains
+representable without confusing it for structure. The server maps the tokens
+back to the original typed field, case, user property, or external-user
+reference.
 
 Neither AI nor human tooling reparses rendered `#form/...` text. UUID-backed
 identity moves and display renames leave the source and target reference atoms,
@@ -501,6 +504,11 @@ Language catalog operations and bounded translation updates use the granular
 undo/redo, diffing, accepted app-change rows, and multiplayer exactly like
 existing Blueprint mutations. Shared agent/MCP tools compose these same
 commands rather than introducing a second write dialect.
+
+Builder metadata dialogs draft only properties the local user changes. An
+untouched language name or direction continues to follow the live document, and
+save emits only dirty properties, so a concurrent peer edit is never restored
+from stale component state.
 
 The localization schema and document-aware validator enforce catalog closure,
 default ordering, source/target rules, entry kinds, unit existence, reference
