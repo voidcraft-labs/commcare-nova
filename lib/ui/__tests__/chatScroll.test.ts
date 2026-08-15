@@ -3,7 +3,7 @@ import {
 	ANCHOR_MARGIN_PX,
 	distanceFromBottom,
 	modeAfterUserScroll,
-	PIN_REENTRY_SLOP_PX,
+	PIN_BOTTOM_SLOP_PX,
 	pinnedScrollTarget,
 } from "@/lib/ui/chatScroll";
 
@@ -23,21 +23,23 @@ describe("distanceFromBottom", () => {
 });
 
 describe("modeAfterUserScroll", () => {
-	it("escapes on ANY upward scroll, however small", () => {
-		expect(modeAfterUserScroll(1400, metrics(1399))).toBe("free");
-		expect(modeAfterUserScroll(1400, metrics(600))).toBe("free");
+	it("stays pinned through small upward movement near the bottom", () => {
+		expect(modeAfterUserScroll(metrics(1399))).toBe("pinned");
+		expect(modeAfterUserScroll(metrics(1400 - PIN_BOTTOM_SLOP_PX))).toBe(
+			"pinned",
+		);
 	});
 
-	it("re-enters pinned mode on a downward scroll near the bottom, with leeway", () => {
-		const nearBottom = 1400 - PIN_REENTRY_SLOP_PX;
-		expect(modeAfterUserScroll(600, metrics(nearBottom))).toBe("pinned");
-		expect(modeAfterUserScroll(600, metrics(1400))).toBe("pinned");
+	it("re-enters pinned mode anywhere inside the bottom range", () => {
+		const nearBottom = 1400 - PIN_BOTTOM_SLOP_PX;
+		expect(modeAfterUserScroll(metrics(nearBottom))).toBe("pinned");
+		expect(modeAfterUserScroll(metrics(1400))).toBe("pinned");
 	});
 
-	it("stays free on a downward scroll that ends above the leeway", () => {
-		expect(
-			modeAfterUserScroll(600, metrics(1400 - PIN_REENTRY_SLOP_PX - 1)),
-		).toBe("free");
+	it("releases pinning only after moving beyond the bottom range", () => {
+		expect(modeAfterUserScroll(metrics(1400 - PIN_BOTTOM_SLOP_PX - 1))).toBe(
+			"free",
+		);
 	});
 });
 

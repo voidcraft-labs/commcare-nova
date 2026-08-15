@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatInput } from "@/components/chat/ChatInput";
 
 const builder = vi.hoisted(() => ({ ready: false }));
+const composer = vi.hoisted(() => ({ value: "" }));
 
 vi.mock("@/lib/session/hooks", () => ({
 	useAccessPhase: () => "authorized",
@@ -33,7 +34,7 @@ vi.mock("@/components/ai-elements/prompt-input", () => ({
 		<>{children}</>
 	),
 	usePromptInputController: () => ({
-		textInput: { value: "", setInput: () => {}, clear: () => {} },
+		textInput: { value: composer.value, setInput: () => {}, clear: () => {} },
 	}),
 	PromptInputBody: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
@@ -42,10 +43,10 @@ vi.mock("@/components/ai-elements/prompt-input", () => ({
 		<div>{children}</div>
 	),
 	PromptInputSubmit: ({
-		status: _status,
+		status,
 		...props
 	}: ButtonHTMLAttributes<HTMLButtonElement> & { status?: string }) => (
-		<button type="submit" {...props}>
+		<button type="submit" data-status={status} {...props}>
 			Send
 		</button>
 	),
@@ -90,6 +91,7 @@ vi.mock("@/components/shadcn/tooltip", () => ({
 describe("ChatInput", () => {
 	beforeEach(() => {
 		builder.ready = false;
+		composer.value = "";
 	});
 
 	it("uses real, action-oriented placeholders without decorative ellipses", () => {
@@ -108,6 +110,15 @@ describe("ChatInput", () => {
 		const attach = screen.getByRole("button", { name: "Attach a file" });
 		expect(attach.getAttribute("data-slot")).toBe("button");
 		expect(attach.className).toContain("size-11");
+	});
+
+	it("keeps the send arrow state while a turn disables the composer", () => {
+		composer.value = "Make a change";
+		render(<ChatInput disabled onSend={vi.fn()} />);
+
+		const send = screen.getByRole("button", { name: "Send" });
+		expect((send as HTMLButtonElement).disabled).toBe(true);
+		expect(send.getAttribute("data-status")).toBeNull();
 	});
 
 	it("separates edit cost and clarification guidance into scannable sentences", () => {

@@ -2518,10 +2518,6 @@ export function ChatContainer({
 					<DesignProgressStatus view={designProgress} />
 				) : undefined
 			}
-			generationPaused={
-				designProgress.stage === "incomplete" ||
-				designProgress.stage === "failed"
-			}
 			initialBuildLocked={designProgressLocksInitialBuild(
 				designProgress,
 				buildUnfinished,

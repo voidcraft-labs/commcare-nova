@@ -24,9 +24,9 @@ interface ChatAttachmentBarProps {
 
 /**
  * One staged chip. Owns the asset's extraction lifecycle (the single
- * `useDocumentExtraction` call) so the chip can reflect the status: a small
- * spinner in the glyph slot while reading, a compact retry on failure, and the
- * preview/remove gates. The hook can't be called inside the parent's `.map`.
+ * `useDocumentExtraction` call) so the chip can reflect the status: an active
+ * tint on its still file glyph while reading, a compact retry on failure, and
+ * the preview/remove gates. The hook can't be called inside the parent's `.map`.
  * There is no per-chip status badge: the composer's "Reading your documents"
  * activity status narrates the wait, so the chip stays glyph + name + ×.
  */

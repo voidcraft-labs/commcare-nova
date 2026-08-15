@@ -113,10 +113,6 @@ interface ChatSidebarProps {
 	/** The design stage line. Like every live activity row, it stays directly
 	 * above the composer instead of moving upward as transcript cards arrive. */
 	designProgressStatus?: ReactNode;
-	/** The initial build is still unfinished, but no run is active because it
-	 * stopped. This affects the activity indicator, not whether arbitrary new
-	 * messages may alter an accepted plan. */
-	generationPaused?: boolean;
 	/** Freeze ordinary composer sends from the first persisted design artifact
 	 * through whole-plan completion. A persisted question round is the only
 	 * pre-build input the composer may route. */
@@ -167,20 +163,6 @@ export function shouldShowShortChatFallback({
 	return !centered && !docked && veryShortViewport;
 }
 
-/** The initial-build latch outlives a stopped run so the Builder stays
- * read-only. It is not, by itself, evidence that the composer is submitting. */
-export function chatComposerIsSubmitting({
-	isLoading,
-	isGenerating,
-	generationPaused,
-}: {
-	readonly isLoading: boolean;
-	readonly isGenerating: boolean;
-	readonly generationPaused: boolean;
-}): boolean {
-	return isLoading || (isGenerating && !generationPaused);
-}
-
 export function chatComposerIsDisabled({
 	isLoading,
 	isGenerating,
@@ -226,7 +208,6 @@ export function ChatSidebar({
 	onNewChat,
 	designProgressDetails,
 	designProgressStatus,
-	generationPaused = false,
 	initialBuildLocked = false,
 	activityStatusHidden = false,
 	activityOverride = null,
@@ -409,8 +390,8 @@ export function ChatSidebar({
 
 	/* The conversation's scroll controller (`lib/ui/chatScroll.ts` is the one
 	 * scroll model: pinned-to-bottom through content growth, resizes, and the
-	 * centered↔sidebar morph; the question-card anchor; escape on upward
-	 * scroll; re-entry with leeway). Conversation hands it up so the send
+	 * centered↔sidebar morph; the question-card anchor; escape beyond the
+	 * near-bottom range; re-entry within it). Conversation hands it up so the send
 	 * handlers below can jump the view back to the latest content. */
 	const scrollControllerRef = useRef<ChatScrollController | null>(null);
 
@@ -651,7 +632,7 @@ export function ChatSidebar({
 				 *  owns the scroll via ChatScrollController: pinned to the
 				 *  latest content across streaming and the center↔sidebar
 				 *  morph, anchored to a waiting question card's top, released
-				 *  by an upward scroll. controllerRef hands the controller up
+				 *  by scrolling beyond the near-bottom range. controllerRef hands the controller up
 				 *  for the send handlers' jump-to-latest. */}
 				{/* The card is `overflow-hidden`; the activity status + composer below are
 				 *  `shrink-0` and must NEVER be clipped, so the Conversation absorbs all
@@ -795,14 +776,6 @@ export function ChatSidebar({
 							composerBusy: composerBusy === true,
 							readOnly: readOnly === true,
 							authorized: accessPhase === "authorized",
-						})}
-						// The spinner means the turn is still moving. A stopped accepted
-						// build remains locked; only a persisted question round can accept
-						// a composer answer before construction starts.
-						submitting={chatComposerIsSubmitting({
-							isLoading,
-							isGenerating,
-							generationPaused,
 						})}
 						centered={centered}
 						// "Describe the app" fits only the opening prompt of a

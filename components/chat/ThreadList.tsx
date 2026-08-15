@@ -14,9 +14,9 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerMessage from "@iconify-icons/tabler/message";
+import tablerProgress from "@iconify-icons/tabler/progress";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { Button } from "@/components/shadcn/button";
-import { Spinner } from "@/components/shadcn/spinner";
 import type { ThreadMeta } from "@/lib/db/types";
 import { SELECTED_TINT_CLS } from "@/lib/styles";
 import { formatRelativeDate } from "@/lib/utils/format";
@@ -86,7 +86,11 @@ export function ThreadList({
 									{thread.summary}
 								</span>
 								{opening ? (
-									<Spinner className="mt-0.5 size-3.5 shrink-0 text-nova-violet-bright" />
+									<Icon
+										aria-hidden="true"
+										icon={tablerProgress}
+										className="mt-0.5 size-3.5 shrink-0 text-nova-violet-bright"
+									/>
 								) : live ? (
 									<span className="shrink-0 flex items-center gap-1.5 mt-0.5">
 										<span className="relative flex size-2">

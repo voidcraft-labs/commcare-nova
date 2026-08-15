@@ -69,6 +69,7 @@ describe("AttachmentChip", () => {
 		expect(preview.className).toContain("cursor-not-allowed");
 		expect(remove.getAttribute("aria-disabled")).toBe("true");
 		expect(remove.className).toContain("cursor-not-allowed");
+		expect(screen.queryByRole("status", { name: "Loading" })).toBeNull();
 
 		fireEvent.click(preview);
 		fireEvent.click(remove);

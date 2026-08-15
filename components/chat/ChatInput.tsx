@@ -85,10 +85,6 @@ interface ChatInputProps {
 	/** The composer can't be typed in or submitted. Says nothing about WHY:
 	 *  a turn may be in flight, or something else may simply own the screen. */
 	disabled?: boolean;
-	/** A turn is actually in flight, so the submit button shows a spinner. A
-	 *  strict subset of `disabled`: locking the composer for a non-chat reason
-	 *  (creating the starter) must not claim the user's message is being sent. */
-	submitting?: boolean;
 	/** Centered (Idle) card layout vs docked sidebar: drives the input chrome
 	 *  (the docked variant gets a top divider). */
 	centered?: boolean;
@@ -130,7 +126,6 @@ export function ChatInput(props: ChatInputProps) {
 function ChatInputComposer({
 	onSend,
 	disabled,
-	submitting,
 	centered,
 	openingPrompt,
 	onReadingChange,
@@ -372,8 +367,8 @@ function ChatInputComposer({
 					 *  The submit is disabled when the text is empty (a staged attachment
 					 *  alone can't send) or over the limit (the text is never truncated:
 					 *  only sending is blocked). While a turn is in flight the whole input
-					 *  is disabled (Nova shows progress in the activity status, not a stop
-					 *  button), so the submit shows the spinner. */}
+					 *  is disabled. The send arrow stays still because the one activity row
+					 *  above the composer already narrates progress. */}
 					<div className="flex items-center gap-2">
 						<CharCounter length={textLength} max={MAX_CHAT_MESSAGE_CHARS} />
 						<Tooltip>
@@ -398,7 +393,6 @@ function ChatInputComposer({
 								render={
 									<PromptInputSubmit
 										disabled={disabled || overLimit || !hasText}
-										status={submitting ? "submitted" : "ready"}
 										variant="default"
 										aria-label="Send"
 									/>

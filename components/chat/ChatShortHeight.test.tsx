@@ -5,7 +5,6 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	chatComposerIsDisabled,
-	chatComposerIsSubmitting,
 	PersistentChatComposer,
 	ShortChatFallback,
 	shouldShowShortChatFallback,
@@ -119,30 +118,6 @@ describe("short-height chat", () => {
 });
 
 describe("composer activity state", () => {
-	it("returns to Submit when an unfinished initial build is paused", () => {
-		expect(
-			chatComposerIsSubmitting({
-				isLoading: false,
-				isGenerating: true,
-				generationPaused: true,
-			}),
-		).toBe(false);
-		expect(
-			chatComposerIsSubmitting({
-				isLoading: false,
-				isGenerating: true,
-				generationPaused: false,
-			}),
-		).toBe(true);
-		expect(
-			chatComposerIsSubmitting({
-				isLoading: true,
-				isGenerating: true,
-				generationPaused: true,
-			}),
-		).toBe(true);
-	});
-
 	it("keeps a stopped accepted build locked except for a persisted question", () => {
 		const base = {
 			isLoading: false,

@@ -4,7 +4,7 @@ import tablerArrowNarrowRight from "@iconify-icons/tabler/arrow-narrow-right";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
 import tablerCircleX from "@iconify-icons/tabler/circle-x";
-import tablerLoader2 from "@iconify-icons/tabler/loader-2";
+import tablerProgress from "@iconify-icons/tabler/progress";
 import type { ToolUIPart } from "ai";
 import {
 	Collapsible,
@@ -25,12 +25,14 @@ import { cn } from "@/lib/utils";
 
 /** Status glyph + tint, shared by the run header and each per-call row.
  *  Emerald = done, rose (Nova's destructive) = failed (incl. a failed
- *  completion outcome), spinner = in-flight. */
+ *  completion outcome), a still incomplete ring = in-flight. The single live
+ *  activity row owns motion; expanding a large batch must not reveal a wall of
+ *  spinning glyphs. */
 const STATUS: Record<
 	ToolStatus,
 	{ icon: typeof tablerCircleCheck; tint: string }
 > = {
-	pending: { icon: tablerLoader2, tint: "animate-spin text-nova-text-muted" },
+	pending: { icon: tablerProgress, tint: "text-nova-text-muted" },
 	done: { icon: tablerCircleCheck, tint: "text-nova-emerald" },
 	failed: { icon: tablerCircleX, tint: "text-nova-rose" },
 };
@@ -62,6 +64,7 @@ function ToolCallRow({
 			className={cn("flex items-start gap-2", headline ? "text-sm" : "text-xs")}
 		>
 			<Icon
+				aria-hidden="true"
 				className={cn(
 					"mt-0.5 shrink-0",
 					headline ? "size-4" : "size-3.5",
@@ -158,6 +161,7 @@ export function ToolRunSummary({ parts }: { parts: ToolUIPart[] }) {
 		<Collapsible className="w-full rounded-lg border border-nova-border bg-nova-surface/40">
 			<CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-2 p-2.5 text-left">
 				<Icon
+					aria-hidden="true"
 					className={cn("size-4 shrink-0", STATUS[status].tint)}
 					icon={STATUS[status].icon}
 				/>

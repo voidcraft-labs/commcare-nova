@@ -11,10 +11,11 @@
  *    waits: then the target is capped so the card's TOP stays readable — the
  *    user answers a question from its start, and a card taller than the
  *    viewport pinned to its tail would open on its last option.
- *  - Any upward USER scroll leaves pinned mode, however small: the view then
- *    holds still, and incoming content never scrolls an escaped reader.
- *  - A downward user scroll that lands near the bottom re-enters pinned mode
- *    (`PIN_REENTRY_SLOP_PX` of leeway — never an exact-pixel requirement).
+ *  - A USER scroll stays pinned inside a near-bottom range. Moving farther up
+ *    leaves pinned mode, so tiny trackpad drift and layout rounding never show
+ *    a jump button while the latest content is still in view.
+ *  - Returning to that same range re-enters pinned mode. It is never an
+ *    exact-pixel requirement.
  *  - The user's own send (or an answered question round) always re-enters
  *    pinned mode with an instant jump, wherever they had scrolled.
  *
@@ -24,8 +25,8 @@
  * counter so the controller's own writes are never mistaken for the user's.
  */
 
-/** Leeway for re-entering pinned mode on a downward scroll. */
-export const PIN_REENTRY_SLOP_PX = 100;
+/** Near-bottom range that stays in, or re-enters, pinned mode. */
+export const PIN_BOTTOM_SLOP_PX = 100;
 
 /** Breathing room kept above an anchored question card's top. */
 export const ANCHOR_MARGIN_PX = 12;
@@ -46,15 +47,12 @@ export function distanceFromBottom(metrics: ScrollMetrics): number {
 }
 
 /**
- * The mode after a USER scroll (never called for the controller's own
- * writes). Upward always escapes; downward re-pins within the slop.
+ * The mode after a USER scroll (never called for the controller's own writes).
+ * The near-bottom range is symmetric: a tiny upward move remains pinned, and
+ * returning to the range after reading older content re-pins.
  */
-export function modeAfterUserScroll(
-	previousScrollTop: number,
-	metrics: ScrollMetrics,
-): ChatScrollMode {
-	if (metrics.scrollTop < previousScrollTop) return "free";
-	return distanceFromBottom(metrics) <= PIN_REENTRY_SLOP_PX ? "pinned" : "free";
+export function modeAfterUserScroll(metrics: ScrollMetrics): ChatScrollMode {
+	return distanceFromBottom(metrics) <= PIN_BOTTOM_SLOP_PX ? "pinned" : "free";
 }
 
 /**
@@ -142,7 +140,7 @@ export class ChatScrollController {
 			this.lastScrollTop = el.scrollTop;
 			return;
 		}
-		const next = modeAfterUserScroll(this.lastScrollTop, el);
+		const next = modeAfterUserScroll(el);
 		this.lastScrollTop = el.scrollTop;
 		this.setMode(next);
 	}

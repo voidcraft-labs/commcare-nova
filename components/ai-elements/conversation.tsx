@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
  * The conversation scroll region, driven by `ChatScrollController`
  * (`lib/ui/chatScroll.ts` holds the whole scroll model — pinned-to-bottom
  * tracking through content growth and container resizes, the question-card
- * anchor, escape on upward scroll, re-entry with leeway).
+ * anchor, escape beyond the near-bottom range, re-entry within it).
  *
  * Structure matters here: the `role="log"` ROOT never scrolls (it hosts the
  * floating scroll-to-latest button), `ConversationContent` renders the actual
@@ -131,7 +131,10 @@ export const ConversationContent = ({
 		<div
 			ref={setScroller}
 			onScroll={() => controller.handleScroll()}
-			className="h-full overflow-y-auto"
+			/* Native scroll anchoring can emit its own scroll while streamed content
+			 * grows, which looks like user intent and reveals the jump button. The
+			 * controller is the one owner of transcript following. */
+			className="h-full overflow-y-auto [overflow-anchor:none]"
 		>
 			<div
 				ref={setContent}

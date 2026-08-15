@@ -166,3 +166,12 @@ with the transcript, while the one live design stage line is the final status
 directly above the composer. A terminal design-build error replaces any stale
 working stage; automatic recovery never invents a user-authored retry message
 in the transcript.
+
+The activity row directly above the composer is the chat surface's only
+rotating progress indicator. A disabled send button keeps its send arrow, and
+in-flight tool rows, attachment chips, thread rows, and secondary actions use
+still semantic glyphs. Expanding a batched tool run must never reveal one
+spinner per call. The conversation stays pinned throughout the shared
+near-bottom range; only moving beyond it reveals the scroll-to-latest button,
+and browser scroll anchoring stays disabled because `ChatScrollController` is
+the sole owner of transcript following.

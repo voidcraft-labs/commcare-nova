@@ -3,7 +3,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerX from "@iconify-icons/tabler/x";
 import { ASSET_KIND_META } from "@/components/builder/media/assetKindMeta";
-import { Spinner } from "@/components/shadcn/spinner";
 import {
 	Tooltip,
 	TooltipContent,
@@ -33,9 +32,9 @@ interface AttachmentChipProps {
 	removeDisabled?: boolean;
 	/** Tooltip shown on the disabled × in place of "Remove". */
 	removeDisabledTooltip?: string;
-	/** The document is still being read: the type glyph becomes a small spinner.
-	 *  The only per-chip trace of extraction; the composer's activity status is
-	 *  the surface that narrates the wait. */
+	/** The document is still being read. The type glyph takes the active tint but
+	 *  stays still; the composer's activity status is the one moving indicator
+	 *  and the surface that narrates the wait. */
 	reading?: boolean;
 	/** Extraction failed: renders a compact rose retry between name and ×. The
 	 *  one state that grows the chip, because a file Nova can't read would
@@ -77,14 +76,14 @@ export function AttachmentChip({
 	const meta = ASSET_KIND_META[kind];
 	const label = (
 		<>
-			{reading ? (
-				<Spinner aria-hidden className="size-3.5 shrink-0" />
-			) : (
-				<Icon
-					icon={meta.icon}
-					className="size-3.5 shrink-0 text-nova-text-muted"
-				/>
-			)}
+			<Icon
+				aria-hidden="true"
+				icon={meta.icon}
+				className={cn(
+					"size-3.5 shrink-0",
+					reading ? "text-nova-violet-bright" : "text-nova-text-muted",
+				)}
+			/>
 			<span className="truncate">{filename}</span>
 		</>
 	);
