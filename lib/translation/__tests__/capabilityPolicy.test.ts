@@ -53,8 +53,11 @@ describe("automatic translation launch policy", () => {
 	it("resolves regional suffixes without collapsing distinct listed varieties", () => {
 		expect(automaticTranslationLaunchLanguage("es-mx")).toBe("spa");
 		expect(automaticTranslationLaunchLanguage("arz")).toBe("arz");
+		expect(automaticTranslationLaunchLanguage("zh-yue")).toBe("yue");
+		expect(automaticTranslationLaunchLanguage("zh-wuu")).toBe("wuu");
 		expect(automaticTranslationAvailable("en-gb", "es-mx")).toBe(true);
 		expect(automaticTranslationAvailable("ar", "arz")).toBe(true);
+		expect(automaticTranslationAvailable("zh-yue", "zh-wuu")).toBe(true);
 		expect(automaticTranslationCapability("en", "eng").status).toBe("withheld");
 	});
 

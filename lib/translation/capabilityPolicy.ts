@@ -74,10 +74,44 @@ const CLASSIC_TO_LAUNCH_EQUIVALENT = new Map<LanguageCode, LanguageCode>([
 	["uzb", "uzn"],
 ]);
 
+/**
+ * Explicit compound aliases for launch languages that are varieties of a
+ * broader two-letter language. They must resolve before regional fallback:
+ * `zh-yue` means Yue, while an ordinary region such as `zh-hk` still inherits
+ * the Mandarin capability selected by Classic's `zh` alias.
+ */
+const LAUNCH_VARIETY_ALIASES = new Map<LanguageCode, LanguageCode>([
+	["zh-cmn", "cmn"],
+	["zh-yue", "yue"],
+	["zh-wuu", "wuu"],
+	["zh-cjy", "cjy"],
+	["zh-nan", "nan"],
+	["zh-hak", "hak"],
+	["zh-hsn", "hsn"],
+	["ar-arb", "arb"],
+	["ar-arz", "arz"],
+	["ar-apc", "apc"],
+	["ar-apd", "apd"],
+	["ar-arq", "arq"],
+	["ar-ary", "ary"],
+	["fa-pes", "pes"],
+	["fa-prs", "prs"],
+	["pa-pan", "pan"],
+	["pa-pnb", "pnb"],
+	["ms-zlm", "zlm"],
+	["sw-swh", "swh"],
+	["or-ory", "ory"],
+	["ne-npi", "npi"],
+	["uz-uzn", "uzn"],
+]);
+
 /** Resolve a CommCare code or regional variant to one launch-language identity. */
 export function automaticTranslationLaunchLanguage(
 	code: LanguageCode,
 ): LanguageCode | undefined {
+	if (launchCodes.has(code)) return code;
+	const variety = LAUNCH_VARIETY_ALIASES.get(code);
+	if (variety !== undefined) return variety;
 	const base = code.split("-", 1)[0] as LanguageCode;
 	if (launchCodes.has(base)) return base;
 	const classic = classicLanguageOption(base);

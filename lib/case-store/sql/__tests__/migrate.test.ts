@@ -11,6 +11,7 @@ import {
 	runCaseStoreMigrationsWithReport,
 } from "@/lib/case-store/migrate";
 import { caseStoreMigrations } from "@/lib/case-store/migrations";
+import * as designLocalization from "@/lib/case-store/migrations/20260815010000_design_localization";
 import { setupPerTestDatabase } from "./perTestDatabase";
 
 const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "migrate_test_" });
@@ -80,6 +81,22 @@ describe("runCaseStoreMigrations", () => {
 		});
 		await expect(runCaseStoreMigrations(db)).resolves.toBeUndefined();
 		expect(await ledgerNames(db)).toEqual(EXPECTED_LEDGER);
+	});
+
+	it("adopts existing localization tables when its ledger row is absent", async () => {
+		const db = dbHandle.db;
+		await runCaseStoreMigrations(db);
+
+		await expect(designLocalization.up(db)).resolves.toBeUndefined();
+		expect(
+			await regclassExists(db, "public.design_localization_attempts"),
+		).toBe(true);
+		expect(
+			await regclassExists(
+				db,
+				"public.design_localization_batch_usage_accounts",
+			),
+		).toBe(true);
 	});
 
 	it("fails closed when a final schema loses its immutable migration ledger", async () => {

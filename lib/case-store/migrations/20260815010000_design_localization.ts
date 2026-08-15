@@ -6,7 +6,7 @@ const SHA256_HEX = "'^[a-f0-9]{64}$'";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`
-		CREATE TABLE design_localization_attempts (
+		CREATE TABLE IF NOT EXISTS design_localization_attempts (
 			id uuid PRIMARY KEY,
 			design_session_id uuid NOT NULL
 				REFERENCES design_sessions(id) ON DELETE CASCADE,
@@ -50,7 +50,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	`.execute(db);
 
 	await sql`
-		CREATE TABLE design_localization_batches (
+		CREATE TABLE IF NOT EXISTS design_localization_batches (
 			id uuid PRIMARY KEY,
 			attempt_id uuid NOT NULL
 				REFERENCES design_localization_attempts(id) ON DELETE CASCADE,
@@ -105,7 +105,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	`.execute(db);
 
 	await sql`
-		CREATE TABLE design_localization_receipts (
+		CREATE TABLE IF NOT EXISTS design_localization_receipts (
 			id uuid PRIMARY KEY,
 			attempt_id uuid NOT NULL
 				REFERENCES design_localization_attempts(id) ON DELETE CASCADE,
@@ -134,7 +134,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	`.execute(db);
 
 	await sql`
-		CREATE TABLE design_localization_batch_usage_accounts (
+		CREATE TABLE IF NOT EXISTS design_localization_batch_usage_accounts (
 			batch_id uuid PRIMARY KEY
 				REFERENCES design_localization_batches(id) ON DELETE CASCADE,
 			run_id text NOT NULL CHECK (btrim(run_id) <> ''),
