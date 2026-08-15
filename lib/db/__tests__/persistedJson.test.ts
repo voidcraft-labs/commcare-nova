@@ -6,6 +6,7 @@ import {
 	safePersistedSequence,
 } from "@/lib/utils/persistedSequence";
 import {
+	assemblePersistedBlueprintJsonText,
 	PersistedJsonRejectedError,
 	parsePersistedAppChangeEnvelope,
 	parsePersistedJsonText,
@@ -84,6 +85,24 @@ describe("parsePersistedJsonText", () => {
 				}),
 			);
 		}
+	});
+});
+
+describe("assemblePersistedBlueprintJsonText", () => {
+	it("treats the absent pre-localization carrier as no localization", () => {
+		const doc = assemblePersistedBlueprintJsonText(
+			"historical-app",
+			{
+				app_name: "Historical app",
+				connect_type: null,
+				case_types_text: null,
+				logo: null,
+			},
+			[],
+		);
+
+		expect(doc.appName).toBe("Historical app");
+		expect(doc.localization).toBeUndefined();
 	});
 });
 

@@ -49,7 +49,7 @@ export interface PersistedBlueprintRootText {
 	readonly app_name: string;
 	readonly connect_type: ConnectType | null;
 	readonly case_types_text: string | null;
-	readonly localization_text: string | null;
+	readonly localization_text?: string | null;
 	readonly logo: MediaAssetId | null;
 }
 
@@ -502,7 +502,7 @@ export function assemblePersistedBlueprintJsonText(
 							`apps.case_types for app ${appId}`,
 						) as PersistableDoc["caseTypes"]),
 			localization:
-				root.localization_text === null
+				root.localization_text === null || root.localization_text === undefined
 					? undefined
 					: (parsePersistedJsonText(
 							root.localization_text,
