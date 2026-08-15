@@ -172,6 +172,9 @@ function rowEvalContext(
 		contextPath: "",
 		position,
 		resolveHashtag: (ref) => outer.resolveHashtag(ref),
+		...(outer.resolveInstance === undefined
+			? {}
+			: { resolveInstance: outer.resolveInstance }),
 		getValue: (path) => {
 			const segments = path.split("/").filter(Boolean);
 			if (segments.length === 1) {

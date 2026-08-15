@@ -903,6 +903,72 @@ describe("validateBlueprintDeep", () => {
 		).toBe(true);
 	});
 
+	it("validates every form-link XPath carrier, including on an empty form", () => {
+		const moduleUuid = testUuid("form-link-module");
+		const sourceUuid = testUuid("form-link-source");
+		const targetUuid = testUuid("form-link-target");
+		const doc = buildDoc({
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "Module",
+					forms: [
+						{
+							uuid: sourceUuid,
+							name: "Source",
+							type: "survey",
+							formLinks: [
+								{
+									condition: "here()",
+									target: {
+										type: "form",
+										moduleUuid,
+										formUuid: targetUuid,
+									},
+									datums: [
+										{
+											name: "case_id",
+											xpath: "substring('abc', 1)",
+										},
+									],
+								},
+							],
+						},
+						{
+							uuid: targetUuid,
+							name: "Target",
+							type: "survey",
+							fields: [],
+						},
+					],
+				},
+			],
+		});
+
+		const errors = validateBlueprintDeep(doc).filter(
+			(error) => error.kind === "form-link-xpath",
+		);
+		expect(errors).toMatchObject([
+			{
+				kind: "form-link-xpath",
+				slot: "form_link_condition",
+				indices: [0],
+				error: { code: "UNKNOWN_FUNCTION" },
+			},
+			{
+				kind: "form-link-xpath",
+				slot: "form_link_datum_xpath",
+				indices: [0, 0],
+				error: { code: "UNKNOWN_FUNCTION" },
+			},
+		]);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(error) => error.code === "UNKNOWN_FUNCTION",
+			),
+		).toHaveLength(2);
+	});
+
 	it("catches wrong arity", () => {
 		const doc = makeDoc([
 			f({ kind: "text", id: "name", label: proseText("Name") }),

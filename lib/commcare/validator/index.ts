@@ -22,9 +22,12 @@ import {
 	type Field,
 	type FieldProseSlotId,
 	type FieldXPathSlotId,
+	FORM_LINK_XPATH_SLOT_IDS,
+	type FormLinkXPathSlotId,
 	fieldPathResolver,
 	fieldRegistry,
 	formExpressionSource,
+	formExpressionSourceEntries,
 	formExpressionValue,
 	isConnectLearnConfig,
 	type ProseTemplate,
@@ -64,6 +67,9 @@ export type XPathSurface = FieldXPathSlotId;
  * `XPathSurface`: the runner owns the display label.
  */
 export type ConnectXPathSlot = ConnectXPathSlotId;
+
+/** Form-link XPath carriers — condition and per-datum XPath. */
+export type FormLinkXPathSlot = FormLinkXPathSlotId;
 
 /**
  * The PROSE surfaces deep validation scans for embedded `#<type>/<prop>`
@@ -159,6 +165,12 @@ export type DeepValidationError =
 	| (DeepLocation & {
 			kind: "connect-xpath";
 			slot: ConnectXPathSlot;
+			error: XPathError;
+	  })
+	| (DeepLocation & {
+			kind: "form-link-xpath";
+			slot: FormLinkXPathSlot;
+			indices: readonly number[];
 			error: XPathError;
 	  })
 	| (DeepLocation & { kind: "cycle"; cycle: readonly string[] });
@@ -383,7 +395,6 @@ export function validateBlueprintDeep(
 		for (const formUuid of scopedForms) {
 			const form = doc.forms[formUuid];
 			const tree = buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
-			if (tree.length === 0) continue;
 
 			// Mirror `caseTypePropsForValidation`'s form-type-narrowing rule:
 			// a registration form exposes only the own type's `case_id`, a survey
@@ -430,6 +441,46 @@ export function validateBlueprintDeep(
 					}
 					if (connect.task) {
 						validPaths.add(`/data/${connect.task.id}`);
+					}
+				}
+			}
+
+			// Form-link condition and datum XPath are canonical authored carriers
+			// just like field and Connect expressions. They fan out over arrays,
+			// so preserve their indices for an actionable form-level finding.
+			for (const slot of FORM_LINK_XPATH_SLOT_IDS) {
+				for (const read of formExpressionSourceEntries(form, slot, doc)) {
+					if (!read.text) continue;
+					const canonicalError = canonicalXPathError(
+						doc,
+						formUuid,
+						read.text,
+						read.expr,
+						validPaths,
+					);
+					if (canonicalError !== undefined) {
+						errors.push({
+							...loc,
+							kind: "form-link-xpath",
+							slot,
+							indices: read.indices,
+							error: canonicalError,
+						});
+						continue;
+					}
+					for (const error of validateXPath(
+						read.text,
+						validPaths,
+						caseTypeProps,
+						isRegistrationForm,
+					)) {
+						errors.push({
+							...loc,
+							kind: "form-link-xpath",
+							slot,
+							indices: read.indices,
+							error: withStoredRef(error, read.expr),
+						});
 					}
 				}
 			}

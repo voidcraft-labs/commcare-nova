@@ -7,9 +7,14 @@ import { isXPathDate } from "../types";
 function makeCtx(
 	values: Record<string, string> = {},
 	caseData: Record<string, string> = {},
+	instances: Record<string, Record<string, string>> = {},
 ): EvalContext {
 	return {
 		getValue: (path) => values[path],
+		resolveInstance: (instanceId, path) =>
+			Object.hasOwn(instances, instanceId)
+				? { kind: "supported", value: instances[instanceId]?.[path] }
+				: { kind: "unsupported" },
 		resolveHashtag: (ref) => {
 			if (ref.startsWith("#form/"))
 				return values[`/data/${ref.slice(6)}`] ?? "";
@@ -169,10 +174,22 @@ describe("XPath evaluator", () => {
 		});
 
 		it("resolves an instance-rooted path through the context namespace", () => {
-			const ctx = makeCtx({ "/session/context/userid": "worker-1" });
+			const ctx = makeCtx(
+				{},
+				{},
+				{
+					commcaresession: { "/session/context/userid": "worker-1" },
+				},
+			);
 			expect(
 				evaluate("instance('commcaresession')/session/context/userid", ctx),
 			).toBe("worker-1");
+		});
+
+		it("fails loudly for a secondary instance with no Preview resolver", () => {
+			expect(() =>
+				evaluate("instance('casedb')/casedb/case/name", makeCtx()),
+			).toThrow("Unsupported XPath instance in Preview: instance('casedb')");
 		});
 
 		it("fails loudly for path initializers Preview cannot model", () => {
@@ -209,6 +226,15 @@ describe("XPath evaluator", () => {
 			expect(evaluate('if(false(), "yes", "no")', makeCtx())).toBe("no");
 		});
 
+		it("evaluates only the selected if() branch", () => {
+			expect(evaluate("if(false(), upper-case('x'), 'ok')", makeCtx())).toBe(
+				"ok",
+			);
+			expect(() =>
+				evaluate("if(true(), upper-case('x'), 'ok')", makeCtx()),
+			).toThrow("Unsupported XPath function in Preview: upper-case()");
+		});
+
 		it("not()", () => {
 			expect(evaluate("not(true())", makeCtx())).toBe(false);
 			expect(evaluate("not(false())", makeCtx())).toBe(true);
@@ -238,8 +264,10 @@ describe("XPath evaluator", () => {
 		});
 
 		it("count-selected()", () => {
-			const ctx = makeCtx({ "/data/items": "a b c" });
-			expect(evaluate("count-selected(/data/items)", ctx)).toBe(3);
+			const ctx = makeCtx({ "/data/items": "a  b" });
+			expect(evaluate("count-selected(/data/items)", ctx)).toBe(2);
+			const three = makeCtx({ "/data/items": "a b c" });
+			expect(evaluate("count-selected(/data/items)", three)).toBe(3);
 		});
 
 		it("selected-at() returns the Nth token and throws out of range like JavaRosa", () => {
@@ -276,6 +304,11 @@ describe("XPath evaluator", () => {
 				"fallback",
 			);
 			expect(evaluate('coalesce("first", "second")', makeCtx())).toBe("first");
+			expect(evaluate("coalesce('ok', upper-case('x'))", makeCtx())).toBe("ok");
+			expect(evaluate("coalesce(number('bad'))", makeCtx())).toBeNaN();
+			expect(() =>
+				evaluate("coalesce('', upper-case('x'))", makeCtx()),
+			).toThrow("Unsupported XPath function in Preview: upper-case()");
 		});
 
 		it("starts-with()", () => {
@@ -285,6 +318,28 @@ describe("XPath evaluator", () => {
 
 		it("substr()", () => {
 			expect(evaluate('substr("hello", 1, 3)', makeCtx())).toBe("el");
+			expect(evaluate('substr("abc", -1)', makeCtx())).toBe("c");
+			expect(evaluate('substr("abc", 3, 1)', makeCtx())).toBe("");
+		});
+
+		it("uuid(length) uses JavaRosa's requested uppercase base-36 shape", () => {
+			const value = evaluate("uuid(4)", makeCtx());
+			expect(value).toMatch(/^[0-9A-Z]{4}$/);
+		});
+
+		it("rejects nodeset-only aggregates instead of scalarizing them", () => {
+			for (const expression of ["count(/data/items)", "sum(/data/items)"]) {
+				expect(() => evaluate(expression, makeCtx())).toThrow(
+					"Unsupported XPath function in Preview",
+				);
+			}
+		});
+
+		it("rejects position(nodeset) while preserving context position()", () => {
+			expect(evaluate("position()", { ...makeCtx(), position: 3 })).toBe(3);
+			expect(() => evaluate("position(/data/items)", makeCtx())).toThrow(
+				"Unsupported XPath function signature in Preview: position(nodeset)",
+			);
 		});
 
 		it("normalize-space()", () => {
@@ -443,10 +498,10 @@ describe("XPath evaluator", () => {
 			expect(result).toBe(String(new Date().getUTCFullYear()));
 		});
 
-		it("format-date preserves the original value for an unsupported pattern", () => {
-			expect(evaluate("format-date('2026-07-14', '%Q')", makeCtx())).toBe(
-				"2026-07-14",
-			);
+		it("format-date fails loudly for an unsupported pattern", () => {
+			expect(() =>
+				evaluate("format-date('2026-07-14', '%Q')", makeCtx()),
+			).toThrow("XPath format-date() pattern is unsupported in Preview");
 		});
 
 		it("number(date('2008-09-05')) returns days since epoch", () => {

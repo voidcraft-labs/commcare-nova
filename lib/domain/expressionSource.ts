@@ -41,6 +41,7 @@ import {
 	type FieldReferenceSlot,
 	type FieldXPathSlotId,
 	FORM_REFERENCE_SLOTS,
+	type FormLinkXPathSlotId,
 	fieldSlotApplies,
 	type ReferenceSurfaceKind,
 	readSlotValues,
@@ -146,6 +147,18 @@ export const CONNECT_XPATH_SLOT_IDS: readonly ScalarFormExpressionSlotId[] =
 	FORM_REFERENCE_SLOTS.filter(
 		(entry): entry is Extract<FormSlotEntry, { path: `connect.${string}` }> =>
 			entry.path.startsWith("connect."),
+	).map((entry) => entry.slot);
+
+/** Form-link XPath slots in registry order. Unlike Connect slots, these fan
+ * out through link and datum arrays and therefore use source-entry reads. */
+export const FORM_LINK_XPATH_SLOT_IDS: readonly FormLinkXPathSlotId[] =
+	FORM_REFERENCE_SLOTS.filter(
+		(
+			entry,
+		): entry is Extract<
+			FormSlotEntry,
+			{ kind: "xpath-ast"; path: `formLinks[]${string}` }
+		> => entry.kind === "xpath-ast" && entry.path.startsWith("formLinks[]"),
 	).map((entry) => entry.slot);
 
 /**
@@ -284,6 +297,40 @@ export function formExpressionValue(
 ): XPathExpression | undefined {
 	const value = readSlotValues(form, FORM_SLOT_ENTRIES[slot].path)[0]?.value;
 	return isXPathExpression(value) ? value : undefined;
+}
+
+/** One fan-out-aware expression read from a form carrier. */
+export interface FormExpressionRead<
+	S extends FormExpressionSlotId = FormExpressionSlotId,
+> {
+	readonly slot: S;
+	readonly text: string;
+	readonly indices: readonly number[];
+	readonly expr?: XPathExpression;
+}
+
+/**
+ * Every source projection for a form expression slot, preserving array
+ * indices so validators can identify the exact link or datum that failed.
+ */
+export function formExpressionSourceEntries<S extends FormExpressionSlotId>(
+	form: Form,
+	slot: S,
+	doc: XPathPrintableDoc,
+): FormExpressionRead<S>[] {
+	const entry = FORM_SLOT_ENTRIES[slot];
+	const reads: FormExpressionRead<S>[] = [];
+	for (const { indices, value } of readSlotValues(form, entry.path)) {
+		const text = projectSlotValue(value, doc, entry.kind);
+		if (text === undefined) continue;
+		reads.push({
+			slot,
+			text,
+			indices,
+			...(isXPathExpression(value) ? { expr: value } : {}),
+		});
+	}
+	return reads;
 }
 
 /**

@@ -144,14 +144,18 @@ function searchSessionEvalContext(
 		contextPath: "",
 		position: 1,
 		getValue: (path) => sessionInstancePathValue(path, session),
+		resolveInstance: (instanceId, path) =>
+			instanceId === "commcaresession"
+				? { kind: "supported", value: sessionInstancePathValue(path, session) }
+				: { kind: "unsupported" },
 		resolveHashtag: () => "",
 	};
 }
 
 /**
  * Resolve the session-instance path spellings the on-device emitters
- * print (`instance('commcaresession')/session/...` — the evaluator
- * drops the instance step, leaving `/session/...`). Shared with every
+ * print (`instance('commcaresession')/session/...`; the explicit instance
+ * resolver receives `/session/...`). Shared with every
  * preview surface that evaluates emitted predicates outside a form
  * context; non-session paths return `undefined` so callers can chain
  * their own resolution.

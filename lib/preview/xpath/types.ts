@@ -103,10 +103,19 @@ export function isXPathDate(v: unknown): v is XPathDate {
 /** XPath value types — primitives plus first-class dates. */
 export type XPathValue = string | number | boolean | XPathDate;
 
+/** Explicit result from a secondary-instance resolver. Missing values inside
+ * a known instance are distinct from an unsupported namespace. */
+export type InstanceResolution =
+	| { readonly kind: "supported"; readonly value?: string }
+	| { readonly kind: "unsupported" };
+
 /** Context for evaluating XPath expressions within a form. */
 export interface EvalContext {
 	/** Resolve an absolute path (/data/question_id) to its current value. */
 	getValue(path: string): string | undefined;
+	/** Resolve a path inside a named secondary instance. Omission means this
+	 * evaluation context supports no secondary instances. */
+	resolveInstance?(instanceId: string, path: string): InstanceResolution;
 	/** Resolve a hashtag ref (#patient/prop, #user/prop, #form/question_id). */
 	resolveHashtag(ref: string): string;
 	/** Current field path (for '.') */

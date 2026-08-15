@@ -12,6 +12,7 @@ import {
 	JAVAROSA_NATIVE_FUNCTIONS,
 	JAVAROSA_PATH_INITIALIZERS,
 	javaRosaFunctionCapability,
+	PREVIEW_INSTANCE_IDS,
 	PREVIEW_NATIVE_FUNCTIONS,
 	PREVIEW_PATH_INITIALIZERS,
 } from "../functionCapabilities";
@@ -44,6 +45,9 @@ describe("XPath carrier capability contract", () => {
 			[...PREVIEW_NATIVE_FUNCTIONS].sort(),
 		);
 		expect([...PREVIEW_PATH_INITIALIZERS]).toEqual(["instance"]);
+		expect([...PREVIEW_INSTANCE_IDS]).toEqual(["commcaresession"]);
+		expect(PREVIEW_NATIVE_FUNCTIONS.has("count")).toBe(false);
+		expect(PREVIEW_NATIVE_FUNCTIONS.has("sum")).toBe(false);
 		expect(
 			inspectXPathFunctionCalls(
 				"instance('commcaresession')/session/context/userid",
@@ -53,6 +57,16 @@ describe("XPath carrier capability contract", () => {
 				name: "instance",
 				javaRosa: "path-initializer",
 				preview: "path-initializer",
+				validPathInitializer: true,
+			},
+		]);
+		expect(
+			inspectXPathFunctionCalls("instance('casedb')/casedb/case"),
+		).toMatchObject([
+			{
+				name: "instance",
+				javaRosa: "path-initializer",
+				preview: "unsupported",
 				validPathInitializer: true,
 			},
 		]);

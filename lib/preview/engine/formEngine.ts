@@ -2386,9 +2386,17 @@ export class FormEngine {
 		 * semantic. Reads outside the context's repeats pass through. */
 		const read = (p: string): string | undefined =>
 			this.instance.get(rebaseOntoContext(p, path));
+		const session = previewSessionValues(this.previewIdentity);
 
 		return {
 			getValue: read,
+			resolveInstance: (instanceId, instancePath) =>
+				instanceId === "commcaresession"
+					? {
+							kind: "supported",
+							value: sessionInstancePathValue(instancePath, session),
+						}
+					: { kind: "unsupported" },
 			resolveHashtag: (ref: string) => {
 				if (ref.startsWith("#form/")) {
 					const fieldId = ref.slice(6);
@@ -2528,6 +2536,15 @@ export class FormEngine {
 		return {
 			...base,
 			getValue: (p) => sessionInstancePathValue(p, session) ?? base.getValue(p),
+			resolveInstance: (instanceId, path) =>
+				instanceId === "commcaresession"
+					? {
+							kind: "supported",
+							value: sessionInstancePathValue(path, session),
+						}
+					: (base.resolveInstance?.(instanceId, path) ?? {
+							kind: "unsupported",
+						}),
 		};
 	}
 

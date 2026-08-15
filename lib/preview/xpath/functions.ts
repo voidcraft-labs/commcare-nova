@@ -114,19 +114,24 @@ register("replace", (args) => {
 		// string directly to JavaScript replace would reinterpret `$1`, `$&`, and
 		// friends as substitution syntax; a callback preserves the authored bytes.
 		return value.replace(new RegExp(pattern, "g"), () => replacement);
-	} catch {
-		return xpathToString(args[0] ?? "");
+	} catch (error) {
+		throw new Error("The XPath replace() pattern is invalid in Preview.", {
+			cause: error,
+		});
 	}
 });
 register("substr", (args) => {
 	const str = xpathToString(args[0] ?? "");
-	// CommCare substr is 0-based: substr(string, start, end?)
-	const start = Math.max(0, toNumber(args[1] ?? 0));
-	if (args.length > 2) {
-		const end = toNumber(args[2] ?? 0);
-		return str.substring(start, end);
-	}
-	return str.substring(start);
+	// JavaRosa is 0-based, accepts negative offsets from the end, and returns
+	// blank (rather than swapping indices like String.substring) for an invalid
+	// adjusted range.
+	let start = Math.trunc(toNumber(args[1] ?? 0));
+	let end = args.length > 2 ? Math.trunc(toNumber(args[2] ?? 0)) : str.length;
+	if (start < 0) start = str.length + start;
+	if (end < 0) end = str.length + end;
+	start = Math.min(Math.max(0, start), end);
+	end = Math.min(Math.max(0, end), end);
+	return start <= end && end <= str.length ? str.slice(start, end) : "";
 });
 register("join", (args) => {
 	// join(separator, ...items)
@@ -145,9 +150,13 @@ register("selected", (args) => {
 	return value.split(" ").includes(option);
 });
 register("count-selected", (args) => {
-	const value = xpathToString(args[0] ?? "").trim();
+	const value = xpathToString(args[0] ?? "");
 	if (value === "") return 0;
-	return value.split(" ").length;
+	const entries = value.split(/ +/);
+	while (entries.length > 0 && entries[entries.length - 1] === "") {
+		entries.pop();
+	}
+	return entries.length;
 });
 register("selected-at", (args) => {
 	// Mirrors commcare-core `XPathSelectedAtFunc.selectedAt`: the selection
@@ -189,18 +198,6 @@ register("pow", (args) => toNumber(args[0] ?? 0) ** toNumber(args[1] ?? 0));
 register("min", (args) => Math.min(...args.map((a) => toNumber(a))));
 register("max", (args) => Math.max(...args.map((a) => toNumber(a))));
 
-// ── Aggregate (count, sum — operate on nodeset approximation) ───────
-
-register("count", (args) => {
-	// In preview, count() of a path returns the repeat count or 0/1
-	// This is handled as a number pass-through from the evaluator
-	return toNumber(args[0] ?? 0);
-});
-register("sum", (args) => {
-	// Simple pass-through — sum of scalar
-	return toNumber(args[0] ?? 0);
-});
-
 // ── Position ────────────────────────────────────────────────────────
 // Handled directly by the evaluator via context.position; registered so the
 // implementation table still names every supported function.
@@ -234,8 +231,8 @@ register("date", (args) => {
 	const v = args[0] ?? "";
 	const d = toDate(v);
 	if (d) return d;
-	/* Unparseable — return the string unchanged (CommCare passthrough). */
-	return xpathToString(v);
+	if (v === "" || (typeof v === "number" && Number.isNaN(v))) return v;
+	throw new Error("The XPath date() value is invalid in Preview.");
 });
 
 /**
@@ -253,22 +250,30 @@ register("format-date", (args) => {
 	const xd = toDate(raw);
 	if (!xd) return xpathToString(raw);
 	const result = formatCommCareDate(xd, format);
-	// JavaRosa rejects an unsupported escape. The lightweight Preview evaluator
-	// cannot surface a runtime exception inline, so preserve the source value
-	// rather than presenting a fabricated formatting result.
-	return result.kind === "formatted" ? result.text : xpathToString(raw);
+	if (result.kind === "formatted") return result.text;
+	throw new Error("The XPath format-date() pattern is unsupported in Preview.");
 });
 
 // ── Misc ────────────────────────────────────────────────────────────
 
-register("uuid", () => crypto.randomUUID());
+register("uuid", (args) => {
+	if (args.length === 0) return crypto.randomUUID();
+	const length = Math.trunc(toNumber(args[0] ?? 0));
+	let value = "";
+	for (let index = 0; index < length; index += 1) {
+		value += Math.floor(Math.random() * 36).toString(36);
+	}
+	return value.toUpperCase();
+});
 register("regex", (args) => {
 	try {
 		const str = xpathToString(args[0] ?? "");
 		const pattern = javaDefaultRegexPattern(xpathToString(args[1] ?? ""));
 		return new RegExp(pattern).test(str);
-	} catch {
-		return false;
+	} catch (error) {
+		throw new Error("The XPath regex() pattern is invalid in Preview.", {
+			cause: error,
+		});
 	}
 });
 /**

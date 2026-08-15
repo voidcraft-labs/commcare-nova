@@ -1,6 +1,6 @@
 # Web Preview Engine
 
-Client-side form preview running entirely from the in-memory blueprint — no XForm parsing, no server calls. Three subsystems: XPath evaluator, form engine, preview UI. Preview's function table is an explicit implementation contract, not an alias for JavaRosa's table: an unsupported function throws visibly instead of silently evaluating as blank. `instance('…')/...` is the one supported path initializer because session and fixture namespaces have concrete resolvers; `current()` is rejected until Preview can preserve its captured-context semantics.
+Client-side form preview running entirely from the in-memory blueprint — no XForm parsing, no server calls. Three subsystems: XPath evaluator, form engine, preview UI. Preview's function table is an explicit implementation contract, not an alias for JavaRosa's table: an unsupported function throws visibly instead of silently evaluating as blank. `instance('commcaresession')/...` is the only modeled secondary-instance root, and each evaluation context must provide an explicit resolver for it; other namespaces such as `casedb` fail loudly instead of being misread as main-form paths. `current()` is rejected until Preview can preserve its captured-context semantics. Nodeset-only functions such as `count()` and `sum()` are likewise rejected until the evaluator has a real nodeset value rather than a scalar approximation.
 
 ## First-class date type in the XPath evaluator
 

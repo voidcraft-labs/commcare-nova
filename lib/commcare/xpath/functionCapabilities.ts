@@ -135,7 +135,6 @@ export const PREVIEW_NATIVE_FUNCTIONS: ReadonlySet<string> = new Set([
 	"coalesce",
 	"concat",
 	"contains",
-	"count",
 	"count-selected",
 	"date",
 	"double",
@@ -162,7 +161,6 @@ export const PREVIEW_NATIVE_FUNCTIONS: ReadonlySet<string> = new Set([
 	"string",
 	"string-length",
 	"substr",
-	"sum",
 	"today",
 	"translate",
 	"true",
@@ -172,6 +170,13 @@ export const PREVIEW_NATIVE_FUNCTIONS: ReadonlySet<string> = new Set([
 /** Path roots the scalar Preview evaluator resolves faithfully. */
 export const PREVIEW_PATH_INITIALIZERS: ReadonlySet<string> = new Set([
 	"instance",
+]);
+
+/** Secondary-instance namespaces with an explicit Preview resolver contract.
+ * Individual EvalContexts must still opt in and provide the bytes; this set
+ * only says the evaluator knows the namespace's shape. */
+export const PREVIEW_INSTANCE_IDS: ReadonlySet<string> = new Set([
+	"commcaresession",
 ]);
 
 /** CCHQ functions allowed in a CSQL value position. */
@@ -270,6 +275,10 @@ export function inspectXPathFunctionCalls(
 			if (nameNode === null) return;
 			const name = source.slice(nameNode.from, nameNode.to);
 			const javaRosa = javaRosaFunctionCapability(name);
+			const instanceId =
+				name === "instance"
+					? pathInitializerStringArgument(cursor.node, source)
+					: undefined;
 			const validPathInitializer =
 				javaRosa !== "path-initializer" ||
 				(isPathInitializer(cursor.node) &&
@@ -280,7 +289,9 @@ export function inspectXPathFunctionCalls(
 				javaRosa,
 				preview: PREVIEW_NATIVE_FUNCTIONS.has(name)
 					? "native"
-					: PREVIEW_PATH_INITIALIZERS.has(name)
+					: PREVIEW_PATH_INITIALIZERS.has(name) &&
+							instanceId !== undefined &&
+							PREVIEW_INSTANCE_IDS.has(instanceId)
 						? "path-initializer"
 						: "unsupported",
 				validPathInitializer,
@@ -290,12 +301,21 @@ export function inspectXPathFunctionCalls(
 	return calls;
 }
 
-function hasValidPathInitializerArguments(
+/** Read the one literal argument from a path initializer, without evaluating
+ * or regex-parsing XPath. Returns undefined for any other argument shape. */
+export function pathInitializerStringArgument(
 	node: SyntaxNode,
-	name: string,
-): boolean {
+	source: string,
+): string | undefined {
 	const args = node.getChild("ArgumentList");
-	if (args === null) return false;
+	if (args === null) return undefined;
+	const expressions = argumentExpressions(args);
+	const literal = expressions.length === 1 ? expressions[0] : undefined;
+	if (literal?.type.name !== "StringLiteral") return undefined;
+	return source.slice(literal.from + 1, literal.to - 1);
+}
+
+function argumentExpressions(args: SyntaxNode): SyntaxNode[] {
 	const expressions: SyntaxNode[] = [];
 	let child = args.firstChild;
 	while (child !== null) {
@@ -308,6 +328,16 @@ function hasValidPathInitializerArguments(
 		}
 		child = child.nextSibling;
 	}
+	return expressions;
+}
+
+function hasValidPathInitializerArguments(
+	node: SyntaxNode,
+	name: string,
+): boolean {
+	const args = node.getChild("ArgumentList");
+	if (args === null) return false;
+	const expressions = argumentExpressions(args);
 	if (name === "current") return expressions.length === 0;
 	return (
 		name === "instance" &&

@@ -136,6 +136,10 @@ function navigationEvalContext(
 		contextPath: "",
 		position: 1,
 		getValue: (path) => sessionInstancePathValue(path, session),
+		resolveInstance: (instanceId, path) =>
+			instanceId === "commcaresession"
+				? { kind: "supported", value: sessionInstancePathValue(path, session) }
+				: { kind: "unsupported" },
 		resolveHashtag: (ref) => {
 			const match = /^#case\/(.+)$/.exec(ref);
 			if (match) return caseProjection?.get(match[1]) ?? "";
