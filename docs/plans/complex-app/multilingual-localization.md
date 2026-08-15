@@ -17,8 +17,12 @@ conversation-language guidance, and paid evaluation harness are also
 implemented on the current stack. The production capability manifest currently
 contains no Available direction, so none of that infrastructure can initiate a
 paid automatic run until an exact evaluation and bilingual review are accepted.
-Capability-specific public documentation is part of the Nova surface. Final
-frozen-SHA review, CI, and the dependent plugin delivery remain.
+Capability-specific public documentation is part of the Nova surface. The
+dependent `nova-plugin` 1.19.0 release is prepared in
+`voidcraft-labs/nova-plugin#43` with the complete language tool family,
+conversation-language rule, and source-contract CI. Final frozen-SHA review,
+CI, explicit merge approval, Nova deployment verification, and the ordered
+plugin release remain.
 
 Keep this document as a description of the best current design and the actual
 implementation state. When implementation teaches us something better, rewrite
