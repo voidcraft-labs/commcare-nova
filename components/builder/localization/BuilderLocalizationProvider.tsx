@@ -27,6 +27,7 @@ import {
 	type Module,
 	projectLocalizedField,
 	projectLocalizedModule,
+	resolveAppLanguage,
 	type TranslationUnitId,
 	translationUnitsById,
 	type Uuid,
@@ -64,10 +65,7 @@ export function BuilderLocalizationProvider({
 		[persisted],
 	);
 	const requested = new URLSearchParams(search).get(LANGUAGE_QUERY_KEY);
-	const language =
-		requested !== null && effective.languageOrder.includes(requested)
-			? requested
-			: effective.defaultLanguage;
+	const language = resolveAppLanguage(persisted, requested);
 	const selectLanguage = useCallback((next: LanguageCode) => {
 		const url = new URL(window.location.href);
 		url.searchParams.set(LANGUAGE_QUERY_KEY, next);
@@ -130,7 +128,11 @@ export function useLocalizedTranslationUnit(
 		const unit = translationUnitsById(doc).get(unitId);
 		return unit === undefined
 			? undefined
-			: localizeTranslationUnit(doc, language, unit);
+			: localizeTranslationUnit(
+					doc,
+					resolveAppLanguage(doc.localization, language),
+					unit,
+				);
 	}, sameLocalizedUnit);
 }
 
@@ -165,16 +167,15 @@ export function useLocalizedValues(): ReadonlyMap<
 	LocalizedValue
 > {
 	const { language } = useBuilderLanguage();
-	return useBlueprintDocEq(
-		(doc) =>
-			new Map(
-				collectLocalizedTranslationUnits(doc, language).map((unit) => [
-					unit.id,
-					unit.effective,
-				]),
-			),
-		sameLocalizedValues,
-	);
+	return useBlueprintDocEq((doc) => {
+		const snapshotLanguage = resolveAppLanguage(doc.localization, language);
+		return new Map(
+			collectLocalizedTranslationUnits(doc, snapshotLanguage).map((unit) => [
+				unit.id,
+				unit.effective,
+			]),
+		);
+	}, sameLocalizedValues);
 }
 
 function sameField(left: Field | undefined, right: Field | undefined): boolean {
@@ -195,7 +196,11 @@ export function useLocalizedModule(uuid: Uuid | undefined): Module | undefined {
 		(doc) =>
 			uuid === undefined
 				? undefined
-				: projectLocalizedModule(doc, language, uuid),
+				: projectLocalizedModule(
+						doc,
+						resolveAppLanguage(doc.localization, language),
+						uuid,
+					),
 		sameModule,
 	);
 }
@@ -208,7 +213,12 @@ export function useLocalizedModule(uuid: Uuid | undefined): Module | undefined {
 export function useLocalizedField(uuid: Uuid): Field | undefined {
 	const { language } = useBuilderLanguage();
 	return useBlueprintDocEq(
-		(doc) => projectLocalizedField(doc, language, uuid),
+		(doc) =>
+			projectLocalizedField(
+				doc,
+				resolveAppLanguage(doc.localization, language),
+				uuid,
+			),
 		sameField,
 	);
 }

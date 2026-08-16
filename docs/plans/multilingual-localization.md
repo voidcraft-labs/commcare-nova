@@ -330,6 +330,11 @@ inspector, case workspace, and running Preview. Nova's authoring chrome remains
 in the author's interface language. The selected language is URL-owned so it
 survives reload, navigation, back/forward, and shared links. With no explicit
 selection, the app's default language is effective.
+Every Builder selector and edit resolves that URL-owned language against the
+exact document snapshot it is reading or mutating. If the selected language is
+removed locally or by a peer, the same store notification falls back to that
+snapshot's default language; no descendant can project or write through a
+stale locale between the store update and the provider re-render.
 
 App setup gains a Languages section containing:
 
@@ -366,7 +371,11 @@ canonical source by accident.
 Preview consumes the same effective-value resolver and selected locale. It
 applies language direction to worker content and input controls. Preview-only
 diagnostics and editor guidance remain Nova authoring UI rather than pretending
-to be emitted app content.
+to be emitted app content. Its live engine resolves the presentation language
+against every rebuilt document snapshot while preserving the current entry and
+answers. Portaled controls provide the worker direction to Base UI's positioning
+context as well as the popup DOM, so logical start/end alignment is correct for
+RTL content.
 
 ## Solutions Architect and MCP experience
 
@@ -436,13 +445,17 @@ estimated tokens rather than item count alone. Each batch includes:
 
 Output is structured and must cover the exact requested unit IDs. The server
 rejects missing, extra, duplicate, wrong-kind, blank-illegal, or
-protected-token-invalid results. Markdown delimiter preservation is measured by
-the acceptance harness and judged by the bilingual reviewer; Nova has no
-general markdown-validity oracle and does not claim one. Paid results and usage
-are stored durably. Translation stages against a pinned source snapshot and
-reaches the canonical document only after the complete change set validates.
-The initial app is frozen throughout this finalizer; source drift refuses the
-commit rather than merging model output onto a different base.
+protected-token-invalid results. Roles emitted through CommCare locale files
+also pass the shared locale-file representability check before a paid batch is
+accepted, so boundary whitespace, carriage returns, and literal backslash-`n`
+cannot become a durably replayed commit failure. Markdown delimiter preservation
+is measured by the acceptance harness and judged by the bilingual reviewer;
+Nova has no general markdown-validity oracle and does not claim one. Paid
+results and usage are stored durably. Translation stages against a pinned
+source snapshot and reaches the canonical document only after the complete
+change set validates. The initial app is frozen throughout this finalizer;
+source drift refuses the commit rather than merging model output onto a
+different base.
 
 All AI output begins as Needs review. Translation failure never silently
 degrades an accepted “translate with Nova” build into copy-only output.
@@ -572,7 +585,11 @@ cloning `BlueprintDoc` into a second app model.
   template is empty.
 - Suite app strings become a complete table per language rather than one map
   copied to every directory. Multi-select label expressions retain each option's
-  original catalog index when non-token values are skipped.
+  original catalog index when non-token values are skipped. HQ enum variables
+  use fixed-width, prefix-free indices because HQ discovers them through ordered
+  substring replacement. Hidden Results sort carriers retain their positional
+  calculation join but strip unused translated-enum expressions and variables
+  that HQ's final Invisible formatter cannot declare.
 - The direct CCZ writes the default table to `default/app_strings.txt` and each
   other table to its language directory. Every table carries the language
   endonyms and `lang.current` values CommCare's picker expects. Values serialize

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { useDirection } from "@base-ui/react/direction-provider";
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import {
@@ -34,6 +35,10 @@ async function settleBaseUiMount(): Promise<void> {
 	});
 }
 
+function BaseDirectionProbe() {
+	return <output data-testid="popover-direction">{useDirection()}</output>;
+}
+
 describe("dialog viewport containment", () => {
 	it("carries the worker-content direction into dialog and popover portals", async () => {
 		render(
@@ -44,7 +49,10 @@ describe("dialog viewport containment", () => {
 					</DialogContent>
 				</Dialog>
 				<Popover open>
-					<PopoverContent>التاريخ</PopoverContent>
+					<PopoverContent>
+						التاريخ
+						<BaseDirectionProbe />
+					</PopoverContent>
 				</Popover>
 			</PortaledContentDirectionProvider>,
 		);
@@ -60,6 +68,7 @@ describe("dialog viewport containment", () => {
 				.querySelector('[data-slot="popover-content"]')
 				?.getAttribute("dir"),
 		).toBe("rtl");
+		expect(screen.getByTestId("popover-direction").textContent).toBe("rtl");
 	});
 
 	it("wraps authored alert copy and keeps actions in one horizontal row", async () => {

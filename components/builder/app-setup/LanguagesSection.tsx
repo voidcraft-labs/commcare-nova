@@ -65,6 +65,7 @@ import {
 	type ProseReferencePart,
 	type ProseTemplate,
 	projectProseTemplate,
+	resolveAppLanguage,
 	suggestedAppLanguage,
 	type TranslationStatus,
 } from "@/lib/domain";
@@ -120,16 +121,21 @@ export function LanguagesSection() {
 	const [query, setQuery] = useState("");
 	const [status, setStatus] = useState<TranslationStatusFilter>("all");
 	const [message, setMessage] = useState<string>();
-	const selectedLanguage = localization.languages[languageState.language];
-	const automaticTranslation = languageState.isSource
+	const selectedLanguageCode = resolveAppLanguage(
+		doc.localization,
+		languageState.language,
+	);
+	const selectedLanguage = localization.languages[selectedLanguageCode];
+	const isSource = selectedLanguageCode === localization.sourceLanguage;
+	const automaticTranslation = isSource
 		? null
 		: automaticTranslationCapability(
 				localization.sourceLanguage,
-				languageState.language,
+				selectedLanguageCode,
 			);
 	const selectedUnits = useMemo(
-		() => collectLocalizedTranslationUnits(doc, languageState.language),
-		[doc, languageState.language],
+		() => collectLocalizedTranslationUnits(doc, selectedLanguageCode),
+		[doc, selectedLanguageCode],
 	);
 	const coverageDiagnostics = useMemo(
 		() => collectTranslationCoverageDiagnostics(doc),
@@ -182,7 +188,7 @@ export function LanguagesSection() {
 					const units = collectLocalizedTranslationUnits(doc, code);
 					const counts = coverageCounts(units);
 					const source = code === localization.sourceLanguage;
-					const active = code === languageState.language;
+					const active = code === selectedLanguageCode;
 					return (
 						<article
 							key={code}
@@ -321,7 +327,7 @@ export function LanguagesSection() {
 							{selectedLanguage.name} strings
 						</h3>
 						<p className="mt-1 max-w-2xl text-sm text-nova-text-secondary">
-							{languageState.isSource
+							{isSource
 								? "This is the canonical content. Edit it in the Builder where it appears; use this inventory to find every worker-facing string."
 								: automaticTranslation?.status === "available"
 									? `Manual editing, copy, and automatic translation from ${localization.languages[localization.sourceLanguage].name} to ${selectedLanguage.name} are available. Automatic output starts as Needs review.`
@@ -374,10 +380,10 @@ export function LanguagesSection() {
 				<div className="mt-3 space-y-3">
 					{visibleUnits.map((unit) => (
 						<TranslationUnitRow
-							key={`${languageState.language}:${unit.id}:${unit.sourceFingerprint}:${JSON.stringify(unit.explicit ?? null)}`}
+							key={`${selectedLanguageCode}:${unit.id}:${unit.sourceFingerprint}:${JSON.stringify(unit.explicit ?? null)}`}
 							doc={doc}
 							unit={unit}
-							isSource={languageState.isSource}
+							isSource={isSource}
 						/>
 					))}
 					{visibleUnits.length === 0 && (

@@ -1,5 +1,6 @@
 "use client";
 
+import { DirectionProvider } from "@base-ui/react/direction-provider";
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import type * as React from "react";
 
@@ -44,6 +45,8 @@ function PopoverContent({
 		| "collisionPadding"
 	>) {
 	const inheritedDirection = usePortaledContentDirection();
+	const positioningDirection =
+		dir === "rtl" || dir === "ltr" ? dir : (inheritedDirection ?? "ltr");
 	return (
 		// Portals to document.body (Base UI default) and takes the shared floating
 		// plane, co-planar with dialogs. A popover opened from inside a Dialog
@@ -55,32 +58,34 @@ function PopoverContent({
 		// `lib/styles.ts`) lives on the POSITIONER: `will-change: transform`
 		// there creates a compositing boundary that would break a descendant
 		// `backdrop-filter`, while the popup carries only the animation.
-		<PopoverPrimitive.Portal>
-			<PopoverPrimitive.Positioner
-				align={align}
-				alignOffset={alignOffset}
-				side={side}
-				sideOffset={sideOffset}
-				collisionAvoidance={collisionAvoidance}
-				collisionPadding={collisionPadding}
-				className={cn(
-					"isolate",
-					FLOATING_LAYER_CLS,
-					POPOVER_POSITIONER_GLASS_CLS,
-				)}
-			>
-				<PopoverPrimitive.Popup
-					data-slot="popover-content"
-					dir={dir ?? inheritedDirection}
+		<DirectionProvider direction={positioningDirection}>
+			<PopoverPrimitive.Portal>
+				<PopoverPrimitive.Positioner
+					align={align}
+					alignOffset={alignOffset}
+					side={side}
+					sideOffset={sideOffset}
+					collisionAvoidance={collisionAvoidance}
+					collisionPadding={collisionPadding}
 					className={cn(
-						POPOVER_POPUP_CLS,
-						"flex w-72 max-w-[var(--available-width)] flex-col gap-2.5 overflow-x-hidden p-3 text-sm text-nova-text outline-hidden",
-						className,
+						"isolate",
+						FLOATING_LAYER_CLS,
+						POPOVER_POSITIONER_GLASS_CLS,
 					)}
-					{...props}
-				/>
-			</PopoverPrimitive.Positioner>
-		</PopoverPrimitive.Portal>
+				>
+					<PopoverPrimitive.Popup
+						data-slot="popover-content"
+						dir={dir ?? inheritedDirection}
+						className={cn(
+							POPOVER_POPUP_CLS,
+							"flex w-72 max-w-[var(--available-width)] flex-col gap-2.5 overflow-x-hidden p-3 text-sm text-nova-text outline-hidden",
+							className,
+						)}
+						{...props}
+					/>
+				</PopoverPrimitive.Positioner>
+			</PopoverPrimitive.Portal>
+		</DirectionProvider>
 	);
 }
 

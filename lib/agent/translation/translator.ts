@@ -5,6 +5,10 @@ import { z } from "zod";
 import type { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import type { SubGenerationObjectResult } from "@/lib/agent/subGeneration";
 import {
+	localeFileValueIssue,
+	translationUnitUsesLocaleFile,
+} from "@/lib/commcare/localeFile";
+import {
 	canonicalProseTemplate,
 	type LanguageCode,
 	type LocalizedValue,
@@ -401,6 +405,12 @@ export function validateTranslationBatchOutput(
 		}
 		if (translated.has(item.unitId)) {
 			throw new Error(`Translation output repeated unit ${item.unitId}.`);
+		}
+		if (translationUnitUsesLocaleFile(unit.role)) {
+			const issue = localeFileValueIssue(item.translatedText);
+			if (issue !== undefined) {
+				throw new Error(`Translation unit ${item.unitId} ${issue}.`);
+			}
 		}
 		translated.set(
 			item.unitId,

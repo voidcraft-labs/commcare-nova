@@ -123,6 +123,15 @@ import { moduleTypeContext } from "../validator/rules/case-list/shared";
 // ============================================================
 
 /**
+ * CCHQ's XPathEnum builder discovers enum variables with substring matching
+ * before it prefixes them with `$k`. Fixed-width decimal indices make every
+ * legal JavaScript array index prefix-free, so key 1 can never corrupt key 10.
+ */
+function hqEnumPlaceholder(index: number): string {
+	return `nova_text_${index.toString(10).padStart(10, "0")}`;
+}
+
+/**
  * Per-kind dispatch table — translates a Nova `Column` to its
  * CCHQ `DetailColumn` slot overrides. Each handler returns ONLY
  * the slots that differ from `detailColumn()`'s plain baseline;
@@ -193,12 +202,12 @@ function projectColumnToDetail(
 						emitCasePropertyWirePath(column.field),
 						property,
 						doc,
-						(_option, index) => `$nova_text_${index}`,
+						(_option, index) => `$${hqEnumPlaceholder(index)}`,
 					),
 					format: "translatable-enum",
 					useXpathExpression: true,
 					enum: options.map((option, index) => ({
-						key: `nova_text_${index}`,
+						key: hqEnumPlaceholder(index),
 						value: localization.proseTextMap(
 							casePropertyOptionTranslationUnitId(
 								caseType ?? "",
@@ -227,7 +236,7 @@ function projectColumnToDetail(
 			};
 		case "id-mapping": {
 			const enumEntries = column.mapping.map((entry, index) => ({
-				key: `nova_text_${index}`,
+				key: hqEnumPlaceholder(index),
 				value: localization.textMap(
 					makeTranslationUnitId("column", column.uuid, "mapping", entry.value),
 				),
@@ -238,7 +247,7 @@ function projectColumnToDetail(
 					emitCasePropertyWirePath(column.field),
 					column.mapping.map((entry, index) => ({
 						...entry,
-						labelExpression: `$nova_text_${index}`,
+						labelExpression: `$${hqEnumPlaceholder(index)}`,
 					})),
 				),
 				format: "translatable-enum",
@@ -279,12 +288,12 @@ function projectColumnToDetail(
 			// the author saw in Preview.
 			return {
 				...base,
-				field: intervalColumnDisplayXpath(column, "$nova_text_0"),
+				field: intervalColumnDisplayXpath(column, `$${hqEnumPlaceholder(0)}`),
 				format: "translatable-enum",
 				useXpathExpression: true,
 				enum: [
 					{
-						key: "nova_text_0",
+						key: hqEnumPlaceholder(0),
 						value: localization.textMap(
 							makeTranslationUnitId("column", column.uuid, "text"),
 						),
@@ -323,12 +332,20 @@ function projectColumnForShortDetail(
 	);
 	const visible = column.visibleInList ?? true;
 	if (visible) return projected;
-	// Search-only / detail-only columns: keep the column shape (so
-	// sort + index keep working) but mark `format: "invisible"`. The
-	// short-circuit on `useXpathExpression` is preserved — a calc
-	// column hidden from one surface keeps its inline-XPath shape on
-	// the wire.
-	return { ...projected, format: "invisible" satisfies DetailColumnFormat };
+	// Search-only / detail-only columns stay at their positional index so sort
+	// joins remain stable. CCHQ's final Invisible formatter does not register
+	// translatable-enum variables, however, so a hidden enum expression must
+	// become an enum-free calculation of the raw case property. Authored
+	// calculated columns retain their real expression.
+	return {
+		...projected,
+		field:
+			column.kind === "calculated"
+				? projected.field
+				: emitCasePropertyWirePath(column.field),
+		format: "invisible" satisfies DetailColumnFormat,
+		enum: [],
+	};
 }
 
 // ============================================================

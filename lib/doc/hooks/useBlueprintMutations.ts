@@ -124,6 +124,7 @@ import {
 	type OrganizationLevel,
 	ownRecordValue,
 	type Persona,
+	resolveAppLanguage,
 	type UserProperty,
 	type UserType,
 } from "@/lib/domain";
@@ -734,9 +735,13 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					return { ok: false, messages: lines };
 				}
 				const doc = get();
+				const snapshotAuthoringLanguage =
+					authoringLanguage === null
+						? null
+						: resolveAppLanguage(doc.localization, authoringLanguage);
 				const projected = projectBuilderLanguageMutations(
 					doc,
-					authoringLanguage,
+					snapshotAuthoringLanguage,
 					mutations,
 				);
 				if (!projected.ok) {

@@ -377,8 +377,14 @@ describe("initial-build localization finalizer", () => {
 				},
 			],
 		};
-		const runBatch = vi.fn(async () => ({
-			object: { translations: [] },
+		const runBatch = vi.fn(async (input: TranslationBatchInput) => ({
+			object: {
+				translations: input.units.map((unit) => ({
+					unitId: unit.unitId,
+					translatedText:
+						unit.role === "app-name" ? ` ${unit.sourceText}` : unit.sourceText,
+				})),
+			},
 			usage: {
 				inputTokens: 25,
 				inputTokenDetails: {

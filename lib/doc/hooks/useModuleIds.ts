@@ -20,6 +20,7 @@ import {
 	type Module,
 	projectLocalizedForm,
 	projectLocalizedModule,
+	resolveAppLanguage,
 } from "@/lib/domain";
 import {
 	useBlueprintDoc,
@@ -51,17 +52,17 @@ export function useModuleIds(): Uuid[] {
  * projections and sequence are unchanged. */
 export function useOrderedModules(): Module[] {
 	const language = useContext(BlueprintAuthoringLanguageContext);
-	return useBlueprintDocEq(
-		(s) =>
-			[...s.moduleOrder]
-				.map((uuid) =>
-					language === null
-						? s.modules[uuid]
-						: projectLocalizedModule(s, language, uuid),
-				)
-				.filter((m): m is Module => m !== undefined),
-		sameEntitySequence,
-	);
+	return useBlueprintDocEq((s) => {
+		const snapshotLanguage =
+			language === null ? null : resolveAppLanguage(s.localization, language);
+		return [...s.moduleOrder]
+			.map((uuid) =>
+				snapshotLanguage === null
+					? s.modules[uuid]
+					: projectLocalizedModule(s, snapshotLanguage, uuid),
+			)
+			.filter((m): m is Module => m !== undefined);
+	}, sameEntitySequence);
 }
 
 /** Form uuids for a given module, in DISPLAY order. Reference-stable when the
@@ -83,17 +84,17 @@ export function useFormIds(moduleUuid: Uuid): Uuid[] | undefined {
  * module is selected or for an unknown module. */
 export function useOrderedForms(moduleUuid: Uuid | undefined): Form[] {
 	const language = useContext(BlueprintAuthoringLanguageContext);
-	return useBlueprintDocEq(
-		(s) =>
-			(moduleUuid === undefined ? [] : (s.formOrder[moduleUuid] ?? []))
-				.map((uuid) =>
-					language === null
-						? s.forms[uuid]
-						: projectLocalizedForm(s, language, uuid),
-				)
-				.filter((f): f is Form => f !== undefined),
-		sameEntitySequence,
-	);
+	return useBlueprintDocEq((s) => {
+		const snapshotLanguage =
+			language === null ? null : resolveAppLanguage(s.localization, language);
+		return (moduleUuid === undefined ? [] : (s.formOrder[moduleUuid] ?? []))
+			.map((uuid) =>
+				snapshotLanguage === null
+					? s.forms[uuid]
+					: projectLocalizedForm(s, snapshotLanguage, uuid),
+			)
+			.filter((f): f is Form => f !== undefined);
+	}, sameEntitySequence);
 }
 
 /**

@@ -202,6 +202,24 @@ export function effectiveAppLocalization(
 }
 
 /**
+ * Resolve an ambient Builder or Preview language against the exact document
+ * snapshot being projected. Multiplayer and local catalog edits can remove a
+ * selected target before React updates its provider lens; every snapshot read
+ * therefore falls back atomically to that snapshot's runtime default.
+ */
+export function resolveAppLanguage(
+	localization: AppLocalization | undefined,
+	requested: LanguageCode | null | undefined,
+): LanguageCode {
+	const effective = effectiveAppLocalization(localization);
+	return requested !== null &&
+		requested !== undefined &&
+		effective.languageOrder.includes(requested)
+		? requested
+		: effective.defaultLanguage;
+}
+
+/**
  * One injective, synchronous proof of the exact canonical source value. It is
  * intentionally the canonical JSON itself rather than a lossy non-crypto hash:
  * equality cannot collide and every runtime (browser, Node, replay) agrees.

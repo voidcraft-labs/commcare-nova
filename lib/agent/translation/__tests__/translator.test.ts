@@ -149,6 +149,33 @@ describe("translation protocol", () => {
 		).toThrow("cannot be blank");
 	});
 
+	it("rejects locale-file-unsafe app strings before accepting a paid batch", () => {
+		const app = encodeTranslationUnit(
+			textUnit("app-locale-value", "Application", {
+				role: "app-name",
+				owner: { kind: "app" },
+			}),
+		);
+		for (const translatedText of [
+			" Application",
+			"Application\r",
+			"App\\nName",
+		]) {
+			expect(() =>
+				validateTranslationBatchOutput([app], {
+					translations: [{ unitId: app.unitId, translatedText }],
+				}),
+			).toThrow(`Translation unit ${app.unitId}`);
+		}
+
+		const field = encodeTranslationUnit(textUnit("ordinary-label", "Name"));
+		expect(
+			validateTranslationBatchOutput([field], {
+				translations: [{ unitId: field.unitId, translatedText: " Nombre " }],
+			}),
+		).toEqual(new Map([[field.unitId, " Nombre "]]));
+	});
+
 	it("keeps units from one owning form together before moving to another screen", () => {
 		const sameForm = textUnit("same-form", "Age", {
 			owner: {

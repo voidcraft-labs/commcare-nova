@@ -32,6 +32,7 @@ import {
 	type LocalizedValue,
 	type Module,
 	makeTranslationUnitId,
+	resolveAppLanguage,
 	type TranslationUnitId,
 	type UserProperty,
 	type Uuid,
@@ -171,10 +172,9 @@ export function useSearchFilter(query: string): SearchResult | null {
 				? (() => {
 						const localization = effectiveAppLocalization(s.localization);
 						const language =
-							requestedLanguage !== null &&
-							localization.languages[requestedLanguage] !== undefined
-								? requestedLanguage
-								: localization.sourceLanguage;
+							requestedLanguage === null
+								? localization.sourceLanguage
+								: resolveAppLanguage(s.localization, requestedLanguage);
 						return {
 							moduleOrder: s.moduleOrder,
 							formOrder: s.formOrder,
