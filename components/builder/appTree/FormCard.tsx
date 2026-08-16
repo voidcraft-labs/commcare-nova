@@ -23,10 +23,7 @@ import {
 } from "@/components/builder/appTree/shared";
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
-import {
-	useBuilderLanguage,
-	useLocalizedText,
-} from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useLocalizedText } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
@@ -65,7 +62,6 @@ export const FormCard = memo(function FormCard({
 }) {
 	/** Subscribe to this form's entity from the doc store. */
 	const form = useFormDoc(formId);
-	const language = useBuilderLanguage();
 	const localizedFormName = useLocalizedText(
 		makeTranslationUnitId("form", formId, "name"),
 	);
@@ -96,9 +92,7 @@ export const FormCard = memo(function FormCard({
 		? false
 		: collapsed.has(collapseKey);
 	const hasFields = fieldUuids.length > 0;
-	const nameIndices = language.isSource
-		? searchResult?.matchMap?.get(collapseKey)
-		: undefined;
+	const nameIndices = searchResult?.matchMap?.get(collapseKey);
 
 	if (!form) return null;
 

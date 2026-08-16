@@ -8,10 +8,9 @@
  *
  * The selector switches between live entity data (when the user is
  * typing) and a stable `SEARCH_IDLE` reference (when the query is
- * empty). The stable sentinel lets `useBlueprintDocShallow` skip the
- * subscription entirely during normal editing — without it, every
- * blueprint mutation would invalidate six entity-map keys and force
- * AppTree to re-render.
+ * empty). The stable sentinel plus the selector's structural equality
+ * keep the subscription quiet during normal editing, while permitting a
+ * freshly projected localized-value map during an active search.
  *
  * Lives in `lib/doc/hooks/` because — though currently only AppTree
  * consumes it — the hook is a narrow doc-store subscription, not a
@@ -21,10 +20,22 @@
 
 "use client";
 
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
-import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { Field, Form, Module, UserProperty, Uuid } from "@/lib/domain";
+import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
+import {
+	collectLocalizedTranslationUnits,
+	effectiveAppLocalization,
+	type Field,
+	type Form,
+	type LocalizedValue,
+	type Module,
+	makeTranslationUnitId,
+	type TranslationUnitId,
+	type UserProperty,
+	type Uuid,
+} from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
 import type { MatchIndices } from "@/lib/filterTree";
@@ -81,14 +92,17 @@ interface SearchEntityData {
 	 * wrong characters. */
 	fieldParent: Record<Uuid, Uuid>;
 	userProperties: Record<Uuid, UserProperty> | undefined;
+	localizedValues: ReadonlyMap<TranslationUnitId, LocalizedValue>;
 }
+
+const EMPTY_LOCALIZED_VALUES: ReadonlyMap<TranslationUnitId, LocalizedValue> =
+	new Map();
 
 /**
  * Stable empty data for when search is inactive — same reference every
- * call. Prevents `useBlueprintDocShallow` from firing on entity-map
- * changes when the user is not searching. Without this, every entity
- * edit triggers the search subscription (six keys changed) and AppTree
- * re-renders needlessly.
+ * call. Prevents the doc subscription from firing on entity-map changes
+ * when the user is not searching. Without this, every entity edit triggers
+ * the search subscription and AppTree re-renders needlessly.
  *
  * Exported so tests can assert reference stability of the idle path.
  */
@@ -101,7 +115,36 @@ export const SEARCH_IDLE: SearchEntityData = {
 	fields: {} as Record<Uuid, Field>,
 	fieldParent: {} as Record<Uuid, Uuid>,
 	userProperties: undefined,
+	localizedValues: EMPTY_LOCALIZED_VALUES,
 };
+
+function sameLocalizedValues(
+	left: ReadonlyMap<TranslationUnitId, LocalizedValue>,
+	right: ReadonlyMap<TranslationUnitId, LocalizedValue>,
+): boolean {
+	if (left.size !== right.size) return false;
+	for (const [id, value] of left) {
+		if (JSON.stringify(value) !== JSON.stringify(right.get(id))) return false;
+	}
+	return true;
+}
+
+function sameSearchEntityData(
+	left: SearchEntityData,
+	right: SearchEntityData,
+): boolean {
+	return (
+		left.moduleOrder === right.moduleOrder &&
+		left.formOrder === right.formOrder &&
+		left.fieldOrder === right.fieldOrder &&
+		left.modules === right.modules &&
+		left.forms === right.forms &&
+		left.fields === right.fields &&
+		left.fieldParent === right.fieldParent &&
+		left.userProperties === right.userProperties &&
+		sameLocalizedValues(left.localizedValues, right.localizedValues)
+	);
+}
 
 /**
  * Compute search-filter results directly from the normalized entity
@@ -110,6 +153,7 @@ export const SEARCH_IDLE: SearchEntityData = {
  */
 export function useSearchFilter(query: string): SearchResult | null {
 	const isSearching = query.trim().length > 0;
+	const requestedLanguage = useContext(BlueprintAuthoringLanguageContext);
 
 	const {
 		moduleOrder,
@@ -120,19 +164,36 @@ export function useSearchFilter(query: string): SearchResult | null {
 		fields,
 		fieldParent,
 		userProperties,
-	} = useBlueprintDocShallow((s) =>
-		isSearching
-			? {
-					moduleOrder: s.moduleOrder,
-					formOrder: s.formOrder,
-					fieldOrder: s.fieldOrder,
-					modules: s.modules,
-					forms: s.forms,
-					fields: s.fields,
-					fieldParent: s.fieldParent,
-					userProperties: s.userProperties,
-				}
-			: SEARCH_IDLE,
+		localizedValues,
+	} = useBlueprintDocEq(
+		(s) =>
+			isSearching
+				? (() => {
+						const localization = effectiveAppLocalization(s.localization);
+						const language =
+							requestedLanguage !== null &&
+							localization.languages[requestedLanguage] !== undefined
+								? requestedLanguage
+								: localization.sourceLanguage;
+						return {
+							moduleOrder: s.moduleOrder,
+							formOrder: s.formOrder,
+							fieldOrder: s.fieldOrder,
+							modules: s.modules,
+							forms: s.forms,
+							fields: s.fields,
+							fieldParent: s.fieldParent,
+							userProperties: s.userProperties,
+							localizedValues: new Map(
+								collectLocalizedTranslationUnits(s, language).map((unit) => [
+									unit.id,
+									unit.effective,
+								]),
+							),
+						};
+					})()
+				: SEARCH_IDLE,
+		sameSearchEntityData,
 	);
 
 	return useMemo(() => {
@@ -164,7 +225,14 @@ export function useSearchFilter(query: string): SearchResult | null {
 
 			/* Check module name */
 			const moduleKey = `m${mIdx}`;
-			const modIndices = findMatchIndices(mod.name, q);
+			const localizedModuleName = localizedValues.get(
+				makeTranslationUnitId("module", moduleId, "name"),
+			);
+			const moduleName =
+				typeof localizedModuleName === "string"
+					? localizedModuleName
+					: mod.name;
+			const modIndices = findMatchIndices(moduleName, q);
 			if (modIndices) matchMap.set(moduleKey, modIndices);
 
 			const formIds = [...(formOrder[moduleId] ?? [])];
@@ -176,7 +244,12 @@ export function useSearchFilter(query: string): SearchResult | null {
 				if (!form) continue;
 
 				const formKey = `f${mIdx}_${fIdx}`;
-				const formIndices = findMatchIndices(form.name, q);
+				const localizedFormName = localizedValues.get(
+					makeTranslationUnitId("form", formId, "name"),
+				);
+				const formName =
+					typeof localizedFormName === "string" ? localizedFormName : form.name;
+				const formIndices = findMatchIndices(formName, q);
 				if (formIndices) matchMap.set(formKey, formIndices);
 
 				/* Check fields recursively */
@@ -191,9 +264,18 @@ export function useSearchFilter(query: string): SearchResult | null {
 						// `label` is absent on the `hidden` kind and optional on
 						// `group` (empty/absent label = transparent group), so the
 						// `in` narrowing isn't enough — coerce `undefined` to "".
+						const localizedFieldLabel = localizedValues.get(
+							makeTranslationUnitId("field", field.uuid, "label"),
+						);
 						const fieldLabel =
 							"label" in field && field.label
-								? projectProseTemplate(field.label, printDoc).text
+								? projectProseTemplate(
+										typeof localizedFieldLabel === "object" &&
+											localizedFieldLabel !== null
+											? localizedFieldLabel
+											: field.label,
+										printDoc,
+									).text
 								: "";
 						const labelIndices = findMatchIndices(fieldLabel, q);
 						const idIndices = findMatchIndices(field.id, q);
@@ -244,5 +326,6 @@ export function useSearchFilter(query: string): SearchResult | null {
 		fields,
 		fieldParent,
 		userProperties,
+		localizedValues,
 	]);
 }

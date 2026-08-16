@@ -132,7 +132,7 @@ export function LanguagesSection() {
 	const visibleUnits = selectedUnits.filter((unit) => {
 		if (status !== "all" && unit.status !== status) return false;
 		if (normalizedQuery === "") return true;
-		return `${unit.breadcrumb.join(" ")} ${unit.role} ${JSON.stringify(unit.source)}`
+		return `${unit.breadcrumb.join(" ")} ${unit.role} ${JSON.stringify(unit.source)} ${JSON.stringify(unit.effective)} ${JSON.stringify(unit.explicit?.value ?? null)}`
 			.toLocaleLowerCase()
 			.includes(normalizedQuery);
 	});
@@ -189,6 +189,7 @@ export function LanguagesSection() {
 								<button
 									type="button"
 									className="nova-focusable min-w-0 rounded-lg text-left"
+									aria-pressed={active}
 									onClick={() => languageState.selectLanguage(code)}
 								>
 									<span className="block truncate font-medium text-nova-text">
@@ -320,7 +321,6 @@ export function LanguagesSection() {
 					</div>
 					<div className="flex flex-col gap-2 @md:flex-row">
 						<div className="relative block min-w-64">
-							<span className="sr-only">Search translatable strings</span>
 							<Icon
 								icon={tablerSearch}
 								width="16"
@@ -329,6 +329,7 @@ export function LanguagesSection() {
 							/>
 							<Input
 								value={query}
+								aria-label="Search translatable strings"
 								onChange={(event) => setQuery(event.target.value)}
 								placeholder="Search strings or context"
 								className="pl-10"
@@ -852,6 +853,9 @@ function TranslationUnitRow({
 	);
 	const [draftValid, setDraftValid] = useState(true);
 	const [error, setError] = useState<string>();
+	const localization = effectiveAppLocalization(doc.localization);
+	const sourceDirection =
+		localization.languages[localization.sourceLanguage].direction;
 	const changed = JSON.stringify(draft) !== JSON.stringify(initial);
 	const save = () => {
 		if (!draftValid) return;
@@ -953,7 +957,10 @@ function TranslationUnitRow({
 					<p className="mb-1.5 text-xs font-medium text-nova-text-secondary">
 						Source
 					</p>
-					<div className="min-h-11 whitespace-pre-wrap rounded-lg border border-nova-border bg-black/10 px-3.5 py-2.5 text-sm leading-relaxed text-nova-text-secondary">
+					<div
+						dir={sourceDirection}
+						className="min-h-11 whitespace-pre-wrap rounded-lg border border-nova-border bg-black/10 px-3.5 py-2.5 text-sm leading-relaxed text-nova-text-secondary"
+					>
 						{displayValue(unit.source, doc) || (
 							<span className="italic text-nova-text-muted">Empty</span>
 						)}

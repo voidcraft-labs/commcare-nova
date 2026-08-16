@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { projectLocalizedCaseProperties } from "@/components/preview/shared/useColumnDisplayContext";
 import {
+	casePropertyOptionTranslationUnitId,
 	type LocalizedValue,
 	makeTranslationUnitId,
 	proseText,
@@ -47,6 +48,38 @@ describe("projectLocalizedCaseProperties", () => {
 					{ value: "closed", label: proseText("Closed") },
 				],
 			},
+		]);
+	});
+
+	it("projects repeated stored values through distinct occurrence identities", () => {
+		const translations = new Map<TranslationUnitId, LocalizedValue>([
+			[
+				casePropertyOptionTranslationUnitId("patient", "status", "same", 0),
+				proseText("Primero"),
+			],
+			[
+				casePropertyOptionTranslationUnitId("patient", "status", "same", 1),
+				proseText("Segundo"),
+			],
+		]);
+		const [property] = projectLocalizedCaseProperties(
+			"patient",
+			[
+				{
+					name: "status",
+					label: proseText("Status"),
+					data_type: "multi_select",
+					options: [
+						{ value: "same", label: proseText("First") },
+						{ value: "same", label: proseText("Second") },
+					],
+				},
+			],
+			translations,
+		);
+		expect(property?.options?.map((option) => option.label)).toEqual([
+			proseText("Primero"),
+			proseText("Segundo"),
 		]);
 	});
 });

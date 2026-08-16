@@ -5,6 +5,8 @@
 
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	casePropertyOptionOccurrence,
+	casePropertyOptionTranslationUnitId,
 	effectiveAppLocalization,
 	type LanguageCode,
 	type LocalizedValue,
@@ -356,10 +358,12 @@ export function projectBuilderLanguageMutations(
 					break;
 				}
 				const next = structuredClone(mutation);
-				next.property.options = next.property.options?.map((option) => {
-					const prior = current.options?.find(
+				const nextOptions = next.property.options ?? [];
+				next.property.options = nextOptions.map((option, index) => {
+					const occurrence = casePropertyOptionOccurrence(nextOptions, index);
+					const prior = current.options?.filter(
 						(candidate) => candidate.value === option.value,
-					);
+					)[occurrence];
 					if (prior === undefined) return option;
 					// Kind conversions re-declare the complete case property from the
 					// canonical catalog. That structural snapshot is not a target-language
@@ -367,11 +371,11 @@ export function projectBuilderLanguageMutations(
 					// label merely because the Builder is currently showing a target lens.
 					if (sameValue(prior.label, option.label)) return option;
 					const source = redirect(
-						makeTranslationUnitId(
-							"case-property-option",
+						casePropertyOptionTranslationUnitId(
 							mutation.caseType,
 							mutation.property.name,
 							option.value,
+							occurrence,
 						),
 						option.label,
 					);

@@ -7,8 +7,8 @@ import {
 	type BlueprintDoc,
 	blueprintDocSchema,
 	CASE_SCALAR_PROPERTY_NAMES,
+	casePropertyOptionTranslationUnitId,
 	collectTranslationUnits,
-	makeTranslationUnitId,
 	mapCasePropertiesInProse,
 	mapCasePropertiesInXPath,
 	materializableCaseTypes,
@@ -258,11 +258,11 @@ export function rewriteCasePropertyCarriers(
 						oldUnit.owner.property,
 					);
 					if (destination !== undefined) {
-						newUnitId = makeTranslationUnitId(
-							"case-property-option",
+						newUnitId = casePropertyOptionTranslationUnitId(
 							oldUnit.owner.caseType,
 							destination,
 							oldUnit.owner.value,
+							oldUnit.owner.occurrence,
 						);
 					}
 				}

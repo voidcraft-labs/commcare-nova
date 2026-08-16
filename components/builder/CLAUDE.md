@@ -101,7 +101,10 @@ The global header selector stays visible while a target is active. App setup's
 Languages workspace is the authoritative source/target review surface: it owns
 catalog management, copy-from-an-existing-language, status filtering, coverage
 diagnostics, reference-safe prose-token editing, and navigation to each unit's
-owning Builder screen. Ordinary Builder edits to worker-facing text write the
+owning Builder screen. Its search covers both source and selected-target text;
+the structure tree likewise filters and highlights the localized labels it
+actually renders. Source and target comparison panes each use their language's
+own text direction. Ordinary Builder edits to worker-facing text write the
 selected target overlay; structural IDs and authoring-only metadata always edit
 their canonical slots. Preview applies the selected language's text direction
 only to worker content, never to Nova's authoring chrome.

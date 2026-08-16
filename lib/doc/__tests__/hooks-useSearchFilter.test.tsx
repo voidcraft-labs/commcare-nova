@@ -10,9 +10,11 @@ import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { SEARCH_IDLE, useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import { collectTranslationUnits, makeTranslationUnitId } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 /**
@@ -64,12 +66,46 @@ function buildFixture(): BlueprintDoc {
 }
 
 /** Wrap a hook render with a BlueprintDocProvider that loads the given doc. */
-function wrapWithDoc(doc?: BlueprintDoc) {
+function wrapWithDoc(doc?: BlueprintDoc, language: string | null = null) {
 	return ({ children }: { children: ReactNode }) => (
 		<BlueprintDocProvider appId={doc?.appId ?? "empty"} initialDoc={doc}>
-			{children}
+			<BlueprintAuthoringLanguageContext value={language}>
+				{children}
+			</BlueprintAuthoringLanguageContext>
 		</BlueprintDocProvider>
 	);
+}
+
+function withSpanishFieldLabel(doc: BlueprintDoc): BlueprintDoc {
+	const fieldUuid = testUuid("q-name-0000-0000-0000-000000000000");
+	const unitId = makeTranslationUnitId("field", fieldUuid, "label");
+	const unit = collectTranslationUnits(doc).find(
+		(candidate) => candidate.id === unitId,
+	);
+	if (unit === undefined) throw new Error("Expected field-label unit.");
+	return {
+		...doc,
+		localization: {
+			sourceLanguage: "en",
+			defaultLanguage: "en",
+			languageOrder: ["en", "es"],
+			languages: {
+				en: { code: "en", name: "English", direction: "ltr" },
+				es: { code: "es", name: "español", direction: "ltr" },
+			},
+			translations: {
+				es: {
+					[unitId]: {
+						value: proseText("Nombre completo del paciente"),
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "en",
+					},
+				},
+			},
+		},
+	};
 }
 
 describe("useSearchFilter", () => {
@@ -124,6 +160,19 @@ describe("useSearchFilter", () => {
 
 		// The form's collapse-key must be force-expanded so the match shows.
 		expect(r.forceExpand.has("f0_0")).toBe(true);
+	});
+
+	it("matches and highlights the selected language's visible field label", () => {
+		const doc = withSpanishFieldLabel(buildFixture());
+		const { result } = renderHook(() => useSearchFilter("nombre completo"), {
+			wrapper: wrapWithDoc(doc, "es"),
+		});
+		const r = result.current;
+		expect(r).not.toBeNull();
+		if (r === null) return;
+		const fieldUuid = testUuid("q-name-0000-0000-0000-000000000000");
+		expect(r.visibleFieldUuids.has(fieldUuid)).toBe(true);
+		expect(r.matchMap.get("patient_name")).toEqual([[0, 15]]);
 	});
 
 	it("records separate match indices for label vs id hits", () => {

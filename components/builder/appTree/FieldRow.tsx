@@ -26,10 +26,7 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
-import {
-	useBuilderLanguage,
-	useLocalizedField,
-} from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useLocalizedField } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { PeerBadge, usePeerEditingColor } from "@/components/builder/PeerBadge";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
@@ -72,7 +69,6 @@ export const FieldRow = memo(function FieldRow({
 }) {
 	/** Subscribe to this field's entity by UUID from the doc store. */
 	const field = useLocalizedField(uuid);
-	const language = useBuilderLanguage();
 
 	/** Subscribe to children UUIDs (for groups/repeats) from the doc store.
 	 *  `useOrderedFields` returns the reference-stable empty-array sentinel
@@ -106,9 +102,7 @@ export const FieldRow = memo(function FieldRow({
 		(searchResult?.forceExpand?.has(fieldPath)
 			? false
 			: collapsed.has(fieldPath));
-	const labelIndices = language.isSource
-		? searchResult?.matchMap?.get(fieldPath)
-		: undefined;
+	const labelIndices = searchResult?.matchMap?.get(fieldPath);
 	const idIndices = searchResult?.matchMap?.get(`${fieldPath}__id`);
 	// `label` is absent from `hidden` and optional on `group` (empty/absent
 	// label = transparent group). The `in` narrowing alone leaves `string |

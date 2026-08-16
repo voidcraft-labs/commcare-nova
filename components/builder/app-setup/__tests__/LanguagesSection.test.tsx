@@ -184,6 +184,91 @@ describe("LanguagesSection", () => {
 		});
 	});
 
+	it("searches the selected target's effective translation text", async () => {
+		renderSection();
+		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
+		fireEvent.change(screen.getByLabelText("Language code"), {
+			target: { value: "es" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add and copy strings" }),
+		);
+		await screen.findByRole("heading", { name: "español strings" });
+
+		const row = screen
+			.getAllByText("Care visits › Visits › Visit › Client name")
+			.map((breadcrumb) => breadcrumb.closest("article"))
+			.find((candidate) => candidate?.textContent?.includes("field label"));
+		if (row === undefined || row === null) {
+			throw new Error("Expected the field-label translation row.");
+		}
+		const editor = within(row).getByLabelText("Reference-safe translation");
+		fireEvent.change(editor, { target: { value: "Nombre objetivo" } });
+		fireEvent.click(
+			within(row).getByRole("button", { name: "Save translation" }),
+		);
+		await screen.findByDisplayValue("Nombre objetivo");
+
+		fireEvent.change(
+			screen.getByRole("textbox", { name: "Search translatable strings" }),
+			{ target: { value: "Nombre objetivo" } },
+		);
+		expect(
+			(
+				screen.getByRole("textbox", {
+					name: "Reference-safe translation",
+				}) as HTMLTextAreaElement
+			).value,
+		).toBe("Nombre objetivo");
+		expect(screen.getByText("Showing 1 of 5 strings")).toBeTruthy();
+	});
+
+	it("names translation search and exposes the selected language state", async () => {
+		renderSection();
+		expect(
+			screen.getByRole("textbox", { name: "Search translatable strings" }),
+		).toBeTruthy();
+		const englishControl = screen
+			.getAllByText("English")
+			.map((label) => label.closest("button"))
+			.find((button) => button?.hasAttribute("aria-pressed"));
+		expect(englishControl?.getAttribute("aria-pressed")).toBe("true");
+
+		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
+		fireEvent.change(screen.getByLabelText("Language code"), {
+			target: { value: "es" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add and copy strings" }),
+		);
+		await screen.findByRole("heading", { name: "español strings" });
+		const spanishControl = screen
+			.getAllByText("español")
+			.map((label) => label.closest("button"))
+			.find((button) => button?.hasAttribute("aria-pressed"));
+		expect(spanishControl?.getAttribute("aria-pressed")).toBe("true");
+		expect(englishControl?.getAttribute("aria-pressed")).toBe("false");
+	});
+
+	it("renders canonical source content in the source language direction", async () => {
+		renderSection();
+		if (store === undefined) throw new Error("Expected the document store.");
+		act(() => {
+			store
+				?.getState()
+				.applyMany([
+					{ kind: "updateLanguage", code: "en", patch: { direction: "rtl" } },
+				]);
+		});
+		await waitFor(() => {
+			expect(
+				screen
+					.getAllByText("Care visits")
+					.some((element) => element.getAttribute("dir") === "rtl"),
+			).toBe(true);
+		});
+	});
+
 	it("round-trips target literals that resemble protected-reference markers", async () => {
 		renderSection();
 		fireEvent.click(screen.getByRole("button", { name: "Add language" }));

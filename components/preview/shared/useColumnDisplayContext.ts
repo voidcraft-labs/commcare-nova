@@ -20,8 +20,9 @@ import {
 	type CaseListConfig,
 	type CaseProperty,
 	type Column,
+	casePropertyOptionOccurrence,
+	casePropertyOptionTranslationUnitId,
 	type LocalizedValue,
-	makeTranslationUnitId,
 	type TranslationUnitId,
 } from "@/lib/domain";
 import { useLocalCalendarDay } from "@/lib/ui/hooks/useLocalCalendarDay";
@@ -42,13 +43,13 @@ export function projectLocalizedCaseProperties(
 			return property;
 		return {
 			...property,
-			options: property.options?.map((option) => {
+			options: property.options?.map((option, index, options) => {
 				const localized = localizedValues.get(
-					makeTranslationUnitId(
-						"case-property-option",
+					casePropertyOptionTranslationUnitId(
 						currentCaseType,
 						property.name,
 						option.value,
+						casePropertyOptionOccurrence(options, index),
 					),
 				);
 				return typeof localized === "object" && localized !== null

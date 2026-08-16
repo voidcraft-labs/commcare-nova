@@ -140,6 +140,7 @@ describe("shared localization tools", () => {
 				{
 					operation: "set",
 					unitId: firstItems[0]?.id,
+					expectedSourceFingerprint: firstItems[0]?.sourceFingerprint,
 					value: "Clínica",
 				},
 			],
@@ -225,7 +226,14 @@ describe("shared localization tools", () => {
 		const set = mutateResult(
 			await harness.runTool(updateTranslationsTool, {
 				language: "es",
-				updates: [{ operation: "set", unitId: appUnit.id, value: "Clínica" }],
+				updates: [
+					{
+						operation: "set",
+						unitId: appUnit.id,
+						expectedSourceFingerprint: appUnit.sourceFingerprint,
+						value: "Clínica",
+					},
+				],
 			}),
 		);
 		expect(set.result).not.toHaveProperty("error");
@@ -259,6 +267,7 @@ describe("shared localization tools", () => {
 						operation: "review",
 						unitId: stale.id,
 						expectedSourceFingerprint: stale.explicit.sourceFingerprint,
+						expectedCurrentSourceFingerprint: stale.sourceFingerprint,
 						expectedValue: stale.explicit.value,
 					},
 				],
@@ -270,6 +279,73 @@ describe("shared localization tools", () => {
 				(unit) => unit.id === appUnit.id,
 			),
 		).toMatchObject({ status: "ready", effective: "Clínica" });
+	});
+
+	it("rejects a set translated from source content a peer has changed", async () => {
+		const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc("Clinic"));
+		await harness.runTool(addLanguageTool, {
+			code: "es",
+			name: "Español",
+			copyFrom: "en",
+		});
+		const read = collectTranslationUnits(harness.currentDoc()).find(
+			(unit) => unit.role === "app-name",
+		);
+		expect(read).toBeDefined();
+		if (read === undefined) return;
+
+		await harness.runTool(updateAppTool, { name: "Health clinic" });
+		const writesBefore = harness.recordMutations.mock.calls.length;
+		const outcome = mutateResult(
+			await harness.runTool(updateTranslationsTool, {
+				language: "es",
+				updates: [
+					{
+						operation: "set",
+						unitId: read.id,
+						expectedSourceFingerprint: read.sourceFingerprint,
+						value: "Clínica",
+					},
+				],
+			}),
+		);
+		expect(outcome.result.error).toContain("source content changed");
+		expect(harness.recordMutations).toHaveBeenCalledTimes(writesBefore);
+	});
+
+	it("rejects a review when a peer changes the current source after it was read", async () => {
+		const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc("Clinic"));
+		await harness.runTool(addLanguageTool, {
+			code: "es",
+			name: "Español",
+			copyFrom: "en",
+		});
+		await harness.runTool(updateAppTool, { name: "Health clinic" });
+		const read = collectLocalizedTranslationUnits(
+			harness.currentDoc(),
+			"es",
+		).find((unit) => unit.role === "app-name");
+		expect(read?.explicit).toBeDefined();
+		if (read?.explicit === undefined) return;
+
+		await harness.runTool(updateAppTool, { name: "Community health clinic" });
+		const writesBefore = harness.recordMutations.mock.calls.length;
+		const outcome = mutateResult(
+			await harness.runTool(updateTranslationsTool, {
+				language: "es",
+				updates: [
+					{
+						operation: "review",
+						unitId: read.id,
+						expectedSourceFingerprint: read.explicit.sourceFingerprint,
+						expectedCurrentSourceFingerprint: read.sourceFingerprint,
+						expectedValue: read.explicit.value,
+					},
+				],
+			}),
+		);
+		expect(outcome.result.error).toContain("source content changed");
+		expect(harness.recordMutations).toHaveBeenCalledTimes(writesBefore);
 	});
 
 	it("rejects blank required content before it reaches the commit gate", async () => {
@@ -288,7 +364,14 @@ describe("shared localization tools", () => {
 		const outcome = mutateResult(
 			await harness.runTool(updateTranslationsTool, {
 				language: "es",
-				updates: [{ operation: "set", unitId: appUnit.id, value: "  " }],
+				updates: [
+					{
+						operation: "set",
+						unitId: appUnit.id,
+						expectedSourceFingerprint: appUnit.sourceFingerprint,
+						value: "  ",
+					},
+				],
 			}),
 		);
 		expect(outcome.result.error).toContain("cannot be blank");

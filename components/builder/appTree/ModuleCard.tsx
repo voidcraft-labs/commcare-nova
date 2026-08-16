@@ -24,10 +24,7 @@ import {
 } from "@/components/builder/appTree/shared";
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
-import {
-	useBuilderLanguage,
-	useLocalizedText,
-} from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useLocalizedText } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -72,7 +69,6 @@ export const ModuleCard = memo(function ModuleCard({
 	/** Subscribe to this module's entity from the doc store. Only re-renders
 	 *  when THIS module changes (Immer structural sharing on the entity ref). */
 	const mod = useModuleDoc(moduleUuid);
-	const language = useBuilderLanguage();
 	const localizedModuleName = useLocalizedText(
 		makeTranslationUnitId("module", moduleUuid, "name"),
 	);
@@ -105,9 +101,7 @@ export const ModuleCard = memo(function ModuleCard({
 	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
 		? false
 		: collapsed.has(collapseKey);
-	const nameIndices = language.isSource
-		? searchResult?.matchMap?.get(collapseKey)
-		: undefined;
+	const nameIndices = searchResult?.matchMap?.get(collapseKey);
 
 	if (!mod || !formIds) return null;
 	const moduleName = localizedModuleName ?? mod.name;

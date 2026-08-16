@@ -183,12 +183,16 @@ A translation unit contains:
 
 Existing UUIDs identify app structure wherever possible. Nested values without
 UUID identity, such as an ID-mapping row or case-property option, use their
-existing stable semantic key under the UUID-bearing owner. The mutation that
-changes such a key also remaps or removes the corresponding translation entry
-atomically. Deleting an owner prunes its overlay entries as a deterministic
-dependent effect of that same replayed command. Source text edits preserve the
-unit and the old overlay as out of date. Orphan translation entries are not a
-valid stored state.
+existing stable semantic key under the UUID-bearing owner. Classic permits a
+case-property catalog to repeat one stored value, so later same-value
+occurrences add their zero-based same-value ordinal: every legal label stays
+injective while the first occurrence retains its established identity. The
+mutation that changes such a key also remaps or removes the corresponding
+translation entry atomically. Deleting an owner prunes its overlay entries as a
+deterministic dependent effect once at the end of that same replayed batch;
+per-entry translation writes do not rescan the full inventory. Source text
+edits preserve the unit and the old overlay as out of date. Orphan translation
+entries are not a valid stored state.
 
 The unit registry is exhaustive over worker-facing display slots and derived
 defaults. A reviewed slot classification and fixtures containing every carrier
@@ -212,7 +216,11 @@ its textarea, not merely the last parseable draft. It disables commit while a
 protected token is missing or duplicated. A Missing unit may commit an explicit
 source-identical human value, because equality does not mean the fallback was
 reviewed. Inline Builder editors likewise retain a rejected target draft and
-surface the commit-gate reason.
+surface the commit-gate reason. Inventory search matches source, effective
+target, and retained explicit target text. The structure-tree search consumes
+the same localized values it renders. Both source and target comparison panes
+use their own language direction, and language-selection/search controls expose
+their names and selected state to assistive technology.
 
 Neither AI nor human tooling reparses rendered `#form/...` text. UUID-backed
 identity moves and display renames leave the source and target reference atoms,
@@ -227,6 +235,12 @@ Adding target language B from existing language A is one atomic language
 operation. It copies every currently effective A value into explicit B entries
 and records `origin: copied`, `translatedFrom: A`, and `needs-review`. B is
 never born blank, and the operation works for any existing A/B pair.
+
+Agent/MCP `set` writes echo the current source fingerprint returned by the
+inventory read. `review` writes independently echo both that current source
+fingerprint and the prior explicit entry's fingerprint/value. Either concurrent
+source or target change refuses the atomic batch instead of binding a
+translation or approval to content the caller did not inspect.
 
 Status is derived per unit:
 

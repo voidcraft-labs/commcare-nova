@@ -37,7 +37,10 @@ direction metadata.
 
 `translationUnits.ts::collectTranslationUnits` is the ONE inventory of static
 worker-facing strings. A unit id is an injective, versioned projection of stable
-owner identity plus semantic slot, never visible text or collection position.
+owner identity plus semantic slot, never visible text. Case-property option
+values are their semantic key; because Classic accepts repeated stored values,
+later same-value occurrences add their stable same-value ordinal so no legal
+label silently aliases the first occurrence.
 Builder, tools, Preview, translation orchestration, and wire emission resolve
 language values through `resolveTranslationUnit(s)` rather than independently
 walking labels. Each target entry fingerprints the current source. Missing and

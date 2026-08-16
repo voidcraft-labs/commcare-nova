@@ -34,9 +34,13 @@ per-unit values are durable rather than reducer-minted. A translation write must
 name an existing current unit and carry its exact source fingerprint; prose
 writes preserve protected references. `reviewTranslation` additionally fences
 the prior value and fingerprint so a reviewer cannot silently bless a source or
-peer edit they did not inspect. Every reducer pass prunes overlay entries whose
-unit owner no longer exists. Source edits retain the same unit id and make its
-entry out of date. App-wide case-property rename is the one semantic cascade:
+peer edit they did not inspect. The shared tool fence separately echoes the
+current source fingerprint for both set and review, while review also compares
+the prior explicit entry. Each complete mutation batch prunes overlay entries
+whose unit owner no longer exists exactly once after its structural endpoint is
+known; individual translation writes never rebuild the whole inventory. Source
+edits retain the same unit id and make its entry out of date. App-wide
+case-property rename is the one semantic cascade:
 it rewrites matching protected prose tokens in target entries, remaps the
 semantic case-property-option unit ids, and advances the fingerprint only for
 entries that were current before that rename.

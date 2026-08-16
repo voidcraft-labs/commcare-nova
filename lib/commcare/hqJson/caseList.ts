@@ -51,6 +51,8 @@ import type {
 	SearchInputDef,
 } from "@/lib/domain";
 import {
+	casePropertyOptionOccurrence,
+	casePropertyOptionTranslationUnitId,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	makeTranslationUnitId,
@@ -198,11 +200,11 @@ function projectColumnToDetail(
 					enum: options.map((option, index) => ({
 						key: `nova_text_${index}`,
 						value: localization.proseTextMap(
-							makeTranslationUnitId(
-								"case-property-option",
+							casePropertyOptionTranslationUnitId(
 								caseType ?? "",
 								property.name,
 								option.value,
+								casePropertyOptionOccurrence(options, index),
 							),
 						),
 					})),

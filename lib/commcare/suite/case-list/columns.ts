@@ -108,6 +108,8 @@ import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import {
 	type CaseProperty,
 	type Column,
+	casePropertyOptionOccurrence,
+	casePropertyOptionTranslationUnitId,
 	makeTranslationUnitId,
 	printProseTemplate,
 	TIME_SINCE_UNIT_DAYS,
@@ -821,15 +823,16 @@ function propertyDisplayProjection(
 			) {
 				return plain(plainDisplayXpath(field));
 			}
-			const projections = (property.options ?? []).map((option, index) =>
+			const options = property.options ?? [];
+			const projections = options.map((option, index) =>
 				variable(
 					index,
 					printProseTemplate(option.label, ctx.proseDoc),
-					makeTranslationUnitId(
-						"case-property-option",
+					casePropertyOptionTranslationUnitId(
 						ctx.currentCaseType ?? "",
 						property.name,
 						option.value,
+						casePropertyOptionOccurrence(options, index),
 					),
 				),
 			);

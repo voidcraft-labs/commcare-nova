@@ -103,10 +103,13 @@ automatic translation for that exact direction.
 | `update_translations` | Atomically set, clear, or review at most 50 distinct target units using stable unit IDs and exact review fences. |
 
 Read `get_languages`, then call `get_translatable_content` for the target before
-writing. A `set` operation is machine-authored and starts as Needs review. A
-`review` operation must repeat the exact current source fingerprint and target
-value returned by the read, so it cannot approve a value after either side
-changed concurrently. Prose values keep typed reference parts; do not flatten a
+writing. A `set` operation must repeat the unit's current `sourceFingerprint`
+as `expectedSourceFingerprint`; it is machine-authored and starts as Needs
+review. A `review` operation repeats the explicit entry's stored fingerprint as
+`expectedSourceFingerprint`, the unit's current fingerprint as
+`expectedCurrentSourceFingerprint`, and the exact target value returned by the
+read. These independent fences refuse the whole batch if either side changed
+concurrently. Prose values keep typed reference parts; do not flatten a
 protected field reference into its displayed text.
 
 `add_language` always copies a complete effective projection. If the copy

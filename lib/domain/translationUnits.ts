@@ -102,6 +102,7 @@ export type TranslationUnitOwner =
 			readonly caseType: string;
 			readonly property: string;
 			readonly value: string;
+			readonly occurrence: number;
 	  };
 
 export interface TranslationUnitContext {
@@ -362,6 +363,47 @@ function caseProperty(
 		?.properties.find((candidate) => candidate.name === property);
 }
 
+/**
+ * Stable identity for one occurrence of a case-property option value.
+ *
+ * CommCare permits repeated stored values in the catalog. The value remains
+ * the identity of the first occurrence for backward compatibility; later
+ * occurrences add their zero-based same-value ordinal so every legal label has
+ * an injective translation unit instead of silently sharing the first one.
+ */
+export function casePropertyOptionTranslationUnitId(
+	caseType: string,
+	property: string,
+	value: string,
+	occurrence = 0,
+): TranslationUnitId {
+	return occurrence === 0
+		? makeTranslationUnitId("case-property-option", caseType, property, value)
+		: makeTranslationUnitId(
+				"case-property-option",
+				caseType,
+				property,
+				value,
+				`occurrence:${occurrence}`,
+			);
+}
+
+/** Zero-based ordinal among options carrying the same stored value. */
+export function casePropertyOptionOccurrence(
+	options: readonly { readonly value: string }[],
+	index: number,
+): number {
+	const option = options[index];
+	if (option === undefined) {
+		throw new Error(`Case-property option index ${index} is out of range.`);
+	}
+	let occurrence = 0;
+	for (let prior = 0; prior < index; prior += 1) {
+		if (options[prior]?.value === option.value) occurrence += 1;
+	}
+	return occurrence;
+}
+
 function addCasePropertyOptionUnits(
 	doc: BlueprintDoc,
 	module: Module,
@@ -374,12 +416,14 @@ function addCasePropertyOptionUnits(
 		property.data_type !== "multi_select"
 	)
 		return;
-	for (const option of property.options ?? []) {
-		const id = makeTranslationUnitId(
-			"case-property-option",
+	const options = property.options ?? [];
+	for (const [index, option] of options.entries()) {
+		const occurrence = casePropertyOptionOccurrence(options, index);
+		const id = casePropertyOptionTranslationUnitId(
 			module.caseType ?? "",
 			property.name,
 			option.value,
+			occurrence,
 		);
 		if (seen.has(id)) continue;
 		seen.add(id);
@@ -394,6 +438,7 @@ function addCasePropertyOptionUnits(
 					caseType: module.caseType ?? "",
 					property: property.name,
 					value: option.value,
+					occurrence,
 				},
 				breadcrumb: [doc.appName, module.name, property.name, option.value],
 				context: {
