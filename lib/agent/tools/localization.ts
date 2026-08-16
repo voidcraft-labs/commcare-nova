@@ -8,6 +8,7 @@ import {
 	appLanguageSchema,
 	CLASSIC_LANGUAGE_OPTIONS,
 	collectLocalizedTranslationUnits,
+	collectTranslationCoverageDiagnostics,
 	collectTranslationUnits,
 	effectiveAppLocalization,
 	type LanguageCode,
@@ -162,6 +163,12 @@ const translationUpdateSchema = z.discriminatedUnion("operation", [
 		.object({
 			operation: z.literal("set"),
 			unitId: z.string().min(1).startsWith("tu1:"),
+			expectedSourceFingerprint: z
+				.string()
+				.min(1)
+				.describe(
+					"Current sourceFingerprint returned by getTranslatableContent for the source text that was translated.",
+				),
 			value: localizedValueSchema,
 			translatedFrom: languageCodeSchema
 				.optional()
@@ -181,6 +188,12 @@ const translationUpdateSchema = z.discriminatedUnion("operation", [
 			operation: z.literal("review"),
 			unitId: z.string().min(1).startsWith("tu1:"),
 			expectedSourceFingerprint: z.string().min(1),
+			expectedCurrentSourceFingerprint: z
+				.string()
+				.min(1)
+				.describe(
+					"Current sourceFingerprint returned by getTranslatableContent for the source text reviewed.",
+				),
 			expectedValue: localizedValueSchema,
 		})
 		.strict(),
@@ -442,6 +455,7 @@ export const getLanguagesTool = {
 					),
 				})),
 				classicCatalogSize: CLASSIC_LANGUAGE_OPTIONS.length,
+				coverageDiagnostics: collectTranslationCoverageDiagnostics(doc),
 				codePolicy:
 					"Every Classic picker code and every Classic wire-valid lower-case regional code can be added manually or by copying an existing language.",
 			},
@@ -740,7 +754,7 @@ function integrityMessage(
 
 export const updateTranslationsTool = {
 	description:
-		"Set, clear, or explicitly review up to 50 target-language entries atomically. Set operations are machine-authored and begin Needs review. Review operations must echo the exact explicit value and source fingerprint previously read, so they can keep a stale translation only when no peer changed it. Protected reference parts must remain exact.",
+		"Set, clear, or explicitly review up to 50 target-language entries atomically. Set operations must echo the current source fingerprint they translated and begin Needs review. Review operations must echo both the exact explicit entry and the current source fingerprint reviewed, so no peer can change either side unseen. Protected reference parts must remain exact.",
 	inputSchema: updateTranslationsInputSchema,
 	async execute(
 		input: z.infer<typeof updateTranslationsInputSchema>,
@@ -772,6 +786,11 @@ export const updateTranslationsTool = {
 				}
 				switch (update.operation) {
 					case "set": {
+						if (unit.sourceFingerprint !== update.expectedSourceFingerprint) {
+							return mutationError(
+								`Translation unit ${unit.id} source content changed after it was read. Re-read getTranslatableContent before translating it.`,
+							);
+						}
 						const issue = integrityMessage(unit, update.value);
 						if (issue !== undefined) return mutationError(issue);
 						const translatedFrom =
@@ -816,12 +835,14 @@ export const updateTranslationsTool = {
 					case "review": {
 						const entry = entries[unit.id];
 						if (
+							unit.sourceFingerprint !==
+								update.expectedCurrentSourceFingerprint ||
 							entry === undefined ||
 							entry.sourceFingerprint !== update.expectedSourceFingerprint ||
 							!exactJsonEqual(entry.value, update.expectedValue)
 						) {
 							return mutationError(
-								`Translation unit ${unit.id} changed after it was read. Re-read getTranslatableContent before reviewing it.`,
+								`Translation unit ${unit.id} or its source content changed after it was read. Re-read getTranslatableContent before reviewing it.`,
 							);
 						}
 						const issue = integrityMessage(unit, update.expectedValue);

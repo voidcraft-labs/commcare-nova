@@ -13,10 +13,52 @@ import {
 	type ColumnDisplayContext,
 	resolveCalculatedTemporalType,
 } from "@/components/builder/case-list-config/columnCellRenderer";
+import { useLocalizedValues } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import type { CaseListConfig, CaseProperty, Column } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	type CaseProperty,
+	type Column,
+	casePropertyOptionOccurrence,
+	casePropertyOptionTranslationUnitId,
+	type LocalizedValue,
+	type TranslationUnitId,
+} from "@/lib/domain";
 import { useLocalCalendarDay } from "@/lib/ui/hooks/useLocalCalendarDay";
+
+/** Project option labels through the same selected-language lens as the rest
+ * of Preview while retaining the effective catalog's structural data type. */
+export function projectLocalizedCaseProperties(
+	currentCaseType: string | undefined,
+	properties: readonly CaseProperty[],
+	localizedValues: ReadonlyMap<TranslationUnitId, LocalizedValue>,
+): readonly CaseProperty[] {
+	if (currentCaseType === undefined) return properties;
+	return properties.map((property) => {
+		if (
+			property.data_type !== "single_select" &&
+			property.data_type !== "multi_select"
+		)
+			return property;
+		return {
+			...property,
+			options: property.options?.map((option, index, options) => {
+				const localized = localizedValues.get(
+					casePropertyOptionTranslationUnitId(
+						currentCaseType,
+						property.name,
+						option.value,
+						casePropertyOptionOccurrence(options, index),
+					),
+				);
+				return typeof localized === "object" && localized !== null
+					? { ...option, label: localized }
+					: option;
+			}),
+		};
+	});
+}
 
 /**
  * `fallbackProperties` covers the window where the effective view has no
@@ -31,6 +73,21 @@ export function useColumnDisplayContext(
 	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const effectiveCaseType = effectiveCaseTypes.find(
 		(candidate) => candidate.name === currentCaseType,
+	);
+	const localizedValues = useLocalizedValues();
+	const caseProperties = useMemo(
+		() =>
+			projectLocalizedCaseProperties(
+				currentCaseType,
+				effectiveCaseType?.properties ?? fallbackProperties,
+				localizedValues,
+			),
+		[
+			currentCaseType,
+			effectiveCaseType?.properties,
+			fallbackProperties,
+			localizedValues,
+		],
 	);
 	const today = useLocalCalendarDay();
 	const projectProse = useProseProjection();
@@ -53,16 +110,10 @@ export function useColumnDisplayContext(
 	return useMemo(
 		() => ({
 			calculatedTemporalTypes,
-			caseProperties: effectiveCaseType?.properties ?? fallbackProperties,
+			caseProperties,
 			today,
 			projectProse,
 		}),
-		[
-			calculatedTemporalTypes,
-			effectiveCaseType?.properties,
-			fallbackProperties,
-			today,
-			projectProse,
-		],
+		[calculatedTemporalTypes, caseProperties, today, projectProse],
 	);
 }

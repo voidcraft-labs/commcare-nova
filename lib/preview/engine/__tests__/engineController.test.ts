@@ -12,7 +12,13 @@ import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { CaseType, Field, Uuid } from "@/lib/domain";
+import {
+	type CaseType,
+	collectTranslationUnits,
+	type Field,
+	makeTranslationUnitId,
+	type Uuid,
+} from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { proseText } from "@/lib/domain/prose";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
@@ -118,6 +124,97 @@ describe("EngineController", () => {
 			ctrl.activateForm(FORM_UUID);
 			expect(ctrl.entryKey).toEqual(expect.any(String));
 			expect(ctrl.entryKey).not.toBe(entryKey);
+		});
+
+		it("evaluates localized dynamic prose and preserves the live entry across language changes", () => {
+			const referencedLabel = {
+				parts: [
+					{ kind: "text" as const, text: "Hello " },
+					{ kind: "field-ref" as const, uuid: Q1_UUID },
+				],
+			};
+			const translatedLabel = {
+				parts: [
+					{ kind: "text" as const, text: "Hola " },
+					{ kind: "field-ref" as const, uuid: Q1_UUID },
+				],
+			};
+			const doc = makeDoc({
+				[Q1_UUID]: {
+					uuid: Q1_UUID,
+					id: "name",
+					kind: "text",
+					label: proseText("Name"),
+				},
+				[Q2_UUID]: {
+					uuid: Q2_UUID,
+					id: "greeting",
+					kind: "text",
+					label: referencedLabel,
+				},
+			});
+			const store = createLoadedStore(doc);
+			const unitId = makeTranslationUnitId("field", Q2_UUID, "label");
+			const unit = collectTranslationUnits(store.getState()).find(
+				(candidate) => candidate.id === unitId,
+			);
+			expect(unit).toBeDefined();
+			if (unit === undefined) return;
+			store.getState().applyMany([
+				{
+					kind: "addLanguage",
+					language: { code: "es", name: "Español", direction: "ltr" },
+				},
+				{
+					kind: "setTranslation",
+					language: "es",
+					unitId,
+					entry: {
+						value: translatedLabel,
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "en",
+					},
+				},
+			]);
+
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.setValueAt("/data/name", "Amina");
+			const entryKey = ctrl.entryKey;
+			expect(ctrl.store.getState()[Q2_UUID].resolvedLabel).toBe("Hello Amina");
+
+			ctrl.setPresentationLanguage("es");
+			expect(ctrl.entryKey).toBe(entryKey);
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("Amina");
+			expect(ctrl.store.getState()[Q2_UUID].resolvedLabel).toBe("Hola Amina");
+
+			store.getState().applyMany([
+				{
+					kind: "setTranslation",
+					language: "es",
+					unitId,
+					entry: {
+						value: {
+							parts: [
+								{ kind: "text", text: "Paciente: " },
+								{ kind: "field-ref", uuid: Q1_UUID },
+							],
+						},
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "en",
+					},
+				},
+			]);
+			expect(ctrl.entryKey).toBe(entryKey);
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("Amina");
+			expect(ctrl.store.getState()[Q2_UUID].resolvedLabel).toBe(
+				"Paciente: Amina",
+			);
 		});
 
 		it("starts a fresh entry immediately without changing the active form", () => {

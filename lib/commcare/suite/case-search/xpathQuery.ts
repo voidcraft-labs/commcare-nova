@@ -59,6 +59,10 @@ import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import {
+	type SearchRuntimeValidationKind,
+	searchRuntimeValidationMessage,
+} from "@/lib/domain/searchRuntimeValidationMessages";
+import {
 	checkCsqlRepresentability,
 	dedupeRuntimeRejections,
 	emitCsql,
@@ -67,7 +71,6 @@ import {
 import {
 	combineRuntimeCsqlPromptValidations,
 	getAdvancedArmPredicates,
-	RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE,
 	type RuntimeCsqlPromptValidation,
 } from "./searchPrompts";
 import {
@@ -114,30 +117,25 @@ export function buildRuntimeCsqlPromptValidations(
 	if (emission === undefined) return new Map();
 	const obligations = new Map<
 		string,
-		Array<RuntimeCsqlPromptValidation & { readonly kind: string }>
+		Array<
+			RuntimeCsqlPromptValidation & {
+				readonly kind: SearchRuntimeValidationKind;
+			}
+		>
 	>();
 	for (const rejection of emission.runtimeRejections ?? []) {
-		const message = (() => {
-			switch (rejection.kind) {
-				case "quote":
-					return RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE;
-				case "geopoint":
-					return "Enter a location as latitude and longitude";
-				case "whole-number":
-					return "Enter a whole number";
-				case "nonnegative-whole-number":
-					return "Enter a whole number that is zero or greater";
-				default: {
-					const _exhaustive: never = rejection.kind;
-					return String(_exhaustive);
-				}
-			}
-		})();
+		const message = searchRuntimeValidationMessage(new Set([rejection.kind]));
+		if (message === undefined) continue;
 		for (const name of rejection.inputNames ?? []) {
 			const entries = obligations.get(name) ?? [];
 			const test = `not(${rejection.condition})`;
 			if (!entries.some((entry) => entry.test === test)) {
-				entries.push({ kind: rejection.kind, test, message });
+				entries.push({
+					kind: rejection.kind,
+					test,
+					message: message.message,
+					messageKey: message.key,
+				});
 				obligations.set(name, entries);
 			}
 		}
@@ -145,30 +143,18 @@ export function buildRuntimeCsqlPromptValidations(
 	const result = new Map<string, RuntimeCsqlPromptValidation>();
 
 	for (const [name, entries] of obligations) {
-		const validations = entries.map(({ test, message }) => ({ test, message }));
+		const validations = entries.map(({ test, message, messageKey }) => ({
+			test,
+			message,
+			messageKey,
+		}));
 		const kinds = new Set(entries.map(({ kind }) => kind));
+		const combinedMessage = searchRuntimeValidationMessage(kinds);
+		if (combinedMessage === undefined) continue;
 		const combined = combineRuntimeCsqlPromptValidations(
 			validations,
-			(() => {
-				const instructions: string[] = [];
-				if (kinds.has("geopoint")) {
-					instructions.push("Enter a location as latitude and longitude");
-				}
-				if (
-					kinds.has("whole-number") ||
-					kinds.has("nonnegative-whole-number")
-				) {
-					instructions.push(
-						kinds.has("nonnegative-whole-number")
-							? "enter a whole number that is zero or greater"
-							: "enter a whole number",
-					);
-				}
-				if (kinds.has("quote")) {
-					instructions.push("don't use both kinds of quotation mark");
-				}
-				return instructions.join(", and ");
-			})(),
+			combinedMessage.message,
+			combinedMessage.key,
 		);
 		if (combined !== undefined) result.set(name, combined);
 	}

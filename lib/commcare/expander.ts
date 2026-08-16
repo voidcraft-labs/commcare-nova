@@ -32,6 +32,7 @@ import {
 	moduleShell,
 } from "@/lib/commcare";
 import { genHexId, genShortId } from "@/lib/commcare/ids";
+import { commCareLocalization } from "@/lib/commcare/localization";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildMultimediaMap } from "@/lib/commcare/multimedia/bundle";
@@ -48,6 +49,7 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	defaultPostSubmit,
 	type FormLink,
+	makeTranslationUnitId,
 	printXPath,
 	type Uuid,
 	userPropertySlugsByUuid,
@@ -176,6 +178,7 @@ export function expandDoc(
 	const attachments: Record<string, string> = {};
 	const assets = opts.assets;
 	const userPropertySlugs = userPropertySlugsByUuid(doc);
+	const localization = commCareLocalization(doc);
 
 	// Child case type map: child_case_type → parent module index. Derived
 	// from `case_types[].parent_type` + matching module case types. The
@@ -272,7 +275,7 @@ export function expandDoc(
 
 			const formShellObj = formShell(
 				formUniqueId,
-				form.name,
+				localization.textMap(makeTranslationUnitId("form", formUuid, "name")),
 				xmlns,
 				CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
 				buildFormActions(doc, formUuid, caseType),
@@ -299,6 +302,7 @@ export function expandDoc(
 				form.audioLabel,
 				assets,
 				"expandDoc form media",
+				localization.languages,
 			);
 			formShellObj.media_image = formMedia.media_image;
 			formShellObj.media_audio = formMedia.media_audio;
@@ -327,7 +331,7 @@ export function expandDoc(
 
 		const shell = moduleShell(
 			moduleUniqueIds[mIdx],
-			mod.name,
+			localization.textMap(makeTranslationUnitId("module", moduleUuid, "name")),
 			caseType,
 			forms,
 			caseDetails,
@@ -349,6 +353,7 @@ export function expandDoc(
 			mod.audioLabel,
 			assets,
 			"expandDoc module media",
+			localization.languages,
 		);
 		shell.media_image = moduleMedia.media_image;
 		shell.media_audio = moduleMedia.media_audio;
@@ -372,7 +377,9 @@ export function expandDoc(
 		// requires either forms or a visible case list per module.
 		if (mod.caseListOnly) {
 			shell.case_list.show = true;
-			shell.case_list.label = { en: mod.name };
+			shell.case_list.label = localization.textMap(
+				makeTranslationUnitId("module", moduleUuid, "name"),
+			);
 			// Case-list-link menu media — same dict shape as the module
 			// home-tile media above. CCHQ renders it on the case-list
 			// command that `case_list.show = true` produces, and the local
@@ -384,6 +391,7 @@ export function expandDoc(
 				mod.caseListConfig?.audioLabel,
 				assets,
 				"expandDoc case-list media",
+				localization.languages,
 			);
 			shell.case_list.media_image = caseListMedia.media_image;
 			shell.case_list.media_audio = caseListMedia.media_audio;
@@ -409,8 +417,26 @@ export function expandDoc(
 		return shell;
 	});
 
+	const appNameUnit = makeTranslationUnitId("app", "name");
+	const appNameByLanguage = localization.textMap(appNameUnit);
 	const app = applicationShell(doc.appName, modules, attachments, {
 		...(doc.connectType && { autoGpsCapture: true }),
+		langs: [...localization.languages],
+		translations: Object.fromEntries(
+			localization.languages.map((language) => [
+				language,
+				{
+					"homescreen.title": appNameByLanguage[language],
+					"app.display.name": appNameByLanguage[language],
+					...Object.fromEntries(
+						localization.languages.map((code) => [
+							code,
+							localization.metadata[code].name,
+						]),
+					),
+				},
+			]),
+		),
 	});
 
 	// Application-level media registry. `multimedia_map` declares every

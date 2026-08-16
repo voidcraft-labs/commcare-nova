@@ -26,9 +26,9 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import { useLocalizedField } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { PeerBadge, usePeerEditingColor } from "@/components/builder/PeerBadge";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
-import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
@@ -68,7 +68,7 @@ export const FieldRow = memo(function FieldRow({
 	parentPath?: FieldPath;
 }) {
 	/** Subscribe to this field's entity by UUID from the doc store. */
-	const field = useField(uuid);
+	const field = useLocalizedField(uuid);
 
 	/** Subscribe to children UUIDs (for groups/repeats) from the doc store.
 	 *  `useOrderedFields` returns the reference-stable empty-array sentinel

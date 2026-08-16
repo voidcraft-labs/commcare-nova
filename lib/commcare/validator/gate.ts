@@ -109,6 +109,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	TRANSLATION_VALUE_KIND_MISMATCH: "soundness",
 	TRANSLATION_REQUIRED_CONTENT_BLANK: "soundness",
 	TRANSLATION_PROTECTED_CONTENT_CHANGED: "soundness",
+	APP_STRING_VALUE_UNREPRESENTABLE: "soundness",
 	// Who runs the app. Every one is soundness: an illegal or duplicated
 	// slug is an identity CommCare refuses, a duplicated role or persona
 	// name is indistinguishable in every picker, a dangling role or
@@ -297,7 +298,9 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	XFORM_TRANSLATION_NONE: "oracle",
 	XFORM_TRANSLATION_NO_LANG: "oracle",
 	XFORM_TRANSLATION_DUPLICATE_LANG: "oracle",
+	XFORM_TRANSLATION_NO_DEFAULT: "oracle",
 	XFORM_TRANSLATION_MULTIPLE_DEFAULT: "oracle",
+	XFORM_TRANSLATION_INCOMPLETE: "oracle",
 	XFORM_DANGLING_MEDIA_REF: "oracle",
 	// ── suite.xml oracle ─────────────────────────────────────────────
 	SUITE_PARSE_ERROR: "oracle",

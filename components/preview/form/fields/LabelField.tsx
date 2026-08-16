@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type {
+	CommitOutcome,
 	FieldPatchFor,
 	LabelField as LabelFieldEntity,
 	ProseTemplate,
@@ -41,11 +42,11 @@ export function LabelField({
 	 * shape: every key TextEditable can save (`label`) is declared on
 	 * `LabelField`, so the runtime contract holds. */
 	const saveField = useMemo<
-		((field: string, value: ProseTemplate) => void) | null
+		((field: string, value: ProseTemplate) => CommitOutcome) | null
 	>(() => {
 		if (!isEditMode) return null;
 		return (property, value) => {
-			updateField(field.uuid, "label", {
+			return updateField(field.uuid, "label", {
 				[property]: value,
 			} as FieldPatchFor<"label">);
 		};

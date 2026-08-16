@@ -8,6 +8,30 @@ The `./index.ts` barrel must stay client-safe: Node-only modules (`./compiler` v
 
 ## Key design decisions
 
+### Multilingual emission is one derived projection
+
+`localization.ts` is the emission facade over the domain translation inventory.
+Every configured language receives a complete effective value projection; a
+missing or stale target entry falls back to the current canonical source. HQ
+JSON language maps, XForm itext blocks, suite locale-variable links, and local
+CCZ app-string directories all consume that projection rather than cloning or
+mutating `BlueprintDoc`. Exactly one XForm translation is default, every
+translation covers the same itext IDs, and every localized suite app-string
+table covers the same locale IDs. The XForm and suite oracles enforce those
+properties for every language, not only the runtime default.
+
+Optional XForm itext entries and their body/bind references are gated on
+effective content across every configured language, not source content alone.
+Suite multi-select option filtering carries original catalog indexes through to
+localized variables. Direct-CCZ app-string values serialize through Core's
+actual locale grammar (`\#` comments and `\n` line breaks) and fail closed for
+literal backslash-`n` or boundary content that the grammar cannot round-trip.
+
+The app language catalog uses Nova codes and metadata until this boundary. HQ
+`langs`, localized property maps, itext language/default attributes,
+`default/app_strings.txt`, per-language directories, endonyms, and
+`lang.current` are one-way CommCare wire spellings here.
+
 ### CommCare HQ feature-flag lifecycle
 
 `config/commcare-hq-feature-flags.json` is the single lifecycle catalog for HQ
@@ -437,7 +461,7 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 
 - Shadow modules, parent-select cycles
 - Grouped case tiles (`<detail><group>`), smart links, case list field actions
-- Sort field format regex, multimedia, multi-language
+- Sort field format regex, multimedia
 - Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
 

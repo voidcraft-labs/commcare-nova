@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { InputHTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
 import { ReconcilerContext } from "@/lib/collab/context";
 import { createProjectScopeResetRegistry } from "@/lib/collab/projectScopeReset";
 import { BuilderSessionContext } from "@/lib/session/provider";
@@ -75,7 +76,14 @@ vi.mock("@base-ui/react/autocomplete", async () => {
 				);
 			},
 			Portal: passthrough,
-			Positioner: passthrough,
+			Positioner: ({
+				children,
+				...props
+			}: HTMLAttributes<HTMLDivElement> & { children?: ReactNode }) => (
+				<div data-address-search-positioner {...props}>
+					{children}
+				</div>
+			),
 			Popup: passthrough,
 			Empty: passthrough,
 			List: passthrough,
@@ -147,6 +155,22 @@ afterEach(() => {
 });
 
 describe("geopoint Project-scope continuations", () => {
+	it("carries the worker direction into the address-search portal", () => {
+		const { Wrapper } = scopeHarness();
+		render(
+			<PortaledContentDirectionProvider direction="rtl">
+				<AddressSearch value="" onSelect={vi.fn()} />
+			</PortaledContentDirectionProvider>,
+			{ wrapper: Wrapper },
+		);
+
+		expect(
+			document
+				.querySelector("[data-address-search-positioner]")
+				?.getAttribute("dir"),
+		).toBe("rtl");
+	});
+
 	it("drops a held geolocation result inside the synchronous reset boundary", async () => {
 		const location = deferred<{
 			lat: number;

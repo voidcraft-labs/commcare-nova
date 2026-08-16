@@ -1,0 +1,96 @@
+---
+title: Languages and translation
+description: Add app languages, copy existing text, translate it, and choose what workers see.
+---
+
+Commcare Nova keeps worker-facing app content in a language catalog. One
+language is the **source** used while the app is designed, and one is the
+**default** workers see when they first open the app. They may be different.
+
+Use the language selector in the Builder header to change the language shown by
+the structure tree, editing canvas, case workspace, and Preview. The selected
+language stays in the URL, so reloads, back and forward navigation, and shared
+Builder links keep the same view. Nova's own buttons and authoring guidance do
+not change language with the worker app.
+
+## Add a language without starting from blank fields
+
+Open **App setup → Languages**, then choose **Add language**. Select or enter the
+new language and choose an existing **Start with** language. Nova copies every
+currently effective worker-facing string into the new language in one change.
+You can then translate those values without leaving blank labels throughout the
+app.
+
+The picker includes every code in CommCare Classic's language catalog. You can
+also enter another lower-case code accepted by CommCare's language wire and set
+its display name and left-to-right or right-to-left direction. Manual editing,
+copying, Preview, export, and CommCare HQ upload do not depend on whether Nova's
+AI can translate that language.
+
+Automatic translation is a separate capability. Nova offers it only for an
+exact source-to-target direction that has passed the current quality review. A
+language may therefore be fully supported for authoring and export even when
+automatic translation is not offered for it.
+
+## Review all translated content
+
+The Languages workspace is the complete review surface. It shows source and
+target values together, groups them by where they appear, and lets you search or
+filter by status:
+
+- **Ready** means the target was reviewed against the current source.
+- **Needs review** means the value was copied or machine-authored, or has not
+  yet been confirmed by a person.
+- **Missing** means Nova currently falls back to the source value.
+- **Out of date** means the source changed after that target value was written;
+  the running app uses the current source until the target is reviewed or
+  replaced.
+
+A correct translation sometimes is identical to its source, such as a product
+name or acronym. A Missing row can be saved without changing its text; Nova then
+stores that value explicitly as reviewed instead of leaving it permanently
+Missing.
+
+Choose **Open in Builder** to move from a translation row to its owning module,
+form, field, Results, or Search screen. When a target language is selected in
+the ordinary Builder, editing worker-facing text writes that target language.
+Saved field IDs, case-property names, and other structural identifiers never
+change with the language selector.
+
+Labels containing two languages in one existing text value remain literal
+text. Nova does not guess where one language ends and another begins; add real
+languages and clean those values up explicitly.
+
+## References and runtime fallback
+
+Some labels contain references to fields or other app values. The translation
+editor represents those parts as protected tokens. They can move to a natural
+place in the translated sentence, but cannot be deleted, duplicated, or changed
+into plain text. Prefix a token-looking literal or a literal backslash with a
+backslash so it remains ordinary text rather than becoming structure. Save stays
+disabled while the visible token form is invalid. If an inline Builder edit is
+rejected by the same guardrail, the draft remains open with the reason rather
+than disappearing.
+
+Every configured language always has a complete runtime projection. A missing
+or out-of-date target uses the current source value, so the app remains valid
+while translation is in progress. Review status is guidance rather than a
+separate draft or release gate.
+
+## What is not counted as translated
+
+The Languages workspace reports content whose current carrier cannot honestly
+participate in the static app-language catalog:
+
+- lookup-backed choice labels come from mutable Project data and need localized
+  lookup-table columns;
+- CommCare Connect names and descriptions have no per-language carrier in the
+  accepted wire;
+- images, audio, video, and files currently use the same asset in every locale;
+  and
+- automation messages need recipient-language behavior rather than the
+  Builder's selected worker locale.
+
+These notes do not block adding a language. They keep the coverage count from
+claiming those surfaces were translated when their data or wire behavior does
+not support that claim.

@@ -1665,8 +1665,8 @@ function checkMediaResolution(
 	}
 
 	// Surface 2 — image-map `<template form="image">` inlined jr:// literals
-	// in `<xpath function="...">` content. The Nova emitter inlines the paths
-	// as XPath string literals (single-language simplification); each quoted
+	// in `<xpath function="...">` content. Media paths are language-neutral;
+	// each quoted
 	// `jr://file/...` slice is one referenced wire path.
 	for (const template of findAll(
 		(el) => el.name === "template" && getAttributeValue(el, "form") === "image",

@@ -6,6 +6,7 @@ import tablerX from "@iconify-icons/tabler/x";
 import type * as React from "react";
 
 import { Button } from "@/components/shadcn/button";
+import { usePortaledContentDirection } from "@/components/shadcn/portaled-content-direction";
 import { cn } from "@/lib/utils";
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
@@ -44,15 +45,18 @@ function DialogContent({
 	className,
 	children,
 	showCloseButton = true,
+	dir,
 	...props
 }: DialogPrimitive.Popup.Props & {
 	showCloseButton?: boolean;
 }) {
+	const inheritedDirection = usePortaledContentDirection();
 	return (
 		<DialogPortal>
 			<DialogOverlay />
 			<DialogPrimitive.Popup
 				data-slot="dialog-content"
+				dir={dir ?? inheritedDirection}
 				// A column, not a scroller: the panel caps its own height and
 				// `DialogBody` takes the leftover and scrolls INSIDE it, so the
 				// title, the close button, and the actions stay put. Scrolling the

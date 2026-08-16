@@ -29,6 +29,7 @@ import type {
 	CaseProperty,
 	CaseTileLayout,
 	CaseType,
+	TranslationUnitId,
 	Uuid,
 	XPathPrintableDoc,
 } from "@/lib/domain";
@@ -51,6 +52,10 @@ import type { ResolvedSortDirective } from "./sortKeys";
 export interface CaseListEmission {
 	readonly xml: string;
 	readonly strings: Record<string, string>;
+	/** Locale id -> semantic source slot. The compiler resolves these links
+	 * independently for every configured app language; unlinked values are
+	 * language-neutral wire strings and repeat unchanged. */
+	readonly translationUnits: Record<string, TranslationUnitId>;
 }
 
 /**

@@ -28,6 +28,7 @@ export type ValidationErrorCode =
 	| "TRANSLATION_VALUE_KIND_MISMATCH"
 	| "TRANSLATION_REQUIRED_CONTENT_BLANK"
 	| "TRANSLATION_PROTECTED_CONTENT_CHANGED"
+	| "APP_STRING_VALUE_UNREPRESENTABLE"
 	// User properties, user types, personas
 	| "USER_PROPERTY_SLUG_INVALID"
 	| "USER_PROPERTY_SLUG_DUPLICATE"
@@ -212,7 +213,9 @@ export type ValidationErrorCode =
 	| "XFORM_TRANSLATION_NONE"
 	| "XFORM_TRANSLATION_NO_LANG"
 	| "XFORM_TRANSLATION_DUPLICATE_LANG"
+	| "XFORM_TRANSLATION_NO_DEFAULT"
 	| "XFORM_TRANSLATION_MULTIPLE_DEFAULT"
+	| "XFORM_TRANSLATION_INCOMPLETE"
 	| "XFORM_DANGLING_MEDIA_REF"
 	// suite.xml output (post-emit) — the suite-parse + session-runtime oracle.
 	// Category 1 (fatal at suite parse) and Category 2 (parse-clean,

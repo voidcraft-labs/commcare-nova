@@ -84,6 +84,7 @@ import {
 	effectiveCaseTypes,
 	type Module,
 	orderedColumns,
+	type TranslationUnitId,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { simplifyForEmission } from "@/lib/domain/predicate";
@@ -172,7 +173,11 @@ export function buildShortDetail(args: {
 	readonly searchAction?: SearchActionContext;
 	readonly assets?: AssetManifest;
 	readonly lookupNaming?: LookupWireNaming;
-}): { readonly element: Element; readonly strings: Record<string, string> } {
+}): {
+	readonly element: Element;
+	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, TranslationUnitId>;
+} {
 	const { module: mod, moduleIndex, doc } = args;
 	const target: DetailTarget = args.target ?? "case";
 	const detailId = `m${moduleIndex}_${target}_short`;
@@ -204,6 +209,7 @@ export function buildShortDetail(args: {
 				args.lookupNaming,
 			),
 			strings: {},
+			translationUnits: {},
 		};
 	}
 
@@ -228,6 +234,7 @@ export function buildShortDetail(args: {
 
 	const fields: Element[] = [];
 	const strings: Record<string, string> = {};
+	const translationUnits: Record<string, TranslationUnitId> = {};
 
 	// Walk every column in the config's exact Results UUID permutation, not
 	// array position. Position is 1-based against the complete short-detail
@@ -252,6 +259,7 @@ export function buildShortDetail(args: {
 		});
 		fields.push(emission.element);
 		Object.assign(strings, emission.strings);
+		Object.assign(translationUnits, emission.translationUnits);
 	}
 
 	return {
@@ -264,6 +272,7 @@ export function buildShortDetail(args: {
 			args.lookupNaming,
 		),
 		strings,
+		translationUnits,
 	};
 }
 
@@ -279,8 +288,8 @@ export function emitShortDetail(args: {
 	readonly target?: DetailTarget;
 	readonly searchAction?: SearchActionContext;
 }): CaseListEmission {
-	const { element, strings } = buildShortDetail(args);
-	return { xml: render(element, RENDER_OPTS), strings };
+	const { element, strings, translationUnits } = buildShortDetail(args);
+	return { xml: render(element, RENDER_OPTS), strings, translationUnits };
 }
 
 /**

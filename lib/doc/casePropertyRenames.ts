@@ -7,8 +7,8 @@ import {
 	type BlueprintDoc,
 	blueprintDocSchema,
 	CASE_SCALAR_PROPERTY_NAMES,
+	casePropertyOptionTranslationUnitId,
 	collectTranslationUnits,
-	makeTranslationUnitId,
 	mapCasePropertiesInProse,
 	mapCasePropertiesInXPath,
 	materializableCaseTypes,
@@ -240,9 +240,17 @@ export function rewriteCasePropertyCarriers(
 			collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
 		);
 		for (const translations of Object.values(doc.localization.translations)) {
+			/* Build the complete post-rename map away from the live record. In a
+			 * simultaneous swap or cycle, one unit's destination is another unit's
+			 * source key; deleting and assigning in place would overwrite an entry
+			 * before that entry itself had been remapped. */
+			const remapped: typeof translations = {};
 			for (const [oldUnitId, entry] of Object.entries(translations)) {
 				const oldUnit = translationUnitsBefore.get(oldUnitId);
-				if (oldUnit === undefined) continue;
+				if (oldUnit === undefined) {
+					remapped[oldUnitId] = entry;
+					continue;
+				}
 				let newUnitId = oldUnit.id;
 				if (oldUnit.owner.kind === "case-property-option") {
 					const destination = resolve(
@@ -250,11 +258,11 @@ export function rewriteCasePropertyCarriers(
 						oldUnit.owner.property,
 					);
 					if (destination !== undefined) {
-						newUnitId = makeTranslationUnitId(
-							"case-property-option",
+						newUnitId = casePropertyOptionTranslationUnitId(
 							oldUnit.owner.caseType,
 							destination,
 							oldUnit.owner.value,
+							oldUnit.owner.occurrence,
 						);
 					}
 				}
@@ -268,11 +276,12 @@ export function rewriteCasePropertyCarriers(
 				) {
 					entry.sourceFingerprint = newUnit.sourceFingerprint;
 				}
-				if (newUnitId !== oldUnitId) {
-					delete translations[oldUnitId];
-					translations[newUnitId] = entry;
-				}
+				remapped[newUnitId] = entry;
 			}
+			for (const oldUnitId of Object.keys(translations)) {
+				delete translations[oldUnitId];
+			}
+			Object.assign(translations, remapped);
 		}
 	}
 }

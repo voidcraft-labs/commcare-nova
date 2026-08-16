@@ -32,6 +32,7 @@ import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContex
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { DeploymentTargetProvider } from "@/components/builder/DeploymentTargetProvider";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { BuilderLookupCatalogProvider } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { ProjectDataWorkspaceProvider } from "@/components/builder/project-data/ProjectDataWorkspaceProvider";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
@@ -162,36 +163,38 @@ function BuilderProviderInner({
 	const inner = (
 		<ScrollRegistryProvider>
 			<EditGuardProvider>
-				<CaseListWorkspaceProvider>
-					{/* The single Project data controller. Distinct from
-					 *  `BuilderLookupCatalogProvider` above, which supplies the
-					 *  field picker its rows-free catalog: this one owns the
-					 *  workspace's reads, drafts, and conflict state, and every
-					 *  consumer falls back to an idle state without it, so a
-					 *  missing mount is a permanent spinner, not a crash. */}
-					<ProjectDataWorkspaceProvider>
-						{/* ABOVE the engine provider, not below it. The engine
-						 *  provider calls `useSelectedPreviewIdentityState()` in its
-						 *  own body, so a deployment provider mounted among its
-						 *  CHILDREN is invisible to it: the identity the running app
-						 *  evaluates resolves through the context default and carries
-						 *  no `commcare_project`, while other surfaces on the same
-						 *  page resolve the real one. One page, one expression, two
-						 *  answers. */}
-						<DeploymentTargetProvider
-							initialProjectSpace={initialProjectSpace ?? null}
-						>
-							<BuilderFormEngineProvider>
-								<SyncBridge />
-								<LocationRecoveryEffect />
-								<PreviewLookupDataProvider>
-									{initialDoc ? <LoadAppHydrator /> : null}
-									{children}
-								</PreviewLookupDataProvider>
-							</BuilderFormEngineProvider>
-						</DeploymentTargetProvider>
-					</ProjectDataWorkspaceProvider>
-				</CaseListWorkspaceProvider>
+				<BuilderLocalizationProvider>
+					<CaseListWorkspaceProvider>
+						{/* The single Project data controller. Distinct from
+						 *  `BuilderLookupCatalogProvider` above, which supplies the
+						 *  field picker its rows-free catalog: this one owns the
+						 *  workspace's reads, drafts, and conflict state, and every
+						 *  consumer falls back to an idle state without it, so a
+						 *  missing mount is a permanent spinner, not a crash. */}
+						<ProjectDataWorkspaceProvider>
+							{/* ABOVE the engine provider, not below it. The engine
+							 *  provider calls `useSelectedPreviewIdentityState()` in its
+							 *  own body, so a deployment provider mounted among its
+							 *  CHILDREN is invisible to it: the identity the running app
+							 *  evaluates resolves through the context default and carries
+							 *  no `commcare_project`, while other surfaces on the same
+							 *  page resolve the real one. One page, one expression, two
+							 *  answers. */}
+							<DeploymentTargetProvider
+								initialProjectSpace={initialProjectSpace ?? null}
+							>
+								<BuilderFormEngineProvider>
+									<SyncBridge />
+									<LocationRecoveryEffect />
+									<PreviewLookupDataProvider>
+										{initialDoc ? <LoadAppHydrator /> : null}
+										{children}
+									</PreviewLookupDataProvider>
+								</BuilderFormEngineProvider>
+							</DeploymentTargetProvider>
+						</ProjectDataWorkspaceProvider>
+					</CaseListWorkspaceProvider>
+				</BuilderLocalizationProvider>
 			</EditGuardProvider>
 		</ScrollRegistryProvider>
 	);

@@ -182,4 +182,41 @@ describe("translation overlay validation", () => {
 		);
 		expect(codes).toContain("TRANSLATION_REQUIRED_CONTENT_BLANK");
 	});
+
+	it("rejects a current app-string value that Core cannot round-trip", () => {
+		const doc = buildDoc({ appName: "Clinic" });
+		const unit = collectTranslationUnits(doc).find(
+			(candidate) => candidate.role === "app-name",
+		);
+		if (unit === undefined) throw new Error("Expected app-name unit.");
+		doc.localization = {
+			sourceLanguage: "en",
+			defaultLanguage: "en",
+			languageOrder: ["en", "es"],
+			languages: {
+				en: { code: "en", name: "English", direction: "ltr" },
+				es: { code: "es", name: "Español", direction: "ltr" },
+			},
+			translations: {
+				es: {
+					[unit.id]: {
+						value: String.raw`Clínica \n literal`,
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "en",
+					},
+				},
+			},
+		};
+
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(errors).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "APP_STRING_VALUE_UNREPRESENTABLE",
+				}),
+			]),
+		);
+	});
 });

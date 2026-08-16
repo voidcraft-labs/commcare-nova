@@ -1,6 +1,7 @@
 {
 	"title": "Docs",
 	"pages": [
+		"languages",
 		"case-workspace",
 		"publishing",
 		"feature-flags",

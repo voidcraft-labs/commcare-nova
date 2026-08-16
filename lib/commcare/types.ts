@@ -98,6 +98,7 @@ export type DetailColumnFormat =
 	| "enum-image"
 	| "time-ago"
 	| "late-flag"
+	| "translatable-enum"
 	| "calculate"
 	| "invisible";
 
@@ -488,7 +489,8 @@ export interface HqApplication {
 	case_sharing: boolean;
 	secure_submissions: boolean;
 	multimedia_map: Record<string, MultimediaMapItem>;
-	translations: Record<string, never>;
+	/** Per-language app_strings overrides. */
+	translations: Record<string, Record<string, string>>;
 	/** Standard HQ app properties before _attachments (secondary WAF defense — see client.ts) */
 	admin_password: null;
 	admin_password_charset: string;

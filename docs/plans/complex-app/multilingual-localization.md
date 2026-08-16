@@ -3,13 +3,16 @@
 ## Current state
 
 This is the binding implementation plan for multilingual CommCare Nova apps.
-The architecture is approved and its language foundation is implemented on the
-current stack branch: the domain overlay, exact Classic picker catalog,
-translation-unit inventory and resolver, granular mutation dialect, validity
-rules, exact JSON persistence, replay/diff behavior, shared SA/MCP read/write
-tools, and focused tests are the current source of truth. CommCare emission,
-Builder/Preview surfaces, AI orchestration, and plugin delivery build on that
-foundation in the remaining stack layers.
+The architecture is approved. The language foundation and the complete manual
+authoring/runtime path are implemented on the current stack: the domain overlay,
+exact Classic picker catalog, translation-unit inventory and resolver, granular
+mutation dialect, validity rules, exact JSON persistence, replay/diff behavior,
+shared SA/MCP read/write tools, localized CommCare emission and oracles, global
+Builder language lens, Languages workspace, inline target editing, Preview,
+coverage diagnostics, and focused tests are the current source of truth. The
+manual-language public documentation is part of that surface. The durable AI
+translation orchestrator, its capability-specific documentation, and plugin
+delivery build on those final APIs in the remaining stack layers.
 
 Keep this document as a description of the best current design and the actual
 implementation state. When implementation teaches us something better, rewrite
@@ -180,12 +183,16 @@ A translation unit contains:
 
 Existing UUIDs identify app structure wherever possible. Nested values without
 UUID identity, such as an ID-mapping row or case-property option, use their
-existing stable semantic key under the UUID-bearing owner. The mutation that
-changes such a key also remaps or removes the corresponding translation entry
-atomically. Deleting an owner prunes its overlay entries as a deterministic
-dependent effect of that same replayed command. Source text edits preserve the
-unit and the old overlay as out of date. Orphan translation entries are not a
-valid stored state.
+existing stable semantic key under the UUID-bearing owner. Classic permits a
+case-property catalog to repeat one stored value, so later same-value
+occurrences add their zero-based same-value ordinal: every legal label stays
+injective while the first occurrence retains its established identity. The
+mutation that changes such a key also remaps or removes the corresponding
+translation entry atomically. Deleting an owner prunes its overlay entries as a
+deterministic dependent effect once at the end of that same replayed batch;
+per-entry translation writes do not rescan the full inventory. Source text
+edits preserve the unit and the old overlay as out of date. Orphan translation
+entries are not a valid stored state.
 
 The unit registry is exhaustive over worker-facing display slots and derived
 defaults. A reviewed slot classification and fixtures containing every carrier
@@ -198,8 +205,22 @@ test failure.
 atoms as protected tokens with friendly renderings, for example `REF_1`
 alongside “the Patient name answer.” Translation output may reorder tokens for
 the target grammar but must contain each token exactly as many times as the
-source. The server maps the tokens back to the original typed field, case, user
-property, or external-user reference.
+source. Human editing uses a reversible backslash escape for literal backslashes
+and text that exactly resembles a protected token, so every literal remains
+representable without confusing it for structure. The server maps the tokens
+back to the original typed field, case, user property, or external-user
+reference.
+
+The inventory review editor owns the validity of the text currently visible in
+its textarea, not merely the last parseable draft. It disables commit while a
+protected token is missing or duplicated. A Missing unit may commit an explicit
+source-identical human value, because equality does not mean the fallback was
+reviewed. Inline Builder editors likewise retain a rejected target draft and
+surface the commit-gate reason. Inventory search matches source, effective
+target, and retained explicit target text. The structure-tree search consumes
+the same localized values it renders. Both source and target comparison panes
+use their own language direction, and language-selection/search controls expose
+their names and selected state to assistive technology.
 
 Neither AI nor human tooling reparses rendered `#form/...` text. UUID-backed
 identity moves and display renames leave the source and target reference atoms,
@@ -214,6 +235,12 @@ Adding target language B from existing language A is one atomic language
 operation. It copies every currently effective A value into explicit B entries
 and records `origin: copied`, `translatedFrom: A`, and `needs-review`. B is
 never born blank, and the operation works for any existing A/B pair.
+
+Agent/MCP `set` writes echo the current source fingerprint returned by the
+inventory read. `review` writes independently echo both that current source
+fingerprint and the prior explicit entry's fingerprint/value. Either concurrent
+source or target change refuses the atomic batch instead of binding a
+translation or approval to content the caller did not inspect.
 
 Status is derived per unit:
 
@@ -251,9 +278,10 @@ faithfully today:
 - Search input labels, screen title/subtitle, and action label, including
   effective Nova defaults.
 
-The same inventory API also returns explicit coverage diagnostics for content
-that cannot honestly participate. These values do not disappear behind a
-misleading 100 percent score:
+The same inventory boundary also returns explicit coverage diagnostics through
+the Languages workspace and `get_languages` for content that cannot honestly
+participate. These values do not disappear behind a misleading 100 percent
+score:
 
 - lookup-backed option labels are mutable Project table data and require a
   separate localized-lookup-column model;
@@ -290,15 +318,21 @@ the exact direction passes the current AI capability policy.
 
 The translation workspace uses source/target rows grouped by owning screen and
 form. Context is concrete, for example “Intake → Patient name → Hint.” It has
-status filters, protected reference chips, and a jump to the owning Builder
+status filters, reference-safe prose tokens, and a jump to the owning Builder
 screen. Wide layouts show source and target side by side; narrow layouts edit
 one target row without compressing two columns below usability.
 
 When a target language is selected in the ordinary Builder, editing a
-worker-facing value writes the target overlay. Controls show an unambiguous
-language badge and nearby source value so the author cannot mistake a target
-edit for a source edit. Structural IDs and authoring-only values never change
-with the language lens.
+worker-facing value writes the target overlay. The global selector remains
+visible while editing, and the Languages workspace is the authoritative
+side-by-side source/target review surface. Structural IDs and authoring-only
+values never change with the language lens. An existing target edit may share
+one gesture with a structural edit; the target string and canonical structure
+still land as separate mutations in one admitted batch. A newly-created entity
+is born with canonical source content. An optional worker-facing slot that has
+no source content yet is added under the source lens before a target can
+translate it, so selecting a target can never put that target language into the
+canonical source by accident.
 
 Preview consumes the same effective-value resolver and selected locale. It
 applies language direction to worker content and input controls. Preview-only
@@ -315,8 +349,8 @@ The shared SA/MCP surface has one coherent language family:
 - `update_language`
 - `remove_language`
 - `update_translations`
-- a high-level request to translate or refresh one target language (added with
-  the durable AI orchestration layer)
+- a high-level request to translate or refresh one target language, supplied by
+  the durable AI orchestration layer
 
 The implemented names follow the registry's camelCase SA / snake_case MCP
 convention. `add_language` is the nonblank product operation: it composes the
@@ -467,12 +501,18 @@ cloning `BlueprintDoc` into a second app model.
 - Every XForm receives one translation block per language and exactly one
   default. The existing itext registry is populated through the localized
   resolver so text IDs and reference-bearing output remain identical across
-  languages.
+  languages. Optional hints, help, validation messages, and container labels
+  emit when any configured language has effective content, even when the source
+  template is empty.
 - Suite app strings become a complete table per language rather than one map
-  copied to every directory.
+  copied to every directory. Multi-select label expressions retain each option's
+  original catalog index when non-token values are skipped.
 - The direct CCZ writes the default table to `default/app_strings.txt` and each
   other table to its language directory. Every table carries the language
-  endonyms and `lang.current` values CommCare's picker expects.
+  endonyms and `lang.current` values CommCare's picker expects. Values serialize
+  through CommCare Core's locale-file grammar: comment hashes and physical line
+  breaks are escaped, while literal backslash-`n`, carriage returns, and boundary
+  ASCII whitespace fail closed because Core cannot round-trip them.
 - HQ-upload and direct-CCZ paths consume the same projections and receive
   separate exact boundary tests.
 
@@ -491,6 +531,11 @@ Language catalog operations and bounded translation updates use the granular
 undo/redo, diffing, accepted app-change rows, and multiplayer exactly like
 existing Blueprint mutations. Shared agent/MCP tools compose these same
 commands rather than introducing a second write dialect.
+
+Builder metadata dialogs draft only properties the local user changes. An
+untouched language name or direction continues to follow the live document, and
+save emits only dirty properties, so a concurrent peer edit is never restored
+from stale component state.
 
 The localization schema and document-aware validator enforce catalog closure,
 default ordering, source/target rules, entry kinds, unit existence, reference
@@ -535,7 +580,8 @@ architecture layer. The expected stack is:
    tools. It has complete tests and no dormant alternative representation.
 2. **Runtime and authoring surfaces** — CommCare emission/oracles, Preview,
    global selector, Languages workspace, inline target editing, accessibility,
-   and public docs. It consumes the final foundation APIs directly.
+   coverage diagnostics, and public manual-language documentation. This
+   implemented layer consumes the final foundation APIs directly.
 3. **AI orchestration** — Design Contract, build finalizer, durable translation
    staging/recovery, model role, prompts, capability policy/evaluation harness,
    progress, usage accounting, and shared high-level translation action.

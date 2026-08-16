@@ -28,16 +28,22 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { memo, useCallback, useMemo } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
+import {
+	useBuilderLanguage,
+	useLocalizedField,
+	useTranslationUnitEditor,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useField } from "@/lib/doc/hooks/useEntity";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
+	type CommitOutcome,
 	EMPTY_PROSE_TEMPLATE,
 	type FieldPatchFor,
+	makeTranslationUnitId,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
 	type Uuid,
@@ -71,7 +77,11 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	collapsed,
 }: GroupOpenProps) {
 	const { toggleCollapse } = useVirtualFormContext();
-	const q = useField(uuid);
+	const q = useLocalizedField(uuid);
+	const language = useBuilderLanguage();
+	const labelEditor = useTranslationUnitEditor(
+		makeTranslationUnitId("field", uuid, "label"),
+	);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
 	const projectProse = useProseProjection();
@@ -85,15 +95,18 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	 * `label` slot the header writes to. */
 	const fieldKind = q?.kind;
 	const saveField = useMemo<
-		((field: string, value: ProseTemplate) => void) | null
+		((field: string, value: ProseTemplate) => CommitOutcome) | null
 	>(() => {
 		if (mode !== "edit" || fieldKind === undefined) return null;
 		return (property, value) => {
-			updateField(uuid, fieldKind, {
+			if (!language.isSource) {
+				return labelEditor.saveTarget(value);
+			}
+			return updateField(uuid, fieldKind, {
 				[property]: value,
 			} as FieldPatchFor<typeof fieldKind>);
 		};
-	}, [mode, uuid, fieldKind, updateField]);
+	}, [mode, uuid, fieldKind, updateField, language.isSource, labelEditor]);
 
 	const isFieldSelected = useIsFieldSelected(uuid);
 	useFulfillPendingScroll(uuid, isFieldSelected);

@@ -42,6 +42,13 @@ is separate and remains the running case-record deep link.
 
 Navigation uses `pushState` / `replaceState` directly. Calling Next's router for selection changes triggers a server-side RSC re-render for every click, which is catastrophic on a canvas where selection flips constantly. The history events still work (back/forward traverse them), but we pay zero server cost for same-app navigation.
 
+The `lang` query parameter is the independent worker-content lens. Path
+serialization changes only the location path and preserves the current query;
+changing language changes only that parameter and preserves the typed location.
+`useBuilderSearch` is the reactive query reader for both History-API pushes and
+popstate. Do not put language into `Location` or drop it while navigating: a
+shared field link and back/forward history must reopen in the same locale.
+
 ## Breadcrumbs — `useBreadcrumbs` (edit) and `previewBreadcrumbs.ts` (preview)
 
 `useBreadcrumbs` derives the edit-mode trail from the URL + doc names. In preview the trail follows the RUNNING APP instead (a Results URL is a case-loading form's selection step, so its crumb names that FORM, not "Results"), and that rewrite lives in the pure `previewBreadcrumbs.ts` — kept pure + unit-tested precisely because the breadcrumb and the preview engine both read the same ephemeral `previewCaseTarget` and once drifted.

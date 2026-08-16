@@ -23,6 +23,7 @@ import {
 } from "@/components/builder/appTree/shared";
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import { useLocalizedText } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
@@ -30,7 +31,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
-import type { Uuid } from "@/lib/domain";
+import { makeTranslationUnitId, type Uuid } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { useIsFormSelected, useNavigate } from "@/lib/routing/hooks";
 
@@ -61,6 +62,9 @@ export const FormCard = memo(function FormCard({
 }) {
 	/** Subscribe to this form's entity from the doc store. */
 	const form = useFormDoc(formId);
+	const localizedFormName = useLocalizedText(
+		makeTranslationUnitId("form", formId, "name"),
+	);
 
 	/** Subscribe to this form's field UUIDs from the doc store.
 	 *  `useOrderedFields` returns a reference-stable empty-array sentinel
@@ -93,6 +97,7 @@ export const FormCard = memo(function FormCard({
 	if (!form) return null;
 
 	const formIcon = formTypeIcons[form.type];
+	const formName = localizedFormName ?? form.name;
 
 	return (
 		<motion.li
@@ -104,7 +109,7 @@ export const FormCard = memo(function FormCard({
 			}`}
 		>
 			<TreeItemRow
-				label={form.name}
+				label={formName}
 				disabled={locked}
 				selected={isSelected}
 				className={`group flex min-h-11 items-center gap-1.5 py-1.5 pr-3 pl-2 transition-colors ${locked ? "text-nova-text-secondary" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
@@ -155,11 +160,11 @@ export const FormCard = memo(function FormCard({
 						 * already carries it whole, so this is the disclosure for
 						 * the one person truncation actually costs: someone
 						 * reading two forms whose names diverge past the clip. */}
-						<span className="text-sm font-medium truncate" title={form.name}>
+						<span className="text-sm font-medium truncate" title={formName}>
 							{nameIndices ? (
-								<HighlightedText text={form.name} indices={nameIndices} />
+								<HighlightedText text={formName} indices={nameIndices} />
 							) : (
-								form.name
+								formName
 							)}
 						</span>
 						{form.connect && connectType && (
@@ -180,7 +185,7 @@ export const FormCard = memo(function FormCard({
 
 			{hasFields && !isCollapsed && (
 				<ul
-					aria-label={`${form.name} fields`}
+					aria-label={`${formName} fields`}
 					className="m-0 list-none p-0 pb-2"
 				>
 					<AnimatePresence mode="sync">

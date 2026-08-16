@@ -43,10 +43,9 @@
 //     Wire shape:
 //     `replace(join(' ', if(selected({xpath}, 'value-1'), 'label-1', ''), ...), '\s+', ' ')`.
 //     CCHQ's stock `Enum` references `<variable name="kKey">` →
-//     locale-id labels; Nova inlines the labels as XPath string
-//     literals because the project has no multi-language wiring
-//     (the labels live on the `IdMappingEntry.label` slot
-//     verbatim). The `selected()` arm matches against the raw
+//     locale-id labels. Nova projects those variables from its central
+//     translation inventory, while the pure XPath helper retains literal
+//     labels as its language-neutral fallback. The `selected()` arm matches against the raw
 //     property value; the `replace(join(...), '\\s+', ' ')` collapse
 //     trims the leading whitespace from the join's empty-arm
 //     fall-throughs. Sort uses raw `{xpath}`.
@@ -109,8 +108,12 @@ import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import {
 	type CaseProperty,
 	type Column,
+	casePropertyOptionOccurrence,
+	casePropertyOptionTranslationUnitId,
+	makeTranslationUnitId,
 	printProseTemplate,
 	TIME_SINCE_UNIT_DAYS,
+	type TranslationUnitId,
 	tileCellFor,
 } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
@@ -147,6 +150,7 @@ import type {
 export interface CaseListFieldEmission {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, TranslationUnitId>;
 }
 
 /**
@@ -361,12 +365,34 @@ function buildTemplateBlock(
 	xpathFunction: string,
 	form: string | undefined = undefined,
 	hidden = false,
+	variables: readonly Element[] = [],
 ): Element {
 	const templateAttribs: Record<string, string> = hidden ? { width: "0" } : {};
 	if (form !== undefined) templateAttribs.form = form;
 	return el("template", templateAttribs, [
-		el("text", {}, [el("xpath", { function: xpathFunction })]),
+		el("text", {}, [el("xpath", { function: xpathFunction }, [...variables])]),
 	]);
+}
+
+interface LocalizedDisplayProjection {
+	readonly xpath: string;
+	readonly variables: readonly Element[];
+	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, TranslationUnitId>;
+}
+
+function localizedVariable(
+	name: string,
+	localeId: string,
+	source: string,
+	unitId: TranslationUnitId,
+): LocalizedDisplayProjection {
+	return {
+		xpath: `$${name}`,
+		variables: [el("variable", { name }, [el("locale", { id: localeId })])],
+		strings: { [localeId]: source },
+		translationUnits: { [localeId]: unitId },
+	};
 }
 
 /**
@@ -433,6 +459,10 @@ export function plainSelectDisplayXpath(
 	field: string,
 	property: CaseProperty,
 	doc: CaseListEmitContext["proseDoc"],
+	labelExpression?: (
+		option: NonNullable<CaseProperty["options"]>[number],
+		index: number,
+	) => string,
 ): string {
 	const options = property.options ?? [];
 	if (options.length === 0) return plainDisplayXpath(field);
@@ -445,12 +475,11 @@ export function plainSelectDisplayXpath(
 		// "north region") would win by chain order and render the wrong
 		// label — while Preview's projection matches the stored value
 		// exactly. Equality keeps the two surfaces identical.
-		return options.reduceRight((elseArm, option) => {
+		return options.reduceRight((elseArm, option, index) => {
 			const value = quoteLiteral(option.value, "case-list-filter");
-			const label = quoteLiteral(
-				printProseTemplate(option.label, doc),
-				"case-list-filter",
-			);
+			const label =
+				labelExpression?.(option, index) ??
+				quoteLiteral(printProseTemplate(option.label, doc), "case-list-filter");
 			return `if(${field} = ${value}, ${label}, ${elseArm})`;
 		}, field);
 	}
@@ -459,15 +488,18 @@ export function plainSelectDisplayXpath(
 	// use option-catalog order. A second expression removes only those known
 	// tokens from the normalized raw value, leaving unknown tokens intact; the
 	// final concat appends that honest fallback without ever remapping a label.
-	const tokenOptions = options.filter(
-		(option) => option.value !== "" && !/\s/.test(option.value),
+	const tokenOptions = options.flatMap((option, index) =>
+		option.value !== "" && !/\s/.test(option.value)
+			? [{ option, originalIndex: index }]
+			: [],
 	);
 	if (tokenOptions.length === 0) return plainDisplayXpath(field);
 	const knownLabels = idMappingDisplayXpath(
 		field,
-		tokenOptions.map((option) => ({
+		tokenOptions.map(({ option, originalIndex }) => ({
 			value: option.value,
 			label: printProseTemplate(option.label, doc),
+			labelExpression: labelExpression?.(option, originalIndex),
 		})),
 	);
 	// Double-space the normalized value so every token owns BOTH of its
@@ -482,7 +514,7 @@ export function plainSelectDisplayXpath(
 	let unknownTokens = `concat('  ', replace(${lowerXPathForJavaRosa(
 		`normalize-space(${field})`,
 	)}, ' ', '  '), '  ')`;
-	for (const option of tokenOptions) {
+	for (const { option } of tokenOptions) {
 		const pattern = quoteLiteral(
 			` ${escapeRegex(option.value)} `,
 			"case-list-filter",
@@ -534,12 +566,14 @@ function intervalAlwaysXpath(args: {
 	readonly threshold: number;
 	readonly unit: keyof typeof TIME_AGO_DIVISOR_DAYS;
 	readonly text: string;
+	readonly textExpression?: string;
 }): string {
 	const divisor = TIME_AGO_DIVISOR_DAYS[args.unit];
 	const thresholdDays = args.threshold * divisor;
 	const divisorWire = formatTimeAgoDivisor(divisor);
 	const thresholdWire = formatTimeAgoDivisor(thresholdDays);
-	const labelLiteral = quoteLiteral(args.text, "case-list-filter");
+	const labelLiteral =
+		args.textExpression ?? quoteLiteral(args.text, "case-list-filter");
 	const intervalShape = `string(int((today() - date(${args.field})) div ${divisorWire}))`;
 	const overdueShape = `if(today() - date(${args.field}) > ${thresholdWire}, ${labelLiteral}, ${intervalShape})`;
 	return `if(${args.field} = '', '', ${overdueShape})`;
@@ -576,11 +610,13 @@ function intervalFlagXpath(args: {
 	readonly threshold: number;
 	readonly unit: keyof typeof TIME_AGO_DIVISOR_DAYS;
 	readonly text: string;
+	readonly textExpression?: string;
 }): string {
 	const divisor = TIME_AGO_DIVISOR_DAYS[args.unit];
 	const thresholdDays = args.threshold * divisor;
 	const thresholdWire = formatTimeAgoDivisor(thresholdDays);
-	const flagLiteral = quoteLiteral(args.text, "case-list-filter");
+	const flagLiteral =
+		args.textExpression ?? quoteLiteral(args.text, "case-list-filter");
 	return `if(${args.field} = '', ${flagLiteral}, if(today() - date(${args.field}) > ${thresholdWire}, ${flagLiteral}, ''))`;
 }
 
@@ -592,6 +628,7 @@ function intervalFlagXpath(args: {
  */
 export function intervalColumnDisplayXpath(
 	column: Extract<Column, { kind: "interval" }>,
+	textExpression?: string,
 ): string {
 	const field = emitCasePropertyWirePath(column.field);
 	return column.display === "always"
@@ -600,12 +637,14 @@ export function intervalColumnDisplayXpath(
 				threshold: column.threshold,
 				unit: column.unit,
 				text: column.text,
+				textExpression,
 			})
 		: intervalFlagXpath({
 				field,
 				threshold: column.threshold,
 				unit: column.unit,
 				text: column.text,
+				textExpression,
 			});
 }
 
@@ -625,9 +664,8 @@ function phoneDisplayXpath(field: string): string {
 /**
  * ID-mapping column display XPath. Mirrors CCHQ's
  * `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py::XPathEnum.build`
- * shape but inlines labels as XPath string literals rather than
- * referencing locale-id variables (Nova has no multi-language
- * wiring at the authoring layer).
+ * shape. Callers may supply locale-variable expressions for translated
+ * labels; a missing expression falls back to an XPath string literal.
  *
  * Wire shape for a mapping with entries `(value-A, label-A),
  * (value-B, label-B), ...`:
@@ -649,14 +687,19 @@ function phoneDisplayXpath(field: string): string {
  * to an empty-string XPath (`''`) — the runtime renders nothing,
  * matching CCHQ's behavior on a zero-entry enum.
  */
-function idMappingDisplayXpath(
+export function idMappingDisplayXpath(
 	field: string,
-	mapping: ReadonlyArray<{ readonly value: string; readonly label: string }>,
+	mapping: ReadonlyArray<{
+		readonly value: string;
+		readonly label: string;
+		readonly labelExpression?: string;
+	}>,
 ): string {
 	if (mapping.length === 0) return `''`;
 	const arms = mapping.map((entry) => {
 		const value = quoteLiteral(entry.value, "case-list-filter");
-		const label = quoteLiteral(entry.label, "case-list-filter");
+		const label =
+			entry.labelExpression ?? quoteLiteral(entry.label, "case-list-filter");
 		return `if(selected(${field}, ${value}), ${label}, '')`;
 	});
 	return `replace(join(' ', ${arms.join(", ")}), '\\s+', ' ')`;
@@ -721,37 +764,132 @@ function imageMapDisplayXpath(
  * columns ride the inline-variable template path and don't route
  * through this helper.
  */
-function propertyDisplayXpath(
+function propertyDisplayProjection(
 	column: Exclude<Column, { kind: "calculated" }>,
 	ctx: CaseListEmitContext,
-): string {
+	position: number,
+): LocalizedDisplayProjection {
 	const field = emitCasePropertyWirePath(column.field);
+	const plain = (xpath: string): LocalizedDisplayProjection => ({
+		xpath,
+		variables: [],
+		strings: {},
+		translationUnits: {},
+	});
+	const valueLocaleId = (index: number): string => {
+		const header = detailHeaderLocaleId(
+			ctx.target,
+			ctx.detailKind,
+			ctx.moduleIndex,
+			column.field,
+			position,
+		);
+		return `${header.slice(0, -".header".length)}.enum.knova_text_${index}`;
+	};
+	const variable = (
+		index: number,
+		source: string,
+		unitId: TranslationUnitId,
+	): LocalizedDisplayProjection =>
+		localizedVariable(
+			`knova_text_${index}`,
+			valueLocaleId(index),
+			source,
+			unitId,
+		);
+	const combineVariables = (
+		projections: readonly LocalizedDisplayProjection[],
+		xpath: string,
+	): LocalizedDisplayProjection => ({
+		xpath,
+		variables: projections.flatMap((projection) => projection.variables),
+		strings: Object.assign(
+			{},
+			...projections.map((projection) => projection.strings),
+		),
+		translationUnits: Object.assign(
+			{},
+			...projections.map((projection) => projection.translationUnits),
+		),
+	});
 	switch (column.kind) {
 		case "plain": {
 			const property = ctx.caseProperties.find(
 				(candidate) => candidate.name === column.field,
 			);
-			return property?.data_type === "single_select" ||
-				property?.data_type === "multi_select"
-				? plainSelectDisplayXpath(field, property, ctx.proseDoc)
-				: plainDisplayXpath(field);
+			if (
+				property?.data_type !== "single_select" &&
+				property?.data_type !== "multi_select"
+			) {
+				return plain(plainDisplayXpath(field));
+			}
+			const options = property.options ?? [];
+			const projections = options.map((option, index) =>
+				variable(
+					index,
+					printProseTemplate(option.label, ctx.proseDoc),
+					casePropertyOptionTranslationUnitId(
+						ctx.currentCaseType ?? "",
+						property.name,
+						option.value,
+						casePropertyOptionOccurrence(options, index),
+					),
+				),
+			);
+			return combineVariables(
+				projections,
+				plainSelectDisplayXpath(
+					field,
+					property,
+					ctx.proseDoc,
+					(_option, index) => projections[index]?.xpath ?? "''",
+				),
+			);
 		}
 		case "date":
-			return dateDisplayXpath(field, column.pattern);
+			return plain(dateDisplayXpath(field, column.pattern));
 		case "phone":
-			return phoneDisplayXpath(field);
-		case "id-mapping":
-			return idMappingDisplayXpath(field, column.mapping);
+			return plain(phoneDisplayXpath(field));
+		case "id-mapping": {
+			const projections = column.mapping.map((entry, index) =>
+				variable(
+					index,
+					entry.label,
+					makeTranslationUnitId("column", column.uuid, "mapping", entry.value),
+				),
+			);
+			return combineVariables(
+				projections,
+				idMappingDisplayXpath(
+					field,
+					column.mapping.map((entry, index) => ({
+						...entry,
+						labelExpression: projections[index]?.xpath,
+					})),
+				),
+			);
+		}
 		case "image-map":
 			// Media-ON → the per-value image-path chain (rendered via
 			// `<template form="image">`). Media-OFF (no manifest) → degrade
 			// to the raw property value as a plain column; `templateFormFor`
 			// drops the `form="image"` in lockstep so the two never disagree.
-			return ctx.assets
-				? imageMapDisplayXpath(field, column.mapping, ctx.assets)
-				: plainDisplayXpath(field);
-		case "interval":
-			return intervalColumnDisplayXpath(column);
+			return plain(
+				ctx.assets
+					? imageMapDisplayXpath(field, column.mapping, ctx.assets)
+					: plainDisplayXpath(field),
+			);
+		case "interval": {
+			const projection = variable(
+				0,
+				column.text,
+				makeTranslationUnitId("column", column.uuid, "text"),
+			);
+			return combineVariables(
+				[projection],
+				intervalColumnDisplayXpath(column, projection.xpath),
+			);
+		}
 	}
 }
 
@@ -922,7 +1060,7 @@ export function buildColumnField(args: {
 		return buildCalculatedField({ column, position, ctx, hidden });
 	}
 
-	const displayXpath = propertyDisplayXpath(column, ctx);
+	const display = propertyDisplayProjection(column, ctx, position);
 	const headerLocaleId = detailHeaderLocaleId(
 		ctx.target,
 		ctx.detailKind,
@@ -934,9 +1072,10 @@ export function buildColumnField(args: {
 		...tileStyleChildren(column, ctx),
 		buildHeaderBlock(headerLocaleId, hidden),
 		buildTemplateBlock(
-			displayXpath,
+			display.xpath,
 			templateFormFor(column, ctx.detailKind, ctx.assets),
 			hidden,
+			display.variables,
 		),
 	];
 	const sortEl = resolveSortElement(column, ctx);
@@ -944,7 +1083,11 @@ export function buildColumnField(args: {
 
 	return {
 		element: el("field", {}, fieldChildren),
-		strings: { [headerLocaleId]: column.header },
+		strings: { [headerLocaleId]: column.header, ...display.strings },
+		translationUnits: {
+			[headerLocaleId]: makeTranslationUnitId("column", column.uuid, "header"),
+			...display.translationUnits,
+		},
 	};
 }
 
@@ -1006,6 +1149,9 @@ function buildCalculatedField(args: {
 	return {
 		element: el("field", {}, fieldChildren),
 		strings: { [headerLocaleId]: column.header },
+		translationUnits: {
+			[headerLocaleId]: makeTranslationUnitId("column", column.uuid, "header"),
+		},
 	};
 }
 
@@ -1020,6 +1166,6 @@ export function emitColumnField(args: {
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
 }): CaseListEmission {
-	const { element, strings } = buildColumnField(args);
-	return { xml: render(element, RENDER_OPTS), strings };
+	const { element, strings, translationUnits } = buildColumnField(args);
+	return { xml: render(element, RENDER_OPTS), strings, translationUnits };
 }

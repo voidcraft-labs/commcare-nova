@@ -24,6 +24,7 @@ import {
 } from "@/components/builder/appTree/shared";
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import { useLocalizedText } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -31,7 +32,7 @@ import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
 import { useFormIds } from "@/lib/doc/hooks/useModuleIds";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
-import { humanizeId, type Uuid } from "@/lib/domain";
+import { humanizeId, makeTranslationUnitId, type Uuid } from "@/lib/domain";
 import {
 	useIsCaseListSelected,
 	useIsModuleSelected,
@@ -68,6 +69,9 @@ export const ModuleCard = memo(function ModuleCard({
 	/** Subscribe to this module's entity from the doc store. Only re-renders
 	 *  when THIS module changes (Immer structural sharing on the entity ref). */
 	const mod = useModuleDoc(moduleUuid);
+	const localizedModuleName = useLocalizedText(
+		makeTranslationUnitId("module", moduleUuid, "name"),
+	);
 
 	/** Subscribe to this module's form IDs from the doc store. `undefined`
 	 *  while the module row is mounted without a formOrder entry, the
@@ -100,6 +104,7 @@ export const ModuleCard = memo(function ModuleCard({
 	const nameIndices = searchResult?.matchMap?.get(collapseKey);
 
 	if (!mod || !formIds) return null;
+	const moduleName = localizedModuleName ?? mod.name;
 
 	return (
 		<motion.li
@@ -109,7 +114,7 @@ export const ModuleCard = memo(function ModuleCard({
 			className={`transition-colors border-b border-nova-border last:border-b-0 ${isSelected ? "bg-nova-violet/[0.04]" : ""}`}
 		>
 			<TreeItemRow
-				label={mod.name}
+				label={moduleName}
 				disabled={locked}
 				selected={isSelected}
 				/* The hover tint belongs on the row itself, matching `FormCard` and
@@ -163,11 +168,11 @@ export const ModuleCard = memo(function ModuleCard({
 						</div>
 					)}
 					<div className="min-w-0">
-						<h3 className="font-medium text-sm truncate" title={mod.name}>
+						<h3 className="font-medium text-sm truncate" title={moduleName}>
 							{nameIndices ? (
-								<HighlightedText text={mod.name} indices={nameIndices} />
+								<HighlightedText text={moduleName} indices={nameIndices} />
 							) : (
-								mod.name
+								moduleName
 							)}
 						</h3>
 						{mod.caseType && (
@@ -190,7 +195,7 @@ export const ModuleCard = memo(function ModuleCard({
 			</TreeItemRow>
 
 			{!isCollapsed && (
-				<ul aria-label={`${mod.name} contents`} className="m-0 list-none p-0">
+				<ul aria-label={`${moduleName} contents`} className="m-0 list-none p-0">
 					{/* Cases: the workspace's entry point. Lives
 					 *  here in the tree (not on the module screen) so it's
 					 *  one click from anywhere, including via the collapsed
@@ -204,7 +209,10 @@ export const ModuleCard = memo(function ModuleCard({
 					)}
 
 					<li className="border-t border-nova-border">
-						<ul className="m-0 list-none p-0" aria-label={`${mod.name} forms`}>
+						<ul
+							className="m-0 list-none p-0"
+							aria-label={`${moduleName} forms`}
+						>
 							<AnimatePresence mode="sync">
 								{/* Form insertion points interleave between forms (and a
 								 *  leading one, so a form can be added to an empty module):

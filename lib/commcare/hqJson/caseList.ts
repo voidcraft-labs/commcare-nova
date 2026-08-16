@@ -51,10 +51,11 @@ import type {
 	SearchInputDef,
 } from "@/lib/domain";
 import {
-	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
-	DEFAULT_CASE_SEARCH_TITLE,
+	casePropertyOptionOccurrence,
+	casePropertyOptionTranslationUnitId,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
+	makeTranslationUnitId,
 	type OrdinaryCaseSearchConfig,
 	orderedColumns,
 	searchInputDefault,
@@ -70,11 +71,17 @@ import { emitCasePropertyWirePath } from "../casePropertyWire";
 import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
 import { caseSearchConfigShell, detailColumn, detailPair } from "../hqShells";
 import {
+	type CommCareLocalization,
+	commCareLocalization,
+	repeatForLanguages,
+} from "../localization";
+import {
 	type AssetManifest,
 	requireAssetRef,
 } from "../multimedia/assetWirePath";
 import { emitCaseListFilter } from "../predicate";
 import {
+	idMappingDisplayXpath,
 	intervalColumnDisplayXpath,
 	plainSelectDisplayXpath,
 } from "../suite/case-list/columns";
@@ -128,10 +135,9 @@ import { moduleTypeContext } from "../validator/rules/case-list/shared";
  * (CCHQ's `detail_screen.py::FormattedDetailColumn.xpath` reads
  * `column.field` directly as the XPath when this flag is set).
  *
- * The `id-mapping` arm produces CCHQ's `enum` format with the
- * `(key, {lang: label})` per-entry shape — each entry's label
- * lives under the `en` key (Nova has no multi-language authoring
- * yet).
+ * The `id-mapping` arm produces CCHQ's `translatable-enum` format with the
+ * `(key, {lang: label})` per-entry shape projected from Nova's complete
+ * language inventory.
  *
  * The `interval` arm uses CCHQ's supported calculated-expression format for
  * both display modes. Its stock `time-ago` model cannot store Nova's overdue
@@ -141,12 +147,16 @@ import { moduleTypeContext } from "../validator/rules/case-list/shared";
 function projectColumnToDetail(
 	column: Column,
 	doc: BlueprintDoc,
+	localization: CommCareLocalization,
 	assets?: AssetManifest,
+	caseType?: string,
 	caseProperties: readonly CaseProperty[] = [],
 	typeContext?: TypeContext,
 	lookupNaming?: LookupWireNaming,
 ): WireDetailColumn {
-	const headerRecord = { en: column.header };
+	const headerRecord = localization.textMap(
+		makeTranslationUnitId("column", column.uuid, "header"),
+	);
 
 	if (column.kind === "calculated") {
 		const calcXpath = emitOnDeviceExpression(
@@ -176,15 +186,28 @@ function projectColumnToDetail(
 				property?.data_type === "single_select" ||
 				property?.data_type === "multi_select"
 			) {
+				const options = property.options ?? [];
 				return {
 					...base,
 					field: plainSelectDisplayXpath(
 						emitCasePropertyWirePath(column.field),
 						property,
 						doc,
+						(_option, index) => `$nova_text_${index}`,
 					),
-					format: "calculate",
+					format: "translatable-enum",
 					useXpathExpression: true,
+					enum: options.map((option, index) => ({
+						key: `nova_text_${index}`,
+						value: localization.proseTextMap(
+							casePropertyOptionTranslationUnitId(
+								caseType ?? "",
+								property.name,
+								option.value,
+								casePropertyOptionOccurrence(options, index),
+							),
+						),
+					})),
 				};
 			}
 			// Baseline already carries `format: "plain"` — no overrides
@@ -203,16 +226,23 @@ function projectColumnToDetail(
 				format: "phone",
 			};
 		case "id-mapping": {
-			// CCHQ's `MappingItem.value` is `{lang: label}`; Nova authors
-			// in one language (`en`) so each entry's label lifts into the
-			// `en` slot.
-			const enumEntries = column.mapping.map((entry) => ({
-				key: entry.value,
-				value: { en: entry.label },
+			const enumEntries = column.mapping.map((entry, index) => ({
+				key: `nova_text_${index}`,
+				value: localization.textMap(
+					makeTranslationUnitId("column", column.uuid, "mapping", entry.value),
+				),
 			}));
 			return {
 				...base,
-				format: "enum",
+				field: idMappingDisplayXpath(
+					emitCasePropertyWirePath(column.field),
+					column.mapping.map((entry, index) => ({
+						...entry,
+						labelExpression: `$nova_text_${index}`,
+					})),
+				),
+				format: "translatable-enum",
+				useXpathExpression: true,
 				enum: enumEntries,
 			};
 		}
@@ -226,13 +256,14 @@ function projectColumnToDetail(
 			if (!assets) return base;
 			const enumEntries = column.mapping.map((entry) => ({
 				key: entry.value,
-				value: {
-					en: requireAssetRef(
+				value: repeatForLanguages(
+					localization.languages,
+					requireAssetRef(
 						entry.assetId,
 						assets,
 						"projectColumnToDetail image-map",
 					),
-				},
+				),
 			}));
 			return {
 				...base,
@@ -248,9 +279,17 @@ function projectColumnToDetail(
 			// the author saw in Preview.
 			return {
 				...base,
-				field: intervalColumnDisplayXpath(column),
-				format: "calculate",
+				field: intervalColumnDisplayXpath(column, "$nova_text_0"),
+				format: "translatable-enum",
 				useXpathExpression: true,
+				enum: [
+					{
+						key: "nova_text_0",
+						value: localization.textMap(
+							makeTranslationUnitId("column", column.uuid, "text"),
+						),
+					},
+				],
 			};
 	}
 }
@@ -265,7 +304,9 @@ function projectColumnToDetail(
 function projectColumnForShortDetail(
 	column: Column,
 	doc: BlueprintDoc,
+	localization: CommCareLocalization,
 	assets?: AssetManifest,
+	caseType?: string,
 	caseProperties: readonly CaseProperty[] = [],
 	typeContext?: TypeContext,
 	lookupNaming?: LookupWireNaming,
@@ -273,7 +314,9 @@ function projectColumnForShortDetail(
 	const projected = projectColumnToDetail(
 		column,
 		doc,
+		localization,
 		assets,
+		caseType,
 		caseProperties,
 		typeContext,
 		lookupNaming,
@@ -523,6 +566,7 @@ function projectCaseListFilter(
 function projectSearchInput(
 	input: SearchInputDef,
 	runtimeValidation: RuntimeCsqlPromptValidation | undefined,
+	localization: CommCareLocalization,
 	typeContext?: TypeContext,
 	lookupNaming?: LookupWireNaming,
 ): CaseSearchProperty {
@@ -532,7 +576,9 @@ function projectSearchInput(
 		// Empty author labels resolve to the input's `name` at runtime so
 		// the screen always has something readable to render — same
 		// fallback the suite-XML prompts apply.
-		label: { en: input.label !== "" ? input.label : input.name },
+		label: localization.textMap(
+			makeTranslationUnitId("search-input", input.uuid, "label"),
+		),
 	};
 	if (mapping.input !== undefined) property.input_ = mapping.input;
 	if (mapping.appearance !== undefined)
@@ -561,7 +607,13 @@ function projectSearchInput(
 		property.validations = [
 			{
 				test: runtimeValidation.test,
-				text: { en: runtimeValidation.message },
+				text: localization.textMap(
+					makeTranslationUnitId(
+						"system",
+						"search-validation",
+						runtimeValidation.messageKey,
+					),
+				),
 			},
 		];
 	}
@@ -579,6 +631,7 @@ function projectSearchInput(
 function projectSearchProperties(
 	searchInputs: ReadonlyArray<SearchInputDef>,
 	runtimeValidations: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
+	localization: CommCareLocalization,
 	typeContext?: TypeContext,
 	lookupNaming?: LookupWireNaming,
 ): CaseSearchProperty[] {
@@ -589,6 +642,7 @@ function projectSearchProperties(
 			projectSearchInput(
 				input,
 				runtimeValidations.get(input.name),
+				localization,
 				typeContext,
 				lookupNaming,
 			),
@@ -691,6 +745,8 @@ function buildSearchConfigDocument(
 	caseSearchConfig: OrdinaryCaseSearchConfig | undefined,
 	caseListConfig: CaseListConfig | undefined,
 	_caseType: string | undefined,
+	moduleUuid: string,
+	localization: CommCareLocalization,
 	typeContext?: TypeContext,
 	lookupNaming?: LookupWireNaming,
 ): WireCaseSearchConfig {
@@ -703,19 +759,20 @@ function buildSearchConfigDocument(
 	if (caseSearchConfig !== undefined) {
 		// Use Nova's shared friendly default so a fresh search never inherits
 		// CCHQ's blank or case-type-derived chrome on either wire path.
-		config.title_label = {
-			en: caseSearchConfig.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE,
-		};
+		config.title_label = localization.textMap(
+			makeTranslationUnitId("module", moduleUuid, "search-title"),
+		);
 		if (
 			caseSearchConfig.searchScreenSubtitle !== undefined &&
 			caseSearchConfig.searchScreenSubtitle !== ""
 		) {
-			config.description = { en: caseSearchConfig.searchScreenSubtitle };
+			config.description = localization.textMap(
+				makeTranslationUnitId("module", moduleUuid, "search-subtitle"),
+			);
 		}
-		config.search_button_label = {
-			en:
-				caseSearchConfig.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL,
-		};
+		config.search_button_label = localization.textMap(
+			makeTranslationUnitId("module", moduleUuid, "search-button"),
+		);
 		if (caseSearchConfig.searchButtonDisplayCondition !== undefined) {
 			// CCHQ stores the gating predicate as a bare on-device XPath
 			// string; the runtime evaluates it before rendering the
@@ -759,6 +816,7 @@ function buildSearchConfigDocument(
 		config.properties = projectSearchProperties(
 			caseListConfig.searchInputs,
 			buildRuntimeCsqlPromptValidations(xpathQueryEmission),
+			localization,
 			typeContext,
 			lookupNaming,
 		);
@@ -830,6 +888,7 @@ export function projectCaseListForHq(
 	assets?: AssetManifest,
 	lookupNaming?: LookupWireNaming,
 ): CaseListHqProjection {
+	const localization = commCareLocalization(doc);
 	const caseListConfig = mod.caseListConfig;
 	const caseSearchConfig = effectiveCaseSearchConfig(mod);
 	const typeContext = moduleTypeContext(mod, doc);
@@ -851,7 +910,9 @@ export function projectCaseListForHq(
 		projectColumnForShortDetail(
 			c,
 			doc,
+			localization,
 			assets,
+			mod.caseType,
 			caseProperties,
 			typeContext,
 			lookupNaming,
@@ -861,7 +922,9 @@ export function projectCaseListForHq(
 		projectColumnToDetail(
 			c,
 			doc,
+			localization,
 			assets,
+			mod.caseType,
 			caseProperties,
 			typeContext,
 			lookupNaming,
@@ -902,6 +965,8 @@ export function projectCaseListForHq(
 		caseSearchConfig,
 		caseListConfig,
 		mod.caseType,
+		mod.uuid,
+		localization,
 		typeContext,
 		lookupNaming,
 	);

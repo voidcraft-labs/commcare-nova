@@ -16,7 +16,8 @@
 
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
-import type { ProseTemplate } from "@/lib/domain";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
+import type { CommitOutcome, ProseTemplate } from "@/lib/domain";
 import { useCanEdit, usePreviewing } from "@/lib/session/hooks";
 
 import type { FieldType } from "./fieldStyles";
@@ -26,7 +27,7 @@ interface TextEditableProps {
 	/** Canonical Markdown-plus-reference template for this field. */
 	value: ProseTemplate;
 	/** Called when the editor saves a new value. Undefined = read-only (no text mode editing). */
-	onSave: ((value: ProseTemplate) => void) | undefined;
+	onSave: ((value: ProseTemplate) => CommitOutcome | undefined) | undefined;
 	/** Which text surface: drives InlineTextEditor styling. */
 	fieldType: FieldType;
 	/** Static rendering of this field (LabelContent). Shown when not editing. */
@@ -42,17 +43,30 @@ export function TextEditable({
 	const previewing = usePreviewing();
 	const canEdit = useCanEdit();
 	const [editing, setEditing] = useState(false);
+	const [rejection, setRejection] = useState<string>();
 	/** Viewport coordinates of the activation click: passed to the editor
 	 *  so it can place the cursor at the correct text position via posAtCoords. */
 	const clickPosRef = useRef<{ x: number; y: number } | null>(null);
 
 	const handleSave = useCallback(
-		(newValue: ProseTemplate) => {
-			clickPosRef.current = null;
-			setEditing(false);
-			if (JSON.stringify(newValue) !== JSON.stringify(value)) {
-				onSave?.(newValue);
+		(newValue: ProseTemplate): CommitOutcome | undefined => {
+			if (JSON.stringify(newValue) === JSON.stringify(value)) {
+				clickPosRef.current = null;
+				setRejection(undefined);
+				setEditing(false);
+				return undefined;
 			}
+			const outcome = onSave?.(newValue);
+			if (outcome !== undefined && !outcome.ok) {
+				setRejection(
+					outcome.messages[0] ?? "This change did not pass the app guardrails.",
+				);
+				return outcome;
+			}
+			clickPosRef.current = null;
+			setRejection(undefined);
+			setEditing(false);
+			return outcome;
 		},
 		[value, onSave],
 	);
@@ -60,12 +74,14 @@ export function TextEditable({
 	/** Cancel editing: revert to the static view without persisting changes. */
 	const handleCancel = useCallback(() => {
 		clickPosRef.current = null;
+		setRejection(undefined);
 		setEditing(false);
 	}, []);
 
 	const handleClick = useCallback((e: React.MouseEvent) => {
 		e.stopPropagation();
 		clickPosRef.current = { x: e.clientX, y: e.clientY };
+		setRejection(undefined);
 		setEditing(true);
 	}, []);
 
@@ -76,6 +92,7 @@ export function TextEditable({
 			e.preventDefault();
 			e.stopPropagation();
 			clickPosRef.current = null;
+			setRejection(undefined);
 			setEditing(true);
 		}
 	}, []);
@@ -103,6 +120,7 @@ export function TextEditable({
 					autoFocus
 					clickPosition={clickPosRef.current}
 				/>
+				<RejectionInline message={rejection ?? null} className="max-w-sm" />
 			</div>
 		);
 	}

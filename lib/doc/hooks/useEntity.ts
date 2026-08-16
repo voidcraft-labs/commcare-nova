@@ -10,17 +10,58 @@
 
 "use client";
 
-import type { Field, Form, Module, Uuid } from "@/lib/domain";
-import { useBlueprintDoc } from "./useBlueprintDoc";
+import { useContext } from "react";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
+import {
+	type Field,
+	type Form,
+	type Module,
+	projectLocalizedField,
+	projectLocalizedForm,
+	projectLocalizedModule,
+	type Uuid,
+} from "@/lib/domain";
+import { useBlueprintDocEq } from "./useBlueprintDoc";
+
+function sameEntity<T>(left: T | undefined, right: T | undefined): boolean {
+	return left === right || JSON.stringify(left) === JSON.stringify(right);
+}
 
 export function useModule(uuid: Uuid | undefined): Module | undefined {
-	return useBlueprintDoc((s) => (uuid ? s.modules[uuid] : undefined));
+	const language = useContext(BlueprintAuthoringLanguageContext);
+	return useBlueprintDocEq(
+		(doc) =>
+			uuid === undefined
+				? undefined
+				: language === null
+					? doc.modules[uuid]
+					: projectLocalizedModule(doc, language, uuid),
+		sameEntity,
+	);
 }
 
 export function useForm(uuid: Uuid | undefined): Form | undefined {
-	return useBlueprintDoc((s) => (uuid ? s.forms[uuid] : undefined));
+	const language = useContext(BlueprintAuthoringLanguageContext);
+	return useBlueprintDocEq(
+		(doc) =>
+			uuid === undefined
+				? undefined
+				: language === null
+					? doc.forms[uuid]
+					: projectLocalizedForm(doc, language, uuid),
+		sameEntity,
+	);
 }
 
 export function useField(uuid: Uuid | undefined): Field | undefined {
-	return useBlueprintDoc((s) => (uuid ? s.fields[uuid] : undefined));
+	const language = useContext(BlueprintAuthoringLanguageContext);
+	return useBlueprintDocEq(
+		(doc) =>
+			uuid === undefined
+				? undefined
+				: language === null
+					? doc.fields[uuid]
+					: projectLocalizedField(doc, language, uuid),
+		sameEntity,
+	);
 }

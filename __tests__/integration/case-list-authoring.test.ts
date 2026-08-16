@@ -550,12 +550,16 @@ describe("wire emission", () => {
 			"if(date_opened = &apos;&apos;, &apos;&apos;, format-date(date(date_opened), &apos;%Y-%m-%d&apos;))",
 		);
 		// Interval (display: always) — divisor 7 (weeks) + threshold
-		// 14 days ("Overdue" branch).
+		// 14 days. Worker text resolves through a locale variable.
 		expect(result.xml).toContain("(today() - date(last_visit)) div 7");
-		expect(result.xml).toContain("&apos;Overdue&apos;");
+		expect(result.xml).toContain("$knova_text_0");
+		expect(Object.values(result.strings)).toContain("Overdue");
 		// Id-mapping — selected() chain wrapped in replace(join(...)).
 		expect(result.xml).toContain(
-			"replace(join(&apos; &apos;, if(selected(region, &apos;N&apos;), &apos;North&apos;, &apos;&apos;), if(selected(region, &apos;S&apos;), &apos;South&apos;, &apos;&apos;)), &apos;\\s+&apos;, &apos; &apos;)",
+			"if(selected(region, &apos;N&apos;), $knova_text_0",
+		);
+		expect(Object.values(result.strings)).toEqual(
+			expect.arrayContaining(["North", "South"]),
 		);
 		// Calculated column emits the inline-variable template per
 		// CCHQ's `detail_screen.py::FormattedDetailColumn.template`'s

@@ -3,6 +3,7 @@
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import type * as React from "react";
 
+import { usePortaledContentDirection } from "@/components/shadcn/portaled-content-direction";
 import {
 	FLOATING_LAYER_CLS,
 	POPOVER_POPUP_CLS,
@@ -30,6 +31,7 @@ function PopoverContent({
 	sideOffset = 4,
 	collisionAvoidance,
 	collisionPadding,
+	dir,
 	...props
 }: PopoverPrimitive.Popup.Props &
 	Pick<
@@ -41,6 +43,7 @@ function PopoverContent({
 		| "collisionAvoidance"
 		| "collisionPadding"
 	>) {
+	const inheritedDirection = usePortaledContentDirection();
 	return (
 		// Portals to document.body (Base UI default) and takes the shared floating
 		// plane, co-planar with dialogs. A popover opened from inside a Dialog
@@ -68,6 +71,7 @@ function PopoverContent({
 			>
 				<PopoverPrimitive.Popup
 					data-slot="popover-content"
+					dir={dir ?? inheritedDirection}
 					className={cn(
 						POPOVER_POPUP_CLS,
 						"flex w-72 max-w-[var(--available-width)] flex-col gap-2.5 overflow-x-hidden p-3 text-sm text-nova-text outline-hidden",

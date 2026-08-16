@@ -54,6 +54,7 @@ import {
 	type FormHashtagContext,
 	vellumShorthandInContext,
 } from "@/lib/commcare/hashtags/formContext";
+import { commCareLocalization } from "@/lib/commcare/localization";
 import {
 	type LookupWireNaming,
 	lookupFixtureSrc,
@@ -86,8 +87,10 @@ import {
 	type FieldKind,
 	isCaptureFieldKind,
 	type Media,
+	makeTranslationUnitId,
 	type ProseTemplate,
 	printProseTemplate,
+	type TranslationUnitId,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -429,6 +432,7 @@ export function buildXForm(
 	opts: BuildXFormOptions,
 ): string {
 	const form = doc.forms[formUuid];
+	const localization = commCareLocalization(doc);
 
 	// The case types this form can READ, name → parent-index hop depth (own = 0,
 	// parent = 1, …). Built from the owning module's case type via the shared
@@ -450,7 +454,46 @@ export function buildXForm(
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
 	const bodyElements: Element[] = [];
-	const itextEntries: Element[] = [];
+	const itextEntries = new Map(
+		localization.languages.map((language) => [language, [] as Element[]]),
+	);
+	const itextUnitIds = new Map<string, TranslationUnitId>();
+	const indexItextUnits = (parentUuid: Uuid, keyPrefix: string): void => {
+		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
+			const field = doc.fields[fieldUuid];
+			if (field === undefined) continue;
+			const key = keyPrefix + field.id;
+			const carrier = field as unknown as Record<string, unknown>;
+			for (const [suffix, slot] of [
+				["label", "label"],
+				["hint", "hint"],
+				["help", "help"],
+				["constraintMsg", "validate_msg"],
+			] as const) {
+				if (carrier[slot] !== undefined) {
+					itextUnitIds.set(
+						`${key}-${suffix}`,
+						makeTranslationUnitId("field", fieldUuid, slot),
+					);
+				}
+			}
+			if (
+				(field.kind === "single_select" || field.kind === "multi_select") &&
+				field.optionsSource.kind === "inline"
+			) {
+				field.optionsSource.options.forEach((option, index) => {
+					itextUnitIds.set(
+						`${key}-opt${index}-label`,
+						makeTranslationUnitId("field", fieldUuid, "option", option.uuid),
+					);
+				});
+			}
+			if (field.kind === "group" || field.kind === "repeat") {
+				indexItextUnits(fieldUuid, `${key}-`);
+			}
+		}
+	};
+	indexItextUnits(formUuid, "");
 
 	// The OpenRosa `<meta>` block is NOT emitted here. It is a CCHQ build-time
 	// artifact (`xform.py::_add_meta_2`): the HQ-upload source omits it and CCHQ
@@ -530,7 +573,7 @@ export function buildXForm(
 		label: ProseTemplate | undefined,
 		media?: Media,
 		force = false,
-	): void => {
+	): boolean => {
 		// addItext is the SINGLE funnel for prose lowering — every label / hint /
 		// help / constraintMsg / option label routes through here into
 		// `buildLabelNodes`. Scanning for casedb refs HERE (rather than from a
@@ -539,25 +582,47 @@ export function buildXForm(
 		// lowered: a `#<case_type>/<prop>` in a `validate_msg` or option label
 		// forces the `casedb` `<instance>` exactly as one in a `label` does.
 		if (label) instances.scanTemplate(label);
-		const mediaValues = itextMediaValues(media, opts.assets, "buildXForm");
+		const sourceMediaValues = itextMediaValues(
+			media,
+			opts.assets,
+			"buildXForm",
+		);
+		const sourceTemplate = label ?? { parts: [] };
+		const unitId = itextUnitIds.get(id);
+		const localizedTemplates = localization.languages.map((language) =>
+			unitId === undefined
+				? sourceTemplate
+				: localization.prose(language, unitId),
+		);
 		if (
 			!force &&
-			(label === undefined || label.parts.length === 0) &&
-			mediaValues.length === 0
+			localizedTemplates.every((template) => template.parts.length === 0) &&
+			sourceMediaValues.length === 0
 		)
-			return;
-		const labelTemplate = label ?? { parts: [] };
-		itextEntries.push(
-			el("text", { id }, [
-				el("value", {}, buildLabelNodes(labelTemplate, doc, expand, shorthand)),
-				el(
-					"value",
-					{ form: "markdown" },
-					buildLabelNodes(labelTemplate, doc, expand, shorthand),
-				),
-				...mediaValues,
-			]),
-		);
+			return false;
+		for (const [index, language] of localization.languages.entries()) {
+			const languageEntries = itextEntries.get(language);
+			if (languageEntries === undefined) {
+				throw new Error(`Missing XForm itext table for ${language}.`);
+			}
+			const labelTemplate = localizedTemplates[index] ?? sourceTemplate;
+			languageEntries.push(
+				el("text", { id }, [
+					el(
+						"value",
+						{},
+						buildLabelNodes(labelTemplate, doc, expand, shorthand),
+					),
+					el(
+						"value",
+						{ form: "markdown" },
+						buildLabelNodes(labelTemplate, doc, expand, shorthand),
+					),
+					...itextMediaValues(media, opts.assets, "buildXForm"),
+				]),
+			);
+		}
+		return true;
 	};
 
 	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
@@ -641,7 +706,18 @@ export function buildXForm(
 		...binds,
 		...setvalues,
 		el("itext", {}, [
-			el("translation", { lang: "en", default: "" }, itextEntries),
+			...localization.languages.map((language) =>
+				el(
+					"translation",
+					{
+						lang: language,
+						...(language === localization.defaultLanguage
+							? { default: "" }
+							: {}),
+					},
+					itextEntries.get(language) ?? [],
+				),
+			),
 		]),
 	];
 
@@ -727,32 +803,6 @@ function readFieldMedia(field: Field, key: string): Media | undefined {
 }
 
 /**
- * Will `addItext` register a `<text>` entry for this slot? The
- * body-ref-iff-entry invariant the optional-message gates rely on:
- * if this returns false, the entry won't emit, so no `<hint>`/`<help>`/
- * `<label>` body ref or `jr:constraintMsg` bind attribute should
- * reference it. Mirrors `addItext`'s skip rule exactly:
- *
- *   - text present → entry emits.
- *   - text absent + media-OFF (no manifest) → no media values, skip.
- *   - text absent + manifest present + no media slot set → skip.
- *   - text absent + manifest present + at least one media slot set → emit.
- *
- * Keeps the check cheap (no manifest lookup), so a missing-from-manifest
- * `MediaAssetId` still throws from `requireAssetRef` at the actual registration
- * site, not silently here.
- */
-function hasItextContent(
-	text: ProseTemplate | undefined,
-	media: Media | undefined,
-	assets: AssetManifest | undefined,
-): boolean {
-	if (text && text.parts.length > 0) return true;
-	if (!media || !assets) return false;
-	return !!(media.image || media.audio || media.video);
-}
-
-/**
  * Recursively emit the four XForm parts for a single field:
  *
  *   - `dataElements`: one `<instance>` data node per field
@@ -813,7 +863,7 @@ function buildFieldParts(
 		label: ProseTemplate | undefined,
 		media?: Media,
 		force?: boolean,
-	) => void,
+	) => boolean,
 	instances: InstanceTracker,
 	topDataElements: Element[],
 	topBinds: Element[],
@@ -864,8 +914,18 @@ function buildFieldParts(
 	const hintMedia = readFieldMedia(field, "hint_media");
 	const helpMedia = readFieldMedia(field, "help_media");
 	const validateMsgMedia = readFieldMedia(field, "validate_msg_media");
-	const hasHint = hasItextContent(hint, hintMedia, assets);
-	const hasHelp = hasItextContent(help, helpMedia, assets);
+	const canValidate = supportsValidation(field.kind);
+	const isContainerKind = field.kind === "group" || field.kind === "repeat";
+	const hasLabel =
+		field.kind !== "hidden" &&
+		addItext(`${itextKey}-label`, label, labelMedia, !isContainerKind);
+	const hasHint =
+		field.kind !== "hidden" && addItext(`${itextKey}-hint`, hint, hintMedia);
+	const hasHelp =
+		field.kind !== "hidden" && addItext(`${itextKey}-help`, help, helpMedia);
+	const hasValidationMessage =
+		canValidate &&
+		addItext(`${itextKey}-constraintMsg`, validateMsg, validateMsgMedia);
 
 	// Secondary-instance requirements: any XPath that mentions `#user/`, a
 	// typed readable case namespace, or a raw casedb/session `instance()`
@@ -920,7 +980,6 @@ function buildFieldParts(
 	// no user-editable value to check — silently skip the attributes so an
 	// upstream misconfiguration can't leak a garbage bind. The validator flags
 	// `validate` on non-input kinds as its own error.
-	const canValidate = supportsValidation(field.kind);
 	if (canValidate && validate) {
 		const validateShorthand = shorthand(validate);
 		if (validateShorthand !== undefined)
@@ -936,7 +995,7 @@ function buildFieldParts(
 	// media set produces no entry — the gate skips the attribute in lockstep
 	// (a `jr:constraintMsg` ref against a non-registered entry is parse-fatal
 	// at JavaRosa install).
-	if (canValidate && hasItextContent(validateMsg, validateMsgMedia, assets)) {
+	if (hasValidationMessage) {
 		bindAttribs["jr:constraintMsg"] = `jr:itext('${itextKey}-constraintMsg')`;
 	}
 
@@ -975,33 +1034,6 @@ function buildFieldParts(
 	// remove the wrong entry.
 	const bindSlot = binds.length;
 	binds.push(el("bind", bindAttribs));
-
-	// itext. Hidden kinds have no body element, so no label to reference.
-	// Each `addItext` self-skips when its text AND media are both empty, so
-	// optional slots (hint / help) only register an entry when present. The
-	// `-help` entry is registered alongside its `<help>` body ref in
-	// `buildLeafControl` so the two emit IFF help text or media is present.
-	//
-	// The label is force-registered for LEAF kinds: `buildLeafControl` emits
-	// `<label>` unconditionally, so the entry must exist even for an empty
-	// label (else the ref dangles — JavaRosa rejects at parse). Containers
-	// (`group`/`repeat`) keep skip-on-empty because `buildContainer` gates
-	// the `<label>` element on `label || labelMedia`, so a skipped entry has
-	// no referencing element.
-	if (field.kind !== "hidden") {
-		const isContainerKind = field.kind === "group" || field.kind === "repeat";
-		addItext(`${itextKey}-label`, label, labelMedia, !isContainerKind);
-		addItext(`${itextKey}-hint`, hint, hintMedia);
-		addItext(`${itextKey}-help`, help, helpMedia);
-	}
-
-	// Validate message itext — paired with the `jr:constraintMsg` attribute
-	// above; never emit the entry without the reference, or vice versa. The
-	// media slot rides the same entry so a validation message can carry an
-	// image/audio cue.
-	if (canValidate) {
-		addItext(`${itextKey}-constraintMsg`, validateMsg, validateMsgMedia);
-	}
 
 	// Options (select kinds).
 	//
@@ -1043,8 +1075,7 @@ function buildFieldParts(
 			fieldUuid,
 			nodePath,
 			itextKey,
-			label,
-			labelMedia,
+			hasLabel,
 			relevant,
 			insideRepeat,
 			dataSlot,
@@ -1284,8 +1315,7 @@ function buildContainer(
 	fieldUuid: Uuid,
 	nodePath: FormPath,
 	itextKey: string,
-	label: ProseTemplate | undefined,
-	labelMedia: Media | undefined,
+	hasLabel: boolean,
 	relevant: string | undefined,
 	insideRepeat: boolean,
 	dataSlot: number,
@@ -1299,7 +1329,7 @@ function buildContainer(
 		label: ProseTemplate | undefined,
 		media?: Media,
 		force?: boolean,
-	) => void,
+	) => boolean,
 	instances: InstanceTracker,
 	topDataElements: Element[],
 	topBinds: Element[],
@@ -1416,15 +1446,15 @@ function buildContainer(
 	}
 	binds.push(...childBinds);
 
-	// `<label>` is gated on a truthy `label` OR `labelMedia`. Container kinds
-	// (`group`, `repeat`) extend `containerFieldBase` (label + label_media both
-	// optional); the `-label` itext entry is registered iff text or media is
-	// present, so the body ref must match that condition exactly — emitting an
+	// `<label>` is gated on the exact result of localized itext registration.
+	// Container kinds (`group`, `repeat`) carry optional label text; a target-only
+	// value is enough to register the shared id and must therefore emit the body
+	// ref even when the canonical source template is empty. Emitting an
 	// unconditional `<label ref="jr:itext('${id}-label')"/>` would dangle
 	// against a missing entry (`XFORM_MISSING_ITEXT`), and registering an entry
-	// (media-only) without a ref would orphan it. Both empty → no element,
+	// without a ref would orphan it. All languages and media empty → no element,
 	// matching CommCare's transparent-container behavior.
-	const labelEl = hasItextContent(label, labelMedia, assets)
+	const labelEl = hasLabel
 		? el("label", { ref: `jr:itext('${itextKey}-label')` })
 		: undefined;
 
@@ -1459,8 +1489,7 @@ function buildContainer(
 	// counts as labelled (the body emits `<label>` and the group renders as
 	// real chrome, not a transparent wrapper).
 	const groupAttribs: Record<string, string> = { ref: nodePath.toXPath() };
-	if (hasItextContent(label, labelMedia, assets))
-		groupAttribs.appearance = "field-list";
+	if (hasLabel) groupAttribs.appearance = "field-list";
 	const groupChildren: Element[] = labelEl
 		? [labelEl, ...childBody]
 		: childBody;

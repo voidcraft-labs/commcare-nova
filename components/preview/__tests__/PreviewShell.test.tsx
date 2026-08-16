@@ -26,6 +26,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 
 import type { SelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
@@ -189,7 +190,9 @@ function renderShell() {
 				fieldOrder: { [FORM_UUID]: [] },
 			}}
 		>
-			<PreviewShell />
+			<BuilderLocalizationProvider>
+				<PreviewShell />
+			</BuilderLocalizationProvider>
 		</BlueprintDocProvider>,
 	);
 }
@@ -313,7 +316,9 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 					fieldOrder: {},
 				}}
 			>
-				<PreviewShell />
+				<BuilderLocalizationProvider>
+					<PreviewShell />
+				</BuilderLocalizationProvider>
 			</BlueprintDocProvider>,
 		);
 		// Workspace is still mounted (Activity-hidden); legacy is

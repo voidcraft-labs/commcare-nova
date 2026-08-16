@@ -6,6 +6,7 @@
  * detection, child-case-type coverage, form-link cycle detection.
  */
 
+import { localeFileValueIssue } from "@/lib/commcare/localeFile";
 import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
 import {
 	authoredBlueprintIdentities,
@@ -15,6 +16,7 @@ import {
 	collectTranslationUnits,
 	deriveCaseWriteInventory,
 	isConnectLearnConfig,
+	projectProseTemplate,
 	projectXPath,
 	translationValueIntegrityIssue,
 	type Uuid,
@@ -28,6 +30,21 @@ import { AUTOMATION_RULES } from "./automations";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 import { ORGANIZATION_RULES } from "./organization";
 import { USER_RULES } from "./users";
+
+const APP_STRING_TRANSLATION_ROLES = new Set([
+	"app-name",
+	"module-name",
+	"form-name",
+	"case-list-header",
+	"case-list-mapping-label",
+	"case-list-interval-text",
+	"search-input-label",
+	"search-screen-title",
+	"search-screen-subtitle",
+	"search-button-label",
+	"search-runtime-validation-message",
+	"case-property-option-label",
+]);
 
 function closedBlueprintTopology(doc: BlueprintDoc): ValidationError[] {
 	return blueprintTopologyIssues(doc).map((issue) =>
@@ -227,11 +244,51 @@ function emptyAppName(doc: BlueprintDoc): ValidationError[] {
 
 /** Every target overlay must address a live unit and preserve typed tokens. */
 function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
-	if (doc.localization === undefined) return [];
 	const units = new Map(
 		collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
 	);
 	const errors: ValidationError[] = [];
+	const flagLocaleValue = (
+		language: string,
+		unitId: string,
+		role: string,
+		breadcrumb: readonly string[],
+		value: string,
+	): void => {
+		const issue = localeFileValueIssue(value);
+		if (issue === undefined) return;
+		errors.push(
+			validationError(
+				"APP_STRING_VALUE_UNREPRESENTABLE",
+				"app",
+				`The ${language} text for ${breadcrumb.join(" → ")} ${issue}. Rewrite that text so CommCare can preserve it on devices.`,
+				{},
+				{ language, unitId, role },
+			),
+		);
+	};
+	for (const unit of units.values()) {
+		if (!APP_STRING_TRANSLATION_ROLES.has(unit.role)) continue;
+		flagLocaleValue(
+			"source-language",
+			unit.id,
+			unit.role,
+			unit.breadcrumb,
+			typeof unit.source === "string"
+				? unit.source
+				: projectProseTemplate(unit.source, doc).text,
+		);
+	}
+	if (doc.localization === undefined) return errors;
+	for (const [code, language] of Object.entries(doc.localization.languages)) {
+		flagLocaleValue(
+			code,
+			`language:${code}`,
+			"language-name",
+			[doc.appName, "Languages", language.name],
+			language.name,
+		);
+	}
 	for (const [language, entries] of Object.entries(
 		doc.localization.translations,
 	)) {
@@ -286,6 +343,21 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 						{},
 						{ language, unitId, role: unit.role },
 					),
+				);
+			}
+			if (
+				issue === undefined &&
+				entry.sourceFingerprint === unit.sourceFingerprint &&
+				APP_STRING_TRANSLATION_ROLES.has(unit.role)
+			) {
+				flagLocaleValue(
+					language,
+					unitId,
+					unit.role,
+					unit.breadcrumb,
+					typeof entry.value === "string"
+						? entry.value
+						: projectProseTemplate(entry.value, doc).text,
 				);
 			}
 		}

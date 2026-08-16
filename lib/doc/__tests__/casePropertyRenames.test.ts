@@ -21,7 +21,12 @@ import {
 	referencingSlotsOf,
 } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { casePropertyTargetKey, collectTranslationUnits } from "@/lib/domain";
+import {
+	casePropertyTargetKey,
+	collectTranslationUnits,
+	emptyCaseListConfig,
+	plainColumn,
+} from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 
@@ -208,6 +213,103 @@ describe("explicit app-wide case-property rename", () => {
 				{ kind: "case-ref", caseType: "patient", property: "fresh" },
 				{ kind: "text", text: " actual" },
 			],
+		});
+	});
+
+	it("preserves every translated option through a simultaneous property swap", () => {
+		const start = fixture();
+		const patient = start.caseTypes?.[0];
+		if (patient === undefined) throw new Error("missing patient type");
+		for (const property of patient.properties) {
+			if (property.name !== "a" && property.name !== "b") continue;
+			property.data_type = "single_select";
+			property.options = [
+				{
+					value: "yes",
+					label: proseText(`Yes for ${property.name}`),
+				},
+			];
+		}
+		const columnA = plainColumn(testUuid("translated-swap-column-a"), "a", "A");
+		const columnB = plainColumn(testUuid("translated-swap-column-b"), "b", "B");
+		start.modules[MODULE].caseListConfig = {
+			...emptyCaseListConfig(),
+			columns: [columnA, columnB],
+			listColumnOrder: [columnA.uuid, columnB.uuid],
+			detailColumnOrder: [columnA.uuid, columnB.uuid],
+		};
+		const beforeUnits = collectTranslationUnits(start);
+		const optionUnit = (property: string) =>
+			beforeUnits.find(
+				(unit) =>
+					unit.owner.kind === "case-property-option" &&
+					unit.owner.caseType === "patient" &&
+					unit.owner.property === property &&
+					unit.owner.value === "yes",
+			);
+		const beforeA = optionUnit("a");
+		const beforeB = optionUnit("b");
+		if (beforeA === undefined || beforeB === undefined) {
+			throw new Error("missing option translation units");
+		}
+		start.localization = {
+			sourceLanguage: "en",
+			defaultLanguage: "en",
+			languageOrder: ["en", "es"],
+			languages: {
+				en: { code: "en", name: "English", direction: "ltr" },
+				es: { code: "es", name: "Español", direction: "ltr" },
+			},
+			translations: {
+				es: {
+					[beforeA.id]: {
+						value: proseText("Sí para A"),
+						sourceFingerprint: beforeA.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "en",
+					},
+					[beforeB.id]: {
+						value: proseText("Sí para B"),
+						sourceFingerprint: beforeB.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "en",
+					},
+				},
+			},
+		};
+
+		const swapped = apply(
+			start,
+			admittedRename(
+				{ caseType: "patient", from: "a", to: "b" },
+				{ caseType: "patient", from: "b", to: "a" },
+			),
+		);
+		const afterUnits = collectTranslationUnits(swapped);
+		const afterOptionUnit = (property: string) =>
+			afterUnits.find(
+				(unit) =>
+					unit.owner.kind === "case-property-option" &&
+					unit.owner.caseType === "patient" &&
+					unit.owner.property === property &&
+					unit.owner.value === "yes",
+			);
+		const afterA = afterOptionUnit("a");
+		const afterB = afterOptionUnit("b");
+		if (afterA === undefined || afterB === undefined) {
+			throw new Error("missing renamed option translation units");
+		}
+		const translations = swapped.localization?.translations.es;
+		expect(Object.keys(translations ?? {})).toHaveLength(2);
+		expect(translations?.[afterB.id]).toMatchObject({
+			value: proseText("Sí para A"),
+			sourceFingerprint: afterB.sourceFingerprint,
+		});
+		expect(translations?.[afterA.id]).toMatchObject({
+			value: proseText("Sí para B"),
+			sourceFingerprint: afterA.sourceFingerprint,
 		});
 	});
 

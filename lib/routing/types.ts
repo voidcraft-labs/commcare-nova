@@ -60,6 +60,7 @@ export const PROJECT_DATA_SHARED_NOTICE =
 export const APP_SETUP_SECTIONS = [
 	"users",
 	"organization",
+	"languages",
 	"automations",
 	"publishing",
 ] as const;
@@ -78,6 +79,7 @@ export const APP_SETUP_SECTION_LABELS: Readonly<
 > = {
 	users: "Users and personas",
 	organization: "Organization",
+	languages: "Languages",
 	automations: "Automations",
 	publishing: "Publishing",
 };

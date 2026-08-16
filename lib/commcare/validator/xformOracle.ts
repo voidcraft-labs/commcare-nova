@@ -214,10 +214,12 @@ function checkItextDefinitions(
 
 /**
  * Validate the `<itext>` translation block (#12): there must be ≥1
- * `<translation>`, each must carry a `lang`, no two may share a `lang`, and at
- * most one may be the default. Mirrors `XFormParser.java::parseIText` /
- * `parseTranslation`. The check only runs when an `<itext>` block is present —
- * a form with no labels has no itext and that is legal.
+ * `<translation>`, each must carry a `lang`, no two may share a `lang`, exactly
+ * one must be the default, and every locale must define the same `(id, form)`
+ * keys. Core itself permits an implicit first-locale default and sparse locale
+ * maps, but Nova emits an explicit, complete effective projection so those
+ * weaker shapes are generator bugs here. The check only runs when an `<itext>`
+ * block is present — a form with no labels has no itext and that is legal.
  */
 function checkTranslations(
 	doc: Document,
@@ -246,6 +248,8 @@ function checkTranslations(
 
 	const seenLangs = new Set<string>();
 	let defaultCount = 0;
+	let expectedKeys: ReadonlySet<string> | undefined;
+	let expectedLang: string | undefined;
 	for (const translation of translations) {
 		const lang = getAttributeValue(translation, "lang");
 		if (!lang) {
@@ -272,9 +276,45 @@ function checkTranslations(
 		// `default=""` (any value of the attribute, including empty) marks the
 		// default locale. Core allows at most one.
 		if (getAttributeValue(translation, "default") !== undefined) defaultCount++;
+
+		const keys = new Set<string>();
+		for (const textEl of directChildElementsNamed(translation, "text")) {
+			const id = getAttributeValue(textEl, "id");
+			if (!id) continue;
+			for (const valueEl of directChildElementsNamed(textEl, "value")) {
+				const form = getAttributeValue(valueEl, "form") ?? "";
+				keys.add(form === "" ? id : `${id};${form}`);
+			}
+		}
+		if (expectedKeys === undefined) {
+			expectedKeys = keys;
+			expectedLang = lang ?? "unknown";
+		} else {
+			const missing = [...expectedKeys].filter((key) => !keys.has(key));
+			const extra = [...keys].filter((key) => !expectedKeys?.has(key));
+			if (missing.length > 0 || extra.length > 0) {
+				errors.push(
+					validationError(
+						"XFORM_TRANSLATION_INCOMPLETE",
+						"form",
+						`"${formName}" has different itext entries in the "${lang ?? "unknown"}" and "${expectedLang}" translations (${missing.length} missing, ${extra.length} extra). Every Nova locale must define the same effective text and media forms. This is a bug in the form generator.`,
+						loc,
+					),
+				);
+			}
+		}
 	}
 
-	if (defaultCount > 1) {
+	if (defaultCount === 0) {
+		errors.push(
+			validationError(
+				"XFORM_TRANSLATION_NO_DEFAULT",
+				"form",
+				`"${formName}" does not mark any <translation> as the default locale. Nova emits one explicit default so locale startup never depends on document order. This is a bug in the form generator.`,
+				loc,
+			),
+		);
+	} else if (defaultCount > 1) {
 		errors.push(
 			validationError(
 				"XFORM_TRANSLATION_MULTIPLE_DEFAULT",

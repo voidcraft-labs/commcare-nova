@@ -44,11 +44,14 @@ import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
+	makeTranslationUnitId,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	type SearchInputDef,
 	type SearchInputType,
 	type SimpleSearchInputDef,
 	searchInputDefault,
+	searchRuntimeValidationMessage,
+	type TranslationUnitId,
 } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
@@ -68,10 +71,11 @@ import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 export interface SearchPromptsEmission {
 	readonly elements: readonly Element[];
 	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, TranslationUnitId>;
 }
 
 export const RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE =
-	"This search can't use both single and double quotation marks. Remove one kind and try again";
+	searchRuntimeValidationMessage(new Set(["quote"]))?.message ?? "";
 
 /**
  * One pre-submit prompt assertion derived from the exact emitted CSQL wrapper.
@@ -84,6 +88,7 @@ export const RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE =
 export interface RuntimeCsqlPromptValidation {
 	readonly test: string;
 	readonly message: string;
+	readonly messageKey: string;
 }
 
 /**
@@ -96,12 +101,14 @@ export interface RuntimeCsqlPromptValidation {
 export function combineRuntimeCsqlPromptValidations(
 	validations: readonly RuntimeCsqlPromptValidation[],
 	combinedMessage: string,
+	combinedMessageKey: string,
 ): RuntimeCsqlPromptValidation | undefined {
 	if (validations.length === 0) return undefined;
 	if (validations.length === 1) return validations[0];
 	return {
 		test: validations.map(({ test }) => `(${test})`).join(" and "),
 		message: combinedMessage,
+		messageKey: combinedMessageKey,
 	};
 }
 
@@ -180,6 +187,7 @@ export function buildSearchPrompts(
 ): SearchPromptsEmission {
 	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
+	const translationUnits: Record<string, TranslationUnitId> = {};
 	const promptRelationContext: RelationEvaluationScopeContext = {
 		...relationContext,
 		knownInputs: searchInputs.map((input) => ({
@@ -195,12 +203,22 @@ export function buildSearchPrompts(
 		// the locale id itself.
 		const localeId = composeSearchPropertyLocaleId(moduleId, input.name);
 		strings[localeId] = input.label !== "" ? input.label : input.name;
+		translationUnits[localeId] = makeTranslationUnitId(
+			"search-input",
+			input.uuid,
+			"label",
+		);
 		const runtimeValidation = runtimeValidations.get(input.name);
 		const validationLocaleId = runtimeValidation
 			? composeRuntimeCsqlValidationLocaleId(moduleId, input.name)
 			: undefined;
 		if (validationLocaleId !== undefined && runtimeValidation !== undefined) {
 			strings[validationLocaleId] = runtimeValidation.message;
+			translationUnits[validationLocaleId] = makeTranslationUnitId(
+				"system",
+				"search-validation",
+				runtimeValidation.messageKey,
+			);
 		}
 
 		elements.push(
@@ -216,7 +234,7 @@ export function buildSearchPrompts(
 		);
 	}
 
-	return { elements, strings };
+	return { elements, strings, translationUnits };
 }
 
 /**
@@ -231,16 +249,17 @@ export function emitSearchPrompts(
 	runtimeValidations?: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
 	relationContext: RelationEvaluationScopeContext = {},
 ): CaseListEmission {
-	const { elements, strings } = buildSearchPrompts(
+	const { elements, strings, translationUnits } = buildSearchPrompts(
 		searchInputs,
 		moduleId,
 		runtimeValidations,
 		relationContext,
 	);
-	if (elements.length === 0) return { xml: "", strings };
+	if (elements.length === 0) return { xml: "", strings, translationUnits };
 	return {
 		xml: elements.map((promptEl) => render(promptEl, RENDER_OPTS)).join("\n"),
 		strings,
+		translationUnits,
 	};
 }
 

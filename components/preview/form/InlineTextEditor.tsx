@@ -46,7 +46,7 @@ import {
 	ToolbarGroup,
 	ToolbarSeparator,
 } from "@/components/tiptap-ui-primitive/toolbar";
-import type { ProseTemplate } from "@/lib/domain";
+import type { CommitOutcome, ProseTemplate } from "@/lib/domain";
 import {
 	useLiveFormUuidGetter,
 	useReferenceProvider,
@@ -64,7 +64,7 @@ interface InlineTextEditorProps {
 	/** Current structural prose value for this field. */
 	value: ProseTemplate;
 	/** Called with the new markdown value when the editor saves (blur/Cmd+Enter). */
-	onSave: (value: ProseTemplate) => void;
+	onSave: (value: ProseTemplate) => CommitOutcome | undefined;
 	/** Called when the user cancels editing (Escape). Reverts to original value. */
 	onCancel: () => void;
 	/** Which text surface this editor replaces: drives styling to match. */
@@ -242,15 +242,25 @@ export function InlineTextEditor({
 	const provider = useReferenceProvider();
 	const getFormUuid = useLiveFormUuidGetter();
 	const savedRef = useRef(false);
+	const rejectedSaveRef = useRef(false);
 	const anchorRef = useRef<HTMLDivElement>(null);
 
 	/** Save the current editor content as markdown. Guards against double-fire. */
 	const saveAndDeactivate = useCallback(
-		(editor: Editor | null) => {
-			if (savedRef.current || !editor) return;
+		(editor: Editor | null): boolean => {
+			if (savedRef.current || rejectedSaveRef.current || !editor) return false;
 			savedRef.current = true;
 			const markdown = getMarkdownContent(editor);
-			onSave(markdownToProseTemplate(markdown));
+			const outcome = onSave(markdownToProseTemplate(markdown));
+			if (outcome !== undefined && !outcome.ok) {
+				// The parent keeps the editor mounted with the rejected draft. Block the
+				// blur caused by this attempt from dispatching the same content again,
+				// but leave Escape available and let the next edit unlock a retry.
+				savedRef.current = false;
+				rejectedSaveRef.current = true;
+				return false;
+			}
+			return true;
 		},
 		[onSave],
 	);
@@ -259,6 +269,7 @@ export function InlineTextEditor({
 	const cancelAndDeactivate = useCallback(() => {
 		if (savedRef.current) return;
 		savedRef.current = true;
+		rejectedSaveRef.current = false;
 		onCancel();
 	}, [onCancel]);
 
@@ -280,18 +291,19 @@ export function InlineTextEditor({
 				addKeyboardShortcuts() {
 					return {
 						Tab: ({ editor }) => {
-							saveRef.current(editor);
-							requestAnimationFrame(() => activateAdjacentEditable("next"));
+							if (saveRef.current(editor)) {
+								requestAnimationFrame(() => activateAdjacentEditable("next"));
+							}
 							return true;
 						},
 						"Shift-Tab": ({ editor }) => {
-							saveRef.current(editor);
-							requestAnimationFrame(() => activateAdjacentEditable("prev"));
+							if (saveRef.current(editor)) {
+								requestAnimationFrame(() => activateAdjacentEditable("prev"));
+							}
 							return true;
 						},
 						"Mod-Enter": ({ editor }) => {
-							saveRef.current(editor);
-							editor.commands.blur();
+							if (saveRef.current(editor)) editor.commands.blur();
 							return true;
 						},
 						Escape: ({ editor }) => {
@@ -326,6 +338,13 @@ export function InlineTextEditor({
 		 * becomes one here: only the encoded carrier does. */
 		content: proseTemplateToMarkdown(value),
 		immediatelyRender: false,
+		onUpdate: () => {
+			// A refused commit leaves the editor mounted. Once the user amends the
+			// draft, permit another save attempt; unchanged rejected content stays
+			// single-shot so the following blur cannot dispatch it twice.
+			savedRef.current = false;
+			rejectedSaveRef.current = false;
+		},
 		editorProps: {
 			attributes: {
 				/* Typography classes live on the preview-markdown wrapper (matching

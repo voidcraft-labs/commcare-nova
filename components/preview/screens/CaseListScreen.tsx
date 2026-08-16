@@ -51,6 +51,10 @@ import {
 	renderColumnCell,
 } from "@/components/builder/case-list-config/columnCellRenderer";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
+import {
+	useLocalizedModule,
+	useLocalizedValues,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
 import { caseColumnLabel } from "@/components/preview/shared/caseColumnLabel";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
@@ -67,7 +71,6 @@ import {
 	useEffectiveCaseTypes,
 	useMaterializableCaseTypes,
 } from "@/lib/doc/hooks/useCaseTypes";
-import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import {
 	useOrderedForms,
 	useOrderedModules,
@@ -82,8 +85,10 @@ import {
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
+	makeTranslationUnitId,
 	orderedColumns,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	SEARCH_RUNTIME_VALIDATION_MESSAGES,
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
@@ -210,7 +215,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const canContinue =
 		seededFormUuid !== undefined || caseLoadingForms.length > 0;
 
-	const mod = useModuleEntity(moduleUuid);
+	const mod = useLocalizedModule(moduleUuid);
+	const localizedValues = useLocalizedValues();
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
@@ -734,10 +740,42 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			: pageLocalFilter
 				? `Showing ${visibleResultCount}`
 				: `${visibleResultCount} found`;
-	const title = searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
-	const subtitle = searchConfig?.searchScreenSubtitle;
+	const title =
+		(localizedValues.get(
+			makeTranslationUnitId("module", moduleUuid ?? "missing", "search-title"),
+		) as string | undefined) ??
+		searchConfig?.searchScreenTitle ??
+		DEFAULT_CASE_SEARCH_TITLE;
+	const subtitle =
+		(localizedValues.get(
+			makeTranslationUnitId(
+				"module",
+				moduleUuid ?? "missing",
+				"search-subtitle",
+			),
+		) as string | undefined) ?? searchConfig?.searchScreenSubtitle;
 	const searchButtonLabel =
-		searchConfig?.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL;
+		(localizedValues.get(
+			makeTranslationUnitId("module", moduleUuid ?? "missing", "search-button"),
+		) as string | undefined) ??
+		searchConfig?.searchButtonLabel ??
+		DEFAULT_CASE_SEARCH_BUTTON_LABEL;
+	const localizedSearchValidationMessages = useMemo(
+		() =>
+			new Map(
+				SEARCH_RUNTIME_VALIDATION_MESSAGES.map((message) => [
+					message.message,
+					(localizedValues.get(
+						makeTranslationUnitId("system", "search-validation", message.key),
+					) as string | undefined) ?? message.message,
+				]),
+			),
+		[localizedValues],
+	);
+	const localizeSearchValidationMessage = useCallback(
+		(source: string) => localizedSearchValidationMessages.get(source) ?? source,
+		[localizedSearchValidationMessages],
+	);
 	const effectiveSearchFilter = effectiveFilterForEmission(config?.filter);
 	const hasEffectiveSearchFilter = effectiveSearchFilter !== undefined;
 	const zeroInputSearchActionIsRelevant =
@@ -944,6 +982,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						onChange={searchRun.changeDraft}
 						onSubmit={searchRun.submit}
 						submitLabel={searchButtonLabel}
+						localizeValidationMessage={localizeSearchValidationMessage}
 					/>
 				)}
 				{state.kind === "invalid-search" && (
@@ -955,7 +994,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							Search needs attention
 						</p>
 						<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
-							{state.message}
+							{localizeSearchValidationMessage(state.message)}
 						</p>
 						<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
 							{state.repair === "inputs"
@@ -1083,7 +1122,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		.filter((entry) => entry.visibility === "hidden")
 		.map((entry) => ({
 			key: entry.form.uuid,
-			name: entry.form.name,
+			name:
+				(localizedValues.get(
+					makeTranslationUnitId("form", entry.form.uuid, "name"),
+				) as string | undefined) ?? entry.form.name,
 			summary: summarizeFilter(entry.form.displayCondition, {
 				...(caseType !== undefined && { currentCaseType: caseType.name }),
 				projectProse,
@@ -1121,6 +1163,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			</p>
 			<div className="grid gap-2">
 				{formMenuDecided.map(({ form, visibility }) => {
+					const localizedFormName =
+						(localizedValues.get(
+							makeTranslationUnitId("form", form.uuid, "name"),
+						) as string | undefined) ?? form.name;
 					if (visibility === "hidden") return null;
 					if (visibility === "pending") {
 						return (
@@ -1148,7 +1194,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 								data-form-menu-choice-label
 								className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]"
 							>
-								{form.name}
+								{localizedFormName}
 							</span>
 							<Icon
 								icon={tablerArrowRight}

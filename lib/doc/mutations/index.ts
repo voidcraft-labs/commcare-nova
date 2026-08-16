@@ -170,8 +170,6 @@ function applyOne(draft: Draft<BlueprintDoc>, mut: Mutation): MutationResult {
 	const doc = draft as unknown as BlueprintDoc;
 	const plan = planReferenceIndexMaintenance(doc, mut);
 	const result = dispatchMutation(draft, mut);
-	pruneOrphanTranslationEntries(draft);
-	dematerializeLegacyLocalization(draft);
 	applyReferenceIndexMaintenance(doc, plan);
 	return result;
 }
@@ -223,6 +221,13 @@ export function applyMutations(
 	for (const mut of reductionMutations) {
 		results.push(applyOne(draft, mut));
 	}
+	// Translation overlays are dependent state of the final structural
+	// endpoint, not an invariant any mid-batch reducer reads. Prune and collapse
+	// once after the complete batch: initial localization may contain one entry
+	// mutation per unit per target, so rebuilding the whole inventory after each
+	// one would turn a linear commit into quadratic work.
+	pruneOrphanTranslationEntries(draft);
+	dematerializeLegacyLocalization(draft);
 	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
 	rebuildFieldParent(draft as unknown as BlueprintDoc);
 	devAssertReferenceIndexParity(draft as unknown as BlueprintDoc);

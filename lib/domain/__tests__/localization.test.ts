@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	caseListConfig,
+	f,
+	resolveCaseListConfig,
+} from "@/lib/__tests__/docHelpers";
 import {
 	appLocalizationSchema,
 	CLASSIC_LANGUAGE_OPTIONS,
 	collectLocalizedTranslationUnits,
+	collectTranslationCoverageDiagnostics,
 	collectTranslationUnits,
 	effectiveAppLocalization,
+	type LookupColumnId,
+	type LookupTableId,
 	makeTranslationUnitId,
 	proseText,
 	simpleSearchInputDef,
@@ -132,6 +140,53 @@ describe("translation unit inventory", () => {
 		]);
 	});
 
+	it("gives repeated case-property values injective option-label units", () => {
+		const doc = buildDoc({
+			appName: "Clinic",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "status",
+							label: "Status",
+							data_type: "multi_select",
+							options: [
+								{ value: "same", label: "First label" },
+								{ value: "same", label: "Second label" },
+							],
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "status", header: "Status" },
+					]),
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						},
+					],
+				},
+			],
+		});
+		const units = collectTranslationUnits(doc).filter(
+			(unit) => unit.role === "case-property-option-label",
+		);
+		expect(units).toHaveLength(2);
+		expect(new Set(units.map((unit) => unit.id)).size).toBe(2);
+		expect(units.map((unit) => unit.owner)).toMatchObject([
+			{ kind: "case-property-option", value: "same", occurrence: 0 },
+			{ kind: "case-property-option", value: "same", occurrence: 1 },
+		]);
+	});
+
 	it("falls back to current source when a stored target becomes stale", () => {
 		const { doc } = fixture();
 		const unit = collectTranslationUnits(doc).find(
@@ -238,5 +293,48 @@ describe("translation unit inventory", () => {
 			"blank-content",
 		);
 		expect(translationValueIntegrityIssue(hint, proseText(""))).toBeUndefined();
+	});
+
+	it("reports carriers that cannot honestly count toward static coverage", () => {
+		const doc = buildDoc({
+			appName: "Clinic",
+			modules: [
+				{
+					uuid: "localization-diagnostics-module",
+					name: "Patients",
+					forms: [
+						{
+							uuid: "localization-diagnostics-form",
+							name: "Intake",
+							type: "survey",
+							fields: [
+								f({
+									uuid: "localization-diagnostics-field",
+									kind: "single_select",
+									id: "facility",
+									label: "Facility",
+									optionsSource: {
+										kind: "lookup",
+										tableId:
+											"018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId,
+										valueColumnId:
+											"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId,
+										labelColumnId:
+											"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId,
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+		expect(collectTranslationCoverageDiagnostics(doc)).toEqual([
+			expect.objectContaining({
+				code: "lookup-labels-need-localized-data",
+				affectedCount: 1,
+			}),
+		]);
 	});
 });

@@ -566,16 +566,18 @@ describe("emitShortDetail — multi-kind integration", () => {
 		// Interval-always — divisor 7, threshold 14, label.
 		expect(out.xml).toContain("(today() - date(last_visit)) div 7");
 		expect(out.xml).toContain("today() - date(last_visit) &gt; 14");
-		expect(out.xml).toContain("&apos;Overdue&apos;");
+		expect(out.xml).toContain("$knova_text_0");
+		expect(Object.values(out.strings)).toContain("Overdue");
 		// Phone — same XPath as plain on short detail.
 		expect(out.xml).toContain('<xpath function="phone"/>');
 		// ID-mapping — selected() chain wrapped in replace(join(...)).
 		expect(out.xml).toContain(
-			"replace(join(&apos; &apos;, if(selected(region, &apos;N&apos;), &apos;North&apos;, &apos;&apos;), if(selected(region, &apos;S&apos;), &apos;South&apos;, &apos;&apos;)), &apos;\\s+&apos;, &apos; &apos;)",
+			"replace(join(&apos; &apos;, if(selected(region, &apos;N&apos;), $knova_text_0, &apos;&apos;), if(selected(region, &apos;S&apos;), $knova_text_1, &apos;&apos;)), &apos;\\s+&apos;, &apos; &apos;)",
 		);
+		expect(Object.values(out.strings)).toContain("North");
 		// Interval-flag — threshold 4 weeks = 28 days.
 		expect(out.xml).toContain(
-			"if(last_visit = &apos;&apos;, &apos;!&apos;, if(today() - date(last_visit) &gt; 28, &apos;!&apos;, &apos;&apos;))",
+			"if(last_visit = &apos;&apos;, $knova_text_0, if(today() - date(last_visit) &gt; 28, $knova_text_0, &apos;&apos;))",
 		);
 		// Calculated column — inline-variable template shape.
 		// `$calculated_property` serializes verbatim (`$` is not a special
@@ -595,9 +597,13 @@ describe("emitShortDetail — multi-kind integration", () => {
 			"m0.case_short.case_full_name_1.header": "Name",
 			"m0.case_short.case_birthdate_2.header": "Birthdate",
 			"m0.case_short.case_last_visit_3.header": "Weeks since visit",
+			"m0.case_short.case_last_visit_3.enum.knova_text_0": "Overdue",
 			"m0.case_short.case_phone_4.header": "Phone",
 			"m0.case_short.case_region_5.header": "Region",
+			"m0.case_short.case_region_5.enum.knova_text_0": "North",
+			"m0.case_short.case_region_5.enum.knova_text_1": "South",
 			"m0.case_short.case_last_visit_6.header": "Late",
+			"m0.case_short.case_last_visit_6.enum.knova_text_0": "!",
 			"m0.case_short.case_calculated_property_7.header": "My Calc",
 		});
 	});

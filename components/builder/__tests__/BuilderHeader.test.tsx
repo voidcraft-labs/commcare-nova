@@ -37,6 +37,9 @@ vi.mock("@/components/builder/PresenceRoster", () => ({
 vi.mock("@/components/builder/PreviewToggle", () => ({
 	PreviewToggle: () => <button type="button">Preview</button>,
 }));
+vi.mock("@/components/builder/localization/LanguageSelector", () => ({
+	LanguageSelector: () => <button type="button">English en</button>,
+}));
 vi.mock("@/components/builder/SaveIndicator", () => ({
 	SaveIndicator: ({ compact }: { compact?: boolean }) => (
 		<span data-testid="save-status" data-compact={compact || undefined} />

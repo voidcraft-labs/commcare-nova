@@ -9,16 +9,37 @@
 
 "use client";
 
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/doc/types";
-import type { Form, FormType, Module } from "@/lib/domain";
-import { isCaseFirstModule } from "@/lib/domain";
+import {
+	type Form,
+	type FormType,
+	isCaseFirstModule,
+	type Module,
+	projectLocalizedForm,
+	projectLocalizedModule,
+} from "@/lib/domain";
 import {
 	useBlueprintDoc,
 	useBlueprintDocEq,
 	useBlueprintDocShallow,
 } from "./useBlueprintDoc";
+
+function sameEntitySequence<T>(
+	left: readonly T[],
+	right: readonly T[],
+): boolean {
+	return (
+		sameSequenceByIdentity(left, right) ||
+		(left.length === right.length &&
+			left.every(
+				(entity, index) =>
+					JSON.stringify(entity) === JSON.stringify(right[index]),
+			))
+	);
+}
 
 /** Module UUIDs in `moduleOrder` sequence. Reference-stable while that sequence
  * is unchanged. */
@@ -26,15 +47,20 @@ export function useModuleIds(): Uuid[] {
 	return useBlueprintDocEq((s) => [...s.moduleOrder], sameSequenceByIdentity);
 }
 
-/** Modules in DISPLAY sequence. Reference-stable when the sequence (by entity
- *  reference) is unchanged. */
+/** Modules in display sequence. Stable while their selected-language
+ * projections and sequence are unchanged. */
 export function useOrderedModules(): Module[] {
+	const language = useContext(BlueprintAuthoringLanguageContext);
 	return useBlueprintDocEq(
 		(s) =>
 			[...s.moduleOrder]
-				.map((uuid) => s.modules[uuid])
+				.map((uuid) =>
+					language === null
+						? s.modules[uuid]
+						: projectLocalizedModule(s, language, uuid),
+				)
 				.filter((m): m is Module => m !== undefined),
-		sameSequenceByIdentity,
+		sameEntitySequence,
 	);
 }
 
@@ -52,16 +78,21 @@ export function useFormIds(moduleUuid: Uuid): Uuid[] | undefined {
 	);
 }
 
-/** Forms for a given module in DISPLAY sequence. Reference-stable when the
- *  sequence (by entity reference) is unchanged; empty array while no module is
- *  selected or for an unknown module. */
+/** Forms for a given module in display sequence. Stable while their
+ * selected-language projections and sequence are unchanged; empty while no
+ * module is selected or for an unknown module. */
 export function useOrderedForms(moduleUuid: Uuid | undefined): Form[] {
+	const language = useContext(BlueprintAuthoringLanguageContext);
 	return useBlueprintDocEq(
 		(s) =>
 			(moduleUuid === undefined ? [] : (s.formOrder[moduleUuid] ?? []))
-				.map((uuid) => s.forms[uuid])
+				.map((uuid) =>
+					language === null
+						? s.forms[uuid]
+						: projectLocalizedForm(s, language, uuid),
+				)
 				.filter((f): f is Form => f !== undefined),
-		sameSequenceByIdentity,
+		sameEntitySequence,
 	);
 }
 

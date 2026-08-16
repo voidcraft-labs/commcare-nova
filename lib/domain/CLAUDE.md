@@ -37,7 +37,10 @@ direction metadata.
 
 `translationUnits.ts::collectTranslationUnits` is the ONE inventory of static
 worker-facing strings. A unit id is an injective, versioned projection of stable
-owner identity plus semantic slot, never visible text or collection position.
+owner identity plus semantic slot, never visible text. Case-property option
+values are their semantic key; because Classic accepts repeated stored values,
+later same-value occurrences add their stable same-value ordinal so no legal
+label silently aliases the first occurrence.
 Builder, tools, Preview, translation orchestration, and wire emission resolve
 language values through `resolveTranslationUnit(s)` rather than independently
 walking labels. Each target entry fingerprints the current source. Missing and
@@ -47,6 +50,12 @@ translations may reorder literal text and reference parts, but must preserve the
 exact multiset and identity of every protected reference part. A source edit
 therefore makes overlays stale rather than rewriting them, while removal of the
 owning slot prunes its now-orphaned entries.
+
+`collectTranslationCoverageDiagnostics` is the adjacent honesty boundary for
+worker-facing carriers that the static overlay cannot represent. Lookup-backed
+labels, Connect text, shared media, and recipient-owned automation messages are
+reported to Builder and agents but never counted as untranslated inventory or
+silently promised per-locale behavior.
 
 ## Automations describe HQ behavior; they never execute here
 

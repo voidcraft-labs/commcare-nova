@@ -21,6 +21,7 @@ import type { IconifyIcon } from "@iconify/types";
 import tablerBuildingCommunity from "@iconify-icons/tabler/building-community";
 import tablerClockBolt from "@iconify-icons/tabler/clock-bolt";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
+import tablerLanguage from "@iconify-icons/tabler/language";
 import tablerUsers from "@iconify-icons/tabler/users";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { useNavigate } from "@/lib/routing/hooks";
@@ -31,12 +32,14 @@ import {
 } from "@/lib/routing/types";
 import { selectableSegmentCls } from "@/lib/styles";
 import { AutomationsSection } from "./AutomationsSection";
+import { LanguagesSection } from "./LanguagesSection";
 import { OrganizationSection } from "./OrganizationSection";
 import { UsersSection } from "./UsersSection";
 
 const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
 	users: tablerUsers,
 	organization: tablerBuildingCommunity,
+	languages: tablerLanguage,
 	automations: tablerClockBolt,
 	publishing: tablerCloudUpload,
 };
@@ -49,7 +52,10 @@ const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
  */
 const SECTION_PENDING_COPY: Readonly<
 	Record<
-		Exclude<AppSetupSection, "users" | "organization" | "automations">,
+		Exclude<
+			AppSetupSection,
+			"users" | "organization" | "languages" | "automations"
+		>,
 		string
 	>
 > = {
@@ -103,6 +109,8 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 						<UsersSection />
 					) : section === "organization" ? (
 						<OrganizationSection />
+					) : section === "languages" ? (
+						<LanguagesSection />
 					) : section === "automations" ? (
 						<AutomationsSection />
 					) : (
@@ -121,7 +129,10 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 function PendingSection({
 	section,
 }: {
-	section: Exclude<AppSetupSection, "users" | "organization" | "automations">;
+	section: Exclude<
+		AppSetupSection,
+		"users" | "organization" | "languages" | "automations"
+	>;
 }) {
 	return (
 		<section aria-labelledby={`app-setup-${section}-heading`}>

@@ -34,12 +34,29 @@ per-unit values are durable rather than reducer-minted. A translation write must
 name an existing current unit and carry its exact source fingerprint; prose
 writes preserve protected references. `reviewTranslation` additionally fences
 the prior value and fingerprint so a reviewer cannot silently bless a source or
-peer edit they did not inspect. Every reducer pass prunes overlay entries whose
-unit owner no longer exists. Source edits retain the same unit id and make its
-entry out of date. App-wide case-property rename is the one semantic cascade:
+peer edit they did not inspect. The shared tool fence separately echoes the
+current source fingerprint for both set and review, while review also compares
+the prior explicit entry. Each complete mutation batch prunes overlay entries
+whose unit owner no longer exists exactly once after its structural endpoint is
+known; individual translation writes never rebuild the whole inventory. Source
+edits retain the same unit id and make its entry out of date. App-wide
+case-property rename is the one semantic cascade:
 it rewrites matching protected prose tokens in target entries, remaps the
 semantic case-property-option unit ids, and advances the fingerprint only for
 entries that were current before that rename.
+
+The Builder's selected worker-language lens is ambient only inside
+`BuilderLocalizationProvider`. Named entity hooks project app/module/form/field
+display text through that context, and `useBlueprintMutations` lowers edits of
+existing worker-facing slots into reviewed `setTranslation` commands before
+the ordinary commit gate. Mixed edits keep their structural portion canonical
+and restore source text carried by localized whole-value editor snapshots, so
+an unrelated option or column change cannot copy a target label into the source
+document. A target cannot create an optional string whose source slot does not
+yet exist; the author creates that source content under the source lens first.
+Agent, MCP, replay, hydration, autosave folding, and direct reducer callers sit
+outside this context and continue to consume the canonical mutation dialect
+with no ambient language behavior.
 
 Every semantic merge unit has one final payload. A field stores its exclusive `optionsSource` inside the field/update patch. `updateColumn` carries exactly one content, sort, tile, or visibility payload; content replacement preserves the other independently-owned facets from fresh state. `moveColumn` changes one named Results/Details sequence, and `addColumn` names its placement in both. Search presence, per-setting changes, owner-only provenance, and final-input cleanup are explicit `updateModule` semantic payloads. Case-operation add/remove use `caseOperationChange`; every existing-operation scalar, write, link, or order edit uses only `caseOperationPatch`. No payload is paired with a duplicate whole-object body for another reducer.
 **Clearing an optional slot uses an explicit `null`, never `undefined`.** A clear must survive two serialization hops: the SSE `data-mutations` wire and the persisted jsonb (both are `JSON.stringify`, which DROPS `undefined`-valued keys). An `undefined`-valued clear applies in memory but round-trips through neither — it never reaches the client doc store, and the next auto-save re-writes the stale value. `null` survives both. So `updateField`, `updateModule`, and `updateForm` all blank a property by setting it to `null`: each reducer applies its patch key-by-key, deleting the slot on `null` or `undefined` (only `null` round-trips). Their patch schemas make the CLEARABLE (`.optional()`) slots `null`-accepting (`clearablePartialPatch` in `types.ts` mirrors `partialOf` in `lib/domain/fields`), so a `null`-clear parses; the edit-tool schema reserves `null` for "clear". This null-as-delete rule is scoped to these three patch reducers — do NOT extend it to `setConnectType`, whose slot is genuinely `.nullable()` and stores `null` as a real value. `form.connect` is optional in a final `Form`, so the raw `updateForm` mutation uses `null` to remove the whole block; committed documents store either absence or a complete Connect configuration, never `connect: null`. That raw mutation is emitted only inside `connectTargetState.ts`'s complete app-wide plan: the public SA/MCP `updateForm` tool cannot change participation. A required slot (`id` / `name` / `type`) stays non-nullable in the patch schema, so a stray `null` for it is a parse error rather than a corrupting assign — `updateModule` / `updateForm` apply their patch without a final whole-entity re-parse. Media slots — field message media, module/form menu media, app logo — clear through dedicated mutation kinds (`setFieldMedia` / `setModuleMedia` / `setFormMedia` / `setAppLogo`) instead. Each carries an explicit nullable wire value, and the reducer deletes the optional property on `null`; canonical documents never store own properties whose value is `undefined`. Media is deliberately excluded from the generic field-edit surface. (A concrete array survives JSON whole, so a wholesale `{ options: [...] }` / `{ caseListConfig: {...} }` patch can clear a NESTED key by omitting it from the rebuilt object — that wholesale-replace path needs no per-key null and stays on `updateField` / `updateModule`.)

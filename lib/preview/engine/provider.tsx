@@ -33,9 +33,11 @@ import {
 	type ReactNode,
 	useContext,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 } from "react";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
@@ -63,6 +65,7 @@ export function BuilderFormEngineProvider({
 	children: ReactNode;
 }) {
 	const docStore = useContext(BlueprintDocContext);
+	const presentationLanguage = useContext(BlueprintAuthoringLanguageContext);
 	const session = useOptionalBuilderSessionApi();
 
 	/* Create the controller AND bind the doc store + preview identity
@@ -83,6 +86,7 @@ export function BuilderFormEngineProvider({
 	const [controller] = useState(() => {
 		const c = new EngineController();
 		if (docStore) c.setDocStore(docStore);
+		c.setPresentationLanguage(presentationLanguage);
 		c.setPreviewIdentityBlocked(identityState.kind === "persona-unavailable");
 		if (identityState.kind === "ready") {
 			c.setPreviewIdentity(identityState.identity);
@@ -119,6 +123,13 @@ export function BuilderFormEngineProvider({
 		controller.setPreviewIdentityBlocked(false);
 		controller.setPreviewIdentity(identityState.identity);
 	}, [controller, identityState]);
+
+	/* URL-owned language changes must reach the engine before paint so a
+	 * localized rendered field and its dynamic resolved prose never flash two
+	 * different languages. The initializer above covers the first mount. */
+	useLayoutEffect(() => {
+		controller.setPresentationLanguage(presentationLanguage);
+	}, [controller, presentationLanguage]);
 
 	/* The reset signal starts before the authoritative GET knows whether the
 	 * app actually changed Projects, so it cannot retire form state. Observe
