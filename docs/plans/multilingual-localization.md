@@ -14,16 +14,22 @@ durable post-slice translation finalizer, exact-direction capability policy,
 translation model role and structured protocol, recovery and exact-once usage
 accounting, atomic localization receipt, translating progress, design intent,
 conversation-language guidance, and paid evaluation harness are also
-implemented on the current stack. The production capability manifest currently
-contains no Available direction, so none of that infrastructure can initiate a
-paid automatic run until an exact evaluation and bilingual review are accepted.
+implemented on the current stack. The production capability manifest marks
+every direction between distinct members of the checked-in 57-language launch
+set Available. Every other Classic-compatible language remains fully
+manual/copy-capable and does not offer automatic translation.
 Capability-specific public documentation is part of the Nova surface. The
-dependent `nova-plugin` 1.19.0 release is prepared in
+final runtime also keeps duplicate-value option labels independently
+translatable, fences agent writes against source drift, prunes overlays once per
+admitted batch, searches the localized text it renders, and exposes language
+review controls and direction to assistive technology. The dependent
+`nova-plugin` 1.19.0 release is prepared in
 `voidcraft-labs/nova-plugin#43` with the complete language tool family,
-conversation-language rule, and source-contract CI. Final frozen-SHA review,
-local validation, and plugin contract validation are complete. GitHub CI must
-remain green at the approval boundary. Explicit merge approval, Nova deployment
-verification, and the ordered plugin release remain.
+conversation-language rule, write-fencing contract, and green source-contract
+CI. The approval boundary requires local validation of the exact rebased stack,
+a frozen-head closure review, and green GitHub CI. Merge still requires explicit
+approval, followed by Nova deployment verification and the ordered plugin
+release.
 
 Keep this document as a description of the best current design and the actual
 implementation state. When implementation teaches us something better, rewrite
@@ -330,8 +336,10 @@ App setup gains a Languages section containing:
 - a searchable and filterable translation workspace.
 
 The Add language dialog asks for a target and an existing “Start with”
-language. Copy is always available. “Translate with Nova” is offered only when
-the exact direction passes the current AI capability policy.
+language. Copy is always available. The workspace reports whether the exact
+direction belongs to the automatic launch set, but this ordinary edit gesture
+never initiates a paid model call: automatic translation currently runs only as
+the explicit finalizer of an accepted initial-build contract.
 
 The translation workspace uses source/target rows grouped by owning screen and
 form. Context is concrete, for example “Intake → Patient name → Hint.” It has
@@ -371,8 +379,10 @@ The implemented names follow the registry's camelCase SA / snake_case MCP
 convention. `add_language` is the nonblank product operation: it composes the
 raw language mutation with one explicit copied entry per current unit in a
 single commit. `update_translations` accepts at most 50 unique units, treats
-machine-authored values as Needs review, and uses an exact prior-value and
-source-fingerprint fence for review/keep actions. All mutations use the same
+machine-authored values as Needs review, requires a set to echo the current
+source fingerprint it translated, and requires review/keep to echo the current
+source fingerprint plus the prior explicit entry's fingerprint and value. All
+mutations use the same
 document grammar and commit gate as the Builder. `get_translatable_content` is
 snapshot-bound, bounded, and pageable, supports language, owner, role, text,
 and status filters, and exposes context plus protected segments from the
@@ -381,15 +391,14 @@ bounded translation mutations. Nova's durable translator runs only as part of
 an accepted initial-build localization intent whose exact direction is
 Available.
 
-There is deliberately no dormant high-level existing-app translation tool while
-the production policy has zero Available directions. Such a tool could only
-refuse every request, while exposing the Sol runner directly through an ordinary
-mutation tool would bypass paid-run admission, durable recovery, and exact-once
-accounting. Enabling the first Available direction must ship its existing-app
-Builder/chat action on a general durable edit-translation lifecycle; it must not
-reuse design-build lineage tables or turn a long paid side effect into an
-ordinary shared mutation call. Until then, the bounded inventory and update
-tools are the honest manual/external-agent surface.
+There is deliberately no high-level existing-app automatic-translation tool.
+The initial-build finalizer owns paid-run admission, durable recovery, and
+exact-once accounting for accepted build intent; exposing its Sol runner through
+an ordinary mutation tool would bypass those guarantees. A future existing-app
+Builder/chat action needs its own general durable edit-translation lifecycle and
+must not reuse design-build lineage tables. Until then, the bounded inventory
+and update tools are the honest manual/external-agent surface even for a pair
+that is Available during initial build.
 
 The follow-up SA responds in the language the user is speaking unless the user
 asks for a different response language. That conversational choice is separate
@@ -442,17 +451,18 @@ is directional and gated separately. Nova must not claim that Sol supports a
 language merely because Classic accepts its ISO code or because the model can
 produce some text in it.
 
-The production allowlist is informed by:
+The checked-in launch manifest contains exactly the 57 languages selected for
+Nova's initial product policy. Every direction between two distinct manifest
+members is Available. Exact listed varieties resolve before ordinary regional
+fallback; equivalent two-letter, ISO 639-2, and regional CommCare codes resolve
+to the same launch identity. Codes outside that resolved set remain Not
+evaluated for automatic translation without losing any manual, copy, Preview,
+or export capability.
 
-1. current official OpenAI statements about the exact deployed model;
-2. relevant published multilingual benchmarks whose task resembles translation
-   rather than English-only reasoning translated after the fact;
-3. Nova-owned directional fixtures covering plain text, markdown, protected
-   references, option sets, validation messages, domain terminology, and
-   low-resource-language failure behavior;
-4. an explicit quality threshold and human review of the acceptance languages.
-
-The current public evidence does not justify a broad Sol allowlist:
+This launch set is a deliberate product allowlist, not an assertion that
+OpenAI published those exact languages for Sol or that every directed pair has
+independent benchmark certification. Public evidence remains useful context but
+does not provide an exact Sol support table:
 
 - OpenAI's current [Sol model page](https://developers.openai.com/api/docs/models/gpt-5.6-sol),
   [GPT-5.6 announcement](https://openai.com/index/gpt-5-6/), and
@@ -471,24 +481,22 @@ The current public evidence does not justify a broad Sol allowlist:
   weakness. It demonstrates plausible capability in those tested directions;
   it does not establish broad language coverage.
 
-Nova therefore enables no direction merely from an ISO code, model-family
-reputation, or a generic multilingual score. Automatic translation has three
-plain-language availability states:
+Automatic translation has three plain-language availability states:
 
-- **Available**: this exact direction and deployed model snapshot pass Nova's
-  current acceptance suite and human review.
+- **Available**: both resolved language identities belong to the 57-language
+  launch set and the exact direction may use Nova's durable initial-build
+  translator. Machine output still starts Needs review.
 - **Not evaluated**: manual authoring and copy are fully available, but Nova
   makes no quality claim and does not offer a paid automatic run.
 - **Withheld**: current evidence failed the quality threshold; Nova explains
   the tested limitation without describing the language itself as unsupported.
 
-The policy is direction-specific: passing English→Spanish says nothing by
-itself about Spanish→English or Spanish→French. English↔Spanish is the first
-required bidirectional acceptance pair. French→English is also an initial
-acceptance direction so an end-to-end reverse test can conduct the Nova
-conversation in French, preserve French as canonical app content, and request
-English worker-facing translations. Until those paid evaluations pass, the UI
-reports them as Not evaluated rather than optimistically enabling them.
+The policy is evaluated directionally even though the launch manifest currently
+opens every distinct ordered pair within the set. That keeps future evidence
+able to Withhold one weak direction without mischaracterizing its reverse. It
+also supports the intended reverse test: a Nova conversation can be conducted
+in French while the app preserves French canonical content and requests English
+worker-facing translations.
 
 `npm run eval:translations` is the explicit paid harness. It requires
 `--confirm-paid`, one `--direction source:target`, and a new output directory;
@@ -498,8 +506,8 @@ public-health terminology, related option sets, validation instructions,
 meaningful markdown delimiters, and protected references. Any Classic catalog
 target may be tested. A run writes the exact candidate, model/prompt/schema and
 fixture versions, usage, deterministic structural checks, and a separate
-bilingual-review template. Only a reviewed code change may convert that evidence
-into Available or Withheld policy.
+bilingual-review template. It supplies evidence for future policy refinement
+but never changes the checked-in launch manifest by itself.
 
 ## Initial build integration
 
@@ -533,10 +541,9 @@ semantic batch index, while exact-once usage accounting retains the failed
 call's cost.
 
 Later source edits derive Missing/Out-of-date status immediately. Nova never
-makes an unannounced paid call after a keystroke. The first Available direction
-ships with an explicit existing-app action backed by its own durable edit
-lifecycle; until then authors and external agents use the bounded inventory and
-translation mutations.
+makes an unannounced paid call after a keystroke. Existing-app authors and
+external agents use the bounded inventory and translation mutations until the
+separate durable edit-translation lifecycle exists.
 
 ## CommCare emission
 
@@ -633,9 +640,9 @@ architecture layer. The expected stack is:
    implemented layer consumes the final foundation APIs directly.
 3. **AI orchestration** — Design Contract, build finalizer, durable translation
    staging/recovery, model role, prompts, capability policy/evaluation harness,
-   progress, exact-once usage accounting, and atomic localization receipt. The
-   first policy-enabling change also owns the general existing-app action rather
-   than shipping a permanently refusing placeholder in this layer.
+   progress, exact-once usage accounting, and atomic localization receipt. It
+   runs only for accepted initial-build intent; a future existing-app action
+   requires a separate durable edit lifecycle rather than a placeholder here.
 4. **Plugin release** — the dependent `nova-plugin` contract and version bump,
    based on the final Nova MCP behavior and merged only after Nova deployment.
 
