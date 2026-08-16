@@ -53,6 +53,10 @@ const SOURCE_CLASSIFICATION = {
 	"lib/agent/change-set/workspace.ts": "admits-proposal",
 	"lib/agent/generationContext.ts": "admits-proposal",
 	"lib/agent/tools/common.ts": "admits-proposal",
+	// The post-slice finalizer builds the complete language mutation set,
+	// admits it once, then hands that protected batch to applyBlueprintChange
+	// with the atomic localization-receipt sidecar.
+	"lib/agent/translation/finalizer.ts": "admits-proposal",
 	// The canonical workspace runs the optimistic admission + whole-document
 	// verdict over each invocation's proposal; its host seam carries the
 	// prepared candidate to the surface writers.
@@ -118,6 +122,10 @@ const MUTATION_LIFECYCLE_FAMILIES = [
 	[
 		"single and staged MCP planning",
 		["lib/agent/tools/common.ts", "lib/mcp/context.ts"],
+	],
+	[
+		"initial-build localization finalizer",
+		["lib/agent/translation/finalizer.ts"],
 	],
 	["whole-document diff", ["lib/doc/diffDocsToMutations.ts"]],
 	[
@@ -497,6 +505,7 @@ describe("mutation lifecycle source tripwire", () => {
 			"Connect direct session action",
 			"single and staged SA planning",
 			"single and staged MCP planning",
+			"initial-build localization finalizer",
 			"whole-document diff",
 			"frozen repair and synthetic writers",
 			"Project-move media remap",

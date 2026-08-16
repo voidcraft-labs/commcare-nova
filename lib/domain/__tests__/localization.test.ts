@@ -34,7 +34,10 @@ describe("app localization vocabulary", () => {
 	});
 
 	it("mirrors Classic's complete picker catalog without closing custom aliases", () => {
-		expect(CLASSIC_LANGUAGE_OPTIONS).toHaveLength(487);
+		expect(CLASSIC_LANGUAGE_OPTIONS).toHaveLength(486);
+		expect(
+			new Set(CLASSIC_LANGUAGE_OPTIONS.map((option) => option.code)).size,
+		).toBe(CLASSIC_LANGUAGE_OPTIONS.length);
 		expect(CLASSIC_LANGUAGE_OPTIONS.map((option) => option.code)).toEqual(
 			expect.arrayContaining(["en", "es", "af", "sw", "fra", "ara"]),
 		);

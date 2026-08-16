@@ -821,6 +821,86 @@ export interface DesignModelStepUsageAccountsTable {
 	accounted_at: Timestamp;
 }
 
+/** One post-slice localization authority row for an exact accepted plan. */
+export interface DesignLocalizationAttemptsTable {
+	id: string;
+	design_session_id: string;
+	design_revision_id: string;
+	design_revision_digest: string;
+	build_plan_id: string;
+	build_plan_digest: string;
+	app_id: string;
+	source_seq: BigIntColumn;
+	source_snapshot_digest: string;
+	intent_digest: string;
+	intent: JSONColumnType<Record<string, unknown>, string, never>;
+	status: string;
+	committed_seq: BigIntColumn | null;
+	committed_batch_id: string | null;
+	committed_snapshot_digest: string | null;
+	created_by_run_id: string;
+	updated_by_run_id: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+/** One stable translation batch; the accepted output and usage publish
+ * together after the provider call. */
+export interface DesignLocalizationBatchesTable {
+	id: string;
+	attempt_id: string;
+	batch_index: number;
+	source_language: string;
+	target_language: string;
+	unit_ids: JSONColumnType<readonly string[], string, never>;
+	input_digest: string;
+	model_id: string;
+	prompt_version: string;
+	schema_version: string;
+	status: string;
+	claim_token: string | null;
+	claimed_by_run_id: string | null;
+	output: JSONColumnType<
+		Record<string, unknown> | null,
+		string | null,
+		string | null
+	>;
+	usage: JSONColumnType<
+		Record<string, unknown> | null,
+		string | null,
+		string | null
+	>;
+	failure_code: string | null;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+/** Immutable proof that one localization attempt owns the canonical head. */
+export interface DesignLocalizationReceiptsTable {
+	id: string;
+	attempt_id: string;
+	design_session_id: string;
+	design_revision_id: string;
+	design_revision_digest: string;
+	build_plan_id: string;
+	build_plan_digest: string;
+	app_id: string;
+	source_seq: BigIntColumn;
+	source_snapshot_digest: string;
+	seq: BigIntColumn;
+	batch_id: string;
+	committed_snapshot_digest: string;
+	mutation_count: number;
+	created_at: Timestamp;
+}
+
+/** Exact-once bridge from an accepted/failed paid batch to run billing. */
+export interface DesignLocalizationBatchUsageAccountsTable {
+	batch_id: string;
+	run_id: string;
+	accounted_at: Timestamp;
+}
+
 export interface DesignIdentityHandlesTable {
 	design_session_id: string;
 	handle: string;
@@ -1103,6 +1183,10 @@ export interface AppDatabase {
 	design_model_context_items: DesignModelContextItemsTable;
 	design_model_steps: DesignModelStepsTable;
 	design_model_step_usage_accounts: DesignModelStepUsageAccountsTable;
+	design_localization_attempts: DesignLocalizationAttemptsTable;
+	design_localization_batches: DesignLocalizationBatchesTable;
+	design_localization_receipts: DesignLocalizationReceiptsTable;
+	design_localization_batch_usage_accounts: DesignLocalizationBatchUsageAccountsTable;
 	design_identity_handles: DesignIdentityHandlesTable;
 	thread_media_refs: ThreadMediaRefsTable;
 }

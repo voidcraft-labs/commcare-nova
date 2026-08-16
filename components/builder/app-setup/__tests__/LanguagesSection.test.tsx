@@ -146,6 +146,11 @@ describe("LanguagesSection", () => {
 				screen.getByRole("heading", { name: "español strings" }),
 			).toBeTruthy(),
 		);
+		expect(
+			screen.getByText(
+				/automatic translation from English to español are available/,
+			),
+		).toBeTruthy();
 		const current = store?.getState();
 		if (current === undefined) throw new Error("Expected the document store.");
 		const localization = effectiveAppLocalization(current.localization);
@@ -221,6 +226,37 @@ describe("LanguagesSection", () => {
 			).value,
 		).toBe("Nombre objetivo");
 		expect(screen.getByText("Showing 1 of 5 strings")).toBeTruthy();
+	});
+
+	it("falls back to the default inventory when a peer removes the selected target", async () => {
+		renderSection();
+		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
+		fireEvent.change(screen.getByLabelText("Language code"), {
+			target: { value: "es" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add and copy strings" }),
+		);
+		await screen.findByRole("heading", { name: "español strings" });
+
+		if (store === undefined) throw new Error("Expected the document store.");
+		const remote = prepareMutationCandidate(
+			store.getState(),
+			admitMutationBatch([{ kind: "removeLanguage", code: "es" }]),
+		);
+		act(() => {
+			store?.getState().beginRemoteApply();
+			try {
+				store?.getState().commitDoc(remote.nextDoc, remote.mutations);
+			} finally {
+				store?.getState().endRemoteApply();
+			}
+		});
+
+		await screen.findByRole("heading", { name: "English strings" });
+		expect(
+			screen.getByText("This is the canonical content.", { exact: false }),
+		).toBeTruthy();
 	});
 
 	it("names translation search and exposes the selected language state", async () => {

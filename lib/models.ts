@@ -121,6 +121,10 @@ export const MODEL_ROLES = {
 		modelId: "gpt-5.6-luna",
 		reasoningEffort: "xhigh",
 	},
+	translator: {
+		modelId: "gpt-5.6-sol",
+		reasoningEffort: "medium",
+	},
 } as const satisfies Record<string, ModelRoleConfig>;
 
 /**

@@ -55,6 +55,7 @@ import {
 	type LanguageCode,
 	materializableCaseTypes,
 	projectLocalizedFields,
+	resolveAppLanguage,
 	type Uuid,
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
@@ -168,7 +169,10 @@ function buildEngineInput(
 		fields:
 			language === null
 				? (state.fields as unknown as Record<string, Field>)
-				: projectLocalizedFields(state, language),
+				: projectLocalizedFields(
+						state,
+						resolveAppLanguage(state.localization, language),
+					),
 		fieldOrder: state.fieldOrder as unknown as Record<string, Uuid[]>,
 		caseTypes: materializableCaseTypes(state),
 		userProperties: state.userProperties,

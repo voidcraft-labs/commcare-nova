@@ -27,10 +27,25 @@ its display name and left-to-right or right-to-left direction. Manual editing,
 copying, Preview, export, and CommCare HQ upload do not depend on whether Nova's
 AI can translate that language.
 
-Automatic translation is a separate capability. Nova offers it only for an
-exact source-to-target direction that has passed the current quality review. A
-language may therefore be fully supported for authoring and export even when
-automatic translation is not offered for it.
+Automatic translation is a separate launch capability. Nova offers it in every
+direction between two distinct members of its checked-in 57-language launch
+set. Equivalent two-letter and CommCare picker codes resolve to the same
+language, so English (`en` or `eng`) to Spanish (`es` or `spa`), for example,
+has one availability result. Languages outside the set remain fully supported
+for manual authoring, copy, Preview, and export.
+
+The 57-language set is a product launch allowlist, not a provider-published
+support list or a claim that bilingual reviewers have certified all 3,192
+directions. Every machine translation starts as **Needs review**, and program
+terminology, meaning, and naturalness still need a person who knows the target
+language.
+
+For an available pair, an initial chat build may request
+**Translate with Nova**. Nova first builds every canonical source-language
+workflow, then translates the complete final string inventory before validating
+and finishing the app. Machine-authored values always start as **Needs review**;
+a translation failure fails that requested build instead of silently releasing
+copied source text as though it were translated.
 
 ## Review all translated content
 

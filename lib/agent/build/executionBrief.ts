@@ -286,7 +286,6 @@ const CONSTRAINT_AREAS: Readonly<
 	GAP_NESTED_MENUS: ["navigation"],
 	GAP_SESSION_ENDPOINTS_DEEP_LINKS: ["navigation"],
 	GAP_MULTI_SELECT_RELATED_CASES: ["case-list", "forms"],
-	GAP_MULTILINGUAL_LOCALIZATION: ["app"],
 };
 
 function checklistRequirement(
@@ -662,7 +661,11 @@ export function renderBriefMessage(brief: SliceExecutionBrief): string {
 	const blocks: Array<string | null> = [
 		section(
 			"One-app charter",
-			`Name: ${brief.charter.appName}\n${brief.charter.objective}\nDelivery: ${brief.charter.deliveryContext}. This session builds one app in the current Project.`,
+			`Name: ${brief.charter.appName}\n${brief.charter.objective}\nDelivery: ${brief.charter.deliveryContext}. This session builds one app in the current Project.${
+				brief.charter.localization === undefined
+					? "\nWorker content: author canonical strings in English."
+					: `\nWorker content: author every string in ${brief.charter.localization.sourceLanguage.name} (${brief.charter.localization.sourceLanguage.code}). Do not add target-language overlays in this workflow slice; the post-build localization finalizer owns ${brief.charter.localization.targets.length} target language(s).`
+			}`,
 		),
 		section(
 			"This workflow slice",

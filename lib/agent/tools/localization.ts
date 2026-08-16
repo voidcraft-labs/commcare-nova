@@ -29,6 +29,7 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
@@ -450,6 +451,13 @@ export const getLanguagesTool = {
 					...localization.languages[code],
 					isSource: code === localization.sourceLanguage,
 					isDefault: code === localization.defaultLanguage,
+					automaticTranslation:
+						code === localization.sourceLanguage
+							? null
+							: automaticTranslationCapability(
+									localization.sourceLanguage,
+									code,
+								),
 					coverage: coverage(
 						units.map((unit) => localizeTranslationUnit(doc, code, unit)),
 					),

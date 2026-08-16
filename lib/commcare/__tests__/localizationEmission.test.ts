@@ -118,10 +118,11 @@ describe("multilingual CommCare emission", () => {
 		expect(hq.translations.en).toMatchObject({ es: "Español", en: "English" });
 	});
 
-	it("writes the default and named app-string tables plus complete XForm itext", () => {
+	it("writes the default and every named app-string table plus complete XForm itext", () => {
 		const doc = bilingualDoc();
 		const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
 		const defaultStrings = zip.readAsText("default/app_strings.txt");
+		const spanishStrings = zip.readAsText("es/app_strings.txt");
 		const englishStrings = zip.readAsText("en/app_strings.txt");
 		const suite = zip.readAsText("suite.xml");
 		const xform = zip.readAsText("modules-0/forms-0.xml");
@@ -133,12 +134,16 @@ describe("multilingual CommCare emission", () => {
 		expect(defaultStrings).toContain("forms.m0f0=Registrar");
 		expect(defaultStrings).toContain("lang.current=es");
 		expect(defaultStrings).toContain("es=Español");
+		expect(spanishStrings).toBe(defaultStrings);
 		expect(englishStrings).toContain("homescreen.title=Health app");
 		expect(englishStrings).toContain("app.display.name=Health app");
 		expect(englishStrings).toContain("modules.m0=Patients");
 		expect(englishStrings).toContain("lang.current=en");
 		expect(suite).toContain('language="default"');
+		expect(suite).toContain('language="es"');
 		expect(suite).toContain('language="en"');
+		expect(suite).toContain('<resource id="app_strings_default" version="1">');
+		expect(suite).toContain('<resource id="app_strings_es" version="1">');
 		expect(xform).toContain('<translation lang="es" default="">');
 		expect(xform).toContain('<translation lang="en">');
 		expect(xform).toContain("<value>Nombre</value>");

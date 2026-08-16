@@ -7,6 +7,7 @@ import {
 	BuilderLocalizationProvider,
 	useBuilderLanguage,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -15,6 +16,7 @@ import {
 	useOrderedForms,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import {
 	BlueprintDocProvider,
 	type BlueprintDocStore,
@@ -206,5 +208,28 @@ describe("BuilderLocalizationProvider authoring lens", () => {
 				value: proseText("Nombre completo"),
 			},
 		});
+	});
+
+	it("falls back atomically when the selected language leaves the current snapshot", () => {
+		renderProbe();
+		const current = store;
+		if (current === undefined) throw new Error("Expected the document store.");
+		const remote = prepareMutationCandidate(
+			current.getState(),
+			admitMutationBatch([{ kind: "removeLanguage", code: "es" }]),
+		);
+
+		act(() => {
+			current.getState().beginRemoteApply();
+			try {
+				current.getState().commitDoc(remote.nextDoc, remote.mutations);
+			} finally {
+				current.getState().endRemoteApply();
+			}
+		});
+
+		expect(screen.getByTestId("projection").textContent).toBe(
+			"en|Care visits|Visits|Visit|Visits|Visit|client_name|Client name",
+		);
 	});
 });

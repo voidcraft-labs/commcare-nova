@@ -11,6 +11,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import {
 	type CaseType,
@@ -215,6 +217,20 @@ describe("EngineController", () => {
 			expect(ctrl.store.getState()[Q2_UUID].resolvedLabel).toBe(
 				"Paciente: Amina",
 			);
+
+			const remote = prepareMutationCandidate(
+				store.getState(),
+				admitMutationBatch([{ kind: "removeLanguage", code: "es" }]),
+			);
+			store.getState().beginRemoteApply();
+			try {
+				store.getState().commitDoc(remote.nextDoc, remote.mutations);
+			} finally {
+				store.getState().endRemoteApply();
+			}
+			expect(ctrl.entryKey).toBe(entryKey);
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("Amina");
+			expect(ctrl.store.getState()[Q2_UUID].resolvedLabel).toBe("Hello Amina");
 		});
 
 		it("starts a fresh entry immediately without changing the active form", () => {

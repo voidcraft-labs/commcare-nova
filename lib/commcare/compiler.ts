@@ -672,18 +672,23 @@ export function compileCcz(
 		);
 	}
 
-	// HQ convention — the first entry of `hqJson.langs` is the default
-	// locale (its resources live in the `default/` directory). Every
-	// other language gets its own directory named after the lang code.
+	// HQ convention has TWO resources for the runtime default: the special
+	// `default` locale used during initialization and the language's ordinary
+	// named locale used by the worker-facing language picker. Every configured
+	// language therefore gets its own named directory, including the first
+	// language, while `default/` duplicates that first language's effective
+	// table. CommCare Android removes only the literal `default` locale from its
+	// picker; omitting the named copy would make it impossible to switch back to
+	// the default language after choosing another one.
 	const langs = localization.languages;
-	const langDirs: Array<[lang: string, dir: string]> = langs.map((lang, i) => [
-		lang,
-		i === 0 ? "default" : lang,
-	]);
+	const langDirs: Array<[lang: string, dir: string]> = [
+		[localization.defaultLanguage, "default"],
+		...langs.map((lang) => [lang, lang] as [lang: string, dir: string]),
+	];
 
-	const localeResources: Element[] = langDirs.map(([lang, dir]) =>
+	const localeResources: Element[] = langDirs.map(([, dir]) =>
 		el("locale", { language: dir }, [
-			el("resource", { id: `app_strings_${lang}`, version: "1" }, [
+			el("resource", { id: `app_strings_${dir}`, version: "1" }, [
 				el("location", { authority: "local" }, [
 					text(`./${dir}/app_strings.txt`),
 				]),

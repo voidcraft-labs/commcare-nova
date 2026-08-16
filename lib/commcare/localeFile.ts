@@ -1,5 +1,31 @@
 /** CommCare Core locale-file value rules, shared by validation and emission. */
 
+import type { TranslationUnitRole } from "@/lib/domain";
+
+const LOCALE_FILE_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
+	[
+		"app-name",
+		"module-name",
+		"form-name",
+		"case-list-header",
+		"case-list-mapping-label",
+		"case-list-interval-text",
+		"search-input-label",
+		"search-screen-title",
+		"search-screen-subtitle",
+		"search-button-label",
+		"search-runtime-validation-message",
+		"case-property-option-label",
+	],
+);
+
+/** Whether this inventory role is serialized through a CommCare locale file. */
+export function translationUnitUsesLocaleFile(
+	role: TranslationUnitRole,
+): boolean {
+	return LOCALE_FILE_TRANSLATION_ROLES.has(role);
+}
+
 export function localeFileValueIssue(value: string): string | undefined {
 	if (value.includes("\\n")) {
 		return "contains the literal sequence \\n, which the locale-file grammar changes into a line break";

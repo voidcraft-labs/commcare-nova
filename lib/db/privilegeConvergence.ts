@@ -148,6 +148,8 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"design_change_sets",
 	"design_sessions",
 	"design_slice_attempts",
+	"design_localization_attempts",
+	"design_localization_batches",
 	"design_external_action_receipts",
 	"design_artifact_workspaces",
 	"design_model_contexts",
@@ -176,6 +178,8 @@ const RUNTIME_APPEND_ONLY_TABLES = [
 	"design_model_context_items",
 	"design_model_steps",
 	"design_model_step_usage_accounts",
+	"design_localization_receipts",
+	"design_localization_batch_usage_accounts",
 	"design_identity_handles",
 	"design_slice_attempt_budget_claims",
 ] as const;

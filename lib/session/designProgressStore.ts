@@ -24,6 +24,7 @@ import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import {
 	type BuildCompletionProjection,
+	type BuildLocalizationProjection,
 	type BuildPlanSummaryProjection,
 	type BuildSliceStartedProjection,
 	type DesignBuildStage,
@@ -35,6 +36,7 @@ import {
 	designStageIsWorking,
 	designStageLabel,
 	parseBuildCompletion,
+	parseBuildLocalization,
 	parseBuildPlanSummary,
 	parseBuildSliceCommitted,
 	parseBuildSliceStarted,
@@ -62,6 +64,7 @@ export interface DesignProgressState {
 	 *  activation receipt. */
 	committedSlices: readonly BuildSliceStartedProjection[];
 	completion: BuildCompletionProjection | null;
+	localization: BuildLocalizationProjection | null;
 	/** The design-pipeline phase whose model call the server last reported
 	 *  streaming (`data-design-pulse`). The live refinement of the design
 	 *  span: it names reviewing/revising/planning while those calls run,
@@ -138,6 +141,7 @@ const EMPTY: Omit<
 	activeSlice: null,
 	committedSlices: [],
 	completion: null,
+	localization: null,
 	pulsePhase: null,
 	pulseStep: null,
 	awaitingInput: false,
@@ -216,9 +220,23 @@ export function createDesignProgressStore() {
 					if (slice !== null) {
 						set({
 							activeSlice: slice,
+							localization: null,
 							/* A slice start is durable evidence that planning ended. Do
 							 * not render the last design pulse (for example "Assigning
 							 * ownership") under live build work. */
+							pulsePhase: null,
+							pulseStep: null,
+						});
+					}
+					return true;
+				}
+				case "data-build-localization-progress": {
+					if (sessionId === null) return true;
+					const localization = parseBuildLocalization(data, sessionId);
+					if (localization !== null) {
+						set({
+							localization,
+							activeSlice: null,
 							pulsePhase: null,
 							pulseStep: null,
 						});
@@ -242,7 +260,12 @@ export function createDesignProgressStore() {
 					if (sessionId === null) return true;
 					const completion = parseBuildCompletion(data, sessionId);
 					if (completion !== null) {
-						set({ completion, activeSlice: null, awaitingInput: false });
+						set({
+							completion,
+							activeSlice: null,
+							localization: null,
+							awaitingInput: false,
+						});
 					}
 					return true;
 				}
@@ -355,6 +378,7 @@ export function deriveDesignStage(
 		| "activeSlice"
 		| "committedSlices"
 		| "completion"
+		| "localization"
 		| "pulsePhase"
 		| "awaitingInput"
 		| "failure"
@@ -369,6 +393,7 @@ export function deriveDesignStage(
 	}
 	if (state.awaitingInput) return "needs-input";
 	if (state.completion !== null) return "ready";
+	if (state.localization !== null) return "translating";
 	/* A later user adjustment can reopen design after one or more slices have
 	 * already committed. The live server pulse describes what is happening NOW
 	 * and must outrank that historical build progress; otherwise a review or

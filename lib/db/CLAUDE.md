@@ -869,9 +869,25 @@ kernel's authoritative seq/batch id/candidate — never caller-asserted ones.
 The Atomic Change Set runtime has one variant: `commit-design-change-
 set` (lock the `design_change_sets` row AFTER the app lock — canonical order
 — verify status/revision/lineage, flip `open → committed`, insert the
-immutable `design_committed_slices` receipt). A dedup hit skips sidecars entirely:
+immutable `design_committed_slices` receipt). Initial-build localization adds
+`commit-design-localization`: it locks the exact running localization attempt,
+requires the canonical source to be its pinned final-slice head, flips the
+attempt to committed, and inserts one immutable localization receipt using the
+kernel's actual seq, batch id, and candidate digest. A dedup hit skips sidecars entirely:
 the original commit ran them, and a canonical batch without its receipt is
 corruption for the caller to detect, never a new commit.
+
+`design_localization_attempts` and `design_localization_batches` are mutable,
+design-build-private recovery authority. An attempt is unique to one accepted
+build plan and exact final-slice source snapshot; each deterministic protocol
+generation is unique by attempt/index/input/model/prompt/schema and moves
+pending → running → accepted/failed under an exact claim. A failed generation
+blocks same-protocol retry, while a real deployed protocol change may append a
+new generation at that semantic index. `design_localization_receipts` is
+append-only canonical proof, and
+`design_localization_batch_usage_accounts` is the append-only exact-once bridge
+from a terminal paid batch into one run summary. Recovery re-offers persisted
+usage; only the run-summary transaction may win the account and charge it.
 
 **The change-set tables are private staging state, not app history.**
 `design_change_sets` is the one mutable authority row (read-write; row-locked

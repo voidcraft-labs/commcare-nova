@@ -107,4 +107,17 @@ describe("reviewed-build presentation", () => {
 		expect(EXECUTOR_SYSTEM).toContain("reportExecutionBlocker");
 		expect(EXECUTOR_SYSTEM).not.toContain("raiseDesignExecutionIssue");
 	});
+
+	it("keeps deterministic localization failures resumable after a protocol deployment", () => {
+		const source = readFileSync(
+			join(__dirname, "..", "orchestrator.ts"),
+			"utf8",
+		);
+		const localizationFailureBranch = source.match(
+			/if \(error instanceof LocalizationBuildError\) \{([\s\S]*?)\n\t\t\t\t\}/,
+		)?.[1];
+		expect(localizationFailureBranch).toBeDefined();
+		expect(localizationFailureBranch).toContain("recoverable: true");
+		expect(localizationFailureBranch).not.toContain("recoverable: false");
+	});
 });

@@ -40,15 +40,36 @@ export type RunSummaryWriteAction =
 	| "overwritten"
 	| "failed";
 
-export interface DurableRunSummaryContribution {
-	readonly contextId: string;
-	readonly stepKey: string;
+interface DurableRunSummaryContributionMetrics {
 	readonly stepCount: number;
 	readonly inputTokens: number;
 	readonly outputTokens: number;
 	readonly cacheReadTokens: number;
 	readonly cacheWriteTokens: number;
 	readonly costEstimate: number;
+}
+
+export type DurableRunSummaryContribution =
+	| (DurableRunSummaryContributionMetrics & {
+			readonly contextId: string;
+			readonly stepKey: string;
+			readonly translationBatchId?: never;
+	  })
+	| (DurableRunSummaryContributionMetrics & {
+			readonly translationBatchId: string;
+			readonly contextId?: never;
+			readonly stepKey?: never;
+	  });
+
+type TranslationRunSummaryContribution = Extract<
+	DurableRunSummaryContribution,
+	{ readonly translationBatchId: string }
+>;
+
+function isTranslationContribution(
+	contribution: DurableRunSummaryContribution,
+): contribution is TranslationRunSummaryContribution {
+	return contribution.translationBatchId !== undefined;
 }
 
 export interface DurableRunSummaryWriteResult {
@@ -170,13 +191,24 @@ async function writeRunSummaryInternal(
 				: existingQuery.where("design_session_id", "=", target.designSessionId)
 			).executeTakeFirst();
 
-			const insertedAccounts =
-				contributions.length === 0
+			const modelStepContributions = contributions.filter(
+				(
+					contribution,
+				): contribution is Exclude<
+					DurableRunSummaryContribution,
+					TranslationRunSummaryContribution
+				> => !isTranslationContribution(contribution),
+			);
+			const translationContributions = contributions.filter(
+				isTranslationContribution,
+			);
+			const insertedModelStepAccounts =
+				modelStepContributions.length === 0
 					? []
 					: await tx
 							.insertInto("design_model_step_usage_accounts")
 							.values(
-								contributions.map((contribution) => ({
+								modelStepContributions.map((contribution) => ({
 									context_id: contribution.contextId,
 									step_key: contribution.stepKey,
 									event_kind: "completed",
@@ -186,15 +218,34 @@ async function writeRunSummaryInternal(
 							.onConflict((conflict) => conflict.doNothing())
 							.returning(["context_id", "step_key"])
 							.execute();
-			const insertedKeys = new Set(
-				insertedAccounts.map(
+			const insertedTranslationAccounts =
+				translationContributions.length === 0
+					? []
+					: await tx
+							.insertInto("design_localization_batch_usage_accounts")
+							.values(
+								translationContributions.map((contribution) => ({
+									batch_id: contribution.translationBatchId,
+									run_id: runId,
+								})),
+							)
+							.onConflict((conflict) => conflict.doNothing())
+							.returning("batch_id")
+							.execute();
+			const insertedModelStepKeys = new Set(
+				insertedModelStepAccounts.map(
 					(account) => `${account.context_id}\u0000${account.step_key}`,
 				),
 			);
+			const insertedTranslationKeys = new Set(
+				insertedTranslationAccounts.map((account) => account.batch_id),
+			);
 			const admittedContributions = contributions.filter((contribution) =>
-				insertedKeys.has(
-					`${contribution.contextId}\u0000${contribution.stepKey}`,
-				),
+				isTranslationContribution(contribution)
+					? insertedTranslationKeys.has(contribution.translationBatchId)
+					: insertedModelStepKeys.has(
+							`${contribution.contextId}\u0000${contribution.stepKey}`,
+						),
 			);
 			const admittedSummary = withContributions(summary, admittedContributions);
 			const monthlyUsageAccrued =

@@ -68,6 +68,17 @@ import {
 	meterDurableSubGenerationUsage,
 	type SubGenerationUsageMeter,
 } from "@/lib/agent/modelRunContext";
+import {
+	finalizeInitialBuildLocalization,
+	type InitialBuildLocalizationArgs,
+	initialBuildHasLocalizationFinalizer,
+	LocalizationBuildError,
+	productionInitialBuildLocalizationDeps,
+} from "@/lib/agent/translation/finalizer";
+import {
+	type DesignLocalizationReceipt,
+	readLocalizationReceipt,
+} from "@/lib/agent/translation/store";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { resolveAuthorizedAppSnapshot } from "@/lib/db/appAccess";
@@ -195,6 +206,9 @@ export interface BuildOrchestrationDeps {
 	readonly resolveBlocker: ExecutionBlockerResolver;
 	readonly materialize: typeof materializeAppFromGenesis;
 	readonly commitSlice: typeof commitDesignChangeSet;
+	readonly finalizeLocalization: (
+		args: InitialBuildLocalizationArgs,
+	) => Promise<DesignLocalizationReceipt | null>;
 	/** Step fan-out for the design agent's loop (usage accounting,
 	 *  conversation events, the awaiting-input latch); the route wires
 	 *  `GenerationContext.handleAgentStep`. */
@@ -896,14 +910,111 @@ export async function runBuildOrchestration(
 				);
 			}
 			try {
+				const existingLocalizationReceipt = await readLocalizationReceipt(
+					plan.id,
+				);
+				const hasLocalizationFinalizer =
+					initialBuildHasLocalizationFinalizer(contract);
+				if (existingLocalizationReceipt !== null && !hasLocalizationFinalizer) {
+					refuseBuildCompletion(
+						"Build completion refused: this accepted contract has no localization finalizer but its plan carries a localization receipt.",
+					);
+				}
+				const source = await assertAuthoritativePlanSource({
+					appId,
+					actorUserId: args.actorUserId,
+					designSessionId: args.designSessionId,
+					revision,
+					plan,
+					localizationReceipt: existingLocalizationReceipt,
+				});
+				lastSeq = source.sourceSeq;
+				let localizationReceipt = existingLocalizationReceipt;
+				if (hasLocalizationFinalizer) {
+					if (head?.state.kind !== "translating") {
+						head = await appendOrchestrationEvent({
+							designSessionId: args.designSessionId,
+							runId: args.runId,
+							holderNonce: args.holderNonce,
+							actorUserId: args.actorUserId,
+							expectedProjectId: args.projectId,
+							state: {
+								kind: "translating",
+								designRevisionId: revision.id,
+								buildPlanId: plan.id,
+								appId,
+								sourceSeq: source.sourceSeq,
+							},
+							expectedHead: head,
+						});
+					}
+					localizationReceipt = await deps.finalizeLocalization({
+						lineage: {
+							designSessionId: args.designSessionId,
+							designRevisionId: revision.id,
+							designRevisionDigest: revision.artifactDigest,
+							buildPlanId: plan.id,
+							buildPlanDigest: plan.artifactDigest,
+							appId,
+						},
+						authority: {
+							actorUserId: args.actorUserId,
+							projectId: args.projectId,
+							runId: args.runId,
+							holderNonce: args.holderNonce,
+						},
+						contract,
+						sourceBlueprint: source.blueprint,
+						sourceSeq: source.sourceSeq,
+						meter: args.meter,
+						signal: args.signal,
+						onLanguage: (language) => {
+							if (head === null) return;
+							args.writer.write({
+								type: "data-build-localization-progress",
+								data: progressEnvelope(args.designSessionId, head, {
+									languageCode: language.code,
+									languageName: language.name,
+									batch: language.batch,
+									batchCount: language.batchCount,
+								}),
+								transient: true,
+							});
+						},
+					});
+					if (localizationReceipt === null) {
+						throw new Error(
+							"The accepted localization intent completed without a receipt.",
+						);
+					}
+					lastSeq = localizationReceipt.seq;
+				}
 				lastSeq = await assertAuthoritativePlanCompletion({
 					appId,
 					actorUserId: args.actorUserId,
 					designSessionId: args.designSessionId,
 					revision,
 					plan,
+					localizationReceipt,
 				});
 			} catch (error) {
+				if (error instanceof LocalizationBuildError) {
+					/* The exact failed protocol row remains terminal, so an unchanged
+					 * retry cannot purchase another random sample. Keep the enclosing
+					 * build resumable so a deployed model/prompt/schema generation can
+					 * append its permitted replacement and finish the frozen app. */
+					head = await appendFailure(args, head, {
+						errorType: error.code,
+						recoverable: true,
+					});
+					return {
+						kind: "failed",
+						appId,
+						errorType: error.code,
+						message: error.message,
+						recoverable: true,
+					};
+				}
 				if (!(error instanceof BuildCompletionVerificationError)) throw error;
 				log.error("design_build_final_verification_failed", error, {
 					designSessionId: args.designSessionId,
@@ -968,6 +1079,13 @@ function productionDeps(
 		...(args.meter !== undefined && { meter: args.meter }),
 		usagePhase: "build-executor",
 	});
+	const translationContext = new DesignGenerationContext({
+		apiKey: args.apiKey,
+		userId: args.actorUserId,
+		projectId: args.projectId,
+		runId: args.runId,
+		designSessionId: args.designSessionId,
+	});
 	return {
 		buildPackage:
 			overrides.buildPackage ??
@@ -1022,6 +1140,13 @@ function productionDeps(
 			}),
 		materialize: overrides.materialize ?? materializeAppFromGenesis,
 		commitSlice: overrides.commitSlice ?? commitDesignChangeSet,
+		finalizeLocalization:
+			overrides.finalizeLocalization ??
+			((localizationArgs) =>
+				finalizeInitialBuildLocalization(
+					localizationArgs,
+					productionInitialBuildLocalizationDeps(translationContext),
+				)),
 	};
 }
 
@@ -1097,13 +1222,17 @@ async function emitDesignSummaries(
 	 * itself in the transcript, and these frames feed the outline card. */
 }
 
-async function assertAuthoritativePlanCompletion(args: {
+interface CompletionLineageArgs {
 	readonly appId: string;
 	readonly actorUserId: string;
 	readonly designSessionId: string;
 	readonly revision: DesignRevisionRecord;
 	readonly plan: DesignBuildPlanRecord;
-}): Promise<number> {
+}
+
+async function assertAuthoritativeCommittedSlices(
+	args: CompletionLineageArgs,
+): Promise<CommittedSliceReceipt> {
 	const expectedSlices = orderSlicesForExecution(args.plan.envelope.payload);
 	const receipts = await readCommittedSliceReceiptsForPlan(args.plan.id);
 	assertExactCommittedSliceReceipts({
@@ -1140,17 +1269,91 @@ async function assertAuthoritativePlanCompletion(args: {
 			);
 		}
 	}
+	const finalReceipt = receipts.at(-1);
+	if (finalReceipt === undefined) {
+		refuseBuildCompletion(
+			"Build completion refused: the accepted plan has no final committed slice receipt.",
+		);
+	}
+	return finalReceipt;
+}
+
+function assertLocalizationReceiptFollowsSlices(
+	args: CompletionLineageArgs,
+	sliceReceipt: CommittedSliceReceipt,
+	localizationReceipt: DesignLocalizationReceipt,
+): void {
+	if (
+		localizationReceipt.designSessionId !== args.designSessionId ||
+		localizationReceipt.designRevisionId !== args.revision.id ||
+		localizationReceipt.designRevisionDigest !== args.revision.artifactDigest ||
+		localizationReceipt.buildPlanId !== args.plan.id ||
+		localizationReceipt.buildPlanDigest !== args.plan.artifactDigest ||
+		localizationReceipt.appId !== args.appId ||
+		localizationReceipt.sourceSeq !== sliceReceipt.seq ||
+		localizationReceipt.sourceSnapshotDigest !==
+			sliceReceipt.committedSnapshotDigest
+	) {
+		refuseBuildCompletion(
+			"Build completion refused: the localization receipt does not descend from the final planned slice under the same accepted lineage.",
+		);
+	}
+}
+
+async function assertAuthoritativePlanSource(
+	args: CompletionLineageArgs & {
+		readonly localizationReceipt: DesignLocalizationReceipt | null;
+	},
+): Promise<{ readonly sourceSeq: number; readonly blueprint: PersistableDoc }> {
+	const finalReceipt = await assertAuthoritativeCommittedSlices(args);
+	const access = await resolveAuthorizedAppSnapshot(
+		args.appId,
+		args.actorUserId,
+		"view",
+	);
+	if (args.localizationReceipt !== null) {
+		assertLocalizationReceiptFollowsSlices(
+			args,
+			finalReceipt,
+			args.localizationReceipt,
+		);
+		return { sourceSeq: finalReceipt.seq, blueprint: access.app.blueprint };
+	}
+	if (
+		finalReceipt.seq !== access.baseSeq ||
+		finalReceipt.committedSnapshotDigest !==
+			canonicalJsonDigest(access.app.blueprint)
+	) {
+		refuseBuildCompletion(
+			"Build completion refused: the canonical app head no longer matches the final planned slice receipt.",
+		);
+	}
+	return { sourceSeq: finalReceipt.seq, blueprint: access.app.blueprint };
+}
+
+async function assertAuthoritativePlanCompletion(
+	args: CompletionLineageArgs & {
+		readonly localizationReceipt: DesignLocalizationReceipt | null;
+	},
+): Promise<number> {
+	const finalReceipt = await assertAuthoritativeCommittedSlices(args);
 
 	const access = await resolveAuthorizedAppSnapshot(
 		args.appId,
 		args.actorUserId,
 		"view",
 	);
-	const finalReceipt = receipts.at(-1);
+	if (args.localizationReceipt !== null) {
+		assertLocalizationReceiptFollowsSlices(
+			args,
+			finalReceipt,
+			args.localizationReceipt,
+		);
+	}
+	const authoritativeReceipt = args.localizationReceipt ?? finalReceipt;
 	if (
-		finalReceipt === undefined ||
-		finalReceipt.seq !== access.baseSeq ||
-		finalReceipt.committedSnapshotDigest !==
+		authoritativeReceipt.seq !== access.baseSeq ||
+		authoritativeReceipt.committedSnapshotDigest !==
 			canonicalJsonDigest(access.app.blueprint)
 	) {
 		refuseBuildCompletion(

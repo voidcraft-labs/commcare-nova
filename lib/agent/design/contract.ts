@@ -19,6 +19,11 @@ import { designIdSchema } from "@/lib/agent/design/ids";
 import { FORM_ICON_SLUGS, MODULE_ICON_SLUGS } from "@/lib/domain/builtinIcons";
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import type { FieldKind } from "@/lib/domain/fields";
+import {
+	type LanguageCode,
+	languageCodeSchema,
+} from "@/lib/domain/localization";
+import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
 
 /**
  * Semantic fact shapes the accepted design can lower to at least one real
@@ -83,6 +88,90 @@ export const factDataShapeSchema = z.enum([
 ]);
 export type FactDataShape = z.infer<typeof factDataShapeSchema>;
 
+export const designLanguageSchema = z
+	.object({
+		code: languageCodeSchema,
+		name: z.string().trim().min(1),
+		direction: z.enum(["ltr", "rtl"]),
+	})
+	.strict();
+export type DesignLanguage = z.infer<typeof designLanguageSchema>;
+
+export const designTargetLanguageSchema = z
+	.object({
+		language: designLanguageSchema,
+		seedFrom: languageCodeSchema.describe(
+			"Configured language whose effective strings initialize this target before any requested translation.",
+		),
+		strategy: z.enum(["copy-only", "translate-with-nova"]),
+	})
+	.strict();
+export type DesignTargetLanguage = z.infer<typeof designTargetLanguageSchema>;
+
+export const designLocalizationIntentSchema = z
+	.object({
+		sourceLanguage: designLanguageSchema,
+		defaultLanguage: languageCodeSchema,
+		targets: z.array(designTargetLanguageSchema).max(32),
+	})
+	.strict()
+	.superRefine((intent, ctx) => {
+		const configured = new Set<LanguageCode>([intent.sourceLanguage.code]);
+		for (const [index, target] of intent.targets.entries()) {
+			if (configured.has(target.language.code)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["targets", index, "language", "code"],
+					message:
+						"Every app language must have a distinct code, and a target cannot repeat the source language.",
+				});
+			}
+			configured.add(target.language.code);
+		}
+		if (!configured.has(intent.defaultLanguage)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["defaultLanguage"],
+				message:
+					"The runtime default language must be the source or one of the configured targets.",
+			});
+		}
+		const seedByTarget = new Map(
+			intent.targets.map((target) => [target.language.code, target.seedFrom]),
+		);
+		for (const [index, target] of intent.targets.entries()) {
+			if (!configured.has(target.seedFrom)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["targets", index, "seedFrom"],
+					message:
+						"A target language must start from the source or another configured target.",
+				});
+				continue;
+			}
+			const seen = new Set<LanguageCode>();
+			let cursor: LanguageCode = target.language.code;
+			while (cursor !== intent.sourceLanguage.code) {
+				if (seen.has(cursor)) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["targets", index, "seedFrom"],
+						message:
+							"Language copy dependencies must reach the source language without a cycle.",
+					});
+					break;
+				}
+				seen.add(cursor);
+				const next = seedByTarget.get(cursor);
+				if (next === undefined) break;
+				cursor = next;
+			}
+		}
+	});
+export type DesignLocalizationIntent = z.infer<
+	typeof designLocalizationIntentSchema
+>;
+
 /** One session builds one app in the current Project — a server law stated
  * by the capability catalog's session boundary, never a charter field the
  * model spends tokens re-affirming. */
@@ -99,6 +188,7 @@ export const appCharterSchema = z
 			"not-decided",
 		]),
 		initialWorkflowId: designIdSchema,
+		localization: designLocalizationIntentSchema.optional(),
 	})
 	.strict();
 export type AppCharter = z.infer<typeof appCharterSchema>;
@@ -671,6 +761,21 @@ export function designConstructionIssues(
 	contract: AppDesignContract,
 ): DesignConstructionIssue[] {
 	const issues: DesignConstructionIssue[] = [];
+	const localization = contract.charter.localization;
+	if (localization !== undefined) {
+		for (const [targetIndex, target] of localization.targets.entries()) {
+			if (target.strategy !== "translate-with-nova") continue;
+			const capability = automaticTranslationCapability(
+				localization.sourceLanguage.code,
+				target.language.code,
+			);
+			if (capability.status === "available") continue;
+			issues.push({
+				path: ["charter", "localization", "targets", targetIndex, "strategy"],
+				message: `Automatic translation from ${localization.sourceLanguage.name} (${localization.sourceLanguage.code}) to ${target.language.name} (${target.language.code}) is not available. ${capability.explanation} Use copy-only and plan human translation, or choose two distinct languages from Nova's automatic-translation launch set.`,
+			});
+		}
+	}
 	contract.records.forEach((record, recordIndex) => {
 		record.properties.forEach((property, propertyIndex) => {
 			if (property.dataShape === "unknown") {
@@ -798,6 +903,34 @@ export function designConstructionIssues(
 			message:
 				"The accepted design needs deliberate menu/module composition before construction.",
 		});
+	}
+	for (const [listIndex, list] of contract.lists.entries()) {
+		const placements = contract.moduleCompositions.filter((composition) =>
+			composition.listIds.includes(list.id),
+		);
+		if (placements.length !== 1) {
+			issues.push({
+				path: ["lists", listIndex],
+				message:
+					placements.length === 0
+						? "Every accepted list needs exactly one module composition before construction. Add this list to a queue-owning module whose host record is the list's record."
+						: "Every accepted list needs exactly one module composition before construction. Give repeated placements distinct list identities instead of reusing one list across modules.",
+			});
+		}
+	}
+	for (const [navigationIndex, navigation] of contract.navigation.entries()) {
+		const placements = contract.moduleCompositions.filter((composition) =>
+			composition.navigationIds.includes(navigation.id),
+		);
+		if (placements.length !== 1) {
+			issues.push({
+				path: ["navigation", navigationIndex],
+				message:
+					placements.length === 0
+						? "Every accepted navigation entry needs exactly one module composition before construction. Place it with the workflows or lists it exposes."
+						: "Every accepted navigation entry needs exactly one module composition before construction. Give repeated destinations distinct navigation identities instead of reusing one entry across modules.",
+			});
+		}
 	}
 	const includedIds = new Set<string>([
 		...contract.charter.includedWorkflowIds,

@@ -296,6 +296,41 @@ describe("UsageAccumulator", () => {
 		]);
 	});
 
+	it("keeps a durable translation batch distinct from design model-step identity", async () => {
+		writeRunSummaryMock.mockReset();
+		const acc = new UsageAccumulator({
+			target: { kind: "design-session", designSessionId: "design-1" },
+			userId: "u",
+			runId: "r",
+			holderNonce: HOLDER_NONCE,
+			model: "gpt-5.6-sol",
+			promptMode: "build",
+			appReady: false,
+			moduleCount: 0,
+		});
+		const usage = { inputTokens: 200, outputTokens: 75 };
+		acc.trackDurable({ translationBatchId: "batch-1" }, usage, {
+			phase: "translation",
+		});
+		acc.trackDurable({ translationBatchId: "batch-1" }, usage, {
+			phase: "translation",
+		});
+		expect(acc.phaseBreakdown().translation).toMatchObject({
+			calls: 1,
+			inputTokens: 200,
+			outputTokens: 75,
+		});
+		await acc.flush();
+		expect(writeRunSummaryMock.mock.calls[0]?.[3]).toEqual([
+			expect.objectContaining({
+				translationBatchId: "batch-1",
+				stepCount: 0,
+				inputTokens: 200,
+				outputTokens: 75,
+			}),
+		]);
+	});
+
 	it("flush() is idempotent", async () => {
 		writeRunSummaryMock.mockReset();
 		const acc = new UsageAccumulator({

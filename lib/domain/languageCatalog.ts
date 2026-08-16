@@ -35,20 +35,33 @@ export interface ClassicLanguageOption {
  * presents four historical two-letter codes and otherwise its ISO 639-2 code;
  * Nova accepts every wire-valid alias as custom input as well.
  */
-export const CLASSIC_LANGUAGE_OPTIONS: readonly ClassicLanguageOption[] =
-	classicLanguages.map((language) => {
-		const code = CLASSIC_GRANDFATHERED_TWO_LETTER_CODES.has(language.two)
-			? language.two
-			: language.three;
-		return {
-			code: languageCodeSchema.parse(code),
-			englishName: language.names[0] ?? code,
-			...(language.two.length > 0 && {
-				iso6391: languageCodeSchema.parse(language.two),
-			}),
-			iso6392: languageCodeSchema.parse(language.three),
-		};
-	});
+const classicLanguageOptionsByCode = new Map<
+	LanguageCode,
+	ClassicLanguageOption
+>();
+for (const language of classicLanguages) {
+	const code = CLASSIC_GRANDFATHERED_TWO_LETTER_CODES.has(language.two)
+		? language.two
+		: language.three;
+	const option = {
+		code: languageCodeSchema.parse(code),
+		englishName: language.names[0] ?? code,
+		...(language.two.length > 0 && {
+			iso6391: languageCodeSchema.parse(language.two),
+		}),
+		iso6392: languageCodeSchema.parse(language.three),
+	} satisfies ClassicLanguageOption;
+	// Classic's source catalog contains both Mizo and its historical synonym
+	// Lushai under `lus`. The wire identity is the code, so expose one picker
+	// row per identity while retaining the first, current catalog name.
+	if (!classicLanguageOptionsByCode.has(option.code)) {
+		classicLanguageOptionsByCode.set(option.code, option);
+	}
+}
+
+export const CLASSIC_LANGUAGE_OPTIONS: readonly ClassicLanguageOption[] = [
+	...classicLanguageOptionsByCode.values(),
+];
 
 const classicLanguageByAlias = new Map<LanguageCode, ClassicLanguageOption>();
 for (const option of CLASSIC_LANGUAGE_OPTIONS) {

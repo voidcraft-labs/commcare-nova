@@ -26,6 +26,7 @@ export const ORCHESTRATION_KIND_CLASSIFICATION = {
 	"awaiting-user-questions": "active",
 	planning: "active",
 	"executing-slice": "active",
+	translating: "active",
 	finished: "released",
 	"accepted-partial": "released",
 	failed: "terminal-frozen",

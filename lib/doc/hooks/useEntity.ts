@@ -19,6 +19,7 @@ import {
 	projectLocalizedField,
 	projectLocalizedForm,
 	projectLocalizedModule,
+	resolveAppLanguage,
 	type Uuid,
 } from "@/lib/domain";
 import { useBlueprintDocEq } from "./useBlueprintDoc";
@@ -35,7 +36,11 @@ export function useModule(uuid: Uuid | undefined): Module | undefined {
 				? undefined
 				: language === null
 					? doc.modules[uuid]
-					: projectLocalizedModule(doc, language, uuid),
+					: projectLocalizedModule(
+							doc,
+							resolveAppLanguage(doc.localization, language),
+							uuid,
+						),
 		sameEntity,
 	);
 }
@@ -48,7 +53,11 @@ export function useForm(uuid: Uuid | undefined): Form | undefined {
 				? undefined
 				: language === null
 					? doc.forms[uuid]
-					: projectLocalizedForm(doc, language, uuid),
+					: projectLocalizedForm(
+							doc,
+							resolveAppLanguage(doc.localization, language),
+							uuid,
+						),
 		sameEntity,
 	);
 }
@@ -61,7 +70,11 @@ export function useField(uuid: Uuid | undefined): Field | undefined {
 				? undefined
 				: language === null
 					? doc.fields[uuid]
-					: projectLocalizedField(doc, language, uuid),
+					: projectLocalizedField(
+							doc,
+							resolveAppLanguage(doc.localization, language),
+							uuid,
+						),
 		sameEntity,
 	);
 }

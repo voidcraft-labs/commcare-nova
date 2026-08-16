@@ -49,7 +49,7 @@ describe("shared localization tools", () => {
 		expect(result).toMatchObject({
 			sourceLanguage: "en",
 			defaultLanguage: "en",
-			classicCatalogSize: 487,
+			classicCatalogSize: 486,
 			languages: [
 				{
 					code: "en",
@@ -107,6 +107,15 @@ describe("shared localization tools", () => {
 				}),
 			]),
 		);
+		const languages = readData(await harness.runTool(getLanguagesTool, {}))
+			.languages as Array<Record<string, unknown>>;
+		expect(languages.find((language) => language.code === "es")).toMatchObject({
+			automaticTranslation: {
+				sourceLanguage: "en",
+				targetLanguage: "es",
+				status: "available",
+			},
+		});
 		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
 	});
 

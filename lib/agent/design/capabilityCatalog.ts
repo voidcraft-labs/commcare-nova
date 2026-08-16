@@ -32,6 +32,7 @@ import {
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { casePropertyDataTypes } from "@/lib/domain/casePropertyTypes";
 import { fieldKinds } from "@/lib/domain/fields";
+import { AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES } from "@/lib/translation/capabilityPolicy";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
 export interface CatalogToolEntry {
@@ -56,6 +57,14 @@ export interface CapabilityCatalog {
 	readonly existingReferenceable: readonly string[];
 	readonly externalPrerequisites: readonly string[];
 	readonly unsupported: readonly string[];
+	readonly localization: {
+		readonly manualAuthoring: "all-commcare-language-codes";
+		readonly automaticPolicy: "all-directions-within-launch-set";
+		readonly automaticLanguages: readonly {
+			readonly code: string;
+			readonly name: string;
+		}[];
+	};
 }
 
 export function buildCapabilityCatalog(): CapabilityCatalog {
@@ -92,6 +101,13 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
 			"recording, synthesizing, validating, or uploading audio or other media",
 			"promising runtime or deployment resources that do not already exist",
 		],
+		localization: {
+			manualAuthoring: "all-commcare-language-codes" as const,
+			automaticPolicy: "all-directions-within-launch-set" as const,
+			automaticLanguages: AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES.map(
+				(language) => ({ code: language.code, name: language.name }),
+			),
+		},
 	};
 	return { ...body, catalogDigest: canonicalJsonDigest(body) };
 }
@@ -126,6 +142,16 @@ export function renderCapabilityCatalog(catalog: CapabilityCatalog): string {
 		`External prerequisites: ${catalog.externalPrerequisites.join("; ")}.`,
 	);
 	lines.push(`Unsupported promises: ${catalog.unsupported.join("; ")}.`);
+	lines.push(
+		"Localization: manual authoring, copy, Preview, and export support every CommCare language code; automatic translation is a separate launch policy.",
+	);
+	lines.push(
+		`Automatic translation is Available in every direction between two distinct languages in this ${catalog.localization.automaticLanguages.length}-language launch set (ISO 639-3 identities; equivalent CommCare picker aliases resolve to the same identity): ${catalog.localization.automaticLanguages
+			.map((language) => `${language.name} (${language.code})`)
+			.join(
+				", ",
+			)}. Every machine-authored value starts Needs review. For any language outside this set, use copy-only localization and record human translation as the remaining content task.`,
+	);
 	lines.push("");
 	lines.push("### Platform constraints and deliberate gaps");
 	lines.push(

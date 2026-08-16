@@ -39,7 +39,8 @@ import type { RunSummaryDoc, UsageDoc } from "./types";
 export type DesignBuildCostPhase =
 	| "design-author"
 	| "design-review"
-	| "build-executor";
+	| "build-executor"
+	| "translation";
 
 interface PhaseUsageBreakdown {
 	calls: number;
@@ -146,10 +147,17 @@ interface LLMCallUsage {
 	cacheWriteTokens?: number;
 }
 
-export interface DurableUsageIdentity {
-	readonly contextId: string;
-	readonly stepKey: string;
-}
+export type DurableUsageIdentity =
+	| {
+			readonly contextId: string;
+			readonly stepKey: string;
+			readonly translationBatchId?: never;
+	  }
+	| {
+			readonly translationBatchId: string;
+			readonly contextId?: never;
+			readonly stepKey?: never;
+	  };
 
 /**
  * Seed metadata captured at request start. `startedAt` is optional so the
@@ -363,12 +371,14 @@ export class UsageAccumulator {
 			phase?: DesignBuildCostPhase;
 		} = {},
 	): void {
-		const key = `${identity.contextId}\u0000${identity.stepKey}`;
+		const key =
+			"translationBatchId" in identity
+				? `translation\u0000${identity.translationBatchId}`
+				: `model-step\u0000${identity.contextId}\u0000${identity.stepKey}`;
 		if (this.durableContributions.has(key)) return;
 		const model = opts.model ?? this.seed.model;
 		const contribution: DurableRunSummaryContribution = {
-			contextId: identity.contextId,
-			stepKey: identity.stepKey,
+			...identity,
 			stepCount: opts.step ? 1 : 0,
 			inputTokens: usage.inputTokens,
 			outputTokens: usage.outputTokens,

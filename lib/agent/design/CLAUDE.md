@@ -169,6 +169,15 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   conversational per-block renderers stay byte-identical because the author
   transcript is prefix-cached and tag numbering shifts when an answered round
   extends the package — tags are derived per render and never persisted.
+- Localization intent belongs to the accepted Design Contract, never inferred
+  from conversation language. It names canonical source, runtime default,
+  target metadata, each target's existing seed language, and `copy-only` versus
+  `translate-with-nova`. Target dependencies form an acyclic closed graph. The
+  base schema preserves historical artifacts, while construction validation
+  refuses `translate-with-nova` unless both language codes resolve to distinct
+  members of the automatic-translation launch set. Workflow slices remain
+  source-language-only; the server-owned
+  post-slice finalizer applies localization after the complete inventory exists.
 
 ## Phase protocol
 

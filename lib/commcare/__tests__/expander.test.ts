@@ -4186,16 +4186,51 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(column.format).toBe("translatable-enum");
 		expect(column.useXpathExpression).toBe(true);
 		expect(column.field).toContain(
-			"if(selected(tags, 'vip'), $nova_text_0, '')",
+			"if(selected(tags, 'vip'), $nova_text_0000000000, '')",
 		);
 		expect(column.field).toContain(
 			lowerXPathForJavaRosa("normalize-space(tags)"),
 		);
 		expect(column.field).not.toContain("normalize-space(");
 		expect(column.enum).toContainEqual({
-			key: "nova_text_0",
+			key: "nova_text_0000000000",
 			value: { en: "VIP" },
 		});
+	});
+
+	it("keeps HQ enum placeholders prefix-free across double-digit option indexes", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					testUuid("00000000-0000-4000-8000-000000010015"),
+					"tags",
+					"Tags",
+				),
+			],
+			searchInputs: [],
+		});
+		const tags = doc.caseTypes?.[0]?.properties.find(
+			(property) => property.name === "tags",
+		);
+		if (tags === undefined) throw new Error("Expected tags property.");
+		tags.options = Array.from({ length: 11 }, (_, index) => ({
+			value: `tag_${index}`,
+			label: proseText(`Tag ${index}`),
+		}));
+
+		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
+		expect(column.enum.map((entry) => entry.key)).toContain(
+			"nova_text_0000000010",
+		);
+
+		// Mirror CCHQ XPathEnum.build's ordered substring replacement. A
+		// variable-length key 1 corrupts key 10 into `$kknova_text_10` here.
+		const hqRewritten = column.enum.reduce(
+			(expression, entry) => expression.replaceAll(entry.key, `k${entry.key}`),
+			column.field,
+		);
+		expect(hqRewritten).toContain("$knova_text_0000000010");
+		expect(hqRewritten).not.toContain("$kknova_text_");
 	});
 
 	it("keeps HQ enum indexes aligned when invalid multi-select tokens are skipped", () => {
@@ -4220,10 +4255,10 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
 
 		expect(column.field).toContain(
-			"if(selected(tags, 'vip'), $nova_text_1, '')",
+			"if(selected(tags, 'vip'), $nova_text_0000000001, '')",
 		);
 		expect(column.enum).toContainEqual({
-			key: "nova_text_1",
+			key: "nova_text_0000000001",
 			value: { en: "VIP" },
 		});
 	});
@@ -4315,11 +4350,11 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(shortCols[0].format).toBe("translatable-enum");
 		expect(shortCols[0].useXpathExpression).toBe(true);
 		expect(shortCols[0].field).toContain(
-			"if(selected(region, 'N'), $nova_text_0, '')",
+			"if(selected(region, 'N'), $nova_text_0000000000, '')",
 		);
 		expect(shortCols[0].enum).toEqual([
-			{ key: "nova_text_0", value: { en: "North" } },
-			{ key: "nova_text_1", value: { en: "South" } },
+			{ key: "nova_text_0000000000", value: { en: "North" } },
+			{ key: "nova_text_0000000001", value: { en: "South" } },
 		]);
 	});
 
@@ -4344,10 +4379,10 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(shortCols[0].format).toBe("translatable-enum");
 		expect(shortCols[0].useXpathExpression).toBe(true);
 		expect(shortCols[0].field).toBe(
-			"if(last_visit = '', '', if(today() - date(last_visit) > 3, $nova_text_0, string(int((today() - date(last_visit)) div 1))))",
+			"if(last_visit = '', '', if(today() - date(last_visit) > 3, $nova_text_0000000000, string(int((today() - date(last_visit)) div 1))))",
 		);
 		expect(shortCols[0].enum).toEqual([
-			{ key: "nova_text_0", value: { en: "OVERDUE" } },
+			{ key: "nova_text_0000000000", value: { en: "OVERDUE" } },
 		]);
 	});
 
@@ -4372,10 +4407,10 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(shortCols[0].format).toBe("translatable-enum");
 		expect(shortCols[0].useXpathExpression).toBe(true);
 		expect(shortCols[0].field).toBe(
-			"if(last_visit = '', $nova_text_0, if(today() - date(last_visit) > 14, $nova_text_0, ''))",
+			"if(last_visit = '', $nova_text_0000000000, if(today() - date(last_visit) > 14, $nova_text_0000000000, ''))",
 		);
 		expect(shortCols[0].enum).toEqual([
-			{ key: "nova_text_0", value: { en: "OVERDUE" } },
+			{ key: "nova_text_0000000000", value: { en: "OVERDUE" } },
 		]);
 	});
 
@@ -4617,6 +4652,9 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const details = expandDoc(doc).modules[0].case_details;
 		expect(details.short.columns[0].format).toBe("invisible");
 		expect(details.short.columns[0].useXpathExpression).toBe(true);
+		expect(details.short.columns[0].field).toBe("tags");
+		expect(details.short.columns[0].field).not.toContain("$nova_text_");
+		expect(details.short.columns[0].enum).toEqual([]);
 		const sortElements = details.short.sort_elements;
 		expect(sortElements[0].field).toBe("_cc_calculated_0");
 		expect(sortElements[0].sort_calculation).toBe("tags");

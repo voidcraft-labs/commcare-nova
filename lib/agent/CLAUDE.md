@@ -1,6 +1,6 @@
 # lib/agent — LLM-facing agent layer
 
-Owns every module the Solutions Architect reaches into during generation or edit. No other directory constructs an LLM provider (every model call goes straight to OpenAI's Responses API via `@ai-sdk/openai` — one `OPENAI_API_KEY`, exact role configurations from `lib/models.ts::MODEL_ROLES`), renders the SA system prompt, or generates tool schemas. There is no generic model default or compatibility alias: design author, reviewer, executor helper, build executor, follow-up editor, and document extractor each select their named role. The ONE provider constructor is `openaiProvider.ts::createNovaOpenAI` — it rides every request with an undici dispatcher whose headers/body timeouts beat Node's 300-second fetch defaults (a blocking Responses call sends no headers until the whole generation finishes, and a streaming call can idle for minutes mid-reasoning; the defaults killed the design author live). A bare `createOpenAI` in serving code fails the source scan in `__tests__/openaiProviderTransport.test.ts`, which also pins that this Node's fetch honors a package-built dispatcher (npm `undici`'s MAJOR must track the undici Node bundles — the dispatch handler interface breaks across majors).
+Owns every module the Solutions Architect reaches into during generation or edit. No other directory constructs an LLM provider (every model call goes straight to OpenAI's Responses API via `@ai-sdk/openai` — one `OPENAI_API_KEY`, exact role configurations from `lib/models.ts::MODEL_ROLES`), renders the SA system prompt, or generates tool schemas. There is no generic model default or compatibility alias: design author, reviewer, executor helper, build executor, follow-up editor, document extractor, and translator each select their named role. The ONE provider constructor is `openaiProvider.ts::createNovaOpenAI` — it rides every request with an undici dispatcher whose headers/body timeouts beat Node's 300-second fetch defaults (a blocking Responses call sends no headers until the whole generation finishes, and a streaming call can idle for minutes mid-reasoning; the defaults killed the design author live). A bare `createOpenAI` in serving code fails the source scan in `__tests__/openaiProviderTransport.test.ts`, which also pins that this Node's fetch honors a package-built dispatcher (npm `undici`'s MAJOR must track the undici Node bundles — the dispatch handler interface breaks across majors).
 
 ## Strict-mode normalization — omission is fragile, null is the fallback, filler is never
 
@@ -144,6 +144,31 @@ and wall-clock limits by one bounded priced allowance
 (`BLOCKER_RESOLUTION_ALLOWANCE`), because `continue` guidance directs rework
 the deterministic slice budget never priced; `maxBlockerResolutions` caps the
 total extension.
+
+Accepted initial-build localization is a server-owned post-slice finalizer, not
+an executor workflow slice and not an SA tool loop. Every workflow builds only
+canonical source-language content. `translation/finalizer.ts` starts after the
+last committed slice, pins that exact canonical snapshot, and applies the whole
+language catalog plus target overlays in one canonical commit carrying the
+localization receipt sidecar. Copy-only targets never call a model. An
+AI-translated target may run only when `lib/translation/capabilityPolicy.ts`
+resolves both source and target to distinct members of the checked-in
+57-language launch set; Classic language-catalog support never implies that
+status. The Sol translator uses the named
+`MODEL_ROLES.translator` role through the installed structured-output seam,
+groups batches by owning screen before a token bound, and validates exact unit
+coverage, blank rules, value kinds, and protected prose references. Every AI or
+copied entry starts Needs review. Batch output and usage persist before the
+canonical commit, recovery reuses them without another model call, and the
+run-summary batch account admits their cost exactly once. A failed protocol
+generation blocks another sample with the same input/model/prompt/schema; a real
+deployed protocol change may append a replacement generation without abandoning
+the accepted build. The launch set is a product allowlist, not a claim of
+provider-published coverage or completed bilingual review for every direction.
+
+Conversation language and app language are independent. Follow-up chat answers
+in the language the user is speaking unless explicitly asked otherwise; that
+choice never mutates source/default/target app languages by inference.
 A reviewed forms slice does not inherit `configureConnect`: the accepted
 Design Contract currently has no exact mode/participant carrier. The shared
 operation remains available to direct chat and MCP, and a future reviewed
