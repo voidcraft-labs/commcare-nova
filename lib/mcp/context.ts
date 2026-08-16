@@ -36,7 +36,6 @@
  * the event log is not.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
 	readToolLookupCatalog,
 	readToolLookupDefinitions,
@@ -65,7 +64,11 @@ import type {
 } from "@/lib/log/types";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import { createProgressEmitter, type ProgressEmitter } from "./progress";
+import {
+	createProgressEmitter,
+	type ProgressEmitter,
+	type ProgressNotifyFn,
+} from "./progress";
 import type { ToolContext } from "./types";
 
 /**
@@ -365,17 +368,23 @@ export interface InitMcpCallResult {
 }
 
 /**
- * Narrow shape the adapter consumes from the SDK's `RequestHandlerExtra`.
+ * Narrow shape the adapter consumes from the SDK's per-request handler
+ * context (`ServerContext`).
  *
- * The MCP SDK's `_meta` is `Record<string, unknown>` post-validation, but
- * `progressToken` is the only field we read. RFC 6802 (MCP progress) types
- * it as `string | number`. Declaring the shape locally keeps the import
- * surface small and removes the `as` cast at the read site without forcing
- * a deep import of the SDK's `RequestMeta` schema.
+ * `mcpReq._meta.progressToken` (the client's opt-in, RFC 6802 types it
+ * `string | number`) and `mcpReq.notify` (the request-scoped
+ * notification sender the progress emitter dispatches through) are the
+ * only fields we read. Declaring the shape locally — every field
+ * optional, so the SDK's context is structurally assignable and tests
+ * can pass `{}` — keeps the import surface small without forcing a
+ * deep import of the SDK's context types.
  */
 interface McpCallExtra {
-	_meta?: {
-		progressToken?: string | number;
+	mcpReq?: {
+		_meta?: {
+			progressToken?: string | number;
+		};
+		notify?: ProgressNotifyFn;
 	};
 }
 
@@ -397,7 +406,6 @@ interface McpCallExtra {
  *   tool's work in a `try`/`finally` that awaits `logWriter.flush()`.
  */
 export function initMcpCall(
-	server: McpServer,
 	ctx: ToolContext,
 	appId: string,
 	projectId: string,
@@ -405,9 +413,9 @@ export function initMcpCall(
 	runId: string,
 	extra: McpCallExtra | undefined,
 ): InitMcpCallResult {
-	const progressToken = extra?._meta?.progressToken;
+	const progressToken = extra?.mcpReq?._meta?.progressToken;
 	const logWriter = new LogWriter(appId, "mcp");
-	const progress = createProgressEmitter(server, progressToken);
+	const progress = createProgressEmitter(extra?.mcpReq?.notify, progressToken);
 	const mcpCtx = new McpContext({
 		appId,
 		userId: ctx.userId,

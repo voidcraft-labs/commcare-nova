@@ -19,8 +19,6 @@
  * only render to a human use the whole message.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-
 /**
  * Stage vocabulary for MCP progress notifications. Mirrors the chapter
  * tags emitted on `MutationEvent.stage`. Additive — new stages are added
@@ -47,6 +45,23 @@ export interface ProgressEmitter {
 }
 
 /**
+ * The request-scoped notification sender a progress emitter dispatches
+ * through: the shape of the SDK's `ctx.mcpReq.notify`, narrowed to the
+ * one notification this module sends. The SDK's own
+ * `(notification: Notification) => Promise<void>` is assignable here
+ * (its parameter is wider), so handlers pass `ctx.mcpReq.notify`
+ * straight through without this module importing SDK types.
+ */
+export type ProgressNotifyFn = (notification: {
+	method: "notifications/progress";
+	params: {
+		progressToken: string | number;
+		progress: number;
+		message: string;
+	};
+}) => Promise<void>;
+
+/**
  * Format the notification message so both human and machine readers
  * can extract what they need from a single string. Prefix `[<stage>]`
  * lets clients branch on stage without needing structured metadata;
@@ -67,19 +82,20 @@ function formatProgressMessage(
 
 /**
  * Build a per-request progress emitter bound to the client's progress
- * token. Each `notify` call issues a `notifications/progress` message
- * via the underlying `Server` instance's low-level notification API.
+ * token. Each `notify` call sends a `notifications/progress` message
+ * through the request-scoped `notify` function, which associates the
+ * notification with the request's response stream.
  *
  * The MCP spec requires `progress` to be a monotonically increasing
  * number so the client can order events and estimate throughput. The
  * counter is owned by this closure; callers express intent through the
  * stage + message arguments.
  *
- * When `progressToken` is `undefined`, the returned emitter is a no-op.
- * That keeps adapter bodies branch-free.
+ * When `progressToken` or `notify` is `undefined`, the returned emitter
+ * is a no-op. That keeps adapter bodies branch-free.
  */
 export function createProgressEmitter(
-	server: McpServer,
+	notify: ProgressNotifyFn | undefined,
 	progressToken: string | number | undefined,
 ): ProgressEmitter {
 	/* Counter owned by this closure. `progress += 1` runs BEFORE each
@@ -89,16 +105,19 @@ export function createProgressEmitter(
 	let progress = 0;
 	return {
 		notify(stage, message, extra) {
-			if (progressToken === undefined) return;
+			if (progressToken === undefined || notify === undefined) return;
 			progress += 1;
-			void server.server.notification({
+			/* Swallow delivery failure: a client that closed its stream
+			 * mid-call must not turn a progress ping into an unhandled
+			 * rejection inside the tool handler. */
+			notify({
 				method: "notifications/progress",
 				params: {
 					progressToken,
 					progress,
 					message: formatProgressMessage(stage, message, extra),
 				},
-			});
+			}).catch(() => {});
 		},
 	};
 }

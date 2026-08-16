@@ -1,4 +1,4 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { describe, expect, it, vi } from "vitest";
 import { registerNovaTools } from "../server";
 import type { ToolContext } from "../types";
@@ -19,10 +19,7 @@ const USER_TOOL_NAMES = [
 describe("MCP user-authoring registration", () => {
 	it("registers the complete snake_case projection", () => {
 		const registerTool = vi.fn();
-		const server = {
-			registerTool,
-			server: { notification: vi.fn() },
-		} as unknown as McpServer;
+		const server = { registerTool } as unknown as McpServer;
 		const context: ToolContext = {
 			userId: "member",
 			scopes: ["nova.read", "nova.write"],

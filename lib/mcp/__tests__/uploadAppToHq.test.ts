@@ -1066,12 +1066,13 @@ describe("registerUploadAppToHq — progress notifications", () => {
 			warnings: [],
 		});
 
-		const { server, capture, notificationSpy } = makeFakeServer();
+		const { server, capture, callExtra, notificationSpy } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		await capture()({ app_id: "a1" }, { _meta: { progressToken: "pt-1" } });
+		await capture()({ app_id: "a1" }, callExtra("pt-1"));
 
-		/* Each progress emission goes through `server.server.notification`
+		/* Each progress emission goes through the request-scoped
+		 * `mcpReq.notify` sender
 		 * with the stage packed into the formatted `message` string as
 		 * `[<stage>] <text>[ | k=v...]`. Pull the prefixes off in order
 		 * — a future regression that re-orders the pipeline or drops
@@ -1092,14 +1093,15 @@ describe("registerUploadAppToHq — progress notifications", () => {
 			warnings: [],
 		});
 
-		const { server, capture, notificationSpy } = makeFakeServer();
+		const { server, capture, callExtra, notificationSpy } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
-		await capture()({ app_id: "a1" }, {});
+		await capture()({ app_id: "a1" }, callExtra());
 
 		/* `createProgressEmitter` branches on `progressToken === undefined`
-		 * and silently drops every `notify` call — no notification should
-		 * have been dispatched through the low-level API. */
+		 * and silently drops every `notify` call — nothing should have
+		 * been dispatched through the request-scoped sender even though
+		 * one was available. */
 		expect(notificationSpy).not.toHaveBeenCalled();
 	});
 });

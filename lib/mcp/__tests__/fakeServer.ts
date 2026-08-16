@@ -7,13 +7,18 @@
  * test file drops one `makeFakeServer()` call and reads the captured
  * handler back via `capture()`.
  *
- * The fake stubs two SDK surfaces:
- *   - `registerTool(name, config, cb)` — the registration entry point
- *     every tool module calls. Both callback and config are captured so
- *     schema-boundary tests can prove the exact registered contract.
- *   - `server.notification` — the low-level notification sink the
- *     progress emitter dispatches on. Exposed as `notificationSpy` so
- *     tests that opt into progress inspection can query it directly.
+ * The fake stubs one SDK surface: `registerTool(name, config, cb)` —
+ * the registration entry point every tool module calls. Both callback
+ * and config are captured so schema-boundary tests can prove the exact
+ * registered contract.
+ *
+ * Progress is request-scoped: a tool reaches the notification sender
+ * through its call context (`ctx.mcpReq.notify`), not through any
+ * server-level sink. Tests that thread progress build that context via
+ * `callExtra(progressToken?)`, which returns a ready-made handler
+ * `extra` carrying `notificationSpy` as the sender; the spy resolves so
+ * the emitter's fire-and-forget `.catch(() => {})` has a promise to
+ * settle.
  *
  * The handler captured is intentionally loosely typed: every MCP tool
  * handler takes `(args, extra)` (or just `(extra)` for zero-arg tools),
@@ -23,7 +28,7 @@
  * open-shape stance on the handler boundary.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { vi } from "vitest";
 
 /**
@@ -41,13 +46,15 @@ export type CapturedToolHandler = (
 /**
  * Return shape of `makeFakeServer`. Consumers destructure `server` into
  * the tool's registration call and pull `capture()` to retrieve the
- * handler for direct invocation. `notificationSpy` is exposed for the
- * small number of tests that assert on progress-emitter dispatches.
+ * handler for direct invocation. `callExtra()` builds the handler
+ * `extra` for tests that thread progress; `notificationSpy` is the
+ * sender it carries, exposed so those tests can assert on dispatches.
  */
 export interface FakeServer {
 	server: McpServer;
 	capture(): CapturedToolHandler;
 	registeredConfig(): unknown;
+	callExtra(progressToken?: string | number): Record<string, unknown>;
 	notificationSpy: ReturnType<typeof vi.fn>;
 }
 
@@ -61,7 +68,7 @@ export interface FakeServer {
 export function makeFakeServer(): FakeServer {
 	let captured: CapturedToolHandler | null = null;
 	let config: unknown;
-	const notificationSpy = vi.fn();
+	const notificationSpy = vi.fn().mockResolvedValue(undefined);
 	const register = (
 		_name: string,
 		_configOrSchema: unknown,
@@ -73,8 +80,6 @@ export function makeFakeServer(): FakeServer {
 	const server = {
 		/* Primary registration entry point every tool module calls. */
 		registerTool: register,
-		/* Low-level notification sink the `ProgressEmitter` drives. */
-		server: { notification: notificationSpy },
 	} as unknown as McpServer;
 	return {
 		server,
@@ -86,6 +91,12 @@ export function makeFakeServer(): FakeServer {
 			if (config === undefined) throw new Error("config not captured");
 			return config;
 		},
+		callExtra: (progressToken) => ({
+			mcpReq: {
+				...(progressToken !== undefined && { _meta: { progressToken } }),
+				notify: notificationSpy,
+			},
+		}),
 		notificationSpy,
 	};
 }

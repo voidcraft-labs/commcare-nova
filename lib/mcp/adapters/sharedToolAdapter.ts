@@ -53,7 +53,7 @@
  * strips `app_id` before forwarding to the shared tool's `execute`.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type {
 	MutatingToolResult,
@@ -197,7 +197,6 @@ export function registerSharedTool(
 				 * collaborator wiring lands in one place rather than
 				 * across every tool handler. */
 				const { mcpCtx, logWriter } = initMcpCall(
-					server,
 					ctx,
 					appId,
 					loaded.access.projectId,

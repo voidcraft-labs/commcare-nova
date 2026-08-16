@@ -31,8 +31,8 @@
  * when sending a body`. The TypeScript DOM lib doesn't carry this
  * field yet (it's in WHATWG Fetch but not in DOM lib); the
  * `@ts-expect-error` is the conventional handling. The body still
- * gets consumed exactly once: by `mcp-handler` deep inside the
- * dispatcher.
+ * gets consumed exactly once: by the MCP SDK's streamable-HTTP
+ * handler deep inside the dispatcher.
  */
 
 import { getAuth } from "@/lib/auth";
@@ -42,9 +42,9 @@ import { log } from "@/lib/logger";
  * Next.js App Router segment config (`maxDuration` is the magic export
  * name Next reads for the platform-level request timeout). Must be a
  * literal: Next's static analysis rejects imported / computed values.
- * The protocol-level `mcp-handler` cutoff lives in `dispatch.ts`'s
- * `MCP_MAX_DURATION_SECONDS` and matches this number; both layers
- * exist because they enforce different things (platform vs protocol).
+ * `dispatch.ts`'s `MCP_MAX_DURATION_SECONDS` documents this same
+ * number for MCP-layer readers (the v2 SDK has no protocol-level
+ * duration knob, so the platform cap here is the only enforcement).
  * Keep these two values in sync.
  */
 export const maxDuration = 300;
@@ -56,21 +56,19 @@ export const maxDuration = 300;
  * which the project does not override. Hardcoded as a literal here
  * because the value is also baked into the synthesized URL below;
  * if the project ever sets `basePath: ...` in `lib/auth.ts`, this
- * literal must move with it.
- *
- * Exported so a test can pin the cross-module invariant that this
- * synthesized path agrees with the `basePath` `dispatch.ts` hands
- * `mcp-handler`: drift on either side reintroduces a production 404.
+ * literal must move with it. Only Better Auth's router reads the
+ * synthesized path (the SDK's MCP handler is fetch-native and does no
+ * pathname matching), so the sole consumer to stay in step with is
+ * the `/mcp` rate-limit rule in `lib/auth.ts`.
  */
-export const AUTH_BASE_PATH = "/api/auth";
+const AUTH_BASE_PATH = "/api/auth";
 
 /**
  * Wire-path suffix the plugin endpoint registers under. Concatenated
  * with `AUTH_BASE_PATH` to form the synthesized URL the request gets
- * rewritten to before reaching `auth.handler`. Exported alongside
- * `AUTH_BASE_PATH` for the same cross-module invariant test.
+ * rewritten to before reaching `auth.handler`.
  */
-export const MCP_ENDPOINT_PATH = "/mcp";
+const MCP_ENDPOINT_PATH = "/mcp";
 
 const dispatch = async (req: Request): Promise<Response> => {
 	let authReq: Request;
@@ -94,11 +92,11 @@ const dispatch = async (req: Request): Promise<Response> => {
 };
 
 /**
- * `mcp-handler`'s streamable-HTTP transport routes JSON-RPC over POST
- * and rejects GET / DELETE with 405 Method Not Allowed before any tool
- * dispatch. The shim is wired into all three Next route exports anyway
- * so token + scope verification + rate limiting run uniformly, a
- * verified-but-405 response shape is the right behavior for verbs
- * Nova doesn't speak.
+ * The MCP SDK's handler (in its default stateless-legacy mode) routes
+ * JSON-RPC over POST and rejects GET / DELETE with 405 Method Not
+ * Allowed before any tool dispatch. The shim is wired into all three
+ * Next route exports anyway so token + scope verification + rate
+ * limiting run uniformly, a verified-but-405 response shape is the
+ * right behavior for verbs Nova doesn't speak.
  */
 export { dispatch as DELETE, dispatch as GET, dispatch as POST };

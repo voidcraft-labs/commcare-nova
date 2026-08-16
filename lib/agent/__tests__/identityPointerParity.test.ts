@@ -4,9 +4,12 @@
  * a real SDK client from tools/list, not reconstructed from registration args.
  */
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/client";
+/* Both halves of the linked pair come from the server package: each
+ * package bundles its own `InMemoryTransport`, and `Transport` is a
+ * structural interface, so the client connects to the server-package
+ * half without importing a second copy. */
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -151,7 +154,7 @@ describe("shared-tool authored identity registry", () => {
 			const local = collectIdentitySchemaPointers(
 				mcpName,
 				z.toJSONSchema(tool.inputSchema, {
-					target: "draft-7",
+					target: "draft-2020-12",
 					io: "input",
 				}) as JsonNode,
 			);

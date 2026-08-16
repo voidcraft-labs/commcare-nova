@@ -54,16 +54,25 @@ vi.mock("@better-auth/oauth-provider", async () => {
 
 /** Sentinel 200 — the test detects "got past the consent check" by status.
  * Null body (not "{}") so the unconsumed Response stream doesn't trip the
- * async-leak detector — the assertions read status, never the body. */
-vi.mock("mcp-handler", () => ({
-	createMcpHandler:
-		() =>
-		(_req: Request): Response =>
-			new Response(null, {
-				status: 200,
-				headers: { "content-type": "application/json" },
-			}),
-}));
+ * async-leak detector — the assertions read status, never the body. The
+ * sentinel's `fetch` never invokes the per-request server factory: auth and
+ * revocation run for real, the MCP protocol core stays stubbed. The stub
+ * `McpServer` class exists only so `dispatch.ts`'s import resolves — with
+ * the factory never invoked, nothing constructs it. */
+vi.mock("@modelcontextprotocol/server", () => {
+	return {
+		McpServer: class {},
+		createMcpHandler: () => ({
+			fetch: (_req: Request): Promise<Response> =>
+				Promise.resolve(
+					new Response(null, {
+						status: 200,
+						headers: { "content-type": "application/json" },
+					}),
+				),
+		}),
+	};
+});
 
 // ── Imports that depend on the mocks above ─────────────────────────
 

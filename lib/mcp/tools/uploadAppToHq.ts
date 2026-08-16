@@ -67,7 +67,7 @@
  * than it opens.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { resolveUploadTarget } from "@/lib/db/settings";
 import { activeRemoteApp } from "@/lib/deployment/resources";
@@ -159,7 +159,7 @@ export function registerUploadAppToHq(
 		{
 			description:
 				"Upload an owned app to CommCare HQ as a new app. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking the user to confirm or invoking this tool, call `get_app_hq_feature_flags` with that explicit domain and relay its `feature_flag_requirements`, including confirmed `missing_flags` and any `unverified_flags`; this is informational and must not cause requested app features to be changed or removed. Pass the same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app. On success, `feature_flag_requirements` repeats an authoritative post-upload check against the exact target and includes support@dimagi.com guidance. The diagnostic never blocks an otherwise successful upload.",
-			inputSchema: {
+			inputSchema: z.object({
 				app_id: z
 					.string()
 					.describe(
@@ -177,7 +177,7 @@ export function registerUploadAppToHq(
 					.describe(
 						"Optional target project space (domain slug). Must be one the user's API key can reach. See `get_hq_connection`'s `available_domains`. Omit only when the key reaches a single space; a multi-space key requires it.",
 					),
-			},
+			}),
 		},
 		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;
@@ -285,7 +285,6 @@ export function registerUploadAppToHq(
 						domain: targetDomain,
 						onUploadStarted: () => {
 							call.current = initMcpCall(
-								server,
 								ctx,
 								appId,
 								access.projectId,
