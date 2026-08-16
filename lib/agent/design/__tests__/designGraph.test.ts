@@ -181,6 +181,39 @@ describe("lean Design Contract graph", () => {
 		expect(constructionMessages(parsed)).toContain("form composition");
 	});
 
+	it("requires one module owner for every accepted list and navigation entry", () => {
+		const missing = cloneContract(makeContract());
+		const moduleComposition = fixtureValue(
+			missing.moduleCompositions[0],
+			"module composition",
+		);
+		moduleComposition.listIds = [];
+		moduleComposition.navigationIds = [];
+		expect(constructionMessages(missing)).toContain(
+			"Every accepted list needs exactly one module composition",
+		);
+		expect(constructionMessages(missing)).toContain(
+			"Every accepted navigation entry needs exactly one module composition",
+		);
+
+		const repeated = cloneContract(makeContract());
+		const existingModule = fixtureValue(
+			repeated.moduleCompositions[0],
+			"module composition",
+		);
+		repeated.moduleCompositions.push({
+			...structuredClone(existingModule),
+			id: did(799),
+			name: "Repeated placement",
+		});
+		expect(constructionMessages(repeated)).toContain(
+			"Give repeated placements distinct list identities",
+		);
+		expect(constructionMessages(repeated)).toContain(
+			"Give repeated destinations distinct navigation identities",
+		);
+	});
+
 	it("is closed and rejects duplicate semantic identities", () => {
 		const unknown = { ...makeContract(), surprise: true };
 		expect(appDesignContractSchema.safeParse(unknown).success).toBe(false);

@@ -49,7 +49,7 @@ describe("shared localization tools", () => {
 		expect(result).toMatchObject({
 			sourceLanguage: "en",
 			defaultLanguage: "en",
-			classicCatalogSize: 487,
+			classicCatalogSize: 486,
 			languages: [
 				{
 					code: "en",

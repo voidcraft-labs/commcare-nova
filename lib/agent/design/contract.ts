@@ -904,6 +904,34 @@ export function designConstructionIssues(
 				"The accepted design needs deliberate menu/module composition before construction.",
 		});
 	}
+	for (const [listIndex, list] of contract.lists.entries()) {
+		const placements = contract.moduleCompositions.filter((composition) =>
+			composition.listIds.includes(list.id),
+		);
+		if (placements.length !== 1) {
+			issues.push({
+				path: ["lists", listIndex],
+				message:
+					placements.length === 0
+						? "Every accepted list needs exactly one module composition before construction. Add this list to a queue-owning module whose host record is the list's record."
+						: "Every accepted list needs exactly one module composition before construction. Give repeated placements distinct list identities instead of reusing one list across modules.",
+			});
+		}
+	}
+	for (const [navigationIndex, navigation] of contract.navigation.entries()) {
+		const placements = contract.moduleCompositions.filter((composition) =>
+			composition.navigationIds.includes(navigation.id),
+		);
+		if (placements.length !== 1) {
+			issues.push({
+				path: ["navigation", navigationIndex],
+				message:
+					placements.length === 0
+						? "Every accepted navigation entry needs exactly one module composition before construction. Place it with the workflows or lists it exposes."
+						: "Every accepted navigation entry needs exactly one module composition before construction. Give repeated destinations distinct navigation identities instead of reusing one entry across modules.",
+			});
+		}
+	}
 	const includedIds = new Set<string>([
 		...contract.charter.includedWorkflowIds,
 		...contract.actors.map((actor) => actor.id),

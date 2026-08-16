@@ -84,7 +84,11 @@ model.
   `50cc621456e6e7a1b14afcbf5cccaa5a59b03f82271fc4d8a80bf6756ad5e4a4`.
   The vendored file is formatter-excluded so source provenance remains directly
   verifiable. It supplies discovery names and Classic's preferred two- versus
-  three-letter picker code, but it is not an authoring allowlist.
+  three-letter picker code, but it is not an authoring allowlist. The source has
+  separate Mizo and historical Lushai rows for the same `lus` wire identity;
+  Nova exposes one picker row per code, retaining the first current name, so
+  every selectable identity and React key is unique without rewriting the
+  provenance snapshot.
 - The first member of `Application.langs` is the runtime default language.
   Module, form, detail, and Search labels are language maps in the HQ JSON.
 - An XForm itext block contains one `<translation lang="...">` per language.
@@ -514,6 +518,12 @@ but never changes the checked-in launch manifest by itself.
 Workflow slices build canonical source-language content. Localization is a
 post-slice finalizer because the complete string inventory does not exist until
 every included workflow has materialized.
+
+The accepted design must also give every list and navigation entry exactly one
+module-composition owner. An orphan work queue is not deferred executor work:
+it is an incomplete design that must be repaired before planning, so a build
+cannot materialize part of the source app and then discover that the remaining
+worker-facing inventory has no constructible host.
 
 ```text
 design → independent review → workflow slices → requested translations

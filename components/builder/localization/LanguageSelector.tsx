@@ -6,6 +6,7 @@ import tablerSettings from "@iconify-icons/tabler/settings";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
@@ -42,7 +43,9 @@ export function LanguageSelector() {
 				sideOffset={6}
 				preferredMinWidth="14rem"
 			>
-				<DropdownMenuLabel>Worker content language</DropdownMenuLabel>
+				<DropdownMenuGroup>
+					<DropdownMenuLabel>Worker content language</DropdownMenuLabel>
+				</DropdownMenuGroup>
 				<DropdownMenuRadioGroup
 					value={state.language}
 					onValueChange={(value) => state.selectLanguage(value)}
