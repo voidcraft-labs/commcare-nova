@@ -26,9 +26,12 @@
  * import graph reaches those modules, not because anything here reads.
  */
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/client";
+/* Both halves of the linked pair come from the server package: each
+ * package bundles its own `InMemoryTransport`, and `Transport` is a
+ * structural interface, so the client connects to the server-package
+ * half without importing a second copy. */
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import { registerNovaTools } from "../server";

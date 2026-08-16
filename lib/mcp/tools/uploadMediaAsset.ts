@@ -36,7 +36,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import {
@@ -71,12 +71,10 @@ const MAX_INLINE_UPLOAD_MB = Math.floor(MAX_INLINE_UPLOAD_BYTES / 1024 / 1024);
 const MAX_INLINE_BASE64_CHARS = Math.ceil(MAX_INLINE_UPLOAD_BYTES / 3) * 4;
 
 /**
- * Input schema for `upload_media_asset`, declared as a `z.object` so the
- * schema-compiler smoke test (`scripts/test-schema.ts`) can exercise it
- * the same way it does the shared tools. The registration below hands the
- * raw `.shape` to `McpServer.registerTool` (which wants a `ZodRawShape`),
- * so the wire surface is byte-identical to an inline shape — the object
- * wrapper exists only to give the schema an exported, testable identity.
+ * Input schema for `upload_media_asset`, exported so the schema-compiler
+ * smoke test (`scripts/test-schema.ts`) can exercise it the same way it
+ * does the shared tools. The registration below passes the object schema
+ * to `McpServer.registerTool` whole.
  *
  * No `app_id` slot: the upload targets the caller's personal Project
  * library (resolved from `ctx.userId` via `ensurePersonalProject`), not a
@@ -123,7 +121,7 @@ export function registerUploadMediaAsset(
 		{
 			description:
 				"Upload a media file (image, audio, or video) to your library from inline base64 bytes, returning the asset id the attach/set media tools reference. Audio must be .mp3 or .wav and video .mp4. CommCare HQ can't ingest .m4a or .ogg. Images: .png/.jpg/.gif/.webp. The file is validated (format, size, integrity) before it's stored; a re-upload of an identical file returns the existing asset.",
-			inputSchema: uploadMediaAssetInputSchema.shape,
+			inputSchema: uploadMediaAssetInputSchema,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {

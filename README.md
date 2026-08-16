@@ -101,7 +101,7 @@ Some tests run against a real Postgres engine instead of hand-rolled mocks — t
 
 - **Next.js 16** (App Router, Turbopack) · **TypeScript** strict · **Tailwind CSS v4**
 - **Vercel AI SDK** + **Vercel AI Gateway** (OpenAI GPT-5.6) — streaming chat, tool calls, structured output
-- **mcp-handler** + **@modelcontextprotocol/sdk** — `/api/mcp` streamable-HTTP server exposing the SA's tools to external clients
+- **@modelcontextprotocol/server** (MCP SDK v2) — `/api/mcp` streamable-HTTP server exposing the SA's tools to external clients
 - **Better Auth** + **@better-auth/oauth-provider** — Google OAuth for the app, OAuth 2.1 authorization server for MCP clients
 - **Cloud SQL Postgres** (Kysely) — app persistence, case data, chat threads, event logging, usage, realtime fan-out via LISTEN/NOTIFY
 - **Google Cloud KMS** — credential encryption at rest

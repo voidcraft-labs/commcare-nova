@@ -233,12 +233,12 @@ describe("refresh_deployment", () => {
 		registerRefreshDeployment(server, ctx([SCOPES.hqWrite]));
 		const shape = (
 			registeredConfig() as {
-				inputSchema: {
+				inputSchema: z.ZodObject<{
 					app_id: z.ZodType<string>;
 					domain: z.ZodType<string>;
-				};
+				}>;
 			}
-		).inputSchema;
+		).inputSchema.shape;
 
 		expect(shape.app_id.parse(" a1 ")).toBe("a1");
 		expect(shape.domain.parse(" acme ")).toBe("acme");

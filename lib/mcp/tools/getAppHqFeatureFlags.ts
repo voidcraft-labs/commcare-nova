@@ -10,7 +10,7 @@
  * silently granting third-party access.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { probeHqFeatureFlags } from "@/lib/commcare/client";
 import {
@@ -97,7 +97,7 @@ export function registerGetAppHqFeatureFlags(
 		{
 			description:
 				"Read-only pre-publish check for the CommCare HQ feature flags one Nova app requires; it does not compile or upload the app. Returns only applicable flags, app-specific reasons, plain-language descriptions, public docs, and support guidance. With no `domain`, it does not use an HQ connection and reports requirements without claiming any flag is off. With an explicit `domain`, it uses the caller's connected HQ account to check that project space and reports confirmed `missing_flags` separately from `unverified_flags`; this domain path requires `nova.hq.read`. Call `get_hq_connection` to list reachable project spaces, and never choose among multiple spaces for the user. This check is informational only: its result must never cause an agent to remove, undo, or avoid requested app functionality.",
-			inputSchema: {
+			inputSchema: z.object({
 				app_id: z
 					.string()
 					.describe(
@@ -111,7 +111,7 @@ export function registerGetAppHqFeatureFlags(
 					.describe(
 						"Optional exact CommCare HQ project-space slug to check. It must be one of `get_hq_connection`'s `available_domains`. Omit it to inspect app requirements without accessing HQ or making any enabled/missing claim.",
 					),
-			},
+			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;

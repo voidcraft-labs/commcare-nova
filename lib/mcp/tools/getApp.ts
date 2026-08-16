@@ -14,7 +14,7 @@
  * gate.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
 import {
@@ -46,13 +46,13 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 			 * 73,534 chars, past what a host delivers by default. See
 			 * `../resultSize`. */
 			_meta: LARGE_RESULT_META,
-			inputSchema: {
+			inputSchema: z.object({
 				app_id: z
 					.string()
 					.describe(
 						"App id to summarize. Must be an app the authenticated user owns.",
 					),
-			},
+			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;

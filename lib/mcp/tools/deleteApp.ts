@@ -13,7 +13,7 @@
  * vanishes from every active surface immediately.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { softDeleteApp } from "@/lib/db/apps";
 import {
@@ -39,13 +39,13 @@ export function registerDeleteApp(server: McpServer, ctx: ToolContext): void {
 		{
 			description:
 				"Soft-delete an app you administer. Filters from list surfaces; recoverable within the returned window.",
-			inputSchema: {
+			inputSchema: z.object({
 				app_id: z
 					.string()
 					.describe(
 						"App id to delete. Requires Project admin or owner access.",
 					),
-			},
+			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;

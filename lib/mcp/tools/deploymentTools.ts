@@ -19,7 +19,8 @@
  * member sees.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import {
 	artifactLocations,
@@ -57,13 +58,13 @@ export function registerGetDeployment(
 		{
 			description:
 				"Report where an app has been published on CommCare HQ and what state each publication is in. `state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`; `incomplete` also carries `retry_from`, the phase a retry re-enters. Nova can import an app with an API key but cannot make a build or release one, because CommCare HQ allows those only from a signed-in browser session. So `built` and `released` are observed rather than performed, and `setup_artifact` states what a person must do on the project space. Reads only; call `refresh_deployment` to ask CommCare HQ again.",
-			inputSchema: {
+			inputSchema: z.object({
 				/* The same wire schema the browser boundary validates, so the
 				 * two surfaces cannot drift into accepting different things. */
 				app_id: deploymentAppIdSchema.describe(
 					"App id to report on. Must be an app the caller can view.",
 				),
-			},
+			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
@@ -116,7 +117,7 @@ export function registerRefreshDeployment(
 		{
 			description:
 				"Ask CommCare HQ again what has happened to an app Nova published, and update the stored deployment state. It reads CommCare HQ and writes Nova's own record, so it needs the HQ write scope and edit access to the app: it can move a deployment to `built`, `released`, or `runnable`, and can move it BACK when a build stops being released there. `runnable` means the released build served the file a device installs from. Use this after telling a user to make a version and release it on CommCare HQ.",
-			inputSchema: {
+			inputSchema: z.object({
 				/* The exact shapes `deploymentTargetSchema` validates on the
 				 * browser boundary, field by field, so the two surfaces cannot
 				 * drift into accepting different things. */
@@ -129,7 +130,7 @@ export function registerRefreshDeployment(
 				domain: deploymentTargetSchema.shape.domain.describe(
 					"The project space (domain slug) to re-check.",
 				),
-			},
+			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {

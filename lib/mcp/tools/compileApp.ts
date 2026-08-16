@@ -28,7 +28,7 @@
  * (`nova/compiledAtSeq`) instead.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -74,7 +74,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		{
 			description:
 				'Compile an owned app to CommCare HQ format. Before invoking this tool, call `get_app_hq_feature_flags` without a domain if the user has not already been shown the app requirements, so they can understand them before export. `format: "json"` returns the HQ JSON as text, or, when the app has media, a base64-encoded zip bundle (JSON + an HQ multimedia upload) so the media round-trips. `format: "ccz"` returns the binary archive base64-encoded. When the app uses HQ feature flags, a text block before the artifact repeats the requirements so large base64 results cannot hide them; because a downloaded artifact has no known destination, these are requirements, not flags Nova has confirmed missing.',
-			inputSchema: {
+			inputSchema: z.object({
 				app_id: z
 					.string()
 					.describe(
@@ -85,7 +85,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					.describe(
 						'"json" for the HQ wire JSON (a base64 zip bundle if the app has media), "ccz" for the binary archive (base64-encoded).',
 					),
-			},
+			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;

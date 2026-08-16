@@ -42,7 +42,7 @@
  * rows for the run are written by the mutating tool calls that follow.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
 	McpInvalidInputError,
@@ -67,9 +67,9 @@ import type { ToolContext } from "../types";
  *   - `app_id` is conditionally required: required in edit mode (so the
  *     handler can ownership-gate + inline the blueprint summary into
  *     the system prompt), ignored in build modes (skill convenience —
- *     `mode` is the authoritative discriminator). The conditional is
- *     not expressible in raw-shape Zod, so the handler enforces it via
- *     a typed `McpInvalidInputError` throw at the top.
+ *     `mode` is the authoritative discriminator). The conditional is a
+ *     cross-field rule the wire schema doesn't express, so the handler
+ *     enforces it via a typed `McpInvalidInputError` throw at the top.
  *
  * `ctx.userId` rides every error envelope so cross-tenant audit logging
  * (in `toMcpErrorResult`'s `McpAccessError` branch) stays uniform across
@@ -90,11 +90,7 @@ export function registerGetAgentPrompt(
 			 * declares its own size rather than inheriting a default
 			 * tuned for ordinary payloads. See `../resultSize`. */
 			_meta: LARGE_RESULT_META,
-			/* Raw-shape Zod object — `registerTool` composes the object
-			 * validator around it. Wrapping in `z.object(...)` would
-			 * register the wrong shape: `{ schema: z.object }` rather
-			 * than `{ <field>: z.<field> }`. */
-			inputSchema: {
+			inputSchema: z.object({
 				/* `as const satisfies readonly PromptMode[]` ties the wire
 				 * enum to the renderer's exported `PromptMode` union: if a
 				 * new flavor lands in `prompts.ts` the `satisfies`
@@ -118,7 +114,7 @@ export function registerGetAgentPrompt(
 					.describe(
 						"Required when `mode === 'edit'`, the app id whose blueprint summary should be inlined into the returned text. The user must own this app. Ignored for `build` and `autonomous_build` (no app to read from).",
 					),
-			},
+			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			/* `appId` is captured here (rather than read inline in the

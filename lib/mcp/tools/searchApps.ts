@@ -22,7 +22,7 @@
  * surfaces; only the ordering contract differs.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { searchAppsAcrossProjects } from "@/lib/db/apps";
 import {
@@ -41,7 +41,7 @@ import { toEntry } from "./listApps";
  * case at the runtime boundary. `sort` is intentionally absent:
  * relevance is the only sensible ordering for a fuzzy search.
  */
-export const searchAppsInputSchema = {
+export const searchAppsInputSchema = z.object({
 	query: z
 		.string()
 		.min(1)
@@ -71,7 +71,7 @@ export const searchAppsInputSchema = {
 		.describe(
 			"Restrict the search to apps with a specific lifecycle status. Omit to search across all statuses.",
 		),
-} as const;
+});
 
 /**
  * Register the `search_apps` tool on an `McpServer`.

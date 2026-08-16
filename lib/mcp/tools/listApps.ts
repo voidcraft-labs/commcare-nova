@@ -22,7 +22,7 @@
  * rows (`deleted_at != null`) are dropped by the persistence boundary.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { type AppSummary, listAppsAcrossProjects } from "@/lib/db/apps";
 import {
@@ -71,7 +71,7 @@ export function toEntry(summary: AppSummary): ListAppsEntry {
  * does — agents read these via the MCP schema; skills and client code
  * do not duplicate them.
  */
-export const listAppsInputSchema = {
+export const listAppsInputSchema = z.object({
 	limit: z
 		.number()
 		.int()
@@ -101,7 +101,7 @@ export const listAppsInputSchema = {
 		.describe(
 			"Sort order. `updated_desc` (default) surfaces the most recently updated apps first; `updated_asc` is oldest-first. `name_asc` sorts alphabetically by app name A→Z (case-insensitive); `name_desc` is Z→A.",
 		),
-} as const;
+});
 
 /**
  * Register the `list_apps` tool on an `McpServer`.

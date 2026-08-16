@@ -18,32 +18,29 @@
  * sidecar fields on the notification params.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { describe, expect, it, vi } from "vitest";
 import { createProgressEmitter } from "../progress";
 
 /**
- * Build a minimal `McpServer` stand-in — `createProgressEmitter` only
- * touches `server.server.notification`, so we cast a plain mock through
- * `unknown` to satisfy the type without instantiating the real SDK.
+ * Build the request-scoped notification sender the emitter dispatches
+ * through — the shape of `ctx.mcpReq.notify`. Resolved so the emitter's
+ * fire-and-forget `.catch(() => {})` has a promise to settle.
  */
-function mockServer() {
-	const notification = vi.fn().mockResolvedValue(undefined);
-	const server = { server: { notification } } as unknown as McpServer;
-	return { server, notification };
+function mockNotify() {
+	return vi.fn().mockResolvedValue(undefined);
 }
 
 describe("createProgressEmitter", () => {
 	it("no-ops when progressToken is undefined", () => {
-		const { server, notification } = mockServer();
-		const emitter = createProgressEmitter(server, undefined);
+		const notification = mockNotify();
+		const emitter = createProgressEmitter(notification, undefined);
 		emitter.notify("app_created", "ignored");
 		expect(notification).not.toHaveBeenCalled();
 	});
 
 	it("emits with a monotonically increasing progress counter", () => {
-		const { server, notification } = mockServer();
-		const emitter = createProgressEmitter(server, "run-42");
+		const notification = mockNotify();
+		const emitter = createProgressEmitter(notification, "run-42");
 		emitter.notify("app_created", "created");
 		emitter.notify("schema_generated", "schema");
 		emitter.notify("scaffold_generated", "scaffold");
@@ -64,8 +61,8 @@ describe("createProgressEmitter", () => {
 	});
 
 	it("accepts a numeric progressToken and appends structured extras inline", () => {
-		const { server, notification } = mockServer();
-		const emitter = createProgressEmitter(server, 7);
+		const notification = mockNotify();
+		const emitter = createProgressEmitter(notification, 7);
 		emitter.notify("module_added", "mod", { app_id: "a1" });
 		expect(notification).toHaveBeenCalledTimes(1);
 		expect(notification.mock.calls[0]?.[0]).toEqual({

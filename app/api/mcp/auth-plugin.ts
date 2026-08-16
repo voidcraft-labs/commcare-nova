@@ -21,11 +21,11 @@
  *
  * `disableBody: true` is load-bearing, better-call's router would
  * otherwise consume `request.body` via `getBody()` at context
- * construction time, leaving `mcp-handler` with nothing to read for
- * the JSON-RPC payload. Disabling the pre-read keeps the body
- * stream available to whichever path (JWT or API-key) we dispatch
- * to, which then hands it to `mcp-handler`'s streamable-HTTP
- * transport.
+ * construction time, leaving the MCP SDK's handler with nothing to
+ * read for the JSON-RPC payload. Disabling the pre-read keeps the
+ * body stream available to whichever path (JWT or API-key) we
+ * dispatch to, which then hands it to the SDK's streamable-HTTP
+ * handler.
  */
 
 import { createAuthEndpoint } from "@better-auth/core/api";
@@ -106,8 +106,8 @@ export const NOVA_MCP_PLUGIN_ID = "nova-mcp";
  * Catches around inner-path throws because both the JWT and API-key
  * handlers have their own try/catch around known failure modes, but
  * a novel throw deeper in the stack (network failure during JWKS
- * fetch, plugin bug, unhandled rejection from `mcp-handler`
- * internals) would otherwise propagate. Claude Code reads 500s as
+ * fetch, plugin bug, unhandled rejection from MCP SDK internals)
+ * would otherwise propagate. Claude Code reads 500s as
  * "server down, do not retry" but reads 503s as "transient, retry
  * later," which is the right shape for an unexpected failure on an
  * auth route.
@@ -142,11 +142,11 @@ export async function dispatchMcpAuthRequest(req: Request): Promise<Response> {
  * relative to the `/api/auth` basePath: i.e., wire path
  * `/api/auth/mcp` after the route shim's URL synthesis.
  *
- * The endpoint accepts POST/GET/DELETE because `mcp-handler`'s
- * streamable-HTTP transport routes JSON-RPC over POST and rejects
- * the other verbs with 405. Wiring all three through the same
- * dispatcher keeps the rate limiter + auth check uniform; the 405
- * for an unknown verb arrives only after verification passes.
+ * The endpoint accepts POST/GET/DELETE because the MCP SDK's
+ * handler routes JSON-RPC over POST and rejects the other verbs
+ * with 405. Wiring all three through the same dispatcher keeps the
+ * rate limiter + auth check uniform; the 405 for an unknown verb
+ * arrives only after verification passes.
  */
 export const novaMcpPlugin = (): BetterAuthPlugin => ({
 	id: NOVA_MCP_PLUGIN_ID,
@@ -155,9 +155,9 @@ export const novaMcpPlugin = (): BetterAuthPlugin => ({
 			"/mcp",
 			{
 				method: ["POST", "GET", "DELETE"],
-				/* Skip better-call's `getBody()` body pre-read so
-				 * `mcp-handler` can consume `request.body` itself. See
-				 * the module docblock. */
+				/* Skip better-call's `getBody()` body pre-read so the
+				 * MCP SDK's handler can consume `request.body` itself.
+				 * See the module docblock. */
 				disableBody: true,
 			},
 			async (ctx): Promise<Response> => {

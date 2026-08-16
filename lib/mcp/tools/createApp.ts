@@ -25,7 +25,7 @@
  * authored mutations begin after that baseline.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
@@ -49,14 +49,14 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 		{
 			description:
 				"Create a Nova app with the canonical export-ready survey starter and return its exact sequence-1 blueprint and starter UUIDs for subsequent tool calls. Every later change is checked as it lands.",
-			inputSchema: {
+			inputSchema: z.object({
 				app_name: z
 					.string()
 					.optional()
 					.describe(
 						'Optional initial name. Omitted or whitespace-only names become the real persisted name "Untitled".',
 					),
-			},
+			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			/* Mint the first run id for this app. Subsequent MCP tool

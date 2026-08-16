@@ -20,7 +20,7 @@
  * Settings page, so exposing it to the authenticated caller leaks nothing.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import { getCommCareSettings } from "@/lib/db/settings";
 import {
@@ -75,7 +75,7 @@ export function registerGetHqConnection(
 			description:
 				"Check the user's CommCare HQ connection: whether it's configured, which HQ deployment it lives on (`server`/`server_url`. US, India, and EU are separate CommCare servers), and every project space (domain) the API key can upload to (`available_domains`). Call this before `upload_app_to_hq` to confirm the target. When `available_domains` holds more than one space, ask the user which space and pass their choice to `upload_app_to_hq`, never choose for them; a multi-space key's target is always the user's per-upload decision.",
 		},
-		async (_extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
+		async (_ctx): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
 				/* Per-tool scope gate — runs BEFORE any data read so a
 				 * missing-scope token cannot probe whether HQ creds exist
