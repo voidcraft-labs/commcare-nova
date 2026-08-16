@@ -106,6 +106,11 @@ selected target overlay; structural IDs and authoring-only metadata always edit
 their canonical slots. Preview applies the selected language's text direction
 only to worker content, never to Nova's authoring chrome.
 
+The Languages editor disables Save against the currently visible invalid
+protected-token text, and Missing units may save an explicit source-identical
+reviewed value. Inline target editors return the commit outcome: a refusal keeps
+the draft mounted and shows the finding instead of closing and losing the edit.
+
 ## View-only members (read-only builder)
 
 A Project **viewer** (the `view`-only role) opens the builder read-only. The build page resolves one atomic `{projectId, role, canEdit, baseSeq}` snapshot; `/build/new` resolves the same tuple from the active Project with `baseSeq: 0` while its in-memory store and reconciler remain dormant. Both creation paths carry that captured `projectId` back as `expectedProjectId` and authorize it directly, so another tab changing the session's active Project cannot redirect the pending build. Chat creation returns the complete server-derived tuple plus the exact sequence-1 canonical starter blueprint and its module/form/field UUIDs. The client strictly validates that receipt, installs its blueprint under a remote-apply bracket, and only then activates multiplayer against that same confirmed base; it never reconstructs a starter or promotes a persisted empty app. The session store owns its mutable capability tuple (`useCanEdit()` / `useAccessPhase()`), and `BlueprintEditableBridge` reacts to it through `BlueprintEditableContext`. Three layers make it airtight without per-control paranoia:

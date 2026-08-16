@@ -486,16 +486,18 @@ export function plainSelectDisplayXpath(
 	// use option-catalog order. A second expression removes only those known
 	// tokens from the normalized raw value, leaving unknown tokens intact; the
 	// final concat appends that honest fallback without ever remapping a label.
-	const tokenOptions = options.filter(
-		(option) => option.value !== "" && !/\s/.test(option.value),
+	const tokenOptions = options.flatMap((option, index) =>
+		option.value !== "" && !/\s/.test(option.value)
+			? [{ option, originalIndex: index }]
+			: [],
 	);
 	if (tokenOptions.length === 0) return plainDisplayXpath(field);
 	const knownLabels = idMappingDisplayXpath(
 		field,
-		tokenOptions.map((option, index) => ({
+		tokenOptions.map(({ option, originalIndex }) => ({
 			value: option.value,
 			label: printProseTemplate(option.label, doc),
-			labelExpression: labelExpression?.(option, index),
+			labelExpression: labelExpression?.(option, originalIndex),
 		})),
 	);
 	// Double-space the normalized value so every token owns BOTH of its
@@ -510,7 +512,7 @@ export function plainSelectDisplayXpath(
 	let unknownTokens = `concat('  ', replace(${lowerXPathForJavaRosa(
 		`normalize-space(${field})`,
 	)}, ' ', '  '), '  ')`;
-	for (const option of tokenOptions) {
+	for (const { option } of tokenOptions) {
 		const pattern = quoteLiteral(
 			` ${escapeRegex(option.value)} `,
 			"case-list-filter",

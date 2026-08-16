@@ -109,6 +109,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	TRANSLATION_VALUE_KIND_MISMATCH: "soundness",
 	TRANSLATION_REQUIRED_CONTENT_BLANK: "soundness",
 	TRANSLATION_PROTECTED_CONTENT_CHANGED: "soundness",
+	APP_STRING_VALUE_UNREPRESENTABLE: "soundness",
 	// Who runs the app. Every one is soundness: an illegal or duplicated
 	// slug is an identity CommCare refuses, a duplicated role or persona
 	// name is indistinguishable in every picker, a dangling role or

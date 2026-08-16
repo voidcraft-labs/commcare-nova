@@ -4180,6 +4180,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			],
 			searchInputs: [],
 		});
+
 		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
 
 		expect(column.format).toBe("translatable-enum");
@@ -4193,6 +4194,36 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(column.field).not.toContain("normalize-space(");
 		expect(column.enum).toContainEqual({
 			key: "nova_text_0",
+			value: { en: "VIP" },
+		});
+	});
+
+	it("keeps HQ enum indexes aligned when invalid multi-select tokens are skipped", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					testUuid("00000000-0000-4000-8000-000000010014"),
+					"tags",
+					"Tags",
+				),
+			],
+			searchInputs: [],
+		});
+		const tags = doc.caseTypes?.[0]?.properties.find(
+			(property) => property.name === "tags",
+		);
+		if (tags === undefined) throw new Error("Expected tags property.");
+		tags.options = [
+			{ value: "not a token", label: proseText("Skipped") },
+			{ value: "vip", label: proseText("VIP") },
+		];
+		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
+
+		expect(column.field).toContain(
+			"if(selected(tags, 'vip'), $nova_text_1, '')",
+		);
+		expect(column.enum).toContainEqual({
+			key: "nova_text_1",
 			value: { en: "VIP" },
 		});
 	});

@@ -37,6 +37,7 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import type { HqApplication } from "@/lib/commcare";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import { serializeLocaleFileValue } from "@/lib/commcare/localeFile";
 import { commCareLocalization } from "@/lib/commcare/localization";
 import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
@@ -809,7 +810,7 @@ export function compileCcz(
 			);
 		}
 		files[`${dir}/app_strings.txt`] = Object.entries(table)
-			.map(([key, value]) => `${key}=${value}`)
+			.map(([key, value]) => `${key}=${serializeLocaleFileValue(key, value)}`)
 			.join("\n");
 	}
 

@@ -325,6 +325,102 @@ describe("LanguagesSection", () => {
 		});
 	});
 
+	it("keeps Save disabled while the visible protected prose is invalid", async () => {
+		renderSection();
+		if (store === undefined) throw new Error("Expected the document store.");
+		act(() => {
+			store?.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: FIELD_UUID,
+					targetKind: "text",
+					patch: {
+						label: {
+							parts: [
+								{ kind: "text", text: "Worker " },
+								{ kind: "user-ref", property: "username" },
+							],
+						},
+					},
+				},
+			]);
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
+		fireEvent.change(screen.getByLabelText("Language code"), {
+			target: { value: "es" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add and copy strings" }),
+		);
+		await screen.findByRole("heading", { name: "español strings" });
+
+		const input = screen.getByDisplayValue(
+			"Worker [[NOVA_REF_1]]",
+		) as HTMLTextAreaElement;
+		const row = input.closest("article");
+		if (row === null) throw new Error("Expected the translation row.");
+		const save = within(row).getByRole("button", { name: "Save translation" });
+		fireEvent.change(input, {
+			target: { value: "Trabajador [[NOVA_REF_1]]" },
+		});
+		expect((save as HTMLButtonElement).disabled).toBe(false);
+		fireEvent.change(input, { target: { value: "Trabajador" } });
+
+		expect((await within(row).findByRole("alert")).textContent).toContain(
+			"Keep [[NOVA_REF_1]] exactly once.",
+		);
+		expect((save as HTMLButtonElement).disabled).toBe(true);
+	});
+
+	it("lets a missing source-identical value become an explicit reviewed translation", async () => {
+		renderSection();
+		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
+		fireEvent.change(screen.getByLabelText("Language code"), {
+			target: { value: "es" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Add and copy strings" }),
+		);
+		await screen.findByRole("heading", { name: "español strings" });
+
+		const row = screen
+			.getAllByText("Care visits › Visits › Visit › Client name")
+			.map((breadcrumb) => breadcrumb.closest("article"))
+			.find((candidate) => candidate?.textContent?.includes("field label"));
+		if (row === undefined || row === null || store === undefined) {
+			throw new Error("Expected the field-label translation row and store.");
+		}
+		fireEvent.click(
+			within(row).getByRole("button", { name: "Use source fallback" }),
+		);
+		await waitFor(() =>
+			expect(
+				effectiveAppLocalization(store?.getState().localization).translations
+					.es?.[makeTranslationUnitId("field", FIELD_UUID, "label")],
+			).toBeUndefined(),
+		);
+
+		const missingRow = screen
+			.getAllByText("Care visits › Visits › Visit › Client name")
+			.map((breadcrumb) => breadcrumb.closest("article"))
+			.find((candidate) => candidate?.textContent?.includes("field label"));
+		if (missingRow === undefined || missingRow === null) {
+			throw new Error("Expected the missing field-label row.");
+		}
+		const save = within(missingRow).getByRole("button", {
+			name: "Save translation",
+		});
+		expect((save as HTMLButtonElement).disabled).toBe(false);
+		fireEvent.click(save);
+
+		await waitFor(() =>
+			expect(
+				effectiveAppLocalization(store?.getState().localization).translations
+					.es?.[makeTranslationUnitId("field", FIELD_UUID, "label")],
+			).toMatchObject({ origin: "human", review: "reviewed" }),
+		);
+	});
+
 	it("reconciles an open translation draft when a remote edit changes its entry", async () => {
 		renderSection();
 

@@ -235,6 +235,32 @@ describe("emitColumnField — plain", () => {
 			`concat(&apos;  &apos;, replace(${normalizedTags}, &apos; &apos;, &apos;  &apos;), &apos;  &apos;)`,
 		);
 	});
+
+	it("keeps original label indexes when invalid multi-select tokens are skipped", () => {
+		const col = plainColumn(COL_UUIDS.a, "tags", "Tags");
+		const ctx: CaseListEmitContext = {
+			...emptyCtx,
+			caseProperties: [
+				{
+					name: "tags",
+					label: proseText("Tags"),
+					data_type: "multi_select",
+					options: [
+						{ value: "not a token", label: proseText("Skipped") },
+						{ value: "vip", label: proseText("VIP") },
+					],
+				},
+			],
+		};
+		const out = emitColumnField({ column: col, position: 1, ctx });
+
+		expect(out.xml).toContain(
+			"if(selected(tags, &apos;vip&apos;), $knova_text_1, &apos;&apos;)",
+		);
+		expect(out.xml).not.toContain(
+			"if(selected(tags, &apos;vip&apos;), $knova_text_0, &apos;&apos;)",
+		);
+	});
 });
 
 describe("emitColumnField — date", () => {

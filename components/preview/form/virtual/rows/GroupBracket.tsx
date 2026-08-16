@@ -40,6 +40,7 @@ import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
+	type CommitOutcome,
 	EMPTY_PROSE_TEMPLATE,
 	type FieldPatchFor,
 	makeTranslationUnitId,
@@ -94,15 +95,14 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	 * `label` slot the header writes to. */
 	const fieldKind = q?.kind;
 	const saveField = useMemo<
-		((field: string, value: ProseTemplate) => void) | null
+		((field: string, value: ProseTemplate) => CommitOutcome) | null
 	>(() => {
 		if (mode !== "edit" || fieldKind === undefined) return null;
 		return (property, value) => {
 			if (!language.isSource) {
-				labelEditor.saveTarget(value);
-				return;
+				return labelEditor.saveTarget(value);
 			}
-			updateField(uuid, fieldKind, {
+			return updateField(uuid, fieldKind, {
 				[property]: value,
 			} as FieldPatchFor<typeof fieldKind>);
 		};

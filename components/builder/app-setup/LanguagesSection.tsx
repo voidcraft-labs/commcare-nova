@@ -850,9 +850,11 @@ function TranslationUnitRow({
 	const [draft, setDraft] = useState<LocalizedValue>(() =>
 		structuredClone(initial),
 	);
+	const [draftValid, setDraftValid] = useState(true);
 	const [error, setError] = useState<string>();
 	const changed = JSON.stringify(draft) !== JSON.stringify(initial);
 	const save = () => {
+		if (!draftValid) return;
 		const refusal = firstRefusal(editor.saveTarget(draft));
 		setError(refusal);
 	};
@@ -974,6 +976,7 @@ function TranslationUnitRow({
 								source={unit.source as ProseTemplate}
 								value={draft}
 								onChange={setDraft}
+								onValidityChange={setDraftValid}
 							/>
 						)}
 						<div className="mt-2 flex flex-wrap items-center justify-end gap-2">
@@ -994,7 +997,13 @@ function TranslationUnitRow({
 										Keep and review
 									</Button>
 								)}
-							<Button type="button" disabled={!changed} onClick={save}>
+							<Button
+								type="button"
+								disabled={
+									!draftValid || (!changed && unit.explicit !== undefined)
+								}
+								onClick={save}
+							>
 								Save translation
 							</Button>
 						</div>
@@ -1124,11 +1133,13 @@ function ProtectedProseEditor({
 	source,
 	value,
 	onChange,
+	onValidityChange,
 }: {
 	readonly doc: BlueprintDoc;
 	readonly source: ProseTemplate;
 	readonly value: ProseTemplate;
 	readonly onChange: (value: ProseTemplate) => void;
+	readonly onValidityChange: (valid: boolean) => void;
 }) {
 	/* Freeze collision-free markers for this editor instance. Parent draft
 	 * updates must not change the marker alphabet midway through an edit; the
@@ -1145,6 +1156,7 @@ function ProtectedProseEditor({
 					setDraft(next);
 					const parsed = parseProtectedProse(next, tokens);
 					setError(parsed.error);
+					onValidityChange(parsed.error === undefined);
 					if (parsed.value !== undefined) onChange(parsed.value);
 				}}
 				aria-label="Reference-safe translation"

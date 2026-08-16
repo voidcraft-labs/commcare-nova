@@ -46,6 +46,11 @@ filter by status:
   the running app uses the current source until the target is reviewed or
   replaced.
 
+A correct translation sometimes is identical to its source, such as a product
+name or acronym. A Missing row can be saved without changing its text; Nova then
+stores that value explicitly as reviewed instead of leaving it permanently
+Missing.
+
 Choose **Open in Builder** to move from a translation row to its owning module,
 form, field, Results, or Search screen. When a target language is selected in
 the ordinary Builder, editing worker-facing text writes that target language.
@@ -62,7 +67,10 @@ Some labels contain references to fields or other app values. The translation
 editor represents those parts as protected tokens. They can move to a natural
 place in the translated sentence, but cannot be deleted, duplicated, or changed
 into plain text. Prefix a token-looking literal or a literal backslash with a
-backslash so it remains ordinary text rather than becoming structure.
+backslash so it remains ordinary text rather than becoming structure. Save stays
+disabled while the visible token form is invalid. If an inline Builder edit is
+rejected by the same guardrail, the draft remains open with the reason rather
+than disappearing.
 
 Every configured language always has a complete runtime projection. A missing
 or out-of-date target uses the current source value, so the app remains valid

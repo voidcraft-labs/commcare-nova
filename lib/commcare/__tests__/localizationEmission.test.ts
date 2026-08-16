@@ -144,4 +144,126 @@ describe("multilingual CommCare emission", () => {
 		expect(xform).toContain("<value>Nombre</value>");
 		expect(xform).toContain("<value>Name</value>");
 	});
+
+	it("emits optional itext and body refs when only the target has text", () => {
+		const doc = buildDoc({
+			appName: "Target-only prose",
+			modules: [
+				{
+					name: "Patients",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									id: "section",
+									label: { parts: [] },
+									children: [
+										f({
+											kind: "text",
+											id: "name",
+											label: "Name",
+											hint: { parts: [] },
+											help: { parts: [] },
+											validate: ". != ''",
+											validate_msg: { parts: [] },
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const group = Object.values(doc.fields).find(
+			(field) => field.id === "section",
+		);
+		const input = Object.values(doc.fields).find(
+			(field) => field.id === "name",
+		);
+		if (group === undefined || input === undefined) {
+			throw new Error("Expected target-only prose fixture fields.");
+		}
+		const units = translationUnitsById(doc);
+		const targets = new Map<TranslationUnitId, ReturnType<typeof proseText>>([
+			[
+				makeTranslationUnitId("field", group.uuid, "label"),
+				proseText("Sección"),
+			],
+			[makeTranslationUnitId("field", input.uuid, "hint"), proseText("Pista")],
+			[makeTranslationUnitId("field", input.uuid, "help"), proseText("Ayuda")],
+			[
+				makeTranslationUnitId("field", input.uuid, "validate_msg"),
+				proseText("Obligatorio"),
+			],
+		]);
+		const entries: Record<TranslationUnitId, TranslationEntry> = {};
+		for (const [unitId, value] of targets) {
+			const unit = units.get(unitId);
+			if (unit === undefined)
+				throw new Error(`Missing fixture unit ${unitId}.`);
+			entries[unitId] = {
+				value,
+				sourceFingerprint: unit.sourceFingerprint,
+				origin: "human",
+				review: "reviewed",
+				translatedFrom: "en",
+			};
+		}
+		doc.localization = {
+			sourceLanguage: "en",
+			defaultLanguage: "es",
+			languageOrder: ["es", "en"],
+			languages: {
+				es: { code: "es", name: "Español", direction: "ltr" },
+				en: { code: "en", name: "English", direction: "ltr" },
+			},
+			translations: { es: entries },
+		};
+
+		const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
+		const xform = zip.readAsText("modules-0/forms-0.xml");
+		expect(xform).toContain('<text id="section-label">');
+		expect(xform).toContain("<value>Secci&#xf3;n</value>");
+		expect(xform).toContain(
+			'<group ref="/data/section" appearance="field-list"><label ref="jr:itext(&apos;section-label&apos;)"/>',
+		);
+		expect(xform).toContain('<text id="section-name-hint">');
+		expect(xform).toContain("<value>Pista</value>");
+		expect(xform).toContain(
+			'<hint ref="jr:itext(&apos;section-name-hint&apos;)"/>',
+		);
+		expect(xform).toContain('<text id="section-name-help">');
+		expect(xform).toContain("<value>Ayuda</value>");
+		expect(xform).toContain(
+			'<help ref="jr:itext(&apos;section-name-help&apos;)"/>',
+		);
+		expect(xform).toContain('<text id="section-name-constraintMsg">');
+		expect(xform).toContain("<value>Obligatorio</value>");
+		expect(xform).toContain(
+			'jr:constraintMsg="jr:itext(&apos;section-name-constraintMsg&apos;)"',
+		);
+	});
+
+	it("escapes locale-file comments and line breaks and rejects literal backslash-n", () => {
+		const doc = bilingualDoc();
+		const appUnit = makeTranslationUnitId("app", "name");
+		const appEntry = doc.localization?.translations.es?.[appUnit];
+		if (appEntry === undefined) throw new Error("Expected Spanish app name.");
+		appEntry.value = "Aplicación #1\nSegunda línea";
+		const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
+		const strings = zip.readAsText("default/app_strings.txt");
+		expect(strings).toContain(
+			"homescreen.title=Aplicación \\#1\\nSegunda línea",
+		);
+		expect(strings).not.toContain("homescreen.title=Aplicación #1\n");
+
+		appEntry.value = String.raw`Aplicación \n literal`;
+		expect(() => compileCcz(expandDoc(doc), doc.appName, doc)).toThrow(
+			/literal sequence \\n/,
+		);
+	});
 });

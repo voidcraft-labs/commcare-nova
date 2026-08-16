@@ -34,6 +34,7 @@ import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
+	type CommitOutcome,
 	type FieldPatchFor,
 	makeTranslationUnitId,
 	type ProseTemplate,
@@ -87,15 +88,16 @@ export const FieldRow = memo(function FieldRow({
 	 * the runtime contract holds. */
 	const fieldKind = q?.kind;
 	const saveField = useMemo<
-		((field: string, value: ProseTemplate) => void) | null
+		((field: string, value: ProseTemplate) => CommitOutcome) | null
 	>(() => {
 		if (mode !== "edit" || fieldKind === undefined) return null;
 		return (property, value) => {
 			if (!language.isSource) {
-				(property === "hint" ? hintEditor : labelEditor).saveTarget(value);
-				return;
+				return (property === "hint" ? hintEditor : labelEditor).saveTarget(
+					value,
+				);
 			}
-			updateField(uuid, fieldKind, {
+			return updateField(uuid, fieldKind, {
 				[property]: value,
 			} as FieldPatchFor<typeof fieldKind>);
 		};

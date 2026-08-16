@@ -207,6 +207,13 @@ representable without confusing it for structure. The server maps the tokens
 back to the original typed field, case, user property, or external-user
 reference.
 
+The inventory review editor owns the validity of the text currently visible in
+its textarea, not merely the last parseable draft. It disables commit while a
+protected token is missing or duplicated. A Missing unit may commit an explicit
+source-identical human value, because equality does not mean the fallback was
+reviewed. Inline Builder editors likewise retain a rejected target draft and
+surface the commit-gate reason.
+
 Neither AI nor human tooling reparses rendered `#form/...` text. UUID-backed
 identity moves and display renames leave the source and target reference atoms,
 unit identity, and fingerprint unchanged. The semantic case-property rename
@@ -480,12 +487,18 @@ cloning `BlueprintDoc` into a second app model.
 - Every XForm receives one translation block per language and exactly one
   default. The existing itext registry is populated through the localized
   resolver so text IDs and reference-bearing output remain identical across
-  languages.
+  languages. Optional hints, help, validation messages, and container labels
+  emit when any configured language has effective content, even when the source
+  template is empty.
 - Suite app strings become a complete table per language rather than one map
-  copied to every directory.
+  copied to every directory. Multi-select label expressions retain each option's
+  original catalog index when non-token values are skipped.
 - The direct CCZ writes the default table to `default/app_strings.txt` and each
   other table to its language directory. Every table carries the language
-  endonyms and `lang.current` values CommCare's picker expects.
+  endonyms and `lang.current` values CommCare's picker expects. Values serialize
+  through CommCare Core's locale-file grammar: comment hashes and physical line
+  breaks are escaped, while literal backslash-`n`, carriage returns, and boundary
+  ASCII whitespace fail closed because Core cannot round-trip them.
 - HQ-upload and direct-CCZ paths consume the same projections and receive
   separate exact boundary tests.
 

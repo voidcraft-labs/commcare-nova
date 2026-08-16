@@ -20,6 +20,13 @@ translation covers the same itext IDs, and every localized suite app-string
 table covers the same locale IDs. The XForm and suite oracles enforce those
 properties for every language, not only the runtime default.
 
+Optional XForm itext entries and their body/bind references are gated on
+effective content across every configured language, not source content alone.
+Suite multi-select option filtering carries original catalog indexes through to
+localized variables. Direct-CCZ app-string values serialize through Core's
+actual locale grammar (`\#` comments and `\n` line breaks) and fail closed for
+literal backslash-`n` or boundary content that the grammar cannot round-trip.
+
 The app language catalog uses Nova codes and metadata until this boundary. HQ
 `langs`, localized property maps, itext language/default attributes,
 `default/app_strings.txt`, per-language directories, endonyms, and
