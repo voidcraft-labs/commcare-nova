@@ -105,6 +105,10 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	MUTATION_WIRE_CANONICALITY_INVALID: "soundness",
 	CASE_PROPERTY_REFERENCE_INVALID: "soundness",
 	AUTOMATION_INVALID: "soundness",
+	TRANSLATION_UNIT_UNKNOWN: "soundness",
+	TRANSLATION_VALUE_KIND_MISMATCH: "soundness",
+	TRANSLATION_REQUIRED_CONTENT_BLANK: "soundness",
+	TRANSLATION_PROTECTED_CONTENT_CHANGED: "soundness",
 	// Who runs the app. Every one is soundness: an illegal or duplicated
 	// slug is an identity CommCare refuses, a duplicated role or persona
 	// name is indistinguishable in every picker, a dangling role or

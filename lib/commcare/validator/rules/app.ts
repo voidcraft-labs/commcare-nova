@@ -12,9 +12,11 @@ import {
 	type BlueprintAuthoredIdentityKind,
 	type BlueprintDoc,
 	blueprintTopologyIssues,
+	collectTranslationUnits,
 	deriveCaseWriteInventory,
 	isConnectLearnConfig,
 	projectXPath,
+	translationValueIntegrityIssue,
 	type Uuid,
 	xpathPrintContext,
 } from "@/lib/domain";
@@ -221,6 +223,74 @@ function emptyAppName(doc: BlueprintDoc): ValidationError[] {
 			{},
 		),
 	];
+}
+
+/** Every target overlay must address a live unit and preserve typed tokens. */
+function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
+	if (doc.localization === undefined) return [];
+	const units = new Map(
+		collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
+	);
+	const errors: ValidationError[] = [];
+	for (const [language, entries] of Object.entries(
+		doc.localization.translations,
+	)) {
+		for (const [unitId, entry] of Object.entries(entries)) {
+			const unit = units.get(unitId);
+			if (unit === undefined) {
+				errors.push(
+					validationError(
+						"TRANSLATION_UNIT_UNKNOWN",
+						"app",
+						`The ${language} translation refers to content that no longer exists. Remove the orphaned translation and try again.`,
+						{},
+						{ language, unitId },
+					),
+				);
+				continue;
+			}
+			const issue = translationValueIntegrityIssue(unit, entry.value);
+			if (issue === "value-kind") {
+				errors.push(
+					validationError(
+						"TRANSLATION_VALUE_KIND_MISMATCH",
+						"app",
+						`The ${language} translation for ${unit.breadcrumb.join(" → ")} has the wrong value type. Keep reference-capable content structured and plain text plain.`,
+						{},
+						{ language, unitId, role: unit.role },
+					),
+				);
+				continue;
+			}
+			if (issue === "blank-content") {
+				errors.push(
+					validationError(
+						"TRANSLATION_REQUIRED_CONTENT_BLANK",
+						"app",
+						`The ${language} translation for ${unit.breadcrumb.join(" → ")} cannot be blank. Enter the worker-facing text and try again.`,
+						{},
+						{ language, unitId, role: unit.role },
+					),
+				);
+				continue;
+			}
+			if (
+				issue === "protected-content" &&
+				entry.sourceFingerprint === unit.sourceFingerprint
+			) {
+				errors.push(
+					validationError(
+						"TRANSLATION_PROTECTED_CONTENT_CHANGED",
+						"app",
+						`The ${language} translation for ${unit.breadcrumb.join(" → ")} changed a protected app reference. Translate only the surrounding words; every reference token must remain exactly once.`,
+						{},
+						{ language, unitId, role: unit.role },
+					),
+				);
+			}
+		}
+	}
+	return errors;
 }
 
 /**
@@ -508,6 +578,7 @@ export const APP_RULES = [
 	canonicalCasePropertyDefaults,
 	noModules,
 	emptyAppName,
+	validTranslationOverlays,
 	reservedCaseTypeName,
 	childCaseTypeMissingModule,
 	circularFormLinks,

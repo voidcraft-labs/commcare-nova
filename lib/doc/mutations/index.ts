@@ -24,6 +24,10 @@ import {
 } from "@/lib/doc/casePropertyRenames";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
+	dematerializeLegacyLocalization,
+	pruneOrphanTranslationEntries,
+} from "@/lib/doc/localizationMaintenance";
+import {
 	applyReferenceIndexMaintenance,
 	devAssertReferenceIndexParity,
 	ensureReferenceIndex,
@@ -58,6 +62,13 @@ function dispatchMutation(
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":
+		case "relabelSourceLanguage":
+		case "addLanguage":
+		case "updateLanguage":
+		case "removeLanguage":
+		case "setDefaultLanguage":
+		case "setTranslation":
+		case "reviewTranslation":
 		case "declareCaseType":
 		case "retireCaseType":
 		case "addCaseProperty":
@@ -159,6 +170,8 @@ function applyOne(draft: Draft<BlueprintDoc>, mut: Mutation): MutationResult {
 	const doc = draft as unknown as BlueprintDoc;
 	const plan = planReferenceIndexMaintenance(doc, mut);
 	const result = dispatchMutation(draft, mut);
+	pruneOrphanTranslationEntries(draft);
+	dematerializeLegacyLocalization(draft);
 	applyReferenceIndexMaintenance(doc, plan);
 	return result;
 }

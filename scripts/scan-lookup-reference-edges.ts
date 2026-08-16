@@ -68,7 +68,10 @@ if (opts.prod === true) targetProdDb();
 type PersistedAppRow = Pick<
 	Selectable<AppsTable>,
 	"id" | "project_id" | "app_name" | "connect_type" | "logo" | "deleted_at"
-> & { readonly case_types_text: string | null };
+> & {
+	readonly case_types_text: string | null;
+	readonly localization_text: string | null;
+};
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -121,6 +124,7 @@ async function readStructuralTargets(
 				app_name: row.app_name,
 				connect_type: row.connect_type,
 				case_types_text: row.case_types_text,
+				localization_text: row.localization_text,
 				logo: row.logo,
 			},
 			entityRows,
@@ -200,6 +204,11 @@ async function main(): Promise<void> {
 					.select(
 						sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
 							"case_types_text",
+						),
+					)
+					.select(
+						sql<string | null>`${sql.ref("apps.localization")}::text`.as(
+							"localization_text",
 						),
 					)
 					.orderBy("id", "asc")

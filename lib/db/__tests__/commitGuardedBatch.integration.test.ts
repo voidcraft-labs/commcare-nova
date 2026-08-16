@@ -180,6 +180,8 @@ async function seedApp(
 				app_name_lower: p.appName.toLowerCase(),
 				connect_type: p.connectType ?? null,
 				case_types: p.caseTypes === null ? null : JSON.stringify(p.caseTypes),
+				localization:
+					p.localization === undefined ? null : JSON.stringify(p.localization),
 				logo: p.logo ?? null,
 				module_count: p.moduleOrder.length,
 				form_count: formCount,

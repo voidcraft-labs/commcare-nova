@@ -6,6 +6,7 @@ import {
 	safePersistedSequence,
 } from "@/lib/utils/persistedSequence";
 import {
+	assemblePersistedBlueprintJsonText,
 	PersistedJsonRejectedError,
 	parsePersistedAppChangeEnvelope,
 	parsePersistedJsonText,
@@ -84,6 +85,24 @@ describe("parsePersistedJsonText", () => {
 				}),
 			);
 		}
+	});
+});
+
+describe("assemblePersistedBlueprintJsonText", () => {
+	it("treats the absent pre-localization carrier as no localization", () => {
+		const doc = assemblePersistedBlueprintJsonText(
+			"historical-app",
+			{
+				app_name: "Historical app",
+				connect_type: null,
+				case_types_text: null,
+				logo: null,
+			},
+			[],
+		);
+
+		expect(doc.appName).toBe("Historical app");
+		expect(doc.localization).toBeUndefined();
 	});
 });
 
@@ -281,6 +300,7 @@ describe("persisted JSON source boundaries", () => {
 			const source = readFileSync(path.join(root, relative), "utf8");
 			expect(source).toContain("assemblePersistedBlueprintJsonText");
 			expect(source).toMatch(/case_types.+::text/s);
+			expect(source).toMatch(/localization.+::text/s);
 			expect(source).toMatch(/data.+::text/s);
 		}
 		/* The strict persisted-app admission lives in the canonical commit
@@ -309,6 +329,7 @@ describe("persisted JSON source boundaries", () => {
 		)?.[1];
 		expect(projection).toBeDefined();
 		expect(projection).not.toContain('"case_types"');
+		expect(projection).not.toContain('"localization"');
 	});
 
 	it("forbids parsed all-column app reads in production and operator code", () => {
@@ -337,8 +358,11 @@ describe("persisted JSON source boundaries", () => {
 			path.join(root, "scripts/inspect-app.ts"),
 			"utf8",
 		);
-		expect(inspector).toContain("(to_jsonb(apps) - 'case_types')::text");
+		expect(inspector).toContain(
+			"(to_jsonb(apps) - 'case_types' - 'localization')::text",
+		);
 		expect(inspector).toMatch(/apps\.case_types.+::text/s);
+		expect(inspector).toMatch(/apps\.localization.+::text/s);
 		expect(inspector).toContain("parsePersistedJsonText");
 	});
 

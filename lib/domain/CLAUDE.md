@@ -21,6 +21,33 @@ Sequence is plain array position. Position belongs to the collection, so entitie
 
 **A membership array IS the sequence.** `formOrder` is keyed by module and `fieldOrder` by form-or-container, so a hierarchical collection's array also says which parent an entity belongs to. A FLAT top-level collection (`userProperties` / `userTypes` / `personas` / `organizationLevels` / `locationProperties` / `automations`) has no parent to express, but it carries an array for the same reason every other collection does: position belongs to the collection, not to the member. A position stored ON the entity has to be computed from the sequence its author could see, so two people adding from one document compute the SAME position, and nothing sorts between two equal positions, which silently strands every later insertion between them. The record and its array cannot drift: `assembleBlueprint` throws when they disagree. All nine top-level entity kinds share one GLOBAL entity-UUID namespace because `blueprint_entities` persists them under one `(app_id, uuid)` primary key. The validator rejects a duplicate before commit and `decomposeBlueprint` repeats the check against each entity's own `uuid` before row assembly, so two identities can never collapse into one durable row. The case list is the one collection with TWO sequences over one set: `caseListConfig.listColumnOrder` and `detailColumnOrder`, both required, both naming every column from birth whatever its visibility. Read either through `orderedColumns(config, surface)`; the `columns` array is the set, and its position means nothing. Two slots are derived and NEVER persisted: `fieldParent` (the field→parent reverse index, rebuilt from `fieldOrder` on load) and `refIndex` (the reference index, built on demand; see `lib/doc`). The type system enforces the strip: `PersistableDoc` is the on-disk shape, `BlueprintDoc` adds the derived slots for in-memory use, and `PersistedBlueprint` (a `never`-typed wall) is what every writer takes so an unstripped doc can't serialize its derived state.
 
+## Localization is an overlay over canonical source content
+
+`localization.ts` owns app-language identity and metadata. The ordinary
+Blueprint slots remain the canonical source-language values; `AppLocalization`
+stores only target-language entries plus provenance and review state. An absent
+root means the exact legacy English-only state and is never backfilled. The
+source language has no duplicate target map, the default language is first in
+`languageOrder`, and every other app language has exactly one map. Language
+identity is a lower-case CommCare code (`[a-z]{2,3}` with an optional nonempty
+lower-case suffix). `config/commcare-classic-languages.json` is an exact checked-in
+copy of Classic's picker catalog for discovery, not an allowlist: every code
+Classic's wire grammar accepts remains authorable, with editable name and text
+direction metadata.
+
+`translationUnits.ts::collectTranslationUnits` is the ONE inventory of static
+worker-facing strings. A unit id is an injective, versioned projection of stable
+owner identity plus semantic slot, never visible text or collection position.
+Builder, tools, Preview, translation orchestration, and wire emission resolve
+language values through `resolveTranslationUnit(s)` rather than independently
+walking labels. Each target entry fingerprints the current source. Missing and
+out-of-date entries fall back to the canonical source; an out-of-date explicit
+value remains stored for review but is never emitted as current. Prose
+translations may reorder literal text and reference parts, but must preserve the
+exact multiset and identity of every protected reference part. A source edit
+therefore makes overlays stale rather than rewriting them, while removal of the
+owning slot prunes its now-orphaned entries.
+
 ## Automations describe HQ behavior; they never execute here
 
 `automations.ts` owns one closed union: automatic case updates and conditional

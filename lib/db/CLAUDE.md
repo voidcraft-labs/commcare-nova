@@ -76,9 +76,12 @@ row-set a commit changed — diffed per entity by content, NOT by mutation
 targets, because reducer side effects like a rename's prose cascade touch
 entities the batch never named). `apps.app_name` stores the blueprint name,
 which the schema keeps non-blank, so projections read it directly.
+`apps.localization` stores the optional app-level translation overlay as one
+root scalar. `NULL` is the canonical legacy English-only spelling; no migration
+rewrites old apps or materializes an explicit one-language shell.
 
 **Persisted Blueprint JSON enters JavaScript as exact text.** `pg`'s default
-JSONB decoder is never allowed to parse `apps.case_types`,
+JSONB decoder is never allowed to parse `apps.case_types`, `apps.localization`,
 `blueprint_entities.data`, replayable `app_changes.mutations`, or
 `app_change_fold_baselines.snapshot`: every ordinary reader selects each carrier
 as `::text` and enters through `persistedJson.ts` before strict

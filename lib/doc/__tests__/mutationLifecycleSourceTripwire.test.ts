@@ -75,6 +75,10 @@ const SOURCE_CLASSIFICATION = {
 	"lib/doc/commitVerdicts.ts": "admits-proposal",
 	"lib/doc/diffDocsToMutations.ts": "admits-proposal",
 	"lib/doc/mutationAdmission.ts": "admits-proposal",
+	// Target-sensitive localization operations admit each step against the
+	// already-admitted prefix, so a later operation can safely address a
+	// language or string introduced earlier in the same proposal.
+	"lib/doc/mutationTargetAdmission.ts": "admits-proposal",
 	"lib/doc/mutations/index.ts": "consumes-durable-admitted",
 	"lib/doc/store.ts": "admits-proposal",
 	"lib/generation/streamDispatcher.ts": "consumes-durable-admitted",

@@ -19,6 +19,7 @@ import {
 	admitMutationBatch,
 } from "@/lib/doc/mutationAdmission";
 import type {
+	AppLocalization,
 	ConnectType,
 	MediaAssetId,
 	PersistableDoc,
@@ -48,6 +49,7 @@ export interface PersistedBlueprintRootText {
 	readonly app_name: string;
 	readonly connect_type: ConnectType | null;
 	readonly case_types_text: string | null;
+	readonly localization_text?: string | null;
 	readonly logo: MediaAssetId | null;
 }
 
@@ -499,6 +501,13 @@ export function assemblePersistedBlueprintJsonText(
 							root.case_types_text,
 							`apps.case_types for app ${appId}`,
 						) as PersistableDoc["caseTypes"]),
+			localization:
+				root.localization_text === null || root.localization_text === undefined
+					? undefined
+					: (parsePersistedJsonText(
+							root.localization_text,
+							`apps.localization for app ${appId}`,
+						) as AppLocalization),
 			logo: root.logo,
 		},
 		rows.map((row) => parseEntityRow(row, appId)),

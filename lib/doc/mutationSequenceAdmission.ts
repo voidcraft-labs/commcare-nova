@@ -978,6 +978,13 @@ export function mutationSequenceAdmissionIssue(
 			case "setAppName":
 			case "setConnectType":
 			case "setAppLogo":
+			case "relabelSourceLanguage":
+			case "addLanguage":
+			case "updateLanguage":
+			case "removeLanguage":
+			case "setDefaultLanguage":
+			case "setTranslation":
+			case "reviewTranslation":
 			case "renameCaseProperties":
 				break;
 			case "declareCaseType":

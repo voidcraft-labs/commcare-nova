@@ -147,14 +147,18 @@ export interface ChatRunHolderCapability extends ExactRunHolderIdentity {
 
 type AppRow = Selectable<AppsTable>;
 
-export type PersistedBlueprintAppRow = Omit<AppRow, "case_types"> & {
+export type PersistedBlueprintAppRow = Omit<
+	AppRow,
+	"case_types" | "localization"
+> & {
 	readonly case_types_text: string | null;
+	readonly localization_text: string | null;
 };
 
 /**
- * Complete app-row projection for Blueprint readers. `case_types` is
- * deliberately absent: selecting it even beside `case_types::text` would let
- * pg eagerly parse and numerically alias the discarded JSONB value.
+ * Complete app-row projection for Blueprint readers. Blueprint JSONB roots
+ * are deliberately absent: selecting one even beside its `::text` projection
+ * would let pg eagerly parse and numerically alias the discarded value.
  */
 export const PERSISTED_BLUEPRINT_APP_COLUMNS = [
 	"id",
@@ -231,6 +235,11 @@ export async function lockAppRow(
 				"case_types_text",
 			),
 		)
+		.select(
+			sql<string | null>`${sql.ref("apps.localization")}::text`.as(
+				"localization_text",
+			),
+		)
 		.where("id", "=", appId)
 		.forUpdate()
 		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
@@ -300,6 +309,7 @@ export async function loadSchemaAdmittedAppSnapshotFromRowInTransaction(
 			app_name: row.app_name,
 			connect_type: row.connect_type,
 			case_types_text: row.case_types_text,
+			localization_text: row.localization_text,
 			logo: row.logo,
 		},
 		entities,
@@ -379,6 +389,11 @@ export async function loadAppInTransaction(
 				"case_types_text",
 			),
 		)
+		.select(
+			sql<string | null>`${sql.ref("apps.localization")}::text`.as(
+				"localization_text",
+			),
+		)
 		.where("id", "=", appId)
 		.forShare()
 		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
@@ -399,6 +414,8 @@ export function denormalize(doc: PersistableDoc) {
 		app_name_lower: doc.appName.toLowerCase(),
 		connect_type: doc.connectType ?? null,
 		case_types: doc.caseTypes === null ? null : JSON.stringify(doc.caseTypes),
+		localization:
+			doc.localization === undefined ? null : JSON.stringify(doc.localization),
 		logo: doc.logo ?? null,
 		module_count: doc.moduleOrder.length,
 		form_count: formCount,

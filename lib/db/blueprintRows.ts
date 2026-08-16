@@ -1,7 +1,7 @@
 // Blueprint ⇄ entity rows — the persistence projection behind `apps`.
 //
 // There is no blueprint blob: an app's current state is scalar columns on its
-// `apps` row (name, connectType, caseTypes, logo) plus one `blueprint_entities`
+// `apps` row (name, connectType, caseTypes, localization, logo) plus one `blueprint_entities`
 // row per hierarchical or flat authored entity. `assembleBlueprint` reconstructs the exact
 // `PersistableDoc` (records + membership arrays by stored `ordinal`);
 // `decomposeBlueprint` is its inverse; `diffBlueprints` computes the minimal
@@ -86,6 +86,7 @@ export interface BlueprintScalars {
 	app_name: string;
 	connect_type: PersistableDoc["connectType"];
 	case_types: PersistableDoc["caseTypes"];
+	localization: PersistableDoc["localization"];
 	logo: string | null;
 }
 
@@ -94,6 +95,7 @@ export function blueprintScalars(doc: PersistableDoc): BlueprintScalars {
 		app_name: doc.appName,
 		connect_type: doc.connectType,
 		case_types: doc.caseTypes,
+		localization: doc.localization,
 		logo: doc.logo ?? null,
 	};
 }
@@ -330,6 +332,9 @@ export function assembleBlueprint(
 		appName: scalars.app_name,
 		connectType: scalars.connect_type,
 		caseTypes: scalars.case_types,
+		...(scalars.localization !== undefined && {
+			localization: scalars.localization,
+		}),
 		modules,
 		forms,
 		fields,

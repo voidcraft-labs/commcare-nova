@@ -41,6 +41,14 @@ import { getFieldTool } from "@/lib/agent/tools/getField";
 import { getFormTool } from "@/lib/agent/tools/getForm";
 import { getLookupTablesTool } from "@/lib/agent/tools/getLookupTables";
 import { getModuleTool } from "@/lib/agent/tools/getModule";
+import {
+	addLanguageTool,
+	getLanguagesTool,
+	getTranslatableContentTool,
+	removeLanguageTool,
+	updateLanguageTool,
+	updateTranslationsTool,
+} from "@/lib/agent/tools/localization";
 import { attachFieldMediaTool } from "@/lib/agent/tools/media/attachFieldMedia";
 import { attachOptionMediaTool } from "@/lib/agent/tools/media/attachOptionMedia";
 import { listMediaAssetsTool } from "@/lib/agent/tools/media/listMediaAssets";
@@ -239,6 +247,48 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "addFields",
 		mcpName: "add_fields",
 		tool: addFieldsTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "getLanguages",
+		mcpName: "get_languages",
+		tool: getLanguagesTool,
+		requires: "view",
+		policy: READ_POLICY,
+	},
+	{
+		saName: "getTranslatableContent",
+		mcpName: "get_translatable_content",
+		tool: getTranslatableContentTool,
+		requires: "view",
+		policy: READ_POLICY,
+	},
+	{
+		saName: "addLanguage",
+		mcpName: "add_language",
+		tool: addLanguageTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "updateLanguage",
+		mcpName: "update_language",
+		tool: updateLanguageTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "removeLanguage",
+		mcpName: "remove_language",
+		tool: removeLanguageTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "updateTranslations",
+		mcpName: "update_translations",
+		tool: updateTranslationsTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

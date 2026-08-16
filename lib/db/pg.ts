@@ -30,7 +30,13 @@ import {
 import { getCaseStorePool } from "@/lib/case-store/postgres/connection";
 import type { EntityRowKind } from "@/lib/db/blueprintRows";
 import type { Mutation } from "@/lib/doc/types";
-import type { CaseType, ConnectType, MediaAssetId, Uuid } from "@/lib/domain";
+import type {
+	AppLocalization,
+	CaseType,
+	ConnectType,
+	MediaAssetId,
+	Uuid,
+} from "@/lib/domain";
 import type {
 	LookupColumnId,
 	LookupRowId,
@@ -68,6 +74,11 @@ export interface AppsTable {
 	app_name_lower: string;
 	connect_type: ConnectType | null;
 	case_types: JSONColumnType<CaseType[] | null, string | null, string | null>;
+	localization: JSONColumnType<
+		AppLocalization | null,
+		string | null,
+		string | null
+	>;
 	logo: MediaAssetId | null;
 	module_count: number;
 	form_count: number;
