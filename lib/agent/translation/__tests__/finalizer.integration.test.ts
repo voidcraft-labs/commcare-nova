@@ -458,6 +458,7 @@ describe("initial-build localization finalizer", () => {
 		const replacement = await claimTranslationBatch({
 			attempt,
 			authority,
+			isReusableAcceptedOutput: () => true,
 			spec: {
 				batchIndex: failed.batch_index,
 				sourceLanguage: failed.source_language,
@@ -479,5 +480,120 @@ describe("initial-build localization finalizer", () => {
 				.where("batch_index", "=", failed.batch_index)
 				.execute(),
 		).toHaveLength(2);
+	});
+
+	it("reuses valid accepted semantic batches when a failed generation receives a protocol upgrade", async () => {
+		const contract = cloneContract(makeContract());
+		contract.charter.localization = {
+			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
+			defaultLanguage: "en",
+			targets: [
+				{
+					language: { code: "es", name: "Español", direction: "ltr" },
+					seedFrom: "en",
+					strategy: "translate-with-nova",
+				},
+			],
+		};
+		const runBatch = vi.fn(async (input: TranslationBatchInput) => {
+			const callIndex = runBatch.mock.calls.length;
+			return {
+				object:
+					callIndex === 2
+						? null
+						: {
+								translations: input.units.map((unit) => ({
+									unitId: unit.unitId,
+									translatedText: `ES: ${unit.sourceText}`,
+								})),
+							},
+				usage: {
+					inputTokens: 25,
+					inputTokenDetails: {
+						noCacheTokens: 25,
+						cacheReadTokens: 0,
+						cacheWriteTokens: 0,
+					},
+					outputTokens: 5,
+					outputTokenDetails: { textTokens: 5, reasoningTokens: 0 },
+					totalTokens: 30,
+				},
+				warnings: undefined,
+				finishReason: "stop" as const,
+			};
+		});
+		const args = {
+			lineage: {
+				designSessionId: lineage.designSessionId,
+				designRevisionId: lineage.designRevisionId,
+				designRevisionDigest: lineage.designRevisionDigest,
+				buildPlanId: lineage.buildPlanId,
+				buildPlanDigest: lineage.buildPlanDigest,
+				appId: APP,
+			},
+			authority: {
+				actorUserId: ACTOR,
+				projectId: PROJECT,
+				runId: RUN,
+				holderNonce: NONCE,
+			},
+			contract,
+			sourceBlueprint: toPersistableDoc(source),
+			sourceSeq: 1,
+			meter: undefined,
+			signal: new AbortController().signal,
+		};
+		const deps = {
+			runBatch,
+			automaticTranslationAvailable: () => true,
+		};
+		await expect(
+			finalizeInitialBuildLocalization(args, deps),
+		).rejects.toMatchObject({ code: "translation-output-unparseable" });
+		const firstGeneration = await h
+			.db()
+			.selectFrom("design_localization_batches")
+			.selectAll()
+			.orderBy("batch_index", "asc")
+			.execute();
+		expect(firstGeneration.map((batch) => batch.status)).toEqual([
+			"accepted",
+			"failed",
+		]);
+		const accepted = firstGeneration[0];
+		const failed = firstGeneration[1];
+		if (accepted === undefined || failed === undefined) {
+			throw new Error("translation recovery generations missing");
+		}
+		await h
+			.db()
+			.updateTable("design_localization_batches")
+			.set({ prompt_version: "translation-v0" })
+			.execute();
+
+		const receipt = await finalizeInitialBuildLocalization(args, deps);
+		expect(receipt?.seq).toBe(2);
+		const generations = await h
+			.db()
+			.selectFrom("design_localization_batches")
+			.selectAll()
+			.orderBy("batch_index", "asc")
+			.orderBy("created_at", "asc")
+			.execute();
+		const acceptedBatchCount = generations.filter(
+			(batch) => batch.status === "accepted",
+		).length;
+		expect(runBatch).toHaveBeenCalledTimes(acceptedBatchCount + 1);
+		expect(
+			generations.filter((batch) => batch.batch_index === accepted.batch_index),
+		).toHaveLength(1);
+		expect(
+			generations.filter((batch) => batch.batch_index === failed.batch_index),
+		).toHaveLength(2);
+		expect(
+			generations.some(
+				(batch) => batch.id === accepted.id && batch.status === "accepted",
+			),
+		).toBe(true);
 	});
 });

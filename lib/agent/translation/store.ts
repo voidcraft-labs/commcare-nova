@@ -87,12 +87,14 @@ export type ClaimedTranslationBatch =
 			readonly kind: "accepted";
 			readonly id: string;
 			readonly output: PersistedTranslationBatchOutput;
+			readonly modelId: string;
 			readonly usage: PersistedTranslationUsage | null;
 	  }
 	| {
 			readonly kind: "failed";
 			readonly id: string;
 			readonly failureCode: string;
+			readonly modelId: string;
 			readonly usage: PersistedTranslationUsage | null;
 	  };
 
@@ -347,10 +349,49 @@ function assertBatchSpec(
 	}
 }
 
+function hasSemanticBatchIdentity(
+	row: {
+		batch_index: number;
+		source_language: string;
+		target_language: string;
+		unit_ids: readonly string[];
+		input_digest: string;
+	},
+	spec: TranslationBatchSpec,
+): boolean {
+	return (
+		row.batch_index === spec.batchIndex &&
+		row.source_language === spec.sourceLanguage &&
+		row.target_language === spec.targetLanguage &&
+		JSON.stringify(row.unit_ids) === JSON.stringify(spec.unitIds) &&
+		row.input_digest === spec.inputDigest
+	);
+}
+
+function hasProtocolIdentity(
+	row: {
+		model_id: string;
+		prompt_version: string;
+		schema_version: string;
+	},
+	spec: TranslationBatchSpec,
+): boolean {
+	return (
+		row.model_id === spec.modelId &&
+		row.prompt_version === spec.promptVersion &&
+		row.schema_version === spec.schemaVersion
+	);
+}
+
 export async function claimTranslationBatch(args: {
 	readonly attempt: DesignLocalizationAttempt;
 	readonly authority: DesignLocalizationAuthority;
 	readonly spec: TranslationBatchSpec;
+	/** Current-protocol validation for an accepted semantic predecessor. A
+	 * protocol upgrade reuses it only while its output remains valid. */
+	readonly isReusableAcceptedOutput: (
+		output: PersistedTranslationBatchOutput,
+	) => boolean;
 }): Promise<ClaimedTranslationBatch> {
 	return withAppTx(async (tx) => {
 		await assertDesignSessionRunAuthorityInTransaction(tx, {
@@ -370,17 +411,35 @@ export async function claimTranslationBatch(args: {
 				`Localization attempt ${args.attempt.id} is ${attempt?.status ?? "missing"}; it cannot claim more translation work.`,
 			);
 		}
-		let row = await tx
+		const generations = await tx
 			.selectFrom("design_localization_batches")
 			.selectAll()
 			.where("attempt_id", "=", args.attempt.id)
 			.where("batch_index", "=", args.spec.batchIndex)
-			.where("input_digest", "=", args.spec.inputDigest)
-			.where("model_id", "=", args.spec.modelId)
-			.where("prompt_version", "=", args.spec.promptVersion)
-			.where("schema_version", "=", args.spec.schemaVersion)
+			.orderBy("created_at", "asc")
 			.forUpdate()
-			.executeTakeFirst();
+			.execute();
+		const semanticGenerations = generations.filter((row) =>
+			hasSemanticBatchIdentity(row, args.spec),
+		);
+		/* Accepted output belongs to the semantic input, not to the implementation
+		 * protocol which happened to produce it. Preserve that paid result across a
+		 * model/prompt/schema deployment when current validation still accepts it. */
+		for (const accepted of semanticGenerations) {
+			if (accepted.status !== "accepted") continue;
+			const output = persistedBatchOutputSchema.parse(accepted.output);
+			if (!args.isReusableAcceptedOutput(output)) continue;
+			return {
+				kind: "accepted",
+				id: accepted.id,
+				output,
+				modelId: accepted.model_id,
+				usage: parseUsage(accepted.usage),
+			};
+		}
+		let row = semanticGenerations.find((candidate) =>
+			hasProtocolIdentity(candidate, args.spec),
+		);
 		if (row === undefined) {
 			const id = crypto.randomUUID();
 			await tx
@@ -414,10 +473,13 @@ export async function claimTranslationBatch(args: {
 		}
 		assertBatchSpec(row, args.spec);
 		if (row.status === "accepted") {
+			/* This exact protocol already paid for an output which current validation
+			 * rejects. Refuse a random resample until a protocol identity changes. */
 			return {
-				kind: "accepted",
+				kind: "failed",
 				id: row.id,
-				output: persistedBatchOutputSchema.parse(row.output),
+				failureCode: "translation-output-invalid",
+				modelId: row.model_id,
 				usage: parseUsage(row.usage),
 			};
 		}
@@ -426,6 +488,7 @@ export async function claimTranslationBatch(args: {
 				kind: "failed",
 				id: row.id,
 				failureCode: z.string().min(1).parse(row.failure_code),
+				modelId: row.model_id,
 				usage: parseUsage(row.usage),
 			};
 		}
@@ -482,6 +545,7 @@ export async function completeTranslationBatch(args: {
 				kind: "accepted",
 				id: row.id,
 				output: persistedBatchOutputSchema.parse(row.output),
+				modelId: row.model_id,
 				usage: parseUsage(row.usage),
 			};
 		}
@@ -490,6 +554,7 @@ export async function completeTranslationBatch(args: {
 				kind: "failed",
 				id: row.id,
 				failureCode: z.string().min(1).parse(row.failure_code),
+				modelId: row.model_id,
 				usage: parseUsage(row.usage),
 			};
 		}
@@ -521,6 +586,7 @@ export async function completeTranslationBatch(args: {
 				kind: "accepted",
 				id: row.id,
 				output: args.result.output,
+				modelId: row.model_id,
 				usage: args.result.usage,
 			};
 		}
@@ -554,6 +620,7 @@ export async function completeTranslationBatch(args: {
 			kind: "failed",
 			id: row.id,
 			failureCode: args.result.failureCode,
+			modelId: row.model_id,
 			usage: args.result.usage,
 		};
 	});

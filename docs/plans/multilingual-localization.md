@@ -560,8 +560,10 @@ A failed structured-output generation is terminal for its exact
 input/model/prompt/schema identity, so an ordinary retry never purchases a
 different random sample. The accepted attempt remains resumable: a real
 deployed protocol correction appends a new immutable generation at the same
-semantic batch index, while exact-once usage accounting retains the failed
-call's cost.
+semantic batch index only for the failed or now-invalid generation. Valid
+accepted semantic predecessors remain authoritative across model, prompt, and
+schema upgrades, so recovery neither regenerates nor rebills the accepted
+prefix; exact-once usage accounting still retains every failed call's cost.
 
 Later source edits derive Missing/Out-of-date status immediately. Nova never
 makes an unannounced paid call after a keystroke. Existing-app authors and

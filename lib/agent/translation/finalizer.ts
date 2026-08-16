@@ -316,6 +316,14 @@ async function runOrRecoverBatch(args: {
 		attempt: args.attempt,
 		authority: args.authority,
 		spec,
+		isReusableAcceptedOutput(output) {
+			try {
+				validateTranslationBatchOutput(args.input.units, output);
+				return true;
+			} catch {
+				return false;
+			}
+		},
 	});
 	if (claimed.kind === "run") {
 		const running = claimed;
@@ -372,7 +380,7 @@ async function runOrRecoverBatch(args: {
 		);
 	}
 	if (!args.meteredBatchIds.has(claimed.id)) {
-		meterUsage(args.meter, claimed.id, spec.modelId, claimed.usage);
+		meterUsage(args.meter, claimed.id, claimed.modelId, claimed.usage);
 		args.meteredBatchIds.add(claimed.id);
 	}
 	if (claimed.kind === "failed") {
