@@ -19,23 +19,25 @@ import type { AuthKind } from "./types";
  *      passing `permissions` to the plugin lets us emit a distinct
  *      "missing scope" error instead of the indistinguishable
  *      "key invalid" the plugin would otherwise return.
- *   2. **Per-tool (handler-internal).** `nova.hq.read` and
- *      `nova.hq.write` are *orthogonal* to read/write — they gate access
- *      to a separate third-party system (CommCare HQ), not Nova-internal
- *      operations. Tools that touch HQ (`get_hq_connection`,
- *      `upload_app_to_hq`, and the domain-aware path of
- *      `get_app_hq_feature_flags`) call `assertScope` before any protected
- *      data read; a token lacking the HQ scope produces a structured
- *      `scope_missing` envelope through the shared error serializer,
- *      but can still call non-HQ tools.
+ *   2. **Per-tool (handler-internal).** `nova.hq.read` / `nova.hq.write`
+ *      and `nova.projects.read` / `nova.projects.write` are *orthogonal*
+ *      to read/write. The HQ pair gates access to a separate third-party
+ *      system (CommCare HQ); the Projects pair gates Project membership
+ *      and sharing (member lists, invitations, role changes,
+ *      cross-Project app moves) — outward-facing acts that grant other
+ *      people access, a materially different power than editing the
+ *      caller's own apps. Tools in either family call `assertScope`
+ *      before any protected data read; a token lacking the scope
+ *      produces a structured `scope_missing` envelope through the shared
+ *      error serializer, but can still call the app tools.
  *
- * The orthogonal split is why HQ scopes can't live at the verify layer:
- * adding them there would mandate HQ access for *any* MCP request,
- * collapsing the very split we're modeling. Mount-point splitting
- * doesn't fit either — it works for comparable scopes (read vs write),
- * but HQ access cuts across that axis and would require a 4-way mount
- * cross-product. Per-tool checks are the right tool for orthogonal
- * scope dimensions.
+ * The orthogonal split is why these scopes can't live at the verify
+ * layer: adding them there would mandate HQ or Projects access for
+ * *any* MCP request, collapsing the very split we're modeling.
+ * Mount-point splitting doesn't fit either — it works for comparable
+ * scopes (read vs write), but the orthogonal pairs cut across that axis
+ * and would require a mount cross-product. Per-tool checks are the
+ * right tool for orthogonal scope dimensions.
  *
  * `parseScopes` below splits the raw space-delimited `scope` claim into
  * the array `ToolContext.scopes` carries.
@@ -52,13 +54,18 @@ import type { AuthKind } from "./types";
  * blueprints). `hqRead` / `hqWrite` cover delegated access to CommCare
  * HQ via the user's stored API key — a distinct authorization grant
  * because HQ is a separate platform the user authenticated to outside
- * Nova's OAuth flow.
+ * Nova's OAuth flow. `projectsRead` / `projectsWrite` cover Project
+ * membership and sharing — distinct because managing who can reach the
+ * caller's Projects is an outward-facing grant of access to other
+ * people, not an edit to the caller's own data.
  */
 export const SCOPES = {
 	read: "nova.read",
 	write: "nova.write",
 	hqRead: "nova.hq.read",
 	hqWrite: "nova.hq.write",
+	projectsRead: "nova.projects.read",
+	projectsWrite: "nova.projects.write",
 } as const;
 
 /** Union of the scope literals derived from `SCOPES`. */

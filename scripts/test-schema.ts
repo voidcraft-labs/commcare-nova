@@ -25,7 +25,8 @@
  *     `renameCaseProperties`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
  *     `setAppLogo`, `listMediaAssets`,
- *     `removeMediaAsset`, `uploadMediaAsset`.
+ *     `removeMediaAsset`, `uploadMediaAsset`, `createProject`,
+ *     `inviteMember`, `listMembers`, `updateMemberRole`, `moveApp`.
  */
 import "dotenv/config";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -62,6 +63,11 @@ import {
 	updateModuleInputSchema,
 	updateModuleTool,
 } from "../lib/agent/tools/updateModule";
+import { createProjectInputSchema } from "../lib/mcp/tools/createProject";
+import { inviteMemberInputSchema } from "../lib/mcp/tools/inviteMember";
+import { listMembersInputSchema } from "../lib/mcp/tools/listMembers";
+import { moveAppInputSchema } from "../lib/mcp/tools/moveApp";
+import { updateMemberRoleInputSchema } from "../lib/mcp/tools/updateMemberRole";
 import { uploadMediaAssetInputSchema } from "../lib/mcp/tools/uploadMediaAsset";
 import { MODEL_ROLES, OPENAI_BASE_OPTIONS } from "../lib/models";
 
@@ -289,6 +295,48 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: uploadMediaAssetInputSchema,
 		prompt:
 			"Use uploadMediaAsset to upload logo.png (image/png) with the base64 contents aGVsbG8=.",
+	},
+	/* Project-management tools (MCP-only, like uploadMediaAsset) — the
+	 * descriptions here are abbreviations of the in-tool copy, which lives
+	 * on the `registerTool` call rather than an exported tool object. */
+	{
+		name: "createProject",
+		description:
+			"Create a shared Nova Project owned by the user and return its project_id.",
+		schema: createProjectInputSchema,
+		prompt:
+			"Use createProject to create a Project named 'Village Health Program'.",
+	},
+	{
+		name: "inviteMember",
+		description:
+			"Invite an email address to a shared Nova Project at a chosen role (viewer, editor, or admin).",
+		schema: inviteMemberInputSchema,
+		prompt:
+			"Use inviteMember to invite ada@dimagi.com to project_id 11111111-1111-4111-8111-111111111111 as an editor.",
+	},
+	{
+		name: "listMembers",
+		description: "List a Nova Project's members and its pending invitations.",
+		schema: listMembersInputSchema,
+		prompt:
+			"Use listMembers with project_id 11111111-1111-4111-8111-111111111111.",
+	},
+	{
+		name: "updateMemberRole",
+		description:
+			"Change a member's role in a shared Nova Project (viewer, editor, or admin).",
+		schema: updateMemberRoleInputSchema,
+		prompt:
+			"Use updateMemberRole with project_id 11111111-1111-4111-8111-111111111111 and member_id 22222222-2222-4222-8222-222222222222 to set the role to admin.",
+	},
+	{
+		name: "moveApp",
+		description:
+			"Move an app into another Nova Project, re-tenanting its case data, media, and chat history with it.",
+		schema: moveAppInputSchema,
+		prompt:
+			"Use moveApp to move app_id 33333333-3333-4333-8333-333333333333 to to_project_id 11111111-1111-4111-8111-111111111111.",
 	},
 ];
 

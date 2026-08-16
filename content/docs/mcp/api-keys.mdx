@@ -22,7 +22,7 @@ OAuth's sign-in needs a person at a browser, and parallel tools sharing one OAut
 <Steps>
 <Step>Open [Settings → API keys](https://commcare.app/settings) on commcare.app, signed in as the account that should own the key.</Step>
 <Step>Click **+ New key** and pick a name. The name only shows up in your keys list, it doesn't affect what the key can do.</Step>
-<Step>Pick the scopes. **Read** and **Write** are required. Add the **HQ** scopes if your tool needs to upload finished apps to CommCare HQ.</Step>
+<Step>Pick the scopes. **Read** and **Write** are required. Add the **HQ** scopes if your tool needs to upload finished apps to CommCare HQ, and the **Projects** scopes if it manages shared Projects, members, and invitations.</Step>
 <Step>Pick an expiry. **1 year** is the default. Pick shorter if you want tighter rotation, or **Never expires** for credentials you'll rotate manually on your own schedule.</Step>
 <Step>Click **Mint key**. The next screen shows the full key once, copy it now. Nova hashes it after that, so if you lose the full value you'll have to mint a new one.</Step>
 </Steps>
@@ -83,8 +83,10 @@ Each key can have any combination of these:
 | `nova.write` | Create and edit apps. **Required.** |
 | `nova.hq.read` | Look up which CommCare HQ project spaces your stored API key can reach. |
 | `nova.hq.write` | Upload finished apps to CommCare HQ. |
+| `nova.projects.read` | See a shared Project's member list and pending invitations, including members' names and emails. |
+| `nova.projects.write` | Create shared Projects, invite members, change member roles, and move apps between Projects. |
 
-Set scopes when you mint, change them later from the kebab menu → **Edit scopes**. Read and write are the floor; nothing in Nova works without them.
+Set scopes when you mint, change them later from the kebab menu → **Edit scopes**. Read and write are the floor; nothing in Nova works without them. The other pairs are independent opt-ins: write doesn't include read, so give a key that manages members both Projects scopes — `update_member_role` addresses members by ids that only `list_members` (a Projects-read tool) returns. Listing the Projects you belong to needs no extra scope; every key can call `list_projects`.
 
 ## Rotating and revoking
 

@@ -14,7 +14,7 @@
  * use `list_apps` instead.
  *
  * Scope matches `list_apps`: every Project the caller is a member of
- * (`enumerableProjectIds`), so an app in a shared Project that the
+ * (`callerProjectScope`), so an app in a shared Project that the
  * caller can open by id is findable here too.
  *
  * Returns the same entry shape as `list_apps` so downstream renderers
@@ -30,9 +30,8 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { enumerableProjectIds } from "../ownership";
 import type { ToolContext } from "../types";
-import { toEntry } from "./listApps";
+import { callerProjectScope, toEntry } from "./listApps";
 
 /**
  * Zod schema for `search_apps` input. `query` is required — a search
@@ -88,15 +87,18 @@ export function registerSearchApps(server: McpServer, ctx: ToolContext): void {
 		"search_apps",
 		{
 			description:
-				"Search your Nova apps by name (fuzzy, case-insensitive substring match, typo-tolerant). Use when looking for a specific app you remember by name. Returns id, name, status, and updated_at per match, ordered by relevance, plus an opaque `next_cursor` when more pages of the user's apps remain to be scanned.",
+				"Search your Nova apps by name (fuzzy, case-insensitive substring match, typo-tolerant). Use when looking for a specific app you remember by name. Returns id, name, status, updated_at, and the app's Project (project_id + project_name) per match, ordered by relevance, plus an opaque `next_cursor` when more pages of the user's apps remain to be scanned.",
 			inputSchema: searchAppsInputSchema,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
 				/* Search across every Project the caller is a member of — the same
 				 * reachability the ownership gate grants the by-id tools, so a
-				 * shared-Project app the caller remembers by name is findable. */
-				const projectIds = await enumerableProjectIds(ctx.userId);
+				 * shared-Project app the caller remembers by name is findable.
+				 * Ids and names ride one membership read. */
+				const { projectIds, projectNames } = await callerProjectScope(
+					ctx.userId,
+				);
 				const { apps, nextCursor } = await searchAppsAcrossProjects(
 					projectIds,
 					{
@@ -114,7 +116,7 @@ export function registerSearchApps(server: McpServer, ctx: ToolContext): void {
 					apps: ReturnType<typeof toEntry>[];
 					next_cursor?: string;
 				} = {
-					apps: apps.map(toEntry),
+					apps: apps.map((summary) => toEntry(summary, projectNames)),
 				};
 				if (nextCursor) body.next_cursor = nextCursor;
 

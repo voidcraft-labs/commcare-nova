@@ -9,6 +9,7 @@
  * Lives at the settings-folder level rather than inside either card
  * because both surfaces use the same scope vocabulary
  * (`nova.read`, `nova.write`, `nova.hq.read`, `nova.hq.write`,
+ * `nova.projects.read`, `nova.projects.write`,
  * plus the OIDC `profile` / `email` set), and the visual + ARIA
  * shape should stay identical between them: credential rows that
  * read differently in two corners of the same settings page would

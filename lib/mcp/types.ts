@@ -26,8 +26,9 @@ export type AuthKind = "oauth" | "api-key";
  *
  * The route's verify layer checks the floor scopes (`nova.read`,
  * `nova.write`) before any handler runs; orthogonal scopes
- * (`nova.hq.read`, `nova.hq.write`) layer on top via per-tool
- * `assertScope` calls inside the HQ handlers. This context carries
+ * (`nova.hq.read` / `nova.hq.write`, `nova.projects.read` /
+ * `nova.projects.write`) layer on top via per-tool `assertScope`
+ * calls inside their handlers. This context carries
  * the full scope set so those per-tool checks can read it without
  * re-parsing the credential, plus an `authKind` tag so
  * `McpScopeError` can land the user on the right "where do I fix
@@ -42,9 +43,10 @@ export interface ToolContext {
 	 * may carry third-party scopes (`openid`, `profile`,
 	 * `offline_access`) Nova doesn't own but must preserve alongside
 	 * its own. Bespoke MCP-only tool register functions (e.g.
-	 * `get_hq_connection`, `upload_app_to_hq`) call `assertScope`
+	 * `upload_app_to_hq`, `invite_member`) call `assertScope`
 	 * against this list at the top of their handler to gate
-	 * orthogonal scopes like `nova.hq.read` / `nova.hq.write`. Shared
+	 * orthogonal scopes like `nova.hq.write` and
+	 * `nova.projects.write`. Shared
 	 * SA tools never see scopes — the route's verify layer already
 	 * enforced the floor (`nova.read`, `nova.write`) before any tool
 	 * body runs.

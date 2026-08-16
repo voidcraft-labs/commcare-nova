@@ -26,6 +26,8 @@ import tablerEye from "@iconify-icons/tabler/eye";
 import tablerKey from "@iconify-icons/tabler/key";
 import tablerPencil from "@iconify-icons/tabler/pencil";
 import tablerUser from "@iconify-icons/tabler/user";
+import tablerUsers from "@iconify-icons/tabler/users";
+import tablerUsersPlus from "@iconify-icons/tabler/users-plus";
 
 // ── Public types ────────────────────────────────────────────────────
 
@@ -88,6 +90,23 @@ const KNOWN_CAPABILITIES: readonly CapabilityDef[] = [
 		icon: tablerCloudUpload,
 		matches: (s) => s.has("nova.hq.write"),
 	},
+	/* The Projects rows name the member-email exposure and the
+	 * grant-access-to-others power explicitly — these are the two facts a
+	 * user weighing this consent actually needs, and the catch-all
+	 * "Access to nova.projects.write" row would hide both. */
+	{
+		key: "nova.projects.read",
+		label: "See the members of your Projects — names and emails",
+		icon: tablerUsers,
+		matches: (s) => s.has("nova.projects.read"),
+	},
+	{
+		key: "nova.projects.write",
+		label:
+			"Create Projects, invite teammates, and change member roles on your behalf",
+		icon: tablerUsersPlus,
+		matches: (s) => s.has("nova.projects.write"),
+	},
 ];
 
 /**
@@ -109,6 +128,8 @@ const KNOWN_CAPABILITY_SCOPES: ReadonlySet<string> = new Set([
 	"nova.write",
 	"nova.hq.read",
 	"nova.hq.write",
+	"nova.projects.read",
+	"nova.projects.write",
 ]);
 
 // ── Public API ──────────────────────────────────────────────────────

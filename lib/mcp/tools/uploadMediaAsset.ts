@@ -1,6 +1,8 @@
 /**
- * `nova.upload_media_asset` — upload a media file to the calling user's
- * library from inline base64 bytes (MCP-only).
+ * `nova.upload_media_asset` — upload a media file to a Nova Project's
+ * media library from inline base64 bytes (MCP-only). The target defaults
+ * to the caller's personal Project; an explicit `project_id` targets a
+ * shared Project instead (membership at `edit` required).
  *
  * The browser uploads via the hash → signed-PUT → confirm dance in
  * `app/api/media/upload` — it can compute the sha256 client-side and PUT
@@ -62,6 +64,7 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
+import { requireProjectAccess } from "../ownership";
 import type { ToolContext } from "../types";
 
 const MAX_INLINE_UPLOAD_BYTES = Math.max(
@@ -76,9 +79,10 @@ const MAX_INLINE_BASE64_CHARS = Math.ceil(MAX_INLINE_UPLOAD_BYTES / 3) * 4;
  * does the shared tools. The registration below passes the object schema
  * to `McpServer.registerTool` whole.
  *
- * No `app_id` slot: the upload targets the caller's personal Project
- * library (resolved from `ctx.userId` via `ensurePersonalProject`), not a
- * specific app.
+ * No `app_id` slot: media is Project-scoped, not app-scoped. The optional
+ * `project_id` targets a shared Project's library; omitted, the upload
+ * lands in the caller's personal Project (resolved from `ctx.userId` via
+ * `ensurePersonalProject`).
  */
 export const uploadMediaAssetInputSchema = z
 	.object({
@@ -100,6 +104,13 @@ export const uploadMediaAssetInputSchema = z
 			.min(1)
 			.max(MAX_INLINE_BASE64_CHARS)
 			.describe("The file's full contents, base64-encoded."),
+		project_id: z
+			.string()
+			.min(1)
+			.optional()
+			.describe(
+				"Optional Project whose media library receives the file, from list_projects. Requires an editor or higher role there. Omitted, the file lands in your personal Project's library. Media is Project-scoped, so use the Project of the app that will reference it.",
+			),
 	})
 	.strict();
 
@@ -120,7 +131,7 @@ export function registerUploadMediaAsset(
 		"upload_media_asset",
 		{
 			description:
-				"Upload a media file (image, audio, or video) to your library from inline base64 bytes, returning the asset id the attach/set media tools reference. Audio must be .mp3 or .wav and video .mp4. CommCare HQ can't ingest .m4a or .ogg. Images: .png/.jpg/.gif/.webp. The file is validated (format, size, integrity) before it's stored; a re-upload of an identical file returns the existing asset.",
+				"Upload a media file (image, audio, or video) from inline base64 bytes, returning the asset id the attach/set media tools reference. Media is Project-scoped: pass project_id to upload into a shared Project's library (use the Project of the app that will reference it); omit it for your personal Project. Audio must be .mp3 or .wav and video .mp4. CommCare HQ can't ingest .m4a or .ogg. Images: .png/.jpg/.gif/.webp. The file is validated (format, size, integrity) before it's stored; a re-upload of an identical file returns the existing asset.",
 			inputSchema: uploadMediaAssetInputSchema,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
@@ -164,11 +175,21 @@ export function registerUploadMediaAsset(
 				}
 				const validated = result.validated;
 
-				/* The MCP upload is app-less, so it lands in the caller's
-				 * personal Project — the tenancy + access gate every read
-				 * site authorizes against (mirrors `create_app`'s
-				 * `ensurePersonalProject`). */
-				const project = await ensurePersonalProject(ctx.userId);
+				/* Resolve the target Project — the tenancy + access gate
+				 * every read site authorizes against. An explicit project_id
+				 * needs the `edit` capability there; omitted, the upload
+				 * lands in the caller's personal Project (mirrors
+				 * `create_app`). */
+				const project = args.project_id
+					? (
+							await requireProjectAccess(
+								ctx.userId,
+								args.project_id,
+								"edit",
+								"Your role in this Project can't upload media. Ask a Project admin to make you an editor.",
+							)
+						).projectId
+					: await ensurePersonalProject(ctx.userId);
 
 				const gcsObjectKey = gcsObjectKeyFor(
 					project,
@@ -273,7 +294,10 @@ export function registerUploadMediaAsset(
 					publication.kind === "deduplicated",
 				);
 			} catch (err) {
-				return toMcpErrorResult(err, { userId: ctx.userId });
+				return toMcpErrorResult(err, {
+					userId: ctx.userId,
+					projectId: args.project_id,
+				});
 			}
 		},
 	);

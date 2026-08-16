@@ -12,10 +12,14 @@
  *
  *   1. **MCP-only tools** (`lib/mcp/tools/*`) — `list_apps`, `get_app`,
  *      `create_app`, `delete_app`, `get_app_hq_feature_flags`, `compile_app`,
- *      `upload_app_to_hq`, and `get_agent_prompt`. Each owns request-shaped logic the chat
+ *      `upload_app_to_hq`, `get_agent_prompt`, and the Project-management
+ *      set (`list_projects`, `create_project`, `invite_member`,
+ *      `list_members`, `update_member_role`, `move_app`). Each owns
+ *      request-shaped logic the chat
  *      surface never needed: cross-app ownership scans, HQ REST client
  *      calls, compile format branching, CCZ streaming, prompt templating
- *      by build mode. That bespoke logic means each module hand-rolls its
+ *      by build mode, Project tenancy writes. That bespoke logic means each
+ *      module hand-rolls its
  *      own `server.registerTool(...)` call behind a `register*(server, ctx)`
  *      facade — there is nothing meaningful to factor out of them.
  *
@@ -48,6 +52,7 @@ import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { registerSharedTool } from "./adapters/sharedToolAdapter";
 import { registerCompileApp } from "./tools/compileApp";
 import { registerCreateApp } from "./tools/createApp";
+import { registerCreateProject } from "./tools/createProject";
 import { registerDeleteApp } from "./tools/deleteApp";
 import {
 	registerGetDeployment,
@@ -57,8 +62,13 @@ import { registerGetAgentPrompt } from "./tools/getAgentPrompt";
 import { registerGetApp } from "./tools/getApp";
 import { registerGetAppHqFeatureFlags } from "./tools/getAppHqFeatureFlags";
 import { registerGetHqConnection } from "./tools/getHqConnection";
+import { registerInviteMember } from "./tools/inviteMember";
 import { registerListApps } from "./tools/listApps";
+import { registerListMembers } from "./tools/listMembers";
+import { registerListProjects } from "./tools/listProjects";
+import { registerMoveApp } from "./tools/moveApp";
 import { registerSearchApps } from "./tools/searchApps";
+import { registerUpdateMemberRole } from "./tools/updateMemberRole";
 import { registerUploadAppToHq } from "./tools/uploadAppToHq";
 import { registerUploadMediaAsset } from "./tools/uploadMediaAsset";
 import type { ToolContext } from "./types";
@@ -97,6 +107,12 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerGetDeployment(server, ctx);
 	registerRefreshDeployment(server, ctx);
 	registerUploadMediaAsset(server, ctx);
+	registerListProjects(server, ctx);
+	registerCreateProject(server, ctx);
+	registerInviteMember(server, ctx);
+	registerListMembers(server, ctx);
+	registerUpdateMemberRole(server, ctx);
+	registerMoveApp(server, ctx);
 
 	/* Shared SA tools — one manifest, one adapter, one source of truth
 	 * with the chat-side `solutionsArchitect` factory. */

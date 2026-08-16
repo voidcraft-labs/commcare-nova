@@ -55,6 +55,7 @@ vi.mock("@/components/ui/DeletedAppCard", () => ({
 
 const ACTIVE_APP: AppSummary = {
 	id: "active-app",
+	project_id: "proj-1",
 	app_name: "Active app",
 	connect_type: null,
 	module_count: 1,

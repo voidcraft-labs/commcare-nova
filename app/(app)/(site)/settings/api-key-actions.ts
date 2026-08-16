@@ -154,7 +154,7 @@ function validateScopes(
 		if (!ALLOWED_SCOPE_SET.has(scope)) {
 			return {
 				ok: false,
-				error: `Unknown scope "${scope}". Pick from the read, write, hq.read, and hq.write options.`,
+				error: `Unknown scope "${scope}". Pick from the read, write, hq.read, hq.write, projects.read, and projects.write options.`,
 			};
 		}
 		seen.add(scope);

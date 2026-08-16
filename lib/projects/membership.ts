@@ -93,9 +93,10 @@ export const listUserProjects = cache(async function listUserProjects(
 });
 
 /**
- * Members of a Project, each joined to its user identity, newest first — the
- * members table on the settings page. Caller authorization is the page's job
- * (it gates on the caller's own role); this read is scope-only.
+ * Members of a Project, each joined to its user identity, in join order
+ * (oldest first, so the owner leads) — the members table on the settings
+ * page. Caller authorization is the page's job (it gates on the caller's
+ * own role); this read is scope-only.
  */
 export async function listProjectMembers(
 	projectId: string,
@@ -126,12 +127,17 @@ export async function listProjectMembers(
 }
 
 /**
- * Pending invitations on a Project — the "invited, not yet accepted" list with
- * its cancel control. Only `pending` rows; accepted/rejected/cancelled drop
- * out (an accepted invite is a member row instead, a cancelled one is noise).
+ * Pending, unexpired invitations on a Project — the "invited, not yet
+ * accepted" list with its cancel control. Only `pending` rows;
+ * accepted/rejected/cancelled drop out (an accepted invite is a member row
+ * instead, a cancelled one is noise), and so do expired rows — the invitee's
+ * own discovery list ({@link listIncomingInvitations}) can't see them either,
+ * so showing them here as "pending" would misreport an invite nobody can
+ * accept.
  */
 export async function listPendingInvitations(
 	projectId: string,
+	now: Date,
 ): Promise<ProjectInvitationRow[]> {
 	const db = await getAuthDb();
 	const rows = await db
@@ -139,6 +145,7 @@ export async function listPendingInvitations(
 		.select(["id", "email", "role", "expiresAt"])
 		.where("organizationId", "=", projectId)
 		.where("status", "=", "pending")
+		.where("expiresAt", ">", now)
 		.orderBy("createdAt", "desc")
 		.execute();
 	return rows.map((r) => ({

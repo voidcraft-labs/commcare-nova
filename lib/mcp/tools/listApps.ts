@@ -10,10 +10,10 @@
  * that want a fuzzy name lookup use that tool; callers that want to
  * browse / paginate / filter-by-status / sort use this one.
  *
- * Returns id + name + status + updated_at per app plus an opaque
- * `next_cursor` when more pages exist. The verified-JWT user id resolves
+ * Returns id + name + status + updated_at + Project per app plus an
+ * opaque `next_cursor` when more pages exist. The verified-JWT user id resolves
  * to the caller's enumeration scope — EVERY Project they're a member of
- * (`enumerableProjectIds`), the same reachability the ownership gate
+ * (`callerProjectScope`), the same reachability the ownership gate
  * grants `get_app` / the editing tools / `delete_app` — so an app the
  * caller can open by id is never invisible here. There is no `app_id`
  * input, which would be a cross-tenant escape hatch.
@@ -25,27 +25,58 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { type AppSummary, listAppsAcrossProjects } from "@/lib/db/apps";
+import { listUserProjects } from "@/lib/projects/membership";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { enumerableProjectIds } from "../ownership";
 import type { ToolContext } from "../types";
 
 /**
  * Wire shape returned to the MCP client — one entry per visible app.
  *
  * Kept deliberately narrow: the caller's natural first question is
- * "which app is this and when was it last touched?" Module/form
- * counts, connect type, and error_type are available via `get_app`
- * for callers that need them.
+ * "which app is this, where does it live, and when was it last
+ * touched?" Module/form counts, connect type, and error_type are
+ * available via `get_app` for callers that need them.
  */
 interface ListAppsEntry {
 	app_id: string;
 	name: string;
 	status: AppSummary["status"];
 	updated_at: string;
+	/** The Project the app belongs to — its tenancy + sharing boundary. */
+	project_id: string;
+	/** The Project's display name. The ids and names come from ONE
+	 *  membership read, so every enumerated app's Project has a name; the
+	 *  wire keeps the nullable shape so a missing name would degrade to
+	 *  `null` rather than a crash. */
+	project_name: string | null;
+}
+
+/**
+ * The caller's enumeration scope, resolved from ONE membership read: the
+ * Project ids feed the cross-Project query and the names feed entry
+ * projection, so the two can't straddle a concurrent membership change.
+ * Every Project the caller is a member of is in scope — an MCP key is
+ * headless (no "active Project" UI context), so "everything you can
+ * access" is the correct scope, exactly the reachability the ownership
+ * gate grants the by-id tools. Shared by `list_apps` and `search_apps`.
+ */
+export interface CallerProjectScope {
+	readonly projectIds: string[];
+	readonly projectNames: ReadonlyMap<string, string>;
+}
+
+export async function callerProjectScope(
+	userId: string,
+): Promise<CallerProjectScope> {
+	const projects = await listUserProjects(userId);
+	return {
+		projectIds: projects.map((p) => p.id),
+		projectNames: new Map(projects.map((p) => [p.id, p.name])),
+	};
 }
 
 /**
@@ -54,12 +85,17 @@ interface ListAppsEntry {
  * the wire shape has one canonical construction site — `search_apps`
  * uses the same projection so both surfaces emit identical entries.
  */
-export function toEntry(summary: AppSummary): ListAppsEntry {
+export function toEntry(
+	summary: AppSummary,
+	projectNames: ReadonlyMap<string, string>,
+): ListAppsEntry {
 	return {
 		app_id: summary.id,
 		name: summary.app_name,
 		status: summary.status,
 		updated_at: summary.updated_at,
+		project_id: summary.project_id,
+		project_name: projectNames.get(summary.project_id) ?? null,
 	};
 }
 
@@ -118,15 +154,18 @@ export function registerListApps(server: McpServer, ctx: ToolContext): void {
 		"list_apps",
 		{
 			description:
-				"Enumerate your Nova apps with pagination, optional status filter, and a choice of sort order. Does NOT search by name. Use `search_apps` for that. Returns id, name, status, and updated_at per app, plus an opaque `next_cursor` when more pages exist.",
+				"Enumerate your Nova apps with pagination, optional status filter, and a choice of sort order. Does NOT search by name. Use `search_apps` for that. Returns id, name, status, updated_at, and the app's Project (project_id + project_name) per app, plus an opaque `next_cursor` when more pages exist. Covers every Project you're a member of, shared ones included.",
 			inputSchema: listAppsInputSchema,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
 				/* Enumerate across every Project the caller is a member of — the
 				 * same reachability the ownership gate grants the by-id tools, so
-				 * a shared-Project app is never invisible to enumeration. */
-				const projectIds = await enumerableProjectIds(ctx.userId);
+				 * a shared-Project app is never invisible to enumeration. Ids and
+				 * names ride one membership read. */
+				const { projectIds, projectNames } = await callerProjectScope(
+					ctx.userId,
+				);
 				const { apps, nextCursor } = await listAppsAcrossProjects(projectIds, {
 					limit: args.limit,
 					sort: args.sort,
@@ -139,7 +178,7 @@ export function registerListApps(server: McpServer, ctx: ToolContext): void {
 				 * "is this the last page" flag. Omitting the field when null
 				 * keeps the payload minimal and the semantics obvious. */
 				const body: { apps: ListAppsEntry[]; next_cursor?: string } = {
-					apps: apps.map(toEntry),
+					apps: apps.map((summary) => toEntry(summary, projectNames)),
 				};
 				if (nextCursor) body.next_cursor = nextCursor;
 

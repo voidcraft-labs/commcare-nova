@@ -14,8 +14,10 @@ When your client signs in to Nova, you see a consent screen listing what it's as
 | Create and edit apps on your behalf | Build new apps and modify existing ones. |
 | See your CommCare HQ project connection | Look up which HQ project spaces your stored API key can reach. Used to preview the target before an upload. |
 | Deploy your apps to CommCare HQ on your behalf | Upload finished apps to a chosen HQ project space. |
+| See the members of your Projects — names and emails | List who's in your shared Projects and which invitations are pending. (Listing the Projects themselves rides the base connection; this row is about the member roster.) |
+| Create Projects, invite teammates, and change member roles on your behalf | Create shared Projects, send invitations, change member roles, and move apps between Projects — acts that give other people access to your work. |
 
-The bottom two are separate from the rest because CommCare HQ is a different system: having Nova access doesn't automatically grant HQ access. If your client connected without those permissions, the HQ tools refuse with a clear error and you'll need to reauthorize.
+The HQ rows are separate from the rest because CommCare HQ is a different system: having Nova access doesn't automatically grant HQ access. The Projects rows are separate because they reach beyond your own account — one exposes other members' names and emails, the other hands out access. Each of these permissions stands alone (the write side doesn't include the read side), so check every row your client needs. If your client connected without one, the affected tools refuse with a clear error and you'll need to reauthorize.
 
 ## Disconnecting
 
@@ -27,4 +29,6 @@ If your client uses an [API key](./api-keys.mdx) instead of OAuth, it doesn't ap
 
 ## Reauthorizing
 
-If your client has the connection but is missing a permission you need (typically the HQ ones), tell your client to sign out and back in. The new sign-in shows the consent screen again, make sure every row you need is checked before you click Allow.
+If your client has the connection but is missing a permission you need (typically the HQ or Projects ones), tell your client to sign out and back in. The new sign-in shows the consent screen again, make sure every row you need is checked before you click Allow.
+
+One wrinkle for clients that registered with Nova before a permission existed: such a client asked for the permission set that existed at registration time, so signing out and back in offers the same old set, and requesting a newer permission fails with `invalid_scope`. Remove the Nova server from the client and add it again — the fresh registration picks up the full current set.

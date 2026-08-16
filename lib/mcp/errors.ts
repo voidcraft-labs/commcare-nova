@@ -6,22 +6,27 @@
  * taxonomy used by both the chat surface and this one; this module is
  * the bridge from that classification to the MCP result envelope.
  *
- * Three thrown-error classes short-circuit the classifier because their
- * failure shapes are deterministic and don't benefit from
+ * Several thrown-error classes short-circuit the classifier because
+ * their failure shapes are deterministic and don't benefit from
  * `classifyError`'s status-code + substring heuristics:
  *
- * - `McpAccessError` (from `./ownership`) — ownership-gate rejection.
- *   Carries an internal reason code (`"not_found"` vs `"not_owner"`)
- *   for the audit log; the wire collapses both to `"not_found"` (see
- *   IDOR hardening below).
+ * - `McpAccessError` (from `./ownership`) — app/Project access-gate
+ *   rejection. Carries an internal reason code (`"not_found"` vs
+ *   `"not_owner"`) for the audit log; the wire collapses both to
+ *   `"not_found"` (see IDOR hardening below), with the resource kind
+ *   picking the text ("App not found." / "Project not found.").
  * - `McpInvalidInputError` (declared below) — a handler-level argument
  *   contract that a particular tool has not encoded in its registered
  *   schema. The thrown `message` rides through to the wire `text`
  *   verbatim so the client sees the precise failure reason.
  * - `McpScopeError` (from `./scopes`) — per-tool scope gate rejection
- *   (`nova.hq.read` / `nova.hq.write`). Carries the missing scope so
+ *   (the HQ and Projects scope pairs). Carries the missing scope so
  *   the wire envelope can echo it back as `required_scope` for a
  *   precise re-authorization prompt.
+ * - `ProjectManagementError` / `ProjectPermissionError` (from
+ *   `lib/projects/manage`) — Project-write policy rejections and
+ *   member-but-under-privileged denials; both pass their
+ *   person-readable message through verbatim.
  *
  * **IDOR hardening.** `McpAccessError.reason` carries two distinct
  * internal reasons (`"not_found"`, `"not_owner"`) so admins can
@@ -48,6 +53,10 @@ import {
 } from "@/lib/db/commitGuard";
 import { DeploymentError } from "@/lib/deployment/errors";
 import { log } from "@/lib/logger";
+import {
+	ProjectManagementError,
+	ProjectPermissionError,
+} from "@/lib/projects/manage";
 import { McpAccessError } from "./ownership";
 import { McpScopeError } from "./scopes";
 
@@ -114,12 +123,19 @@ export type UploadErrorType = HqToolErrorType;
  *     does.
  *   - `"scope_missing"` — the caller's access token lacks an OAuth
  *     scope a specific tool requires (orthogonal to the route-layer
- *     `nova.read` + `nova.write` floor). Today only the HQ tools
- *     (`get_hq_connection`, `upload_app_to_hq`, and domain-aware
- *     `get_app_hq_feature_flags`) gate this way; see
- *     `assertScope` / `McpScopeError` in `./scopes`. Distinct from
- *     `HqToolErrorType` because scope failure is a token-shape problem,
- *     not a per-tool gate, and surfaces across multiple tools.
+ *     `nova.read` + `nova.write` floor). The HQ tools
+ *     (`get_hq_connection`, `upload_app_to_hq`, domain-aware
+ *     `get_app_hq_feature_flags`) and the Project-management tools gate
+ *     this way; see `assertScope` / `McpScopeError` in `./scopes`.
+ *     Distinct from `HqToolErrorType` because scope failure is a
+ *     token-shape problem, not a per-tool gate, and surfaces across
+ *     multiple tools.
+ *   - `"permission_denied"` — the caller IS a member of the target
+ *     Project but their role can't perform the write (a viewer creating
+ *     an app, an editor inviting a member). Deliberately NOT collapsed
+ *     to `"not_found"`: a member legitimately knows the Project exists,
+ *     so the honest answer is what's missing and who can fix it.
+ *     Surfaces via `ProjectPermissionError` (`lib/projects/manage`).
  *   - `HqToolErrorType` — HQ connection, target, and upload rejections.
  *   - `AgentErrorType` — the shared `classifyError` taxonomy used by
  *     every generic throw (network, provider, internal).
@@ -131,6 +147,7 @@ export type McpErrorType =
 	| "not_found"
 	| "invalid_input"
 	| "scope_missing"
+	| "permission_denied"
 	| HqToolErrorType
 	| AgentErrorType;
 
@@ -140,8 +157,9 @@ export type McpErrorType =
  * `content[0].text` and read `error_type`; those that only render to a
  * human read `message`.
  *
- * `app_id` rides through when the handler knows the target app. Absent
- * otherwise (pre-app-resolution failures).
+ * `app_id` rides through when the handler knows the target app, and
+ * `project_id` when it knows the target Project. Absent otherwise
+ * (pre-resolution failures).
  *
  * `required_scope` rides through when `error_type === "scope_missing"`
  * so a client can show the user which scope was missing — letting it
@@ -157,6 +175,7 @@ export interface McpErrorPayload {
 	error_type: McpErrorType;
 	message: string;
 	app_id?: string;
+	project_id?: string;
 	required_scope?: string;
 }
 
@@ -194,14 +213,15 @@ export interface McpToolSuccessResult {
 
 /**
  * Context the error serializer stamps onto the response + uses for
- * server-side audit logging. `appId` rides into the JSON content so
- * the model can correlate an error to its target app. `userId` is
- * read by the `McpAccessError` branch's cross-tenant audit log;
+ * server-side audit logging. `appId` / `projectId` ride into the JSON
+ * content so the model can correlate an error to its target. `userId`
+ * is read by the `McpAccessError` branch's cross-tenant audit log;
  * passing it unconditionally keeps call sites uniform and ready for
  * future audit expansions.
  */
 export interface McpErrorContext {
 	appId?: string;
+	projectId?: string;
 	userId?: string;
 }
 
@@ -217,9 +237,9 @@ export function toMcpErrorResult(
 	err: unknown,
 	ctx?: McpErrorContext,
 ): McpToolErrorResult {
-	/* Assemble the payload with conditional `app_id` — present only
-	 * when the handler knows the target app at the failure site.
-	 * `undefined` spreads into an absent key cleanly via
+	/* Assemble the payload with conditional `app_id` / `project_id` —
+	 * present only when the handler knows the target at the failure
+	 * site. `undefined` spreads into an absent key cleanly via
 	 * `...(cond && { ... })` below. */
 	const payload = (
 		errorType: McpErrorType,
@@ -228,6 +248,7 @@ export function toMcpErrorResult(
 		error_type: errorType,
 		message,
 		...(ctx?.appId !== undefined && { app_id: ctx.appId }),
+		...(ctx?.projectId !== undefined && { project_id: ctx.projectId }),
 	});
 
 	if (err instanceof McpInvalidInputError) {
@@ -255,6 +276,51 @@ export function toMcpErrorResult(
 				{
 					type: "text",
 					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
+		};
+	}
+
+	if (err instanceof ProjectManagementError) {
+		/* A Project-management policy rejection (personal Project, already a
+		 * member, duplicate invite, the pending cap) — the request was
+		 * understood and refused with a person-readable reason, so the
+		 * message rides through verbatim as `invalid_input`. Logged at
+		 * `warn` like every other expected client mistake, so a spike
+		 * against one userId stays visible without opening Sentry issues. */
+		log.warn("[mcp] project management rejected", {
+			userId: ctx?.userId ?? null,
+			projectId: ctx?.projectId ?? null,
+			message: err.message,
+		});
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
+		};
+	}
+
+	if (err instanceof ProjectPermissionError) {
+		/* The caller IS a member of the target Project but their role can't
+		 * do this. Deliberately NOT the not-found collapse: a member
+		 * legitimately knows the Project exists, so the honest envelope
+		 * names what's missing and who can fix it. `warn`, not `error` — an
+		 * under-privileged member trying a write is an expected outcome. */
+		log.warn("[mcp] project permission denied", {
+			userId: ctx?.userId ?? null,
+			projectId: ctx?.projectId ?? null,
+			message: err.message,
+		});
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload("permission_denied", err.message)),
 				},
 			],
 		};
@@ -408,6 +474,7 @@ export function toMcpErrorResult(
 			message: err.message,
 			required_scope: err.requiredScope,
 			...(ctx?.appId !== undefined && { app_id: ctx.appId }),
+			...(ctx?.projectId !== undefined && { project_id: ctx.projectId }),
 		};
 		return {
 			isError: true,
@@ -434,6 +501,8 @@ export function toMcpErrorResult(
 			log.warn("[mcp] cross-tenant access attempt", {
 				userId: ctx?.userId ?? null,
 				appId: ctx?.appId ?? null,
+				projectId: ctx?.projectId ?? null,
+				resource: err.resource,
 			});
 		}
 		return {
@@ -441,7 +510,14 @@ export function toMcpErrorResult(
 			content: [
 				{
 					type: "text",
-					text: JSON.stringify(payload("not_found", "App not found.")),
+					text: JSON.stringify(
+						payload(
+							"not_found",
+							err.resource === "project"
+								? "Project not found."
+								: "App not found.",
+						),
+					),
 				},
 			],
 		};
