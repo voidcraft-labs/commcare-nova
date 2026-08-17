@@ -281,8 +281,8 @@ describe("what a person sees on a refused deployment", () => {
 		 * most: the app is uploaded, built and released on CommCare HQ and
 		 * only the probe failed. An expired key must not walk that back to
 		 * `preflight` — doing so loses the phase a retry resumes from and
-		 * makes the record unobservable, so the only way forward would be a
-		 * second publish and a duplicate app on the project space. */
+		 * makes the record unobservable, so a whole re-publish would be the
+		 * only way forward. */
 		const probeRefused = record({
 			state: "incomplete",
 			resumePhase: "probe",
@@ -297,10 +297,10 @@ describe("what a person sees on a refused deployment", () => {
 
 	it("keeps a live deployment live when a RE-UPLOAD is rejected", () => {
 		/* The publish path's own failure, not preflight's. CommCare HQ
-		 * answering 500 to a second publish does not remove the app already
+		 * answering 500 to a republish does not remove the app already
 		 * released on the project space, and reporting `incomplete` would
 		 * make Nova tell workers' administrators their live app is nowhere
-		 * — with publishing again, and a duplicate app, as the only exit. */
+		 * — with publishing all over again as the only exit. */
 		const live = record({ state: "runnable" });
 		const after = applyAttemptOutcome(live, "upload", {
 			status: "failed",

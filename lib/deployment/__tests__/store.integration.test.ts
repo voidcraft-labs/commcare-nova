@@ -6,8 +6,10 @@
  * against the FRESH row. The partial unique index makes "two live mappings
  * for one Nova resource" unrepresentable, the CHECK pairs `incomplete`
  * with a resume phase, and a stale observation is discarded once a publish
- * has superseded the mapping it asked about. Deployments moving with their
- * app is proved next door, in
+ * has replaced what it asked about — whether that publish recreated the
+ * app under a new remote id or updated it in place, where the `pushed_at`
+ * token is the only thing that tells the publishes apart. Deployments
+ * moving with their app is proved next door, in
  * `lib/db/__tests__/projectMove.integration.test.ts`.
  */
 
@@ -57,7 +59,12 @@ async function create(scope: DeploymentScope, target = TARGET) {
 	});
 }
 
-async function publish(scope: DeploymentScope, remoteId: string, seq: number) {
+async function publish(
+	scope: DeploymentScope,
+	remoteId: string,
+	seq: number,
+	remoteRevision: number | null = null,
+) {
 	await create(scope);
 	return recordRemoteResource(scope, TARGET, {
 		kind: "app",
@@ -66,7 +73,13 @@ async function publish(scope: DeploymentScope, remoteId: string, seq: number) {
 		ownership: "nova-created",
 		pushedRevision: seq,
 		uploadedAt: AT,
+		remoteRevision,
 	});
+}
+
+/** The staleness token an observer carries: the active mapping's pushedAt. */
+function pushedAtToken(view: Parameters<typeof activeRemoteApp>[0]) {
+	return activeRemoteApp(view)?.pushedAt ?? null;
 }
 
 describe("creating a deployment", () => {
@@ -175,7 +188,9 @@ describe("ownership mappings", () => {
 		expect(view.deployment.phases.upload?.status).toBe("succeeded");
 	});
 
-	it("supersedes rather than deletes, so what was left behind stays nameable", async () => {
+	it("a recreate under a new remote id supersedes rather than deletes, so what was left behind stays nameable", async () => {
+		// A different remote id arises when the mapped app was deleted on
+		// CommCare HQ and the next publish created a fresh one.
 		const scope = await seed();
 		await publish(scope, "hq-1", 7);
 		const second = await publish(scope, "hq-2", 9);
@@ -199,20 +214,43 @@ describe("ownership mappings", () => {
 		expect(live).toHaveLength(1);
 	});
 
-	it("republishing to the SAME remote app is not a supersession", async () => {
+	it("the mainline republish updates the live mapping in place — same remote app, no supersession", async () => {
 		const scope = await seed();
 		await publish(scope, "hq-1", 7);
-		const again = await publish(scope, "hq-1", 8);
+		const again = await publish(scope, "hq-1", 8, 4);
 
 		expect(again.superseded).toHaveLength(0);
-		expect(activeRemoteApp(again)?.pushedRevision).toBe(8);
+		expect(activeRemoteApp(again)).toMatchObject({
+			remoteId: "hq-1",
+			pushedRevision: 8,
+			remoteRevision: 4,
+		});
 	});
 
-	it("clears observations that described the previous remote app", async () => {
+	it("records the revision the import reported, in the insert arm and the republish arm alike", async () => {
 		const scope = await seed();
-		await publish(scope, "hq-1", 7);
+		// A create answers with no version, so the mapping starts without one
+		// and the next observation fills it.
+		const first = await publish(scope, "hq-1", 7);
+		expect(activeRemoteApp(first)?.remoteRevision).toBeNull();
+		expect(activeRemoteApp(first)?.remoteObservedAt).toBeNull();
+
+		// An in-place update answers with the bumped version. The same-remote-id
+		// write lands in the conflict arm, which must carry the columns too —
+		// an insert-only write would silently drop the reported version.
+		const again = await publish(scope, "hq-1", 8, 5);
+		expect(activeRemoteApp(again)?.remoteRevision).toBe(5);
+		expect(activeRemoteApp(again)?.remoteObservedAt).not.toBeNull();
+	});
+
+	it("clears observations that described what the target held before the publish", async () => {
+		// True on both publish shapes: build/release answers described an older
+		// version (in-place update) or a different app entirely (recreate).
+		const scope = await seed();
+		const first = await publish(scope, "hq-1", 7);
 		await applyDeploymentObservation(scope, TARGET, {
 			observedRemoteId: "hq-1",
+			observedPushedAt: pushedAtToken(first),
 			outcomes: [
 				["upload", { status: "succeeded", at: AT }],
 				["build", { status: "succeeded", at: AT }],
@@ -220,19 +258,31 @@ describe("ownership mappings", () => {
 			remoteRevision: 2,
 		});
 
-		const second = await publish(scope, "hq-2", 9);
-		expect(second.deployment.phases.build).toBeNull();
-		expect(second.deployment.state).toBe("uploaded");
+		const republished = await publish(scope, "hq-1", 8, 3);
+		expect(republished.deployment.phases.build).toBeNull();
+		expect(republished.deployment.state).toBe("uploaded");
+
+		await applyDeploymentObservation(scope, TARGET, {
+			observedRemoteId: "hq-1",
+			observedPushedAt: pushedAtToken(republished),
+			outcomes: [["build", { status: "succeeded", at: AT }]],
+			remoteRevision: 4,
+		});
+
+		const recreated = await publish(scope, "hq-2", 9);
+		expect(recreated.deployment.phases.build).toBeNull();
+		expect(recreated.deployment.state).toBe("uploaded");
 	});
 });
 
 describe("observation writes", () => {
 	it("folds outcomes, stamps last_observed_at, and records the remote revision", async () => {
 		const scope = await seed();
-		await publish(scope, "hq-1", 7);
+		const live = await publish(scope, "hq-1", 7);
 
 		const { view, applied } = await applyDeploymentObservation(scope, TARGET, {
 			observedRemoteId: "hq-1",
+			observedPushedAt: pushedAtToken(live),
 			outcomes: [
 				["upload", { status: "succeeded", at: AT }],
 				["build", { status: "succeeded", at: AT }],
@@ -250,18 +300,19 @@ describe("observation writes", () => {
 		});
 	});
 
-	it("discards an observation once a publish superseded the app it asked about", async () => {
+	it("discards an observation once a recreate replaced the app it asked about", async () => {
 		/* The interleaving the old cross-transaction lock existed for:
 		 * Check status reads the record, spends seconds asking CommCare HQ
 		 * about hq-1, and a publish lands hq-2 in between. The answers
 		 * describe the app the publish just replaced, so the guarded write
 		 * throws them away instead of overwriting the fresh record. */
 		const scope = await seed();
-		await publish(scope, "hq-1", 7);
+		const first = await publish(scope, "hq-1", 7);
 		await publish(scope, "hq-2", 9);
 
 		const { view, applied } = await applyDeploymentObservation(scope, TARGET, {
 			observedRemoteId: "hq-1",
+			observedPushedAt: pushedAtToken(first),
 			outcomes: [
 				["upload", { status: "succeeded", at: AT }],
 				["build", { status: "succeeded", at: AT }],
@@ -275,6 +326,42 @@ describe("observation writes", () => {
 		expect(view.deployment.state).toBe("uploaded");
 		expect(view.deployment.lastObservedAt).toBeNull();
 		expect(activeRemoteApp(view)?.remoteRevision).toBeNull();
+	});
+
+	it("discards an observation begun before a republish updated the same remote app", async () => {
+		/* An in-place update keeps the remote id across a republish, so the id
+		 * alone can no longer catch this interleaving: Check status reads the
+		 * record, spends seconds asking CommCare HQ about hq-1, and a republish
+		 * lands hq-1 AGAIN in between. The per-publish `pushed_at` token is
+		 * what tells the two publishes apart. The first publish's token is
+		 * rewound by SQL so the two cannot collide within one millisecond. */
+		const scope = await seed();
+		const firstView = await publish(scope, "hq-1", 7);
+		await h
+			.db()
+			.updateTable("app_deployment_resources")
+			.set({ pushed_at: AT })
+			.where("deployment_id", "=", firstView.deployment.id)
+			.execute();
+		const before = await readDeployment(scope, TARGET);
+		const staleToken = before === null ? null : pushedAtToken(before);
+		expect(staleToken).toBe(AT);
+
+		await publish(scope, "hq-1", 8, 5);
+
+		const { view, applied } = await applyDeploymentObservation(scope, TARGET, {
+			observedRemoteId: "hq-1",
+			observedPushedAt: staleToken,
+			outcomes: [
+				["upload", { status: "succeeded", at: AT }],
+				["build", { status: "succeeded", at: AT }],
+			],
+			remoteRevision: 12,
+		});
+
+		expect(applied).toBe(false);
+		expect(view.deployment.state).toBe("uploaded");
+		expect(view.deployment.lastObservedAt).toBeNull();
 	});
 });
 

@@ -94,7 +94,7 @@ Name a **project space** as the second argument to upload straight there, useful
 /nova:upload_to_hq "vaccine tracking" my-project-space
 ```
 
-On success, the response includes the URL of the new HQ app and any warnings HQ returned. CommCare HQ has no API for updating an app, so every upload creates a new app on HQ; your Nova copy is unaffected. If you want to retire the previous HQ version, archive it in HQ.
+On success, the response includes the HQ app's URL and any warnings HQ returned. The first upload to a project space creates the app there; uploading again updates that same HQ app in place. Your Nova copy is unaffected either way.
 
 ## Updating the plugin
 

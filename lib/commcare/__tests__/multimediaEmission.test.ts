@@ -294,6 +294,8 @@ describe("HQ shell media stamping", () => {
 		const hqJson = expandDoc(mediaDoc());
 		expect(hqJson.modules[0].media_image).toEqual({});
 		expect(hqJson.multimedia_map).toEqual({});
-		expect(hqJson.logo_refs).toEqual({});
+		/* Absent, not empty: an emitted `logo_refs: {}` would remove an
+		 * HQ-uploaded logo on the in-place update's overlay merge. */
+		expect(hqJson.logo_refs).toBeUndefined();
 	});
 });

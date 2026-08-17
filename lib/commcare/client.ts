@@ -11,9 +11,10 @@
  * and decide what to show. The raw response body is logged server-side for
  * debugging only.
  *
- * API reference (from dimagi/commcare-hq#37559):
+ * API reference (from dimagi/commcare-hq#37559, update support + endpoint
+ * decorators from dimagi/commcare-hq#37972):
  *   - User domains:   GET  /api/user_domains/v1/
- *   - App import:     POST /a/{domain}/apps/api/import_app/
+ *   - App import:     POST /a/{domain}/apps/api/import_app/                 (optional app_id = update in place)
  *   - Media upload:   POST /a/{domain}/apps/api/{app_id}/multimedia/        (bulk ZIP)
  *   - Media status:   GET  /a/{domain}/apps/api/{app_id}/multimedia/status/{processing_id}/
  *
@@ -46,10 +47,13 @@ export interface CommCareDomain {
 /** Successful app import result. */
 export interface ImportResult {
 	success: true;
-	/** CommCare HQ application ID for the newly created app. */
+	/** CommCare HQ application ID for the created or updated app. */
 	appId: string;
-	/** Direct URL to the app in CommCare HQ. */
-	appUrl: string;
+	/**
+	 * The HQ app's version after an in-place update; null on create (HQ's
+	 * create response carries no version).
+	 */
+	version: number | null;
 	/** Optional import warnings (e.g. missing multimedia). */
 	warnings: string[];
 }
@@ -118,18 +122,6 @@ export interface CommCareCredentials {
 function baseUrl(creds: CommCareCredentials): string {
 	return COMMCARE_SERVERS[creds.server].baseUrl;
 }
-
-/**
- * Padding value for the throwaway multipart field that pushes a request's
- * real payload past AWS WAF's body-inspection window (the WAF in front of
- * CommCare HQ inspects only the leading bytes of a request body). Shared by
- * `importApp` (XForms JSON reads as HTML XSS to the WAF) and
- * `uploadAppMediaBundle` (compressed image bytes can match a WAF signature
- * by coincidence — two of Nova's built-in icon PNGs deterministically 403
- * without it). The field must be appended BEFORE the payload field, and its
- * name must not start with `_` (CouchDB-reserved on the import path).
- */
-const WAF_PADDING = "x".repeat(16 * 1024);
 
 /**
  * Build the Authorization header for CommCare HQ API key auth.
@@ -474,56 +466,27 @@ export async function discoverAccessibleDomains(
 }
 
 /**
- * Extract a named cookie value from a response's Set-Cookie headers.
- *
- * Uses the standard `getSetCookie()` API (Node 20+) which returns one
- * raw header string per cookie. Each string is `name=value; attrs...`.
- */
-function getCookie(res: Response, cookieName: string): string | null {
-	for (const raw of res.headers.getSetCookie()) {
-		const [pair] = raw.split(";", 1);
-		const [name, value] = pair.split("=", 2);
-		if (name === cookieName && value) return value;
-	}
-	return null;
-}
-
-/**
- * Fetch a CSRF token from CommCare HQ.
- *
- * The import_app endpoint requires Django CSRF validation (it's missing
- * the `@csrf_exempt` decorator that other HQ API endpoints have). API
- * endpoints don't set the `csrftoken` cookie — only HTML pages do — so
- * we hit the unauthenticated login page to obtain one. The token is
- * ephemeral (used immediately on the next POST) and not stored.
- *
- * Returns null if the token can't be obtained (caller should still
- * attempt the import — the CSRF requirement may be fixed upstream).
- */
-async function fetchCsrfToken(base: string): Promise<string | null> {
-	try {
-		const res = await fetch(`${base}/accounts/login/`);
-		return getCookie(res, "csrftoken");
-	} catch {
-		return null;
-	}
-}
-
-/**
  * Import an app into a CommCare HQ project space.
  *
- * Sends the expanded HQ JSON as a multipart form upload. CommCare HQ
- * creates a brand-new app each time — there is no atomic update API,
- * so each call produces a fresh app in the target domain.
+ * Sends the expanded HQ JSON as a multipart form upload. Without
+ * `updateAppId`, CommCare HQ creates a new app in the domain. With one, HQ
+ * overwrites that app in place — same app id, version bumped — and reports
+ * the resulting `version`; an unknown id draws a 404, which passes through
+ * as `{ success: false, status: 404 }` so the caller can record that the
+ * remote app is gone. `app_name` is sent on both paths: HQ applies it after
+ * the merge, so an update also renames the HQ app to Nova's current name.
  *
- * The import endpoint requires a Django CSRF token, so we make a
- * lightweight GET first to obtain one, then include it on the POST.
+ * Wire contract verified against
+ * `commcare-hq/.../app_manager/views/app_import_api.py::_handle_import_app`
+ * (the optional `app_id` field) and
+ * `models/applications.py::overwrite_app_from_source` (the in-place merge).
  */
 export async function importApp(
 	creds: CommCareCredentials,
 	domain: string,
 	appName: string,
 	appJson: object,
+	updateAppId?: string,
 ): Promise<ImportResponse> {
 	if (!isValidDomainSlug(domain)) {
 		return { success: false, status: 400 };
@@ -531,49 +494,40 @@ export async function importApp(
 	const base = baseUrl(creds);
 	const url = `${base}/a/${domain}/apps/api/import_app/`;
 
-	/* Obtain a CSRF token before the POST — see fetchCsrfToken() for why. */
-	const csrfToken = await fetchCsrfToken(base);
-
-	/*
-	 * Multipart form: app_name (string) + app_file (JSON blob).
-	 *
-	 * WAF bypass: HQ's import_app is missing waf_allow('XSS_BODY'), so AWS
-	 * WAF blocks requests containing XForms XML that looks like HTML XSS
-	 * (<input>, <select1>, <label>). The padding field before app_file
-	 * pushes the JSON past the WAF inspection window. Django ignores unknown
-	 * form fields. Do not remove — must appear before app_file.
-	 */
+	/* Multipart form: app_name (string) + optional app_id (the HQ app to
+	 * update in place) + app_file (JSON blob). */
 	const formData = new FormData();
 	formData.append("app_name", appName);
-	formData.append("waf_padding", WAF_PADDING);
+	if (updateAppId) {
+		formData.append("app_id", updateAppId);
+	}
 	formData.append(
 		"app_file",
 		new Blob([JSON.stringify(appJson)], { type: "application/json" }),
 		"app.json",
 	);
 
-	const headers: Record<string, string> = {
-		Authorization: authHeader(creds),
-	};
-	if (csrfToken) {
-		headers["X-CSRFToken"] = csrfToken;
-		headers.Cookie = `csrftoken=${csrfToken}`;
-		headers.Referer = url;
-	}
-
 	const res = await fetch(url, {
 		method: "POST",
-		headers,
+		headers: { Authorization: authHeader(creds) },
 		body: formData,
 	});
 
 	if (!res.ok) {
+		/* A 404 on the update arm is an ANSWER — the app Nova mapped was
+		 * deleted on HQ's side — handled as a first-class outcome by the
+		 * publish lifecycle, so it files at warn level like the observation
+		 * reads' expected refusals. */
+		if (updateAppId && res.status === 404) {
+			return warnAndReturnError("import target missing", res);
+		}
 		return logAndReturnError("import failed", res);
 	}
 
 	const data = (await res.json()) as {
 		success: boolean;
 		app_id: string;
+		version?: number;
 		warnings?: string[];
 	};
 
@@ -588,7 +542,7 @@ export async function importApp(
 	return {
 		success: true,
 		appId: data.app_id,
-		appUrl: `${base}/a/${domain}/apps/view/${data.app_id}/`,
+		version: typeof data.version === "number" ? data.version : null,
 		warnings: data.warnings ?? [],
 	};
 }
@@ -652,14 +606,6 @@ const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
  * Processing is asynchronous: the POST returns a `processing_id` once the
  * ZIP is accepted, and the match runs in a background task we poll to a
  * bounded deadline.
- *
- * Auth mirrors `importApp`: `ApiKey` header + a CSRF token (these endpoints
- * are not `@csrf_exempt`) + the `waf_padding` field. The padding is
- * load-bearing here too: AWS WAF signature rules match raw compressed image
- * bytes by coincidence — two of Nova's built-in icon PNGs (`appointments`,
- * `referrals`) deterministically draw a bare `awselb` 403 when their bytes
- * sit inside the WAF's body-inspection window, killing the whole bundle.
- * Padding first pushes the ZIP past the window; HQ ignores the extra field.
  */
 export async function uploadAppMediaBundle(
 	creds: CommCareCredentials,
@@ -674,25 +620,16 @@ export async function uploadAppMediaBundle(
 	const base = `${hqBase}/a/${domain}/apps/api/${appId}/multimedia`;
 	const uploadUrl = `${base}/`;
 
-	/* Obtain a CSRF token before the POST — see fetchCsrfToken(). */
-	const csrfToken = await fetchCsrfToken(hqBase);
 	const formData = new FormData();
-	formData.append("waf_padding", WAF_PADDING);
 	formData.append(
 		"bulk_upload_file",
 		new Blob([new Uint8Array(zipBytes)], { type: "application/zip" }),
 		"multimedia.zip",
 	);
-	const headers: Record<string, string> = { Authorization: authHeader(creds) };
-	if (csrfToken) {
-		headers["X-CSRFToken"] = csrfToken;
-		headers.Cookie = `csrftoken=${csrfToken}`;
-		headers.Referer = uploadUrl;
-	}
 
 	const res = await fetch(uploadUrl, {
 		method: "POST",
-		headers,
+		headers: { Authorization: authHeader(creds) },
 		body: formData,
 	});
 	if (!res.ok) {

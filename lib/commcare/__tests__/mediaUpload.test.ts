@@ -11,8 +11,9 @@
  *     `multimedia/uploaded/{kind}/` endpoints are session-only and reject
  *     an API key),
  *   - the multipart `bulk_upload_file` field carrying the ZIP,
- *   - `ApiKey {username}:{api_key}` + CSRF (`X-CSRFToken` / `Cookie` /
- *     `Referer`) headers,
+ *   - `ApiKey {username}:{api_key}` as the sole auth header (the endpoint is
+ *     `@csrf_exempt` + `@waf_allow('XSS_BODY')`, so no CSRF token dance and
+ *     no padding field),
  *   - the async contract: POST → `{ success, processing_id }`, then a
  *     status poll → `{ complete, matched_count, unmatched_count, errors }`.
  *
@@ -106,13 +107,6 @@ describe("buildMediaBulkUploadZip", () => {
 	});
 });
 
-/** The CSRF login GET `fetchCsrfToken` makes before the POST. */
-function csrfLoginResponse(token: string): Response {
-	const res = new Response(null, { status: 200 });
-	res.headers.append("Set-Cookie", `csrftoken=${token}; Path=/`);
-	return res;
-}
-
 const ZIP = Buffer.from("ZIPBYTES");
 
 describe("uploadAppMediaBundle", () => {
@@ -129,7 +123,6 @@ describe("uploadAppMediaBundle", () => {
 		fetchMock.mockImplementation(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				const url = String(input);
-				if (url.endsWith("/accounts/login/")) return csrfLoginResponse("tok");
 				if (url.endsWith("/multimedia/") && init?.method === "POST") {
 					return new Response(
 						JSON.stringify({ success: true, processing_id: "proc-1" }),
@@ -159,7 +152,7 @@ describe("uploadAppMediaBundle", () => {
 		});
 
 		// The POST hit the api-key bulk endpoint (NOT the per-kind session one)
-		// with the bulk_upload_file field + ApiKey + CSRF headers.
+		// with the bulk_upload_file field + the ApiKey header.
 		const post = (
 			fetchMock.mock.calls as Array<[RequestInfo | URL, RequestInit]>
 		).find(
@@ -174,32 +167,23 @@ describe("uploadAppMediaBundle", () => {
 		expect(headers.Authorization).toBe(
 			`ApiKey ${CREDS.username}:${CREDS.apiKey}`,
 		);
-		expect(headers["X-CSRFToken"]).toBe("tok");
+		// The endpoint is @csrf_exempt + @waf_allow('XSS_BODY'), so the ZIP is
+		// the ONLY multipart field and no CSRF headers ride along.
+		expect(headers["X-CSRFToken"]).toBeUndefined();
+		expect(headers.Cookie).toBeUndefined();
 		expect(postInit.body).toBeInstanceOf(FormData);
+		expect([...(postInit.body as FormData).keys()]).toEqual([
+			"bulk_upload_file",
+		]);
 		expect((postInit.body as FormData).get("bulk_upload_file")).toBeInstanceOf(
 			Blob,
 		);
-
-		// The WAF padding field precedes the ZIP so the compressed image
-		// bytes sit past AWS WAF's body-inspection window — without it two
-		// of the built-in icon PNGs deterministically draw a bare 403 from
-		// the load balancer and the whole bundle is lost. Order is the
-		// load-bearing property: padding first, file second.
-		const fieldOrder = [...(postInit.body as FormData).keys()];
-		expect(fieldOrder.indexOf("waf_padding")).toBeGreaterThanOrEqual(0);
-		expect(fieldOrder.indexOf("waf_padding")).toBeLessThan(
-			fieldOrder.indexOf("bulk_upload_file"),
-		);
-		expect(
-			((postInit.body as FormData).get("waf_padding") as string).length,
-		).toBeGreaterThanOrEqual(16 * 1024);
 	});
 
 	it("surfaces unmatched files (path + reason) + errors from the status result", async () => {
 		fetchMock.mockImplementation(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				const url = String(input);
-				if (url.endsWith("/accounts/login/")) return csrfLoginResponse("tok");
 				if (url.endsWith("/multimedia/") && init?.method === "POST") {
 					return new Response(
 						JSON.stringify({ success: true, processing_id: "proc-1" }),
@@ -244,9 +228,7 @@ describe("uploadAppMediaBundle", () => {
 
 	it("returns a typed error when HQ rejects the POST (non-2xx)", async () => {
 		fetchMock.mockImplementation(
-			async (input: RequestInfo | URL, init?: RequestInit) => {
-				const url = String(input);
-				if (url.endsWith("/accounts/login/")) return csrfLoginResponse("tok");
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				if (init?.method === "POST") {
 					return new Response("nope", { status: 403 });
 				}
@@ -260,9 +242,7 @@ describe("uploadAppMediaBundle", () => {
 
 	it("returns a 422 when the POST is 200 but success:false (or no processing_id)", async () => {
 		fetchMock.mockImplementation(
-			async (input: RequestInfo | URL, init?: RequestInit) => {
-				const url = String(input);
-				if (url.endsWith("/accounts/login/")) return csrfLoginResponse("tok");
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				if (init?.method === "POST") {
 					return new Response(
 						JSON.stringify({ success: false, error: "ZIP file is corrupt" }),

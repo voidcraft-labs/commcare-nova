@@ -102,6 +102,7 @@ beforeEach(() => {
 	} as never);
 	vi.mocked(publishAppToHq).mockResolvedValue({
 		landed: true,
+		hqAppAction: "created",
 		deployment: deploymentView("uploaded"),
 		checks: [],
 		artifact: {
@@ -203,6 +204,38 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(body.deployment.deployment.state).toBe("uploaded");
 		expect(body.setup_artifact.domain).toBe(DOMAIN);
 		expect(body.url).toContain("/a/acme/apps/view/");
+	});
+
+	it("answers 200 for an in-place update, saying which happened", async () => {
+		/* An update created no resource, so 201 would lie; the body's
+		 * `hq_app_action` is what tells the dialog which hero to show. */
+		vi.mocked(publishAppToHq).mockResolvedValue({
+			landed: true,
+			hqAppAction: "updated",
+			deployment: deploymentView("uploaded"),
+			checks: [],
+			artifact: {
+				server: "production",
+				domain: DOMAIN,
+				hqAppId: null,
+				sections: [],
+			},
+			warnings: [],
+			featureFlags: null,
+			hqAppUrl: `https://www.commcarehq.org/a/${DOMAIN}/apps/view/hq-abc/`,
+		} as never);
+
+		const res = await POST(
+			req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
+		);
+		const body = (await res.json()) as {
+			success: boolean;
+			hq_app_action: string;
+		};
+
+		expect(res.status).toBe(200);
+		expect(body.success).toBe(true);
+		expect(body.hq_app_action).toBe("updated");
 	});
 
 	it("answers with what Preview may name, resolved server-side", async () => {

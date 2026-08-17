@@ -444,8 +444,13 @@ The `interval` kind covers both relative-interval and threshold-flag UX through 
 
 ## CommCare HQ upload
 
-Upload creates a new app each time — HQ has no atomic update API. What that
-upload MEANS, and what happens to it afterwards, lives in `lib/deployment`:
+`importApp` creates an app, or — given the optional HQ app id — updates that
+app in place: HQ's import endpoint takes an `app_id` multipart field
+(`corehq/apps/app_manager/views/app_import_api.py::_handle_import_app`,
+update via `overwrite_app_from_source`; 200 `{success, app_id, version}` on
+update, 201 without `version` on create, 404 `Application not found` for an
+unknown id). Which of the two a publish does, and what happens to it
+afterwards, lives in `lib/deployment`:
 this package owns the HTTP calls, that one owns the lifecycle, the ownership
 ledger, and the setup artifact. The three reads a key CAN make about a
 published app (`readAppVersions`, `listAppBuilds`, `probeBuildProfile`) live
@@ -457,10 +462,22 @@ BUILD id is what keeps it on that build instead of falling through to
 
 A key is **not** one-project-per-user: an unscoped HQ key reaches every project space its owner belongs to. `discoverAccessibleDomains` lists them and probes app-level access in a bounded-concurrency window (an unbounded fan-out self-inflicts a 429 on big accounts). The upload *target* is chosen by `resolveUploadDomain` (`@/lib/db/domainResolution`) — explicit arg, else the sole space of a single-space key, else **error** (ambiguous) for a multi-space key (never silently the first space). There is no stored default: a multi-space key's target is a per-upload choice. Don't reintroduce the one-project assumption that caused the wrong-target bug.
 
-Two workarounds live on the import endpoint because HQ's decorators on it are incomplete:
+The import endpoints carry `@csrf_exempt` and `@waf_allow('XSS_BODY')`
+(`app_import_api.py`, live on all three servers since commcare-hq
+`b5dfe459`), so the client sends one plain authenticated multipart POST —
+no CSRF token fetch and no WAF padding field.
 
-- **CSRF:** HQ is missing `@csrf_exempt`. The client fetches a token from the unauthenticated login GET and sends it on the POST. Harmless if HQ fixes it upstream.
-- **WAF:** HQ is missing the XSS-body exemption. AWS WAF blocks XForms-looking tags in multipart bodies. Fix: a 16KB padding form field inserted before the app file pushes JSON past the WAF inspection window. Padding field name must NOT start with `_` (CouchDB reserved). Symptom of a block: bare nginx 403 — distinct from Django's verbose CSRF 403.
+**The emitted app document carries only fields Nova authors.** HQ's update
+is an overlay merge (`_merge_source_into_app`): a field present in the
+source overwrites the HQ app's value, an absent one is retained. So
+target-owned settings and state — `cloudcare_enabled`, `profile`,
+`case_sharing`, `secure_submissions`, the build/release metadata, and the
+rest of HQ's app Settings page — are never emitted (each sat at exactly
+HQ's schema default, so create is unchanged), and `logo_refs` is emitted
+only when the app has a Nova-authored logo. The rule and its rationale
+live at `hqShells.ts::applicationShell`; adding a shell field means
+deciding whether Nova authors it, because every emitted field stomps the
+target's value on every republish.
 
 ## Not-yet-modeled
 

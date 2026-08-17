@@ -159,7 +159,8 @@ function translateFormLinks(
  * regenerate a media-bearing suite on import. When absent, media
  * emission is off (validation loop, asset-free preview): the output
  * is structurally identical to the with-manifest shape but carries
- * empty `media_image` / `media_audio` / `multimedia_map` / `logo_refs`.
+ * empty `media_image` / `media_audio` / `multimedia_map` and no
+ * `logo_refs` (absent, not empty — see the assignment below).
  */
 export interface ExpandOptions {
 	assets?: AssetManifest;
@@ -441,10 +442,14 @@ export function expandDoc(
 
 	// Application-level media registry. `multimedia_map` declares every
 	// referenced file (keyed by wire path) so CCHQ can reconcile the
-	// step-2 multimedia upload by path; `logo_refs` carries the web-apps
-	// banner. Both stay empty when media emission is off.
+	// step-2 multimedia upload by path; it stays empty when media emission
+	// is off. `logo_refs` (the web-apps banner) is assigned only when the
+	// app actually has a Nova-authored logo: CCHQ's in-place update is an
+	// overlay merge, so an emitted empty dict would remove a logo uploaded
+	// on CommCare HQ, while an absent field is retained.
 	app.multimedia_map = assets ? buildMultimediaMap(assets.values()) : {};
-	app.logo_refs = buildLogoRefs(doc.logo, assets, "expandDoc logo");
+	const logoRefs = buildLogoRefs(doc.logo, assets, "expandDoc logo");
+	if (Object.keys(logoRefs).length > 0) app.logo_refs = logoRefs;
 
 	return app;
 }

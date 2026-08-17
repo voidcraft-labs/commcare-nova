@@ -122,6 +122,11 @@ import {
 	resolveUploadTarget,
 } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
+import {
+	applyDeploymentObservation,
+	foldDeploymentAttempt,
+	recordRemoteResource,
+} from "@/lib/deployment/store";
 import type { BlueprintDoc } from "@/lib/domain";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
@@ -375,7 +380,7 @@ describe("registerUploadAppToHq — happy path", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-123",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -404,6 +409,8 @@ describe("registerUploadAppToHq — happy path", () => {
 			"acme-research",
 			"Imported",
 			FAKE_HQ_JSON,
+			// No active mapping for this target, so the publish creates.
+			undefined,
 		);
 
 		const parsed = JSON.parse(out.content[0]?.text ?? "{}");
@@ -411,6 +418,7 @@ describe("registerUploadAppToHq — happy path", () => {
 			stage: "upload_complete",
 			app_id: "a1",
 			hq_app_id: "hq-123",
+			hq_app_action: "created",
 			warnings: [],
 			feature_flag_requirements: expect.objectContaining({
 				verification: "not_required",
@@ -451,7 +459,7 @@ describe("registerUploadAppToHq — happy path", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-prod",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -469,6 +477,7 @@ describe("registerUploadAppToHq — happy path", () => {
 			"connect-ace-prod",
 			"Vaccine Tracker",
 			FAKE_HQ_JSON,
+			undefined,
 		);
 	});
 
@@ -481,7 +490,7 @@ describe("registerUploadAppToHq — happy path", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-flags",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 		vi.mocked(probeHqFeatureFlags).mockResolvedValueOnce([
@@ -537,7 +546,7 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 			return {
 				success: true,
 				appId: "hq-789",
-				appUrl: "https://hq.example/app",
+				version: null,
 				warnings: [],
 			};
 		});
@@ -577,7 +586,7 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-1",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -618,7 +627,7 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-1",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
@@ -842,6 +851,142 @@ describe("registerUploadAppToHq — gate 3: HQ upload failed", () => {
 	});
 });
 
+describe("registerUploadAppToHq — in-place update", () => {
+	/** A fold answer whose ledger already maps this target's HQ app, which
+	 *  is what sends the real `publishAppToHq` down the update path. */
+	function mappedFoldView(remoteId: string) {
+		return {
+			deployment: {
+				id: "dep-1",
+				appId: "app-1",
+				projectId: "proj-1",
+				server: "production",
+				domain: "acme",
+				state: "uploaded",
+				resumePhase: null,
+				phases: {
+					preflight: null,
+					upload: null,
+					build: null,
+					release: null,
+					probe: null,
+				},
+				createdBy: "u1",
+				createdAt: "2026-08-06T00:00:00.000Z",
+				updatedAt: "2026-08-06T00:00:00.000Z",
+				lastObservedAt: null,
+			},
+			active: [
+				{
+					deploymentId: "dep-1",
+					kind: "app",
+					novaResourceId: "app-1",
+					remoteId,
+					ownership: "nova-created",
+					pushedRevision: 3,
+					pushedAt: "2026-08-10T00:00:00.000Z",
+					remoteRevision: 4,
+					remoteObservedAt: null,
+					supersededAt: null,
+				},
+			],
+			superseded: [],
+		};
+	}
+
+	it("sends the mapped app id and reports hq_app_action 'updated'", async () => {
+		vi.mocked(foldDeploymentAttempt).mockResolvedValueOnce(
+			mappedFoldView("hq-existing") as never,
+		);
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-existing",
+			version: 12,
+			warnings: [],
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		/* The mapping's remote id rides the import, which is what makes
+		 * CommCare HQ overwrite that app instead of minting a new one. */
+		expect(vi.mocked(importApp).mock.calls[0]?.[4]).toBe("hq-existing");
+		/* The same id is re-recorded with HQ's post-update version, so the
+		 * live mapping's remote revision tracks what the target now holds. */
+		expect(vi.mocked(recordRemoteResource).mock.calls[0]?.[2]).toMatchObject({
+			remoteId: "hq-existing",
+			remoteRevision: 12,
+		});
+
+		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+			hq_app_id: string;
+			hq_app_action: string;
+		};
+		expect(parsed.hq_app_action).toBe("updated");
+		expect(parsed.hq_app_id).toBe("hq-existing");
+	});
+
+	it("refuses with 'remote_app_missing' when the mapped app is gone, folding the answer as an observation", async () => {
+		vi.mocked(foldDeploymentAttempt).mockResolvedValueOnce(
+			mappedFoldView("hq-deleted") as never,
+		);
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: false,
+			status: 404,
+		});
+		/* The publish folds the 404 through the observation path; hand the
+		 * bare mock a view so the refusal can still carry the record. */
+		vi.mocked(applyDeploymentObservation).mockResolvedValueOnce({
+			view: {
+				...mappedFoldView("hq-deleted"),
+				deployment: {
+					...mappedFoldView("hq-deleted").deployment,
+					state: "incomplete",
+					resumePhase: "upload",
+				},
+			},
+		} as never);
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			isError: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			app_id: string;
+		};
+		/* Its own tag, not the generic upload failure: "the upload broke"
+		 * would send a client debugging its request when the truth is the
+		 * target vanished and publishing again recreates it. */
+		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.remote_app_missing);
+		expect(payload.app_id).toBe("a1");
+		expect(payload.message).toMatch(/publish again/i);
+
+		/* The 404 is target information: it folds as an observation against
+		 * the exact mapping this publish read (id + its pushed-at staleness
+		 * token), and no remote resource is recorded — nothing landed. */
+		expect(
+			vi.mocked(applyDeploymentObservation).mock.calls[0]?.[2],
+		).toMatchObject({
+			observedRemoteId: "hq-deleted",
+			observedPushedAt: "2026-08-10T00:00:00.000Z",
+		});
+		expect(recordRemoteResource).not.toHaveBeenCalled();
+
+		/* An upload genuinely went out, so the writer exists and drains. */
+		expect(LogWriterMock.instances).toHaveLength(1);
+		expect(LogWriterMock.instances[0]?.flush).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe("registerUploadAppToHq — boundary gate", () => {
 	it("returns invalid_input (not an opaque internal error) when a media ref is stale", async () => {
 		/* A stale media ref — the kind of issue that would otherwise make
@@ -920,7 +1065,7 @@ describe("registerUploadAppToHq — boundary gate", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-clean",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -1015,7 +1160,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-1",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -1029,6 +1174,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 			"acme-research",
 			"Vaccine Tracker",
 			FAKE_HQ_JSON,
+			undefined,
 		);
 	});
 
@@ -1036,7 +1182,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-2",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -1053,6 +1199,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 			"acme-research",
 			"Vaccine Tracker",
 			FAKE_HQ_JSON,
+			undefined,
 		);
 	});
 });
@@ -1062,7 +1209,7 @@ describe("registerUploadAppToHq — progress notifications", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-prog",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -1089,7 +1236,7 @@ describe("registerUploadAppToHq — progress notifications", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-silent",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 

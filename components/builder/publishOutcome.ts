@@ -28,6 +28,11 @@ import type { DeploymentAttemptRefusal } from "@/lib/deployment/types";
 /** The parts of the publish response this decision reads. */
 export interface PublishResponseBody {
 	readonly success?: boolean;
+	/**
+	 * Which way the app landed: updated in place, or created fresh. The
+	 * server decides from the deployment ledger; null on a refusal.
+	 */
+	readonly hq_app_action?: "created" | "updated" | null;
 	readonly url?: string;
 	readonly warnings?: string[];
 	readonly deployment?: DeploymentView["deployment"] | null;
@@ -62,6 +67,12 @@ export type PublishOutcome =
 			 * a success with nothing further to draw.
 			 */
 			readonly deployment: DeploymentView | null;
+			/**
+			 * Whether this publish updated the app the project space already
+			 * held or created a fresh one. Null for a response that carried
+			 * no answer, where the hero falls back to naming neither.
+			 */
+			readonly hqAppAction: "created" | "updated" | null;
 			readonly appUrl: string;
 			readonly warnings: string[];
 			/** What Preview may name, per the server's ambiguity rule. */
@@ -109,6 +120,7 @@ export function publishOutcome(
 		return {
 			kind: "landed",
 			deployment,
+			hqAppAction: body.hq_app_action ?? null,
 			appUrl: body.url ?? "",
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,

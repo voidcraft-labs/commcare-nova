@@ -12,9 +12,12 @@
  *   - `state` alongside `retry_from`. A deployment in `incomplete` names
  *     the phase a retry re-enters, so "what do I do next" has an answer
  *     rather than being inferred from which fields are empty.
- *   - `left_behind`. CommCare HQ has no atomic app update, so publishing
- *     again creates a new app and leaves the previous one on the project
- *     space. Reporting it is the contract; a client that omits it lets an
+ *   - `left_behind`. Apps this deployment once pointed at and no longer
+ *     does: publishes made before Nova updated apps in place created a new
+ *     app beside the old one each time, and a recreate after the mapped
+ *     app was deleted on CommCare HQ supersedes the dead mapping. An
+ *     ordinary republish updates the same app and adds nothing here.
+ *     Reporting them is the contract; a client that omits it lets an
  *     author accumulate abandoned apps without ever being told.
  */
 
@@ -47,7 +50,8 @@ export interface DeploymentProjection {
 			{ readonly status: string; readonly detail: string | null } | null
 		>
 	>;
-	/** CommCare HQ apps a later publish replaced and left in place. */
+	/** CommCare HQ apps this deployment once pointed at; a later publish
+	 * superseded them rather than updating them in place. */
 	readonly left_behind: readonly string[];
 }
 

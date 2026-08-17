@@ -74,6 +74,25 @@ describe("a publish that landed", () => {
 		});
 		expect(outcome).toMatchObject({ kind: "landed", deployment: null });
 	});
+
+	it("says whether the app was updated in place or created fresh", () => {
+		const outcome = publishOutcome(true, {
+			success: true,
+			hq_app_action: "updated",
+			url: "https://hq/app",
+			deployment: VIEW as never,
+			setup_artifact: ARTIFACT as never,
+			preview_project_space: "acme",
+		});
+		expect(outcome).toMatchObject({ kind: "landed", hqAppAction: "updated" });
+	});
+
+	it("carries a null action when the response left it unanswered", () => {
+		// The hero then falls back to the action-neutral title rather than
+		// claiming a create or an update the server never reported.
+		const outcome = publishOutcome(true, { success: true });
+		expect(outcome).toMatchObject({ kind: "landed", hqAppAction: null });
+	});
 });
 
 describe("a publish that was refused", () => {

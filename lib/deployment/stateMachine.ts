@@ -216,9 +216,9 @@ export function deploymentIsObservable(
  * hand the worst case the worst answer: an app that is uploaded, built and
  * released on CommCare HQ would be walked back to `preflight` by an
  * expired key, losing the phase its retry resumes from and making the
- * record unobservable, so the only way back would be a second publish and
- * a duplicate app on the project space. What matters is whether the app is
- * THERE, and after a probe failure it is.
+ * record unobservable, so a whole re-publish would be the only way back.
+ * What matters is whether the app is THERE, and after a probe failure it
+ * is.
  */
 export function applyAttemptOutcome(
 	record: DeploymentRecord,
@@ -267,10 +267,12 @@ export function deploymentDisplaysAsReached(
 /**
  * Clear what a previous publish observed.
  *
- * CommCare HQ has no atomic app update, so publishing again produces a
- * different app there. Its build, release, and probe answers described
- * the old one and are not evidence about the new one, so they go rather
- * than lingering as a stale green tick.
+ * Whether a publish updated the app in place or created a fresh one, the
+ * record's build, release, and probe answers described what the project
+ * space held BEFORE it: a build of the previous version is not evidence
+ * about this one. They go rather than lingering as a stale green tick,
+ * and the next observation re-derives the honest story, version gap and
+ * all.
  */
 export function clearObservationOutcomes(
 	phases: DeploymentPhaseOutcomes,

@@ -476,23 +476,33 @@ export interface RecordRemoteResourceInput {
 	readonly ownership: DeploymentResourceOwnership;
 	/** The Nova mutation sequence this remote resource was built from. */
 	readonly pushedRevision: number | null;
+	/**
+	 * CommCare HQ's own version of the resource as the write that landed it
+	 * reported — an in-place app update answers with the bumped version;
+	 * a create answers with none, so this stays null and the next
+	 * observation fills it.
+	 */
+	readonly remoteRevision: number | null;
 	/** When the resource landed on the target. */
 	readonly uploadedAt: string;
 }
 
 /**
- * Point a deployment at a remote resource, superseding whatever it named
- * before, and fold the successful upload into the record: one
- * transaction, so a publish that recorded the remote app but not the
- * `uploaded` state cannot exist.
+ * Point a deployment at a remote resource and fold the successful upload
+ * into the record: one transaction, so a publish that recorded the remote
+ * app but not the `uploaded` state cannot exist.
  *
- * The previous mapping is retained with `superseded_at` set rather than
- * deleted. CommCare HQ has no atomic app update, so a second publish makes
- * a second app there and leaves the first one in place; the contract is to
- * REPORT what was left behind, which is impossible if the row is thrown
- * away. The record's observation history is cleared in the same write
- * because those answers described the previous remote resource, not this
- * one.
+ * Recording the SAME remote id the mapping already holds is the mainline
+ * republish — the publish updated the app on CommCare HQ in place — so
+ * the live row is updated rather than filed as something left behind.
+ * Recording a DIFFERENT remote id supersedes the previous mapping: that
+ * happens when the mapped app was deleted on CommCare HQ and the next
+ * publish created a fresh one. The old row is retained with
+ * `superseded_at` set rather than deleted, because "report any old remote
+ * resource left behind" is impossible if the row is thrown away. Either
+ * way the record's observation history is cleared in the same write,
+ * because those answers described what the target held before this
+ * publish, not what it holds now.
  */
 export async function recordRemoteResource(
 	scope: DeploymentScope,
@@ -518,6 +528,10 @@ export async function recordRemoteResource(
 				.where("remote_id", "!=", input.remoteId)
 				.execute();
 
+			/* `remote_revision`/`remote_observed_at` are written in BOTH arms:
+			 * a republish always lands in the conflict arm, so an insert-only
+			 * write would silently drop the version an in-place update
+			 * reported. */
 			await tx
 				.insertInto("app_deployment_resources")
 				.values({
@@ -528,6 +542,8 @@ export async function recordRemoteResource(
 					ownership: input.ownership,
 					pushed_revision: input.pushedRevision,
 					pushed_at: input.pushedRevision === null ? null : now,
+					remote_revision: input.remoteRevision,
+					remote_observed_at: input.remoteRevision === null ? null : now,
 				})
 				.onConflict((conflict) =>
 					conflict
@@ -538,6 +554,8 @@ export async function recordRemoteResource(
 							ownership: input.ownership,
 							pushed_revision: input.pushedRevision,
 							pushed_at: input.pushedRevision === null ? null : now,
+							remote_revision: input.remoteRevision,
+							remote_observed_at: input.remoteRevision === null ? null : now,
 						}),
 				)
 				.execute();
@@ -568,6 +586,14 @@ export async function recordRemoteResource(
 export interface ApplyObservationInput {
 	/** The CommCare HQ app the observation asked about. */
 	readonly observedRemoteId: string;
+	/**
+	 * The active mapping's `pushedAt` as the caller read it before asking
+	 * CommCare HQ — the per-publish staleness token. A republish updates
+	 * the app in place and keeps the remote id, so the id alone can no
+	 * longer tell "the publish I read" from "a publish that landed while I
+	 * was asking"; `pushed_at` changes on every publish and does.
+	 */
+	readonly observedPushedAt: string | null;
 	/** In phase order, ready for the state machine to fold. */
 	readonly outcomes: readonly (readonly [
 		DeploymentPhase,
@@ -579,15 +605,16 @@ export interface ApplyObservationInput {
 
 /**
  * Fold what an observation heard into the record, but only while the
- * mapping it observed is still the active one.
+ * mapping it observed is still the publish it read.
  *
  * Observation reads the record, spends seconds asking CommCare HQ about
  * the app it names, then comes back here. If a publish landed in that
- * window, the answers describe the app the publish just REPLACED, and
- * writing them would overwrite the fresh record with facts about the
- * superseded one. So the write re-reads the active mapping under the row
- * lock and discards a stale observation, returning the fresh view either
- * way; `applied` says which happened.
+ * window, the answers describe what the target held BEFORE it, and
+ * writing them would overwrite the fresh record with stale facts. So the
+ * write re-reads the active mapping under the row lock and discards the
+ * observation unless both the remote id AND the publish token
+ * (`observedPushedAt`) still match, returning the fresh view either way;
+ * `applied` says which happened.
  */
 export async function applyDeploymentObservation(
 	scope: DeploymentScope,
@@ -605,13 +632,30 @@ export async function applyDeploymentObservation(
 			const now = new Date();
 			const active = await tx
 				.selectFrom("app_deployment_resources")
-				.select(["remote_id"])
+				.select(["remote_id", "pushed_at"])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("nova_resource_id", "=", scope.appId)
 				.where("superseded_at", "is", null)
 				.executeTakeFirst();
-			if (active === undefined || active.remote_id !== input.observedRemoteId) {
+			/* The column is timestamptz(3) and JS Dates carry milliseconds, so
+			 * the epoch-ms comparison is lossless in both directions. Null on
+			 * both sides matches — a mapping that never recorded a push has one
+			 * spelling. Two publishes landing inside the same millisecond would
+			 * share a token; accepted as negligible. */
+			const activePushedAtMs =
+				active === undefined || active.pushed_at === null
+					? null
+					: active.pushed_at.getTime();
+			const observedPushedAtMs =
+				input.observedPushedAt === null
+					? null
+					: new Date(input.observedPushedAt).getTime();
+			if (
+				active === undefined ||
+				active.remote_id !== input.observedRemoteId ||
+				activePushedAtMs !== observedPushedAtMs
+			) {
 				return {
 					view: await loadWithinTransaction(tx, row.id),
 					applied: false,

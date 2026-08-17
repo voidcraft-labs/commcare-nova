@@ -473,81 +473,35 @@ export interface HqModule {
 	comment: string;
 }
 
+/**
+ * The HQ app document Nova emits, listing ONLY fields Nova authors.
+ *
+ * Target-owned settings and state — `cloudcare_enabled`, `profile`,
+ * `case_sharing`, `secure_submissions`, the build/release metadata, and
+ * the rest of HQ's app Settings page attributes — are deliberately
+ * absent. HQ's create path supplies its own schema defaults for a
+ * missing field (each was previously emitted at exactly that default),
+ * and the in-place update's overlay merge retains a field absent from
+ * source, so omitting them keeps the project's HQ-side configuration
+ * standing across republishes. The rule lives at
+ * `hqShells.ts::applicationShell`.
+ */
 export interface HqApplication {
 	doc_type: "Application";
 	application_version: string;
 	name: string;
 	langs: string[];
 	build_spec: { doc_type: "BuildSpec"; version: string; build_number: null };
-	profile: {
-		doc_type: "Profile";
-		features: Record<string, never>;
-		properties: Record<string, never>;
-	};
-	vellum_case_management: boolean;
-	cloudcare_enabled: boolean;
-	case_sharing: boolean;
-	secure_submissions: boolean;
 	multimedia_map: Record<string, MultimediaMapItem>;
 	/** Per-language app_strings overrides. */
 	translations: Record<string, Record<string, string>>;
-	/** Standard HQ app properties before _attachments (secondary WAF defense — see client.ts) */
-	admin_password: null;
-	admin_password_charset: string;
-	amplifies_project: string;
-	amplifies_workers: string;
-	archived_media: Record<string, never>;
-	attribution_notes: null;
 	auto_gps_capture: boolean;
-	build_broken: boolean;
-	build_broken_reason: null;
-	build_comment: null;
-	build_profiles: Record<string, never>;
-	build_signed: boolean;
-	built_on: null;
-	built_with: {
-		signed: boolean;
-		datetime: null;
-		doc_type: "BuildRecord";
-		version: null;
-		build_number: null;
-		latest: null;
-	};
-	cached_properties: Record<string, never>;
-	comment: string;
-	comment_from: null;
-	copy_history: never[];
-	created_from_template: null;
-	custom_assertions: never[];
-	custom_base_url: null;
-	date_created: null;
-	deployment_date: null;
-	description: null;
-	experienced_threshold: string;
-	family_id: null;
-	grid_form_menus: string;
-	has_submissions: boolean;
-	is_auto_generated: boolean;
-	is_released: boolean;
-	last_modified: null;
-	last_released: null;
-	location_fixture_restore: string;
-	logo_refs: Record<string, LogoRef>;
-	media_form_errors: boolean;
-	minimum_use_threshold: string;
-	mobile_ucr_restore_version: string;
-	persistent_menu: boolean;
-	phone_model: null;
-	practice_mobile_worker_id: null;
-	recipients: string;
-	show_breadcrumbs: boolean;
-	smart_lang_display: null;
-	split_screen_dynamic_search: boolean;
-	target_commcare_flavor: string;
-	translation_strategy: string;
-	use_custom_suite: boolean;
-	use_grid_menus: boolean;
-	user_type: null;
+	/**
+	 * Present only when the app has a Nova-authored logo: an empty
+	 * `logo_refs` on the update path would remove a logo uploaded on
+	 * CommCare HQ, while an absent one is retained by the merge.
+	 */
+	logo_refs?: Record<string, LogoRef>;
 	add_ons: Record<string, boolean>;
 	modules: HqModule[];
 	_attachments: Record<string, string>;

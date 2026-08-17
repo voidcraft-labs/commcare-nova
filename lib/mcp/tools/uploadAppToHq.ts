@@ -1,19 +1,24 @@
 /**
- * `nova.upload_app_to_hq`: upload an owned app's blueprint to CommCare
- * HQ as a new app in a project space the user's API key can reach.
+ * `nova.upload_app_to_hq`: publish an owned app's blueprint to CommCare
+ * HQ, into a project space the user's API key can reach.
  *
  * Scope: `nova.hq.write` (per-tool, in addition to the route-layer
  * `nova.read` + `nova.write` floor). HQ access is orthogonal to
  * Nova-internal read/write; see `lib/mcp/scopes.ts` for the full
  * enforcement model.
  *
- * HQ has no atomic update API, so every call produces a brand-new app
- * in the target project: the returned `hq_app_id` is always fresh.
+ * The first publish to a project space creates the app there and the
+ * deployment ledger records the mapping; publishing again sends that
+ * mapping's id so HQ updates the same app in place, and the payload's
+ * `hq_app_action` says which happened. The create path also runs after
+ * the mapped app was deleted on HQ (`remote_app_missing` below). The
+ * decision is the shared publish lifecycle's, made from the ledger; the
+ * request shape carries no say in it.
  *
  * The upload is media-ON and two-phase: import the media-bearing HQ JSON
  * first (forms carry `jr://file/commcare/...` itext references), then
- * upload each asset's bytes against the new app so HQ maps them by path.
- * A media failure leaves the created app intact and surfaces as a
+ * upload each asset's bytes against the app so HQ maps them by path.
+ * A media failure leaves the app intact and surfaces as a
  * warning; it never fails the upload.
  *
  * Target space (the optional `domain` argument):
@@ -46,7 +51,11 @@
  *                                 resolution, before the HQ network call;
  *                                 the message carries each rule's
  *                                 actionable text.
- *   6. `hq_upload_failed`:        `importApp` returned a non-success
+ *   6. `remote_app_missing`:      the in-place update found the mapped HQ
+ *                                 app deleted there. Nothing was changed;
+ *                                 calling again creates a fresh app and
+ *                                 supersedes the dead mapping.
+ *   7. `hq_upload_failed`:        `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
  *                                 returned 5xx). A thrown transport fault
  *                                 goes through the shared MCP classifier.
@@ -108,6 +117,8 @@ export const UPLOAD_ERROR_TAGS = {
 	domain_not_authorized: "domain_not_authorized",
 	/** Multi-space key with no `domain` supplied; caller must choose. */
 	domain_ambiguous: "domain_ambiguous",
+	/** The mapped HQ app is gone; the next call creates a fresh one. */
+	remote_app_missing: "remote_app_missing",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
 
 /**
@@ -158,7 +169,7 @@ export function registerUploadAppToHq(
 		"upload_app_to_hq",
 		{
 			description:
-				"Upload an owned app to CommCare HQ as a new app. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking the user to confirm or invoking this tool, call `get_app_hq_feature_flags` with that explicit domain and relay its `feature_flag_requirements`, including confirmed `missing_flags` and any `unverified_flags`; this is informational and must not cause requested app features to be changed or removed. Pass the same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app. On success, `feature_flag_requirements` repeats an authoritative post-upload check against the exact target and includes support@dimagi.com guidance. The diagnostic never blocks an otherwise successful upload.",
+				"Upload an owned app to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking the user to confirm or invoking this tool, call `get_app_hq_feature_flags` with that explicit domain and relay its `feature_flag_requirements`, including confirmed `missing_flags` and any `unverified_flags`; this is informational and must not cause requested app features to be changed or removed. Pass the same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). The first upload to a project space creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` in the result says which happened. If the linked HQ app was deleted there, the call refuses with `remote_app_missing`; uploading again then creates a fresh one. On success, `feature_flag_requirements` repeats an authoritative post-upload check against the exact target and includes support@dimagi.com guidance. The diagnostic never blocks an otherwise successful upload.",
 			inputSchema: z.object({
 				app_id: z
 					.string()
@@ -337,6 +348,17 @@ export function registerUploadAppToHq(
 								appId,
 							);
 						}
+						/* The mapped HQ app is gone. The generic upload-failed
+						 * envelope would tell the caller the upload broke when the
+						 * truth is the target vanished; this tag says what actually
+						 * helps: publish again to recreate. */
+						if (failure.code === "remote_app_missing") {
+							return makeGateError(
+								UPLOAD_ERROR_TAGS.remote_app_missing,
+								failure.message,
+								appId,
+							);
+						}
 						return makeGateError(
 							UPLOAD_ERROR_TAGS.hq_upload_failed,
 							failure.message,
@@ -357,6 +379,8 @@ export function registerUploadAppToHq(
 						stage: "upload_complete",
 						app_id: appId,
 						hq_app_id: hqAppId,
+						/* Updated in place, or created fresh; the ledger decided. */
+						hq_app_action: outcome.hqAppAction,
 						url: outcome.hqAppUrl,
 						warnings: outcome.warnings,
 						feature_flag_requirements: outcome.featureFlags,

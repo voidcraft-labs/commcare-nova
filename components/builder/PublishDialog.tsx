@@ -64,6 +64,7 @@ import {
 	type RefreshedDeploymentView,
 	readDeploymentsAction,
 } from "@/lib/deployment/actions";
+import { plannedInPlaceUpdate } from "@/lib/deployment/resources";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
@@ -126,6 +127,8 @@ type PublishStatus =
 			 * carries only which target to celebrate; the record keeps
 			 * updating through Check status either way. */
 			type: "landed";
+			/** Updated in place, or created fresh; null when unanswered. */
+			hqAppAction: "created" | "updated" | null;
 			appUrl: string;
 			warnings: string[];
 			featureFlagReport?: HqFeatureFlagReport;
@@ -267,8 +270,10 @@ export function PublishDialog({
 	/* Where the app already stands, loaded whenever this opens. The record
 	 * outlives the publish that created it: somebody who published, made
 	 * the build on CommCare HQ, and came back tomorrow needs Check status,
-	 * and without this the only way to reach it would be publishing again,
-	 * which puts a SECOND app on their project space. */
+	 * and without this the only way to reach it would be publishing the
+	 * app all over again just to see where things stand. These records are
+	 * also what tells the form below whether the selected project space
+	 * gets an in-place update or a fresh app. */
 	const [existing, setExisting] = useState<ExistingDeployments>({
 		type: "idle",
 	});
@@ -304,8 +309,8 @@ export function PublishDialog({
 	 * it, a publish response upserts into it, and Check status upserts into
 	 * it, so a record can never render twice with disagreeing contents,
 	 * and a fresh deployment survives every status reset (switching the
-	 * destination select and back must not make a landed publish vanish,
-	 * because publishing again from that screen would mint a second app). */
+	 * destination select and back must not make a landed publish vanish;
+	 * the author would have to publish again just to see it). */
 	const upsertView = useCallback((next: DeploymentView) => {
 		setExisting((current) => {
 			const record = next.deployment.deployment;
@@ -333,6 +338,24 @@ export function PublishDialog({
 		},
 		[upsertView, setProjectSpace],
 	);
+
+	/* What publishing to the selected project space will do. The SAME
+	 * predicate the publish lifecycle applies server-side
+	 * (`plannedInPlaceUpdate`), read off the records this dialog already
+	 * loads, so the form's blurb promises exactly what the request that
+	 * follows will do — and "unknown" while the records are loading, when
+	 * the read failed, or before a domain is picked, because a claim made
+	 * in those windows would be a guess the upload could contradict. */
+	const publishPlan: "update" | "create" | "unknown" =
+		existing.type !== "ready" || selectedDomain === ""
+			? "unknown"
+			: existing.views.some(
+						(view) =>
+							view.deployment.deployment.domain === selectedDomain &&
+							plannedInPlaceUpdate(view.deployment) !== null,
+					)
+				? "update"
+				: "create";
 
 	const featureFlagDomain =
 		target === "hq"
@@ -481,6 +504,7 @@ export function PublishDialog({
 				const record = outcome.deployment?.deployment.deployment;
 				setStatus({
 					type: "landed",
+					hqAppAction: outcome.hqAppAction,
 					appUrl: outcome.appUrl,
 					warnings: outcome.warnings,
 					featureFlagReport: data.feature_flag_requirements,
@@ -662,7 +686,11 @@ export function PublishDialog({
 								   again" would re-send the exact request that just failed. */
 								status.type === "landed" ? (
 									<PublishSuccess
-										title="Your app is on CommCare HQ"
+										title={
+											status.hqAppAction === "updated"
+												? "Your app is updated on CommCare HQ"
+												: "Your app is on CommCare HQ"
+										}
 										tone="done"
 										warnings={status.warnings}
 										featureFlagReport={status.featureFlagReport}
@@ -733,6 +761,7 @@ export function PublishDialog({
 											appName={appName}
 											onAppNameChange={setAppName}
 											status={status}
+											publishPlan={publishPlan}
 										/>
 									</>
 								)
@@ -864,6 +893,7 @@ function UploadForm({
 	appName,
 	onAppNameChange,
 	status,
+	publishPlan,
 }: {
 	availableDomains: Domain[];
 	domainItems: { label: string; value: string }[];
@@ -873,6 +903,8 @@ function UploadForm({
 	appName: string;
 	onAppNameChange: (value: string) => void;
 	status: PublishStatus;
+	/** What publishing will do to the selected project space's app. */
+	publishPlan: "update" | "create" | "unknown";
 }) {
 	const uploading = status.type === "uploading";
 	return (
@@ -943,8 +975,11 @@ function UploadForm({
 				</Field>
 
 				<p className="text-xs leading-relaxed text-nova-text-muted">
-					Uploading creates a new app in the selected project space. This window
-					checks its feature flags now and again after upload.
+					{publishPlan === "update"
+						? "Uploading updates the app an earlier publish put on this project space, keeping the same app there. This window checks its feature flags now and again after upload."
+						: publishPlan === "create"
+							? "Uploading creates a new app in the selected project space. This window checks its feature flags now and again after upload."
+							: "This window checks the selected project space's feature flags now and again after upload."}
 				</p>
 			</div>
 

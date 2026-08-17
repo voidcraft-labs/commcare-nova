@@ -751,11 +751,12 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 	// Application-level multimedia surfaces: the `multimedia_map` keys + the
 	// `logo_refs` paths. Both feed the suite regeneration on the next CCHQ
 	// build, so a malformed entry detonates at that point even though the
-	// initial import wraps clean. Both slots are required on `HqApplication`
-	// and always stamped by `expandDoc`'s shell factories — the type system
-	// gates a missing dict before this check runs.
+	// initial import wraps clean. `logo_refs` is present only when the app
+	// has a Nova-authored logo (an emitted empty dict would remove an
+	// HQ-uploaded logo on the in-place update's overlay merge), so an
+	// absent slot is correct and there is nothing to check.
 	checkMultimediaMap(hqApp.multimedia_map, errors);
-	checkLogoRefs(hqApp.logo_refs, errors);
+	if (hqApp.logo_refs !== undefined) checkLogoRefs(hqApp.logo_refs, errors);
 
 	return errors;
 }

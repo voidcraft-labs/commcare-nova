@@ -260,16 +260,15 @@ export function DeploymentStatus({
 
 			{view.deployment.superseded.length > 0 ? (
 				<p className="mt-3 text-[13px] leading-relaxed text-nova-text-secondary">
-					Publishing again created a new app rather than replacing the old one,
-					because CommCare HQ has no way to update an app in place.{" "}
 					{view.deployment.superseded.length === 1
-						? "One earlier app is"
-						: `${view.deployment.superseded.length} earlier apps are`}{" "}
-					still on this project space:{" "}
+						? "An earlier publish left an app behind"
+						: `Earlier publishes left ${view.deployment.superseded.length} apps behind`}{" "}
+					on this project space:{" "}
 					{view.deployment.superseded
 						.map((resource) => resource.remoteId)
 						.join(", ")}
-					. You can delete{" "}
+					. If {view.deployment.superseded.length === 1 ? "it is" : "they are"}{" "}
+					still there, you can delete{" "}
 					{view.deployment.superseded.length === 1 ? "it" : "them"} on CommCare
 					HQ when you no longer need{" "}
 					{view.deployment.superseded.length === 1 ? "it" : "them"}.
