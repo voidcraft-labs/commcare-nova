@@ -15,16 +15,17 @@ import {
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	type AppLanguage,
+	type AppLanguageIdentity,
 	type CommitOutcome,
 	collectLocalizedTranslationUnits,
 	effectiveAppLocalization,
 	type Field,
-	type LanguageCode,
+	type LanguageTag,
 	type LocalizedTranslationUnit,
 	type LocalizedValue,
 	localizeTranslationUnit,
 	type Module,
+	parseLanguageTag,
 	projectLocalizedField,
 	projectLocalizedModule,
 	resolveAppLanguage,
@@ -32,6 +33,7 @@ import {
 	translationUnitsById,
 	type Uuid,
 } from "@/lib/domain";
+import { languageDirection } from "@/lib/domain/languageRegistry";
 import {
 	pushBuilderHistory,
 	useBuilderSearch,
@@ -40,13 +42,17 @@ import {
 const LANGUAGE_QUERY_KEY = "lang";
 
 export interface BuilderLanguageState {
-	readonly language: LanguageCode;
-	readonly sourceLanguage: LanguageCode;
-	readonly defaultLanguage: LanguageCode;
-	readonly languages: readonly AppLanguage[];
+	readonly language: LanguageTag;
+	readonly identity: AppLanguageIdentity;
+	readonly sourceLanguage: LanguageTag;
+	readonly defaultLanguage: LanguageTag;
+	readonly languages: readonly {
+		readonly tag: LanguageTag;
+		readonly identity: AppLanguageIdentity;
+	}[];
 	readonly isSource: boolean;
-	readonly direction: AppLanguage["direction"];
-	selectLanguage(language: LanguageCode): void;
+	readonly direction: "ltr" | "rtl";
+	selectLanguage(language: LanguageTag): void;
 }
 
 const BuilderLocalizationContext = createContext<BuilderLanguageState | null>(
@@ -66,22 +72,24 @@ export function BuilderLocalizationProvider({
 	);
 	const requested = new URLSearchParams(search).get(LANGUAGE_QUERY_KEY);
 	const language = resolveAppLanguage(persisted, requested);
-	const selectLanguage = useCallback((next: LanguageCode) => {
+	const selectLanguage = useCallback((next: LanguageTag) => {
 		const url = new URL(window.location.href);
 		url.searchParams.set(LANGUAGE_QUERY_KEY, next);
 		pushBuilderHistory(`${url.pathname}${url.search}`);
 	}, []);
 	const value = useMemo<BuilderLanguageState>(() => {
-		const metadata = effective.languages[language];
+		const identity = parseLanguageTag(language);
 		return {
 			language,
+			identity,
 			sourceLanguage: effective.sourceLanguage,
 			defaultLanguage: effective.defaultLanguage,
-			languages: effective.languageOrder.map(
-				(code) => effective.languages[code],
-			),
+			languages: effective.languageOrder.map((tag) => ({
+				tag,
+				identity: parseLanguageTag(tag),
+			})),
 			isSource: language === effective.sourceLanguage,
-			direction: metadata.direction,
+			direction: languageDirection(identity),
 			selectLanguage,
 		};
 	}, [effective, language, selectLanguage]);

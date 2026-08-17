@@ -148,7 +148,7 @@ export interface BuildSliceCommittedProjection
 }
 
 export interface BuildLocalizationProjection {
-	readonly languageCode: string;
+	readonly languageTag: string;
 	readonly languageName: string;
 	readonly batch: number;
 	readonly batchCount: number;
@@ -258,7 +258,7 @@ const buildSliceCommittedSchema = buildSliceStartedSchema.extend({
 });
 
 const buildLocalizationSchema = z.object({
-	languageCode: nonBlank,
+	languageTag: nonBlank,
 	languageName: nonBlank,
 	batch: z.number().int().positive(),
 	batchCount: z.number().int().positive(),

@@ -41,6 +41,7 @@ import {
 } from "@/lib/db/privilegeConvergence";
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
 import { runCaseStatusFilterRepair } from "@/scripts/lib/caseStatusFilterRepair";
+import { runLanguageIdentityRepair } from "@/scripts/lib/languageIdentityRepair";
 import { runXPathCarrierCompatibilityRepair } from "@/scripts/lib/xpathCarrierCompatibilityRepair";
 
 async function main(): Promise<void> {
@@ -94,6 +95,25 @@ async function main(): Promise<void> {
 	// grant-revocation watermark). Own ledger; same shared handle.
 	await runAuthAppMigrations(db as unknown as Kysely<unknown>);
 	console.log("[migrate] auth-app migrations applied");
+
+	// The structured-language-identity runtime has no old-shape reader.
+	// Rewrite every store that can hold the retired free-code language shape
+	// (localization roots, app_changes payloads, fold-baseline snapshots,
+	// translation-batch state) before anything strictly assembles an app:
+	// the two repairs below load every app through the canonical schemas, so
+	// an old-shape localization root would fail their fleet scans before this
+	// repair could run. This repair reads the old shape only through its own
+	// private parser. Each rewritten app is proved by re-fold plus the
+	// absolute commit gate inside its own transaction; a fleet postcondition
+	// then plans zero further rewrites, so a redeploy no-ops.
+	const languageIdentityRepair = await runLanguageIdentityRepair();
+	console.log(
+		JSON.stringify({
+			severity: "INFO",
+			message: "[migrate] language identity converged",
+			...languageIdentityRepair,
+		}),
+	);
 
 	// The built-in case-status lifecycle gate deliberately has no compatibility
 	// reader. Repair the three scan-proven historical program-stage filters as

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AppLanguageIdentity } from "@/lib/domain";
 import {
 	AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES,
 	automaticTranslationAvailable,
@@ -6,8 +7,12 @@ import {
 	automaticTranslationLaunchLanguage,
 } from "@/lib/translation/capabilityPolicy";
 
+function identity(language: string): AppLanguageIdentity {
+	return { language };
+}
+
 describe("automatic translation launch policy", () => {
-	it("contains 57 unique launch identities and enables every distinct pair", () => {
+	it("contains 57 unique launch languages and enables every distinct pair", () => {
 		expect(AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES).toHaveLength(57);
 		expect(
 			new Set(
@@ -19,53 +24,77 @@ describe("automatic translation launch policy", () => {
 			for (const target of AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES) {
 				if (source.code === target.code) {
 					expect(
-						automaticTranslationCapability(source.code, target.code).status,
+						automaticTranslationCapability(
+							identity(source.code),
+							identity(target.code),
+						).status,
 					).toBe("withheld");
 					continue;
 				}
-				expect(automaticTranslationAvailable(source.code, target.code)).toBe(
-					true,
-				);
+				expect(
+					automaticTranslationAvailable(
+						identity(source.code),
+						identity(target.code),
+					),
+				).toBe(true);
 				availableDirections += 1;
 			}
 		}
 		expect(availableDirections).toBe(3_192);
 	});
 
-	it.each([
-		["en", "eng"],
-		["es", "spa"],
-		["zh", "cmn"],
-		["ar", "arb"],
-		["sw", "swh"],
-		["fa", "pes"],
-		["or", "ory"],
-		["ne", "npi"],
-		["ms", "zlm"],
-		["uz", "uzn"],
-	] as const)(
-		"resolves CommCare alias %s to launch identity %s",
-		(code, identity) => {
-			expect(automaticTranslationLaunchLanguage(code)).toBe(identity);
-		},
-	);
+	it("decides availability by the language axis alone", () => {
+		expect(
+			automaticTranslationLaunchLanguage({ language: "spa", region: "MX" }),
+		).toBe("spa");
+		expect(
+			automaticTranslationLaunchLanguage({ language: "cmn", script: "Hans" }),
+		).toBe("cmn");
+		expect(
+			automaticTranslationAvailable(
+				{ language: "eng", region: "GB" },
+				{ language: "spa", region: "MX" },
+			),
+		).toBe(true);
+	});
 
-	it("resolves regional suffixes without collapsing distinct listed varieties", () => {
-		expect(automaticTranslationLaunchLanguage("es-mx")).toBe("spa");
-		expect(automaticTranslationLaunchLanguage("arz")).toBe("arz");
-		expect(automaticTranslationLaunchLanguage("zh-yue")).toBe("yue");
-		expect(automaticTranslationLaunchLanguage("zh-wuu")).toBe("wuu");
-		expect(automaticTranslationAvailable("en-gb", "es-mx")).toBe(true);
-		expect(automaticTranslationAvailable("ar", "arz")).toBe(true);
-		expect(automaticTranslationAvailable("zh-yue", "zh-wuu")).toBe(true);
-		expect(automaticTranslationCapability("en", "eng").status).toBe("withheld");
+	it("withholds writing-system and regional-convention conversion within one language", () => {
+		const hansToHant = automaticTranslationCapability(
+			{ language: "cmn", script: "Hans" },
+			{ language: "cmn", script: "Hant" },
+		);
+		expect(hansToHant.status).toBe("withheld");
+		expect(hansToHant.explanation).toContain("not translation");
+
+		const sameTag = automaticTranslationCapability(
+			identity("eng"),
+			identity("eng"),
+		);
+		expect(sameTag.status).toBe("withheld");
+		expect(sameTag.explanation).toContain("the same language");
+	});
+
+	it("keeps distinct listed varieties as their own launch languages", () => {
+		expect(automaticTranslationLaunchLanguage(identity("arz"))).toBe("arz");
+		expect(automaticTranslationLaunchLanguage(identity("yue"))).toBe("yue");
+		expect(
+			automaticTranslationAvailable(identity("arb"), identity("arz")),
+		).toBe(true);
+		expect(
+			automaticTranslationAvailable(identity("yue"), identity("wuu")),
+		).toBe(true);
 	});
 
 	it("keeps every unlisted language manual and copy only", () => {
-		expect(automaticTranslationLaunchLanguage("zul")).toBeUndefined();
-		expect(automaticTranslationCapability("en", "zul")).toMatchObject({
-			status: "not-evaluated",
-		});
-		expect(automaticTranslationAvailable("en", "zul")).toBe(false);
+		expect(automaticTranslationLaunchLanguage(identity("zul"))).toBeUndefined();
+		expect(
+			automaticTranslationCapability(identity("eng"), identity("zul")),
+		).toMatchObject({ status: "not-evaluated" });
+		expect(
+			automaticTranslationAvailable(identity("eng"), identity("zul")),
+		).toBe(false);
+		expect(
+			automaticTranslationAvailable(identity("zul"), identity("xho")),
+		).toBe(false);
 	});
 });

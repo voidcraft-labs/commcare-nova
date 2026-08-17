@@ -173,15 +173,11 @@ describe("explicit app-wide case-property rename", () => {
 		expect(beforeUnit).toBeDefined();
 		if (beforeUnit === undefined) return;
 		start.localization = {
-			sourceLanguage: "en",
-			defaultLanguage: "en",
-			languageOrder: ["en", "es"],
-			languages: {
-				en: { code: "en", name: "English", direction: "ltr" },
-				es: { code: "es", name: "Español", direction: "ltr" },
-			},
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
 			translations: {
-				es: {
+				spa: {
 					[beforeUnit.id]: {
 						value: {
 							parts: [
@@ -192,7 +188,7 @@ describe("explicit app-wide case-property rename", () => {
 						sourceFingerprint: beforeUnit.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			},
@@ -206,7 +202,7 @@ describe("explicit app-wide case-property rename", () => {
 			(unit) => unit.id === beforeUnit.id,
 		);
 		expect(afterUnit).toBeDefined();
-		const entry = renamed.localization?.translations.es?.[beforeUnit.id];
+		const entry = renamed.localization?.translations.spa?.[beforeUnit.id];
 		expect(entry?.sourceFingerprint).toBe(afterUnit?.sourceFingerprint);
 		expect(entry?.value).toMatchObject({
 			parts: [
@@ -253,28 +249,24 @@ describe("explicit app-wide case-property rename", () => {
 			throw new Error("missing option translation units");
 		}
 		start.localization = {
-			sourceLanguage: "en",
-			defaultLanguage: "en",
-			languageOrder: ["en", "es"],
-			languages: {
-				en: { code: "en", name: "English", direction: "ltr" },
-				es: { code: "es", name: "Español", direction: "ltr" },
-			},
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
 			translations: {
-				es: {
+				spa: {
 					[beforeA.id]: {
 						value: proseText("Sí para A"),
 						sourceFingerprint: beforeA.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 					[beforeB.id]: {
 						value: proseText("Sí para B"),
 						sourceFingerprint: beforeB.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			},
@@ -301,7 +293,7 @@ describe("explicit app-wide case-property rename", () => {
 		if (afterA === undefined || afterB === undefined) {
 			throw new Error("missing renamed option translation units");
 		}
-		const translations = swapped.localization?.translations.es;
+		const translations = swapped.localization?.translations.spa;
 		expect(Object.keys(translations ?? {})).toHaveLength(2);
 		expect(translations?.[afterB.id]).toMatchObject({
 			value: proseText("Sí para A"),

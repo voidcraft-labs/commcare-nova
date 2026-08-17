@@ -75,15 +75,15 @@ describe("lean Design Contract graph", () => {
 		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
 	});
 
-	it("keeps manual localization open to every Classic-valid language code", () => {
+	it("keeps manual localization open to every individual living language", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "zul",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "zul" },
 			targets: [
 				{
-					language: { code: "zul", name: "isiZulu", direction: "ltr" },
-					seedFrom: "en",
+					language: { language: "zul" },
+					seedFrom: { language: "eng" },
 					strategy: "copy-only",
 				},
 			],
@@ -95,12 +95,12 @@ describe("lean Design Contract graph", () => {
 	it("admits automatic translation within the launch set", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "en",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "eng" },
 			targets: [
 				{
-					language: { code: "es", name: "Español", direction: "ltr" },
-					seedFrom: "en",
+					language: { language: "spa" },
+					seedFrom: { language: "eng" },
 					strategy: "translate-with-nova",
 				},
 			],
@@ -112,12 +112,12 @@ describe("lean Design Contract graph", () => {
 	it("keeps automatic translation closed outside the launch set", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "en",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "eng" },
 			targets: [
 				{
-					language: { code: "zul", name: "isiZulu", direction: "ltr" },
-					seedFrom: "en",
+					language: { language: "zul" },
+					seedFrom: { language: "eng" },
 					strategy: "translate-with-nova",
 				},
 			],
@@ -131,17 +131,17 @@ describe("lean Design Contract graph", () => {
 	it("rejects cyclic target-language copy dependencies", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "en",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "eng" },
 			targets: [
 				{
-					language: { code: "es", name: "Español", direction: "ltr" },
-					seedFrom: "fr",
+					language: { language: "spa" },
+					seedFrom: { language: "fra" },
 					strategy: "copy-only",
 				},
 				{
-					language: { code: "fr", name: "Français", direction: "ltr" },
-					seedFrom: "es",
+					language: { language: "fra" },
+					seedFrom: { language: "spa" },
 					strategy: "copy-only",
 				},
 			],

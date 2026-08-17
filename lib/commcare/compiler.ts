@@ -796,7 +796,7 @@ export function compileCcz(
 				unitId === undefined ? source : localization.wireText(language, unitId);
 		}
 		for (const code of localization.languages) {
-			table[code] = localization.metadata[code].name;
+			table[code] = localization.languageName(code);
 		}
 		table["lang.current"] = language;
 		const localizedSuiteErrors = validateSuite(

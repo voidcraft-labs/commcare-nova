@@ -50,35 +50,31 @@ describe("translation overlay validation", () => {
 		if (appName === undefined || greeting === undefined) return;
 		const orphan = translationUnitIdSchema.parse("tu1:orphan");
 		doc.localization = {
-			sourceLanguage: "en",
-			defaultLanguage: "en",
-			languageOrder: ["en", "es"],
-			languages: {
-				en: { code: "en", name: "English", direction: "ltr" },
-				es: { code: "es", name: "Español", direction: "ltr" },
-			},
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
 			translations: {
-				es: {
+				spa: {
 					[orphan]: {
 						value: "orphan",
 						sourceFingerprint: "old",
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 					[appName.id]: {
 						value: proseText("Clínica"),
 						sourceFingerprint: appName.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 					[greeting.id]: {
 						value: proseText("Hola"),
 						sourceFingerprint: greeting.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			},
@@ -123,15 +119,11 @@ describe("translation overlay validation", () => {
 		expect(unit).toBeDefined();
 		if (unit === undefined) return;
 		doc.localization = {
-			sourceLanguage: "en",
-			defaultLanguage: "en",
-			languageOrder: ["en", "es"],
-			languages: {
-				en: { code: "en", name: "English", direction: "ltr" },
-				es: { code: "es", name: "Español", direction: "ltr" },
-			},
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
 			translations: {
-				es: {
+				spa: {
 					[unit.id]: {
 						value: {
 							parts: [{ kind: "field-ref", uuid: answerUuid }],
@@ -139,7 +131,7 @@ describe("translation overlay validation", () => {
 						sourceFingerprint: "an-older-source-fingerprint",
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			},
@@ -158,21 +150,17 @@ describe("translation overlay validation", () => {
 		expect(unit).toBeDefined();
 		if (unit === undefined) return;
 		doc.localization = {
-			sourceLanguage: "en",
-			defaultLanguage: "en",
-			languageOrder: ["en", "es"],
-			languages: {
-				en: { code: "en", name: "English", direction: "ltr" },
-				es: { code: "es", name: "Español", direction: "ltr" },
-			},
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
 			translations: {
-				es: {
+				spa: {
 					[unit.id]: {
 						value: "  ",
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			},
@@ -190,21 +178,17 @@ describe("translation overlay validation", () => {
 		);
 		if (unit === undefined) throw new Error("Expected app-name unit.");
 		doc.localization = {
-			sourceLanguage: "en",
-			defaultLanguage: "en",
-			languageOrder: ["en", "es"],
-			languages: {
-				en: { code: "en", name: "English", direction: "ltr" },
-				es: { code: "es", name: "Español", direction: "ltr" },
-			},
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
 			translations: {
-				es: {
+				spa: {
 					[unit.id]: {
 						value: String.raw`Clínica \n literal`,
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			},

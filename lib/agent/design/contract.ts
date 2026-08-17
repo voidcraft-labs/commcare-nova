@@ -19,9 +19,12 @@ import { designIdSchema } from "@/lib/agent/design/ids";
 import { FORM_ICON_SLUGS, MODULE_ICON_SLUGS } from "@/lib/domain/builtinIcons";
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import type { FieldKind } from "@/lib/domain/fields";
+import { identityIssues } from "@/lib/domain/languageRegistry";
+import { languageDescriptor } from "@/lib/domain/languageRegistry/names";
 import {
-	type LanguageCode,
-	languageCodeSchema,
+	appLanguageIdentitySchema,
+	type LanguageTag,
+	languageTag,
 } from "@/lib/domain/localization";
 import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
 
@@ -88,19 +91,19 @@ export const factDataShapeSchema = z.enum([
 ]);
 export type FactDataShape = z.infer<typeof factDataShapeSchema>;
 
-export const designLanguageSchema = z
-	.object({
-		code: languageCodeSchema,
-		name: z.string().trim().min(1),
-		direction: z.enum(["ltr", "rtl"]),
-	})
-	.strict();
+export const designLanguageSchema = appLanguageIdentitySchema.superRefine(
+	(identity, ctx) => {
+		for (const message of identityIssues(identity)) {
+			ctx.addIssue({ code: "custom", message });
+		}
+	},
+);
 export type DesignLanguage = z.infer<typeof designLanguageSchema>;
 
 export const designTargetLanguageSchema = z
 	.object({
 		language: designLanguageSchema,
-		seedFrom: languageCodeSchema.describe(
+		seedFrom: designLanguageSchema.describe(
 			"Configured language whose effective strings initialize this target before any requested translation.",
 		),
 		strategy: z.enum(["copy-only", "translate-with-nova"]),
@@ -111,24 +114,26 @@ export type DesignTargetLanguage = z.infer<typeof designTargetLanguageSchema>;
 export const designLocalizationIntentSchema = z
 	.object({
 		sourceLanguage: designLanguageSchema,
-		defaultLanguage: languageCodeSchema,
+		defaultLanguage: designLanguageSchema,
 		targets: z.array(designTargetLanguageSchema).max(32),
 	})
 	.strict()
 	.superRefine((intent, ctx) => {
-		const configured = new Set<LanguageCode>([intent.sourceLanguage.code]);
+		const sourceTag = languageTag(intent.sourceLanguage);
+		const configured = new Set<LanguageTag>([sourceTag]);
 		for (const [index, target] of intent.targets.entries()) {
-			if (configured.has(target.language.code)) {
+			const tag = languageTag(target.language);
+			if (configured.has(tag)) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["targets", index, "language", "code"],
+					path: ["targets", index, "language"],
 					message:
-						"Every app language must have a distinct code, and a target cannot repeat the source language.",
+						"Every app language must be a distinct identity, and a target cannot repeat the source language.",
 				});
 			}
-			configured.add(target.language.code);
+			configured.add(tag);
 		}
-		if (!configured.has(intent.defaultLanguage)) {
+		if (!configured.has(languageTag(intent.defaultLanguage))) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["defaultLanguage"],
@@ -137,10 +142,13 @@ export const designLocalizationIntentSchema = z
 			});
 		}
 		const seedByTarget = new Map(
-			intent.targets.map((target) => [target.language.code, target.seedFrom]),
+			intent.targets.map((target) => [
+				languageTag(target.language),
+				languageTag(target.seedFrom),
+			]),
 		);
 		for (const [index, target] of intent.targets.entries()) {
-			if (!configured.has(target.seedFrom)) {
+			if (!configured.has(languageTag(target.seedFrom))) {
 				ctx.addIssue({
 					code: "custom",
 					path: ["targets", index, "seedFrom"],
@@ -149,9 +157,9 @@ export const designLocalizationIntentSchema = z
 				});
 				continue;
 			}
-			const seen = new Set<LanguageCode>();
-			let cursor: LanguageCode = target.language.code;
-			while (cursor !== intent.sourceLanguage.code) {
+			const seen = new Set<LanguageTag>();
+			let cursor: LanguageTag = languageTag(target.language);
+			while (cursor !== sourceTag) {
 				if (seen.has(cursor)) {
 					ctx.addIssue({
 						code: "custom",
@@ -766,13 +774,13 @@ export function designConstructionIssues(
 		for (const [targetIndex, target] of localization.targets.entries()) {
 			if (target.strategy !== "translate-with-nova") continue;
 			const capability = automaticTranslationCapability(
-				localization.sourceLanguage.code,
-				target.language.code,
+				localization.sourceLanguage,
+				target.language,
 			);
 			if (capability.status === "available") continue;
 			issues.push({
 				path: ["charter", "localization", "targets", targetIndex, "strategy"],
-				message: `Automatic translation from ${localization.sourceLanguage.name} (${localization.sourceLanguage.code}) to ${target.language.name} (${target.language.code}) is not available. ${capability.explanation} Use copy-only and plan human translation, or choose two distinct languages from Nova's automatic-translation launch set.`,
+				message: `Automatic translation from ${languageDescriptor(localization.sourceLanguage)} to ${languageDescriptor(target.language)} is not available. ${capability.explanation} Use copy-only and plan human translation, or choose two distinct languages from Nova's automatic-translation launch set.`,
 			});
 		}
 	}

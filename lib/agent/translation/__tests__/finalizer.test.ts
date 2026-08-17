@@ -16,17 +16,17 @@ describe("initial-build localization mutation planning", () => {
 	it("materializes copy dependencies in topological order without blank targets", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "fr",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "fra" },
 			targets: [
 				{
-					language: { code: "fr", name: "Français", direction: "ltr" },
-					seedFrom: "es",
+					language: { language: "fra" },
+					seedFrom: { language: "spa" },
 					strategy: "copy-only",
 				},
 				{
-					language: { code: "es", name: "Español", direction: "ltr" },
-					seedFrom: "en",
+					language: { language: "spa" },
+					seedFrom: { language: "eng" },
 					strategy: "copy-only",
 				},
 			],
@@ -41,19 +41,23 @@ describe("initial-build localization mutation planning", () => {
 			applyMutations(draft, mutations);
 		});
 		const state = effectiveAppLocalization(localized.localization);
-		expect(state.languageOrder).toEqual(["fr", "en", "es"]);
+		// Spanish seeds from the source, so it lands first; French copies from
+		// Spanish; the accepted default then moves to the front of the order.
+		expect(state.languageOrder).toEqual(["fra", "eng", "spa"]);
+		expect(state.sourceLanguage).toBe("eng");
+		expect(state.defaultLanguage).toBe("fra");
 		const unit = collectTranslationUnits(source)[0];
 		if (unit === undefined) throw new Error("app-name unit missing");
-		expect(state.translations.es?.[unit.id]).toMatchObject({
+		expect(state.translations.spa?.[unit.id]).toMatchObject({
 			value: source.appName,
 			origin: "copied",
-			translatedFrom: "en",
+			translatedFrom: "eng",
 			review: "needs-review",
 		});
-		expect(state.translations.fr?.[unit.id]).toMatchObject({
+		expect(state.translations.fra?.[unit.id]).toMatchObject({
 			value: source.appName,
 			origin: "copied",
-			translatedFrom: "es",
+			translatedFrom: "spa",
 			review: "needs-review",
 		});
 	});
@@ -61,12 +65,12 @@ describe("initial-build localization mutation planning", () => {
 	it("stores complete automatic output as AI-authored Needs review values", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "en",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "eng" },
 			targets: [
 				{
-					language: { code: "es", name: "Español", direction: "ltr" },
-					seedFrom: "en",
+					language: { language: "spa" },
+					seedFrom: { language: "eng" },
 					strategy: "translate-with-nova",
 				},
 			],
@@ -77,19 +81,19 @@ describe("initial-build localization mutation planning", () => {
 		const mutations = buildInitialLocalizationMutations({
 			sourceDoc: source,
 			contract,
-			automaticValues: new Map([["es", new Map([[unit.id, "Aplicación"]])]]),
+			automaticValues: new Map([["spa", new Map([[unit.id, "Aplicación"]])]]),
 		});
 		const localized = produce(source, (draft) => {
 			applyMutations(draft, mutations);
 		});
 		expect(
-			effectiveAppLocalization(localized.localization).translations.es?.[
+			effectiveAppLocalization(localized.localization).translations.spa?.[
 				unit.id
 			],
 		).toMatchObject({
 			value: "Aplicación",
 			origin: "ai",
-			translatedFrom: "en",
+			translatedFrom: "eng",
 			review: "needs-review",
 		});
 	});

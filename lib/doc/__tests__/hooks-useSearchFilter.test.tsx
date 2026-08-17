@@ -86,21 +86,17 @@ function withSpanishFieldLabel(doc: BlueprintDoc): BlueprintDoc {
 	return {
 		...doc,
 		localization: {
-			sourceLanguage: "en",
-			defaultLanguage: "en",
-			languageOrder: ["en", "es"],
-			languages: {
-				en: { code: "en", name: "English", direction: "ltr" },
-				es: { code: "es", name: "español", direction: "ltr" },
-			},
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
 			translations: {
-				es: {
+				spa: {
 					[unitId]: {
 						value: proseText("Nombre completo del paciente"),
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			},
@@ -165,7 +161,7 @@ describe("useSearchFilter", () => {
 	it("matches and highlights the selected language's visible field label", () => {
 		const doc = withSpanishFieldLabel(buildFixture());
 		const { result } = renderHook(() => useSearchFilter("nombre completo"), {
-			wrapper: wrapWithDoc(doc, "es"),
+			wrapper: wrapWithDoc(doc, "spa"),
 		});
 		const r = result.current;
 		expect(r).not.toBeNull();

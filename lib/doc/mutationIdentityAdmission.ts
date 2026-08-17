@@ -382,7 +382,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "setAppLogo":
 		case "relabelSourceLanguage":
 		case "addLanguage":
-		case "updateLanguage":
 		case "removeLanguage":
 		case "setDefaultLanguage":
 		case "setTranslation":

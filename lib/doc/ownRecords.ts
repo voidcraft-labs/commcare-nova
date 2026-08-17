@@ -75,7 +75,6 @@ export function normalizeBlueprintOwnRecords(doc: BlueprintDoc): void {
 		doc.automations = normalizeOwnRecord(doc.automations);
 	}
 	if (doc.localization !== undefined) {
-		doc.localization.languages = normalizeOwnRecord(doc.localization.languages);
 		doc.localization.translations = normalizeOwnRecord(
 			doc.localization.translations,
 		);

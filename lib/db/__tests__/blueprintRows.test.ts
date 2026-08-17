@@ -82,14 +82,10 @@ describe("blueprint entity-row round trip", () => {
 	it("round-trips the app-level localization overlay outside entity rows", () => {
 		const doc = emptyDoc("rt-app-localization");
 		doc.localization = {
-			sourceLanguage: "en",
-			defaultLanguage: "en",
-			languageOrder: ["en", "es"],
-			languages: {
-				en: { code: "en", name: "English", direction: "ltr" },
-				es: { code: "es", name: "Español", direction: "ltr" },
-			},
-			translations: { es: {} },
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
+			translations: { spa: {} },
 		};
 		expect(roundTrip(doc)).toEqual(toPersistableDoc(doc));
 	});

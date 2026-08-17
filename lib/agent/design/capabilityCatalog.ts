@@ -58,7 +58,7 @@ export interface CapabilityCatalog {
 	readonly externalPrerequisites: readonly string[];
 	readonly unsupported: readonly string[];
 	readonly localization: {
-		readonly manualAuthoring: "all-commcare-language-codes";
+		readonly manualAuthoring: "individual-living-languages";
 		readonly automaticPolicy: "all-directions-within-launch-set";
 		readonly automaticLanguages: readonly {
 			readonly code: string;
@@ -102,7 +102,7 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
 			"promising runtime or deployment resources that do not already exist",
 		],
 		localization: {
-			manualAuthoring: "all-commcare-language-codes" as const,
+			manualAuthoring: "individual-living-languages" as const,
 			automaticPolicy: "all-directions-within-launch-set" as const,
 			automaticLanguages: AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES.map(
 				(language) => ({ code: language.code, name: language.name }),
@@ -143,10 +143,10 @@ export function renderCapabilityCatalog(catalog: CapabilityCatalog): string {
 	);
 	lines.push(`Unsupported promises: ${catalog.unsupported.join("; ")}.`);
 	lines.push(
-		"Localization: manual authoring, copy, Preview, and export support every CommCare language code; automatic translation is a separate launch policy.",
+		"Localization: app languages are ISO 639:2023 Set 3 individual living-language identities, each carrying an ISO 15924 script where the language is written in more than one and an ISO 3166-1 region where regional conventions differ. Manual authoring, copy, Preview, and export support every such identity; automatic translation is a separate launch policy.",
 	);
 	lines.push(
-		`Automatic translation is Available in every direction between two distinct languages in this ${catalog.localization.automaticLanguages.length}-language launch set (ISO 639-3 identities; equivalent CommCare picker aliases resolve to the same identity): ${catalog.localization.automaticLanguages
+		`Automatic translation is Available in every direction between two distinct languages in this ${catalog.localization.automaticLanguages.length}-language launch set (the language axis alone decides — script and region never do, so two written forms of one language stay a copy-only pair): ${catalog.localization.automaticLanguages
 			.map((language) => `${language.name} (${language.code})`)
 			.join(
 				", ",

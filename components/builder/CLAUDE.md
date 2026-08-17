@@ -97,6 +97,17 @@ preserved by every History-API navigation. Structure rows, canvases, case-list
 authoring, and running Preview consume the provider's localized projections;
 they never walk `doc.localization` or implement fallback independently.
 
+A language renders only through the registry derivation helpers (endonym,
+English qualified name, direction); no ISO code appears in any Builder
+surface, with the `?lang=` URL value as the one technical exception. The
+add and change dialogs disclose in order: Language (search by name through
+the lazily loaded registry chunk), then Writing system (a required Select,
+rendered only when the language has more than one customary writing system,
+with no default), then Regional conventions (always skippable; the general
+option is first). There is no free-code entry anywhere: the registry is the
+selectable world, and a typed Set 3 code resolves through search like any
+other query.
+
 The global header selector stays visible while a target is active. App setup's
 Languages workspace is the authoritative source/target review surface: it owns
 catalog management, copy-from-an-existing-language, status filtering, coverage

@@ -165,18 +165,18 @@ describe("EngineController", () => {
 			store.getState().applyMany([
 				{
 					kind: "addLanguage",
-					language: { code: "es", name: "Español", direction: "ltr" },
+					language: { language: "spa" },
 				},
 				{
 					kind: "setTranslation",
-					language: "es",
+					language: "spa",
 					unitId,
 					entry: {
 						value: translatedLabel,
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			]);
@@ -188,7 +188,7 @@ describe("EngineController", () => {
 			const entryKey = ctrl.entryKey;
 			expect(ctrl.store.getState()[Q2_UUID].resolvedLabel).toBe("Hello Amina");
 
-			ctrl.setPresentationLanguage("es");
+			ctrl.setPresentationLanguage("spa");
 			expect(ctrl.entryKey).toBe(entryKey);
 			expect(ctrl.store.getState()[Q1_UUID].value).toBe("Amina");
 			expect(ctrl.store.getState()[Q2_UUID].resolvedLabel).toBe("Hola Amina");
@@ -196,7 +196,7 @@ describe("EngineController", () => {
 			store.getState().applyMany([
 				{
 					kind: "setTranslation",
-					language: "es",
+					language: "spa",
 					unitId,
 					entry: {
 						value: {
@@ -208,7 +208,7 @@ describe("EngineController", () => {
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			]);
@@ -220,7 +220,7 @@ describe("EngineController", () => {
 
 			const remote = prepareMutationCandidate(
 				store.getState(),
-				admitMutationBatch([{ kind: "removeLanguage", code: "es" }]),
+				admitMutationBatch([{ kind: "removeLanguage", code: "spa" }]),
 			);
 			store.getState().beginRemoteApply();
 			try {

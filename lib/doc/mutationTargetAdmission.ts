@@ -10,6 +10,7 @@ import {
 	effectiveAppLocalization,
 	fieldKindDeclaresKey,
 	getConvertibleTypes,
+	languageTag,
 	type TranslationEntry,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
@@ -923,22 +924,23 @@ export function mutationTargetsInvalid(
 			case "setConnectType":
 			case "setAppLogo":
 				break;
-			case "relabelSourceLanguage":
+			case "relabelSourceLanguage": {
 				if (languages.size !== 1) return true;
+				const tag = languageTag(m.language);
 				languages.clear();
-				languages.add(m.language.code);
+				languages.add(tag);
 				translations.clear();
-				sourceLanguage = m.language.code;
-				defaultLanguage = m.language.code;
+				sourceLanguage = tag;
+				defaultLanguage = tag;
 				break;
-			case "addLanguage":
-				if (languages.has(m.language.code)) return true;
-				languages.add(m.language.code);
-				translations.set(m.language.code, new Map());
+			}
+			case "addLanguage": {
+				const tag = languageTag(m.language);
+				if (languages.has(tag)) return true;
+				languages.add(tag);
+				translations.set(tag, new Map());
 				break;
-			case "updateLanguage":
-				if (!languages.has(m.code)) return true;
-				break;
+			}
 			case "removeLanguage":
 				if (
 					!languages.has(m.code) ||
@@ -1013,7 +1015,6 @@ export function mutationTargetsInvalid(
 		if (
 			m.kind !== "relabelSourceLanguage" &&
 			m.kind !== "addLanguage" &&
-			m.kind !== "updateLanguage" &&
 			m.kind !== "removeLanguage" &&
 			m.kind !== "setDefaultLanguage" &&
 			m.kind !== "setTranslation" &&

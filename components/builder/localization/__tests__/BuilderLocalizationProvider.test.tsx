@@ -83,20 +83,16 @@ function fixture(): BlueprintDoc {
 					sourceFingerprint: unit.sourceFingerprint,
 					origin: "human" as const,
 					review: "reviewed" as const,
-					translatedFrom: "en",
+					translatedFrom: "eng",
 				},
 			];
 		}),
 	);
 	doc.localization = {
-		sourceLanguage: "en",
-		defaultLanguage: "en",
-		languageOrder: ["en", "es"],
-		languages: {
-			en: { code: "en", name: "English", direction: "ltr" },
-			es: { code: "es", name: "Español", direction: "ltr" },
-		},
-		translations: { es: translations },
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
+		translations: { spa: translations },
 	};
 	return doc;
 }
@@ -165,7 +161,7 @@ function renderProbe() {
 describe("BuilderLocalizationProvider authoring lens", () => {
 	beforeEach(() => {
 		store = undefined;
-		window.history.replaceState(null, "", `/build/${APP_ID}?lang=es`);
+		window.history.replaceState(null, "", `/build/${APP_ID}?lang=spa`);
 	});
 
 	afterEach(() => {
@@ -175,13 +171,13 @@ describe("BuilderLocalizationProvider authoring lens", () => {
 	it("projects ordinary Builder entities and redirects their text edits to the target", () => {
 		renderProbe();
 		expect(screen.getByTestId("projection").textContent).toBe(
-			"es|Visitas de atención|Consultas|Consulta|Consultas|Consulta|client_name|Nombre del cliente",
+			"spa|Visitas de atención|Consultas|Consulta|Consultas|Consulta|client_name|Nombre del cliente",
 		);
 
 		act(() => screen.getByRole("button").click());
 
 		expect(screen.getByTestId("projection").textContent).toBe(
-			"es|Visitas comunitarias|Pacientes|Seguimiento|Pacientes|Seguimiento|client_full_name|Nombre completo",
+			"spa|Visitas comunitarias|Pacientes|Seguimiento|Pacientes|Seguimiento|client_full_name|Nombre completo",
 		);
 		const current = store?.getState();
 		if (current === undefined) throw new Error("Expected the document store.");
@@ -192,7 +188,7 @@ describe("BuilderLocalizationProvider authoring lens", () => {
 			id: "client_full_name",
 			label: proseText("Client name"),
 		});
-		expect(current.localization?.translations.es).toMatchObject({
+		expect(current.localization?.translations.spa).toMatchObject({
 			[makeTranslationUnitId("app", "name")]: {
 				value: "Visitas comunitarias",
 				origin: "human",
@@ -216,7 +212,7 @@ describe("BuilderLocalizationProvider authoring lens", () => {
 		if (current === undefined) throw new Error("Expected the document store.");
 		const remote = prepareMutationCandidate(
 			current.getState(),
-			admitMutationBatch([{ kind: "removeLanguage", code: "es" }]),
+			admitMutationBatch([{ kind: "removeLanguage", code: "spa" }]),
 		);
 
 		act(() => {
@@ -229,7 +225,7 @@ describe("BuilderLocalizationProvider authoring lens", () => {
 		});
 
 		expect(screen.getByTestId("projection").textContent).toBe(
-			"en|Care visits|Visits|Visit|Visits|Visit|client_name|Client name",
+			"eng|Care visits|Visits|Visit|Visits|Visit|client_name|Client name",
 		);
 	});
 });

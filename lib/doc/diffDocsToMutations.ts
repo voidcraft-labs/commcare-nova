@@ -111,7 +111,6 @@ import {
 	updateUserTypeMutations,
 } from "@/lib/doc/userMutations";
 import type {
-	AppLanguage,
 	Automation,
 	CaseListConfig,
 	CaseType,
@@ -133,6 +132,7 @@ import {
 	hasOwnRecordKey,
 	isOwnerOnlyCaseSearchConfig,
 	ownRecordValue,
+	parseLanguageTag,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 
@@ -837,9 +837,7 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		}
 		out.push({
 			kind: "relabelSourceLanguage",
-			language: cloneEntity(
-				after.languages[after.sourceLanguage] as AppLanguage,
-			),
+			language: parseLanguageTag(after.sourceLanguage),
 		});
 	}
 
@@ -847,12 +845,9 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		applyMutations(draft, out);
 	});
 	let current = effectiveAppLocalization(working.localization);
-	for (const code of after.languageOrder) {
-		if (current.languages[code] === undefined) {
-			out.push({
-				kind: "addLanguage",
-				language: cloneEntity(after.languages[code] as AppLanguage),
-			});
+	for (const tag of after.languageOrder) {
+		if (!current.languageOrder.includes(tag)) {
+			out.push({ kind: "addLanguage", language: parseLanguageTag(tag) });
 		}
 	}
 	working = produce(prev, (draft) => {
@@ -862,23 +857,9 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	if (current.defaultLanguage !== after.defaultLanguage) {
 		out.push({ kind: "setDefaultLanguage", code: after.defaultLanguage });
 	}
-	for (const code of current.languageOrder) {
-		if (after.languages[code] === undefined) {
-			out.push({ kind: "removeLanguage", code });
-		}
-	}
-	for (const code of after.languageOrder) {
-		const currentLanguage = current.languages[code];
-		const nextLanguage = after.languages[code];
-		if (currentLanguage === undefined || nextLanguage === undefined) continue;
-		const patch: Extract<Mutation, { kind: "updateLanguage" }>["patch"] = {};
-		if (currentLanguage.name !== nextLanguage.name)
-			patch.name = nextLanguage.name;
-		if (currentLanguage.direction !== nextLanguage.direction) {
-			patch.direction = nextLanguage.direction;
-		}
-		if (Object.keys(patch).length > 0) {
-			out.push({ kind: "updateLanguage", code, patch });
+	for (const tag of current.languageOrder) {
+		if (!after.languageOrder.includes(tag)) {
+			out.push({ kind: "removeLanguage", code: tag });
 		}
 	}
 

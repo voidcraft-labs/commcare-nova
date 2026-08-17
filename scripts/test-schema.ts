@@ -22,7 +22,7 @@
  *     `removeSearchInput`, `reorderSearchInputs`,
  *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
  *     `moveField`, `createForm`, `createModule`, `updateModule`,
- *     `renameCaseProperties`,
+ *     `renameCaseProperties`, `addLanguage`, `updateTranslations`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
  *     `setAppLogo`, `listMediaAssets`,
  *     `removeMediaAsset`, `uploadMediaAsset`.
@@ -49,6 +49,12 @@ import { createFormTool } from "../lib/agent/tools/createForm";
 import { createModuleTool } from "../lib/agent/tools/createModule";
 import { editFieldTool } from "../lib/agent/tools/editField";
 import { generateSchemaTool } from "../lib/agent/tools/generateSchema";
+import {
+	addLanguageInputSchema,
+	addLanguageTool,
+	updateTranslationsInputSchema,
+	updateTranslationsTool,
+} from "../lib/agent/tools/localization";
 import { attachFieldMediaTool } from "../lib/agent/tools/media/attachFieldMedia";
 import { attachOptionMediaTool } from "../lib/agent/tools/media/attachOptionMedia";
 import { listMediaAssetsTool } from "../lib/agent/tools/media/listMediaAssets";
@@ -237,6 +243,24 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: updateAppTool.inputSchema,
 		prompt:
 			"Use updateApp to set the app's name to 'Village Health' and make it a standard app (connect off).",
+	},
+	/* Language tools — the two identity-object schemas most exposed to
+	 * provider-side normalization: the nested refined identity with
+	 * nullable-optional script/region (addLanguage) and the identity
+	 * inside a discriminated-union batch item (updateTranslations). */
+	{
+		name: "addLanguage",
+		description: addLanguageTool.description,
+		schema: addLanguageInputSchema,
+		prompt:
+			"Use addLanguage to add Mandarin Chinese written in the Simplified script with Singapore conventions: language cmn, script Hans, region SG. Omit copyFrom so it seeds from the source language.",
+	},
+	{
+		name: "updateTranslations",
+		description: updateTranslationsTool.description,
+		schema: updateTranslationsInputSchema,
+		prompt:
+			'Use updateTranslations for the language spa (no script, no region) with one set operation: unitId "tu1:4:demo", expectedSourceFingerprint exactly source-v1:text:"Name" (including the quotes), and the string value "Nombre".',
 	},
 	/* Media tools — each new tool's input schema, exercised against the
 	 * compiler. The `Media` bundle is three optionals on a non-array

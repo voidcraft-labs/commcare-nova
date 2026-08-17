@@ -171,15 +171,11 @@ function fixture(): BlueprintDoc {
 	});
 	const units = collectTranslationUnits(doc);
 	doc.localization = {
-		sourceLanguage: "en",
-		defaultLanguage: "en",
-		languageOrder: ["en", "es"],
-		languages: {
-			en: { code: "en", name: "English", direction: "ltr" },
-			es: { code: "es", name: "Español", direction: "ltr" },
-		},
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
 		translations: {
-			es: Object.fromEntries(
+			spa: Object.fromEntries(
 				units.map((unit) => [
 					unit.id,
 					{
@@ -187,7 +183,7 @@ function fixture(): BlueprintDoc {
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "human" as const,
 						review: "reviewed" as const,
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				]),
 			),
@@ -197,7 +193,7 @@ function fixture(): BlueprintDoc {
 }
 
 function project(doc: BlueprintDoc, mutations: Mutation[]): Mutation[] {
-	const result = projectBuilderLanguageMutations(doc, "es", mutations);
+	const result = projectBuilderLanguageMutations(doc, "spa", mutations);
 	expect(result.ok).toBe(true);
 	if (!result.ok) throw new Error(result.message);
 	return result.mutations;
@@ -240,7 +236,7 @@ describe("projectBuilderLanguageMutations", () => {
 			id: "current_status",
 		});
 		expect(
-			effectiveAppLocalization(next.localization).translations.es?.[
+			effectiveAppLocalization(next.localization).translations.spa?.[
 				makeTranslationUnitId("field", FIELD, "label")
 			]?.value,
 		).toEqual(proseText("Situación"));
@@ -307,7 +303,7 @@ describe("projectBuilderLanguageMutations", () => {
 			],
 		});
 		expect(
-			effectiveAppLocalization(next.localization).translations.es?.[
+			effectiveAppLocalization(next.localization).translations.spa?.[
 				makeTranslationUnitId("field", FIELD, "option", OPTION_OPEN)
 			]?.value,
 		).toEqual(proseText("Abierto ahora"));
@@ -331,7 +327,7 @@ describe("projectBuilderLanguageMutations", () => {
 		const next = apply(doc, mutations);
 		expect(next.caseTypes?.[0]?.properties[0]?.data_type).toBe("multi_select");
 		expect(
-			effectiveAppLocalization(next.localization).translations.es?.[
+			effectiveAppLocalization(next.localization).translations.spa?.[
 				makeTranslationUnitId(
 					"case-property-option",
 					"patient",
@@ -344,7 +340,7 @@ describe("projectBuilderLanguageMutations", () => {
 
 	it("does not promote unchanged localized column snapshots into new human reviews", () => {
 		const doc = fixture();
-		const localized = projectLocalizedModule(doc, "es", MODULE);
+		const localized = projectLocalizedModule(doc, "spa", MODULE);
 		if (localized?.caseListConfig === undefined) {
 			throw new Error("Expected a localized case list.");
 		}
@@ -369,7 +365,7 @@ describe("projectBuilderLanguageMutations", () => {
 
 	it("requires a source-lens edit when an ID-mapping key would create a new string", () => {
 		const doc = fixture();
-		const localized = projectLocalizedModule(doc, "es", MODULE);
+		const localized = projectLocalizedModule(doc, "spa", MODULE);
 		if (localized?.caseListConfig === undefined) {
 			throw new Error("Expected a localized case list.");
 		}
@@ -385,7 +381,7 @@ describe("projectBuilderLanguageMutations", () => {
 			],
 		});
 
-		expect(projectBuilderLanguageMutations(doc, "es", planned)).toEqual({
+		expect(projectBuilderLanguageMutations(doc, "spa", planned)).toEqual({
 			ok: false,
 			message:
 				"Add this worker-facing content in English first, then translate it into Español.",
@@ -394,7 +390,7 @@ describe("projectBuilderLanguageMutations", () => {
 
 	it("writes an actual column and derived Search-default edit to target overlays", () => {
 		const doc = fixture();
-		const localized = projectLocalizedModule(doc, "es", MODULE);
+		const localized = projectLocalizedModule(doc, "spa", MODULE);
 		if (localized?.caseListConfig === undefined) {
 			throw new Error("Expected a localized case list.");
 		}
@@ -421,7 +417,7 @@ describe("projectBuilderLanguageMutations", () => {
 			searchScreenSubtitle: "Use any known information",
 		});
 		const translations = effectiveAppLocalization(next.localization)
-			.translations.es;
+			.translations.spa;
 		expect(
 			translations?.[makeTranslationUnitId("column", COLUMN, "header")]?.value,
 		).toBe("Situación");
@@ -437,21 +433,21 @@ describe("projectBuilderLanguageMutations", () => {
 			kind: "setAppName",
 			name: "Community clinic",
 		};
-		expect(projectBuilderLanguageMutations(doc, "en", [mutation])).toEqual({
+		expect(projectBuilderLanguageMutations(doc, "eng", [mutation])).toEqual({
 			ok: true,
 			mutations: [mutation],
 		});
-		expect(projectBuilderLanguageMutations(doc, "fr", [mutation])).toEqual({
+		expect(projectBuilderLanguageMutations(doc, "fra", [mutation])).toEqual({
 			ok: false,
 			message:
-				"The selected worker language fr no longer belongs to this app. Choose another language and try again.",
+				"The selected worker language no longer belongs to this app. Choose another language and try again.",
 		});
 	});
 
 	it("requires optional worker content to be created in the source language first", () => {
 		const doc = fixture();
 		expect(
-			projectBuilderLanguageMutations(doc, "es", [
+			projectBuilderLanguageMutations(doc, "spa", [
 				{
 					kind: "updateField",
 					uuid: FIELD,
@@ -491,21 +487,21 @@ describe("projectBuilderLanguageMutations", () => {
 			...localization,
 			translations: {
 				...localization.translations,
-				es: {
-					...localization.translations.es,
+				spa: {
+					...localization.translations.spa,
 					[unit.id]: {
 						value: unit.source,
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			},
 		};
 
 		expect(
-			projectBuilderLanguageMutations(doc, "es", [
+			projectBuilderLanguageMutations(doc, "spa", [
 				{
 					kind: "updateField",
 					uuid: FIELD,

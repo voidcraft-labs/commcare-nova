@@ -29,6 +29,7 @@ import {
 	type PlatformConstraintCode,
 } from "@/lib/agent/design/platformConstraints";
 import { slugifyId } from "@/lib/domain/idSlug";
+import { languageDescriptor } from "@/lib/domain/languageRegistry/names";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	deriveExecutorToolProfile,
@@ -664,7 +665,7 @@ export function renderBriefMessage(brief: SliceExecutionBrief): string {
 			`Name: ${brief.charter.appName}\n${brief.charter.objective}\nDelivery: ${brief.charter.deliveryContext}. This session builds one app in the current Project.${
 				brief.charter.localization === undefined
 					? "\nWorker content: author canonical strings in English."
-					: `\nWorker content: author every string in ${brief.charter.localization.sourceLanguage.name} (${brief.charter.localization.sourceLanguage.code}). Do not add target-language overlays in this workflow slice; the post-build localization finalizer owns ${brief.charter.localization.targets.length} target language(s).`
+					: `\nWorker content: author every string in ${languageDescriptor(brief.charter.localization.sourceLanguage)}. Do not add target-language overlays in this workflow slice; the post-build localization finalizer owns ${brief.charter.localization.targets.length} target language(s).`
 			}`,
 		),
 		section(

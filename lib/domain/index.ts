@@ -28,7 +28,6 @@ export * from "./hashtagSegments";
 export * from "./idSlug";
 export * from "./jsonNumber";
 export * from "./kinds";
-export * from "./languageCatalog";
 export * from "./localization";
 export * from "./localizedBlueprintProjection";
 export * from "./lookupCarriers";

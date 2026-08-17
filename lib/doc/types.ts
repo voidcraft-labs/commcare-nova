@@ -13,7 +13,7 @@ export { asUuid } from "@/lib/domain";
 
 import { z } from "zod";
 import {
-	appLanguageSchema,
+	appLanguageIdentitySchema,
 	authoredCasePropertyNameSchema,
 	automationAlertCriterionSchema,
 	automationCaseUpdateCriterionSchema,
@@ -38,7 +38,7 @@ import {
 	fieldSchema,
 	formIconRefSchema,
 	formSchema,
-	languageCodeSchema,
+	languageTagSchema,
 	localizedValueSchema,
 	locationPropertySchema,
 	mediaAssetIdSchema,
@@ -948,39 +948,31 @@ function createMutationSchema({
 		}),
 		// App language identity and translation overlays. The canonical source
 		// strings remain on their owning Blueprint entities; these commands edit
-		// only language metadata and target-language values.
+		// only the language catalog and target-language values. Identity-adding
+		// kinds carry the structured identity object; reference kinds carry the
+		// canonical tag it serializes to (`languageTag(identity)`).
 		z.object({
 			kind: z.literal("relabelSourceLanguage"),
-			language: appLanguageSchema,
+			language: appLanguageIdentitySchema,
 		}),
-		z.object({ kind: z.literal("addLanguage"), language: appLanguageSchema }),
 		z.object({
-			kind: z.literal("updateLanguage"),
-			code: languageCodeSchema,
-			patch: z
-				.object({
-					name: z.string().trim().min(1).optional(),
-					direction: z.enum(["ltr", "rtl"]).optional(),
-				})
-				.strict()
-				.refine((value) => Object.keys(value).length > 0, {
-					message: "A language update must change at least one property.",
-				}),
+			kind: z.literal("addLanguage"),
+			language: appLanguageIdentitySchema,
 		}),
-		z.object({ kind: z.literal("removeLanguage"), code: languageCodeSchema }),
+		z.object({ kind: z.literal("removeLanguage"), code: languageTagSchema }),
 		z.object({
 			kind: z.literal("setDefaultLanguage"),
-			code: languageCodeSchema,
+			code: languageTagSchema,
 		}),
 		z.object({
 			kind: z.literal("setTranslation"),
-			language: languageCodeSchema,
+			language: languageTagSchema,
 			unitId: translationUnitIdSchema,
 			entry: translationEntrySchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("reviewTranslation"),
-			language: languageCodeSchema,
+			language: languageTagSchema,
 			unitId: translationUnitIdSchema,
 			expectedSourceFingerprint: z.string().min(1),
 			sourceFingerprint: z.string().min(1),

@@ -15,23 +15,40 @@ not change language with the worker app.
 
 ## Add a language without starting from blank fields
 
-Open **App setup → Languages**, then choose **Add language**. Select or enter the
+Open **App setup → Languages**, then choose **Add language**. Search for the
 new language and choose an existing **Start with** language. Nova copies every
 currently effective worker-facing string into the new language in one change.
 You can then translate those values without leaving blank labels throughout the
 app.
 
-The picker includes every code in CommCare Classic's language catalog. You can
-also enter another lower-case code accepted by CommCare's language wire and set
-its display name and left-to-right or right-to-left direction. Manual editing,
-copying, Preview, export, and CommCare HQ upload do not depend on whether Nova's
-AI can translate that language.
+Search for the language by its own name or its English name; the picker covers
+every individual living language in the ISO 639 standard, around seven
+thousand. A group name such as Chinese or Arabic is not itself a choosable
+language: the picker explains the group and lists its member languages as
+choices, so the app always records the one language workers actually speak.
+
+When a language is customarily written in more than one writing system, the
+picker asks which one before the language can be added. Mandarin Chinese, for
+example, is added as Simplified or Traditional; there is no unspecified
+option, because the app's text has to render in exactly one of them. When a
+language's conventions differ by country, a regional conventions choice
+appears as well. It is always skippable: the general option targets the
+language as spoken internationally, and a country choice such as Mexico
+tailors the app to that country's conventions.
+
+The language's worker-facing name, its name in its own language, and its
+left-to-right or right-to-left direction follow from the choice itself and are
+never edited per app. No language code appears anywhere in the Builder; the
+Builder URL carries a technical tag for the selected language so links and
+reloads keep the same view, but every visible surface shows the language's
+name. Manual editing, copying, Preview, export, and CommCare HQ upload do not
+depend on whether Nova's AI can translate that language.
 
 Automatic translation is a separate launch capability. Nova offers it in every
 direction between two distinct members of its checked-in 57-language launch
-set. Equivalent two-letter and CommCare picker codes resolve to the same
-language, so English (`en` or `eng`) to Spanish (`es` or `spa`), for example,
-has one availability result. Languages outside the set remain fully supported
+set. Availability depends only on the language itself, never on its writing
+system or regional conventions, so converting one writing system to another is
+not offered as translation. Languages outside the set remain fully supported
 for manual authoring, copy, Preview, and export.
 
 The 57-language set is a product launch allowlist, not a provider-published

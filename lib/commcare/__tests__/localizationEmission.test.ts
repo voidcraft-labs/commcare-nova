@@ -12,7 +12,15 @@ import {
 	translationUnitsById,
 } from "@/lib/domain";
 
-function bilingualDoc(): BlueprintDoc {
+interface HealthDocFixture {
+	readonly doc: BlueprintDoc;
+	readonly moduleUuid: string;
+	readonly formUuid: string;
+	readonly fieldUuid: string;
+	readonly columnUuid: string;
+}
+
+function healthDoc(): HealthDocFixture {
 	const doc = buildDoc({
 		appName: "Health app",
 		modules: [
@@ -59,19 +67,19 @@ function bilingualDoc(): BlueprintDoc {
 		fieldUuid === undefined ||
 		columnUuid === undefined
 	) {
-		throw new Error("Bilingual fixture identities did not materialize.");
+		throw new Error("Health fixture identities did not materialize.");
 	}
-	const units = translationUnitsById(doc);
-	const targets = new Map<
+	return { doc, moduleUuid, formUuid, fieldUuid, columnUuid };
+}
+
+function entriesFor(
+	doc: BlueprintDoc,
+	targets: ReadonlyMap<
 		TranslationUnitId,
 		string | ReturnType<typeof proseText>
-	>([
-		[makeTranslationUnitId("app", "name"), "Aplicación de salud"],
-		[makeTranslationUnitId("module", moduleUuid, "name"), "Pacientes"],
-		[makeTranslationUnitId("form", formUuid, "name"), "Registrar"],
-		[makeTranslationUnitId("field", fieldUuid, "label"), proseText("Nombre")],
-		[makeTranslationUnitId("column", columnUuid, "header"), "Edad"],
-	]);
+	>,
+): Record<TranslationUnitId, TranslationEntry> {
+	const units = translationUnitsById(doc);
 	const entries: Record<TranslationUnitId, TranslationEntry> = {};
 	for (const [unitId, value] of targets) {
 		const unit = units.get(unitId);
@@ -81,18 +89,59 @@ function bilingualDoc(): BlueprintDoc {
 			sourceFingerprint: unit.sourceFingerprint,
 			origin: "human",
 			review: "reviewed",
-			translatedFrom: "en",
+			translatedFrom: "eng",
 		};
 	}
+	return entries;
+}
+
+function bilingualDoc(): BlueprintDoc {
+	const { doc, moduleUuid, formUuid, fieldUuid, columnUuid } = healthDoc();
+	const entries = entriesFor(
+		doc,
+		new Map<TranslationUnitId, string | ReturnType<typeof proseText>>([
+			[makeTranslationUnitId("app", "name"), "Aplicación de salud"],
+			[makeTranslationUnitId("module", moduleUuid, "name"), "Pacientes"],
+			[makeTranslationUnitId("form", formUuid, "name"), "Registrar"],
+			[makeTranslationUnitId("field", fieldUuid, "label"), proseText("Nombre")],
+			[makeTranslationUnitId("column", columnUuid, "header"), "Edad"],
+		]),
+	);
 	doc.localization = {
-		sourceLanguage: "en",
-		defaultLanguage: "es",
-		languageOrder: ["es", "en"],
-		languages: {
-			es: { code: "es", name: "Español", direction: "ltr" },
-			en: { code: "en", name: "English", direction: "ltr" },
-		},
-		translations: { es: entries },
+		sourceLanguage: "eng",
+		defaultLanguage: "spa",
+		languageOrder: ["spa", "eng"],
+		translations: { spa: entries },
+	};
+	return doc;
+}
+
+/**
+ * English source plus both Mandarin writing systems. The two branches widen
+ * to one Classic Chinese row, so this is the app shape that exercises the
+ * wire plan's collision suffixing on every emission surface at once.
+ */
+function mandarinBranchesDoc(): BlueprintDoc {
+	const { doc, fieldUuid } = healthDoc();
+	const simplified = entriesFor(
+		doc,
+		new Map<TranslationUnitId, string | ReturnType<typeof proseText>>([
+			[makeTranslationUnitId("app", "name"), "健康应用"],
+			[makeTranslationUnitId("field", fieldUuid, "label"), proseText("名称")],
+		]),
+	);
+	const traditional = entriesFor(
+		doc,
+		new Map<TranslationUnitId, string | ReturnType<typeof proseText>>([
+			[makeTranslationUnitId("app", "name"), "健康應用"],
+			[makeTranslationUnitId("field", fieldUuid, "label"), proseText("名稱")],
+		]),
+	);
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "cmn-Hans", "cmn-Hant"],
+		translations: { "cmn-Hans": simplified, "cmn-Hant": traditional },
 	};
 	return doc;
 }
@@ -148,6 +197,68 @@ describe("multilingual CommCare emission", () => {
 		expect(xform).toContain('<translation lang="en">');
 		expect(xform).toContain("<value>Nombre</value>");
 		expect(xform).toContain("<value>Name</value>");
+	});
+
+	it("spells collision-suffixed Mandarin branches on every wire surface", () => {
+		const doc = mandarinBranchesDoc();
+		const hq = expandDoc(doc);
+
+		expect(hq.langs).toEqual(["en", "cmn-hans", "cmn-hant"]);
+		expect(hq.translations.en["homescreen.title"]).toBe("Health app");
+		expect(hq.translations["cmn-hans"]["homescreen.title"]).toBe("健康应用");
+		expect(hq.translations["cmn-hant"]["homescreen.title"]).toBe("健康應用");
+		for (const wireCode of ["en", "cmn-hans", "cmn-hant"]) {
+			// Device-picker name rows ride in every language's bag, from the
+			// registry's baked labels — the two branches stay distinguishable.
+			expect(hq.translations[wireCode]).toMatchObject({
+				en: "English",
+				"cmn-hans": "简体中文",
+				"cmn-hant": "繁體中文",
+			});
+		}
+		// The untranslated module name falls back to the canonical source in
+		// both branches rather than dropping out of their maps.
+		expect(hq.modules[0].name).toEqual({
+			en: "Patients",
+			"cmn-hans": "Patients",
+			"cmn-hant": "Patients",
+		});
+
+		const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
+		const suite = zip.readAsText("suite.xml");
+		for (const dir of ["default", "en", "cmn-hans", "cmn-hant"]) {
+			expect(suite).toContain(
+				`<locale language="${dir}"><resource id="app_strings_${dir}" version="1"><location authority="local">./${dir}/app_strings.txt</location></resource></locale>`,
+			);
+		}
+
+		const defaultStrings = zip.readAsText("default/app_strings.txt");
+		const englishStrings = zip.readAsText("en/app_strings.txt");
+		const hansStrings = zip.readAsText("cmn-hans/app_strings.txt");
+		const hantStrings = zip.readAsText("cmn-hant/app_strings.txt");
+		expect(englishStrings).toBe(defaultStrings);
+		expect(defaultStrings).toContain("lang.current=en");
+		expect(defaultStrings).toContain("homescreen.title=Health app");
+		expect(hansStrings).toContain("lang.current=cmn-hans");
+		expect(hansStrings).toContain("homescreen.title=健康应用");
+		expect(hansStrings).toContain("app.display.name=健康应用");
+		expect(hansStrings).toContain("modules.m0=Patients");
+		expect(hantStrings).toContain("lang.current=cmn-hant");
+		expect(hantStrings).toContain("homescreen.title=健康應用");
+		for (const table of [defaultStrings, hansStrings, hantStrings]) {
+			expect(table).toContain("en=English");
+			expect(table).toContain("cmn-hans=简体中文");
+			expect(table).toContain("cmn-hant=繁體中文");
+		}
+
+		const xform = zip.readAsText("modules-0/forms-0.xml");
+		expect(xform).toContain('<translation lang="en" default="">');
+		expect(xform).toContain('<translation lang="cmn-hans">');
+		expect(xform).toContain('<translation lang="cmn-hant">');
+		expect(xform).toContain("<value>Name</value>");
+		// 名称 / 名稱 — the serializer entity-encodes non-ASCII itext values.
+		expect(xform).toContain("<value>&#x540d;&#x79f0;</value>");
+		expect(xform).toContain("<value>&#x540d;&#x7a31;</value>");
 	});
 
 	it("emits optional itext and body refs when only the target has text", () => {
@@ -215,18 +326,14 @@ describe("multilingual CommCare emission", () => {
 				sourceFingerprint: unit.sourceFingerprint,
 				origin: "human",
 				review: "reviewed",
-				translatedFrom: "en",
+				translatedFrom: "eng",
 			};
 		}
 		doc.localization = {
-			sourceLanguage: "en",
-			defaultLanguage: "es",
-			languageOrder: ["es", "en"],
-			languages: {
-				es: { code: "es", name: "Español", direction: "ltr" },
-				en: { code: "en", name: "English", direction: "ltr" },
-			},
-			translations: { es: entries },
+			sourceLanguage: "eng",
+			defaultLanguage: "spa",
+			languageOrder: ["spa", "eng"],
+			translations: { spa: entries },
 		};
 
 		const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
@@ -256,7 +363,7 @@ describe("multilingual CommCare emission", () => {
 	it("escapes locale-file comments and line breaks and rejects literal backslash-n", () => {
 		const doc = bilingualDoc();
 		const appUnit = makeTranslationUnitId("app", "name");
-		const appEntry = doc.localization?.translations.es?.[appUnit];
+		const appEntry = doc.localization?.translations.spa?.[appUnit];
 		if (appEntry === undefined) throw new Error("Expected Spanish app name.");
 		appEntry.value = "Aplicación #1\nSegunda línea";
 		const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));

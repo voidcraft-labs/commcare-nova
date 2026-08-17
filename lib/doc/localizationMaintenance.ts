@@ -27,20 +27,20 @@ export function pruneOrphanTranslationEntries(
 	}
 }
 
-/** Preserve the optional legacy spelling instead of persisting an empty shell. */
-export function dematerializeLegacyLocalization(
+/**
+ * An absent root is the canonical spelling of the exact English-only state,
+ * so a batch that ends there deletes the materialized shell instead of
+ * persisting a second spelling of the same document.
+ */
+export function dematerializeEnglishOnlyLocalization(
 	draft: Draft<BlueprintDoc>,
 ): void {
 	const localization = draft.localization;
 	if (
-		localization?.sourceLanguage === "en" &&
-		localization.defaultLanguage === "en" &&
+		localization?.sourceLanguage === "eng" &&
+		localization.defaultLanguage === "eng" &&
 		localization.languageOrder.length === 1 &&
-		localization.languageOrder[0] === "en" &&
-		Object.keys(localization.languages).length === 1 &&
-		localization.languages.en?.code === "en" &&
-		localization.languages.en.name === "English" &&
-		localization.languages.en.direction === "ltr" &&
+		localization.languageOrder[0] === "eng" &&
 		Object.keys(localization.translations).length === 0
 	) {
 		delete draft.localization;

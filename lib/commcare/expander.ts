@@ -432,7 +432,7 @@ export function expandDoc(
 					...Object.fromEntries(
 						localization.languages.map((code) => [
 							code,
-							localization.metadata[code].name,
+							localization.languageName(code),
 						]),
 					),
 				},

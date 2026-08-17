@@ -84,12 +84,12 @@ describe("initial-build localization finalizer", () => {
 	it("commits copy-only localization and its receipt as one canonical revision", async () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "es",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "spa" },
 			targets: [
 				{
-					language: { code: "es", name: "Español", direction: "ltr" },
-					seedFrom: "en",
+					language: { language: "spa" },
+					seedFrom: { language: "eng" },
 					strategy: "copy-only",
 				},
 			],
@@ -126,8 +126,8 @@ describe("initial-build localization finalizer", () => {
 		});
 		expect(runBatch).not.toHaveBeenCalled();
 		expect(onLanguage).toHaveBeenCalledWith({
-			code: "es",
-			name: "Español",
+			languageTag: "spa",
+			languageName: "Spanish",
 			batch: 1,
 			batchCount: 1,
 		});
@@ -140,8 +140,8 @@ describe("initial-build localization finalizer", () => {
 		const app = await loadApp(APP);
 		if (app === null) throw new Error("localized app missing");
 		const localization = effectiveAppLocalization(app.blueprint.localization);
-		expect(localization.defaultLanguage).toBe("es");
-		expect(localization.languages.es).toMatchObject({ name: "Español" });
+		expect(localization.defaultLanguage).toBe("spa");
+		expect(localization.languageOrder).toEqual(["spa", "eng"]);
 		const attempt = await h
 			.db()
 			.selectFrom("design_localization_attempts")
@@ -174,12 +174,12 @@ describe("initial-build localization finalizer", () => {
 	it("persists automatic batches before commit and reuses them after response loss", async () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "en",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "eng" },
 			targets: [
 				{
-					language: { code: "es", name: "Español", direction: "ltr" },
-					seedFrom: "en",
+					language: { language: "spa" },
+					seedFrom: { language: "eng" },
 					strategy: "translate-with-nova",
 				},
 			],
@@ -325,8 +325,8 @@ describe("initial-build localization finalizer", () => {
 	it("fails closed when a persisted localization intent is corrupt", async () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "en",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "eng" },
 			targets: [],
 		};
 		const args = {
@@ -352,8 +352,8 @@ describe("initial-build localization finalizer", () => {
 		await sql`
 			UPDATE design_localization_attempts
 			SET intent = ${JSON.stringify({
-				sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-				defaultLanguage: "fr",
+				sourceLanguage: { language: "eng" },
+				defaultLanguage: { language: "fra" },
 				targets: [],
 			})}::jsonb
 			WHERE id = ${attempt.id}
@@ -367,12 +367,12 @@ describe("initial-build localization finalizer", () => {
 	it("refuses a random retry of a failed protocol but admits a deployed protocol replacement", async () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "en",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "eng" },
 			targets: [
 				{
-					language: { code: "es", name: "Español", direction: "ltr" },
-					seedFrom: "en",
+					language: { language: "spa" },
+					seedFrom: { language: "eng" },
 					strategy: "translate-with-nova",
 				},
 			],
@@ -485,12 +485,12 @@ describe("initial-build localization finalizer", () => {
 	it("reuses valid accepted semantic batches when a failed generation receives a protocol upgrade", async () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
-			sourceLanguage: { code: "en", name: "English", direction: "ltr" },
-			defaultLanguage: "en",
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "eng" },
 			targets: [
 				{
-					language: { code: "es", name: "Español", direction: "ltr" },
-					seedFrom: "en",
+					language: { language: "spa" },
+					seedFrom: { language: "eng" },
 					strategy: "translate-with-nova",
 				},
 			],

@@ -3,7 +3,7 @@
  *
  * Usage:
  *   npm run eval:translations -- \
- *     --confirm-paid --direction en:es --out /tmp/nova-translation-en-es
+ *     --confirm-paid --direction eng:spa --out /tmp/nova-translation-eng-spa
  *
  * The script intentionally has no default direction and refuses to reuse an
  * output directory. A passing structural report never changes production
@@ -22,15 +22,16 @@ import {
 	planTranslationBatches,
 	TRANSLATION_PROMPT_VERSION,
 	TRANSLATION_SCHEMA_VERSION,
+	translationLanguage,
 	translationPromptPayload,
 	validateTranslationBatchOutput,
 } from "../lib/agent/translation/translator";
 import {
-	classicLanguageOption,
-	type LanguageCode,
-	languageCodeSchema,
-	suggestedAppLanguage,
+	type LanguageTag,
+	languageTagSchema,
+	parseLanguageTag,
 } from "../lib/domain";
+import { identityIssues } from "../lib/domain/languageRegistry";
 import { MODEL_ROLES } from "../lib/models";
 import {
 	isTranslationEvaluationSourceLanguage,
@@ -65,26 +66,24 @@ function option(args: readonly string[], name: string): string | undefined {
 
 function parseDirection(value: string): {
 	source: TranslationEvaluationSourceLanguage;
-	target: LanguageCode;
+	target: LanguageTag;
 } {
 	const parts = value.split(":");
 	if (parts.length !== 2)
-		usage("--direction must have the form source:target.");
-	const source = languageCodeSchema.safeParse(parts[0]?.trim().toLowerCase());
-	const target = languageCodeSchema.safeParse(parts[1]?.trim().toLowerCase());
+		usage("--direction must have the form source:target, such as eng:spa.");
+	const source = languageTagSchema.safeParse(parts[0]?.trim());
+	const target = languageTagSchema.safeParse(parts[1]?.trim());
 	if (!source.success || !target.success) {
-		usage("--direction must contain two valid CommCare language codes.");
+		usage(
+			"--direction takes two language tags: an ISO 639:2023 Set 3 code with optional ISO 15924 script and ISO 3166-1 region segments (eng, spa-MX, cmn-Hans).",
+		);
 	}
 	if (source.data === target.data) {
 		usage("Source and target languages must differ.");
 	}
-	if (
-		classicLanguageOption(source.data) === undefined ||
-		classicLanguageOption(target.data) === undefined
-	) {
-		usage(
-			"The evaluation harness accepts only ISO aliases present in CommCare Classic's catalog.",
-		);
+	for (const tag of [source.data, target.data]) {
+		const issues = identityIssues(parseLanguageTag(tag));
+		if (issues.length > 0) usage(issues.join("\n"));
 	}
 	if (!isTranslationEvaluationSourceLanguage(source.data)) {
 		usage(
@@ -157,8 +156,12 @@ async function main(): Promise<void> {
 	}
 	mkdirSync(outDir, { recursive: true });
 
-	const sourceLanguage = suggestedAppLanguage(direction.source);
-	const targetLanguage = suggestedAppLanguage(direction.target);
+	const sourceLanguage = translationLanguage(
+		parseLanguageTag(direction.source),
+	);
+	const targetLanguage = translationLanguage(
+		parseLanguageTag(direction.target),
+	);
 	const units = translationEvaluationUnits(direction.source);
 	const fixtureById = new Map(
 		units.map((unit, index) => {
@@ -341,8 +344,8 @@ async function main(): Promise<void> {
 	writeFileSync(
 		resolve(outDir, "review.md"),
 		markdownReview({
-			sourceName: `${sourceLanguage.name} (${sourceLanguage.code})`,
-			targetName: `${targetLanguage.name} (${targetLanguage.code})`,
+			sourceName: sourceLanguage.descriptor,
+			targetName: targetLanguage.descriptor,
 			rows,
 		}),
 	);

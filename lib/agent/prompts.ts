@@ -540,6 +540,12 @@ A few things to know:
 
 ---
 
+## Languages
+
+An app language is an identity object \`{language, script?, region?}\` — never a combined code string. \`language\` is an ISO 639:2023 Set 3 code for one individual living language (\`cmn\`, \`spa\`, \`hin\`); \`script\` is an ISO 15924 code (\`Hans\`), required exactly when the language has more than one customary writing system; \`region\` is an ISO 3166-1 alpha-2 code (\`MX\`), always optional — omit it for the language's general conventions. Call \`getLanguages\` before any language work: it returns each app language's identity with its derived display facts. Macrolanguages (\`zho\`), two-letter codes (\`zh\`, \`es\`), and non-living codes are rejected with the identifiers to use instead — a macrolanguage rejection lists its individual members. Names and text directions are never authored anywhere; they derive from the identity itself.
+
+---
+
 ## CommCare Connect
 
 **Standard apps are the default.** Unless the user's request describes worker training/certification or payment for service delivery, the app is a standard app: do not call \`configureConnect\`, and do not put a \`connect\` block on any form. Connect is opt-in per app and per form — it is never something to fill in "just in case."

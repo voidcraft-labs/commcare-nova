@@ -268,15 +268,6 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 		);
 	}
 	if (doc.localization === undefined) return errors;
-	for (const [code, language] of Object.entries(doc.localization.languages)) {
-		flagLocaleValue(
-			code,
-			`language:${code}`,
-			"language-name",
-			[doc.appName, "Languages", language.name],
-			language.name,
-		);
-	}
 	for (const [language, entries] of Object.entries(
 		doc.localization.translations,
 	)) {

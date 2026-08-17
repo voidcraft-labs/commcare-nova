@@ -2,43 +2,94 @@
 //
 // Persisted app-language vocabulary. Worker-facing strings remain canonical
 // on their owning Blueprint entities; this app-level overlay stores only
-// target-language values and their review provenance. The effective legacy
-// state is derived by `effectiveAppLocalization` and is never backfilled.
+// target-language values and their review provenance. The effective
+// English-only state is derived by `effectiveAppLocalization` and is never
+// backfilled.
 
 import { z } from "zod";
 import { type ProseTemplate, proseTemplateSchema } from "./prose";
 import { ownRecordSchema } from "./records";
 
 /**
- * CommCare HQ's persisted language-code grammar, tightened so a regional
- * suffix cannot be empty. Identity is lower-case and is never locale-cased on
- * storage (`es-mx`, not `es-MX`).
+ * An app language is a three-part identity: which language (ISO 639:2023
+ * Set 3, individual living languages only), which writing system when the
+ * language is customarily written in more than one (ISO 15924), and which
+ * regional conventions when meaningful alternatives exist (ISO 3166-1
+ * alpha-2). Names and text direction are derived from the identity through
+ * `lib/domain/languageRegistry` and are never stored or authored.
+ *
+ * These schemas admit shape only; membership in the registry (individual
+ * living language, valid script branch, valid region) is enforced at the
+ * authoring boundaries — tool schemas, the design contract, and the picker.
  */
-export const LANGUAGE_CODE_PATTERN = /^[a-z]{2,3}(?:-[a-z]+)?$/;
+export const appLanguageIdentitySchema = z
+	.object({
+		language: z
+			.string()
+			.regex(
+				/^[a-z]{3}$/,
+				"Use a lower-case three-letter ISO 639:2023 Set 3 identifier, such as cmn or spa.",
+			),
+		script: z
+			.string()
+			.regex(
+				/^[A-Z][a-z]{3}$/,
+				"Use a four-letter ISO 15924 script identifier in title case, such as Hans.",
+			)
+			.optional(),
+		region: z
+			.string()
+			.regex(
+				/^[A-Z]{2}$/,
+				"Use an upper-case two-letter ISO 3166-1 alpha-2 region identifier, such as MX.",
+			)
+			.optional(),
+	})
+	.strict();
+export type AppLanguageIdentity = z.infer<typeof appLanguageIdentitySchema>;
 
-export const languageCodeSchema = z
+/**
+ * The canonical serialized spelling of an `AppLanguageIdentity` — the record
+ * key in `AppLocalization`, the reference parameter in mutations, the
+ * `?lang=` URL value, and an internal map key. It is never rendered on any
+ * UI surface and agents never pass it; tools and the design contract speak
+ * the identity object.
+ */
+export const LANGUAGE_TAG_PATTERN =
+	/^[a-z]{3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2})?$/;
+
+export const languageTagSchema = z
 	.string()
 	.regex(
-		LANGUAGE_CODE_PATTERN,
-		"Use a lower-case two- or three-letter language code, optionally followed by a lower-case suffix.",
+		LANGUAGE_TAG_PATTERN,
+		"Use a canonical language tag: a three-letter ISO 639:2023 Set 3 code, optionally followed by a title-case ISO 15924 script and an upper-case ISO 3166-1 region, joined with hyphens (cmn-Hans-CN).",
 	);
-export type LanguageCode = z.infer<typeof languageCodeSchema>;
+export type LanguageTag = z.infer<typeof languageTagSchema>;
 
-export function normalizeLanguageCode(value: string): LanguageCode {
-	return languageCodeSchema.parse(value.trim().toLowerCase());
+export function languageTag(identity: AppLanguageIdentity): LanguageTag {
+	let tag = identity.language;
+	if (identity.script !== undefined) tag += `-${identity.script}`;
+	if (identity.region !== undefined) tag += `-${identity.region}`;
+	return tag;
+}
+
+/**
+ * Inverts `languageTag`. The three segment shapes are disjoint (lower-case
+ * triple, title-case quad, upper-case pair), so the parse is unambiguous.
+ */
+export function parseLanguageTag(tag: LanguageTag): AppLanguageIdentity {
+	const parsed = languageTagSchema.parse(tag);
+	const [language = "", ...qualifiers] = parsed.split("-");
+	const identity: AppLanguageIdentity = { language };
+	for (const qualifier of qualifiers) {
+		if (/^[A-Z][a-z]{3}$/.test(qualifier)) identity.script = qualifier;
+		else identity.region = qualifier;
+	}
+	return identity;
 }
 
 export const languageDirections = ["ltr", "rtl"] as const;
 export type LanguageDirection = (typeof languageDirections)[number];
-
-export const appLanguageSchema = z
-	.object({
-		code: languageCodeSchema,
-		name: z.string().trim().min(1),
-		direction: z.enum(languageDirections),
-	})
-	.strict();
-export type AppLanguage = z.infer<typeof appLanguageSchema>;
 
 export const translationUnitIdSchema = z.string().min(1).startsWith("tu1:");
 export type TranslationUnitId = z.infer<typeof translationUnitIdSchema>;
@@ -59,7 +110,7 @@ export const translationEntrySchema = z
 		origin: z.enum(translationOrigins),
 		review: z.enum(translationReviews),
 		/** Historical provenance may name a language later removed from the app. */
-		translatedFrom: languageCodeSchema,
+		translatedFrom: languageTagSchema,
 	})
 	.strict();
 export type TranslationEntry = z.infer<typeof translationEntrySchema>;
@@ -72,27 +123,28 @@ const translationMapSchema = ownRecordSchema(
 /**
  * Materialized multilingual state. The source language owns the ordinary
  * Blueprint strings and therefore never has a duplicate translation map.
+ * Language records carry nothing beyond identity — names and direction are
+ * derived — so the tags themselves are the complete language catalog.
  */
 export const appLocalizationSchema = z
 	.object({
-		sourceLanguage: languageCodeSchema,
-		defaultLanguage: languageCodeSchema,
-		languageOrder: z.array(languageCodeSchema).min(1),
-		languages: ownRecordSchema(languageCodeSchema, appLanguageSchema),
-		translations: ownRecordSchema(languageCodeSchema, translationMapSchema),
+		sourceLanguage: languageTagSchema,
+		defaultLanguage: languageTagSchema,
+		languageOrder: z.array(languageTagSchema).min(1),
+		translations: ownRecordSchema(languageTagSchema, translationMapSchema),
 	})
 	.strict()
 	.superRefine((localization, ctx) => {
-		const ordered = new Set<LanguageCode>();
-		for (const [index, code] of localization.languageOrder.entries()) {
-			if (ordered.has(code)) {
+		const ordered = new Set<LanguageTag>();
+		for (const [index, tag] of localization.languageOrder.entries()) {
+			if (ordered.has(tag)) {
 				ctx.addIssue({
 					code: "custom",
 					path: ["languageOrder", index],
-					message: `Language ${code} appears more than once.`,
+					message: `Language ${tag} appears more than once.`,
 				});
 			}
-			ordered.add(code);
+			ordered.add(tag);
 		}
 
 		if (localization.languageOrder[0] !== localization.defaultLanguage) {
@@ -117,88 +169,59 @@ export const appLocalizationSchema = z
 			});
 		}
 
-		for (const [code, language] of Object.entries(localization.languages)) {
-			if (language.code !== code) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["languages", code, "code"],
-					message: `Language record key ${code} must equal its embedded code ${language.code}.`,
-				});
-			}
-			if (!ordered.has(code)) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["languages", code],
-					message: `Language ${code} is absent from languageOrder.`,
-				});
-			}
-		}
-		for (const [index, code] of localization.languageOrder.entries()) {
-			if (!Object.hasOwn(localization.languages, code)) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["languageOrder", index],
-					message: `Language ${code} has no metadata record.`,
-				});
-			}
-		}
-
 		const expectedTargets = localization.languageOrder.filter(
-			(code) => code !== localization.sourceLanguage,
+			(tag) => tag !== localization.sourceLanguage,
 		);
 		const expectedTargetSet = new Set(expectedTargets);
-		for (const code of Object.keys(localization.translations)) {
-			if (!expectedTargetSet.has(code)) {
+		for (const tag of Object.keys(localization.translations)) {
+			if (!expectedTargetSet.has(tag)) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["translations", code],
+					path: ["translations", tag],
 					message:
-						code === localization.sourceLanguage
+						tag === localization.sourceLanguage
 							? "The source language uses canonical Blueprint content and cannot have a translation overlay."
-							: `Translation target ${code} is not an app language.`,
+							: `Translation target ${tag} is not an app language.`,
 				});
 			}
 		}
-		for (const code of expectedTargets) {
-			if (!Object.hasOwn(localization.translations, code)) {
+		for (const tag of expectedTargets) {
+			if (!Object.hasOwn(localization.translations, tag)) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["translations", code],
-					message: `Target language ${code} has no translation map.`,
+					path: ["translations", tag],
+					message: `Target language ${tag} has no translation map.`,
 				});
 			}
 		}
 	});
 export type AppLocalization = z.infer<typeof appLocalizationSchema>;
 
-const LEGACY_ENGLISH: AppLanguage = {
-	code: "en",
-	name: "English",
-	direction: "ltr",
-};
-
 export interface EffectiveAppLocalization {
-	readonly sourceLanguage: LanguageCode;
-	readonly defaultLanguage: LanguageCode;
-	readonly languageOrder: readonly LanguageCode[];
-	readonly languages: Readonly<Record<LanguageCode, AppLanguage>>;
+	readonly sourceLanguage: LanguageTag;
+	readonly defaultLanguage: LanguageTag;
+	readonly languageOrder: readonly LanguageTag[];
 	readonly translations: Readonly<
-		Record<LanguageCode, Readonly<Record<TranslationUnitId, TranslationEntry>>>
+		Record<LanguageTag, Readonly<Record<TranslationUnitId, TranslationEntry>>>
 	>;
 }
 
-const LEGACY_LOCALIZATION: EffectiveAppLocalization = {
-	sourceLanguage: "en",
-	defaultLanguage: "en",
-	languageOrder: ["en"],
-	languages: { en: LEGACY_ENGLISH },
+/**
+ * An absent localization root means exactly this English-only state.
+ * `apps.localization = NULL` remains its canonical persisted spelling and is
+ * never materialized into a stored root.
+ */
+const ENGLISH_ONLY_LOCALIZATION: EffectiveAppLocalization = {
+	sourceLanguage: "eng",
+	defaultLanguage: "eng",
+	languageOrder: ["eng"],
 	translations: {},
 };
 
 export function effectiveAppLocalization(
 	localization: AppLocalization | undefined,
 ): EffectiveAppLocalization {
-	return localization ?? LEGACY_LOCALIZATION;
+	return localization ?? ENGLISH_ONLY_LOCALIZATION;
 }
 
 /**
@@ -209,8 +232,8 @@ export function effectiveAppLocalization(
  */
 export function resolveAppLanguage(
 	localization: AppLocalization | undefined,
-	requested: LanguageCode | null | undefined,
-): LanguageCode {
+	requested: LanguageTag | null | undefined,
+): LanguageTag {
 	const effective = effectiveAppLocalization(localization);
 	return requested !== null &&
 		requested !== undefined &&

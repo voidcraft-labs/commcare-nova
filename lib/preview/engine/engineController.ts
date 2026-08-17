@@ -52,7 +52,7 @@ import {
 	type Field,
 	type Form,
 	isCaptureFieldKind,
-	type LanguageCode,
+	type LanguageTag,
 	materializableCaseTypes,
 	projectLocalizedFields,
 	resolveAppLanguage,
@@ -159,7 +159,7 @@ export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
 function buildEngineInput(
 	state: BlueprintDocState,
 	formUuid: Uuid,
-	language: LanguageCode | null,
+	language: LanguageTag | null,
 ): FormEngineInput | undefined {
 	const form = state.forms[formUuid];
 	if (!form) return undefined;
@@ -442,7 +442,7 @@ export class EngineController {
 	private lookupData: PreviewLookupData | null = null;
 	/** Selected worker-content language for presentation-bearing engine input.
 	 * `null` keeps standalone/non-Builder controller consumers canonical. */
-	private presentationLanguage: LanguageCode | null = null;
+	private presentationLanguage: LanguageTag | null = null;
 
 	constructor() {
 		this.store = createStore<RuntimeStoreState>(() => ({}));
@@ -575,7 +575,7 @@ export class EngineController {
 	 * the same projection as the rendered field without rotating attachments or
 	 * discarding touched answers.
 	 */
-	setPresentationLanguage(language: LanguageCode | null): void {
+	setPresentationLanguage(language: LanguageTag | null): void {
 		if (this.presentationLanguage === language) return;
 		this.presentationLanguage = language;
 		const formUuid = this.activeFormUuid;
