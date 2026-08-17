@@ -104,8 +104,16 @@ export type HqToolErrorType =
 	| "domain_not_authorized"
 	| "domain_ambiguous";
 
-/** The subset an UPLOAD gate can emit, which today is all of them. */
-export type UploadErrorType = HqToolErrorType;
+/**
+ * What an UPLOAD gate can emit: every bucket above, plus one refusal only
+ * an in-place update can produce.
+ *
+ *   - `remote_app_missing` — the publish asked CommCare HQ to update the
+ *     app the deployment ledger maps for this target, and HQ answered that
+ *     it is gone (deleted there). Nothing was changed; calling again
+ *     creates a fresh app and supersedes the dead mapping.
+ */
+export type UploadErrorType = HqToolErrorType | "remote_app_missing";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can
@@ -136,7 +144,8 @@ export type UploadErrorType = HqToolErrorType;
  *     to `"not_found"`: a member legitimately knows the Project exists,
  *     so the honest answer is what's missing and who can fix it.
  *     Surfaces via `ProjectPermissionError` (`lib/projects/manage`).
- *   - `HqToolErrorType` — HQ connection, target, and upload rejections.
+ *   - `UploadErrorType` — HQ connection, target, and upload rejections,
+ *     including the update-only `remote_app_missing`.
  *   - `AgentErrorType` — the shared `classifyError` taxonomy used by
  *     every generic throw (network, provider, internal).
  *
@@ -148,7 +157,7 @@ export type McpErrorType =
 	| "invalid_input"
 	| "scope_missing"
 	| "permission_denied"
-	| HqToolErrorType
+	| UploadErrorType
 	| AgentErrorType;
 
 /**

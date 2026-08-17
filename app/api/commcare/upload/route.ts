@@ -9,8 +9,10 @@
  * That lifecycle records what happened. A publish is not a fire-and-forget
  * POST any more: it creates or advances a durable deployment for the
  * (app, Project, server, domain) target, records the CommCare HQ app it
- * created, and hands back the state, the preflight findings, and the setup
- * instructions the target still needs by hand.
+ * created or updated in place, and hands back the state, the preflight
+ * findings, and the setup instructions the target still needs by hand.
+ * Whether to update or create is decided server-side from the deployment
+ * ledger; the request shape carries no say in it.
  *
  * A preflight refusal answers 200 with an `incomplete` deployment rather
  * than an error status. That is deliberate: the request succeeded, the
@@ -113,6 +115,9 @@ export async function POST(req: NextRequest) {
 		return NextResponse.json(
 			{
 				success: succeeded,
+				/* Which way the app landed: updated in place, or created fresh.
+				 * Null on a refusal, where nothing landed. */
+				hq_app_action: outcome.landed ? outcome.hqAppAction : null,
 				preview_project_space: await previewProjectSpaceFor(scope),
 				/* Null when the app has never reached this target: a refused
 				 * first publish leaves nothing durable behind, and the refusal

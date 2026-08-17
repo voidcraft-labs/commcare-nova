@@ -23,7 +23,7 @@ import { featureFlagReportForUpload } from "@/lib/publish/hqFeatureFlags";
 import { DeploymentError } from "./errors";
 import { observeDeployment } from "./observe";
 import { type PreflightCheck, runDeploymentPreflight } from "./preflight";
-import { activeRemoteApp } from "./resources";
+import { activeRemoteApp, plannedInPlaceUpdate } from "./resources";
 import { buildSetupArtifact, type SetupArtifact } from "./setupArtifact";
 import { deploymentIsObservable } from "./stateMachine";
 import {
@@ -278,25 +278,10 @@ export async function publishAppToHq(
 	const { creds, domain, prepared } = preflight.ready;
 	input.onUploadStarted?.();
 
-	/* Update in place, or create. An active mapping whose upload phase
-	 * holds no persisted failure means the project space still holds the
-	 * app Nova put there, so this publish updates it. The predicate is ANY
-	 * persisted upload failure — not the `remote_app_missing` code alone —
-	 * because attempt failures are never persisted on a reached target
-	 * (`applyAttemptOutcome` returns the record unchanged), so a failure
-	 * sitting beside an active mapping implies a prior observation found
-	 * the app gone, even when a later failed create attempt overwrote the
-	 * code. Keying on the code would send that state back down the update
-	 * path against an app CommCare HQ already said is missing. The one
-	 * imperfect corner: an app restored through CommCare HQ's own undo and
-	 * never re-observed gets a fresh copy instead of an update — rare,
-	 * non-destructive, and a Check status before publishing heals it. */
-	const activeBeforeImport = activeRemoteApp(deployment);
-	const updateAppId =
-		activeBeforeImport !== null &&
-		deployment.deployment.phases.upload?.status !== "failed"
-			? activeBeforeImport.remoteId
-			: null;
+	/* Update in place, or create. The predicate and its rationale live in
+	 * `plannedInPlaceUpdate` (`resources.ts`), which the publish dialog
+	 * also reads to say which will happen before the button is pressed. */
+	const updateTarget = plannedInPlaceUpdate(deployment);
 
 	// ── Send it ─────────────────────────────────────────────────────
 	// The upload consumes the exact prepared generation preflight
@@ -307,10 +292,10 @@ export async function publishAppToHq(
 		domain,
 		input.appName,
 		hqJson,
-		updateAppId ?? undefined,
+		updateTarget?.remoteId,
 	);
 	if (!result.success) {
-		if (updateAppId !== null && result.status === 404) {
+		if (updateTarget !== null && result.status === 404) {
 			/* The update asked CommCare HQ to overwrite the mapped app, and
 			 * the 404 is an authoritative answer ABOUT THE TARGET: that app
 			 * is gone — the same answer observation's versions read gives.
@@ -323,12 +308,12 @@ export async function publishAppToHq(
 			 * mapping with the fresh app's. */
 			const failure: DeploymentFailure = {
 				code: "remote_app_missing",
-				message: `The app Nova published to “${domain}” isn't there any more — CommCare HQ reported it gone when Nova tried to update it. It may have been deleted there. Publish again to create a fresh one.`,
+				message: `The app Nova published to “${domain}” isn't there any more: CommCare HQ reported it gone when Nova tried to update it. It may have been deleted there. Publish again to create a fresh one.`,
 				details: [],
 			};
 			const observed = await applyDeploymentObservation(input.scope, target, {
-				observedRemoteId: updateAppId,
-				observedPushedAt: activeBeforeImport?.pushedAt ?? null,
+				observedRemoteId: updateTarget.remoteId,
+				observedPushedAt: updateTarget.pushedAt,
 				outcomes: [
 					[
 						"upload",
@@ -396,7 +381,7 @@ export async function publishAppToHq(
 		domain,
 		hqAppId: result.appId,
 		appId: input.scope.appId,
-		action: updateAppId === null ? "created" : "updated",
+		action: updateTarget === null ? "created" : "updated",
 	});
 
 	// The target is known now, so start the flag probe alongside media
@@ -423,7 +408,7 @@ export async function publishAppToHq(
 	return {
 		landed: true,
 		refusal: null,
-		hqAppAction: updateAppId === null ? "created" : "updated",
+		hqAppAction: updateTarget === null ? "created" : "updated",
 		deployment,
 		checks: preflight.checks,
 		artifact: await setupArtifactFor(input.scope, deployment, input.doc),
