@@ -242,6 +242,22 @@ export function applicationShell(
 		translations?: Record<string, Record<string, string>>;
 	},
 ): HqApplication {
+	/* Only fields Nova AUTHORS go on the wire. CommCare HQ's import is an
+	 * overlay merge on the update path (`models/applications.py::
+	 * _merge_source_into_app`): every field present in the source
+	 * overwrites the HQ app's value, and a field absent from the source is
+	 * retained. So target-owned settings and state — `cloudcare_enabled`,
+	 * `profile`, `case_sharing`, `secure_submissions`, the build/release
+	 * metadata, and the rest of HQ's app Settings page attributes — are
+	 * deliberately NOT emitted. Each was previously sent at exactly HQ's
+	 * own schema default, so create behaves identically (couch `wrap`
+	 * supplies the same default, and `_create_app_from_doc` sets
+	 * `cloudcare_enabled` itself from the domain's Web Apps privilege),
+	 * while an in-place update now leaves the project's HQ-side
+	 * configuration standing instead of resetting it on every republish.
+	 * `logo_refs` follows the same rule in `expander.ts`: assigned only
+	 * when the app has a Nova-authored logo, because an empty one would
+	 * remove a logo uploaded on CommCare HQ. */
 	return {
 		doc_type: "Application",
 		application_version: "2.0",
@@ -255,79 +271,9 @@ export function applicationShell(
 			version: "2.54.0",
 			build_number: null,
 		},
-		profile: { doc_type: "Profile", features: {}, properties: {} },
-		vellum_case_management: true,
-		/* `cloudcare_enabled` is deliberately absent. CommCare HQ owns that
-		 * setting: create initializes it from the domain's Web Apps privilege
-		 * (`models/applications.py::_create_app_from_doc`) and ignores the
-		 * source's value, while the in-place update's overlay merge
-		 * (`::_merge_source_into_app`) RETAINS a field absent from source —
-		 * so leaving it out keeps a Web App toggle ticked on CommCare HQ
-		 * across republishes, where emitting `false` would switch Web Apps
-		 * off on every update. */
-		case_sharing: false,
-		secure_submissions: false,
 		multimedia_map: {},
 		translations: options?.translations ?? {},
-		// Standard HQ app properties, emitted before _attachments so the
-		// serialized JSON keeps a stable, deterministic property order with
-		// the form XML last.
-		admin_password: null,
-		admin_password_charset: "n",
-		amplifies_project: "not_set",
-		amplifies_workers: "not_set",
-		archived_media: {},
-		attribution_notes: null,
 		auto_gps_capture: options?.autoGpsCapture ?? false,
-		build_broken: false,
-		build_broken_reason: null,
-		build_comment: null,
-		build_profiles: {},
-		build_signed: true,
-		built_on: null,
-		built_with: {
-			signed: true,
-			datetime: null,
-			doc_type: "BuildRecord",
-			version: null,
-			build_number: null,
-			latest: null,
-		},
-		cached_properties: {},
-		comment: "",
-		comment_from: null,
-		copy_history: [],
-		created_from_template: null,
-		custom_assertions: [],
-		custom_base_url: null,
-		date_created: null,
-		deployment_date: null,
-		description: null,
-		experienced_threshold: "3",
-		family_id: null,
-		grid_form_menus: "none",
-		has_submissions: false,
-		is_auto_generated: false,
-		is_released: false,
-		last_modified: null,
-		last_released: null,
-		location_fixture_restore: "project_default",
-		logo_refs: {},
-		media_form_errors: false,
-		minimum_use_threshold: "15",
-		mobile_ucr_restore_version: "2.0",
-		persistent_menu: false,
-		phone_model: null,
-		practice_mobile_worker_id: null,
-		recipients: "",
-		show_breadcrumbs: true,
-		smart_lang_display: null,
-		split_screen_dynamic_search: false,
-		target_commcare_flavor: "none",
-		translation_strategy: "select-known",
-		use_custom_suite: false,
-		use_grid_menus: false,
-		user_type: null,
 		add_ons: {
 			advanced_itemsets: true,
 			calc_xpaths: true,
@@ -340,6 +286,8 @@ export function applicationShell(
 			subcases: true,
 			register_from_case_list: true,
 		},
+		// `_attachments` last, so the serialized JSON keeps a stable,
+		// deterministic property order with the form XML at the end.
 		modules,
 		_attachments: attachments,
 	};

@@ -1543,19 +1543,13 @@ mapping is superseded only by the recreate after an HQ-side deletion, and the
 superseded row is retained rather than deleted so an app left behind stays
 nameable.
 
-Open in the same territory: the app shell still emits target-owned
-settings-page fields with Nova defaults — `profile` (empty features and
-properties), `case_sharing`, `secure_submissions`, `logo_refs` when the app
-has no logo, and the other `commcare-app-settings.yml` attributes — and the
-overlay merge overwrites each on every in-place update, resetting values a
-project configured on HQ's app Settings page. `cloudcare_enabled` is the one
-field already withheld (it was the only true regression: create initializes it
-from the domain privilege, so the old create-every-time flow always landed the
-right value). The remaining work is a per-field split of `applicationShell`
-into Nova-authored fields and never-emitted target-owned fields, checked
-against `applications.py`'s property defaults, with the logo's authorship
-(Nova-authored `logo_refs` versus an HQ-uploaded logo on the same app) its own
-decision.
+The emitted app document carries only fields Nova authors: target-owned
+settings and state (`cloudcare_enabled`, `profile`, `case_sharing`, the
+build/release metadata, the rest of the `commcare-app-settings.yml`
+attributes) are never emitted, so the overlay merge retains a project's
+HQ-side configuration across republishes, and `logo_refs` is emitted only
+when the app has a Nova-authored logo (`lib/commcare/hqShells.ts` states the
+rule).
 
 Preflight is a dependency graph with two kinds of edge. A blocking edge is a
 real prerequisite — no connection, or an app the export boundary refuses — and
