@@ -55,12 +55,7 @@ import { requireProjectAccess, rethrowAsMcpAccess } from "../ownership";
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
-/**
- * Input schema, exported so the provider-acceptance smoke test
- * (`scripts/test-schema.ts`) can exercise it the same way it does the
- * shared tools.
- */
-export const moveAppInputSchema = z
+const moveAppInputSchema = z
 	.object({
 		app_id: z.string().min(1).describe("The app to move."),
 		to_project_id: z

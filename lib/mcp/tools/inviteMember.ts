@@ -39,12 +39,10 @@ import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 /**
- * Input schema, exported so the provider-acceptance smoke test
- * (`scripts/test-schema.ts`) can exercise it the same way it does the
- * shared tools. The role enum reuses the manage layer's assignable set, so
- * the schema can't drift from the authority that enforces it.
+ * The role enum reuses the manage layer's assignable set, so the schema
+ * can't drift from the authority that enforces it.
  */
-export const inviteMemberInputSchema = z
+const inviteMemberInputSchema = z
 	.object({
 		project_id: z
 			.string()

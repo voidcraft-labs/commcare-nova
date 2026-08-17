@@ -35,12 +35,7 @@ import { rethrowAsMcpProjectAccess } from "../ownership";
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
-/**
- * Input schema, exported so the provider-acceptance smoke test
- * (`scripts/test-schema.ts`) can exercise it the same way it does the
- * shared tools.
- */
-export const updateMemberRoleInputSchema = z
+const updateMemberRoleInputSchema = z
 	.object({
 		project_id: z
 			.string()
