@@ -115,3 +115,21 @@ export class CommitReauthError extends Error {
 		this.name = "CommitReauthError";
 	}
 }
+
+/**
+ * A Project-move GOVERNANCE denial — the move transaction's in-lock membership
+ * re-check refused (source role, destination role, or owner retention), each
+ * arm carrying its own person-readable message.
+ *
+ * A subclass rather than a sibling so every existing `CommitReauthError`
+ * consumer (the browser move action's `not_permitted` mapping, the auto-save
+ * 403) keeps working unchanged, while surfaces that can say something better
+ * than "App not found." (the MCP `move_app` tool) can catch this narrower
+ * class and surface the message as an explicit permission denial.
+ */
+export class ProjectMoveDeniedError extends CommitReauthError {
+	constructor(message: string) {
+		super(message);
+		this.name = "ProjectMoveDeniedError";
+	}
+}

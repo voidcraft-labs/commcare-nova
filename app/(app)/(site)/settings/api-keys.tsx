@@ -972,7 +972,8 @@ function MintForm({
 					<legend className="text-xs font-medium text-nova-text">Scopes</legend>
 					<p className="-mt-1 text-[11px] text-nova-text-muted">
 						Read and write are required. Add the HQ scopes if your tool needs to
-						upload finished apps to CommCare HQ.
+						upload finished apps to CommCare HQ, and the Projects scopes if it
+						needs to manage Projects, members, and invitations.
 					</p>
 					<div className="mt-2">
 						<ScopeCheckboxGrid

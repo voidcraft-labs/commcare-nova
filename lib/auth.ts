@@ -61,23 +61,27 @@ import {
  *   - `clientRegistrationAllowedScopes` — the complete allowlist a dynamic
  *     client may request explicitly.
  *
- * Defaults deliberately exclude HQ scopes. A public DCR client omitting
- * `scope` should get the MCP baseline, not delegated CommCare HQ powers.
- * HQ scopes stay requestable via `clientRegistrationAllowedScopes`, so a
- * client that needs deployment can ask for them explicitly and the consent
- * screen can make that grant visible. Better Auth treats the registration
- * allowlist as the full valid set, so it includes the baseline scopes too.
+ * Defaults deliberately exclude the HQ and Projects scopes. A public DCR
+ * client omitting `scope` should get the MCP baseline, not delegated
+ * CommCare HQ powers or Project-membership management. Both pairs stay
+ * requestable via `clientRegistrationAllowedScopes`, so a client that
+ * needs deployment or Project management can ask for them explicitly and
+ * the consent screen can make that grant visible. Better Auth treats the
+ * registration allowlist as the full valid set, so it includes the
+ * baseline scopes too.
  *
  * The OIDC trio (`openid`, `profile`, `email`) + `offline_access` is the
  * standard set clients expect for refresh-token flows. The Nova scopes
- * split into two layers: `nova.read` / `nova.write` cover Nova-internal
+ * split into three layers: `nova.read` / `nova.write` cover Nova-internal
  * (database-backed) operations and are enforced at the MCP route's
  * verify layer; `nova.hq.read` / `nova.hq.write` cover delegated access
- * to CommCare HQ via the user's stored API key and are enforced
- * per-tool inside the HQ handlers (see `lib/mcp/scopes.ts`'s
- * `assertScope`). HQ access is *orthogonal* to read/write — a client
- * that only needs Nova-internal access can omit the HQ scopes at
- * `/oauth2/authorize` and still call non-HQ tools.
+ * to CommCare HQ via the user's stored API key; and `nova.projects.read`
+ * / `nova.projects.write` cover Project membership and sharing (member
+ * lists, invitations, role changes, cross-Project app moves). The HQ and
+ * Projects pairs are enforced per-tool inside their handlers (see
+ * `lib/mcp/scopes.ts`'s `assertScope`) and are *orthogonal* to
+ * read/write — a client that only needs Nova-internal access can omit
+ * them at `/oauth2/authorize` and still call the app tools.
  */
 const NOVA_OAUTH_SCOPES = [
 	"openid",
@@ -88,6 +92,8 @@ const NOVA_OAUTH_SCOPES = [
 	"nova.write",
 	"nova.hq.read",
 	"nova.hq.write",
+	"nova.projects.read",
+	"nova.projects.write",
 ] as const;
 
 export const NOVA_OAUTH_DEFAULT_CLIENT_SCOPES = [
@@ -103,6 +109,8 @@ export const NOVA_OAUTH_ALLOWED_CLIENT_SCOPES = [
 	...NOVA_OAUTH_DEFAULT_CLIENT_SCOPES,
 	"nova.hq.read",
 	"nova.hq.write",
+	"nova.projects.read",
+	"nova.projects.write",
 ] as const;
 
 /**
@@ -147,6 +155,102 @@ const ALLOWED_EMAIL_DOMAINS: ReadonlySet<string> = new Set(
 export const NOVA_PROJECT_LIFECYCLE_OPTIONS = Object.freeze({
 	disableOrganizationDeletion: true,
 } as const);
+
+/**
+ * The organization plugin's lifecycle hooks — the SESSION-path enforcement of
+ * Nova's Project-sharing policy. The MCP path enforces the same rules with the
+ * same messages in `lib/projects/manage.ts`; exporting the hooks (the
+ * `NOVA_PROJECT_LIFECYCLE_OPTIONS` precedent) lets the integration suite mount
+ * these exact functions on a per-test Better Auth instance and prove the two
+ * paths reject identically. Each parameter is typed as the minimal structural
+ * slice the hook reads, which the plugin's richer payloads satisfy — and the
+ * `satisfies` clause on the object proves that assignability against the
+ * plugin's own option type, so a Better Auth hook-signature change surfaces
+ * here at the definition rather than as an opaque error at the registration
+ * site.
+ */
+export const NOVA_ORGANIZATION_HOOKS = {
+	/* Domain-gate every invitation at creation: a Project may only
+	 * invite dimagi addresses. This is the enforced control behind
+	 * `isInvitableEmail` — belt-and-suspenders over the sign-in
+	 * allowlist (a non-allowlisted invitee could never accept, but
+	 * rejecting up front keeps the members UI + audit honest).
+	 * Throwing an `APIError` aborts the create with a 400. */
+	beforeCreateInvitation: async ({
+		invitation,
+		organization,
+	}: {
+		invitation: { email: string };
+		organization: { metadata?: unknown };
+	}) => {
+		if (!isInvitableEmail(invitation.email)) {
+			throw new APIError("BAD_REQUEST", {
+				message: `Invitations are limited to ${new Intl.ListFormat("en").format(INVITE_ALLOWED_DOMAINS)} email addresses.`,
+			});
+		}
+		/* A personal Project is private and accepts no invitations at
+		 * all — team apps live in a shared Project instead (born there,
+		 * or moved in with the cross-Project move). The members UI
+		 * renders a read-only "can't be shared" panel; this is the
+		 * wire-level enforcement (a crafted request can't escape it).
+		 * `organization.metadata` carries the personal flag (set by
+		 * `ensurePersonalProject`). */
+		if (isPersonalProjectMetadata(organization.metadata)) {
+			throw new APIError("BAD_REQUEST", {
+				message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
+			});
+		}
+	},
+	/* The role-change twin: a personal Project is private, so no role is
+	 * assignable on it — reject every role change. (It may still hold a
+	 * guest grandfathered in under the old viewer/editor policy; the owner
+	 * REMOVES such a guest from the members panel rather than re-roling
+	 * them, since the Project is private now.) */
+	beforeUpdateMemberRole: async ({
+		organization,
+	}: {
+		organization: { metadata?: unknown };
+	}) => {
+		if (isPersonalProjectMetadata(organization.metadata)) {
+			throw new APIError("BAD_REQUEST", {
+				message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
+			});
+		}
+	},
+	/* Close the acceptance side: `beforeCreateInvitation` blocks NEW
+	 * invites to a personal Project, but a PENDING invite created under
+	 * the old viewer/editor policy could still be accepted and grant
+	 * access to a now-private space. Reject acceptance too, so a stale
+	 * invite can never turn into membership. */
+	beforeAcceptInvitation: async ({
+		organization,
+	}: {
+		organization: { metadata?: unknown };
+	}) => {
+		if (isPersonalProjectMetadata(organization.metadata)) {
+			throw new APIError("BAD_REQUEST", {
+				message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
+			});
+		}
+	},
+	/* No invitation email is sent — invites are discovered in-app (the
+	 * home-page banner + the Invitations page). This hook only records
+	 * an audit line as each invite is created. */
+	afterCreateInvitation: async ({
+		invitation,
+		organization,
+	}: {
+		invitation: { email: string };
+		organization: { id: string };
+	}) => {
+		log.info("[auth] organization invitation created", {
+			organizationId: organization.id,
+			email: invitation.email,
+		});
+	},
+} satisfies NonNullable<
+	Parameters<typeof organization>[0]
+>["organizationHooks"];
 
 /**
  * Creates the Better Auth instance. Async because it acquires the shared
@@ -780,66 +884,7 @@ async function createAuth() {
 				membershipLimit: MEMBERSHIP_LIMIT,
 				teams: { enabled: false },
 				schema: ORGANIZATION_SCHEMA,
-				organizationHooks: {
-					/* Domain-gate every invitation at creation: a Project may only
-					 * invite dimagi addresses. This is the enforced control behind
-					 * `isInvitableEmail` — belt-and-suspenders over the sign-in
-					 * allowlist (a non-allowlisted invitee could never accept, but
-					 * rejecting up front keeps the members UI + audit honest).
-					 * Throwing an `APIError` aborts the create with a 400. */
-					beforeCreateInvitation: async ({ invitation, organization }) => {
-						if (!isInvitableEmail(invitation.email)) {
-							throw new APIError("BAD_REQUEST", {
-								message: `Invitations are limited to ${new Intl.ListFormat("en").format(INVITE_ALLOWED_DOMAINS)} email addresses.`,
-							});
-						}
-						/* A personal Project is private and accepts no invitations at
-						 * all. While cross-Project moves are unavailable, team apps are
-						 * created in a shared Project. The members UI renders a read-only
-						 * "can't be shared"
-						 * panel; this is the wire-level enforcement (a crafted request
-						 * can't escape it). `organization.metadata` carries the personal
-						 * flag (set by `ensurePersonalProject`). */
-						if (isPersonalProjectMetadata(organization.metadata)) {
-							throw new APIError("BAD_REQUEST", {
-								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
-							});
-						}
-					},
-					/* The role-change twin: a personal Project is private, so no role is
-					 * assignable on it — reject every role change. (It may still hold a
-					 * guest grandfathered in under the old viewer/editor policy; the owner
-					 * REMOVES such a guest from the members panel rather than re-roling
-					 * them, since the Project is private now.) */
-					beforeUpdateMemberRole: async ({ organization }) => {
-						if (isPersonalProjectMetadata(organization.metadata)) {
-							throw new APIError("BAD_REQUEST", {
-								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
-							});
-						}
-					},
-					/* Close the acceptance side: `beforeCreateInvitation` blocks NEW
-					 * invites to a personal Project, but a PENDING invite created under
-					 * the old viewer/editor policy could still be accepted and grant
-					 * access to a now-private space. Reject acceptance too, so a stale
-					 * invite can never turn into membership. */
-					beforeAcceptInvitation: async ({ organization }) => {
-						if (isPersonalProjectMetadata(organization.metadata)) {
-							throw new APIError("BAD_REQUEST", {
-								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
-							});
-						}
-					},
-					/* No invitation email is sent — invites are discovered in-app (the
-					 * home-page banner + the Invitations page). This hook only records
-					 * an audit line as each invite is created. */
-					afterCreateInvitation: async ({ invitation, organization }) => {
-						log.info("[auth] organization invitation created", {
-							organizationId: organization.id,
-							email: invitation.email,
-						});
-					},
-				},
+				organizationHooks: NOVA_ORGANIZATION_HOOKS,
 			}),
 			novaMcpPlugin(),
 		],

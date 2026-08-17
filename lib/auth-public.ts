@@ -33,14 +33,16 @@ export const NOVA_API_KEY_PREFIX = "sk-nova-v1-";
  * exist for OIDC discovery and refresh-token issuance — concepts that
  * don't apply to a static bearer credential. A user minting a key
  * picks from this set; the floor (`nova.read` + `nova.write`) is
- * enforced at the MCP verify layer, the HQ scopes are orthogonal
- * opt-ins, same split as the JWT path.
+ * enforced at the MCP verify layer, the HQ and Projects scopes are
+ * orthogonal opt-ins, same split as the JWT path.
  */
 export const NOVA_API_KEY_SCOPES = [
 	"nova.read",
 	"nova.write",
 	"nova.hq.read",
 	"nova.hq.write",
+	"nova.projects.read",
+	"nova.projects.write",
 ] as const;
 
 export type NovaApiKeyScope = (typeof NOVA_API_KEY_SCOPES)[number];
@@ -78,4 +80,6 @@ export const NOVA_MCP_SCOPE_LABELS: Record<NovaApiKeyScope, string> = {
 	"nova.write": "Write",
 	"nova.hq.read": "HQ Read",
 	"nova.hq.write": "HQ Write",
+	"nova.projects.read": "Projects Read",
+	"nova.projects.write": "Projects Write",
 };

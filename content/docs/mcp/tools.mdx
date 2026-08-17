@@ -81,9 +81,9 @@ never table tags, export names, or display labels.
 
 | Tool | What it does |
 |---|---|
-| `list_apps` | List your apps with optional status filter, sort, and pagination. |
-| `search_apps` | Fuzzy search by name. Case-insensitive, tolerates typos. |
-| `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, personas, and its organization model. |
+| `list_apps` | List your apps with optional status filter, sort, and pagination. Each entry names the Nova Project the app lives in (`project_id` + `project_name`). |
+| `search_apps` | Fuzzy search by name. Case-insensitive, tolerates typos. Entries carry the same Project columns as `list_apps`. |
+| `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, personas, and its organization model. The summary opens with the app's Nova Project, so your agent always knows whose workspace it's editing. |
 | `get_app_hq_feature_flags` | List only the CommCare HQ feature flags the app currently requires, with app-specific reasons, plain-language explanations, and public documentation links. Optionally pass one explicit connected `domain` to separate confirmed missing flags from checks HQ could not answer. |
 
 ## Languages and translations
@@ -166,8 +166,29 @@ space in the request.
 
 | Tool | What it does |
 |---|---|
-| `create_app` | Create a publish-ready survey starter and return its app ID, sequence-1 blueprint, and starter module/form/field UUIDs. Continue with those identities; every later change is checked as it lands. |
+| `create_app` | Create a publish-ready survey starter and return its app ID, sequence-1 blueprint, and starter module/form/field UUIDs. Continue with those identities; every later change is checked as it lands. Pass `project_id` (from `list_projects`) to create the app in a shared Project; omit it and the app lands in your personal Project. |
 | `delete_app` | Soft-delete an app. Recoverable within the returned window. |
+
+## Projects and sharing
+
+Every app lives in exactly one **Nova Project**, and the Project is the sharing unit: each of its members sees the Project's apps plus their case data and media. Your account starts with a personal Project, which is private by construction and can't be shared. When other people need to use what your agent builds, the flow is: create a shared Project once, create apps into it, and invite the humans.
+
+| Tool | What it does |
+|---|---|
+| `list_projects` | List the Projects you belong to, with your role in each and which one is your personal Project. The returned `project_id` values are what every other Project-aware tool takes. |
+| `create_project` | Create a shared Project owned by you. Create one per program or team and reuse it across builds — Project deletion is disabled, so every Project you create is permanent. |
+| `invite_member` | Invite a Dimagi email address to a shared Project as viewer, editor, or admin. Needs an admin or owner role there. No invitation email is sent: the invitee sees the invitation inside Commcare Nova the next time they sign in and accepts it there, so tell them to expect it. Invitations expire after 48 hours. |
+| `list_members` | List a Project's members and pending invitations. Any member can call it. The returned `member_id` is the handle `update_member_role` takes. |
+| `update_member_role` | Change a member's role to viewer, editor, or admin. Needs an admin or owner role there. The Project owner's role can't be changed. |
+| `move_app` | Move an app into another Project, bringing its case data, media, and chat history along in one transaction. Needs an admin or owner role in both the source and destination Projects, and the move can't take the app away from the source Project's owner: either the owner moves it themselves, or every source owner must already be a member of the destination. The response's `result` field says what happened — `moved`, or `already_in_project` when the app was already there (nothing moves; its case-data tenancy is verified and repaired where needed). |
+
+The roles: a **viewer** reads apps and data, an **editor** also edits them, an **admin** also manages members, and the **owner** is the member who created the Project. Owner isn't assignable — the creator stays the one owner.
+
+Prefer creating an app in the right Project from the start. An app that references Project data tables or has captured form submissions can't move between Projects, so `move_app` is the recovery path for apps born in the wrong place (typically the personal Project), not the everyday flow.
+
+<Callout type="info">
+A Nova Project is not a CommCare HQ project space. The Nova Project decides which *people* share the app inside Commcare Nova while it's being built; an HQ project space (domain) is where a finished app is published for workers. `upload_app_to_hq` targets an HQ domain and is unrelated to which Nova Project the app lives in.
+</Callout>
 
 ## Building a new app from a description
 
@@ -725,7 +746,7 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 
 | Tool | What it does |
 |---|---|
-| `upload_media_asset` | Upload an image, audio, or video file (sent as base64) and get back its asset id. Audio must be `.mp3` or `.wav` and video `.mp4`, CommCare HQ can't accept `.m4a` or `.ogg`. |
+| `upload_media_asset` | Upload an image, audio, or video file (sent as base64) and get back its asset id. Media libraries are per-Project: pass `project_id` to upload into a shared Project's library (use the Project of the app that will reference it); omit it for your personal Project. Audio must be `.mp3` or `.wav` and video `.mp4`, CommCare HQ can't accept `.m4a` or `.ogg`. |
 | `list_media_assets` | List your uploaded files and their asset ids, how your agent finds the ids the attach tools need. |
 | `remove_media_asset` | Delete a file from your library. Refuses if any app still uses it, including an app in its restore window. |
 | `attach_field_media` | Set or clear the image/audio/video on field labels, hints, help, or validation messages, one call batches attachments across fields and forms. |

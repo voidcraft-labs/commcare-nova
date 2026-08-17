@@ -3,8 +3,8 @@
  *
  * Verifies the load-bearing behaviors of the MCP search tool:
  *   - Happy-path projection — each `AppSummary` match becomes a
- *     `{ app_id, name, status, updated_at }` wire entry, in the
- *     relevance order the scan returned.
+ *     `{ app_id, name, status, updated_at, project_id, project_name }`
+ *     wire entry, in the relevance order the scan returned.
  *   - Empty result — `apps: []` rather than a null or missing key.
  *   - Pagination cursor pass-through — `nextCursor` → `next_cursor`;
  *     absent when the DB layer returns none.
@@ -21,12 +21,12 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listUserProjectIds } from "@/lib/db/appAccess";
 import {
 	type AppSummary,
 	type SearchAppsResult,
 	searchAppsAcrossProjects,
 } from "@/lib/db/apps";
+import { listUserProjects } from "@/lib/projects/membership";
 import { registerSearchApps } from "../tools/searchApps";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -35,11 +35,27 @@ vi.mock("@/lib/db/apps", () => ({
 	searchAppsAcrossProjects: vi.fn(),
 }));
 
-/* The tool searches across every Project the caller is a member of; stub the
- * membership read so the unit test never touches the auth DB. Two memberships
- * exercise the cross-Project scope (a personal + a shared Project). */
-vi.mock("@/lib/db/appAccess", () => ({
-	listUserProjectIds: vi.fn(async () => ["proj-personal", "proj-shared"]),
+/* The tool's search scope — ids AND names — comes from ONE membership read
+ * (`listUserProjects`); stub it so the unit test never touches the auth DB.
+ * Two memberships exercise the cross-Project scope (a personal + a shared
+ * Project). */
+vi.mock("@/lib/projects/membership", () => ({
+	listUserProjects: vi.fn(async () => [
+		{
+			id: "proj-personal",
+			name: "Personal",
+			slug: "personal",
+			role: "owner",
+			personal: true,
+		},
+		{
+			id: "proj-shared",
+			name: "Team Alpha",
+			slug: "team-alpha",
+			role: "editor",
+			personal: false,
+		},
+	]),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -47,6 +63,7 @@ vi.mock("@/lib/db/appAccess", () => ({
 function makeSummary(overrides: Partial<AppSummary>): AppSummary {
 	return {
 		id: "default-id",
+		project_id: "proj-personal",
 		app_name: "Default",
 		connect_type: null,
 		module_count: 0,
@@ -86,6 +103,7 @@ describe("registerSearchApps — happy path", () => {
 			}),
 			makeSummary({
 				id: "a2",
+				project_id: "proj-shared",
 				app_name: "COVID Vaccine Survey",
 				status: "complete",
 				updated_at: "2026-04-10T00:00:00.000Z",
@@ -110,12 +128,16 @@ describe("registerSearchApps — happy path", () => {
 				name: "Vaccine Tracker",
 				status: "complete",
 				updated_at: "2026-04-20T00:00:00.000Z",
+				project_id: "proj-personal",
+				project_name: "Personal",
 			},
 			{
 				app_id: "a2",
 				name: "COVID Vaccine Survey",
 				status: "complete",
 				updated_at: "2026-04-10T00:00:00.000Z",
+				project_id: "proj-shared",
+				project_name: "Team Alpha",
 			},
 		]);
 		expect(parsed.next_cursor).toBeUndefined();
@@ -137,7 +159,7 @@ describe("registerSearchApps — happy path", () => {
 		/* Scope mirrors `list_apps` — EVERY Project the caller is a member of —
 		 * so a shared-Project app the caller remembers by name is findable. The
 		 * decoded args ride along verbatim so schema + DB stay in lockstep. */
-		expect(listUserProjectIds).toHaveBeenCalledWith("u1");
+		expect(listUserProjects).toHaveBeenCalledWith("u1");
 		expect(searchAppsAcrossProjects).toHaveBeenCalledWith(
 			["proj-personal", "proj-shared"],
 			{

@@ -25,6 +25,10 @@ import {
 	BlueprintCommitRejectedError,
 	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
+import {
+	ProjectManagementError,
+	ProjectPermissionError,
+} from "@/lib/projects/manage";
 import { toMcpErrorResult } from "../errors";
 import { McpAccessError } from "../ownership";
 import { McpScopeError, SCOPES } from "../scopes";
@@ -205,6 +209,75 @@ describe("toMcpErrorResult", () => {
 		>;
 		expect(payload.error_type).toBe("scope_missing");
 		expect("app_id" in payload).toBe(false);
+	});
+});
+
+describe("toMcpErrorResult — Project branches", () => {
+	it("serializes the Project-flavored access error with the Project phrasing", () => {
+		const result = toMcpErrorResult(
+			new McpAccessError("not_found", "project"),
+			{ projectId: "proj-1" },
+		);
+		expect(result.isError).toBe(true);
+		const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<
+			string,
+			unknown
+		>;
+		expect(payload.error_type).toBe("not_found");
+		expect(payload.message).toBe("Project not found.");
+		expect(payload.project_id).toBe("proj-1");
+	});
+
+	it("produces byte-identical content for Project not_found and not_owner (IDOR regression lock)", () => {
+		/* The app-flavored lock above has a Project twin: a probing key
+		 * walking Project-id space must not learn which ids exist. */
+		const asMissing = toMcpErrorResult(
+			new McpAccessError("not_found", "project"),
+			{ projectId: "proj-1" },
+		);
+		const asNonMember = toMcpErrorResult(
+			new McpAccessError("not_owner", "project"),
+			{ projectId: "proj-1" },
+		);
+		expect(JSON.stringify(asMissing)).toBe(JSON.stringify(asNonMember));
+	});
+
+	it("passes a ProjectManagementError through verbatim as invalid_input", () => {
+		/* Policy rejections (personal Project, duplicate invite, the
+		 * pending cap) are understood-and-refused requests, so the
+		 * person-readable reason must survive to the wire untouched. */
+		const message =
+			"This is your personal Project, which can't be shared. Create a shared Project with create_project and invite people there.";
+		const result = toMcpErrorResult(new ProjectManagementError(message), {
+			projectId: "proj-personal",
+		});
+		expect(result.isError).toBe(true);
+		const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<
+			string,
+			unknown
+		>;
+		expect(payload.error_type).toBe("invalid_input");
+		expect(payload.message).toBe(message);
+		expect(payload.project_id).toBe("proj-personal");
+	});
+
+	it("serializes ProjectPermissionError as permission_denied, never the not-found collapse", () => {
+		/* A member whose role falls short legitimately knows the Project
+		 * exists — the honest envelope names what's missing rather than
+		 * pretending the Project isn't there. */
+		const message =
+			"Your viewer role in this Project can't invite members. Ask a Project admin or the owner.";
+		const result = toMcpErrorResult(new ProjectPermissionError(message), {
+			projectId: "proj-shared",
+		});
+		expect(result.isError).toBe(true);
+		const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<
+			string,
+			unknown
+		>;
+		expect(payload.error_type).toBe("permission_denied");
+		expect(payload.message).toBe(message);
+		expect(payload.project_id).toBe("proj-shared");
 	});
 });
 

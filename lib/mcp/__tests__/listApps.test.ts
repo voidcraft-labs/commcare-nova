@@ -3,7 +3,10 @@
  *
  * Verifies the load-bearing behaviors of the MCP enumerate tool:
  *   - Happy-path projection from `AppSummary` rows to the MCP wire
- *     shape (`{ app_id, name, status, updated_at }` per entry).
+ *     shape (`{ app_id, name, status, updated_at, project_id,
+ *     project_name }` per entry), including the Project-name resolution
+ *     from the caller's own memberships (an unknown Project id projects
+ *     `project_name: null`, never a throw).
  *   - Empty-list projection — `apps: []` rather than a null or missing
  *     key, so MCP clients can branch on `apps.length` unconditionally.
  *   - Pagination cursor pass-through — when the scan returns a
@@ -29,12 +32,12 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listUserProjectIds } from "@/lib/db/appAccess";
 import {
 	type AppSummary,
 	type ListAppsResult,
 	listAppsAcrossProjects,
 } from "@/lib/db/apps";
+import { listUserProjects } from "@/lib/projects/membership";
 import { registerListApps } from "../tools/listApps";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -46,11 +49,27 @@ vi.mock("@/lib/db/apps", () => ({
 	listAppsAcrossProjects: vi.fn(),
 }));
 
-/* The tool enumerates across every Project the caller is a member of; stub the
- * membership read so the unit test never touches the auth DB. Two memberships
- * exercise the cross-Project scope (a personal + a shared Project). */
-vi.mock("@/lib/db/appAccess", () => ({
-	listUserProjectIds: vi.fn(async () => ["proj-personal", "proj-shared"]),
+/* The tool's enumeration scope — ids AND names — comes from ONE membership
+ * read (`listUserProjects`); stub it so the unit test never touches the auth
+ * DB. Two memberships exercise the cross-Project scope (a personal + a
+ * shared Project). */
+vi.mock("@/lib/projects/membership", () => ({
+	listUserProjects: vi.fn(async () => [
+		{
+			id: "proj-personal",
+			name: "Personal",
+			slug: "personal",
+			role: "owner",
+			personal: true,
+		},
+		{
+			id: "proj-shared",
+			name: "Team Alpha",
+			slug: "team-alpha",
+			role: "editor",
+			personal: false,
+		},
+	]),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -59,6 +78,7 @@ vi.mock("@/lib/db/appAccess", () => ({
 function makeSummary(overrides: Partial<AppSummary>): AppSummary {
 	return {
 		id: "default-id",
+		project_id: "proj-personal",
 		app_name: "Default",
 		connect_type: null,
 		module_count: 0,
@@ -88,9 +108,11 @@ beforeEach(() => {
 
 describe("registerListApps — happy path", () => {
 	it("projects each AppSummary into the MCP wire shape", async () => {
-		/* Three rows across all three live statuses. The projected entries
-		 * must preserve order (the query already orders by `updated_at`)
-		 * and expose only the four wire-shape keys. */
+		/* Three rows across all three live statuses AND all three
+		 * Project-name outcomes (personal, shared, and an id the
+		 * membership read no longer knows). The projected entries must
+		 * preserve order (the query already orders by `updated_at`) and
+		 * expose only the six wire-shape keys. */
 		const rows: AppSummary[] = [
 			makeSummary({
 				id: "a1",
@@ -100,12 +122,14 @@ describe("registerListApps — happy path", () => {
 			}),
 			makeSummary({
 				id: "a2",
+				project_id: "proj-shared",
 				app_name: "Second",
 				status: "generating",
 				updated_at: "2026-04-19T00:00:00.000Z",
 			}),
 			makeSummary({
 				id: "a3",
+				project_id: "proj-vanished",
 				app_name: "Third",
 				status: "error",
 				error_type: "internal",
@@ -133,18 +157,24 @@ describe("registerListApps — happy path", () => {
 				name: "First",
 				status: "complete",
 				updated_at: "2026-04-20T00:00:00.000Z",
+				project_id: "proj-personal",
+				project_name: "Personal",
 			},
 			{
 				app_id: "a2",
 				name: "Second",
 				status: "generating",
 				updated_at: "2026-04-19T00:00:00.000Z",
+				project_id: "proj-shared",
+				project_name: "Team Alpha",
 			},
 			{
 				app_id: "a3",
 				name: "Third",
 				status: "error",
 				updated_at: "2026-04-18T00:00:00.000Z",
+				project_id: "proj-vanished",
+				project_name: null,
 			},
 		]);
 		/* No cursor on this mock → key must be absent from the response,
@@ -169,7 +199,7 @@ describe("registerListApps — happy path", () => {
 		 * read's result, passed straight through — so a shared-Project app the
 		 * by-id tools can open is never invisible to enumeration. The decoded
 		 * args ride along verbatim so schema + DB stay in sync. */
-		expect(listUserProjectIds).toHaveBeenCalledWith("u1");
+		expect(listUserProjects).toHaveBeenCalledWith("u1");
 		expect(listAppsAcrossProjects).toHaveBeenCalledWith(
 			["proj-personal", "proj-shared"],
 			{

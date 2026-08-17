@@ -120,6 +120,7 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 	mutationTargetsInvalid,
+	ProjectMoveDeniedError,
 	RunHolderLostError,
 } from "./commitGuard";
 import {
@@ -200,6 +201,8 @@ export {
 /** Subset of AppDoc fields returned by list queries (no blueprint assembly). */
 export interface AppSummary {
 	id: string;
+	/** The Project the app belongs to — its tenancy + sharing boundary. */
+	project_id: string;
 	app_name: string;
 	connect_type: AppDoc["connect_type"];
 	module_count: number;
@@ -723,6 +726,19 @@ interface ProjectMoveCommitArgs extends ProjectMoveCoreArgs {
 	readonly assetIdMap: ReadonlyMap<MediaAssetId, MediaAssetId>;
 }
 
+/**
+ * The move transaction's in-lock governance check, with each denial arm named
+ * so callers can tell the actor WHAT refused. All three throw
+ * {@link ProjectMoveDeniedError} (a `CommitReauthError` subclass), so the
+ * browser action's `not_permitted` mapping is untouched while the MCP tool
+ * can surface each message as an explicit permission denial rather than the
+ * classifier's generic "App not found." collapse.
+ *
+ * The destination arm's message deliberately doesn't confirm the destination
+ * Project exists — "requires an admin or owner role there" is equally true of
+ * a nonexistent id, so it opens no enumeration channel (and the MCP tool's
+ * preflight has already collapsed a non-member destination to not-found).
+ */
 async function authorizeProjectMoveGovernance(
 	tx: Transaction<AppDatabase>,
 	args: ProjectMoveCoreArgs,
@@ -735,14 +751,26 @@ async function authorizeProjectMoveGovernance(
 	if (
 		memberships.sourceOwnerIds.length === 0 ||
 		memberships.actorSourceRole === null ||
-		memberships.actorDestinationRole === null ||
-		!roleAllowsApp(memberships.actorSourceRole, "delete") ||
-		!roleAllowsApp(memberships.actorDestinationRole, "delete") ||
-		(!memberships.actorIsSourceOwner &&
-			memberships.sourceOwnersMissingFromDestination.length > 0)
+		!roleAllowsApp(memberships.actorSourceRole, "delete")
 	) {
-		throw new CommitReauthError(
+		throw new ProjectMoveDeniedError(
 			"You no longer have permission to move this app.",
+		);
+	}
+	if (
+		memberships.actorDestinationRole === null ||
+		!roleAllowsApp(memberships.actorDestinationRole, "delete")
+	) {
+		throw new ProjectMoveDeniedError(
+			"Moving an app into a Project requires an admin or owner role there. Ask an admin or owner of the destination Project to grant you that role, or have them move the app.",
+		);
+	}
+	if (
+		!memberships.actorIsSourceOwner &&
+		memberships.sourceOwnersMissingFromDestination.length > 0
+	) {
+		throw new ProjectMoveDeniedError(
+			"This move would take the app away from the source Project's owner. Either an owner moves the app themselves, or every owner of the source Project must already be a member of the destination Project.",
 		);
 	}
 }
@@ -2489,6 +2517,7 @@ function projectAppSummary(row: AppSummaryRow, now: number): AppSummary {
 	}
 	return {
 		id: row.id,
+		project_id: row.project_id,
 		app_name: row.app_name,
 		connect_type: row.connect_type,
 		module_count: row.module_count,
@@ -2721,6 +2750,7 @@ export async function listDeletedApps(
 		if (!deletedAt) continue;
 		apps.push({
 			id: row.id,
+			project_id: row.project_id,
 			app_name: row.app_name,
 			connect_type: row.connect_type,
 			module_count: row.module_count,

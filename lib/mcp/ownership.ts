@@ -1,22 +1,25 @@
 /**
- * Per-request ownership check for MCP tool adapters.
+ * Per-request access checks for MCP tool adapters.
  *
- * Every adapter that takes an `app_id` runs this before dispatching to
- * the shared tool's execute. The check distinguishes "no such app" from
- * "you aren't the owner" internally — both collapse to the same
+ * Every adapter that takes an `app_id` runs {@link requireOwnedApp} (and
+ * Project-targeted adapters {@link requireProjectAccess}) before
+ * dispatching to the shared tool's execute. The check distinguishes "no
+ * such row" from "not yours" internally — both collapse to the same
  * `"not_found"` envelope on the wire (see the IDOR-hardening note in
- * `./errors.ts`) so a probing client cannot enumerate existing app
- * ids; the internal distinction exists only so server-side logs can
- * tell accidental typos (`not_found`) apart from cross-tenant probes
+ * `./errors.ts`) so a probing client cannot enumerate existing app or
+ * Project ids; the internal distinction exists only so server-side logs
+ * can tell accidental typos (`not_found`) apart from cross-tenant probes
  * (`not_owner`) that admins alert on.
  */
 
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import {
 	AppAccessError,
-	listUserProjectIds,
+	type ProjectAccess,
 	resolveAppScope,
+	resolveProjectAccess,
 } from "@/lib/db/appAccess";
+import { ProjectPermissionError } from "@/lib/projects/manage";
 
 /**
  * Two-value union of INTERNAL ownership-gate rejection reasons. Kept
@@ -30,12 +33,20 @@ import {
 export type AccessErrorReason = "not_found" | "not_owner";
 
 /**
- * Thrown when an MCP caller targets an app they cannot access.
+ * Which resource kind an access denial targeted. Decides only the wire
+ * TEXT of the collapsed not-found envelope ("App not found." vs
+ * "Project not found.") — the collapse rule itself is identical for
+ * both, and every pre-existing call site defaults to `"app"`.
+ */
+export type McpAccessResource = "app" | "project";
+
+/**
+ * Thrown when an MCP caller targets an app or Project they cannot access.
  *
  * Two reasons:
- * - `not_found` — the app row does not exist (typo or stale id).
- * - `not_owner` — the row exists but is owned by another user; the
- *   caller is never told the app is present under a different owner.
+ * - `not_found` — the row does not exist (typo or stale id).
+ * - `not_owner` — the row exists but the caller isn't a member of its
+ *   Project; the caller is never told the resource is present.
  *
  * Narrower than a raw `Error` so the MCP error serializer can
  * short-circuit `classifyError` and surface a deterministic
@@ -43,7 +54,10 @@ export type AccessErrorReason = "not_found" | "not_owner";
  * content payload.
  */
 export class McpAccessError extends Error {
-	constructor(public readonly reason: AccessErrorReason) {
+	constructor(
+		public readonly reason: AccessErrorReason,
+		public readonly resource: McpAccessResource = "app",
+	) {
 		super(reason);
 		this.name = "McpAccessError";
 	}
@@ -85,25 +99,52 @@ export function rethrowAsMcpAccess(err: unknown): never {
 }
 
 /**
- * Upper bound on how many Projects a single headless MCP caller enumerates
- * across, so the cross-Project scan stays one bounded `project_id IN (…)` query
- * (`queryAppsByScope`). A single user belonging to more than 30 Projects is far
- * outside Nova's small-team shape; the bound never bites in practice and keeps
- * `list_apps` / `search_apps` to one query with the full cursor contract intact.
+ * Assert the caller holds the `required` capability on `projectId` and return
+ * the resolved access (their role rides along for response text). The Project
+ * twin of {@link requireOwnedApp}, with one deliberate asymmetry: a NON-member
+ * still collapses to the not-found envelope (a probing key can't distinguish
+ * existence), but a MEMBER whose role is short of `required` gets an explicit
+ * permission message — a member legitimately knows the Project exists, so the
+ * not-found collapse would only mislead them. Pass `insufficientRole` when the
+ * call site can say something more useful than the generic denial.
  */
-const MAX_ENUMERATED_PROJECTS = 30;
+export async function requireProjectAccess(
+	userId: string,
+	projectId: string,
+	required: AppCapability,
+	insufficientRole?: string,
+): Promise<ProjectAccess> {
+	try {
+		return await resolveProjectAccess(userId, projectId, required);
+	} catch (err) {
+		rethrowAsMcpProjectAccess(err, insufficientRole);
+	}
+}
 
 /**
- * Resolve the headless MCP caller's enumeration scope: every Project they're a
- * member of, bounded to {@link MAX_ENUMERATED_PROJECTS}. This is exactly the
- * reachability {@link requireOwnedApp} authorizes app-by-app, so `list_apps` /
- * `search_apps` enumerate precisely what `get_app` / the editing tools /
- * `delete_app` can open — an app the user can reach by id is never invisible.
- *
- * An MCP key is headless (no "active Project" UI context), so "everything you
- * can access" is the correct scope rather than any single Project.
+ * Map a `lib/db/appAccess` `AppAccessError` from a PROJECT-targeted check onto
+ * the MCP error vocabulary and throw it (re-throwing anything else unchanged).
+ * `not_found` / `not_member` become the Project-flavored {@link McpAccessError}
+ * (both collapse to "Project not found." on the wire); `insufficient_role`
+ * becomes a {@link ProjectPermissionError} — with the call site's
+ * `insufficientRole` message when it has one (it knows what the caller was
+ * trying to do), or the generic denial when it doesn't.
  */
-export async function enumerableProjectIds(userId: string): Promise<string[]> {
-	const projectIds = await listUserProjectIds(userId);
-	return projectIds.slice(0, MAX_ENUMERATED_PROJECTS);
+export function rethrowAsMcpProjectAccess(
+	err: unknown,
+	insufficientRole?: string,
+): never {
+	if (err instanceof AppAccessError) {
+		if (err.reason === "insufficient_role") {
+			throw new ProjectPermissionError(
+				insufficientRole ??
+					"Your role in this Project doesn't allow this action. Ask a Project admin or owner to do it, or to raise your role.",
+			);
+		}
+		throw new McpAccessError(
+			err.reason === "not_found" ? "not_found" : "not_owner",
+			"project",
+		);
+	}
+	throw err;
 }

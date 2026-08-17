@@ -16,9 +16,15 @@ describe("OAuth dynamic client registration scope policy", () => {
 		]);
 		expect(NOVA_OAUTH_DEFAULT_CLIENT_SCOPES).not.toContain("nova.hq.read");
 		expect(NOVA_OAUTH_DEFAULT_CLIENT_SCOPES).not.toContain("nova.hq.write");
+		expect(NOVA_OAUTH_DEFAULT_CLIENT_SCOPES).not.toContain(
+			"nova.projects.read",
+		);
+		expect(NOVA_OAUTH_DEFAULT_CLIENT_SCOPES).not.toContain(
+			"nova.projects.write",
+		);
 	});
 
-	it("allows baseline scopes plus explicit HQ scopes during registration", () => {
+	it("allows baseline scopes plus explicit HQ and Projects scopes during registration", () => {
 		expect(NOVA_OAUTH_ALLOWED_CLIENT_SCOPES).toEqual([
 			"openid",
 			"profile",
@@ -28,6 +34,8 @@ describe("OAuth dynamic client registration scope policy", () => {
 			"nova.write",
 			"nova.hq.read",
 			"nova.hq.write",
+			"nova.projects.read",
+			"nova.projects.write",
 		]);
 	});
 });

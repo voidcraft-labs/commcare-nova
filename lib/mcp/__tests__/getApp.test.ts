@@ -3,11 +3,12 @@
  *
  * Covers the four paths the route handler has to care about:
  *   - Happy path: the tool summarizes an owned app through the shared
- *     `summarizeBlueprint` renderer. The assertion checks for stable
- *     structural strings (app name, module name, the "Structure:"
- *     heading) rather than a full markdown byte comparison — a future
- *     renderer tweak (e.g. pluralization, whitespace) shouldn't break
- *     this contract.
+ *     `summarizeBlueprint` renderer, headed by the app's Nova Project
+ *     (name resolved from the caller's own memberships). The assertion
+ *     checks for stable structural strings (app name, module name, the
+ *     "Structure:" heading) rather than a full markdown byte
+ *     comparison — a future renderer tweak (e.g. pluralization,
+ *     whitespace) shouldn't break this contract.
  *   - Ownership failure: a cross-tenant probe surfaces as
  *     `loadAppBlueprint` throwing `McpAccessError("not_owner")`. The
  *     wire collapses to `"not_found"` (IDOR hardening) so a probing
@@ -32,6 +33,7 @@ import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { listUserProjects } from "@/lib/projects/membership";
 
 import { registerGetApp } from "../tools/getApp";
 import type { ToolContext } from "../types";
@@ -51,6 +53,12 @@ vi.mock("@/lib/db/apps", () => ({
 vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
 	resolveAppAccess: vi.fn(),
+}));
+
+/* The tool resolves the app's Project name from the caller's own memberships
+ * for the summary's `Project:` heading — another auth-DB read to stub. */
+vi.mock("@/lib/projects/membership", () => ({
+	listUserProjects: vi.fn(),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -152,6 +160,7 @@ const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 beforeEach(() => {
 	vi.mocked(loadApp).mockReset();
 	vi.mocked(resolveAppAccess).mockReset();
+	vi.mocked(listUserProjects).mockReset();
 	/* Default: the caller passes the membership gate. The not-owner tests
 	 * override it to reject; the not-found tests never reach it (loadApp → null
 	 * throws first). `loadAppBlueprint` retains the scope fields for downstream
@@ -162,6 +171,17 @@ beforeEach(() => {
 		role: "owner",
 		actorUserId: "u1",
 	});
+	/* Default: the caller's memberships include the app's Project, so the
+	 * summary heading resolves its display name. */
+	vi.mocked(listUserProjects).mockResolvedValue([
+		{
+			id: "p1",
+			name: "ACE Field Team",
+			slug: "ace-field-team",
+			role: "owner",
+			personal: false,
+		},
+	]);
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -179,6 +199,9 @@ describe("registerGetApp — happy path", () => {
 		};
 
 		const text = out.content[0]?.text ?? "";
+		/* The summary opens with the app's Nova Project — the tenancy
+		 * heading MCP prepends (the shared renderer stays blueprint-only). */
+		expect(text.startsWith("Project: ACE Field Team (p1)\n\n")).toBe(true);
 		/* Check for structural markers rather than a byte-for-byte match
 		 * so a future renderer whitespace / pluralization tweak doesn't
 		 * break the contract we're testing. */
@@ -198,6 +221,25 @@ describe("registerGetApp — happy path", () => {
 		expect(text).not.toMatch(/\bModule \d+\b|\bForm \d+\b/);
 		expect(text).toContain(`Module "Patients" [uuid ${moduleUuid}]`);
 		expect(text).toContain(`Form "Register Patient" [uuid ${formUuid}]`);
+	});
+
+	it("falls back to a placeholder name when the membership lookup misses the Project", async () => {
+		/* The access gate just proved membership, so a miss can only be a
+		 * mid-request membership change — the heading keeps the id (the
+		 * useful handle) and degrades only the display name. */
+		vi.mocked(listUserProjects).mockResolvedValue([]);
+		vi.mocked(loadApp).mockResolvedValueOnce(mockAppDoc(mockBlueprint()));
+
+		const { server, capture } = makeFakeServer();
+		registerGetApp(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		const text = out.content[0]?.text ?? "";
+		expect(text.startsWith("Project: (name unavailable) (p1)\n\n")).toBe(true);
+		expect(text).toContain("Vaccine Tracker");
 	});
 });
 

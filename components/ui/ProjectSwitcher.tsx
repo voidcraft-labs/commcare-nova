@@ -29,6 +29,7 @@ import { useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { authClient } from "@/lib/auth-client";
 import type { ProjectSummary } from "@/lib/projects/membership";
+import { slugForName } from "@/lib/projects/slug";
 import { useExternalNavigate } from "@/lib/routing/hooks";
 import {
 	FLOATING_LAYER_CLS,
@@ -44,18 +45,6 @@ interface ProjectSwitcherProps {
 	projects: ProjectSummary[];
 	/** The active Project id, or null when none resolved (no session). */
 	activeProjectId: string | null;
-}
-
-/** A URL-safe slug from a Project name plus a short random suffix so two
- *  Projects of the same name never collide on the org table's unique slug. */
-function slugForName(name: string): string {
-	const base = name
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "")
-		.slice(0, 32);
-	const suffix = crypto.randomUUID().slice(0, 6);
-	return base ? `${base}-${suffix}` : `project-${suffix}`;
 }
 
 export function ProjectSwitcher({

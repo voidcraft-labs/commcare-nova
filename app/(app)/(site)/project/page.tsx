@@ -32,7 +32,7 @@ export default async function ProjectSettingsPage() {
 	const [projects, members, invitations] = await Promise.all([
 		listUserProjects(session.user.id),
 		listProjectMembers(activeProjectId),
-		listPendingInvitations(activeProjectId),
+		listPendingInvitations(activeProjectId, new Date()),
 	]);
 	const activeProject = projects.find((p) => p.id === activeProjectId);
 	if (!activeProject) return null;
