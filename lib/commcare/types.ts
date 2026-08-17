@@ -491,7 +491,7 @@ export interface HqApplication {
 	multimedia_map: Record<string, MultimediaMapItem>;
 	/** Per-language app_strings overrides. */
 	translations: Record<string, Record<string, string>>;
-	/** Standard HQ app properties before _attachments (secondary WAF defense — see client.ts) */
+	/** Standard HQ app properties, kept before _attachments (stable serialized order, form XML last). */
 	admin_password: null;
 	admin_password_charset: string;
 	amplifies_project: string;

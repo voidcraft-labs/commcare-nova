@@ -262,10 +262,9 @@ export function applicationShell(
 		secure_submissions: false,
 		multimedia_map: {},
 		translations: options?.translations ?? {},
-		// Standard HQ app properties before _attachments — secondary WAF defense.
-		// Primary bypass is the 16KB multipart padding in client.ts importApp().
-		// These add ~1.9KB of buffer; insufficient alone for small apps but
-		// still worth keeping to reduce the attack surface. Do not reorder.
+		// Standard HQ app properties, emitted before _attachments so the
+		// serialized JSON keeps a stable, deterministic property order with
+		// the form XML last.
 		admin_password: null,
 		admin_password_charset: "n",
 		amplifies_project: "not_set",
