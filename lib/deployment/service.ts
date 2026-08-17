@@ -315,6 +315,7 @@ export async function publishAppToHq(
 		remoteId: result.appId,
 		ownership: "nova-created",
 		pushedRevision: input.compiledAtSeq,
+		remoteRevision: result.version,
 		uploadedAt: new Date().toISOString(),
 	});
 
@@ -527,6 +528,7 @@ export async function refreshDeployment(
 	}
 	const { view } = await applyDeploymentObservation(scope, target, {
 		observedRemoteId: remote.remoteId,
+		observedPushedAt: remote.pushedAt,
 		outcomes: observation.outcomes,
 		remoteRevision: observation.remoteRevision,
 	});

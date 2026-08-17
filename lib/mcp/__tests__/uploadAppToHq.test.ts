@@ -375,7 +375,7 @@ describe("registerUploadAppToHq — happy path", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-123",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -451,7 +451,7 @@ describe("registerUploadAppToHq — happy path", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-prod",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -481,7 +481,7 @@ describe("registerUploadAppToHq — happy path", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-flags",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 		vi.mocked(probeHqFeatureFlags).mockResolvedValueOnce([
@@ -537,7 +537,7 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 			return {
 				success: true,
 				appId: "hq-789",
-				appUrl: "https://hq.example/app",
+				version: null,
 				warnings: [],
 			};
 		});
@@ -577,7 +577,7 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-1",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -618,7 +618,7 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-1",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
@@ -920,7 +920,7 @@ describe("registerUploadAppToHq — boundary gate", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-clean",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -1015,7 +1015,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-1",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -1036,7 +1036,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-2",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -1062,7 +1062,7 @@ describe("registerUploadAppToHq — progress notifications", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-prog",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
@@ -1089,7 +1089,7 @@ describe("registerUploadAppToHq — progress notifications", () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-silent",
-			appUrl: "https://hq.example/app",
+			version: null,
 			warnings: [],
 		});
 
