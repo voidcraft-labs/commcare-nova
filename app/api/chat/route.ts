@@ -2770,11 +2770,13 @@ export async function POST(req: Request) {
 					/* Repair deploy-crossing histories BEFORE validation: drop tool
 					 * parts naming a tool absent from THIS request's tool set (the
 					 * provider would reject the whole request: "tool not found in
-					 * tools array") AND parts whose recorded input the current
-					 * schema no longer parses (a deploy that narrowed a `.strict()`
-					 * tool input: `validateUIMessages` below would throw,
-					 * fail+refund the run, and re-poison every retry with the same
-					 * history). The full contract, the drop semantics, and the
+					 * tools array") AND in-flight (`input-available`) parts whose
+					 * recorded input the current schema no longer parses (a deploy
+					 * that narrowed a `.strict()` tool input mid-call:
+					 * `validateUIMessages` below would throw, fail+refund the run,
+					 * and re-poison every retry with the same history; a COMPLETED
+					 * call's input is never re-parsed and rides through). The full
+					 * contract, the drop semantics, and the
 					 * validation mirror live on `sanitizeHistoricalToolParts`. The
 					 * repair runs on EVERY turn: every request sends full history,
 					 * and resumed threads routinely carry parts recorded under

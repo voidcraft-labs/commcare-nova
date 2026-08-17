@@ -1,11 +1,12 @@
 // Unit tests for the chat route's deploy-crossing history repair. The
 // scenario under test is the one that bricked resumes: a thread persisted
 // before a deploy carries tool parts the CURRENT tool surface no longer
-// accepts — a retired tool name, or a surviving name whose `.strict()`
-// input schema dropped a key old calls carry (`generateSchema`'s
-// `appName`). The repair must drop exactly those parts, keep everything
-// else byte-identical, and leave a message set the route's
-// `validateUIMessages` accepts.
+// accepts — a retired tool name, or an IN-FLIGHT call (`input-available`)
+// whose surviving tool's `.strict()` input schema dropped a key the old
+// call carries (`generateSchema`'s `appName`). The repair must drop
+// exactly those parts, keep everything else byte-identical — including
+// COMPLETED calls with stale inputs, which `validateUIMessages` never
+// re-parses — and leave a message set the route's validation accepts.
 
 import { type ToolSet, tool, type UIMessage, validateUIMessages } from "ai";
 import { describe, expect, it } from "vitest";
@@ -63,11 +64,38 @@ describe("sanitizeHistoricalToolParts", () => {
 		expect(out[1]).toBe(messages[1]);
 	});
 
-	it("drops a part whose input the narrowed strict schema rejects, keeps the rest", async () => {
+	it("keeps a completed part whose recorded input the narrowed schema rejects", async () => {
+		// A COMPLETED call is a historical record: `validateUIMessages` never
+		// re-parses its input, so the route accepts it and the repair — which
+		// mirrors that validation exactly — must keep it, references intact.
 		const messages = [
 			assistant("a1", [
 				{ type: "text", text: "Here is the design." },
 				toolPart({ input: STALE_INPUT }),
+				toolPart({ toolCallId: "call_2", input: CLEAN_INPUT }),
+			]),
+		];
+		const out = await sanitizeHistoricalToolParts(messages, tools);
+		expect(out).toHaveLength(1);
+		expect(out[0]).toBe(messages[0]);
+		await expect(
+			validateUIMessages({ messages: out, tools: validationTools }),
+		).resolves.toBeDefined();
+	});
+
+	it("drops an in-flight part whose input the narrowed strict schema rejects, keeps the rest", async () => {
+		// An IN-FLIGHT call (`input-available`) still input-parses at
+		// validation, so a stale input would throw at the route; the repair
+		// drops exactly that part and keeps its clean siblings.
+		const messages = [
+			assistant("a1", [
+				{ type: "text", text: "Here is the design." },
+				{
+					type: "tool-generateSchema",
+					toolCallId: "call_1",
+					state: "input-available",
+					input: STALE_INPUT,
+				},
 				toolPart({ toolCallId: "call_2", input: CLEAN_INPUT }),
 			]),
 		];
@@ -101,8 +129,8 @@ describe("sanitizeHistoricalToolParts", () => {
 
 	it("leaves output-error parts alone — validation never parses their input", async () => {
 		// A historical REJECTED call (bad input by definition) must survive:
-		// `validateUIMessages` only input-parses input-available /
-		// output-available parts, and the repair mirrors that exactly.
+		// `validateUIMessages` only input-parses `input-available` parts,
+		// and the repair mirrors that exactly.
 		const messages = [
 			assistant("a1", [
 				{ type: "text", text: "That didn't work." },

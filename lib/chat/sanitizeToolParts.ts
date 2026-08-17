@@ -8,16 +8,19 @@
  *     deploy (the old singular `addCaseListColumn` / `addSearchInput` /
  *     `addField`, the retired `generateScaffold` / `completeBuild` /
  *     `planAppDesign`);
- *   - the tool name survives but its input schema NARROWED, so the
- *     recorded input no longer parses (`generateSchema` dropped
- *     `appName`, `createModule` dropped `case_type_record` — a
- *     `.strict()` schema rejects the leftover key).
+ *   - the part is an IN-FLIGHT call (`input-available`) whose tool
+ *     survives but whose input schema NARROWED, so the recorded input
+ *     no longer parses (`generateSchema` dropped `appName`,
+ *     `createModule` dropped `case_type_record` — a `.strict()` schema
+ *     rejects the leftover key). A COMPLETED call carrying the same
+ *     stale input is a historical record — validation never re-parses
+ *     it, so it rides through untouched.
  *
  * Either shape kills the run downstream: an unknown tool name makes the
  * provider reject the whole request ("tool not found in tools array"),
- * and a no-longer-parsing input makes `validateUIMessages` throw — the
- * run fails and refunds, and every retry re-sends the same poisoned
- * history. A build paused on `awaiting_input` is exactly the shape that
+ * and a no-longer-parsing in-flight input makes `validateUIMessages`
+ * throw — the run fails and refunds, and every retry re-sends the same
+ * poisoned history. A build paused on `awaiting_input` is exactly the shape that
  * must SURVIVE a deploy, so both cases repair the same way: the part is
  * dropped (call + output ride one UIMessage part, so the wire keeps
  * matched pairs for the tools that remain), the surrounding assistant
@@ -28,10 +31,11 @@
  *
  * The schema check is a probe through `safeValidateUIMessages` — the
  * SAME function the route's validation runs — so the two can never
- * drift on what validates (inputs parse only on `input-available` /
- * `output-available` parts; `output-error` parts pass untouched). The
- * probe runs per assistant message, and only a failing message pays
- * the per-part bisection.
+ * drift on what validates (inputs parse only on `input-available`
+ * parts; terminal `output-available` / `output-error` / `output-denied`
+ * parts never re-parse their recorded input). The probe runs per
+ * assistant message, and only a failing message pays the per-part
+ * bisection.
  *
  * Keyed on the live tool set so the filter never drifts from it, and
  * deterministic in its inputs, so successive requests produce identical

@@ -4,13 +4,16 @@ import tablerArrowsSort from "@iconify-icons/tabler/arrows-sort";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronUp from "@iconify-icons/tabler/chevron-up";
 import {
-	type ColumnDef,
-	flexRender,
-	getCoreRowModel,
-	getFilteredRowModel,
-	getSortedRowModel,
+	columnFilteringFeature,
+	createColumnHelper,
+	createFilteredRowModel,
+	createSortedRowModel,
+	globalFilteringFeature,
+	rowSortingFeature,
 	type SortingState,
-	useReactTable,
+	sortFns,
+	tableFeatures,
+	useTable,
 } from "@tanstack/react-table";
 import Image from "next/image";
 import { useState } from "react";
@@ -21,11 +24,26 @@ import type { AdminUserRow } from "@/lib/admin/types";
 import { useExternalNavigate } from "@/lib/routing/hooks";
 import { formatCurrency } from "@/lib/utils/format";
 
+// ── Table Features ───────────────────────────────────────────────
+
+// The full built-in sortFns registry keeps `sortFn: "auto"` resolving per
+// column data type (text/alphanumeric/datetime), matching v8's behavior;
+// without a registry every auto column would fall back to basic sorting.
+const features = tableFeatures({
+	rowSortingFeature,
+	columnFilteringFeature,
+	globalFilteringFeature,
+	sortedRowModel: createSortedRowModel(),
+	filteredRowModel: createFilteredRowModel(),
+	sortFns,
+});
+
+const columnHelper = createColumnHelper<typeof features, AdminUserRow>();
+
 // ── Column Definitions ───────────────────────────────────────────
 
-const columns: ColumnDef<AdminUserRow>[] = [
-	{
-		accessorKey: "name",
+const columns = columnHelper.columns([
+	columnHelper.accessor("name", {
 		header: "User",
 		cell: ({ row }) => (
 			<div className="flex items-center gap-2.5">
@@ -45,82 +63,67 @@ const columns: ColumnDef<AdminUserRow>[] = [
 				<span className="font-medium">{row.original.name}</span>
 			</div>
 		),
-	},
-	{
-		accessorKey: "email",
+	}),
+	columnHelper.accessor("email", {
 		header: "Email",
 		cell: ({ getValue }) => (
-			<span className="text-nova-text-secondary">{getValue<string>()}</span>
+			<span className="text-nova-text-secondary">{getValue()}</span>
 		),
-	},
-	{
-		accessorKey: "role",
+	}),
+	columnHelper.accessor("role", {
 		header: "Role",
 		cell: ({ getValue }) => {
-			const role = getValue<"user" | "admin">();
+			const role = getValue();
 			return (
 				<Badge variant={role === "admin" ? "violet" : "muted"}>{role}</Badge>
 			);
 		},
-	},
-	{
-		accessorKey: "app_count",
+	}),
+	columnHelper.accessor("app_count", {
 		header: "Apps",
-		cell: ({ getValue }) => (
-			<span className="tabular-nums">{getValue<number>()}</span>
-		),
-	},
-	{
-		accessorKey: "generations",
+		cell: ({ getValue }) => <span className="tabular-nums">{getValue()}</span>,
+	}),
+	columnHelper.accessor("generations", {
 		header: "Generations",
-		cell: ({ getValue }) => (
-			<span className="tabular-nums">{getValue<number>()}</span>
-		),
-	},
-	{
-		// Sort on `credits_remaining`: the figure an admin scans to find
-		// low-balance users, while the cell renders the full standing.
-		accessorKey: "credits_remaining",
+		cell: ({ getValue }) => <span className="tabular-nums">{getValue()}</span>,
+	}),
+	// Sort on `credits_remaining`: the figure an admin scans to find
+	// low-balance users, while the cell renders the full standing.
+	columnHelper.accessor("credits_remaining", {
 		header: "Credits",
 		cell: ({ row }) => <CreditsCell user={row.original} />,
-	},
-	{
-		accessorKey: "credits_used_lifetime",
+	}),
+	columnHelper.accessor("credits_used_lifetime", {
 		header: "Lifetime credits",
 		cell: ({ getValue }) => (
-			<span className="tabular-nums">
-				{getValue<number>().toLocaleString()}
-			</span>
+			<span className="tabular-nums">{getValue().toLocaleString()}</span>
 		),
-	},
-	{
-		// This month's true dollar cost: tracked for tuning + backstop, no
-		// longer the user-facing gate (the credit columns are the gate now).
-		accessorKey: "cost",
+	}),
+	// This month's true dollar cost: tracked for tuning + backstop, no
+	// longer the user-facing gate (the credit columns are the gate now).
+	columnHelper.accessor("cost", {
 		header: "Cost this month",
 		cell: ({ getValue }) => (
-			<span className="tabular-nums">{formatCurrency(getValue<number>())}</span>
+			<span className="tabular-nums">{formatCurrency(getValue())}</span>
 		),
-	},
-	{
-		accessorKey: "cost_lifetime",
+	}),
+	columnHelper.accessor("cost_lifetime", {
 		header: "Lifetime cost",
 		cell: ({ getValue }) => (
-			<span className="tabular-nums">{formatCurrency(getValue<number>())}</span>
+			<span className="tabular-nums">{formatCurrency(getValue())}</span>
 		),
-	},
-	{
-		accessorKey: "last_active_at",
+	}),
+	columnHelper.accessor("last_active_at", {
 		header: "Last active",
 		cell: ({ getValue }) => (
 			<RelativeTime
-				date={new Date(getValue<string>())}
+				date={new Date(getValue())}
 				className="first-letter:uppercase"
 			/>
 		),
-		sortingFn: "datetime",
-	},
-];
+		sortFn: "datetime",
+	}),
+]);
 
 // ── Credits Cell ─────────────────────────────────────────────────
 
@@ -208,15 +211,13 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 	]);
 	const [globalFilter, setGlobalFilter] = useState("");
 
-	const table = useReactTable({
+	const table = useTable({
+		features,
 		data: users,
 		columns,
 		state: { sorting, globalFilter },
 		onSortingChange: setSorting,
 		onGlobalFilterChange: setGlobalFilter,
-		getCoreRowModel: getCoreRowModel(),
-		getSortedRowModel: getSortedRowModel(),
-		getFilteredRowModel: getFilteredRowModel(),
 	});
 
 	return (
@@ -253,10 +254,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
                     `}
 									>
 										<div className="flex items-center gap-1">
-											{flexRender(
-												header.column.columnDef.header,
-												header.getContext(),
-											)}
+											<table.FlexRender header={header} />
 											{header.column.getCanSort() && (
 												<SortIndicator
 													direction={header.column.getIsSorted()}
@@ -283,9 +281,9 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
 								}}
 								className="nova-focusable-inset border-b border-nova-border/50 hover:bg-nova-surface/50 transition-colors cursor-pointer"
 							>
-								{row.getVisibleCells().map((cell) => (
+								{row.getAllCells().map((cell) => (
 									<td key={cell.id} className="px-4 py-3 text-sm">
-										{flexRender(cell.column.columnDef.cell, cell.getContext())}
+										<table.FlexRender cell={cell} />
 									</td>
 								))}
 							</tr>
