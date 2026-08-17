@@ -91,6 +91,12 @@ export type PublishOutcome =
 	| (PublishOutcomeShared & {
 			readonly landed: true;
 			readonly refusal: null;
+			/**
+			 * Whether this publish updated the app CommCare HQ already held in
+			 * place, or created a fresh one there (the first publish, or the
+			 * recreate after the mapped app was deleted on CommCare HQ).
+			 */
+			readonly hqAppAction: "created" | "updated";
 			readonly deployment: DeploymentWithResources;
 	  })
 	| (PublishOutcomeShared & {
@@ -272,12 +278,77 @@ export async function publishAppToHq(
 	const { creds, domain, prepared } = preflight.ready;
 	input.onUploadStarted?.();
 
+	/* Update in place, or create. An active mapping whose upload phase
+	 * holds no persisted failure means the project space still holds the
+	 * app Nova put there, so this publish updates it. The predicate is ANY
+	 * persisted upload failure — not the `remote_app_missing` code alone —
+	 * because attempt failures are never persisted on a reached target
+	 * (`applyAttemptOutcome` returns the record unchanged), so a failure
+	 * sitting beside an active mapping implies a prior observation found
+	 * the app gone, even when a later failed create attempt overwrote the
+	 * code. Keying on the code would send that state back down the update
+	 * path against an app CommCare HQ already said is missing. The one
+	 * imperfect corner: an app restored through CommCare HQ's own undo and
+	 * never re-observed gets a fresh copy instead of an update — rare,
+	 * non-destructive, and a Check status before publishing heals it. */
+	const activeBeforeImport = activeRemoteApp(deployment);
+	const updateAppId =
+		activeBeforeImport !== null &&
+		deployment.deployment.phases.upload?.status !== "failed"
+			? activeBeforeImport.remoteId
+			: null;
+
 	// ── Send it ─────────────────────────────────────────────────────
 	// The upload consumes the exact prepared generation preflight
 	// validated, so the bytes that passed are the bytes that go out.
 	const hqJson = expandDoc(prepared.doc, { assets: prepared.assets });
-	const result = await importApp(creds, domain, input.appName, hqJson);
+	const result = await importApp(
+		creds,
+		domain,
+		input.appName,
+		hqJson,
+		updateAppId ?? undefined,
+	);
 	if (!result.success) {
+		if (updateAppId !== null && result.status === 404) {
+			/* The update asked CommCare HQ to overwrite the mapped app, and
+			 * the 404 is an authoritative answer ABOUT THE TARGET: that app
+			 * is gone — the same answer observation's versions read gives.
+			 * So it folds as an observation against the mapping this publish
+			 * read, not as an attempt outcome (which deliberately writes
+			 * nothing on a reached target). The pushed-at token keeps a slow
+			 * publish's 404 from clobbering a concurrent publish that landed
+			 * the same remote id meanwhile. The NEXT publish sees the failed
+			 * upload phase and takes the create path, superseding this
+			 * mapping with the fresh app's. */
+			const failure: DeploymentFailure = {
+				code: "remote_app_missing",
+				message: `The app Nova published to “${domain}” isn't there any more — CommCare HQ reported it gone when Nova tried to update it. It may have been deleted there. Publish again to create a fresh one.`,
+				details: [],
+			};
+			const observed = await applyDeploymentObservation(input.scope, target, {
+				observedRemoteId: updateAppId,
+				observedPushedAt: activeBeforeImport?.pushedAt ?? null,
+				outcomes: [
+					[
+						"upload",
+						{ status: "failed", at: new Date().toISOString(), failure },
+					],
+				],
+				remoteRevision: null,
+			});
+			deployment = observed.view;
+			return {
+				landed: false,
+				refusal: { phase: "upload", failure },
+				deployment,
+				checks: preflight.checks,
+				artifact: await setupArtifactFor(input.scope, deployment, input.doc),
+				warnings: [],
+				featureFlags: preflight.featureFlags,
+				hqAppUrl: null,
+			};
+		}
 		/* CommCare HQ refusing THIS upload says nothing about the app
 		 * already on the project space; the fold leaves a reached record
 		 * alone and moves an unreached one to `incomplete` at `upload`,
@@ -307,8 +378,10 @@ export async function publishAppToHq(
 	// ── Record what it gave back, before anything else can fail ─────
 	// The mapping and the `uploaded` state land in one transaction. A
 	// publish that recorded neither would leave an app sitting on the
-	// project space that Nova has no memory of, and no way to name when
-	// the next publish supersedes it.
+	// project space that Nova has no memory of: no update target for the
+	// next publish, and no way to name it if that publish creates afresh.
+	// On an update the returned id is the one asked for, so this is the
+	// store's same-remote-id arm — the live row updates in place.
 	deployment = await recordRemoteResource(input.scope, target, {
 		kind: "app",
 		novaResourceId: input.scope.appId,
@@ -323,6 +396,7 @@ export async function publishAppToHq(
 		domain,
 		hqAppId: result.appId,
 		appId: input.scope.appId,
+		action: updateAppId === null ? "created" : "updated",
 	});
 
 	// The target is known now, so start the flag probe alongside media
@@ -349,6 +423,7 @@ export async function publishAppToHq(
 	return {
 		landed: true,
 		refusal: null,
+		hqAppAction: updateAppId === null ? "created" : "updated",
 		deployment,
 		checks: preflight.checks,
 		artifact: await setupArtifactFor(input.scope, deployment, input.doc),
@@ -389,12 +464,12 @@ async function uploadMediaBytes(
 			status: mediaResult.status,
 		});
 		return [
-			"Media upload could not be completed; the app was created but its media may not display.",
+			"Media upload could not be completed; the app was published but its media may not display.",
 		];
 	}
 	if (mediaResult.timedOut) {
 		return [
-			"The app was created and its media uploaded. CommCare is still processing it, so it may take a few minutes to appear.",
+			"The app was published and its media uploaded. CommCare is still processing it, so it may take a few minutes to appear.",
 		];
 	}
 	return reportMediaAttach({

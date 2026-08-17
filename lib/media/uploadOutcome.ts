@@ -210,7 +210,7 @@ export function reportMediaAttach(args: {
 	} else {
 		// Positive unmatched count but nothing resolvable — keep a signal.
 		warnings.push(
-			"Some media files may not have attached. The app was created. Check its media in CommCare HQ.",
+			"Some media files may not have attached. The app was published. Check its media in CommCare HQ.",
 		);
 		log.error(
 			`${logPrefix} unmatched media reported without per-file detail`,

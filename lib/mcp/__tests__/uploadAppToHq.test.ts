@@ -404,6 +404,8 @@ describe("registerUploadAppToHq — happy path", () => {
 			"acme-research",
 			"Imported",
 			FAKE_HQ_JSON,
+			// No active mapping for this target, so the publish creates.
+			undefined,
 		);
 
 		const parsed = JSON.parse(out.content[0]?.text ?? "{}");
@@ -469,6 +471,7 @@ describe("registerUploadAppToHq — happy path", () => {
 			"connect-ace-prod",
 			"Vaccine Tracker",
 			FAKE_HQ_JSON,
+			undefined,
 		);
 	});
 
@@ -1029,6 +1032,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 			"acme-research",
 			"Vaccine Tracker",
 			FAKE_HQ_JSON,
+			undefined,
 		);
 	});
 
@@ -1053,6 +1057,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 			"acme-research",
 			"Vaccine Tracker",
 			FAKE_HQ_JSON,
+			undefined,
 		);
 	});
 });

@@ -2,10 +2,11 @@
  * `publishAppToHq` — the one publish lifecycle.
  *
  * These cover what a publish MEANS: which edges block before anything
- * externally visible happens, what gets recorded when CommCare HQ accepts
- * the app, which failures are warnings rather than refusals, and whose
- * report a refusal is. The route and the MCP tool both go through this,
- * so proving it here proves both.
+ * externally visible happens, whether the import updates the app the
+ * project space already holds or creates one, what gets recorded when
+ * CommCare HQ accepts the app, which failures are warnings rather than
+ * refusals, and whose report a refusal is. The route and the MCP tool
+ * both go through this, so proving it here proves both.
  *
  * The store is mocked because the transitions it persists are proved
  * against real Postgres in `store.integration.test.ts`; here the subject
@@ -96,6 +97,23 @@ function record(overrides: Record<string, unknown> = {}) {
 
 function view(overrides: Record<string, unknown> = {}) {
 	return { deployment: record(overrides), active: [], superseded: [] };
+}
+
+/** An active ledger mapping — the app a previous publish put on the target. */
+function mapping(overrides: Record<string, unknown> = {}) {
+	return {
+		deploymentId: "dep-1",
+		kind: "app" as const,
+		novaResourceId: SCOPE.appId,
+		remoteId: "hq-1",
+		ownership: "nova-created" as const,
+		pushedRevision: 3,
+		pushedAt: "2026-08-06T00:00:00.000Z",
+		remoteRevision: null,
+		remoteObservedAt: null,
+		supersededAt: null,
+		...overrides,
+	};
 }
 
 /**
@@ -214,7 +232,7 @@ beforeEach(() => {
 	vi.mocked(importApp).mockResolvedValue({
 		success: true,
 		appId: "hq-abc",
-		appUrl: "https://www.commcarehq.org/a/acme/apps/view/hq-abc/",
+		version: null,
 		warnings: [],
 	} as never);
 });
@@ -311,6 +329,8 @@ describe("publishAppToHq — what a successful publish records", () => {
 			remoteId: "hq-abc",
 			ownership: "nova-created",
 			pushedRevision: 7,
+			// A create response carries no version; observation fills it in.
+			remoteRevision: null,
 		});
 		expect(outcome.deployment?.deployment.state).toBe("uploaded");
 	});
@@ -357,6 +377,146 @@ describe("publishAppToHq — what a successful publish records", () => {
 	it("skips the media upload for a media-free app", async () => {
 		await publishAppToHq(publishInput());
 		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
+	});
+});
+
+describe("publishAppToHq — update in place vs create", () => {
+	it("creates on a first publish, sending no app id", async () => {
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(vi.mocked(importApp).mock.calls[0]?.[4]).toBeUndefined();
+		expect(outcome.landed).toBe(true);
+		expect(outcome).toMatchObject({ hqAppAction: "created" });
+	});
+
+	it("updates the mapped app in place when the project space still holds it", async () => {
+		vi.mocked(readDeployment).mockImplementation(
+			async () =>
+				({
+					deployment: record({ state: "released" }),
+					active: [mapping()],
+					superseded: [],
+				}) as never,
+		);
+		vi.mocked(importApp).mockResolvedValue({
+			success: true,
+			appId: "hq-1",
+			version: 12,
+			warnings: [],
+		} as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(vi.mocked(importApp).mock.calls[0]?.[4]).toBe("hq-1");
+		// Same remote id back, plus the version the update reported — the
+		// store's same-remote-id arm updates the live mapping in place.
+		expect(vi.mocked(recordRemoteResource).mock.calls[0]?.[2]).toMatchObject({
+			remoteId: "hq-1",
+			pushedRevision: 7,
+			remoteRevision: 12,
+		});
+		expect(outcome.landed).toBe(true);
+		expect(outcome).toMatchObject({ hqAppAction: "updated" });
+	});
+
+	it.each(["remote_app_missing", "hq_rejected_upload"])(
+		"creates afresh over a persisted upload failure (%s), even beside an active mapping",
+		async (code) => {
+			/* A persisted upload failure next to an active mapping means an
+			 * observation found the mapped app gone — attempt failures never
+			 * persist on a reached target. The predicate is ANY code, not
+			 * `remote_app_missing` alone: a later refused CREATE attempt
+			 * overwrites the code (the second case here), and keying on it
+			 * would send that state back down the update path against an app
+			 * CommCare HQ already said is missing. */
+			vi.mocked(readDeployment).mockImplementation(
+				async () =>
+					({
+						deployment: record({
+							state: "incomplete",
+							resumePhase: "upload",
+							phases: {
+								...NO_DEPLOYMENT_PHASE_OUTCOMES,
+								upload: {
+									status: "failed",
+									at: "now",
+									failure: { code, message: "gone", details: [] },
+								},
+							},
+						}),
+						active: [mapping()],
+						superseded: [],
+					}) as never,
+			);
+
+			const outcome = await publishAppToHq(publishInput());
+
+			expect(vi.mocked(importApp).mock.calls[0]?.[4]).toBeUndefined();
+			expect(vi.mocked(recordRemoteResource).mock.calls[0]?.[2]).toMatchObject({
+				remoteId: "hq-abc",
+			});
+			expect(outcome.landed).toBe(true);
+			expect(outcome).toMatchObject({ hqAppAction: "created" });
+		},
+	);
+
+	it("refuses when CommCare HQ says the app to update is gone", async () => {
+		vi.mocked(readDeployment).mockImplementation(
+			async () =>
+				({
+					deployment: record({ state: "released" }),
+					active: [mapping()],
+					superseded: [],
+				}) as never,
+		);
+		vi.mocked(importApp).mockResolvedValue({
+			success: false,
+			status: 404,
+		} as never);
+		vi.mocked(applyDeploymentObservation).mockResolvedValue({
+			view: {
+				deployment: record({ state: "incomplete", resumePhase: "upload" }),
+				active: [mapping()],
+				superseded: [],
+			},
+			applied: true,
+		} as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.phase).toBe("upload");
+		expect(outcome.refusal?.failure.code).toBe("remote_app_missing");
+		expect(outcome.refusal?.failure.message).toMatch(/publish again/i);
+		/* The 404 is an answer ABOUT THE TARGET — the mapped app is gone —
+		 * so it folds as an observation of the mapping this publish read,
+		 * carrying its pushed-at staleness token. Never as an attempt
+		 * outcome, which deliberately writes nothing on a reached target. */
+		expect(applyDeploymentObservation).toHaveBeenCalledWith(
+			SCOPE,
+			{ server: "production", domain: "acme" },
+			expect.objectContaining({
+				observedRemoteId: "hq-1",
+				observedPushedAt: "2026-08-06T00:00:00.000Z",
+				remoteRevision: null,
+				outcomes: [
+					[
+						"upload",
+						expect.objectContaining({
+							status: "failed",
+							failure: expect.objectContaining({
+								code: "remote_app_missing",
+							}),
+						}),
+					],
+				],
+			}),
+		);
+		// Only the preflight ensure-fold ran; the 404 never folds as an
+		// upload attempt, and nothing lands in the resource ledger.
+		expect(foldDeploymentAttempt).toHaveBeenCalledTimes(1);
+		expect(recordRemoteResource).not.toHaveBeenCalled();
+		expect(outcome.deployment?.deployment.state).toBe("incomplete");
 	});
 });
 
@@ -491,20 +651,7 @@ describe("refreshDeployment", () => {
 	function published(overrides: Record<string, unknown> = {}) {
 		return {
 			deployment: record({ state: "released", ...overrides }),
-			active: [
-				{
-					deploymentId: "dep-1",
-					kind: "app" as const,
-					novaResourceId: SCOPE.appId,
-					remoteId: "hq-1",
-					ownership: "nova-created" as const,
-					pushedRevision: 3,
-					pushedAt: "2026-08-06T00:00:00.000Z",
-					remoteRevision: null,
-					remoteObservedAt: null,
-					supersededAt: null,
-				},
-			],
+			active: [mapping()],
 			superseded: [],
 		};
 	}
@@ -684,6 +831,9 @@ describe("refreshDeployment", () => {
 			{ server: "production", domain: "acme" },
 			expect.objectContaining({
 				observedRemoteId: "hq-1",
+				// The staleness token: the guard discards this pass if a
+				// publish re-stamps the mapping while it was in flight.
+				observedPushedAt: "2026-08-06T00:00:00.000Z",
 				remoteRevision: 4,
 			}),
 		);
