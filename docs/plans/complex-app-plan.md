@@ -1529,12 +1529,19 @@ change the version or what is released. **It always names a build id and never
 
 `built` means a build of what the project space currently holds rather than
 merely that some build exists, so an app edited on HQ after its last build is
-reported pending with the version gap named. HQ has no atomic app update
-(`models/applications.py::_create_app_from_doc` lands every import at version 1:
-`ApplicationBase::from_source` strips `version` with the rest of `_meta_fields`,
-and `::convert_build_to_app` clears `copy_of`), so publishing again creates a second app there;
-the superseded mapping is retained rather than deleted so the app left behind
-stays nameable.
+reported pending with the version gap named. The import endpoint updates in
+place when the POST carries `app_id`
+(`views/app_import_api.py::_handle_import_app`: update →
+`models/applications.py::overwrite_app_from_source`, 200 with `version`;
+create → `import_app_util`, 201 without; unknown `app_id` → 404). The update
+is an overlay merge (`::_merge_source_into_app` keeps
+`ApplicationBase._update_excluded_fields` plus any non-excluded field absent
+from source, and applies `extra_properties` last, which is how `app_name`
+renames through the `name` exclusion), and `save_attachments` persists with
+exactly one version bump. Publishing again therefore updates the mapped app; a
+mapping is superseded only by the recreate after an HQ-side deletion, and the
+superseded row is retained rather than deleted so an app left behind stays
+nameable.
 
 Preflight is a dependency graph with two kinds of edge. A blocking edge is a
 real prerequisite — no connection, or an app the export boundary refuses — and
@@ -1556,11 +1563,12 @@ and organization levels are session-only HTML forms
 `locations/views.py::LocationTypesView`), automations have no REST resource, and
 building and releasing are the pages above. It also states that
 `models/applications.py::_create_app_from_doc` initializes `cloudcare_enabled`
-from the domain's Web Apps privilege at import, so an app published before the
+from the domain's Web Apps privilege at create, so an app published before the
 feature was on starts with it off. The remedy is the ordinary **Web App**
 setting (`commcare-app-settings.yml` id `cloudcare_enabled`, editable through
-`views/apps.py::edit_app_attr`), never a republish that would leave a duplicate
-app behind.
+`views/apps.py::edit_app_attr`). Nova deliberately never emits
+`cloudcare_enabled` (`lib/commcare/hqShells.ts`), so the in-place update's
+overlay merge retains that HQ-side toggle across republishes.
 
 Preview's `commcare_project` is supplied from that record: present when exactly
 one deployment has reached `uploaded`, absent when none has and when several

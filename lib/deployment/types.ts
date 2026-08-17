@@ -224,11 +224,13 @@ export type DeploymentResourceKind = (typeof DEPLOYMENT_RESOURCE_KINDS)[number];
  * `Uuid`, because an app id is an opaque storage identity and not an
  * authored entity address.
  *
- * A superseded mapping is kept rather than deleted. CommCare HQ has no
- * atomic app update, so publishing again makes a NEW app there and leaves
- * the previous one in place. The author needs to be told that it is still
- * sitting on their project space, which is only possible if Nova remembers
- * it.
+ * A superseded mapping is kept rather than deleted. An ordinary republish
+ * updates the mapped app in place and supersedes nothing; a mapping is
+ * replaced only when a publish had to start fresh — the mapped app was
+ * deleted on CommCare HQ, or the row predates in-place updates, whose
+ * every publish made a new app beside the old one. The author needs to be
+ * told what an earlier publish may have left sitting on their project
+ * space, which is only possible if Nova remembers it.
  */
 export interface DeploymentResource {
 	readonly deploymentId: string;

@@ -24,8 +24,10 @@ compares its Project first — and `apps.ts::commitAppProjectMoveInTransaction`
 re-tenants these rows in the same transaction that flips `apps.project_id`. A partial unique index on
 `(deployment_id, kind, nova_resource_id) WHERE superseded_at IS NULL` makes two
 live ownership mappings for one Nova resource unrepresentable; superseded rows
-are retained rather than deleted, because CommCare HQ has no atomic app update
-and the app a later publish left behind has to stay nameable.
+are retained rather than deleted so the app an earlier publish left behind
+stays nameable (an ordinary republish updates the mapped app in place —
+supersession arises only from the recreate after an HQ-side deletion, plus
+rows from before in-place updates).
 `lib/deployment/CLAUDE.md` owns the lifecycle.
 
 **Lock ordering is the concurrency discipline.** Every transaction that

@@ -201,9 +201,10 @@ export async function refreshDeploymentAction(
  * the record outlives the publish that made it: somebody who published
  * yesterday, made the build on CommCare HQ, and came back today needs
  * Check status, and without this the only route to it would be
- * publishing again, which mints a SECOND app on the project space and
- * supersedes the first. A read authorizes as a view; reading a target
- * changes nothing on it.
+ * publishing the app all over again just to see where things stand. The
+ * records are also what tells the dialog whether the selected project
+ * space gets an in-place update or a fresh app. A read authorizes as a
+ * view; reading a target changes nothing on it.
  */
 export async function readDeploymentsAction(
 	input: unknown,

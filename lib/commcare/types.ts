@@ -485,7 +485,9 @@ export interface HqApplication {
 		properties: Record<string, never>;
 	};
 	vellum_case_management: boolean;
-	cloudcare_enabled: boolean;
+	/* No `cloudcare_enabled`: HQ owns that setting — create initializes it
+	 * from the domain's Web Apps privilege and the update merge retains an
+	 * absent field, so Nova never emits it (`hqShells.ts`). */
 	case_sharing: boolean;
 	secure_submissions: boolean;
 	multimedia_map: Record<string, MultimediaMapItem>;

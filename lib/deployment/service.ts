@@ -52,11 +52,13 @@ import type {
  *
  * There is deliberately no lock held across the HQ round trips. Every
  * record write is one short transaction that folds against the fresh row
- * (`lib/deployment/store.ts`), so two interleaved publishes each record
- * their own app and the ledger files whichever landed first as
- * superseded (the same answer two sequential publishes produce), and a
- * refresh that observed an app a publish just replaced discards its
- * answers instead of overwriting the fresh record.
+ * (`lib/deployment/store.ts`): two interleaved publishes updating the
+ * mapped app record the same remote id and the live row takes the later
+ * write, two interleaved creates each record their own app and the
+ * ledger files whichever recorded first as superseded (the same answer
+ * two sequential creates produce), and a refresh that began before a
+ * publish landed discards its answers instead of overwriting the fresh
+ * record (the pushed-at token in `applyDeploymentObservation`).
  */
 
 interface PublishOutcomeShared {

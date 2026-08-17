@@ -257,7 +257,14 @@ export function applicationShell(
 		},
 		profile: { doc_type: "Profile", features: {}, properties: {} },
 		vellum_case_management: true,
-		cloudcare_enabled: false,
+		/* `cloudcare_enabled` is deliberately absent. CommCare HQ owns that
+		 * setting: create initializes it from the domain's Web Apps privilege
+		 * (`models/applications.py::_create_app_from_doc`) and ignores the
+		 * source's value, while the in-place update's overlay merge
+		 * (`::_merge_source_into_app`) RETAINS a field absent from source —
+		 * so leaving it out keeps a Web App toggle ticked on CommCare HQ
+		 * across republishes, where emitting `false` would switch Web Apps
+		 * off on every update. */
 		case_sharing: false,
 		secure_submissions: false,
 		multimedia_map: {},

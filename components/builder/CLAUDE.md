@@ -158,8 +158,11 @@ screen.
 
 The dialog **opens** on those records, above the publish form, not only after a
 publish creates one — the record outlives the request, and without this the only
-way to reach Check status would be publishing again, which puts a second app on
-the project space. The dialog keeps ONE copy per target: the open-time read
+way to reach Check status would be publishing the app all over again. The
+records also drive target-aware copy: the form says whether the selected
+project space gets an in-place update or a fresh app (`plannedInPlaceUpdate`,
+the same predicate the publish applies), and the landed hero says which
+happened. The dialog keeps ONE copy per target: the open-time read
 seeds a store, and the publish response and every Check status upsert into it,
 so the landed hero and the list can never show the same project space with
 disagreeing contents, and a fresh deployment survives the status resets a

@@ -113,8 +113,8 @@ that scanned the phases for "the" failure. The guard reads
 answers `false` at every rung while a deployment is `incomplete`, so it
 would hand the worst case the worst answer: an app uploaded, built and
 released on CommCare HQ whose probe failed would be walked back to
-`preflight` by an expired key, losing its resume phase, leaving a second
-publish (and a duplicate app) as the only way forward.
+`preflight` by an expired key, losing its resume phase, leaving a whole
+re-publish as the only way forward.
 
 For a related reason `deploymentIsObservable` stops `refreshDeployment`
 observing a deployment refused at `preflight` or `upload`: it may still
@@ -169,15 +169,25 @@ would silently attach a deployment to somebody else's work. Nova pushes to
 CommCare HQ and never reads an app back, so it could not verify such a
 guess even if it made one.
 
-CommCare HQ has no atomic app update, so publishing again creates a NEW
-app there and leaves the previous one in place. The old mapping is kept
-with `superseded_at` set rather than deleted, because "report any old
-remote resource left behind" is impossible if the row is thrown away. A
-partial unique index makes two live mappings for one Nova resource
-unrepresentable.
+An ordinary republish updates the mapped app in place: the import
+carries the active mapping's remote id (`plannedInPlaceUpdate`,
+`resources.ts`), CommCare HQ overwrites that app, and the live row
+updates without supersession. A publish creates afresh only when there is
+no active mapping, or when a persisted upload failure says the mapped app
+is gone — the 404 CommCare HQ answers an update with folds through
+`applyDeploymentObservation` as a `remote_app_missing` upload failure
+(target information, not attempt information), the publish refuses, and
+the NEXT publish creates and supersedes the dead mapping. That recreate,
+plus rows from before in-place updates existed, is the only route to a
+superseded row. It is kept with `superseded_at` set rather than deleted,
+because "report any old remote resource left behind" is impossible if
+the row is thrown away. A partial unique index makes two live mappings
+for one Nova resource unrepresentable.
 
-Republishing also CLEARS the build/release/probe outcomes: they described
-the previous remote app and are not evidence about this one.
+Every publish still CLEARS the build/release/probe outcomes: they
+described what the target held before it — a build of the previous
+version is not evidence about this one — and the next observation
+re-derives the honest story, version gap and all.
 
 ## One publish lifecycle
 
@@ -223,15 +233,18 @@ because each fold states its precondition against that fresh row:
 - `foldDeploymentAttempt` applies `applyAttemptOutcome`, which changes
   nothing once the target displays as reached — so an attempt outcome
   computed while another publish landed cannot rewrite the fresh record.
-- `recordRemoteResource` supersedes and folds in one transaction; two
-  interleaved publishes each record their own app and the ledger files
-  whichever recorded first as superseded — the same answer, and the same
-  two HQ apps, that two sequential publishes produce.
-- `applyDeploymentObservation` folds only while the mapping the
-  observation asked about is still the ACTIVE one, so a refresh that
-  spent five seconds asking about the app a publish just replaced
-  discards its answers instead of overwriting the fresh record. It also
-  records the remote revision in that same transaction.
+- `recordRemoteResource` records and folds in one transaction. Two
+  interleaved updates of the mapped app record the same remote id and
+  the live row simply takes the later write; two interleaved creates
+  each record their own app and the ledger files whichever recorded
+  first as superseded — the same answer two sequential creates produce.
+- `applyDeploymentObservation` folds only while the active mapping still
+  carries the remote id AND the `pushed_at` the observation read before
+  asking — the per-publish staleness token, needed because an in-place
+  republish keeps the id — so a refresh that spent five seconds asking
+  about what a publish meanwhile replaced discards its answers instead
+  of overwriting the fresh record. It also records the remote revision
+  in that same transaction.
 
 ## The setup artifact regenerates, always
 
@@ -256,9 +269,10 @@ an app should reason about.
 **The dialog opens on the record, not only after a publish creates one.**
 `readDeploymentsAction` loads every project space this app has reached when
 the dialog opens, above the publish form. Without it the only route to
-Check status would be publishing again — which puts a SECOND app on the
-project space, because CommCare HQ has no atomic app update — so the one
-button that advances a deployment would cost a duplicate every time. The
+Check status would be publishing the app all over again just to see the
+record. The records are also what tells the form whether the selected
+project space gets an in-place update or a fresh app
+(`plannedInPlaceUpdate`, the same predicate the publish applies). The
 read authorizes as a `view` and refresh as an `edit`, which is also why
 `DeploymentStatus` takes `canRefresh`: offering a viewer a button that
 would be refused is worse than not offering it. The same reasoning hides
