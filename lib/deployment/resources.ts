@@ -57,8 +57,12 @@ export function activeRemoteApp(
  * back down the update path against an app CommCare HQ already said is
  * missing. The one imperfect corner: an app restored through CommCare
  * HQ's own undo and never re-observed gets a fresh copy instead of an
- * update. Rare, non-destructive, and a Check status before publishing
- * heals it.
+ * update. Rare and non-destructive. A Check status before publishing
+ * heals it, but only while the persisted failure still carries the
+ * `remote_app_missing` code (`deploymentIsObservable` whitelists exactly
+ * that); a later failed create attempt that overwrote the code closes
+ * that window until a publish lands and `recordRemoteResource` clears
+ * the failure.
  *
  * Shared by the publish lifecycle (the decision itself) and the publish
  * dialog (the copy saying which will happen), so the promise on the

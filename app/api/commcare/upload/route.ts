@@ -133,7 +133,11 @@ export async function POST(req: NextRequest) {
 				feature_flag_requirements: outcome.featureFlags,
 				url: outcome.hqAppUrl,
 			},
-			{ status: succeeded ? 201 : 200 },
+			/* 201 only when the publish actually created the HQ app; an
+			 * in-place update created no resource, so it answers 200. */
+			{
+				status: outcome.landed && outcome.hqAppAction === "created" ? 201 : 200,
+			},
 		);
 	} catch (err) {
 		return handleApiError(

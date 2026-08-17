@@ -284,6 +284,7 @@ export async function publishAppToHq(
 	 * `plannedInPlaceUpdate` (`resources.ts`), which the publish dialog
 	 * also reads to say which will happen before the button is pressed. */
 	const updateTarget = plannedInPlaceUpdate(deployment);
+	const hqAppAction = updateTarget === null ? "created" : "updated";
 
 	// ── Send it ─────────────────────────────────────────────────────
 	// The upload consumes the exact prepared generation preflight
@@ -383,7 +384,7 @@ export async function publishAppToHq(
 		domain,
 		hqAppId: result.appId,
 		appId: input.scope.appId,
-		action: updateTarget === null ? "created" : "updated",
+		action: hqAppAction,
 	});
 
 	// The target is known now, so start the flag probe alongside media
@@ -410,7 +411,7 @@ export async function publishAppToHq(
 	return {
 		landed: true,
 		refusal: null,
-		hqAppAction: updateTarget === null ? "created" : "updated",
+		hqAppAction,
 		deployment,
 		checks: preflight.checks,
 		artifact: await setupArtifactFor(input.scope, deployment, input.doc),

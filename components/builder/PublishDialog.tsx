@@ -339,18 +339,23 @@ export function PublishDialog({
 		[upsertView, setProjectSpace],
 	);
 
-	/* Whether publishing to the selected project space updates the app
-	 * already there or creates a fresh one. The SAME predicate the publish
-	 * lifecycle applies server-side (`plannedInPlaceUpdate`), read off the
-	 * records this dialog already loads, so the form's blurb promises
-	 * exactly what the request that follows will do. */
-	const updatesInPlace =
-		existing.type === "ready" &&
-		existing.views.some(
-			(view) =>
-				view.deployment.deployment.domain === selectedDomain &&
-				plannedInPlaceUpdate(view.deployment) !== null,
-		);
+	/* What publishing to the selected project space will do. The SAME
+	 * predicate the publish lifecycle applies server-side
+	 * (`plannedInPlaceUpdate`), read off the records this dialog already
+	 * loads, so the form's blurb promises exactly what the request that
+	 * follows will do — and "unknown" while the records are loading, when
+	 * the read failed, or before a domain is picked, because a claim made
+	 * in those windows would be a guess the upload could contradict. */
+	const publishPlan: "update" | "create" | "unknown" =
+		existing.type !== "ready" || selectedDomain === ""
+			? "unknown"
+			: existing.views.some(
+						(view) =>
+							view.deployment.deployment.domain === selectedDomain &&
+							plannedInPlaceUpdate(view.deployment) !== null,
+					)
+				? "update"
+				: "create";
 
 	const featureFlagDomain =
 		target === "hq"
@@ -756,7 +761,7 @@ export function PublishDialog({
 											appName={appName}
 											onAppNameChange={setAppName}
 											status={status}
-											updatesInPlace={updatesInPlace}
+											publishPlan={publishPlan}
 										/>
 									</>
 								)
@@ -888,7 +893,7 @@ function UploadForm({
 	appName,
 	onAppNameChange,
 	status,
-	updatesInPlace,
+	publishPlan,
 }: {
 	availableDomains: Domain[];
 	domainItems: { label: string; value: string }[];
@@ -898,8 +903,8 @@ function UploadForm({
 	appName: string;
 	onAppNameChange: (value: string) => void;
 	status: PublishStatus;
-	/** Whether the selected project space's app gets updated in place. */
-	updatesInPlace: boolean;
+	/** What publishing will do to the selected project space's app. */
+	publishPlan: "update" | "create" | "unknown";
 }) {
 	const uploading = status.type === "uploading";
 	return (
@@ -970,9 +975,11 @@ function UploadForm({
 				</Field>
 
 				<p className="text-xs leading-relaxed text-nova-text-muted">
-					{updatesInPlace
+					{publishPlan === "update"
 						? "Uploading updates the app an earlier publish put on this project space, keeping the same app there. This window checks its feature flags now and again after upload."
-						: "Uploading creates a new app in the selected project space. This window checks its feature flags now and again after upload."}
+						: publishPlan === "create"
+							? "Uploading creates a new app in the selected project space. This window checks its feature flags now and again after upload."
+							: "This window checks the selected project space's feature flags now and again after upload."}
 				</p>
 			</div>
 
