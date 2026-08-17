@@ -24,8 +24,10 @@
  * Alignment: the mark's box is centered on the lowercase ink band, which
  * sits 0.132em below the line-box center in Outfit bold (baseline at
  * 0.875em with line-height 1, minus half the 0.486em x-height); the
- * translateY carries that offset, bounded so the mark stays inside the
- * line box it is set in.
+ * translateY carries that offset on whichever box is the shorter of the
+ * two. A transform moves paint, not layout, so on a rung where mark and
+ * type are nearly the same height (hero) the few pixels of drop that
+ * land past the line box widen nothing.
  *
  * The `chrome` rung alone has a wordmark that comes and goes, so it alone
  * sets the word in a collapsing track: it joins the sphere where the header
@@ -40,22 +42,28 @@ const MARK_FLAT =
 	"radial-gradient(ellipse 50% 50% at 37% 34%,var(--nova-violet) 0 99%,rgba(150,120,242,0) 100%),var(--nova-dawn)";
 
 /**
- * One lockup, five sizes. Four of them hold the illustration's proportion,
- * where the wordmark is ~1.3× the mark's diameter and the gap ~0.35×.
+ * One lockup, five sizes. The three flat rungs hold the illustration's
+ * proportion, where the wordmark is ~1.3× the mark's diameter and the gap
+ * ~0.35×.
  *
- * `chrome` is the app's own header, and it inverts that proportion on purpose.
- * The mark is 44px because that is the control band every other header control
- * stands in, and the wordmark does NOT come with it: scaled proportionally the
- * type would be 57px, which makes the lockup taller than the buttons beside it
- * and turns the header into a title card. Here the sphere is the brand and the
- * word is its label, so the type stays near its reading size and the lockup is
- * exactly as tall as a button.
+ * The full sphere has ONE diameter. `chrome` set it: the mark is 44px because
+ * that is the control band every other header control stands in. `hero`
+ * matches it rather than scaling, because the sphere is the brand object, and
+ * the landing page and the header should show the same world, not two sizes
+ * of it. Neither rung scales the wordmark with the sphere, for two different
+ * reasons. In chrome, proportional type would be 57px, which makes the lockup
+ * taller than the buttons beside it and turns the header into a title card:
+ * the sphere is the brand and the word is its label, so the type stays near
+ * its reading size and the lockup is exactly as tall as a button. In hero,
+ * proportional type would be 56px, and a 56px wordmark plus the sphere and
+ * gap measures ~457px against the landing column's 400: the word keeps its
+ * 48px display size and the whole lockup fits.
  */
 const SIZES = {
 	sm: { font: 18, mark: 14, gap: 5 },
 	md: { font: 20, mark: 15, gap: 5 },
 	lg: { font: 30, mark: 23, gap: 8 },
-	hero: { font: 48, mark: 37, gap: 13 },
+	hero: { font: 48, mark: 44, gap: 13 },
 	chrome: { font: 32, mark: 44, gap: 12 },
 } as const;
 
@@ -100,8 +108,8 @@ export function Logo({
 	const inChrome = size === "chrome";
 	/* The lockup aligns on the lowercase INK, never on the two boxes: the ink
 	 * band sits 0.132em below the text box's center, so centering the boxes
-	 * leaves the mark visibly high. Move whichever box has the room. The mark
-	 * drops when the type is the taller of the two; the type rises when the
+	 * leaves the mark visibly high. Move whichever box is the shorter of the
+	 * two. The mark drops when the type is the taller; the type rises when the
 	 * mark is. Moving the wrong one carries it outside the lockup, which is how
 	 * a 44px mark ends up hanging below the header row it belongs to. */
 	const inkOffset = `${(0.132 * s.font).toFixed(1)}px`;
