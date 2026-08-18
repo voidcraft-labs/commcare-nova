@@ -481,10 +481,23 @@ BUILD id is what keeps it on that build instead of falling through to
 
 A key is **not** one-project-per-user: an unscoped HQ key reaches every project space its owner belongs to. `discoverAccessibleDomains` lists them and probes app-level access in a bounded-concurrency window (an unbounded fan-out self-inflicts a 429 on big accounts). The upload *target* is chosen by `resolveUploadDomain` (`@/lib/db/domainResolution`) — explicit arg, else the sole space of a single-space key, else **error** (ambiguous) for a multi-space key (never silently the first space). There is no stored default: a multi-space key's target is a per-upload choice. Don't reintroduce the one-project assumption that caused the wrong-target bug.
 
-The import endpoints carry `@csrf_exempt` and `@waf_allow('XSS_BODY')`
-(`app_import_api.py`, live on all three servers since commcare-hq
-`b5dfe459`), so the client sends one plain authenticated multipart POST —
-no CSRF token fetch and no WAF padding field.
+The import endpoints carry `@csrf_exempt` (`app_import_api.py`, live on all
+three servers since commcare-hq `b5dfe459`), so the client fetches no CSRF
+token. They also carry `@waf_allow('XSS_BODY')`, and **that decorator does
+not make the WAF let the upload through**:
+`corehq/apps/hqwebapp/decorators.py::waf_allow` only records the view in a
+module-level dict for whoever configures the WAF, wrapping nothing and
+changing nothing at request time. The WAF in front of CommCare HQ still
+matches an `xmlns=` / `xmlns:<prefix>=` declaration in roughly the first
+8 KiB of a request body and answers 403 from the edge, before Django. So
+both uploads still send `WAF_PADDING` as their FIRST multipart field — the
+XForm XML inside `importApp`'s JSON and the compressed bytes inside
+`uploadAppMediaBundle`'s ZIP both match otherwise. Removing the padding
+does not fail loudly or uniformly: only apps small enough to put their
+first form's XML inside that window break, which reads as an app-size bug
+rather than a wire one. `isEdgeRefusal` marks those responses
+(`CommCareApiError.edgeRefusal`) so no surface reports a proxy's 403 as a
+verdict about the key or the account's permissions.
 
 **The emitted app document carries only fields Nova authors.** HQ's update
 is an overlay merge (`_merge_source_into_app`): a field present in the

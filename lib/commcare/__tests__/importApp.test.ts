@@ -5,10 +5,11 @@
  * The wire shape is verified against the HQ source
  * (`app_manager/views/app_import_api.py::_handle_import_app`, NOT a
  * hand-rolled echo of our assumptions):
- *   - `POST /a/{domain}/apps/api/import_app/`, multipart `app_name` +
- *     `app_file`, with `ApiKey {username}:{api_key}` as the sole auth header
- *     (the endpoint is `@csrf_exempt` + `@waf_allow('XSS_BODY')`, so no CSRF
- *     token dance and no padding field),
+ *   - `POST /a/{domain}/apps/api/import_app/`, multipart `waf_padding` +
+ *     `app_name` + `app_file`, with `ApiKey {username}:{api_key}` as the
+ *     sole auth header (the endpoint is `@csrf_exempt`, so no CSRF token
+ *     dance; `@waf_allow('XSS_BODY')` registers the view for WAF operators
+ *     but changes nothing at request time, so the padding field stays),
  *   - create (no `app_id` field) → 201 `{ success, app_id }`, no version,
  *   - update (`app_id` field) → 200 `{ success, app_id, version }`,
  *   - unknown `app_id` → 404 `{ success: false, error }`,
@@ -72,14 +73,13 @@ describe("importApp", () => {
 		expect(headers.Authorization).toBe(
 			`ApiKey ${CREDS.username}:${CREDS.apiKey}`,
 		);
-		// The endpoint is @csrf_exempt + @waf_allow('XSS_BODY'): the ApiKey
-		// header is the only header and the form carries exactly the two
-		// documented fields — no CSRF token, no padding field, no app_id.
+		// The endpoint is @csrf_exempt: the ApiKey header is the only header,
+		// with no CSRF token. No app_id on the create path.
 		expect(headers["X-CSRFToken"]).toBeUndefined();
 		expect(headers.Cookie).toBeUndefined();
 		const body = init.body as FormData;
 		expect(body).toBeInstanceOf(FormData);
-		expect([...body.keys()]).toEqual(["app_name", "app_file"]);
+		expect([...body.keys()]).toEqual(["waf_padding", "app_name", "app_file"]);
 		expect(body.get("app_name")).toBe("Household Survey");
 		const file = body.get("app_file") as Blob;
 		expect(await file.text()).toBe(JSON.stringify(APP_JSON));
@@ -108,7 +108,12 @@ describe("importApp", () => {
 		});
 
 		const body = lastPost()[1].body as FormData;
-		expect([...body.keys()]).toEqual(["app_name", "app_id", "app_file"]);
+		expect([...body.keys()]).toEqual([
+			"waf_padding",
+			"app_name",
+			"app_id",
+			"app_file",
+		]);
 		// app_name rides on updates too — HQ applies it after the merge, so
 		// the HQ app's name tracks Nova's.
 		expect(body.get("app_name")).toBe("Household Survey");
@@ -151,7 +156,11 @@ describe("importApp", () => {
 			APP_JSON,
 			"deleted-app",
 		);
-		expect(result).toEqual({ success: false, status: 404 });
+		expect(result).toEqual({
+			success: false,
+			status: 404,
+			edgeRefusal: false,
+		});
 	});
 
 	it("returns a 422 when HQ answers 200 with success:false", async () => {
@@ -164,6 +173,63 @@ describe("importApp", () => {
 
 		const result = await importApp(CREDS, DOMAIN, "Household Survey", APP_JSON);
 		expect(result).toEqual({ success: false, status: 422 });
+	});
+
+	/* The padding is the whole reason a small app can be published at all:
+	 * the WAF in front of CommCare HQ matches an `xmlns=` declaration in
+	 * roughly the first 8 KiB of the body, and a one-question app puts its
+	 * first form's XML about 4.5 KiB into the JSON. Both properties are
+	 * load-bearing — a field that is not FIRST, or not big enough, leaves the
+	 * XML inside the window. */
+	it("sends the WAF padding first, sized past the inspection window", async () => {
+		fetchMock.mockResolvedValue(
+			new Response(JSON.stringify({ success: true, app_id: "new-app-1" }), {
+				status: 201,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+
+		await importApp(CREDS, DOMAIN, "Household Survey", APP_JSON);
+
+		const body = lastPost()[1].body as FormData;
+		expect([...body.keys()][0]).toBe("waf_padding");
+		expect((body.get("waf_padding") as string).length).toBeGreaterThanOrEqual(
+			8 * 1024,
+		);
+	});
+
+	/* A refusal from the edge, which CommCare HQ never saw. Marked so no
+	 * surface reports it as a verdict about the key or the permissions. */
+	it("marks a generic proxy 403 as an edge refusal", async () => {
+		fetchMock.mockResolvedValue(
+			new Response(
+				"<html>\r\n<head><title>403 Forbidden</title></head>\r\n<body>\r\n<center><h1>403 Forbidden</h1></center>\r\n</body>\r\n</html>\r\n",
+				{ status: 403, headers: { "Content-Type": "text/html" } },
+			),
+		);
+
+		const result = await importApp(CREDS, DOMAIN, "Household Survey", APP_JSON);
+		expect(result).toEqual({
+			success: false,
+			status: 403,
+			edgeRefusal: true,
+		});
+	});
+
+	it("leaves a 403 CommCare HQ itself answered unmarked", async () => {
+		fetchMock.mockResolvedValue(
+			new Response(
+				"Sorry, you don't have permission to do this action! Contact your CommCare HQ administrator.",
+				{ status: 403, headers: { "Content-Type": "text/plain" } },
+			),
+		);
+
+		const result = await importApp(CREDS, DOMAIN, "Household Survey", APP_JSON);
+		expect(result).toEqual({
+			success: false,
+			status: 403,
+			edgeRefusal: false,
+		});
 	});
 
 	it("rejects an invalid domain slug before any network call", async () => {

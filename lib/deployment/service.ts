@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+	type CommCareApiError,
 	type CommCareCredentials,
 	importApp,
 	probeHqFeatureFlags,
@@ -343,7 +344,7 @@ export async function publishAppToHq(
 		 * which is exactly what a retry resumes from. */
 		const failure: DeploymentFailure = {
 			code: "hq_rejected_upload",
-			message: importRejectionMessage(result.status),
+			message: importRejectionMessage(result),
 			details: [],
 		};
 		deployment = await foldDeploymentAttempt(input.scope, target, "upload", {
@@ -469,7 +470,15 @@ async function uploadMediaBytes(
 	});
 }
 
-function importRejectionMessage(status: number): string {
+function importRejectionMessage(error: CommCareApiError): string {
+	/* A refusal from the edge in front of CommCare HQ, which never saw the
+	 * request. Its status is a proxy's, so none of the readings below apply:
+	 * reporting a 403 here as a missing Edit Apps permission sends someone
+	 * to ask an administrator for access they already have. */
+	if (error.edgeRefusal) {
+		return "A security gateway in front of CommCare HQ turned this upload away before CommCare HQ received it, so it doesn't reflect your permissions or anything in your app. Nova can't clear this one from here. Dimagi support (support@dimagi.com) can exclude the app import endpoint from the rule that matched.";
+	}
+	const status = error.status;
 	if (status === 401)
 		return "CommCare HQ didn't accept your API key. Update it in Settings, then publish again.";
 	if (status === 403)

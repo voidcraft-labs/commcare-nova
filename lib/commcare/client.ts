@@ -65,6 +65,15 @@ export interface ImportResult {
 export interface CommCareApiError {
 	success: false;
 	status: number;
+	/**
+	 * True when the edge in front of CommCare HQ refused the request and
+	 * CommCare HQ never saw it (`isEdgeRefusal`). The status is then a
+	 * proxy's, so a caller must not report it as an answer about the key,
+	 * the account's permissions, or the app. Absent on the errors this
+	 * module returns without a response to read, such as a rejected domain
+	 * slug.
+	 */
+	edgeRefusal?: boolean;
 }
 
 /** Union result type for import operations. */
@@ -134,6 +143,52 @@ function authHeader(creds: CommCareCredentials): string {
 }
 
 /**
+ * Throwaway multipart field that pushes the real payload past the body
+ * inspection window of the WAF in front of CommCare HQ.
+ *
+ * That WAF matches an XML namespace declaration — `xmlns=` or
+ * `xmlns:<prefix>=` — anywhere in roughly the first 8 KiB of a request
+ * body, and answers 403 from the edge with a generic HTML error page. The
+ * request never reaches Django, so the status carries no verdict about the
+ * account or the project space. Both uploads here can match: `importApp`
+ * carries XForm XML inside its JSON, and `uploadAppMediaBundle` carries
+ * compressed image bytes. The field goes FIRST so the payload starts past
+ * the window, and Django ignores an unknown multipart field.
+ *
+ * `@waf_allow('XSS_BODY')` on HQ's import views does not remove the need
+ * for it. `corehq/apps/hqwebapp/decorators.py::waf_allow` only records the
+ * view in a module-level dict for whoever configures the WAF; it wraps
+ * nothing and changes nothing at request time. Uploads were still refused
+ * in production after those decorators shipped, and only apps small enough
+ * to put their first form's XML inside the window were affected — which is
+ * why this reads as an app-size bug rather than a permissions one.
+ *
+ * Sized well past the observed window so it holds regardless of where a
+ * given app's form XML lands.
+ */
+const WAF_PADDING = "x".repeat(16 * 1024);
+
+/**
+ * Whether a failed response came from the edge in front of CommCare HQ
+ * rather than from CommCare HQ itself.
+ *
+ * The WAF refuses with a generic proxy error page: an HTML document titled
+ * with a bare status code, carrying no CommCare content. CommCare HQ's own
+ * refusals never look like that — the API views answer JSON
+ * (`JsonResponse` under `@json_error`), the ajax branch of
+ * `corehq/apps/users/decorators.py::require_permission_raw` answers plain
+ * text, and a rendered `PermissionDenied` carries CommCare markup. So a
+ * match here means the status says nothing about the key, the account's
+ * permissions, or the app, and a caller must not read one into it.
+ */
+function isEdgeRefusal(body: string): boolean {
+	const head = body.slice(0, 200).toLowerCase();
+	if (!head.includes("<html")) return false;
+	if (!/<title>\s*\d{3}\b/.test(head)) return false;
+	return !body.toLowerCase().includes("commcare");
+}
+
+/**
  * Log a failed CommCare HQ response for server-side debugging.
  * The body is never returned to callers or shown to users.
  */
@@ -149,7 +204,11 @@ async function logAndReturnError(
 		status: res.status,
 		body: body.substring(0, 200),
 	});
-	return { success: false, status: res.status };
+	return {
+		success: false,
+		status: res.status,
+		edgeRefusal: isEdgeRefusal(body),
+	};
 }
 
 /**
@@ -174,7 +233,11 @@ async function warnAndReturnError(
 		status: res.status,
 		body: body.substring(0, 200),
 	});
-	return { success: false, status: res.status };
+	return {
+		success: false,
+		status: res.status,
+		edgeRefusal: isEdgeRefusal(body),
+	};
 }
 
 /**
@@ -494,9 +557,11 @@ export async function importApp(
 	const base = baseUrl(creds);
 	const url = `${base}/a/${domain}/apps/api/import_app/`;
 
-	/* Multipart form: app_name (string) + optional app_id (the HQ app to
-	 * update in place) + app_file (JSON blob). */
+	/* Multipart form: waf_padding (see WAF_PADDING) + app_name (string) +
+	 * optional app_id (the HQ app to update in place) + app_file (JSON
+	 * blob). */
 	const formData = new FormData();
+	formData.append("waf_padding", WAF_PADDING);
 	formData.append("app_name", appName);
 	if (updateAppId) {
 		formData.append("app_id", updateAppId);
@@ -621,6 +686,7 @@ export async function uploadAppMediaBundle(
 	const uploadUrl = `${base}/`;
 
 	const formData = new FormData();
+	formData.append("waf_padding", WAF_PADDING);
 	formData.append(
 		"bulk_upload_file",
 		new Blob([new Uint8Array(zipBytes)], { type: "application/zip" }),
