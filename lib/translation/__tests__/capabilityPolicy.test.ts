@@ -64,7 +64,7 @@ describe("automatic translation launch policy", () => {
 			{ language: "cmn", script: "Hant" },
 		);
 		expect(hansToHant.status).toBe("withheld");
-		expect(hansToHant.explanation).toContain("not translation");
+		expect(hansToHant.explanation).toContain("isn't translation");
 
 		const sameTag = automaticTranslationCapability(
 			identity("eng"),

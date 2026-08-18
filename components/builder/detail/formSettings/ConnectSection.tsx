@@ -17,6 +17,7 @@ import type {
 	ConnectDeliverConfig,
 	ConnectLearnConfig,
 } from "@/lib/domain";
+import { CONNECT_TYPE_LABELS } from "@/lib/domain";
 import { useFormConnectStash, useSwitchConnectMode } from "@/lib/session/hooks";
 import { DeliverConfig } from "./DeliverConfig";
 import { LearnConfig } from "./LearnConfig";
@@ -187,8 +188,8 @@ export function ConnectSection({
 					<span className="text-xs font-medium text-nova-text-secondary">
 						Connect
 					</span>
-					<span className="h-[18px] px-1.5 text-[10px] font-medium rounded-full bg-nova-violet/10 text-nova-violet-bright border border-nova-violet/20 flex items-center capitalize">
-						{connectType}
+					<span className="h-[18px] px-1.5 text-[10px] font-medium rounded-full bg-nova-violet/10 text-nova-violet-bright border border-nova-violet/20 flex items-center">
+						{CONNECT_TYPE_LABELS[connectType]}
 					</span>
 				</div>
 				<Switch checked={enabled} onCheckedChange={toggle} />

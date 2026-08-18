@@ -77,6 +77,12 @@ export type CaseType = z.infer<typeof caseTypeSchema>;
 export const CONNECT_TYPES = ["learn", "deliver"] as const;
 export type ConnectType = (typeof CONNECT_TYPES)[number];
 
+/** The one user-facing name of each Connect mode, shared by every surface. */
+export const CONNECT_TYPE_LABELS: Readonly<Record<ConnectType, string>> = {
+	learn: "Learn",
+	deliver: "Deliver",
+};
+
 /**
  * The name an app carries when its creator supplied no non-blank one.
  *

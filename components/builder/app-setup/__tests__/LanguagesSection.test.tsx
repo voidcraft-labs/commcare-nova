@@ -230,7 +230,7 @@ function fieldLabelRow() {
 	const row = screen
 		.getAllByText("Care visits › Visits › Visit › Client name")
 		.map((breadcrumb) => breadcrumb.closest("article"))
-		.find((candidate) => candidate?.textContent?.includes("field label"));
+		.find((candidate) => candidate?.textContent?.includes("Field label"));
 	if (row === undefined || row === null) {
 		throw new Error("Expected the field-label translation row.");
 	}
@@ -263,14 +263,14 @@ describe("LanguagesSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
 		await pickLanguage("Spanish", /Español/);
 		fireEvent.click(
-			screen.getByRole("button", { name: "Add and copy strings" }),
+			within(screen.getByRole("dialog")).getByRole("button", {
+				name: "Add language",
+			}),
 		);
 
-		await screen.findByRole("heading", { name: "Español strings" });
+		await screen.findByRole("heading", { name: "Español phrases" });
 		expect(
-			screen.getByText(
-				/automatic translation from English to Spanish are available/,
-			),
+			screen.getByText(/translate from English to Spanish for you/),
 		).toBeTruthy();
 		const localization = docState().localization;
 		expect(localization?.sourceLanguage).toBe("eng");
@@ -303,7 +303,7 @@ describe("LanguagesSection", () => {
 				translations: {},
 			});
 		});
-		await screen.findByRole("heading", { name: "Français strings" });
+		await screen.findByRole("heading", { name: "Français phrases" });
 	});
 
 	it("saves a reviewed human translation for the selected target", async () => {
@@ -341,10 +341,9 @@ describe("LanguagesSection", () => {
 		);
 		await screen.findByDisplayValue("Nombre objetivo");
 
-		fireEvent.change(
-			screen.getByRole("textbox", { name: "Search translatable strings" }),
-			{ target: { value: "Nombre objetivo" } },
-		);
+		fireEvent.change(screen.getByRole("textbox", { name: "Search phrases" }), {
+			target: { value: "Nombre objetivo" },
+		});
 		expect(
 			(
 				screen.getByRole("textbox", {
@@ -352,18 +351,20 @@ describe("LanguagesSection", () => {
 				}) as HTMLTextAreaElement
 			).value,
 		).toBe("Nombre objetivo");
-		expect(screen.getByText("Showing 1 of 5 strings")).toBeTruthy();
+		expect(screen.getByText("Showing 1 of 5 phrases")).toBeTruthy();
 	});
 
 	it("falls back to the default inventory when a peer removes the selected target", async () => {
 		renderSection({ doc: withSpanishOverlay(baseDoc()), lang: "spa" });
-		await screen.findByRole("heading", { name: "Español strings" });
+		await screen.findByRole("heading", { name: "Español phrases" });
 
 		applyRemote([{ kind: "removeLanguage", code: "spa" }]);
 
-		await screen.findByRole("heading", { name: "English strings" });
+		await screen.findByRole("heading", { name: "English phrases" });
 		expect(
-			screen.getByText("This is the canonical content.", { exact: false }),
+			screen.getByText("Every phrase workers see in your app", {
+				exact: false,
+			}),
 		).toBeTruthy();
 		expect(docState().localization).toBeUndefined();
 	});
@@ -371,7 +372,7 @@ describe("LanguagesSection", () => {
 	it("selects language cards and names translation search", async () => {
 		renderSection({ doc: withSpanishOverlay(baseDoc()) });
 		expect(
-			screen.getByRole("textbox", { name: "Search translatable strings" }),
+			screen.getByRole("textbox", { name: "Search phrases" }),
 		).toBeTruthy();
 
 		const english = languageCard("English");
@@ -381,7 +382,7 @@ describe("LanguagesSection", () => {
 
 		fireEvent.click(spanish);
 
-		await screen.findByRole("heading", { name: "Español strings" });
+		await screen.findByRole("heading", { name: "Español phrases" });
 		expect(spanish.getAttribute("aria-pressed")).toBe("true");
 		expect(english.getAttribute("aria-pressed")).toBe("false");
 	});
@@ -409,7 +410,7 @@ describe("LanguagesSection", () => {
 		);
 
 		await waitFor(() => expect(docState().localization).toBeUndefined());
-		await screen.findByRole("heading", { name: "English strings" });
+		await screen.findByRole("heading", { name: "English phrases" });
 	});
 
 	it("renders canonical source content in the source language direction", async () => {
@@ -535,7 +536,7 @@ describe("LanguagesSection", () => {
 
 		fireEvent.click(
 			within(fieldLabelRow()).getByRole("button", {
-				name: "Use source fallback",
+				name: "Use the original text",
 			}),
 		);
 		await waitFor(() =>
@@ -597,9 +598,7 @@ describe("LanguagesSection", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Add language" }));
 		await screen.findByLabelText("Language");
-		fireEvent.click(
-			screen.getByRole("combobox", { name: "Start with strings from" }),
-		);
+		fireEvent.click(screen.getByRole("combobox", { name: "Copy text from" }));
 		await settleBaseUiTransitions();
 		const spanish = await screen.findByRole("option", { name: /Español/ });
 		fireEvent.pointerDown(spanish, { pointerType: "mouse" });
@@ -609,16 +608,17 @@ describe("LanguagesSection", () => {
 		applyRemote([{ kind: "removeLanguage", code: "spa" }]);
 		await waitFor(() =>
 			expect(
-				screen.getByRole("combobox", { name: "Start with strings from" })
-					.textContent,
+				screen.getByRole("combobox", { name: "Copy text from" }).textContent,
 			).toContain("English"),
 		);
 
 		await pickLanguage("French", /Français/);
 		fireEvent.click(
-			screen.getByRole("button", { name: "Add and copy strings" }),
+			within(screen.getByRole("dialog")).getByRole("button", {
+				name: "Add language",
+			}),
 		);
-		await screen.findByRole("heading", { name: "Français strings" });
+		await screen.findByRole("heading", { name: "Français phrases" });
 
 		const localization = docState().localization;
 		expect(localization?.languageOrder).toEqual(["eng", "fra"]);

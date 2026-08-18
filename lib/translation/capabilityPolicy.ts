@@ -103,8 +103,8 @@ export function automaticTranslationCapability(
 			status: "withheld",
 			explanation:
 				languageTag(sourceLanguage) === languageTag(targetLanguage)
-					? "The source and target are the same language, so translation would not change languages."
-					: "The source and target are two forms of one language. Converting between writing systems or regional conventions is not translation, so automatic translation stays off for this pair.",
+					? "Both of these are the same language, so there's nothing to translate."
+					: "These are two forms of the same language. Converting between writing systems or regional conventions isn't translation, so automatic translation stays off for this pair.",
 		};
 	}
 	return {
@@ -112,7 +112,7 @@ export function automaticTranslationCapability(
 		targetLanguage,
 		status: "not-evaluated",
 		explanation:
-			"At launch, Nova offers automatic translation only when both languages belong to its checked-in 57-language set.",
+			"Nova can translate automatically between 57 languages so far, and this pair isn't covered yet.",
 	};
 }
 

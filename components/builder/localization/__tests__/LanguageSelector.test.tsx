@@ -67,7 +67,7 @@ describe("LanguageSelector", () => {
 			screen.getByRole("button", { name: "Worker language: French" }),
 		);
 
-		expect(await screen.findByText("Worker content language")).toBeTruthy();
+		expect(await screen.findByText("Language workers see")).toBeTruthy();
 		const french = screen.getByRole("menuitemradio", { name: "Français" });
 		const english = screen.getByRole("menuitemradio", { name: "English" });
 		expect(french.getAttribute("aria-checked")).toBe("true");
@@ -97,7 +97,7 @@ describe("LanguageSelector", () => {
 		expect(trigger.textContent).toContain("Mexico");
 
 		fireEvent.click(trigger);
-		expect(await screen.findByText("Worker content language")).toBeTruthy();
+		expect(await screen.findByText("Language workers see")).toBeTruthy();
 
 		// Bare Spanish shares its language axis with the Mexico variant, so it
 		// takes the "General" disambiguator instead of standing unqualified.

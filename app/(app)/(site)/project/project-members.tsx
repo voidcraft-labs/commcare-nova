@@ -508,11 +508,17 @@ export function ProjectMembers({
 	);
 }
 
+const ROLE_LABELS: Readonly<Record<string, string>> = {
+	owner: "Owner",
+	admin: "Admin",
+	editor: "Editor",
+	viewer: "Viewer",
+};
+
 /** Human label for a role string (handles the comma-joined multi-role case by
  *  showing the most-privileged). */
 function roleLabel(role: string): string {
-	const r = normalizeRole(role);
-	return r.charAt(0).toUpperCase() + r.slice(1);
+	return ROLE_LABELS[normalizeRole(role)] ?? ROLE_LABELS.viewer;
 }
 
 /** Collapse a (possibly comma-joined) role to the single role the UI shows,

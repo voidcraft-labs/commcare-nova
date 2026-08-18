@@ -49,6 +49,7 @@ import {
 	collectLocalizedTranslationUnits,
 	collectTranslationCoverageDiagnostics,
 	effectiveAppLocalization,
+	fieldRegistry,
 	type LanguageDirection,
 	type LanguageTag,
 	type LocalizedTranslationUnit,
@@ -59,7 +60,9 @@ import {
 	parseLanguageTag,
 	projectProseTemplate,
 	resolveAppLanguage,
+	type TranslationCoverageDiagnosticCode,
 	type TranslationStatus,
+	type TranslationUnitRole,
 } from "@/lib/domain";
 import {
 	languageDirection,
@@ -100,6 +103,45 @@ const STATUS_VARIANTS: Readonly<
 };
 
 type TranslationStatusFilter = TranslationStatus | "all";
+
+/* The Select root's `items` map is what lets a bare <SelectValue /> render
+ * the label; without it Base UI falls back to the raw stored value. */
+const STATUS_FILTER_ITEMS: Readonly<Record<TranslationStatusFilter, string>> = {
+	all: "All statuses",
+	...STATUS_LABELS,
+};
+
+const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
+	"app-name": "App name",
+	"module-name": "Module name",
+	"form-name": "Form name",
+	"field-label": "Field label",
+	"field-hint": "Field hint",
+	"field-help": "Field help",
+	"field-validation-message": "Validation message",
+	"select-option-label": "Option label",
+	"case-list-header": "Case list header",
+	"case-list-mapping-label": "Case list value label",
+	"case-list-interval-text": "Case list interval text",
+	"search-input-label": "Search field label",
+	"search-screen-title": "Search screen title",
+	"search-screen-subtitle": "Search screen subtitle",
+	"search-button-label": "Search button label",
+	"search-runtime-validation-message": "Search validation message",
+	"case-property-option-label": "Case property option label",
+};
+
+/* What one affected thing is called, per coverage diagnostic: the counts mean
+ * different things (fields, forms, files, automations) and a generic word
+ * would hide that. */
+const COVERAGE_COUNT_NOUNS: Readonly<
+	Record<TranslationCoverageDiagnosticCode, readonly [string, string]>
+> = {
+	"lookup-labels-need-localized-data": ["field", "fields"],
+	"connect-text-has-no-locale-carrier": ["form", "forms"],
+	"media-is-shared-across-locales": ["file", "files"],
+	"automation-language-is-recipient-owned": ["automation", "automations"],
+};
 
 function coverageCounts(units: readonly LocalizedTranslationUnit[]) {
 	const counts: Record<TranslationStatus, number> = {
@@ -236,7 +278,7 @@ export function LanguagesSection() {
 	const visibleUnits = selectedUnits.filter((unit) => {
 		if (status !== "all" && unit.status !== status) return false;
 		if (normalizedQuery === "") return true;
-		return `${unit.breadcrumb.join(" ")} ${unit.role} ${JSON.stringify(unit.source)} ${JSON.stringify(unit.effective)} ${JSON.stringify(unit.explicit?.value ?? null)}`
+		return `${unit.breadcrumb.join(" ")} ${unit.role} ${ROLE_LABELS[unit.role]} ${JSON.stringify(unit.source)} ${JSON.stringify(unit.effective)} ${JSON.stringify(unit.explicit?.value ?? null)}`
 			.toLocaleLowerCase()
 			.includes(normalizedQuery);
 	});
@@ -249,20 +291,129 @@ export function LanguagesSection() {
 
 	return (
 		<section aria-labelledby="languages-heading" className="space-y-7">
-			<header className="flex flex-col gap-4 @xl:flex-row @xl:items-start @xl:justify-between">
-				<div className="max-w-2xl">
-					<h2
-						id="languages-heading"
-						className="font-display text-xl font-semibold tracking-tight text-nova-text"
-					>
-						Languages
-					</h2>
-					<p className="mt-2 text-sm leading-relaxed text-nova-text-secondary">
-						Add the languages workers speak, then review every worker-facing
-						string in one place. Each language's name and text direction come
-						from the language itself; missing and out-of-date values safely show
-						the current source text until they are translated.
-					</p>
+			<header>
+				{/* Named by the breadcrumb and the selected tab already, both within
+				    135px and near-identical in colour and weight. Kept as the
+				    section's accessible name, dropped from the eye, matching every
+				    other App setup section. */}
+				<h2 id="languages-heading" className="sr-only">
+					Languages
+				</h2>
+				<p className="text-sm leading-relaxed text-nova-text-secondary">
+					Add the languages your workers speak, then translate everything they
+					see in one place. Anything you haven't translated yet shows the
+					original text, so your app always works.
+				</p>
+			</header>
+
+			<div>
+				<div className="grid gap-3 @xl:grid-cols-2">
+					{localization.languageOrder.map((tag) => {
+						const display = displays.get(tag) ?? languageDisplay(tag, resolver);
+						const units = collectLocalizedTranslationUnits(doc, tag);
+						const counts = coverageCounts(units);
+						const source = tag === localization.sourceLanguage;
+						const active = tag === selectedTag;
+						const metaSegments = [
+							...(display.englishName !== undefined &&
+							display.englishName !== display.label
+								? [display.englishName]
+								: []),
+							display.directionWord,
+						];
+						return (
+							<article
+								key={tag}
+								className={`rounded-xl border p-4 transition-colors ${
+									active
+										? "border-nova-violet/50 bg-nova-violet/[0.08]"
+										: "border-nova-border bg-white/[0.025]"
+								}`}
+							>
+								<div className="flex items-start justify-between gap-3">
+									<button
+										type="button"
+										className="nova-focusable min-w-0 rounded-lg text-left"
+										aria-pressed={active}
+										onClick={() => languageState.selectLanguage(tag)}
+									>
+										<span className="block truncate font-medium text-nova-text">
+											<LanguageName display={display} />
+										</span>
+										<span className="mt-0.5 block truncate text-xs text-nova-text-muted">
+											{metaSegments.join(" · ")}
+										</span>
+									</button>
+									<div className="flex flex-wrap justify-end gap-1.5">
+										{source && <Badge variant="violet">Source</Badge>}
+										{tag === localization.defaultLanguage && (
+											<Badge variant="emerald">Default</Badge>
+										)}
+									</div>
+								</div>
+								{source ? (
+									<p className="mt-4 text-xs text-nova-text-muted">
+										{units.length} {units.length === 1 ? "phrase" : "phrases"}
+									</p>
+								) : (
+									<div className="mt-4 flex flex-wrap gap-1.5">
+										{units.length === 0 ? (
+											<Badge>No phrases yet</Badge>
+										) : counts.ready === units.length ? (
+											<Badge variant="emerald">All {units.length} ready</Badge>
+										) : (
+											<>
+												{counts.ready > 0 && (
+													<Badge variant="emerald">{counts.ready} ready</Badge>
+												)}
+												{counts["needs-review"] > 0 && (
+													<Badge variant="amber">
+														{counts["needs-review"]} to review
+													</Badge>
+												)}
+												{counts["out-of-date"] > 0 && (
+													<Badge variant="rose">
+														{counts["out-of-date"]} out of date
+													</Badge>
+												)}
+												{counts.missing > 0 && (
+													<Badge>{counts.missing} missing</Badge>
+												)}
+											</>
+										)}
+									</div>
+								)}
+								<div className="mt-4 flex flex-wrap gap-2">
+									{source && localization.languageOrder.length === 1 && (
+										<ChangeLanguageDialog currentTag={tag} onCommit={commit} />
+									)}
+									{tag !== localization.defaultLanguage && (
+										<Button
+											type="button"
+											variant="ghost"
+											onClick={() =>
+												commit([{ kind: "setDefaultLanguage", code: tag }])
+											}
+										>
+											Make default
+										</Button>
+									)}
+									{!source && tag !== localization.defaultLanguage && (
+										<RemoveLanguageDialog
+											display={display}
+											onRemove={() => {
+												if (commit([{ kind: "removeLanguage", code: tag }])) {
+													languageState.selectLanguage(
+														localization.defaultLanguage,
+													);
+												}
+											}}
+										/>
+									)}
+								</div>
+							</article>
+						);
+					})}
 				</div>
 				<AddLanguageDialog
 					doc={doc}
@@ -272,106 +423,6 @@ export function LanguagesSection() {
 					onCommit={commit}
 					onAdded={languageState.selectLanguage}
 				/>
-			</header>
-
-			<div className="grid gap-3 @xl:grid-cols-2">
-				{localization.languageOrder.map((tag) => {
-					const display = displays.get(tag) ?? languageDisplay(tag, resolver);
-					const units = collectLocalizedTranslationUnits(doc, tag);
-					const counts = coverageCounts(units);
-					const source = tag === localization.sourceLanguage;
-					const active = tag === selectedTag;
-					const metaSegments = [
-						...(display.englishName !== undefined &&
-						display.englishName !== display.label
-							? [display.englishName]
-							: []),
-						display.directionWord,
-					];
-					return (
-						<article
-							key={tag}
-							className={`rounded-xl border p-4 transition-colors ${
-								active
-									? "border-nova-violet/50 bg-nova-violet/[0.08]"
-									: "border-nova-border bg-white/[0.025]"
-							}`}
-						>
-							<div className="flex items-start justify-between gap-3">
-								<button
-									type="button"
-									className="nova-focusable min-w-0 rounded-lg text-left"
-									aria-pressed={active}
-									onClick={() => languageState.selectLanguage(tag)}
-								>
-									<span className="block truncate font-medium text-nova-text">
-										<LanguageName display={display} />
-									</span>
-									<span className="mt-0.5 block truncate text-xs text-nova-text-muted">
-										{metaSegments.join(" · ")}
-									</span>
-								</button>
-								<div className="flex flex-wrap justify-end gap-1.5">
-									{source && <Badge variant="violet">Source</Badge>}
-									{tag === localization.defaultLanguage && (
-										<Badge variant="emerald">Default</Badge>
-									)}
-								</div>
-							</div>
-							{source ? (
-								<p className="mt-4 text-xs text-nova-text-muted">
-									{units.length} canonical source{" "}
-									{units.length === 1 ? "string" : "strings"}
-								</p>
-							) : (
-								<div className="mt-4 flex flex-wrap gap-1.5">
-									<Badge variant="emerald">{counts.ready} ready</Badge>
-									{counts["needs-review"] > 0 && (
-										<Badge variant="amber">
-											{counts["needs-review"]} review
-										</Badge>
-									)}
-									{counts["out-of-date"] > 0 && (
-										<Badge variant="rose">
-											{counts["out-of-date"]} out of date
-										</Badge>
-									)}
-									{counts.missing > 0 && (
-										<Badge>{counts.missing} missing</Badge>
-									)}
-								</div>
-							)}
-							<div className="mt-4 flex flex-wrap gap-2">
-								{source && localization.languageOrder.length === 1 && (
-									<ChangeLanguageDialog currentTag={tag} onCommit={commit} />
-								)}
-								{tag !== localization.defaultLanguage && (
-									<Button
-										type="button"
-										variant="ghost"
-										onClick={() =>
-											commit([{ kind: "setDefaultLanguage", code: tag }])
-										}
-									>
-										Make default
-									</Button>
-								)}
-								{!source && tag !== localization.defaultLanguage && (
-									<RemoveLanguageDialog
-										display={display}
-										onRemove={() => {
-											if (commit([{ kind: "removeLanguage", code: tag }])) {
-												languageState.selectLanguage(
-													localization.defaultLanguage,
-												);
-											}
-										}}
-									/>
-								)}
-							</div>
-						</article>
-					);
-				})}
 			</div>
 
 			{coverageDiagnostics.length > 0 && (
@@ -384,11 +435,11 @@ export function LanguagesSection() {
 							id="language-coverage-notes"
 							className="font-display text-lg font-semibold tracking-tight text-nova-text"
 						>
-							Coverage notes
+							Good to know
 						</h3>
 						<p className="mt-1 text-sm text-nova-text-secondary">
-							These app features remain valid, but their text or media does not
-							use the static worker-language overlay.
+							A few parts of your app handle languages their own way, so they
+							aren't translated here. Everything still works as expected.
 						</p>
 					</div>
 					<div className="space-y-3">
@@ -402,8 +453,12 @@ export function LanguagesSection() {
 									{diagnostic.explanation}
 								</p>
 								<p className="mt-2 text-xs text-nova-text-muted">
-									{diagnostic.affectedCount} affected{" "}
-									{diagnostic.affectedCount === 1 ? "carrier" : "carriers"}
+									Affects {diagnostic.affectedCount}{" "}
+									{
+										COVERAGE_COUNT_NOUNS[diagnostic.code][
+											diagnostic.affectedCount === 1 ? 0 : 1
+										]
+									}
 								</p>
 							</article>
 						))}
@@ -421,14 +476,14 @@ export function LanguagesSection() {
 				<div className="space-y-4">
 					<div>
 						<h3 className="font-display text-lg font-semibold tracking-tight text-nova-text">
-							<LanguageName display={selectedDisplay} /> strings
+							<LanguageName display={selectedDisplay} /> phrases
 						</h3>
 						<p className="mt-1 max-w-2xl text-sm text-nova-text-secondary">
 							{isSource
-								? "This is the canonical content. Edit it in the Builder where it appears; use this inventory to find every worker-facing string."
+								? "Every phrase workers see in your app, all in one place. To change one, open it in the Builder."
 								: automaticTranslation?.status === "available"
-									? `Manual editing, copy, and automatic translation from ${sourceName} to ${selectedName} are available. Automatic output starts as Needs review.`
-									: `Manual editing and copy are available for every language. ${automaticTranslation?.explanation ?? "Automatic translation is not available for this language pair."}`}
+									? `Translate each phrase by hand, or ask Nova to translate from ${sourceName} to ${selectedName} for you. Automatic translations start as Needs review so you get the final say.`
+									: `Translate each phrase by hand. ${automaticTranslation?.explanation ?? "Automatic translation isn't available for this pair of languages."}`}
 						</p>
 					</div>
 					<div className="flex flex-col gap-2 @md:flex-row">
@@ -441,27 +496,24 @@ export function LanguagesSection() {
 							/>
 							<Input
 								value={query}
-								aria-label="Search translatable strings"
+								aria-label="Search phrases"
 								onChange={(event) => setQuery(event.target.value)}
-								placeholder="Search strings or context"
+								placeholder="Search phrases or where they appear"
 								className="pl-10"
 							/>
 						</div>
 						<Select
+							items={STATUS_FILTER_ITEMS}
 							value={status}
 							onValueChange={(value) =>
 								value !== null && setStatus(value as TranslationStatusFilter)
 							}
 						>
-							<SelectTrigger
-								aria-label="Filter by translation status"
-								className="w-44"
-							>
+							<SelectTrigger aria-label="Filter by status" className="w-44">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="all">All statuses</SelectItem>
-								{Object.entries(STATUS_LABELS).map(([value, label]) => (
+								{Object.entries(STATUS_FILTER_ITEMS).map(([value, label]) => (
 									<SelectItem key={value} value={value}>
 										{label}
 									</SelectItem>
@@ -472,7 +524,8 @@ export function LanguagesSection() {
 				</div>
 
 				<p className="mt-4 text-xs text-nova-text-muted">
-					Showing {visibleUnits.length} of {selectedUnits.length} strings
+					Showing {visibleUnits.length} of {selectedUnits.length}{" "}
+					{selectedUnits.length === 1 ? "phrase" : "phrases"}
 				</p>
 				<div className="mt-3 space-y-3">
 					{visibleUnits.map((unit) => (
@@ -485,7 +538,9 @@ export function LanguagesSection() {
 					))}
 					{visibleUnits.length === 0 && (
 						<div className="rounded-xl border border-dashed border-nova-border px-5 py-10 text-center text-sm text-nova-text-muted">
-							No strings match this search and status filter.
+							{selectedUnits.length === 0
+								? "Nothing to translate yet. Text you add in the Builder shows up here."
+								: "No phrases match your search. Try different words or another status."}
 						</div>
 					)}
 				</div>
@@ -585,7 +640,7 @@ function AddLanguageDialog({
 			return;
 		}
 		if (copySource === undefined) {
-			setError("Add a source language before copying strings.");
+			setError("Choose a language to copy text from");
 			return;
 		}
 		const mutations: Mutation[] = [
@@ -619,7 +674,15 @@ function AddLanguageDialog({
 				if (!nextOpen) reset();
 			}}
 		>
-			<DialogTrigger render={<Button type="button" />}>
+			<DialogTrigger
+				render={
+					<Button
+						type="button"
+						variant="ghost"
+						className="nova-add-slot mt-3 w-full"
+					/>
+				}
+			>
 				<Icon icon={tablerPlus} aria-hidden="true" />
 				Add language
 			</DialogTrigger>
@@ -627,9 +690,9 @@ function AddLanguageDialog({
 				<DialogHeader>
 					<DialogTitle>Add a language</DialogTitle>
 					<DialogDescription>
-						Search for the language workers speak. Its name and text direction
-						come from the language itself; Nova copies every current string from
-						an existing language and marks the result for review.
+						Search for the language your workers speak. Nova will copy your
+						app's current text into it, marked for review, so you can translate
+						at your own pace.
 					</DialogDescription>
 				</DialogHeader>
 				<DialogBody className="space-y-4">
@@ -654,7 +717,7 @@ function AddLanguageDialog({
 							/>
 							<Field>
 								<FieldLabel htmlFor="add-language-copy-from">
-									Start with strings from
+									Copy text from
 								</FieldLabel>
 								<Select
 									key={copySourceTag ?? "no-copy-source"}
@@ -724,7 +787,7 @@ function AddLanguageDialog({
 							duplicate !== undefined
 						}
 					>
-						Add and copy strings
+						Add language
 					</Button>
 				</DialogFooter>
 			</DialogContent>
@@ -792,9 +855,8 @@ function ChangeLanguageDialog({
 				<DialogHeader>
 					<DialogTitle>Change the language</DialogTitle>
 					<DialogDescription>
-						Search for the language workers speak; its name and text direction
-						follow from it. The language can only be changed before a second
-						language is added.
+						Search for the language your workers speak. You can change this
+						until you add a second language.
 					</DialogDescription>
 				</DialogHeader>
 				<DialogBody className="space-y-4">
@@ -852,8 +914,9 @@ function RemoveLanguageDialog({
 						Remove <LanguageName display={display} />?
 					</AlertDialogTitle>
 					<AlertDialogDescription>
-						This removes every explicit translation for this language. The
-						source content and other languages are unchanged.
+						This removes every translation you've added for{" "}
+						<LanguageName display={display} />. Your original text and other
+						languages stay as they are.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
@@ -970,9 +1033,9 @@ function TranslationUnitRow({
 						{unit.breadcrumb.join(" › ")}
 					</p>
 					<p className="mt-1 text-xs text-nova-text-muted">
-						{unit.role.replaceAll("-", " ")}
+						{ROLE_LABELS[unit.role]}
 						{unit.context.fieldKind !== undefined
-							? ` · ${unit.context.fieldKind} input`
+							? ` · ${fieldRegistry[unit.context.fieldKind].label} field`
 							: ""}
 						{unit.context.optionValue !== undefined
 							? ` · value ${unit.context.optionValue}`
@@ -1031,7 +1094,7 @@ function TranslationUnitRow({
 									variant="ghost-destructive"
 									onClick={clear}
 								>
-									Use source fallback
+									Use the original text
 								</Button>
 							)}
 							{unit.explicit !== undefined &&
@@ -1039,7 +1102,7 @@ function TranslationUnitRow({
 								!changed && (
 									<Button type="button" variant="outline" onClick={review}>
 										<Icon icon={tablerCheck} aria-hidden="true" />
-										Keep and review
+										Mark as reviewed
 									</Button>
 								)}
 							<Button

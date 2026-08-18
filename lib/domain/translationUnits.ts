@@ -187,9 +187,9 @@ export function collectTranslationCoverageDiagnostics(
 	if (lookupFields > 0) {
 		diagnostics.push({
 			code: "lookup-labels-need-localized-data",
-			title: "Lookup-table labels use Project data",
+			title: "Lookup table choices come from your Project data",
 			explanation:
-				"Localize those labels in the lookup table itself after Nova gains localized lookup columns; this app language overlay cannot safely copy changing Project rows.",
+				"These choices come from a lookup table, which is shared Project data rather than app text, so translations here can't reach them.",
 			affectedCount: lookupFields,
 		});
 	}
@@ -201,7 +201,7 @@ export function collectTranslationCoverageDiagnostics(
 			code: "connect-text-has-no-locale-carrier",
 			title: "CommCare Connect names stay in one language",
 			explanation:
-				"The accepted Connect XForm data carrier has no per-language slot for learn modules, delivery units, tasks, or their descriptions.",
+				"CommCare Connect stores learn and delivery content in a single language, so names and descriptions there can't be translated per language.",
 			affectedCount: connectForms,
 		});
 	}
@@ -211,7 +211,7 @@ export function collectTranslationCoverageDiagnostics(
 			code: "media-is-shared-across-locales",
 			title: "Media is shared across languages",
 			explanation:
-				"Every locale currently uses the same image, audio, video, file, and signature assets; Nova does not claim language-specific media coverage.",
+				"Images, audio, video, and other files are the same in every language right now.",
 			affectedCount: mediaRefs,
 		});
 	}
@@ -219,9 +219,9 @@ export function collectTranslationCoverageDiagnostics(
 	if (automationCount > 0) {
 		diagnostics.push({
 			code: "automation-language-is-recipient-owned",
-			title: "Automation messages follow recipient language",
+			title: "Automation messages follow the recipient's language",
 			explanation:
-				"Automation messages need their own recipient-language policy and are not translated from the app's currently selected worker locale.",
+				"Messages sent by automations follow the recipient's language settings rather than the language chosen here, so they aren't part of this list.",
 			affectedCount: automationCount,
 		});
 	}

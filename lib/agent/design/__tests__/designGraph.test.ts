@@ -124,7 +124,7 @@ describe("lean Design Contract graph", () => {
 		};
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
 		expect(constructionMessages(contract)).toContain(
-			"only when both languages belong to its checked-in 57-language set",
+			"this pair isn't covered yet",
 		);
 	});
 

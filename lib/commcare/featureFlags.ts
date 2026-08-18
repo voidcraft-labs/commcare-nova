@@ -9,6 +9,7 @@
 
 import {
 	type BlueprintDoc,
+	CONNECT_TYPE_LABELS,
 	effectiveCaseSearchConfig,
 	type Module,
 } from "@/lib/domain";
@@ -128,10 +129,9 @@ export function requiredHqFeatureFlagUses(
 	}
 
 	if (doc.connectType !== null) {
-		const mode = doc.connectType === "learn" ? "Learn" : "Deliver";
 		addReason(
 			"commcare-connect",
-			`The app is configured for CommCare Connect ${mode}.`,
+			`The app is configured for CommCare Connect ${CONNECT_TYPE_LABELS[doc.connectType]}.`,
 		);
 	}
 

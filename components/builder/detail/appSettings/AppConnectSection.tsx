@@ -4,6 +4,7 @@ import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
+import { CONNECT_TYPE_LABELS } from "@/lib/domain";
 import { ConnectManagerDialog } from "./ConnectManagerDialog";
 
 /**
@@ -35,9 +36,7 @@ export function AppConnectSection() {
 					    quiet neutral when off, so status is the only thing that
 					    changes. The logomark lives in the label, not here. */}
 					{connectType ? (
-						<Badge variant="violet" className="capitalize">
-							{connectType}
-						</Badge>
+						<Badge variant="violet">{CONNECT_TYPE_LABELS[connectType]}</Badge>
 					) : (
 						<Badge variant="muted">Off</Badge>
 					)}

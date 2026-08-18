@@ -854,6 +854,11 @@ function ReplacementInput({
 }) {
 	const checkboxIdBase = useId();
 	const projectProse = useProseProjection();
+	/* The Select root's `items` map is what lets a bare <SelectValue /> render
+	 * the option's label; without it Base UI shows the raw stored value. */
+	const optionItems = Object.fromEntries(
+		options.map((option) => [option.value, projectProse(option.label)]),
+	);
 	const setText = (text: string) =>
 		onDraftChange({ ...draft, text, failures: null });
 
@@ -917,6 +922,7 @@ function ReplacementInput({
 		case "single_select":
 			return (
 				<Select
+					items={optionItems}
 					value={draft.text === "" ? undefined : draft.text}
 					onValueChange={(value) =>
 						onDraftChange({
