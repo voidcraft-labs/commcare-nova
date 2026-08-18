@@ -62,6 +62,21 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 - **No ellipsis in buttons, menu items, or placeholders, ever.** That includes a button's in-progress label: "Creating blank app", not "Creating blank app…" (the spinner or status row carries progress). Ellipsis is for standalone *action in progress* status text only: "Deleting…", "Moving to Field Ops…".
 - **Spell things out.** No Latin abbreviations, no caps blocks, "and" over "&" in running text.
 
+**Do and don't (canonical pairs):**
+
+| Do | Don't | The rule |
+|---|---|---|
+| Tell me about the app you'd like to build | Enter app requirements | Invite, never instruct |
+| Couldn't build your app | Build failed: invalid configuration | Own the error in plain language; the chat offers the next step |
+| Build your first app | Build Your First App | Sentence case everywhere |
+| Still building. Big apps take a minute or two. | Still building — big apps take a minute or two | No em dashes; a new sentence carries the aside |
+| What would you like to change? | Ask for changes… | No ellipsis in placeholders |
+| Creating blank app | Creating blank app… | No ellipsis in buttons, even mid-work; the spinner shows progress. Standalone status text is ellipsis's one home ("Deleting…") |
+| Move to recently deleted → Confirm delete | Are you sure you want to delete this?! | Explain consequences calmly, with the undo path |
+| You can't edit while a build is running | Editing is not permitted at this time. | Contractions, "you", no period on a single line |
+| Could not delete. Check your connection and try again. | | Multi-sentence copy keeps its periods |
+| Search by name, ID, or phone number | Search by name, ID, etc. | Spell things out |
+
 **Tone examples (canonical):**
 - Welcome intro: *"What would you like to build?"* / *"Tell me about the people you support, the work they do, and what you need to keep track of"*
 - Composer placeholders: *"Tell me about the app you'd like to build"* and *"What would you like to change?"*
@@ -112,7 +127,7 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 
 ## What's in here
 
-**Tokens** (`tokens/`, all reachable from `styles.css`)
+**Tokens** (`tokens/`)
 - `colors.css`: the `--nova-*` twilight surface/text/accent/dawn/action/semantic system, peer-presence hues, the `--nova-code-*` XPath syntax palette, glass tokens, focus ring, z-index scale
 - `typography.css`: font families, type scale, weights, tracking (mono = code and data only)
 - `spacing.css`: spacing scale, the soft radius scale (sm→4xl pill), 44px hit target, ambient shadows and floating-tier rims, the interaction-state constants, motion easings including `--duration-breathe`
@@ -130,13 +145,11 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 | `Card.prompt.md` | `components/ui/AppCard.tsx` |
 | `Logo.prompt.md` | `components/ui/Logo.tsx` (plus the logo CSS in `app/globals.css`) |
 
-**Voice cards** (`guidelines/`): the pair behind the Content fundamentals above, **How Nova sounds** (the persona) and **UX writing** (the mechanics), kept as openable HTML specimens.
-
 ---
 
 ## Substitutions & notes
 
-- **`tokens/fonts.css` loads from the Google Fonts CDN** rather than self-hosted binaries; it serves the standalone HTML mocks and cards. The app itself loads the same three families through `app/layout.tsx`.
+- **`tokens/fonts.css` is the Google Fonts `@import`** naming the exact families and weights; a throwaway HTML mock can link it directly. The app itself loads the same three families through `app/layout.tsx`.
 - **HTML mocks load Tabler icons from the Iconify CDN** (the snippet under Iconography). App code uses `@iconify/react/offline`; see `components/CLAUDE.md` § Icons.
 
 ---
@@ -146,7 +159,5 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 | Path | What |
 |---|---|
 | `readme.md` | This guide: the brand, the voice, the visual foundations |
-| `styles.css` | Entry point; `@imports` all tokens + fonts (mocks and the guidelines cards link this one file) |
 | `tokens/` | `colors.css` · `typography.css` · `spacing.css` · `fonts.css` · `base.css` |
 | `components/core/` | Per-primitive contracts (`*.prompt.md`) |
-| `guidelines/` | The Voice pair (How Nova sounds · UX writing) |
