@@ -4,17 +4,22 @@
  * OpenAI re-renders tool JSON schemas server-side into a TypeScript-like
  * namespace and bills that rendering as input tokens (function-calling
  * guide: functions are "injected into the system message in a syntax the
- * model has been trained on"), so schema CONTENT is the only size lever —
- * emission form ($refs, defs, whitespace) is billing-irrelevant, verified
- * by direct measurement. The recursive Predicate / ValueExpression AST is
- * by far the largest content mass and rides nine tools. The wire therefore
- * carries a compact, schema-derived projection for those nodes, and the fully
- * documented grammar lives ONCE in the system prompt ("Filters & expressions",
- * rendered from the same domain schemas by `expressionReference.ts`). The
- * compact projection retains every object key, required set, discriminator,
- * recursive edge, and authored-identity constraint; only non-identity leaf
- * detail already stated in the prompt collapses to `{}`. It is never an open
- * `additionalProperties:true` identity stub.
+ * model has been trained on"). How that rendering treats a definition
+ * graph is not observable offline, and live step usage showed the billed
+ * tool rendering growing far past the emitted content's own token mass
+ * while the definitions graph was recursive (Predicate → ValueExpression →
+ * TableLookupExpression → Predicate). The wire therefore emits the AST
+ * family CYCLE-FREE: each family root is ONE self-contained merged object —
+ * the complete `kind` vocabulary, every property name, and every
+ * authored-identity slot with its exact pattern — and nested expression
+ * slots collapse to `{}`. No definition body references another definition,
+ * so no renderer can expand the emission past its literal content. The
+ * fully documented grammar lives ONCE in the system prompt ("Filters &
+ * expressions", rendered from the same domain schemas by
+ * `expressionReference.ts`); the wire teaches the vocabulary and the
+ * identity constraints at the slot, and the prompt owns nesting.
+ * `__tests__/wireSchemas.test.ts` pins the cycle-free law over every
+ * registered tool's emission.
  *
  * Validation remains canonical: the returned Schema first normalizes the
  * model-only direct-Term shorthand and then parses with the real Zod schema,
@@ -42,13 +47,25 @@ const IDENTITY_KEYS = new Set([
 	"resultColumnId",
 ]);
 
+/** An `{}` schema — the collapsed spelling for "shape taught in the prompt". */
+function isEmptySchema(value: unknown): boolean {
+	return (
+		value !== null &&
+		typeof value === "object" &&
+		!Array.isArray(value) &&
+		Object.keys(value).length === 0
+	);
+}
+
 /**
- * Preserve the recursive AST grammar while removing non-identity leaf detail.
+ * Flatten the AST grammar to one bounded level while keeping the vocabulary.
  *
  * Object structure stays closed and discriminated, and every property remains
- * named + required exactly as in the canonical schema. Identity slots keep
- * their complete string/pattern schema. Other scalar leaf constraints are
- * already rendered once in the prompt and collapse to `{}` here.
+ * named exactly as in the canonical schema. Identity slots keep their complete
+ * string/pattern schema. Every other slot — nested expressions included —
+ * collapses to `{}`: the prompt's "Filters & expressions" grammar owns that
+ * detail, and a `$ref` surviving into a projected body is what rebuilt the
+ * recursive definitions graph this projection exists to prevent.
  */
 function compactAstNode(node: unknown, propertyName?: string): unknown {
 	if (Array.isArray(node)) {
@@ -56,7 +73,7 @@ function compactAstNode(node: unknown, propertyName?: string): unknown {
 	}
 	if (node === null || typeof node !== "object") return {};
 	const source = node as JsonNode;
-	if (typeof source.$ref === "string") return { $ref: source.$ref };
+	if (typeof source.$ref === "string") return {};
 
 	for (const key of ["oneOf", "anyOf", "allOf"] as const) {
 		const members = source[key];
@@ -127,15 +144,19 @@ function compactAstNode(node: unknown, propertyName?: string): unknown {
 					required: ["kind"],
 					additionalProperties: false,
 				};
-				if (otherMembers.length === 0) return merged;
-				return {
-					[key]: [
-						...otherMembers.map((member) => compactAstNode(member)),
-						merged,
-					],
-				};
+				const compactedOthers = otherMembers
+					.map((member) => compactAstNode(member))
+					.filter((member) => !isEmptySchema(member));
+				if (compactedOthers.length === 0) return merged;
+				return { [key]: [...compactedOthers, merged] };
 			}
-			return { [key]: members.map((member) => compactAstNode(member)) };
+			const compactedMembers = members.map((member) => compactAstNode(member));
+			/* A wrapper whose every member collapsed (`allOf: [$ref]` at a
+			 * property position, a union of pure refs) carries no content —
+			 * emit the bare open slot instead of an empty union shell. */
+			return compactedMembers.every(isEmptySchema)
+				? {}
+				: { [key]: compactedMembers };
 		}
 	}
 
@@ -191,12 +212,47 @@ const canonicalAstJson = z.toJSONSchema(
 ) as JsonNode;
 const canonicalAstDefinitions =
 	(canonicalAstJson.definitions as JsonNode | undefined) ?? {};
-const compactAstDefinitions = Object.fromEntries(
-	Object.entries(canonicalAstDefinitions).map(([name, schema]) => [
-		name,
-		compactAstNode(schema),
-	]),
-) as JsonNode;
+
+/**
+ * Inline a canonical definition's union-arm `$ref`s so the merge in
+ * `compactAstNode` sees every discriminated arm as an inline object. Only
+ * arm-position refs resolve (a member that is exactly `{ $ref }`); refs at
+ * property positions stay for `compactAstNode` to collapse. The `seen` guard
+ * cuts a definition that reaches itself through arms, so this terminates on
+ * any graph.
+ */
+function inlineUnionArms(node: unknown, seen: ReadonlySet<string>): unknown {
+	if (node === null || typeof node !== "object" || Array.isArray(node)) {
+		return node;
+	}
+	const source = node as JsonNode;
+	const refName =
+		typeof source.$ref === "string" ? source.$ref.split("/").pop() : undefined;
+	if (refName !== undefined) {
+		const target = canonicalAstDefinitions[refName];
+		if (target === undefined || seen.has(refName)) return {};
+		return inlineUnionArms(target, new Set([...seen, refName]));
+	}
+	for (const key of ["oneOf", "anyOf"] as const) {
+		const members = source[key];
+		if (!Array.isArray(members)) continue;
+		return {
+			...source,
+			[key]: members.map((member) => inlineUnionArms(member, seen)),
+		};
+	}
+	return source;
+}
+
+function compactFamilyRoot(name: string): JsonNode {
+	return compactAstNode(
+		inlineUnionArms(canonicalAstDefinitions[name], new Set([name])),
+	) as JsonNode;
+}
+
+const compactPredicate = compactFamilyRoot("Predicate");
+const compactValueExpression = compactFamilyRoot("ValueExpression");
+const compactTerm = compactFamilyRoot("Term");
 
 /**
  * ValueExpression's provider projection also admits direct Term arms. The
@@ -205,49 +261,58 @@ const compactAstDefinitions = Object.fromEntries(
  * not widen the document AST or the MCP contract.
  */
 function addDirectTermShorthand(): void {
-	const expression = compactAstDefinitions.ValueExpression;
-	const term = compactAstDefinitions.Term;
-	if (
-		expression === null ||
-		typeof expression !== "object" ||
-		term === null ||
-		typeof term !== "object"
-	) {
-		return;
-	}
-	const expressionNode = expression as JsonNode;
-	const termNode = term as JsonNode;
-	if (Array.isArray(expressionNode.oneOf)) {
-		expressionNode.oneOf.push({ $ref: "#/definitions/Term" });
-		return;
-	}
-	const expressionProperties = expressionNode.properties;
-	const termProperties = termNode.properties;
+	const expressionProperties = compactValueExpression.properties;
+	const termProperties = compactTerm.properties;
 	if (
 		expressionProperties === null ||
 		typeof expressionProperties !== "object" ||
 		termProperties === null ||
 		typeof termProperties !== "object"
 	) {
-		return;
+		throw new Error(
+			"The compact ValueExpression and Term projections must each merge into one object so the direct-Term shorthand can combine them. A family root that no longer merges means the canonical union lost its inline discriminated arms — check the domain predicate schemas.",
+		);
 	}
 	const expressionKind = (expressionProperties as JsonNode).kind as
 		| JsonNode
 		| undefined;
 	const termKind = (termProperties as JsonNode).kind as JsonNode | undefined;
 	if (!Array.isArray(expressionKind?.enum) || !Array.isArray(termKind?.enum)) {
-		return;
+		throw new Error(
+			"The compact ValueExpression and Term projections must each carry a merged `kind` enum for the direct-Term shorthand. A missing enum means the merge in compactAstNode no longer ran — check the domain predicate schemas.",
+		);
 	}
 	expressionKind.enum = [
 		...new Set([...expressionKind.enum, ...termKind.enum]),
 	];
-	Object.assign(expressionProperties, termProperties);
+	/* Term's `kind` node must not ride along: assigning it would replace the
+	 * combined enum just built with Term's own arm list. */
+	const { kind: _termKindNode, ...termRest } = termProperties as JsonNode;
+	Object.assign(expressionProperties, termRest);
 }
 
 addDirectTermShorthand();
+/**
+ * Every canonical AST definition's cycle-free replacement. The three family
+ * roots carry their merged objects; a leaf definition a tool references
+ * directly (a true Term slot, a bare PropertyRef) compacts to its own
+ * ref-free shell. Definitions nothing references are pruned per tool, so a
+ * name appearing here does not put it on the wire.
+ */
+const compactAstDefinitions: JsonNode = {
+	...Object.fromEntries(
+		Object.keys(canonicalAstDefinitions).map((name) => [
+			name,
+			compactFamilyRoot(name),
+		]),
+	),
+	Predicate: compactPredicate,
+	ValueExpression: compactValueExpression,
+	Term: compactTerm,
+};
 const AST_PROJECTIONS = new Map<z.ZodType, JsonNode>([
-	[predicateSchema, compactAstDefinitions.Predicate as JsonNode],
-	[valueExpressionSchema, compactAstDefinitions.ValueExpression as JsonNode],
+	[predicateSchema, compactPredicate],
+	[valueExpressionSchema, compactValueExpression],
 ]);
 
 /**
@@ -293,6 +358,7 @@ export function wireToolSchema<I>(schema: z.ZodType<I>): Schema<I> {
 			if (compact !== undefined) definitions[name] = compact;
 		}
 	}
+	breakDefinitionCycles(json);
 	pruneUnreferencedDefinitions(json);
 	const wire = jsonSchema<I>(json as Parameters<typeof jsonSchema<I>>[0], {
 		validate: (value) => {
@@ -304,6 +370,51 @@ export function wireToolSchema<I>(schema: z.ZodType<I>): Schema<I> {
 	});
 	projectedSchemas.set(schema as z.ZodType, wire as Schema<unknown>);
 	return wire;
+}
+
+/**
+ * Cut every cycle in the emitted definitions graph, so no renderer can expand
+ * the emission past its literal content. A recursive Zod schema outside the
+ * AST family (`createLocation`'s descendant tree) hoists as a self-referencing
+ * definition; the cycle-closing `$ref` collapses to `{}` — one full level of
+ * the shape stays on the wire, deeper nesting is taught by the tool's own
+ * documentation and enforced by the untouched Zod validation. Acyclic refs
+ * stay: their expansion is bounded by the emission itself. The AST projections
+ * are already ref-free and shared across tools; this walk never mutates a body
+ * with no cycle-closing ref, so the shared objects stay untouched.
+ */
+function breakDefinitionCycles(json: Record<string, unknown>): void {
+	const defs = json.definitions as Record<string, unknown> | undefined;
+	if (!defs) return;
+	const cutRefNode = (node: JsonNode): void => {
+		for (const key of Object.keys(node)) delete node[key];
+	};
+	const walk = (node: unknown, stack: ReadonlySet<string>): void => {
+		if (Array.isArray(node)) {
+			for (const item of node) walk(item, stack);
+			return;
+		}
+		if (!node || typeof node !== "object") return;
+		const record = node as JsonNode;
+		if (typeof record.$ref === "string") {
+			const name = record.$ref.split("/").pop() ?? "";
+			if (stack.has(name)) {
+				cutRefNode(record);
+				return;
+			}
+			const target = defs[name];
+			if (target !== undefined) walk(target, new Set([...stack, name]));
+			return;
+		}
+		for (const value of Object.values(record)) walk(value, stack);
+	};
+	const { definitions: _defs, ...root } = json;
+	walk(root, new Set());
+	/* A definition only reachable through another cycle's cut edge still must
+	 * not carry a cycle of its own once something references it again. */
+	for (const name of Object.keys(defs)) {
+		walk(defs[name], new Set([name]));
+	}
 }
 
 /**
