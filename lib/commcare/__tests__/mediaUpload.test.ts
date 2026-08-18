@@ -167,12 +167,15 @@ describe("uploadAppMediaBundle", () => {
 		expect(headers.Authorization).toBe(
 			`ApiKey ${CREDS.username}:${CREDS.apiKey}`,
 		);
-		// The endpoint is @csrf_exempt + @waf_allow('XSS_BODY'), so the ZIP is
-		// the ONLY multipart field and no CSRF headers ride along.
+		// The endpoint is @csrf_exempt, so no CSRF headers ride along. The ZIP
+		// still follows the WAF padding: compressed bytes can match the same
+		// edge rule that blocks the import, and @waf_allow('XSS_BODY') only
+		// registers the view for WAF operators rather than exempting it.
 		expect(headers["X-CSRFToken"]).toBeUndefined();
 		expect(headers.Cookie).toBeUndefined();
 		expect(postInit.body).toBeInstanceOf(FormData);
 		expect([...(postInit.body as FormData).keys()]).toEqual([
+			"waf_padding",
 			"bulk_upload_file",
 		]);
 		expect((postInit.body as FormData).get("bulk_upload_file")).toBeInstanceOf(
@@ -237,7 +240,11 @@ describe("uploadAppMediaBundle", () => {
 		);
 
 		const result = await uploadAppMediaBundle(CREDS, DOMAIN, APP_ID, ZIP);
-		expect(result).toEqual({ success: false, status: 403 });
+		expect(result).toEqual({
+			success: false,
+			status: 403,
+			edgeRefusal: false,
+		});
 	});
 
 	it("returns a 422 when the POST is 200 but success:false (or no processing_id)", async () => {
