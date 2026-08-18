@@ -343,17 +343,30 @@ describe("lookup author identity boundary", () => {
 			const wire = wireToolSchema(toolCase.schema);
 			const json = JSON.stringify(await wire.jsonSchema);
 
-			/* The chat wire is a projection, not a second contract. It drops the
-			 * per-leaf scalar teaching the prompt already carries — so it is
-			 * materially smaller — while keeping what the PROVIDER needs to
-			 * reject a malformed call before it ever reaches Nova: the complete
-			 * discriminator vocabulary and the exact identity patterns. */
+			/* The chat wire is a projection, not a second contract. It carries
+			 * the Predicate slot's own discriminator vocabulary; the operand
+			 * grammar below it (Term/ValueExpression arms, lookup terms) is
+			 * taught once by the prompt's "Filters & expressions" section and
+			 * enforced by the untouched Zod validation — the grammar tests
+			 * below pin that the prompt actually names those arms. */
 			expect(json.length).toBeLessThan(full.length);
-			expect(json).toContain("table-column");
-			expect(json).toContain("table-lookup");
-			expect(json).toContain(
-				"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-			);
+			const definitions =
+				((JSON.parse(json) as Record<string, unknown>).definitions as
+					| Record<string, unknown>
+					| undefined) ?? {};
+			expect(
+				"Predicate" in definitions || "ValueExpression" in definitions,
+				"an expression-bearing tool must mount a family root definition",
+			).toBe(true);
+			if ("Predicate" in definitions) {
+				expect(json).toContain('"match-all"');
+				expect(json).toContain('"when-input-present"');
+			}
+			if ("ValueExpression" in definitions) {
+				expect(json).toContain('"table-lookup"');
+				expect(json).toContain('"table-column"');
+			}
+			expect(json).not.toContain("tableTag");
 
 			/* Compaction never widens what is accepted: the untouched Zod schema
 			 * is still the validator on both sides. */

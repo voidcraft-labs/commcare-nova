@@ -2,6 +2,7 @@ import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { normalizeModelAstInput } from "@/lib/agent/modelAstInput";
+import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import {
 	CANONICAL_UUID_PATTERN,
@@ -56,31 +57,138 @@ describe("compact provider expression schemas", () => {
 	const wire = wireToolSchema(localSchema);
 	const json = wire.jsonSchema as JsonNode;
 
-	it("keeps every AST object closed and every discriminator visible", () => {
-		let discriminatorCount = 0;
-		const discriminatorValues = new Set<string>();
-		walkJson(json, (node, path) => {
-			expect(node.additionalProperties, path).not.toBe(true);
-			const properties = node.properties as JsonNode | undefined;
-			const kind = properties?.kind as JsonNode | undefined;
-			if (kind === undefined) return;
-			discriminatorCount += 1;
-			if (typeof kind.const === "string") {
-				discriminatorValues.add(kind.const);
-			}
-			if (Array.isArray(kind.enum)) {
-				for (const value of kind.enum) {
-					if (typeof value === "string") discriminatorValues.add(value);
+	it("keeps every AST object closed and the family roots' complete kind vocabulary visible", () => {
+		/* The wire contract: each family root's own arm vocabulary survives the
+		 * projection. Deeper structural vocabulary (RelationPath arms, switch
+		 * cases) is taught by the prompt's generated grammar and enforced by
+		 * the untouched Zod validation. */
+		const canonicalJson = z.toJSONSchema(
+			z.object({
+				predicate: predicateSchema,
+				valueExpression: valueExpressionSchema,
+			}),
+			{ target: "draft-7", io: "input" },
+		) as JsonNode;
+		const canonicalDefs = (canonicalJson.definitions ?? {}) as JsonNode;
+		const armKinds = (defName: string): Set<string> => {
+			const values = new Set<string>();
+			const def = canonicalDefs[defName] as JsonNode | undefined;
+			const arms = (def?.oneOf ?? def?.anyOf ?? [def]) as unknown[];
+			for (const arm of arms) {
+				if (arm === null || typeof arm !== "object") continue;
+				const node = arm as JsonNode;
+				if (typeof node.$ref === "string") {
+					for (const kind of armKinds(node.$ref.split("/").pop() ?? "")) {
+						values.add(kind);
+					}
+					continue;
+				}
+				const kind = (node.properties as JsonNode | undefined)?.kind as
+					| JsonNode
+					| undefined;
+				if (typeof kind?.const === "string") values.add(kind.const);
+				if (Array.isArray(kind?.enum)) {
+					for (const value of kind.enum) {
+						if (typeof value === "string") values.add(value);
+					}
 				}
 			}
-			expect(
-				typeof kind.const === "string" ||
-					(Array.isArray(kind.enum) && kind.enum.length > 0),
-				path,
-			).toBe(true);
+			return values;
+		};
+		const canonicalRootKinds = new Set(
+			["Predicate", "ValueExpression", "Term"].flatMap((name) => [
+				...armKinds(name),
+			]),
+		);
+		const projectedKinds = new Set<string>();
+		walkJson(json, (node) => {
+			const kind = (node.properties as JsonNode | undefined)?.kind as
+				| JsonNode
+				| undefined;
+			if (typeof kind?.const === "string") projectedKinds.add(kind.const);
+			if (Array.isArray(kind?.enum)) {
+				for (const value of kind.enum) {
+					if (typeof value === "string") projectedKinds.add(value);
+				}
+			}
 		});
-		expect(discriminatorCount).toBeGreaterThan(20);
-		expect(discriminatorValues.size).toBeGreaterThan(55);
+		expect(canonicalRootKinds.size).toBeGreaterThan(40);
+		for (const kind of canonicalRootKinds) {
+			expect(projectedKinds.has(kind), `kind ${kind} lost in projection`).toBe(
+				true,
+			);
+		}
+		walkJson(json, (node, path) => {
+			expect(node.additionalProperties, path).not.toBe(true);
+		});
+	});
+
+	it("emits a cycle-free definitions graph with ref-free AST bodies on every registered tool", () => {
+		const astDefNames = new Set(
+			Object.keys(
+				(
+					z.toJSONSchema(
+						z.object({
+							predicate: predicateSchema,
+							valueExpression: valueExpressionSchema,
+						}),
+						{ target: "draft-7", io: "input" },
+					) as JsonNode
+				).definitions as JsonNode,
+			),
+		);
+		const refsOf = (node: unknown, out: Set<string>): void => {
+			if (Array.isArray(node)) {
+				for (const item of node) refsOf(item, out);
+				return;
+			}
+			if (node === null || typeof node !== "object") return;
+			for (const [key, value] of Object.entries(node as JsonNode)) {
+				if (key === "$ref" && typeof value === "string") {
+					out.add(value.split("/").pop() ?? "");
+				} else {
+					refsOf(value, out);
+				}
+			}
+		};
+		let total = 0;
+		for (const { saName, tool } of SHARED_TOOL_REGISTRY) {
+			const toolJson = wireToolSchema(tool.inputSchema as z.ZodType)
+				.jsonSchema as JsonNode;
+			total += JSON.stringify(toolJson).length;
+			const defs = (toolJson.definitions ?? {}) as JsonNode;
+			const edges = new Map<string, Set<string>>();
+			for (const [name, body] of Object.entries(defs)) {
+				const out = new Set<string>();
+				refsOf(body, out);
+				edges.set(name, out);
+				if (astDefNames.has(name)) {
+					expect(
+						out.size,
+						`${saName} AST definition ${name} references ${[...out].join(", ")} — the AST projection must stay self-contained`,
+					).toBe(0);
+				}
+			}
+			/* No definition may reach itself: a cyclic graph hands the provider's
+			 * schema renderer unbounded expansion, the regression behind the
+			 * ~540k-token SA requests this projection retired. */
+			for (const start of edges.keys()) {
+				const seen = new Set<string>();
+				const frontier = [...(edges.get(start) ?? [])];
+				while (frontier.length > 0) {
+					const name = frontier.pop();
+					if (name === undefined || seen.has(name)) continue;
+					seen.add(name);
+					expect(name, `${saName} definitions cycle through ${start}`).not.toBe(
+						start,
+					);
+					frontier.push(...(edges.get(name) ?? []));
+				}
+			}
+		}
+		/* The whole registry's emission stays inside a hard content budget, so
+		 * tool growth is a deliberate, visible spend (396k chars when set). */
+		expect(total).toBeLessThan(450_000);
 	});
 
 	it("keeps the exact UUID pattern on every identity-bearing AST property", () => {

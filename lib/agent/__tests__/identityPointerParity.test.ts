@@ -28,6 +28,7 @@ import {
 	lookupTableIdSchema,
 	uuidSchema,
 } from "@/lib/domain";
+import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 import { registerNovaTools } from "@/lib/mcp/server";
 import type { ToolContext } from "@/lib/mcp/types";
 
@@ -150,6 +151,47 @@ describe("shared-tool authored identity registry", () => {
 	});
 
 	it("keeps every exact identity pointer and rejection matrix identical in local Zod, compact SA, and real MCP tools/list schemas", () => {
+		/* The SA wire flattens the AST family into self-contained merged roots
+		 * (`wireSchemas.ts`), so pointers that the canonical emission reaches
+		 * through AST definitions sit at different logical paths there — or,
+		 * on a tool whose wire never emits a ValueExpression definition, only
+		 * in the prompt's grammar. Outside the AST family the three surfaces
+		 * must stay pointer-identical; inside it, the SA wire may only ever
+		 * carry a subset of the canonical slots, and the registry-wide sweep
+		 * below proves every canonical AST identity slot survives somewhere
+		 * on the SA wire with its exact pattern. */
+		const astDefNames = new Set(
+			Object.keys(
+				((
+					z.toJSONSchema(
+						z.object({
+							predicate: predicateSchema,
+							valueExpression: valueExpressionSchema,
+						}),
+						{ target: "draft-7", io: "input" },
+					) as JsonNode
+				).definitions ?? {}) as JsonNode,
+			),
+		);
+		const isAstPointer = (pointer: AuthorableIdentityPointer): boolean =>
+			pointer.logicalPointer
+				.split("/")
+				.some(
+					(segment) =>
+						segment.startsWith("$") && astDefNames.has(segment.slice(1)),
+				);
+		const astSlotSignatures = (
+			pointers: readonly AuthorableIdentityPointer[],
+		): readonly string[] =>
+			[
+				...new Set(
+					pointers
+						.filter(isAstPointer)
+						.map((p) => `${p.property}|${p.family}|${p.pattern}`),
+				),
+			].sort();
+		const localAstSlots = new Set<string>();
+		const saAstSlots = new Set<string>();
 		for (const { mcpName, tool } of SHARED_TOOL_REGISTRY) {
 			const local = collectIdentitySchemaPointers(
 				mcpName,
@@ -167,9 +209,19 @@ describe("shared-tool authored identity registry", () => {
 			if (mcpJson === undefined) continue;
 			const mcp = collectIdentitySchemaPointers(mcpName, mcpJson);
 
-			expect(signatures(sa), `${mcpName} SA identity drift`).toEqual(
-				signatures(local),
-			);
+			expect(
+				signatures(sa.filter((p) => !isAstPointer(p))),
+				`${mcpName} SA identity drift`,
+			).toEqual(signatures(local.filter((p) => !isAstPointer(p))));
+			const localAst = astSlotSignatures(local);
+			for (const slot of astSlotSignatures(sa)) {
+				expect(
+					localAst.includes(slot),
+					`${mcpName} SA wire invents AST identity slot ${slot}`,
+				).toBe(true);
+			}
+			for (const slot of localAst) localAstSlots.add(slot);
+			for (const slot of astSlotSignatures(sa)) saAstSlots.add(slot);
 			expect(signatures(mcp), `${mcpName} MCP identity drift`).toEqual(
 				signatures(local),
 			);
@@ -177,6 +229,10 @@ describe("shared-tool authored identity registry", () => {
 			assertRejectionMatrix(sa);
 			assertRejectionMatrix(mcp);
 		}
+		expect(
+			[...saAstSlots].sort(),
+			"AST identity slots lost from the SA wire",
+		).toEqual([...localAstSlots].sort());
 	});
 
 	it("uses only the shared canonical UUID patterns at every registered pointer", () => {
