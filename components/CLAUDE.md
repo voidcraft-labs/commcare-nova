@@ -4,13 +4,14 @@ The conventions every React component in the app obeys: builder, chat, preview, 
 
 ## Design-system authority
 
-The **CommCare Nova design system** leads. It is a Claude Design project
-(`719bad67-96ae-4c3a-8d35-f5c2029c9f51`, readable through the claude_design MCP)
-and it owns the palette, the type scale, the control anatomy, the interaction
-model, the brand, and the voice. Where it and this codebase disagree, the design
-system is right and the code is the thing to change. Its `tokens/*.css` are the
-values of record; its `readme.md` is the intent; the `components/core/*.prompt.md`
-files are each primitive's contract.
+The **CommCare Nova design system** leads, and it lives in this repo at
+`design/`. It owns the palette, the type scale, the control anatomy, the
+interaction model, the brand, and the voice. Where it and this codebase
+disagree, the design system is right and the code is the thing to change.
+`design/readme.md` is the intent; `design/tokens/*.css` are the values of
+record; the `design/components/core/*.prompt.md` files are each primitive's
+contract. Design exploration happens in the Claude Design project of the same
+name (`719bad67-96ae-4c3a-8d35-f5c2029c9f51`).
 
 **Google Material 3** remains useful background for foundations, adaptive
 layout, accessibility, and content hierarchy, and **Apple HIG** for platform

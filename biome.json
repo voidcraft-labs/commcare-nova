@@ -9,6 +9,7 @@
 			"**",
 			"!!.*",
 			"!!**/dist",
+			"!!design",
 			"!!**/__fixtures__/*.snapshot.json",
 			"!!config/commcare-classic-languages.json",
 			"!!lib/case-store/migrations/20260728000000_canonical_identity_foundation/*.generated.mjs",

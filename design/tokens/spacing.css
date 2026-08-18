@@ -1,0 +1,98 @@
+/* ============================================================
+   CommCare Nova spacing, radius, shadow, and motion tokens
+   Generous space and round, soft geometry are how Nova feels
+   calm and unhurried. When in doubt, add room, not chrome.
+   ============================================================ */
+
+:root {
+	/* ---- Spacing scale (4px base) ---- */
+	--space-0: 0;
+	--space-1: 0.25rem; /* 4px */
+	--space-2: 0.5rem; /* 8px */
+	--space-3: 0.75rem; /* 12px */
+	--space-4: 1rem; /* 16px */
+	--space-5: 1.25rem; /* 20px */
+	--space-6: 1.5rem; /* 24px */
+	--space-8: 2rem; /* 32px */
+	--space-10: 2.5rem; /* 40px */
+	--space-12: 3rem; /* 48px */
+	--space-16: 4rem; /* 64px */
+
+	/* ---- Radius ----
+	   Everything is soft. Inputs and cards sit at lg (12px); buttons (one
+	   size, 44px tall), dialogs, menus, and popovers at xl (18px); the
+	   composer at 2xl; badges are full pills. Genuinely round stays
+	   reserved for toggles and the brand dot. */
+	--radius-sm: 0.5rem; /* 8px: chips, nested wells, small controls */
+	--radius-md: 0.625rem; /* 10px: compact controls, code chips */
+	--radius-lg: 0.75rem; /* 12px: buttons, inputs, cards (Nova default) */
+	--radius-xl: 1.125rem; /* 18px: buttons, dialogs, menus, popovers */
+	--radius-2xl: 1.5rem; /* 24px: hero composer */
+	--radius-3xl: 1.75rem; /* 28px: large friendly surfaces */
+	--radius-4xl: 2rem; /* 32px: badge pill */
+	--radius-full: 9999px; /* toggles, the brand dot */
+
+	/* ---- Hit targets ---- */
+	/* THE control height: buttons, inputs, and toggles are all exactly
+	   this tall (one size each, no ladders), and it's the floor for menu
+	   items, composer controls, dialog actions, and icon buttons near
+	   text; nobody should have to aim. */
+	--hit-target: 2.75rem; /* 44px */
+
+	/* ---- Keycap depth ---- */
+	/* Buttons are soft keycaps: a lit crown over a darker side wall this
+	   tall; press travels the same distance as the wall collapses.
+	   Text-only controls (ghost, link, icon buttons) keep a 1px nudge. */
+	--key-wall: 3px; /* @kind other */
+
+	/* ---- Elevation / depth shadows ----
+	   Depth is soft and ambient; surfaces rest on the page like paper
+	   in low light. Floating tiers add a faint lit rim. Nothing is
+	   carved, machined, or recessed. */
+	--shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.22); /* soft well (use sparingly) */
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+	--shadow-md:
+		0 6px 16px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+	--shadow-lg:
+		0 12px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(150, 120, 242, 0.08);
+	--shadow-elevated:
+		0 16px 48px rgba(0, 0, 0, 0.45), 0 12px 24px rgba(0, 0, 0, 0.22),
+		0 6px 8px rgba(0, 0, 0, 0.2), 0 2px 3px rgba(0, 0, 0, 0.1);
+	/* Floating-tier shadows: a faint bright rim that reads as a lit
+	   glass edge, plus a deep soft drop. Glass = L1 panels;
+	   overlay-float = the near-opaque L2 tier that stacks above glass. */
+	--shadow-glass:
+		inset 0 0 0 1px rgba(226, 217, 255, 0.17), 0 24px 48px rgba(0, 0, 0, 0.45);
+	--shadow-overlay-float:
+		inset 0 0 0 1px rgba(226, 217, 255, 0.14), 0 16px 40px rgba(0, 0, 0, 0.55);
+	/* Keyboard focus ring: violet-bright, soft 3px. */
+	--focus-ring: 0 0 0 3px rgba(182, 160, 251, 0.45);
+
+	/* ---- Interaction states ----
+	   State distance is measured in perceptual lightness (oklab), so a
+	   step looks like the same amount of change on any color:
+	   • Solid-fill hover = base mixed 10% toward white in oklch (see the
+	     *-hover tokens in colors.css); fills BRIGHTEN, never dim. Light is
+	     action, dusk text gains contrast, and the oklch mix holds the hue
+	     so nothing desaturates. Pair with a glow swell on CTAs.
+	   • Foreground icon/text controls: idle text-secondary → hover text →
+	     disabled = idle at opacity 0.6.
+	   • Disabled = opacity 0.6 EVERYWHERE (one value), cursor: not-allowed,
+	     pointer events kept so the cursor can show; hover restyles gated off.
+	     0.6 is calibrated: keycap labels hold ≥3.6:1 and secondary-base
+	     text/icon controls ≥3:1 on every surface in the stack (WCAG
+	     exempts disabled controls; Nova doesn't). */
+	--disabled-opacity: 0.6; /* @kind other */
+
+	/* ---- Motion ----
+	   Unhurried and gentle. Things settle into place; nothing snaps,
+	   bounces at the user, or demands attention. Ambient motion (the
+	   breathing brand dot, blooms) is slow enough to ignore. */
+	--duration-fast: 0.1s; /* @kind other */
+	--duration-default: 0.2s; /* @kind other */
+	--duration-slow: 0.64s; /* @kind other */
+	--duration-breathe: 3.6s; /* @kind other */ /* ambient presence pulse */
+	--ease-default: cubic-bezier(0.46, 0.03, 0.52, 0.96); /* @kind other */
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */ /* entrance, decel */
+	--ease-back: cubic-bezier(0.68, -0.55, 0.27, 1.55); /* @kind other */ /* overshoot; rare, playful */
+}

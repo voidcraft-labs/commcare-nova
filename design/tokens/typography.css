@@ -1,0 +1,56 @@
+/* ============================================================
+   CommCare Nova typography tokens
+   Display: Outfit (geometric, rounded, lowercase wordmark)
+   Sans:    Plus Jakarta Sans (UI body + labels)
+   Mono:    JetBrains Mono (code and data VALUES only, never
+            UI labels; the old etched-uppercase chrome is retired)
+   Type is set a touch looser than a typical tool: labels are
+   sentence case in the sans, headings breathe, nothing shouts.
+   ============================================================ */
+
+:root {
+	--font-nova-display: "Outfit", system-ui, sans-serif;
+	--font-nova-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+	--font-nova-mono: "JetBrains Mono", ui-monospace, monospace;
+
+	/* Semantic aliases */
+	--font-display: var(--font-nova-display);
+	--font-sans: var(--font-nova-sans);
+	--font-mono: var(--font-nova-mono);
+
+	/* ---- Type scale (rem) ---- */
+	--text-xs: 0.75rem; /* 12px: metadata, captions */
+	--text-sm: 0.875rem; /* 14px: UI default, secondary */
+	--text-base: 1rem; /* 16px: body */
+	--text-lg: 1.125rem; /* 18px: lead paragraph */
+	--text-xl: 1.25rem; /* 20px: card / section title */
+	--text-2xl: 1.5rem; /* 24px: page subhead */
+	--text-3xl: 1.875rem; /* 30px: page title */
+	--text-4xl: 2.25rem; /* 36px: hero secondary */
+	--text-5xl: 3rem; /* 48px: hero wordmark */
+
+	/* ---- Weights ----
+	   Prefer the middle of the range: medium for emphasis, semibold
+	   for headings. Bold is the wordmark and rare display moments;
+	   heavy weights everywhere read as shouting. */
+	--weight-light: 300;
+	--weight-regular: 400;
+	--weight-medium: 500;
+	--weight-semibold: 600;
+	--weight-bold: 700;
+
+	/* ---- Line heights ---- */
+	--leading-tight: 1.2;
+	--leading-snug: 1.35;
+	--leading-normal: 1.5;
+	--leading-relaxed: 1.7;
+
+	/* ---- Letter spacing ---- */
+	--tracking-tighter: -0.015em; /* display headings: snug, not clenched */
+	--tracking-tight: -0.01em; /* subheads */
+	--tracking-normal: 0;
+	--tracking-wide: 0.08em; /* small quiet labels (sentence case, sans) */
+	--tracking-etched: 0.15em; /* LEGACY: the retired console-label tracking.
+	   Kept so old consumers don't break; do not use in new work. UI labels
+	   are sentence case in the sans; mono is for code and data values. */
+}
