@@ -404,7 +404,7 @@ export function CreditControls({
 								className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-nova-border bg-nova-surface px-4 py-3 text-sm"
 							>
 								<Badge variant={grant.type === "grant" ? "violet" : "muted"}>
-									{grant.type}
+									{grant.type === "grant" ? "Grant" : "Reset"}
 								</Badge>
 								{grant.type === "grant" && (
 									<span className="font-medium tabular-nums">

@@ -37,7 +37,7 @@ import type {
 	ConnectType,
 	XPathExpression,
 } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { asUuid, CONNECT_TYPE_LABELS } from "@/lib/domain";
 import { CurrentFormScope } from "@/lib/references/ReferenceContext";
 import { useStopEscape } from "@/lib/ui/hooks/useStopEscape";
 import { assertNever } from "@/lib/utils/assertNever";
@@ -1025,7 +1025,7 @@ function ConnectEnableBody({
 						Set up Connect
 					</DialogTitle>
 					<span className="flex h-[18px] items-center rounded-full border border-nova-violet/20 bg-nova-violet/10 px-1.5 text-[10px] font-medium text-nova-violet-bright">
-						{mode === "learn" ? "Learn" : "Deliver"}
+						{CONNECT_TYPE_LABELS[mode]}
 					</span>
 				</div>
 				<DialogClose

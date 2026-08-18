@@ -75,7 +75,9 @@ const columns = columnHelper.columns([
 		cell: ({ getValue }) => {
 			const role = getValue();
 			return (
-				<Badge variant={role === "admin" ? "violet" : "muted"}>{role}</Badge>
+				<Badge variant={role === "admin" ? "violet" : "muted"}>
+					{role === "admin" ? "Admin" : "User"}
+				</Badge>
 			);
 		},
 	}),

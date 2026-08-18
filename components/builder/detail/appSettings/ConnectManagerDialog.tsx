@@ -17,6 +17,7 @@ import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
 import type { BlueprintDoc, XPathExpression } from "@/lib/domain";
 import {
 	asUuid,
+	CONNECT_TYPE_LABELS,
 	CONNECT_TYPES,
 	type ConnectConfig,
 	type ConnectType,
@@ -308,7 +309,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 		hasParticipant &&
 		(isCurrentMode ? dirty : true);
 
-	const modeLabel = (m: ConnectType) => (m === "learn" ? "Learn" : "Deliver");
+	const modeLabel = (m: ConnectType) => CONNECT_TYPE_LABELS[m];
 	const primaryLabel = !enabled
 		? "Enable Connect"
 		: isCurrentMode

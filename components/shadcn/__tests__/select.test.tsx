@@ -41,6 +41,26 @@ describe("Select value layout", () => {
 		expect(trigger.className).not.toContain(" h-11 ");
 	});
 
+	it("renders the item's label in the trigger when the root carries items", () => {
+		// A bare <SelectValue /> resolves its text through the root's `items`
+		// map; without it Base UI falls back to the raw stored value, which is
+		// how a filter trigger once read `all` while its menu said
+		// "All statuses".
+		render(
+			<Select value="needs-review" items={{ "needs-review": "Needs review" }}>
+				<SelectTrigger aria-label="Filter by status">
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="needs-review">Needs review</SelectItem>
+				</SelectContent>
+			</Select>,
+		);
+		const trigger = screen.getByRole("combobox", { name: "Filter by status" });
+		expect(trigger.textContent).toContain("Needs review");
+		expect(trigger.textContent).not.toContain("needs-review");
+	});
+
 	it("centers the value at every height, wrapping or not", () => {
 		// A trigger that grows for a two-line value must still center a value
 		// that happens to fit on one line: top-aligning it leaves the label

@@ -120,7 +120,7 @@ export function LanguageSelector() {
 				preferredMinWidth="14rem"
 			>
 				<DropdownMenuGroup>
-					<DropdownMenuLabel>Worker content language</DropdownMenuLabel>
+					<DropdownMenuLabel>Language workers see</DropdownMenuLabel>
 				</DropdownMenuGroup>
 				<DropdownMenuRadioGroup
 					value={state.language}
