@@ -23,17 +23,27 @@ Sequence is plain array position. Position belongs to the collection, so entitie
 
 ## Localization is an overlay over canonical source content
 
-`localization.ts` owns app-language identity and metadata. The ordinary
-Blueprint slots remain the canonical source-language values; `AppLocalization`
-stores only target-language entries plus provenance and review state. An absent
-root means the exact legacy English-only state and is never backfilled. The
-source language has no duplicate target map, the default language is first in
-`languageOrder`, and every other app language has exactly one map. Language
-identity is a lower-case CommCare code (`[a-z]{2,3}` with an optional nonempty
-lower-case suffix). `config/commcare-classic-languages.json` is an exact checked-in
-copy of Classic's picker catalog for discovery, not an allowlist: every code
-Classic's wire grammar accepts remains authorable, with editable name and text
-direction metadata.
+`localization.ts` owns app-language identity. The ordinary Blueprint slots
+remain the canonical source-language values; `AppLocalization` stores only
+target-language entries plus provenance and review state. An absent root means
+the canonical English-only state (`eng` source, default, and sole order
+entry) and is never materialized. The source language has no duplicate target
+map, the default language is first in `languageOrder`, and every other app
+language has exactly one map. A language is `AppLanguageIdentity`
+`{language, script?, region?}`: an ISO 639:2023 Set 3 individual living
+language, an ISO 15924 script present exactly when the language has more than
+one customary writing system, and an optional ISO 3166-1 alpha-2 region.
+`languageTag(identity)` joins the parts with `-` (`cmn-Hans-CN`) and
+`parseLanguageTag` inverts it; the tag (`LANGUAGE_TAG_PATTERN`, the only tag
+grammar) is the record key, mutation reference, and `?lang=` value, never a
+rendered string. Parsing admits shape only; registry membership is enforced at
+the authoring boundaries (tool schemas, design contract, picker), so the
+persistence layer never consults catalogs. Names, directions, and descriptors
+are never stored or authored anywhere; they derive from the identity through
+`languageRegistry/` (generated ISO/CLDR catalogs plus `search.ts`, the lazy
+big-name chunk behind `load.ts::loadLanguageRegistrySearch`). Neither registry
+module is exported from the `lib/domain` barrel. Two-letter codes exist only
+inside `lib/commcare` as emitted wire spellings.
 
 `translationUnits.ts::collectTranslationUnits` is the ONE inventory of static
 worker-facing strings. A unit id is an injective, versioned projection of stable

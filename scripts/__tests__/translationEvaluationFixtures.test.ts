@@ -26,7 +26,7 @@ describe("translation evaluation fixtures", () => {
 				fixture.criterionIds.every((criterion) => knownCriteria.has(criterion)),
 			).toBe(true);
 		}
-		const english = translationEvaluationUnits("en");
+		const english = translationEvaluationUnits("eng");
 		expect(
 			english.some(
 				(unit) =>

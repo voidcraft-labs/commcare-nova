@@ -44,18 +44,18 @@ describe("diffDocsToMutations localization", () => {
 			applyMutations(draft, [
 				{
 					kind: "addLanguage",
-					language: { code: "es", name: "Español", direction: "ltr" },
+					language: { language: "spa" },
 				},
 				{
 					kind: "setTranslation",
-					language: "es",
+					language: "spa",
 					unitId: unit.id,
 					entry: {
 						value: "Clínica",
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			]);
@@ -74,7 +74,7 @@ describe("diffDocsToMutations localization", () => {
 			applyMutations(draft, [
 				{
 					kind: "relabelSourceLanguage",
-					language: { code: "fra", name: "Français", direction: "ltr" },
+					language: { language: "fra" },
 				},
 			]);
 		});
@@ -132,18 +132,18 @@ describe("diffDocsToMutations localization", () => {
 			applyMutations(draft, [
 				{
 					kind: "addLanguage",
-					language: { code: "es", name: "Español", direction: "ltr" },
+					language: { language: "spa" },
 				},
 				{
 					kind: "setTranslation",
-					language: "es",
+					language: "spa",
 					unitId: unit.id,
 					entry: {
 						value: proseText("Nombre del paciente"),
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			]);

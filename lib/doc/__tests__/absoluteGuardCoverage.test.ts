@@ -649,13 +649,10 @@ const GUARD_COVERAGE = {
 	},
 	relabelSourceLanguage: {
 		neverGates:
-			"relabeling the sole source language changes metadata without changing authored content",
+			"relabeling the sole source language replaces its identity without changing authored content",
 	},
 	addLanguage: {
 		neverGates: "a target language may start with an empty translation overlay",
-	},
-	updateLanguage: {
-		neverGates: "editable language name and text direction are metadata",
 	},
 	removeLanguage: {
 		neverGates: "removing a non-source, non-default target closes its overlay",

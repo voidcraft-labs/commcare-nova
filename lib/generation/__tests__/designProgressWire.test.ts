@@ -109,7 +109,7 @@ describe("design progress wire", () => {
 		expect(
 			parseBuildLocalization(
 				envelope({
-					languageCode: "es",
+					languageTag: "spa",
 					languageName: "Español",
 					batch: 2,
 					batchCount: 4,
@@ -117,7 +117,7 @@ describe("design progress wire", () => {
 				SESSION,
 			),
 		).toEqual({
-			languageCode: "es",
+			languageTag: "spa",
 			languageName: "Español",
 			batch: 2,
 			batchCount: 4,
@@ -125,7 +125,7 @@ describe("design progress wire", () => {
 		expect(
 			parseBuildLocalization(
 				envelope({
-					languageCode: "es",
+					languageTag: "spa",
 					languageName: "Español",
 					batch: 0,
 					batchCount: 4,

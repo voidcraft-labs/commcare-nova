@@ -131,7 +131,7 @@ export interface DesignProgressEnvelope<T> {
 }
 
 export interface BuildLocalizationProjection {
-	readonly languageCode: string;
+	readonly languageTag: string;
 	readonly languageName: string;
 	readonly batch: number;
 	readonly batchCount: number;

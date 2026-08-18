@@ -251,7 +251,9 @@ describe("design agent Responses wire body", () => {
 		).toBe(false);
 		/* Model-proposed candidate options ride an exact call freely: the
 		 * authorization property is prose exactness, and options are the
-		 * recommended defaults the user can tap instead of typing. */
+		 * recommended defaults the user can tap instead of typing. The marker
+		 * follows the conversation language, so a localized spelling is
+		 * exact-call-compatible too. */
 		expect(
 			isExactRequiredDesignQuestionCall(
 				{
@@ -260,7 +262,7 @@ describe("design agent Responses wire body", () => {
 						index === 0
 							? {
 									...question,
-									options: [{ label: "Two days (Recommended)" }],
+									options: [{ label: "Dos días (Recomendado)" }],
 								}
 							: question,
 					),

@@ -4,7 +4,7 @@ import type { BlueprintDoc } from "./blueprint";
 import type { Field } from "./fields";
 import {
 	effectiveAppLocalization,
-	type LanguageCode,
+	type LanguageTag,
 	makeTranslationUnitId,
 	type TranslationUnitId,
 } from "./localization";
@@ -23,7 +23,7 @@ import type { Uuid } from "./uuid";
 function localizedText(
 	units: ReturnType<typeof translationUnitsById>,
 	doc: BlueprintDoc,
-	language: LanguageCode,
+	language: LanguageTag,
 	id: TranslationUnitId,
 	fallback: string,
 ): string {
@@ -35,7 +35,7 @@ function localizedText(
 
 export function projectLocalizedAppName(
 	doc: BlueprintDoc,
-	language: LanguageCode,
+	language: LanguageTag,
 ): string {
 	return localizedText(
 		translationUnitsById(doc),
@@ -48,7 +48,7 @@ export function projectLocalizedAppName(
 
 export function projectLocalizedForm(
 	doc: BlueprintDoc,
-	language: LanguageCode,
+	language: LanguageTag,
 	uuid: Uuid,
 ) {
 	const form = doc.forms[uuid];
@@ -71,7 +71,7 @@ export function projectLocalizedForm(
 /** Project module chrome, case-list labels, and Search copy only. */
 export function projectLocalizedModule(
 	doc: BlueprintDoc,
-	language: LanguageCode,
+	language: LanguageTag,
 	uuid: Uuid,
 ): Module | undefined {
 	const module = doc.modules[uuid];
@@ -154,7 +154,7 @@ export function projectLocalizedModule(
 /** Project prose and inline option labels without changing identity or logic. */
 export function projectLocalizedField(
 	doc: BlueprintDoc,
-	language: LanguageCode,
+	language: LanguageTag,
 	uuid: Uuid,
 ): Field | undefined {
 	const field = doc.fields[uuid];
@@ -168,7 +168,7 @@ export function projectLocalizedField(
 
 function projectFieldWithUnits(
 	doc: BlueprintDoc,
-	language: LanguageCode,
+	language: LanguageTag,
 	field: Field,
 	units: ReturnType<typeof translationUnitsById>,
 ): Field {
@@ -210,7 +210,7 @@ function projectFieldWithUnits(
  */
 export function projectLocalizedFields(
 	doc: BlueprintDoc,
-	language: LanguageCode,
+	language: LanguageTag,
 ): Record<string, Field> {
 	if (language === effectiveAppLocalization(doc.localization).sourceLanguage) {
 		return doc.fields;

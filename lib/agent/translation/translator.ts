@@ -9,14 +9,15 @@ import {
 	translationUnitUsesLocaleFile,
 } from "@/lib/commcare/localeFile";
 import {
+	type AppLanguageIdentity,
 	canonicalProseTemplate,
-	type LanguageCode,
 	type LocalizedValue,
 	type ProsePart,
 	type ProseReferencePart,
 	type TranslationUnit,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
+import { languageDescriptor } from "@/lib/domain/languageRegistry/names";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type {
@@ -24,7 +25,7 @@ import type {
 	PersistedTranslationUsage,
 } from "./store";
 
-export const TRANSLATION_PROMPT_VERSION = "translation-v1";
+export const TRANSLATION_PROMPT_VERSION = "translation-v2";
 export const TRANSLATION_SCHEMA_VERSION = "translation-output-v1";
 export const TRANSLATION_MAX_OUTPUT_TOKENS = 32_000;
 const MAX_BATCH_ESTIMATED_TOKENS = 12_000;
@@ -71,15 +72,23 @@ export interface EncodedTranslationUnit {
 	readonly tokenReferences: ReadonlyMap<string, ProsePart>;
 }
 
+export interface TranslationLanguage {
+	readonly identity: AppLanguageIdentity;
+	/** Registry-derived prose naming the language for the model. Stable across
+	 * machines, so batch input digests are deterministic. */
+	readonly descriptor: string;
+}
+
+/** The one place a language identity becomes a translation-prompt language. */
+export function translationLanguage(
+	identity: AppLanguageIdentity,
+): TranslationLanguage {
+	return { identity, descriptor: languageDescriptor(identity) };
+}
+
 export interface TranslationBatchInput {
-	readonly sourceLanguage: {
-		readonly code: LanguageCode;
-		readonly name: string;
-	};
-	readonly targetLanguage: {
-		readonly code: LanguageCode;
-		readonly name: string;
-	};
+	readonly sourceLanguage: TranslationLanguage;
+	readonly targetLanguage: TranslationLanguage;
 	readonly appObjective: string;
 	readonly units: readonly EncodedTranslationUnit[];
 	readonly glossary: readonly TranslationGlossaryEntry[];
@@ -357,7 +366,7 @@ export function translationPromptPayload(input: TranslationBatchInput) {
 
 const TRANSLATION_SYSTEM = `You translate static worker-facing content for a data-collection app.
 
-Translate from the exact source language into the exact target language. Use the app objective, role, breadcrumb, context, sibling content, and accepted glossary to preserve domain meaning and terminology. Keep concise UI labels concise. Preserve formatting that carries meaning.
+Each language is one exact identity: an ISO 639:2023 Set 3 individual-language code, an ISO 15924 script where the language is written in more than one, and an ISO 3166-1 region where regional conventions differ; the request also names each language in prose. Translate from the exact source language into the exact target language, writing in the target's script and following its regional conventions. Use the app objective, role, breadcrumb, context, sibling content, and accepted glossary to preserve domain meaning and terminology. Keep concise UI labels concise. Preserve formatting that carries meaning.
 
 Return every requested unitId exactly once and no other unitId. Copy every protected token exactly, including brackets, spelling, and case, exactly once; tokens may move for target-language grammar but may never be translated, added, or removed. Do not explain the translation. Do not invent content absent from the source.`;
 

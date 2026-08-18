@@ -83,6 +83,7 @@ describe("run-holder write structural guard", () => {
 			"lib/db/apps.ts",
 			"lib/db/canonicalCommitKernel.ts",
 			"lib/db/credits.ts",
+			"scripts/lib/languageIdentityRepair.ts",
 		]);
 		// Operator recovery delegates to `recoverAppStatus` rather than issuing its
 		// own DML, so its writes go through the same holder proof as everything else.
@@ -145,6 +146,25 @@ describe("run-holder write structural guard", () => {
 		expect(
 			source("lib/db/credits.ts").match(new RegExp(appDml, "g"))?.length,
 		).toBe(5);
+		// The language-identity repair is a migrate-Job maintenance writer: the
+		// deploy pipeline runs it before traffic reaches the new revision, so no
+		// run holder can exist over its writes. Its one apps DML site rewrites
+		// only the localization root, inside the transaction that already took
+		// the app row FOR UPDATE, and the rewrite is proven by re-folding the
+		// app's history before the transaction may commit.
+		expect(
+			source("scripts/lib/languageIdentityRepair.ts").match(
+				new RegExp(appDml, "g"),
+			)?.length,
+		).toBe(1);
+		const languageRepair = exportedFunction(
+			"scripts/lib/languageIdentityRepair.ts",
+			"repairOneAppInTransaction",
+		);
+		expect(languageRepair).toContain("loadSourceWith(tx, appId, true)");
+		expect(languageRepair).toContain(
+			".set({ localization: plan.rootRewriteText })",
+		);
 	});
 
 	it("mints or proves a holder at every creation and claim transaction", () => {

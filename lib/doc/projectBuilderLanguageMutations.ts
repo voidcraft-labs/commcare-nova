@@ -8,7 +8,7 @@ import {
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	effectiveAppLocalization,
-	type LanguageCode,
+	type LanguageTag,
 	type LocalizedValue,
 	localizeTranslationUnit,
 	makeTranslationUnitId,
@@ -18,6 +18,7 @@ import {
 	translationUnitsById,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
+import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 
 export type BuilderLanguageMutationProjection =
 	| { readonly ok: true; readonly mutations: Mutation[] }
@@ -38,7 +39,7 @@ function hasOwn(record: object, key: PropertyKey): boolean {
  */
 export function projectBuilderLanguageMutations(
 	doc: BlueprintDoc,
-	language: LanguageCode | null,
+	language: LanguageTag | null,
 	mutations: readonly Mutation[],
 ): BuilderLanguageMutationProjection {
 	if (language === null) return { ok: true, mutations: [...mutations] };
@@ -46,10 +47,11 @@ export function projectBuilderLanguageMutations(
 	if (language === localization.sourceLanguage) {
 		return { ok: true, mutations: [...mutations] };
 	}
-	if (localization.languages[language] === undefined) {
+	if (!localization.languageOrder.includes(language)) {
 		return {
 			ok: false,
-			message: `The selected worker language ${language} no longer belongs to this app. Choose another language and try again.`,
+			message:
+				"The selected worker language no longer belongs to this app. Choose another language and try again.",
 		};
 	}
 
@@ -57,7 +59,12 @@ export function projectBuilderLanguageMutations(
 	const targetWrites = new Map<TranslationUnitId, TranslationEntry | null>();
 	let refusal: string | undefined;
 	const refuseMissingSource = (): void => {
-		refusal ??= `Add this worker-facing content in ${localization.languages[localization.sourceLanguage].name} first, then translate it into ${localization.languages[language].name}.`;
+		const source = languageDisplayLabel(localization.sourceLanguage);
+		const target = languageDisplayLabel(language);
+		refusal ??=
+			source !== undefined && target !== undefined
+				? `Add this worker-facing content in ${source} first, then translate it into ${target}.`
+				: "Add this worker-facing content under the source language first, then translate it here.";
 	};
 
 	/** Returns the canonical source when `id` is an existing localizable slot. */

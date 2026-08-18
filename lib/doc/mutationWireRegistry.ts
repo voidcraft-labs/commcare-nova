@@ -55,7 +55,6 @@ const MUTATION_KIND_OWNERSHIP = {
 	setAppLogo: "whole-value",
 	relabelSourceLanguage: "whole-value",
 	addLanguage: "whole-value",
-	updateLanguage: "patch",
 	removeLanguage: "whole-value",
 	setDefaultLanguage: "whole-value",
 	setTranslation: "whole-value",

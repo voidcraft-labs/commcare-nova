@@ -4,6 +4,7 @@ import {
 	type AppLocalization,
 	type CaseType,
 	effectiveAppLocalization,
+	languageTag,
 } from "@/lib/domain";
 
 /**
@@ -30,7 +31,6 @@ export function applyAppMutation(
 				| "setAppLogo"
 				| "relabelSourceLanguage"
 				| "addLanguage"
-				| "updateLanguage"
 				| "removeLanguage"
 				| "setDefaultLanguage"
 				| "setTranslation"
@@ -63,31 +63,21 @@ export function applyAppMutation(
 		case "relabelSourceLanguage": {
 			const current = effectiveAppLocalization(draft.localization);
 			if (current.languageOrder.length !== 1) return;
+			const tag = languageTag(mut.language);
 			draft.localization = {
-				sourceLanguage: mut.language.code,
-				defaultLanguage: mut.language.code,
-				languageOrder: [mut.language.code],
-				languages: { [mut.language.code]: structuredClone(mut.language) },
+				sourceLanguage: tag,
+				defaultLanguage: tag,
+				languageOrder: [tag],
 				translations: {},
 			};
 			return;
 		}
 		case "addLanguage": {
 			const localization = materializeLocalization(draft);
-			if (localization.languages[mut.language.code] !== undefined) return;
-			localization.languageOrder.push(mut.language.code);
-			localization.languages[mut.language.code] = structuredClone(mut.language);
-			localization.translations[mut.language.code] = {};
-			return;
-		}
-		case "updateLanguage": {
-			const localization = materializeLocalization(draft);
-			const language = localization.languages[mut.code];
-			if (language === undefined) return;
-			if (mut.patch.name !== undefined) language.name = mut.patch.name;
-			if (mut.patch.direction !== undefined) {
-				language.direction = mut.patch.direction;
-			}
+			const tag = languageTag(mut.language);
+			if (localization.languageOrder.includes(tag)) return;
+			localization.languageOrder.push(tag);
+			localization.translations[tag] = {};
 			return;
 		}
 		case "removeLanguage": {
@@ -95,20 +85,19 @@ export function applyAppMutation(
 			if (
 				mut.code === localization.sourceLanguage ||
 				mut.code === localization.defaultLanguage ||
-				localization.languages[mut.code] === undefined
+				!localization.languageOrder.includes(mut.code)
 			) {
 				return;
 			}
 			localization.languageOrder = localization.languageOrder.filter(
 				(code) => code !== mut.code,
 			);
-			delete localization.languages[mut.code];
 			delete localization.translations[mut.code];
 			return;
 		}
 		case "setDefaultLanguage": {
 			const localization = materializeLocalization(draft);
-			if (localization.languages[mut.code] === undefined) return;
+			if (!localization.languageOrder.includes(mut.code)) return;
 			localization.defaultLanguage = mut.code;
 			localization.languageOrder = [
 				mut.code,
@@ -230,13 +219,17 @@ export function applyAppMutation(
 	}
 }
 
-/** Materialize the optional legacy state only when an edit needs storage. */
+/**
+ * Materialize the derived English-only state only when an edit needs storage.
+ * The batch-end dematerialize step restores the canonical absent-root
+ * spelling if the batch leaves the app exactly English-only.
+ */
 function materializeLocalization(
 	draft: Draft<BlueprintDoc>,
 ): Draft<AppLocalization> {
 	if (draft.localization === undefined) {
-		const legacy = effectiveAppLocalization(undefined);
-		draft.localization = structuredClone(legacy) as AppLocalization;
+		const englishOnly = effectiveAppLocalization(undefined);
+		draft.localization = structuredClone(englishOnly) as AppLocalization;
 	}
 	return draft.localization;
 }

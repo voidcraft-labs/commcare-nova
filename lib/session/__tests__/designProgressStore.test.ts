@@ -121,8 +121,8 @@ describe("design progress stage fold", () => {
 			envelope(
 				SESSION,
 				{
-					languageCode: "es",
-					languageName: "Español",
+					languageTag: "spa",
+					languageName: "Spanish",
 					batch: 1,
 					batchCount: 2,
 				},

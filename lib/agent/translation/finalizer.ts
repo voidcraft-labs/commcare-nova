@@ -9,14 +9,20 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	type AppLanguageIdentity,
 	collectLocalizedTranslationUnits,
 	collectTranslationUnits,
 	effectiveAppLocalization,
-	type LanguageCode,
+	type LanguageTag,
 	type LocalizedValue,
+	languageTag,
 	type PersistableDoc,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
+import {
+	languageDescriptor,
+	resolvedLanguageEnglishName,
+} from "@/lib/domain/languageRegistry/names";
 import { MODEL_ROLES } from "@/lib/models";
 import { automaticTranslationAvailable } from "@/lib/translation/capabilityPolicy";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -43,6 +49,7 @@ import {
 	type TranslationBatchInput,
 	type TranslationBatchRunner,
 	type TranslationGlossaryEntry,
+	translationLanguage,
 	translationPromptPayload,
 	validateTranslationBatchOutput,
 } from "./translator";
@@ -66,8 +73,8 @@ export interface InitialBuildLocalizationArgs {
 	readonly meter: SubGenerationUsageMeter | undefined;
 	readonly signal: AbortSignal;
 	readonly onLanguage?: (args: {
-		readonly code: LanguageCode;
-		readonly name: string;
+		readonly languageTag: LanguageTag;
+		readonly languageName: string;
 		readonly batch: number;
 		readonly batchCount: number;
 	}) => void;
@@ -76,9 +83,15 @@ export interface InitialBuildLocalizationArgs {
 export interface InitialBuildLocalizationDeps {
 	readonly runBatch: TranslationBatchRunner;
 	readonly automaticTranslationAvailable: (
-		source: LanguageCode,
-		target: LanguageCode,
+		source: AppLanguageIdentity,
+		target: AppLanguageIdentity,
 	) => boolean;
+}
+
+/** English qualified name for progress lines; total over validated contract
+ * identities, with the prose descriptor as the defensive fallback. */
+function progressLanguageName(identity: AppLanguageIdentity): string {
+	return resolvedLanguageEnglishName(identity) ?? languageDescriptor(identity);
 }
 
 function meterUsage(
@@ -139,11 +152,11 @@ export function initialBuildHasLocalizationFinalizer(
 ): boolean {
 	const intent = contract.charter.localization;
 	if (intent === undefined) return false;
+	// An English-only intent resolves to the canonical absent-root state, so
+	// there is nothing to commit.
 	return !(
-		intent.sourceLanguage.code === "en" &&
-		intent.sourceLanguage.name === "English" &&
-		intent.sourceLanguage.direction === "ltr" &&
-		intent.defaultLanguage === "en" &&
+		languageTag(intent.sourceLanguage) === "eng" &&
+		languageTag(intent.defaultLanguage) === "eng" &&
 		intent.targets.length === 0
 	);
 }
@@ -152,11 +165,11 @@ function orderedTargets(
 	intent: NonNullable<AppDesignContract["charter"]["localization"]>,
 ) {
 	const remaining = [...intent.targets];
-	const available = new Set<LanguageCode>([intent.sourceLanguage.code]);
+	const available = new Set<LanguageTag>([languageTag(intent.sourceLanguage)]);
 	const ordered: typeof remaining = [];
 	while (remaining.length > 0) {
 		const index = remaining.findIndex((target) =>
-			available.has(target.seedFrom),
+			available.has(languageTag(target.seedFrom)),
 		);
 		if (index === -1) {
 			throw new LocalizationBuildError(
@@ -167,7 +180,7 @@ function orderedTargets(
 		const [target] = remaining.splice(index, 1);
 		if (target === undefined) continue;
 		ordered.push(target);
-		available.add(target.language.code);
+		available.add(languageTag(target.language));
 	}
 	return ordered;
 }
@@ -185,7 +198,7 @@ export function buildInitialLocalizationMutations(args: {
 	readonly sourceDoc: BlueprintDoc;
 	readonly contract: AppDesignContract;
 	readonly automaticValues: ReadonlyMap<
-		LanguageCode,
+		LanguageTag,
 		ReadonlyMap<string, LocalizedValue>
 	>;
 }): Mutation[] {
@@ -197,6 +210,10 @@ export function buildInitialLocalizationMutations(args: {
 		mutations.push(...next);
 		working = applyToWorkingDoc(working, next);
 	};
+	// Contract languages are the accepted design's identity objects; the
+	// document stores their tags, and every display fact derives from the
+	// registry at read.
+	const sourceTag = languageTag(intent.sourceLanguage);
 	const current = effectiveAppLocalization(working.localization);
 	if (current.languageOrder.length !== 1) {
 		throw new LocalizationBuildError(
@@ -204,40 +221,28 @@ export function buildInitialLocalizationMutations(args: {
 			"Initial-build localization requires the post-slice app to retain its single canonical source language until the finalizer commits.",
 		);
 	}
-	const currentSource = current.languages[current.sourceLanguage];
-	if (current.sourceLanguage !== intent.sourceLanguage.code) {
+	if (current.sourceLanguage !== sourceTag) {
 		append([
 			{
 				kind: "relabelSourceLanguage",
-				language: intent.sourceLanguage,
-			},
-		]);
-	} else if (
-		currentSource?.name !== intent.sourceLanguage.name ||
-		currentSource.direction !== intent.sourceLanguage.direction
-	) {
-		append([
-			{
-				kind: "updateLanguage",
-				code: intent.sourceLanguage.code,
-				patch: {
-					name: intent.sourceLanguage.name,
-					direction: intent.sourceLanguage.direction,
-				},
+				language: structuredClone(intent.sourceLanguage),
 			},
 		]);
 	}
 
 	for (const target of orderedTargets(intent)) {
-		append([{ kind: "addLanguage", language: target.language }]);
+		const targetTag = languageTag(target.language);
+		append([
+			{ kind: "addLanguage", language: structuredClone(target.language) },
+		]);
 		const sourceUnits = collectTranslationUnits(working);
-		const automatic = args.automaticValues.get(target.language.code);
+		const automatic = args.automaticValues.get(targetTag);
 		const entries: Mutation[] = [];
 		if (target.strategy === "translate-with-nova") {
 			if (automatic === undefined || automatic.size !== sourceUnits.length) {
 				throw new LocalizationBuildError(
 					"translation-output-incomplete",
-					`Nova did not produce a complete accepted translation for ${target.language.name}.`,
+					`Nova did not produce a complete accepted translation for ${languageDescriptor(target.language)}.`,
 				);
 			}
 			for (const unit of sourceUnits) {
@@ -253,40 +258,43 @@ export function buildInitialLocalizationMutations(args: {
 				}
 				entries.push({
 					kind: "setTranslation",
-					language: target.language.code,
+					language: targetTag,
 					unitId: unit.id,
 					entry: {
 						value: structuredClone(value),
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "ai",
 						review: "needs-review",
-						translatedFrom: intent.sourceLanguage.code,
+						translatedFrom: sourceTag,
 					},
 				});
 			}
 		} else {
-			for (const unit of collectLocalizedTranslationUnits(
-				working,
-				target.seedFrom,
-			)) {
+			const seedTag = languageTag(target.seedFrom);
+			for (const unit of collectLocalizedTranslationUnits(working, seedTag)) {
 				entries.push({
 					kind: "setTranslation",
-					language: target.language.code,
+					language: targetTag,
 					unitId: unit.id,
 					entry: {
 						value: structuredClone(unit.effective),
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "copied",
 						review: "needs-review",
-						translatedFrom: target.seedFrom,
+						translatedFrom: seedTag,
 					},
 				});
 			}
 		}
 		append(entries);
 	}
-	if (intent.defaultLanguage !== intent.sourceLanguage.code) {
-		append([{ kind: "setDefaultLanguage", code: intent.defaultLanguage }]);
+	if (languageTag(intent.defaultLanguage) !== sourceTag) {
+		append([
+			{
+				kind: "setDefaultLanguage",
+				code: languageTag(intent.defaultLanguage),
+			},
+		]);
 	}
 	return mutations;
 }
@@ -302,10 +310,15 @@ async function runOrRecoverBatch(args: {
 	readonly signal: AbortSignal;
 }) {
 	const payload = translationPromptPayload(args.input);
+	// The claim binds the exact payload digest plus model, prompt, and schema
+	// versions. A persisted claim whose payload spoke a different language
+	// shape therefore never matches: recovery appends a replacement generation
+	// at the same batch index and re-runs the translate fresh instead of
+	// reusing the older generation's output.
 	const spec = {
 		batchIndex: args.batchIndex,
-		sourceLanguage: args.input.sourceLanguage.code,
-		targetLanguage: args.input.targetLanguage.code,
+		sourceLanguage: languageTag(args.input.sourceLanguage.identity),
+		targetLanguage: languageTag(args.input.targetLanguage.identity),
 		unitIds: args.input.units.map((unit) => unit.unitId),
 		inputDigest: canonicalJsonDigest(payload),
 		modelId: MODEL_ROLES.translator.modelId,
@@ -421,13 +434,13 @@ export async function finalizeInitialBuildLocalization(
 		if (
 			target.strategy === "translate-with-nova" &&
 			!deps.automaticTranslationAvailable(
-				intent.sourceLanguage.code,
-				target.language.code,
+				intent.sourceLanguage,
+				target.language,
 			)
 		) {
 			throw new LocalizationBuildError(
 				"translation-direction-unavailable",
-				`Automatic translation from ${intent.sourceLanguage.name} to ${target.language.name} is not available under Nova's exact-direction quality policy. Manual authoring and copy remain available.`,
+				`Automatic translation from ${languageDescriptor(intent.sourceLanguage)} to ${languageDescriptor(target.language)} is not available under Nova's exact-direction quality policy. Manual authoring and copy remain available.`,
 			);
 		}
 	}
@@ -467,23 +480,25 @@ export async function finalizeInitialBuildLocalization(
 	const units = collectTranslationUnits(sourceDoc);
 	const batches = planTranslationBatches(units);
 	const automaticValues = new Map<
-		LanguageCode,
+		LanguageTag,
 		ReadonlyMap<string, LocalizedValue>
 	>();
 	let globalBatchIndex = 0;
 	if (intent.targets.length === 0) {
 		args.onLanguage?.({
-			code: intent.sourceLanguage.code,
-			name: intent.sourceLanguage.name,
+			languageTag: languageTag(intent.sourceLanguage),
+			languageName: progressLanguageName(intent.sourceLanguage),
 			batch: 1,
 			batchCount: 1,
 		});
 	}
 	for (const target of orderedTargets(intent)) {
+		const targetTag = languageTag(target.language);
+		const targetName = progressLanguageName(target.language);
 		if (target.strategy !== "translate-with-nova") {
 			args.onLanguage?.({
-				code: target.language.code,
-				name: target.language.name,
+				languageTag: targetTag,
+				languageName: targetName,
 				batch: 1,
 				batchCount: 1,
 			});
@@ -493,20 +508,14 @@ export async function finalizeInitialBuildLocalization(
 		const glossary: TranslationGlossaryEntry[] = [];
 		for (const [targetBatchIndex, unitsInBatch] of batches.entries()) {
 			args.onLanguage?.({
-				code: target.language.code,
-				name: target.language.name,
+				languageTag: targetTag,
+				languageName: targetName,
 				batch: targetBatchIndex + 1,
 				batchCount: batches.length,
 			});
 			const input: TranslationBatchInput = {
-				sourceLanguage: {
-					code: intent.sourceLanguage.code,
-					name: intent.sourceLanguage.name,
-				},
-				targetLanguage: {
-					code: target.language.code,
-					name: target.language.name,
-				},
+				sourceLanguage: translationLanguage(intent.sourceLanguage),
+				targetLanguage: translationLanguage(target.language),
 				appObjective: args.contract.charter.objective,
 				units: unitsInBatch,
 				glossary: boundedGlossary(glossary),
@@ -530,7 +539,7 @@ export async function finalizeInitialBuildLocalization(
 			}
 			glossary.push(...glossaryEntriesFromAcceptedBatch(unitsInBatch, output));
 		}
-		automaticValues.set(target.language.code, values);
+		automaticValues.set(targetTag, values);
 	}
 
 	const rawMutations = buildInitialLocalizationMutations({

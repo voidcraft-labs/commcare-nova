@@ -9,7 +9,7 @@ import type { BlueprintDoc, CaseProperty } from "./blueprint";
 import type { Field } from "./fields";
 import {
 	effectiveAppLocalization,
-	type LanguageCode,
+	type LanguageTag,
 	type LocalizedValue,
 	makeTranslationUnitId,
 	type TranslationEntry,
@@ -149,7 +149,7 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 ]);
 
 export interface LocalizedTranslationUnit extends TranslationUnit {
-	readonly language: LanguageCode;
+	readonly language: LanguageTag;
 	readonly explicit?: TranslationEntry;
 	readonly effective: LocalizedValue;
 	readonly status: TranslationStatus;
@@ -736,7 +736,7 @@ export function translationValueIntegrityIssue(
 
 export function localizeTranslationUnit(
 	doc: BlueprintDoc,
-	language: LanguageCode,
+	language: LanguageTag,
 	unitValue: TranslationUnit,
 ): LocalizedTranslationUnit {
 	const localization = effectiveAppLocalization(doc.localization);
@@ -783,7 +783,7 @@ export function localizeTranslationUnit(
 
 export function collectLocalizedTranslationUnits(
 	doc: BlueprintDoc,
-	language: LanguageCode,
+	language: LanguageTag,
 ): readonly LocalizedTranslationUnit[] {
 	return collectTranslationUnits(doc).map((entry) =>
 		localizeTranslationUnit(doc, language, entry),
@@ -792,7 +792,7 @@ export function collectLocalizedTranslationUnits(
 
 export function resolveTranslationUnitValue(
 	doc: BlueprintDoc,
-	language: LanguageCode,
+	language: LanguageTag,
 	id: TranslationUnitId,
 ): LocalizedValue {
 	const unitValue = translationUnitsById(doc).get(id);

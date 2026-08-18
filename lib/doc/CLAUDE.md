@@ -25,9 +25,14 @@ Catalog member order is exact state. `addCaseProperty.after` names `null` for fi
 The public `Mutation` union has one strict `mutationSchema`, used identically by builder, SA/MCP, commit, accepted rows, events, streams, diffs, undo, and replay from the canonical baseline. Mutation rows before that baseline are archived audit data and never parse through the current schema. There is no `replaceForm`: a whole-form result decomposes into `updateForm` plus granular field changes. There are no `notify*` mutations or reducer metadata channels.
 
 Localization uses that same replayable dialect: `relabelSourceLanguage`,
-`addLanguage`, `updateLanguage`, `removeLanguage`, `setDefaultLanguage`,
-`setTranslation`, and compare-and-set `reviewTranslation`. The raw
-`addLanguage` mutation installs metadata and an empty target map; a product
+`addLanguage`, `removeLanguage`, `setDefaultLanguage`, `setTranslation`, and
+compare-and-set `reviewTranslation`. `relabelSourceLanguage` and `addLanguage`
+carry an `AppLanguageIdentity` object; the other kinds reference an existing
+language by its tag. There is no `updateLanguage` kind: names and directions
+are derived from the identity, so no mutation edits them, and the
+language-identity migration keeps persisted rows free of the old shape. The
+raw `addLanguage` mutation
+installs an empty target map; a product
 gesture or tool that offers “copy from” composes it with explicit
 `setTranslation` mutations in ONE admitted batch, so provenance and exact
 per-unit values are durable rather than reducer-minted. A translation write must

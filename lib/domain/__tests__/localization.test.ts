@@ -8,62 +8,88 @@ import {
 } from "@/lib/__tests__/docHelpers";
 import {
 	appLocalizationSchema,
-	CLASSIC_LANGUAGE_OPTIONS,
 	collectLocalizedTranslationUnits,
 	collectTranslationCoverageDiagnostics,
 	collectTranslationUnits,
 	effectiveAppLocalization,
 	type LookupColumnId,
 	type LookupTableId,
+	languageTag,
+	languageTagSchema,
 	makeTranslationUnitId,
+	parseLanguageTag,
 	proseText,
 	simpleSearchInputDef,
-	suggestedAppLanguage,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
 
 describe("app localization vocabulary", () => {
-	it("derives the absent legacy state without persisting a duplicate overlay", () => {
+	it("derives the absent English-only state without persisting a duplicate overlay", () => {
 		const state = effectiveAppLocalization(undefined);
 		expect(state).toMatchObject({
-			sourceLanguage: "en",
-			defaultLanguage: "en",
-			languageOrder: ["en"],
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng"],
 			translations: {},
 		});
 	});
 
-	it("mirrors Classic's complete picker catalog without closing custom aliases", () => {
-		expect(CLASSIC_LANGUAGE_OPTIONS).toHaveLength(486);
-		expect(
-			new Set(CLASSIC_LANGUAGE_OPTIONS.map((option) => option.code)).size,
-		).toBe(CLASSIC_LANGUAGE_OPTIONS.length);
-		expect(CLASSIC_LANGUAGE_OPTIONS.map((option) => option.code)).toEqual(
-			expect.arrayContaining(["en", "es", "af", "sw", "fra", "ara"]),
+	it("admits only the canonical tag grammar", () => {
+		for (const tag of ["eng", "spa-MX", "cmn-Hans", "cmn-Hans-CN"]) {
+			expect(languageTagSchema.safeParse(tag).success).toBe(true);
+		}
+		for (const tag of [
+			"en",
+			"zh-Hans",
+			"cmn-hans",
+			"CMN",
+			"cmn-Hans-cn",
+			"cmn-CN-Hans",
+			"es-mx",
+		]) {
+			expect(languageTagSchema.safeParse(tag).success).toBe(false);
+		}
+	});
+
+	it("inverts languageTag and parseLanguageTag over every identity shape", () => {
+		const identities = [
+			{ language: "eng" },
+			{ language: "spa", region: "MX" },
+			{ language: "cmn", script: "Hans" },
+			{ language: "cmn", script: "Hant", region: "TW" },
+		];
+		for (const identity of identities) {
+			expect(parseLanguageTag(languageTag(identity))).toEqual(identity);
+		}
+		expect(languageTag({ language: "cmn", script: "Hans", region: "CN" })).toBe(
+			"cmn-Hans-CN",
 		);
-		expect(suggestedAppLanguage("es-mx")).toMatchObject({
-			code: "es-mx",
-			direction: "ltr",
-		});
-		expect(suggestedAppLanguage("ara").direction).toBe("rtl");
 	});
 
 	it("requires a closed ordered catalog with no source overlay", () => {
 		const valid = {
-			sourceLanguage: "en",
-			defaultLanguage: "es",
-			languageOrder: ["es", "en"],
-			languages: {
-				en: { code: "en", name: "English", direction: "ltr" },
-				es: { code: "es", name: "Español", direction: "ltr" },
-			},
-			translations: { es: {} },
+			sourceLanguage: "eng",
+			defaultLanguage: "spa",
+			languageOrder: ["spa", "eng"],
+			translations: { spa: {} },
 		} as const;
 		expect(appLocalizationSchema.safeParse(valid).success).toBe(true);
 		expect(
 			appLocalizationSchema.safeParse({
 				...valid,
-				translations: { ...valid.translations, en: {} },
+				translations: { ...valid.translations, eng: {} },
+			}).success,
+		).toBe(false);
+		expect(
+			appLocalizationSchema.safeParse({
+				...valid,
+				languageOrder: ["eng", "spa"],
+			}).success,
+		).toBe(false);
+		expect(
+			appLocalizationSchema.safeParse({
+				...valid,
+				languageOrder: ["spa", "eng", "spa"],
 			}).success,
 		).toBe(false);
 	});
@@ -198,27 +224,23 @@ describe("translation unit inventory", () => {
 		expect(unit).toBeDefined();
 		if (unit === undefined) return;
 		doc.localization = {
-			sourceLanguage: "en",
-			defaultLanguage: "en",
-			languageOrder: ["en", "es"],
-			languages: {
-				en: { code: "en", name: "English", direction: "ltr" },
-				es: { code: "es", name: "Español", direction: "ltr" },
-			},
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
 			translations: {
-				es: {
+				spa: {
 					[unit.id]: {
 						value: "Clínica",
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "human",
 						review: "reviewed",
-						translatedFrom: "en",
+						translatedFrom: "eng",
 					},
 				},
 			},
 		};
 		doc.appName = "Health clinic";
-		const localized = collectLocalizedTranslationUnits(doc, "es").find(
+		const localized = collectLocalizedTranslationUnits(doc, "spa").find(
 			(candidate) => candidate.id === unit.id,
 		);
 		expect(localized).toMatchObject({

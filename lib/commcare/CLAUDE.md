@@ -34,10 +34,29 @@ CommCare Android removes only the literal `default` locale from its language
 picker, so the named copy is required to let a worker switch back to the app's
 default language.
 
-The app language catalog uses Nova codes and metadata until this boundary. HQ
-`langs`, localized property maps, itext language/default attributes,
-`default/app_strings.txt`, per-language directories, endonyms, and
-`lang.current` are one-way CommCare wire spellings here.
+The app language catalog uses Nova identity tags until this boundary.
+`languageWire.ts::planLanguageWire` is the one tag→wire-code mapping,
+computed once per emission and total and injective by construction: each
+identity's preferred spelling is its Classic catalog row's code — reached
+directly or by widening a macrolanguage member through
+`classicWideningTarget` (`cmn` widens through `zho` to Classic's Chinese
+row) — three-letter except the four grandfathered two-letter rows
+(`eng`→`en`, `spa`→`es`, `swh`→`sw`, `afr`→`af`); an identity with no
+Classic reach emits its Set 3 code, which is always wire-valid. Identities
+colliding on one preferred spelling each take a single lowercase suffix
+segment (`cmn-Hans`/`cmn-Hant` → `cmn-hans`/`cmn-hant`) because Classic's
+grammar allows exactly one hyphen; a final injectivity assert throws as a
+compiler bug. Device-picker name rows come from the registry's baked display
+labels at the most specific key — never runtime `Intl`, whose Node/ICU
+variance must not reach wire bytes. HQ `langs`, localized property maps,
+itext language/default attributes, `default/app_strings.txt`, per-language
+directories, endonyms, and `lang.current` are one-way CommCare wire
+spellings here. Two-letter language codes exist nowhere outside this
+directory; `classicLanguages.ts` (over
+`config/commcare-classic-languages.json`) is wire data quarantined here, and
+its only consumers are the wire plan and the language-identity migration
+script. An `eng`-only app — including every app with an absent localization
+root — emits byte-identical output to the historical `en`-only shape.
 
 ### CommCare HQ feature-flag lifecycle
 

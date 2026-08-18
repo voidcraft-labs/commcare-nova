@@ -129,18 +129,18 @@ describe("applyMutation: app localization", () => {
 		const batch = [
 			{
 				kind: "addLanguage" as const,
-				language: { code: "es", name: "Español", direction: "ltr" as const },
+				language: { language: "spa" },
 			},
 			{
 				kind: "setTranslation" as const,
-				language: "es",
+				language: "spa",
 				unitId: unit.id,
 				entry: {
 					value: unit.source,
 					sourceFingerprint: unit.sourceFingerprint,
 					origin: "copied" as const,
 					review: "needs-review" as const,
-					translatedFrom: "en",
+					translatedFrom: "eng",
 				},
 			},
 		];
@@ -149,10 +149,10 @@ describe("applyMutation: app localization", () => {
 			applyMutations(draft, batch);
 		});
 		expect(next.localization).toMatchObject({
-			sourceLanguage: "en",
-			languageOrder: ["en", "es"],
+			sourceLanguage: "eng",
+			languageOrder: ["eng", "spa"],
 			translations: {
-				es: { [unit.id]: { value: "Original", origin: "copied" } },
+				spa: { [unit.id]: { value: "Original", origin: "copied" } },
 			},
 		});
 	});
@@ -166,19 +166,19 @@ describe("applyMutation: app localization", () => {
 		const batch = [
 			{
 				kind: "addLanguage" as const,
-				language: { code: "es", name: "Español", direction: "ltr" as const },
+				language: { language: "spa" },
 			},
 			{ kind: "setAppName" as const, name: "Updated" },
 			{
 				kind: "setTranslation" as const,
-				language: "es",
+				language: "spa",
 				unitId: updatedUnit.id,
 				entry: {
 					value: "Actualizada",
 					sourceFingerprint: updatedUnit.sourceFingerprint,
 					origin: "human" as const,
 					review: "reviewed" as const,
-					translatedFrom: "en",
+					translatedFrom: "eng",
 				},
 			},
 		];
@@ -187,10 +187,12 @@ describe("applyMutation: app localization", () => {
 		const next = produce(doc, (draft) => {
 			applyMutations(draft, batch);
 		});
-		expect(next.localization?.translations.es?.[updatedUnit.id]).toMatchObject({
-			value: "Actualizada",
-			sourceFingerprint: updatedUnit.sourceFingerprint,
-		});
+		expect(next.localization?.translations.spa?.[updatedUnit.id]).toMatchObject(
+			{
+				value: "Actualizada",
+				sourceFingerprint: updatedUnit.sourceFingerprint,
+			},
+		);
 	});
 
 	it("admits a translation for a field born earlier in the batch", () => {
@@ -236,19 +238,19 @@ describe("applyMutation: app localization", () => {
 		const batch = [
 			{
 				kind: "addLanguage" as const,
-				language: { code: "es", name: "Español", direction: "ltr" as const },
+				language: { language: "spa" },
 			},
 			{ kind: "addField" as const, parentUuid: formUuid, field },
 			{
 				kind: "setTranslation" as const,
-				language: "es",
+				language: "spa",
 				unitId: unit.id,
 				entry: {
 					value: proseText("Nombre del paciente"),
 					sourceFingerprint: unit.sourceFingerprint,
 					origin: "human" as const,
 					review: "reviewed" as const,
-					translatedFrom: "en",
+					translatedFrom: "eng",
 				},
 			},
 		];
@@ -256,18 +258,18 @@ describe("applyMutation: app localization", () => {
 		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
 	});
 
-	it("relabels only the single source and canonicalizes legacy English", () => {
+	it("relabels only the single source and dematerializes the English-only endpoint", () => {
 		const french = produce(emptyDoc(), (draft) => {
 			applyMutation(draft, {
 				kind: "relabelSourceLanguage",
-				language: { code: "fra", name: "Français", direction: "ltr" },
+				language: { language: "fra" },
 			});
 		});
 		expect(french.localization?.sourceLanguage).toBe("fra");
 		const english = produce(french, (draft) => {
 			applyMutation(draft, {
 				kind: "relabelSourceLanguage",
-				language: { code: "en", name: "English", direction: "ltr" },
+				language: { language: "eng" },
 			});
 		});
 		expect(english.localization).toBeUndefined();
@@ -279,21 +281,17 @@ describe("applyMutation: app localization", () => {
 		const localized: BlueprintDoc = {
 			...original,
 			localization: {
-				sourceLanguage: "en",
-				defaultLanguage: "en",
-				languageOrder: ["en", "es"],
-				languages: {
-					en: { code: "en", name: "English", direction: "ltr" },
-					es: { code: "es", name: "Español", direction: "ltr" },
-				},
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "spa"],
 				translations: {
-					es: {
+					spa: {
 						[oldUnit.id]: {
 							value: "Original",
 							sourceFingerprint: oldUnit.sourceFingerprint,
 							origin: "copied",
 							review: "needs-review",
-							translatedFrom: "en",
+							translatedFrom: "eng",
 						},
 					},
 				},
@@ -303,7 +301,7 @@ describe("applyMutation: app localization", () => {
 		const currentUnit = collectTranslationUnits(localized)[0];
 		const review = {
 			kind: "reviewTranslation" as const,
-			language: "es",
+			language: "spa",
 			unitId: currentUnit.id,
 			expectedSourceFingerprint: oldUnit.sourceFingerprint,
 			sourceFingerprint: currentUnit.sourceFingerprint,
@@ -313,10 +311,12 @@ describe("applyMutation: app localization", () => {
 		const next = produce(localized, (draft) => {
 			applyMutation(draft, review);
 		});
-		expect(next.localization?.translations.es?.[currentUnit.id]).toMatchObject({
-			sourceFingerprint: currentUnit.sourceFingerprint,
-			review: "reviewed",
-		});
+		expect(next.localization?.translations.spa?.[currentUnit.id]).toMatchObject(
+			{
+				sourceFingerprint: currentUnit.sourceFingerprint,
+				review: "reviewed",
+			},
+		);
 		expect(
 			mutationTargetsInvalid(localized, [{ ...review, value: "changed" }]),
 		).toBe(true);
@@ -327,18 +327,18 @@ describe("applyMutation: app localization", () => {
 			applyMutations(draft, [
 				{
 					kind: "addLanguage",
-					language: { code: "es", name: "Español", direction: "ltr" },
+					language: { language: "spa" },
 				},
-				{ kind: "setDefaultLanguage", code: "es" },
+				{ kind: "setDefaultLanguage", code: "spa" },
 			]);
 		});
 		expect(
-			mutationTargetsInvalid(doc, [{ kind: "removeLanguage", code: "es" }]),
+			mutationTargetsInvalid(doc, [{ kind: "removeLanguage", code: "spa" }]),
 		).toBe(true);
 		expect(
 			mutationTargetsInvalid(doc, [
-				{ kind: "setDefaultLanguage", code: "en" },
-				{ kind: "removeLanguage", code: "es" },
+				{ kind: "setDefaultLanguage", code: "eng" },
+				{ kind: "removeLanguage", code: "spa" },
 			]),
 		).toBe(false);
 	});

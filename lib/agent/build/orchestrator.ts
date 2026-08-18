@@ -973,8 +973,8 @@ export async function runBuildOrchestration(
 							args.writer.write({
 								type: "data-build-localization-progress",
 								data: progressEnvelope(args.designSessionId, head, {
-									languageCode: language.code,
-									languageName: language.name,
+									languageTag: language.languageTag,
+									languageName: language.languageName,
 									batch: language.batch,
 									batchCount: language.batchCount,
 								}),

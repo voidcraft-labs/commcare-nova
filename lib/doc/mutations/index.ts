@@ -24,7 +24,7 @@ import {
 } from "@/lib/doc/casePropertyRenames";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
-	dematerializeLegacyLocalization,
+	dematerializeEnglishOnlyLocalization,
 	pruneOrphanTranslationEntries,
 } from "@/lib/doc/localizationMaintenance";
 import {
@@ -64,7 +64,6 @@ function dispatchMutation(
 		case "setAppLogo":
 		case "relabelSourceLanguage":
 		case "addLanguage":
-		case "updateLanguage":
 		case "removeLanguage":
 		case "setDefaultLanguage":
 		case "setTranslation":
@@ -227,7 +226,7 @@ export function applyMutations(
 	// mutation per unit per target, so rebuilding the whole inventory after each
 	// one would turn a linear commit into quadratic work.
 	pruneOrphanTranslationEntries(draft);
-	dematerializeLegacyLocalization(draft);
+	dematerializeEnglishOnlyLocalization(draft);
 	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
 	rebuildFieldParent(draft as unknown as BlueprintDoc);
 	devAssertReferenceIndexParity(draft as unknown as BlueprintDoc);

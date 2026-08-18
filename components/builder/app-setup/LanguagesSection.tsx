@@ -20,14 +20,6 @@ import {
 import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import {
-	Combobox,
-	ComboboxContent,
-	ComboboxEmpty,
-	ComboboxInput,
-	ComboboxItem,
-	ComboboxList,
-} from "@/components/shadcn/combobox";
-import {
 	Dialog,
 	DialogBody,
 	DialogContent,
@@ -37,6 +29,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/shadcn/dialog";
+import { Field, FieldLabel } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import {
 	Select,
@@ -45,36 +38,50 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { Skeleton } from "@/components/shadcn/skeleton";
 import { Textarea } from "@/components/shadcn/textarea";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
-	type AppLanguage,
-	CLASSIC_LANGUAGE_OPTIONS,
-	type ClassicLanguageOption,
+	type AppLanguageIdentity,
 	canonicalProseTemplate,
 	collectLocalizedTranslationUnits,
 	collectTranslationCoverageDiagnostics,
 	effectiveAppLocalization,
-	type LanguageCode,
+	type LanguageDirection,
+	type LanguageTag,
 	type LocalizedTranslationUnit,
 	type LocalizedValue,
-	languageCodeSchema,
 	type ProsePart,
 	type ProseReferencePart,
 	type ProseTemplate,
+	parseLanguageTag,
 	projectProseTemplate,
 	resolveAppLanguage,
-	suggestedAppLanguage,
 	type TranslationStatus,
 } from "@/lib/domain";
+import {
+	languageDirection,
+	languageDisplayLabel,
+	languageEnglishName,
+} from "@/lib/domain/languageRegistry";
+import type { LanguageRegistrySearch } from "@/lib/domain/languageRegistry/load";
 import { useNavigate } from "@/lib/routing/hooks";
 import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
+import { cn } from "@/lib/utils";
 import {
 	useBuilderLanguage,
 	useTranslationUnitEditor,
 } from "../localization/BuilderLocalizationProvider";
+import { useLanguageRegistrySearch } from "../localization/useLanguageRegistrySearch";
+import { LanguagePickerFields } from "./languagePicker/LanguagePickerFields";
+import {
+	duplicateLanguageRefusal,
+	EMPTY_LANGUAGE_CHOICE,
+	type LanguagePickerChoice,
+	resolvedLanguageSelection,
+} from "./languagePicker/pickerModel";
 
 const STATUS_LABELS: Readonly<Record<TranslationStatus, string>> = {
 	missing: "Missing",
@@ -113,6 +120,62 @@ function firstRefusal(
 		: outcome.messages[0] || "That change was refused.";
 }
 
+/**
+ * One app language's derived display facts. `label` and `englishName` are
+ * undefined only for a language outside the baked common set while the full
+ * registry chunk is still loading; a code is never the fallback.
+ */
+interface LanguageDisplay {
+	readonly tag: LanguageTag;
+	readonly identity: AppLanguageIdentity;
+	readonly label: string | undefined;
+	readonly englishName: string | undefined;
+	readonly direction: LanguageDirection;
+	readonly directionWord: "left to right" | "right to left";
+}
+
+function languageDisplay(
+	tag: LanguageTag,
+	resolver: LanguageRegistrySearch | undefined,
+): LanguageDisplay {
+	const identity = parseLanguageTag(tag);
+	const direction = languageDirection(identity);
+	return {
+		tag,
+		identity,
+		label:
+			languageDisplayLabel(identity) ??
+			resolver?.resolvedLanguageDisplayLabel(identity),
+		englishName:
+			languageEnglishName(identity) ??
+			resolver?.resolvedLanguageEnglishName(identity),
+		direction,
+		directionWord: direction === "rtl" ? "right to left" : "left to right",
+	};
+}
+
+/** The worker-facing name, or a placeholder while its registry chunk loads. */
+function LanguageName({
+	display,
+	className,
+}: {
+	readonly display: LanguageDisplay;
+	readonly className?: string;
+}) {
+	if (display.label === undefined) {
+		return (
+			<Skeleton
+				className={cn("inline-block h-4 w-20 align-middle", className)}
+			/>
+		);
+	}
+	return (
+		<bdi dir={display.direction} className={className}>
+			{display.label}
+		</bdi>
+	);
+}
+
 export function LanguagesSection() {
 	const doc = useBlueprintDoc((value) => value);
 	const localization = effectiveAppLocalization(doc.localization);
@@ -121,21 +184,49 @@ export function LanguagesSection() {
 	const [query, setQuery] = useState("");
 	const [status, setStatus] = useState<TranslationStatusFilter>("all");
 	const [message, setMessage] = useState<string>();
-	const selectedLanguageCode = resolveAppLanguage(
+	const selectedTag = resolveAppLanguage(
 		doc.localization,
 		languageState.language,
 	);
-	const selectedLanguage = localization.languages[selectedLanguageCode];
-	const isSource = selectedLanguageCode === localization.sourceLanguage;
+	const isSource = selectedTag === localization.sourceLanguage;
+
+	// The baked common set labels most languages statically; the full registry
+	// chunk loads only when an app language falls outside it.
+	const needsResolver = localization.languageOrder.some(
+		(tag) =>
+			languageDisplayLabel(tag) === undefined ||
+			languageEnglishName(tag) === undefined,
+	);
+	const resolver = useLanguageRegistrySearch(needsResolver).data;
+	const displays = useMemo(
+		() =>
+			new Map(
+				localization.languageOrder.map((tag) => [
+					tag,
+					languageDisplay(tag, resolver),
+				]),
+			),
+		[localization.languageOrder, resolver],
+	);
+	const selectedDisplay =
+		displays.get(selectedTag) ?? languageDisplay(selectedTag, resolver);
+	const sourceDisplay =
+		displays.get(localization.sourceLanguage) ??
+		languageDisplay(localization.sourceLanguage, resolver);
+	const sourceName =
+		sourceDisplay.englishName ?? sourceDisplay.label ?? "the source language";
+	const selectedName =
+		selectedDisplay.englishName ?? selectedDisplay.label ?? "this language";
+
 	const automaticTranslation = isSource
 		? null
 		: automaticTranslationCapability(
-				localization.sourceLanguage,
-				selectedLanguageCode,
+				sourceDisplay.identity,
+				selectedDisplay.identity,
 			);
 	const selectedUnits = useMemo(
-		() => collectLocalizedTranslationUnits(doc, selectedLanguageCode),
-		[doc, selectedLanguageCode],
+		() => collectLocalizedTranslationUnits(doc, selectedTag),
+		[doc, selectedTag],
 	);
 	const coverageDiagnostics = useMemo(
 		() => collectTranslationCoverageDiagnostics(doc),
@@ -167,15 +258,16 @@ export function LanguagesSection() {
 						Languages
 					</h2>
 					<p className="mt-2 text-sm leading-relaxed text-nova-text-secondary">
-						Add any language CommCare Classic accepts, then review every
-						worker-facing string in one place. Missing and out-of-date values
-						safely show the current source text until they are translated.
+						Add the languages workers speak, then review every worker-facing
+						string in one place. Each language's name and text direction come
+						from the language itself; missing and out-of-date values safely show
+						the current source text until they are translated.
 					</p>
 				</div>
 				<AddLanguageDialog
 					doc={doc}
 					languages={localization.languageOrder.map(
-						(code) => localization.languages[code],
+						(tag) => displays.get(tag) ?? languageDisplay(tag, resolver),
 					)}
 					onCommit={commit}
 					onAdded={languageState.selectLanguage}
@@ -183,15 +275,22 @@ export function LanguagesSection() {
 			</header>
 
 			<div className="grid gap-3 @xl:grid-cols-2">
-				{localization.languageOrder.map((code) => {
-					const language = localization.languages[code];
-					const units = collectLocalizedTranslationUnits(doc, code);
+				{localization.languageOrder.map((tag) => {
+					const display = displays.get(tag) ?? languageDisplay(tag, resolver);
+					const units = collectLocalizedTranslationUnits(doc, tag);
 					const counts = coverageCounts(units);
-					const source = code === localization.sourceLanguage;
-					const active = code === selectedLanguageCode;
+					const source = tag === localization.sourceLanguage;
+					const active = tag === selectedTag;
+					const metaSegments = [
+						...(display.englishName !== undefined &&
+						display.englishName !== display.label
+							? [display.englishName]
+							: []),
+						display.directionWord,
+					];
 					return (
 						<article
-							key={code}
+							key={tag}
 							className={`rounded-xl border p-4 transition-colors ${
 								active
 									? "border-nova-violet/50 bg-nova-violet/[0.08]"
@@ -203,18 +302,18 @@ export function LanguagesSection() {
 									type="button"
 									className="nova-focusable min-w-0 rounded-lg text-left"
 									aria-pressed={active}
-									onClick={() => languageState.selectLanguage(code)}
+									onClick={() => languageState.selectLanguage(tag)}
 								>
 									<span className="block truncate font-medium text-nova-text">
-										{language.name}
+										<LanguageName display={display} />
 									</span>
-									<span className="mt-0.5 block font-mono text-xs text-nova-text-muted">
-										{code} · {language.direction.toUpperCase()}
+									<span className="mt-0.5 block truncate text-xs text-nova-text-muted">
+										{metaSegments.join(" · ")}
 									</span>
 								</button>
 								<div className="flex flex-wrap justify-end gap-1.5">
 									{source && <Badge variant="violet">Source</Badge>}
-									{code === localization.defaultLanguage && (
+									{tag === localization.defaultLanguage && (
 										<Badge variant="emerald">Default</Badge>
 									)}
 								</div>
@@ -243,27 +342,25 @@ export function LanguagesSection() {
 								</div>
 							)}
 							<div className="mt-4 flex flex-wrap gap-2">
-								<LanguageSettingsDialog
-									language={language}
-									soleSource={source && localization.languageOrder.length === 1}
-									onCommit={commit}
-								/>
-								{code !== localization.defaultLanguage && (
+								{source && localization.languageOrder.length === 1 && (
+									<ChangeLanguageDialog currentTag={tag} onCommit={commit} />
+								)}
+								{tag !== localization.defaultLanguage && (
 									<Button
 										type="button"
 										variant="ghost"
 										onClick={() =>
-											commit([{ kind: "setDefaultLanguage", code }])
+											commit([{ kind: "setDefaultLanguage", code: tag }])
 										}
 									>
 										Make default
 									</Button>
 								)}
-								{!source && code !== localization.defaultLanguage && (
+								{!source && tag !== localization.defaultLanguage && (
 									<RemoveLanguageDialog
-										language={language}
+										display={display}
 										onRemove={() => {
-											if (commit([{ kind: "removeLanguage", code }])) {
+											if (commit([{ kind: "removeLanguage", code: tag }])) {
 												languageState.selectLanguage(
 													localization.defaultLanguage,
 												);
@@ -294,7 +391,7 @@ export function LanguagesSection() {
 							use the static worker-language overlay.
 						</p>
 					</div>
-					<div className="grid gap-3 @xl:grid-cols-2">
+					<div className="space-y-3">
 						{coverageDiagnostics.map((diagnostic) => (
 							<article
 								key={diagnostic.code}
@@ -321,21 +418,21 @@ export function LanguagesSection() {
 			)}
 
 			<div className="border-t border-nova-border pt-7">
-				<div className="flex flex-col gap-3 @xl:flex-row @xl:items-end @xl:justify-between">
+				<div className="space-y-4">
 					<div>
 						<h3 className="font-display text-lg font-semibold tracking-tight text-nova-text">
-							{selectedLanguage.name} strings
+							<LanguageName display={selectedDisplay} /> strings
 						</h3>
 						<p className="mt-1 max-w-2xl text-sm text-nova-text-secondary">
 							{isSource
 								? "This is the canonical content. Edit it in the Builder where it appears; use this inventory to find every worker-facing string."
 								: automaticTranslation?.status === "available"
-									? `Manual editing, copy, and automatic translation from ${localization.languages[localization.sourceLanguage].name} to ${selectedLanguage.name} are available. Automatic output starts as Needs review.`
+									? `Manual editing, copy, and automatic translation from ${sourceName} to ${selectedName} are available. Automatic output starts as Needs review.`
 									: `Manual editing and copy are available for every language. ${automaticTranslation?.explanation ?? "Automatic translation is not available for this language pair."}`}
 						</p>
 					</div>
 					<div className="flex flex-col gap-2 @md:flex-row">
-						<div className="relative block min-w-64">
+						<div className="relative min-w-64 @md:flex-1">
 							<Icon
 								icon={tablerSearch}
 								width="16"
@@ -380,7 +477,7 @@ export function LanguagesSection() {
 				<div className="mt-3 space-y-3">
 					{visibleUnits.map((unit) => (
 						<TranslationUnitRow
-							key={`${selectedLanguageCode}:${unit.id}:${unit.sourceFingerprint}:${JSON.stringify(unit.explicit ?? null)}`}
+							key={`${selectedTag}:${unit.id}:${unit.sourceFingerprint}:${JSON.stringify(unit.explicit ?? null)}`}
 							doc={doc}
 							unit={unit}
 							isSource={isSource}
@@ -397,6 +494,40 @@ export function LanguagesSection() {
 	);
 }
 
+/** The loading and failed states both dialogs show around the picker fields. */
+function RegistryLoadFallback({
+	failed,
+	onRetry,
+}: {
+	readonly failed: boolean;
+	readonly onRetry: () => void;
+}) {
+	if (failed) {
+		return (
+			<div className="rounded-xl border border-nova-border bg-white/[0.025] p-4 text-sm text-nova-text-secondary">
+				<p>
+					The language catalog didn't load. Check your connection and try again
+				</p>
+				<Button
+					type="button"
+					variant="outline"
+					className="mt-3"
+					onClick={onRetry}
+				>
+					Try again
+				</Button>
+			</div>
+		);
+	}
+	return (
+		<div className="space-y-3" aria-hidden="true">
+			<Skeleton className="h-4 w-20" />
+			<Skeleton className="h-11 w-full" />
+			<Skeleton className="h-11 w-full" />
+		</div>
+	);
+}
+
 function AddLanguageDialog({
 	doc,
 	languages,
@@ -404,93 +535,78 @@ function AddLanguageDialog({
 	onAdded,
 }: {
 	readonly doc: BlueprintDoc;
-	readonly languages: readonly AppLanguage[];
+	readonly languages: readonly LanguageDisplay[];
 	readonly onCommit: (mutations: Mutation[]) => boolean;
-	readonly onAdded: (language: LanguageCode) => void;
+	readonly onAdded: (language: LanguageTag) => void;
 }) {
 	const [open, setOpen] = useState(false);
-	const [code, setCode] = useState("");
-	const [name, setName] = useState("");
-	const [direction, setDirection] = useState<AppLanguage["direction"]>("ltr");
-	const [copyFrom, setCopyFrom] = useState<LanguageCode>(
-		languages[0]?.code ?? "en",
+	const registry = useLanguageRegistrySearch(open);
+	const [choice, setChoice] = useState<LanguagePickerChoice>(
+		EMPTY_LANGUAGE_CHOICE,
 	);
-	const [query, setQuery] = useState("");
+	const [pickerQuery, setPickerQuery] = useState("");
+	const [copyFrom, setCopyFrom] = useState<LanguageTag | undefined>(
+		languages[0]?.tag,
+	);
 	const [error, setError] = useState<string>();
-	const existing = new Set(languages.map((language) => language.code));
-	const copySource =
-		languages.find((language) => language.code === copyFrom) ?? languages[0];
-	const copySourceCode = copySource?.code;
-	useEffect(() => {
-		if (copySourceCode !== undefined && copySourceCode !== copyFrom) {
-			setCopyFrom(copySourceCode);
-		}
-	}, [copyFrom, copySourceCode]);
-	const options = CLASSIC_LANGUAGE_OPTIONS.filter(
-		(option) => !existing.has(option.code),
+	const existingTags = useMemo(
+		() => languages.map((language) => language.tag),
+		[languages],
 	);
+	const copySource =
+		languages.find((language) => language.tag === copyFrom) ?? languages[0];
+	const copySourceTag = copySource?.tag;
+	useEffect(() => {
+		if (copySourceTag !== undefined && copySourceTag !== copyFrom) {
+			setCopyFrom(copySourceTag);
+		}
+	}, [copyFrom, copySourceTag]);
 
-	const applyCode = (nextCode: string) => {
-		const normalized = nextCode.trim().toLowerCase();
-		setCode(normalized);
-		const parsed = languageCodeSchema.safeParse(normalized);
-		if (!parsed.success) return;
-		const suggestion = suggestedAppLanguage(parsed.data);
-		setName(suggestion.name);
-		setDirection(suggestion.direction);
-	};
+	const data = registry.data;
+	const selection = resolvedLanguageSelection(choice);
+	const duplicate =
+		data !== undefined && selection !== undefined
+			? duplicateLanguageRefusal(data, selection, existingTags)
+			: undefined;
 
 	const reset = () => {
-		setCode("");
-		setName("");
-		setDirection("ltr");
-		setCopyFrom(languages[0]?.code ?? "en");
-		setQuery("");
+		setChoice(EMPTY_LANGUAGE_CHOICE);
+		setPickerQuery("");
+		setCopyFrom(languages[0]?.tag);
 		setError(undefined);
 	};
 
 	const add = () => {
-		const parsedCode = languageCodeSchema.safeParse(code.trim().toLowerCase());
-		if (!parsedCode.success) {
-			setError(
-				parsedCode.error.issues[0]?.message ?? "Enter a valid language code.",
-			);
-			return;
-		}
-		if (existing.has(parsedCode.data)) {
-			setError("That language already belongs to this app.");
-			return;
-		}
-		if (name.trim() === "") {
-			setError("Enter the worker-facing language name.");
+		if (
+			data === undefined ||
+			selection === undefined ||
+			duplicate !== undefined
+		) {
 			return;
 		}
 		if (copySource === undefined) {
 			setError("Add a source language before copying strings.");
 			return;
 		}
-		const language: AppLanguage = {
-			code: parsedCode.data,
-			name: name.trim(),
-			direction,
-		};
-		const mutations: Mutation[] = [{ kind: "addLanguage", language }];
-		for (const unit of collectLocalizedTranslationUnits(doc, copySource.code)) {
+		const mutations: Mutation[] = [
+			{ kind: "addLanguage", language: selection.identity },
+		];
+		for (const unit of collectLocalizedTranslationUnits(doc, copySource.tag)) {
 			mutations.push({
 				kind: "setTranslation",
-				language: language.code,
+				language: selection.tag,
 				unitId: unit.id,
 				entry: {
 					value: structuredClone(unit.effective),
 					sourceFingerprint: unit.sourceFingerprint,
 					origin: "copied",
 					review: "needs-review",
-					translatedFrom: copySource.code,
+					translatedFrom: copySource.tag,
 				},
 			});
 		}
 		if (!onCommit(mutations)) return;
-		onAdded(language.code);
+		onAdded(selection.tag);
 		setOpen(false);
 		reset();
 	};
@@ -511,134 +627,87 @@ function AddLanguageDialog({
 				<DialogHeader>
 					<DialogTitle>Add a language</DialogTitle>
 					<DialogDescription>
-						Choose any Classic catalog language or enter another wire-valid
-						code. Nova copies every current string from an existing language and
-						marks the result for review.
+						Search for the language workers speak. Its name and text direction
+						come from the language itself; Nova copies every current string from
+						an existing language and marks the result for review.
 					</DialogDescription>
 				</DialogHeader>
 				<DialogBody className="space-y-4">
-					<div>
-						<p className="mb-1.5 block text-xs font-medium text-nova-text-secondary">
-							Classic language catalog
-						</p>
-						<Combobox
-							items={options}
-							inputValue={query}
-							onInputValueChange={(value, details) =>
-								setQuery(details.reason === "item-press" ? "" : value)
-							}
-							onValueChange={(option: ClassicLanguageOption | null) => {
-								if (option !== null) applyCode(option.code);
-							}}
-							itemToStringLabel={(option: ClassicLanguageOption) =>
-								option.englishName
-							}
-							itemToStringValue={(option: ClassicLanguageOption) => option.code}
-							filter={(option: ClassicLanguageOption, currentQuery) =>
-								`${option.englishName} ${option.code} ${option.iso6391 ?? ""} ${option.iso6392}`
-									.toLocaleLowerCase()
-									.includes(currentQuery.trim().toLocaleLowerCase())
-							}
-							autoHighlight
-						>
-							<ComboboxInput
-								aria-label="Search the Classic language catalog"
-								placeholder="Search by name or ISO code"
-								showClear={query !== ""}
-								onClear={() => setQuery("")}
+					{data === undefined ? (
+						<RegistryLoadFallback
+							failed={registry.failed}
+							onRetry={registry.retry}
+						/>
+					) : (
+						<>
+							<LanguagePickerFields
+								data={data}
+								choice={choice}
+								onChoiceChange={(next) => {
+									setChoice(next);
+									setError(undefined);
+								}}
+								query={pickerQuery}
+								onQueryChange={setPickerQuery}
+								existingTags={existingTags}
+								idPrefix="add-language"
 							/>
-							<ComboboxContent>
-								<ComboboxEmpty>No matching catalog language</ComboboxEmpty>
-								<ComboboxList>
-									{(option) => (
-										<ComboboxItem key={option.code} value={option}>
-											<span className="min-w-0 flex-1 truncate">
-												{option.englishName}
-											</span>
-											<span className="font-mono text-xs text-nova-text-muted">
-												{option.code}
-											</span>
-										</ComboboxItem>
-									)}
-								</ComboboxList>
-							</ComboboxContent>
-						</Combobox>
-					</div>
-					<div className="grid gap-4 @md:grid-cols-2">
-						<div className="block">
-							<span className="mb-1.5 block text-xs font-medium text-nova-text-secondary">
-								Language code
-							</span>
-							<Input
-								aria-label="Language code"
-								value={code}
-								onChange={(event) => applyCode(event.target.value)}
-								placeholder="es or es-mx"
-								className="font-mono"
-							/>
-						</div>
-						<div className="block">
-							<span className="mb-1.5 block text-xs font-medium text-nova-text-secondary">
-								Worker-facing name
-							</span>
-							<Input
-								aria-label="Worker-facing language name"
-								value={name}
-								onChange={(event) => setName(event.target.value)}
-								placeholder="Español"
-							/>
-						</div>
-					</div>
-					<div className="grid gap-4 @md:grid-cols-2">
-						<div className="block">
-							<span className="mb-1.5 block text-xs font-medium text-nova-text-secondary">
-								Text direction
-							</span>
-							<Select
-								value={direction}
-								onValueChange={(value) =>
-									value !== null &&
-									setDirection(value as AppLanguage["direction"])
-								}
-							>
-								<SelectTrigger aria-label="Text direction" className="w-full">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="ltr">Left to right</SelectItem>
-									<SelectItem value="rtl">Right to left</SelectItem>
-								</SelectContent>
-							</Select>
-						</div>
-						<div className="block">
-							<span className="mb-1.5 block text-xs font-medium text-nova-text-secondary">
-								Start with strings from
-							</span>
-							<Select
-								key={copySourceCode ?? "no-copy-source"}
-								value={copySource?.code ?? null}
-								onValueChange={(value) => value !== null && setCopyFrom(value)}
-							>
-								<SelectTrigger
-									aria-label="Start with strings from"
-									className="w-full"
+							<Field>
+								<FieldLabel htmlFor="add-language-copy-from">
+									Start with strings from
+								</FieldLabel>
+								<Select
+									key={copySourceTag ?? "no-copy-source"}
+									value={copySource?.tag ?? null}
+									onValueChange={(value: string | null) =>
+										value !== null && setCopyFrom(value)
+									}
 								>
-									<SelectValue>
-										{copySource === undefined
-											? "No source language"
-											: `${copySource.name} (${copySource.code})`}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									{languages.map((language) => (
-										<SelectItem key={language.code} value={language.code}>
-											{language.name} ({language.code})
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-					</div>
+									<SelectTrigger id="add-language-copy-from" className="w-full">
+										<SelectValue>
+											{copySource === undefined ? (
+												"No source language"
+											) : (
+												<bdi dir={copySource.direction}>
+													{copySource.label ??
+														data.resolvedLanguageDisplayLabel(
+															copySource.identity,
+														)}
+												</bdi>
+											)}
+										</SelectValue>
+									</SelectTrigger>
+									<SelectContent>
+										{languages.map((language) => {
+											const label =
+												language.label ??
+												data.resolvedLanguageDisplayLabel(language.identity);
+											const englishName =
+												language.englishName ??
+												data.resolvedLanguageEnglishName(language.identity);
+											return (
+												<SelectItem
+													key={language.tag}
+													value={language.tag}
+													wrap
+												>
+													<span className="flex min-w-0 flex-col">
+														<bdi dir={language.direction}>{label}</bdi>
+														{englishName !== undefined &&
+															englishName !== label && (
+																<span className="text-xs text-nova-text-muted">
+																	{englishName}
+																</span>
+															)}
+													</span>
+												</SelectItem>
+											);
+										})}
+									</SelectContent>
+								</Select>
+							</Field>
+						</>
+					)}
 					{error !== undefined && (
 						<p role="alert" className="text-sm text-nova-rose">
 							{error}
@@ -646,7 +715,15 @@ function AddLanguageDialog({
 					)}
 				</DialogBody>
 				<DialogFooter showCloseButton>
-					<Button type="button" onClick={add}>
+					<Button
+						type="button"
+						onClick={add}
+						disabled={
+							data === undefined ||
+							selection === undefined ||
+							duplicate !== undefined
+						}
+					>
 						Add and copy strings
 					</Button>
 				</DialogFooter>
@@ -655,153 +732,98 @@ function AddLanguageDialog({
 	);
 }
 
-function LanguageSettingsDialog({
-	language,
-	soleSource,
+function ChangeLanguageDialog({
+	currentTag,
 	onCommit,
 }: {
-	readonly language: AppLanguage;
-	readonly soleSource: boolean;
+	readonly currentTag: LanguageTag;
 	readonly onCommit: (mutations: Mutation[]) => boolean;
 }) {
 	const [open, setOpen] = useState(false);
-	/* A missing draft property follows the current document value. This keeps an
-	 * untouched control live when a multiplayer peer edits it, while preserving
-	 * only the property this user is actively drafting. */
-	const [draft, setDraft] = useState<Partial<AppLanguage>>({});
-	const [error, setError] = useState<string>();
-	const code = soleSource ? (draft.code ?? language.code) : language.code;
-	const name = draft.name ?? language.name;
-	const direction = draft.direction ?? language.direction;
+	const registry = useLanguageRegistrySearch(open);
+	/* A missing draft follows the current document value, so an untouched
+	 * dialog stays live when a multiplayer peer relabels the language. */
+	const [draftChoice, setDraftChoice] = useState<LanguagePickerChoice>();
+	const [draftQuery, setDraftQuery] = useState<string>();
+
+	const data = registry.data;
+	const currentIdentity = parseLanguageTag(currentTag);
+	const currentChoice: LanguagePickerChoice = {
+		language: currentIdentity.language,
+		...(currentIdentity.script !== undefined && {
+			script: currentIdentity.script,
+		}),
+		...(currentIdentity.region !== undefined && {
+			region: currentIdentity.region,
+		}),
+	};
+	const choice = draftChoice ?? currentChoice;
+	const currentLabel =
+		languageDisplayLabel(currentIdentity) ??
+		data?.resolvedLanguageDisplayLabel(currentIdentity) ??
+		"";
+	const query = draftQuery ?? currentLabel;
+	const selection = resolvedLanguageSelection(choice);
+
 	const setDialogOpen = (nextOpen: boolean) => {
 		setOpen(nextOpen);
-		setDraft({});
-		setError(undefined);
+		setDraftChoice(undefined);
+		setDraftQuery(undefined);
 	};
 	const save = () => {
-		const parsedCode = languageCodeSchema.safeParse(code.trim().toLowerCase());
-		if (!parsedCode.success) {
-			setError(
-				parsedCode.error.issues[0]?.message ?? "Enter a valid language code.",
-			);
-			return;
+		if (selection === undefined) return;
+		if (selection.tag !== currentTag) {
+			if (
+				!onCommit([
+					{ kind: "relabelSourceLanguage", language: selection.identity },
+				])
+			) {
+				return;
+			}
 		}
-		if (name.trim() === "") {
-			setError("Enter the worker-facing language name.");
-			return;
-		}
-		const next: AppLanguage = {
-			code: parsedCode.data,
-			name: name.trim(),
-			direction,
-		};
-		const mutation: Mutation | undefined =
-			soleSource && next.code !== language.code
-				? { kind: "relabelSourceLanguage", language: next }
-				: draft.name !== undefined || draft.direction !== undefined
-					? {
-							kind: "updateLanguage",
-							code: language.code,
-							patch: {
-								...(draft.name !== undefined && next.name !== language.name
-									? { name: next.name }
-									: {}),
-								...(draft.direction !== undefined &&
-								next.direction !== language.direction
-									? { direction: next.direction }
-									: {}),
-							},
-						}
-					: undefined;
-		if (
-			mutation !== undefined &&
-			mutation.kind === "updateLanguage" &&
-			Object.keys(mutation.patch).length === 0
-		) {
-			setDialogOpen(false);
-			return;
-		}
-		if (mutation !== undefined && !onCommit([mutation])) return;
 		setDialogOpen(false);
 	};
 	return (
 		<Dialog open={open} onOpenChange={setDialogOpen}>
 			<DialogTrigger render={<Button type="button" variant="ghost" />}>
-				Settings
+				Change language
 			</DialogTrigger>
-			<DialogContent>
+			<DialogContent className="sm:max-w-xl">
 				<DialogHeader>
-					<DialogTitle>Language settings</DialogTitle>
+					<DialogTitle>Change the language</DialogTitle>
 					<DialogDescription>
-						The name appears in the worker language picker. Locale identity can
-						only be relabeled before a second language is added.
+						Search for the language workers speak; its name and text direction
+						follow from it. The language can only be changed before a second
+						language is added.
 					</DialogDescription>
 				</DialogHeader>
-				<div className="space-y-4">
-					<div className="block">
-						<span className="mb-1.5 block text-xs font-medium text-nova-text-secondary">
-							Language code
-						</span>
-						<Input
-							aria-label="Language code"
-							value={code}
-							disabled={!soleSource}
-							onChange={(event) =>
-								setDraft((current) => ({
-									...current,
-									code: event.target.value.toLowerCase(),
-								}))
-							}
-							className="font-mono"
+				<DialogBody className="space-y-4">
+					{data === undefined ? (
+						<RegistryLoadFallback
+							failed={registry.failed}
+							onRetry={registry.retry}
 						/>
-					</div>
-					<div className="block">
-						<span className="mb-1.5 block text-xs font-medium text-nova-text-secondary">
-							Worker-facing name
-						</span>
-						<Input
-							aria-label="Worker-facing language name"
-							value={name}
-							onChange={(event) =>
-								setDraft((current) => ({
-									...current,
-									name: event.target.value,
-								}))
-							}
+					) : (
+						<LanguagePickerFields
+							data={data}
+							choice={choice}
+							onChoiceChange={setDraftChoice}
+							query={query}
+							onQueryChange={setDraftQuery}
+							// Relabel replaces the sole language, so nothing counts as a
+							// duplicate; re-saving the current identity is a quiet no-op.
+							existingTags={[]}
+							idPrefix="change-language"
 						/>
-					</div>
-					<div className="block">
-						<span className="mb-1.5 block text-xs font-medium text-nova-text-secondary">
-							Text direction
-						</span>
-						<Select
-							value={direction}
-							onValueChange={(value) => {
-								if (value === null) return;
-								setDraft((current) => ({
-									...current,
-									direction: value as AppLanguage["direction"],
-								}));
-							}}
-						>
-							<SelectTrigger aria-label="Text direction" className="w-full">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="ltr">Left to right</SelectItem>
-								<SelectItem value="rtl">Right to left</SelectItem>
-							</SelectContent>
-						</Select>
-					</div>
-					{error !== undefined && (
-						<p role="alert" className="text-sm text-nova-rose">
-							{error}
-						</p>
 					)}
-				</div>
+				</DialogBody>
 				<DialogFooter showCloseButton>
-					<Button type="button" onClick={save}>
-						Save settings
+					<Button
+						type="button"
+						onClick={save}
+						disabled={data === undefined || selection === undefined}
+					>
+						Save language
 					</Button>
 				</DialogFooter>
 			</DialogContent>
@@ -810,10 +832,10 @@ function LanguageSettingsDialog({
 }
 
 function RemoveLanguageDialog({
-	language,
+	display,
 	onRemove,
 }: {
-	readonly language: AppLanguage;
+	readonly display: LanguageDisplay;
 	readonly onRemove: () => void;
 }) {
 	return (
@@ -826,10 +848,12 @@ function RemoveLanguageDialog({
 			</AlertDialogTrigger>
 			<AlertDialogContent>
 				<AlertDialogHeader>
-					<AlertDialogTitle>Remove {language.name}?</AlertDialogTitle>
+					<AlertDialogTitle>
+						Remove <LanguageName display={display} />?
+					</AlertDialogTitle>
 					<AlertDialogDescription>
-						This removes every explicit {language.code} translation. The source
-						content and other languages are unchanged.
+						This removes every explicit translation for this language. The
+						source content and other languages are unchanged.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
@@ -869,8 +893,7 @@ function TranslationUnitRow({
 	const [draftValid, setDraftValid] = useState(true);
 	const [error, setError] = useState<string>();
 	const localization = effectiveAppLocalization(doc.localization);
-	const sourceDirection =
-		localization.languages[localization.sourceLanguage].direction;
+	const sourceDirection = languageDirection(localization.sourceLanguage);
 	const changed = JSON.stringify(draft) !== JSON.stringify(initial);
 	const save = () => {
 		if (!draftValid) return;

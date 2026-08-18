@@ -1,9 +1,5 @@
 import rawLaunchLanguages from "@/config/automatic-translation-launch-languages.json";
-import {
-	classicLanguageOption,
-	type LanguageCode,
-	languageCodeSchema,
-} from "@/lib/domain";
+import { type AppLanguageIdentity, languageTag } from "@/lib/domain";
 
 /**
  * Automatic text translation is independent from CommCare's app-language
@@ -19,16 +15,19 @@ export type AutomaticTranslationStatus =
 	(typeof automaticTranslationStatuses)[number];
 
 export interface AutomaticTranslationCapability {
-	readonly sourceLanguage: LanguageCode;
-	readonly targetLanguage: LanguageCode;
+	readonly sourceLanguage: AppLanguageIdentity;
+	readonly targetLanguage: AppLanguageIdentity;
 	readonly status: AutomaticTranslationStatus;
 	readonly explanation: string;
 }
 
 export interface AutomaticTranslationLaunchLanguage {
-	readonly code: LanguageCode;
+	/** An ISO 639:2023 Set 3 individual living-language code. */
+	readonly code: string;
 	readonly name: string;
 }
+
+const LAUNCH_CODE_PATTERN = /^[a-z]{3}$/;
 
 /**
  * Product-owned launch coverage, adopted as an explicit 57-language set. It is
@@ -37,10 +36,14 @@ export interface AutomaticTranslationLaunchLanguage {
  * machine-authored value remains Needs review.
  */
 export const AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES: readonly AutomaticTranslationLaunchLanguage[] =
-	rawLaunchLanguages.map((language) => ({
-		code: languageCodeSchema.parse(language.code),
-		name: language.name,
-	}));
+	rawLaunchLanguages.map((language) => {
+		if (!LAUNCH_CODE_PATTERN.test(language.code)) {
+			throw new Error(
+				`The automatic-translation launch manifest entry ${language.code} is not a three-letter Set 3 code.`,
+			);
+		}
+		return { code: language.code, name: language.name };
+	});
 
 if (AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES.length !== 57) {
 	throw new Error(
@@ -58,71 +61,20 @@ if (launchCodes.size !== AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES.length) {
 }
 
 /**
- * The launch source uses ISO 639-3 individual-language identities while
- * Classic's picker uses ISO 639-2 macrolanguage codes for these eight entries.
- * Resolve the picker code to the launch identity workers mean; direct 639-3
- * entries (for example `arz` or `prs`) still win before this crosswalk.
+ * Availability is decided by the language axis alone: script and regional
+ * conventions never affect it, so two branches of one language (Simplified ↔
+ * Traditional Mandarin) resolve to the same launch language and stay
+ * withheld — converting a writing system is not translation.
  */
-const CLASSIC_TO_LAUNCH_EQUIVALENT = new Map<LanguageCode, LanguageCode>([
-	["zho", "cmn"],
-	["ara", "arb"],
-	["swa", "swh"],
-	["fas", "pes"],
-	["ori", "ory"],
-	["nep", "npi"],
-	["msa", "zlm"],
-	["uzb", "uzn"],
-]);
-
-/**
- * Explicit compound aliases for launch languages that are varieties of a
- * broader two-letter language. They must resolve before regional fallback:
- * `zh-yue` means Yue, while an ordinary region such as `zh-hk` still inherits
- * the Mandarin capability selected by Classic's `zh` alias.
- */
-const LAUNCH_VARIETY_ALIASES = new Map<LanguageCode, LanguageCode>([
-	["zh-cmn", "cmn"],
-	["zh-yue", "yue"],
-	["zh-wuu", "wuu"],
-	["zh-cjy", "cjy"],
-	["zh-nan", "nan"],
-	["zh-hak", "hak"],
-	["zh-hsn", "hsn"],
-	["ar-arb", "arb"],
-	["ar-arz", "arz"],
-	["ar-apc", "apc"],
-	["ar-apd", "apd"],
-	["ar-arq", "arq"],
-	["ar-ary", "ary"],
-	["fa-pes", "pes"],
-	["fa-prs", "prs"],
-	["pa-pan", "pan"],
-	["pa-pnb", "pnb"],
-	["ms-zlm", "zlm"],
-	["sw-swh", "swh"],
-	["or-ory", "ory"],
-	["ne-npi", "npi"],
-	["uz-uzn", "uzn"],
-]);
-
-/** Resolve a CommCare code or regional variant to one launch-language identity. */
 export function automaticTranslationLaunchLanguage(
-	code: LanguageCode,
-): LanguageCode | undefined {
-	if (launchCodes.has(code)) return code;
-	const variety = LAUNCH_VARIETY_ALIASES.get(code);
-	if (variety !== undefined) return variety;
-	const base = code.split("-", 1)[0] as LanguageCode;
-	if (launchCodes.has(base)) return base;
-	const classic = classicLanguageOption(base);
-	if (classic === undefined) return undefined;
-	if (launchCodes.has(classic.iso6392)) return classic.iso6392;
-	return CLASSIC_TO_LAUNCH_EQUIVALENT.get(classic.iso6392);
+	identity: AppLanguageIdentity,
+): string | undefined {
+	return launchCodes.has(identity.language) ? identity.language : undefined;
 }
 
 export function automaticTranslationCapability(
-	sourceLanguage: LanguageCode,
-	targetLanguage: LanguageCode,
+	sourceLanguage: AppLanguageIdentity,
+	targetLanguage: AppLanguageIdentity,
 ): AutomaticTranslationCapability {
 	const sourceLaunchLanguage =
 		automaticTranslationLaunchLanguage(sourceLanguage);
@@ -150,7 +102,9 @@ export function automaticTranslationCapability(
 			targetLanguage,
 			status: "withheld",
 			explanation:
-				"The source and target codes resolve to the same launch language, so translation would not change languages.",
+				languageTag(sourceLanguage) === languageTag(targetLanguage)
+					? "The source and target are the same language, so translation would not change languages."
+					: "The source and target are two forms of one language. Converting between writing systems or regional conventions is not translation, so automatic translation stays off for this pair.",
 		};
 	}
 	return {
@@ -163,8 +117,8 @@ export function automaticTranslationCapability(
 }
 
 export function automaticTranslationAvailable(
-	sourceLanguage: LanguageCode,
-	targetLanguage: LanguageCode,
+	sourceLanguage: AppLanguageIdentity,
+	targetLanguage: AppLanguageIdentity,
 ): boolean {
 	return (
 		automaticTranslationCapability(sourceLanguage, targetLanguage).status ===

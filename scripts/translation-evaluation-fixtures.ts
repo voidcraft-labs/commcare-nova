@@ -1,5 +1,5 @@
 import {
-	type LanguageCode,
+	type LanguageTag,
 	type LocalizedValue,
 	makeTranslationUnitId,
 	type ProseTemplate,
@@ -12,10 +12,10 @@ export const TRANSLATION_EVALUATION_FIXTURE_VERSION =
 	"commcare-worker-content-v1";
 
 export const TRANSLATION_EVALUATION_SOURCE_LANGUAGES = [
-	"en",
-	"es",
-	"fr",
-] as const satisfies readonly LanguageCode[];
+	"eng",
+	"spa",
+	"fra",
+] as const satisfies readonly LanguageTag[];
 
 export type TranslationEvaluationSourceLanguage =
 	(typeof TRANSLATION_EVALUATION_SOURCE_LANGUAGES)[number];
@@ -128,15 +128,15 @@ export const TRANSLATION_EVALUATION_FIXTURES: readonly TranslationEvaluationFixt
 			key: "app-name",
 			criterionIds: ["meaning", "natural-ui-copy"],
 			source: {
-				en: "Community Health Follow-up",
-				es: "Seguimiento de salud comunitaria",
-				fr: "Suivi de santé communautaire",
+				eng: "Community Health Follow-up",
+				spa: "Seguimiento de salud comunitaria",
+				fra: "Suivi de santé communautaire",
 			},
 			role: "app-name",
 			breadcrumb: {
-				en: ["Community Health Follow-up"],
-				es: ["Seguimiento de salud comunitaria"],
-				fr: ["Suivi de santé communautaire"],
+				eng: ["Community Health Follow-up"],
+				spa: ["Seguimiento de salud comunitaria"],
+				fra: ["Suivi de santé communautaire"],
 			},
 			context: {},
 			contentPolicy: "require-nonblank",
@@ -146,19 +146,19 @@ export const TRANSLATION_EVALUATION_FIXTURES: readonly TranslationEvaluationFixt
 			key: "chw-label",
 			criterionIds: ["meaning", "natural-ui-copy", "domain-terminology"],
 			source: {
-				en: prose([{ kind: "text", text: "Community health worker" }]),
-				es: prose([{ kind: "text", text: "Agente comunitario de salud" }]),
-				fr: prose([{ kind: "text", text: "Agent de santé communautaire" }]),
+				eng: prose([{ kind: "text", text: "Community health worker" }]),
+				spa: prose([{ kind: "text", text: "Agente comunitario de salud" }]),
+				fra: prose([{ kind: "text", text: "Agent de santé communautaire" }]),
 			},
 			role: "field-label",
 			breadcrumb: {
-				en: ["Household visit", "Visit details", "Community health worker"],
-				es: [
+				eng: ["Household visit", "Visit details", "Community health worker"],
+				spa: [
 					"Visita domiciliaria",
 					"Datos de la visita",
 					"Agente comunitario de salud",
 				],
-				fr: [
+				fra: [
 					"Visite à domicile",
 					"Détails de la visite",
 					"Agent de santé communautaire",
@@ -172,19 +172,19 @@ export const TRANSLATION_EVALUATION_FIXTURES: readonly TranslationEvaluationFixt
 			key: "fever-guidance",
 			criterionIds: ["meaning", "natural-ui-copy", "formatting"],
 			source: {
-				en: prose([
+				eng: prose([
 					{
 						kind: "text",
 						text: "If **fever** is present, arrange a same-day referral.",
 					},
 				]),
-				es: prose([
+				spa: prose([
 					{
 						kind: "text",
 						text: "Si hay **fiebre**, organice una derivación para el mismo día.",
 					},
 				]),
-				fr: prose([
+				fra: prose([
 					{
 						kind: "text",
 						text: "En cas de **fièvre**, organisez une orientation le jour même.",
@@ -193,9 +193,9 @@ export const TRANSLATION_EVALUATION_FIXTURES: readonly TranslationEvaluationFixt
 			},
 			role: "field-help",
 			breadcrumb: {
-				en: ["Household visit", "Symptoms", "Fever", "Help"],
-				es: ["Visita domiciliaria", "Síntomas", "Fiebre", "Ayuda"],
-				fr: ["Visite à domicile", "Symptômes", "Fièvre", "Aide"],
+				eng: ["Household visit", "Symptoms", "Fever", "Help"],
+				spa: ["Visita domiciliaria", "Síntomas", "Fiebre", "Ayuda"],
+				fra: ["Visite à domicile", "Symptômes", "Fièvre", "Aide"],
 			},
 			context: { fieldId: "fever", fieldKind: "single_select" },
 			contentPolicy: "allow-blank",
@@ -206,19 +206,19 @@ export const TRANSLATION_EVALUATION_FIXTURES: readonly TranslationEvaluationFixt
 			key: "visit-date-validation",
 			criterionIds: ["meaning", "validation-instruction"],
 			source: {
-				en: prose([
+				eng: prose([
 					{
 						kind: "text",
 						text: "Visit date cannot be in the future. Enter today or an earlier date.",
 					},
 				]),
-				es: prose([
+				spa: prose([
 					{
 						kind: "text",
 						text: "La fecha de la visita no puede ser futura. Ingrese la fecha de hoy o una anterior.",
 					},
 				]),
-				fr: prose([
+				fra: prose([
 					{
 						kind: "text",
 						text: "La date de visite ne peut pas être ultérieure. Saisissez la date du jour ou une date antérieure.",
@@ -227,19 +227,19 @@ export const TRANSLATION_EVALUATION_FIXTURES: readonly TranslationEvaluationFixt
 			},
 			role: "field-validation-message",
 			breadcrumb: {
-				en: [
+				eng: [
 					"Household visit",
 					"Visit details",
 					"Visit date",
 					"Validation message",
 				],
-				es: [
+				spa: [
 					"Visita domiciliaria",
 					"Datos de la visita",
 					"Fecha de la visita",
 					"Mensaje de validación",
 				],
-				fr: [
+				fra: [
 					"Visite à domicile",
 					"Détails de la visite",
 					"Date de visite",
@@ -254,17 +254,17 @@ export const TRANSLATION_EVALUATION_FIXTURES: readonly TranslationEvaluationFixt
 			key: "confirm-name-reference",
 			criterionIds: ["meaning", "protected-reference"],
 			source: {
-				en: prose([
+				eng: prose([
 					{ kind: "text", text: "Confirm the household name " },
 					{ kind: "field-ref", uuid: FIELD_NAME },
 					{ kind: "text", text: " before continuing." },
 				]),
-				es: prose([
+				spa: prose([
 					{ kind: "text", text: "Confirme el nombre del hogar " },
 					{ kind: "field-ref", uuid: FIELD_NAME },
 					{ kind: "text", text: " antes de continuar." },
 				]),
-				fr: prose([
+				fra: prose([
 					{ kind: "text", text: "Confirmez le nom du ménage " },
 					{ kind: "field-ref", uuid: FIELD_NAME },
 					{ kind: "text", text: " avant de continuer." },
@@ -272,9 +272,9 @@ export const TRANSLATION_EVALUATION_FIXTURES: readonly TranslationEvaluationFixt
 			},
 			role: "field-hint",
 			breadcrumb: {
-				en: ["Household visit", "Review", "Confirm household"],
-				es: ["Visita domiciliaria", "Revisión", "Confirmar hogar"],
-				fr: ["Visite à domicile", "Vérification", "Confirmer le ménage"],
+				eng: ["Household visit", "Review", "Confirm household"],
+				spa: ["Visita domiciliaria", "Revisión", "Confirmar hogar"],
+				fra: ["Visite à domicile", "Vérification", "Confirmer le ménage"],
 			},
 			context: { fieldId: "confirm_household", fieldKind: "label" },
 			contentPolicy: "allow-blank",
@@ -285,19 +285,19 @@ export const TRANSLATION_EVALUATION_FIXTURES: readonly TranslationEvaluationFixt
 				{
 					key: "status-yes",
 					value: "yes",
-					source: { en: "Yes", es: "Sí", fr: "Oui" },
+					source: { eng: "Yes", spa: "Sí", fra: "Oui" },
 					optionUuid: YES,
 				},
 				{
 					key: "status-no",
 					value: "no",
-					source: { en: "No", es: "No", fr: "Non" },
+					source: { eng: "No", spa: "No", fra: "Non" },
 					optionUuid: NO,
 				},
 				{
 					key: "status-unknown",
 					value: "unknown",
-					source: { en: "Don't know", es: "No sabe", fr: "Ne sait pas" },
+					source: { eng: "Don't know", spa: "No sabe", fra: "Ne sait pas" },
 					optionUuid: UNKNOWN,
 				},
 			] as const
@@ -306,29 +306,29 @@ export const TRANSLATION_EVALUATION_FIXTURES: readonly TranslationEvaluationFixt
 				key: option.key,
 				criterionIds: ["meaning", "natural-ui-copy", "option-set"],
 				source: {
-					en: prose([{ kind: "text", text: option.source.en }]),
-					es: prose([{ kind: "text", text: option.source.es }]),
-					fr: prose([{ kind: "text", text: option.source.fr }]),
+					eng: prose([{ kind: "text", text: option.source.eng }]),
+					spa: prose([{ kind: "text", text: option.source.spa }]),
+					fra: prose([{ kind: "text", text: option.source.fra }]),
 				},
 				role: "select-option-label",
 				breadcrumb: {
-					en: [
+					eng: [
 						"Household visit",
 						"Symptoms",
 						"Referral completed",
-						option.source.en,
+						option.source.eng,
 					],
-					es: [
+					spa: [
 						"Visita domiciliaria",
 						"Síntomas",
 						"Derivación completada",
-						option.source.es,
+						option.source.spa,
 					],
-					fr: [
+					fra: [
 						"Visite à domicile",
 						"Symptômes",
 						"Orientation effectuée",
-						option.source.fr,
+						option.source.fra,
 					],
 				},
 				context: {
@@ -365,7 +365,7 @@ export function translationEvaluationUnits(
 }
 
 export function isTranslationEvaluationSourceLanguage(
-	language: LanguageCode,
+	language: LanguageTag,
 ): language is TranslationEvaluationSourceLanguage {
 	return TRANSLATION_EVALUATION_SOURCE_LANGUAGES.some(
 		(candidate) => candidate === language,
