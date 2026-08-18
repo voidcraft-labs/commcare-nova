@@ -21,8 +21,8 @@ describe("production model roles", () => {
 				reasoningEffort: "xhigh",
 			},
 			followUpEditor: {
-				modelId: "gpt-5.6-sol",
-				reasoningEffort: "medium",
+				modelId: "gpt-5.6-luna",
+				reasoningEffort: "xhigh",
 			},
 			documentExtractor: {
 				modelId: "gpt-5.6-luna",
