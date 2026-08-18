@@ -1,0 +1,67 @@
+<!-- @dsCard group="Voice" viewport="820x660" name="UX writing" subtitle="Invite, never instruct. Sentence case, contractions, no em dashes, calm consequences" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 24px; background: var(--nova-void); font-family: var(--font-sans); display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .pair { background: var(--nova-deep); border: 1px solid var(--nova-border); border-radius: var(--radius-lg); padding: 14px 16px; }
+  .rule { font-size: 13px; font-weight: 600; color: var(--nova-text); margin-bottom: 10px; }
+  .ex { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; font-size: 13px; }
+  .do { color: var(--nova-emerald); font-size: 11px; font-weight: 600; flex: none; width: 34px; }
+  .dont { color: var(--nova-rose); font-size: 11px; font-weight: 600; flex: none; width: 34px; }
+  .t { color: var(--nova-text-secondary); }
+  .t s { opacity: 0.7; }
+  a { color: var(--nova-violet-bright); }
+  a:hover { color: var(--nova-text); }
+</style>
+</head>
+<body>
+  <div class="pair">
+    <div class="rule">Invite, never instruct</div>
+    <div class="ex"><span class="do">Do</span><span class="t">Tell me about the app you'd like to build</span></div>
+    <div class="ex"><span class="dont">Don't</span><span class="t"><s>Enter app requirements</s></span></div>
+  </div>
+  <div class="pair">
+    <div class="rule">Take responsibility, offer the next step</div>
+    <div class="ex"><span class="do">Do</span><span class="t">Couldn't build your app <span style="color:var(--nova-text-muted);font-size:11px">(the status row; the chat offers the next step)</span></span></div>
+    <div class="ex"><span class="dont">Don't</span><span class="t"><s>Build failed: invalid configuration</s></span></div>
+  </div>
+  <div class="pair">
+    <div class="rule">Sentence case, everywhere</div>
+    <div class="ex"><span class="do">Do</span><span class="t">Build your first app</span></div>
+    <div class="ex"><span class="dont">Don't</span><span class="t"><s>Build Your First App</s></span></div>
+  </div>
+  <div class="pair">
+    <div class="rule">No em dashes</div>
+    <div class="ex"><span class="do">Do</span><span class="t">Still building. Big apps take a minute or two.</span></div>
+    <div class="ex"><span class="dont">Don't</span><span class="t"><s>Still building — big apps take a minute or two</s></span></div>
+    <div class="ex"><span class="do">Do</span><span class="t">2 modules · 5 forms <span style="color:var(--nova-text-muted);font-size:11px">(the middle dot separates metadata)</span></span></div>
+  </div>
+  <div class="pair">
+    <div class="rule">No ellipsis in buttons or placeholders</div>
+    <div class="ex"><span class="do">Do</span><span class="t">What would you like to change?</span></div>
+    <div class="ex"><span class="dont">Don't</span><span class="t"><s>Ask for changes…</s></span></div>
+    <div class="ex"><span class="dont">Don't</span><span class="t"><s>Creating blank app…</s> <span style="color:var(--nova-text-muted);font-size:11px">(not even while working; the spinner shows progress)</span></span></div>
+    <div class="ex"><span class="do">Do</span><span class="t">Deleting… <span style="color:var(--nova-text-muted);font-size:11px">(status text only: ellipsis = action in progress)</span></span></div>
+  </div>
+  <div class="pair">
+    <div class="rule">Explain consequences, calmly</div>
+    <div class="ex"><span class="do">Do</span><span class="t">Move to recently deleted → Confirm delete</span></div>
+    <div class="ex"><span class="dont">Don't</span><span class="t"><s>Are you sure you want to delete this?!</s></span></div>
+  </div>
+  <div class="pair">
+    <div class="rule">Contractions, "you", no periods on single lines</div>
+    <div class="ex"><span class="do">Do</span><span class="t">You can't edit while a build is running</span></div>
+    <div class="ex"><span class="dont">Don't</span><span class="t"><s>Editing is not permitted at this time.</s></span></div>
+    <div class="ex"><span class="do">Do</span><span class="t">Could not delete. Check your connection and try again. <span style="color:var(--nova-text-muted);font-size:11px">(periods on multi-sentence)</span></span></div>
+  </div>
+  <div class="pair">
+    <div class="rule">Spell things out</div>
+    <div class="ex"><span class="do">Do</span><span class="t">Search by name, ID, or phone number</span></div>
+    <div class="ex"><span class="dont">Don't</span><span class="t"><s>Search by name, ID, etc.</s></span></div>
+    <div class="ex"><span class="do">Do</span><span class="t">Forms and cases <span style="color:var(--nova-text-muted);font-size:11px">("and" over "&amp;" in running text)</span></span></div>
+  </div>
+</body>
+</html>

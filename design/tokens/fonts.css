@@ -1,0 +1,13 @@
+/* ============================================================
+   CommCare Nova webfonts
+   All three families are Google Fonts and load from the Google
+   CDN. If you need fully offline/self-hosted binaries, download
+   the woff2 files and swap these @import lines for @font-face
+   rules pointing at local assets.
+
+     Display : Outfit            (300 400 500 600 700)
+     Sans    : Plus Jakarta Sans (300 400 500 600 700)
+     Mono    : JetBrains Mono    (400 500 600 700)
+   ============================================================ */
+
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap");

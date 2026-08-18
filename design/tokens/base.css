@@ -1,0 +1,433 @@
+/* ============================================================
+   CommCare Nova base layer
+   Body defaults, scrollbar, ambient light (noise, bloom, breath),
+   skeleton shimmer, and the floating-surface tiers.
+   ============================================================ */
+
+html {
+	color-scheme: dark;
+}
+
+body {
+	margin: 0;
+	background: var(--nova-void);
+	color: var(--nova-text);
+	font-family: var(--font-sans);
+	font-size: var(--text-base);
+	line-height: var(--leading-normal);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	text-rendering: optimizeLegibility;
+}
+
+/* Custom scrollbar: thin, lilac-tinted. Long-lived scroll panels keep a
+   STABLE gutter (scrollbar-gutter: stable) so growing content never shifts
+   layout; floating self-sized surfaces (menus, popovers — anything on
+   .nova-glass / .nova-float-elevated) reserve none, because a blank strip
+   beside a short list reads as dead space. */
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+::-webkit-scrollbar-thumb {
+	background: var(--nova-border-bright);
+	border-radius: 3px;
+}
+
+/* ---- Ambient noise overlay --------------------------------------
+   A barely-there film grain over the whole viewport: the softness
+   of a photograph, not the crispness of a screen. Add the class to
+   a full-bleed element; sits above content at opacity 0.015. */
+.nova-noise::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	opacity: 0.015;
+	pointer-events: none;
+	z-index: 9999;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- First-light bloom -------------------------------------------
+   The ambient light behind hero surfaces: a lilac glow overhead and
+   a low warm dawn on the horizon. Apply to a positioned, overflow-
+   hidden container; renders as three soft radial washes. */
+.nova-bloom {
+	position: relative;
+}
+.nova-bloom::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	z-index: 0;
+	background:
+		radial-gradient(
+			42rem 42rem at 50% -10rem,
+			rgba(150, 120, 242, 0.11),
+			transparent 70%
+		),
+		radial-gradient(
+			36rem 28rem at 12% 108%,
+			rgba(245, 176, 165, 0.06),
+			transparent 70%
+		),
+		radial-gradient(
+			30rem 30rem at 88% 100%,
+			rgba(150, 120, 242, 0.05),
+			transparent 70%
+		);
+}
+
+/* ---- Skeleton shimmer --------------------------------------------
+   Horizontal gradient sweep for loading placeholders; the midpoint
+   is the faint violet wash (matches the product's nova-shimmer). */
+@keyframes nova-shimmer {
+	0% { background-position: -200% 0; }
+	100% { background-position: 200% 0; }
+}
+.nova-shimmer {
+	background: linear-gradient(
+		90deg,
+		var(--nova-surface) 25%,
+		var(--nova-violet-wash) 50%,
+		var(--nova-surface) 75%
+	);
+	background-size: 200% 100%;
+	animation: nova-shimmer 1.5s ease-in-out infinite;
+}
+
+/* ---- Breath ------------------------------------------------------
+   Nova's presence pulse: a slow, calm swell for the brand dot and
+   presence indicators. Deliberately slower than a resting heartbeat;
+   it should read as company, never as urgency. */
+@keyframes nova-breathe {
+	0%, 100% { opacity: 0.45; transform: scale(1); }
+	50% { opacity: 1; transform: scale(1.12); }
+}
+.nova-breathe {
+	animation: nova-breathe var(--duration-breathe, 3.6s) ease-in-out infinite;
+}
+
+/* ============================================================
+   Floating surfaces, two tiers.
+   L1 `.nova-glass`: frosted glass for primary floating panels
+   (menus, popovers, pickers). L2 `.nova-float-elevated`: near-
+   opaque, stacks ABOVE glass; glass-on-glass loses its blur.
+   Both wear a faint lit rim, like glass catching the light.
+   ============================================================ */
+.nova-glass {
+	border-radius: var(--radius-xl);
+	background: var(--nova-glass);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+	border: 1px solid var(--nova-glass-border);
+	box-shadow: var(--shadow-glass);
+}
+.nova-float-elevated {
+	border-radius: var(--radius-xl);
+	background: var(--nova-overlay);
+	border: 1px solid var(--nova-glass-border);
+	box-shadow: var(--shadow-overlay-float);
+}
+
+/* ---- Interaction conventions -------------------------------------
+   Clickable things look clickable; disabled things keep pointer
+   events so the not-allowed cursor can show (never pointer-events:
+   none); components gate their own hover restyles off while
+   disabled and dim to opacity 0.6 (the one disabled value,
+   calibrated so disabled labels keep ≥3:1 contrast). */
+button:not(:disabled) {
+	cursor: pointer;
+}
+button:disabled,
+[aria-disabled="true"] {
+	cursor: not-allowed;
+}
+
+/* Keyboard focus: ONE treatment for the whole product, keyboard only
+   (:focus-visible); a mouse press never leaves a standing ring.
+   .nova-focusable = violet-bright border + soft 3px ring (the default).
+   .nova-focusable-inset draws the same ring inward, for controls inside a
+   clipped or scrolling parent that would crop an outer ring (tree rows,
+   list cells, drag handles). .nova-focusable-within lights a wrapper when
+   the real control inside it takes focus. */
+.nova-focusable:focus-visible {
+	outline: none;
+	border-color: var(--nova-ring);
+	box-shadow: var(--focus-ring);
+}
+.nova-focusable-inset:focus-visible {
+	outline: none;
+	box-shadow: inset 0 0 0 3px rgba(182, 160, 251, 0.45);
+}
+.nova-focusable-within:focus-within {
+	outline: none;
+	border-color: var(--nova-ring);
+	box-shadow: var(--focus-ring);
+}
+
+/* ---- Selected state (rows, segments, rail icons) ----------------
+   A control that HOLDS a state (a tab, a sidebar destination, a rail
+   icon) is not a button: it wears one shared skin — violet tint at 15%,
+   violet-bright text, and a hairline drawn INSIDE (inset shadow, so
+   selecting never changes size). Selected still answers the pointer the
+   way everything else does: one step toward light (tint to 25%). */
+.nova-selected {
+	background: rgba(150, 120, 242, 0.15);
+	color: var(--nova-violet-bright);
+	font-weight: 500;
+	box-shadow: inset 0 0 0 1px var(--nova-violet-hairline);
+}
+.nova-selected:not(:disabled):not([data-disabled]):hover {
+	background: rgba(150, 120, 242, 0.25);
+}
+
+/* ---- Add slots ---------------------------------------------------
+   "Add something here" is an empty place, not a solid control: flat and
+   DASHED rather than a keycap (a keycap says "press me"; a dashed
+   outline says "this is where the next one goes"). Compose onto a
+   ghost/44px control; hover brightens, like everything else. */
+.nova-add-slot {
+	border: 1px dashed var(--nova-border-bright);
+	background: transparent;
+	color: var(--nova-text-secondary);
+	box-shadow: none;
+}
+.nova-add-slot:not(:disabled):not([data-disabled]):hover {
+	border-color: var(--nova-violet);
+	background: var(--nova-violet-wash);
+	color: var(--nova-violet-bright);
+}
+.nova-add-slot:not(:disabled):not([data-disabled]):active {
+	transform: translateY(1px);
+}
+
+/* ============================================================
+   Keycap buttons: the anatomy of Nova's soft-keycap buttons.
+   A lit crown gradient over a 3px darker side wall, real travel on
+   press (the cap sinks as the wall collapses), hover one perceptual
+   step brighter, keyboard-only focus ring, disabled at the one 0.6
+   opacity with hover gated off. The Button component composes these;
+   HTML mocks may use them directly. The SKIN changes in one frame on
+   purpose: crown gradients cannot tween, so fill, border, shadow and
+   travel are pinned to land together (a press is instant anyway; what
+   reads as travel is the sunk cap being HELD). Only opacity eases.
+   ============================================================ */
+.nova-keycap {
+	transition-property: background-color, background-image, border-color, box-shadow, transform, opacity;
+	transition-duration: 0s, 0s, 0s, 0s, 0s, var(--duration-default);
+	transition-timing-function: var(--ease-default);
+}
+.nova-keycap:active:not(:disabled):not([data-disabled]) {
+	transform: translateY(var(--key-wall));
+}
+.nova-keycap:disabled,
+.nova-keycap[data-disabled] {
+	cursor: not-allowed;
+	opacity: var(--disabled-opacity);
+}
+.nova-keycap-action {
+	background: var(--nova-key-action);
+	color: var(--nova-action-ink);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 var(--key-wall) 0 var(--nova-wall-action), 0 7px 16px rgba(10,6,20,0.4), var(--nova-glow-violet);
+}
+.nova-keycap-action:hover:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-action-hover);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 var(--key-wall) 0 var(--nova-wall-action), 0 7px 18px rgba(10,6,20,0.42), var(--nova-glow-violet-strong);
+}
+.nova-keycap-action:active:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-action);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 0 var(--nova-wall-action), 0 1px 3px rgba(10,6,20,0.35), var(--nova-glow-violet);
+}
+.nova-keycap-action.nova-keycap-glow {
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 var(--key-wall) 0 var(--nova-wall-action), 0 7px 16px rgba(10,6,20,0.4), var(--nova-glow-violet-strong);
+}
+.nova-keycap-surface {
+	background: var(--nova-key-surface);
+	color: var(--nova-text);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 var(--key-wall) 0 var(--nova-wall-surface), 0 7px 16px rgba(10,6,20,0.36);
+}
+.nova-keycap-surface:hover:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-surface-hover);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.09), 0 var(--key-wall) 0 var(--nova-wall-surface), 0 7px 18px rgba(10,6,20,0.38);
+}
+.nova-keycap-surface:active:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-surface);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 0 0 var(--nova-wall-surface), 0 1px 3px rgba(10,6,20,0.3);
+}
+.nova-keycap-outline {
+	background: var(--nova-key-violet-wash);
+	color: var(--nova-text);
+	border: 1px solid var(--nova-border);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 var(--key-wall) 0 var(--nova-wall-violet), 0 7px 16px rgba(10,6,20,0.3);
+}
+.nova-keycap-outline:hover:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-violet-wash-hover);
+	border-color: var(--nova-border-bright);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 var(--key-wall) 0 var(--nova-wall-violet), 0 7px 18px rgba(10,6,20,0.32);
+}
+.nova-keycap-outline:active:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-violet-wash);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 var(--nova-wall-violet), 0 1px 3px rgba(10,6,20,0.25);
+}
+.nova-keycap-rose {
+	background: var(--nova-key-rose);
+	color: var(--nova-rose);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 var(--key-wall) 0 var(--nova-wall-rose), 0 7px 16px rgba(10,6,20,0.34);
+}
+.nova-keycap-rose:hover:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-rose-hover);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 var(--key-wall) 0 var(--nova-wall-rose), 0 7px 18px rgba(10,6,20,0.36);
+}
+.nova-keycap-rose:active:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-rose);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 0 0 var(--nova-wall-rose), 0 1px 3px rgba(10,6,20,0.3);
+}
+.nova-keycap-amber {
+	background: var(--nova-key-amber);
+	color: var(--nova-action-ink);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 var(--key-wall) 0 var(--nova-wall-amber), 0 7px 16px rgba(10,6,20,0.4);
+}
+.nova-keycap-amber:hover:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-amber-hover);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 var(--key-wall) 0 var(--nova-wall-amber), 0 7px 18px rgba(10,6,20,0.42);
+}
+.nova-keycap-amber:active:not(:disabled):not([data-disabled]) {
+	background: var(--nova-key-amber);
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 0 var(--nova-wall-amber), 0 1px 3px rgba(10,6,20,0.35);
+}
+.nova-keycap:focus-visible {
+	outline: none;
+	border-color: var(--nova-ring);
+}
+.nova-keycap-action:focus-visible {
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 var(--key-wall) 0 var(--nova-wall-action), 0 7px 16px rgba(10,6,20,0.4), var(--nova-glow-violet), var(--focus-ring);
+}
+.nova-keycap-surface:focus-visible {
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 var(--key-wall) 0 var(--nova-wall-surface), 0 7px 16px rgba(10,6,20,0.36), var(--focus-ring);
+}
+.nova-keycap-outline:focus-visible {
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 var(--key-wall) 0 var(--nova-wall-violet), 0 7px 16px rgba(10,6,20,0.3), var(--focus-ring);
+}
+.nova-keycap-rose:focus-visible {
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 var(--key-wall) 0 var(--nova-wall-rose), 0 7px 16px rgba(10,6,20,0.34), var(--focus-ring);
+}
+.nova-keycap-amber:focus-visible {
+	box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 var(--key-wall) 0 var(--nova-wall-amber), 0 7px 16px rgba(10,6,20,0.4), var(--focus-ring);
+}
+
+/* ============================================================
+   The logomark's light.
+   The mark is a dusk world whose limb catches first light; its ambient
+   state is that light MOVING: the dawn on the lower-right limb widens
+   and narrows the way a sunrise lamp comes up. What animates is the ARC
+   the warmth covers, never the whole mark's opacity, so the mark never
+   blinks and never spins, and the lockup holds its box at every size.
+   Three layers, one job each:
+     .nova-logo-dawn   the warm arc: this is the standby animation
+     .nova-logo-rim    the violet energy ring: steady until pointed at
+     .nova-logo-pulse  a rim highlight: absent until pointed at
+   Hover belongs to the RIM (it brightens and sharpens), and only a mark
+   inside a link or button answers the pointer at all: a logo on a page
+   is not a control. Every layer is sized in em against the mark's own
+   font-size (Logo sets it to the mark's diameter), so one rule serves a
+   14px docs mark and a 44px header mark alike.
+   ============================================================ */
+/* The dawn's reach is animated as a background-position slide over an
+   oversized fixed gradient (the keyframed-custom-property technique the
+   product uses compiles to the same motion, but a keyframe cannot
+   register a token, so the specimen system animates a standard
+   property instead). */
+.nova-logo-rim {
+	/* Confines the energy to the limb: a band from 62% to 90% of the
+	   radius, straddling the disc's edge. */
+	--nova-logo-limb: radial-gradient(circle closest-side, transparent 62%, #000 74%, #000 80%, transparent 90%); /* @kind other */ /* per-layer variable, not a theme token */
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	background: conic-gradient(from 0deg, #7c5fd0 0deg, var(--nova-violet) 92deg, var(--nova-dawn) 130deg, #fbd0bf 147deg, var(--nova-dawn) 164deg, #8a6ce0 225deg, #b6a0fb 315deg, #7c5fd0 360deg);
+	-webkit-mask-image: var(--nova-logo-limb);
+	mask-image: var(--nova-logo-limb);
+	filter: blur(0.045em);
+	opacity: 0.68;
+	transition: opacity var(--duration-slow) var(--ease-default), filter var(--duration-slow) var(--ease-default);
+}
+.nova-logo-dawn {
+	position: absolute;
+	inset: 12%;
+	border-radius: 50%;
+	/* The warm arc: a fixed oversized gradient (stops are the product's
+	   values halved onto a 200% tile); the wave slides it along its axis,
+	   and the rest position matches the product's reach of 34%. */
+	background-image: linear-gradient(147deg, transparent 50%, rgba(245, 176, 165, 0.42) 59%, var(--nova-dawn) 70%, #fbd0bf 84%);
+	background-size: 200% 200%;
+	background-position: 34% 34%;
+	opacity: 0.78;
+	mix-blend-mode: screen;
+}
+.nova-logo-pulse {
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	background: radial-gradient(circle closest-side, transparent 66%, var(--nova-violet-bright) 80%, transparent 93%);
+	filter: blur(0.05em);
+	opacity: 0;
+	mix-blend-mode: screen;
+	transition: opacity var(--duration-default) var(--ease-default);
+}
+/* TWO animations on deliberately unrelated periods (9.36s vs 7.2s
+   realign only every 93.6s), so the wave has no audible loop point. */
+.nova-logo-waving .nova-logo-dawn {
+	animation:
+		nova-logo-dawn-rise calc(var(--duration-breathe) * 3.5) linear infinite,
+		nova-logo-dawn-glow calc(var(--duration-breathe) * 2.3) ease-in-out infinite;
+}
+:where(a, button):hover .nova-logo-rim,
+:where(a, button):focus-visible .nova-logo-rim {
+	opacity: 1;
+	filter: blur(0.025em);
+}
+:where(a, button):hover .nova-logo-waving .nova-logo-pulse,
+:where(a, button):focus-visible .nova-logo-waving .nova-logo-pulse {
+	animation: nova-logo-rim-pulse calc(var(--duration-breathe) * 1.3) ease-in-out infinite;
+}
+/* The light crossing the face: per-keyframe easing is the globe. Near
+   the limb a large advance shows as a sliver; across the middle it
+   covers ground fast, so segments low on the face ease in and segments
+   high on it ease out. The seam is the slowest moment in the cycle. */
+@keyframes nova-logo-dawn-rise {
+	0% { background-position: 20% 20%; animation-timing-function: cubic-bezier(0.5, 0, 0.72, 0.42); }
+	34% { background-position: 38% 38%; animation-timing-function: cubic-bezier(0.32, 0.16, 0.5, 1); }
+	54% { background-position: 52% 52%; animation-timing-function: cubic-bezier(0.48, 0, 0.66, 0.48); }
+	78% { background-position: 35% 35%; animation-timing-function: cubic-bezier(0.34, 0.14, 0.6, 1); }
+	100% { background-position: 20% 20%; }
+}
+/* Two crests of unequal height per cycle: weather, not a metronome. */
+@keyframes nova-logo-dawn-glow {
+	0%, 100% { opacity: 0.52; }
+	29% { opacity: 0.74; }
+	58% { opacity: 0.61; }
+	80% { opacity: 0.82; }
+}
+@keyframes nova-logo-rim-pulse {
+	0%, 100% { opacity: 0; }
+	50% { opacity: 0.5; }
+}
+
+/* Respect the OS reduced-motion preference. Near-zero durations (not
+   `none`) so transition-end events still fire and finish lifecycles. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		scroll-behavior: auto !important;
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		transition-delay: 0ms !important;
+	}
+}

@@ -1,0 +1,198 @@
+/* ============================================================
+   CommCare Nova color tokens
+   "Twilight & first light."
+   The sky is a warm plum dusk, never a cold blue void, and the
+   light in it is Nova: a soft lilac accent with a wash of dawn
+   peach-rose for warmth. In Nova, LIGHT IS ACTION: accent fills are
+   luminous and carry dusk text; there are no white-text fills and
+   no borrowed blues. Violet is the single non-semantic accent;
+   emerald / amber / rose are reserved for state, never decoration.
+   ============================================================ */
+
+:root {
+	/* ---- Surface stack: dusk → lifted ----
+	   All four steps share one warm plum hue; depth comes from
+	   lightness, so the stack feels like evening light, not layers
+	   of machinery. */
+	--nova-void: #171221; /* page background, a soft plum dusk */
+	--nova-deep: #1d1729; /* quiet wells, sidebars */
+	--nova-surface: #251d34; /* default card surface */
+	--nova-elevated: #2f2543; /* hover + raised floating surfaces */
+	--nova-overlay: rgba(34, 26, 49, 0.97); /* near-opaque floating tier above frosted-glass popovers */
+
+	/* ---- Borders: lilac-tinted hairlines ---- */
+	--nova-border: rgba(150, 120, 242, 0.17); /* default hairline */
+	--nova-border-bright: rgba(150, 120, 242, 0.34); /* hover / focus edge */
+
+	/* ---- Text ---- */
+	--nova-text: #f9f6fd; /* primary copy, warm lavender-white (brightened to keep a full tier above secondary) */
+	--nova-text-secondary: #bdb3d8; /* supporting copy, labels (AA on every surface; sits clearly between text and muted) */
+	--nova-text-muted: #978cb3; /* hints, metadata, still AA on the whole stack */
+
+	/* ---- Brand accent (the only decorative hue) ----
+	   A softened lilac, one step warmer and gentler than the old
+	   electric violet. It is borders, glow, the logo, active state,
+	   violet TEXT/links, and, as --nova-action, the luminous primary
+	   CTA fill. Accent fills carry DUSK text, never white. */
+	--nova-violet: #9678f2; /* accent fills, borders, active state */
+	--nova-violet-bright: #b6a0fb; /* violet text/links, hover, the "nova" wordmark tone, glow */
+	--nova-violet-hairline: color-mix(in srgb, var(--nova-violet) 35%, transparent); /* the hairline drawn INSIDE a selected row/segment (inset box-shadow), so selecting never changes its size */
+	--nova-violet-hover: color-mix(in oklch, var(--nova-violet), white 10%); /* solid-fill hover step: more light, hue held */
+	--nova-violet-wash: rgba(150, 120, 242, 0.07); /* faint decorative violet fill */
+
+	/* ---- Dawn (decorative warmth, Nova's second light) ----
+	   The warm peach-rose of first light, used ONLY as light: the
+	   logomark’s crescent, the low warm bloom on hero surfaces,
+	   rare moments of quiet celebration. Never a border, never a
+	   control fill, never semantic. Deliberately apart from orchid
+	   (cooler, code + presence) and the error rose (deeper). As a
+	   text-carrying fill it takes DUSK text (--nova-void, 10.9:1). */
+	--nova-dawn: #f5b0a5;
+	--nova-dawn-wash: rgba(245, 176, 165, 0.07);
+
+	/* ---- Primary action / CTA fill (luminous) ----
+	   In Nova, light is action: the primary button is the brightest
+	   thing on the page: the lilac itself, lit, carrying DUSK text
+	   (--nova-action-ink, 8.2:1). There is no separate "blue'd" button
+	   hue anywhere in the system. Hover BRIGHTENS one perceptual step;
+	   in Nova, light is action, so hover is more light, never less. The
+	   oklch mix holds the hue so nothing washes out, and dusk text gains
+	   contrast as the fill lifts. */
+	--nova-action: var(--nova-violet-bright); /* primary CTA fill: luminous lilac */
+	--nova-action-ink: var(--nova-void); /* the text on any accent fill */
+	--nova-action-hover: color-mix(in oklch, var(--nova-violet-bright), white 10%); /* CTA hover: lifted, not dimmed */
+
+	/* ---- Keycap buttons (crown gradients + walls) ----
+	   Buttons are soft KEYCAPS: a crown gradient lit from above, a
+	   darker side wall below (drawn as a `0 3px 0` shadow, --key-wall
+	   tall), and real travel on press: the cap sinks as the wall
+	   collapses. The rest→hover crown pair brightens one perceptual
+	   step: light is action. Ghost/link stay text-only (no crown, no
+	   wall) so keycaps gain contrast against them. */
+	/* Every stop is a color-mix in the SAME space on purpose, including the
+	   ones that resolve to the base colour (white/black 0%): a gradient only
+	   interpolates when its stops are pairwise interpolable, and one bare hex
+	   stop against a color-mix neighbor makes the whole fill un-tweenable. */
+	--nova-key-action: linear-gradient(180deg, color-mix(in oklch, var(--nova-action), white 14%), color-mix(in oklch, var(--nova-action), white 0%) 58%, color-mix(in oklch, var(--nova-action), black 9%));
+	--nova-key-action-hover: linear-gradient(180deg, color-mix(in oklch, var(--nova-action), white 24%), color-mix(in oklch, var(--nova-action), white 10%) 58%, color-mix(in oklch, var(--nova-action), black 0%));
+	--nova-wall-action: color-mix(in oklch, var(--nova-action), black 45%);
+	--nova-key-surface: linear-gradient(180deg, #342a48, #251d34);
+	--nova-key-surface-hover: linear-gradient(180deg, #3b3052, #2c2340);
+	--nova-wall-surface: #0b0813;
+	--nova-key-violet-wash: linear-gradient(180deg, rgba(178, 152, 255, 0.2), rgba(150, 120, 242, 0.07)); /* @kind color */
+	--nova-key-violet-wash-hover: linear-gradient(180deg, rgba(178, 152, 255, 0.28), rgba(150, 120, 242, 0.13)); /* @kind color */
+	--nova-wall-violet: rgba(150, 120, 242, 0.3);
+	--nova-key-rose: linear-gradient(180deg, rgba(212, 112, 143, 0.3), rgba(212, 112, 143, 0.16)); /* @kind color */
+	--nova-key-rose-hover: linear-gradient(180deg, rgba(212, 112, 143, 0.38), rgba(212, 112, 143, 0.24)); /* @kind color */
+	--nova-wall-rose: color-mix(in srgb, var(--nova-rose) 30%, #0b0813);
+	--nova-key-amber: linear-gradient(180deg, color-mix(in oklch, var(--nova-amber), white 14%), color-mix(in oklch, var(--nova-amber), white 0%) 58%, color-mix(in oklch, var(--nova-amber), black 9%));
+	--nova-key-amber-hover: linear-gradient(180deg, color-mix(in oklch, var(--nova-amber), white 24%), color-mix(in oklch, var(--nova-amber), white 10%) 58%, color-mix(in oklch, var(--nova-amber), black 0%));
+	--nova-wall-amber: color-mix(in oklch, var(--nova-amber), black 45%);
+
+	/* ---- Semantic state hues (soft, low-saturation) ---- */
+	--nova-emerald: #86cebc; /* success / complete */
+	--nova-amber: #eaa06a; /* warning / recovering; apricot sunset caution, dusk text */
+	--nova-amber-hover: color-mix(in oklch, var(--nova-amber), white 10%); /* warning-fill hover: lifted, dusk text gains contrast */
+	--nova-rose: #d4708f; /* error / destructive */
+	--nova-rose-hover: color-mix(in oklch, var(--nova-rose), white 10%); /* destructive-text hover: lifted, never dimmed */
+	--nova-orchid: #cda0d4; /* code strings · peer presence; NOT an accent (the accent family is lilac + dawn) */
+
+	/* ---- Preview canvas (the user's app inside the builder) ----
+	   The center canvas runs its own slightly-lifted surface family so
+	   the authored app reads as distinct from Nova chrome. In design
+	   (edit) mode input borders go NEUTRAL so the violet edit chrome
+	   (selection rings, insertion points) stands out. */
+	--pv-bg: #1b1428; /* canvas background */
+	--pv-surface: #241b36; /* group headers, canvas cards */
+	--pv-elevated: #2d2244; /* raised canvas surfaces */
+	--pv-input-bg: #201830; /* form control fill */
+	--pv-input-border: rgba(150, 120, 242, 0.22); /* preview-mode control border */
+	--pv-input-focus: rgba(150, 120, 242, 0.42); /* preview-mode focus border */
+	--pv-input-border-design: rgba(151, 140, 179, 0.15); /* edit-mode neutral control border */
+	--pv-accent: var(--nova-violet-bright); /* the app's own accent: lit, carries dusk ink like every Nova fill */
+	--pv-accent-bright: var(--nova-violet-bright);
+
+	/* ---- Peer-presence hues (decorative, non-semantic) ----
+	   Drawn from the XPath editor's syntax family so collaborative-
+	   presence colors never borrow the semantic success/warning/error
+	   hues. All light enough to carry dark text (--nova-void) at AA.
+	   Orchid doubles as one. */
+	--nova-periwinkle: #928fd6;
+	--nova-iris: #7e79b9;
+	--nova-lavender: #dfdeed;
+
+	/* ---- Code / XPath syntax palette ("lavender milk bath") ----
+	   From the product's CodeMirror theme (lib/codemirror/xpath-theme.ts).
+	   All syntax colors live in the purple/lavender/orchid family;
+	   differentiation comes from lightness and warmth shifts, not
+	   clashing hues. Peer-presence hues above are drawn from this family. */
+	--nova-code-fg: #bebcdc; /* base code color */
+	--nova-code-ref: #b6b2e6; /* hashtag refs (#form/field): periwinkle toward brand violet */
+	--nova-code-var: #928fd6; /* $variables: cool periwinkle */
+	--nova-code-name: #dfdeed; /* path segment names: brightest, the "nouns" */
+	--nova-code-fn: #a08ae0; /* functions: anchored toward violet-bright */
+	--nova-code-string: #cda0d4; /* strings: warm orchid */
+	--nova-code-number: #d9b8e0; /* numbers: lighter orchid */
+	--nova-code-keyword: #a797ce; /* keywords (and, or, div, mod): warm purple */
+	--nova-code-op: #7e79b9; /* operators: subdued structural */
+	--nova-code-paren: #9e9bca; /* parens: soft structural */
+	--nova-code-bracket: #8974be; /* [ ]: medium purple */
+	--nova-code-sep: #5d58a7; /* path separators, ::, @: dim structural */
+
+	/* ---- Glow: light is Nova's substitute for elevation ---- */
+	--nova-glow-violet: 0 0 40px rgba(150, 120, 242, 0.16);
+	--nova-glow-violet-strong: 0 0 64px rgba(150, 120, 242, 0.26);
+	--nova-glow-dawn: 0 0 48px rgba(245, 176, 165, 0.12); /* rare, warm; hero moments only */
+
+	/* ---- Floating surfaces (two tiers) ----
+	   L1 frosted glass for primary floating panels (menus, popovers);
+	   L2 is --nova-overlay above: near-opaque, stacks over glass
+	   (glass-on-glass loses its blur). Pair with the --shadow-glass /
+	   --shadow-overlay-float rim-light shadows in spacing.css. */
+	--nova-glass: rgba(23, 18, 33, 0.42); /* + backdrop-filter: blur(10px) */
+	--nova-glass-border: rgba(255, 255, 255, 0.07);
+
+	/* ---- Focus ring ---- */
+	/* Keyboard focus = violet-bright border + a soft 3px ring. */
+	--nova-ring: var(--nova-violet-bright);
+
+	/* ---- Z-index layers: single source of truth for stacking ---- */
+	--z-ground: 10; /* @kind other */ /* inline interactive elements */
+	--z-raised: 20; /* @kind other */ /* slightly elevated UI */
+	--z-popover: 50; /* @kind other */ /* floating menus, pickers, popovers */
+	--z-popover-top: 60; /* @kind other */ /* popovers above other popovers */
+	--z-modal: 100; /* @kind other */ /* modal backdrops and dialogs */
+	--z-tooltip: 110; /* @kind other */ /* above popovers AND modals */
+	--z-system: 9999; /* @kind other */ /* system overlays: noise texture */
+
+	/* ---- Semantic aliases (consume these, not raw values) ---- */
+	--bg-page: var(--nova-void);
+	--bg-recessed: var(--nova-deep);
+	--surface-card: var(--nova-surface);
+	--surface-raised: var(--nova-elevated);
+
+	--text-body: var(--nova-text);
+	--text-muted: var(--nova-text-secondary);
+	--text-faint: var(--nova-text-muted);
+
+	--accent: var(--nova-violet);
+	--accent-hover: var(--nova-violet-bright);
+
+	--action: var(--nova-action);
+	--action-hover: var(--nova-action-hover);
+
+	--border-default: var(--nova-border);
+	--border-strong: var(--nova-border-bright);
+
+	--state-success: var(--nova-emerald);
+	--state-warning: var(--nova-amber);
+	--state-error: var(--nova-rose);
+
+	/* ---- Selection ---- */
+	--nova-selection: rgba(150, 120, 242, 0.32);
+}
+
+::selection {
+	background: var(--nova-selection);
+	color: #fff;
+}

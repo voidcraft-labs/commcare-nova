@@ -1,0 +1,11 @@
+/* ============================================================
+   CommCare Nova design system: the global entry point.
+   Consumers link THIS file. It is a manifest of @imports only;
+   every token + font reachable from here ships to consumers.
+   ============================================================ */
+
+@import "./tokens/fonts.css";
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+@import "./tokens/base.css";
