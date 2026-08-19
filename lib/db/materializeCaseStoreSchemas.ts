@@ -93,7 +93,7 @@
  */
 
 import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
-import type { PersistableDoc } from "@/lib/domain";
+import { type PersistableDoc, USERCASE_CASE_TYPE } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { isTransientDbError, withTransientRetry } from "./schemaSyncRetry";
 
@@ -157,10 +157,13 @@ export async function materializeCaseStoreSchemas(
 ): Promise<void> {
 	const store = await withSchemaContext();
 	await store.drainPendingIndexConvergence({ appId: args.appId });
-	const caseTypes = args.blueprint.caseTypes;
-	if (caseTypes === null || caseTypes.length === 0) {
-		return;
-	}
+	// Every app gets the worker's own case, INCLUDING a survey-only one. HQ
+	// gives every worker a usercase whatever the app collects, `#user/<prop>`
+	// reads it through a `casedb` join rather than a projection, and a persona
+	// exists on apps with no case types at all. Materializing it
+	// unconditionally is also what lets the read path stay branch-free: there
+	// is no "has this app got a usercase schema yet" question to get wrong.
+	const caseTypes = args.blueprint.caseTypes ?? [];
 
 	// `withSchemaContext` returns an actor-free `SchemaCaseStore`:
 	// `applySchemaChange` is app-scoped (it syncs the schema row + the
@@ -183,7 +186,7 @@ export async function materializeCaseStoreSchemas(
 	// goes through directly — no cast to the in-memory `BlueprintDoc`
 	// shape.
 	const caseTypeSchemas = buildCaseTypeMap(args.blueprint);
-	for (const caseType of caseTypes) {
+	for (const caseType of [...caseTypes, { name: USERCASE_CASE_TYPE }]) {
 		try {
 			const report = await withTransientRetry(() =>
 				store.applySchemaChange({

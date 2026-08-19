@@ -35,7 +35,10 @@
 // Nova owns this case type; nothing may author a create or close of it
 // (`RESERVED_CASE_OPERATION_TYPES` in `./forms`).
 
+import type { CaseType } from "./blueprint";
+import { proseText } from "./prose";
 import { recordFromEntries } from "./records";
+import { isStandardCaseListProperty } from "./standardCaseProperties";
 import type { UserCollections } from "./users";
 import { userPropertiesOf } from "./users";
 
@@ -149,4 +152,45 @@ export function usercaseValuesBySlug(
 		if (property !== undefined) entries.push([property.slug, value]);
 	}
 	return recordFromEntries(entries);
+}
+
+/**
+ * The `commcare-user` case type, derived rather than declared.
+ *
+ * The worker-property catalog is what an author edits; this is the case type
+ * that catalog implies, and it is the schema the case store materializes so a
+ * usercase row can be stored and read like any other. Deriving it is what
+ * keeps the two from drifting: there is no second place to add a property.
+ *
+ * It is deliberately NOT in `effectiveCaseTypes`. That view is the authoring
+ * catalog — what a module can list, a form can create, a picker can offer —
+ * and the usercase is none of those. Nova owns it, HQ creates the row, and no
+ * author may open or close one. It joins the catalog only at the STORAGE
+ * boundary (`buildCaseTypeMap`), which is exactly the set of callers that
+ * need to resolve a `commcare-user` property's type to read or write a row.
+ *
+ * `case_name` is absent for the same reason it is absent from HQ's
+ * `get_usercase_properties`: the worker's name is the case's own name column,
+ * not a property beside it. Every remaining value is text, because HQ stores
+ * all user data as strings (`users/user_data.py`) and worker properties carry
+ * no authored data type.
+ */
+export function usercaseCaseType(doc: UserCollections): CaseType {
+	const builtIns = Object.keys(
+		usercaseBuiltInValues(
+			{ id: "", username: "", personName: "", email: "" },
+			null,
+		),
+	).filter((name) => !isStandardCaseListProperty(name));
+	const declared = Object.values(userPropertiesOf(doc));
+	const labelBySlug = new Map(declared.map((p) => [p.slug, p.label]));
+	const names = [...builtIns, ...declared.map((property) => property.slug)];
+	return {
+		name: USERCASE_CASE_TYPE,
+		properties: [...new Set(names)].map((name) => ({
+			name,
+			label: proseText(labelBySlug.get(name) ?? name),
+			data_type: "text" as const,
+		})),
+	};
 }
