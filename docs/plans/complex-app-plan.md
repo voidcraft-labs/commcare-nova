@@ -149,8 +149,15 @@ wire compiler lowers those identities to a fixed location id or the exact
 flat-fixture lineage lookup. Location terms occupy the entire owner rule, so
 they cannot become a subtly wrong arithmetic, name, or nested expression.
 
-The `locations` fixture those lookups read is emitted
-(`lib/commcare/locations/fixture.ts`), matching
+**A device's `locations` fixture is HQ's to deliver, not Nova's.**
+`FlatLocationSerializer` runs on RESTORE, from the domain's own `SQLLocation`
+rows, so nothing Nova exports carries it and nothing Nova could export would:
+a `.ccz` is an app, and this fixture is per worker. Nova emits it anyway, as a
+TEST ASSET (`lib/commcare/locations/__tests__/flatLocationsFixture.ts`), for one
+reason — the lowering has to be provable against the exact bytes a device reads,
+and a shape nobody can execute is a shape nobody can check. It is the wire's
+specimen, not a delivery path, and it lives beside the test that reads it so
+nobody mistakes it for one. It matches
 `locations/fixtures.py::FlatLocationSerializer.get_xml_nodes` node for node: the
 sorted app-wide index schema, places ordered by `site_code`, one `{code}_id`
 attribute per level present-and-empty except for the place itself and each
@@ -177,8 +184,9 @@ arbitrarily, so comparing them would test two coin flips.
 **Export stays closed, and now for exactly one reason.** A `fixed-location`
 owner emits a Nova place UUID as a literal `owner_id` and a reverse hop joins on
 HQ `location_id` values; neither names anything on a target domain until push
-and provisioning ships the HQ identity map. The device-side location data that
-used to be the other half of the refusal is shipped.
+and provisioning ships the HQ identity map. The other half of the refusal was
+never Nova's to ship: once the place tree is pushed, HQ builds each worker's
+fixture itself, so the identity map closes both halves at once.
 
 Blueprint commits and place writes share the app-row-first lock order. Each
 commit replaces the exact set of concrete place-reference edges for persona

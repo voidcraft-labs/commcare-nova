@@ -317,6 +317,9 @@ about places.
   resolve against at all. Do not describe an authored owner term as deployable
   until a compile path reads those mappings, and do not re-add the fixture or
   the identity map to the refusal's reasons.
+  `lib/commcare/locations/__tests__/flatLocationsFixture.ts` emits Nova's own
+  copy of that fixture purely so the lowering can be proved against the real
+  bytes; it is a test asset on no delivery path.
 
 Keep pure schema/derivation/plan tests separate from Postgres integration
 tests, and bundle the Postgres-focused ones into one invocation so local and
