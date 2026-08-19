@@ -850,3 +850,46 @@ describe("case-data invalidation", () => {
 		expect(loadCaseCountAction).toHaveBeenCalledTimes(1);
 	});
 });
+
+// ── The provider-free contract, enforced rather than described ──────
+
+/**
+ * A note at the top of a file is not a guard: the next person to hit a
+ * missing-provider throw here can "fix" it by wrapping the suite, and the
+ * proof evaporates with nothing failing.
+ *
+ * These render EXPLICITLY BARE — no wrapper argument at all — so they keep
+ * asserting the contract even if every other test in the file gains one.
+ * A `lib/doc/hooks` read anywhere in `useCaseDataBinding.ts` throws during
+ * render, so "it rendered" is the whole assertion; the idle state is just
+ * how we observe that render happened. The identifiers are left undefined
+ * deliberately: a hook that never becomes ready fires no Server Action, so
+ * these stay synchronous and cannot let a settle escape `act`.
+ */
+describe("the hooks read no document", () => {
+	it("renders useCases with no provider of any kind", () => {
+		const { result } = renderHook(() =>
+			useCases({ appId: undefined, caseType: undefined }),
+		);
+		expect(result.current.state.kind).toBe("idle");
+	});
+
+	it("renders useCaseData with no provider of any kind", () => {
+		const { result } = renderHook(() =>
+			useCaseData({
+				appId: undefined,
+				caseType: undefined,
+				caseId: undefined,
+				ancestorDepth: 0,
+			}),
+		);
+		expect(result.current.state.kind).toBe("idle");
+	});
+
+	it("renders useCaseCount with no provider of any kind", () => {
+		const { result } = renderHook(() =>
+			useCaseCount({ appId: undefined, caseType: undefined }),
+		);
+		expect(result.current.state.kind).toBe("idle");
+	});
+});
