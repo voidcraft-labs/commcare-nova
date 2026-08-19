@@ -36,6 +36,10 @@
 // (`RESERVED_CASE_OPERATION_TYPES` in `./forms`).
 
 import type { CaseType } from "./blueprint";
+import {
+	MAX_CASE_SCALAR_TEXT_LENGTH,
+	prepareCaseScalarTextValue,
+} from "./caseScalarText";
 import { proseText } from "./prose";
 import { mergeOwnRecords, recordFromEntries } from "./records";
 import { isStandardCaseListProperty } from "./standardCaseProperties";
@@ -72,6 +76,32 @@ export function splitWorkerName(name: string): {
 }
 
 /**
+ * The name the worker's case carries.
+ *
+ * HQ's own fallback, verbatim: `_get_user_case_fields` writes
+ * `user.name or user.raw_username`, so a worker with no display name is named
+ * for their login rather than left nameless. Nova needs the fallback for a
+ * second reason it cannot decline — `cases.case_name` is `NOT NULL` and
+ * carries a length check, so a blank name is a failed insert rather than an
+ * ugly one.
+ *
+ * Normalized through the shared scalar-text contract, the same one every other
+ * case write passes through, so a name that arrives with boundary code units
+ * or overlong text is repaired identically here and there. The id is the last
+ * resort: it is never blank, and a case named for its own id is at least
+ * findable.
+ */
+export function usercaseName(worker: UsercaseWorker): string {
+	for (const candidate of [worker.personName, worker.username, worker.id]) {
+		const prepared = prepareCaseScalarTextValue(candidate, "reject");
+		if (prepared.ok) return prepared.value;
+	}
+	// Unreachable through a persisted worker: an id is a uuid, which is
+	// neither blank nor overlong. Truncating beats throwing from a projection.
+	return worker.id.slice(0, MAX_CASE_SCALAR_TEXT_LENGTH);
+}
+
+/**
  * The keys HQ writes on every usercase, whatever the app declared.
  *
  * Present-and-empty is deliberate wherever HQ writes the slot unconditionally
@@ -103,7 +133,7 @@ export function usercaseBuiltInValues(
 ): Record<string, string> {
 	const { first, last } = splitWorkerName(worker.personName);
 	return {
-		case_name: worker.personName,
+		case_name: usercaseName(worker),
 		username: worker.username,
 		email: worker.email,
 		first_name: first,

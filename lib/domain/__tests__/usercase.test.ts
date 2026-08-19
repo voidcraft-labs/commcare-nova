@@ -16,6 +16,7 @@ import {
 	USERCASE_CASE_TYPE,
 	usercaseCaseType,
 	usercaseChangedFields,
+	usercaseName,
 	usercaseRecord,
 	usercaseValuesBySlug,
 } from "@/lib/domain";
@@ -222,5 +223,63 @@ describe("usercaseChangedFields", () => {
 		expect(usercaseChangedFields({ cadre: null }, { cadre: "" })).toEqual({
 			cadre: "",
 		});
+	});
+});
+
+describe("usercaseName", () => {
+	it("uses the worker's display name", () => {
+		expect(
+			usercaseName({
+				id: "p-1",
+				username: "amara",
+				personName: "Amara Diallo",
+				email: "",
+			}),
+		).toBe("Amara Diallo");
+	});
+
+	it("falls back to the login when the display name is blank", () => {
+		// HQ's own fallback, `user.name or user.raw_username`. Nova needs it for
+		// a second reason it cannot decline: `cases.case_name` is NOT NULL, so a
+		// blank name is a failed INSERT rather than an ugly row.
+		expect(
+			usercaseName({
+				id: "p-1",
+				username: "amara",
+				personName: "   ",
+				email: "",
+			}),
+		).toBe("amara");
+	});
+
+	it("falls back to the id when the worker has neither", () => {
+		expect(
+			usercaseName({ id: "p-1", username: "", personName: "", email: "" }),
+		).toBe("p-1");
+	});
+
+	it("normalizes through the same scalar contract every other case write uses", () => {
+		// The contract is Java `String.trim()` — boundary code units U+0000
+		// through U+0020, NOT regex whitespace — because CommCare Core is what
+		// trims the value in the field. A zero-width space (U+200B) is
+		// deliberately NOT stripped, here or on an authored case name; the
+		// worker's case must not be the one row in the store that normalizes
+		// differently from the rest.
+		expect(
+			usercaseName({
+				id: "p-1",
+				username: "amara",
+				personName: "\u0001Amara\u0002",
+				email: "",
+			}),
+		).toBe("Amara");
+		expect(
+			usercaseName({
+				id: "p-1",
+				username: "amara",
+				personName: "\u200bAmara",
+				email: "",
+			}),
+		).toBe("\u200bAmara");
 	});
 });
