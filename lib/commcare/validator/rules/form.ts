@@ -153,6 +153,48 @@ function caseWriteAdmission(
 			);
 			continue;
 		}
+		if (
+			issue.kind === "usercase-property-undeclared" ||
+			issue.kind === "usercase-property-managed"
+		) {
+			const { writer } = issue;
+			const undeclared = issue.kind === "usercase-property-undeclared";
+			errors.push(
+				validationError(
+					undeclared
+						? "USERCASE_WRITE_UNDECLARED_PROPERTY"
+						: "USERCASE_WRITE_MANAGED_PROPERTY",
+					"form",
+					undeclared
+						? `"${ctx.formName}" saves field "${writer.fieldId}" to "${writer.property}" on the worker's own record, but no worker detail by that name exists. Add it under Worker information in App setup, or point the field at one that is already there.`
+						: `"${ctx.formName}" saves field "${writer.fieldId}" to "${writer.property}" on the worker's own record. Nova keeps that one in step with the worker's profile, so an answer saved there is replaced the next time that worker changes. Save to a worker detail you added under Worker information instead.`,
+					{
+						...baseLocation(ctx),
+						fieldUuid: writer.fieldUuid,
+						fieldId: writer.fieldId,
+					},
+					{ caseType: writer.caseType, property: writer.property },
+				),
+			);
+			continue;
+		}
+		if (issue.kind === "usercase-writer-in-repeat") {
+			const { writer } = issue;
+			errors.push(
+				validationError(
+					"USERCASE_FIELD_IN_REPEAT",
+					"form",
+					`"${ctx.formName}" has field "${writer.fieldId}" inside repeat "${writer.repeatId}" saving to the worker's own record. One form writes one worker record, so every iteration would compete for the same slot. Move the field out of the repeat.`,
+					{
+						...baseLocation(ctx),
+						fieldUuid: writer.fieldUuid,
+						fieldId: writer.fieldId,
+					},
+					{ property: writer.property, repeatId: writer.repeatId ?? "" },
+				),
+			);
+			continue;
+		}
 		if (issue.kind === "reserved-property") {
 			const { writer } = issue;
 			errors.push(

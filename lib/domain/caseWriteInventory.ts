@@ -14,6 +14,8 @@ import { type Field, isCaptureFieldKind } from "./fields";
 import type { FormType } from "./forms";
 import type { Module } from "./modules";
 import { isWritableStandardCaseProperty } from "./standardCaseProperties";
+import { USERCASE_BUILT_IN_KEYS, USERCASE_CASE_TYPE } from "./usercase";
+import { userPropertiesOf } from "./users";
 import type { Uuid } from "./uuid";
 
 /** One authored field path step, including query-bound repeat iteration. */
@@ -41,7 +43,12 @@ export interface CaseWriteField {
 }
 
 export interface CaseWriteBucket {
-	kind: "primary" | "child";
+	/**
+	 * `usercase` is the worker's OWN record. It is a fixed destination rather
+	 * than a repeated one — one form writes one worker record — so unlike
+	 * `child` it never keys on a repeat.
+	 */
+	kind: "primary" | "child" | "usercase";
 	action: "create" | "update";
 	caseType: string;
 	repeatUuid?: Uuid;
@@ -58,7 +65,11 @@ export interface CaseWriteInventory {
 	noActionWriters: CaseWriteField[];
 	invalidDestinationWriters: Array<{
 		writer: CaseWriteField;
-		reason: "unknown-type" | "not-direct-child";
+		reason:
+			| "unknown-type"
+			| "not-direct-child"
+			| "usercase-property-undeclared"
+			| "usercase-property-managed";
 	}>;
 }
 
@@ -67,6 +78,10 @@ export type CaseWriteInventoryIssue =
 	| { kind: "destination-type-unknown"; writer: CaseWriteField }
 	| { kind: "destination-not-direct-child"; writer: CaseWriteField }
 	| { kind: "capture-standard-property"; writer: CaseWriteField }
+	| { kind: "usercase-property-undeclared"; writer: CaseWriteField }
+	| { kind: "usercase-property-managed"; writer: CaseWriteField }
+	| { kind: "usercase-writer-in-repeat"; writer: CaseWriteField }
+	| { kind: "media-field"; writer: CaseWriteField }
 	| {
 			kind: "primary-writer-in-repeat";
 			writer: CaseWriteField;
@@ -94,7 +109,10 @@ function childBucketKey(
 
 /** Derive every case writer and emitted-action bucket under one form. */
 export function deriveCaseWriteInventory(
-	doc: Pick<BlueprintDoc, "fields" | "fieldOrder" | "caseTypes">,
+	doc: Pick<
+		BlueprintDoc,
+		"fields" | "fieldOrder" | "caseTypes" | "userProperties"
+	>,
 	formUuid: Uuid,
 	module: Pick<Module, "caseType">,
 	formType: FormType,
@@ -143,13 +161,54 @@ export function deriveCaseWriteInventory(
 	};
 	walk(formUuid, [], undefined, undefined, undefined);
 
+	// The worker's own record is split off BEFORE the module's case type is
+	// consulted, because it does not depend on one. HQ's `usercase_update` is a
+	// form action like any other on a module form, so a form with no case type
+	// of its own can still save into the worker's record — and a survey form is
+	// exactly that. Leaving it below the early return would refuse the write on
+	// the one form type where it is often the only write there is.
+	const declaredSlugs = new Set(
+		Object.values(userPropertiesOf(doc)).map((property) => property.slug),
+	);
+	const managedNames = new Set(USERCASE_BUILT_IN_KEYS);
+	const usercase: CaseWriteBucket = {
+		kind: "usercase",
+		action: "update",
+		caseType: USERCASE_CASE_TYPE,
+		writers: [],
+	};
+	const invalidDestinationWriters: CaseWriteInventory["invalidDestinationWriters"] =
+		[];
+	const caseWriters: CaseWriteField[] = [];
+	for (const writer of writers) {
+		if (writer.caseType !== USERCASE_CASE_TYPE) {
+			caseWriters.push(writer);
+			continue;
+		}
+		if (managedNames.has(writer.property)) {
+			invalidDestinationWriters.push({
+				writer,
+				reason: "usercase-property-managed",
+			});
+			continue;
+		}
+		if (!declaredSlugs.has(writer.property)) {
+			invalidDestinationWriters.push({
+				writer,
+				reason: "usercase-property-undeclared",
+			});
+			continue;
+		}
+		usercase.writers.push(writer);
+	}
+
 	const moduleCaseType = module.caseType;
 	if (formType === "survey" || !moduleCaseType) {
 		return {
 			writers,
-			buckets: [],
-			noActionWriters: writers,
-			invalidDestinationWriters: [],
+			buckets: usercase.writers.length > 0 ? [usercase] : [],
+			noActionWriters: caseWriters,
+			invalidDestinationWriters,
 		};
 	}
 
@@ -163,10 +222,8 @@ export function deriveCaseWriteInventory(
 		writers: [],
 	};
 	const childByKey = new Map<string, CaseWriteBucket>();
-	const invalidDestinationWriters: CaseWriteInventory["invalidDestinationWriters"] =
-		[];
 
-	for (const writer of writers) {
+	for (const writer of caseWriters) {
 		if (writer.caseType === moduleCaseType) {
 			primary.writers.push(writer);
 			continue;
@@ -204,7 +261,11 @@ export function deriveCaseWriteInventory(
 
 	return {
 		writers,
-		buckets: [primary, ...childByKey.values()],
+		buckets: [
+			primary,
+			...childByKey.values(),
+			...(usercase.writers.length > 0 ? [usercase] : []),
+		],
 		noActionWriters: [],
 		invalidDestinationWriters,
 	};
@@ -240,7 +301,9 @@ export function caseWriteInventoryIssues(
 			kind:
 				reason === "unknown-type"
 					? "destination-type-unknown"
-					: "destination-not-direct-child",
+					: reason === "not-direct-child"
+						? "destination-not-direct-child"
+						: reason,
 			writer,
 		});
 	}
@@ -252,6 +315,13 @@ export function caseWriteInventoryIssues(
 					writer,
 					bucket,
 				});
+			}
+			// One form writes ONE worker record. A repeat would ask which
+			// iteration's answer the worker's record should end up holding,
+			// and there is no answer — the block binds to a single
+			// `usercase_id` datum, so the last iteration would silently win.
+			if (bucket.kind === "usercase" && writer.repeatUuid !== undefined) {
+				issues.push({ kind: "usercase-writer-in-repeat", writer });
 			}
 			// A capture's answer is a server-minted file name, and in URL
 			// mode the property carries an address built from it. Neither is

@@ -113,6 +113,29 @@ export function buildFormActions(
 	);
 	const projectedInventory = assertAndProjectCaseWriteInventory(inventory);
 
+	// The worker's own record is filled in BEFORE the case-type early return,
+	// because it does not depend on one. `usercase_update` is a form action on
+	// any module form in HQ, and a survey form is a module form with no case
+	// type of its own — often the only place a worker-record write makes sense.
+	//
+	// `usercase_preload` stays at `neverCondition()`, and that is a decision
+	// rather than an omission: Nova already reads worker data through the
+	// `#user/` hashtag, which compiles to the very same `casedb` join
+	// (`lib/commcare/hashtags.ts`). A preload action would be a second
+	// representation of one read, and the two could disagree.
+	const usercaseBucket = projectedInventory.buckets.find(
+		(projected) => projected.bucket.kind === "usercase",
+	);
+	if (usercaseBucket !== undefined) {
+		for (const { writer, path } of usercaseBucket.writers) {
+			base.usercase_update.update[writer.property] = {
+				question_path: path.toXPath(),
+				update_mode: "always",
+			};
+		}
+		base.usercase_update.condition = alwaysCondition();
+	}
+
 	if (form.type === "survey" || !moduleCaseType) {
 		return base;
 	}

@@ -10,6 +10,7 @@
  * per-case-type namespaces, which the editor cannot parse.
  */
 import { parser } from "@/lib/commcare/xpath";
+import { USERCASE_CASE_SELECTOR } from "./usercaseWire";
 
 // Pre-resolve node types — zero string comparisons at runtime
 const T = (() => {
@@ -45,8 +46,10 @@ export const VELLUM_HASHTAG_TRANSFORMS = {
 		// The loaded case in HQ's private editor vocabulary, composed from the
 		// same selector primitive as typed case-ref wire projection.
 		"#case/": `${caseById(CURRENT_CASE_ID)}/`,
-		"#user/":
-			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/",
+		// The same selector the suite's `usercase_id` datum and its assertion
+		// are built from, so the hashtag cannot come to mean a different case
+		// than the entry guards.
+		"#user/": `${USERCASE_CASE_SELECTOR}/`,
 	},
 } as const;
 
