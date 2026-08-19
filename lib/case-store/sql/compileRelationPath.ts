@@ -108,6 +108,63 @@ export interface RelationPathCompileContext {
 	anchorAlias: string;
 	/** Relation-walk nesting depth — see file header for the alias-isolation rationale. */
 	relationPathDepth?: number;
+	/**
+	 * Restrict every walked `cases` row to one worker's restore
+	 * (`compileRestoreScope.ts`'s `RestoreScopeQuery.restrict`). Absent means
+	 * the whole tenant, matching `QueryArgs.restoreScope` — authoring surfaces
+	 * and the automation sweep walk everything.
+	 *
+	 * Scoping ONLY the outer scan would leave the running preview faithful at
+	 * the top level and wrong one hop down, which is worse than either extreme
+	 * because nothing on screen shows it: "households with at least one open
+	 * member" would count members the worker's device does not hold, and the
+	 * list would then show a household the device would have filtered out.
+	 */
+	restrictToRestoreScope?: <QB>(qb: QB, casesAlias: string) => QB;
+}
+
+/**
+ * Everything a relation walk needs, as carried by the richer compile contexts
+ * (`TermCompileContext` and the predicate / expression contexts built on it).
+ */
+export interface RelationPathContextSource {
+	readonly db: Kysely<Database>;
+	readonly appId: string;
+	readonly projectId: string;
+	readonly anchorAlias: string;
+	readonly relationPathDepth?: number;
+	readonly restrictToRestoreScope?: <QB>(qb: QB, casesAlias: string) => QB;
+}
+
+/**
+ * Project a compile context down to a `RelationPathCompileContext`.
+ *
+ * **The one place the field list lives.** Three call sites used to enumerate
+ * these by hand, and adding the restore scope to the walk silently missed two
+ * of them — the outer list was correctly restricted while a `count(subcase)`
+ * beside it still counted cases the worker's device does not hold. That is the
+ * worst shape a bug can take here, because both halves look right alone.
+ * Anything added to the walk's context is now carried by every caller by
+ * construction.
+ */
+export function relationPathContextFrom(
+	source: RelationPathContextSource,
+	overrides?: {
+		readonly anchorAlias?: string;
+		readonly relationPathDepth?: number;
+	},
+): RelationPathCompileContext {
+	return {
+		db: source.db,
+		appId: source.appId,
+		projectId: source.projectId,
+		anchorAlias: overrides?.anchorAlias ?? source.anchorAlias,
+		relationPathDepth:
+			overrides?.relationPathDepth ?? source.relationPathDepth ?? 0,
+		...(source.restrictToRestoreScope === undefined
+			? {}
+			: { restrictToRestoreScope: source.restrictToRestoreScope }),
+	};
 }
 
 /**
@@ -198,21 +255,35 @@ export function compileRelationPath(
 // construction.
 
 /**
- * JOIN-side HOLD filter — the relation-walk twin of the outer scan's
- * `QueryArgs.includeHeld` exclusion in `PostgresCaseStore`. A case
- * with an active (undismissed) kept value must be invisible to
- * relation predicates, count-of-related projections, and calculated
- * columns exactly as it is to the list beside them — otherwise a
- * "3 visits" count disagrees with the 2-row child list the worker
- * can open. Unconditional here: the two opt-in readers (the review's
- * View case dialog, the builder's population count) never compile
- * relation walks. Loosely typed for the same reason the multi-hop
- * loop is — per-iteration alias permutations aren't enumerable — and
- * every call site pairs it with the tenant filter, so a new leaf
- * builder can't forget one without forgetting both.
+ * JOIN-side VISIBILITY filter — the relation-walk twin of the two exclusions
+ * the outer scan applies in `PostgresCaseStore.query`.
+ *
+ * **The HOLD.** A case with an active (undismissed) kept value must be
+ * invisible to relation predicates, count-of-related projections, and
+ * calculated columns exactly as it is to the list beside them — otherwise a
+ * "3 visits" count disagrees with the 2-row child list the worker can open.
+ * Unconditional here: the two opt-in readers (the review's View case dialog,
+ * the builder's population count) never compile relation walks.
+ *
+ * **The RESTORE SCOPE**, when the context binds one. Conditional, because
+ * authoring surfaces legitimately walk the whole tenant.
+ *
+ * The two ride in one helper on purpose. They are different questions with
+ * the same failure mode — a leaf builder that applies one and forgets the
+ * other produces a count that disagrees with its own list — and pairing them
+ * here is what makes forgetting one impossible rather than merely unlikely.
+ * Every call site also pairs this with the tenant filter, so a new leaf
+ * builder cannot forget any of the three without forgetting all of them.
+ *
+ * Loosely typed for the same reason the multi-hop loop is: per-iteration
+ * alias permutations aren't enumerable.
  */
-function whereNotHeld<QB>(qb: QB, casesAlias: string): QB {
-	return (
+function whereVisible<QB>(
+	ctx: RelationPathCompileContext,
+	qb: QB,
+	casesAlias: string,
+): QB {
+	const notHeld = (
 		qb as {
 			where: (
 				cb: (eb: {
@@ -242,6 +313,9 @@ function whereNotHeld<QB>(qb: QB, casesAlias: string): QB {
 			),
 		),
 	);
+	return ctx.restrictToRestoreScope === undefined
+		? notHeld
+		: ctx.restrictToRestoreScope(notHeld, casesAlias);
 }
 
 /**
@@ -275,7 +349,8 @@ function buildAncestorLeaf(args: {
 		.where("ci0.depth", "=", 1)
 		.where("cs0.app_id", "=", ctx.appId);
 
-	const firstHopWithProject = whereNotHeld(
+	const firstHopWithProject = whereVisible(
+		ctx,
 		firstHop.where("cs0.project_id", "=", ctx.projectId),
 		"cs0",
 	);
@@ -331,7 +406,11 @@ function buildAncestorLeaf(args: {
 			.where(`${ci}.identifier`, "=", step.identifier)
 			.where(`${ci}.depth`, "=", 1)
 			.where(`${cs}.app_id`, "=", ctx.appId);
-		qb = whereNotHeld(qb.where(`${cs}.project_id`, "=", ctx.projectId), cs);
+		qb = whereVisible(
+			ctx,
+			qb.where(`${cs}.project_id`, "=", ctx.projectId),
+			cs,
+		);
 		if (step.throughCaseType !== undefined) {
 			qb = qb.where(`${cs}.case_type`, "=", step.throughCaseType);
 		}
@@ -380,7 +459,8 @@ function buildSubcaseLeaf(args: {
 		.where("ci0.depth", "=", 1)
 		.where("cs0.app_id", "=", ctx.appId);
 
-	const withProject = whereNotHeld(
+	const withProject = whereVisible(
+		ctx,
 		base.where("cs0.project_id", "=", ctx.projectId),
 		"cs0",
 	);
@@ -434,7 +514,8 @@ function buildAnyRelationLeaf(args: {
 		.where("ci0.identifier", "=", identifier)
 		.where("ci0.depth", "=", 1)
 		.where("cs0.app_id", "=", ctx.appId);
-	const ancestorWithProject = whereNotHeld(
+	const ancestorWithProject = whereVisible(
+		ctx,
 		ancestorBase.where("cs0.project_id", "=", ctx.projectId),
 		"cs0",
 	);
@@ -466,7 +547,8 @@ function buildAnyRelationLeaf(args: {
 		.where("ci0.identifier", "=", identifier)
 		.where("ci0.depth", "=", 1)
 		.where("cs0.app_id", "=", ctx.appId);
-	const subcaseWithProject = whereNotHeld(
+	const subcaseWithProject = whereVisible(
+		ctx,
 		subcaseBase.where("cs0.project_id", "=", ctx.projectId),
 		"cs0",
 	);

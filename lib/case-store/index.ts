@@ -89,6 +89,7 @@ export type {
 	PreparedSchemaChangePhaseB,
 	QueryArgs,
 	ResetSampleDataArgs,
+	RestoreScope,
 	SchemaCaseStore,
 	SchemaChangeKind,
 	SortKey,

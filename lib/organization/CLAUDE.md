@@ -243,6 +243,42 @@ a memory of an older one.
 - A level may change only while the place is a **leaf**, which is HQ's rule
   (`util.py::get_location_type`) enforced in the store rather than the form.
 
+## Owner sets and the footprint are the SAME rules, enumerated
+
+Two derivations turn the authored organization into things other packages
+consume. Both deliberately walk a predicate that already exists rather than
+restating its arms, because two encodings of one rule drift and the one that
+drifts is the one nobody reads.
+
+- `ownerSets.ts::personaOwnerIds` is `CouchUser.get_owner_ids`: the worker's
+  own id plus one id per case-sharing group. Nova has no classic groups, so
+  every other member is a place — HQ turns each case-owning location a user
+  reaches into a group whose `_id` IS the `location_id`
+  (`SQLLocation.case_sharing_group_object`), which is why place ids drop
+  straight into the list rather than being mapped through anything. WHICH
+  places is `assignmentReceivesCasesFrom`, the same predicate the commit gate
+  asks one target at a time.
+- `footprint.ts::personaFootprint` is the enumerating twin of
+  `assignmentFootprintIncludes`, pinned to it by a `fast-check` differential
+  over generated level forests and place trees. That property test is the
+  cheapest strong guard in this package: it fails the moment an arm is added
+  to one side and not the other.
+
+`memberOwnerIds` is the honest answer for previewing as the signed-in member:
+a worker assigned nowhere has no case-sharing group, so the set is exactly
+their own id.
+
+`readOrganizationTopology` is the read those two consume — narrow columns
+under `repeatable read`, returning the revision it read at. The Blueprint and
+the place rows are still read at different instants; the REVISION is what
+closes that, not a longer lock.
+
+These predicates declare `OrganizationCollections`, not `BlueprintDoc`,
+because the organization slice is all they read. The preview resolves a
+worker's owner set from an authorized `PersistableDoc` snapshot, which carries
+no `fieldParent` index and has no reason to build one to answer a question
+about places.
+
 ## Boundaries
 
 - `service.ts` is server-only and owns SQL. It takes an authorized

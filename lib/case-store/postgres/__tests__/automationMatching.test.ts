@@ -213,6 +213,52 @@ async function retainSecondaryExtension(): Promise<void> {
 }
 
 describe("automation criteria SQL", () => {
+	it("sees a case whose status was never written when deciding host ambiguity", async () => {
+		await insertExtensionFixtures();
+		await retainSecondaryExtension();
+		// `cases.status` is nullable with no database default and optional on
+		// insert, so a great many rows carry NULL — and NULL means OPEN
+		// everywhere else a case's lifecycle is read. Written `= 'open'`, this
+		// probe would not see the row at all, and the refusal it exists to
+		// raise would silently not happen: the count would run against a
+		// population whose host resolution is ambiguous and report a number
+		// nobody can trust. A probe whose whole job is to refuse has to fail
+		// closed.
+		await h.pool.query(`UPDATE cases SET status = null WHERE case_id = $1`, [
+			MULTI_EXTENSION_ID,
+		]);
+
+		await expect(
+			store().count({
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: schemas,
+				automationCriteria: {
+					requiresUnambiguousHost: true,
+					operator: "all",
+					dates: [],
+					comparisons: [
+						{
+							property: "marker",
+							value: "present",
+							equal: true,
+							scope: "host",
+						},
+					],
+					regexes: [],
+					blankness: [],
+					closedParents: [],
+					locationOwnerSets: [],
+				},
+			}),
+		).rejects.toEqual(
+			expect.objectContaining<Partial<AutomationHostAmbiguityError>>({
+				name: "AutomationHostAmbiguityError",
+				ambiguousOpenCaseCount: 1,
+			}),
+		);
+	});
+
 	it("counts a host-scoped criterion when every open case has at most one host", async () => {
 		await insertExtensionFixtures();
 

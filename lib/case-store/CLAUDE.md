@@ -217,6 +217,48 @@ location-/group-based access carving. It is never a tenant filter and
 never to be repurposed/dropped. The two axes are orthogonal:
 `project_id` (tenant / sharing) × `owner_id` (case ownership).
 
+### Restore scope — ownership seeds a fixpoint, it does not filter
+
+`QueryArgs.restoreScope` narrows a read to what one worker's device would
+actually hold. It is NOT `owner_id IN (…)` and cannot be written as one:
+CommCare's restore takes a FIXPOINT over the case-index graph that ownership
+only SEEDS (`casexml/apps/phone/data_providers/case/livequery.py::get_live_case_ids_and_indices`),
+so an owned child pulls in its closed parent, that parent pulls in its own open
+extensions, and a closed HOST kills its extension chain. `sql/compileRestoreScope.ts`
+is the rule, carries the citations, and is pinned against all 45 graphs of HQ's
+own `case_relationship_tests.json` — the oracle is that FILE, not `livequery.py`'s
+module docstring, whose eighth example the pinned fixtures contradict.
+
+Four things about it that are load-bearing:
+
+- **Absent means the whole tenant, and that is a contract rather than a
+  default.** Authoring surfaces — the case workspace, sample data, the rename
+  preflight, the automation sweep — read the tenant because none of them is
+  standing at a device. Only the RUNNING preview passes a scope. `loadCaseDataAction`
+  serves both, which is why it takes an explicit `deviceScoped` argument
+  instead of deriving one.
+- **Relation walks carry it too.** `whereVisible` applies the hold and the
+  restore together at every walked `cases` row, and `relationPathContextFrom`
+  is the ONE place the walk's context field list lives. Scoping only the outer
+  scan leaves a list faithful at the top level and wrong one hop down, where
+  nothing on screen reveals it.
+- **The CTEs attach to the OUTERMOST statement only.** A Kysely creator carries
+  its `WITH` clause into every query built from it, so handing the CTE-bearing
+  creator to the compile context gives each leaf subquery its own copy of the
+  closure. The compile context takes the plain handle.
+- **The hold is an outer filter, never a graph filter.** A held case stays out
+  of the list and still relays liveness, because restore membership is a fact
+  about the device and parking one property value must not drop a whole
+  extension subtree from view.
+
+**Open means "not closed", never `status = 'open'`.** `cases.status` is
+nullable with no database default and optional on insert, so a great many rows
+carry NULL and equality silently erases every one of them. Every lifecycle
+read is `is distinct from 'closed'`. The direction of the mistake decides how
+bad it is: in the automation host-ambiguity probe — which exists to REFUSE a
+count it cannot resolve — the miss failed OPEN, letting the count run on an
+ambiguous population.
+
 **The bound store carries two identities, and they are not
 interchangeable.** `withProjectContext(projectId, actorUserId, ownerId)`
 binds `actorUserId` — the Nova member — as the identity EVERY

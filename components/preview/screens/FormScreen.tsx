@@ -54,6 +54,7 @@ import {
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
+import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
@@ -242,6 +243,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
 	const personaUuid = usePreviewPersonaUuid();
+	// The worker's restore is derived from their assignment and the place tree,
+	// neither of which is an argument to these reads. See `useRestoreScopeKey`.
+	const restoreScopeKey = useRestoreScopeKey(personaUuid);
 	const previewIdentity = useSelectedPreviewIdentity();
 	const session = useBuilderSessionApi();
 	/* A viewer may preview the running app but not WRITE case data (submit a
@@ -294,7 +298,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const autoCases = useCases({
 		appId,
 		caseType: autoSelectCase ? mod?.caseType : undefined,
-		requestScopeKey: `${moduleUuid ?? ""}\u0000${formUuid ?? ""}`,
+		requestScopeKey: `${moduleUuid ?? ""}\u0000${formUuid ?? ""}\u0000${restoreScopeKey}`,
 	});
 	const autoRow =
 		autoSelectCase && autoCases.state.kind === "rows"
@@ -366,6 +370,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		caseType: mod?.caseType,
 		caseId: effectiveCaseId,
 		ancestorDepth: Math.max(0, reachableChain.length - 1),
+		// A case-loading form runs on the worker's device, so it may only
+		// preload from a case that device holds.
+		deviceScoped: true,
+		scopeKey: restoreScopeKey,
 	});
 
 	/* The settled row arm alone: NOT the whole load state, keys the
@@ -1259,6 +1267,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					caseTypes.find((candidate) => candidate.name === mod.caseType)
 						?.properties ?? []
 				}
+				restoreScopeKey={restoreScopeKey}
 			/>
 		) : null;
 

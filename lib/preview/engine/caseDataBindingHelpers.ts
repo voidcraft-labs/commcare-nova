@@ -34,6 +34,7 @@ import type {
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
+	RestoreScope,
 	SubmissionReceiptIdentity,
 	TermBindings,
 } from "@/lib/case-store";
@@ -65,6 +66,7 @@ import {
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import {
+	assignedLocationUuids,
 	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
@@ -117,6 +119,8 @@ import {
 	getLookupFixtureData,
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import { memberOwnerIds, personaOwnerIds } from "@/lib/organization/ownerSets";
+import { readOrganizationTopology } from "@/lib/organization/service";
 import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
 	CaseQueryConstraintSource,
@@ -156,6 +160,49 @@ function isRuntimeCalculatedColumn(
 	column: Column,
 ): column is Extract<Column, { kind: "calculated" }> {
 	return column.kind === "calculated" && caseListColumnIsEmitted(column);
+}
+
+/**
+ * The half of a case read that every reader in this file builds identically:
+ * which tenant and case type, the schemas the compiler casts against, the
+ * runtime bindings, the lookup definitions, the predicate, and the restore.
+ *
+ * It exists because that field list kept being retyped. Each reader built its
+ * own object literal, so an OPTIONAL field added to one was silently absent
+ * from the others, and the type system had nothing to say — an absent optional
+ * field is a valid object. That is not hypothetical: the restore scope itself,
+ * and then the count behind the restore's reveal, were each added to the flat
+ * reader and each silently skipped the grouped one. The grouped list kept
+ * rendering, looked right, and disagreed with the ungrouped list beside it.
+ *
+ * A reader's job is now to say what is DIFFERENT about its read — how the rows
+ * are ordered, windowed, grouped, or deliberately unrestricted — and nothing
+ * else. A field added here reaches every reader at once.
+ *
+ * `restoreScope` rides along rather than being passed separately, so an
+ * authoring surface is restore-free because its own arguments carry no
+ * restore, not because its call site remembered to leave it out.
+ */
+function caseReadCore(
+	args: {
+		readonly appId: string;
+		readonly caseType: string;
+		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
+		readonly bindings?: TermBindings;
+		readonly lookupTableSchemas?: LookupTableSchemas;
+		readonly restoreScope?: RestoreScope;
+	},
+	predicate: Predicate | undefined,
+) {
+	return {
+		appId: args.appId,
+		caseType: args.caseType,
+		caseTypeSchemas: args.caseTypeSchemas,
+		bindings: args.bindings,
+		lookupTableSchemas: args.lookupTableSchemas,
+		predicate,
+		restoreScope: args.restoreScope,
+	};
 }
 
 /**
@@ -214,6 +261,12 @@ export async function readCases(
 		excludedOwnerIds?: readonly string[];
 		authoredExcludedOwnerIds?: readonly string[];
 		page?: { offset: number; limit: number };
+		/**
+		 * Read as this worker's device would. Passed by the RUNNING preview and
+		 * by nothing else — the case workspace and the sample-data surfaces read
+		 * the tenant, because neither is standing at a device.
+		 */
+		restoreScope?: RestoreScope;
 	},
 ): Promise<LoadCasesResult> {
 	const composedQuery = composeQueryPredicate(
@@ -231,17 +284,29 @@ export async function readCases(
 	// even when the module's tile is grouped.
 	const grouping =
 		page === undefined ? undefined : args.caseListConfig?.tile?.grouping;
+	// ⚠️ This is an EARLY EXIT, not a stage. Everything below it — the count,
+	// the stale-page reclamp, the empty-state cause — belongs to the flat path
+	// only, and `readGroupedCases` repeats whatever it needs. Two things have
+	// already been added below and silently skipped the grouped path (the
+	// restore scope itself, and the count behind its reveal), and the failure
+	// mode is the bad kind: the grouped list looks right and quietly disagrees
+	// with the ungrouped list beside it.
+	//
+	// `caseReadCore` closes that hole for what the two readers ASK the store.
+	// What they do with the answer is still two tails, so adding to the tail
+	// below means checking whether the grouped reader needs it too.
 	if (grouping !== undefined && page !== undefined) {
 		return readGroupedCases(store, args, composedQuery, page, grouping);
 	}
-	const countArgs = {
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
-		predicate: composedQuery.predicate,
-	};
+	const countArgs = caseReadCore(args, composedQuery.predicate);
+	// One guard for all three exits: the reveal belongs to a BOUNDED running
+	// list. The unpaged caller is the form's auto-selection candidate read,
+	// which draws nothing and would pay for a whole-tenant count to fill a
+	// field no one reads.
+	const outsideRestoreCount = (restricted: number) =>
+		page === undefined
+			? undefined
+			: casesOutsideRestore(store, args, composedQuery, restricted);
 	let totalCount =
 		page === undefined ? undefined : await store.count(countArgs);
 	if (page !== undefined && totalCount === 0) {
@@ -249,10 +314,12 @@ export async function readCases(
 			composedQuery.constraintSource === "worker-search"
 				? await countAuthoredCasePopulation(store, args)
 				: undefined;
+		const outside = await outsideRestoreCount(0);
 		return {
 			kind: "empty",
 			constraintSource: composedQuery.constraintSource,
 			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+			...(outside !== undefined && { outsideRestoreCount: outside }),
 		};
 	}
 	let pageOffset =
@@ -264,12 +331,7 @@ export async function readCases(
 				);
 	const queryAtOffset = (offset: number) =>
 		store.query({
-			appId: args.appId,
-			caseType: args.caseType,
-			caseTypeSchemas: args.caseTypeSchemas,
-			bindings: args.bindings,
-			lookupTableSchemas: args.lookupTableSchemas,
-			predicate: composedQuery.predicate,
+			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 			calculated: args.caseListConfig?.columns.filter(
 				isRuntimeCalculatedColumn,
@@ -304,12 +366,15 @@ export async function readCases(
 			composedQuery.constraintSource === "worker-search"
 				? await countAuthoredCasePopulation(store, args)
 				: undefined;
+		const outside = await outsideRestoreCount(totalCount ?? 0);
 		return {
 			kind: "empty",
 			constraintSource: composedQuery.constraintSource,
 			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+			...(outside !== undefined && { outsideRestoreCount: outside }),
 		};
 	}
+	const outside = await outsideRestoreCount(totalCount ?? rows.length);
 	return {
 		kind: "rows",
 		rows,
@@ -319,7 +384,40 @@ export async function readCases(
 			pageOffset,
 			pageSize: page.limit,
 		}),
+		...(outside !== undefined && { outsideRestoreCount: outside }),
 	};
+}
+
+/**
+ * How many cases the SAME authored query matches across the tenant that this
+ * worker's device would not hold.
+ *
+ * One extra count, run only when a restore is bound and only for a paged
+ * (running-list) read, so the authoring-only note beside Results can say what
+ * it is leaving out instead of letting an author conclude their data vanished.
+ *
+ * Shared by the flat and the grouped readers rather than living inside one of
+ * them: they already answer the same question two ways, and a reveal that
+ * appeared on ungrouped lists only would be a worse lie than no reveal at all.
+ */
+async function casesOutsideRestore(
+	store: CaseStore,
+	args: Parameters<typeof readCases>[1],
+	composedQuery: ComposedCaseQuery,
+	restricted: number,
+): Promise<number | undefined> {
+	if (args.restoreScope === undefined) return undefined;
+	// The one read in this file that deliberately LIFTS the restriction: the
+	// note's whole job is to say how much the restore left out, which only a
+	// tenant-wide count of the same query can answer. Destructured rather
+	// than omitted so the deviation is a statement instead of a gap.
+	const { restoreScope: _wholeTenant, ...tenantWide } = caseReadCore(
+		args,
+		composedQuery.predicate,
+	);
+	const everything = await store.count(tenantWide);
+	const outside = everything - restricted;
+	return outside > 0 ? outside : undefined;
 }
 
 /**
@@ -349,12 +447,7 @@ async function readGroupedCases(
 ): Promise<LoadCasesResult> {
 	const queryAtOffset = (groupOffset: number) =>
 		store.queryGrouped({
-			appId: args.appId,
-			caseType: args.caseType,
-			caseTypeSchemas: args.caseTypeSchemas,
-			bindings: args.bindings,
-			lookupTableSchemas: args.lookupTableSchemas,
-			predicate: composedQuery.predicate,
+			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 			calculated: args.caseListConfig?.columns.filter(
 				isRuntimeCalculatedColumn,
@@ -379,12 +472,22 @@ async function readGroupedCases(
 			composedQuery.constraintSource === "worker-search"
 				? await countAuthoredCasePopulation(store, args)
 				: undefined;
+		const outside = await casesOutsideRestore(store, args, composedQuery, 0);
 		return {
 			kind: "empty",
 			constraintSource: composedQuery.constraintSource,
 			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+			...(outside !== undefined && { outsideRestoreCount: outside }),
 		};
 	}
+	// Cases, not groups: the note counts what the worker cannot open, and a
+	// group is a drawing rather than a thing they hold.
+	const outside = await casesOutsideRestore(
+		store,
+		args,
+		composedQuery,
+		result.totalRows,
+	);
 	return {
 		kind: "rows",
 		rows: result.groups.flatMap((group) => group.rows),
@@ -396,6 +499,7 @@ async function readGroupedCases(
 			totalGroupCount: result.totalGroups,
 		},
 		constraintSource: composedQuery.constraintSource,
+		...(outside !== undefined && { outsideRestoreCount: outside }),
 	};
 }
 
@@ -434,6 +538,7 @@ async function countAuthoredCasePopulation(
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly authoredExcludedOwnerIds?: readonly string[];
+		readonly restoreScope?: RestoreScope;
 	},
 ): Promise<number> {
 	const authoredQuery = composeQueryPredicate(
@@ -445,12 +550,11 @@ async function countAuthoredCasePopulation(
 		args.authoredExcludedOwnerIds,
 	);
 	return store.count({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
-		predicate: authoredQuery.predicate,
+		...caseReadCore(args, authoredQuery.predicate),
+		// The same restore the caller's own count used. This number answers
+		// "would clearing Search reveal a case?", and a device that cannot
+		// hold the case would not reveal it either.
+		restoreScope: args.restoreScope,
 	});
 }
 
@@ -690,27 +794,15 @@ export async function readFilterPreview(
 	// Row sample. Calculated columns are projected by the case store so
 	// callers receive the same row shape as the running case list.
 	const rows = await store.query({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
+		...caseReadCore(args, predicate),
 		calculated: args.caseListConfig.columns.filter(isRuntimeCalculatedColumn),
-		predicate,
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		limit,
 	});
 
 	// Count of all matching rows, through the same `compilePredicate`
 	// stack with the same predicate.
-	const totalCount = await store.count({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
-		predicate,
-	});
+	const totalCount = await store.count(caseReadCore(args, predicate));
 
 	return { kind: "rows", rows, totalCount };
 }
@@ -848,15 +940,23 @@ export async function readCaseData(
 		 * design; running-app callers leave this unset and inherit the
 		 * hold (a held case reads as `missing`, like its list absence). */
 		includeHeld?: boolean;
+		/**
+		 * Read as this worker's device would — a device can only open a case
+		 * its restore holds, so a canonical Details URL for a case outside it
+		 * reads as `missing` exactly as an off-device case does.
+		 *
+		 * The ancestor walk below inherits nothing and needs nothing: every
+		 * parent and host of a live case is itself live (the closure's
+		 * up-rule), so the chain cannot leave the restore.
+		 */
+		restoreScope?: RestoreScope;
 	},
 ): Promise<LoadCaseDataResult> {
 	const rows = await store.query({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
-		predicate: eq(prop(args.caseType, "case_id"), literal(args.caseId)),
+		...caseReadCore(
+			args,
+			eq(prop(args.caseType, "case_id"), literal(args.caseId)),
+		),
 		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 		limit: 1,
 		includeHeld: args.includeHeld,
@@ -1756,6 +1856,20 @@ export type AuthorizedPreviewContext =
 			store: CaseStore;
 			scope: LookupScope;
 			blueprint?: PersistableDoc;
+			/**
+			 * What this worker's device would hold — pass it to every RUNNING
+			 * read and to none of the authoring ones.
+			 *
+			 * It rides here rather than on `ResolvedPreviewIdentity` because it
+			 * is not part of the evaluation world. The identity is the ONE
+			 * contract the browser and the server both speak, and the browser
+			 * cannot derive this: expanding a persona's assignments into the
+			 * places it receives cases from reads the app's place tree out of
+			 * Postgres. Putting a server-only field on the shared identity would
+			 * make the client's copy quietly wrong, and `samePreviewIdentity`
+			 * would then compare a field only one side can fill.
+			 */
+			restoreScope: RestoreScope;
 	  };
 
 export const PERSONA_UNAVAILABLE_MESSAGE =
@@ -1844,6 +1958,11 @@ export async function resolveAuthorizedPreviewContext(args: {
 	return {
 		kind: "ready",
 		identity,
+		restoreScope: await resolveRestoreScope({
+			appId: args.appId,
+			identity,
+			blueprint,
+		}),
 		store: schemaHealingCaseStore(
 			await withProjectContext(
 				access.projectId,
@@ -1859,6 +1978,42 @@ export async function resolveAuthorizedPreviewContext(args: {
 		},
 		...(blueprint !== undefined && { blueprint }),
 	};
+}
+
+/**
+ * The owner ids seeding this preview's restore.
+ *
+ * `CouchUser.get_owner_ids` is the worker's own id plus one per case-sharing
+ * group, and in Nova every group is a place the persona receives cases from.
+ * Previewing as the signed-in member is a worker assigned nowhere, so it is
+ * their own id and nothing else — a real answer, not a degraded one.
+ *
+ * The place tree is read only when a persona could actually reach one. An app
+ * with no organization gives every persona its own uuid and nothing more, and
+ * that is derivable from the document alone, so the common case adds no query
+ * to a case-list render.
+ */
+async function resolveRestoreScope(args: {
+	readonly appId: string;
+	readonly identity: ResolvedPreviewIdentity;
+	readonly blueprint: PersistableDoc | undefined;
+}): Promise<RestoreScope> {
+	const { appId, identity, blueprint } = args;
+	const personaUuid = identity.personaUuid;
+	if (personaUuid === undefined || blueprint === undefined) {
+		return { ownerIds: memberOwnerIds(identity.actorUserId) };
+	}
+	const persona = ownRecordValue(personasOf(blueprint), personaUuid);
+	if (persona === undefined) {
+		// Unreachable through `resolveAuthorizedPreviewContext`, which refuses a
+		// missing persona above rather than falling back to the member.
+		return { ownerIds: memberOwnerIds(identity.actorUserId) };
+	}
+	if (assignedLocationUuids(persona.locations).length === 0) {
+		return { ownerIds: personaOwnerIds(blueprint, persona, []) };
+	}
+	const { rows } = await readOrganizationTopology(appId);
+	return { ownerIds: personaOwnerIds(blueprint, persona, rows) };
 }
 
 export async function gatedCaseStore(

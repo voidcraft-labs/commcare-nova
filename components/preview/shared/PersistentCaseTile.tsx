@@ -34,6 +34,12 @@ interface PersistentCaseTileProps {
 	/** The live compiler catalog, paired with `config` for the projection. */
 	readonly caseTypes: readonly CaseType[];
 	readonly fallbackProperties: readonly CaseProperty[];
+	/** The signature of everything this worker's restore is derived from,
+	 * from `useRestoreScopeKey`. A PROP rather than a read of its own: the
+	 * tile takes every input from its parent, and reading the document here
+	 * would give a purely presentational component a provider it has never
+	 * needed. `FormScreen` already holds the value. */
+	readonly restoreScopeKey: string;
 }
 
 export function PersistentCaseTile({
@@ -43,6 +49,7 @@ export function PersistentCaseTile({
 	config,
 	caseTypes,
 	fallbackProperties,
+	restoreScopeKey,
 }: PersistentCaseTileProps) {
 	/* A read of its own, with the display config attached, so calculated
 	 * cells project exactly as they did in Results. The form's own case
@@ -56,6 +63,10 @@ export function PersistentCaseTile({
 		ancestorDepth: 0,
 		caseListConfig: config,
 		caseTypes,
+		// The tile pinned above a running form draws the case the worker
+		// selected on their device.
+		deviceScoped: true,
+		scopeKey: restoreScopeKey,
 	});
 	const displayContext = useColumnDisplayContext(
 		config,

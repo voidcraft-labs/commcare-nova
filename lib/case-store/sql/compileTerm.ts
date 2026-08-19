@@ -61,7 +61,10 @@ import {
 	type LookupRowScope,
 	type LookupTableSchemas,
 } from "./compileLookup";
-import { compileRelationPath } from "./compileRelationPath";
+import {
+	compileRelationPath,
+	relationPathContextFrom,
+} from "./compileRelationPath";
 import type { Database } from "./database";
 import {
 	JSONB_READ_OPERATOR_FOR_DATA_TYPE,
@@ -170,6 +173,12 @@ export interface TermCompileContext {
 	projectId: string;
 	/** The outer query's alias for `cases`. Property reads emit `<anchorAlias>.<col>`. */
 	anchorAlias: string;
+	/**
+	 * Restrict every walked `cases` row to one worker's restore — forwarded to
+	 * `compileRelationPath` through `relationPathContextFrom`. Absent means the
+	 * whole tenant. See `RelationPathCompileContext.restrictToRestoreScope`.
+	 */
+	restrictToRestoreScope?: <QB>(qb: QB, casesAlias: string) => QB;
 	/** Case type represented by `anchorAlias`. Relation-path qualifiers are
 	 * canonicalized from this scope before SQL compilation so same-identifier
 	 * edges to another case type cannot enter the row set. */
@@ -457,13 +466,10 @@ function compileNonSelfViaPropertyRef(args: {
 			ctx.caseTypeSchemas,
 		);
 
-	const compiledPath = compileRelationPath(canonical.via, {
-		db: ctx.db,
-		appId: ctx.appId,
-		projectId: ctx.projectId,
-		anchorAlias,
-		relationPathDepth: ctx.relationPathDepth ?? 0,
-	});
+	const compiledPath = compileRelationPath(
+		canonical.via,
+		relationPathContextFrom(ctx, { anchorAlias }),
+	);
 	if (compiledPath.kind !== "joined") {
 		throw new Error(
 			compilerBugMessage({

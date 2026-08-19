@@ -64,6 +64,11 @@ import {
 	ListFilterBox,
 	rowMatchesFilterText,
 } from "@/components/preview/shared/listFilter";
+import {
+	type PreviewWorkerLabel,
+	RestoreScopeNote,
+	restoreScopeEmptyCopy,
+} from "@/components/preview/shared/RestoreScopeNote";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useColumnDisplayContext } from "@/components/preview/shared/useColumnDisplayContext";
 import { Button } from "@/components/shadcn/button";
@@ -78,6 +83,7 @@ import {
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
@@ -128,6 +134,7 @@ import {
 	useCaseData,
 	useCases,
 } from "@/lib/preview/hooks/useCaseDataBinding";
+import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -136,6 +143,7 @@ import {
 	useAppId,
 	useCanEdit,
 	usePreviewCaseTarget,
+	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
 	useSetPreviewSelectedCase,
@@ -546,6 +554,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		navigate.replace({ kind: "cases", moduleUuid });
 	}, [routeCaseReplaced, moduleUuid, navigate, setPreviewSelectedCase]);
 
+	const previewPersonaUuid = usePreviewPersonaUuid();
+	// What this worker's device holds is derived from their assignment and the
+	// place tree, and neither is an argument to the read. Sign both into the
+	// request so an assignment edit or a place move re-asks instead of serving
+	// the previous worker's rows.
+	const restoreScopeKey = useRestoreScopeKey(previewPersonaUuid);
 	const {
 		state,
 		fetching,
@@ -563,7 +577,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		// fresh `caseTypes` reference re-fires the load on a schema edit.
 		caseTypes,
 		page: casePage,
-		requestScopeKey: stateScopeKey,
+		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
 	});
 	/* The Results query can be empty because there is no data OR because the
 	 * authored/search conditions exclude an existing population. Keep those
@@ -572,6 +586,28 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * only runs when a constrained empty result needs that distinction. */
 	const authoredMatchingCount =
 		state.kind === "empty" ? state.authoredMatchingCount : undefined;
+	/* Cases the same query matches that this worker's device would not hold.
+	 * Present only while previewing as a persona whose restore actually left
+	 * something out, so the note appears exactly when there is something to
+	 * say. */
+	const outsideRestoreCount =
+		state.kind === "rows" || state.kind === "empty"
+			? state.outsideRestoreCount
+			: undefined;
+	const personas = usePersonas();
+	/* A discriminant, not a name: previewing as yourself reads in the second
+	 * person and previewing as a persona in the third, so one interpolated
+	 * string cannot serve both. */
+	const previewWorker = useMemo<PreviewWorkerLabel>(() => {
+		if (previewPersonaUuid === undefined) return { kind: "me" };
+		// A selected persona whose record is momentarily absent is still not
+		// you: falling back to the second person would tell an author their
+		// OWN device is missing cases that a worker's device is missing.
+		const name = personas.find(
+			(persona) => persona.uuid === previewPersonaUuid,
+		)?.name;
+		return { kind: "persona", name: name ?? "this worker" };
+	}, [personas, previewPersonaUuid]);
 	const workerSearchProvesUnderlyingRows =
 		queryConstraintSource === "worker-search" &&
 		authoredMatchingCount !== undefined &&
@@ -596,6 +632,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		ancestorDepth: 0,
 		caseListConfig: config,
 		caseTypes,
+		// A canonical Details URL loads its case by identity rather than off
+		// the page, so this is the one read that could otherwise open a case
+		// the worker's device does not hold.
+		deviceScoped: true,
+		scopeKey: restoreScopeKey,
 	});
 	const retryCasesWithFocus = useCallback(async () => {
 		const pending = reloadCases();
@@ -1357,10 +1398,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					)}
 				</div>
 			)}
+			{outsideRestoreCount !== undefined && state.kind === "rows" && (
+				<RestoreScopeNote count={outsideRestoreCount} worker={previewWorker} />
+			)}
 			<ResultsBody
 				state={state}
 				unfilteredCountState={unfilteredCountState}
 				authoredMatchingCount={authoredMatchingCount}
+				outsideRestoreCount={outsideRestoreCount}
+				previewWorker={previewWorker}
 				fetching={fetching}
 				onRetryCases={retryCasesWithFocus}
 				onRetryCount={retryCountWithFocus}
@@ -1476,6 +1522,8 @@ function ResultsBody({
 	state,
 	unfilteredCountState,
 	authoredMatchingCount,
+	outsideRestoreCount,
+	previewWorker,
 	fetching,
 	onRetryCases,
 	onRetryCount,
@@ -1500,6 +1548,9 @@ function ResultsBody({
 	 * the loading/error arms prevents the copy from guessing before it settles. */
 	readonly unfilteredCountState: ReturnType<typeof useCaseCount>["state"];
 	readonly authoredMatchingCount: number | undefined;
+	/** Cases of this type the project holds that this worker would not. */
+	readonly outsideRestoreCount: number | undefined;
+	readonly previewWorker: PreviewWorkerLabel;
 	readonly fetching: boolean;
 	readonly onRetryCases: () => Promise<void>;
 	readonly onRetryCount: () => Promise<void>;
@@ -1581,8 +1632,24 @@ function ResultsBody({
 		if (fetching) {
 			return <CasesLoading />;
 		}
-		// An unconstrained empty query is itself an unfiltered population read,
-		// so it proves that no cases exist without waiting for the sibling count.
+		// The RESTORE first, because every cause below it is read off a
+		// TENANT-wide count and would misattribute. Left later in the chain,
+		// an empty restore over a populated project reports "no case data" or
+		// blames the worker's Search values — beside a note on the same screen
+		// saying the project holds hundreds of these cases.
+		if (outsideRestoreCount !== undefined && outsideRestoreCount > 0) {
+			const copy = restoreScopeEmptyCopy(outsideRestoreCount, previewWorker);
+			return (
+				<CaseListEmptyNotice
+					title={copy.title}
+					description={copy.description}
+				/>
+			);
+		}
+		// An unconstrained empty query is an unfiltered population read of what
+		// the caller asked for, so with no restore in play it proves no cases
+		// exist without waiting for the sibling count. The restore arm above is
+		// what keeps that inference honest once a device scope narrows it.
 		if (emptyResultContext === "unconstrained") {
 			return <NoCaseDataNotice canEdit={canEdit} />;
 		}

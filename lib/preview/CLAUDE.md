@@ -396,6 +396,52 @@ Blueprint mutations in edit mode recreate the engine. The engine hook snapshots 
 
 **Two projections, because the wire has two.** `session` is `instance('commcaresession')/session/…` (`SessionInstanceBuilder.addMetadata` + `addUserProperties`); `usercase` is the `commcare-user` case `#user/<prop>` reads (`sync_usercase.py::_get_user_case_fields`). Same authored data, different built-in keys — `first_name` in the usercase, `commcare_first_name` in the session block — so collapsing them would make one of the two lie. The serializable session projection also carries `userPropertySlugs` (custom UUID→CURRENT slug), which is binding metadata rather than worker data; `previewUserPropertySlugMap` turns it into the typed emitter/compiler map. Thus both Predicate `session-user-property` and XPath `user-property-ref` evaluate against the same property after a rename without rewriting their AST, while name-backed built-in/external arms remain literal. Every session/usercase read uses an own-key lookup, so authored `__proto__` and `constructor` values cannot inherit from the object prototype. **The three location keys diverge, and it is easy to get backwards**: `get_user_session_data` writes all three or none, so the session block omits them while nobody is assigned anywhere, but `_get_user_case_fields` takes an `else` branch to `''` for all three, so the usercase always carries them. Values are otherwise honest: `commcare_project` is ABSENT in BOTH projections until a deployment names one (the domain is never empty on a device, so an empty value would be one no worker can hold), and the worker's name rides as `case_name` rather than `name` (HQ pops `name` into the case's name and never writes it as a property), while the session's first/last/phone keys and the usercase's first/last/phone/email keys are PRESENT, derived when possible and empty otherwise, because HQ writes those slots unconditionally. `user_type` IS present and reads `"standard"` — HQ sends the key only for a practice user, but every `commcare-core .../User.java` constructor calls `setUserType(STANDARD)` before `UserXmlParser::parse` applies any `<data key>`, so the device always has it and a condition on it must behave the same here. A DECLARED property with no value is present-and-empty, matching HQ's `UserData.to_dict` seed, while an undeclared key is genuinely absent — the split a `= ''` comparison depends on.
 
+**The running app reads what the worker's device would hold, and it is a
+SEPARATE axis from identity.** CommCare does not filter a restore by
+ownership; it takes a fixpoint that ownership only seeds, so previewing as a
+worker legitimately shows fewer cases than the builder's case data does
+(`lib/case-store/CLAUDE.md` § Restore scope is the rule). The owner set is the
+persona's own uuid plus every place it receives cases from
+(`lib/organization/ownerSets.ts`); previewing as the member is a worker
+assigned nowhere, so it is their own id alone.
+
+It rides on `AuthorizedPreviewContext`, NOT on `ResolvedPreviewIdentity`. The
+identity is the one contract the browser and the server both speak, and the
+browser cannot derive this — expanding a persona's assignments reads the place
+tree out of Postgres. A server-only field on the shared identity would make
+the client's copy quietly wrong, and `samePreviewIdentity` would then compare
+a field only one side can fill.
+
+Running screens opt in; builder chrome does not. Results, the canonical
+Details URL read, a case-loading form's preload, and the persistent tile pass
+it. The case workspace, sample data, and the rename preflight do not.
+`loadCaseDataAction` serves both, which is why it takes an explicit
+`deviceScoped` argument rather than deriving one from the context — the
+review dialog shares that action, and a derived scope would have silently
+stopped it from opening the very rows it exists to inspect.
+
+Fewer rows than the builder shows is not data loss, so `RestoreScopeNote` says
+so beside Results: how many cases the same query matches that this worker
+would not have, named to the worker. Same doctrine as `HiddenItemsReveal` —
+authoring-only inspection sitting BESIDE a runtime-faithful list, never a
+blend of the two modes. It cannot list the rows, because the preview never
+loaded them, which is the point. That count also OUTRANKS every other empty
+state on the screen: the other causes are each read off a tenant-wide count,
+so an empty restore over a populated project would otherwise report "no case
+data" or blame the worker's Search values, next to a note saying the project
+holds hundreds. `restoreScopeEmptyCopy` is the copy that arm renders, and
+`PreviewWorkerLabel` is a discriminant rather than a name because previewing
+as yourself reads in the second person and as a persona in the third.
+
+`useRestoreScopeKey` is what makes a cached read follow its worker. The scope
+is resolved server-side from the persona's assignment, the level catalog, and
+the place tree — and the place tree is not in the document, so no doc
+subscription can see it move. The hook signs all three (the builder stream's
+organization poke covers the Postgres half) and every running surface folds it
+into its request identity. Without it the preview keeps serving the previous
+worker's rows with nothing on screen to say so, which is the exact failure the
+note exists to prevent, arriving through the back door.
+
 Server side, every persona-aware running path — Results/Details reads, sample populate/reset, and submission — calls `resolveAuthorizedPreviewContext` once. It authenticates the member, resolves membership plus the committed blueprint under the same app-row and membership locks, resolves the selector from that one authorized snapshot, and binds the explicit actor/owner pair. A selector naming a missing persona returns `persona-unavailable`; it never silently runs a read or write as the member. The selected owner rides populate/reset and `submitFormAction`, so all rows the persona creates belong to the persona, while the actor remains the authorization and lookup identity. Client side, `useSelectedPreviewIdentityState()` makes selected-but-missing a distinct `persona-unavailable` state rather than collapsing it with signed-out/loading or falling back to the member for one frame. `PreviewShell` replaces the running screens with an explicit unavailable-persona refusal and a **Preview as me** recovery action, while `BuilderFormEngineProvider` marks the `EngineController` blocked so activation cannot execute behind that refusal. Leaving Preview clears the persona selector before edit-only sample/data surfaces become active; the next preview therefore starts as the member unless the author chooses another persona. Visual consumers of the compatibility `useSelectedPreviewIdentity()` keep the server/client hydration render identity-free, while `BuilderFormEngineProvider` opts into a warm cached session and seeds that result on the `EngineController` inside its `useState` initializer — the provider itself renders no identity-dependent markup, and child effects flush before parent effects, so an effect-only install would hand every warm-session form mount an identity-less engine plus an immediate rebuild. A follow-up effect tracks later session changes. Identity is engine-lifetime state: a materially different identity rebuilds any active engine (one evaluation world), a re-derived-but-identical identity is a no-op (`samePreviewIdentity`), a cold session resolving mid-entry restores user-touched values through the engine's shared snapshot/restore (same touched-only contract as blueprint-edit recreation — untouched values may be world-dependent defaults and must re-derive), and replacing a NON-null identity (sign-out, different worker) discards — restoring would leak one worker's entries into another's session. Every suite that mounts `BuilderFormEngineProvider` (directly or transitively) must mock `@/lib/auth/hooks/useAuth`, or the session atom's `setTimeout(0) → fetchSession()` trips the async-leak gate. `#user/<prop>` resolves from the identity's `usercase` projection — the `commcare-user` case the wire's `#user/` hashtag expands to, NOT the session block, whose built-in keys differ (`first_name` there, `commcare_first_name` in the session). An absent key reads blank at evaluation, matching the device's missing property. The signed-out projection (`previewSessionValues(null)`) carries device context only.
 
 ## Case tiles in the running app

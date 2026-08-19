@@ -40,6 +40,8 @@ import { OrganizationError, organizationNotFound } from "./errors";
 import { boundedLocationOrderKeyAtIndex } from "./orderKeys";
 import {
 	fixedLocationOwnerIssue,
+	type OwnerVerdictLocation,
+	ownerVerdictRows,
 	reverseLocationOwnerIssue,
 } from "./ownerTargetVerdicts";
 import {
@@ -201,6 +203,54 @@ export async function readOrganizationAuthoringSnapshot(
 				blueprint: hydratePersistedBlueprint(app.blueprint),
 				blueprintSeq: access.baseSeq,
 				organization: snapshot,
+			};
+		},
+		{ isolationLevel: "repeatable read" },
+	);
+}
+
+/**
+ * The app's place tree in the shape the owner-set and footprint predicates
+ * read, plus the revision it was read at.
+ *
+ * The whole tree rather than a recursive query, for the same reason
+ * {@link lockTree} takes the whole tree: it is bounded by
+ * {@link MAX_LOCATIONS_PER_APP}, and both callers ask a predicate of EVERY row
+ * anyway — an owner set is "which of these do I receive from", a footprint is
+ * "which of these can I name". Narrow columns, because neither predicate reads
+ * anything else.
+ *
+ * This is a read of its own rather than a join onto the caller's Blueprint
+ * snapshot, and the skew is deliberate rather than overlooked: the Blueprint
+ * supplies a persona's assignments and Postgres supplies the places, so a
+ * place archived between the two reads is simply filtered out here, and one
+ * created between them is absent until the next read. Neither can authorize
+ * anything — authorization is the acting member, resolved elsewhere — and the
+ * returned revision is the cursor the caller invalidates on, which is what
+ * closes the window rather than a longer lock.
+ */
+export async function readOrganizationTopology(appId: string): Promise<{
+	readonly rows: readonly OwnerVerdictLocation[];
+	readonly revision: OrganizationRevision;
+}> {
+	return withAppTx(
+		async (tx) => {
+			const state = await tx
+				.selectFrom("app_organization_state")
+				.select("revision")
+				.where("app_id", "=", appId)
+				.executeTakeFirst();
+			const rows = await tx
+				.selectFrom("app_locations")
+				.select(["id", "name", "level_uuid", "parent_id", "archived_at"])
+				.where("app_id", "=", appId)
+				.execute();
+			return {
+				rows: ownerVerdictRows(rows),
+				// An app that has never had an organization has no state row, and
+				// revision 0 is the honest answer rather than an error.
+				revision:
+					state === undefined ? "0" : parseOrganizationRevision(state.revision),
 			};
 		},
 		{ isolationLevel: "repeatable read" },

@@ -19,6 +19,20 @@
 //      `resetSampleCasesAction` — `caseType` is the live `CaseType`
 //      definition the client passes through (never the whole blueprint) —
 //      and returns the action's resolved result.
+//
+// ## This suite mounts NO `BlueprintDocProvider`, and that is the point
+//
+// Every `lib/doc/hooks` read THROWS without that ancestor, so this file
+// passing is the standing proof that no hook here reaches the document.
+// The rule it pins: a hook in `useCaseDataBinding.ts` takes what it needs
+// as an argument, and the components — which live under the provider —
+// are what read the store. `useRestoreScopeKey` is the live example: it
+// signs the persona assignment, the level catalog, and the place tree
+// into a cache key, and the SCREENS call it and hand the result down as
+// `requestScopeKey` / `scopeKey` rather than the hooks calling it
+// themselves. Moving such a read down into a hook would leave every
+// provider-wrapped component suite green and break here, which is the
+// only reason that mistake is catchable at all.
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -710,7 +724,10 @@ describe("case-data invalidation", () => {
 		act(() => store.getState().setPreviewPersonaUuid("persona-asha"));
 		expect(selected.result.current.state).toEqual({ kind: "loading" });
 		await waitFor(() => expect(loadCaseDataAction).toHaveBeenCalledTimes(2));
-		expect(vi.mocked(loadCaseDataAction).mock.calls[1]?.at(-1)).toBe(
+		// By position, not `at(-1)`: the persona is the ninth argument and the
+		// action keeps growing trailing optional ones, so "last" drifts onto
+		// whatever was appended most recently.
+		expect(vi.mocked(loadCaseDataAction).mock.calls[1]?.[8]).toBe(
 			"persona-asha",
 		);
 
@@ -831,5 +848,48 @@ describe("case-data invalidation", () => {
 
 		await Promise.resolve();
 		expect(loadCaseCountAction).toHaveBeenCalledTimes(1);
+	});
+});
+
+// ── The provider-free contract, enforced rather than described ──────
+
+/**
+ * A note at the top of a file is not a guard: the next person to hit a
+ * missing-provider throw here can "fix" it by wrapping the suite, and the
+ * proof evaporates with nothing failing.
+ *
+ * These render EXPLICITLY BARE — no wrapper argument at all — so they keep
+ * asserting the contract even if every other test in the file gains one.
+ * A `lib/doc/hooks` read anywhere in `useCaseDataBinding.ts` throws during
+ * render, so "it rendered" is the whole assertion; the idle state is just
+ * how we observe that render happened. The identifiers are left undefined
+ * deliberately: a hook that never becomes ready fires no Server Action, so
+ * these stay synchronous and cannot let a settle escape `act`.
+ */
+describe("the hooks read no document", () => {
+	it("renders useCases with no provider of any kind", () => {
+		const { result } = renderHook(() =>
+			useCases({ appId: undefined, caseType: undefined }),
+		);
+		expect(result.current.state.kind).toBe("idle");
+	});
+
+	it("renders useCaseData with no provider of any kind", () => {
+		const { result } = renderHook(() =>
+			useCaseData({
+				appId: undefined,
+				caseType: undefined,
+				caseId: undefined,
+				ancestorDepth: 0,
+			}),
+		);
+		expect(result.current.state.kind).toBe("idle");
+	});
+
+	it("renders useCaseCount with no provider of any kind", () => {
+		const { result } = renderHook(() =>
+			useCaseCount({ appId: undefined, caseType: undefined }),
+		);
+		expect(result.current.state.kind).toBe("idle");
 	});
 });

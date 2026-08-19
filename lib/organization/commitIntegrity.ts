@@ -14,7 +14,7 @@ import {
 import { walkExpressionTerms } from "@/lib/domain/predicate";
 import {
 	fixedLocationOwnerIssue,
-	type OwnerVerdictLocation,
+	ownerVerdictRows,
 	reverseLocationOwnerIssue,
 } from "./ownerTargetVerdicts";
 import { locationValueCatalogIssue } from "./valueCatalog";
@@ -403,24 +403,6 @@ function fixedOwnerTargets(doc: BlueprintDoc): readonly string[] {
 		}
 	}
 	return [...targets].sort();
-}
-
-function ownerVerdictRows(
-	rows: readonly {
-		readonly id: string;
-		readonly name: string;
-		readonly level_uuid: string;
-		readonly parent_id: string | null;
-		readonly archived_at: unknown | null;
-	}[],
-): OwnerVerdictLocation[] {
-	return rows.map((row) => ({
-		id: row.id,
-		name: row.name,
-		levelUuid: row.level_uuid,
-		parentId: row.parent_id,
-		archivedAt: row.archived_at,
-	}));
 }
 
 function reverseHopDestinationLevelUuids(doc: BlueprintDoc): readonly string[] {

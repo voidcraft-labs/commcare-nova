@@ -5,6 +5,7 @@ import {
 	type BlueprintDoc,
 	levelHoldsWorkers,
 	levelOwnsCases,
+	type OrganizationCollections,
 	organizationLevelsOf,
 	personasOf,
 } from "@/lib/domain";
@@ -16,6 +17,32 @@ export interface OwnerVerdictLocation {
 	readonly levelUuid: string;
 	readonly parentId: string | null;
 	readonly archivedAt: unknown | null;
+}
+
+/** The database row shape every caller projects into {@link OwnerVerdictLocation}. */
+export interface OwnerVerdictLocationRow {
+	readonly id: string;
+	readonly name: string;
+	readonly level_uuid: string;
+	readonly parent_id: string | null;
+	readonly archived_at: unknown | null;
+}
+
+/** Project stored place rows into the verdict shape.
+ *
+ * One mapper, because the commit gate, the owner set, and the fixture
+ * footprint all ask the same predicates of the same five fields; a second
+ * projection is a second place for `archived_at` to be read as truthy. */
+export function ownerVerdictRows(
+	rows: readonly OwnerVerdictLocationRow[],
+): OwnerVerdictLocation[] {
+	return rows.map((row) => ({
+		id: row.id,
+		name: row.name,
+		levelUuid: row.level_uuid,
+		parentId: row.parent_id,
+		archivedAt: row.archived_at,
+	}));
 }
 
 function ancestors(
@@ -46,7 +73,19 @@ function isSameOrDescendant(
 	);
 }
 
-function levelDepth(levelUuid: string, doc: BlueprintDoc): number | undefined {
+/**
+ * The organization slice is all these predicates read.
+ *
+ * Declared narrower than `BlueprintDoc` on purpose: the preview resolves a
+ * worker's owner set from the authorized `PersistableDoc` snapshot, which
+ * carries no `fieldParent` index and has no reason to build one to answer a
+ * question about places. `BlueprintDoc` is assignable here, so every caller
+ * that already had one is unaffected.
+ */
+function levelDepth(
+	levelUuid: string,
+	doc: OrganizationCollections,
+): number | undefined {
 	const levels = organizationLevelsOf(doc);
 	const level = levels[levelUuid];
 	return level === undefined ? undefined : ancestorLevels(level, levels).length;
@@ -62,7 +101,7 @@ function locationIsWithinDepth(
 	candidate: OwnerVerdictLocation,
 	bottomLevelUuid: string,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
-	doc: BlueprintDoc,
+	doc: OrganizationCollections,
 ): boolean {
 	const candidateDepth = ancestors(candidate, byId).length;
 	const bottomDepth = levelDepth(bottomLevelUuid, doc);
@@ -73,7 +112,7 @@ function topSliceIncludes(
 	target: OwnerVerdictLocation,
 	downToLevelUuid: string | undefined,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
-	doc: BlueprintDoc,
+	doc: OrganizationCollections,
 ): boolean {
 	return (
 		downToLevelUuid === undefined ||
@@ -85,7 +124,7 @@ export function assignmentFootprintIncludes(
 	target: OwnerVerdictLocation,
 	assigned: OwnerVerdictLocation,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
-	doc: BlueprintDoc,
+	doc: OrganizationCollections,
 ): boolean {
 	const levels = organizationLevelsOf(doc);
 	const assignedLevel = levels[assigned.levelUuid];
@@ -162,12 +201,16 @@ function liveAssignments(
  * A reverse owner hop is applicable when a persona can receive the source
  * case; only after that independent decision do we require the destination in
  * the persona's address-book fixture.
+ *
+ * Exported because the owner set is this same rule ENUMERATED rather than
+ * asked one target at a time (`./ownerSets`). Two encodings of case delivery
+ * would drift, and the one that drifted would be the one nobody reads.
  */
-function assignmentReceivesCasesFrom(
+export function assignmentReceivesCasesFrom(
 	source: OwnerVerdictLocation,
 	assigned: OwnerVerdictLocation,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
-	doc: BlueprintDoc,
+	doc: OrganizationCollections,
 ): boolean {
 	const levels = organizationLevelsOf(doc);
 	const assignedLevel = levels[assigned.levelUuid];
