@@ -44,6 +44,7 @@ export * from "./searchRuntimeValidationMessages";
 export * from "./standardCaseProperties";
 export * from "./temporalValues";
 export * from "./translationUnits";
+export * from "./usercase";
 export * from "./users";
 export * from "./uuid";
 export * from "./xpath";
