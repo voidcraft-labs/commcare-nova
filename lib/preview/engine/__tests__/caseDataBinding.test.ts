@@ -817,6 +817,27 @@ describe("readCases", () => {
 			counts.mockRestore();
 		});
 
+		// The unpaged read that matches NOTHING. Its sibling above proves the
+		// rows exit stays silent; this one pins the empty exit, which is the
+		// easier of the two to lose — a reader returning empty has three
+		// places to say why, and only one of them is on the paged path.
+		it("stays silent on an unpaged read that matches nothing", async () => {
+			const store = await seedTwoOwners();
+			const counts = vi.spyOn(store, "count");
+			const result = await readCases(store, {
+				appId: APP_ID,
+				caseType: "patient",
+				restoreScope: { ownerIds: ["owner-nobody"] },
+			});
+			expect(result.kind).toBe("empty");
+			if (result.kind !== "empty") return;
+			expect(result.outsideRestoreCount).toBeUndefined();
+			// The whole point: a read that draws nothing must not pay a
+			// whole-tenant count to populate a field no one renders.
+			expect(counts).not.toHaveBeenCalled();
+			counts.mockRestore();
+		});
+
 		it("stays silent when no restore is bound", async () => {
 			const store = await seedTwoOwners();
 			const result = await readCases(store, {

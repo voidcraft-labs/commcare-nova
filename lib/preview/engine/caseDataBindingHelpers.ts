@@ -211,6 +211,51 @@ function caseReadCore(
 }
 
 /**
+ * The empty answer, built once for every reader that can produce one.
+ *
+ * Three call sites reach this: the flat reader's counted-zero and its
+ * stale-page repair, and the grouped reader's no-groups exit. They differ
+ * only in how many cases the restore left visible, so that is the only
+ * thing they pass.
+ *
+ * It is one function because the last field added here was added three
+ * times and landed twice — the restore reveal reached the flat reader's
+ * two exits and missed the grouped one, which is the failure this shape
+ * removes rather than documents. A reader that returns empty says the same
+ * thing about why, or the grouped list and the ungrouped list beside it
+ * disagree about a population they both measured correctly.
+ */
+async function emptyCaseResult(
+	store: CaseStore,
+	args: Parameters<typeof readCases>[1],
+	composedQuery: ComposedCaseQuery,
+	/** The read's normalized page, or `undefined` for the unpaged caller.
+	 *  It gates the reveal for the same reason the flat reader gated it:
+	 *  the form's auto-selection read draws nothing, so a whole-tenant
+	 *  count would buy a field no one looks at. The grouped reader always
+	 *  has one. */
+	page: { readonly offset: number; readonly limit: number } | undefined,
+	/** Cases the restore leaves visible — the baseline the tenant-wide
+	 *  count is compared against. Zero when nothing was matched at all. */
+	restricted: number,
+): Promise<LoadCasesResult> {
+	const authoredMatchingCount =
+		composedQuery.constraintSource === "worker-search"
+			? await countAuthoredCasePopulation(store, args)
+			: undefined;
+	const outside =
+		page === undefined
+			? undefined
+			: await casesOutsideRestore(store, args, composedQuery, restricted);
+	return {
+		kind: "empty",
+		constraintSource: composedQuery.constraintSource,
+		...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+		...(outside !== undefined && { outsideRestoreCount: outside }),
+	};
+}
+
+/**
  * Read an optional bounded window of one case type for the bound tenant,
  * projecting each `caseListConfig.columns` calc-arm column's expression as a
  * SELECT slot. Running Results always supplies a page; the current form
@@ -297,17 +342,25 @@ export async function readCases(
 	// mode is the bad kind: the grouped list looks right and quietly disagrees
 	// with the ungrouped list beside it.
 	//
-	// `caseReadCore` closes that hole for what the two readers ASK the store.
-	// What they do with the answer is still two tails, so adding to the tail
-	// below means checking whether the grouped reader needs it too.
+	// Two of the three shared answers are now single-sourced: `caseReadCore`
+	// for what the readers ASK the store, `emptyCaseResult` for what they say
+	// when the answer is nothing. What remains genuinely differs — the flat
+	// path counts before it queries and repairs a stale page by recounting,
+	// the grouped path gets its totals from the page's own statement and needs
+	// no recount — so adding to the tail below still means asking whether the
+	// grouped reader needs it, and it will not be told by the compiler.
 	if (grouping !== undefined && page !== undefined) {
 		return readGroupedCases(store, args, composedQuery, page, grouping);
 	}
 	const countArgs = caseReadCore(args, composedQuery.predicate);
-	// One guard for all three exits: the reveal belongs to a BOUNDED running
-	// list. The unpaged caller is the form's auto-selection candidate read,
-	// which draws nothing and would pay for a whole-tenant count to fill a
-	// field no one reads.
+	// The guard for the ROWS exit below; the two empty exits carry the same
+	// rule inside `emptyCaseResult`. Editing this one changes what a
+	// populated list reveals and nothing else.
+	//
+	// The rule either way: the reveal belongs to a BOUNDED running list. The
+	// unpaged caller is the form's auto-selection candidate read, which draws
+	// nothing and would pay for a whole-tenant count to fill a field no one
+	// reads.
 	const outsideRestoreCount = (restricted: number) =>
 		page === undefined
 			? undefined
@@ -315,17 +368,7 @@ export async function readCases(
 	let totalCount =
 		page === undefined ? undefined : await store.count(countArgs);
 	if (page !== undefined && totalCount === 0) {
-		const authoredMatchingCount =
-			composedQuery.constraintSource === "worker-search"
-				? await countAuthoredCasePopulation(store, args)
-				: undefined;
-		const outside = await outsideRestoreCount(0);
-		return {
-			kind: "empty",
-			constraintSource: composedQuery.constraintSource,
-			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
-			...(outside !== undefined && { outsideRestoreCount: outside }),
-		};
+		return emptyCaseResult(store, args, composedQuery, page, 0);
 	}
 	let pageOffset =
 		page === undefined || totalCount === undefined
@@ -367,17 +410,7 @@ export async function readCases(
 		}
 	}
 	if (rows.length === 0) {
-		const authoredMatchingCount =
-			composedQuery.constraintSource === "worker-search"
-				? await countAuthoredCasePopulation(store, args)
-				: undefined;
-		const outside = await outsideRestoreCount(totalCount ?? 0);
-		return {
-			kind: "empty",
-			constraintSource: composedQuery.constraintSource,
-			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
-			...(outside !== undefined && { outsideRestoreCount: outside }),
-		};
+		return emptyCaseResult(store, args, composedQuery, page, totalCount ?? 0);
 	}
 	const outside = await outsideRestoreCount(totalCount ?? rows.length);
 	return {
@@ -473,17 +506,7 @@ async function readGroupedCases(
 		}
 	}
 	if (result.groups.length === 0) {
-		const authoredMatchingCount =
-			composedQuery.constraintSource === "worker-search"
-				? await countAuthoredCasePopulation(store, args)
-				: undefined;
-		const outside = await casesOutsideRestore(store, args, composedQuery, 0);
-		return {
-			kind: "empty",
-			constraintSource: composedQuery.constraintSource,
-			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
-			...(outside !== undefined && { outsideRestoreCount: outside }),
-		};
+		return emptyCaseResult(store, args, composedQuery, page, 0);
 	}
 	// Cases, not groups: the note counts what the worker cannot open, and a
 	// group is a drawing rather than a thing they hold.
