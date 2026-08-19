@@ -22,10 +22,6 @@ import {
 	deriveCaseWriteInventory,
 	locationPropertiesOf,
 	organizationLevelsOf,
-	ownRecordValue,
-	personasOf,
-	userPropertiesOf,
-	userTypesOf,
 } from "@/lib/domain";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";

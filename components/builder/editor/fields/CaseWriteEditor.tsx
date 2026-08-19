@@ -98,6 +98,22 @@ function destinationId(caseType: string, property: string): string {
 	return JSON.stringify([caseType, property]);
 }
 
+/**
+ * The hashtag an author would write for one destination.
+ *
+ * The worker's own record is `#user/`, NOT `#commcare-user/`: `#user/` is the
+ * namespace `lib/commcare/hashtags.ts` resolves, and `commcare-user` is a case
+ * type nothing ever asks an author to name. Every other destination is its own
+ * case type. One function because the chooser row and the chosen-state summary
+ * both print this, and printing the same destination two ways reads as two
+ * different places to save.
+ */
+export function destinationRef(caseType: string, property: string): string {
+	return caseType === USERCASE_CASE_TYPE
+		? `#user/${property}`
+		: `#${caseType}/${property}`;
+}
+
 function typeLabel(caseType: string): string {
 	return humanizeId(caseType) || caseType;
 }
@@ -114,7 +130,9 @@ function propertyChoice(
 		id: destinationId(caseType.name, property.name),
 		group: typeLabel(caseType.name),
 		label,
-		detail: verdict.ok ? `#${caseType.name}/${property.name}` : verdict.reason,
+		detail: verdict.ok
+			? destinationRef(caseType.name, property.name)
+			: verdict.reason,
 		detailIsRef: verdict.ok,
 		searchText: `${caseType.name} ${property.name} ${label}`,
 		kind: "destination",
@@ -266,7 +284,9 @@ export function CaseWriteEditor<F extends Field>(
 				id: destinationId(USERCASE_CASE_TYPE, property.slug),
 				group: "The worker's own record",
 				label: property.label || property.slug,
-				detail: verdict.ok ? `#user/${property.slug}` : verdict.reason,
+				detail: verdict.ok
+					? destinationRef(USERCASE_CASE_TYPE, property.slug)
+					: verdict.reason,
 				detailIsRef: verdict.ok,
 				searchText: `worker user ${property.slug} ${property.label}`,
 				kind: "destination",
@@ -356,7 +376,7 @@ export function CaseWriteEditor<F extends Field>(
 	const displayDetail =
 		current === undefined
 			? "Form answer only"
-			: `#${current.caseType}/${current.property}`;
+			: destinationRef(current.caseType, current.property);
 
 	return (
 		<div data-field-id="caseWrite" className="space-y-2.5">
