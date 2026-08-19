@@ -24,6 +24,7 @@ import {
 } from "@/lib/commcare/featureFlags";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
+import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
 import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
@@ -36,6 +37,9 @@ vi.mock("@/lib/export/boundaryValidation", () => ({
 }));
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
 vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
+vi.mock("@/lib/deployment/attachmentSpace", () => ({
+	attachmentDeploymentTargetFor: vi.fn(),
+}));
 
 const SESSION = { user: { id: "u1" } };
 
@@ -105,6 +109,9 @@ beforeEach(() => {
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
 	loadsDoc(validDoc());
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
+	// No project space holds the fixture app, which is the ordinary state
+	// for a download: an attachment link has nowhere to resolve.
+	vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({ kind: "none" });
 	vi.mocked(prepareExportBoundary).mockImplementation(
 		async (input) =>
 			({
@@ -243,5 +250,45 @@ describe("POST /api/compile/json", () => {
 		expect(res.status).toBe(500);
 		expect(body.error).not.toContain("isn't ready to export");
 		expect(expandDoc).not.toHaveBeenCalled();
+	});
+});
+/**
+ * A download carries no target of its own, so whatever the deployment record
+ * resolves has to survive all the way to the emitter. It travels through the
+ * export boundary and out the other side, and the failure mode if a hop drops
+ * it is invisible: the archive still compiles, still downloads, and quietly
+ * stops recording where its photos went.
+ */
+describe("POST /api/compile/json — attachment link target", () => {
+	it("hands the emitter nothing while no project space holds the app", async () => {
+		const res = await POST(reqWith({ appId: "a1" }));
+		// Read the body so the response stream closes (async-leak gate).
+		await res.json();
+
+		expect(expandDoc).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({ attachmentTarget: null }),
+		);
+	});
+
+	it("hands the emitter the origin and project space that do", async () => {
+		vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({
+			kind: "known",
+			target: { server: "india", domain: "acme" },
+		});
+
+		const res = await POST(reqWith({ appId: "a1" }));
+		// Read the body so the response stream closes (async-leak gate).
+		await res.json();
+
+		expect(expandDoc).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				attachmentTarget: {
+					origin: "https://india.commcarehq.org",
+					domain: "acme",
+				},
+			}),
+		);
 	});
 });

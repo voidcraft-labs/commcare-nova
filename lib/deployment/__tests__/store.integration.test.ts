@@ -366,13 +366,20 @@ describe("observation writes", () => {
 });
 
 describe("reads", () => {
-	it("serves Preview's rule from the three columns it consumes", async () => {
+	it("serves the two target rules from the four columns they consume", async () => {
 		const scope = await seed();
 		await publish(scope, "hq-1", 7);
 
+		// Preview names a project space; an attachment link needs a whole
+		// origin as well, so `server` rides along in the same read.
 		const records = await readDeploymentPreviewRecords(scope);
 		expect(records).toEqual([
-			{ state: "uploaded", resumePhase: null, domain: "acme" },
+			{
+				state: "uploaded",
+				resumePhase: null,
+				server: "production",
+				domain: "acme",
+			},
 		]);
 	});
 

@@ -181,7 +181,10 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 								...featureFlagMeta,
 							},
 						};
-						const hqJson = expandDoc(preparedDoc, hasMedia ? { assets } : {});
+						const hqJson = expandDoc(
+							preparedDoc,
+							hasMedia ? { assets, attachmentTarget } : { attachmentTarget },
+						);
 						if (!hasMedia) {
 							/* Bare HQ JSON — the caller asked for JSON and, with
 							 * no media to carry, gets JSON. */
@@ -228,6 +231,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * wrapper tells the caller to decode it. */
 						const hqJson = expandDoc(preparedDoc, {
 							assets,
+							attachmentTarget,
 							...(lookupWire && { lookupNaming: lookupWire.naming }),
 						});
 						/* Stamp the blueprint's `mutation_seq` into the profile's

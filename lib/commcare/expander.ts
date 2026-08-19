@@ -175,12 +175,18 @@ export interface ExpandOptions {
 	 * The CommCare HQ origin and project space a capture's case-bound URL
 	 * resolves against, when the caller has resolved one.
 	 *
-	 * Absent means no target is known, so a URL-mode capture emits its
-	 * question and nothing else — no address node, no bind, and no case
-	 * update. The caller reports that at export time rather than writing an
-	 * address that resolves nowhere.
+	 * `null` and absent both mean no target is known, so a URL-mode capture
+	 * emits its question and nothing else — no address node, no bind, and no
+	 * case update. The caller reports that at export time rather than writing
+	 * an address that resolves nowhere.
+	 *
+	 * `null` is admitted, not just `undefined`, because every caller reads
+	 * this off `PreparedExportBoundary`, where "no honest target" IS `null`.
+	 * Requiring each of them to spread the value away conditionally is how a
+	 * caller silently forgets to forward it at all, and a forgotten target
+	 * drops a case write from a valid app with nothing to show for it.
 	 */
-	attachmentTarget?: AttachmentUrlTarget;
+	attachmentTarget?: AttachmentUrlTarget | null;
 }
 
 export function expandDoc(

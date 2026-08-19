@@ -26,7 +26,7 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
  */
 export async function POST(req: NextRequest) {
 	try {
-		const { doc, assets, compiledAtSeq, lookupWire } =
+		const { doc, assets, compiledAtSeq, lookupWire, attachmentTarget } =
 			await prepareCompileRequest(req, {
 				boundaryErrorVerb: "compile",
 				mode: "ccz",
@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
 		// fixture blocks from the boundary's validated snapshot.
 		const hqJson = expandDoc(doc, {
 			assets,
+			attachmentTarget,
 			...(lookupWire && { lookupNaming: lookupWire.naming }),
 		});
 		const buffer = compileCcz(hqJson, doc.appName, doc, {

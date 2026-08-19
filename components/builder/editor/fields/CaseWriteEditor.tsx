@@ -151,6 +151,17 @@ export function CaseWriteEditor<F extends Field>(
 			? (value as unknown as AuthoredCaseWrite)
 			: undefined;
 	/**
+	 * Whether this field's answer is a file rather than the value itself.
+	 *
+	 * What a capture puts in the case is a link, and the link's address comes
+	 * from the CommCare HQ project space the app was published to. That is a
+	 * fact about the destination, not a reason it cannot be chosen, so it is
+	 * stated here rather than raised as a finding: every one of these
+	 * destinations is admissible, and the commit gate the verdicts run
+	 * through only ever reports states the document itself is in.
+	 */
+	const savesAttachment = isCaptureField(field);
+	/**
 	 * The destination shape this field's schema takes.
 	 *
 	 * An attachment's answer is a file name, so its destination also says
@@ -391,7 +402,9 @@ export function CaseWriteEditor<F extends Field>(
 							Choose case information
 						</h3>
 						<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-							The question name and saved case property are independent
+							{savesAttachment
+								? "Saves a link to the attached file, not the file itself"
+								: "The question name and saved case property are independent"}
 						</p>
 					</header>
 					<div className="border-y border-white/[0.06] pb-2">
@@ -473,6 +486,13 @@ export function CaseWriteEditor<F extends Field>(
 			{context !== null && writableTypes.length === 0 && (
 				<p className="text-[13px] leading-5 text-nova-text-muted">
 					No case type is available here yet.
+				</p>
+			)}
+
+			{savesAttachment && current !== undefined && (
+				<p className="text-[13px] leading-5 text-nova-text-muted">
+					Nova fills this link in once the app reaches a CommCare project space,
+					so it stays empty in the preview and in a download made before then.
 				</p>
 			)}
 

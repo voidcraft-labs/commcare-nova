@@ -1389,10 +1389,12 @@ async function assertAuthoritativePlanCompletion(
 			`Build completion refused: final export validation reported ${boundary.violations.length} finding(s).`,
 		);
 	}
-	const { doc, assets, compiledAtSeq, lookupWire } = boundary.prepared;
+	const { doc, assets, compiledAtSeq, lookupWire, attachmentTarget } =
+		boundary.prepared;
 	try {
 		const hqJson = expandDoc(doc, {
 			assets,
+			attachmentTarget,
 			...(lookupWire && { lookupNaming: lookupWire.naming }),
 		});
 		compileCcz(hqJson, doc.appName, doc, {

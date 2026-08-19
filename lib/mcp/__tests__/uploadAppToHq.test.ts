@@ -596,9 +596,17 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 
 		/* expandDoc receives `{ assets: manifest }` — this is the media-ON
 		 * flip: the emitted forms carry the jr:// itext references the
-		 * subsequent byte upload resolves. */
+		 * subsequent byte upload resolves. It also receives the attachment
+		 * target, which on this path is not resolved from history and never
+		 * absent: an upload IS the act of putting the app on this project
+		 * space, so the address its attachment links resolve against is the
+		 * one being published to. */
 		expect(expandDoc).toHaveBeenCalledWith(fixtureBlueprint(), {
 			assets: FAKE_MANIFEST,
+			attachmentTarget: {
+				origin: "https://www.commcarehq.org",
+				domain: "acme-research",
+			},
 		});
 		/* The manifest is resolved WITH bytes — the upload needs them, at the
 		 * app's PROJECT scope (the sharing boundary), not the acting caller. */

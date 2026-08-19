@@ -290,7 +290,10 @@ export async function publishAppToHq(
 	// ── Send it ─────────────────────────────────────────────────────
 	// The upload consumes the exact prepared generation preflight
 	// validated, so the bytes that passed are the bytes that go out.
-	const hqJson = expandDoc(prepared.doc, { assets: prepared.assets });
+	const hqJson = expandDoc(prepared.doc, {
+		assets: prepared.assets,
+		attachmentTarget: prepared.attachmentTarget,
+	});
 	const result = await importApp(
 		creds,
 		domain,

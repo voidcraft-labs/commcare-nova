@@ -27,16 +27,20 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
  */
 export async function POST(req: NextRequest) {
 	try {
-		const { doc, assets, compiledAtSeq } = await prepareCompileRequest(req, {
-			boundaryErrorVerb: "export",
-			mode: "hq-json",
-		});
+		const { doc, assets, compiledAtSeq, attachmentTarget } =
+			await prepareCompileRequest(req, {
+				boundaryErrorVerb: "export",
+				mode: "hq-json",
+			});
 
 		// Only a media-bearing app passes the manifest to `expandDoc`; a
 		// media-free app expands media-OFF so its JSON stays byte-identical to
 		// the pre-media output.
 		const hasMedia = assets.size > 0;
-		const hqJson = expandDoc(doc, hasMedia ? { assets } : {});
+		const hqJson = expandDoc(
+			doc,
+			hasMedia ? { assets, attachmentTarget } : { attachmentTarget },
+		);
 		// ASCII-safe name for the `Content-Disposition` HEADER (a Latin-1
 		// ByteString: non-ASCII would throw in the `Headers` constructor). The
 		// ZIP's internal member name is sanitized separately inside the builder
