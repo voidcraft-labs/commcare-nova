@@ -502,7 +502,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	RESERVED_CASE_PROPERTY: (e) =>
 		`${q(formName(e))} has a field that saves to ${q(det(e, "reservedName", "a reserved name"))}, which is a reserved name. Have it save somewhere else.`,
 	CAPTURE_CASE_WRITE_STANDARD_PROPERTY: (e) =>
-		`${q(formName(e))} saves an attachment question to ${q(det(e, "property", "a standard property"))}, which CommCare keeps for the case's own name and id. Save the attachment to a property of its own instead.`,
+		`${q(formName(e))} saves an attachment question to ${q(det(e, "property", "a standard property"))}, which CommCare keeps as the case's own ${det(e, "property", "") === "external_id" ? "external id" : "name"}. Save the attachment to a property of its own instead.`,
 	FORM_TOO_MANY_ATTACHMENTS: (e) =>
 		`${q(formName(e))} asks for ${det(e, "captureCount", "too many")} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form, a worker who answered them all couldn't submit. Split this into more than one form, or remove some attachment questions.`,
 	CLOSE_CONDITION_WRONG_TYPE: (e) =>

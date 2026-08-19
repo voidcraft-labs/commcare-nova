@@ -76,20 +76,21 @@ export function exportAdvisories(
 	const properties = attachmentLinkProperties(doc);
 	if (properties.length === 0) return [];
 
-	const subject =
-		properties.length === 1
-			? `The case property ${properties[0]} holds`
-			: `The case properties ${nameList(properties)} hold`;
+	const one = properties.length === 1;
+	const subject = one
+		? `The case property ${properties[0]} holds a link to an attached file`
+		: `The case properties ${nameList(properties)} each hold a link to an attached file`;
+	const them = one ? "it" : "them";
 	const reason =
 		attachmentTarget === "none"
-			? "This app has not reached a CommCare project space yet, so there is no address to build them from. Publishing it and downloading again fills them in."
-			: "More than one CommCare project space holds this app, so Nova cannot tell which one a link should point at. Publishing to the project space you want fills them in there.";
+			? `This app has not reached a CommCare project space yet, so there is no address to build from. Publishing the app and downloading again fills ${them} in.`
+			: `More than one CommCare project space holds this app, so Nova cannot tell which one a link should point at. Publishing to the project space you want fills ${them} in there.`;
 
 	return [
 		{
 			id: "attachment_links_without_target",
 			title: "Attachment links are empty in this file",
-			message: `${subject} a link to an attached file, and the link's address comes from the project space the app is published to. ${reason}`,
+			message: `${subject}, and the link's address comes from the project space the app is published to. ${reason}`,
 		},
 	];
 }

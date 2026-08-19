@@ -84,16 +84,20 @@ describe("exportAdvisories", () => {
 		// The properties are named, in a stable order, because "some links are
 		// missing" is not something a person can act on.
 		expect(advisory?.message).toContain(
-			"The case properties consent_url and photo_url hold",
+			"The case properties consent_url and photo_url each hold",
 		);
+		// Plural subject, plural pronoun. A mismatch here reads as machine
+		// output in the one place the reader is already unsure what happened.
+		expect(advisory?.message).toContain("fills them in");
 		expect(advisory?.message).toContain("has not reached a CommCare project");
 	});
 
 	it("uses the singular when one property is affected", () => {
 		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }]);
-		expect(exportAdvisories(doc, "none")[0]?.message).toContain(
-			"The case property photo_url holds",
-		);
+		const message = exportAdvisories(doc, "none")[0]?.message ?? "";
+		expect(message).toContain("The case property photo_url holds");
+		expect(message).toContain("fills it in");
+		expect(message).not.toContain("fills them in");
 	});
 
 	it("says which question the person is actually facing", () => {
