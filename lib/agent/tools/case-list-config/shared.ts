@@ -106,6 +106,7 @@ const [
 	idMappingColumnArm,
 	imageMapColumnArm,
 	intervalColumnArm,
+	linkColumnArm,
 	calculatedColumnArm,
 ] = columnSchema.options;
 
@@ -147,6 +148,17 @@ const imageMapColumnInputArm = imageMapColumnArm
 const intervalColumnInputArm = intervalColumnArm
 	.omit(columnToolOwnedSlots)
 	.extend(newColumnIdentity);
+/* `linkText` is described here rather than left to the prompt: it is the
+ * one column slot whose two CommCare limits decide whether an author
+ * wants the kind at all, and a slot's own description travels with the
+ * tool schema on every call instead of spending the served prompt's
+ * budget (`lib/mcp/prompts.ts::MAX_DELIVERABLE_PROMPT_CHARS`). */
+const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
+	...newColumnIdentity,
+	linkText: linkColumnArm.shape.linkText.describe(
+		'What every row\'s link says, the same wording down the whole column ("View photo"). Two CommCare limits to tell the user about: it is ONE string for every app language, because the wire has nowhere to carry a translated one, and the cell is a real link in CommCare Web Apps only — the Android app shows the address as plain text.',
+	),
+});
 const calculatedColumnInputArm = calculatedColumnArm
 	.omit(columnToolOwnedSlots)
 	.extend({ ...newColumnIdentity, expression: valueExpressionInputSchema });
@@ -158,6 +170,7 @@ export const columnInputSchema = z.discriminatedUnion("kind", [
 	idMappingColumnInputArm,
 	imageMapColumnInputArm,
 	intervalColumnInputArm,
+	linkColumnInputArm,
 	calculatedColumnInputArm,
 ]);
 export type ColumnInput = z.infer<typeof columnInputSchema>;
@@ -184,6 +197,7 @@ export const columnUpdateInputSchema = z.discriminatedUnion("kind", [
 	idMappingColumnInputArm.omit({ tile: true, columnUuid: true }),
 	imageMapColumnInputArm.omit({ tile: true, columnUuid: true }),
 	intervalColumnInputArm.omit({ tile: true, columnUuid: true }),
+	linkColumnInputArm.omit({ tile: true, columnUuid: true }),
 	calculatedColumnInputArm.omit({ tile: true, columnUuid: true }),
 ]);
 export type ColumnUpdateInput = z.infer<typeof columnUpdateInputSchema>;

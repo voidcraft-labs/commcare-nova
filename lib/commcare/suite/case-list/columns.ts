@@ -621,6 +621,33 @@ function intervalFlagXpath(args: {
 }
 
 /**
+ * Complete display expression for an authored link column, shared with the
+ * HQ JSON twin so an imported app and a downloaded `.ccz` render the same
+ * cell.
+ *
+ * `[label](address)` is the ONLY spelling that produces a link. A bare URL is
+ * not autolinked: Web Apps builds its renderer as `markdowner({breaks: true})`
+ * (`cloudcare/static/cloudcare/js/markdown.js::initMd`), leaving markdown-it's
+ * `linkify` at its `false` default, and DOMPurify sanitizes the SOURCE before
+ * rendering, which strips an `<url>` autolink too.
+ *
+ * The blank guard is not decoration: without it a row whose property is empty
+ * renders `[label]()`, a link to nowhere that looks exactly like a working
+ * one. Empty in, empty cell.
+ *
+ * The label is inlined rather than carried as a locale variable; see
+ * `linkColumnSchema` in `lib/domain/modules.ts` for why the wire leaves no
+ * room for a translated one.
+ */
+export function linkColumnDisplayXpath(
+	field: string,
+	linkText: string,
+): string {
+	const label = quoteLiteral(`[${linkText}](`, "case-list-filter");
+	return `if(${field} = '', '', concat(${label}, ${field}, ')'))`;
+}
+
+/**
  * Complete display expression for an authored interval column. HQ JSON uses
  * this same expression through its calculated-column arm; projecting to
  * CCHQ's stock `time-ago` / `late-flag` formats would discard Nova's authored
@@ -879,6 +906,8 @@ function propertyDisplayProjection(
 					? imageMapDisplayXpath(field, column.mapping, ctx.assets)
 					: plainDisplayXpath(field),
 			);
+		case "link":
+			return plain(linkColumnDisplayXpath(field, column.linkText));
 		case "interval": {
 			const projection = variable(
 				0,
@@ -899,16 +928,30 @@ function propertyDisplayProjection(
  * that carry a CCHQ `form` attribute. Centralising the lookup keeps
  * the per-kind / per-surface matrix in one place.
  *
- * Today only `phone` on long detail surfaces a non-`undefined`
- * value — `'phone'` per
- * `commcare-hq/corehq/apps/app_manager/detail_screen.py::Phone.template_form`.
- * `phone` (long detail) and `image-map` (when media is on) are the two
- * non-`undefined` cases. `image-map` → `'image'` per
- * `commcare-hq/corehq/apps/app_manager/detail_screen.py::EnumImage.template_form`,
- * so the runtime renders the display XPath's resolved jr:// path as an
- * image. Media-OFF image-map drops to `undefined` (a plain template
- * over the raw value), matching `propertyDisplayXpath`'s degradation —
- * the form attribute and the display XPath must never disagree.
+ * Three kinds surface a non-`undefined` value:
+ *
+ *   - `phone` on long detail → `'phone'` per
+ *     `commcare-hq/corehq/apps/app_manager/detail_screen.py::Phone.template_form`.
+ *   - `image-map` when media is on → `'image'` per
+ *     `commcare-hq/.../detail_screen.py::EnumImage.template_form`, so the
+ *     runtime renders the display XPath's resolved jr:// path as an image.
+ *     Media-OFF image-map drops to `undefined` (a plain template over the
+ *     raw value), matching `propertyDisplayXpath`'s degradation — the form
+ *     attribute and the display XPath must never disagree.
+ *   - `link` on every surface → `'markdown'`, the ONLY thing that makes a
+ *     case-list cell render as a link. `case_list/item.html` renders an
+ *     ordinary cell as `<%- datum %>`, escaped text; only a `Markdown` cell
+ *     reaches `renderMarkdown`. `markdown` is a declared member of the
+ *     emitted `@form` vocabulary
+ *     (`suite_xml/xml_models.py::AbstractTemplate.form`,
+ *     `detail_screen.py::Markdown.template_form`,
+ *     `commcare-core/.../suite/model/Style.java::setDisplayFormatFromString`),
+ *     and it is ungated in HQ's own format menu. CommCare Android parses it
+ *     and then ignores it: `EntityView` branches on `image`, `audio`,
+ *     `graph`, `address`, and `callout` only, and `Style.getDisplayFormat()`
+ *     has no caller anywhere in commcare-core or commcare-android, so an
+ *     Android cell shows the raw `[label](address)` text. That is stated
+ *     where the author picks the kind rather than worked around here.
  */
 function templateFormFor(
 	column: Exclude<Column, { kind: "calculated" }>,
@@ -917,6 +960,7 @@ function templateFormFor(
 ): string | undefined {
 	if (column.kind === "phone" && detailKind === "long") return "phone";
 	if (column.kind === "image-map" && assets) return "image";
+	if (column.kind === "link") return "markdown";
 	return undefined;
 }
 

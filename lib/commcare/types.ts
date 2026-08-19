@@ -100,6 +100,12 @@ export type DetailColumnFormat =
 	| "late-flag"
 	| "translatable-enum"
 	| "calculate"
+	// Renders the cell through CommCare's markdown renderer, which is the
+	// only way a case-list cell becomes a link. Registered upstream at
+	// `detail_screen.py::Markdown` (`@register_format_type('markdown')`) and
+	// unconstrained on the wire — `models/case_list.py::DetailColumn.format`
+	// is a bare `StringProperty()` with no `choices`, so it imports cleanly.
+	| "markdown"
 	| "invisible";
 
 export interface DetailColumn {

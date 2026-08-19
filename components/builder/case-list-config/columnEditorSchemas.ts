@@ -21,6 +21,7 @@
 import type { IconifyIcon } from "@iconify/react/offline";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
 import tablerHourglass from "@iconify-icons/tabler/hourglass";
+import tablerLink from "@iconify-icons/tabler/link";
 import tablerListNumbers from "@iconify-icons/tabler/list-numbers";
 import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import tablerPhone from "@iconify-icons/tabler/phone";
@@ -39,6 +40,7 @@ import {
 	idMappingColumn,
 	imageMapColumn,
 	intervalColumn,
+	linkColumn,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
@@ -48,6 +50,7 @@ import { DateColumnCard } from "./cards/column/DateColumnCard";
 import { IdMappingCard } from "./cards/column/IdMappingCard";
 import { ImageMapColumnCard } from "./cards/column/ImageMapColumnCard";
 import { IntervalCard } from "./cards/column/IntervalCard";
+import { LinkColumnCard } from "./cards/column/LinkColumnCard";
 import { PhoneColumnCard } from "./cards/column/PhoneColumnCard";
 import { PlainColumnCard } from "./cards/column/PlainColumnCard";
 import { newUuid } from "./uuid";
@@ -237,6 +240,21 @@ export const columnCardSchemas: {
 				: phoneColumn(newUuid(), field, "");
 		},
 		applicableForProperty: applicableFor("phone"),
+		applicabilityRequirement: "text or choice information",
+	},
+	link: {
+		kind: "link",
+		label: "Link",
+		icon: tablerLink,
+		description: "Open the address the value holds",
+		component: LinkColumnCard,
+		defaultValue: (ctx) => {
+			const field = pickFirstText(ctx);
+			return field === undefined
+				? undefined
+				: linkColumn(newUuid(), field, "", "Open");
+		},
+		applicableForProperty: applicableFor("link"),
 		applicabilityRequirement: "text or choice information",
 	},
 	"id-mapping": {

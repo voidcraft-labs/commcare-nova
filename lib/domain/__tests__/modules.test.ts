@@ -144,7 +144,7 @@ describe("caseListConfigSchema — three-slot shape", () => {
 	});
 });
 
-describe("columnSchema — seven discriminated arms", () => {
+describe("columnSchema — eight discriminated arms", () => {
 	it("parses every column kind with its required slots + a uuid", () => {
 		const arms: readonly Column[] = [
 			{
@@ -1207,5 +1207,40 @@ describe("caseSearchConfigHasAuthoredSettings", () => {
 				excludedOwnerIds: term(literal("x")),
 			}),
 		).toBe(true);
+	});
+});
+
+describe("columnSchema — link", () => {
+	const base = {
+		uuid: "00000000-0000-4000-8000-000000000001",
+		kind: "link" as const,
+		field: "photo_url",
+		header: "Photo",
+	};
+
+	it("accepts a complete link column", () => {
+		expect(
+			columnSchema.safeParse({ ...base, linkText: "Open photo" }).success,
+		).toBe(true);
+	});
+
+	it("refuses a square bracket in the link text", () => {
+		// The cell is emitted as `[<linkText>](<value>)`. A bracket inside
+		// the label closes it early and the row shows raw markdown instead
+		// of a link, so the state is refused rather than emitted.
+		for (const linkText of ["See [photo]", "a] b", "[x"]) {
+			expect(columnSchema.safeParse({ ...base, linkText }).success).toBe(false);
+		}
+	});
+
+	it("refuses an empty link text", () => {
+		// `[](url)` renders as a link with nothing to click.
+		expect(columnSchema.safeParse({ ...base, linkText: "" }).success).toBe(
+			false,
+		);
+	});
+
+	it("refuses a link column with no link text at all", () => {
+		expect(columnSchema.safeParse(base).success).toBe(false);
 	});
 });

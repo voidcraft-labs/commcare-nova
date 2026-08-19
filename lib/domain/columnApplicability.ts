@@ -30,8 +30,12 @@ import type { ColumnKind } from "./modules";
  *
  *   - **`date-typed`** — Date, Time-Since (interval). Their wire
  *     emitters run calendar arithmetic against the property's value.
- *   - **`text-shaped`** — Phone. The runtime tap-to-call binding
- *     expects a string-shaped value.
+ *   - **`text-shaped`** — Phone and Link. The runtime tap-to-call
+ *     binding expects a string-shaped value, and a link's address is
+ *     text. There is no `url` case-property type and adding one would
+ *     ripple through four membership sets to buy nothing the wire can
+ *     use, so a link's property is an ordinary text property — which
+ *     does mean Phone offers itself for the same property.
  *   - **`null`** — Plain, ID-Mapping, Image-Map render the stored
  *     value / a value-keyed lookup, sound on every type; Calculated
  *     has no `field` slot at all (its expression is the source, and
@@ -47,6 +51,7 @@ export function columnKindPropertyRequirement(
 		case "interval":
 			return "date-typed";
 		case "phone":
+		case "link":
 			return "text-shaped";
 		case "plain":
 		case "id-mapping":

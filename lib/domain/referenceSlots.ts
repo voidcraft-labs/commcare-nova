@@ -604,6 +604,7 @@ export const MODULE_REFERENCE_SLOTS = [
 			"id-mapping",
 			"image-map",
 			"interval",
+			"link",
 		],
 	},
 	{
@@ -1006,6 +1007,11 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].uuid": "identity",
 	"caseListConfig.columns[].kind": "discriminator",
 	"caseListConfig.columns[].header": "display-text",
+	// Display text, but NOT a translation unit: a link cell is emitted as
+	// `<template form="markdown">`, and CommCare HQ builds locale variables
+	// only for its `Enum` format subclasses, so an HQ-imported app has
+	// nowhere to carry a translated label. See `linkColumnSchema`.
+	"caseListConfig.columns[].linkText": "display-text",
 	"caseListConfig.columns[].pattern": "config",
 	"caseListConfig.columns[].sort.direction": "config",
 	"caseListConfig.columns[].sort.priority": "config",

@@ -70,6 +70,25 @@ export function renderColumnCell(
 	context: ColumnDisplayContext,
 ): React.ReactNode {
 	const displayed = projectColumnDisplay(column, row, context);
+	if (column.kind === "link") {
+		// The address is the raw property value, not the projected text —
+		// which is the label. An empty property renders an empty cell rather
+		// than a link to nowhere, matching what the emitted `if(… = '', '', …)`
+		// guard does on the device.
+		const address = caseRowDisplayValue(row, column.field).trim();
+		return address ? (
+			<a
+				href={address}
+				target="_blank"
+				rel="noopener noreferrer"
+				className="inline-flex min-h-11 min-w-11 items-center text-nova-violet-bright underline decoration-current/50 underline-offset-2 [overflow-wrap:anywhere]"
+			>
+				{displayed.text}
+			</a>
+		) : (
+			renderEmptyCell()
+		);
+	}
 	if (column.kind === "phone") {
 		const phoneNumber = displayed.text.trim();
 		return phoneNumber ? (
@@ -142,9 +161,19 @@ export function projectColumnDisplay(
 				context.projectProse,
 			);
 		case "phone":
+		// A link cell's visible text is the LABEL, not the address. Quick
+		// Filter matches what `projectColumnDisplay` returns, so returning
+		// the address here would let a worker find a row by typing a URL
+		// they never see, and never by typing the word in front of them.
+		case "link":
 			return {
 				kind: "value",
-				text: caseRowDisplayValue(row, column.field),
+				text:
+					column.kind === "link"
+						? caseRowDisplayValue(row, column.field) === ""
+							? ""
+							: column.linkText
+						: caseRowDisplayValue(row, column.field),
 			};
 		case "date":
 			return formatDateForPreview(

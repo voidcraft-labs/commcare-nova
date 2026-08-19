@@ -515,6 +515,7 @@ exports[`generated mutation-wire registry > pins every schema-derived semantic l
   "updateColumn.column[kind=id-mapping].column /column leaf optional non-null no-default discriminatedunion",
   "updateColumn.column[kind=image-map].column /column leaf optional non-null no-default discriminatedunion",
   "updateColumn.column[kind=interval].column /column leaf optional non-null no-default discriminatedunion",
+  "updateColumn.column[kind=link].column /column leaf optional non-null no-default discriminatedunion",
   "updateColumn.column[kind=phone].column /column leaf optional non-null no-default discriminatedunion",
   "updateColumn.column[kind=plain].column /column leaf optional non-null no-default discriminatedunion",
   "updateColumn.kind /kind leaf required non-null no-default literal",

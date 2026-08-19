@@ -543,6 +543,10 @@ function columnKindChangeConsequence(
 		case "plain":
 		case "phone":
 			return null;
+		case "link":
+			// The link text is the only thing a link column carries that no
+			// other kind does, and losing a word is not worth a warning.
+			return null;
 		case "date": {
 			const seed = columnCardSchemas.date.defaultValue(ctx);
 			if (seed === undefined) return null;
