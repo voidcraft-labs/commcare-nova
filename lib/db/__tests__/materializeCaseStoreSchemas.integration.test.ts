@@ -239,6 +239,7 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 		const fakeStore = {
 			drainPendingIndexConvergence: vi.fn(),
 			query: unused,
+			queryGrouped: unused,
 			count: unused,
 			insert: unused,
 			applySubmission: unused,
@@ -300,6 +301,7 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 		const fakeStore = {
 			drainPendingIndexConvergence: vi.fn(),
 			query: unused,
+			queryGrouped: unused,
 			count: unused,
 			insert: unused,
 			applySubmission: unused,
@@ -366,6 +368,7 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 		const fakeStore = {
 			drainPendingIndexConvergence: vi.fn(),
 			query: unused,
+			queryGrouped: unused,
 			count: unused,
 			insert: unused,
 			applySubmission: unused,
@@ -434,6 +437,7 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 		const fakeStore = {
 			drainPendingIndexConvergence: vi.fn(),
 			query: unused,
+			queryGrouped: unused,
 			count: unused,
 			insert: unused,
 			applySubmission: unused,
@@ -511,6 +515,7 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 		const fakeStore = {
 			drainPendingIndexConvergence: vi.fn(),
 			query: unused,
+			queryGrouped: unused,
 			count: unused,
 			insert: unused,
 			applySubmission: unused,
@@ -622,6 +627,7 @@ describe("materializeCaseStoreSchemas — monotone synced_seq gate (integration)
 		const throwingStore = {
 			drainPendingIndexConvergence: vi.fn(),
 			query: unused,
+			queryGrouped: unused,
 			count: unused,
 			insert: unused,
 			applySubmission: unused,

@@ -462,9 +462,74 @@ function checkDetails(
 			}
 			errors.push(...checkFieldStyle(fieldChildren, detailId, loc));
 		}
+
+		// C1-11: a `<group>` carries a parseable `function`, and a
+		// `header-rows` that parses as an integer when present.
+		for (const group of children.filter((c) => c.name === "group")) {
+			errors.push(...checkDetailGroup(group, detailId, loc));
+		}
 	}
 
 	return errors;
+}
+
+/**
+ * `<group>` structural checks (C1-11).
+ * `commcare-core/.../org/commcare/xml/DetailGroupParser.java::DetailGroupParser.parse`
+ * throws `InvalidStructureException` on exactly two things: a missing
+ * `function`, and a `header-rows` that is present and not an integer
+ * (`Integer.parseInt`'s `NumberFormatException` is caught and rethrown
+ * as a structured error, unlike `GridParser`'s). It validates the
+ * function with `XPathParseTool.parseXPath` and nothing else, so any
+ * parseable expression is accepted — the narrowing to a case index is
+ * Nova's own and lives in the domain schema, not here.
+ *
+ * An ABSENT `header-rows` parses clean and silently takes the client's
+ * fallback of `1`, so it is not a parse error. Nova nonetheless always
+ * writes it, because HQ's model defaults the same slot to `2`; the
+ * emitter's own contract covers that and this oracle covers the device.
+ */
+function checkDetailGroup(
+	group: Element,
+	detailId: string,
+	loc: ValidationLocation,
+): ValidationError[] {
+	const fn = getAttributeValue(group, "function");
+	if (fn === undefined || fn.trim().length === 0) {
+		return [
+			validationError(
+				"SUITE_DETAIL_GROUP_INVALID",
+				"app",
+				`The suite has a <group> in <detail id="${detailId}"> with no function attribute. CommCare requires the grouping expression and rejects the whole suite without it. This is a bug in the suite generator.`,
+				loc,
+				{ detailId },
+			),
+		];
+	}
+	if (!isParseableXPath(fn)) {
+		return [
+			validationError(
+				"SUITE_DETAIL_GROUP_INVALID",
+				"app",
+				`The suite has a <group> in <detail id="${detailId}"> whose function ${JSON.stringify(fn)} is not parseable XPath. CommCare parses the grouping expression while it installs the app and rejects the whole suite when it cannot. This is a bug in the suite generator.`,
+				loc,
+				{ detailId },
+			),
+		];
+	}
+	const headerRows = getAttributeValue(group, "header-rows");
+	if (headerRows !== undefined && !/^-?\d+$/.test(headerRows)) {
+		return [
+			validationError(
+				"SUITE_DETAIL_GROUP_INVALID",
+				"app",
+				`The suite has a <group> in <detail id="${detailId}"> whose header-rows attribute ${JSON.stringify(headerRows)} is not a whole number. CommCare reads it as an integer and rejects the whole suite when it cannot. This is a bug in the suite generator.`,
+				loc,
+				{ detailId },
+			),
+		];
+	}
+	return [];
 }
 
 /**

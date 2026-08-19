@@ -256,6 +256,14 @@ export function compileCcz(
 				? `m${mIdx}_case_short`
 				: undefined;
 
+		// The grouped-tile companion datum rides every case-loading FORM
+		// entry in a grouped module, and nothing else. CCHQ's gate is
+		// `entries.py::EntriesHelper.get_case_datums_basic_module`, which
+		// calls `get_extra_case_id_datums` only under `if form:` and only
+		// with a non-null case-selection datum — so a registration form's
+		// entry and the `caseListOnly` browse entry below never carry it.
+		const tileGrouping = mod.caseListConfig?.tile?.grouping;
+
 		// Every calc-column expression on this module's case-list short /
 		// long detail. Module-invariant (it depends only on
 		// `caseListConfig.columns`), so it's computed once here and reused
@@ -511,6 +519,7 @@ export function compileCcz(
 				form.displayCondition,
 				lookupNaming,
 				persistentTileDetailId,
+				tileGrouping,
 			);
 
 			// Re-validate after injection — catches orphaned binds or

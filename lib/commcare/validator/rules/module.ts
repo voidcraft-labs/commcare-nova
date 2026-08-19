@@ -12,6 +12,7 @@ import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
+import { caseTileGrouping } from "./case-list/caseTileGrouping";
 import { caseTileLayout } from "./case-list/caseTileLayout";
 import { columnKindPropertyType } from "./case-list/columnKindPropertyType";
 import { columnReferences } from "./case-list/columnReferences";
@@ -220,6 +221,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	ancestorExistsCannotNestSubcase,
 	sortPriorityUniqueness,
 	caseTileLayout,
+	caseTileGrouping,
 	searchInputNameUniqueness,
 	searchInputModeMatchesPropertyType,
 	searchInputTypeMatchesPropertyType,

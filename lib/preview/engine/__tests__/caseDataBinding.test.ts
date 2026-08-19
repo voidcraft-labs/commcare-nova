@@ -385,6 +385,7 @@ const BOB_CASE_ID = "40000000-0000-0000-0000-000000000002";
 function actionStore(overrides: Partial<CaseStore> = {}): CaseStore {
 	return {
 		query: vi.fn(),
+		queryGrouped: vi.fn(),
 		count: vi.fn(),
 		insert: vi.fn(),
 		applySubmission: vi.fn(),
@@ -1907,6 +1908,7 @@ describe("readCaseData", () => {
 		let calls = 0;
 		const flaky: CaseStore = {
 			query: (a) => store.query(a),
+			queryGrouped: (a) => store.queryGrouped(a),
 			count: (a) => store.count(a),
 			insert: (a) => store.insert(a),
 			applySubmission: (a) => store.applySubmission(a),
@@ -3513,6 +3515,7 @@ describe("submitFormAction", () => {
 		// snapshot and this transaction.
 		const stubStore = {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -3569,6 +3572,7 @@ describe("submitFormAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi
@@ -3618,6 +3622,7 @@ describe("submitFormAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn().mockResolvedValueOnce({
@@ -3741,6 +3746,7 @@ describe("submitFormAction", () => {
 
 		const stubStore = {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn().mockResolvedValue({
@@ -3803,6 +3809,7 @@ describe("submitFormAction", () => {
 
 		const stubStore = {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn().mockResolvedValue({
@@ -3986,6 +3993,7 @@ describe("submitFormAction", () => {
 	): CaseStore {
 		return {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission,
@@ -4895,6 +4903,7 @@ describe("loadCasesAction", () => {
 		}));
 		const stubStore = {
 			query: vi.fn().mockResolvedValueOnce(legacyRows),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -4949,6 +4958,7 @@ describe("loadCasesAction", () => {
 				.mockResolvedValueOnce([
 					{ ...buildSyntheticRow({ name: "Alice" }), calculated: {} },
 				]),
+			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(150),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -5037,6 +5047,7 @@ describe("loadCasesAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn().mockResolvedValueOnce([]),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -5084,6 +5095,7 @@ describe("loadCasesAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn().mockResolvedValueOnce([]),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -5130,6 +5142,7 @@ describe("loadCasesAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn().mockResolvedValueOnce([]),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -5204,6 +5217,7 @@ describe("loadCasesAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -5291,6 +5305,7 @@ describe("loadCaseCountAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(37),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -5438,6 +5453,7 @@ describe("resetSampleCasesAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -5528,6 +5544,7 @@ describe("resetSampleCasesAction", () => {
 		];
 		const stubStore = {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -5581,6 +5598,7 @@ describe("resetSampleCasesAction", () => {
 		materializeMock.mockResolvedValueOnce(undefined);
 		const stubStore = {
 			query: vi.fn(),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -5631,6 +5649,7 @@ describe("loadCaseDataAction session projection", () => {
 					calculated: {},
 				},
 			]),
+			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -6203,6 +6222,7 @@ describe("loadFilterPreviewAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			query: vi.fn().mockResolvedValueOnce([]),
+			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(0),
 			insert: vi.fn(),
 			applySubmission: vi.fn(),
@@ -6284,6 +6304,7 @@ describe("loadFilterPreviewAction", () => {
 		candidate.userPropertyOrder = [propertyUuid];
 		const store = actionStore({
 			query: vi.fn().mockResolvedValueOnce([]),
+			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(0),
 		});
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);

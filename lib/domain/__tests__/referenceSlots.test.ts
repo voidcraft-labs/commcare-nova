@@ -692,6 +692,7 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"caseListConfig.searchInputs[].label",
 			"caseListConfig.searchInputs[].name",
 			"caseListConfig.searchInputs[].uuid",
+			"caseListConfig.tile.grouping.identifier",
 			"caseSearchConfig.searchButtonLabel",
 			"caseSearchConfig.searchScreenSubtitle",
 			"caseSearchConfig.searchScreenTitle",

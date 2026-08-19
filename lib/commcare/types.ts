@@ -236,6 +236,32 @@ export interface DetailBase {
 	 * validators.
 	 */
 	case_tile_template: "custom" | null;
+	/**
+	 * Grouping for a tile-laid-out short detail: which case index keys
+	 * the groups, and how many of the tile's top rows are the group
+	 * header. Present ONLY when Nova authors grouping —
+	 * `models/modules.py::Module.has_grouped_tiles` gates the `<group>`
+	 * emission on a truthy `index_identifier`, and CCHQ's `Detail.wrap`
+	 * default-constructs the `SchemaProperty` when the key is absent, so
+	 * omission is the correct spelling for "not grouped". An in-place
+	 * republish cannot strand a stale value either: the import's overlay
+	 * merge replaces `modules` wholesale
+	 * (`models/applications.py::_merge_source_into_app`, pinned by
+	 * `tests/test_app_update_from_source.py::test_merge_replaces_content_from_source`).
+	 *
+	 * `index_identifier` is interpolated raw into
+	 * `string(./index/{index_identifier})` by
+	 * `suite_xml/features/case_tiles.py::CaseTileHelper.build_case_tile_detail`,
+	 * and `header_rows` becomes the `header-rows` attribute. CCHQ
+	 * validates neither — its authoring surface is a free-text box — so
+	 * the domain schema is the only thing standing between an author and
+	 * an unparseable group function.
+	 */
+	case_tile_group?: {
+		doc_type: "CaseTileGroupConfig";
+		index_identifier: string;
+		header_rows: number;
+	};
 	custom_xml: null;
 	custom_variables: null;
 }

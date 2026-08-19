@@ -220,6 +220,69 @@ export interface QueryArgs {
 }
 
 /**
+ * One cluster of a grouped case list, in the order the runtime draws
+ * them.
+ *
+ * `key` is the group key exactly as the device computes it: the target
+ * of the named case index, or the EMPTY STRING for a case that carries
+ * no such index. That is not a Nova convention —
+ * `string(./index/parent)` evaluates to `""` on a parentless child and
+ * CommCare's clustering map accepts it as an ordinary key
+ * (`commcare-core/.../cases/entity/NodeEntityFactory::getEntity`
+ * evaluates the group function to a `String`;
+ * `.../util/screen/EntityScreenHelper::groupEntities` keys a `HashMap`
+ * on it). Every case missing the index therefore lands in ONE group.
+ * There is no "ungrouped" concept anywhere in the engine, so there is
+ * none here: inventing a synthetic bucket would make the preview show
+ * something no device shows.
+ */
+export interface CaseGroup {
+	readonly key: string;
+	readonly rows: readonly CaseRowWithCalculated[];
+}
+
+/**
+ * One page of a grouped case list.
+ *
+ * `totalGroups` is the pager's denominator and comes from the same
+ * statement as `groups`, so a page and its page count cannot describe
+ * two different result sets. `totalRows` is what lets a surface say how
+ * many cases those groups hold — which matters here in a way it does
+ * not for an ordinary page, because **a grouped page is unbounded in
+ * rows**: `formplayer/.../beans/menus/EntityListResponse::getEntitiesForCurrentPage`
+ * counts group boundaries, so a window of N groups returns however many
+ * rows those groups contain. That is the platform's behavior, faithfully
+ * reproduced, not a bug to work around.
+ */
+export interface GroupedQueryResult {
+	readonly groups: readonly CaseGroup[];
+	readonly totalGroups: number;
+	readonly totalRows: number;
+}
+
+/**
+ * Arguments for `CaseStore.queryGrouped` — an ordinary case-list read
+ * plus the grouping, whose window counts GROUPS rather than rows.
+ *
+ * The window lives here rather than on `QueryArgs.limit` / `.offset`
+ * precisely so its unit is the shape and not a comment. CommCare
+ * reinterprets one pair of numbers for both meanings; Nova does not,
+ * because a caller that mixed them up would silently return the wrong
+ * page rather than fail.
+ */
+export interface GroupedQueryArgs extends Omit<QueryArgs, "limit" | "offset"> {
+	/**
+	 * The case-index identifier whose target is the group key — the
+	 * storage-side reading of the wire's `string(./index/<id>)`.
+	 */
+	readonly indexIdentifier: string;
+	/** Groups to skip. */
+	readonly groupOffset: number;
+	/** Groups to return. Every returned group is whole. */
+	readonly groupLimit: number;
+}
+
+/**
  * Arguments for `CaseStore.count`. Subset of `QueryArgs` — `count`
  * never sorts, never paginates, and never projects calculated
  * columns. The case-type arm returns the population the
@@ -293,6 +356,7 @@ export type CountArgs =
 			/** Same hold contract as `QueryArgs.includeHeld` — a count must
 			 * agree with the row list its caller pairs it with. */
 			includeHeld?: boolean;
+			missingIndexIdentifier?: never;
 	  }
 	| {
 			/**
@@ -310,6 +374,38 @@ export type CountArgs =
 			bindings?: never;
 			predicate?: never;
 			includeHeld?: boolean;
+			missingIndexIdentifier?: never;
+	  }
+	| {
+			/**
+			 * Count the cases of one type that carry NO case index with this
+			 * identifier — the population a grouped case list collects into
+			 * its single empty-key group.
+			 *
+			 * A measurement, deliberately not a predicate arm. Which cases
+			 * lack an index is runtime data, so it can never be a validator
+			 * finding: a rule keyed on it would let a worker linking the last
+			 * unlinked case silently repair an app, and unlinking one
+			 * silently break it. The authoring surface states the consequence
+			 * and shows this number beside it
+			 * (`docs/plans/complex-app/00-contracts.md` § What the commit gate
+			 * may read).
+			 *
+			 * It counts what the AUTHOR governs rather than what the running
+			 * app reaches, so held rows are included by default, matching the
+			 * Case data manager's population count rather than the running
+			 * list's probe.
+			 */
+			appId: string;
+			caseType: string;
+			missingIndexIdentifier: string;
+			ownerId?: never;
+			automationCriteria?: never;
+			caseTypeSchemas?: never;
+			lookupTableSchemas?: never;
+			bindings?: never;
+			predicate?: never;
+			includeHeld?: never;
 	  };
 
 /**
@@ -864,6 +960,27 @@ export interface CaseStore extends SchemaCaseStore {
 	 * persona removal reports and requires no case-type schema.
 	 */
 	count(args: CountArgs): Promise<number>;
+
+	/**
+	 * One page of a case list clustered by a case index, ordered and
+	 * windowed the way the device does it.
+	 *
+	 * The order of operations is the whole contract, and it is the
+	 * runtime's:
+	 * `commcare-core/.../util/screen/EntityScreenHelper::initEntities`
+	 * filters, then sorts, then calls `::groupEntities` — which assigns
+	 * each distinct key an ordinal equal to the map size at first
+	 * insertion and stably re-sorts on it, so groups follow
+	 * FIRST-APPEARANCE order under the user's sort and members keep their
+	 * post-sort order within a group. Only then does
+	 * `formplayer/.../beans/menus/EntityListResponse::getEntitiesForCurrentPage`
+	 * page, counting group boundaries on adjacent keys.
+	 *
+	 * That is why grouping cannot be applied to an already-fetched page:
+	 * a group's membership is a fact about the whole matching set, not
+	 * about fifty rows of it.
+	 */
+	queryGrouped(args: GroupedQueryArgs): Promise<GroupedQueryResult>;
 
 	/**
 	 * Insert one case row. Validates `properties` against the

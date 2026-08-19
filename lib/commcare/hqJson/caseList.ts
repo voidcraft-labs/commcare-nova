@@ -1018,6 +1018,13 @@ export function projectCaseListForHq(
  * `shortSourceColumns` is the Results-ordered source list the caller
  * already built, in the exact order it projected `detail.columns`, so
  * the two zip positionally.
+ *
+ * Grouping rides the same short detail and reaches the search-results
+ * screen through the same deep copy. CCHQ emits the `<group>` for every
+ * detail type ending in `short` — `build_case_tile_detail`'s own gate —
+ * and `ModuleDetailsMixin.get_details` supplies `search_short` from
+ * `Module.search_detail("short")`, so one written slot covers both
+ * screens exactly as the per-column placements do.
  */
 function applyTileLayoutToShortDetail(
 	shortDetail: Detail,
@@ -1027,6 +1034,13 @@ function applyTileLayoutToShortDetail(
 	if (tile === undefined) return;
 	shortDetail.case_tile_template = "custom";
 	if (tile.persistOnForms === true) shortDetail.persist_tile_on_forms = true;
+	if (tile.grouping !== undefined) {
+		shortDetail.case_tile_group = {
+			doc_type: "CaseTileGroupConfig",
+			index_identifier: tile.grouping.identifier,
+			header_rows: tile.grouping.headerRows,
+		};
+	}
 	// `hqShortSourceColumns` deliberately keeps a column hidden from Results
 	// that owns a `sort`, because CCHQ needs the field in order to sort by it —
 	// it rides as `format: "invisible"`, CCHQ's own `HideShortColumn` shape.

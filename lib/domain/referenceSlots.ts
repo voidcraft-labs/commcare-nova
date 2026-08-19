@@ -1010,6 +1010,15 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	// enumerations or booleans, so none of them can carry a reference, a
 	// case property, or authored prose a rename would need to follow.
 	"caseListConfig.tile.persistOnForms": "config",
+	// The grouping connection name is a CommCare case-INDEX identifier,
+	// written straight into the emitted `string(./index/<id>)` path step.
+	// It is wire vocabulary rather than a blueprint-entity reference:
+	// Nova models the case graph through `parent_type` plus free
+	// identifiers, so there is no entity here whose rename this slot
+	// would have to follow — the same reason
+	// `caseOperations[].links[].identifier` is a wire token.
+	"caseListConfig.tile.grouping.identifier": "wire-token",
+	"caseListConfig.tile.grouping.headerRows": "config",
 	"caseListConfig.columns[].tile.x": "config",
 	"caseListConfig.columns[].tile.y": "config",
 	"caseListConfig.columns[].tile.width": "config",

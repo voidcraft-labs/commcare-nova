@@ -290,6 +290,12 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`Two items on ${q(modName(e))}'s tile sit on top of each other. Move or resize one of them so they don't share the same space.`,
 	CASE_LIST_TILE_COLUMN_NOT_PLACED: (e) =>
 		`An item shown in ${q(modName(e))} has no place on the tile yet. Put it on the layout, or hide it from the case list.`,
+	CASE_LIST_TILE_GROUP_HEADER_ROWS_OUT_OF_RANGE: (e) =>
+		`${q(modName(e))} gives its group header every row of the tile, so nothing is left to show for each case. Give the header fewer rows, or make the tile taller.`,
+	CASE_LIST_TILE_GROUP_CELL_STRADDLES_HEADER: (e) =>
+		`An item on ${q(modName(e))}'s tile crosses the group header boundary. Move or resize it so it sits fully inside the header or fully below it.`,
+	CASE_LIST_TILE_GROUP_HEADER_EMPTY: (e) =>
+		`Nothing sits in ${q(modName(e))}'s group header, so every group would open with an empty band. Move a field the group shares into the header, or give the header fewer rows.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>
 		`An image display in ${q(modName(e))} uses ${q(det(e, "value", "the same value"))} twice, so only the first image appears. Change or remove one of the rules.`,
 	CASE_LIST_SEARCH_INPUT_SELECT_WIDGET_NOT_SUPPORTED: (e) =>
