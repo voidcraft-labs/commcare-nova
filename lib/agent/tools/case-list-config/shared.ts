@@ -156,7 +156,7 @@ const intervalColumnInputArm = intervalColumnArm
 const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
 	...newColumnIdentity,
 	linkText: linkColumnArm.shape.linkText.describe(
-		'What every row\'s link says, the same wording down the whole column ("View photo"). Two CommCare limits to tell the user about: it is ONE string for every app language, because the wire has nowhere to carry a translated one, and the cell is a real link in CommCare Web Apps only — the Android app shows the address as plain text.',
+		'What every row\'s link says, the same wording down the whole column ("View photo"). Reach for a `link` column when the property holds an address rather than a value a person reads, which is most often the property an attachment question saves to. Two CommCare limits to tell the user about: this wording is ONE string for every app language, because the wire has nowhere to carry a translated one, and the cell is a real link in CommCare Web Apps only, while the Android app shows the address as plain text.',
 	),
 });
 const calculatedColumnInputArm = calculatedColumnArm
