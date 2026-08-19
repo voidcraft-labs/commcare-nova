@@ -211,6 +211,20 @@ export interface ApplySubmissionArgs {
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
 	/**
+	 * The worker's own record, written in the same transaction.
+	 *
+	 * A SIBLING of `ordinary` rather than part of it, matching the wire: HQ's
+	 * `usercase_update` is a form action independent of `open_case` /
+	 * `update_case` / `close_case`, so a survey form with no ordinary effect at
+	 * all can still carry one — and often that is the whole point of the form.
+	 *
+	 * The row belongs to the submitting worker, so it is addressed by the
+	 * store's own bound owner rather than by an id the caller supplies: a
+	 * submission cannot write another worker's record, and there is no
+	 * parameter through which it could try.
+	 */
+	readonly usercase?: { readonly properties: JsonObject };
+	/**
 	 * Every submission claims this durable entry receipt before an ordinary or
 	 * advanced case effect runs, whether or not the form has attachment
 	 * questions. It remains present when the current blueprint no longer has a

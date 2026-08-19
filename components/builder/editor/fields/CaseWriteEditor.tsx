@@ -41,6 +41,7 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import type { CaseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWriteChoices } from "@/lib/doc/hooks/useCaseWriteChoices";
 import {
@@ -59,6 +60,8 @@ import {
 	getModuleCaseTypes,
 	humanizeId,
 	isCaptureField,
+	orderedUserProperties,
+	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 
 /**
@@ -141,6 +144,14 @@ export function CaseWriteEditor<F extends Field>(
 	const context = useSelectedFormContext();
 	const projectProse = useProseProjection();
 	const effectiveCaseTypes = useEffectiveCaseTypes();
+	// Selected as the two raw slices and ordered here, so the subscription
+	// compares stable store references rather than a fresh array every render.
+	const userProperties = useBlueprintDoc((state) => state.userProperties);
+	const userPropertyOrder = useBlueprintDoc((state) => state.userPropertyOrder);
+	const workerProperties = useMemo(
+		() => orderedUserProperties({ userProperties, userPropertyOrder }),
+		[userProperties, userPropertyOrder],
+	);
 	const { choiceVerdict } = useCaseWriteChoices(field);
 	const triggerId = useId();
 	const newNameId = useId();
@@ -240,6 +251,29 @@ export function CaseWriteEditor<F extends Field>(
 				);
 			}
 		}
+		// The worker's own record. A separate group because it is a different
+		// KIND of destination — not one of the module's case types, and not
+		// something a form can add to: the destinations are exactly the worker
+		// details declared under Worker information in App setup, so a missing
+		// one is added there rather than invented here.
+		for (const property of workerProperties) {
+			const caseWrite: CaseWrite = {
+				caseType: USERCASE_CASE_TYPE,
+				property: property.slug,
+			};
+			const verdict = choiceVerdict(caseWrite);
+			result.push({
+				id: destinationId(USERCASE_CASE_TYPE, property.slug),
+				group: "The worker's own record",
+				label: property.label || property.slug,
+				detail: verdict.ok ? `#user/${property.slug}` : verdict.reason,
+				detailIsRef: verdict.ok,
+				searchText: `worker user ${property.slug} ${property.label}`,
+				kind: "destination",
+				caseWrite,
+				...(!verdict.ok && { disabledReason: verdict.reason }),
+			});
+		}
 		if (writableTypes.length > 0) {
 			result.push({
 				id: "__new__",
@@ -256,6 +290,7 @@ export function CaseWriteEditor<F extends Field>(
 		clearVerdict,
 		destinationFor,
 		projectProse,
+		workerProperties,
 		writableTypes,
 	]);
 	const groups = useMemo<readonly CaseWriteChoiceGroup[]>(() => {

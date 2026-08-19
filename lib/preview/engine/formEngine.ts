@@ -1103,6 +1103,58 @@ export class FormEngine {
 	}
 
 	/**
+	 * Answers this form saves to the worker's own record.
+	 *
+	 * Independent of the primary case action, matching the wire: a survey form
+	 * carries these as readily as a followup does, so this runs before the
+	 * form-type switch and rides every submission arm.
+	 *
+	 * Every usercase slot is text (`usercaseCaseType` derives them all that
+	 * way, because HQ stores user data as strings), so a submitted value goes
+	 * across as it was answered rather than through `coerceValueForProperty` —
+	 * there is no declared type to coerce toward.
+	 *
+	 * A blank or hidden answer writes nothing. The emitted bind carries
+	 * `relevant="count(<path>) > 0"` for exactly that reason: a device skips
+	 * the write rather than erasing what is on the record, and Preview has to
+	 * agree or the two disagree the first time a question is conditional.
+	 */
+	private collectUsercaseWrites(): JsonObject | undefined {
+		const projected = this.projectedCaseWrites();
+		const properties: Record<string, string> = {};
+		const states = this.store.getState();
+		const walk = (
+			nodes: FieldTreeNode[],
+			prefix: string,
+			ancestorsVisible: boolean,
+		): void => {
+			for (const node of nodes) {
+				const f = node.field;
+				const fieldPath = `${prefix}/${f.id}`;
+				const effective =
+					ancestorsVisible && states[fieldPath]?.visible !== false;
+				if (f.kind === "repeat") {
+					// Admission refuses a usercase writer inside a repeat, so
+					// there is nothing to collect below one.
+					continue;
+				}
+				if (node.children) {
+					walk(node.children, fieldPath, effective);
+					continue;
+				}
+				const write = projected.writerByUuid.get(f.uuid);
+				if (write === undefined || write.bucket.kind !== "usercase") continue;
+				if (!effective) continue;
+				const raw = this.instance.get(fieldPath);
+				if (typeof raw !== "string" || raw === "") continue;
+				properties[write.writer.property] = raw;
+			}
+		};
+		walk(this.tree, "/data", true);
+		return Object.keys(properties).length > 0 ? properties : undefined;
+	}
+
+	/**
 	 * Classify a capture slot at the instant Submit reaches its form-wide
 	 * attachment barrier.
 	 *
@@ -1159,9 +1211,13 @@ export class FormEngine {
 		const operationAnswers = this.computeOperationAnswers();
 		const attachmentRefs = this.collectAttachmentReferences();
 		const projectedCaseWrites = this.projectedCaseWrites();
+		const usercaseProperties = this.collectUsercaseWrites();
 		const operationIdentity = {
 			formUuid: this.activeFormUuid() as string,
 			entryKey: args.entryKey,
+			...(usercaseProperties !== undefined && {
+				usercase: usercaseProperties,
+			}),
 			// Always present, even when empty: an empty list is the exact
 			// projection that retires every unreferenced staged attachment for
 			// this entry.

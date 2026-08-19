@@ -585,6 +585,7 @@ beforeEach(async () => {
 			// arm's `caseId`.
 			const result = await store.applySubmission(
 				submissionEnvelopeArgs(mutation, appId, {
+					usercaseWriteProperties: new Set<string>(),
 					ordinaryChildRelationships: new Map(
 						mutation.children.map(
 							(child) => [child.caseType, "child"] as const,

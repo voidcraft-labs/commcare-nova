@@ -4,6 +4,7 @@ import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { CaptureCaseWrite, CaseWrite, Field } from "@/lib/domain";
+import { USERCASE_CASE_TYPE } from "@/lib/domain";
 
 /**
  * Either destination shape a field's schema may carry.
@@ -32,7 +33,11 @@ export function caseWriteCandidateMutations(
 	caseWrite: AuthoredCaseWrite | null,
 ): readonly Mutation[] {
 	return [
-		...(caseWrite === null
+		// The worker's own case type is DERIVED from the worker-property
+		// catalog, never declared beside the app's own types — so there is
+		// nothing to declare and declaring it would put a case type in the doc
+		// that the author never asked for and cannot remove.
+		...(caseWrite === null || caseWrite.caseType === USERCASE_CASE_TYPE
 			? []
 			: declareCaseTypeMutations(doc, caseWrite.caseType)),
 		{

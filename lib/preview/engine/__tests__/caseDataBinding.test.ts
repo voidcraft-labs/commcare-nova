@@ -378,6 +378,12 @@ function submissionEnvelopeArgs(
 			: [];
 	return projectSubmissionEnvelopeArgs(mutation, appId, {
 		...built,
+		// Whatever the mutation names, unless a test says otherwise: these
+		// tests are about the envelope's other halves, and the committed-form
+		// filter has its own coverage.
+		usercaseWriteProperties:
+			built?.usercaseWriteProperties ??
+			new Set(Object.keys(mutation.usercase ?? {})),
 		ordinaryChildRelationships:
 			built?.ordinaryChildRelationships ??
 			new Map(children.map((child) => [child.caseType, "child"] as const)),

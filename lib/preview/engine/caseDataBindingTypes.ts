@@ -441,6 +441,18 @@ interface SubmissionProtocol {
 	readonly entryKey: string;
 	readonly attachmentRefs: ReadonlyArray<SubmissionAttachmentReference>;
 	readonly operationAnswers?: SubmissionOperationAnswers;
+	/**
+	 * Answers saved to the worker's own record, if the form has any.
+	 *
+	 * On the protocol rather than inside an arm because that is where the wire
+	 * puts it: `usercase_update` is independent of the primary case action, so
+	 * a survey form carries one just as a followup does.
+	 *
+	 * Not authority. The server writes it to the ACTING worker's record —
+	 * addressed by the store's own bound owner — so this names values, never a
+	 * record.
+	 */
+	readonly usercase?: JsonObject;
 }
 
 export type SubmissionMutation = SubmissionProtocol &
