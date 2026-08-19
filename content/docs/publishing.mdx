@@ -15,12 +15,13 @@ do them.
 | Step | Who does it |
 | --- | --- |
 | **Checked** | Nova, before anything is sent |
+| **Tables in place** | Nova, when the app reads any |
 | **On CommCare HQ** | Nova |
 | **Version made** | You, on CommCare HQ |
 | **Released** | You, on CommCare HQ |
 | **Ready for workers** | Nova checks it |
 
-Nova shows all five in the Publish dialog, filled in as far as you have got.
+Nova shows all of these in the Publish dialog, filled in as far as you have got.
 Open **Publish** at any time and every project space this app has reached is
 there, above the form, so a version you made on CommCare HQ last week is one
 **Check status** away, and you never have to publish again just to find out
@@ -37,6 +38,30 @@ It also reports things you should know about but that do not stop the publish,
 like a feature flag your project space does not have yet, or a persona missing
 worker information that CommCare HQ will ask for later.
 
+### Tables in place
+
+If your app reads any [lookup tables](/docs/project-data), Nova puts them on the
+project space before it sends the app, because the app looks them up by name
+while somebody is using it. An app that arrived first would install and then
+misbehave.
+
+Publishing replaces the rows of those tables on CommCare HQ with the rows in
+Nova. Tables your app does not read are left alone.
+
+This step only appears when your app reads a table.
+
+**If a table of that name is already there and Nova did not make it**, Nova
+stops rather than write over it, and names the table. Two things could be true:
+it is your table, from before you used Nova, or it belongs to something else on
+that project space. Nova cannot tell, so you choose. Tick the ones that are
+yours and publish again, and Nova will keep them up to date from then on.
+Leave one unticked and it stays exactly as it is; rename your table in Project
+data and publish again to send yours alongside it.
+
+**Renaming a table's export tag makes a new table on CommCare HQ.** The old one
+stays where it is, so nothing anybody else built on it breaks, and Nova names it
+in the dialog so you can delete it there when you no longer need it.
+
 ### On CommCare HQ
 
 Your app is now on the project space. It is not something workers can open yet.
@@ -44,9 +69,14 @@ Your app is now on the project space. It is not something workers can open yet.
 Publishing again **updates this same app in place**, name included, so the
 project space keeps one app that tracks what you build in Nova. The one
 exception: if the app was deleted on CommCare HQ since Nova put it there, Nova
-tells you so when you try, and publishing once more creates a fresh one. Any
-app an earlier publish left behind is named in the dialog so you can delete it
-on CommCare HQ when you no longer need it.
+tells you so when you try, and publishing once more creates a fresh one.
+
+Nova never deletes anything on CommCare HQ. So when a publish stops pointing at
+something it put there before, whether that is an app it replaced or a lookup
+table whose tag you renamed, the dialog names it and leaves it to you. A table
+is named by the tag it still carries on CommCare HQ, which is what you will
+look for on the Lookup Tables screen. Nothing appears here for a table you
+simply republished, only for one nothing in your app points at any more.
 
 ### Version made, and Released
 
@@ -94,8 +124,10 @@ remembers where it stopped.
 
 What to do next depends on where it stopped, and Nova says which:
 
-- **Before the app reached CommCare HQ** (a connection problem, or something in
-  the app itself): fix it and publish again.
+- **Before the app reached CommCare HQ** (a connection problem, something in the
+  app itself, or a lookup table Nova would not write over): fix it and publish
+  again. A publish that stopped on the tables never sent the app, so trying
+  again picks up from there.
 - **After it got there** (a version that would not build, a release Nova could
   not confirm): the app is already on your project space. Sort it out on
   CommCare HQ, then choose **Check status**; there is no need to publish

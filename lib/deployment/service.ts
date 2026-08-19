@@ -9,12 +9,19 @@ import {
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { requiredHqFeatureFlags } from "@/lib/commcare/featureFlags";
+import {
+	type FixtureUploadRefusal,
+	listHqLookupTables,
+	uploadLookupTableWorkbook,
+} from "@/lib/commcare/hq/lookupTables";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import { getLookupDefinitions } from "@/lib/lookup/service";
 import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { readOrganization } from "@/lib/organization/service";
@@ -23,16 +30,27 @@ import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { featureFlagReportForUpload } from "@/lib/publish/hqFeatureFlags";
 import { DeploymentError } from "./errors";
 import { observeDeployment } from "./observe";
+import type { LookupPushPlan } from "./preflight";
 import { type PreflightCheck, runDeploymentPreflight } from "./preflight";
-import { activeRemoteApp, plannedInPlaceUpdate } from "./resources";
-import { buildSetupArtifact, type SetupArtifact } from "./setupArtifact";
+import {
+	activeRemoteApp,
+	activeResource,
+	plannedInPlaceUpdate,
+} from "./resources";
+import {
+	buildSetupArtifact,
+	type SetupArtifact,
+	type SetupArtifactLookupTable,
+} from "./setupArtifact";
 import { deploymentIsObservable } from "./stateMachine";
 import {
 	applyDeploymentObservation,
 	type DeploymentScope,
 	type DeploymentTargetKey,
 	foldDeploymentAttempt,
+	type RecordRemoteResourceInput,
 	readDeployment,
+	recordPushedResources,
 	recordRemoteResource,
 } from "./store";
 import type {
@@ -116,12 +134,29 @@ export interface PublishInput {
 	readonly server: CommCareServer;
 	readonly domain: string;
 	/**
+	 * The Nova lookup tables whose name clash on the target this caller has
+	 * explicitly resolved by taking the existing table over.
+	 *
+	 * Absent means adopt nothing, which is the only safe default: a name
+	 * match is not evidence of ownership, and a publish that quietly
+	 * inherited one would attach this app to somebody else's data. The
+	 * publish dialog and MCP both have to name the exact tables.
+	 */
+	readonly adoptResourceIds?: readonly string[];
+	/**
 	 * Called once, after every blocking preflight edge has passed and just
-	 * before the app is sent. A caller that reports progress hooks in here
+	 * before anything is sent. A caller that reports progress hooks in here
 	 * so a refused publish never announces an upload that was never going
 	 * to happen.
 	 */
 	readonly onUploadStarted?: () => void;
+	/**
+	 * Called once the app's Project data is on the target, before the app
+	 * itself is sent, with how many tables landed. Only fires when there was
+	 * data to push, so a caller reporting progress never announces a step an
+	 * app without lookup tables does not have.
+	 */
+	readonly onResourcesPushed?: (tableCount: number) => void;
 }
 
 function hqAppUrlFor(
@@ -152,7 +187,100 @@ export async function setupArtifactFor(
 		domain: deployment.deployment.domain,
 		hqAppId: activeRemoteApp(deployment)?.remoteId ?? null,
 		locations: locations ?? (await artifactLocations(scope)),
+		lookupTables: await artifactLookupTables(scope, deployment, doc),
 	});
+}
+
+/**
+ * The Project data this app reads, joined with what the target holds.
+ *
+ * Definitions only — no rows. This runs on every status check, and the
+ * section says which tables Nova owns over there, a fact the ledger and
+ * the current names answer between them. Loading every row to print a
+ * count would make watching a deployment cost as much as publishing it.
+ *
+ * Degrades to none rather than throwing, for the same reason the places
+ * read does: an unavailable Project read must not take the whole artifact
+ * down when every other section is still exactly right.
+ */
+async function artifactLookupTables(
+	scope: DeploymentScope,
+	deployment: DeploymentWithResources,
+	doc: BlueprintDoc,
+): Promise<readonly SetupArtifactLookupTable[]> {
+	const targets = extractLookupReferenceTargets(doc);
+	if (targets.tableIds.length === 0) return [];
+	try {
+		const snapshot = await getLookupDefinitions(
+			{
+				projectId: scope.projectId,
+				actorId: scope.actorUserId,
+				role: scope.role,
+			},
+			targets.tableIds,
+		);
+		return snapshot.definitions.map((definition) => {
+			const mapping = activeResource(deployment, "lookup-table", definition.id);
+			return {
+				name: definition.name,
+				tag: definition.tag,
+				/* Pushed means the mapping names THIS name. A mapping left
+				 * over from before a rename describes a different table. */
+				pushed: mapping?.pushedIdentity === definition.tag,
+				adopted: mapping?.ownership === "adopted",
+			};
+		});
+	} catch (error) {
+		log.warn("[deployment] lookup definitions unavailable for artifact", {
+			appId: scope.appId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return [];
+	}
+}
+
+/**
+ * What this app's pushable resources are called on CommCare HQ right now,
+ * keyed by the Nova id the ownership ledger stores.
+ *
+ * Read for one question only: which of an earlier publish's resources are
+ * still sitting on a project space under a name nothing in Nova uses any
+ * more (`resources.ts::leftBehindResources`). A rename is what produces
+ * one, so the comparison is against the CURRENT names, never the pushed
+ * ones.
+ *
+ * `null` is "Nova could not tell", and it is a real answer rather than an
+ * empty map: an unavailable Project read would otherwise look exactly like
+ * every table having been deleted, and Nova would send somebody to
+ * CommCare HQ to clean up tables that are perfectly fine.
+ */
+export async function currentResourceIdentities(
+	scope: DeploymentScope,
+	doc: BlueprintDoc,
+): Promise<ReadonlyMap<string, string> | null> {
+	const targets = extractLookupReferenceTargets(doc);
+	if (targets.tableIds.length === 0) return new Map();
+	try {
+		const snapshot = await getLookupDefinitions(
+			{
+				projectId: scope.projectId,
+				actorId: scope.actorUserId,
+				role: scope.role,
+			},
+			targets.tableIds,
+		);
+		return new Map(
+			snapshot.definitions.map(
+				(definition) => [definition.id, definition.tag] as const,
+			),
+		);
+	} catch (error) {
+		log.warn("[deployment] lookup definitions unavailable for left-behind", {
+			appId: scope.appId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return null;
+	}
 }
 
 /**
@@ -207,9 +335,17 @@ export async function publishAppToHq(
 	};
 	const now = new Date().toISOString();
 
+	/* Read before anything is asked of CommCare HQ: the resource push is
+	 * planned against the ownership ledger, and preflight is where that
+	 * decision belongs. Null is the honest answer for a project space this
+	 * app has never reached — Nova owns nothing there. */
+	const existing = await readDeployment(input.scope, target);
+
 	const preflight = await runDeploymentPreflight({
 		doc: input.doc,
 		compiledAtSeq: input.compiledAtSeq,
+		mappings: existing?.active ?? [],
+		adoptResourceIds: input.adoptResourceIds ?? [],
 		access: {
 			projectId: input.scope.projectId,
 			role: input.scope.role,
@@ -229,8 +365,10 @@ export async function publishAppToHq(
 		const refusal: DeploymentAttemptRefusal = {
 			phase: "preflight",
 			failure: preflight.outcome.failure,
+			/* Empty unless the refusal WAS a name clash, in which case these
+			 * are the exact resources a person may name back to take over. */
+			resourceConflicts: preflight.conflicts,
 		};
-		const existing = await readDeployment(input.scope, target);
 		const deployment =
 			existing === null
 				? null
@@ -245,16 +383,21 @@ export async function publishAppToHq(
 			refusal,
 			deployment,
 			checks: preflight.checks,
-			artifact: buildSetupArtifact({
-				doc: input.doc,
-				server: input.server,
-				domain: input.domain,
-				hqAppId:
-					deployment === null
-						? null
-						: (activeRemoteApp(deployment)?.remoteId ?? null),
-				locations: await artifactLocations(input.scope),
-			}),
+			/* A target this app has reached still gets its full artifact,
+			 * including which Project data Nova owns there: the refusal
+			 * belongs to this attempt, and none of that stopped being true.
+			 * A first publish that never got there has nothing to describe
+			 * beyond the app itself. */
+			artifact:
+				deployment === null
+					? buildSetupArtifact({
+							doc: input.doc,
+							server: input.server,
+							domain: input.domain,
+							hqAppId: null,
+							locations: await artifactLocations(input.scope),
+						})
+					: await setupArtifactFor(input.scope, deployment, input.doc),
 			warnings: [],
 			featureFlags: preflight.featureFlags,
 			hqAppUrl:
@@ -278,8 +421,57 @@ export async function publishAppToHq(
 		{ ensure: true },
 	);
 
-	const { creds, domain, prepared } = preflight.ready;
+	const { creds, domain, prepared, lookupPush } = preflight.ready;
 	input.onUploadStarted?.();
+
+	// ── Put the data there first ────────────────────────────────────
+	// The app's selects read these tables by name at runtime, so an app
+	// that arrived first would be installable and broken. Nothing about
+	// the app itself has been sent at this point, which is what makes a
+	// failure here resumable without re-importing anything.
+	if (lookupPush !== null) {
+		const pushed = await pushLookupTables(
+			input.scope,
+			target,
+			creds,
+			domain,
+			lookupPush,
+		);
+		if (pushed.failure !== null) {
+			deployment = await foldDeploymentAttempt(
+				input.scope,
+				target,
+				"resources",
+				{
+					status: "failed",
+					at: new Date().toISOString(),
+					failure: pushed.failure,
+				},
+			);
+			return {
+				landed: false,
+				refusal: {
+					phase: "resources",
+					failure: pushed.failure,
+					resourceConflicts: [],
+				},
+				deployment,
+				checks: preflight.checks,
+				artifact: await setupArtifactFor(input.scope, deployment, input.doc),
+				warnings: [],
+				featureFlags: preflight.featureFlags,
+				/* A republish that stumbles on the data still has an app over
+				 * there from last time, and the link to it is still right. */
+				hqAppUrl: hqAppUrlFor(
+					input.server,
+					input.domain,
+					activeRemoteApp(deployment)?.remoteId ?? null,
+				),
+			};
+		}
+		deployment = pushed.deployment ?? deployment;
+		input.onResourcesPushed?.(lookupPush.pushes.length);
+	}
 
 	/* Update in place, or create. The predicate and its rationale live in
 	 * `plannedInPlaceUpdate` (`resources.ts`), which the publish dialog
@@ -290,9 +482,13 @@ export async function publishAppToHq(
 	// ── Send it ─────────────────────────────────────────────────────
 	// The upload consumes the exact prepared generation preflight
 	// validated, so the bytes that passed are the bytes that go out.
+	/* The naming has to travel with the app, not just with the data. A
+	 * lookup-backed select compiles to an `instance(...)` reference whichever
+	 * mode is emitting, and `buildXForm` refuses without it. */
 	const hqJson = expandDoc(prepared.doc, {
 		assets: prepared.assets,
 		attachmentTarget: prepared.attachmentTarget,
+		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
 	});
 	const result = await importApp(
 		creds,
@@ -332,7 +528,7 @@ export async function publishAppToHq(
 			deployment = observed.view;
 			return {
 				landed: false,
-				refusal: { phase: "upload", failure },
+				refusal: { phase: "upload", failure, resourceConflicts: [] },
 				deployment,
 				checks: preflight.checks,
 				artifact: await setupArtifactFor(input.scope, deployment, input.doc),
@@ -357,7 +553,7 @@ export async function publishAppToHq(
 		});
 		return {
 			landed: false,
-			refusal: { phase: "upload", failure },
+			refusal: { phase: "upload", failure, resourceConflicts: [] },
 			deployment,
 			checks: preflight.checks,
 			artifact: await setupArtifactFor(input.scope, deployment, input.doc),
@@ -422,6 +618,191 @@ export async function publishAppToHq(
 		warnings,
 		featureFlags: featureFlagReportForUpload(domain, await flagProbes),
 		hqAppUrl: hqAppUrlFor(input.server, domain, result.appId),
+	};
+}
+
+/**
+ * Put every table this app reads on the project space, and record what
+ * Nova now owns there.
+ *
+ * One workbook, one upload, one ledger write. The upload is CommCare HQ's
+ * whole-table replacement, so afterwards each of these tables holds
+ * exactly what Nova holds — which is why a retry is simply the same push
+ * again and needs no per-row bookkeeping to be safe.
+ *
+ * The re-read afterwards is not belt-and-braces: the fixture upload
+ * answers with a human summary and no ids at all, so the only way to learn
+ * what CommCare HQ called the tables it just made is to ask. A table
+ * missing from that answer means the upload reported success and did not
+ * produce it, which is a state Nova refuses rather than records.
+ *
+ * Every path that leaves tables ON the project space records them, the
+ * refusals included. CommCare HQ's `warning` verdict means the workbook
+ * was processed and part of it did not take, and a refusal that wrote no
+ * mapping would leave Nova's own tables looking like a stranger's — the
+ * next publish would stop and ask a person to confirm that tables Nova
+ * made are theirs to take over.
+ */
+async function pushLookupTables(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	creds: CommCareCredentials,
+	domain: string,
+	plan: LookupPushPlan,
+): Promise<{
+	readonly failure: DeploymentFailure | null;
+	/** What the ledger holds now. Null only when nothing was written. */
+	readonly deployment: DeploymentWithResources | null;
+}> {
+	const upload = await uploadLookupTableWorkbook(
+		creds,
+		domain,
+		plan.workbook.bytes,
+		{ replace: true },
+	);
+	const refusal = upload.success === false ? upload : null;
+	if (refusal !== null && !refusal.mayHaveLanded) {
+		/* Nothing reached the project space: either the request never got
+		 * past the view, or `validate_fixture_file_format` raised before
+		 * `upload_fixture_file` ran. So there is nothing to record. */
+		return { failure: lookupUploadFailure(refusal, domain), deployment: null };
+	}
+
+	const remote = await listHqLookupTables(creds, domain);
+	if ("success" in remote) {
+		/* Two different stories end here, and telling the wrong one is
+		 * worse than saying less. If the upload itself was refused, this
+		 * read was only Nova trying to find out what survived — reporting
+		 * it as "CommCare HQ took your tables" would announce a success
+		 * that did not happen, and would bury the one sentence naming what
+		 * was actually wrong with the data. */
+		if (refusal !== null) {
+			return {
+				failure: lookupUploadFailure(refusal, domain),
+				deployment: null,
+			};
+		}
+		return {
+			failure: {
+				code: "hq_resource_state_unknown",
+				message: `CommCare HQ took this app's lookup tables for “${domain}” but then would not confirm them, so the app was not sent. The tables are on the project space, so publishing again may ask you to confirm they are yours before it carries on.`,
+				details: [],
+			},
+			deployment: null,
+		};
+	}
+	const remoteByTag = new Map(
+		remote.map((table) => [table.tag, table] as const),
+	);
+
+	const mappings: RecordRemoteResourceInput[] = [];
+	const missing: string[] = [];
+	for (const push of plan.pushes) {
+		const landed = remoteByTag.get(push.tag);
+		if (landed === undefined) {
+			missing.push(push.tag);
+			continue;
+		}
+		mappings.push({
+			kind: "lookup-table",
+			novaResourceId: push.tableId,
+			remoteId: landed.id,
+			ownership: push.ownership,
+			pushedIdentity: push.tag,
+			adoptedBy: push.ownership === "adopted" ? scope.actorUserId : null,
+			/* A lookup table's own generation, not the app's: its rows change
+			 * outside the blueprint, so the app's sequence would say nothing
+			 * about whether the pushed copy is current. */
+			pushedRevision: null,
+			remoteRevision: null,
+		});
+	}
+	/* What is over there is over there, whether or not the whole push
+	 * worked. Recording it before returning a refusal leaves Nova owning
+	 * the tables it made, so a retry updates them instead of asking a
+	 * person to adopt Nova's own work. `partial` supersedes nothing: a
+	 * table this push never reached has not been left behind. */
+	const recordPartial = async (): Promise<DeploymentWithResources | null> =>
+		mappings.length === 0
+			? null
+			: recordPushedResources(scope, target, mappings, { status: "partial" });
+
+	if (refusal !== null) {
+		log.warn("[deployment] lookup table upload partly refused", {
+			domain,
+			appId: scope.appId,
+			recorded: mappings.length,
+		});
+		return {
+			failure: lookupUploadFailure(refusal, domain),
+			deployment: await recordPartial(),
+		};
+	}
+
+	if (missing.length > 0) {
+		log.error("[deployment] lookup tables absent after upload", undefined, {
+			domain,
+			appId: scope.appId,
+			tags: missing.join(","),
+		});
+		return {
+			failure: {
+				code: "hq_rejected_resource_push",
+				message: `CommCare HQ reported this app's lookup tables as uploaded but does not list them all, so the app was not sent. Check the lookup tables on “${domain}”, then publish again.`,
+				details: missing,
+			},
+			deployment: await recordPartial(),
+		};
+	}
+
+	const deployment = await recordPushedResources(scope, target, mappings, {
+		status: "complete",
+		kinds: ["lookup-table"],
+		pushedAt: new Date().toISOString(),
+	});
+	log.info("[deployment] lookup tables pushed", {
+		domain,
+		appId: scope.appId,
+		tables: mappings.length,
+	});
+	return { failure: null, deployment };
+}
+
+/**
+ * CommCare HQ's refusal of a workbook, in Nova's voice, with its own
+ * sentence kept.
+ *
+ * The synchronous upload path exists for that sentence: it names the
+ * sheet, the row, or the column that CommCare HQ would not take, which is
+ * the only thing that tells a person what to fix. Nova supplies the part
+ * CommCare HQ cannot know — that the app was held back because its data
+ * was — and the permission hint only where the status says permissions
+ * are the answer.
+ */
+function lookupUploadFailure(
+	refusal: FixtureUploadRefusal,
+	domain: string,
+): DeploymentFailure {
+	const permissions = refusal.status === 401 || refusal.status === 403;
+	return {
+		code: "hq_rejected_resource_push",
+		/* Three sentences, because three different things happened over
+		 * there. `mayHaveLanded` is the one that must not be softened: the
+		 * push uses `replace`, so a workbook CommCare HQ half took has
+		 * already replaced the rows in the tables it did take. Telling
+		 * somebody nothing was taken would invite them to believe their
+		 * project space is as they left it. */
+		message: permissions
+			? `CommCare HQ wouldn't let Nova put this app's lookup tables on “${domain}”, so the app was not sent. Uploading them needs the Edit Data permission on your CommCare HQ account.`
+			: refusal.mayHaveLanded
+				? `CommCare HQ took only part of this app's lookup tables for “${domain}”, so the app was not sent. The tables it did take now hold what Nova sent. Fix what it names below, then publish again to put the rest there.`
+				: `CommCare HQ would not take this app's lookup tables for “${domain}”, so the app was not sent and nothing on the project space changed.`,
+		/* One bullet per line: `_upload_fixture_api` joins a formatting
+		 * complaint's errors with newlines, and a list reads as a list. */
+		details: refusal.message
+			.split("\n")
+			.map((line) => line.trim())
+			.filter((line) => line !== ""),
 	};
 }
 

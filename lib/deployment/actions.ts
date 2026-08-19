@@ -7,10 +7,16 @@ import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
 import { DeploymentError } from "./errors";
 import { previewProjectSpaceFor } from "./previewSpace";
-import { refreshDeployment, setupArtifactFor } from "./service";
+import { leftBehindResources } from "./resources";
+import {
+	currentResourceIdentities,
+	refreshDeployment,
+	setupArtifactFor,
+} from "./service";
 import type { SetupArtifact } from "./setupArtifact";
 import { type DeploymentScope, readDeploymentsForApp } from "./store";
 import {
+	type DeploymentResource,
 	type DeploymentWithResources,
 	deploymentAppIdSchema,
 	deploymentTargetSchema,
@@ -34,6 +40,17 @@ import {
 export interface DeploymentView {
 	readonly deployment: DeploymentWithResources;
 	readonly artifact: SetupArtifact;
+	/**
+	 * What an earlier publish left on the project space and this app no
+	 * longer points at.
+	 *
+	 * Derived HERE rather than in the dialog, because telling a rename
+	 * (something really is sitting there) from a recreate (nothing is)
+	 * needs to know what each resource is called right now, which is a
+	 * server-side read. It is also the same derivation MCP's `left_behind`
+	 * uses, so the two surfaces cannot disagree about what is abandoned.
+	 */
+	readonly leftBehind: readonly DeploymentResource[];
 }
 
 /**
@@ -186,6 +203,10 @@ export async function refreshDeploymentAction(
 			success: true,
 			data: {
 				...refreshed,
+				leftBehind: leftBehindFor(
+					refreshed.deployment,
+					await currentResourceIdentities(resolved.scope, doc),
+				),
 				previewProjectSpace: await previewProjectSpaceFor(resolved.scope),
 			},
 		};
@@ -226,6 +247,9 @@ export async function readDeploymentsAction(
 		 * to any one project space, so building three artifacts must not cost
 		 * three reads of the same rows. */
 		const { doc, locations } = await committedDocWithLocations(resolved.scope);
+		/* Also once: the names belong to the app's tables, not to any one
+		 * project space, and `null` means Nova could not tell. */
+		const identities = await currentResourceIdentities(resolved.scope, doc);
 		return {
 			success: true,
 			data: await Promise.all(
@@ -237,12 +261,30 @@ export async function readDeploymentsAction(
 						doc,
 						locations,
 					),
+					leftBehind: leftBehindFor(deployment, identities),
 				})),
 			),
 		};
 	} catch (error) {
 		return failure(error, "read", resolved.scope);
 	}
+}
+
+/**
+ * One deployment's left-behind list, or nothing when Nova could not tell.
+ *
+ * `null` identities means the Project read was unavailable, which is NOT
+ * the same as every table having been deleted. Falling back to apps only
+ * keeps the honest half of the answer rather than sending somebody to
+ * CommCare HQ after tables that are perfectly fine.
+ */
+function leftBehindFor(
+	deployment: DeploymentWithResources,
+	identities: ReadonlyMap<string, string> | null,
+): readonly DeploymentResource[] {
+	return identities === null
+		? deployment.superseded.filter((resource) => resource.kind === "app")
+		: leftBehindResources(deployment, identities);
 }
 
 function failure(

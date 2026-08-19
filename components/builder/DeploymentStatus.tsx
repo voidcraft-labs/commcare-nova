@@ -3,15 +3,15 @@
  * to do there.
  *
  * The whole component exists to keep one promise: never imply the app is
- * further along than it is. The five progress states are drawn as a
+ * further along than it is. The progress states are drawn as a
  * ladder, the reached ones filled and the rest plainly not, and a state
  * Nova has not observed says what is missing rather than showing a
  * hopeful blank. `incomplete` is drawn as a refusal, not as a rung.
  *
- * Nova can put the app on a project space but cannot make a version or
- * release one, because CommCare HQ allows both only from a signed-in
- * browser session. So the last three rungs are things this screen WATCHES,
- * and the setup notes are how somebody makes them happen.
+ * Nova can put the tables and the app on a project space but cannot make
+ * a version or release one, because CommCare HQ allows both only from a
+ * signed-in browser session. So the last three rungs are things this
+ * screen WATCHES, and the setup notes are how somebody makes them happen.
  */
 "use client";
 
@@ -30,6 +30,7 @@ import {
 	DEPLOYMENT_STATE_PRODUCING_PHASE,
 	type DeploymentPhase,
 	type DeploymentProgressState,
+	type DeploymentResource,
 	deploymentDisplaysAsReached,
 	deploymentIsObservable,
 } from "@/lib/deployment";
@@ -44,6 +45,7 @@ import { useBuilderSessionApi } from "@/lib/session/provider";
 /** What each rung means, in the author's words. */
 const STATE_LABELS: Readonly<Record<DeploymentProgressState, string>> = {
 	preflight: "Checked",
+	resources: "Tables in place",
 	uploaded: "On CommCare HQ",
 	built: "Version made",
 	released: "Released",
@@ -59,6 +61,8 @@ const STATE_LABELS: Readonly<Record<DeploymentProgressState, string>> = {
  */
 const RESUME_SENTENCE: Readonly<Record<DeploymentPhase, string>> = {
 	preflight: "Try publishing again once it is sorted.",
+	resources:
+		"Try publishing again once it is sorted. The app itself has not been sent yet.",
 	upload: "Try publishing again once it is sorted.",
 	build:
 		"Nothing before this needs doing again. Choose Check status once CommCare HQ has built it.",
@@ -86,6 +90,18 @@ export function DeploymentStatus({
 	onUpdated: (next: RefreshedDeploymentView) => void;
 }) {
 	const record = view.deployment.deployment;
+	/* An app that reads no Project data table has no tables rung: drawing
+	 * it would leave a step permanently unticked at preflight and then tick
+	 * it on upload for work that never ran. The artifact is the honest
+	 * signal because it regenerates from the document on every read, so the
+	 * rung appears the moment a select starts reading a table and goes when
+	 * the last one stops. */
+	const pushesTables = view.artifact.sections.some(
+		(section) => section.id === "lookup-tables",
+	);
+	const rungs = pushesTables
+		? DEPLOYMENT_PROGRESS_STATES
+		: DEPLOYMENT_PROGRESS_STATES.filter((state) => state !== "resources");
 	const sessionApi = useBuilderSessionApi();
 	const [pending, startTransition] = useTransition();
 	const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -170,7 +186,7 @@ export function DeploymentStatus({
 			{/* The ladder. Each rung states its own condition, so nothing is
 			    conveyed by fill alone. */}
 			<ol className="mt-3 flex flex-col gap-1.5">
-				{DEPLOYMENT_PROGRESS_STATES.map((state) => {
+				{rungs.map((state) => {
 					const reached = deploymentDisplaysAsReached(record, state);
 					const outcome =
 						record.phases[DEPLOYMENT_STATE_PRODUCING_PHASE[state]];
@@ -258,22 +274,7 @@ export function DeploymentStatus({
 				</p>
 			) : null}
 
-			{view.deployment.superseded.length > 0 ? (
-				<p className="mt-3 text-[13px] leading-relaxed text-nova-text-secondary">
-					{view.deployment.superseded.length === 1
-						? "An earlier publish left an app behind"
-						: `Earlier publishes left ${view.deployment.superseded.length} apps behind`}{" "}
-					on this project space:{" "}
-					{view.deployment.superseded
-						.map((resource) => resource.remoteId)
-						.join(", ")}
-					. If {view.deployment.superseded.length === 1 ? "it is" : "they are"}{" "}
-					still there, you can delete{" "}
-					{view.deployment.superseded.length === 1 ? "it" : "them"} on CommCare
-					HQ when you no longer need{" "}
-					{view.deployment.superseded.length === 1 ? "it" : "them"}.
-				</p>
-			) : null}
+			<LeftBehindNotice resources={view.leftBehind} />
 
 			<SetupNotes sections={view.artifact.sections} />
 		</section>
@@ -287,6 +288,49 @@ export function DeploymentStatus({
  * something to read every time, and each section states its own scope so
  * a closed one is still self-describing.
  */
+/**
+ * What an earlier publish left on the project space.
+ *
+ * Two things this deliberately does NOT do. It does not read
+ * `deployment.superseded`, because a table deleted on CommCare HQ and
+ * recreated by the next push supersedes its mapping while leaving nothing
+ * there, and sending somebody to tidy up a table that does not exist costs
+ * them a trip for nothing. And it does not call everything an app: a
+ * renamed lookup table is the common case now, so each resource says what
+ * it is and is named by the thing a person will actually recognize on
+ * CommCare HQ, which for a table is its tag rather than its id.
+ */
+function LeftBehindNotice({
+	resources,
+}: {
+	resources: readonly DeploymentResource[];
+}) {
+	if (resources.length === 0) return null;
+	const named = resources.map((resource) =>
+		resource.kind === "lookup-table"
+			? `the lookup table ${resource.pushedIdentity ?? resource.remoteId}`
+			: `the app ${resource.remoteId}`,
+	);
+	const one = resources.length === 1;
+	return (
+		<p className="mt-3 text-[13px] leading-relaxed text-nova-text-secondary">
+			{one
+				? "An earlier publish left something behind"
+				: `Earlier publishes left ${resources.length} things behind`}{" "}
+			on this project space: {formatList(named)}. Nova does not delete anything
+			on CommCare HQ, so {one ? "it is" : "they are"} still there until you
+			remove {one ? "it" : "them"} yourself.
+		</p>
+	);
+}
+
+/** "a", "a and b", "a, b, and c". */
+function formatList(items: readonly string[]): string {
+	if (items.length <= 1) return items[0] ?? "";
+	if (items.length === 2) return `${items[0]} and ${items[1]}`;
+	return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
 function SetupNotes({
 	sections,
 }: {

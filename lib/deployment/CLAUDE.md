@@ -22,10 +22,21 @@ An API key can import an app. It cannot make a build or release one.
 | Install a build | `views/download.py::download_odk_profile` — no login decorator |
 | Web Apps | `cloudcare/views.py::FormplayerMain` — session only, plus the `CLOUDCARE` privilege |
 
-So Nova **drives** `preflight` and `upload`, and **observes** `build`,
-`release`, and `probe`. That is not a limitation to engineer around: it is
-why the setup artifact's build-and-release section is a real instruction
+So Nova **drives** `preflight`, `resources`, and `upload`, and **observes**
+`build`, `release`, and `probe`. That is not a limitation to engineer around:
+it is why the setup artifact's build-and-release section is a real instruction
 rather than a placeholder.
+
+| Operation | CommCare HQ authority |
+| --- | --- |
+| Read the lookup tables | `fixtures/resources/v0_1.py::LookupTableResource` — tastypie, so the domain's paid API_ACCESS privilege AND the account's `access_api` permission |
+| Upload lookup tables | `fixtures/views.py::upload_fixture_api` — `@api_auth()` + `@require_can_edit_fixtures`, needing neither of the above |
+
+That asymmetry is load-bearing rather than trivia: a project space can accept
+the push while refusing to say what it already holds, so the read's failure is
+a BLOCKING preflight edge. Treating "could not ask" as "there are none" is the
+one reading that turns a permissions problem into somebody's data being
+overwritten.
 
 **The probe is a device install request, not a pure read.** Despite the
 URL, it does NOT reach `views/download.py::download_odk_profile`:
@@ -51,7 +62,16 @@ A 3xx is "could not check", never "not installable":
 
 ## The state machine
 
-`preflight → uploaded → built → released → runnable`, plus `incomplete`.
+`preflight → resources → uploaded → built → released → runnable`, plus
+`incomplete`.
+
+`resources` is what the app DEPENDS ON, put there before the app itself. Its
+first inhabitant is the app's lookup tables, and the ordering is the reason it
+is a rung rather than a step inside the upload: the app's selects read those
+tables by name while somebody is using it, so an app that arrived first would
+install and misbehave. A publish refused at `resources` sent nothing of the
+app, which is what makes its retry cheap — it re-pushes the data and never
+re-imports the app.
 
 `incomplete` is a refusal, not a rung: it has no position on the ladder,
 and `deploymentHasReached` answers `false` for every target while a
@@ -99,6 +119,13 @@ silent no-op is indistinguishable from a check that found nothing new, and
 somebody would press Check status forever waiting for a rung Nova was never
 going to ask about.
 
+**A SUCCEEDED resource push folds through `applyAttemptOutcome` too.** It is
+the only driven phase whose success is not the app landing, and folding it
+plainly would set a `runnable` deployment's state to `resources` — reporting a
+live app as not yet sent, from a republish that was going fine. The MAPPINGS
+are written either way, because those are target information: the tables really
+are there now.
+
 **A refused ATTEMPT writes nothing on a reached target.** The state
 describes the project space, not the publish. An expired API key blocking
 preflight against an already-released deployment changes NOTHING durable:
@@ -117,7 +144,7 @@ released on CommCare HQ whose probe failed would be walked back to
 re-publish as the only way forward.
 
 For a related reason `deploymentIsObservable` stops `refreshDeployment`
-observing a deployment refused at `preflight` or `upload`: it may still
+observing a deployment refused at `preflight`, `resources`, or `upload`: it may still
 hold an earlier publish's mapping, so observing would fold green outcomes
 over the refusal and destroy the phase a retry resumes from. The one
 `upload` exception is `remote_app_missing`, which observation itself
@@ -143,10 +170,18 @@ serving the old one.
 
 ## Preflight is a graph with two kinds of edge
 
-A **blocking** edge is a real prerequisite: no connection, or an app the
-export boundary refuses. Failing one leaves the deployment `incomplete`
-rather than succeeding with a warning attached, and nothing externally
-visible has happened.
+A **blocking** edge is a real prerequisite: no connection, an app the export
+boundary refuses, or Project data Nova may not write over. Failing one leaves
+the deployment `incomplete` rather than succeeding with a warning attached, and
+nothing externally visible has happened.
+
+`project-data` is the one edge that TALKS to CommCare HQ during preflight, and
+it appears only when the app reads a lookup table. It reads the target's tables
+and plans the push (`lookupResourcePlan.ts`), refusing on any tag the target
+already uses for a table Nova cannot account for. The refusal is
+all-or-nothing, because the workbook is one upload: a plan that pushed the
+unambiguous tables and skipped the rest would leave the project space holding an
+app's data half-updated with no state that describes it.
 
 An **attention** edge is something the target needs that Nova cannot do
 from here, so it becomes a line in the setup artifact. Required worker
@@ -161,13 +196,30 @@ target's configuration edit the app.
 
 ## Ownership, and why superseded rows are kept
 
-`app_deployment_resources` is the ledger. Nova repoints or updates only
-what it created (`nova-created`), which is the only ownership there is.
-**There is deliberately no arm for "matched by name"** — two project
-spaces can hold unrelated apps called "Household Survey", and picking one
-would silently attach a deployment to somebody else's work. Nova pushes to
-CommCare HQ and never reads an app back, so it could not verify such a
-guess even if it made one.
+`app_deployment_resources` is the ledger. Nova repoints or updates what it
+created (`nova-created`) and what somebody explicitly handed it (`adopted`).
+**There is deliberately no arm for "matched by name"** — two project spaces can
+hold unrelated apps called "Household Survey", or unrelated tables tagged
+`districts`, and picking one would silently attach a deployment to somebody
+else's work.
+
+`adopted` is never inferred. A publish that meets a name it cannot account for
+REFUSES and names the resource; the caller comes back with
+`adoptResourceIds` carrying the exact Nova ids a person confirmed, and only
+those become `adopted` mappings. The ledger records who and when (`adopted_at`
+/ `adopted_by`, set together and never alone, enforced by a CHECK and by
+`store.ts::writeResourceMapping` so the failure names the call rather than the
+constraint). Once recorded, the decision stands: later publishes read the
+mapping rather than asking again.
+
+`pushed_identity` is the external name a resource carries on CommCare HQ — a
+lookup table's tag. A rename is what makes it load-bearing: Nova pushes the new
+name as a NEW resource, supersedes the mapping, and the old table is still
+sitting on the project space under the old name, which is the only way anybody
+will find it there. `resources.ts::leftBehindResources` therefore tests the
+NAME, not the supersession: a table deleted on CommCare HQ and recreated by the
+next push supersedes its mapping and leaves nothing behind, and reporting it
+would send somebody to tidy up a table that does not exist.
 
 An ordinary republish updates the mapped app in place: the import
 carries the active mapping's remote id (`plannedInPlaceUpdate`,
@@ -177,9 +229,27 @@ no active mapping, or when a persisted upload failure says the mapped app
 is gone — the 404 CommCare HQ answers an update with folds through
 `applyDeploymentObservation` as a `remote_app_missing` upload failure
 (target information, not attempt information), the publish refuses, and
-the NEXT publish creates and supersedes the dead mapping. That recreate,
-plus rows from before in-place updates existed, is the only route to a
-superseded row. It is kept with `superseded_at` set rather than deleted,
+the NEXT publish creates and supersedes the dead mapping.
+
+That recreate, plus rows from before in-place updates existed, is how an
+APP row is superseded. A lookup table has two more routes, both of which
+leave something real on the project space. Renaming a tag makes a new
+table over there, so the old mapping is superseded and the old table
+stays where it is. And dropping the last select that read a table
+supersedes its mapping too — a push is the authoritative statement of
+which tables the app still uses, so `recordPushedResources` supersedes
+every live table row it does not name. Nova deletes nothing either way;
+it stops CLAIMING the table, which is what lets the report name it.
+
+Only a `complete` push says that, though. CommCare HQ answers a workbook
+it half took with `warning`, and those tables are on the project space:
+the push records them as `partial`, which writes the mappings, supersedes
+nothing, and folds no rung. Recording is not optional on a refusal — a
+table Nova made and never wrote a mapping for reads as a stranger's on
+the next publish, which would stop and ask somebody to adopt Nova's own
+work.
+
+A superseded row is kept with `superseded_at` set rather than deleted,
 because "report any old remote resource left behind" is impossible if
 the row is thrown away. A partial unique index makes two live mappings
 for one Nova resource unrepresentable.
@@ -210,10 +280,13 @@ record's phases.** The record answers "what does the project space hold";
 against an app that is already released there, where the record stays
 `runnable` because it still is — and carries no failure at all, because
 the refusal was the attempt's. `onUploadStarted` fires once, after every
-blocking preflight edge passes and before the import goes out, so a
-caller that reports progress can never announce an upload for an app that
-was never sent (the MCP tool also allocates its LogWriter there, so a
-refused upload records no phantom run).
+blocking preflight edge passes and before Nova sends CommCare HQ
+anything at all — the lookup tables go first, then the app — so a caller
+that reports progress can never announce a publish that never left the
+building (the MCP tool also allocates its LogWriter there, so a refusal
+decided locally records no phantom run). Everything a person could have
+decided differently is settled by then, the table-ownership conflict
+included, so what remains after it is CommCare HQ's own answer.
 
 ## No lock spans the CommCare HQ round trips
 

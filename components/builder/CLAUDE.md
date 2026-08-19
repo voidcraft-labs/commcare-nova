@@ -157,15 +157,15 @@ identity does not re-arm the lock after `buildUnfinished` is released.
 ## Publishing
 
 A publish returns a durable deployment record, and `DeploymentStatus` renders
-it on the success screen: the five progress states as a ladder with only the
-reached ones filled, each rung stating its own condition in text so nothing is
-conveyed by fill alone, and the pending reason printed beside a rung that has
-not been reached. `incomplete` draws as a refusal rather than a rung, with the
-failure and the phase a retry resumes at. **Never call an uploaded app released,
-live, or ready for workers** — Nova cannot make a version or release one, so
-those rungs are watched rather than performed, and Check status is what advances
-them. CommCare HQ apps an earlier publish left behind are named on the same
-screen.
+it on the success screen: the progress states as a ladder with only the reached
+ones filled, each rung stating its own condition in text so nothing is conveyed
+by fill alone, and the pending reason printed beside a rung that has not been
+reached. `incomplete` draws as a refusal rather than a rung, with the failure
+and the phase a retry resumes at. **Never call an uploaded app released, live,
+or ready for workers** — Nova cannot make a version or release one, so those
+rungs are watched rather than performed, and Check status is what advances
+them. Anything an earlier publish left behind on CommCare HQ is named on the
+same screen.
 
 The dialog **opens** on those records, above the publish form, not only after a
 publish creates one — the record outlives the request, and without this the only
@@ -179,7 +179,14 @@ so the landed hero and the list can never show the same project space with
 disagreeing contents, and a fresh deployment survives the status resets a
 destination-select change causes. A refusal renders the ATTEMPT's own failure
 (`refusal` on the response) beside the shared record; the record itself
-carries a failure only while genuinely `incomplete`. A viewer sees the ladder
+carries a failure only while genuinely `incomplete`. One refusal is answerable
+from the dialog: a lookup table on the project space that Nova did not create
+arrives as `refusal.resourceConflicts`, and each one gets its own UNTICKED
+checkbox. A "use the existing tables" shortcut would be one click from
+overwriting a table that merely shares a name, which is the failure the refusal
+exists to prevent. Ticking is per attempt and never remembered — it clears on a
+destination change and on a landed publish, because the ledger remembers the
+decision from then on. A viewer sees the ladder
 without the button (`canRefresh`), because checking writes what it observed;
 the button is also withheld when the record is one checking cannot answer.
 

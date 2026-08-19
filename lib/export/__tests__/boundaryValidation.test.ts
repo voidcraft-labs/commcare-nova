@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { expandDoc } from "@/lib/commcare/expander";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReferences";
 import type { LookupOptionsSource } from "@/lib/domain";
@@ -154,6 +155,35 @@ function lookupCarrierDoc() {
 	});
 }
 
+/** The carrier table with two clean rows: the generation every carrier test
+ * that expects a SUCCESSFUL preparation reads. */
+function carrierFixtureSnapshot() {
+	return {
+		...CARRIER_SNAPSHOT,
+		rowsByTable: new Map([
+			[
+				CARRIER_TABLE,
+				[
+					{
+						id: "018f3e8a-7b2c-7def-8abc-123456789100" as LookupRowId,
+						values: {
+							[CARRIER_VALUE_COLUMN]: "active",
+							[CARRIER_LABEL_COLUMN]: "Active",
+						},
+					},
+					{
+						id: "018f3e8a-7b2c-7def-8abc-123456789101" as LookupRowId,
+						values: {
+							[CARRIER_VALUE_COLUMN]: "closed",
+							[CARRIER_LABEL_COLUMN]: "Closed",
+						},
+					},
+				],
+			],
+		]),
+	};
+}
+
 function fixedOwnerDoc() {
 	const doc = buildDoc({
 		appName: "Fixed owner",
@@ -247,50 +277,36 @@ describe("prepareExportBoundary", () => {
 		},
 	);
 
-	it("loads a rows-free Project snapshot even for the empty production target set", async () => {
-		const result = await prepareExportBoundary({
-			mode: "hq-json",
-			access: ACCESS,
-			doc: validDoc(),
-			compiledAtSeq: 4,
-			attachmentTarget: null,
-		});
+	it.each(["ccz", "hq-json", "hq-upload"] as const)(
+		"loads the definitions-plus-rows snapshot on %s, even for the empty target set",
+		async (mode) => {
+			const result = await prepareExportBoundary({
+				mode,
+				access: ACCESS,
+				doc: validDoc(),
+				compiledAtSeq: 4,
+				attachmentTarget: null,
+			});
 
-		expect(result.ok).toBe(true);
-		expect(getLookupDefinitions).toHaveBeenCalledWith(
-			{
-				projectId: "project-1",
-				actorId: "user-1",
-				role: "owner",
-			},
-			[],
-		);
-		expect(getLookupFixtureData).not.toHaveBeenCalled();
-	});
-
-	it("loads the definitions-plus-rows snapshot on ccz, even for the empty target set", async () => {
-		const result = await prepareExportBoundary({
-			mode: "ccz",
-			access: ACCESS,
-			doc: validDoc(),
-			compiledAtSeq: 4,
-			attachmentTarget: null,
-		});
-
-		expect(result.ok).toBe(true);
-		if (!result.ok) throw new Error("expected prepared export");
-		expect(getLookupFixtureData).toHaveBeenCalledWith(
-			{
-				projectId: "project-1",
-				actorId: "user-1",
-				role: "owner",
-			},
-			[],
-		);
-		expect(getLookupDefinitions).not.toHaveBeenCalled();
-		/* No referenced table — nothing to embed, so no prepared lookup wire. */
-		expect(result.prepared.lookupWire).toBeUndefined();
-	});
+			expect(result.ok).toBe(true);
+			if (!result.ok) throw new Error("expected prepared export");
+			/* Every mode carries lookup data now: `ccz` embeds fixtures and the
+			 * two HQ modes build the workbook, so all three must validate the
+			 * generation they will emit rather than a rows-free one. */
+			expect(getLookupFixtureData).toHaveBeenCalledWith(
+				{
+					projectId: "project-1",
+					actorId: "user-1",
+					role: "owner",
+				},
+				[],
+			);
+			expect(getLookupDefinitions).not.toHaveBeenCalled();
+			/* No referenced table — nothing to carry, so neither carrier. */
+			expect(result.prepared.lookupWire).toBeUndefined();
+			expect(result.prepared.lookupWorkbook).toBeUndefined();
+		},
+	);
 
 	it("returns the exact validated definition generation with prepared resources", async () => {
 		const assets = new Map();
@@ -304,9 +320,9 @@ describe("prepareExportBoundary", () => {
 		});
 
 		if (!result.ok) throw new Error("expected prepared export");
-		expect(result.prepared.lookupSnapshot).toBe(EMPTY_SNAPSHOT);
+		expect(result.prepared.lookupSnapshot).toBe(EMPTY_FIXTURE_SNAPSHOT);
 		expect(result.prepared.lookupContext.definitions).toBe(
-			EMPTY_SNAPSHOT.definitions,
+			EMPTY_FIXTURE_SNAPSHOT.definitions,
 		);
 		expect(result.prepared.lookupContext).toMatchObject({
 			kind: "available",
@@ -404,10 +420,10 @@ describe("prepareExportBoundary", () => {
 	});
 
 	it.each(["hq-json", "hq-upload"] as const)(
-		"keeps lookup carriers closed for %s exports with a mode-aware finding",
+		"prepares the CommCare HQ fixture workbook for %s exports",
 		async (mode) => {
-			vi.mocked(getLookupDefinitions).mockResolvedValue(
-				CARRIER_SNAPSHOT as never,
+			vi.mocked(getLookupFixtureData).mockResolvedValue(
+				carrierFixtureSnapshot() as never,
 			);
 
 			const result = await prepareExportBoundary({
@@ -418,18 +434,179 @@ describe("prepareExportBoundary", () => {
 				attachmentTarget: null,
 			});
 
+			expect(result.ok).toBe(true);
+			if (!result.ok) throw new Error("expected prepared HQ export");
+			const workbook = result.prepared.lookupWorkbook;
+			expect(workbook).toBeDefined();
+			expect(workbook?.tables).toEqual([
+				{
+					tableId: CARRIER_TABLE,
+					tag: "statuses",
+					columnCount: 2,
+					rowCount: 2,
+				},
+			]);
+			/* The types sheet's header plus one table row, and the data sheet's
+			 * header plus its two rows: what CommCare HQ counts against its own
+			 * whole-workbook limit. */
+			expect(workbook?.totalWorkbookRows).toBe(5);
+			/* An HQ mode carries its data as a workbook, never as embedded
+			 * suite fixtures. */
+			expect(result.prepared.lookupWire).toBeUndefined();
+		},
+	);
+
+	it.each(["ccz", "hq-json", "hq-upload"] as const)(
+		"carries lookup wire naming into %s emission",
+		async (mode) => {
+			/* Naming is what the APP needs, not what the DATA needs. A
+			 * lookup-backed select compiles to an `instance(...)` reference
+			 * whichever mode is emitting, and `buildXForm` throws outright
+			 * without it, so an HQ mode that pushed the rows and then expanded
+			 * without naming would put the tables on the project space and
+			 * then fail with the app never sent. Every mode, therefore. */
+			vi.mocked(getLookupFixtureData).mockResolvedValue(
+				carrierFixtureSnapshot() as never,
+			);
+
+			const result = await prepareExportBoundary({
+				mode,
+				access: ACCESS,
+				doc: lookupCarrierDoc(),
+				compiledAtSeq: 15,
+				attachmentTarget: null,
+			});
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) throw new Error("expected a prepared export");
+			expect(result.prepared.lookupNaming?.tableFor(CARRIER_TABLE).tag).toBe(
+				"statuses",
+			);
+
+			/* The assertion that would have caught the real defect: emit the
+			 * app the way the mode's own route does. */
+			expect(() =>
+				expandDoc(result.prepared.doc, {
+					assets: result.prepared.assets,
+					...(result.prepared.lookupNaming && {
+						lookupNaming: result.prepared.lookupNaming,
+					}),
+				}),
+			).not.toThrow();
+
+			/* And the other direction, so this test cannot quietly go vacuous
+			 * if the naming ever stops being required: dropping it is exactly
+			 * the defect, and it must still be loud. */
+			expect(() =>
+				expandDoc(result.prepared.doc, { assets: result.prepared.assets }),
+			).toThrow(/no lookup wire naming/i);
+		},
+	);
+
+	it.each(["hq-json", "hq-upload"] as const)(
+		"refuses a %s export whose tag is too long to name a data sheet",
+		async (mode) => {
+			const tag = "a".repeat(32);
+			vi.mocked(getLookupFixtureData).mockResolvedValue({
+				...carrierFixtureSnapshot(),
+				definitions: [{ ...CARRIER_SNAPSHOT.definitions[0], tag }],
+			} as never);
+
+			const result = await prepareExportBoundary({
+				mode,
+				access: ACCESS,
+				doc: lookupCarrierDoc(),
+				compiledAtSeq: 15,
+				attachmentTarget: null,
+			});
+
 			expect(result.ok).toBe(false);
-			if (result.ok) throw new Error("expected carrier export rejection");
+			if (result.ok) throw new Error("expected sheet-name rejection");
 			const finding = result.violations.find(
-				(candidate) => candidate.code === "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE",
+				(candidate) => candidate.code === "LOOKUP_TAG_TOO_LONG_FOR_HQ",
 			);
 			expect(finding?.details).toMatchObject({
-				exportMode: mode,
-				carrierSlot: "lookup_options_source",
+				tag,
+				tagLength: "32",
+				tagAllowed: "31",
 			});
 			expect(resolveMediaManifest).not.toHaveBeenCalled();
 		},
 	);
+
+	it.each(["types", "Types"] as const)(
+		"refuses an HQ export whose tag is %s, the name CommCare HQ keeps",
+		async (tag) => {
+			/* Every upload carries a mandatory sheet named `types` listing the
+			 * tables in it, so a table tagged the same has nowhere to put its
+			 * rows: Nova would throw appending the second sheet and CommCare
+			 * HQ would read the wrong one. Nothing in Nova's tag rules blocks
+			 * it, so the boundary is what keeps the emitter total. */
+			vi.mocked(getLookupFixtureData).mockResolvedValue({
+				...carrierFixtureSnapshot(),
+				definitions: [{ ...CARRIER_SNAPSHOT.definitions[0], tag }],
+			} as never);
+
+			const result = await prepareExportBoundary({
+				mode: "hq-upload",
+				access: ACCESS,
+				doc: lookupCarrierDoc(),
+				compiledAtSeq: 15,
+				attachmentTarget: null,
+			});
+
+			expect(result.ok).toBe(false);
+			if (result.ok) throw new Error("expected a reserved-tag rejection");
+			const finding = result.violations.find(
+				(candidate) => candidate.code === "LOOKUP_TAG_RESERVED_BY_HQ",
+			);
+			expect(finding?.details).toMatchObject({ tag, reservedTag: "types" });
+			expect(resolveMediaManifest).not.toHaveBeenCalled();
+		},
+	);
+
+	it("still embeds a types-tagged table in a ccz, whose fixtures are addressed by element name", async () => {
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...carrierFixtureSnapshot(),
+			definitions: [{ ...CARRIER_SNAPSHOT.definitions[0], tag: "types" }],
+		} as never);
+
+		const result = await prepareExportBoundary({
+			mode: "ccz",
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 15,
+			attachmentTarget: null,
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("expected a prepared ccz export");
+		expect(result.prepared.lookupWire?.naming.tableFor(CARRIER_TABLE).tag).toBe(
+			"types",
+		);
+	});
+
+	it("still embeds a 32-character tag in a ccz, which addresses tables by element name", async () => {
+		const tag = "a".repeat(32);
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...carrierFixtureSnapshot(),
+			definitions: [{ ...CARRIER_SNAPSHOT.definitions[0], tag }],
+		} as never);
+
+		const result = await prepareExportBoundary({
+			mode: "ccz",
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 15,
+			attachmentTarget: null,
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("expected prepared ccz export");
+		expect(result.prepared.lookupWire?.naming.tableFor(CARRIER_TABLE).tag).toBe(
+			tag,
+		);
+	});
 
 	it.each(["ccz", "hq-json", "hq-upload"] as const)(
 		"keeps place-owner terms closed for %s exports until the device fixture ships",
@@ -461,30 +638,9 @@ describe("prepareExportBoundary", () => {
 	);
 
 	it("prepares carrier-bearing ccz exports with the budget-checked lookup wire", async () => {
-		vi.mocked(getLookupFixtureData).mockResolvedValue({
-			...CARRIER_SNAPSHOT,
-			rowsByTable: new Map([
-				[
-					CARRIER_TABLE,
-					[
-						{
-							id: "018f3e8a-7b2c-7def-8abc-123456789100" as LookupRowId,
-							values: {
-								[CARRIER_VALUE_COLUMN]: "active",
-								[CARRIER_LABEL_COLUMN]: "Active",
-							},
-						},
-						{
-							id: "018f3e8a-7b2c-7def-8abc-123456789101" as LookupRowId,
-							values: {
-								[CARRIER_VALUE_COLUMN]: "closed",
-								[CARRIER_LABEL_COLUMN]: "Closed",
-							},
-						},
-					],
-				],
-			]),
-		} as never);
+		vi.mocked(getLookupFixtureData).mockResolvedValue(
+			carrierFixtureSnapshot() as never,
+		);
 
 		const result = await prepareExportBoundary({
 			mode: "ccz",

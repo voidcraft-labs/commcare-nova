@@ -24,6 +24,7 @@ import { z } from "zod";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import {
 	artifactLocations,
+	currentResourceIdentities,
 	refreshDeployment,
 	setupArtifactFor,
 } from "@/lib/deployment/service";
@@ -81,13 +82,19 @@ export function registerGetDeployment(
 					actorUserId: ctx.userId,
 				};
 				const deployments = await readDeploymentsForApp(scope);
-				/* One read of the app's places for all of them: they belong to
-				 * the app, not to any one project space. */
+				/* One read of the app's places for all of them, and one of its
+				 * lookup identities: both belong to the app, not to any one
+				 * project space, so a second read could only return the same
+				 * answer. */
 				const locations =
 					deployments.length === 0 ? [] : await artifactLocations(scope);
+				const identities =
+					deployments.length === 0
+						? new Map<string, string>()
+						: await currentResourceIdentities(scope, doc);
 				const views = await Promise.all(
 					deployments.map(async (deployment) => ({
-						...describeDeployment(deployment),
+						...describeDeployment(deployment, identities),
 						setup_artifact: await setupArtifactFor(
 							scope,
 							deployment,
@@ -160,7 +167,10 @@ export function registerRefreshDeployment(
 				}
 				return jsonResult({
 					app_id: args.app_id,
-					...describeDeployment(refreshed.deployment),
+					...describeDeployment(
+						refreshed.deployment,
+						await currentResourceIdentities(scope, doc),
+					),
 					setup_artifact: refreshed.artifact,
 				});
 			} catch (err) {

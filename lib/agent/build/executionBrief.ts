@@ -258,7 +258,6 @@ const CONSTRAINT_AREAS: Readonly<
 	PREVIEW_AUTOMATIONS_NOT_EXECUTED: ["automations"],
 	AUTOMATION_HQ_MANUAL_SETUP: ["automations"],
 	HQ_BUILD_RELEASE_NOT_API_DRIVEN: [],
-	LOOKUP_HQ_EXPORT_CLOSED: ["lookup-references"],
 	WORKER_PROVISIONING_NOT_SHIPPED: ["users"],
 	LOCATION_OWNER_EXPORT_CLOSED: ["organization-shape", "case-operations"],
 	CASE_SEARCH_IS_LIVE_AND_ONLINE: ["case-list"],

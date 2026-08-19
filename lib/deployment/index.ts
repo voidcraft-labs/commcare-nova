@@ -6,9 +6,11 @@
 
 export { DeploymentError, type DeploymentErrorCode } from "./errors";
 export type { PreflightCheck, PreflightCheckStatus } from "./preflight";
+export { leftBehindResources } from "./resources";
 export {
 	buildSetupArtifact,
 	type SetupArtifact,
+	type SetupArtifactLookupTable,
 	type SetupArtifactSection,
 	type SetupArtifactStep,
 } from "./setupArtifact";
@@ -34,8 +36,11 @@ export {
 	type DeploymentProgressState,
 	type DeploymentRecord,
 	type DeploymentResource,
+	type DeploymentResourceConflict,
+	type DeploymentResourceKind,
 	type DeploymentResourceOwnership,
 	type DeploymentState,
 	type DeploymentWithResources,
+	type DrivenDeploymentPhase,
 	isDeploymentServer,
 } from "./types";

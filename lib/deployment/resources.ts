@@ -76,3 +76,42 @@ export function plannedInPlaceUpdate(
 	if (deployment.deployment.phases.upload?.status === "failed") return null;
 	return active;
 }
+
+/**
+ * The remote resources an earlier publish left on the project space under
+ * a name this app no longer uses.
+ *
+ * A superseded mapping is not automatically something left behind. When a
+ * lookup table is deleted on CommCare HQ and the next push recreates it,
+ * the mapping is superseded because the remote id changed, but nothing is
+ * sitting there: the old table is gone and the new one carries the same
+ * name. What genuinely remains is a resource whose PUSHED NAME differs
+ * from the one its Nova resource carries now — a rename, where Nova made
+ * a new table and, per the deployment contract, did not delete the old
+ * one.
+ *
+ * So the test is the name, not the supersession. Reporting every
+ * superseded row would tell an author to go and clean up tables that do
+ * not exist, which costs them a trip to CommCare HQ to find nothing.
+ *
+ * The other way in is a table the app STOPPED reading. Its mapping is
+ * superseded by the push that no longer names it
+ * (`store.ts::recordPushedResources`), and no current identity answers to
+ * its Nova id, so the `current === undefined` arm reports it. Nova still
+ * deletes nothing; it stops claiming the table and starts naming it.
+ */
+export function leftBehindResources(
+	deployment: DeploymentWithResources,
+	currentIdentities: ReadonlyMap<string, string>,
+): readonly DeploymentResource[] {
+	return deployment.superseded.filter((resource) => {
+		if (resource.kind === "app") return true;
+		if (resource.pushedIdentity === null) return false;
+		const current = currentIdentities.get(resource.novaResourceId);
+		/* The Nova resource itself is gone — deleted, or no longer
+		 * referenced by this app — so whatever was pushed under its name is
+		 * certainly still there and nothing in Nova names it any more. */
+		if (current === undefined) return true;
+		return current !== resource.pushedIdentity;
+	});
+}

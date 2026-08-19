@@ -45,6 +45,7 @@ vi.mock("@/lib/deployment/store", () => {
 		resumePhase: null,
 		phases: {
 			preflight: null,
+			resources: null,
 			upload: null,
 			build: null,
 			release: null,
@@ -62,7 +63,7 @@ vi.mock("@/lib/deployment/store", () => {
 			async (
 				_scope: unknown,
 				_target: unknown,
-				phase: "preflight" | "upload",
+				phase: "preflight" | "resources" | "upload",
 				outcome: { status: string },
 			) => ({
 				deployment: record(
@@ -94,6 +95,9 @@ vi.mock("@/lib/deployment/store", () => {
 						ownership: input.ownership,
 						pushedRevision: input.pushedRevision,
 						pushedAt: null,
+						pushedIdentity: null,
+						adoptedAt: null,
+						adoptedBy: null,
 						remoteRevision: null,
 						remoteObservedAt: null,
 						supersededAt: null,
@@ -102,6 +106,14 @@ vi.mock("@/lib/deployment/store", () => {
 				superseded: [],
 			}),
 		),
+		/* The lookup push's ledger write. Present because the mock must be
+		 * exactly the store surface `service.ts` imports: a missing export is
+		 * an unhelpful `internal` on every test that reaches a publish. */
+		recordPushedResources: vi.fn(async () => ({
+			deployment: record({ state: "resources" }),
+			active: [],
+			superseded: [],
+		})),
 		applyDeploymentObservation: vi.fn(),
 	};
 });

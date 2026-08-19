@@ -29,6 +29,7 @@ import {
 	type DeploymentProgressState,
 	type DeploymentRecord,
 	type DeploymentState,
+	type DrivenDeploymentPhase,
 } from "./types";
 
 /**
@@ -153,11 +154,11 @@ export function applyObservation(
  * Whether observation may say anything about this deployment.
  *
  * Observation answers questions about a build on CommCare HQ, so it needs
- * the app to have got there. A deployment refused at `preflight` or
- * `upload` may still hold an EARLIER publish's mapping, and observing it
- * would fold succeeded outcomes over the refusal and turn the record
- * green, destroying the phase a retry resumes from, from a button sitting
- * next to the refusal.
+ * the app to have got there. A deployment refused at `preflight`,
+ * `resources`, or `upload` may still hold an EARLIER publish's mapping,
+ * and observing it would fold succeeded outcomes over the refusal and
+ * turn the record green, destroying the phase a retry resumes from, from
+ * a button sitting next to the refusal.
  *
  * One `upload` refusal is the exception: `remote_app_missing` was WRITTEN
  * BY observation, about the current mapping, when CommCare HQ answered
@@ -173,7 +174,12 @@ export function deploymentIsObservable(
 	if (record.state !== "incomplete") {
 		return deploymentHasReached(record, "uploaded");
 	}
-	if (record.resumePhase === "preflight") return false;
+	if (
+		record.resumePhase === "preflight" ||
+		record.resumePhase === "resources"
+	) {
+		return false;
+	}
 	if (record.resumePhase === "upload") {
 		const upload = record.phases.upload;
 		return (
@@ -205,10 +211,18 @@ export function deploymentIsObservable(
  * shares, and once written it lingered, so a stale upload rejection from
  * last week ended up explaining today's unrelated refusal.
  *
- * Both phases a person can DRIVE come through here, and for the same
- * reason: CommCare HQ rejecting a re-upload says nothing about the app
- * already sitting on the project space. Only the observation phases fold
- * unconditionally, because those are answers ABOUT the target.
+ * Every phase a person can DRIVE comes through here, and for the same
+ * reason: CommCare HQ rejecting a re-upload, or refusing to take a lookup
+ * table, says nothing about the app already sitting on the project space.
+ * Only the observation phases fold unconditionally, because those are
+ * answers ABOUT the target.
+ *
+ * A SUCCEEDED resource push comes through here too, and that is the
+ * subtle one. Folding it as an ordinary phase success would set the state
+ * to `resources` — walking a `runnable` deployment backward in the middle
+ * of a republish, before the upload that follows has said anything. The
+ * mapping rows are written either way, because those genuinely are target
+ * information: the table really is on that project space now.
  *
  * "Has put something there" is the DISPLAY predicate, not the strict one.
  * A deployment refused at the probe is `incomplete`, which the strict
@@ -222,7 +236,7 @@ export function deploymentIsObservable(
  */
 export function applyAttemptOutcome(
 	record: DeploymentRecord,
-	phase: "preflight" | "upload",
+	phase: DrivenDeploymentPhase,
 	outcome: DeploymentPhaseOutcome,
 ): DeploymentRecord {
 	if (deploymentDisplaysAsReached(record, "uploaded")) {

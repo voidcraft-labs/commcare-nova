@@ -24,6 +24,7 @@ import {
 	readDeployment,
 	readDeploymentPreviewRecords,
 	readDeploymentsForApp,
+	recordPushedResources,
 	recordRemoteResource,
 } from "../store";
 
@@ -272,6 +273,356 @@ describe("ownership mappings", () => {
 		const recreated = await publish(scope, "hq-2", 9);
 		expect(recreated.deployment.phases.build).toBeNull();
 		expect(recreated.deployment.state).toBe("uploaded");
+	});
+});
+
+describe("pushed Project data", () => {
+	const TABLE = "018f0000-0000-7000-8000-000000000001";
+	const OTHER_TABLE = "018f0000-0000-7000-8000-000000000002";
+
+	async function pushTable(
+		scope: DeploymentScope,
+		over: Partial<Parameters<typeof recordPushedResources>[2][number]> = {},
+	) {
+		return recordPushedResources(
+			scope,
+			TARGET,
+			[
+				{
+					kind: "lookup-table",
+					novaResourceId: TABLE,
+					remoteId: "hq-districts",
+					ownership: "nova-created",
+					pushedIdentity: "districts",
+					adoptedBy: null,
+					pushedRevision: null,
+					remoteRevision: null,
+					...over,
+				},
+			],
+			{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
+		);
+	}
+
+	function partialMapping(
+		novaResourceId: string,
+		remoteId: string,
+		pushedIdentity: string,
+	) {
+		return {
+			kind: "lookup-table",
+			novaResourceId,
+			remoteId,
+			ownership: "nova-created",
+			pushedIdentity,
+			adoptedBy: null,
+			pushedRevision: null,
+			remoteRevision: null,
+		} as const;
+	}
+
+	it("files the table beside the app and fills the data rung", async () => {
+		const scope = await seed();
+		await create(scope);
+
+		const view = await pushTable(scope);
+
+		expect(view.deployment.state).toBe("resources");
+		expect(view.active).toEqual([
+			expect.objectContaining({
+				kind: "lookup-table",
+				novaResourceId: TABLE,
+				remoteId: "hq-districts",
+				ownership: "nova-created",
+				pushedIdentity: "districts",
+				adoptedAt: null,
+				adoptedBy: null,
+			}),
+		]);
+	});
+
+	it("keeps what a stopped push landed, and claims nothing more", async () => {
+		/* CommCare HQ answers a workbook it half took with `warning`
+		 * (`views.py::UploadFixtureAPIResponse.response_codes`). Those
+		 * tables ARE on the project space, so the mapping is written — but
+		 * the push said nothing about the tables it never reached, so
+		 * nothing is superseded, and it did not succeed, so no rung folds. */
+		const scope = await seed();
+		await create(scope);
+
+		const first = await recordPushedResources(
+			scope,
+			TARGET,
+			[partialMapping(TABLE, "hq-districts", "districts")],
+			{ status: "partial" },
+		);
+		expect(first.deployment.state).toBe("preflight");
+
+		const view = await recordPushedResources(
+			scope,
+			TARGET,
+			[partialMapping(OTHER_TABLE, "hq-regions", "regions")],
+			{ status: "partial" },
+		);
+
+		expect(
+			view.active
+				.filter((resource) => resource.kind === "lookup-table")
+				.map((resource) => resource.pushedIdentity)
+				.sort(),
+		).toEqual(["districts", "regions"]);
+		expect(view.superseded).toEqual([]);
+		expect(view.deployment.state).toBe("preflight");
+	});
+
+	it("does not walk a live deployment backward when its data is re-pushed", async () => {
+		/* A republish pushes the tables again before the app. The mappings
+		 * are target information and are written either way; the RUNG is
+		 * attempt information, and folding it plainly would report an app
+		 * that is already uploaded as not yet sent. */
+		const scope = await seed();
+		await publish(scope, "hq-1", 7);
+
+		const view = await pushTable(scope);
+
+		expect(view.deployment.state).toBe("uploaded");
+		expect(
+			view.active.find((resource) => resource.kind === "lookup-table"),
+		).toMatchObject({ remoteId: "hq-districts" });
+	});
+
+	it("supersedes the old table when a rename makes a new one", async () => {
+		const scope = await seed();
+		await create(scope);
+		await pushTable(scope);
+
+		const renamed = await pushTable(scope, {
+			remoteId: "hq-areas",
+			pushedIdentity: "areas",
+		});
+
+		/* The old table is still sitting on the project space under the old
+		 * name, and the row is what makes it nameable. */
+		expect(renamed.superseded).toEqual([
+			expect.objectContaining({
+				remoteId: "hq-districts",
+				pushedIdentity: "districts",
+			}),
+		]);
+		expect(
+			renamed.active.find((resource) => resource.kind === "lookup-table"),
+		).toMatchObject({ remoteId: "hq-areas", pushedIdentity: "areas" });
+	});
+
+	it("re-pushing the same table updates the live row rather than superseding it", async () => {
+		const scope = await seed();
+		await create(scope);
+		await pushTable(scope);
+
+		const again = await pushTable(scope);
+
+		expect(again.superseded).toHaveLength(0);
+		expect(
+			again.active.filter((resource) => resource.kind === "lookup-table"),
+		).toHaveLength(1);
+	});
+
+	it("keeps the app's mapping and a table's apart, even under one id", async () => {
+		/* The two kinds are separate rows and the unique index is keyed by
+		 * kind, so an app and a table that happened to share a Nova id do
+		 * not collide. */
+		const scope = await seed();
+		await publish(scope, "hq-1", 7);
+
+		const view = await pushTable(scope, { novaResourceId: scope.appId });
+
+		expect(activeRemoteApp(view)?.remoteId).toBe("hq-1");
+		expect(
+			view.active.find((resource) => resource.kind === "lookup-table"),
+		).toMatchObject({ remoteId: "hq-districts" });
+	});
+
+	it("records who took over a table Nova did not create", async () => {
+		const scope = await seed();
+		await create(scope);
+
+		const view = await pushTable(scope, {
+			ownership: "adopted",
+			adoptedBy: "u1",
+		});
+
+		const table = view.active.find(
+			(resource) => resource.kind === "lookup-table",
+		);
+		expect(table).toMatchObject({ ownership: "adopted", adoptedBy: "u1" });
+		expect(table?.adoptedAt).not.toBeNull();
+	});
+
+	it("supersedes a table the app has stopped reading", async () => {
+		/* Dropping the last select that read a table leaves the table on the
+		 * project space under Nova's claim. Nova deletes nothing on CommCare
+		 * HQ, but it must stop claiming it and start reporting it, and only
+		 * a superseded row is ever reported. */
+		const scope = await seed();
+		await create(scope);
+		await pushTable(scope);
+
+		/* The next publish's plan names a different table, so the first one
+		 * is no longer part of this app. */
+		const view = await recordPushedResources(
+			scope,
+			TARGET,
+			[
+				{
+					kind: "lookup-table",
+					novaResourceId: OTHER_TABLE,
+					remoteId: "hq-regions",
+					ownership: "nova-created",
+					pushedIdentity: "regions",
+					adoptedBy: null,
+					pushedRevision: null,
+					remoteRevision: null,
+				},
+			],
+			{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
+		);
+
+		expect(
+			view.active
+				.filter((resource) => resource.kind === "lookup-table")
+				.map((resource) => resource.novaResourceId),
+		).toEqual([OTHER_TABLE]);
+		expect(
+			view.superseded.find((resource) => resource.novaResourceId === TABLE),
+		).toMatchObject({ kind: "lookup-table", pushedIdentity: "districts" });
+	});
+
+	it("keeps an adoption attributed to whoever actually made it", async () => {
+		/* The republish carries a fresh timestamp and whoever clicked today,
+		 * and writing that straight through would reassign a decision one
+		 * member made to another who only pressed Publish. The ledger exists
+		 * so the decision is auditable, so the FIRST attribution stands. */
+		const scope = await seed();
+		await create(scope);
+
+		const first = await pushTable(scope, {
+			ownership: "adopted",
+			adoptedBy: "u1",
+		});
+		const adoptedAt = first.active.find(
+			(resource) => resource.kind === "lookup-table",
+		)?.adoptedAt;
+		expect(adoptedAt).not.toBeNull();
+
+		const second = await pushTable(scope, {
+			ownership: "adopted",
+			adoptedBy: "someone-else",
+		});
+
+		expect(
+			second.active.find((resource) => resource.kind === "lookup-table"),
+		).toMatchObject({
+			ownership: "adopted",
+			adoptedBy: "u1",
+			adoptedAt,
+		});
+	});
+
+	it("clears the attribution when a resource stops being adopted", async () => {
+		/* The row's CHECK ties `adopted` to exactly the rows naming a member
+		 * and a time, so the columns have to go in the same statement the
+		 * ownership changes. Keeping a stale `adoptedBy` would violate it. */
+		const scope = await seed();
+		await create(scope);
+		await pushTable(scope, { ownership: "adopted", adoptedBy: "u1" });
+
+		const view = await pushTable(scope, { ownership: "nova-created" });
+
+		expect(
+			view.active.find((resource) => resource.kind === "lookup-table"),
+		).toMatchObject({
+			ownership: "nova-created",
+			adoptedBy: null,
+			adoptedAt: null,
+		});
+	});
+
+	it("refuses an adoption nobody is named for, and a creation somebody is", async () => {
+		/* The ledger's CHECK says the same thing; refusing here names the
+		 * call that was wrong instead of surfacing a constraint violation. */
+		const scope = await seed();
+		await create(scope);
+
+		await expect(pushTable(scope, { ownership: "adopted" })).rejects.toThrow(
+			/who adopted it/,
+		);
+		await expect(pushTable(scope, { adoptedBy: "u1" })).rejects.toThrow(
+			/no such decision/,
+		);
+	});
+
+	it("writes every table of one push together", async () => {
+		const scope = await seed();
+		await create(scope);
+		const second = "018f0000-0000-7000-8000-000000000002";
+
+		const view = await recordPushedResources(
+			scope,
+			TARGET,
+			[
+				{
+					kind: "lookup-table",
+					novaResourceId: TABLE,
+					remoteId: "hq-districts",
+					ownership: "nova-created",
+					pushedIdentity: "districts",
+					adoptedBy: null,
+					pushedRevision: null,
+					remoteRevision: null,
+				},
+				{
+					kind: "lookup-table",
+					novaResourceId: second,
+					remoteId: "hq-statuses",
+					ownership: "nova-created",
+					pushedIdentity: "statuses",
+					adoptedBy: null,
+					pushedRevision: null,
+					remoteRevision: null,
+				},
+			],
+			{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
+		);
+
+		expect(
+			view.active
+				.filter((resource) => resource.kind === "lookup-table")
+				.map((resource) => resource.pushedIdentity)
+				.sort(),
+		).toEqual(["districts", "statuses"]);
+	});
+
+	it("stores only the kinds the ledger knows", async () => {
+		const scope = await seed();
+		const view = await create(scope);
+
+		await expect(
+			h
+				.db()
+				.insertInto("app_deployment_resources")
+				.values({
+					deployment_id: view.deployment.id,
+					kind: "worker" as never,
+					nova_resource_id: "persona-1",
+					remote_id: "hq-worker",
+					ownership: "nova-created",
+					pushed_revision: null,
+					pushed_at: null,
+					remote_revision: null,
+					remote_observed_at: null,
+				})
+				.execute(),
+		).rejects.toThrow();
 	});
 });
 

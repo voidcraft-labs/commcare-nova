@@ -5,6 +5,8 @@ import {
 	featureFlagReportForPrepublish,
 	requiredHqFeatureFlags,
 } from "@/lib/commcare/featureFlags";
+import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
+import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
@@ -19,7 +21,15 @@ import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { attachmentUrlTarget } from "./attachmentTarget";
-import type { DeploymentFailure } from "./types";
+import {
+	type PlannedLookupPush,
+	planLookupResourcePush,
+} from "./lookupResourcePlan";
+import type {
+	DeploymentFailure,
+	DeploymentResource,
+	DeploymentResourceConflict,
+} from "./types";
 
 /**
  * The dependency graph Nova checks before anything externally visible
@@ -36,10 +46,16 @@ import type { DeploymentFailure } from "./types";
  * contract truthful: refusing to publish an app because a persona has no
  * value for a required worker property would refuse a publish that would
  * have worked, since Nova creates no workers yet.
+ *
+ * `project-data` is the one edge that talks to CommCare HQ here, and it is
+ * blocking for a reason worth stating: it is the only thing standing
+ * between a publish and quietly overwriting a lookup table somebody else
+ * made. It appears only when the app actually reads Project data.
  */
 export const PREFLIGHT_CHECK_IDS = [
 	"hq-connection",
 	"app-readiness",
+	"project-data",
 	"feature-flags",
 	"required-worker-data",
 ] as const;
@@ -84,6 +100,12 @@ export type PreflightResult =
 				readonly creds: CommCareCredentials;
 				readonly domain: string;
 				readonly prepared: PreparedExportBoundary;
+				/**
+				 * What to put on the project space before the app goes out,
+				 * and the ownership claim each table travels under. Absent
+				 * when the app references no Project data.
+				 */
+				readonly lookupPush: LookupPushPlan | null;
 			};
 			readonly featureFlags: HqFeatureFlagReport | null;
 	  }
@@ -96,11 +118,36 @@ export type PreflightResult =
 			};
 			readonly ready: null;
 			readonly featureFlags: null;
+			/**
+			 * The resources this run refused to write over. Empty for every
+			 * refusal that is not a name clash, and the caller passes it
+			 * straight to the attempt's refusal so a person can name the ones
+			 * they recognize.
+			 */
+			readonly conflicts: readonly DeploymentResourceConflict[];
 	  };
+
+/** The tables to push, and what Nova may claim about each. */
+export interface LookupPushPlan {
+	readonly workbook: LookupWorkbook;
+	readonly pushes: readonly PlannedLookupPush[];
+}
 
 export interface PreflightInput {
 	readonly doc: BlueprintDoc;
 	readonly compiledAtSeq: number;
+	/**
+	 * The deployment's live resource mappings, read before anything is
+	 * asked of CommCare HQ. Empty for a project space this app has never
+	 * reached, which is exactly right: Nova owns nothing there yet.
+	 */
+	readonly mappings: readonly DeploymentResource[];
+	/**
+	 * Nova table ids whose name clash on the target the caller has
+	 * explicitly resolved by taking the existing table over. Never
+	 * defaulted, never inferred from a previous attempt.
+	 */
+	readonly adoptResourceIds: readonly string[];
 	readonly access: {
 		readonly projectId: string;
 		readonly role: string;
@@ -113,7 +160,12 @@ export interface PreflightInput {
 
 function blockedOutcome(
 	now: string,
-	code: "hq_not_connected" | "domain_not_authorized" | "app_not_ready",
+	code:
+		| "hq_not_connected"
+		| "domain_not_authorized"
+		| "app_not_ready"
+		| "hq_resource_state_unknown"
+		| "hq_resource_conflict",
 	message: string,
 	details: readonly string[] = [],
 ): {
@@ -163,6 +215,25 @@ export function personasMissingRequiredWorkerData(
 	return gaps;
 }
 
+/** "1 lookup table" / "3 lookup tables", counted for a sentence. */
+function describeTableCount(count: number): string {
+	return count === 1 ? "1 lookup table" : `${count} lookup tables`;
+}
+
+function describeRowCount(count: number): string {
+	return count === 1 ? "1 row" : `${count.toLocaleString("en-US")} rows`;
+}
+
+/**
+ * A clash, named the two ways a person has to recognize it: what they call
+ * the table in Nova, and what they will see in CommCare HQ's own list.
+ */
+function describeConflicts(
+	conflicts: readonly DeploymentResourceConflict[],
+): readonly string[] {
+	return conflicts.map((conflict) => `${conflict.name} (${conflict.identity})`);
+}
+
 /**
  * Run the graph.
  *
@@ -197,6 +268,7 @@ export async function runDeploymentPreflight(
 				outcome: blockedOutcome(input.now, "hq_not_connected", detail),
 				ready: null,
 				featureFlags: null,
+				conflicts: [],
 			};
 		}
 		const reachable = credResult.available.map((space) => space.name);
@@ -221,6 +293,7 @@ export async function runDeploymentPreflight(
 			),
 			ready: null,
 			featureFlags: null,
+			conflicts: [],
 		};
 	}
 	const { creds } = credResult;
@@ -246,6 +319,7 @@ export async function runDeploymentPreflight(
 			outcome: blockedOutcome(input.now, "hq_not_connected", detail),
 			ready: null,
 			featureFlags: null,
+			conflicts: [],
 		};
 	}
 	checks.push({
@@ -291,6 +365,7 @@ export async function runDeploymentPreflight(
 			outcome: blockedOutcome(input.now, "app_not_ready", detail, details),
 			ready: null,
 			featureFlags: null,
+			conflicts: [],
 		};
 	}
 	checks.push({
@@ -301,7 +376,102 @@ export async function runDeploymentPreflight(
 		items: [],
 	});
 
-	// ── 3. Which feature flags does the app need? ───────────────────
+	// ── 3. Is the data this app reads already on that project space? ─
+	// Blocking, and it runs BEFORE anything is sent, because the fixture
+	// upload matches tables by tag: pushing without knowing what is there
+	// would take over a same-named table somebody else made.
+	const workbook = boundary.prepared.lookupWorkbook;
+	let lookupPush: LookupPushPlan | null = null;
+	if (workbook !== undefined) {
+		const hqTables = await listHqLookupTables(creds, domain);
+		if ("success" in hqTables) {
+			/* Nova cannot tell its own tables from anybody else's without
+			 * this answer, so it does not push. Reading the failure as "the
+			 * project space has none" is the one interpretation that turns a
+			 * permissions problem into somebody's data being overwritten.
+			 *
+			 * Reading the table list needs the paid API access privilege on
+			 * the project space AND the account's own Access APIs
+			 * permission, while the upload itself needs neither — so this
+			 * refusal is genuinely reachable on a project space that would
+			 * have accepted the push. */
+			const detail =
+				hqTables.status === 401 || hqTables.status === 403
+					? `Nova can't see which lookup tables “${domain}” already has, so it won't push over them. Reading them needs API access on that project space and the Access APIs permission on your CommCare HQ account; ask a CommCare HQ administrator for both.`
+					: `Nova couldn't ask “${domain}” which lookup tables it already has, so it stopped rather than push over them. Try publishing again in a moment.`;
+			checks.push({
+				id: "project-data",
+				title: "Project data",
+				status: "blocked",
+				detail,
+				items: [],
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(input.now, "hq_resource_state_unknown", detail),
+				ready: null,
+				featureFlags: null,
+				conflicts: [],
+			};
+		}
+		const plan = planLookupResourcePush({
+			tables: workbook.tables,
+			mappings: input.mappings,
+			hqTables,
+			adoptTableIds: input.adoptResourceIds,
+		});
+		if (!plan.ok) {
+			/* Named twice over: the tag is what CommCare HQ shows, and the
+			 * table's own name is what the author will recognize. The
+			 * definitions are the generation the boundary validated, so the
+			 * name printed here is the name the workbook was built from. */
+			const nameByTableId = new Map(
+				boundary.prepared.lookupSnapshot.definitions.map(
+					(definition) => [definition.id, definition.name] as const,
+				),
+			);
+			const conflicts: readonly DeploymentResourceConflict[] =
+				plan.conflicts.map((conflict) => ({
+					kind: "lookup-table",
+					novaResourceId: conflict.tableId,
+					name: nameByTableId.get(conflict.tableId) ?? conflict.tag,
+					identity: conflict.tag,
+					remoteId: conflict.remoteId,
+				}));
+			const detail = `“${domain}” already has lookup tables with these names, and Nova didn't make them. Rename the table in Project data, or choose to use the existing one.`;
+			checks.push({
+				id: "project-data",
+				title: "Project data",
+				status: "blocked",
+				detail,
+				items: describeConflicts(conflicts),
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(
+					input.now,
+					"hq_resource_conflict",
+					detail,
+					describeConflicts(conflicts),
+				),
+				ready: null,
+				featureFlags: null,
+				conflicts,
+			};
+		}
+		lookupPush = { workbook, pushes: plan.pushes };
+		checks.push({
+			id: "project-data",
+			title: "Project data",
+			status: "passed",
+			detail: `Nova will put ${describeTableCount(workbook.tables.length)} on “${domain}” before sending the app.`,
+			items: workbook.tables.map(
+				(table) => `${table.tag} (${describeRowCount(table.rowCount)})`,
+			),
+		});
+	}
+
+	// ── 4. Which feature flags does the app need? ───────────────────
 	// Requirements only. Preflight deliberately does NOT probe the target:
 	// the authoritative check runs against the exact domain CommCare HQ
 	// accepted, AFTER the import, and probing here as well would pay for
@@ -329,7 +499,7 @@ export async function runDeploymentPreflight(
 		items: requirements.map((requirement) => requirement.label),
 	});
 
-	// ── 4. Will the workers you create there have what they need? ───
+	// ── 5. Will the workers you create there have what they need? ───
 	// Attention rather than blocking: Nova creates no workers yet, so
 	// refusing the publish would refuse one that would have worked.
 	const workerGaps = personasMissingRequiredWorkerData(boundary.prepared.doc);
@@ -347,7 +517,7 @@ export async function runDeploymentPreflight(
 	return {
 		checks,
 		outcome: { status: "succeeded", at: input.now },
-		ready: { creds, domain, prepared: boundary.prepared },
+		ready: { creds, domain, prepared: boundary.prepared, lookupPush },
 		featureFlags,
 	};
 }

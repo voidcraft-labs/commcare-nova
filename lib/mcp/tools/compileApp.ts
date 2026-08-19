@@ -155,7 +155,9 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					doc: preparedDoc,
 					assets,
 					compiledAtSeq,
+					lookupNaming,
 					lookupWire,
+					lookupWorkbook,
 				} = boundary.prepared;
 				const hasMedia = assets.size > 0;
 				const featureFlagReport = featureFlagReportForDownload(preparedDoc);
@@ -199,13 +201,14 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 								...advisoryMeta,
 							},
 						};
-						const hqJson = expandDoc(
-							preparedDoc,
-							hasMedia ? { assets, attachmentTarget } : { attachmentTarget },
-						);
-						if (!hasMedia) {
+						const hqJson = expandDoc(preparedDoc, {
+							attachmentTarget,
+							...(hasMedia && { assets }),
+							...(lookupNaming && { lookupNaming }),
+						});
+						if (!hasMedia && lookupWorkbook === undefined) {
 							/* Bare HQ JSON — the caller asked for JSON and, with
-							 * no media to carry, gets JSON. */
+							 * nothing to carry alongside it, gets JSON. */
 							return {
 								content: [
 									...featureFlagContent,
@@ -215,9 +218,10 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 								...compiledAtMeta,
 							};
 						}
-						/* Media-bearing: the same `<app>.zip` the HTTP export
-						 * ships, so the `jr://` references travel with their
-						 * bytes. base64 inside a `{ format: "zip", ... }`
+						/* Carrying companions: the same `<app>.zip` the HTTP
+						 * export ships, so the `jr://` references travel with
+						 * their bytes and the app's lookup tables travel with
+						 * the app. base64 inside a `{ format: "zip", ... }`
 						 * wrapper — MCP text content is UTF-8 only, and the
 						 * wrapper tells the client to decode rather than parse
 						 * the text as the app JSON. */
@@ -225,6 +229,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							app.app_name,
 							hqJson,
 							assets,
+							lookupWorkbook,
 						);
 						return {
 							content: [
@@ -252,7 +257,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						const hqJson = expandDoc(preparedDoc, {
 							assets,
 							attachmentTarget,
-							...(lookupWire && { lookupNaming: lookupWire.naming }),
+							...(lookupNaming && { lookupNaming }),
 						});
 						/* Stamp the blueprint's `mutation_seq` into the profile's
 						 * `cc-content-version` so the archive names the exact

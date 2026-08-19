@@ -333,7 +333,6 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(constraintCodes).toContain("WORKER_PROVISIONING_NOT_SHIPPED");
 		expect(constraintCodes).toContain("SINGLE_DIRECT_CASE_WRITE_PER_FIELD");
 		expect(constraintCodes).not.toContain("PREVIEW_AUTOMATIONS_NOT_EXECUTED");
-		expect(constraintCodes).not.toContain("LOOKUP_HQ_EXPORT_CLOSED");
 		expect(constraintCodes).toContain("CASE_SEARCH_IS_LIVE_AND_ONLINE");
 		expect(brief.capabilityBoundary.sessionBoundary).toEqual({
 			appCount: 1,

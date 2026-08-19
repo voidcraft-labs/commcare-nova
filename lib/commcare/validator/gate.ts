@@ -42,9 +42,20 @@ import { type RunValidationOptions, runValidation } from "./runner";
  *     case-list columns, missing Connect block). Gated like soundness:
  *     every committed candidate must contain none. Atomic creation is what
  *     lets an entity land together with everything that makes it complete.
- *   - `environment` — media-asset state vs external Postgres/GCS rows.
- *     Boundary-only: the rules are manifest-gated and the commit path
- *     never passes a manifest.
+ *   - `environment` — the app is fine; something OUTSIDE it is not.
+ *     Boundary-only, reached by either of two routes, and the second is
+ *     easy to miss:
+ *       1. The fact is external and the commit path cannot see it —
+ *          media-asset state against Postgres/GCS rows, whose rules are
+ *          manifest-gated and no commit passes a manifest.
+ *       2. The fact is plainly visible but the RULE binds only some
+ *          export targets, so it cannot gate a commit without
+ *          restricting documents that are legal everywhere else.
+ *     A tag CommCare HQ's fixture workbook cannot name is the second
+ *     kind: the same tag ships in a `.ccz` without complaint, because a
+ *     CCZ addresses its fixtures by element name. Totality is per
+ *     target, so the boundary is the only place that knows enough to
+ *     refuse.
  *   - `oracle` — wire-oracle codes (`XFORM_*` / `SUITE_*` / `HQJSON_*` /
  *     `BINDING_RESOLUTION_*` / `MEDIA_SUITE_*` + the media-suite resource
  *     family). Generator-bug tripwires; never produced by `runValidation`,
@@ -83,6 +94,17 @@ export type ValidityClass =
  *   - MEDIA_EXPORT_TOO_LARGE is `environment`: it is a function of the
  *     referenced assets' external byte sizes/status, fires only from the
  *     media-validation boundary entry point, and can never gate a commit.
+ *     That is route 1 above.
+ *   - LOOKUP_TAG_TOO_LONG_FOR_HQ and LOOKUP_TAG_RESERVED_BY_HQ are
+ *     `environment` by route 2, which is a different call from the one
+ *     above rather than another instance of it. A tag's length and the
+ *     `types` collision are Project data Nova can read whenever it likes,
+ *     so nothing HIDES them from a commit. They are boundary-only because
+ *     each is true of exactly two export modes: making them soundness
+ *     would forbid a tag that works in every CCZ, letting one target's
+ *     spreadsheet format narrow Nova's own vocabulary. Same reasoning for
+ *     LOOKUP_HQ_PUSH_TOO_LARGE, whose budget is CommCare HQ's and nobody
+ *     else's.
  */
 export const VALIDITY_CLASS_BY_CODE: Readonly<
 	Record<ValidationErrorCode, ValidityClass>
@@ -387,7 +409,6 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	LOOKUP_TABLE_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_TYPE_MISMATCH: "soundness",
-	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: "soundness",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: "soundness",
 	/* Row-dependent boundary findings: like MEDIA_EXPORT_TOO_LARGE they are
 	 * functions of external Project data, so they never gate a commit. */
@@ -396,6 +417,9 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: "environment",
 	LOOKUP_SELECT_SOURCE_LABEL_BLANK: "environment",
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: "environment",
+	LOOKUP_HQ_PUSH_TOO_LARGE: "environment",
+	LOOKUP_TAG_TOO_LONG_FOR_HQ: "environment",
+	LOOKUP_TAG_RESERVED_BY_HQ: "environment",
 	// ── XPath deep validation ────────────────────────────────────────
 	XPATH_SYNTAX: "soundness",
 	UNKNOWN_FUNCTION: "soundness",

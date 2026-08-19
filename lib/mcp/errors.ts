@@ -105,15 +105,23 @@ export type HqToolErrorType =
 	| "domain_ambiguous";
 
 /**
- * What an UPLOAD gate can emit: every bucket above, plus one refusal only
- * an in-place update can produce.
+ * What an UPLOAD gate can emit: every bucket above, plus two refusals only
+ * a publish against an existing project space can produce.
  *
  *   - `remote_app_missing` — the publish asked CommCare HQ to update the
  *     app the deployment ledger maps for this target, and HQ answered that
  *     it is gone (deleted there). Nothing was changed; calling again
  *     creates a fresh app and supersedes the dead mapping.
+ *   - `hq_resource_conflict` — the project space already holds a lookup
+ *     table with a name this app's data would land on, and Nova did not
+ *     make it. Nothing was sent. A name match is never evidence of
+ *     ownership, so the caller either renames the table in Project data or
+ *     names the exact tables in `adopt_resources` to take them over.
  */
-export type UploadErrorType = HqToolErrorType | "remote_app_missing";
+export type UploadErrorType =
+	| HqToolErrorType
+	| "remote_app_missing"
+	| "hq_resource_conflict";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can

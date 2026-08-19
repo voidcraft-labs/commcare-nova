@@ -24,6 +24,7 @@ import type { z } from "zod";
 import { DeploymentError } from "@/lib/deployment/errors";
 import {
 	artifactLocations,
+	currentResourceIdentities,
 	refreshDeployment,
 	setupArtifactFor,
 } from "@/lib/deployment/service";
@@ -44,6 +45,7 @@ import { makeFakeServer } from "./fakeServer";
 
 vi.mock("@/lib/deployment/service", () => ({
 	artifactLocations: vi.fn(async () => []),
+	currentResourceIdentities: vi.fn(async () => new Map()),
 	refreshDeployment: vi.fn(),
 	setupArtifactFor: vi.fn(async () => ({ domain: "acme", sections: [] })),
 }));
@@ -100,6 +102,7 @@ beforeEach(() => {
 	vi.mocked(refreshDeployment).mockReset();
 	vi.mocked(setupArtifactFor).mockClear();
 	vi.mocked(artifactLocations).mockClear();
+	vi.mocked(currentResourceIdentities).mockClear();
 	vi.mocked(loadAppBlueprint).mockResolvedValue({
 		doc: {},
 		access: ACCESS,
@@ -158,6 +161,7 @@ describe("get_deployment", () => {
 		expect(parsed.deployments).toEqual([]);
 		expect(setupArtifactFor).not.toHaveBeenCalled();
 		expect(artifactLocations).not.toHaveBeenCalled();
+		expect(currentResourceIdentities).not.toHaveBeenCalled();
 	});
 
 	it("reads the app's places ONCE for every project space it reports", async () => {
@@ -174,6 +178,9 @@ describe("get_deployment", () => {
 		await capture()({ app_id: "a1" });
 
 		expect(artifactLocations).toHaveBeenCalledTimes(1);
+		/* Same reasoning for the lookup identities: they are the app's, not
+		 * any one project space's. */
+		expect(currentResourceIdentities).toHaveBeenCalledTimes(1);
 		expect(setupArtifactFor).toHaveBeenCalledTimes(3);
 	});
 

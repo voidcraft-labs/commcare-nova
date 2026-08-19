@@ -139,6 +139,27 @@ change stays blocked and offers **Check references again**.
 If the table changes while that confirmation is open, Nova refreshes the table
 and checks its app references again before you can confirm the change.
 
+## What happens to a table when you publish
+
+A table travels with the app it is read by, whichever way the app leaves Nova:
+
+- **A downloadable app** carries its tables inside the file, so a device that
+  installed it has them offline.
+- **Publishing to CommCare HQ** puts them on the project space before the app
+  goes, and replaces their rows with the rows in Nova every time you publish.
+  Anything edited on CommCare HQ is overwritten, so keep the values here.
+- **The CommCare HQ app file** comes as a zip with a `lookup-tables.xlsx` beside
+  it, for uploading on the project's Lookup Tables page.
+
+Two things worth knowing before you rename an export tag. CommCare HQ finds a
+table by that tag, so renaming makes a **new** table there and leaves the old
+one where it is, and a tag longer than 31 characters is one CommCare HQ has no
+way to address, so Nova asks you to shorten it before publishing.
+
+If the project space already has a table with the same tag and Nova did not make
+it, publishing stops and asks you which of them are yours rather than writing
+over somebody else's data. [Publishing](/docs/publishing) has the details.
+
 ## Who can do what
 
 - **Read the tables**: anyone who can open the app.

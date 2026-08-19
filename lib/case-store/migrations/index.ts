@@ -67,6 +67,7 @@ import * as designCompositionHandleKinds from "./20260814000000_design_compositi
 import * as executorNativeCalls from "./20260814010000_executor_native_calls";
 import * as appLocalization from "./20260815000000_app_localization";
 import * as designLocalization from "./20260815010000_design_localization";
+import * as deploymentResourcePush from "./20260818010000_deployment_resource_push";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -131,6 +132,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260814010000_executor_native_calls": executorNativeCalls,
 	"20260815000000_app_localization": appLocalization,
 	"20260815010000_design_localization": designLocalization,
+	"20260818010000_deployment_resource_push": deploymentResourcePush,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

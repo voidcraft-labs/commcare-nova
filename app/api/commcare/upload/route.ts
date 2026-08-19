@@ -18,6 +18,12 @@
  * than an error status. That is deliberate: the request succeeded, the
  * deployment is the answer, and the caller renders which edge stopped it.
  * A 4xx here would throw away the record that says where to retry from.
+ *
+ * `adopt_resources` is the one field that says something about the target
+ * rather than the app. Nova never takes over a CommCare HQ resource because
+ * a name matched, so a name clash refuses; sending the exact Nova table ids
+ * back is how a person says "yes, that one is mine". It is per-request and
+ * never remembered as a preference: the next publish decides again.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -32,9 +38,34 @@ import { isValidDomainSlug } from "@/lib/commcare/client";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
-import { publishAppToHq } from "@/lib/deployment/service";
+import { leftBehindResources } from "@/lib/deployment/resources";
+import {
+	currentResourceIdentities,
+	publishAppToHq,
+} from "@/lib/deployment/service";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
+
+/**
+ * Read the explicit adoption list off the request.
+ *
+ * Anything that is not a list of strings is a malformed request rather than
+ * a request to adopt nothing, because silently reading it as an empty list
+ * would turn a client bug into a refused publish nobody can explain.
+ */
+function readAdoptResourceIds(value: unknown): readonly string[] {
+	if (value === undefined || value === null) return [];
+	if (
+		!Array.isArray(value) ||
+		value.some((entry) => typeof entry !== "string")
+	) {
+		throw new ApiError(
+			"Which existing tables to use has to be a list of table ids.",
+			400,
+		);
+	}
+	return value as readonly string[];
+}
 
 export async function POST(req: NextRequest) {
 	try {
@@ -45,6 +76,7 @@ export async function POST(req: NextRequest) {
 			domain?: string;
 			appName?: string;
 			appId?: string;
+			adopt_resources?: unknown;
 		} | null;
 
 		if (!body) throw new ApiError("App data is required", 400);
@@ -60,6 +92,12 @@ export async function POST(req: NextRequest) {
 		if (typeof body.appId !== "string") {
 			throw new ApiError("App data is required", 400);
 		}
+		/* Validated to a list of strings here rather than trusted: these ids
+		 * decide whether Nova writes over a CommCare HQ table it did not
+		 * make, and `publishAppToHq` matches them against the exact conflicts
+		 * it found, so anything else is simply not a conflict it can resolve.
+		 * Absent means adopt nothing. */
+		const adoptResourceIds = readAdoptResourceIds(body.adopt_resources);
 
 		/* Publishing to CommCare HQ requires edit, not view: a viewer can't
 		 * push a shared app out of the Project. An `AppAccessError` maps to
@@ -81,18 +119,21 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
+		const scope = {
+			appId: body.appId,
+			projectId: access.projectId,
+			role: access.role,
+			actorUserId: session.user.id,
+		};
+		const doc = hydratePersistedBlueprint(app.blueprint as PersistableDoc);
 		const outcome = await publishAppToHq({
-			scope: {
-				appId: body.appId,
-				projectId: access.projectId,
-				role: access.role,
-				actorUserId: session.user.id,
-			},
-			doc: hydratePersistedBlueprint(app.blueprint as PersistableDoc),
+			scope,
+			doc,
 			compiledAtSeq: app.mutation_seq,
 			appName: body.appName.trim(),
 			server: settings.server,
 			domain: body.domain.trim(),
+			adoptResourceIds,
 		});
 
 		/* Whether THIS publish got the app there, which is not the same as
@@ -106,12 +147,15 @@ export async function POST(req: NextRequest) {
 		 * live on more than one project space, which is exactly when
 		 * `commcare_project` has two real answers and Nova must name
 		 * neither. */
-		const scope = {
-			appId: body.appId,
-			projectId: access.projectId,
-			role: access.role,
-			actorUserId: session.user.id,
-		};
+		/* What an earlier publish left on this project space and the app no
+		 * longer points at. Derived here rather than in the dialog: telling a
+		 * rename (something really is sitting there) from a recreate
+		 * (nothing is) needs the names the tables carry NOW, which is a
+		 * server-side read. */
+		const identities =
+			outcome.deployment === null
+				? null
+				: await currentResourceIdentities(scope, doc);
 		return NextResponse.json(
 			{
 				success: succeeded,
@@ -123,6 +167,17 @@ export async function POST(req: NextRequest) {
 				 * first publish leaves nothing durable behind, and the refusal
 				 * below is the whole answer. */
 				deployment: outcome.deployment,
+				/* Never inferred from `deployment.superseded` by the client:
+				 * a table recreated after being deleted on CommCare HQ
+				 * supersedes its mapping and leaves nothing there. */
+				left_behind:
+					outcome.deployment === null
+						? []
+						: identities === null
+							? outcome.deployment.superseded.filter(
+									(resource) => resource.kind === "app",
+								)
+							: leftBehindResources(outcome.deployment, identities),
 				/* Why THIS attempt stopped, when it did. The record cannot
 				 * carry it: a refusal against an already-live deployment
 				 * deliberately writes nothing durable. */

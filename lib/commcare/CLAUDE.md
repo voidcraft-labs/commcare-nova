@@ -362,27 +362,31 @@ operation.
 Those structural rules are the whole commit policy: `evaluateCommit` adds no
 carrier-specific finding, so an authored carrier lands like any other document
 content once its identities resolve. The export boundary owns the verdict a
-rows-free snapshot cannot prove, and it is mode-split by which mode reads
-rows. `ccz` reads every referenced table's complete rows, builds the fixture
-blocks (below), and takes the row-dependent select-source and aggregate-budget
-findings — `environment`-class, since rows change outside the document and
-must never gate a commit. `hq-json` and `hq-upload` read the rows-free
-definitions snapshot alone and derive no wire naming, so they reject every
-authored carrier with the mode-bearing `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`
-until the complex-app plan's push-and-provisioning unit pushes and maps the
-resources — a carrier never reaches those
-emitters unresolved.
+rows-free snapshot cannot prove. EVERY mode reads every referenced table's
+complete rows, because every mode now carries the data: `ccz` embeds it as
+suite fixtures, and the two HQ modes build the fixapi workbook. The
+row-dependent select-source findings are common to all three — a choice list
+whose saved values are blank or duplicated is equally broken however the table
+reached the device — and are `environment`-class, since rows change outside the
+document and must never gate a commit. What differs is what each CARRIER can
+hold: `ccz` takes the aggregate fixture budgets, and the HQ modes take
+`LOOKUP_HQ_PUSH_TOO_LARGE` (CommCare HQ's whole-workbook row ceiling) plus
+`LOOKUP_TAG_TOO_LONG_FOR_HQ` — a data sheet is NAMED for its tag and a sheet
+name holds 31 characters while a tag may be authored up to 32, so exactly one
+authorable length is unpushable and the boundary refuses it by name rather than
+letting the emitter meet a sheet it cannot name.
 
-Every real export surface enters through the Nova-neutral server seam at `lib/export/boundaryValidation.ts`, selecting `ccz`, `hq-json`, or `hq-upload`. That seam loads definitions even for an empty target set (plus complete ordered rows in one snapshot on `ccz`), passes the exact available context into `evaluateBoundary`, and returns the same snapshot with prepared media and lookup resources. Emitters consume that returned generation and never perform a second lookup read; operational lookup failures stop before expansion, compilation, or HQ import.
+Every real export surface enters through the Nova-neutral server seam at `lib/export/boundaryValidation.ts`, selecting `ccz`, `hq-json`, or `hq-upload`. That seam loads definitions and complete ordered rows in one snapshot on every mode, passes the exact available context into `evaluateBoundary`, and returns the same snapshot with prepared media and the mode's lookup carrier (`lookupWire` on `ccz`, `lookupWorkbook` on the two HQ modes). Emitters consume that returned generation and never perform a second lookup read; operational lookup failures stop before expansion, compilation, or HQ import.
 
-### Lookup wire — local CCZ only
+### Lookup wire — two carriers, one generation
 
 `lib/commcare/lookup/` owns the carrier wire. `naming.ts` derives the one
 identity resolver per emission run from the validated definitions
 (tableId → current `tag`, columnId → current `wireName`; fixture id
 `item-list:<tag>`, src `jr://fixture/item-list:<tag>`); every emitter resolves
 through it and a missing naming is a deliberate throw — only the ccz path
-supplies one, so a carrier reaching any other surface fails loudly.
+supplies one to the XForm/suite emitters, so a carrier reaching any other
+surface fails loudly.
 `fixtures.ts` builds the suite-embedded global `<fixture id="item-list:<tag>">`
 blocks — one `<{tag}_list>` body, one `<{tag}>` per row in authored
 `(order_key, row UUID)` order, EVERY defined column as a child element in
@@ -427,6 +431,21 @@ case-store SQL evaluate carriers (the preview reuses these
 emitters row-scoped over its loaded fixture snapshot — see
 `lib/preview/CLAUDE.md`); CSQL and the case-search `_xpath_query` path keep
 rejecting them.
+
+`workbook.ts` is the OTHER carrier: the `.xlsx` CommCare HQ's fixture upload
+reads, built from the same `naming.ts` identities and the same
+`cellText.ts` projection, so the workbook and the `.ccz` fixtures cannot
+disagree about a decimal or an empty cell. Its byte oracle is CommCare HQ's own
+exporter — `fixtures/download.py::_prepare_fixture` writes what
+`fixtures/upload/workbook.py` reads back — so the sheet names and header
+strings are the contract, not labels: a mandatory `types` sheet
+(`Delete(Y/N)`, `table_id`, `is_global?`, `field 1`…) that CREATES the table
+definition, and one data sheet per table NAMED BY ITS TAG (`UID`,
+`Delete(Y/N)`, `field: <wireName>`…). `IteratorJSONReader.set_field_value` is
+the header grammar (`a N` is a list, `a: b` nests, `a?` is a boolean). Because
+the types sheet carries the definition, CommCare HQ's JSON `lookup_table`
+resource is not on the write path at all. `lib/commcare/hq/lookupTables.ts`
+drives both endpoints; `lib/deployment` owns what may be written over.
 
 `compileForPlatform.ts` is the pure decision tree from authored content + `PlatformContext` to a three-flag `WireShape`. Author intent is unambiguous on every input — Android always emits list-first / inline-results; web with an effective Search action, an effective filter, and zero search inputs emits skip-to-results; an explicit zero-input action without that filter remains manual; web fallback is list-first. The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute. The HQ JSON projection supplies a match-all default property for the explicit zero-input/manual shape because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
 

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Selectable, Transaction } from "kysely";
+import { type Selectable, sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import {
@@ -28,6 +28,7 @@ import {
 	type DeploymentResourceKind,
 	type DeploymentResourceOwnership,
 	type DeploymentWithResources,
+	type DrivenDeploymentPhase,
 	deploymentPhaseOutcomesSchema,
 	deploymentPhaseSchema,
 	deploymentResourceKindSchema,
@@ -192,6 +193,9 @@ function toDeploymentResource(
 		novaResourceId: row.nova_resource_id,
 		remoteId: row.remote_id,
 		ownership: ownership.data,
+		pushedIdentity: row.pushed_identity,
+		adoptedAt: isoOrNull(row.adopted_at),
+		adoptedBy: row.adopted_by,
 		pushedRevision: numberOrNull(row.pushed_revision),
 		pushedAt: isoOrNull(row.pushed_at),
 		remoteRevision: numberOrNull(row.remote_revision),
@@ -455,7 +459,7 @@ function progressUpdate(
 export async function foldDeploymentAttempt(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	phase: "preflight" | "upload",
+	phase: DrivenDeploymentPhase,
 	outcome: DeploymentPhaseOutcome,
 	options: { readonly ensure?: boolean } = {},
 ): Promise<DeploymentWithResources> {
@@ -486,6 +490,18 @@ export interface RecordRemoteResourceInput {
 	readonly novaResourceId: string;
 	readonly remoteId: string;
 	readonly ownership: DeploymentResourceOwnership;
+	/**
+	 * The external name this resource carries on CommCare HQ, for the kinds
+	 * that have one. Null for `app`, whose remote id is its name there.
+	 */
+	readonly pushedIdentity?: string | null;
+	/**
+	 * Who took over a resource Nova did not create. Required exactly when
+	 * `ownership` is `adopted`, and refused otherwise — the ledger's own
+	 * CHECK says the same thing, and disagreeing with it here would turn a
+	 * reviewable decision into a constraint violation at 3am.
+	 */
+	readonly adoptedBy?: string | null;
 	/** The Nova mutation sequence this remote resource was built from. */
 	readonly pushedRevision: number | null;
 	/**
@@ -495,31 +511,32 @@ export interface RecordRemoteResourceInput {
 	 * observation fills it.
 	 */
 	readonly remoteRevision: number | null;
-	/** When the resource landed on the target. */
+}
+
+/**
+ * The app mapping, which additionally carries the moment the upload
+ * landed, because recording it is what advances the record to `uploaded`.
+ * The other kinds do not: their rung is folded once for the whole push
+ * rather than once per resource.
+ */
+export interface RecordRemoteAppInput extends RecordRemoteResourceInput {
 	readonly uploadedAt: string;
 }
 
 /**
- * Point a deployment at a remote resource and fold the successful upload
- * into the record: one transaction, so a publish that recorded the remote
- * app but not the `uploaded` state cannot exist.
+ * Point a deployment at the app CommCare HQ now holds, and fold the
+ * successful upload into the record: one transaction, so a publish that
+ * recorded the remote app but not the `uploaded` state cannot exist.
+ * `writeResourceMapping` owns the update-versus-supersede rule.
  *
- * Recording the SAME remote id the mapping already holds is the mainline
- * republish — the publish updated the app on CommCare HQ in place — so
- * the live row is updated rather than filed as something left behind.
- * Recording a DIFFERENT remote id supersedes the previous mapping: that
- * happens when the mapped app was deleted on CommCare HQ and the next
- * publish created a fresh one. The old row is retained with
- * `superseded_at` set rather than deleted, because "report any old remote
- * resource left behind" is impossible if the row is thrown away. Either
- * way the record's observation history is cleared in the same write,
- * because those answers described what the target held before this
- * publish, not what it holds now.
+ * The record's observation history is cleared in the same write, because
+ * those answers described what the target held before this publish, not
+ * what it holds now.
  */
 export async function recordRemoteResource(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	input: RecordRemoteResourceInput,
+	input: RecordRemoteAppInput,
 ): Promise<DeploymentWithResources> {
 	return withDeploymentRow(
 		scope,
@@ -527,50 +544,7 @@ export async function recordRemoteResource(
 		{ ensure: false },
 		async (tx, row) => {
 			const now = new Date();
-			await tx
-				.updateTable("app_deployment_resources")
-				.set({ superseded_at: now })
-				.where("deployment_id", "=", row.id)
-				.where("kind", "=", input.kind)
-				.where("nova_resource_id", "=", input.novaResourceId)
-				.where("superseded_at", "is", null)
-				// Re-pointing at the same remote id is not a supersession: it is
-				// the same resource, so the row is updated below instead of being
-				// filed as something left behind.
-				.where("remote_id", "!=", input.remoteId)
-				.execute();
-
-			/* `remote_revision`/`remote_observed_at` are written in BOTH arms:
-			 * a republish always lands in the conflict arm, so an insert-only
-			 * write would silently drop the version an in-place update
-			 * reported. */
-			await tx
-				.insertInto("app_deployment_resources")
-				.values({
-					deployment_id: row.id,
-					kind: input.kind,
-					nova_resource_id: input.novaResourceId,
-					remote_id: input.remoteId,
-					ownership: input.ownership,
-					pushed_revision: input.pushedRevision,
-					pushed_at: input.pushedRevision === null ? null : now,
-					remote_revision: input.remoteRevision,
-					remote_observed_at: input.remoteRevision === null ? null : now,
-				})
-				.onConflict((conflict) =>
-					conflict
-						.columns(["deployment_id", "kind", "nova_resource_id"])
-						.where("superseded_at", "is", null)
-						.doUpdateSet({
-							remote_id: input.remoteId,
-							ownership: input.ownership,
-							pushed_revision: input.pushedRevision,
-							pushed_at: input.pushedRevision === null ? null : now,
-							remote_revision: input.remoteRevision,
-							remote_observed_at: input.remoteRevision === null ? null : now,
-						}),
-				)
-				.execute();
+			await writeResourceMapping(tx, row.id, input, now);
 
 			const record = toDeploymentRecord(row);
 			const progress = applyPhaseOutcome(record, "upload", {
@@ -590,6 +564,219 @@ export async function recordRemoteResource(
 				.execute();
 			await notifyAppDeployments(tx, scope.appId);
 
+			return loadWithinTransaction(tx, row.id);
+		},
+	);
+}
+
+/**
+ * Point one mapping at its remote resource, inside a caller's transaction.
+ *
+ * Recording the SAME remote id the mapping already holds is the mainline
+ * republish — the resource was updated on CommCare HQ in place — so the
+ * live row is updated rather than filed as something left behind.
+ * Recording a DIFFERENT one supersedes the previous mapping: the mapped
+ * app was deleted on CommCare HQ and a fresh one created, or a lookup
+ * table's tag changed so the push made a new table beside the old one.
+ * The old row is retained with `superseded_at` set rather than deleted,
+ * because "report any old remote resource left behind" is impossible if
+ * the row is thrown away.
+ */
+async function writeResourceMapping(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	input: RecordRemoteResourceInput,
+	now: Date,
+): Promise<void> {
+	const adopted = input.ownership === "adopted";
+	const adoptedBy = input.adoptedBy ?? null;
+	/* The ledger's CHECK says the same thing, and hitting it would surface
+	 * as a constraint violation with no useful name attached. Refusing
+	 * here says which call was wrong. */
+	if (adopted !== (adoptedBy !== null && adoptedBy.trim() !== "")) {
+		throw new Error(
+			adopted
+				? "Adopting a CommCare HQ resource needs the member who adopted it; the ledger records who took it over."
+				: "Only an adopted resource records who adopted it; a resource Nova created has no such decision to attribute.",
+		);
+	}
+	const attribution = {
+		ownership: input.ownership,
+		adopted_at: adopted ? now : null,
+		adopted_by: adopted ? adoptedBy : null,
+		pushed_identity: input.pushedIdentity ?? null,
+	} as const;
+
+	/* An adoption is attributed ONCE, to the person who made it.
+	 *
+	 * Every republish of an already-adopted table lands in the conflict arm
+	 * carrying a fresh `now` and whoever clicked today, so writing the
+	 * attribution straight through would quietly reassign a decision A made
+	 * in March to B in August, and the ledger's whole purpose is that the
+	 * decision is auditable rather than folklore. `COALESCE` keeps the
+	 * first one and still records a genuine nova-created -> adopted
+	 * transition, whose existing columns are null.
+	 *
+	 * The `CASE` is what keeps the reverse transition legal: the row's
+	 * CHECK ties `ownership = 'adopted'` to exactly the rows that name a
+	 * member and a time, so a resource that stops being adopted has to drop
+	 * both in the same statement. */
+	const conflictAttribution = {
+		ownership: input.ownership,
+		adopted_at: sql<Date | null>`CASE WHEN EXCLUDED.ownership = 'adopted' THEN COALESCE(app_deployment_resources.adopted_at, EXCLUDED.adopted_at) ELSE NULL END`,
+		adopted_by: sql<
+			string | null
+		>`CASE WHEN EXCLUDED.ownership = 'adopted' THEN COALESCE(app_deployment_resources.adopted_by, EXCLUDED.adopted_by) ELSE NULL END`,
+		pushed_identity: input.pushedIdentity ?? null,
+	} as const;
+
+	await tx
+		.updateTable("app_deployment_resources")
+		.set({ superseded_at: now })
+		.where("deployment_id", "=", deploymentId)
+		.where("kind", "=", input.kind)
+		.where("nova_resource_id", "=", input.novaResourceId)
+		.where("superseded_at", "is", null)
+		// Re-pointing at the same remote id is not a supersession: it is
+		// the same resource, so the row is updated below instead of being
+		// filed as something left behind.
+		.where("remote_id", "!=", input.remoteId)
+		.execute();
+
+	/* `remote_revision`/`remote_observed_at` are written in BOTH arms:
+	 * a republish always lands in the conflict arm, so an insert-only
+	 * write would silently drop the version an in-place update
+	 * reported. */
+	await tx
+		.insertInto("app_deployment_resources")
+		.values({
+			deployment_id: deploymentId,
+			kind: input.kind,
+			nova_resource_id: input.novaResourceId,
+			remote_id: input.remoteId,
+			...attribution,
+			pushed_revision: input.pushedRevision,
+			pushed_at: input.pushedRevision === null ? null : now,
+			remote_revision: input.remoteRevision,
+			remote_observed_at: input.remoteRevision === null ? null : now,
+		})
+		.onConflict((conflict) =>
+			conflict
+				.columns(["deployment_id", "kind", "nova_resource_id"])
+				.where("superseded_at", "is", null)
+				.doUpdateSet({
+					remote_id: input.remoteId,
+					...conflictAttribution,
+					pushed_revision: input.pushedRevision,
+					pushed_at: input.pushedRevision === null ? null : now,
+					remote_revision: input.remoteRevision,
+					remote_observed_at: input.remoteRevision === null ? null : now,
+				}),
+		)
+		.execute();
+}
+
+/**
+ * How far one resource push got, which is what decides whether its
+ * mappings are also a STATEMENT about the resources it did not name.
+ *
+ * A table push is one workbook, but CommCare HQ's own verdict on it has
+ * three values rather than two:
+ * `views.py::UploadFixtureAPIResponse.response_codes` answers `warning`
+ * when the workbook was processed and part of it did not take. Those
+ * tables are on the project space. Recording them is not optional — they
+ * are there, a retry has to update them rather than make a second copy,
+ * and a mapping Nova never wrote would make its own table read as a
+ * stranger's on the next publish and stop it to ask.
+ */
+export type ResourcePushOutcome =
+	| {
+			/**
+			 * The push finished. `mappings` is therefore the COMPLETE live
+			 * set for every kind in `kinds`, and any live mapping of one of
+			 * those kinds it does not name is superseded.
+			 */
+			readonly status: "complete";
+			readonly kinds: readonly DeploymentResourceKind[];
+			readonly pushedAt: string;
+	  }
+	| {
+			/**
+			 * The push stopped partway. What landed is real and is recorded;
+			 * nothing is superseded, because a resource this call did not
+			 * name may simply not have been reached yet, and no rung folds,
+			 * because the phase did not succeed.
+			 */
+			readonly status: "partial";
+	  };
+
+/**
+ * Record everything one resource push put on the target, and fold the
+ * `resources` rung, in a single transaction.
+ *
+ * The rung folds through `applyAttemptOutcome`, not `applyPhaseOutcome`.
+ * That is what stops a republish of an app already `runnable` from being
+ * walked backward to `resources` by its own successful table push, and it
+ * is the same rule preflight and upload already follow. The mappings are
+ * written either way, because those are target information rather than
+ * attempt information: the tables really are there now.
+ *
+ * A COMPLETE push is also the AUTHORITATIVE statement of which tables this
+ * app still uses, so any mapping of its kinds it does not name is
+ * superseded here. Dropping the last select that read a table leaves that
+ * table sitting on the project space under Nova's own claim, and without
+ * this its row would stay live forever and `leftBehindResources` — which
+ * only ever scans superseded rows — would never mention it. Superseding is
+ * the whole fix: Nova still deletes nothing on CommCare HQ, it just stops
+ * claiming the table and starts reporting it.
+ */
+export async function recordPushedResources(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	inputs: readonly RecordRemoteResourceInput[],
+	outcome: ResourcePushOutcome,
+): Promise<DeploymentWithResources> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			const now = new Date();
+			for (const input of inputs) {
+				await writeResourceMapping(tx, row.id, input, now);
+			}
+			if (outcome.status === "partial") {
+				await notifyAppDeployments(tx, scope.appId);
+				return loadWithinTransaction(tx, row.id);
+			}
+			for (const kind of outcome.kinds) {
+				const stillUsed = inputs
+					.filter((input) => input.kind === kind)
+					.map((input) => input.novaResourceId);
+				await tx
+					.updateTable("app_deployment_resources")
+					.set({ superseded_at: now })
+					.where("deployment_id", "=", row.id)
+					.where("kind", "=", kind)
+					.where("superseded_at", "is", null)
+					.$if(stillUsed.length > 0, (qb) =>
+						qb.where("nova_resource_id", "not in", stillUsed),
+					)
+					.execute();
+			}
+			const record = toDeploymentRecord(row);
+			const progress = applyAttemptOutcome(record, "resources", {
+				status: "succeeded",
+				at: outcome.pushedAt,
+			});
+			if (progress !== record) {
+				await tx
+					.updateTable("app_deployments")
+					.set(progressUpdate(progress, progress.phases, now))
+					.where("id", "=", row.id)
+					.execute();
+			}
+			await notifyAppDeployments(tx, scope.appId);
 			return loadWithinTransaction(tx, row.id);
 		},
 	);

@@ -895,11 +895,14 @@ exact UTF-8 fixture bytes. These are declared Nova policy sized against an
 unindexed runtime that materializes XML as object-heavy `TreeElement` nodes; the
 cell cap is what bounds that cardinality.
 
-Lookup references execute in the preview but have no wire spelling on the HQ
-paths yet, so `lib/export/boundaryValidation.ts` refuses `hq-json` and `hq-upload`
-export for a carrier-bearing document (`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`). Local
-`.ccz` export carries them. That refusal lifts when the
-push-and-provisioning-drivers unit's resource push exists.
+Every export mode carries the data a carrier reads, from one validated
+generation. `.ccz` embeds it as suite fixtures; `hq-json` and `hq-upload` build
+the fixapi workbook (`lib/commcare/lookup/workbook.ts`), which the direct upload
+pushes to the project space before the app and the manual artifact ships beside
+the app JSON. The HQ modes carry two size verdicts of their own: CommCare HQ's
+whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`) and
+`LOOKUP_TAG_TOO_LONG_FOR_HQ`, because a data sheet is NAMED for its tag and a
+sheet name holds 31 characters while a tag may be authored up to 32.
 
 ### Atomic submission and resolved identity
 
@@ -1608,13 +1611,18 @@ server, and `lib/commcare/client.ts` resolves its base URL from the selected one
 app, keyed by app, Project, server, and domain — the server belongs to the key
 because HQ's US, India, and EU installations share no account database, so a key
 issued by one authenticates nowhere else. An `app_deployment_resources` row is
-the ownership ledger: Nova repoints or updates only what it created, and never
-infers ownership from a name, because two project spaces can hold unrelated apps
-sharing a name and picking one would attach a deployment to somebody else's
-work. `lib/deployment/CLAUDE.md` owns the
-detail.
+the ownership ledger: Nova repoints or updates what it created (`nova-created`)
+and what somebody explicitly handed it (`adopted`), and never infers ownership
+from a name, because two project spaces can hold unrelated apps — or unrelated
+lookup tables — sharing a name and picking one would attach a deployment to
+somebody else's work. An adoption is never inferred: the publish REFUSES,
+names the resource, and only a caller naming that exact Nova id records it,
+attributed to who and when. `pushed_identity` holds the external name a
+resource carries there, which is what makes a renamed resource reportable as
+left behind. `lib/deployment/CLAUDE.md` owns the detail.
 
-The lifecycle is `preflight → uploaded → built → released → runnable`, plus the
+The lifecycle is `preflight → resources → uploaded → built → released →
+runnable`, plus the
 terminal refusal `incomplete`, which carries the phase a retry resumes at and
 withholds both `released` and `runnable`. Every phase is independently
 retryable, and a retry never re-imports the app because the mapping already
@@ -1632,7 +1640,33 @@ restored. No lock spans the HQ round trips: every record write is one short
 transaction folding against the freshly locked row, and an observation applies
 only while the mapping it asked about is still the active one.
 
-**Nova drives the first two states and observes the last three, because HQ
+`resources` is what the app DEPENDS ON, put there before the app itself. Its
+first inhabitant is the app's lookup tables: the app's selects read them by name
+at runtime, so an app that arrived first would install and misbehave. CommCare
+HQ has no REST endpoint that takes a table's rows in bulk — the row resource
+keys rows by a server-minted UUID with no natural key — so the push is the Excel
+fixture upload (`POST /a/<domain>/fixtures/fixapi/`, synchronous, `replace=true`,
+`waf_padding` first), whose types sheet creates the table definition and whose
+`replace` makes each table in the workbook equal Nova's copy while leaving every
+table not in it untouched (`fixtures/upload/run_upload.py::_run_upload`). The
+synchronous path is the only one with a real verdict: `tasks.py::fixture_upload_async`
+skips `validate_fixture_file_format` and drops the row errors. The verdict is in
+the BODY — `views.py::UploadFixtureAPIResponse.response_codes` maps fail/warning/success
+to 405/402/200 and `JsonResponse` carries all three over HTTP 200 — and a warning
+is a refusal here, because Nova pushes whole tables and a partial result is a
+project space whose data no longer matches the app about to be sent to it.
+
+Because the upload matches tables BY TAG, the ownership read before it is
+mandatory rather than defensive, and the two endpoints AUTHORIZE DIFFERENTLY:
+the tastypie `lookup_table` read needs the domain's paid API_ACCESS privilege
+and the account's `access_api` permission, while the upload needs neither. So a
+project space can accept the push while refusing to say what it holds, which is
+exactly the case Nova must refuse rather than push into. A publish refused at
+`resources` sent nothing of the app, so its retry re-pushes the data and never
+re-imports the app; a SUCCEEDED push folds through `applyAttemptOutcome` so a
+republish of a `runnable` app is not walked backward by its own data landing.
+
+**Nova drives the first three states and observes the last three, because HQ
 draws that line.** `app_import_api.py::import_app_api` passes
 `login_decorator=api_auth()`, so an API key may import; `views/releases.py::save_copy`
 and `views/releases.py::release_build` both go through `require_can_edit_apps`,
@@ -1676,9 +1710,12 @@ when the app has a Nova-authored logo (`lib/commcare/hqShells.ts` states the
 rule).
 
 Preflight is a dependency graph with two kinds of edge. A blocking edge is a
-real prerequisite — no connection, or an app the export boundary refuses — and
-failing one leaves the deployment `incomplete` before anything externally
-visible happens. An attention edge is something the target needs that Nova
+real prerequisite — no connection, an app the export boundary refuses, or
+Project data Nova may not write over — and failing one leaves the deployment
+`incomplete` before anything externally visible happens. The `project-data`
+edge is the one that talks to HQ during preflight, appearing only when the app
+reads a table; its refusal is all-or-nothing, because the workbook is one
+upload and a half-pushed project space has no honest state to describe it. An attention edge is something the target needs that Nova
 cannot do from here, so it becomes a line in the setup artifact rather than a
 refusal; whether a persona satisfies a `required` worker property is one of
 these, because refusing a publish over it would refuse one that works while
@@ -1689,7 +1726,10 @@ the app.
 The setup artifact regenerates from the document on every read and is never
 stored — a stored copy goes stale the first time a worker property is renamed,
 and somebody following stale instructions has no way to tell. It is target-aware
-throughout, and never claims a prerequisite was installed: the user-data schema
+throughout, and never claims a prerequisite was installed. **Project data is the
+first section that flipped from instruction to record** — it names the tables
+Nova keeps on that project space, which is the shape every other section takes
+as its push driver ships. The rest are instructions still: the user-data schema
 and organization levels are session-only HTML forms
 (`users/views/mobile/custom_data_fields.py::UserFieldsView`,
 `locations/views.py::LocationTypesView`), automations have no REST resource, and
@@ -1861,11 +1901,11 @@ fixture when missed.
 · depends on nothing outstanding · blocks the app-setup-UI, session-endpoints,
 and multi-select units
 
-Referenced-table push, location push, and explicit worker provisioning against
-the deployment record's ownership mappings. **The file holds** the fixapi workbook's actual
-format, why a tag rename cannot be an in-place PUT, the v0.6 location API's
-semantics and caps, the user resource's create-only identity, and which part of
-the org model is not pushable at all.
+Location push and explicit worker provisioning against the deployment record's
+ownership mappings. **The file holds** the v0.6 location API's semantics and
+caps, why HQ requires the immediate parent level while Nova allows a skipped
+rung, why an archived place keeps its site code, the user resource's create-only
+identity, and which part of the org model is not pushable at all.
 
 ### App setup UI, SA, MCP, and docs
 

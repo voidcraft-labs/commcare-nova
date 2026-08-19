@@ -20,7 +20,10 @@ import { requireSession } from "@/lib/auth-utils";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
-import { publishAppToHq } from "@/lib/deployment/service";
+import {
+	currentResourceIdentities,
+	publishAppToHq,
+} from "@/lib/deployment/service";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
 import { POST } from "../route";
 
@@ -30,7 +33,14 @@ vi.mock("@/lib/db/appAccess", () => ({
 	AppAccessError: class AppAccessError extends Error {},
 }));
 vi.mock("@/lib/db/settings", () => ({ getCommCareSettings: vi.fn() }));
-vi.mock("@/lib/deployment/service", () => ({ publishAppToHq: vi.fn() }));
+/* Both service functions the route imports. A factory that names only
+ * `publishAppToHq` leaves the other `undefined`, and the route throws on
+ * the call rather than failing an assertion, so every case in this file
+ * reports an opaque 500 instead of what it meant to check. */
+vi.mock("@/lib/deployment/service", () => ({
+	publishAppToHq: vi.fn(),
+	currentResourceIdentities: vi.fn(async () => new Map<string, string>()),
+}));
 /* The route asks the server what Preview may name; only the server can
  * see whether the app is now live on more than one space. */
 vi.mock("@/lib/deployment/previewSpace", () => ({
@@ -204,6 +214,78 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(body.deployment.deployment.state).toBe("uploaded");
 		expect(body.setup_artifact.domain).toBe(DOMAIN);
 		expect(body.url).toContain("/a/acme/apps/view/");
+	});
+
+	it("names a lookup table an earlier publish left behind", async () => {
+		/* The client cannot work this out for itself: a table deleted on
+		 * CommCare HQ and recreated by the next push also supersedes its
+		 * mapping while leaving nothing there, so only the server, which can
+		 * read what each table is called NOW, can tell the two apart. */
+		vi.mocked(publishAppToHq).mockResolvedValue({
+			...(await vi.mocked(publishAppToHq).mock.results[0]?.value),
+			landed: true,
+			hqAppAction: "updated",
+			deployment: {
+				...deploymentView("uploaded"),
+				superseded: [
+					{
+						deploymentId: "dep-1",
+						kind: "lookup-table",
+						novaResourceId: "table-1",
+						remoteId: "hq-old",
+						ownership: "nova-created",
+						pushedIdentity: "districts",
+						adoptedAt: null,
+						adoptedBy: null,
+						pushedRevision: 3,
+						pushedAt: "2026-08-06T00:00:00.000Z",
+						remoteRevision: null,
+						remoteObservedAt: null,
+						supersededAt: "2026-08-07T00:00:00.000Z",
+					},
+				],
+			},
+			checks: [],
+			artifact: {
+				server: "production",
+				domain: DOMAIN,
+				hqAppId: null,
+				sections: [],
+			},
+			warnings: [],
+			featureFlags: null,
+			hqAppUrl: `https://www.commcarehq.org/a/${DOMAIN}/apps/view/hq-abc/`,
+		} as never);
+		/* The table now carries a different tag, which is what makes the old
+		 * one genuinely abandoned rather than merely replaced. */
+		vi.mocked(currentResourceIdentities).mockResolvedValue(
+			new Map([["table-1", "areas"]]),
+		);
+
+		const body = (await (
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" }))
+		).json()) as {
+			left_behind: readonly { kind: string; pushedIdentity: string }[];
+		};
+
+		expect(body.left_behind).toHaveLength(1);
+		expect(body.left_behind[0]).toMatchObject({
+			kind: "lookup-table",
+			pushedIdentity: "districts",
+		});
+	});
+
+	it("says nothing is left behind when Nova could not read the names", async () => {
+		/* `null` is "could not tell", not "every table was deleted". Reporting
+		 * the superseded rows anyway would send somebody to CommCare HQ to
+		 * tidy up tables that are perfectly fine. */
+		vi.mocked(currentResourceIdentities).mockResolvedValue(null);
+
+		const body = (await (
+			await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" }))
+		).json()) as { left_behind: readonly unknown[] };
+
+		expect(body.left_behind).toEqual([]);
 	});
 
 	it("answers 200 for an in-place update, saying which happened", async () => {
