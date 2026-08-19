@@ -143,7 +143,9 @@ const FIELD_DOCS = {
 		"id may differ from the property. Attachment kinds (image, audio, " +
 		'video, signature, file) additionally require `mode: "url"`, which ' +
 		"saves a link to the attached file, and cannot write `case_name` or " +
-		"`external_id`. Every other kind must leave `mode` out.",
+		"`external_id`. The link is the only way back to the file: CommCare " +
+		"never displays a case attachment inside the app, on either client. " +
+		"Every other kind must leave `mode` out.",
 	repeat_mode:
 		'"user_controlled" — user adds/removes rows at fill. "count_bound" ' +
 		'— row count from `count`. "query_bound" — one row per case id ' +
