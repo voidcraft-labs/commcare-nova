@@ -66,6 +66,7 @@ import {
 } from "@/lib/deployment/actions";
 import { plannedInPlaceUpdate } from "@/lib/deployment/resources";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
+import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { useAccessPhase, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
@@ -94,7 +95,12 @@ const PUBLISH_TARGET_OPTIONS = {
 } as const;
 
 export type PublishDownloadOutcome =
-	| { readonly ok: true; readonly featureFlagReport?: HqFeatureFlagReport }
+	| {
+			readonly ok: true;
+			readonly featureFlagReport?: HqFeatureFlagReport;
+			/** What the file could not carry. Empty on an ordinary download. */
+			readonly advisories?: readonly ExportAdvisory[];
+	  }
 	| { readonly ok: false };
 
 export type PublishFeatureFlagOutcome =
@@ -149,6 +155,7 @@ type PublishStatus =
 			type: "download-success";
 			target: "web" | "mobile";
 			featureFlagReport?: HqFeatureFlagReport;
+			advisories?: readonly ExportAdvisory[];
 	  }
 	| { type: "error"; message: string; status: number; details: string[] };
 
@@ -562,6 +569,7 @@ export function PublishDialog({
 				type: "download-success",
 				target: downloadTarget,
 				featureFlagReport: outcome.featureFlagReport,
+				advisories: outcome.advisories,
 			});
 		},
 		[onDownloadCcz, onDownloadJson],
@@ -773,6 +781,7 @@ export function PublishDialog({
 											: "Mobile app file downloaded"
 									}
 									featureFlagReport={status.featureFlagReport}
+									advisories={status.advisories}
 									mode="download"
 								/>
 							) : null}
@@ -1128,6 +1137,7 @@ function PublishSuccess({
 	title,
 	warnings = [],
 	featureFlagReport,
+	advisories = [],
 	mode,
 	tone = "done",
 	blocked,
@@ -1136,6 +1146,8 @@ function PublishSuccess({
 	title: string;
 	warnings?: string[];
 	featureFlagReport?: HqFeatureFlagReport;
+	/** Only a download has these: a publish always knows its own target. */
+	advisories?: readonly ExportAdvisory[];
 	mode: "upload" | "download";
 	/** A refused publish reaches this screen too, and must not be
 	 *  celebrated: it shows the same record, without the tick. */
@@ -1191,6 +1203,21 @@ function PublishSuccess({
 						>
 							{warning}
 						</p>
+					))}
+				</div>
+			)}
+
+			{advisories.length > 0 && (
+				<div className="mt-3 space-y-2 rounded-lg border border-nova-amber/20 bg-nova-amber/[0.06] px-3 py-2.5">
+					{advisories.map((advisory) => (
+						<div key={advisory.id}>
+							<p className="text-xs font-medium text-nova-text">
+								{advisory.title}
+							</p>
+							<p className="mt-1 text-xs leading-relaxed text-nova-text-secondary">
+								{advisory.message}
+							</p>
+						</div>
 					))}
 				</div>
 			)}

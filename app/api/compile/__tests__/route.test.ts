@@ -27,6 +27,10 @@ import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace"
 import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
+import {
+	decodeExportAdvisories,
+	EXPORT_ADVISORY_HEADER,
+} from "@/lib/publish/exportAdvisories";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
@@ -78,6 +82,43 @@ function validDoc() {
 			},
 		],
 	});
+	return doc;
+}
+
+/** An app whose photo question saves a link to the file it captures. */
+function docWithAttachmentLink() {
+	const doc = validDoc();
+	const moduleUuid = doc.moduleOrder[0];
+	if (!moduleUuid) throw new Error("fixture module missing");
+	const formUuid = doc.formOrder[moduleUuid][0];
+	const photo = buildDoc({
+		modules: [
+			{
+				name: "M",
+				forms: [
+					{
+						name: "F",
+						type: "survey",
+						fields: [
+							{
+								kind: "image",
+								id: "photo",
+								label: proseText("Photo"),
+								caseWrite: {
+									caseType: "patient",
+									property: "photo_url",
+									mode: "url",
+								},
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	const [photoUuid] = Object.keys(photo.fields);
+	doc.fields[photoUuid] = photo.fields[photoUuid];
+	doc.fieldOrder[formUuid].push(photoUuid);
 	return doc;
 }
 
@@ -278,5 +319,29 @@ describe("POST /api/compile — attachment link target", () => {
 				},
 			}),
 		);
+	});
+
+	it("says what the file could not carry, without changing the bytes", async () => {
+		loadsDoc(docWithAttachmentLink());
+
+		const res = await POST(reqWith({ appId: "a1" }));
+		const advisories = decodeExportAdvisories(
+			res.headers.get(EXPORT_ADVISORY_HEADER),
+		);
+
+		expect(advisories[0]?.id).toBe("attachment_links_without_target");
+		expect(advisories[0]?.message).toContain("photo_url");
+		// The advisory rides beside the archive. It is not a refusal, and the
+		// bytes are exactly what a clean compile returns.
+		expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("ccz-bytes");
+		expect(res.status).toBe(200);
+	});
+
+	it("stays quiet on an app with no attachment links", async () => {
+		const res = await POST(reqWith({ appId: "a1" }));
+		const header = res.headers.get(EXPORT_ADVISORY_HEADER);
+		await res.arrayBuffer();
+
+		expect(decodeExportAdvisories(header)).toEqual([]);
 	});
 });

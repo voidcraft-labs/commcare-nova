@@ -32,6 +32,10 @@ import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
+	decodeExportAdvisories,
+	EXPORT_ADVISORY_HEADER,
+} from "@/lib/publish/exportAdvisories";
+import {
 	decodeHqFeatureFlagReport,
 	HQ_FEATURE_FLAG_REPORT_HEADER,
 	type HqFeatureFlagReport,
@@ -125,10 +129,16 @@ async function downloadArtifact(opts: {
 		const featureFlagReport = decodeHqFeatureFlagReport(
 			res.headers.get(HQ_FEATURE_FLAG_REPORT_HEADER),
 		);
+		// What the file could not carry. Read before the body, discarded
+		// silently if it is unreadable: the bytes already arrived and no
+		// advisory is worth turning a finished download into a failure.
+		const advisories = decodeExportAdvisories(
+			res.headers.get(EXPORT_ADVISORY_HEADER),
+		);
 		const blob = await res.blob();
 		if (!opts.isCurrent()) return { ok: false };
 		triggerBlobDownload(blob, opts.filename(blob));
-		return { ok: true, featureFlagReport };
+		return { ok: true, featureFlagReport, advisories };
 	} catch (error) {
 		if (
 			opts.signal.aborted ||

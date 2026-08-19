@@ -7,6 +7,11 @@ import {
 	featureFlagReportForDownload,
 	HQ_FEATURE_FLAG_REPORT_HEADER,
 } from "@/lib/commcare/featureFlags";
+import {
+	EXPORT_ADVISORY_HEADER,
+	encodeExportAdvisories,
+	exportAdvisories,
+} from "@/lib/publish/exportAdvisories";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 import { prepareCompileRequest } from "./prepareCompileRequest";
 
@@ -26,11 +31,17 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
  */
 export async function POST(req: NextRequest) {
 	try {
-		const { doc, assets, compiledAtSeq, lookupWire, attachmentTarget } =
-			await prepareCompileRequest(req, {
-				boundaryErrorVerb: "compile",
-				mode: "ccz",
-			});
+		const {
+			doc,
+			assets,
+			compiledAtSeq,
+			lookupWire,
+			attachmentTarget,
+			attachmentTargetState,
+		} = await prepareCompileRequest(req, {
+			boundaryErrorVerb: "compile",
+			mode: "ccz",
+		});
 
 		// Compile is always media-ON: the archive bundles whatever the manifest
 		// resolved (an empty manifest simply emits no media artifacts). The
@@ -54,6 +65,10 @@ export async function POST(req: NextRequest) {
 		// and flows into a response header (`Content-Disposition`).
 		const appName = sanitizeFilename(doc.appName);
 		const featureFlagReport = featureFlagReportForDownload(doc);
+		// The archive is complete and correct; the advisories say what it
+		// could not carry, so they ride beside the bytes rather than
+		// replacing them.
+		const advisories = exportAdvisories(doc, attachmentTargetState);
 		return new NextResponse(new Uint8Array(buffer), {
 			headers: {
 				"Content-Type": "application/octet-stream",
@@ -61,6 +76,7 @@ export async function POST(req: NextRequest) {
 				"Content-Length": buffer.length.toString(),
 				[HQ_FEATURE_FLAG_REPORT_HEADER]:
 					encodeHqFeatureFlagReport(featureFlagReport),
+				[EXPORT_ADVISORY_HEADER]: encodeExportAdvisories(advisories),
 			},
 		});
 	} catch (err) {

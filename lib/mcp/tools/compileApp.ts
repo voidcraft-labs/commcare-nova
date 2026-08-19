@@ -45,6 +45,10 @@ import {
 	prepareExportBoundary,
 } from "@/lib/export/boundaryValidation";
 import {
+	type ExportAdvisory,
+	exportAdvisories,
+} from "@/lib/publish/exportAdvisories";
+import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -119,13 +123,14 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * the browser download path does. With no project space holding
 				 * the app, or more than one, there is no honest address and the
 				 * links are left out. */
+				const attachmentDeploymentTarget = await attachmentDeploymentTargetFor({
+					appId,
+					projectId: access.projectId,
+					role: access.role,
+					actorUserId: access.actorUserId,
+				});
 				const attachmentTarget = attachmentUrlTargetFor(
-					await attachmentDeploymentTargetFor({
-						appId,
-						projectId: access.projectId,
-						role: access.role,
-						actorUserId: access.actorUserId,
-					}),
+					attachmentDeploymentTarget,
 				);
 				const boundary = await prepareExportBoundary({
 					mode,
@@ -159,6 +164,18 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				const featureFlagMeta = {
 					"nova/featureFlagRequirements": featureFlagReport,
 				};
+				/* What the artifact could not carry, said beside it rather
+				 * than instead of it: the compile succeeded and the bytes are
+				 * complete for the target Nova could name. */
+				const advisories = exportAdvisories(
+					preparedDoc,
+					attachmentDeploymentTarget.kind,
+				);
+				const advisoryContent = exportAdvisoryContent(advisories);
+				const advisoryMeta =
+					advisories.length === 0
+						? {}
+						: { "nova/exportAdvisories": advisories };
 
 				/* Exhaustive switch on the `format` enum: a future third
 				 * enum value becomes a compile error via the `never` check
@@ -179,6 +196,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							_meta: {
 								"nova/compiledAtSeq": compiledAtSeq,
 								...featureFlagMeta,
+								...advisoryMeta,
 							},
 						};
 						const hqJson = expandDoc(
@@ -191,6 +209,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							return {
 								content: [
 									...featureFlagContent,
+									...advisoryContent,
 									{ type: "text", text: JSON.stringify(hqJson) },
 								],
 								...compiledAtMeta,
@@ -210,6 +229,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						return {
 							content: [
 								...featureFlagContent,
+								...advisoryContent,
 								{
 									type: "text",
 									text: JSON.stringify({
@@ -245,6 +265,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						return {
 							content: [
 								...featureFlagContent,
+								...advisoryContent,
 								{
 									type: "text",
 									text: JSON.stringify({
@@ -254,7 +275,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 									}),
 								},
 							],
-							_meta: featureFlagMeta,
+							_meta: { ...featureFlagMeta, ...advisoryMeta },
 						};
 					}
 					default: {
@@ -289,6 +310,22 @@ function featureFlagAdvisoryContent(report: HqFeatureFlagReport) {
 			text: JSON.stringify({
 				kind: "nova_hq_feature_flag_requirements",
 				feature_flag_requirements: report,
+			}),
+		},
+	];
+}
+
+/** The download path's advisories, in the same leading-block shape the
+ * feature-flag requirements use and for the same reason: a host's initial
+ * result preview shows them before a potentially megabyte-scale artifact. */
+function exportAdvisoryContent(advisories: readonly ExportAdvisory[]) {
+	if (advisories.length === 0) return [];
+	return [
+		{
+			type: "text" as const,
+			text: JSON.stringify({
+				kind: "nova_export_advisories",
+				export_advisories: advisories,
 			}),
 		},
 	];
