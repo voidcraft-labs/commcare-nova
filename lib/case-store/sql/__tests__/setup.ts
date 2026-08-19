@@ -58,6 +58,7 @@ const HARNESS_APP_PROJECTS = [
 	["app-lookup-compiler", "project-lookup-compiler"],
 	["app-pred-compiler", "owner-pred-compiler"],
 	["app-relation-read-normalization", "project-relation-read-normalization"],
+	["app-location-parity", "project-location-parity"],
 	["app-relation-path", "owner-relation-path"],
 	["app-restore-scope", "project-restore-scope"],
 	["app-restore-scope-other", "project-restore-scope-other"],
