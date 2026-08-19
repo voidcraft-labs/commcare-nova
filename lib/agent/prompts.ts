@@ -349,6 +349,8 @@ A field that writes a recorded case property carries one complete \`caseWrite: {
 
 An attachment question saves a LINK to its file, never the file, so name its case property for that (\`photo_url\`) and expect it empty until the app is published to a project space.
 
+A field can also save into **the worker's own record** — the per-worker case CommCare keeps for whoever is filling in the form. Use \`caseWrite: { caseType: "commcare-user", property: "<worker property slug>" }\`, where the slug is one the app has already declared in its worker properties. It works on any form, including a survey with no case type of its own, and it is how a form records something about the worker rather than about the case: visits done, a training completed, a signature on file. Read the same values back with \`#user/<slug>\`. Three limits, each with a reason: the destination must be a declared worker property (the slug becomes an XML element name), it can't be a built-in worker field like \`username\` or \`language\` (Nova keeps those in step with the worker's profile, so an answer there would be replaced), and it can't sit inside a repeat (one form writes one worker record).
+
 Changing one field's \`id\` or \`caseWrite\` is never a case-property rename. For an app-wide rename, use \`renameCaseProperties\` once with the complete simultaneous relation. Include every occupied destination that moves in the same call; swaps, chains, and cycles are valid, while merge, overwrite, drop, and temporary-name sequences are not.
 
 ${fieldKindGuide()}

@@ -703,6 +703,27 @@ space the app is published to; an artifact compiled before the app reaches
 one omits the property and `compile_app` says so in its advisories. An
 attachment may not write `case_name` or `external_id`.
 
+A field can also save to **the worker's own record** instead of a case, by
+passing `caseType: "commcare-user"` and a `property` that is one of the app's
+declared worker property slugs (`get_users` lists them):
+
+```json
+{
+  "id": "visits_so_far",
+  "kind": "text",
+  "caseWrite": { "caseType": "commcare-user", "property": "visits_done" }
+}
+```
+
+This works on any form, including a survey with no case type of its own, and
+the value reads back as `#user/visits_done`. Three destinations are refused,
+each for a reason the refusal names: a slug no worker property declares, a
+built-in worker field (`username`, `first_name`, `last_name`, `language`,
+`phone_number`, `hq_user_id`, `case_name`, and the `commcare_*` keys), which
+Commcare Nova keeps in step with the worker's profile, and any field inside a
+repeat, since one form writes one worker record. Adding a worker property is
+`add_user_properties`.
+
 Custom property names remain open. The two standard scalar destinations a
 field may use are `case_name` and `external_id`; other reserved system names
 are refused. These scalars store text: use a text field for an entered answer

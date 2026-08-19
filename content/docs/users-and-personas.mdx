@@ -74,6 +74,34 @@ real device.
 Three of them actually change how CommCare behaves; the rest are simply
 carried along for your app to read. The screen says which is which.
 
+## Saving an answer about the worker
+
+Worker information usually flows one way: you fill it in here, and forms read it.
+A form can also write back. Set a question's **Saves to** destination to **the
+worker's own record** and pick one of the pieces of worker information you
+declared above, and the answer is stored on that worker rather than on a case.
+
+That is the right home for anything that describes the person filling in the
+form instead of the person the form is about, a running count of visits done, a
+training completed, a supply level they carry. It works on any form, including
+one that manages no cases at all, and later forms read the value back the same
+way they read anything else about the worker.
+
+Nova offers only the worker information you declared. CommCare's own fields, the
+name, the login, the language, the locations, are kept in step with the worker's
+profile, so an answer saved into one of them would be replaced the next time
+that worker changed; Nova says so instead of letting you find out later. A
+question inside a repeating section cannot save here either, because a form
+writes one worker record and every repetition would be competing for the same
+slot.
+
+<Callout type="info">
+CommCare projects on some plans do not have the worker's own record turned on.
+On one of those, a form that saves to it will not open at all, so if you are
+publishing to a project you do not administer, it is worth checking before you
+build a workflow around it.
+</Callout>
+
 ## Roles
 
 A **role** is a job, Community health worker, Supervisor, Data clerk. Give it a
@@ -132,6 +160,11 @@ data views.
 When Nova compiles the app, conditions and calculations that read custom worker
 information use each property's current saved key. The worker running the app
 must already carry data under those keys for the expressions to see it.
+
+Questions that save to the worker's own record travel as a real CommCare case
+update against that worker's user case, so the value lands on the device and
+syncs like any other case change. Renaming a piece of worker information moves
+the destination with it; nothing in the form needs editing.
 
 Once the app is published to a project space, Nova can make a CommCare mobile
 worker for each persona. Open **Publish**, find that project space, and use the

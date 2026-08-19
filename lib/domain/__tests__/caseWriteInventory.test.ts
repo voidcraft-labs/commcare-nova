@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	type CaseType,
@@ -64,10 +65,10 @@ function inventory(args: {
 		],
 	});
 	doc.userProperties = Object.fromEntries(
-		(args.workerProperties ?? []).map((slug, index) => [
-			`worker-${index}`,
-			{ uuid: `worker-${index}`, slug, label: slug },
-		]),
+		(args.workerProperties ?? []).map((slug, index) => {
+			const uuid = testUuid(`worker-property-${index}`);
+			return [uuid, { uuid, slug, label: slug }];
+		}),
 	);
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][0];
