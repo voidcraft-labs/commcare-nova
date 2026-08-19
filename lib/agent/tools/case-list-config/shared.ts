@@ -47,6 +47,7 @@ import {
 	advancedScalarSearchInputSchema,
 	asUuid,
 	type Column,
+	caseTileGroupingSchema,
 	caseTileLayoutSchema,
 	columnSchema,
 	SEARCH_INPUT_TYPES,
@@ -252,6 +253,20 @@ export const caseTileLayoutInputSchema = caseTileLayoutSchema.extend({
 	persistOnForms: caseTileLayoutSchema.shape.persistOnForms.describe(
 		"Keep the tile on screen above every form in this module, so the worker can see which case they are filling the form in for. Leave it out for a tile that shows only on the case list.",
 	),
+	grouping: z
+		.object({
+			identifier: caseTileGroupingSchema.shape.identifier.describe(
+				"The name of the case connection to group by, almost always `parent`. Grouping is by a CONNECTION, never by a property value: the heading is drawn from the first case in each group, which is only honest when every case in the group shares it.",
+			),
+			headerRows: caseTileGroupingSchema.shape.headerRows.describe(
+				`How many of the tile's top rows form the group heading. Rows above the line are drawn ONCE per group, from the group's first case; the rows below are drawn for every case. The line must be a clean cut: at least one field above it, at least one below it, and no field crossing it (a crossing field is drawn wholly in the heading, so every other case's value in it disappears). The grid is ${TILE_GRID_ROWS} rows tall.`,
+			),
+		})
+		.strict()
+		.optional()
+		.describe(
+			"Show the cases that share a connection together, under one heading. Leave it out for an ordinary tile list, one tile per case. Two consequences worth telling the user about: choosing a group opens its FIRST case (the rows beneath the heading cannot be chosen), and every case with no such connection lands together in one group. The list also pages by group, so a page holds whole groups and however many cases they carry.",
+		),
 });
 
 /* `tilePlacementInputSchema` pairs a cell with the uuid it belongs to; it is

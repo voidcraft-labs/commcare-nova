@@ -114,7 +114,7 @@ export type SetCaseListTileResult = SetCaseListTileSuccess | { error: string };
 
 export const setCaseListTileTool = {
 	description:
-		"Lay a module's case list out as a tile — a 12x12 grid where each field shown in Results occupies a rectangle — instead of a row of columns, and place its fields on that grid. Pass `tile` to turn the layout on or off (null turns it off and keeps the placements), `placements` to move fields, or both in one call. Every field shown in Results needs a place while the tile is on, and no two fields may share a square, so place the whole layout in one call.",
+		"Lay a module's case list out as a tile — a 12x12 grid where each field shown in Results occupies a rectangle — instead of a row of columns, and place its fields on that grid. Pass `tile` to turn the layout on or off (null turns it off and keeps the placements), `placements` to move fields, or both in one call. Every field shown in Results needs a place while the tile is on, and no two fields may share a square, so place the whole layout in one call. `tile.grouping` additionally shows the cases that share a connection together under one heading drawn from the first of them.",
 	inputSchema: setCaseListTileInputSchema,
 	async execute(
 		input: SetCaseListTileInput,
@@ -265,6 +265,15 @@ function describeOutcome(facts: {
 				? `Laid the case list on ${where} out as a tile, kept on screen above every form in the module.`
 				: `Laid the case list on ${where} out as a tile.`,
 		);
+		const grouping = facts.tile.grouping;
+		if (grouping !== undefined) {
+			// The two consequences a model cannot see from the layout, said on
+			// the read surface as well as in the schema: the SA reports back to
+			// the user from this text.
+			parts.push(
+				`Cases sharing a \`${grouping.identifier}\` connection are shown together, with the top ${grouping.headerRows === 1 ? "row" : `${grouping.headerRows} rows`} drawn once per group from the group's first case. Choosing a group opens that first case, and every case with no \`${grouping.identifier}\` connection is shown together in one group.`,
+			);
+		}
 	}
 	if (facts.placementCount > 0) {
 		parts.push(

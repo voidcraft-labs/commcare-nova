@@ -100,12 +100,105 @@ function columnTile(doc: BlueprintDoc, uuid: Uuid) {
 	)?.tile;
 }
 
-function expectSuccess(result: { error: string } | { layout: string }) {
+function expectSuccess(
+	result: { error: string } | { layout: string; message?: string },
+) {
 	if ("error" in result) throw new Error(`unexpected error: ${result.error}`);
 	return result;
 }
 
 describe("setCaseListTile", () => {
+	it("groups the tile in the same call that lays it out, and says what it costs", async () => {
+		const h = fixtureWithColumns(unplacedColumns());
+
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			tile: { grouping: { identifier: "parent", headerRows: 1 } },
+			placements: [
+				{
+					columnUuid: NAME_COLUMN,
+					cell: { x: 0, y: 0, width: 12, height: 1 },
+				},
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 0, y: 1, width: 12, height: 1 },
+				},
+			],
+		});
+
+		const success = expectSuccess(result.result);
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.tile).toEqual({
+			grouping: { identifier: "parent", headerRows: 1 },
+		});
+		// The two facts a model cannot read off the layout. The SA reports back
+		// to the user from this text, so they belong in it.
+		expect(success.message).toContain("Choosing a group opens that first case");
+		expect(success.message).toContain(
+			"every case with no `parent` connection is shown together in one group",
+		);
+	});
+
+	it("refuses a heading that leaves nothing per case, without touching the doc", async () => {
+		const h = fixtureWithColumns(unplacedColumns());
+
+		const result = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			tile: { grouping: { identifier: "parent", headerRows: 2 } },
+			placements: [
+				{
+					columnUuid: NAME_COLUMN,
+					cell: { x: 0, y: 0, width: 12, height: 1 },
+				},
+				{
+					columnUuid: STATUS_COLUMN,
+					cell: { x: 0, y: 1, width: 12, height: 1 },
+				},
+			],
+		});
+
+		if (!("error" in result.result)) {
+			throw new Error("expected the gate to refuse a whole-tile heading");
+		}
+		expect(result.result.error).toContain("group header");
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.tile).toBeUndefined();
+	});
+
+	it("drops grouping with the tile, so no grouping survives a rows layout", async () => {
+		const h = makeCaseListFixture({
+			...docWithColumns([
+				plainColumn(NAME_COLUMN, "case_name", "Patient", {
+					tile: tileCell(0, 0, 12, 1),
+				}),
+				plainColumn(STATUS_COLUMN, "status", "Status", {
+					tile: tileCell(0, 1, 12, 1),
+				}),
+			]),
+		});
+		expectSuccess(
+			(
+				await h.runTool(setCaseListTileTool, {
+					moduleUuid: MOD_A,
+					tile: { grouping: { identifier: "parent", headerRows: 1 } },
+				})
+			).result,
+		);
+
+		const off = await h.runTool(setCaseListTileTool, {
+			moduleUuid: MOD_A,
+			tile: null,
+		});
+		expect(expectSuccess(off.result)).toMatchObject({ layout: "rows" });
+		// Grouping lives INSIDE the layout, so it leaves with it. Every cell
+		// still survives, which is the whole point of the null-clear.
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.tile).toBeUndefined();
+		expect(columnTile(h.currentDoc(), NAME_COLUMN)).toEqual({
+			x: 0,
+			y: 0,
+			width: 12,
+			height: 1,
+		});
+	});
+
 	it("turns the tile on and places every field in one call", async () => {
 		const h = fixtureWithColumns(unplacedColumns());
 
