@@ -28,6 +28,7 @@ import {
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
+	linkColumn,
 	makeTranslationUnitId,
 	ProseProjectionError,
 	phoneColumn,
@@ -450,6 +451,56 @@ describe("emitColumnField — phone", () => {
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		expect(out.xml).toContain('<xpath function="phone"/>');
 		expect(out.xml).not.toContain('form="phone"');
+	});
+});
+
+describe("emitColumnField — link", () => {
+	it("emits the markdown template and the bracketed literal", () => {
+		const col = linkColumn(COL_UUIDS.a, "photo_url", "Photo", "Open photo");
+		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+
+		// `form="markdown"` is the ONLY thing that turns a case-list cell
+		// into a link: `cloudcare/.../case_list/item.html` renders an
+		// ordinary cell as `<%- datum %>` (escaped text) and reaches
+		// `renderMarkdown` only for a `Markdown` cell.
+		expect(out.xml).toContain('<template form="markdown">');
+		// A bare URL is not autolinked — `markdown.js::initMd` leaves
+		// markdown-it's `linkify` at its `false` default — so the literal
+		// `[label](address)` spelling is the whole mechanism.
+		expect(out.xml).toContain(
+			'<xpath function="if(photo_url = &apos;&apos;, &apos;&apos;, concat(&apos;[Open photo](&apos;, photo_url, &apos;)&apos;))"/>',
+		);
+		// The label rides inside the expression, not as a locale variable:
+		// only HQ's `Enum` format subclasses build those, and `Markdown`
+		// inherits the base. So the only app string is the column header.
+		expect(out.xml).not.toContain("<variable");
+		expect(out.strings).toEqual({
+			"m0.case_short.case_photo_url_1.header": "Photo",
+		});
+	});
+
+	it("keeps the markdown form on the long detail too", () => {
+		// Unlike `phone`, which CCHQ marks only on the long detail, a link
+		// has to render as a link wherever it is shown.
+		const col = linkColumn(COL_UUIDS.a, "photo_url", "Photo", "Open");
+		const out = emitColumnField({
+			column: col,
+			position: 1,
+			ctx: { ...emptyCtx, detailKind: "long" },
+		});
+		expect(out.xml).toContain('<template form="markdown">');
+	});
+
+	it("escapes a label carrying an XPath-hostile character", () => {
+		// The label reaches the wire through `quoteLiteral`, so an
+		// apostrophe becomes a `concat` rather than closing the literal
+		// early and producing an unparseable expression.
+		const col = linkColumn(COL_UUIDS.a, "photo_url", "Photo", "Worker's photo");
+		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		expect(out.xml).toContain(
+			"concat(&apos;[Worker&apos;, &quot;&apos;&quot;, &apos;s photo](&apos;)",
+		);
+		expect(() => lowerXPathForJavaRosa("x")).not.toThrow();
 	});
 });
 

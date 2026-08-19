@@ -21,6 +21,7 @@ import {
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
+	linkColumn,
 	type Module,
 	type ProseTemplate,
 	phoneColumn,
@@ -4356,6 +4357,39 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			{ key: "nova_text_0000000000", value: { en: "North" } },
 			{ key: "nova_text_0000000001", value: { en: "South" } },
 		]);
+	});
+
+	it("projects a link column as a markdown-format calculated cell", () => {
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					linkColumn(
+						testUuid("00000000-0000-4000-8000-000000010009"),
+						"photo_url",
+						"Photo",
+						"Open photo",
+					),
+				],
+				searchInputs: [],
+			}),
+		);
+		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
+
+		// `markdown` is `detail_screen.py::Markdown`, whose only job is
+		// `template_form = 'markdown'`; paired with `useXpathExpression` HQ
+		// wraps the expression as `$calculated_property` and renders the
+		// result through it.
+		expect(shortCols[0].format).toBe("markdown");
+		expect(shortCols[0].useXpathExpression).toBe(true);
+		// The SAME expression the suite emitter writes, so importing this
+		// app into HQ and downloading it produce the same cell.
+		expect(shortCols[0].field).toBe(
+			"if(photo_url = '', '', concat('[Open photo](', photo_url, ')'))",
+		);
+		// No `enum` entries: HQ builds locale variables only for its `Enum`
+		// format subclasses, and `Markdown` is not one, so the label has to
+		// ride inside the expression.
+		expect(shortCols[0].enum).toEqual([]);
 	});
 
 	it("preserves an always interval's threshold and authored text in HQ JSON", () => {

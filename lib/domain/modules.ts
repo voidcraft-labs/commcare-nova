@@ -451,7 +451,7 @@ const columnBase = z
 
 // ── Column kinds ─────────────────────────────────────────────────
 //
-// Seven discriminated arms. The `kind` discriminant routes the column
+// Eight discriminated arms. The `kind` discriminant routes the column
 // through the matching wire emitter and editor body. Calculated
 // columns have no `field` slot — the expression is the source.
 
@@ -618,6 +618,39 @@ const intervalColumnSchema = columnBase.extend({
 });
 
 /**
+ * Link column — renders the property's value as a tappable link
+ * labelled with `linkText`, for a property holding an address rather
+ * than a value a person reads (an attachment link, say).
+ *
+ * `linkText` is ONE string for every app language, and that is a
+ * CommCare limit rather than a Nova choice. The cell is emitted as
+ * `<template form="markdown">`, and CommCare HQ builds a column's
+ * locale variables only for its `Enum` format subclasses
+ * (`detail_screen.py::Enum.variables`); `Markdown` inherits the base
+ * `FormattedDetailColumn.variables`, which supplies `$lang` and
+ * nothing else. So an HQ-imported app has nowhere to put a translated
+ * label, and emitting one into the `.ccz` alone would make the same
+ * authored app read differently depending on how it was exported.
+ * The label is inlined as an XPath literal on both paths instead.
+ *
+ * Square brackets are refused because the emitted cell is
+ * `[<linkText>](<value>)` and a bracket inside the label closes it
+ * early, leaving the row showing raw markdown instead of a link.
+ */
+const linkColumnSchema = columnBase.extend({
+	kind: z.literal("link"),
+	field: authoredCasePropertyNameSchema,
+	header: z.string(),
+	linkText: z
+		.string()
+		.min(1, "Give the link something to say")
+		.regex(
+			/^[^[\]]+$/,
+			"Link text can't contain square brackets. The cell is rendered as markdown, where a bracket ends the link's label early and the row shows the raw text instead of a link.",
+		),
+});
+
+/**
  * Calculated column — author-defined `ValueExpression` that yields
  * a derived per-row value (e.g. "days since last visit",
  * "concatenated full name"). Has no `field` slot — the expression
@@ -641,6 +674,7 @@ export const columnSchema = z.discriminatedUnion("kind", [
 	idMappingColumnSchema,
 	imageMapColumnSchema,
 	intervalColumnSchema,
+	linkColumnSchema,
 	calculatedColumnSchema,
 ]);
 export type Column = z.infer<typeof columnSchema>;
@@ -774,6 +808,23 @@ export function phoneColumn(
 ): Extract<Column, { kind: "phone" }> {
 	return withCommonSlots(
 		{ uuid, kind: "phone" as const, field, header },
+		slots,
+	);
+}
+
+/**
+ * Constructs a link column. `linkText` is what the cell says; the
+ * property's value is where it goes.
+ */
+export function linkColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	linkText: string,
+	slots: ColumnCommonSlots = {},
+): Extract<Column, { kind: "link" }> {
+	return withCommonSlots(
+		{ uuid, kind: "link" as const, field, header, linkText },
 		slots,
 	);
 }

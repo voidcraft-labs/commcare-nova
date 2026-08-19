@@ -681,6 +681,7 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"audioLabel",
 			"caseListConfig.audioLabel",
 			"caseListConfig.columns[].header",
+			"caseListConfig.columns[].linkText",
 			"caseListConfig.columns[].mapping[].assetId",
 			"caseListConfig.columns[].mapping[].label",
 			"caseListConfig.columns[].mapping[].value",

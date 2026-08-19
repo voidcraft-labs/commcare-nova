@@ -42,10 +42,12 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseType, Column, ColumnKind, UserProperty } from "@/lib/domain";
 import {
 	calculatedColumn,
+	columnKindPropertyRequirement,
 	dateColumn,
 	idMappingColumn,
 	imageMapColumn,
 	intervalColumn,
+	linkColumn,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
@@ -127,8 +129,12 @@ export function ColumnEditor({
 			property !== undefined
 				? propertyDisplayLabel(property, projectProse)
 				: "This information";
+		// Keyed off the requirement the schema actually states, not off
+		// the kind — a two-way "phone or else a date" fork sent every new
+		// text-shaped kind down the date branch and told its author the
+		// opposite of what it needs.
 		const guidance =
-			value.kind === "phone"
+			columnKindPropertyRequirement(value.kind) === "text-shaped"
 				? "Choose information saved as text or a choice."
 				: "Choose information saved as a date or date and time.";
 		return [
@@ -254,6 +260,16 @@ export function preservedColumnSwap(
 			return plainColumn(uuid, targetField, header, slots);
 		case "phone":
 			return phoneColumn(uuid, targetField, header, slots);
+		case "link": {
+			// Twin: source is already a link → preserve the author's own
+			// link text. Otherwise seed it from the target schema, so the
+			// default wording has exactly one home.
+			const seed = columnCardSchemas.link.defaultValue(ctx);
+			if (seed === undefined) return undefined;
+			const linkText =
+				currentValue.kind === "link" ? currentValue.linkText : seed.linkText;
+			return linkColumn(uuid, targetField, header, linkText, slots);
+		}
 		case "date": {
 			// Twin: source is already a date column → preserve the
 			// pattern verbatim. Otherwise fall back to the target
@@ -308,6 +324,15 @@ export function preservedColumnSwap(
 				seed.text,
 				slots,
 			);
+		}
+		default: {
+			// `undefined` is a real answer here -- it means "this display
+			// does not fit this property" -- so a missing arm would fall
+			// out as a silent no-op: the menu offers the display, the
+			// author picks it, and nothing changes. Naming the remainder
+			// makes a new column kind a type error instead.
+			const unhandled: never = targetKind;
+			return unhandled;
 		}
 	}
 }
@@ -542,6 +567,10 @@ function columnKindChangeConsequence(
 	switch (current.kind) {
 		case "plain":
 		case "phone":
+			return null;
+		case "link":
+			// The link text is the only thing a link column carries that no
+			// other kind does, and losing a word is not worth a warning.
 			return null;
 		case "date": {
 			const seed = columnCardSchemas.date.defaultValue(ctx);

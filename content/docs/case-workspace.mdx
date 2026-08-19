@@ -63,6 +63,26 @@ Search button's display condition.
 After each update, return to the field to see the remaining uses. Once none
 remain, the dialog closes and **Remove search field** is ready for you again.
 
+## Show a link to a file
+
+**Link** turns a property that holds an address into something a person can
+open, labelled with wording you choose rather than the address itself. Its
+usual companion is an attachment question saving to a case, which stores a
+link to the file it captured (see [Attachment questions](/docs/attachments)).
+
+Two things about it are worth knowing before you add one.
+
+**The wording is the same in every language.** CommCare renders a link cell
+through its markdown renderer, and that kind of cell has nowhere to carry a
+translated label, so one phrase serves every app language. Pick something that
+reads plainly wherever the app is used.
+
+**It is a link in CommCare Web Apps only.** The CommCare Android app shows the
+cell as plain text, so a worker there sees the address written out instead of
+a tappable word. If your workers use the Android app, that is the trade: they
+still see that something is there, and they can still read the address, but
+they cannot tap it.
+
 ## Lay results out as a tile
 
 A result is normally one row: each piece of information gets a column, and the

@@ -47,6 +47,7 @@ describe("columnCardSchemas — registry exhaustivity", () => {
 			"id-mapping",
 			"image-map",
 			"interval",
+			"link",
 			"calculated",
 		]);
 		const actual = new Set(Object.keys(columnCardSchemas));

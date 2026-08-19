@@ -14,6 +14,7 @@ import {
 	imageMapColumn,
 	imageMapEntry,
 	intervalColumn,
+	linkColumn,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
@@ -103,6 +104,59 @@ describe("case-list Preview cell formatting", () => {
 				text: "2026-02-31",
 				message: "Showing the original value because it isn't a valid date",
 			});
+		});
+	});
+
+	describe("link columns", () => {
+		const linkCell = (address: string) =>
+			renderToStaticMarkup(
+				renderColumnCell(
+					linkColumn(COLUMN_UUID, "photo_url", "Photo", "View photo"),
+					makeRow({ photo_url: address }),
+					EMPTY_CONTEXT,
+				),
+			);
+
+		it("opens a web address under the authored wording", () => {
+			const html = linkCell("https://www.commcarehq.org/a/demo/x");
+
+			expect(html).toContain('href="https://www.commcarehq.org/a/demo/x"');
+			expect(html).toContain("View photo");
+			// The cell's visible text is the label, so Quick Filter matches
+			// the word a person can actually see.
+			expect(html).not.toContain("commcarehq.org<");
+		});
+
+		it("refuses to make a script URL clickable, and still shows it", () => {
+			// The value is whatever a worker submitted, so a case property
+			// can hold anything. `target="_blank"` and `rel="noopener"`
+			// govern the new context, not what a `javascript:` href runs, so
+			// the scheme is the thing that has to be checked.
+			for (const hostile of [
+				"javascript:alert(1)",
+				"JavaScript:alert(1)",
+				"data:text/html,<script>alert(1)</script>",
+				"vbscript:msgbox(1)",
+			]) {
+				const html = linkCell(hostile);
+				expect(html).not.toContain("href=");
+				// Hiding it would hide real case data; showing it as escaped
+				// text is the honest render.
+				expect(html).toContain(
+					hostile.replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+				);
+			}
+		});
+
+		it("shows a value that is not a URL at all as plain text", () => {
+			const html = linkCell("not an address");
+
+			expect(html).not.toContain("href=");
+			expect(html).toContain("not an address");
+		});
+
+		it("renders an empty cell when the property holds nothing", () => {
+			expect(linkCell("")).not.toContain("href=");
 		});
 	});
 

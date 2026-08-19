@@ -83,6 +83,7 @@ import { emitCaseListFilter } from "../predicate";
 import {
 	idMappingDisplayXpath,
 	intervalColumnDisplayXpath,
+	linkColumnDisplayXpath,
 	plainSelectDisplayXpath,
 } from "../suite/case-list/columns";
 import {
@@ -280,6 +281,24 @@ function projectColumnToDetail(
 				enum: enumEntries,
 			};
 		}
+		case "link":
+			// `markdown` + `useXpathExpression` is the whole projection: HQ
+			// wraps the expression as `$calculated_property` and renders the
+			// result through `Markdown.template_form`
+			// (`detail_screen.py::FormattedDetailColumn.template`). No `enum`
+			// entries, because the label rides inside the expression — see
+			// `linkColumnSchema` for why the wire leaves nowhere else to put
+			// it. The expression is the SAME one the suite emitter uses, so
+			// importing this app and downloading it produce the same cell.
+			return {
+				...base,
+				field: linkColumnDisplayXpath(
+					emitCasePropertyWirePath(column.field),
+					column.linkText,
+				),
+				format: "markdown",
+				useXpathExpression: true,
+			};
 		case "interval":
 			// CCHQ's stock `time-ago` format stores only the divisor and
 			// `late-flag` hard-codes `*`; neither can preserve Nova's authored
