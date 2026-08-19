@@ -23,6 +23,7 @@ import {
 	buildCaseTypeMap,
 	CasePropertyRenameStorageConflictError,
 	SchemaChangePhaseBError,
+	withProjectContext,
 	withSchemaContext,
 } from "@/lib/case-store";
 import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
@@ -41,6 +42,7 @@ import {
 } from "./classifyCaseTypeChanges";
 import { BlueprintCommitRejectedError } from "./commitGuard";
 import { isTransientDbError } from "./schemaSyncRetry";
+import { syncUsercaseRow, workersNeedingUsercaseSync } from "./syncUsercaseRow";
 import type { ClientAppChangeKind } from "./types";
 
 /**
@@ -222,8 +224,14 @@ export async function applyBlueprintChange(
 	let entries: readonly CaseTypeChangeEntry[] | undefined;
 	let store: TransactionalSchemaCaseStore | undefined;
 	let preparedRetirement: PreparedCaseTypeSchemaRetirementPhaseB | undefined;
+	/* The pre-commit document, captured here because this callback is the only
+	 * place it is in scope. The usercase row sweep below needs it to answer
+	 * WHICH workers a commit changed — without it the sweep would have to
+	 * re-sync every persona on every save. */
+	let priorDoc: BlueprintDoc | undefined;
 	const { result, deduped } = await persistBlueprint(args, {
 		beforeWrite: async ({ tx, freshDoc, nextDoc, seq }) => {
+			priorDoc = freshDoc;
 			entries = classifyCaseTypeChanges({
 				prior: freshDoc,
 				prospective: nextDoc,
@@ -275,6 +283,11 @@ export async function applyBlueprintChange(
 	if (preparedRetirement !== undefined) {
 		await completeRetirementIndexes(args.appId, result, preparedRetirement);
 	}
+	// BEFORE the schema early-returns below, and deliberately so: renaming a
+	// persona changes its case's NAME without changing any case type's property
+	// surface, so `entries` is empty and every return below this point would
+	// skip the row that needs rewriting.
+	await sweepCommittedUsercaseRows(args, result, priorDoc);
 	const syncEntries = entries.filter((entry) => entry.kind === "sync");
 	if (syncEntries.length === 0) return result;
 	store ??= await withSchemaContext();
@@ -288,6 +301,63 @@ export async function applyBlueprintChange(
 		...result,
 		migration: migrationOutcome(reports),
 	};
+}
+
+/**
+ * Bring every worker's own case back into step after a commit.
+ *
+ * Runs only for the workers a commit actually changed
+ * (`workersNeedingUsercaseSync`, pure), so the overwhelmingly common save —
+ * a field edit — costs no database work at all. One store per worker, because
+ * `CaseInsert` carries no `owner_id`: the store stamps it from the identity it
+ * is bound to, and a usercase owned by anyone but its own worker would sit
+ * outside that worker's restore.
+ *
+ * Best-effort, and swallowed exactly like `sweepCommittedSchemas`: this runs on
+ * the already-committed autosave PUT / MCP response thread, so a blip must not
+ * fail a commit that has landed. A missed row self-heals — the preview resolves
+ * a persona by creating its case if it is absent, and the next persona edit
+ * syncs it again.
+ *
+ * `projectSpace` is null here: the CommCare domain is a deployment fact, not a
+ * document one, so `commcare_project` is written by the surfaces that know it
+ * rather than guessed at. An absent key reads blank on a device, which is what
+ * an unpublished app has.
+ */
+async function sweepCommittedUsercaseRows(
+	args: ApplyBlueprintChangeArgs,
+	result: ApplyBlueprintChangeResult,
+	priorDoc: BlueprintDoc | undefined,
+): Promise<void> {
+	if (priorDoc === undefined) return;
+	const changed = workersNeedingUsercaseSync({
+		prior: priorDoc,
+		next: result.committedDoc,
+		projectSpace: null,
+	});
+	if (changed.length === 0) return;
+	for (const { worker, authored } of changed) {
+		try {
+			const store = await withProjectContext(
+				args.expectedProjectId,
+				args.userId,
+				worker.id,
+			);
+			await syncUsercaseRow(store, {
+				appId: args.appId,
+				worker,
+				authored,
+				doc: result.committedDoc,
+				projectSpace: null,
+			});
+		} catch (err) {
+			log.warn("[applyBlueprintChange] usercase row sync failed", {
+				appId: args.appId,
+				workerId: worker.id,
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
 }
 
 /**

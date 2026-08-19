@@ -64,6 +64,7 @@ import {
 	CASE_SCALAR_PROPERTY_NAMES,
 	casePropertyDataTypes,
 	prepareCaseScalarTextValue,
+	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 import {
 	compilerBugMessage,
@@ -1076,7 +1077,13 @@ export class PostgresCaseStore implements CaseStore {
 				.select((eb) => eb.fn.countAll<string>().as("total"))
 				.where("c.app_id", "=", args.appId)
 				.where("c.owner_id", "=", args.ownerId)
-				.where("c.project_id", "=", this.requireProjectId());
+				.where("c.project_id", "=", this.requireProjectId())
+				// The worker's OWN case is excluded. This count answers "what of
+				// your data stays behind if this worker goes", and the usercase is
+				// Nova's bookkeeping rather than the author's data — every worker
+				// has exactly one, so counting it would report "1 case kept" for a
+				// persona who owns nothing and turn a real signal into noise.
+				.where("c.case_type", "!=", USERCASE_CASE_TYPE);
 			if (args.includeHeld !== true) {
 				ownerQuery = ownerQuery.where(({ not, exists, selectFrom }) =>
 					not(

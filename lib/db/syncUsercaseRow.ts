@@ -18,6 +18,9 @@ import "server-only";
 import type { CaseStore, JsonObject } from "@/lib/case-store";
 import {
 	isStandardCaseListProperty,
+	type Persona,
+	personasOf,
+	personaUserData,
 	USERCASE_CASE_TYPE,
 	type UserCollections,
 	type UsercaseWorker,
@@ -152,4 +155,72 @@ export async function syncUsercaseRow(
 		},
 	});
 	return { created: false, changed: Object.keys(changed).length };
+}
+
+/**
+ * The workers whose case a commit would change.
+ *
+ * Pure, and that is the point: the overwhelmingly common commit edits a field
+ * and touches no worker at all, so it must cost ZERO queries. Syncing every
+ * persona on every save would put one read per persona on the autosave path,
+ * which fires constantly.
+ *
+ * A persona qualifies when its derived record differs from the one the prior
+ * document implied, or when it is new. That catches every input at once — the
+ * name, an authored value, its user type's defaults, and the worker-property
+ * catalog itself — without enumerating which mutation kinds matter, a list
+ * that would rot the first time a new one is added.
+ */
+export function workersNeedingUsercaseSync(args: {
+	readonly prior: UserCollections;
+	readonly next: UserCollections;
+	readonly projectSpace: string | null;
+}): ReadonlyArray<{
+	readonly worker: UsercaseWorker;
+	readonly authored: Record<string, string>;
+}> {
+	const { prior, next, projectSpace } = args;
+	const priorPersonas = personasOf(prior);
+	const changed: Array<{
+		worker: UsercaseWorker;
+		authored: Record<string, string>;
+	}> = [];
+	for (const persona of Object.values(personasOf(next))) {
+		const worker = workerFromPersona(persona);
+		const authored = personaUserData(persona, next);
+		const desired = usercaseRecord(worker, authored, next, projectSpace);
+		const before = priorPersonas[persona.uuid];
+		const had =
+			before === undefined
+				? undefined
+				: usercaseRecord(
+						workerFromPersona(before),
+						personaUserData(before, prior),
+						prior,
+						projectSpace,
+					);
+		if (had === undefined || !recordsEqual(had, desired)) {
+			changed.push({ worker, authored });
+		}
+	}
+	return changed;
+}
+
+/** The worker facts a persona supplies, matching what Preview resolves. */
+export function workerFromPersona(persona: Persona): UsercaseWorker {
+	return {
+		id: persona.uuid,
+		username: persona.name,
+		personName: persona.name,
+		email: "",
+	};
+}
+
+function recordsEqual(
+	a: Record<string, string>,
+	b: Record<string, string>,
+): boolean {
+	const keys = Object.keys(a);
+	if (keys.length !== Object.keys(b).length) return false;
+	return keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key]);
 }
