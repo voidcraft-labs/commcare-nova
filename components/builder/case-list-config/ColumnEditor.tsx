@@ -42,6 +42,7 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseType, Column, ColumnKind, UserProperty } from "@/lib/domain";
 import {
 	calculatedColumn,
+	columnKindPropertyRequirement,
 	dateColumn,
 	idMappingColumn,
 	imageMapColumn,
@@ -127,8 +128,12 @@ export function ColumnEditor({
 			property !== undefined
 				? propertyDisplayLabel(property, projectProse)
 				: "This information";
+		// Keyed off the requirement the schema actually states, not off
+		// the kind — a two-way "phone or else a date" fork sent every new
+		// text-shaped kind down the date branch and told its author the
+		// opposite of what it needs.
 		const guidance =
-			value.kind === "phone"
+			columnKindPropertyRequirement(value.kind) === "text-shaped"
 				? "Choose information saved as text or a choice."
 				: "Choose information saved as a date or date and time.";
 		return [

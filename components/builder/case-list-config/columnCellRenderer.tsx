@@ -76,7 +76,7 @@ export function renderColumnCell(
 		// than a link to nowhere, matching what the emitted `if(… = '', '', …)`
 		// guard does on the device.
 		const address = caseRowDisplayValue(row, column.field).trim();
-		return address ? (
+		return isOpenableAddress(address) ? (
 			<a
 				href={address}
 				target="_blank"
@@ -85,6 +85,12 @@ export function renderColumnCell(
 			>
 				{displayed.text}
 			</a>
+		) : address ? (
+			// A value that is not a web address still shows, as text. The
+			// property holds what a worker submitted, so the honest render
+			// of an unopenable value is the value — never a dead link, and
+			// never a blank cell that hides real case data.
+			address
 		) : (
 			renderEmptyCell()
 		);
@@ -615,4 +621,28 @@ function renderEmptyCell(): React.ReactNode {
 			<span className="sr-only">No value</span>
 		</span>
 	);
+}
+
+/**
+ * Is this case value something the builder may turn into an `href`?
+ *
+ * Only `http:` and `https:`. The value comes from a worker's own
+ * submission, so a case property could hold `javascript:` or a
+ * `data:text/html` payload, and neither `target="_blank"` nor
+ * `rel="noopener noreferrer"` defends against a scheme — they govern the
+ * new context, not what runs in it. The device path has its own answer
+ * (Web Apps sanitizes the rendered markdown through DOMPurify), so this
+ * guard is what gives the builder's preview the same footing.
+ *
+ * Parsed rather than prefix-matched: `URL` resolves the escapes and
+ * whitespace that make `java\tscript:` read as `http` to a `startsWith`.
+ */
+function isOpenableAddress(value: string): boolean {
+	if (value === "") return false;
+	try {
+		const protocol = new URL(value).protocol;
+		return protocol === "http:" || protocol === "https:";
+	} catch {
+		return false;
+	}
 }

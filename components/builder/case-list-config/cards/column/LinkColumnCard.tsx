@@ -15,9 +15,8 @@
 // deciding, rather than in a doc they may never open.
 
 "use client";
-import { useId } from "react";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
-import { Input } from "@/components/shadcn/input";
+import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import type { CaseProperty, Column } from "@/lib/domain";
 import { columnKindAcceptsPropertyType, linkColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
@@ -40,7 +39,6 @@ export function LinkColumnCard({
 	onChange,
 	errors,
 }: LinkColumnCardProps) {
-	const linkTextId = useId();
 	const build = (next: Partial<Extract<Column, { kind: "link" }>>) =>
 		onChange(
 			linkColumn(
@@ -62,20 +60,23 @@ export function LinkColumnCard({
 				errors={errors}
 			/>
 			<div>
-				<label
-					htmlFor={linkTextId}
-					className={`${INSPECTOR_LABEL_CLS} mb-1.5 block`}
-				>
-					Link text
-				</label>
-				<Input
-					id={linkTextId}
+				<div className={`${INSPECTOR_LABEL_CLS} mb-1.5`}>Link text</div>
+				{/* Late commit, not per keystroke. A link has to say something,
+				 *  so `linkText` is the one column string the schema requires
+				 *  to be non-empty — and a per-keystroke commit would refuse
+				 *  the moment the author selects the old wording and starts
+				 *  replacing it. Committing on blur means the empty box is
+				 *  only ever a draft, and clearing it outright puts the
+				 *  previous wording back rather than saving a link with no
+				 *  label. */}
+				<BlurCommitTextInput
 					value={value.linkText}
-					onChange={(event) => build({ linkText: event.target.value })}
+					onCommit={(next) => {
+						if (next.trim() === "") return;
+						build({ linkText: next });
+					}}
 					placeholder="for example, Photo"
-					autoComplete="off"
-					data-1p-ignore
-					className="min-h-11"
+					ariaLabel="Link text"
 				/>
 				<p className="mt-1.5 text-xs leading-relaxed text-nova-text-muted">
 					Every row shows this same wording. It stays in one language, and
