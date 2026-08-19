@@ -18,6 +18,32 @@ export interface OwnerVerdictLocation {
 	readonly archivedAt: unknown | null;
 }
 
+/** The database row shape every caller projects into {@link OwnerVerdictLocation}. */
+export interface OwnerVerdictLocationRow {
+	readonly id: string;
+	readonly name: string;
+	readonly level_uuid: string;
+	readonly parent_id: string | null;
+	readonly archived_at: unknown | null;
+}
+
+/** Project stored place rows into the verdict shape.
+ *
+ * One mapper, because the commit gate, the owner set, and the fixture
+ * footprint all ask the same predicates of the same five fields; a second
+ * projection is a second place for `archived_at` to be read as truthy. */
+export function ownerVerdictRows(
+	rows: readonly OwnerVerdictLocationRow[],
+): OwnerVerdictLocation[] {
+	return rows.map((row) => ({
+		id: row.id,
+		name: row.name,
+		levelUuid: row.level_uuid,
+		parentId: row.parent_id,
+		archivedAt: row.archived_at,
+	}));
+}
+
 function ancestors(
 	row: OwnerVerdictLocation,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
@@ -162,8 +188,12 @@ function liveAssignments(
  * A reverse owner hop is applicable when a persona can receive the source
  * case; only after that independent decision do we require the destination in
  * the persona's address-book fixture.
+ *
+ * Exported because the owner set is this same rule ENUMERATED rather than
+ * asked one target at a time (`./ownerSets`). Two encodings of case delivery
+ * would drift, and the one that drifted would be the one nobody reads.
  */
-function assignmentReceivesCasesFrom(
+export function assignmentReceivesCasesFrom(
 	source: OwnerVerdictLocation,
 	assigned: OwnerVerdictLocation,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
