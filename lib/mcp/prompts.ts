@@ -118,8 +118,24 @@ export const PROMPT_END_MARKER = "NOVA-PROMPT-END";
  * Being wrong in that direction costs a `get_app` round trip on the
  * largest apps. Being wrong in the other direction costs the whole
  * prompt, so the asymmetry decides the number.
+ *
+ * **This number is an estimate, and it is not a place to economize.** It
+ * was 72,000 and the prompt reached 71,944 through ordinary growth, at
+ * which point the next unit to add a paragraph failed CI in test shards
+ * that give no hint the cause was prose. That is a tripwire, not a
+ * budget, and the answer to it is never to write the guidance worse.
+ * 75,000 keeps the same pessimistic char-to-token assumption and stays
+ * three quarters of the per-result char cap Nova itself declares
+ * (`resultSize.ts::MAX_RESULT_SIZE_CHARS`, 100,000).
+ *
+ * It does not buy much, and it is not meant to. The prompt cannot keep
+ * growing by raising this: the durable fix is moving reference material
+ * — the XPath function tables, the field-kind guide — behind a call the
+ * agent makes when it needs them, so a section can be added without
+ * every consumer paying for it. Raise this again only alongside that
+ * work, or after measuring the real cap rather than estimating it.
  */
-export const MAX_DELIVERABLE_PROMPT_CHARS = 72_000;
+export const MAX_DELIVERABLE_PROMPT_CHARS = 75_000;
 
 /**
  * Per-mode interaction-policy text appended to the system prompt. Both
