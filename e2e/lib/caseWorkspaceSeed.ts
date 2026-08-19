@@ -13,6 +13,7 @@ import type { CaseInsert } from "@/lib/case-store";
 import {
 	asUuid,
 	type BlueprintDoc,
+	calculatedColumn,
 	dateColumn,
 	fuzzyMode,
 	idMappingColumn,
@@ -23,6 +24,12 @@ import {
 	startsWithMode,
 	tileCell,
 } from "@/lib/domain";
+import {
+	ancestorPath,
+	prop,
+	relationStep,
+	term,
+} from "@/lib/domain/predicate/builders";
 import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 
@@ -83,6 +90,31 @@ export const CASE_WORKSPACE_SEED = {
 		formFieldIds: ["visit_note", "referred_to", "visit_started", "next_dose"],
 	},
 	caseCount: 8,
+	/**
+	 * The third module: a GROUPED tile, on its own household/visit pair so it
+	 * adds nothing to the patient fixture every other spec reads.
+	 *
+	 * Visit names interleave the two households on purpose — Ada, Ben, Cal,
+	 * Dot alphabetically — so a list that shows whole groups is really showing
+	 * the clustering rather than the sort. Eve has no household at all, which
+	 * is the empty group key the device produces for a case carrying no such
+	 * connection.
+	 */
+	grouped: {
+		moduleUuid: asUuid("1a7f3c58-2e94-4b60-9d13-6c8a5f2e7b40"),
+		householdCaseType: "household",
+		visitCaseType: "visit",
+		columns: {
+			householdVillage: asUuid("6d2b9e41-7a35-4c80-b529-1f8c4a6d3e70"),
+			visitName: asUuid("4f8c1a63-9d27-4e50-8b41-3a6e2c9f5d80"),
+			visitOutcome: asUuid("8e3a5c72-1b46-4d90-a728-5c1f9d3b6a20"),
+		},
+		/** Household names, in the order the grouped list shows them. */
+		households: ["Kijiji ward", "Riverside ward"],
+		/** Visit names, in the order the grouped list shows them. */
+		visitOrder: ["Ada", "Cal", "Ben", "Dot", "Eve"],
+		headerRows: 1,
+	},
 } as const;
 
 /**
@@ -129,6 +161,22 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 						label: proseText("Date of birth"),
 						data_type: "date",
 					},
+				],
+			},
+			// The grouped module's own pair, kept separate from `patient` so a
+			// grouped fixture adds nothing to the population every other spec
+			// reads.
+			{
+				name: ids.grouped.householdCaseType,
+				properties: [
+					{ name: "village", label: proseText("Village"), data_type: "text" },
+				],
+			},
+			{
+				name: ids.grouped.visitCaseType,
+				parent_type: ids.grouped.householdCaseType,
+				properties: [
+					{ name: "outcome", label: proseText("Outcome"), data_type: "text" },
 				],
 			},
 		],
@@ -398,8 +446,129 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 					},
 				],
 			},
+			{
+				uuid: ids.grouped.moduleUuid,
+				id: "visit_group",
+				name: "Visits by household",
+				caseType: ids.grouped.visitCaseType,
+				caseListOnly: true,
+				caseListConfig: {
+					// The heading is one row deep, drawn from the group's first
+					// visit. Its cell reads the HOUSEHOLD's village through the
+					// visit's `parent` index — the pattern grouping is for, and the
+					// one that proves a calculated projection survives the grouped
+					// read.
+					tile: {
+						grouping: {
+							identifier: "parent",
+							headerRows: ids.grouped.headerRows,
+						},
+					},
+					columns: [
+						calculatedColumn(
+							ids.grouped.columns.householdVillage,
+							"Household village",
+							term(
+								prop(
+									ids.grouped.visitCaseType,
+									"village",
+									ancestorPath(
+										relationStep("parent", ids.grouped.householdCaseType),
+									),
+								),
+							),
+							{
+								visibleInList: true,
+								visibleInDetail: false,
+								tile: tileCell(0, 0, 6, 1, { fontSize: "large" }),
+							},
+						),
+						plainColumn(ids.grouped.columns.visitName, "case_name", "Visit", {
+							visibleInList: true,
+							visibleInDetail: true,
+							sort: { direction: "asc", priority: 0 },
+							tile: tileCell(0, 1, 3, 1),
+						}),
+						plainColumn(
+							ids.grouped.columns.visitOutcome,
+							"outcome",
+							"Outcome",
+							{
+								visibleInList: true,
+								visibleInDetail: true,
+								tile: tileCell(3, 1, 3, 1, {
+									horizontalAlign: "right",
+									fontSize: "small",
+								}),
+							},
+						),
+					],
+					listColumnOrder: [
+						ids.grouped.columns.householdVillage,
+						ids.grouped.columns.visitName,
+						ids.grouped.columns.visitOutcome,
+					],
+					detailColumnOrder: [
+						ids.grouped.columns.householdVillage,
+						ids.grouped.columns.visitName,
+						ids.grouped.columns.visitOutcome,
+					],
+					searchInputs: [],
+				},
+			},
 		],
 	});
+}
+
+/**
+ * The grouped module's households, in display order. Inserted first so their
+ * minted ids can index the visits below.
+ */
+export function caseWorkspaceHouseholdRows(): readonly CaseInsert[] {
+	return [
+		{ name: "Kijiji ward", village: "Kijiji" },
+		{ name: "Riverside ward", village: "Riverside" },
+	].map((household) => ({
+		case_type: CASE_WORKSPACE_SEED.grouped.householdCaseType,
+		case_name: household.name,
+		status: "open" as const,
+		properties: { village: household.village },
+	}));
+}
+
+/**
+ * The grouped module's visits. Names interleave the two households
+ * alphabetically, so a list that shows whole groups is showing the clustering
+ * rather than the sort — and Eve carries no household at all, which is the
+ * empty group key.
+ *
+ * `householdIds` is the minted-id list from `caseWorkspaceHouseholdRows`, in
+ * the same order.
+ */
+export function caseWorkspaceVisitRows(
+	householdIds: readonly string[],
+): readonly CaseInsert[] {
+	const [kijiji, riverside] = householdIds;
+	if (kijiji === undefined || riverside === undefined) {
+		throw new Error(
+			"e2e/lib/caseWorkspaceSeed.ts: caseWorkspaceVisitRows needs both household ids, in seeded order.",
+		);
+	}
+	return [
+		{ name: "Ada", household: kijiji, outcome: "Seen" },
+		{ name: "Ben", household: riverside, outcome: "Referred" },
+		{ name: "Cal", household: kijiji, outcome: "Referred" },
+		{ name: "Dot", household: riverside, outcome: "Seen" },
+		{ name: "Eve", household: undefined, outcome: "Seen" },
+	].map((visit) => ({
+		case_type: CASE_WORKSPACE_SEED.grouped.visitCaseType,
+		case_name: visit.name,
+		status: "open" as const,
+		...(visit.household === undefined
+			? {}
+			: { parent_case_id: visit.household }),
+		properties: { outcome: visit.outcome },
+	}));
 }
 
 /** Stable displayed rows; the case store supplies fresh collision-safe ids. */
@@ -550,6 +719,8 @@ export interface CaseWorkspaceRoutes {
 	readonly firstCase: string;
 	/** The tile-laid-out module's Results list. */
 	readonly tileResults: string;
+	/** The grouped tile module's Results list. */
+	readonly groupedResults: string;
 	/** The follow-up form that carries the module's persistent tile. */
 	readonly tileForm: string;
 	/** The Project data workspace's table list. */
@@ -579,6 +750,10 @@ export function caseWorkspaceRoutes(
 		tileResults: buildUrl(basePath, {
 			kind: "cases",
 			moduleUuid: CASE_WORKSPACE_SEED.tile.moduleUuid,
+		}),
+		groupedResults: buildUrl(basePath, {
+			kind: "cases",
+			moduleUuid: CASE_WORKSPACE_SEED.grouped.moduleUuid,
 		}),
 		tileForm: buildUrl(basePath, {
 			kind: "form",

@@ -49,15 +49,16 @@ export function CaseTileGroup({
 }) {
 	return (
 		<div data-case-tile-group="" className={className}>
-			<CaseTile
-				projection={projection.header}
-				columns={columns}
-				row={headerRow}
-				caseProperties={caseProperties}
-				displayContext={displayContext}
-				surface="results"
-				className="relative z-10"
-			/>
+			<div data-case-tile-group-header="" className="relative z-10">
+				<CaseTile
+					projection={projection.header}
+					columns={columns}
+					row={headerRow}
+					caseProperties={caseProperties}
+					displayContext={displayContext}
+					surface="results"
+				/>
+			</div>
 			{/* Every case in the group repeats the body rows, the first one
 			 *  included: the surviving child view draws its own body row
 			 *  alongside the header it also drew

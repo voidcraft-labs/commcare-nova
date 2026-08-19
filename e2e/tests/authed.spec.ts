@@ -73,6 +73,7 @@ interface SeedManifest {
 			details: string;
 			condition: string;
 			tileResults: string;
+			groupedResults: string;
 			projectData: string;
 			selectField: string;
 			tileForm: string;
@@ -2371,6 +2372,92 @@ test.describe("authenticated builder", () => {
 			if (before === null || after === null) return;
 			expect(after.y).toBeCloseTo(before.y, 0);
 			await page.setViewportSize({ width: 1280, height: 720 });
+		});
+	});
+
+	/**
+	 * The GROUPED tile, which is the one layout with no other real UI
+	 * coverage. Every assertion is a statement about what Web Apps draws:
+	 * one card per group, the heading drawn once from the group's first
+	 * case, a body row per member, and ONE target per card.
+	 */
+	test("a grouped case list draws one card per group and opens the group's first case", async ({
+		page,
+	}) => {
+		await page.goto(seed.caseWorkspace.routes.groupedResults);
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		const list = page.locator('[data-case-results="tile"]');
+		await expect(list).toBeVisible({ timeout: 20_000 });
+		const groups = list.locator("[data-case-tile-group]");
+		await expect(groups.first()).toBeVisible();
+
+		await test.step("clustering, not sorting", async () => {
+			// Visit names interleave the households alphabetically, so whole
+			// groups on screen are the clustering doing its job.
+			expect(await groups.count()).toBe(3);
+			const names = await list
+				.locator('[data-case-tile-group-rows] [data-case-tile="results"]')
+				.allInnerTexts();
+			const order = CASE_WORKSPACE_SEED.grouped.visitOrder;
+			for (const [index, visit] of order.entries()) {
+				expect(names[index]).toContain(visit);
+			}
+		});
+
+		await test.step("the heading is drawn once per group, from its first case", async () => {
+			const first = groups.first();
+			// One heading grid above the body run, both on the tile's full
+			// geometry: the template draws them as separate grids sharing one
+			// `-cell-grid-style` block.
+			const headings = first.locator(
+				'[data-case-tile-group-header] [data-case-tile="results"]',
+			);
+			await expect(headings).toHaveCount(1);
+			await expect(headings.first()).toContainText("Kijiji");
+			await expect(headings.first()).toHaveAttribute("data-tile-columns", "6");
+
+			const bodies = first.locator(
+				'[data-case-tile-group-rows] [data-case-tile="results"]',
+			);
+			await expect(bodies).toHaveCount(2);
+			await expect(bodies.first()).toHaveAttribute("data-tile-columns", "6");
+		});
+
+		await test.step("every case with no such connection is one group", async () => {
+			// Eve carries no household, so `string(./index/parent)` is the empty
+			// string for her and the device puts every such case in one group.
+			const last = groups.last();
+			await expect(
+				last.locator('[data-case-tile-group-rows] [data-case-tile="results"]'),
+			).toHaveCount(1);
+			await expect(last).toContainText("Eve");
+		});
+
+		await test.step("a group is ONE target, and it opens the first case", async () => {
+			// Web Apps removes every non-first model from the rendered
+			// collection, so the body rows carry no handler. One action per card
+			// is the whole selection contract.
+			const actions = list.locator("[data-case-result-action]");
+			await expect(actions).toHaveCount(3);
+			await expect(actions.first()).toHaveAttribute(
+				"aria-label",
+				/View details for .*Ada/,
+			);
+
+			await actions.first().click();
+			await expect(page.getByText("Ada", { exact: false }).first()).toBeVisible(
+				{ timeout: 20_000 },
+			);
+		});
+
+		await test.step("the list says so, permanently", async () => {
+			await page.goBack();
+			await expect(list).toBeVisible({ timeout: 20_000 });
+			await expect(list).toContainText("Choosing a group opens its first case");
 		});
 	});
 
