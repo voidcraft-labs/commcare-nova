@@ -120,6 +120,13 @@ function propertyChoice(
 	};
 }
 
+/* The Select root's `items` map is what lets a bare <SelectValue /> render
+ * the label; without it Base UI falls back to the raw stored value. */
+const CAPTURE_MODE_LABELS: Readonly<Record<CaptureCaseWriteMode, string>> = {
+	url: "A link to the file",
+	attachment: "The file itself",
+};
+
 function nameError(value: string): string | null {
 	const parsed = authoredCasePropertyNameSchema.safeParse(value);
 	return parsed.success
@@ -502,6 +509,7 @@ export function CaseWriteEditor<F extends Field>(
 						What reaches the case
 					</label>
 					<Select
+						items={CAPTURE_MODE_LABELS}
 						value={currentMode}
 						onValueChange={(next) => {
 							if (next === null) return;
@@ -518,8 +526,11 @@ export function CaseWriteEditor<F extends Field>(
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="url">A link to the file</SelectItem>
-							<SelectItem value="attachment">The file itself</SelectItem>
+							{Object.entries(CAPTURE_MODE_LABELS).map(([mode, label]) => (
+								<SelectItem key={mode} value={mode}>
+									{label}
+								</SelectItem>
+							))}
 						</SelectContent>
 					</Select>
 					<p className="text-[13px] leading-5 text-nova-text-muted">
