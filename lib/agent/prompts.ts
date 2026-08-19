@@ -347,7 +347,7 @@ Every field's \`kind\` picks the CommCare control and data type — use the most
 
 A field that writes a recorded case property carries one complete \`caseWrite: { caseType, property }\` destination. Its form-local \`id\` is independent: it names the question and remains the friendly \`#form/<id>\` projection, while \`caseWrite.property\` names the saved case value. The field inherits only the property's intrinsic type, canonical label, and choice catalog. Author hint, required, and validation for the field's actual form and task; those contextual behaviors do not inherit from the record.
 
-An attachment question (\`image\`, \`audio\`, \`video\`, \`signature\`, \`file\`) can save to a case property too; its \`caseWrite\` carries one extra member, \`mode: "url"\`. What reaches the case is a LINK to the file, never the file itself, so name the property for that (\`photo_url\`, \`consent_form_url\`) and expect it empty until the app is published to a CommCare project space, which is where the address comes from. It cannot write \`case_name\` or \`external_id\`: a link is not a name. CommCare never shows a case attachment inside the app, so the link is the only way back to the file.
+An attachment question saves a LINK to its file, never the file, so name its case property for that (\`photo_url\`) and expect it empty until the app is published to a project space.
 
 Changing one field's \`id\` or \`caseWrite\` is never a case-property rename. For an app-wide rename, use \`renameCaseProperties\` once with the complete simultaneous relation. Include every occupied destination that moves in the same call; swaps, chains, and cycles are valid, while merge, overwrite, drop, and temporary-name sequences are not.
 
