@@ -102,6 +102,33 @@ describe("usercaseCaseType", () => {
 		}
 	});
 
+	it("is a SUPERSET of every record any worker could produce", () => {
+		// The bug this pins: the key list was derived by calling
+		// `usercaseBuiltInValues` with a null project space, so the conditional
+		// `commcare_project` key vanished from the case type while a
+		// project-bearing sync still wrote it — and the insert was rejected by
+		// its own schema with `additionalProperties`. The schema must admit
+		// every key any record can carry, whatever this worker's facts are.
+		const d = doc([{ uuid: "u-1", slug: "cadre", label: "Cadre" }]);
+		const declared = new Set(names(d));
+		for (const projectSpace of [null, "my-domain"]) {
+			const record = usercaseRecord(
+				{ id: "p-1", username: "amara", personName: "Amara", email: "" },
+				{ "u-1": "nurse" },
+				d,
+				projectSpace,
+			);
+			for (const key of Object.keys(record)) {
+				// `case_name` is the one key that is a column rather than a
+				// property, so it is deliberately absent from the type.
+				if (key === "case_name") continue;
+				expect(declared.has(key), `${key} missing from the case type`).toBe(
+					true,
+				);
+			}
+		}
+	});
+
 	it("emits each name once when a worker property shadows a built-in", () => {
 		// The slug grammar does not reserve the built-in names, so an author
 		// can declare `language`. One property per name or the schema carries a

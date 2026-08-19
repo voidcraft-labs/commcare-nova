@@ -76,6 +76,36 @@ export function splitWorkerName(name: string): {
 }
 
 /**
+ * Every key a usercase can carry from the built-ins, whatever this worker's
+ * facts happen to be.
+ *
+ * The SCHEMA has to be the superset and the VALUES are the subset, which is
+ * why this is a list rather than the keys of a sample record.
+ * `commcare_project` is the case that proves it: the value is written only
+ * when Nova knows the project space, so deriving the key list from a
+ * projectless sample produced a case type that rejected the very row a
+ * project-bearing sync wrote. Adding a conditional key to
+ * `usercaseBuiltInValues` and forgetting this list is a failed insert, which
+ * is a loud failure — the reverse would be a silently unstorable property.
+ */
+export const USERCASE_BUILT_IN_KEYS: readonly string[] = [
+	"case_name",
+	"username",
+	"email",
+	"first_name",
+	"last_name",
+	"hq_user_id",
+	"language",
+	"phone_number",
+	"last_device_id_used",
+	"commcare_profile",
+	"commcare_location_id",
+	"commcare_location_ids",
+	"commcare_primary_case_sharing_id",
+	"commcare_project",
+];
+
+/**
  * The name the worker's case carries.
  *
  * HQ's own fallback, verbatim: `_get_user_case_fields` writes
@@ -206,12 +236,9 @@ export function usercaseValuesBySlug(
  * no authored data type.
  */
 export function usercaseCaseType(doc: UserCollections): CaseType {
-	const builtIns = Object.keys(
-		usercaseBuiltInValues(
-			{ id: "", username: "", personName: "", email: "" },
-			null,
-		),
-	).filter((name) => !isStandardCaseListProperty(name));
+	const builtIns = USERCASE_BUILT_IN_KEYS.filter(
+		(name) => !isStandardCaseListProperty(name),
+	);
 	const declared = Object.values(userPropertiesOf(doc));
 	const labelBySlug = new Map(declared.map((p) => [p.slug, p.label]));
 	const names = [...builtIns, ...declared.map((property) => property.slug)];

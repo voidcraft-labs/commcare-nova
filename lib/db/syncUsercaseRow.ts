@@ -80,9 +80,18 @@ export interface SyncUsercaseRowArgs {
  *
  * The update path is HQ's `_get_changed_fields` twice over: this picks the
  * differing keys, and `CaseStore.update` JSONB-MERGES the patch rather than
- * replacing the document. So a property a form wrote through `usercase_update`
- * survives a persona edit that says nothing about it, at both layers, which is
- * what a worker sees in the field.
+ * replacing the document, so nothing the sync did not name is disturbed.
+ *
+ * What that does NOT buy, and it is worth being exact: a DECLARED property the
+ * persona has no value for is blank in the desired record, and blank is a real
+ * value HQ writes on purpose (`UserData.to_dict()` seeds every declared field
+ * before anything is layered on). So the sync overwrites it, exactly as a user
+ * save does in the field. The never-remove rule protects keys OUTSIDE the
+ * record, and the case type's `additionalProperties: false` means the only way
+ * to have one is for the catalog to have dropped a property whose values are
+ * still on the rows — which `applySchemaChange` parks. An undeclared write
+ * destination is therefore unstorable rather than merely unwise, and refusing
+ * one belongs in `caseWrite` admission where an author can be told why.
  */
 export async function syncUsercaseRow(
 	store: CaseStore,
