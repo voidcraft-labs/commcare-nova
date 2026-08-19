@@ -2398,7 +2398,7 @@ test.describe("authenticated builder", () => {
 		await test.step("clustering, not sorting", async () => {
 			// Visit names interleave the households alphabetically, so whole
 			// groups on screen are the clustering doing its job.
-			expect(await groups.count()).toBe(3);
+			await expect(groups).toHaveCount(3);
 			const names = await list
 				.locator('[data-case-tile-group-rows] [data-case-tile="results"]')
 				.allInnerTexts();
