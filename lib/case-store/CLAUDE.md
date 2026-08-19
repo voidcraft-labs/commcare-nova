@@ -696,6 +696,51 @@ membership-gate the app's Project and construct an explicit
 function values off the doc-store state before the wire crosses
 into a Server Action so React's RSC serializer accepts it.
 
+### `queryGrouped` — clustering, in SQL, because there is nowhere else
+
+A grouped case list clusters rows by a case connection between the
+user's sort and the page window, so the clustering has to run inside
+the same statement. `queryGrouped` is a SEPARATE method rather than a
+flag on `query` because its WINDOW COUNTS GROUPS: `groupOffset` /
+`groupLimit` name that in the shape instead of leaving `limit` /
+`offset` meaning two things. It returns the groups plus `totalGroups`
+(the pager's denominator) and `totalRows`, all from one statement, so
+the page and the pager can never disagree and the ungrouped path's
+stale-final-page reclamp has no counterpart here.
+
+The statement reuses `buildCaseSelect` — the same tenant, hold,
+predicate, sort, and calculated-column compilation `query` runs — and
+wraps it in four window levels: the group key, `row_number()` over the
+user's sort, `min(row ordinal) over (partition by key)` for each
+group's first appearance, and `dense_rank()` over that. The window on
+the dense rank with `order by first-appearance, row-ordinal`
+reproduces `commcare-core .../util/screen/EntityScreenHelper::groupEntities`
+(first-appearance ordinal, members in post-sort order) and
+`formplayer/.../beans/menus/EntityListResponse::getEntitiesForCurrentPage`
+(boundaries on adjacent keys) exactly.
+
+Two contracts inside it:
+
+- **The empty key is the contract, not a null guard.**
+  `coalesce(<ancestor lookup>, '')` is what `string(./index/<id>)`
+  evaluates to on a case carrying no such index
+  (`commcare-core .../cases/entity/NodeEntityFactory::getEntity`), and
+  the clustering map takes it as an ordinary key — so every such case
+  lands in ONE group, rendered as the device renders it. Never invent a
+  synthetic "ungrouped" bucket; the runtime has no such concept.
+- **The ancestor pick is ordered.** Nova's writers keep one ancestor per
+  `(case_id, identifier)`, so `order by ancestor_id limit 1` is
+  determinism insurance rather than a real fan-out — the same discipline
+  `automationRelationIndexFilter` documents. A storage-order-dependent
+  answer is one that changes under VACUUM.
+
+`count` carries the matching measurement arm, `missingIndexIdentifier`:
+how many cases of one type carry NO index with that name. It is a
+MEASUREMENT, not an authored predicate, so it does not reach for the
+Predicate AST, and it counts held rows because it answers a question
+about the stored data an author governs rather than about what the
+running app can currently reach.
+
 The CommCare boundary keeps `lib/case-store/**` and
 `lib/commcare/**` independent — a Biome `noRestrictedImports`
 rule enforces the boundary.

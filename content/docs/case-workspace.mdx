@@ -114,6 +114,36 @@ Going back to a row of columns keeps every placement. Nothing you arranged is
 lost, so you can try a tile, switch back, and switch to it again without
 redrawing the layout.
 
+### Group cases under a connected case
+
+A tile can also **group** its cases. Cases that are connected to the same case
+appear together, under one heading: the visits of a household under that
+household, the deliveries on a route under that route.
+
+You choose two things. The **connection** to group by, which is the saved name
+of the link between the two case types, almost always `parent`. And how many of
+the tile's top rows form the **heading**. Those top rows are drawn once for the
+whole group, from the first case in it; the rows below them are drawn for every
+case. Nova offers only the depths that cut the tile cleanly, with something
+above the line, something below it, and no piece of information crossing it.
+
+Three things to know before you turn it on:
+
+- **Choosing a group opens its first case.** The rows below the heading are
+  there to read, not to pick from. If people need to open each case
+  individually, keep the ungrouped tile.
+- **Cases with no such connection all appear in one group.** That is what a
+  device does with them, so Nova shows the same thing. The grouping settings
+  tell you how many of your cases that is right now.
+- **Pages count groups, not cases.** A page holds whole groups, so a page can
+  be long when the groups are large.
+
+Grouping is a Web Apps capability. CommCare on Android reads the setting and
+ignores it, so a grouped list there is an ordinary tile list, one tile per case.
+
+Grouping is part of the tile, so turning the tile off turns grouping off with
+it.
+
 ## Choose which cases people can find
 
 Search owns the action people use to continue and any **Search fields** they

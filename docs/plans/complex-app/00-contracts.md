@@ -328,6 +328,33 @@ These decisions are closed unless the project owner explicitly reopens them.
 
 ## Architecture contracts
 
+### What the commit gate may read
+
+**Validator findings are document-derived. Case-data-derived facts are surfaced,
+never gated.** A gate that reads case rows makes the same unedited document valid
+or invalid as workers open and close cases, so an export could fail for a
+document that passed the gate minutes earlier. Where case data is
+decision-relevant, measure it and state it where the author decides — never as a
+finding.
+
+The failure this prevents is specific: a rule keyed on rows would let a worker
+closing the last non-conforming case silently *repair* an app, and creating one
+silently break it. That inverts *an invalid app cannot exist* into *a valid app
+can spontaneously become invalid*, which is the one thing the program's central
+promise cannot survive.
+
+A measured fact still has to be honest about what it is. Three states are
+distinguishable and stay distinguishable: a measured count, a measured zero, and
+**unknown** — no case data yet, or the measurement failed. Rendering unknown as
+`0` fakes data, and leaving the zero state silent reintroduces the same ambiguity
+from the other side, because the author cannot tell "nothing to worry about"
+from "nobody checked". Copy reads as a measurement at a moment, never as a
+guarantee that the number will hold.
+
+Grouped case tiles are the shipped instance: the empty group key is a fact about
+which cases carry a connection, so the validator says nothing about it and the
+tile's grouping surface measures the population instead.
+
 ### Reviewed design and atomic construction
 
 Chat builds begin as Project-scoped design sessions, not app rows. One session

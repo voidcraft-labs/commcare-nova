@@ -45,7 +45,6 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
-	"GAP_GROUPED_CASE_TILES",
 	"GAP_CASE_ATTACHMENT_EMISSION",
 	"GAP_USERCASE_OWNER_SETS",
 	"GAP_PUSH_PROVISIONING_DRIVERS",
@@ -191,13 +190,6 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"On-device date arithmetic can faithfully add fixed seconds through weeks to a date. Calendar-relative months or years, and date-add over a datetime, are rejected because JavaRosa cannot preserve their semantics; a design that requires true calendar milestones must resolve that requirement instead of lowering it to hand-built leap-year arithmetic or an unstated day approximation.",
 		sourceAnchor:
 			"lib/commcare/expression/onDeviceCompatibility.ts::onDeviceDateAddIssue",
-	},
-	GAP_GROUPED_CASE_TILES: {
-		code: "GAP_GROUPED_CASE_TILES",
-		statement:
-			"Grouping a child case list under its shared parent (grouped case tiles) is a deliberate target gap; Nova cannot author it yet.",
-		sourceAnchor: "docs/plans/complex-app/grouped-case-tiles.md",
-		gapUnitFile: "grouped-case-tiles.md",
 	},
 	GAP_CASE_ATTACHMENT_EMISSION: {
 		code: "GAP_CASE_ATTACHMENT_EMISSION",

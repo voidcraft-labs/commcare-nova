@@ -1246,6 +1246,77 @@ Pull-down (`detail-inline`) stays out because it is a navigation change rather
 than a layout one — it replaces the case-detail confirm screen by folding the
 long detail into the persistent tile.
 
+### Grouped case tiles
+
+A tile can also GROUP its cases: `caseListConfig.tile.grouping` carries an
+`identifier` (a case-index name) and `headerRows`, and the cases sharing that
+connection are shown together under one heading. Grouping lives INSIDE the tile
+layout, so "a group on a detail with no tile" is unrepresentable rather than
+merely rejected, and turning the tile off clears the grouping in the same write.
+
+It emits `<group function="string(./index/<id>)" header-rows="N"/>` as the last
+child of BOTH short details — `m{N}_case_short` and the deep-copied
+`m{N}_search_short`, because
+`suite_xml/features/case_tiles.py::CaseTileHelper.build_case_tile_detail` gates
+on `detail_type.endswith('short')` — plus a companion
+`<datum id="<caseDatumId>_parent_ids">` on every FORM entry that loads a case
+(`suite_xml/sections/entries.py::EntriesHelper.get_case_datums_basic_module`
+adds it only under `if form:`). HQ JSON writes the same thing as
+`case_tile_group`. The byte oracle is
+`tests/test_suite_case_tiles_grouping.py::SuiteCaseTilesGroupingTest`, whose
+inline `assertXmlPartialEqual` pair pins both exactly; three of the four upstream
+`<group>` fixtures misspell the attribute `grid-header-rows` and prove nothing.
+`header-rows` is always written, because the client falls back to `1`
+(`DetailGroupParser::ATTRIBUTE_NAME_HEADER_ROWS`) while HQ's model defaults to
+`2`.
+
+Three facts shape everything above the wire:
+
+- **The header/body split is a cell's START ROW alone.**
+  `cloudcare/.../formplayer/menus/views.js::CaseTileGroupedListView.initialize`
+  computes `isHeaderRow = (y) => y < groupHeaderRows` and never splits a cell, so
+  a field crossing the line is drawn wholly in the heading, from the group's
+  first case. The validator refuses that, a heading covering every occupied row,
+  and a heading no field sits in;
+  `lib/domain/modules.ts::tileGroupHeaderRowChoices` is the constructive twin the
+  builder offers, pinned against those refusals in both directions.
+- **A group is ONE choice, and it opens the group's first case.** That same
+  `initialize` clones the models and removes every non-first one from the
+  rendered collection, and
+  `templates/cloudcare/partials/case_list/tile_grouped_item.html` gives the body
+  rows no id, no checkbox, and no click target. Nova reproduces exactly that and
+  says so where a worker sees it and where an author turns grouping on, rather
+  than inventing a per-row selection the device does not have.
+- **Cases with no such connection all land in ONE group.**
+  `commcare-core/.../cases/entity/NodeEntityFactory::getEntity` evaluates the
+  function to a plain `String`, which is `""` for them, and the clustering map
+  takes it as an ordinary key. The commit gate cannot speak to that — it is case
+  data, not document structure — so the authoring surface MEASURES the population
+  and states the consequence (§ *What the commit gate may read* in
+  `complex-app/00-contracts.md`).
+
+The clustering runs in SQL, between the user's sort and the page window, because
+that is the only place it can: `CaseStore.queryGrouped` reproduces
+`EntityScreenHelper::groupEntities` (first-appearance ordinal, members in
+post-sort order) and
+`formplayer/.../beans/menus/EntityListResponse::getEntitiesForCurrentPage`
+(boundaries on adjacent keys) in one four-level window statement. Its window
+counts GROUPS, so a page holds whole groups and however many cases they carry —
+the platform's own row-unboundedness, reproduced rather than clamped.
+
+The group key is narrowed to a case index, which is Nova's choice and not a
+platform rule: `DetailGroupParser::parse` accepts any parseable XPath and a
+shipped fixture groups by `string(case_name)`. A heading drawn from the group's
+first case is only honest when its value is invariant across the group, and an
+index is the only key Nova can statically prove invariant. Property-keyed
+grouping, a synthetic "ungrouped" bucket, clickable-icon endpoints, the
+multi-select `instance-datum` variant, and long-detail grouping all stay out.
+
+Grouping renders on Web Apps only. `commcare-core` parses `<group>` and
+evaluates its key, but the only consumers are `EntityScreenHelper` and
+formplayer's `EntityListResponse`; nothing in `commcare-android` reads it, so on
+Android a grouped list is an ordinary tile list.
+
 ### Carrying a column without showing it
 
 `width="0"` on a short-detail `<header>` and `<template>` is CommCare's own
@@ -1719,18 +1790,6 @@ withholding so you can tell when you need it. Read that file, and
 Units are named, not numbered: the file's name is the unit's identity, so a
 unit that ships leaves no gap and nothing ever renumbers.
 
-### Grouped case tiles
-
-[`complex-app/grouped-case-tiles.md`](complex-app/grouped-case-tiles.md)
-· depends on nothing · blocks nothing
-
-Group a child case list under its shared parent, with the header rows drawn from
-the group's first case. **The file holds** the `header-rows` attribute, which
-fixtures misspell it and the one that is therefore the real byte oracle, the
-companion entry datum, why grouping must happen at the data layer rather than
-after a page is fetched, and why Nova narrows the group key to a case index — a
-Nova choice, not a platform rule.
-
 ### Attachment target-aware emission and link UX
 
 [`complex-app/attachment-emission-and-link-ux.md`](complex-app/attachment-emission-and-link-ux.md)
@@ -1827,7 +1886,6 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [grouped case tiles](complex-app/grouped-case-tiles.md) | — |
 | [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | — |
 | [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
 | [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | — |
@@ -1837,21 +1895,21 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
 
-Five units have no outstanding prerequisites and can start in any order:
-grouped case tiles, attachment emission, the usercase, push and provisioning,
-and form links and sections. They are the independent entry points — every
-other unit descends from one of them.
+Four units have no outstanding prerequisites and can start in any order:
+attachment emission, the usercase, push and provisioning, and form links and
+sections. They are the independent entry points — every other unit descends from
+one of them.
 
 Push and provisioning is the critical path: it gates the App setup UI, session
 endpoints, and multi-select, so anything needing resources on a real HQ target
 waits on it. The navigation chain (form links → nested menus) runs
 independently until session endpoints, which needs both.
 
-Grouped case tiles, attachment emission, the App setup UI, session endpoints,
-and multi-select are leaves — nothing waits on them, so each can land whenever
-its own prerequisites are met. Grouped case tiles are both an entry point and a
-leaf: nothing blocks them and nothing waits on them, which makes them a natural
-filler whenever push and provisioning is blocked on something external.
+Attachment emission, the App setup UI, session endpoints, and multi-select are
+leaves — nothing waits on them, so each can land whenever its own prerequisites
+are met. Attachment emission is both an entry point and a leaf: nothing blocks
+it and nothing waits on it, which makes it a natural filler whenever push and
+provisioning is blocked on something external.
 The usercase unit sits off the critical path too — only the App setup UI waits
 on it, so it can proceed independently without holding up push and provisioning.
 
