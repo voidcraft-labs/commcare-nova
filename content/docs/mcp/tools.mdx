@@ -854,7 +854,7 @@ An upload never changes your Commcare Nova copy. If the linked HQ app was delete
 </Callout>
 
 <Callout type="warn">
-**A username that is taken belongs to somebody.** CommCare makes a mobile username unique across the whole of HQ, so a name already in use is a real person's account. `provision_workers` refuses with `hq_worker_conflict`, writes nothing, and names each one in `worker_conflicts`. **Ask the user about each account by name and never decide for them.** Re-call with `adopt_personas` carrying the `persona_uuid` of exactly the ones they confirmed. The other way out is a username nobody has yet — a username is set once when the account is made, so giving a persona a new one makes a second account and leaves the first alone.
+**A username that is taken belongs to somebody.** A mobile username is the whole address, `name@project-space.commcarehq.org`, so the same name is free on every other project space and taken only on this one. Here, a name already in use is a real person's account, and retiring that account does not give the name back. `provision_workers` refuses with `hq_worker_conflict`, writes nothing, and names each one in `worker_conflicts`. **Ask the user about each account by name and never decide for them.** Re-call with `adopt_personas` carrying the `persona_uuid` of exactly the ones they confirmed. The other way out is a username nobody has yet — a username is set once when the account is made, so giving a persona a new one makes a second account and leaves the first alone.
 </Callout>
 
 <Callout type="info">

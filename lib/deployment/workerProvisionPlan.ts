@@ -5,8 +5,14 @@
  * This is the third planner beside `lookupResourcePlan` and
  * `locationResourcePlan`, and it follows their rule for the same reason:
  * a NAME is never evidence of ownership. `users/util.py::is_username_available`
- * makes a mobile username unique across the whole of CommCare HQ, so a
- * name already taken belongs to somebody until a person says otherwise.
+ * asks `dbaccessors.py::user_exists` for the COMPLETE username, which keys
+ * the `users/by_username` view on `<name>@<domain>.commcarehq.org`
+ * (`util.py::format_username` + `::cc_user_domain`) — so the namespace is one
+ * project space, not CommCare HQ, and the same persona name is free to exist
+ * on every other space. Within this one, a name already taken belongs to
+ * somebody until a person says otherwise. `user_exists` also queries
+ * `deleted_users_by_username`, so a RETIRED account still holds its name and
+ * no one can ever take it back.
  *
  * Two things make workers stricter than the other two kinds.
  *
