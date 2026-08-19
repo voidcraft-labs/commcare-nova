@@ -224,3 +224,23 @@ function recordsEqual(
 	if (keys.length !== Object.keys(b).length) return false;
 	return keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key]);
 }
+
+/**
+ * The workers a commit removed, whose case must be CLOSED rather than deleted.
+ *
+ * Matches HQ's deactivation path
+ * (`sync_usercase.py::_get_sync_usercase_helper` closes the usercase and
+ * leaves the cases that worker owned alone), and it matches Nova's own shipped
+ * policy of preserving rows. HQ's reopen-on-return branch has no counterpart
+ * here because a persona uuid is never reissued — which is also what makes the
+ * worker's id safe to use as the case id.
+ */
+export function workersWithRemovedUsercases(args: {
+	readonly prior: UserCollections;
+	readonly next: UserCollections;
+}): readonly string[] {
+	const remaining = personasOf(args.next);
+	return Object.keys(personasOf(args.prior)).filter(
+		(uuid) => !Object.hasOwn(remaining, uuid),
+	);
+}

@@ -53,6 +53,7 @@ import {
 	drainPendingCaseSchemaIndexes,
 	materializeCaseStoreSchemas,
 } from "@/lib/db/materializeCaseStoreSchemas";
+import { syncUsercaseRow, workerFromPersona } from "@/lib/db/syncUsercaseRow";
 import type { AppDoc } from "@/lib/db/types";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import {
@@ -82,7 +83,9 @@ import {
 	ownRecordValue,
 	type PersistableDoc,
 	personasOf,
+	personaUserData,
 	type UserCollections,
+	type UsercaseWorker,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -1955,6 +1958,26 @@ export async function resolveAuthorizedPreviewContext(args: {
 		}
 	}
 
+	const store = schemaHealingCaseStore(
+		await withProjectContext(
+			access.projectId,
+			identity.actorUserId,
+			identity.ownerId,
+		),
+		{ appId: args.appId },
+	);
+	// The worker's own case, created if this is the first time anyone previewed
+	// as them. The commit path syncs it whenever a worker CHANGES, but a
+	// persona authored before the usercase existed has no row and nothing would
+	// ever give it one — and `#user/<prop>` resolves from `casedb`, so the
+	// difference is visible immediately as blank worker data in a running form.
+	//
+	// Best-effort: previewing must not fail because a bookkeeping row could not
+	// be written. The projection on `identity` still answers `#user/` from the
+	// same derivation, so a failed create degrades to exactly today's behaviour
+	// rather than to a broken screen.
+	await ensureUsercaseRow({ appId: args.appId, identity, blueprint, store });
+
 	return {
 		kind: "ready",
 		identity,
@@ -1963,14 +1986,7 @@ export async function resolveAuthorizedPreviewContext(args: {
 			identity,
 			blueprint,
 		}),
-		store: schemaHealingCaseStore(
-			await withProjectContext(
-				access.projectId,
-				identity.actorUserId,
-				identity.ownerId,
-			),
-			{ appId: args.appId },
-		),
+		store,
 		scope: {
 			projectId: access.projectId,
 			actorId: identity.actorUserId,
@@ -1978,6 +1994,63 @@ export async function resolveAuthorizedPreviewContext(args: {
 		},
 		...(blueprint !== undefined && { blueprint }),
 	};
+}
+
+/**
+ * Create the acting worker's `commcare-user` row if it is missing.
+ *
+ * The commit path owns keeping a worker's case in STEP; this owns its
+ * existence, for the two cases the commit path structurally cannot reach: a
+ * persona authored before this feature existed, and the signed-in member, who
+ * is a worker Nova never commits a document about.
+ *
+ * `projectSpace` is deliberately null. The CommCare domain is a deployment
+ * fact rather than a document one, and an absent `commcare_project` reads
+ * blank on a device, which is what an unpublished app has.
+ */
+async function ensureUsercaseRow(args: {
+	readonly appId: string;
+	readonly identity: ResolvedPreviewIdentity;
+	readonly blueprint: PersistableDoc | undefined;
+	readonly store: CaseStore;
+}): Promise<void> {
+	const { appId, identity, blueprint, store } = args;
+	if (blueprint === undefined) return;
+	const persona =
+		identity.personaUuid === undefined
+			? undefined
+			: ownRecordValue(personasOf(blueprint), identity.personaUuid);
+	// Previewing as the signed-in member: they are a worker too, and HQ gives
+	// every worker a usercase. The session's username is the honest name — a
+	// member is a Nova account rather than a worker the app defines, so there
+	// is nothing else to call them.
+	const memberName = identity.session.context.username ?? identity.ownerId;
+	const worker: UsercaseWorker =
+		persona === undefined
+			? {
+					id: identity.ownerId,
+					username: memberName,
+					personName: memberName,
+					email: "",
+				}
+			: workerFromPersona(persona);
+	const authored =
+		persona === undefined ? {} : personaUserData(persona, blueprint);
+	try {
+		await syncUsercaseRow(store, {
+			appId,
+			worker,
+			authored,
+			doc: blueprint,
+			projectSpace: null,
+		});
+	} catch (err) {
+		log.warn("[preview] usercase row ensure failed", {
+			appId,
+			workerId: worker.id,
+			error: err instanceof Error ? err.message : String(err),
+		});
+	}
 }
 
 /**

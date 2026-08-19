@@ -42,7 +42,11 @@ import {
 } from "./classifyCaseTypeChanges";
 import { BlueprintCommitRejectedError } from "./commitGuard";
 import { isTransientDbError } from "./schemaSyncRetry";
-import { syncUsercaseRow, workersNeedingUsercaseSync } from "./syncUsercaseRow";
+import {
+	syncUsercaseRow,
+	workersNeedingUsercaseSync,
+	workersWithRemovedUsercases,
+} from "./syncUsercaseRow";
 import type { ClientAppChangeKind } from "./types";
 
 /**
@@ -335,6 +339,31 @@ async function sweepCommittedUsercaseRows(
 		next: result.committedDoc,
 		projectSpace: null,
 	});
+	// A removed worker's case is CLOSED, not deleted — the same thing HQ does
+	// when a user is deactivated, and the same preserve-the-rows policy every
+	// other Nova removal follows. Closing is idempotent, so a re-run costs a
+	// no-op rather than an error.
+	for (const uuid of workersWithRemovedUsercases({
+		prior: priorDoc,
+		next: result.committedDoc,
+	})) {
+		try {
+			const store = await withProjectContext(
+				args.expectedProjectId,
+				args.userId,
+				uuid,
+			);
+			await store.close({ appId: args.appId, caseId: uuid });
+		} catch (err) {
+			// A worker who never had a case (removed before any sync ran) is the
+			// ordinary case, not a fault.
+			log.warn("[applyBlueprintChange] usercase close skipped", {
+				appId: args.appId,
+				workerId: uuid,
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
 	if (changed.length === 0) return;
 	for (const { worker, authored } of changed) {
 		try {
