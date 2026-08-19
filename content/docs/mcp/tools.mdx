@@ -681,6 +681,28 @@ case. In `edit_field.updates`, pass a complete pair to retarget the writer,
 pass `null` to stop writing a case property, or leave `caseWrite` out to keep
 it. Changing `id` never renames saved case data.
 
+An attachment field (`image`, `audio`, `video`, `signature`, `file`) saves to
+a case too, and its `caseWrite` carries one extra member naming what reaches
+the case:
+
+```json
+{
+  "id": "site_photo",
+  "kind": "image",
+  "caseWrite": {
+    "caseType": "patient",
+    "property": "photo_url",
+    "mode": "url"
+  }
+}
+```
+
+`mode` is required on those five kinds and refused on every other kind.
+`"url"` saves a link to the captured file, built from the CommCare project
+space the app is published to; an artifact compiled before the app reaches
+one omits the property and `compile_app` says so in its advisories. An
+attachment may not write `case_name` or `external_id`.
+
 Custom property names remain open. The two standard scalar destinations a
 field may use are `case_name` and `external_id`; other reserved system names
 are refused. These scalars store text: use a text field for an entered answer

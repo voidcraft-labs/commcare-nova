@@ -16,9 +16,36 @@ just in what the file contains.
 | **Signature** | Signs on a drawing pad in the app | Produces a PNG |
 
 Each one can be marked required, can be shown or hidden by a condition,
-and can sit inside a repeating section. None of them can save to a case
-property: CommCare carries attachments separately from case data, so the
-**Saves to** control is unavailable on these questions.
+and can sit inside a repeating section. Each one can also save to a case
+property, and what it saves is a link to the file rather than the file
+itself.
+
+## Saving a link to the file
+
+Set **Saves to** the way you would on any other question, and name the
+property for what it holds, for example `photo_url`. CommCare carries
+attachments separately from case data, so the file itself never lands on the
+case; the link is what makes it reachable afterward.
+
+Nova builds that link from the CommCare project space the app is published
+to, so the property fills in from the first publish onward. Preview leaves it
+empty, and so does a file downloaded before the app has been published,
+because there is no address to point at yet. The download says so when it
+happens.
+
+An attachment cannot save to the case's name or its external ID. Those are
+the case's own identity, and a link is not a name.
+
+Two things are worth knowing before you rely on the link:
+
+- **CommCare never shows a case attachment inside the app.** Neither Web
+  Apps nor the Android app displays one, which is why Nova saves an address
+  rather than trying to show the file in a case list.
+- **Following the link needs access to the project space.** It resolves to a
+  CommCare HQ address, so whoever opens it has to be signed in there. A
+  mobile worker without the Submission History permission needs the
+  `view_form_attachments` feature flag turned on for the project space. Email
+  support@dimagi.com and name the project space to ask for it.
 
 ## People attach files; they do not capture them
 
