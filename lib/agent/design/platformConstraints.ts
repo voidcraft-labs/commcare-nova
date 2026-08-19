@@ -96,7 +96,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 	LOCATION_OWNER_EXPORT_CLOSED: {
 		code: "LOCATION_OWNER_EXPORT_CLOSED",
 		statement:
-			"Typed location-based case ownership executes in Preview, and publishing puts an app's places on the target project space, but every export mode for it stays closed: the compiler emits Nova's own place UUID and no compile path resolves it through the deployment's location mappings.",
+			"Typed location-based case ownership executes in Preview and publishing puts an app's places on the target project space. An owner set to a place beneath the current case owner exports on every mode, emitting level codes and the case's own owner_id; an owner set to one particular place is refused on every mode, because the compiler emits Nova's own place UUID and no compile path resolves it through the deployment's location mappings.",
 		sourceAnchor: "docs/plans/complex-app-plan.md#what-is-built",
 	},
 	CASE_SEARCH_IS_LIVE_AND_ONLINE: {

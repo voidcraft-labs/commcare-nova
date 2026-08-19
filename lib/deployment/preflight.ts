@@ -30,6 +30,8 @@ import type { StoredLocation } from "@/lib/organization/types";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { attachmentUrlTarget } from "./attachmentTarget";
 import {
+	ambiguousReverseHopsOnTarget,
+	authoredReverseHops,
 	type PlacePushProblem,
 	type PlannedPlacePush,
 	planLocationResourcePush,
@@ -392,10 +394,12 @@ export async function runDeploymentPreflight(
 	});
 
 	// ── 2. Is the app itself ready to leave Nova? ───────────────────
-	// The same zero-tolerance boundary every export path runs, including
-	// the guards that stay closed until the push drivers can satisfy
-	// them: an app that references a lookup table or a place-based owner
-	// cannot go to CommCare HQ until those resources can be pushed there.
+	// The same zero-tolerance boundary every export path runs. One guard
+	// here is still closed: an owner set to one PARTICULAR place, which
+	// travels as Nova's own place id and so names nobody on CommCare HQ.
+	// Lookup tables and an owner beneath the current case owner both pass
+	// now, the first because this publish pushes them and the second
+	// because it never carried a Nova identity to begin with.
 	const boundary = await prepareExportBoundary({
 		mode: "hq-upload",
 		access: input.access,
@@ -590,6 +594,45 @@ export async function runDeploymentPreflight(
 			if ("success" in hqLevels) return organizationUnreadable(hqLevels);
 			const hqPlaces = await listHqLocations(creds, domain);
 			if ("success" in hqPlaces) return organizationUnreadable(hqPlaces);
+
+			/* The target's own tree can make a reverse owner hop ambiguous
+			 * in a way Nova's cannot see. `assertReverseHopTargetsUnambiguous`
+			 * proves the invariant over `app_locations`; CommCare HQ builds
+			 * the fixture from ITS rows, which may hold places Nova never
+			 * created. The emitted XPath selects `@id` from every match, so
+			 * two of them make owner choice depend on fixture order — and
+			 * quietly, since a predicate returning two nodes is not an
+			 * error. This is the one moment Nova can see that tree, and the
+			 * export boundary lets the rule through precisely because it
+			 * carries no Nova identity, so the check belongs here. */
+			const ambiguous = ambiguousReverseHopsOnTarget(
+				authoredReverseHops(boundary.prepared.doc),
+				hqPlaces,
+			);
+			if (ambiguous.length > 0) {
+				const detail = `Some case owner rules in this app pick a place beneath the current owner, and “${domain}” holds more than one place to pick. CommCare HQ would choose between them by fixture order rather than by the rule, so Nova stopped. Give each of these owners one place at that level over there, then publish again.`;
+				checks.push({
+					id: "organization",
+					title: "Organization",
+					status: "blocked",
+					detail,
+					items: ambiguous.map(
+						(hop) =>
+							`${hop.ownerName} holds ${hop.destinationNames.length} places at “${hop.destinationCode}”: ${hop.destinationNames.join(", ")}.`,
+					),
+				});
+				return {
+					checks,
+					outcome: blockedOutcome(
+						input.now,
+						"hq_organization_mismatch",
+						detail,
+					),
+					ready: null,
+					featureFlags: null,
+					conflicts: [],
+				};
+			}
 
 			const plan = planLocationResourcePush({
 				places,

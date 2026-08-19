@@ -223,7 +223,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	PERSONA_LOCATION_PRIMARY_REPEATED: () =>
 		"A persona has the same place more than once. Keep one main place and list each additional place once.",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: (e) =>
-		`${q(formName(e))} assigns new cases with a place-based owner, but Nova does not yet ship the matching device location data and CommCare identity mapping. Use a non-location owner, or remove this owner rule before publishing.`,
+		`${q(formName(e))} assigns new cases to one particular place, and the exported rule names that place by Nova's own id, which CommCare HQ doesn't recognize, so the rule would match nobody. Assign to a place beneath the current case owner instead, or remove this owner rule.`,
 	AUTOMATION_INVALID: () =>
 		"This automation no longer fits the app. Open it and replace any case, form, place, or worker information that has changed.",
 

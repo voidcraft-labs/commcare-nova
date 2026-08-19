@@ -181,12 +181,16 @@ organizations. An ambiguous hop is skipped rather than compared:
 `assertReverseHopTargetsUnambiguous` refuses that shape and both sides pick
 arbitrarily, so comparing them would test two coin flips.
 
-**Export stays closed, and now for exactly one reason.** A `fixed-location`
-owner emits a Nova place UUID as a literal `owner_id` and a reverse hop joins on
-HQ `location_id` values; neither names anything on a target domain until push
-and provisioning ships the HQ identity map. The other half of the refusal was
-never Nova's to ship: once the place tree is pushed, HQ builds each worker's
-fixture itself, so the identity map closes both halves at once.
+**Export is closed for one owner shape, and no longer for two.** A
+`fixed-location` owner emits a Nova place UUID as a literal `owner_id`, which
+names nothing on a target domain until a compile path resolves it through the
+deployment's location mappings; the ledger holds that mapping and nothing
+threads it into emission yet. A reverse hop never needed one: it emits level
+CODES, which a publish puts on the project space as `location_type_code`, and
+joins them against the case's own `owner_id`, which is HQ's value at runtime.
+Both read `jr://fixture/locations`, which HQ builds for each worker from its own
+rows on every mode alike — so that half of the refusal was never Nova's to ship,
+and pushing the place tree closed it.
 
 Blueprint commits and place writes share the app-row-first lock order. Each
 commit replaces the exact set of concrete place-reference edges for persona

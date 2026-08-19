@@ -57,6 +57,7 @@ import {
 	type XPathExpression,
 	xpathPrintContext,
 } from "@/lib/domain";
+import { walkExpressionTerms } from "@/lib/domain/predicate";
 import { buildConnectSlugMap } from "./connectSlugs";
 import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
 import {
@@ -476,5 +477,41 @@ export function expandDoc(
 	const logoRefs = buildLogoRefs(doc.logo, assets, "expandDoc logo");
 	if (Object.keys(logoRefs).length > 0) app.logo_refs = logoRefs;
 
+	/* Same conditional-assignment rule as `logo_refs`, for the same
+	 * reason: only an app that actually reads `instance('locations')`
+	 * gets an opinion, so a republish never overwrites a fixture choice
+	 * somebody made on CommCare HQ for an app that has no place rule. */
+	if (readsLocationsFixture(doc)) {
+		app.location_fixture_restore = "both_fixtures";
+	}
+
 	return app;
+}
+
+/**
+ * Whether this app's wire reads `jr://fixture/locations`.
+ *
+ * Exactly one term does: `owner-location-at-level`, which
+ * `predicate/termEmitter.ts::emitTerm` lowers to an
+ * `instance('locations')` path, and which
+ * `predicate/instances.ts::collectAstInstances` is the accumulator for.
+ * `fixed-location` reads no instance — it prints a literal — so an app
+ * whose only place rule is that one needs nothing from the restore.
+ *
+ * Read off the owner slots directly rather than off the instance
+ * accumulator because this runs on the whole document at shell-assembly
+ * time, before any per-expression emission context exists.
+ */
+function readsLocationsFixture(doc: BlueprintDoc): boolean {
+	for (const form of Object.values(doc.forms)) {
+		for (const operation of form.caseOperations ?? []) {
+			if (operation.owner === undefined) continue;
+			let found = false;
+			walkExpressionTerms(operation.owner, (term) => {
+				if (term.kind === "owner-location-at-level") found = true;
+			});
+			if (found) return true;
+		}
+	}
+	return false;
 }

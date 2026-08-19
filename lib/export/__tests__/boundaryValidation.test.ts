@@ -4,7 +4,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReferences";
-import type { LookupOptionsSource } from "@/lib/domain";
+import type { LookupOptionsSource, OrganizationLevel } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
@@ -227,17 +227,47 @@ function fixedOwnerDoc() {
 	return doc;
 }
 
+const DISTRICT = testUuid("33333333-3333-4333-8333-333333333330");
+const CLINIC = testUuid("33333333-3333-4333-8333-333333333333");
+
+/**
+ * A reverse hop over a real two-level organization.
+ *
+ * The levels are not decoration. `termEmitter.ts::emitTerm` resolves the
+ * destination level and walks up for a case-owning ancestor, so a doc
+ * that names a level it does not have cannot be expanded at all — and a
+ * test asserting this shape EXPORTS while never compiling it would prove
+ * nothing.
+ */
 function reverseOwnerDoc() {
 	const doc = fixedOwnerDoc();
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 	const operation = doc.forms[formUuid].caseOperations?.[0];
 	if (operation === undefined) throw new Error("owner operation missing");
-	operation.owner = term(
-		ownerLocationAtLevel(
-			testUuid("33333333-3333-4333-8333-333333333333"),
-			"patient",
-		),
-	);
+	operation.owner = term(ownerLocationAtLevel(CLINIC, "patient"));
+	const levels: Record<string, OrganizationLevel> = {
+		[DISTRICT]: {
+			uuid: DISTRICT,
+			code: "district",
+			name: "District",
+			caseFlow: {
+				workers: "assigned" as const,
+				ownsCases: true,
+				descendantCases: { kind: "none" as const },
+			},
+			addressBook: { reach: "own-branch" as const },
+		},
+		[CLINIC]: {
+			uuid: CLINIC,
+			code: "clinic",
+			name: "Clinic",
+			parentLevelUuid: DISTRICT,
+			caseFlow: { workers: "none" as const, ownsCases: false },
+			addressBook: { reach: "own-branch" as const },
+		},
+	};
+	doc.organizationLevels = levels;
+	doc.organizationLevelOrder = [DISTRICT, CLINIC];
 	return doc;
 }
 
@@ -609,47 +639,104 @@ describe("prepareExportBoundary", () => {
 	});
 
 	it.each(["ccz", "hq-json", "hq-upload"] as const)(
-		"keeps place-owner terms closed for %s exports until the HQ identity map ships",
+		"keeps an owner set to one particular place closed for %s exports",
 		async (mode) => {
-			for (const [kind, makeDoc] of [
-				["fixed", fixedOwnerDoc],
-				["reverse", reverseOwnerDoc],
-			] as const) {
-				const result = await prepareExportBoundary({
-					mode,
-					access: ACCESS,
-					doc: makeDoc(),
-					compiledAtSeq: 16,
-					attachmentTarget: null,
-				});
+			const result = await prepareExportBoundary({
+				mode,
+				access: ACCESS,
+				doc: fixedOwnerDoc(),
+				compiledAtSeq: 16,
+				attachmentTarget: null,
+			});
 
-				expect(result.ok, `${kind} owner must stay closed`).toBe(false);
-				if (result.ok) throw new Error(`expected ${kind}-owner rejection`);
-				expect(result.violations).toEqual(
-					expect.arrayContaining([
-						expect.objectContaining({
-							code: "LOCATION_OWNER_EXPORT_NOT_ACTIVE",
-							details: expect.objectContaining({ exportMode: mode }),
+			expect(result.ok).toBe(false);
+			if (result.ok) throw new Error("expected fixed-owner rejection");
+			expect(result.violations).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code: "LOCATION_OWNER_EXPORT_NOT_ACTIVE",
+						details: expect.objectContaining({
+							exportMode: mode,
+							ownerKind: "fixed-location",
 						}),
-					]),
-				);
+					}),
+				]),
+			);
 
-				// The refusal has exactly ONE reason left, and it has to SAY so.
-				// BOTH reasons it used to give are closed: HQ builds the device
-				// `locations` fixture on restore from its own rows, and
-				// publishing now puts the places there and records each one's
-				// `location_id`. What is left is that the compiler still writes
-				// Nova's place UUID. A message naming either closed reason sends
-				// an author looking for a feature that exists.
-				const finding = result.violations.find(
-					(candidate) => candidate.code === "LOCATION_OWNER_EXPORT_NOT_ACTIVE",
-				);
-				expect(finding?.message).toContain("CommCare HQ project");
-				expect(finding?.message).toMatch(/Nova's own id/);
-				expect(finding?.message).not.toMatch(
-					/fixture|device location data|identity map/i,
-				);
-			}
+			// The refusal has exactly ONE reason left, and it has to SAY so.
+			// BOTH reasons it used to give are closed: HQ builds the device
+			// `locations` fixture on restore from its own rows, and
+			// publishing now puts the places there and records each one's
+			// `location_id`. What is left is that the compiler still writes
+			// Nova's place UUID. A message naming either closed reason sends
+			// an author looking for a feature that exists.
+			const finding = result.violations.find(
+				(candidate) => candidate.code === "LOCATION_OWNER_EXPORT_NOT_ACTIVE",
+			);
+			expect(finding?.message).toContain("CommCare HQ project");
+			expect(finding?.message).toMatch(/Nova's own id/);
+			expect(finding?.message).not.toMatch(
+				/fixture|device location data|identity map/i,
+			);
+			/* It names the way out that WORKS, not "a different owner". The
+			 * other place-based owner exports, so sending an author away
+			 * from places altogether would cost them the feature. */
+			expect(finding?.message).toContain(
+				"a place beneath the current case owner",
+			);
+		},
+	);
+
+	/**
+	 * The app settles whether CommCare HQ puts the locations fixture in a
+	 * worker's restore, rather than hoping the project space does.
+	 *
+	 * `locations/fixtures.py::should_sync_flat_fixture` otherwise falls
+	 * through to `LocationFixtureConfiguration.for_domain(...)`, a row an
+	 * administrator can switch off — and an app that declares
+	 * `jr://fixture/locations` without getting one fails to resolve the
+	 * instance on the device. It returns True for
+	 * `app.location_fixture_restore in const.py::SYNC_FLAT_FIXTURES`
+	 * before it ever reads that row.
+	 */
+	it("declares the flat locations fixture when a rule reads it", () => {
+		const app = expandDoc(reverseOwnerDoc());
+		expect(app.location_fixture_restore).toBe("both_fixtures");
+	});
+
+	it("says nothing about fixtures for an app with no rule that reads one", () => {
+		/* Same rule `logo_refs` follows: CommCare HQ's in-place update is an
+		 * overlay merge, so emitting a value here would overwrite a choice
+		 * somebody made over there on every republish. A fixed-place owner
+		 * prints a literal and reads no instance, so it needs nothing. */
+		expect(expandDoc(fixedOwnerDoc()).location_fixture_restore).toBeUndefined();
+	});
+
+	it.each(["ccz", "hq-json", "hq-upload"] as const)(
+		"lets an owner beneath the current case owner export as %s",
+		async (mode) => {
+			/* Nothing in this expression is Nova's to translate. It prints
+			 * level CODES, which a publish puts on the project space as
+			 * `location_type_code`, and matches them against the case's own
+			 * `owner_id`, which is CommCare HQ's value at runtime; the
+			 * `locations` fixture it reads is CommCare's own restore
+			 * fixture on every mode. Refusing it would refuse an app that
+			 * works. */
+			const result = await prepareExportBoundary({
+				mode,
+				access: ACCESS,
+				doc: reverseOwnerDoc(),
+				compiledAtSeq: 16,
+				attachmentTarget: null,
+			});
+
+			const locationFindings = result.ok
+				? []
+				: result.violations.filter(
+						(candidate) =>
+							candidate.code === "LOCATION_OWNER_EXPORT_NOT_ACTIVE",
+					);
+			expect(locationFindings).toEqual([]);
 		},
 	);
 
