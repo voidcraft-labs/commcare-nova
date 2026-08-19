@@ -3,6 +3,7 @@
 // Public barrel for the domain layer. Every consumer outside lib/domain/
 // imports from here or from the kind-specific files under ./fields.
 
+export * from "./attachmentSlots";
 export * from "./authoredIdentities";
 export * from "./automations";
 export * from "./blueprint";

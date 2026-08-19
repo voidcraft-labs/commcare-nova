@@ -45,7 +45,6 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
-	"GAP_CASE_ATTACHMENT_EMISSION",
 	"GAP_USERCASE_OWNER_SETS",
 	"GAP_PUSH_PROVISIONING_DRIVERS",
 	"GAP_APP_SETUP_UI",
@@ -190,13 +189,6 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"On-device date arithmetic can faithfully add fixed seconds through weeks to a date. Calendar-relative months or years, and date-add over a datetime, are rejected because JavaRosa cannot preserve their semantics; a design that requires true calendar milestones must resolve that requirement instead of lowering it to hand-built leap-year arithmetic or an unstated day approximation.",
 		sourceAnchor:
 			"lib/commcare/expression/onDeviceCompatibility.ts::onDeviceDateAddIssue",
-	},
-	GAP_CASE_ATTACHMENT_EMISSION: {
-		code: "GAP_CASE_ATTACHMENT_EMISSION",
-		statement:
-			"Presenting a saved attachment link is a deliberate target gap; an attachment question can save a link to its file on a case property, but no case-list column renders that link as a link yet.",
-		sourceAnchor: "docs/plans/complex-app/attachment-emission-and-link-ux.md",
-		gapUnitFile: "attachment-emission-and-link-ux.md",
 	},
 	GAP_USERCASE_OWNER_SETS: {
 		code: "GAP_USERCASE_OWNER_SETS",

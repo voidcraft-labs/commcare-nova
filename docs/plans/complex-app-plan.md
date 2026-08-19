@@ -1443,7 +1443,7 @@ contrast is a docs fact rather than a Nova behavior.
 **A capture's `caseWrite` carries a required `mode`, and the case update names
 a node the capture question is not.** A capture's answer is the submitted
 file's name, so the answer can never BE the case value; `mode` says what is
-written instead, and `"url"` is the only member — a link to the file, built as
+written instead. `"url"` writes a link to the file, built as
 `if(<capture> = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/',
 /data/meta/instanceID, '/', <capture>))` on a SIBLING node
 (`lib/commcare/xform/captureUrlNode.ts`), which `formActions.ts` then names as
@@ -1466,9 +1466,38 @@ through `lib/publish/exportAdvisories.ts`. An attachment is refused
 `case_name` and `external_id`, which reach the wire through their own
 FormActions slots and would point back at the capture question.
 
-Rendering that link AS a link in a case list is what remains (the
-attachment-emission-and-link-ux unit), along with the opt-in
-`MM_CASE_PROPERTIES` attachment mode.
+`"attachment"` is the opposite member and the deprecated one: it names the
+capture question deliberately, so HQ's structural rule builds the
+`<attachment>` block and CommCare stores the FILE on the case. The local
+`.ccz` reaches the same shape by running HQ's own rule rather than by being
+told — `caseBlocks.ts::attachmentQuestionPaths` collects the body's
+`<upload ref>` set, which is exactly what `::is_attachment` computes, so the
+two surfaces consume one input pair (`FormActions` + the body) and cannot
+diverge. The emitted bytes match `form_preparation_v2/update_attachment_case.xml`
+and its `_advanced` twin: an empty `<update/>`, a sibling `<attachment>` whose
+child is named by the case property and carries `src="" from="local"`, and
+binds spelled `relevant="count(<question>) = 1"` plus `@src`
+`calculate="<question>"`. The property holds no scalar at all, so
+`casePropertyIsAttachmentSlot` (`lib/domain/attachmentSlots.ts`) is the one
+predicate the case-list gate and the authoring surfaces read to refuse a
+column that could only ever render blank.
+
+Both modes name a project-space feature flag, advisory as every flag here is:
+`MM_CASE_PROPERTIES` (deprecated) or the block is discarded without a word,
+and `VIEW_FORM_ATTACHMENT` or a worker without the Submission History
+permission cannot open the link. Neither ever blocks a publish.
+
+**A `link` column renders a property holding an address as something a worker
+can open.** `<template form="markdown">` over
+`if(<field> = '', '', concat('[<linkText>](', <field>, ')'))`, and
+`format: "markdown"` with `useXpathExpression` on the HQ JSON, so an
+HQ-imported app and a local `.ccz` agree. Two CommCare limits ride with it and
+are stated wherever the kind is offered: `linkText` is ONE string for every app
+language, because `detail_screen.py::Markdown` inherits the base `variables`
+(`$lang` only) and has nowhere to carry a translated label; and the cell is a
+real link in Web Apps only, because `Style.getDisplayFormat()` has no callers
+in commcare-core or commcare-android and `EntityView` branches only on
+image/audio/graph/address/callout, so Android shows the raw markdown text.
 
 ### Attachments a worker captures
 
@@ -1814,16 +1843,6 @@ withholding so you can tell when you need it. Read that file, and
 Units are named, not numbered: the file's name is the unit's identity, so a
 unit that ships leaves no gap and nothing ever renumbers.
 
-### Attachment target-aware emission and link UX
-
-[`complex-app/attachment-emission-and-link-ux.md`](complex-app/attachment-emission-and-link-ux.md)
-· depends on nothing · blocks nothing
-
-Save-to-case attachment shapes, target-aware URL-column emission, explicit link
-presentation, and the opt-in legacy attachment mode. **The file holds** the exact
-bytes endpoint and the HTML viewer route that must never be linked instead, the
-calculate that builds the URL, and why Web Apps never displays a case attachment
-in-app.
 
 ### Usercase, owner sets, restore scope, and wire
 
@@ -1910,7 +1929,6 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [attachment emission and link UX](complex-app/attachment-emission-and-link-ux.md) | — |
 | [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
 | [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | — |
 | [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase, push and provisioning |
@@ -1919,21 +1937,17 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
 
-Four units have no outstanding prerequisites and can start in any order:
-attachment emission, the usercase, push and provisioning, and form links and
-sections. They are the independent entry points — every other unit descends from
-one of them.
+Three units have no outstanding prerequisites and can start in any order: the
+usercase, push and provisioning, and form links and sections. They are the
+independent entry points — every other unit descends from one of them.
 
 Push and provisioning is the critical path: it gates the App setup UI, session
 endpoints, and multi-select, so anything needing resources on a real HQ target
 waits on it. The navigation chain (form links → nested menus) runs
 independently until session endpoints, which needs both.
 
-Attachment emission, the App setup UI, session endpoints, and multi-select are
-leaves — nothing waits on them, so each can land whenever its own prerequisites
-are met. Attachment emission is both an entry point and a leaf: nothing blocks
-it and nothing waits on it, which makes it a natural filler whenever push and
-provisioning is blocked on something external.
+The App setup UI, session endpoints, and multi-select are leaves — nothing waits
+on them, so each can land whenever its own prerequisites are met.
 The usercase unit sits off the critical path too — only the App setup UI waits
 on it, so it can proceed independently without holding up push and provisioning.
 

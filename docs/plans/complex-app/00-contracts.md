@@ -306,14 +306,22 @@ These decisions are closed unless the project owner explicitly reopens them.
   defaulting to one tile per row and content-sized rows. Because they are absent,
   Nova's tile renderer pins those two runtime defaults explicitly rather than
   leaving them implied.
-- **Case attachment display is link-first.** URL-property mode is the normal
-  path. The deprecated `MM_CASE_PROPERTIES` attachment mode is an explicit
-  opt-in that works only on a domain carrying HQ's `MM_CASE_PROPERTIES` toggle —
-  a target-domain prerequisite recorded in the deployment record and the setup
-  artifact, never the default. On a stock domain
+- **Case attachment display is link-first.** URL-property mode is the default
+  and the normal path; a `link` column is what makes the saved address
+  openable. The deprecated `MM_CASE_PROPERTIES` attachment mode is an explicit
+  opt-in the author picks per field, never a default, and it only does anything
+  on a domain carrying HQ's toggle — on a stock domain
   `update_strategy.py::_apply_attachments_action` returns before doing anything,
-  so the block parses and is then silently dropped. Inline picture presentation
-  is not promised until the Web Apps HTTPS-resource path works.
+  so the block parses and is then silently dropped.
+  That prerequisite is reported like every other feature flag and **never gates
+  the offer or the publish**: a target's configuration does not get to edit the
+  app (`lib/deployment/CLAUDE.md`), so the deprecation and the requirement are
+  stated in the chooser instead and the author decides. What the mode does
+  foreclose is reading the property back — it holds no scalar at all, which
+  `lib/domain/attachmentSlots.ts::casePropertyIsAttachmentSlot` is the single
+  predicate for, and the case-list gate refuses a column over one rather than
+  shipping a column that renders blank on every case. Inline picture
+  presentation is not promised until the Web Apps HTTPS-resource path works.
 - **Smart-link authoring does not ship before Nova models data-registry search.**
   No unused emission helper lands as speculative machinery.
 - **Long-detail tiles are out of scope.** Tiles apply to the short and

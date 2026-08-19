@@ -8,7 +8,12 @@ import { proseText } from "@/lib/domain/prose";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
-import { type Column, dateColumn, phoneColumn } from "@/lib/domain";
+import {
+	type Column,
+	dateColumn,
+	phoneColumn,
+	plainColumn,
+} from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH";
@@ -130,5 +135,97 @@ describe("columnKindPropertyType", () => {
 		expect(
 			errors.some((e) => e.code === CODE && e.message.includes("date_opened")),
 		).toBe(true);
+	});
+});
+
+/*
+ * The second reason a column cannot render its property, and the one
+ * the type axis cannot express: an attachment-mode capture writes the
+ * FILE to the case's attachment block and leaves the property's scalar
+ * slot empty, so there is nothing to show at any type. `plain` — the
+ * escape hatch the mismatch message recommends — is just as blank here.
+ */
+describe("a column over a property that holds an attachment", () => {
+	const SLOT_CODE = "CASE_LIST_COLUMN_OVER_ATTACHMENT_SLOT";
+
+	const attachmentWriter = (property: string): FieldSpec => ({
+		kind: "image",
+		id: "thepicture",
+		label: proseText("Photo"),
+		caseWrite: { caseType: "patient", property, mode: "attachment" },
+	});
+
+	it("refuses the column, whatever kind it is", () => {
+		for (const column of [
+			plainColumn(testUuid("col-1"), "photo", "Photo"),
+			phoneColumn(testUuid("col-1"), "photo", "Photo"),
+		]) {
+			const doc = moduleWith({
+				columns: [column],
+				fields: [attachmentWriter("photo")],
+			});
+			const codes = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+				(e) => e.code,
+			);
+			expect(codes).toContain(SLOT_CODE);
+		}
+	});
+
+	it("says so once, without also claiming a type mismatch", () => {
+		const doc = moduleWith({
+			columns: [phoneColumn(testUuid("col-1"), "photo", "Photo")],
+			fields: [attachmentWriter("photo")],
+		});
+		const codes = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+			(e) => e.code,
+		);
+
+		expect(codes.filter((code) => code === SLOT_CODE)).toHaveLength(1);
+		// Two findings over one column would have the author fix a type
+		// that was never the problem.
+		expect(codes).not.toContain(CODE);
+	});
+
+	it("leaves a URL-mode writer's property alone", () => {
+		// The whole point of URL mode: the property holds a real string,
+		// so every ordinary column reads it.
+		const doc = moduleWith({
+			columns: [plainColumn(testUuid("col-1"), "photo_url", "Photo")],
+			fields: [
+				{
+					kind: "image",
+					id: "thepicture",
+					label: proseText("Photo"),
+					caseWrite: {
+						caseType: "patient",
+						property: "photo_url",
+						mode: "url",
+					},
+				},
+			],
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((e) => e.code),
+		).not.toContain(SLOT_CODE);
+	});
+
+	it("leaves the property alone when an ordinary field also writes it", () => {
+		// A scalar writer means there IS a value; the attachment rides
+		// alongside it rather than replacing it.
+		const doc = moduleWith({
+			columns: [plainColumn(testUuid("col-1"), "photo", "Photo")],
+			fields: [
+				attachmentWriter("photo"),
+				{
+					kind: "text",
+					id: "photo_note",
+					label: proseText("Note"),
+					caseWrite: { caseType: "patient", property: "photo" },
+				},
+			],
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((e) => e.code),
+		).not.toContain(SLOT_CODE);
 	});
 });

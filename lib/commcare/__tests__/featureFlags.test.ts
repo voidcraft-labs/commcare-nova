@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { type BlueprintDoc, type Module, plainColumn } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	decodeHqFeatureFlagReport,
 	encodeHqFeatureFlagReport,
@@ -175,6 +176,53 @@ describe("requiredHqFeatureFlags", () => {
 		expect(uses[2]?.reasons).toEqual([
 			"The app is configured for CommCare Connect Learn.",
 		]);
+	});
+});
+
+/*
+ * Both attachment save-to-case modes name a project-space toggle, and
+ * they name DIFFERENT ones because the two modes put the file in
+ * different places. Neither is ever blocking — a target's configuration
+ * does not edit the app — so what these pin is that the requirement is
+ * REPORTED, and reported against the right flag.
+ */
+describe("attachment save-to-case modes", () => {
+	const capture = (mode: "url" | "attachment") => ({
+		uuid: testUuid("field-photo"),
+		id: "thepicture",
+		kind: "image" as const,
+		label: proseText("Photo"),
+		caseWrite: { caseType: "patient", property: "photo", mode },
+	});
+
+	it("asks for Multimedia Case Properties when the file goes on the case", () => {
+		const uses = requiredHqFeatureFlagUses(
+			doc({ fields: { [testUuid("field-photo")]: capture("attachment") } }),
+		);
+		expect(uses.map((use) => use.requirement.slug)).toEqual([
+			"mm_case_properties",
+		]);
+		expect(uses[0]?.reasons).toEqual([
+			"The “Photo” question saves its file onto the case.",
+		]);
+	});
+
+	it("asks for View Form Attachments when only a link goes on the case", () => {
+		const uses = requiredHqFeatureFlagUses(
+			doc({ fields: { [testUuid("field-photo")]: capture("url") } }),
+		);
+		expect(uses.map((use) => use.requirement.slug)).toEqual([
+			"view_form_attachments",
+		]);
+	});
+
+	it("asks for nothing when the capture saves to no case at all", () => {
+		const { caseWrite: _dropped, ...unsaved } = capture("url");
+		expect(
+			requiredHqFeatureFlagUses(
+				doc({ fields: { [testUuid("field-photo")]: unsaved } }),
+			),
+		).toEqual([]);
 	});
 });
 

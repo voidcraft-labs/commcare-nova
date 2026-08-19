@@ -23,9 +23,14 @@ itself.
 ## Saving a link to the file
 
 Set **Saves to** the way you would on any other question, and name the
-property for what it holds, for example `photo_url`. CommCare carries
-attachments separately from case data, so the file itself never lands on the
-case; the link is what makes it reachable afterward.
+property for what it holds, for example `photo_url`. Under it, **What reaches
+the case** offers two answers, and **A link to the file** is the one to use.
+CommCare carries attachments separately from case data, so the link is what
+makes the file reachable afterward.
+
+Show that link in a case list with a **Link** column, which turns the address
+into something a worker can open. Its wording is yours to choose, and the same
+wording appears on every row.
 
 Nova builds that link from the CommCare project space the app is published
 to, so the property fills in from the first publish onward. Preview leaves it
@@ -46,6 +51,27 @@ Two things are worth knowing before you rely on the link:
   mobile worker without the Submission History permission needs the
   `view_form_attachments` feature flag turned on for the project space. Email
   support@dimagi.com and name the project space to ask for it.
+
+## Saving the file itself
+
+**The file itself** is the other answer under **What reaches the case**, and
+it exists for projects that already rely on it. CommCare stores the file on
+the case rather than a link to it, which sounds like the better deal and is
+not:
+
+- **The project space needs the Multimedia Case Properties setting.** Without
+  it CommCare accepts the submission and discards the file without saying
+  anything. Dimagi is retiring this setting, so it will not be turned on for
+  new projects.
+- **Nothing in the app can show it.** Neither Web Apps nor the Android app
+  displays a case attachment, and the property holds no value, so no case-list
+  column can read it. Nova won't let you add one that would sit empty on every
+  case.
+- **It reaches the case page on CommCare HQ, and the Android app.** Those are
+  its only surfaces.
+
+Choose **A link to the file** unless someone has told you this project depends
+on the older behavior.
 
 ## People attach files; they do not capture them
 
