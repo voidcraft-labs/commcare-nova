@@ -31,12 +31,24 @@ rather than a placeholder.
 | --- | --- |
 | Read the lookup tables | `fixtures/resources/v0_1.py::LookupTableResource` — tastypie, so the domain's paid API_ACCESS privilege AND the account's `access_api` permission |
 | Upload lookup tables | `fixtures/views.py::upload_fixture_api` — `@api_auth()` + `@require_can_edit_fixtures`, needing neither of the above |
+| Read the levels | `locations/resources/v0_5.py::LocationTypeResource` — GET only, so Nova can never create one |
+| Read / write places | `locations/resources/v0_6.py::LocationResource` — `patch_list` is `@atomic` at `patch_limit = 100` |
 
 That asymmetry is load-bearing rather than trivia: a project space can accept
 the push while refusing to say what it already holds, so the read's failure is
 a BLOCKING preflight edge. Treating "could not ask" as "there are none" is the
 one reading that turns a permissions problem into somebody's data being
 overwritten.
+
+Both location resources sit behind FOUR gates and Nova cannot tell them apart
+from the answer: the project space's `LOCATIONS` privilege (a bodyless 403 from
+`v0_5.py::BaseLocationsResource.dispatch`), its `API_ACCESS` privilege (401,
+from `HqBaseResource.dispatch`), and the account's Edit Locations AND Access
+APIs permissions, which `RequirePermissionAuthentication` checks together
+(`users/decorators.py::require_api_permission` unions the named permission with
+`access_api`) and refuses with another bodyless 403. Two of the four are
+indistinguishable, so the refusal names all of them rather than picking one and
+being confidently wrong half the time.
 
 **The probe is a device install request, not a pure read.** Despite the
 URL, it does NOT reach `views/download.py::download_odk_profile`:
@@ -65,13 +77,28 @@ A 3xx is "could not check", never "not installable":
 `preflight → resources → uploaded → built → released → runnable`, plus
 `incomplete`.
 
-`resources` is what the app DEPENDS ON, put there before the app itself. Its
-first inhabitant is the app's lookup tables, and the ordering is the reason it
-is a rung rather than a step inside the upload: the app's selects read those
-tables by name while somebody is using it, so an app that arrived first would
-install and misbehave. A publish refused at `resources` sent nothing of the
-app, which is what makes its retry cheap — it re-pushes the data and never
-re-imports the app.
+`resources` is what the app DEPENDS ON, put there before the app itself: its
+lookup tables and its organization's places. The ordering is the reason it is a
+rung rather than a step inside the upload — the app's selects read those tables
+by name while somebody is using it, so an app that arrived first would install
+and misbehave. A publish refused at `resources` sent nothing of the app, which
+is what makes its retry cheap: it re-pushes the data and never re-imports the
+app.
+
+**Both halves can stop partway, and the reason is CommCare HQ's.** A
+lookup-table push is one workbook, but `UploadFixtureAPIResponse.response_codes`
+has three verdicts rather than two: `warning` means the workbook was processed
+and part of it did not take. `_run_upload` is not one transaction either — only
+`flush` is `@atomic`, and `process_table` calls it mid-pass past a thousand rows
+— so a 5xx can leave tables behind too. A place push is a batch per level
+(`v0_6.py::patch_list` is `@atomic` at 100), so a tree can genuinely stop partway
+with three levels of places really sitting on somebody's project space.
+`recordPushedResources`
+therefore takes a `ResourcePushOutcome`: a `complete` push names the kinds it
+speaks for and supersedes every live mapping of those kinds it did not name; a
+`partial` one records what landed and supersedes nothing, because a resource it
+did not name may simply not have been reached yet. Only a `complete` push folds
+the rung.
 
 `incomplete` is a refusal, not a rung: it has no position on the ladder,
 and `deploymentHasReached` answers `false` for every target while a
@@ -175,13 +202,37 @@ boundary refuses, or Project data Nova may not write over. Failing one leaves
 the deployment `incomplete` rather than succeeding with a warning attached, and
 nothing externally visible has happened.
 
-`project-data` is the one edge that TALKS to CommCare HQ during preflight, and
-it appears only when the app reads a lookup table. It reads the target's tables
-and plans the push (`lookupResourcePlan.ts`), refusing on any tag the target
-already uses for a table Nova cannot account for. The refusal is
-all-or-nothing, because the workbook is one upload: a plan that pushed the
-unambiguous tables and skipped the rest would leave the project space holding an
-app's data half-updated with no state that describes it.
+`project-data` and `organization` are the two edges that TALK to CommCare HQ
+during preflight, and each appears only when the app carries that thing.
+
+`project-data` reads the target's tables and plans the push
+(`lookupResourcePlan.ts`), refusing on any tag the target already uses for a
+table Nova cannot account for. The refusal is all-or-nothing, because the
+workbook is one upload: a plan that pushed the unambiguous tables and skipped
+the rest would leave the project space holding an app's data half-updated with
+no state that describes it.
+
+`organization` reads the target's levels and places and plans the push
+(`locationResourcePlan.ts`). It carries the same ownership refusal keyed on site
+code, and a SECOND refusal that is peculiar to places: CommCare HQ will not hold
+shapes Nova admits. Four are decided here, before the first batch, because a
+batch that fails on the fourth level has already left three levels of places
+over there — a level the target does not have; a place whose level is not the
+immediate child of its parent's, which is exactly the skipped rung Nova models
+on purpose (`forms.py::LocationForm.get_allowed_types` filters
+`parent_type=parent.location_type`); two live siblings sharing a name, which
+Nova permits and `util.py::has_siblings_with_name` refuses; and a place Nova
+moved to the top that the target holds under a parent, which no push can undo
+because `_update` reads `parent_location_id` only to look one UP. The two
+refusals are reported one at a time and structure first, because a tree
+CommCare HQ cannot hold has to change whoever owns the places over there.
+
+Two refusals are deliberately NOT predicted, because Nova cannot see them: a
+site code an ARCHIVED place still holds (`util.py::validate_site_code` queries
+`SQLLocation.objects` while the v0.6 list is `active_objects`), and a level
+change on a place that has children over there. Both surface as the push's own
+refusal, carrying CommCare HQ's sentence and the site code it names, which is
+more specific than anything Nova could say about a rule it did not predict.
 
 An **attention** edge is something the target needs that Nova cannot do
 from here, so it becomes a line in the setup artifact. Required worker
@@ -189,6 +240,18 @@ information is deliberately one of these: refusing to publish because a
 persona has no value for a required property would refuse a publish that
 would have worked, since Nova creates no workers yet. It becomes blocking
 when the provisioning driver ships, which is that unit's job.
+
+Organization LEVELS and place-information FIELDS are attention edges for a
+different reason: neither has a writable resource at all, so their setup
+artifact sections stay instructions however much else Nova drives. The
+consequence differs, though, and the artifact says which. A missing level is a
+blocking `organization` refusal the moment a place stands at it, because
+CommCare HQ will not take the place. A missing place-information field is not:
+`custom_data_fields/models.py::CustomDataFieldsDefinition.get_validator`
+iterates the project space's OWN fields and never rejects an unknown key, so an
+undefined slug arrives as loose data — real, unvalidated, and unfilterable. What
+it DOES refuse is a field it marks required with no value in Nova's bag, which
+takes the whole batch down.
 
 Feature flags are never blocking, by standing product contract. A flag
 report is deployment information; refusing to publish over one would let a
@@ -213,13 +276,20 @@ constraint). Once recorded, the decision stands: later publishes read the
 mapping rather than asking again.
 
 `pushed_identity` is the external name a resource carries on CommCare HQ — a
-lookup table's tag. A rename is what makes it load-bearing: Nova pushes the new
-name as a NEW resource, supersedes the mapping, and the old table is still
-sitting on the project space under the old name, which is the only way anybody
-will find it there. `resources.ts::leftBehindResources` therefore tests the
-NAME, not the supersession: a table deleted on CommCare HQ and recreated by the
-next push supersedes its mapping and leaves nothing behind, and reporting it
-would send somebody to tidy up a table that does not exist.
+lookup table's tag, a place's site code. What makes it load-bearing is a
+resource the app stops carrying: whatever Nova pushed is still there under the
+name it went out under, and per the contract Nova does not take it down, so that
+name is the only way anybody will find it. `resources.ts::leftBehindResources`
+therefore tests the NAME, not the supersession: a table deleted on CommCare HQ
+and recreated by the next push supersedes its mapping and leaves nothing behind,
+and reporting it would send somebody to tidy up a table that does not exist.
+
+The two kinds reach it differently. A tag is mutable, so a RENAME is the common
+route for a table. A site code is create-once in Nova, so a place never renames;
+its route is ARCHIVING, which stops the push naming it — and CommCare HQ's v0.6
+resource exposes neither archive nor delete, so Nova could not have taken it
+down even if the contract allowed it. Its code stays reserved over there either
+way.
 
 An ordinary republish updates the mapped app in place: the import
 carries the active mapping's remote id (`plannedInPlaceUpdate`,
@@ -232,14 +302,19 @@ is gone — the 404 CommCare HQ answers an update with folds through
 the NEXT publish creates and supersedes the dead mapping.
 
 That recreate, plus rows from before in-place updates existed, is how an
-APP row is superseded. A lookup table has two more routes, both of which
+APP row is superseded. The pushed kinds have more routes, all of which
 leave something real on the project space. Renaming a tag makes a new
 table over there, so the old mapping is superseded and the old table
-stays where it is. And dropping the last select that read a table
-supersedes its mapping too — a push is the authoritative statement of
-which tables the app still uses, so `recordPushedResources` supersedes
-every live table row it does not name. Nova deletes nothing either way;
-it stops CLAIMING the table, which is what lets the report name it.
+stays where it is. Dropping the last select that read a table, or
+archiving a place, supersedes its mapping too — a COMPLETE push is the
+authoritative statement of which resources of its kinds the app still
+uses, so `recordPushedResources` supersedes every live row of those kinds
+it does not name. An app that stops carrying a kind entirely gets the
+same treatment without a push: `publishAppToHq` reconciles the dropped
+kinds against the ledger, because otherwise the mappings would stay live
+forever and nothing would ever report them. Nova deletes nothing on
+CommCare HQ in any of these; it stops CLAIMING the resource, which is what
+lets the report name it.
 
 Only a `complete` push says that, though. CommCare HQ answers a workbook
 it half took with `warning`, and those tables are on the project space:
@@ -281,12 +356,13 @@ against an app that is already released there, where the record stays
 `runnable` because it still is — and carries no failure at all, because
 the refusal was the attempt's. `onUploadStarted` fires once, after every
 blocking preflight edge passes and before Nova sends CommCare HQ
-anything at all — the lookup tables go first, then the app — so a caller
+anything at all — the lookup tables and the places go first, then the app — so a caller
 that reports progress can never announce a publish that never left the
 building (the MCP tool also allocates its LogWriter there, so a refusal
 decided locally records no phantom run). Everything a person could have
-decided differently is settled by then, the table-ownership conflict
-included, so what remains after it is CommCare HQ's own answer.
+decided differently is settled by then, both ownership conflicts and the
+whole organization shape included, so what remains after it is CommCare
+HQ's own answer.
 
 ## No lock spans the CommCare HQ round trips
 

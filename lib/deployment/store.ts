@@ -680,14 +680,18 @@ async function writeResourceMapping(
  * How far one resource push got, which is what decides whether its
  * mappings are also a STATEMENT about the resources it did not name.
  *
- * A table push is one workbook, but CommCare HQ's own verdict on it has
- * three values rather than two:
- * `views.py::UploadFixtureAPIResponse.response_codes` answers `warning`
- * when the workbook was processed and part of it did not take. Those
- * tables are on the project space. Recording them is not optional — they
- * are there, a retry has to update them rather than make a second copy,
- * and a mapping Nova never wrote would make its own table read as a
- * stranger's on the next publish and stop it to ask.
+ * Both kinds of push can stop partway, and the reason is CommCare HQ's
+ * rather than Nova's. A table push is one workbook, but
+ * `views.py::UploadFixtureAPIResponse.response_codes` has three verdicts
+ * rather than two: `warning` means the workbook was processed and part of
+ * it did not take. A place push is a batch per level
+ * (`locations/resources/v0_6.py::LocationResource.patch_list` is atomic at
+ * 100 places), so a tree can genuinely stop with three levels of places
+ * really sitting on somebody's project space. Recording what landed is
+ * not optional either way: it is there, a retry has to update it rather
+ * than make a second copy, and a mapping Nova never wrote would make its
+ * own resource read as a stranger's on the next publish and stop it to
+ * ask.
  */
 export type ResourcePushOutcome =
 	| {
@@ -716,19 +720,20 @@ export type ResourcePushOutcome =
  *
  * The rung folds through `applyAttemptOutcome`, not `applyPhaseOutcome`.
  * That is what stops a republish of an app already `runnable` from being
- * walked backward to `resources` by its own successful table push, and it
- * is the same rule preflight and upload already follow. The mappings are
- * written either way, because those are target information rather than
- * attempt information: the tables really are there now.
+ * walked backward to `resources` by its own successful push, and it is the
+ * same rule preflight and upload already follow. The mappings are written
+ * either way, because those are target information rather than attempt
+ * information: the tables and places really are there now.
  *
- * A COMPLETE push is also the AUTHORITATIVE statement of which tables this
- * app still uses, so any mapping of its kinds it does not name is
- * superseded here. Dropping the last select that read a table leaves that
- * table sitting on the project space under Nova's own claim, and without
- * this its row would stay live forever and `leftBehindResources` — which
- * only ever scans superseded rows — would never mention it. Superseding is
- * the whole fix: Nova still deletes nothing on CommCare HQ, it just stops
- * claiming the table and starts reporting it.
+ * A COMPLETE push is also the AUTHORITATIVE statement of which resources
+ * of its kinds this app still uses, so any mapping it does not name is
+ * superseded here. Dropping the last select that read a table, or
+ * archiving a place, leaves that resource sitting on the project space
+ * under Nova's own claim, and without this its row would stay live forever
+ * and `leftBehindResources` — which only ever scans superseded rows —
+ * would never mention it. Superseding is the whole fix: Nova still deletes
+ * nothing on CommCare HQ, it just stops claiming the resource and starts
+ * reporting it.
  */
 export async function recordPushedResources(
 	scope: DeploymentScope,

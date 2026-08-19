@@ -158,6 +158,12 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 * Nova did not create it. Nova never takes one over on its own.
 	 */
 	"hq_resource_conflict",
+	/**
+	 * The app's organization does not fit the levels the target defines,
+	 * so CommCare HQ would refuse the places rather than hold them. Its
+	 * own recovery: change the tree in Nova, or the levels over there.
+	 */
+	"hq_organization_mismatch",
 	/** CommCare HQ refused one of the resources this app needs. */
 	"hq_rejected_resource_push",
 	/** CommCare HQ refused the upload. */
@@ -243,7 +249,7 @@ export interface DeploymentResourceConflict {
 	readonly novaResourceId: string;
 	/** What the author calls it in Nova. */
 	readonly name: string;
-	/** What CommCare HQ shows it as: a table's tag, later a place's code. */
+	/** What CommCare HQ shows it as: a table's tag, or a place's site code. */
 	readonly identity: string;
 	/** CommCare HQ's own id for the resource already sitting there. */
 	readonly remoteId: string;
@@ -284,11 +290,15 @@ export type DeploymentResourceOwnership =
 /**
  * Which kind of remote thing a mapping names.
  *
- * Places and workers become kinds here when their push drivers ship; the
+ * Workers become a kind here when their provisioning driver ships; the
  * mapping shape already carries everything they need, so they add a value
  * rather than a second table.
  */
-export const DEPLOYMENT_RESOURCE_KINDS = ["app", "lookup-table"] as const;
+export const DEPLOYMENT_RESOURCE_KINDS = [
+	"app",
+	"lookup-table",
+	"location",
+] as const;
 export type DeploymentResourceKind = (typeof DEPLOYMENT_RESOURCE_KINDS)[number];
 
 /**
@@ -316,13 +326,15 @@ export interface DeploymentResource {
 	readonly ownership: DeploymentResourceOwnership;
 	/**
 	 * The external name the resource carries on CommCare HQ: a lookup
-	 * table's tag, and later a place's site code or a worker's username.
+	 * table's tag, a place's site code, and later a worker's username.
 	 * Null for the `app` kind, whose remote id IS how CommCare HQ names it.
 	 *
-	 * A rename is what makes this load-bearing. Nova pushes the new name as
-	 * a new resource and supersedes the mapping, and the old one is still
-	 * sitting on the project space under the OLD name — which is the only
-	 * way anybody will find it there.
+	 * A resource the app stops carrying is what makes this load-bearing.
+	 * Whatever Nova pushed is still sitting on the project space under the
+	 * name it was pushed under, and per the deployment contract Nova does
+	 * not delete it — so that name is the only way anybody will find it
+	 * there. A renamed lookup table and an archived place both reach the
+	 * left-behind report through this column.
 	 */
 	readonly pushedIdentity: string | null;
 	/** When somebody took over a resource Nova did not create. */

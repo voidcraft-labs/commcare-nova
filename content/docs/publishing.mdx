@@ -15,7 +15,7 @@ do them.
 | Step | Who does it |
 | --- | --- |
 | **Checked** | Nova, before anything is sent |
-| **Tables in place** | Nova, when the app reads any |
+| **Data in place** | Nova, when the app has tables or places |
 | **On CommCare HQ** | Nova |
 | **Version made** | You, on CommCare HQ |
 | **Released** | You, on CommCare HQ |
@@ -38,29 +38,42 @@ It also reports things you should know about but that do not stop the publish,
 like a feature flag your project space does not have yet, or a persona missing
 worker information that CommCare HQ will ask for later.
 
-### Tables in place
+### Data in place
 
-If your app reads any [lookup tables](/docs/project-data), Nova puts them on the
-project space before it sends the app, because the app looks them up by name
-while somebody is using it. An app that arrived first would install and then
-misbehave.
+Two things go on the project space before the app does, because the app reaches
+for them by name while somebody is using it. An app that arrived first would
+install and then misbehave.
 
-Publishing replaces the rows of those tables on CommCare HQ with the rows in
-Nova. Tables your app does not read are left alone.
+This step only appears when your app has one of them.
 
-This step only appears when your app reads a table.
+**Lookup tables.** If your app reads any [lookup tables](/docs/project-data),
+Nova puts them there and replaces their rows with the rows in Nova. Tables your
+app does not read are left alone.
 
-**If a table of that name is already there and Nova did not make it**, Nova
-stops rather than write over it, and names the table. Two things could be true:
-it is your table, from before you used Nova, or it belongs to something else on
+**Places.** If your app has an [organization](/docs/organization), Nova creates
+and updates its places there, working down from the top so each one can name the
+place above it. It sends every place that is not archived, along with whatever
+place information you filled in.
+
+**If something of that name is already there and Nova did not make it**, Nova
+stops rather than write over it, and names it. CommCare HQ matches a lookup
+table on its export tag and a place on its site code, and two things could be
+true: it is yours, from before you used Nova, or it belongs to something else on
 that project space. Nova cannot tell, so you choose. Tick the ones that are
-yours and publish again, and Nova will keep them up to date from then on.
-Leave one unticked and it stays exactly as it is; rename your table in Project
-data and publish again to send yours alongside it.
+yours and publish again, and Nova will keep them up to date from then on. Leave
+one unticked and it stays exactly as it is.
+
+**Nova cannot make organization levels**, so if your places stand at levels the
+project space does not have, or your organization skips a rung the project space
+insists on, publishing stops and names each place. Add the levels on CommCare HQ
+first; the list Nova gives you after a publish has them all, in order.
 
 **Renaming a table's export tag makes a new table on CommCare HQ.** The old one
 stays where it is, so nothing anybody else built on it breaks, and Nova names it
-in the dialog so you can delete it there when you no longer need it.
+in the dialog so you can delete it there when you no longer need it. Archiving a
+place works the same way: Nova stops sending it and names it, and the one on
+CommCare HQ stays exactly where it is, because CommCare HQ's API has no way to
+archive or delete a place.
 
 ### On CommCare HQ
 
@@ -110,7 +123,12 @@ and the values already filled in.
 - **Worker information.** One field per piece of information your workers carry,
   on the project's user-data page.
 - **Organization levels.** The rungs of your organization. Create these before
-  you add any places, because every place names the level it stands at.
+  you publish, because every place names the level it stands at and CommCare HQ
+  will not take a place whose level is not there.
+- **Place information.** One field per piece of information your places carry,
+  on the project's location-fields page. Nova sends the values with every place;
+  a field the project space has not defined is kept as loose data that nothing
+  on CommCare HQ can validate or filter on.
 - **Automations.** Each rule or alert, created on the relevant page. Changing an
   automation in Nova does not change one you already made on CommCare HQ.
 
@@ -125,9 +143,12 @@ remembers where it stopped.
 What to do next depends on where it stopped, and Nova says which:
 
 - **Before the app reached CommCare HQ** (a connection problem, something in the
-  app itself, or a lookup table Nova would not write over): fix it and publish
-  again. A publish that stopped on the tables never sent the app, so trying
-  again picks up from there.
+  app itself, or a table or place Nova would not write over): fix it and publish
+  again. A publish that stopped on the data never sent the app, so trying again
+  picks up from there. Places go out in groups, one level at a time, and each
+  group either lands whole or not at all, so a publish that stopped partway left
+  the groups above it in place and the next one carries on from there rather
+  than making a second copy.
 - **After it got there** (a version that would not build, a release Nova could
   not confirm): the app is already on your project space. Sort it out on
   CommCare HQ, then choose **Check status**; there is no need to publish

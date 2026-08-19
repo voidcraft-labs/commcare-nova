@@ -193,7 +193,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 	GAP_PUSH_PROVISIONING_DRIVERS: {
 		code: "GAP_PUSH_PROVISIONING_DRIVERS",
 		statement:
-			"Referenced-table push, location push, and explicit worker provisioning against a deployment's ownership mappings are a deliberate target gap; nothing pushes those resources to HQ yet.",
+			"Publishing puts an app's referenced lookup tables and its organization's places on the target project space against a deployment's ownership mappings; explicit mobile-worker provisioning is a deliberate target gap, so no worker account is created there yet.",
 		sourceAnchor: "docs/plans/complex-app/push-and-provisioning-drivers.md",
 		gapUnitFile: "push-and-provisioning-drivers.md",
 	},

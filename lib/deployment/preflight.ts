@@ -1,10 +1,17 @@
 import "server-only";
 
-import type { CommCareCredentials } from "@/lib/commcare/client";
+import type {
+	CommCareApiError,
+	CommCareCredentials,
+} from "@/lib/commcare/client";
 import {
 	featureFlagReportForPrepublish,
 	requiredHqFeatureFlags,
 } from "@/lib/commcare/featureFlags";
+import {
+	listHqLocations,
+	listHqLocationTypes,
+} from "@/lib/commcare/hq/locations";
 import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
@@ -12,6 +19,8 @@ import { getCredentialsForUpload } from "@/lib/db/settings";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
+	locationPropertiesOf,
+	organizationLevelsOf,
 	ownRecordValue,
 	personasOf,
 	userPropertiesOf,
@@ -19,8 +28,16 @@ import {
 } from "@/lib/domain";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
+import { readOrganization } from "@/lib/organization/service";
+import type { StoredLocation } from "@/lib/organization/types";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
 import { attachmentUrlTarget } from "./attachmentTarget";
+import {
+	type PlacePushProblem,
+	type PlannedPlacePush,
+	planLocationResourcePush,
+	plannedPlacesFor,
+} from "./locationResourcePlan";
 import {
 	type PlannedLookupPush,
 	planLookupResourcePush,
@@ -47,15 +64,23 @@ import type {
  * value for a required worker property would refuse a publish that would
  * have worked, since Nova creates no workers yet.
  *
- * `project-data` is the one edge that talks to CommCare HQ here, and it is
- * blocking for a reason worth stating: it is the only thing standing
- * between a publish and quietly overwriting a lookup table somebody else
- * made. It appears only when the app actually reads Project data.
+ * `project-data` and `organization` are the two edges that talk to
+ * CommCare HQ here, and both are blocking for the same reason: each is
+ * the only thing standing between a publish and quietly writing over a
+ * lookup table or a place somebody else made. They appear only when the
+ * app actually carries one.
+ *
+ * `organization` is also where the shapes CommCare HQ will not hold are
+ * caught. Places go out in atomic batches of a hundred, one level at a
+ * time, so a tree refused on its fourth level has already put three
+ * levels of places on somebody's project space. Everything knowable is
+ * therefore decided here, before the first batch is sent.
  */
 export const PREFLIGHT_CHECK_IDS = [
 	"hq-connection",
 	"app-readiness",
 	"project-data",
+	"organization",
 	"feature-flags",
 	"required-worker-data",
 ] as const;
@@ -106,6 +131,18 @@ export type PreflightResult =
 				 * when the app references no Project data.
 				 */
 				readonly lookupPush: LookupPushPlan | null;
+				/**
+				 * The places to put there, in the order CommCare HQ can take
+				 * them. Absent when the app has no organization or no live
+				 * places in it.
+				 */
+				readonly locationPush: LocationPushPlan | null;
+				/**
+				 * The app's places, read once. Handed back so the caller can
+				 * build the setup artifact from the same snapshot this ran
+				 * against rather than reading the organization a second time.
+				 */
+				readonly locations: readonly StoredLocation[];
 			};
 			readonly featureFlags: HqFeatureFlagReport | null;
 	  }
@@ -133,6 +170,20 @@ export interface LookupPushPlan {
 	readonly pushes: readonly PlannedLookupPush[];
 }
 
+/**
+ * The places to push, already grouped the way CommCare HQ takes them.
+ *
+ * Batched rather than a flat list because the batching IS the plan: a
+ * child names its parent by the id the parent's own batch returned, and
+ * `patch_list` is atomic at a hundred, so the grouping decides both the
+ * order and where a partial push can stop.
+ */
+export interface LocationPushPlan {
+	readonly batches: readonly (readonly PlannedPlacePush[])[];
+	/** Every place across every batch, for the sentence that describes it. */
+	readonly placeCount: number;
+}
+
 export interface PreflightInput {
 	readonly doc: BlueprintDoc;
 	readonly compiledAtSeq: number;
@@ -149,6 +200,8 @@ export interface PreflightInput {
 	 */
 	readonly adoptResourceIds: readonly string[];
 	readonly access: {
+		/** The app whose organization this reads. Authorized by the caller. */
+		readonly appId: string;
 		readonly projectId: string;
 		readonly role: string;
 		readonly actorUserId: string;
@@ -165,7 +218,8 @@ function blockedOutcome(
 		| "domain_not_authorized"
 		| "app_not_ready"
 		| "hq_resource_state_unknown"
-		| "hq_resource_conflict",
+		| "hq_resource_conflict"
+		| "hq_organization_mismatch",
 	message: string,
 	details: readonly string[] = [],
 ): {
@@ -222,6 +276,53 @@ function describeTableCount(count: number): string {
 
 function describeRowCount(count: number): string {
 	return count === 1 ? "1 row" : `${count.toLocaleString("en-US")} rows`;
+}
+
+/** "1 place" / "12 places", counted for a sentence. */
+function describePlaceCount(count: number): string {
+	return count === 1 ? "1 place" : `${count.toLocaleString("en-US")} places`;
+}
+
+/**
+ * The push, summarized by level rather than listed place by place.
+ *
+ * A tree runs to thousands of places, so naming each one would bury the
+ * sentence above it. The level codes are what a person compares against
+ * CommCare HQ's own Organization Levels page anyway.
+ */
+function describePlacesByLevel(
+	places: readonly { readonly levelCode: string }[],
+): readonly string[] {
+	const counts = new Map<string, number>();
+	for (const place of places) {
+		counts.set(place.levelCode, (counts.get(place.levelCode) ?? 0) + 1);
+	}
+	return [...counts.entries()].map(
+		([levelCode, count]) => `${levelCode} (${describePlaceCount(count)})`,
+	);
+}
+
+/**
+ * One place CommCare HQ will not take, and what to change about it.
+ *
+ * Each sentence names the place both ways a person can recognize it, then
+ * says what CommCare HQ's rule is rather than quoting the error it would
+ * eventually produce.
+ */
+function describePlaceProblem(problem: PlacePushProblem): string {
+	const place = `${problem.name} (${problem.siteCode})`;
+	switch (problem.kind) {
+		case "level-missing":
+			return `${place} stands at the level “${problem.levelCode}”, which isn't one of the levels on this project space.`;
+		case "level-not-under-parent":
+			return `${place} stands at “${problem.levelCode}” under ${problem.parentName} at “${problem.parentLevelCode}”. CommCare HQ takes a place only at the level directly below its parent's, so the rungs in between have to exist there and be filled in.`;
+		case "duplicate-sibling-name":
+			return problem.parentName === null
+				? `${place} shares its name with another place at the top of the organization, and CommCare HQ needs those to differ.`
+				: `${place} shares its name with another place under ${problem.parentName}, and CommCare HQ needs those to differ.`;
+		case "cannot-become-root":
+			return `${place} is at the top of the organization in Nova and sits under ${problem.remoteParentName} on CommCare HQ. Moving a place back to the top can only be done there.`;
+	}
 }
 
 /**
@@ -471,7 +572,143 @@ export async function runDeploymentPreflight(
 		});
 	}
 
-	// ── 4. Which feature flags does the app need? ───────────────────
+	// ── 4. Can that project space hold this organization? ───────────
+	// Blocking, and everything knowable is decided here. A place push is
+	// a batch per level and each batch is atomic, so a tree refused
+	// partway has already left places behind; and the site code is a
+	// domain-unique identity, so pushing blind would take over a place
+	// somebody else made.
+	let locationPush: LocationPushPlan | null = null;
+	let locations: readonly StoredLocation[] = [];
+	if (Object.keys(organizationLevelsOf(boundary.prepared.doc)).length > 0) {
+		/* Read authoritatively. Everywhere else an unavailable organization
+		 * read degrades to no places, because the artifact is still right
+		 * without them; here that reading would push nothing and then tell
+		 * somebody their organization is on the project space. */
+		const snapshot = await readOrganization({
+			appId: input.access.appId,
+			projectId: input.access.projectId,
+			role: input.access.role,
+			actorUserId: input.access.actorUserId,
+		});
+		locations = snapshot.locations;
+		const places = plannedPlacesFor(boundary.prepared.doc, locations);
+		if (places.length > 0) {
+			/* Nova cannot tell its own places from anybody else's without
+			 * both answers, so a refusal is never read as "there is nothing
+			 * over there". Four separate things produce these statuses and
+			 * two of them are the same bodyless 403, so the sentence names
+			 * all of them rather than picking one and being confidently
+			 * wrong. */
+			const organizationUnreadable = (
+				error: CommCareApiError,
+			): PreflightResult => {
+				const detail =
+					error.status === 401 || error.status === 403
+						? `Nova can't read the organization on “${domain}”, so it won't push places over what's there. That project space needs the Organizations and API access features, and your CommCare HQ account needs the Edit Locations and Access APIs permissions. Ask a CommCare HQ administrator for whichever is missing.`
+						: `Nova couldn't ask “${domain}” about its organization, so it stopped rather than push places into it. Try publishing again in a moment.`;
+				checks.push({
+					id: "organization",
+					title: "Organization",
+					status: "blocked",
+					detail,
+					items: [],
+				});
+				return {
+					checks,
+					outcome: blockedOutcome(
+						input.now,
+						"hq_resource_state_unknown",
+						detail,
+					),
+					ready: null,
+					featureFlags: null,
+					conflicts: [],
+				};
+			};
+			const hqLevels = await listHqLocationTypes(creds, domain);
+			if ("success" in hqLevels) return organizationUnreadable(hqLevels);
+			const hqPlaces = await listHqLocations(creds, domain);
+			if ("success" in hqPlaces) return organizationUnreadable(hqPlaces);
+
+			const plan = planLocationResourcePush({
+				places,
+				mappings: input.mappings,
+				hqLevels,
+				hqPlaces,
+				appModelsPlaceInformation:
+					Object.keys(locationPropertiesOf(boundary.prepared.doc)).length > 0,
+				adoptLocationUuids: input.adoptResourceIds,
+			});
+			if (!plan.ok && plan.reason === "unpushable") {
+				const items = plan.problems.map(describePlaceProblem);
+				const detail = `CommCare HQ won't take some of these places as they stand. Change them in Organization, or set up the matching levels on “${domain}”, then publish again.`;
+				checks.push({
+					id: "organization",
+					title: "Organization",
+					status: "blocked",
+					detail,
+					items,
+				});
+				return {
+					checks,
+					outcome: blockedOutcome(
+						input.now,
+						"hq_organization_mismatch",
+						detail,
+						items,
+					),
+					ready: null,
+					featureFlags: null,
+					conflicts: [],
+				};
+			}
+			if (!plan.ok) {
+				const conflicts: readonly DeploymentResourceConflict[] =
+					plan.conflicts.map((conflict) => ({
+						kind: "location",
+						novaResourceId: conflict.locationUuid,
+						name: conflict.name,
+						identity: conflict.siteCode,
+						remoteId: conflict.remoteId,
+					}));
+				const items = plan.conflicts.map(
+					(conflict) =>
+						`${conflict.name} (${conflict.siteCode}), which “${domain}” calls ${conflict.remoteName}`,
+				);
+				const detail = `“${domain}” already has places with these site codes, and Nova didn't make them. Choose to use the existing places, or remove these from Organization and add them again with codes that are free.`;
+				checks.push({
+					id: "organization",
+					title: "Organization",
+					status: "blocked",
+					detail,
+					items,
+				});
+				return {
+					checks,
+					outcome: blockedOutcome(
+						input.now,
+						"hq_resource_conflict",
+						detail,
+						items,
+					),
+					ready: null,
+					featureFlags: null,
+					conflicts,
+				};
+			}
+			locationPush = { batches: plan.batches, placeCount: places.length };
+			checks.push({
+				id: "organization",
+				title: "Organization",
+				status: "passed",
+				detail: `Nova will put ${describePlaceCount(places.length)} on “${domain}” before sending the app, parents first.`,
+				items: describePlacesByLevel(places),
+			});
+		}
+	}
+
+	// ── 5. Which feature flags does the app need? ───────────────────
 	// Requirements only. Preflight deliberately does NOT probe the target:
 	// the authoritative check runs against the exact domain CommCare HQ
 	// accepted, AFTER the import, and probing here as well would pay for
@@ -499,7 +736,7 @@ export async function runDeploymentPreflight(
 		items: requirements.map((requirement) => requirement.label),
 	});
 
-	// ── 5. Will the workers you create there have what they need? ───
+	// ── 6. Will the workers you create there have what they need? ───
 	// Attention rather than blocking: Nova creates no workers yet, so
 	// refusing the publish would refuse one that would have worked.
 	const workerGaps = personasMissingRequiredWorkerData(boundary.prepared.doc);
@@ -517,7 +754,14 @@ export async function runDeploymentPreflight(
 	return {
 		checks,
 		outcome: { status: "succeeded", at: input.now },
-		ready: { creds, domain, prepared: boundary.prepared, lookupPush },
+		ready: {
+			creds,
+			domain,
+			prepared: boundary.prepared,
+			lookupPush,
+			locationPush,
+			locations,
+		},
 		featureFlags,
 	};
 }

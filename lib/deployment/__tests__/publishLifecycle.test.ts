@@ -20,6 +20,11 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
+	listHqLocations,
+	listHqLocationTypes,
+	patchHqLocations,
+} from "@/lib/commcare/hq/locations";
+import {
 	listHqLookupTables,
 	uploadLookupTableWorkbook,
 } from "@/lib/commcare/hq/lookupTables";
@@ -27,6 +32,7 @@ import { validationError } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
+import { readOrganization } from "@/lib/organization/service";
 import { observeDeployment } from "../observe";
 import { publishAppToHq, refreshDeployment } from "../service";
 import { applyAttemptOutcome } from "../stateMachine";
@@ -61,7 +67,7 @@ vi.mock("@/lib/media/manifest", () => ({
 	},
 }));
 vi.mock("@/lib/organization/service", () => ({
-	readOrganization: vi.fn(async () => ({ revision: "1", locations: [] })),
+	readOrganization: vi.fn(),
 }));
 vi.mock("../observe", () => ({ observeDeployment: vi.fn() }));
 /* Exactly the store surface `service.ts` imports — no more, no less. A
@@ -78,6 +84,11 @@ vi.mock("../store", () => ({
 vi.mock("@/lib/commcare/hq/lookupTables", () => ({
 	listHqLookupTables: vi.fn(),
 	uploadLookupTableWorkbook: vi.fn(),
+}));
+vi.mock("@/lib/commcare/hq/locations", () => ({
+	listHqLocationTypes: vi.fn(),
+	listHqLocations: vi.fn(),
+	patchHqLocations: vi.fn(),
 }));
 vi.mock("@/lib/lookup/service", () => ({
 	getLookupDefinitions: vi.fn(async () => ({
@@ -216,6 +227,10 @@ function publishInput(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	vi.mocked(readOrganization).mockResolvedValue({
+		revision: "1",
+		locations: [],
+	} as never);
 	vi.mocked(readDeployment).mockImplementation(async () => null);
 	installRealisticFold();
 	vi.mocked(recordRemoteResource).mockImplementation(
@@ -710,7 +725,7 @@ describe("publishAppToHq — the app's data goes first", () => {
 
 		await publishAppToHq(publishInput({ onResourcesPushed: pushed }));
 
-		expect(pushed).toHaveBeenCalledWith(1);
+		expect(pushed).toHaveBeenCalledWith({ tables: 1, places: 0 });
 	});
 
 	it("says nothing about data for an app that reads none", async () => {
@@ -740,6 +755,334 @@ describe("publishAppToHq — the app's data goes first", () => {
 		expect(pushed).not.toHaveBeenCalled();
 		expect(outcome.checks.some((check) => check.id === "project-data")).toBe(
 			false,
+		);
+	});
+});
+
+describe("publishAppToHq — the app's places go first too", () => {
+	const STATE = "018f0000-0000-7000-8000-0000000000a1";
+	const CITY = "018f0000-0000-7000-8000-0000000000a2";
+	const COLORADO = "018f0000-0000-7000-8000-000000000001";
+	const DENVER = "018f0000-0000-7000-8000-000000000002";
+
+	function docWithLevels() {
+		return {
+			...validDoc(),
+			organizationLevels: {
+				[STATE]: {
+					uuid: STATE,
+					code: "state",
+					name: "State",
+					caseFlow: { workers: "none", ownsCases: false },
+					addressBook: { reach: "own-branch" },
+				},
+				[CITY]: {
+					uuid: CITY,
+					code: "city",
+					name: "City",
+					parentLevelUuid: STATE,
+					caseFlow: { workers: "none", ownsCases: false },
+					addressBook: { reach: "own-branch" },
+				},
+			},
+			organizationLevelOrder: [STATE, CITY],
+		};
+	}
+
+	function storedPlace(over: Record<string, unknown> = {}) {
+		return {
+			id: COLORADO,
+			levelUuid: STATE,
+			parentId: null,
+			siteCode: "colorado",
+			name: "Colorado",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+			archivedAt: null,
+			orderKey: "a0",
+			...over,
+		};
+	}
+
+	beforeEach(() => {
+		const doc = docWithLevels();
+		vi.mocked(prepareExportBoundary).mockResolvedValue({
+			ok: true,
+			prepared: {
+				mode: "hq-upload",
+				doc,
+				compiledAtSeq: 7,
+				assets: new Map(),
+				lookupTargets: { tableIds: [], columns: [] },
+				lookupSnapshot: undefined,
+				lookupContext: { kind: "unavailable" },
+			},
+		} as never);
+		vi.mocked(readOrganization).mockResolvedValue({
+			revision: "4",
+			locations: [
+				storedPlace(),
+				storedPlace({
+					id: DENVER,
+					levelUuid: CITY,
+					parentId: COLORADO,
+					siteCode: "denver",
+					name: "Denver",
+					orderKey: "a1",
+				}),
+			],
+		} as never);
+		vi.mocked(listHqLocationTypes).mockResolvedValue([
+			{
+				id: "1",
+				name: "State",
+				code: "state",
+				parentCode: null,
+				administrative: true,
+				sharesCases: false,
+				viewDescendants: false,
+			},
+			{
+				id: "2",
+				name: "City",
+				code: "city",
+				parentCode: "state",
+				administrative: true,
+				sharesCases: false,
+				viewDescendants: false,
+			},
+		] as never);
+		vi.mocked(listHqLocations).mockResolvedValue([]);
+		vi.mocked(patchHqLocations)
+			.mockResolvedValueOnce({ ids: ["hq-colorado"] } as never)
+			.mockResolvedValueOnce({ ids: ["hq-denver"] } as never);
+		vi.mocked(recordPushedResources).mockImplementation(
+			async () => view({ state: "resources" }) as never,
+		);
+	});
+
+	it("sends one batch per level, threading each parent's returned id", async () => {
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(true);
+		expect(vi.mocked(patchHqLocations).mock.calls).toHaveLength(2);
+		expect(vi.mocked(patchHqLocations).mock.calls[0]?.[2]).toEqual([
+			{
+				name: "Colorado",
+				siteCode: "colorado",
+				locationTypeCode: "state",
+			},
+		]);
+		/* The child names its parent by the id the FIRST batch answered
+		 * with, which is the whole reason the push is ordered. */
+		expect(vi.mocked(patchHqLocations).mock.calls[1]?.[2]).toEqual([
+			{
+				name: "Denver",
+				siteCode: "denver",
+				locationTypeCode: "city",
+				parentLocationId: "hq-colorado",
+			},
+		]);
+		expect(
+			vi.mocked(patchHqLocations).mock.invocationCallOrder[0],
+		).toBeLessThan(vi.mocked(importApp).mock.invocationCallOrder[0] ?? 0);
+	});
+
+	it("records both places, keyed by the site code they were pushed under", async () => {
+		await publishAppToHq(publishInput());
+
+		expect(recordPushedResources).toHaveBeenCalledWith(
+			SCOPE,
+			{ server: "production", domain: "acme" },
+			[
+				expect.objectContaining({
+					kind: "location",
+					novaResourceId: COLORADO,
+					remoteId: "hq-colorado",
+					pushedIdentity: "colorado",
+					ownership: "nova-created",
+				}),
+				expect.objectContaining({
+					kind: "location",
+					novaResourceId: DENVER,
+					remoteId: "hq-denver",
+					pushedIdentity: "denver",
+				}),
+			],
+			{
+				status: "complete",
+				kinds: ["location"],
+				pushedAt: expect.any(String),
+			},
+		);
+	});
+
+	it("keeps what landed when a later batch is refused", async () => {
+		/* `patch_list` is atomic per batch, so the first level really is on
+		 * the project space. Forgetting it would make the retry create a
+		 * second copy of every place in it. */
+		vi.mocked(patchHqLocations)
+			.mockReset()
+			.mockResolvedValueOnce({ ids: ["hq-colorado"] } as never)
+			.mockResolvedValueOnce({
+				success: false,
+				status: 400,
+				message: "Location with same name and parent already exists.",
+			} as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.phase).toBe("resources");
+		expect(outcome.refusal?.failure.code).toBe("hq_rejected_resource_push");
+		/* CommCare HQ's own sentence, verbatim: it names the place and the
+		 * rule, which is more specific than anything Nova could say about a
+		 * refusal it did not predict. */
+		expect(outcome.refusal?.failure.details).toEqual([
+			"Location with same name and parent already exists.",
+		]);
+		expect(recordPushedResources).toHaveBeenCalledWith(
+			SCOPE,
+			expect.anything(),
+			[expect.objectContaining({ novaResourceId: COLORADO })],
+			{ status: "partial" },
+		);
+		expect(importApp).not.toHaveBeenCalled();
+	});
+
+	it("stops rather than push when it cannot see what is already there", async () => {
+		vi.mocked(listHqLocationTypes).mockResolvedValue({
+			success: false,
+			status: 403,
+		} as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.failure.code).toBe("hq_resource_state_unknown");
+		expect(outcome.refusal?.failure.message).toContain("Edit Locations");
+		expect(patchHqLocations).not.toHaveBeenCalled();
+		expect(importApp).not.toHaveBeenCalled();
+	});
+
+	it("refuses a site code the target already holds, and names it both ways", async () => {
+		vi.mocked(listHqLocations).mockResolvedValue([
+			{
+				locationId: "somebody-elses",
+				name: "CO",
+				siteCode: "colorado",
+				locationTypeCode: "state",
+				parentLocationId: null,
+				values: {},
+			},
+		] as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.failure.code).toBe("hq_resource_conflict");
+		expect(outcome.refusal?.resourceConflicts).toEqual([
+			{
+				kind: "location",
+				novaResourceId: COLORADO,
+				name: "Colorado",
+				identity: "colorado",
+				remoteId: "somebody-elses",
+			},
+		]);
+		expect(patchHqLocations).not.toHaveBeenCalled();
+	});
+
+	it("refuses a tree the target's levels cannot hold, before any batch", async () => {
+		vi.mocked(listHqLocationTypes).mockResolvedValue([
+			{
+				id: "1",
+				name: "State",
+				code: "state",
+				parentCode: null,
+				administrative: true,
+				sharesCases: false,
+				viewDescendants: false,
+			},
+		] as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.failure.code).toBe("hq_organization_mismatch");
+		expect(outcome.refusal?.failure.details).toEqual([
+			expect.stringContaining("Denver (denver)"),
+		]);
+		expect(patchHqLocations).not.toHaveBeenCalled();
+		expect(importApp).not.toHaveBeenCalled();
+	});
+
+	it("says nothing about places for an app with no organization", async () => {
+		vi.mocked(prepareExportBoundary).mockResolvedValue({
+			ok: true,
+			prepared: {
+				mode: "hq-upload",
+				doc: validDoc(),
+				compiledAtSeq: 7,
+				assets: new Map(),
+				lookupTargets: { tableIds: [], columns: [] },
+				lookupSnapshot: undefined,
+				lookupContext: { kind: "unavailable" },
+			},
+		} as never);
+		const pushed = vi.fn();
+
+		const outcome = await publishAppToHq(
+			publishInput({ onResourcesPushed: pushed }),
+		);
+
+		expect(outcome.landed).toBe(true);
+		expect(listHqLocationTypes).not.toHaveBeenCalled();
+		expect(pushed).not.toHaveBeenCalled();
+		expect(outcome.checks.some((check) => check.id === "organization")).toBe(
+			false,
+		);
+	});
+
+	it("stops claiming a place the app no longer has", async () => {
+		/* Archiving the last place leaves whatever Nova pushed sitting on
+		 * the project space. Nova deletes nothing there, so the only honest
+		 * move is to stop claiming it and start reporting it, which is what
+		 * superseding the mapping does. */
+		vi.mocked(readOrganization).mockResolvedValue({
+			revision: "5",
+			locations: [],
+		} as never);
+		vi.mocked(readDeployment).mockImplementation(
+			async () =>
+				({
+					deployment: record({ state: "released" }),
+					active: [
+						mapping(),
+						mapping({
+							kind: "location",
+							novaResourceId: COLORADO,
+							remoteId: "hq-colorado",
+							pushedIdentity: "colorado",
+						}),
+					],
+					superseded: [],
+				}) as never,
+		);
+
+		await publishAppToHq(publishInput());
+
+		expect(recordPushedResources).toHaveBeenCalledWith(
+			SCOPE,
+			expect.anything(),
+			[],
+			{
+				status: "complete",
+				kinds: ["lookup-table", "location"],
+				pushedAt: expect.any(String),
+			},
 		);
 	});
 });

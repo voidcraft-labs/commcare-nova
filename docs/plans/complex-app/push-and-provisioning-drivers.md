@@ -1,6 +1,6 @@
-# Push and provisioning drivers
+# Provisioning drivers
 
-**PR:** `Push locations and provision workers`
+**PR:** `Provision mobile workers`
 
 **Depends on:** nothing outstanding. · **Blocks:** [App setup UI](app-setup-ui-sa-mcp-and-docs.md),
 [session endpoints](session-endpoints-and-deep-links.md), and
@@ -10,72 +10,95 @@
 > contract there governs ownership, adoption, retry, and rename behavior for
 > every driver here.
 
-Implement location push and explicit worker provisioning against the shipped
-deployment record's ownership mappings (`lib/deployment`), following the shape
-the lookup-table push established: preflight everything the target needs before
-any external mutation, push and verify before app import where the target APIs
-permit, and refuse rather than write over a resource Nova cannot account for. If
-an unavoidable required step can occur only after import, its failure leaves the
-deployment explicitly `incomplete` and withholds `released` and `runnable`. Never
-store plaintext credentials. Specify username conflict, temporary secret,
-update/adoption, archive, and partial-failure behavior.
+Implement explicit mobile-worker provisioning against the shipped deployment
+record's ownership mappings (`lib/deployment`), following the shape the
+lookup-table and location pushes established: preflight everything the target
+needs before any external mutation, and refuse rather than write over a resource
+Nova cannot account for. Provisioning is an explicit action rather than a
+publish rung, because creating a person's account is not something a publish
+should do on the way past. Never store plaintext credentials. Specify username
+conflict, temporary secret, update/adoption, and deletion behavior.
 
-Lift `LOCATION_OWNER_EXPORT_NOT_ACTIVE`'s `hq-upload` arm only once the location
-identity map and the persona-scoped `locations` fixture both exist; whichever of
-this unit and the usercase unit lands second lifts it.
+Lift `LOCATION_OWNER_EXPORT_NOT_ACTIVE`'s `hq-upload` arm only once the
+persona-scoped `locations` fixture exists; the location identity map already
+does. Whichever of this unit and the usercase unit lands second lifts it.
 
 ## Binding facts
 
-- **The API paths are resource-first now.** `corehq/apps/api/urls.py` (module
+- **The API path is resource-first now.** `corehq/apps/api/urls.py` (module
   docstring): since 2024 each resource versions independently and the old
   `v0.N` paths are duplicated under a resource-first form; both are live and
-  resolve to the same class. Use `/a/<domain>/api/location/v2/`
-  (`locations.v0_6.LocationResource`),
-  `/a/<domain>/api/location_type/v1/` (`locations.v0_5.LocationTypeResource`),
-  and `/a/<domain>/api/user/v1/` (`v0_5.CommCareUserResource`).
-- **HQ requires the IMMEDIATE parent level, and Nova does not.**
-  `locations/util.py::get_location_type` calls
-  `forms.py::LocationForm.get_allowed_types`, which filters
-  `LocationType.objects.filter(parent_type=parent.location_type)`. Nova
-  deliberately lets a place skip a rung
-  (`lib/domain/organization.ts::levelMayNestUnder` is strict-ancestry), so a
-  skipped rung is unpushable and must be a NAMED blocking preflight edge rather
-  than a mid-push failure that leaves half a tree there.
-- **An archived HQ location still holds its site code.**
-  `locations/util.py::validate_site_code` queries `SQLLocation.objects`, not
-  `active_objects`. Combined with the resource exposing no archive or delete
-  method, an archived Nova place can never be archived remotely by Nova and its
-  code stays taken. Both belong in the left-behind report.
-- **Locations.** v0.6 `LocationResource` is writable: list GET/POST/PATCH, where
-  `patch_list` is atomic and capped at `patch_limit = 100` per request, upserting
-  (an item with `location_id` updates, otherwise creates), plus detail GET/PUT.
-  Create requires `name` and `location_type_code`; the parent is given as
-  `parent_location_id` (an HQ `location_id`, hence strict parent-before-child
-  ordering); `site_code` is settable, domain-unique-validated, and auto-derived when
-  omitted; `location_data` is validated against the domain's `LocationFields`
-  definition and unknown keys raise `LocationAPIError`. All location APIs require
-  the paid `LOCATIONS` privilege, and v0.6 exposes active locations but no archive
-  or delete method.
-- **The org model itself is not pushable.** `LocationTypeResource` has no
-  authorization override and falls back to tastypie `ReadOnlyAuthorization`, so
-  level definitions are UI-only and ship in the setup artifact while the tree
-  pushes via v0.6.
-- **Users.** `CommCareUserResource` list GET/POST (username is create-only,
-  normalized through `generate_mobile_username` and immutable afterwards; a
-  password is required at create unless the domain has
-  `TWO_STAGE_MOBILE_WORKER_ACCOUNT_CREATION`), detail GET/PUT (`user_data` flows
-  through the system-key-guarded `UserData.update`), DELETE = soft retire.
-  `primary_location` and `locations` must be supplied **together**, the primary
-  must be in the list, and every id is verified against active locations. Identity
-  is the server-assigned `user_id` — the durable key the usercase and session keys
-  ride on. Web users come in via `InvitationResource` POST, which resolves `role`
-  by **name** against the domain's roles and fails without one, so a Nova user type
-  cannot supply it. No REST resource exists for the user-data field schema.
-  That web-user gap is why the shipped user-property catalog does not author
-  `required_for`: Nova provisions mobile workers only, so the pushed value is
-  always `["commcare_user"]`.
+  resolve to the same class. Use `/a/<domain>/api/user/v1/`
+  (`v0_5.CommCareUserResource`).
+- **DELETE soft-deletes the worker's CASES, so Nova never issues it.**
+  `api/resources/v0_5.py::CommCareUserResource` allows detail DELETE, which is
+  `users/models.py::CommCareUser.retire` → `::delete_user_data` →
+  `tag_cases_as_deleted_and_remove_indices`. Removing a persona therefore
+  reports the worker as left behind rather than retiring them.
+- **The username is create-only.** `::obj_create` normalizes through
+  `users/util.py::generate_mobile_username` (`'name'` →
+  `'name@<domain>.commcarehq.org'`) and a taken name raises `ValidationError` →
+  `BadRequest`. It is popped before `_update` and absent from the editable map,
+  so it can never be changed afterwards.
+- **A password is always required.** The two-stage branch fires only when
+  `require_account_confirmation` or `send_confirmation_email_now` is set. Nova
+  sets neither, so the `else` branch applies and no privilege probe is needed.
+- **The update field map is closed.** `api/user_updates.py::CommcareUserUpdates.update`
+  accepts exactly `default_phone_number, email, first_name, groups, language,
+  last_name, password, phone_numbers, user_data, role, location`; anything else
+  raises `"Attempted to update unknown or non-editable field"`.
+- **Locations go together or not at all.** `::_update_location` /
+  `::_validate_locations`: `primary_location` and `locations` must be supplied
+  together, the primary must appear in the list, and each id resolves through
+  `SQLLocation.active_objects`.
+- **Identity is the server-assigned `user_id`** — the durable key the usercase
+  and session keys ride on.
+- **Web users are out of reach.** They come in via `InvitationResource` POST,
+  which resolves `role` by **name** against the domain's roles and fails without
+  one, so a Nova user type cannot supply it. That gap is why the shipped
+  user-property catalog does not author `required_for`: Nova provisions mobile
+  workers only, so the pushed value is always `["commcare_user"]`.
+- **No REST resource exists for the user-data field schema**, so it stays a
+  setup-artifact instruction.
 
-**Observed:** an author pushes an app whose places address a two-level
-organization, and the tree exists on HQ, parents before children, before the app
-that addresses it. A worker provisioned for a persona can sign in, with the
-password shown once and present in no log.
+## Scope
+
+- Migration: `app_deployment_resources.kind` gains `worker`.
+- `lib/commcare/hq/workers.ts`: `findHqMobileWorker` (read
+  `v0_1.py::CommCareUserResource.obj_get_list` for the supported filter; fall
+  back to list-and-match if username is not filterable), `createHqMobileWorker`,
+  `updateHqMobileWorker` — sending only the eleven keys the update map accepts.
+- **Explicit, not a publish rung.** A new server action plus MCP tool
+  `provision_workers({ app_id, server, domain, workers: [{ persona_uuid,
+  username }], adopt_usernames? })`.
+- **The username is deployment state, not blueprint state.** A persona is a
+  design actor and may be provisioned on several domains, so the username lives
+  in the ledger's `pushed_identity`, supplied per call, with a slug derived from
+  the persona name offered as the default. No blueprint schema change, so no new
+  SA vocabulary.
+- **Credentials are never stored.** A strong password is generated per worker,
+  returned once in the action result for the operator to copy, never written to
+  Postgres, never passed to `LogWriter` or `log.*`. A redaction test pins that.
+- `user_data` is `personaUserData(persona, doc)` re-keyed from property UUID to
+  current slug; `primary_location` / `locations` come from
+  `assignedLocationUuids(persona.locations)` mapped through the location
+  ledger's `location` mappings, sent together with the primary in the list.
+- A taken username is a named conflict resolvable only by explicit
+  `adopt_usernames`, which records `ownership: "adopted"` and switches to `PUT`.
+- `preflight.ts`: `required-worker-data` becomes **blocking on the provisioning
+  action**, not on publish — Nova still creates no workers during a publish, so
+  refusing one there would refuse a publish that works.
+- Surfaces: a **Workers** area on each target's record in the Publish dialog,
+  plus the MCP tool. So it does not get lost when the App setup UI unit builds
+  the Deployment section, [that file](app-setup-ui-sa-mcp-and-docs.md) gains one
+  line naming the Publish-dialog Workers area as something that section
+  **inherits and relocates, not rebuilds**.
+- Docs: `content/docs/users-and-personas.mdx` § What travels to CommCare,
+  `content/docs/publishing.mdx`, `content/docs/mcp/tools.mdx`.
+- Shed `WORKER_PROVISIONING_NOT_SHIPPED` and `GAP_PUSH_PROVISIONING_DRIVERS`
+  from `lib/agent/design/platformConstraints.ts` and
+  `lib/agent/build/executionBrief.ts` (a source test fails while a `gapUnitFile`
+  names a file that no longer exists).
+
+**Observed:** a worker provisioned for a persona can sign in, standing in the
+places their persona names, with the password shown once and present in no log.

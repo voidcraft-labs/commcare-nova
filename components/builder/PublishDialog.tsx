@@ -1291,16 +1291,17 @@ function PublishSuccess({
 /**
  * The name clash, and the only thing that resolves it.
  *
- * CommCare HQ's fixture upload addresses a table by its name, so pushing
- * over one Nova did not create would silently replace somebody else's
- * data. Nova refuses instead, and this is where a person says which of
- * those tables is in fact theirs.
+ * CommCare HQ addresses a lookup table by its tag and a place by its site
+ * code, so pushing over one Nova did not create would silently replace
+ * somebody else's data. Nova refuses instead, and this is where a person
+ * says which of those are in fact theirs.
  *
- * Deliberately per table and deliberately unticked: a "use the existing
- * tables" shortcut would be one click away from overwriting a table that
- * happens to share a name, which is the whole failure this refusal
- * exists to prevent. The other way out is renaming the table in Project
- * data, which is why the tag is printed beside the name.
+ * Deliberately one at a time and deliberately unticked: a "use everything
+ * already there" shortcut would be one click away from overwriting work
+ * that happens to share a name, which is the whole failure this refusal
+ * exists to prevent. The other way out differs by kind and is spelled out
+ * below, which is why the name CommCare HQ shows is printed beside the
+ * name Nova shows.
  */
 function ResourceConflictChoice({
 	conflicts,
@@ -1313,11 +1314,12 @@ function ResourceConflictChoice({
 	adopted: readonly string[];
 	onAdoptChange: (novaResourceId: string, adopt: boolean) => void;
 }) {
+	const kinds = new Set(conflicts.map((conflict) => conflict.kind));
 	return (
 		<div className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-3">
 			<p className="text-[13px] leading-relaxed text-nova-text">
-				Pick any of these that are already yours. Nova will replace their rows
-				with this app's data every time you publish, and leave the rest alone.
+				Pick any of these that are already yours. Nova will keep them in step
+				with this app every time you publish, and leave the rest alone.
 			</p>
 			<ul className="mt-2.5 flex flex-col gap-1">
 				{conflicts.map((conflict) => (
@@ -1346,8 +1348,11 @@ function ResourceConflictChoice({
 			</ul>
 			<p className="mt-1 text-[12px] leading-relaxed text-nova-text-secondary">
 				Leave one unticked and it stays untouched on{" "}
-				{domain || "the project space"}; rename that table in Project data and
-				publish again to send yours alongside it.
+				{domain || "the project space"}.
+				{kinds.has("lookup-table") &&
+					" Rename that table in Project data and publish again to send yours alongside it."}
+				{kinds.has("location") &&
+					" A site code is set once, so to send a place of your own beside it, remove the place in Organization and add it again with a code that is free."}
 			</p>
 		</div>
 	);

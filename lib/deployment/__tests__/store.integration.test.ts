@@ -279,6 +279,33 @@ describe("ownership mappings", () => {
 describe("pushed Project data", () => {
 	const TABLE = "018f0000-0000-7000-8000-000000000001";
 	const OTHER_TABLE = "018f0000-0000-7000-8000-000000000002";
+	const COLORADO = "018f0000-0000-7000-8000-0000000000b1";
+	const DENVER = "018f0000-0000-7000-8000-0000000000b2";
+
+	async function pushPlaces(
+		scope: DeploymentScope,
+		places: readonly {
+			readonly novaResourceId: string;
+			readonly remoteId: string;
+			readonly siteCode: string;
+		}[],
+	) {
+		return recordPushedResources(
+			scope,
+			TARGET,
+			places.map((place) => ({
+				kind: "location" as const,
+				novaResourceId: place.novaResourceId,
+				remoteId: place.remoteId,
+				ownership: "nova-created" as const,
+				pushedIdentity: place.siteCode,
+				adoptedBy: null,
+				pushedRevision: null,
+				remoteRevision: null,
+			})),
+			{ status: "complete", kinds: ["location"], pushedAt: AT },
+		);
+	}
 
 	async function pushTable(
 		scope: DeploymentScope,
@@ -600,6 +627,120 @@ describe("pushed Project data", () => {
 				.map((resource) => resource.pushedIdentity)
 				.sort(),
 		).toEqual(["districts", "statuses"]);
+	});
+
+	it("files a place under its own kind, keyed by its site code", async () => {
+		const scope = await seed();
+		await create(scope);
+
+		const view = await pushPlaces(scope, [
+			{
+				novaResourceId: COLORADO,
+				remoteId: "hq-colorado",
+				siteCode: "colorado",
+			},
+		]);
+
+		expect(view.deployment.state).toBe("resources");
+		expect(view.active).toEqual([
+			expect.objectContaining({
+				kind: "location",
+				novaResourceId: COLORADO,
+				remoteId: "hq-colorado",
+				pushedIdentity: "colorado",
+				ownership: "nova-created",
+			}),
+		]);
+	});
+
+	it("supersedes a place the app stopped carrying, and leaves tables alone", async () => {
+		/* Archiving a place leaves whatever Nova pushed on the project
+		 * space. Nova deletes nothing there, so the mapping is superseded
+		 * and the left-behind report names it. A push that speaks only for
+		 * places must not disturb the table mappings beside them. */
+		const scope = await seed();
+		await create(scope);
+		await pushTable(scope);
+		await pushPlaces(scope, [
+			{
+				novaResourceId: COLORADO,
+				remoteId: "hq-colorado",
+				siteCode: "colorado",
+			},
+			{ novaResourceId: DENVER, remoteId: "hq-denver", siteCode: "denver" },
+		]);
+
+		const view = await pushPlaces(scope, [
+			{
+				novaResourceId: COLORADO,
+				remoteId: "hq-colorado",
+				siteCode: "colorado",
+			},
+		]);
+
+		expect(
+			view.active
+				.filter((resource) => resource.kind === "location")
+				.map((resource) => resource.novaResourceId),
+		).toEqual([COLORADO]);
+		expect(
+			view.superseded.find((resource) => resource.novaResourceId === DENVER),
+		).toMatchObject({ kind: "location", pushedIdentity: "denver" });
+		expect(
+			view.active.filter((resource) => resource.kind === "lookup-table"),
+		).toHaveLength(1);
+	});
+
+	it("keeps a partial push's places live and leaves the rung unfilled", async () => {
+		/* `patch_list` is atomic per batch, so a tree that stops partway
+		 * really did leave places over there. Superseding what this call did
+		 * not name would report places nobody has reached yet as left
+		 * behind, and folding the rung would call a stopped push a success. */
+		const scope = await seed();
+		await create(scope);
+		const place = (novaResourceId: string, siteCode: string) => ({
+			kind: "location" as const,
+			novaResourceId,
+			remoteId: `hq-${siteCode}`,
+			ownership: "nova-created" as const,
+			pushedIdentity: siteCode,
+			adoptedBy: null,
+			pushedRevision: null,
+			remoteRevision: null,
+		});
+
+		const first = await recordPushedResources(
+			scope,
+			TARGET,
+			[place(COLORADO, "colorado"), place(DENVER, "denver")],
+			{ status: "partial" },
+		);
+
+		// The places really are on the project space, so they are recorded;
+		// the phase did not succeed, so the rung stays where it was.
+		expect(first.deployment.state).toBe("preflight");
+		expect(
+			first.active
+				.filter((resource) => resource.kind === "location")
+				.map((resource) => resource.novaResourceId)
+				.sort(),
+		).toEqual([COLORADO, DENVER].sort());
+
+		const second = await recordPushedResources(
+			scope,
+			TARGET,
+			[place(COLORADO, "colorado")],
+			{ status: "partial" },
+		);
+
+		// A place this call did not name may simply not have been reached
+		// yet, so nothing is superseded and nothing is reported as left
+		// behind on the strength of a push that stopped.
+		expect(second.deployment.state).toBe("preflight");
+		expect(second.superseded).toHaveLength(0);
+		expect(
+			second.active.filter((resource) => resource.kind === "location"),
+		).toHaveLength(2);
 	});
 
 	it("stores only the kinds the ledger knows", async () => {

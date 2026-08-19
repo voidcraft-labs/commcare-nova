@@ -58,22 +58,29 @@
  *                                 the message carries each rule's
  *                                 actionable text.
  *   6. `hq_resource_conflict`:    the project space already holds a lookup
- *                                 table this app's data would land on, and
- *                                 Nova did not make it. Nothing was sent.
- *                                 Rename the table in Project data, or name
- *                                 the exact Nova table ids in
+ *                                 table or a place this app's data would
+ *                                 land on, and Nova did not make it.
+ *                                 Nothing was sent. Change the name in
+ *                                 Nova, or name the exact Nova ids in
  *                                 `adopt_resources` to take the existing
  *                                 ones over. Never resolved by guessing:
  *                                 a shared name is not evidence of
  *                                 ownership.
- *   7. `remote_app_missing`:      the in-place update found the mapped HQ
+ *   7. `hq_organization_mismatch`: the app's places do not fit the levels
+ *                                 the project space defines, so CommCare
+ *                                 HQ would refuse them. Nothing was sent,
+ *                                 and no adoption resolves it: the message
+ *                                 names each place and what has to change,
+ *                                 in Nova or on CommCare HQ.
+ *   8. `remote_app_missing`:      the in-place update found the mapped HQ
  *                                 app deleted there. Nothing was changed;
  *                                 calling again creates a fresh app and
  *                                 supersedes the dead mapping.
- *   8. `hq_upload_failed`:        `importApp` returned a non-success
+ *   9. `hq_upload_failed`:        `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
  *                                 returned 5xx), or CommCare HQ would not
- *                                 take the app's lookup tables. A thrown
+ *                                 take the app's lookup tables or places.
+ *                                 A thrown
  *                                 transport fault goes through the shared
  *                                 MCP classifier.
  *
@@ -140,8 +147,10 @@ export const UPLOAD_ERROR_TAGS = {
 	domain_ambiguous: "domain_ambiguous",
 	/** The mapped HQ app is gone; the next call creates a fresh one. */
 	remote_app_missing: "remote_app_missing",
-	/** The target already holds a same-named lookup table Nova didn't make. */
+	/** The target already holds a same-named resource Nova didn't make. */
 	hq_resource_conflict: "hq_resource_conflict",
+	/** The app's organization does not fit the target's levels. */
+	hq_organization_mismatch: "hq_organization_mismatch",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
 
 /**
@@ -251,7 +260,7 @@ export function registerUploadAppToHq(
 					.array(z.string())
 					.optional()
 					.describe(
-						"Nova lookup table ids whose name already exists on the project space and which the user has confirmed Nova may take over. Send only after an `hq_resource_conflict` refusal named them and the user said yes for each one; a shared name is not evidence that the existing table is theirs. Omit to adopt nothing.",
+						"Nova ids of lookup tables or places whose name already exists on the project space and which the user has confirmed Nova may take over. Send only after an `hq_resource_conflict` refusal named them and the user said yes for each one; a shared name is not evidence that the existing resource is theirs. Omit to adopt nothing.",
 					),
 			}),
 		},
@@ -375,11 +384,19 @@ export function registerUploadAppToHq(
 								{ app_id: appId },
 							);
 						},
-						onResourcesPushed: (tableCount) => {
+						onResourcesPushed: ({ tables, places }) => {
+							const put = [
+								...(tables === 0
+									? []
+									: [`${tables} lookup table${tables === 1 ? "" : "s"}`]),
+								...(places === 0
+									? []
+									: [`${places} place${places === 1 ? "" : "s"}`]),
+							];
 							call.current?.progress.notify(
 								"resources_pushed",
-								`Put ${tableCount} lookup table${tableCount === 1 ? "" : "s"} on ${targetDomain}`,
-								{ app_id: appId, tables: tableCount },
+								`Put ${put.join(" and ")} on ${targetDomain}`,
+								{ app_id: appId, tables, places },
 							);
 						},
 					});
@@ -444,6 +461,21 @@ export function registerUploadAppToHq(
 								failure.message,
 								appId,
 								outcome.refusal.resourceConflicts,
+							);
+						}
+						/* The organization does not fit the target's levels. Its
+						 * own tag because no ownership decision resolves it and
+						 * nothing was sent: the generic upload-failed envelope
+						 * would send a caller looking at the app when what needs
+						 * changing is the tree or the levels over there. The
+						 * details name each place and what is wrong with it. */
+						if (failure.code === "hq_organization_mismatch") {
+							return makeGateError(
+								UPLOAD_ERROR_TAGS.hq_organization_mismatch,
+								failure.details.length > 0
+									? `${failure.message} ${failure.details.join(" ")}`
+									: failure.message,
+								appId,
 							);
 						}
 						return makeGateError(

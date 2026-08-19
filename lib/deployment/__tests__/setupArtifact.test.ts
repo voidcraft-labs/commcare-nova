@@ -103,6 +103,14 @@ describe("only what the app actually has", () => {
 		);
 	});
 
+	it("omits place information when the app models none", () => {
+		expect(artifact().sections.some((s) => s.id === "place-data")).toBe(false);
+	});
+
+	it("omits places when the app has none, whatever its levels say", () => {
+		expect(artifact().sections.some((s) => s.id === "places")).toBe(false);
+	});
+
 	it("always carries the two that are true of every published app", () => {
 		const ids = artifact().sections.map((s) => s.id);
 		expect(ids).toContain("build-and-release");
@@ -442,6 +450,146 @@ describe("organization levels", () => {
 		const caveats = section().caveats.join(" ");
 		expect(caveats).not.toMatch(/permanent|cannot change|codes cannot/i);
 		expect(caveats).toContain("Two levels cannot share a Type Code");
+	});
+});
+
+describe("place information", () => {
+	/* Nova SENDS these values with every place. A slug the project space
+	 * defines becomes a real field; one it does not is kept as loose data
+	 * nothing can validate or filter on, and a field marked required with
+	 * no value refuses the whole batch. There is no REST resource for the
+	 * definition, so this stays an instruction. */
+	const population = testUuid("33333333");
+
+	function withProperties(): never {
+		const doc = baseDoc() as Record<string, unknown>;
+		doc.locationProperties = {
+			[population]: {
+				uuid: population,
+				slug: "population",
+				label: "Population",
+				required: true,
+				choices: ["small", "large"],
+			},
+		};
+		doc.locationPropertyOrder = [population];
+		return doc as never;
+	}
+
+	function section() {
+		const found = artifact({ doc: withProperties() }).sections.find(
+			(s) => s.id === "place-data",
+		);
+		if (found === undefined) throw new Error("place-data section missing");
+		return found;
+	}
+
+	it("points at the location fields page on the real project space", () => {
+		expect(section().url).toBe(
+			"https://www.commcarehq.org/a/rhi-bihar/settings/locations/fields/",
+		);
+	});
+
+	it("names the slug CommCare HQ has to match exactly", () => {
+		expect(section().steps[0]?.text).toContain("“population”");
+		expect(section().steps[0]?.detail[0]).toMatch(/tick required/i);
+		expect(section().steps[0]?.detail[1]).toContain("small, large");
+	});
+
+	it("warns that a required field with no value refuses the whole batch", () => {
+		expect(section().caveats.join(" ")).toMatch(/whole group of places/i);
+	});
+});
+
+describe("places, the section that is purely a record", () => {
+	const state = testUuid("11111111");
+	const colorado = testUuid("44444444");
+	const boulder = testUuid("55555555");
+
+	function withLevel(): never {
+		const doc = baseDoc() as Record<string, unknown>;
+		doc.organizationLevels = {
+			[state]: {
+				uuid: state,
+				code: "state",
+				name: "State",
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "own-branch" },
+			},
+		};
+		doc.organizationLevelOrder = [state];
+		return doc as never;
+	}
+
+	function place(over: Record<string, unknown> = {}) {
+		return {
+			id: colorado,
+			levelUuid: state,
+			parentId: null,
+			siteCode: "colorado",
+			name: "Colorado",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+			archivedAt: null,
+			orderKey: "a0",
+			...over,
+		} as never;
+	}
+
+	function section(overrides: Record<string, unknown> = {}) {
+		const found = artifact({
+			doc: withLevel(),
+			locations: [place()],
+			...overrides,
+		}).sections.find((s) => s.id === "places");
+		if (found === undefined) throw new Error("places section missing");
+		return found;
+	}
+
+	it("counts by level rather than listing a tree of thousands", () => {
+		const found = section({
+			locations: [
+				place(),
+				place({ id: boulder, siteCode: "boulder", name: "Boulder" }),
+			],
+		});
+		expect(found.steps).toHaveLength(1);
+		expect(found.steps[0]?.text).toBe("State: 2 places");
+	});
+
+	it("says what a publish WILL do while nothing has been pushed", () => {
+		expect(section().steps[0]?.detail[0]).toMatch(/next time you publish/i);
+	});
+
+	it("says what is already there once the ledger names it", () => {
+		const found = section({
+			pushedPlaces: new Map([[colorado, { adopted: false }]]),
+		});
+		expect(found.steps[0]?.detail[0]).toContain("All of these are on");
+	});
+
+	it("says so when somebody took an existing place over", () => {
+		const found = section({
+			pushedPlaces: new Map([[colorado, { adopted: true }]]),
+		});
+		expect(found.caveats[0]).toMatch(/already had rather than new ones/i);
+	});
+
+	it("warns that archiving in Nova leaves the place on CommCare HQ", () => {
+		// v0.6 exposes no archive and no delete, and `validate_site_code`
+		// counts archived rows, so the code stays reserved either way.
+		expect(section().caveats.join(" ")).toMatch(/site code stays reserved/i);
+	});
+
+	it("leaves an archived place out of the count entirely", () => {
+		expect(
+			artifact({
+				doc: withLevel(),
+				locations: [place({ archivedAt: new Date() })],
+			}).sections.some((s) => s.id === "places"),
+		).toBe(false);
 	});
 });
 

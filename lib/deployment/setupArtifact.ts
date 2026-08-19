@@ -34,6 +34,7 @@ import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import type { BlueprintDoc, OrganizationLevel } from "@/lib/domain";
 import {
+	orderedLocationProperties,
 	organizationLevelsOf,
 	ownRecordValue,
 	userPropertiesOf,
@@ -44,6 +45,8 @@ type SetupArtifactSectionId =
 	| "lookup-tables"
 	| "worker-data"
 	| "organization"
+	| "place-data"
+	| "places"
 	| "automations"
 	| "build-and-release"
 	| "web-apps";
@@ -110,6 +113,13 @@ export interface SetupArtifactInput {
 	 * artifact then simply omits the section rather than guessing.
 	 */
 	readonly lookupTables?: readonly SetupArtifactLookupTable[];
+	/**
+	 * Which of this app's places the target already holds, keyed by the
+	 * place's Nova uuid. Absent when the caller has no deployment to speak
+	 * for, and the places section then says what a publish WILL do rather
+	 * than what it has done.
+	 */
+	readonly pushedPlaces?: ReadonlyMap<string, { readonly adopted: boolean }>;
 }
 
 function hqBase(server: CommCareServer): string {
@@ -501,6 +511,121 @@ function lookupTablesSection(
 }
 
 /**
+ * The custom fields a place can carry, which only CommCare HQ can define.
+ *
+ * Nova SENDS these values with every place, and `custom_data_fields`
+ * decides what happens to each one: a slug this project space defines is
+ * a proper field, and one it does not is kept as loose data nothing can
+ * validate or filter on. A field this page marks required with no value
+ * on a place refuses that whole batch, which is the failure this section
+ * exists to prevent rather than explain afterwards.
+ *
+ * There is no REST resource for the definition — `LocationFieldsView` is
+ * a session-authenticated page — so this stays an instruction however much
+ * else Nova can drive.
+ */
+function placeDataSection(
+	input: SetupArtifactInput,
+): SetupArtifactSection | null {
+	const properties = orderedLocationProperties(input.doc);
+	if (properties.length === 0) return null;
+	const steps = properties.map((property) =>
+		step(
+			property.uuid,
+			`Add a field labelled “${property.label}” with “Property Name” “${property.slug}”.`,
+			[
+				property.required === true
+					? "Tick Required, so CommCare HQ holds every place to it the way Nova does."
+					: "Leave Required unticked.",
+				...(property.choices === undefined || property.choices.length === 0
+					? []
+					: [
+							`Set its accepted values to exactly these, one per line: ${property.choices.join(", ")}.`,
+						]),
+			],
+		),
+	);
+	return {
+		id: "place-data",
+		title: "Place information",
+		summary: `The extra information your places carry. Add these on “${input.domain}” before you publish, so the values Nova sends land in real fields rather than as loose data.`,
+		url: `${hqBase(input.server)}/a/${input.domain}/settings/locations/fields/`,
+		steps,
+		caveats: [
+			"A Property Name has to match exactly. CommCare HQ keeps a value whose name it does not recognize, but nothing there can validate or filter on it.",
+			"A field marked required here with no value on one of your places makes CommCare HQ refuse that whole group of places, so fill the value in first or leave the field optional.",
+			"This page is the only way to define these. CommCare HQ's location API cannot write them, so Nova can neither create them for you nor check that you got them right.",
+		],
+	};
+}
+
+/**
+ * The places Nova put on the project space.
+ *
+ * A record rather than an instruction, and the only section that is: Nova
+ * creates and updates every one of these itself. What it is for is the
+ * two facts a person cannot see from either side alone — how much of
+ * their organization is over there, and which of those places Nova took
+ * over rather than made.
+ *
+ * Summarized by level rather than listed. A tree runs to thousands of
+ * places, and the level codes are what a person compares against the
+ * Organization Levels page anyway.
+ */
+function placesSection(input: SetupArtifactInput): SetupArtifactSection | null {
+	const levels = organizationLevelsOf(input.doc);
+	const live = input.locations.filter(
+		(location) => location.archivedAt === null,
+	);
+	if (live.length === 0) return null;
+	const byLevel = new Map<string, { total: number; pushed: number }>();
+	let adopted = 0;
+	for (const place of live) {
+		const levelName = ownRecordValue(levels, place.levelUuid)?.name ?? "Places";
+		const tally = byLevel.get(levelName) ?? { total: 0, pushed: 0 };
+		tally.total += 1;
+		const pushedPlace = input.pushedPlaces?.get(place.id);
+		if (pushedPlace !== undefined) {
+			tally.pushed += 1;
+			if (pushedPlace.adopted) adopted += 1;
+		}
+		byLevel.set(levelName, tally);
+	}
+	const steps = [...byLevel.entries()].map(([levelName, tally]) =>
+		step(levelName, `${levelName}: ${countOf(tally.total, "place")}`, [
+			tally.pushed === tally.total
+				? `All of these are on “${input.domain}”.`
+				: tally.pushed === 0
+					? `Nova will put these on “${input.domain}” the next time you publish.`
+					: `${tally.pushed} of these are on “${input.domain}”; Nova sends the rest the next time you publish.`,
+		]),
+	);
+	return {
+		id: "places",
+		title: "Places",
+		summary: `The places in your organization. Nova creates and updates these on “${input.domain}” itself, parents first, before it sends the app.`,
+		url: `${hqBase(input.server)}/a/${input.domain}/settings/locations/list/`,
+		steps,
+		caveats: [
+			...(adopted === 0
+				? []
+				: [
+						`You chose to use ${countOf(adopted, "place")} that “${input.domain}” already had rather than new ones, so publishing keeps ${adopted === 1 ? "it" : "them"} in step with Nova.`,
+					]),
+			"Archiving a place in Nova stops Nova sending it, and leaves the one on CommCare HQ exactly where it is. Archive it there too if you want it out of the way, and note that its site code stays reserved either way.",
+			"A place's site code is set once in Nova, because it is what CommCare HQ matches on. Renaming a place is free; the code follows it around.",
+		],
+	};
+}
+
+/** "1 place" / "12 places". */
+function countOf(count: number, noun: string): string {
+	return count === 1
+		? `1 ${noun}`
+		: `${count.toLocaleString("en-US")} ${noun}s`;
+}
+
+/**
  * Build the artifact for one target.
  *
  * Sections appear only when the app actually has that content, so an app
@@ -516,6 +641,8 @@ export function buildSetupArtifact(input: SetupArtifactInput): SetupArtifact {
 		lookupTablesSection(input),
 		workerDataSection(input),
 		organizationSection(input),
+		placeDataSection(input),
+		placesSection(input),
 		automationsSection(input),
 		buildAndReleaseSection(input),
 		webAppsSection(input),

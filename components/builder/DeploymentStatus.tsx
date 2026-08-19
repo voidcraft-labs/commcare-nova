@@ -90,16 +90,16 @@ export function DeploymentStatus({
 	onUpdated: (next: RefreshedDeploymentView) => void;
 }) {
 	const record = view.deployment.deployment;
-	/* An app that reads no Project data table has no tables rung: drawing
+	/* An app with no lookup tables and no places has no data rung: drawing
 	 * it would leave a step permanently unticked at preflight and then tick
 	 * it on upload for work that never ran. The artifact is the honest
 	 * signal because it regenerates from the document on every read, so the
-	 * rung appears the moment a select starts reading a table and goes when
-	 * the last one stops. */
-	const pushesTables = view.artifact.sections.some(
-		(section) => section.id === "lookup-tables",
+	 * rung appears the moment a select starts reading a table or a place is
+	 * added, and goes when the last one stops. */
+	const pushesResources = view.artifact.sections.some(
+		(section) => section.id === "lookup-tables" || section.id === "places",
 	);
-	const rungs = pushesTables
+	const rungs = pushesResources
 		? DEPLOYMENT_PROGRESS_STATES
 		: DEPLOYMENT_PROGRESS_STATES.filter((state) => state !== "resources");
 	const sessionApi = useBuilderSessionApi();
@@ -296,9 +296,10 @@ export function DeploymentStatus({
  * recreated by the next push supersedes its mapping while leaving nothing
  * there, and sending somebody to tidy up a table that does not exist costs
  * them a trip for nothing. And it does not call everything an app: a
- * renamed lookup table is the common case now, so each resource says what
- * it is and is named by the thing a person will actually recognize on
- * CommCare HQ, which for a table is its tag rather than its id.
+ * renamed lookup table and an archived place are the common cases now, so
+ * each resource says what it is and is named by the thing a person will
+ * actually recognize on CommCare HQ, which for a table is its tag and for
+ * a place its site code rather than either one's id.
  */
 function LeftBehindNotice({
 	resources,
@@ -306,11 +307,16 @@ function LeftBehindNotice({
 	resources: readonly DeploymentResource[];
 }) {
 	if (resources.length === 0) return null;
-	const named = resources.map((resource) =>
-		resource.kind === "lookup-table"
-			? `the lookup table ${resource.pushedIdentity ?? resource.remoteId}`
-			: `the app ${resource.remoteId}`,
-	);
+	const named = resources.map((resource) => {
+		switch (resource.kind) {
+			case "lookup-table":
+				return `the lookup table ${resource.pushedIdentity ?? resource.remoteId}`;
+			case "location":
+				return `the place ${resource.pushedIdentity ?? resource.remoteId}`;
+			default:
+				return `the app ${resource.remoteId}`;
+		}
+	});
 	const one = resources.length === 1;
 	return (
 		<p className="mt-3 text-[13px] leading-relaxed text-nova-text-secondary">

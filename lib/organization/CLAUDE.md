@@ -127,6 +127,15 @@ There is no hard delete, matching the platform: HQ exposes archive/unarchive
 only, and its v0.6 location API has no `delete` method at all. Deleting a row
 whose id is a live `owner_id` would strand cases irreversibly.
 
+Archiving is also where a published place parts company with Nova. The push
+sends live places only, so archiving stops Nova naming that place and the
+deployment ledger supersedes its mapping — but v0.6 exposes no archive method
+either, so Nova cannot take the remote one down and reports it as left behind
+instead. Its site code stays reserved over there, because
+`util.py::validate_site_code` queries `SQLLocation.objects` rather than
+`active_objects`, which is the same fact this store already honours when it
+refuses to remove a level that archived places still stand at.
+
 `setLocationArchived` is the one write that changes both stores in one
 transaction, and either half alone is a state the model promises is
 unreachable — archived places with a persona still standing on them, or a
@@ -212,11 +221,21 @@ a memory of an older one.
   `util.py::get_location_type`, which admits only the types
   `forms.py::LocationForm.get_allowed_types` returns for the chosen parent, and
   that query filters `parent_type=parent.location_type` — immediate children
-  alone. Preview and local `.ccz` are correct; a push of a ragged tree fails
-  with "Location type not valid for the selected parent." Nova models the real
-  hierarchy anyway, because the alternative is an invented placeholder whose id
-  every `district_id` join would then wrongly resolve — a confidently wrong
-  answer in place of a truthful empty one.
+  alone. Preview and local `.ccz` are correct; a push refuses at preflight and
+  names each offending place (`lib/deployment/locationResourcePlan.ts`), before
+  any batch is sent. Nova models the real hierarchy anyway, because the
+  alternative is an invented placeholder whose id every `district_id` join
+  would then wrongly resolve — a confidently wrong answer in place of a
+  truthful empty one.
+- **Sibling place names may repeat here, and HQ refuses them.**
+  `util.py::has_siblings_with_name` matches `(domain, name, parent)` and
+  `v0_6.py::LocationResource._update` calls it on every push, while Nova's only
+  name-uniqueness rule is for LEVELS. Two clinics called "North" under one
+  district are therefore authorable and unpushable, and the same preflight edge
+  names both halves. Deliberately not enforced here: the constraint belongs to
+  one deployment target rather than to the model, and refusing the write would
+  make a legitimate local naming scheme unauthorable for the sake of a
+  destination the app may never have.
 - **Site codes are create-once.** HQ's are mutable, and its v0.6
   `_update` REGENERATES the code on any request carrying a new `name` without
   one — so a rename that let the code drift would silently repoint the
@@ -246,7 +265,10 @@ a memory of an older one.
   budget; it may refuse to emit a footprint but cannot reinterpret these rows.
 - The compiler can lower fixed-place and reverse-hop owner terms, but every
   export mode remains closed while the persona-scoped device location fixture
-  and HQ location map are absent. Do not describe an authored owner term as
+  is absent. The HQ identity map is no longer missing — publishing creates and
+  updates these rows on the target project space and the deployment ledger
+  holds each one's `location_id` — so the remaining half is the fixture, and
+  the usercase unit owns it. Do not describe an authored owner term as
   deployable until that boundary opens.
 
 Keep pure schema/derivation/plan tests separate from Postgres integration
