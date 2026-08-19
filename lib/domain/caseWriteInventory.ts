@@ -81,7 +81,6 @@ export type CaseWriteInventoryIssue =
 	| { kind: "usercase-property-undeclared"; writer: CaseWriteField }
 	| { kind: "usercase-property-managed"; writer: CaseWriteField }
 	| { kind: "usercase-writer-in-repeat"; writer: CaseWriteField }
-	| { kind: "media-field"; writer: CaseWriteField }
 	| {
 			kind: "primary-writer-in-repeat";
 			writer: CaseWriteField;
