@@ -500,27 +500,28 @@ export function compileCcz(
 			// XForm's `instance('commcaresession')/session/data/<X>`
 			// references against. `caseListColumnExpressions` is the
 			// module-scoped accumulation hoisted above the form loop.
-			const entryDef = deriveEntryDefinition(
-				xmlns,
-				mIdx,
-				fIdx,
+			const entryDef = deriveEntryDefinition({
+				formXmlns: xmlns,
+				moduleIndex: mIdx,
+				formIndex: fIdx,
 				formType,
 				postSubmit,
-				caseType || undefined,
-				hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
-				mod.caseListConfig?.filter,
+				caseType: caseType || undefined,
+				formLinks: hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
+				caseListFilter: mod.caseListConfig?.filter,
 				searchButtonDisplayCondition,
-				caseListColumnExpressions.length > 0
-					? caseListColumnExpressions
-					: undefined,
-				hqForm.actions,
+				caseListColumnExpressions:
+					caseListColumnExpressions.length > 0
+						? caseListColumnExpressions
+						: undefined,
+				actions: hqForm.actions,
 				excludedOwnerIds,
-				moduleTypeContext(mod, doc),
-				form.displayCondition,
+				relationContext: moduleTypeContext(mod, doc),
+				formDisplayCondition: form.displayCondition,
 				lookupNaming,
-				persistentTileDetailId,
+				persistentDetailId: persistentTileDetailId,
 				tileGrouping,
-			);
+			});
 
 			// Re-validate after injection — catches orphaned binds or
 			// malformed structure introduced by the splice. The oracle
