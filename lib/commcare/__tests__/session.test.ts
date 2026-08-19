@@ -28,7 +28,11 @@ import {
 
 describe("deriveSessionDatums", () => {
 	it("returns case_id datum for followup forms with case type", () => {
-		const datums = deriveSessionDatums("followup", 0, "patient");
+		const datums = deriveSessionDatums({
+			formType: "followup",
+			moduleIndex: 0,
+			caseType: "patient",
+		});
 		expect(datums).toHaveLength(1);
 		expect(datums[0].id).toBe("case_id");
 		expect(datums[0].instanceId).toBe("casedb");
@@ -38,20 +42,34 @@ describe("deriveSessionDatums", () => {
 	});
 
 	it("uses correct module index in detail reference", () => {
-		const datums = deriveSessionDatums("followup", 3, "household");
+		const datums = deriveSessionDatums({
+			formType: "followup",
+			moduleIndex: 3,
+			caseType: "household",
+		});
 		expect(datums[0].detailSelect).toBe("m3_case_short");
 	});
 
 	it("returns empty for registration forms", () => {
-		expect(deriveSessionDatums("registration", 0, "patient")).toEqual([]);
+		expect(
+			deriveSessionDatums({
+				formType: "registration",
+				moduleIndex: 0,
+				caseType: "patient",
+			}),
+		).toEqual([]);
 	});
 
 	it("returns empty for survey forms", () => {
-		expect(deriveSessionDatums("survey", 0)).toEqual([]);
+		expect(deriveSessionDatums({ formType: "survey", moduleIndex: 0 })).toEqual(
+			[],
+		);
 	});
 
 	it("returns empty for followup without case type", () => {
-		expect(deriveSessionDatums("followup", 0)).toEqual([]);
+		expect(
+			deriveSessionDatums({ formType: "followup", moduleIndex: 0 }),
+		).toEqual([]);
 	});
 
 	// ── caseListConfig.filter integration ──
@@ -66,14 +84,24 @@ describe("deriveSessionDatums", () => {
 
 	it("appends the filter fragment after the case-type / status predicates", () => {
 		const filter = eq(prop("patient", "is_priority"), literal(true));
-		const datums = deriveSessionDatums("followup", 0, "patient", filter);
+		const datums = deriveSessionDatums({
+			formType: "followup",
+			moduleIndex: 0,
+			caseType: "patient",
+			caseListFilter: filter,
+		});
 		expect(datums[0].nodeset).toBe(
 			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][is_priority = 'true']",
 		);
 	});
 
 	it("omits the filter fragment when the filter is the match-all sentinel", () => {
-		const datums = deriveSessionDatums("followup", 0, "patient", matchAll());
+		const datums = deriveSessionDatums({
+			formType: "followup",
+			moduleIndex: 0,
+			caseType: "patient",
+			caseListFilter: matchAll(),
+		});
 		expect(datums[0].nodeset).toBe(
 			"instance('casedb')/casedb/case[@case_type='patient'][@status='open']",
 		);
@@ -83,7 +111,12 @@ describe("deriveSessionDatums", () => {
 		// `match-none` faithfully restricts the case list to the
 		// empty match set — opposite of match-all's no-op
 		// collapse.
-		const datums = deriveSessionDatums("followup", 0, "patient", matchNone());
+		const datums = deriveSessionDatums({
+			formType: "followup",
+			moduleIndex: 0,
+			caseType: "patient",
+			caseListFilter: matchNone(),
+		});
 		expect(datums[0].nodeset).toBe(
 			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][false()]",
 		);
@@ -92,14 +125,13 @@ describe("deriveSessionDatums", () => {
 	it("applies owner exclusion after the always-on list filter", () => {
 		const filter = eq(prop("patient", "is_priority"), literal(true));
 		const excludedOwners = term(literal("owner-a owner-b"));
-		const datums = deriveSessionDatums(
-			"followup",
-			0,
-			"patient",
-			filter,
-			undefined,
-			excludedOwners,
-		);
+		const datums = deriveSessionDatums({
+			formType: "followup",
+			moduleIndex: 0,
+			caseType: "patient",
+			caseListFilter: filter,
+			excludedOwnerIds: excludedOwners,
+		});
 
 		const ownerRule = lowerXPathForJavaRosa(
 			"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
@@ -115,10 +147,21 @@ describe("deriveSessionDatums", () => {
 		// case-loading datum's nodeset, so the empty array is
 		// the correct result regardless of filter presence.
 		const filter = eq(prop("patient", "is_priority"), literal(true));
-		expect(deriveSessionDatums("registration", 0, "patient", filter)).toEqual(
-			[],
-		);
-		expect(deriveSessionDatums("survey", 0, undefined, filter)).toEqual([]);
+		expect(
+			deriveSessionDatums({
+				formType: "registration",
+				moduleIndex: 0,
+				caseType: "patient",
+				caseListFilter: filter,
+			}),
+		).toEqual([]);
+		expect(
+			deriveSessionDatums({
+				formType: "survey",
+				moduleIndex: 0,
+				caseListFilter: filter,
+			}),
+		).toEqual([]);
 	});
 
 	// ── multi-bucket subcase shape (post Step 6 bucketing change) ──
@@ -173,13 +216,12 @@ describe("deriveSessionDatums", () => {
 				},
 			],
 		};
-		const datums = deriveSessionDatums(
-			"registration",
-			0,
-			"household",
-			undefined,
-			actions as never,
-		);
+		const datums = deriveSessionDatums({
+			formType: "registration",
+			moduleIndex: 0,
+			caseType: "household",
+			actions: actions as never,
+		});
 		// Only the primary case datum emits — both subcases are
 		// repeat-context and skip emit. Without the bucketing fix the
 		// derivation would either drop one or duplicate the other (since
@@ -351,14 +393,14 @@ describe("deriveFormLinkStack", () => {
 
 describe("deriveEntryDefinition", () => {
 	it("builds complete entry for followup form with previous navigation", () => {
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			1,
-			"followup",
-			"previous",
-			"patient",
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+		});
 		expect(entry.commandId).toBe("m0-f1");
 		expect(entry.localeId).toBe("forms.m0f1");
 		expect(entry.instances).toHaveLength(1);
@@ -375,16 +417,15 @@ describe("deriveEntryDefinition", () => {
 		// `XPathMissingInstanceException` in Core the moment the nodeset
 		// referenced it.
 		const filter = eq(prop("patient", "city"), input(testUuid("city_q")));
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			1,
-			"followup",
-			"previous",
-			"patient",
-			undefined,
-			filter,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+			caseListFilter: filter,
+		});
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("casedb");
 		expect(ids).not.toContain("search-input:results");
@@ -397,16 +438,15 @@ describe("deriveEntryDefinition", () => {
 			prop("patient", "region"),
 			term({ kind: "session-user", field: "region" }),
 		);
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			1,
-			"followup",
-			"previous",
-			"patient",
-			undefined,
-			filter,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+			caseListFilter: filter,
+		});
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("commcaresession");
 		const session = entry.instances.find((i) => i.id === "commcaresession");
@@ -424,39 +464,31 @@ describe("deriveEntryDefinition", () => {
 			term({ kind: "session-user", field: "region" }),
 			prop("patient", "region"),
 		);
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			1,
-			"followup",
-			"previous",
-			"patient",
-			undefined,
-			undefined,
-			displayCondition,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+			searchButtonDisplayCondition: displayCondition,
+		});
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("commcaresession");
 	});
 
 	it("accumulates both selected-case instances for form-command relevance", () => {
 		const displayCondition = eq(prop("patient", "status"), literal("open"));
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			1,
-			"followup",
-			"previous",
-			"patient",
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			{},
-			displayCondition,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+			relationContext: {},
+			formDisplayCondition: displayCondition,
+		});
 		expect(entry.instances.map((instance) => instance.id)).toEqual(
 			expect.arrayContaining(["casedb", "commcaresession"]),
 		);
@@ -467,20 +499,15 @@ describe("deriveEntryDefinition", () => {
 			kind: "session-user",
 			field: "excluded_owner_ids",
 		});
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			1,
-			"followup",
-			"previous",
-			"patient",
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			excludedOwners,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+			excludedOwnerIds: excludedOwners,
+		});
 
 		expect(entry.instances).toContainEqual({
 			id: "commcaresession",
@@ -509,17 +536,15 @@ describe("deriveEntryDefinition", () => {
 
 	it("accumulates search-input:results when the search-button display condition references a search input", () => {
 		const displayCondition = eq(input(testUuid("city_q")), literal("active"));
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			1,
-			"followup",
-			"previous",
-			"patient",
-			undefined,
-			undefined,
-			displayCondition,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+			searchButtonDisplayCondition: displayCondition,
+		});
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("search-input:results");
 	});
@@ -540,18 +565,15 @@ describe("deriveEntryDefinition", () => {
 				term({ kind: "prop", caseType: "patient", property: "case_name" }),
 			),
 		];
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			1,
-			"followup",
-			"previous",
-			"patient",
-			undefined,
-			undefined,
-			undefined,
-			calcExpressions,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+			caseListColumnExpressions: calcExpressions,
+		});
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("commcaresession");
 		expect(ids).toContain("casedb");
@@ -567,18 +589,16 @@ describe("deriveEntryDefinition", () => {
 		const calcExpressions = [
 			concatExpr(term({ kind: "session-user", field: "language" })),
 		];
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			1,
-			"followup",
-			"previous",
-			"patient",
-			undefined,
-			filter,
-			undefined,
-			calcExpressions,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+			caseListFilter: filter,
+			caseListColumnExpressions: calcExpressions,
+		});
 		const sessionInstances = entry.instances.filter(
 			(i) => i.id === "commcaresession",
 		);
@@ -596,17 +616,16 @@ describe("deriveEntryDefinition", () => {
 			term({ kind: "session-user", field: "language" }),
 			literal("en"),
 		);
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			1,
-			"followup",
-			"previous",
-			"patient",
-			undefined,
-			filter,
-			displayCondition,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+			caseListFilter: filter,
+			searchButtonDisplayCondition: displayCondition,
+		});
 		const sessionInstances = entry.instances.filter(
 			(i) => i.id === "commcaresession",
 		);
@@ -614,13 +633,13 @@ describe("deriveEntryDefinition", () => {
 	});
 
 	it("omits stack for default destination", () => {
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			0,
-			"registration",
-			"app_home",
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 0,
+			formType: "registration",
+			postSubmit: "app_home",
+		});
 		expect(entry.stack).toBeUndefined();
 	});
 
@@ -634,15 +653,14 @@ describe("deriveEntryDefinition", () => {
 				target: { type: "form", moduleIndex: 1, formIndex: 0 },
 			},
 		];
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/xyz",
-			0,
-			0,
-			"survey",
-			"app_home",
-			undefined,
-			links,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/xyz",
+			moduleIndex: 0,
+			formIndex: 0,
+			formType: "survey",
+			postSubmit: "app_home",
+			formLinks: links,
+		});
 		const ops = entry.stack?.operations;
 		expect(ops).toBeDefined();
 		expect(ops?.[0].ifClause).toBe("/data/go = 'yes'");
@@ -662,15 +680,15 @@ describe("deriveEntryDefinition", () => {
 				],
 			},
 		];
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/xyz",
-			0,
-			0,
-			"followup",
-			"previous",
-			"patient",
-			links,
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/xyz",
+			moduleIndex: 0,
+			formIndex: 0,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+			formLinks: links,
+		});
 
 		expect(entry.instances).toEqual([
 			{ id: "casedb", src: "jr://instance/casedb" },
@@ -754,13 +772,13 @@ describe("renderStackXml", () => {
 
 describe("renderEntryXml", () => {
 	it("renders basic registration entry without stack", () => {
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/abc",
-			0,
-			0,
-			"registration",
-			"app_home",
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 0,
+			formType: "registration",
+			postSubmit: "app_home",
+		});
 		const xml = renderEntryXml(entry);
 		expect(xml).toContain("<entry>");
 		expect(xml).toContain("<form>http://openrosa.org/formdesigner/abc</form>");
@@ -769,14 +787,14 @@ describe("renderEntryXml", () => {
 	});
 
 	it("renders followup entry with session and stack", () => {
-		const entry = deriveEntryDefinition(
-			"http://openrosa.org/formdesigner/xyz",
-			1,
-			2,
-			"followup",
-			"previous",
-			"patient",
-		);
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/xyz",
+			moduleIndex: 1,
+			formIndex: 2,
+			formType: "followup",
+			postSubmit: "previous",
+			caseType: "patient",
+		});
 		const xml = renderEntryXml(entry);
 		expect(xml).toContain("<session>");
 		expect(xml).toContain('id="case_id"');

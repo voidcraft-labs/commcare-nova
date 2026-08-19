@@ -379,33 +379,54 @@ function accumulateCaseLoadingInstances(
  * when the form also has an active `open_case` (so the primary
  * case-create is always `_0`).
  *
- * The optional `caseListFilter` is the module's
- * `caseListConfig.filter` predicate; when present, the wire layer
- * appends its bracketed XPath fragment to the nodeset after the
- * `[@case_type][@status]` predicates, narrowing the case set the
- * runtime selects from. Filter precedence (case-type / status
- * first, user filter last) matches CCHQ's canonical builder at
+ * Filter precedence (case-type / status first, user filter last) matches
+ * CCHQ's canonical builder at
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
- *
- * `actions` is the form's `FormActions` (post-expansion). The function
- * inspects `actions.open_case.condition` and `actions.subcases` to
- * decide which case-create datums to emit. When `actions` is
- * undefined, only the case-loading datum is emitted — callers that
- * don't carry an expanded `FormActions` get the case-loading-only
- * shape.
  */
-export function deriveSessionDatums(
-	formType: FormType,
-	moduleIndex: number,
-	caseType?: string,
-	caseListFilter?: Predicate,
-	actions?: FormActions,
-	excludedOwnerIds?: ValueExpression,
-	relationContext: RelationEvaluationScopeContext = {},
-	lookupNaming?: LookupWireNaming,
-	persistentDetailId?: string,
-	tileGrouping?: CaseTileGrouping,
-): SessionDatum[] {
+export interface SessionDatumsInput {
+	readonly formType: FormType;
+	readonly moduleIndex: number;
+	readonly caseType?: string;
+	/**
+	 * The module's `caseListConfig.filter`. When present the wire layer
+	 * appends its bracketed fragment to the nodeset after the
+	 * `[@case_type][@status]` predicates, narrowing the case set the runtime
+	 * selects from. Meaningful only on case-loading form types: a
+	 * registration or survey form emits no case-loading datum to narrow.
+	 */
+	readonly caseListFilter?: Predicate;
+	/**
+	 * The form's `FormActions`, post-expansion. `open_case.condition` and
+	 * `subcases` decide which case-create datums are emitted. Omitted, only
+	 * the case-loading datum is emitted — the shape a caller carrying no
+	 * expanded actions gets.
+	 */
+	readonly actions?: FormActions;
+	/**
+	 * The module's owner-availability expression. It narrows every
+	 * case-loading nodeset whether or not the module has an effective remote
+	 * Search action.
+	 */
+	readonly excludedOwnerIds?: ValueExpression;
+	readonly relationContext?: RelationEvaluationScopeContext;
+	readonly lookupNaming?: LookupWireNaming;
+	readonly persistentDetailId?: string;
+	readonly tileGrouping?: CaseTileGrouping;
+}
+
+export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
+	const {
+		formType,
+		moduleIndex,
+		caseType,
+		caseListFilter,
+		actions,
+		excludedOwnerIds,
+		relationContext = {},
+		lookupNaming,
+		persistentDetailId,
+		tileGrouping,
+	} = args;
 	const datums: SessionDatum[] = [];
 
 	// (1) Case-loading datum for followup / close.
@@ -645,81 +666,71 @@ export function deriveFormLinkStack(
  * `deriveEntryDefinition` only deals with the suite-level index world
  * and never touches the doc.
  *
- * `formLinks` takes priority over `postSubmit` when non-empty: the stack
- * becomes one conditional `<create>` per link plus a fallback that fires
- * the `postSubmit` destination when no condition matches. An empty (or
- * omitted) `formLinks` falls back to the simple `postSubmit` derivation.
- *
- * `caseListFilter` is the module's `caseListConfig.filter` predicate;
- * the wire layer routes it through `deriveSessionDatums` so the
- * resulting case-loading datum's nodeset narrows to the authored
- * filter's match set. The filter is meaningful only on case-loading
- * form types — `deriveSessionDatums` ignores it for registration /
- * survey forms because they emit no case-loading datum at all.
- *
- * `excludedOwnerIds` is the module's owner-availability expression. It
- * narrows every case-loading nodeset independently of whether the module has
- * an effective remote Search action.
- *
- * `searchButtonDisplayCondition` is the module's
- * `caseSearchConfig.searchButtonDisplayCondition` predicate. It
- * lowers to the `<action relevant>` attribute on the case-list
- * detail's search-action element, which evaluates in the enclosing
- * `<entry>` context — so every instance the predicate references
- * needs an `<instance>` declaration here alongside the filter's
- * instances.
- *
- * `formDisplayCondition` is the form command's menu visibility predicate.
- * Nova canonically puts its session dependencies on the direct matching entry;
- * the emitted menu topology has no same-id nested menu that could make Core
- * select another entry first. A selected-case read contributes both the
- * `casedb` row source and `commcaresession`'s `case_id` anchor.
- *
- * `caseListColumnExpressions` carries each calculated expression
- * the module's case-list short / long detail actually emits. CCHQ's runtime
- * resolves a detail's `instance(...)` references against the
- * enclosing entry's declarations (the entry's `<datum
- * detail-select="m{N}_case_short" ... >` ties the two together);
- * CCHQ's server-side `InstancesHelper.add_entry_instances` walks
- * `detail.get_all_xpaths()` for every detail the entry references
- * and adds the missing declarations on the regenerated suite. Nova's
- * local `.ccz` emission has no equivalent post-process, so the
- * accumulator walks each calc expression's term set here.
  */
+export interface EntryDefinitionInput extends SessionDatumsInput {
+	readonly formXmlns: string;
+	readonly formIndex: number;
+	readonly postSubmit: PostSubmitDestination;
+	/**
+	 * Takes priority over `postSubmit` when non-empty: the stack becomes one
+	 * conditional `<create>` per link plus a fallback firing the `postSubmit`
+	 * destination when no condition matches. Empty or omitted falls back to
+	 * the simple `postSubmit` derivation.
+	 */
+	readonly formLinks?: HqFormLink[];
+	/**
+	 * The module's `caseSearchConfig.searchButtonDisplayCondition`. It lowers
+	 * to the `<action relevant>` attribute on the case-list detail's
+	 * search-action element, which evaluates in the enclosing `<entry>`
+	 * context — so every instance it references needs a declaration here,
+	 * alongside the filter's.
+	 */
+	readonly searchButtonDisplayCondition?: Predicate;
+	/**
+	 * Each calculated expression the module's case-list short / long detail
+	 * actually emits. CCHQ's runtime resolves a detail's `instance(...)`
+	 * references against the enclosing entry's declarations, and its
+	 * server-side `InstancesHelper.add_entry_instances` walks
+	 * `detail.get_all_xpaths()` to add the missing ones on a regenerated
+	 * suite. Nova's local `.ccz` has no equivalent post-process, so the
+	 * accumulator walks each calc expression's term set here.
+	 */
+	readonly caseListColumnExpressions?: readonly ValueExpression[];
+	/**
+	 * The form command's menu visibility predicate. Nova canonically puts its
+	 * session dependencies on the direct matching entry; the emitted menu
+	 * topology has no same-id nested menu that could make Core select another
+	 * entry first. A selected-case read contributes both the `casedb` row
+	 * source and `commcaresession`'s `case_id` anchor.
+	 */
+	readonly formDisplayCondition?: Predicate;
+}
+
 export function deriveEntryDefinition(
-	formXmlns: string,
-	moduleIndex: number,
-	formIndex: number,
-	formType: FormType,
-	postSubmit: PostSubmitDestination,
-	caseType?: string,
-	formLinks?: HqFormLink[],
-	caseListFilter?: Predicate,
-	searchButtonDisplayCondition?: Predicate,
-	caseListColumnExpressions?: readonly ValueExpression[],
-	actions?: FormActions,
-	excludedOwnerIds?: ValueExpression,
-	relationContext: RelationEvaluationScopeContext = {},
-	formDisplayCondition?: Predicate,
-	lookupNaming?: LookupWireNaming,
-	persistentDetailId?: string,
-	tileGrouping?: CaseTileGrouping,
+	args: EntryDefinitionInput,
 ): EntryDefinition {
+	const {
+		formXmlns,
+		moduleIndex,
+		formIndex,
+		formType,
+		postSubmit,
+		caseType,
+		formLinks,
+		caseListFilter,
+		searchButtonDisplayCondition,
+		caseListColumnExpressions,
+		excludedOwnerIds,
+		formDisplayCondition,
+		lookupNaming,
+	} = args;
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
 
-	const datums = deriveSessionDatums(
-		formType,
-		moduleIndex,
-		caseType,
-		caseListFilter,
-		actions,
-		excludedOwnerIds,
-		relationContext,
-		lookupNaming,
-		persistentDetailId,
-		tileGrouping,
-	);
+	// Every datum field is already on `args`, so this forwards the whole
+	// object rather than re-listing ten arguments in order. That re-listing
+	// was the one place a positional slip could compile and still be wrong.
+	const datums = deriveSessionDatums(args);
 	const instances: EntryInstance[] = [];
 	const seen = new Set<string>();
 
