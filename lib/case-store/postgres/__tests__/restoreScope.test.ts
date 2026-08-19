@@ -194,6 +194,47 @@ describe("the outer scan", () => {
 	});
 });
 
+describe("the grouped read", () => {
+	it("groups only the cases the device holds", async () => {
+		// Two households, one visit each. The worker owns one visit; the other
+		// household's visit belongs to a colleague.
+		await addCase({ id: "hh-mine", caseType: "household", owner: OTHER });
+		await addCase({ id: "hh-theirs", caseType: "household", owner: OTHER });
+		await addCase({ id: "visit-mine", caseType: "patient", owner: WORKER });
+		await addCase({ id: "visit-theirs", caseType: "patient", owner: OTHER });
+		for (const [visit, household] of [
+			["visit-mine", "hh-mine"],
+			["visit-theirs", "hh-theirs"],
+		] as const) {
+			await addEdge({
+				caseId: visit,
+				ancestorId: household,
+				identifier: "parent",
+				relationship: "child",
+			});
+		}
+
+		const grouped = await store().queryGrouped({
+			appId: APP_ID,
+			caseType: "patient",
+			indexIdentifier: "parent",
+			groupOffset: 0,
+			groupLimit: 10,
+			restoreScope: RESTORE,
+		});
+
+		// A grouped case list is a DRAWING of the same read, so it inherits the
+		// restore from the shared `buildCaseSelect` rather than re-deriving it.
+		// This test exists because the caller reached the grouped path through
+		// its own early return and could have dropped the scope there without
+		// anything else noticing.
+		expect(
+			grouped.groups.flatMap((group) => group.rows.map((row) => row.case_id)),
+		).toEqual(["visit-mine"]);
+		expect(grouped.totalRows).toBe(1);
+	});
+});
+
 describe("the hold", () => {
 	it("keeps a held case out of the list while it still relays liveness", async () => {
 		// household <-- patient(owned). The household is held.

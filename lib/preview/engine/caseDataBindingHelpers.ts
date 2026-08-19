@@ -253,24 +253,8 @@ export async function readCases(
 		predicate: composedQuery.predicate,
 		restoreScope: args.restoreScope,
 	};
-	/**
-	 * How many cases the SAME authored query matches across the tenant, minus
-	 * what the device holds. One extra count, run only when a restore is bound
-	 * and only for a paged (running-list) read, so the authoring-only reveal
-	 * can say what it is hiding instead of leaving an author to wonder why
-	 * their data vanished.
-	 */
-	const outsideRestoreCount = async (
-		restricted: number,
-	): Promise<number | undefined> => {
-		if (args.restoreScope === undefined) return undefined;
-		const everything = await store.count({
-			...countArgs,
-			restoreScope: undefined,
-		});
-		const outside = everything - restricted;
-		return outside > 0 ? outside : undefined;
-	};
+	const outsideRestoreCount = (restricted: number) =>
+		casesOutsideRestore(store, args, composedQuery, restricted);
 	let totalCount =
 		page === undefined ? undefined : await store.count(countArgs);
 	if (page !== undefined && totalCount === 0) {
@@ -362,6 +346,37 @@ export async function readCases(
 }
 
 /**
+ * How many cases the SAME authored query matches across the tenant that this
+ * worker's device would not hold.
+ *
+ * One extra count, run only when a restore is bound and only for a paged
+ * (running-list) read, so the authoring-only note beside Results can say what
+ * it is leaving out instead of letting an author conclude their data vanished.
+ *
+ * Shared by the flat and the grouped readers rather than living inside one of
+ * them: they already answer the same question two ways, and a reveal that
+ * appeared on ungrouped lists only would be a worse lie than no reveal at all.
+ */
+async function casesOutsideRestore(
+	store: CaseStore,
+	args: Parameters<typeof readCases>[1],
+	composedQuery: ComposedCaseQuery,
+	restricted: number,
+): Promise<number | undefined> {
+	if (args.restoreScope === undefined) return undefined;
+	const everything = await store.count({
+		appId: args.appId,
+		caseType: args.caseType,
+		caseTypeSchemas: args.caseTypeSchemas,
+		bindings: args.bindings,
+		lookupTableSchemas: args.lookupTableSchemas,
+		predicate: composedQuery.predicate,
+	});
+	const outside = everything - restricted;
+	return outside > 0 ? outside : undefined;
+}
+
+/**
  * The grouped twin of `readCases`' bounded path: one `store.queryGrouped`
  * whose window counts GROUPS, so a page holds whole groups and however many
  * cases those groups happen to carry. That row-unboundedness is the
@@ -401,6 +416,7 @@ async function readGroupedCases(
 			indexIdentifier: grouping.identifier,
 			groupOffset,
 			groupLimit: page.limit,
+			restoreScope: args.restoreScope,
 		});
 
 	let pageOffset = page.offset;
@@ -418,12 +434,22 @@ async function readGroupedCases(
 			composedQuery.constraintSource === "worker-search"
 				? await countAuthoredCasePopulation(store, args)
 				: undefined;
+		const outside = await casesOutsideRestore(store, args, composedQuery, 0);
 		return {
 			kind: "empty",
 			constraintSource: composedQuery.constraintSource,
 			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+			...(outside !== undefined && { outsideRestoreCount: outside }),
 		};
 	}
+	// Cases, not groups: the note counts what the worker cannot open, and a
+	// group is a drawing rather than a thing they hold.
+	const outside = await casesOutsideRestore(
+		store,
+		args,
+		composedQuery,
+		result.totalRows,
+	);
 	return {
 		kind: "rows",
 		rows: result.groups.flatMap((group) => group.rows),
@@ -435,6 +461,7 @@ async function readGroupedCases(
 			totalGroupCount: result.totalGroups,
 		},
 		constraintSource: composedQuery.constraintSource,
+		...(outside !== undefined && { outsideRestoreCount: outside }),
 	};
 }
 
