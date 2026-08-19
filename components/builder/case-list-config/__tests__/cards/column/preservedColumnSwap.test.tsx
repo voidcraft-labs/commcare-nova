@@ -12,7 +12,7 @@
 //     slots (`sort`, visibility, and tile presentation) through
 //     verbatim. They're identity / surface-visibility shape, not
 //     kind-specific.
-//   - **Field preservation**: the six non-calc kinds all carry
+//   - **Field preservation**: the non-calc kinds all carry
 //     `field: string`, so a swap among them preserves `field`
 //     verbatim. Calc has no field: swapping TO calc drops it;
 //     swapping FROM calc seeds the new field from the target
@@ -38,11 +38,13 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type CaseType,
 	type Column,
+	type ColumnKind,
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
 	imageMapColumn,
 	intervalColumn,
+	linkColumn,
 	phoneColumn,
 	plainColumn,
 	tileCell,
@@ -50,7 +52,10 @@ import {
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { preservedColumnSwap } from "../../../ColumnEditor";
-import type { ColumnEditContext } from "../../../columnEditorSchemas";
+import {
+	type ColumnEditContext,
+	columnCardSchemas,
+} from "../../../columnEditorSchemas";
 
 const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");
 
@@ -87,23 +92,24 @@ const TILED_SOURCE_COLUMNS: readonly Column[] = [
 	intervalColumn(TEST_UUID, "dob", "Age", 7, "days", "always", "Old", {
 		tile: TILE,
 	}),
+	linkColumn(TEST_UUID, "case_name", "Photo", "Open", { tile: TILE }),
 	calculatedColumn(TEST_UUID, "Summary", term(literal("Ready")), {
 		tile: TILE,
 	}),
 ];
-const TARGET_KINDS = [
-	"plain",
-	"phone",
-	"date",
-	"id-mapping",
-	"image-map",
-	"interval",
-	"calculated",
-] as const;
+// Read off the card registry rather than restated here. A hand-kept
+// list silently stops covering a kind the moment one is added, which
+// is exactly how a display that the menu offered but the swap could
+// not build went unnoticed.
+const TARGET_KINDS = Object.keys(columnCardSchemas) as ColumnKind[];
+
+// Displays that read the value as words, so a date property cannot
+// reach them; the rest of the pairs are compatible by construction.
+const TEXT_ONLY_TARGETS: ReadonlySet<ColumnKind> = new Set(["phone", "link"]);
 
 function swapped(
 	source: Column,
-	target: (typeof TARGET_KINDS)[number],
+	target: ColumnKind,
 	ctx: ColumnEditContext = CTX,
 ): Column {
 	const next = preservedColumnSwap(source, target, ctx);
@@ -120,7 +126,7 @@ describe("preservedColumnSwap — universal field + header preservation", () => 
 					target === "calculated" ||
 					source.kind === "calculated" ||
 					(source.field === "dob"
-						? target !== "phone"
+						? !TEXT_ONLY_TARGETS.has(target)
 						: target !== "date" && target !== "interval"),
 			).map((target) => [source.kind, target, source] as const),
 		),
@@ -145,6 +151,49 @@ describe("preservedColumnSwap — universal field + header preservation", () => 
 					tile: TILE,
 				}),
 				"phone",
+				CTX,
+			),
+		).toBeUndefined();
+	});
+
+	it("Plain → Link keeps the property and seeds the schema's link text", () => {
+		const next = swapped(plainColumn(TEST_UUID, "case_name", "Photo"), "link");
+		expect(next.kind).toBe("link");
+		if (next.kind !== "link") throw new Error("expected link");
+		expect(next.field).toBe("case_name");
+		expect(next.header).toBe("Photo");
+		expect(next.uuid).toBe(TEST_UUID);
+		expect(next.linkText).toBe(
+			columnCardSchemas.link.defaultValue(CTX)?.linkText,
+		);
+	});
+
+	it("Link → Link keeps the author's own link text", () => {
+		const next = swapped(
+			linkColumn(TEST_UUID, "case_name", "Photo", "See the photo"),
+			"link",
+		);
+		if (next.kind !== "link") throw new Error("expected link");
+		expect(next.linkText).toBe("See the photo");
+	});
+
+	it("Link → Plain preserves field + header + uuid", () => {
+		const next = swapped(
+			linkColumn(TEST_UUID, "case_name", "Photo", "Open"),
+			"plain",
+		);
+		expect(next.kind).toBe("plain");
+		if (next.kind !== "plain") throw new Error("expected plain");
+		expect(next.field).toBe("case_name");
+		expect(next.header).toBe("Photo");
+		expect(next.uuid).toBe(TEST_UUID);
+	});
+
+	it("refuses Link over a date property instead of rewriting its field", () => {
+		expect(
+			preservedColumnSwap(
+				dateColumn(TEST_UUID, "dob", "Birthday", "%Y-%m-%d"),
+				"link",
 				CTX,
 			),
 		).toBeUndefined();

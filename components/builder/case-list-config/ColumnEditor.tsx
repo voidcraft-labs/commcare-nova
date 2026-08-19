@@ -47,6 +47,7 @@ import {
 	idMappingColumn,
 	imageMapColumn,
 	intervalColumn,
+	linkColumn,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
@@ -259,6 +260,16 @@ export function preservedColumnSwap(
 			return plainColumn(uuid, targetField, header, slots);
 		case "phone":
 			return phoneColumn(uuid, targetField, header, slots);
+		case "link": {
+			// Twin: source is already a link → preserve the author's own
+			// link text. Otherwise seed it from the target schema, so the
+			// default wording has exactly one home.
+			const seed = columnCardSchemas.link.defaultValue(ctx);
+			if (seed === undefined) return undefined;
+			const linkText =
+				currentValue.kind === "link" ? currentValue.linkText : seed.linkText;
+			return linkColumn(uuid, targetField, header, linkText, slots);
+		}
 		case "date": {
 			// Twin: source is already a date column → preserve the
 			// pattern verbatim. Otherwise fall back to the target
@@ -313,6 +324,15 @@ export function preservedColumnSwap(
 				seed.text,
 				slots,
 			);
+		}
+		default: {
+			// `undefined` is a real answer here -- it means "this display
+			// does not fit this property" -- so a missing arm would fall
+			// out as a silent no-op: the menu offers the display, the
+			// author picks it, and nothing changes. Naming the remainder
+			// makes a new column kind a type error instead.
+			const unhandled: never = targetKind;
+			return unhandled;
 		}
 	}
 }

@@ -15,6 +15,7 @@
 // deciding, rather than in a doc they may never open.
 
 "use client";
+import { useState } from "react";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import type { CaseProperty, Column } from "@/lib/domain";
@@ -39,6 +40,12 @@ export function LinkColumnCard({
 	onChange,
 	errors,
 }: LinkColumnCardProps) {
+	/* Bumped to put the committed wording back in the box after an
+	 * empty one is refused. `BlurCommitTextInput` re-syncs its draft
+	 * from `value` only when `value` itself changes, and a refusal by
+	 * definition leaves it alone -- so without this the box keeps
+	 * showing text the column never took. */
+	const [revertKey, setRevertKey] = useState(0);
 	const build = (next: Partial<Extract<Column, { kind: "link" }>>) =>
 		onChange(
 			linkColumn(
@@ -70,9 +77,13 @@ export function LinkColumnCard({
 				 *  previous wording back rather than saving a link with no
 				 *  label. */}
 				<BlurCommitTextInput
+					key={revertKey}
 					value={value.linkText}
 					onCommit={(next) => {
-						if (next.trim() === "") return;
+						if (next.trim() === "") {
+							setRevertKey((n) => n + 1);
+							return;
+						}
 						build({ linkText: next });
 					}}
 					placeholder="for example, Photo"
