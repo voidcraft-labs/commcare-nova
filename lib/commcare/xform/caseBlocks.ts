@@ -50,6 +50,7 @@ import {
 	validatePropertyName,
 	validateXFormPath,
 } from "@/lib/commcare/identifierValidation";
+import { SESSION_USERCASE_ID } from "@/lib/commcare/usercaseWire";
 import {
 	caseScalarTextValueCalculation,
 	caseScalarTextValueGuard,
@@ -199,7 +200,7 @@ export function attachmentQuestionPaths(
 
 function buildCaseBlocks(
 	actions: FormActions,
-	caseType: string,
+	caseType: string | undefined,
 	attachmentPaths: () => ReadonlySet<string>,
 ): CaseBlocksEmission | null {
 	const openCase = actions.open_case;
@@ -228,8 +229,23 @@ function buildCaseBlocks(
 	const hasPreload =
 		preloadAction.condition.type === "always" &&
 		Object.keys(preloadAction.preload).length > 0;
+	// The worker's own record. Independent of every branch below: HQ emits it
+	// from `XForm._add_usercase`, gated only on `usercase_update` being active
+	// with a non-empty update map, so a form whose ONLY write is to the worker
+	// record still emits a block.
+	const usercaseAction = actions.usercase_update;
+	const hasUsercaseUpdate =
+		usercaseAction.condition.type === "always" &&
+		Object.keys(usercaseAction.update).length > 0;
 
-	if (!isCreate && !isUpdate && !isClose && !hasSubcases && !hasPreload) {
+	if (
+		!isCreate &&
+		!isUpdate &&
+		!isClose &&
+		!hasSubcases &&
+		!hasPreload &&
+		!hasUsercaseUpdate
+	) {
 		return null;
 	}
 
@@ -259,7 +275,19 @@ function buildCaseBlocks(
 	// .session_var_for_action`: subcase indices start at 1 when an `open_case`
 	// is active (so the primary is always `_0`), else 0.
 	const subcaseIndexOffset = isCreate ? 1 : 0;
-	const validatedCaseType = validateCaseType(caseType);
+	// Lazy, because a form whose only write is to the worker's record has no
+	// case type of its own and never reaches a branch that needs one. Eager
+	// validation would refuse that form for lacking something it does not use.
+	const primaryCaseType = (): string => {
+		if (caseType === undefined || caseType === "") {
+			throw new Error(
+				"buildCaseBlocks reached a primary-case branch with no case type. " +
+					"open/update/close and subcases all require the module's case type; " +
+					"check the caller's FormActions against the module it came from.",
+			);
+		}
+		return validateCaseType(caseType);
+	};
 
 	if (isCreate) {
 		// `<create>` children mirror CCHQ's fixture order (case_name, owner_id,
@@ -277,7 +305,7 @@ function buildCaseBlocks(
 		binds.push(
 			el("bind", {
 				nodeset: primaryCreatePath.child("case_type").toXPath(),
-				calculate: `'${validatedCaseType}'`,
+				calculate: `'${primaryCaseType()}'`,
 			}),
 		);
 		const namePath =
@@ -315,7 +343,7 @@ function buildCaseBlocks(
 			el("setvalue", {
 				ref: primaryCasePath.attr("case_id").toXPath(),
 				event: "xforms-ready",
-				value: `instance('commcaresession')/session/data/case_id_new_${validatedCaseType}_0`,
+				value: `instance('commcaresession')/session/data/case_id_new_${primaryCaseType()}_0`,
 			}),
 		);
 		// Conditional-open forms get a `<bind relevant>` on the case element.
@@ -817,7 +845,7 @@ function buildCaseBlocks(
 		// the right session var earlier in this function.
 		const subcaseRel = sc.relationship || "child";
 		const parentAttribs: Record<string, string> = {
-			case_type: validatedCaseType,
+			case_type: primaryCaseType(),
 		};
 		if (subcaseRel !== "child") parentAttribs.relationship = subcaseRel;
 		scChildren.push(el("index", {}, [el("parent", parentAttribs)]));
@@ -858,6 +886,78 @@ function buildCaseBlocks(
 				parentPath: repeatCtxPath as FormPath,
 				element: caseElement,
 			});
+		}
+	}
+
+	// The worker's own record, mirroring `XForm._add_usercase` exactly: a
+	// `commcare_usercase` wrapper under `<data>` holding one case block built
+	// from `XFormCaseBlock(self, 'commcare_usercase/')`, with `add_case_updates`
+	// and NOTHING else — no `<create>`, because HQ never creates a usercase from
+	// a form, and no `<close>`.
+	//
+	// The wrapper is emitted as its own data child rather than spliced into an
+	// existing element: nothing in the authored form produces a
+	// `commcare_usercase` node, so there is no parent to resolve.
+	if (hasUsercaseUpdate) {
+		const usercasePath = FormPath.root().child("commcare_usercase");
+		const usercaseCasePath = usercasePath.child("case");
+		const usercaseUpdatePath = usercaseCasePath.child("update");
+		const properties = Object.keys(usercaseAction.update).map((property) =>
+			validatePropertyName(formActionsPropertyToWire(property)),
+		);
+		dataChildren.push({
+			parentPath: FormPath.root(),
+			element: el("commcare_usercase", {}, [
+				buildCaseElement([
+					el(
+						"update",
+						{},
+						properties.map((property) => el(property, {})),
+					),
+				]),
+			]),
+		});
+		// `_add_usercase_bind`: a bind with a calculate, not a setvalue. The
+		// datum is computed at entry (`requires_selection=False`), so the value
+		// is already in the session when the form opens and stays put.
+		binds.push(
+			el("bind", {
+				nodeset: usercaseCasePath.attr("case_id").toXPath(),
+				calculate: SESSION_USERCASE_ID,
+			}),
+		);
+		// `XFormCaseBlock.elem`'s own two binds, which every case block gets.
+		binds.push(
+			el("bind", {
+				nodeset: usercaseCasePath.attr("date_modified").toXPath(),
+				type: "xsd:dateTime",
+				calculate: metaTimeEnd,
+			}),
+		);
+		binds.push(
+			el("bind", {
+				nodeset: usercaseCasePath.attr("user_id").toXPath(),
+				calculate: metaUserID,
+			}),
+		);
+		for (const [property, mapping] of Object.entries(usercaseAction.update)) {
+			const wireProperty = validatePropertyName(
+				formActionsPropertyToWire(property),
+			);
+			const questionPath = validateXFormPath(
+				mapping.question_path || FormPath.root().child(property).toXPath(),
+			);
+			// Same `count(...) > 0` guard every other update bind carries: a
+			// conditionally-hidden question has no data node at submission, and
+			// without the guard its bind would fire with an empty calculate and
+			// erase the value already on the worker's record.
+			binds.push(
+				el("bind", {
+					nodeset: usercaseUpdatePath.child(wireProperty).toXPath(),
+					calculate: questionPath,
+					relevant: `count(${questionPath}) > 0`,
+				}),
+			);
 		}
 	}
 
@@ -937,7 +1037,7 @@ function conditionToRelevantXPath(condition: FormActionCondition): string {
 export function addCaseBlocks(
 	xform: string,
 	actions: FormActions,
-	caseType: string,
+	caseType: string | undefined,
 ): string {
 	/* The upload-ref scan needs the parsed document, and the early return
 	 * below is documented as skipping the parse entirely, so both parse

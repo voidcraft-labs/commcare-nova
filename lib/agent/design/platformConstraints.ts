@@ -153,7 +153,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 	CASE_WRITE_TARGETS_MODULE_LINEAGE: {
 		code: "CASE_WRITE_TARGETS_MODULE_LINEAGE",
 		statement:
-			"A form's writable case destination is exactly the module's own case type or a declared child type whose parent_type is that module type; sibling, grandchild, and unrelated types are not writable from that form.",
+			"A form's writable case destination is exactly the module's own case type, a declared child type whose parent_type is that module type, or the worker's own record; sibling, grandchild, and unrelated types are not writable from that form. The worker's own record takes caseType 'commcare-user' and a property that is a DECLARED worker property's slug, is available on any form including a survey, and cannot be written from inside a repeat; the built-in worker fields (username, first_name, last_name, language, phone_number, hq_user_id, case_name, and the commcare_* keys) are kept in step with the worker's profile and are not writable.",
 		sourceAnchor: "lib/domain/caseWriteInventory.ts::deriveCaseWriteInventory",
 	},
 	CASE_PROPERTY_CLEAR_UNAVAILABLE: {

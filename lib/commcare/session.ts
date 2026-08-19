@@ -61,6 +61,12 @@ import {
 	emitNodesetFilter,
 } from "./suite/case-list/nodesetFilter";
 import type { FormActions, HqFormLink } from "./types";
+import {
+	USERCASE_DATUM_ID,
+	USERCASE_ID_FUNCTION,
+	USERCASE_MISSING_ASSERT_TEST,
+	USERCASE_MISSING_LOCALE_ID,
+} from "./usercaseWire";
 import { collectInstanceRefs } from "./xform/instanceRefs";
 
 // ── Session Datums ─────────────────────────────────────────────────────
@@ -99,6 +105,17 @@ export interface SessionDatum {
 	 * datums. Sourced from CCHQ's `EntriesHelper.get_new_case_id_datums_meta`.
 	 */
 	function?: string;
+	/**
+	 * The instances a COMPUTED datum's `function` reads.
+	 *
+	 * A nodeset datum names its one instance in `instanceId`; a function can
+	 * reach several, and CommCare resolves them against the enclosing entry's
+	 * declarations. Stated here rather than recovered from the expression,
+	 * because reading XPath structure back out of a string is exactly the
+	 * parsing this codebase does not do — the site that composes the function
+	 * already knows what it reached.
+	 */
+	instanceIds?: readonly string[];
 	detailSelect?: string;
 	detailConfirm?: string;
 	/**
@@ -189,6 +206,15 @@ export interface EntryDefinition {
 	localeId: string;
 	instances: EntryInstance[];
 	session?: { datums: SessionDatum[] };
+	/**
+	 * Entry-time guards CommCare evaluates before the form opens. Present only
+	 * for the worker's own case today: HQ pairs the computed `usercase_id`
+	 * datum with `count(...) = 1` over the same selector
+	 * (`EntriesHelper.add_usercase_id_assertion`), so a device whose restore
+	 * carries no usercase is stopped at the door rather than submitting a write
+	 * that lands nowhere.
+	 */
+	assertions?: Array<{ test: string; localeId: string }>;
 	stack?: { operations: StackOperation[] };
 }
 
@@ -450,6 +476,36 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		});
 	}
 
+	// (0) The worker's own case, appended LAST, matching HQ: the datum list is
+	// built for the form and `get_extra_case_id_datums` extends it afterwards
+	// (`entries.py:521`), which is the order `usercase_entry.xml` shows —
+	// `case_id` then `usercase_id`.
+	//
+	// Declared here as a closure so it stays adjacent to its reason and still
+	// runs after the case datums below.
+	const appendUsercaseDatum = (): void => {
+		// `util.py::actions_use_usercase`, minus the preload half: Nova's
+		// `usercase_preload` is a stated fence at `neverCondition()`, since
+		// `#user/` already compiles to the same `casedb` join.
+		const update = actions?.usercase_update;
+		// Optional despite the type: `deriveSessionDatums` is reached from
+		// tests and callers that hand it a partial action set, and a missing
+		// slot means the same thing an inactive one does.
+		if (update?.condition.type !== "always") return;
+		if (Object.keys(update.update).length === 0) return;
+		datums.push({
+			id: USERCASE_DATUM_ID,
+			function: USERCASE_ID_FUNCTION,
+			// The selector joins `casedb` against the session's own user id, so
+			// the entry declares both. This is load-bearing on a form whose ONLY
+			// write is to the worker's record: it has no case-loading datum, so
+			// nothing else would declare `casedb`, and a missing declaration
+			// resolves to nothing at runtime with no build-time error
+			// (`CommCareInstanceInitializer::loadFixtureRoot`).
+			instanceIds: ["casedb", "commcaresession"],
+		});
+	};
+
 	if (actions) {
 		// (2) Case-create datum for an active `open_case` action. CCHQ
 		// emits this whenever `'open_case' in form.active_actions()`, which
@@ -503,6 +559,8 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 	// and is not: it is the shape the multi-select variant reuses when it
 	// swaps the datum class to `<instance-datum>`, so keeping it verbatim
 	// makes that a second predicate arm rather than a reshape.
+	appendUsercaseDatum();
+
 	const caseSelectDatum = datums.find((datum) => datum.id === "case_id");
 	if (tileGrouping !== undefined && caseSelectDatum !== undefined) {
 		datums.push({
@@ -736,12 +794,17 @@ export function deriveEntryDefinition(
 
 	if (datums.length > 0) {
 		for (const d of datums) {
-			// Function datums (case-create's uuid()) don't read any instance;
-			// only nodeset datums declare an instance dependency.
-			if (!d.instanceId) continue;
-			if (!seen.has(d.instanceId)) {
+			// A nodeset datum reads exactly one instance and names it in
+			// `instanceId`. A function datum reads none (case-create's `uuid()`)
+			// or several, and says so in `instanceIds`.
+			if (d.instanceId && !seen.has(d.instanceId)) {
 				seen.add(d.instanceId);
 				instances.push({ id: d.instanceId, src: d.instanceSrc ?? "" });
+			}
+			for (const id of d.instanceIds ?? []) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 			}
 		}
 	}
@@ -814,6 +877,17 @@ export function deriveEntryDefinition(
 		localeId,
 		instances,
 		...(datums.length > 0 && { session: { datums } }),
+		// Gated on the DATUM, not on the actions — `entries.py:544` reads
+		// `any_usercase_datums(all_datums)`, so the assertion cannot appear
+		// without the datum it guards, whatever the actions later say.
+		...(datums.some((datum) => datum.id === USERCASE_DATUM_ID) && {
+			assertions: [
+				{
+					test: USERCASE_MISSING_ASSERT_TEST,
+					localeId: USERCASE_MISSING_LOCALE_ID,
+				},
+			],
+		}),
 		...(operations && { stack: { operations } }),
 	};
 }
@@ -1052,6 +1126,26 @@ export function buildEntryElement(
 	if (entry.session) {
 		children.push(
 			el("session", {}, entry.session.datums.map(buildDatumElement)),
+		);
+	}
+
+	// `<assertions>` sits BETWEEN `<session>` and `<stack>`. `suite_xml/
+	// xml_models.py::Entry`'s `ORDER` names only `form, post, command,
+	// instance, datums` and leaves the rest to field-declaration order, so the
+	// binding statement of that order is the whole-suite fixture
+	// `tests/data/case_list_form/case-list-form-suite-usercase.xml`, which is
+	// the one oracle carrying both blocks at once.
+	if (entry.assertions !== undefined && entry.assertions.length > 0) {
+		children.push(
+			el(
+				"assertions",
+				{},
+				entry.assertions.map((assertion) =>
+					el("assert", { test: assertion.test }, [
+						el("text", {}, [el("locale", { id: assertion.localeId })]),
+					]),
+				),
+			),
 		);
 	}
 

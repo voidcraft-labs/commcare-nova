@@ -76,6 +76,22 @@ export interface SyncUsercaseRowArgs {
 	readonly authored: Record<string, string>;
 	readonly doc: UserCollections;
 	readonly projectSpace: string | null;
+	/**
+	 * Create the row when it is missing and otherwise leave it alone.
+	 *
+	 * The trigger is what this protects. HQ syncs a usercase when a USER IS
+	 * SAVED, and Nova's equivalent is the commit that edits a persona. Preview
+	 * calls this on every resolve for a different reason — to guarantee the row
+	 * EXISTS for a worker no commit ever described — and a full sync on that
+	 * path would erase a value a form had just written: a declared property the
+	 * persona has no value for is blank in the derived record, so the diff
+	 * would overwrite the answer with `""` seconds after the worker gave it.
+	 *
+	 * Nothing is lost by holding back. The row is what a device reads, the
+	 * commit path keeps it in step whenever the document says something new
+	 * about that worker, and this returns the STORED properties either way.
+	 */
+	readonly ensureOnly?: boolean;
 }
 
 /**
@@ -144,6 +160,14 @@ export async function syncUsercaseRow(
 			changed: Object.keys(properties).length,
 			stored: properties as Record<string, string>,
 		};
+	}
+
+	if (args.ensureOnly === true) {
+		const held: Record<string, string> = {};
+		for (const [key, value] of Object.entries(current.properties ?? {})) {
+			if (value !== null && value !== undefined) held[key] = String(value);
+		}
+		return { created: false, changed: 0, stored: held };
 	}
 
 	const changed = usercaseChangedFields(

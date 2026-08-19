@@ -145,8 +145,17 @@ export interface FormEngineInput {
 	fieldOrder: Record<string, Uuid[]>;
 	/** Complete case-type catalog used to admit own/direct-child writes. */
 	caseTypes: readonly CaseType[];
-	/** Custom worker-information identities used to print `#user/*` refs. */
-	userProperties?: XPathPrintableDoc["userProperties"];
+	/**
+	 * The worker-property catalog.
+	 *
+	 * The whole entry rather than the print surface's `{ slug }` minimum,
+	 * because two consumers here need different halves of it: printing
+	 * resolves a `#user/*` ref by slug, and case-write admission checks a
+	 * usercase destination against the declared entries. Narrowing this to
+	 * what printing needs is what once made every declared worker detail read
+	 * as undeclared to admission.
+	 */
+	userProperties?: BlueprintDoc["userProperties"];
 }
 
 /** The print surface for the engine's input slice: its one form plus
@@ -163,11 +172,21 @@ function printableDocOf(input: FormEngineInput): XPathPrintableDoc {
 
 function caseWriteDocOf(
 	input: FormEngineInput,
-): Pick<BlueprintDoc, "fields" | "fieldOrder" | "caseTypes"> {
+): Pick<
+	BlueprintDoc,
+	"fields" | "fieldOrder" | "caseTypes" | "userProperties"
+> {
 	return {
 		fields: input.fields,
 		fieldOrder: input.fieldOrder as BlueprintDoc["fieldOrder"],
 		caseTypes: [...input.caseTypes],
+		// The worker-property catalog is part of the topology, not decoration:
+		// admission checks a usercase writer's destination against it, so an
+		// engine built without it refuses every declared worker property and
+		// the form never opens. `userProperties` is optional on `BlueprintDoc`,
+		// so omitting it here still satisfies the `Pick` — nothing but this
+		// comment and the test beside it keeps it from being dropped again.
+		userProperties: input.userProperties,
 	};
 }
 
@@ -240,7 +259,7 @@ export class FormEngine {
 	/** Exact topology surface consumed by the shared case-write inventory. */
 	private caseWriteDoc: Pick<
 		BlueprintDoc,
-		"fields" | "fieldOrder" | "caseTypes"
+		"fields" | "fieldOrder" | "caseTypes" | "userProperties"
 	>;
 	/** Rose-tree of the active form's fields. Rebuilt on schema refresh so
 	 *  every walker inside the engine agrees on the same snapshot. */
@@ -1103,6 +1122,58 @@ export class FormEngine {
 	}
 
 	/**
+	 * Answers this form saves to the worker's own record.
+	 *
+	 * Independent of the primary case action, matching the wire: a survey form
+	 * carries these as readily as a followup does, so this runs before the
+	 * form-type switch and rides every submission arm.
+	 *
+	 * Every usercase slot is text (`usercaseCaseType` derives them all that
+	 * way, because HQ stores user data as strings), so a submitted value goes
+	 * across as it was answered rather than through `coerceValueForProperty` —
+	 * there is no declared type to coerce toward.
+	 *
+	 * A blank or hidden answer writes nothing. The emitted bind carries
+	 * `relevant="count(<path>) > 0"` for exactly that reason: a device skips
+	 * the write rather than erasing what is on the record, and Preview has to
+	 * agree or the two disagree the first time a question is conditional.
+	 */
+	private collectUsercaseWrites(): JsonObject | undefined {
+		const projected = this.projectedCaseWrites();
+		const properties: Record<string, string> = {};
+		const states = this.store.getState();
+		const walk = (
+			nodes: FieldTreeNode[],
+			prefix: string,
+			ancestorsVisible: boolean,
+		): void => {
+			for (const node of nodes) {
+				const f = node.field;
+				const fieldPath = `${prefix}/${f.id}`;
+				const effective =
+					ancestorsVisible && states[fieldPath]?.visible !== false;
+				if (f.kind === "repeat") {
+					// Admission refuses a usercase writer inside a repeat, so
+					// there is nothing to collect below one.
+					continue;
+				}
+				if (node.children) {
+					walk(node.children, fieldPath, effective);
+					continue;
+				}
+				const write = projected.writerByUuid.get(f.uuid);
+				if (write === undefined || write.bucket.kind !== "usercase") continue;
+				if (!effective) continue;
+				const raw = this.instance.get(fieldPath);
+				if (typeof raw !== "string" || raw === "") continue;
+				properties[write.writer.property] = raw;
+			}
+		};
+		walk(this.tree, "/data", true);
+		return Object.keys(properties).length > 0 ? properties : undefined;
+	}
+
+	/**
 	 * Classify a capture slot at the instant Submit reaches its form-wide
 	 * attachment barrier.
 	 *
@@ -1159,9 +1230,13 @@ export class FormEngine {
 		const operationAnswers = this.computeOperationAnswers();
 		const attachmentRefs = this.collectAttachmentReferences();
 		const projectedCaseWrites = this.projectedCaseWrites();
+		const usercaseProperties = this.collectUsercaseWrites();
 		const operationIdentity = {
 			formUuid: this.activeFormUuid() as string,
 			entryKey: args.entryKey,
+			...(usercaseProperties !== undefined && {
+				usercase: usercaseProperties,
+			}),
 			// Always present, even when empty: an empty list is the exact
 			// projection that retires every unreferenced staged attachment for
 			// this entry.
@@ -1260,6 +1335,16 @@ export class FormEngine {
 				const projected = projectedCaseWrites.writerByUuid.get(f.uuid);
 				if (projected === undefined) continue;
 				const { writer, bucket } = projected;
+				// The worker's own record is collected by
+				// `collectUsercaseWrites`, which rides every submission arm
+				// including a survey's. It must not also walk through here: the
+				// usercase is derived from the worker-property catalog rather
+				// than declared, so it is absent from `materializableCaseTypes`
+				// by construction and the property lookup below would report a
+				// missing declaration for a destination that is perfectly
+				// declared. Its slots are all text, so there is nothing to
+				// coerce either.
+				if (bucket.kind === "usercase") continue;
 				if (bucket.repeatUuid !== activeRepeat?.uuid) {
 					throw new Error(
 						compilerBugMessage({

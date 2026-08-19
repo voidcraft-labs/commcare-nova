@@ -41,6 +41,7 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import type { CaseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWriteChoices } from "@/lib/doc/hooks/useCaseWriteChoices";
 import {
@@ -59,6 +60,8 @@ import {
 	getModuleCaseTypes,
 	humanizeId,
 	isCaptureField,
+	orderedUserProperties,
+	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 
 /**
@@ -95,6 +98,22 @@ function destinationId(caseType: string, property: string): string {
 	return JSON.stringify([caseType, property]);
 }
 
+/**
+ * The hashtag an author would write for one destination.
+ *
+ * The worker's own record is `#user/`, NOT `#commcare-user/`: `#user/` is the
+ * namespace `lib/commcare/hashtags.ts` resolves, and `commcare-user` is a case
+ * type nothing ever asks an author to name. Every other destination is its own
+ * case type. One function because the chooser row and the chosen-state summary
+ * both print this, and printing the same destination two ways reads as two
+ * different places to save.
+ */
+export function destinationRef(caseType: string, property: string): string {
+	return caseType === USERCASE_CASE_TYPE
+		? `#user/${property}`
+		: `#${caseType}/${property}`;
+}
+
 function typeLabel(caseType: string): string {
 	return humanizeId(caseType) || caseType;
 }
@@ -111,7 +130,9 @@ function propertyChoice(
 		id: destinationId(caseType.name, property.name),
 		group: typeLabel(caseType.name),
 		label,
-		detail: verdict.ok ? `#${caseType.name}/${property.name}` : verdict.reason,
+		detail: verdict.ok
+			? destinationRef(caseType.name, property.name)
+			: verdict.reason,
 		detailIsRef: verdict.ok,
 		searchText: `${caseType.name} ${property.name} ${label}`,
 		kind: "destination",
@@ -141,6 +162,14 @@ export function CaseWriteEditor<F extends Field>(
 	const context = useSelectedFormContext();
 	const projectProse = useProseProjection();
 	const effectiveCaseTypes = useEffectiveCaseTypes();
+	// Selected as the two raw slices and ordered here, so the subscription
+	// compares stable store references rather than a fresh array every render.
+	const userProperties = useBlueprintDoc((state) => state.userProperties);
+	const userPropertyOrder = useBlueprintDoc((state) => state.userPropertyOrder);
+	const workerProperties = useMemo(
+		() => orderedUserProperties({ userProperties, userPropertyOrder }),
+		[userProperties, userPropertyOrder],
+	);
 	const { choiceVerdict } = useCaseWriteChoices(field);
 	const triggerId = useId();
 	const newNameId = useId();
@@ -240,6 +269,31 @@ export function CaseWriteEditor<F extends Field>(
 				);
 			}
 		}
+		// The worker's own record. A separate group because it is a different
+		// KIND of destination — not one of the module's case types, and not
+		// something a form can add to: the destinations are exactly the worker
+		// details declared under Worker information in App setup, so a missing
+		// one is added there rather than invented here.
+		for (const property of workerProperties) {
+			const caseWrite: CaseWrite = {
+				caseType: USERCASE_CASE_TYPE,
+				property: property.slug,
+			};
+			const verdict = choiceVerdict(caseWrite);
+			result.push({
+				id: destinationId(USERCASE_CASE_TYPE, property.slug),
+				group: "The worker's own record",
+				label: property.label || property.slug,
+				detail: verdict.ok
+					? destinationRef(USERCASE_CASE_TYPE, property.slug)
+					: verdict.reason,
+				detailIsRef: verdict.ok,
+				searchText: `worker user ${property.slug} ${property.label}`,
+				kind: "destination",
+				caseWrite,
+				...(!verdict.ok && { disabledReason: verdict.reason }),
+			});
+		}
 		if (writableTypes.length > 0) {
 			result.push({
 				id: "__new__",
@@ -256,6 +310,7 @@ export function CaseWriteEditor<F extends Field>(
 		clearVerdict,
 		destinationFor,
 		projectProse,
+		workerProperties,
 		writableTypes,
 	]);
 	const groups = useMemo<readonly CaseWriteChoiceGroup[]>(() => {
@@ -321,7 +376,7 @@ export function CaseWriteEditor<F extends Field>(
 	const displayDetail =
 		current === undefined
 			? "Form answer only"
-			: `#${current.caseType}/${current.property}`;
+			: destinationRef(current.caseType, current.property);
 
 	return (
 		<div data-field-id="caseWrite" className="space-y-2.5">

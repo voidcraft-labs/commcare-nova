@@ -22,6 +22,7 @@ import type {
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
+import { USERCASE_CASE_TYPE } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 import {
@@ -3645,6 +3646,56 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/households[1]/members[0]/full").value).toBe(
 				"Ada Jones",
 			);
+		});
+	});
+
+	// A form saving to the worker's own record, mounted the way the running
+	// preview mounts one. The engine's case-write surface is assembled from
+	// the input rather than handed the whole document, and it once left the
+	// worker-property catalog out — so admission saw a declared destination as
+	// undeclared and every such form failed to open at all. The catalog is
+	// optional on `BlueprintDoc`, so dropping it again type-checks; these two
+	// are what notice.
+	describe("the worker's own record", () => {
+		const PROPERTY = testUuid("worker-property-visits-done");
+		const usercaseInput = (): FormEngineInput => ({
+			// A survey, deliberately: the worker's record is written by every
+			// form type, and a survey is the arm with no case of its own, so it
+			// proves the collection is independent of the primary case action.
+			...dTree(
+				[
+					{
+						id: "visits",
+						kind: "text",
+						label: proseText("Visits done"),
+						caseWrite: {
+							caseType: USERCASE_CASE_TYPE,
+							property: "visits_done",
+						},
+					},
+				],
+				"survey",
+			),
+			userProperties: {
+				[PROPERTY]: {
+					uuid: PROPERTY,
+					slug: "visits_done",
+					label: "Visits done",
+				},
+			},
+		});
+
+		it("opens a form whose field saves to a declared worker detail", () => {
+			expect(() => new FormEngine(usercaseInput())).not.toThrow();
+		});
+
+		it("carries the answer out on the submission as a usercase write", () => {
+			const engine = new FormEngine(usercaseInput());
+			engine.setValue("/data/visits", "7");
+			const mutation = engine.computeSubmissionMutation({
+				entryKey: ENTRY_KEY,
+			});
+			expect(mutation.usercase).toEqual({ visits_done: "7" });
 		});
 	});
 });

@@ -60,6 +60,10 @@ import {
 	emitFormDisplayConditionForSuite,
 	emitModuleDisplayCondition,
 } from "@/lib/commcare/suite/displayConditions";
+import {
+	USERCASE_MISSING_LOCALE_ID,
+	USERCASE_MISSING_MESSAGE,
+} from "@/lib/commcare/usercaseWire";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import { moduleTypeContext } from "@/lib/commcare/validator/rules/case-list/shared";
@@ -453,10 +457,15 @@ export function compileCcz(
 			// the form's derived actions, then `addMetaBlock` appends the OpenRosa
 			// <meta> block. Case-then-meta order matches CCHQ's instance layout.
 			// `addMetaBlock` is unconditional — every form carries meta, surveys
-			// included — while case blocks only emit on case-managed modules.
+			// included. `addCaseBlocks` reads the actions and returns the XForm
+			// untouched when there is nothing to emit, so the module's case type
+			// is passed through rather than gating the call: a form whose only
+			// write is to the worker's own record has no case type and still
+			// needs its block, and gating here would emit the suite datum and
+			// the assertion for a write the form never makes.
 			let xform = attachments[`${uniqueId}.xml`];
-			if (xform && caseType) {
-				xform = addCaseBlocks(xform, hqForm.actions, caseType);
+			if (xform) {
+				xform = addCaseBlocks(xform, hqForm.actions, caseType || undefined);
 			}
 			if (xform) {
 				xform = addMetaBlock(xform);
@@ -578,6 +587,18 @@ export function compileCcz(
 				"compileCcz form command",
 			);
 			Object.assign(appStrings, formNav.strings);
+			// The worker-record assertion's message. CommCare throws
+			// `NoLocalizedTextException` on a locale id with no app_strings
+			// entry, so the string travels with the assertion that references
+			// it rather than being seeded unconditionally — a suite that never
+			// asserts carries no orphaned message.
+			//
+			// It carries no translation unit: it is Nova's own system copy
+			// rather than something an author wrote, so every language table
+			// takes the source text verbatim.
+			if (entryDef.assertions !== undefined) {
+				appStrings[USERCASE_MISSING_LOCALE_ID] = USERCASE_MISSING_MESSAGE;
+			}
 			suiteEntries.push(buildEntryElement(entryDef, formNav.node));
 			menuCommands.push(
 				el("command", {

@@ -17,8 +17,12 @@ import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import type { BlueprintDoc } from "@/lib/domain";
-import { locationPropertiesOf, organizationLevelsOf } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	deriveCaseWriteInventory,
+	locationPropertiesOf,
+	organizationLevelsOf,
+} from "@/lib/domain";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { readOrganization } from "@/lib/organization/service";
@@ -77,6 +81,7 @@ export const PREFLIGHT_CHECK_IDS = [
 	"organization",
 	"feature-flags",
 	"required-worker-data",
+	"worker-record-writes",
 ] as const;
 export type PreflightCheckId = (typeof PREFLIGHT_CHECK_IDS)[number];
 
@@ -710,6 +715,28 @@ export async function runDeploymentPreflight(
 		items: workerGaps,
 	});
 
+	// ── 5. Does this app write to the worker's own record? ──────────
+	// Attention rather than a blocker, and the sharpest edge on this list.
+	// The usercase is gated by the paid `USERCASE` privilege
+	// (`app_manager/util.py::domain_has_usercase_access`), and on a project
+	// without it NO usercase rows exist at all — so the emitted
+	// `count(...) = 1` assertion fails and blocks entry into the form
+	// entirely. Not a degraded write: a dead end.
+	//
+	// It stays attention because Nova cannot see a target's plan, and
+	// refusing the publish would refuse one that works on most projects.
+	const workerRecordForms = formsWritingWorkerRecord(boundary.prepared.doc);
+	checks.push({
+		id: "worker-record-writes",
+		title: "The worker's own record",
+		status: workerRecordForms.length === 0 ? "passed" : "attention",
+		detail:
+			workerRecordForms.length === 0
+				? "No form in this app saves to the worker's own record."
+				: `These forms save an answer onto the worker's own record. Some CommCare plans don't include it, and on one of those a form that saves there won't open at all. Ask whoever administers “${domain}” whether it's on before workers start using these.`,
+		items: workerRecordForms,
+	});
+
 	return {
 		checks,
 		outcome: { status: "succeeded", at: input.now },
@@ -723,4 +750,33 @@ export async function runDeploymentPreflight(
 		},
 		featureFlags,
 	};
+}
+
+/**
+ * Every form that writes the worker's own record, by name.
+ *
+ * Read off the same inventory the emitter projects into `usercase_update`,
+ * not off the authored fields: a writer admission dropped never reaches the
+ * wire, and naming a form whose write does not actually emit would send an
+ * author to check a project's plan for nothing.
+ */
+function formsWritingWorkerRecord(doc: BlueprintDoc): string[] {
+	const names: string[] = [];
+	// The canonical display walk, the same one `expander.ts` uses.
+	for (const moduleUuid of doc.moduleOrder) {
+		const module = doc.modules[moduleUuid];
+		if (module === undefined) continue;
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (form === undefined) continue;
+			const writesWorkerRecord = deriveCaseWriteInventory(
+				doc,
+				formUuid,
+				module,
+				form.type,
+			).buckets.some((bucket) => bucket.kind === "usercase");
+			if (writesWorkerRecord) names.push(form.name.trim() || form.id);
+		}
+	}
+	return names;
 }

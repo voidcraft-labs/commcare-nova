@@ -76,6 +76,7 @@ import {
 	type CaseType,
 	type Column,
 	caseListColumnIsEmitted,
+	deriveCaseWriteInventory,
 	isCaptureFieldKind,
 	mergeOwnRecords,
 	orderedCaseOperations,
@@ -1131,6 +1132,16 @@ export interface BuiltSubmissionOperations {
 		string,
 		NonNullable<CaseType["relationship"]>
 	>;
+	/**
+	 * The worker-record properties THIS committed form is allowed to write.
+	 *
+	 * Derived from the committed inventory, so a submission can only name a
+	 * destination the app actually authored. The storage layer would refuse an
+	 * undeclared key anyway (`additionalProperties: false` on the derived case
+	 * type), but that refusal reads as a schema error; this one is a fact about
+	 * the form, and it also refuses a DECLARED property the form never wired.
+	 */
+	readonly usercaseWriteProperties: ReadonlySet<string>;
 	readonly submissionReceipt?: NonNullable<
 		ApplySubmissionArgs["submissionReceipt"]
 	>;
@@ -1463,8 +1474,19 @@ export function buildCaseOperationProgramFromDoc(args: {
 		),
 	);
 	const ordinaryCaseType = owningModuleCaseType(doc, formUuid);
+	const usercaseWriteProperties = new Set(
+		deriveCaseWriteInventory(
+			blueprint,
+			formUuid,
+			{ caseType: ordinaryCaseType },
+			form.type,
+		)
+			.buckets.filter((bucket) => bucket.kind === "usercase")
+			.flatMap((bucket) => bucket.writers.map((writer) => writer.property)),
+	);
 	const ordinaryStructure = {
 		ordinaryChildRelationships,
+		usercaseWriteProperties,
 		...(ordinaryCaseType === undefined ? {} : { ordinaryCaseType }),
 	};
 	const operations = orderedCaseOperations(form);
@@ -1640,6 +1662,19 @@ export function submissionEnvelopeArgs(
 			? {}
 			: { captureIntent: built.captureIntent };
 	const submissionReceipt = { submissionReceipt: built.submissionReceipt };
+	// The client names VALUES; the committed form decides which destinations
+	// exist. Filtering rather than rejecting because a co-editor removing a
+	// worker-record question mid-entry is an ordinary race, and losing that one
+	// answer is the honest outcome — the question is gone.
+	const usercaseWrites = Object.fromEntries(
+		Object.entries(mutation.usercase ?? {}).filter(([property]) =>
+			built.usercaseWriteProperties.has(property),
+		),
+	);
+	const usercase =
+		Object.keys(usercaseWrites).length > 0
+			? { usercase: { properties: usercaseWrites } }
+			: {};
 	const childSeed = <T extends { readonly caseType: string }>(child: T) => {
 		const parentRelationship = built.ordinaryChildRelationships.get(
 			child.caseType,
@@ -1666,6 +1701,7 @@ export function submissionEnvelopeArgs(
 					children: mutation.children.map(childSeed),
 				},
 				...operations,
+				...usercase,
 				...submissionReceipt,
 				...captureIntent,
 			};
@@ -1683,6 +1719,7 @@ export function submissionEnvelopeArgs(
 					children: mutation.children.map(childSeed),
 				},
 				...operations,
+				...usercase,
 				...submissionReceipt,
 				...captureIntent,
 			};
@@ -1691,6 +1728,7 @@ export function submissionEnvelopeArgs(
 				appId,
 				ordinary: { kind: "none" },
 				...operations,
+				...usercase,
 				...submissionReceipt,
 				...captureIntent,
 			};
@@ -2066,6 +2104,10 @@ async function withMaterializedUsercase(args: {
 			authored,
 			doc: blueprint,
 			projectSpace: null,
+			// Existence only. Keeping the row in step is the commit path's job,
+			// and a diff here would overwrite whatever a form last wrote onto
+			// the record with the persona's own blank for that property.
+			ensureOnly: true,
 		});
 		// `case_name` is a column rather than a property, so the row's
 		// properties never carry it and the derived record is the only place it

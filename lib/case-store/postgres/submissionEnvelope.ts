@@ -594,6 +594,24 @@ export async function executeSubmissionEnvelope(
 	}
 
 	const ordinary = await applyOrdinaryAction(trx, host, args.appId, args);
+	// The worker's own record, last and inside the same transaction. Its own
+	// id is the acting worker's, the same deterministic identity
+	// materialization writes (`lib/db/syncUsercaseRow.ts::usercaseIdFor`), so
+	// nothing here chooses which record a submission may touch.
+	//
+	// `updateCase` and not an upsert: the row's existence is materialization's
+	// job, and it has three triggers covering every worker. A submission that
+	// found none would mean the record a device reads through `#user/` does not
+	// exist, which is exactly what the emitted `count(...) = 1` assertion stops
+	// at the door — so failing loudly here keeps Preview honest about that
+	// rather than papering over it with a row a device would not have had.
+	if (args.usercase !== undefined) {
+		await host.updateCase(trx, {
+			appId: args.appId,
+			caseId: host.actingUserId,
+			patch: { properties: args.usercase.properties },
+		});
+	}
 	return { ...ordinary, operations: operationRecords };
 }
 

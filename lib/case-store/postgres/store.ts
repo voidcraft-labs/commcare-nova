@@ -4458,6 +4458,9 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
 		if (ordinary.caseType !== undefined) types.add(ordinary.caseType);
 		for (const child of ordinary.children) types.add(child.caseType);
 	}
+	// The worker's own case type takes its schema lock like any other. It is
+	// absent from every `ordinary` arm because it is not one of them.
+	if (args.usercase !== undefined) types.add(USERCASE_CASE_TYPE);
 	for (const entry of args.operations?.operations ?? []) {
 		types.add(entry.operation.caseType);
 		if (entry.operation.retype !== undefined) {

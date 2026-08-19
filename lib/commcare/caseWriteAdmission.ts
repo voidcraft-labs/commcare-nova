@@ -103,6 +103,18 @@ export function assertCaseWriteAdmission(inventory: CaseWriteInventory): void {
 			throw new Error(
 				`Attachment field '${issue.writer.fieldUuid}' cannot write standard case property '${issue.writer.property}'.`,
 			);
+		case "usercase-property-undeclared":
+			throw new Error(
+				`Field '${issue.writer.fieldUuid}' writes '${issue.writer.property}' on the worker's own case, which no worker property declares.`,
+			);
+		case "usercase-property-managed":
+			throw new Error(
+				`Field '${issue.writer.fieldUuid}' writes '${issue.writer.property}' on the worker's own case, which materialization owns.`,
+			);
+		case "usercase-writer-in-repeat":
+			throw new Error(
+				`Worker-record field '${issue.writer.fieldUuid}' is inside repeat '${issue.writer.repeatUuid}'; one form writes one worker record.`,
+			);
 		case "reserved-property":
 			throw new Error(
 				`Field '${issue.writer.fieldUuid}' writes reserved case property '${issue.writer.property}'.`,

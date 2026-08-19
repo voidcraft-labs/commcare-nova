@@ -594,6 +594,12 @@ const USER_MESSAGE_BY_CODE: Partial<
 		const f = det(e, "fieldId", "a field");
 		return `In ${q(formName(e))}, ${q(f)} is inside a repeating section but saves to the form's main case, which a repeat can't do. Move it out of the repeat, or save it to a child case instead.`;
 	},
+	USERCASE_WRITE_UNDECLARED_PROPERTY: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a worker detail"))} on the worker's own record, but no worker detail by that name exists. Add it under Worker information in App setup, or pick one that's already there.`,
+	USERCASE_WRITE_MANAGED_PROPERTY: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a worker detail"))} on the worker's own record, which Nova keeps in step with the worker's profile, so an answer there would be replaced the next time that worker changes. Save to a worker detail you added under Worker information instead.`,
+	USERCASE_FIELD_IN_REPEAT: (e) =>
+		`In ${q(formName(e))}, ${q(det(e, "fieldId", "a field"))} is inside a repeating section but saves to the worker's own record, which holds one answer rather than one per repeat. Move it out of the repeat.`,
 
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_NO_OPTIONS: (e) =>

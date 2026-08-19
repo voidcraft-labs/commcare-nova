@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	type CaseType,
 	caseWriteInventoryIssues,
 	deriveCaseWriteInventory,
 	type FormType,
+	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
@@ -39,6 +41,9 @@ function inventory(args: {
 	formType?: FormType;
 	moduleCaseType?: string;
 	caseTypes?: CaseType[];
+	/** Declared worker properties, by slug. Worker-record destinations must be
+	 *  one of these, so a test that writes one has to declare it. */
+	workerProperties?: readonly string[];
 }) {
 	const doc = buildDoc({
 		appName: "Case write inventory",
@@ -59,6 +64,12 @@ function inventory(args: {
 			},
 		],
 	});
+	doc.userProperties = Object.fromEntries(
+		(args.workerProperties ?? []).map((slug, index) => {
+			const uuid = testUuid(`worker-property-${index}`);
+			return [uuid, { uuid, slug, label: slug }];
+		}),
+	);
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][0];
 	return deriveCaseWriteInventory(
@@ -249,5 +260,115 @@ describe("deriveCaseWriteInventory", () => {
 				caseWriteInventoryIssues(result).map((issue) => issue.kind),
 			).toEqual(count < 2 ? [] : ["duplicate-property"]);
 		}
+	});
+});
+
+describe("the worker's own record as a destination", () => {
+	it("buckets a declared worker property, with no repeat identity", () => {
+		// A FIXED destination, unlike `child`: one form writes one worker
+		// record, so the bucket never keys on a repeat.
+		const result = inventory({
+			moduleCaseType: "parent",
+			formType: "followup",
+			workerProperties: ["visits_done"],
+			fields: [writer("visits", USERCASE_CASE_TYPE, "visits_done")],
+		});
+
+		const bucket = result.buckets.find((b) => b.kind === "usercase");
+		expect(bucket?.action).toBe("update");
+		expect(bucket?.caseType).toBe(USERCASE_CASE_TYPE);
+		expect(bucket?.repeatUuid).toBeUndefined();
+		expect(bucket?.writers.map((w) => w.property)).toEqual(["visits_done"]);
+	});
+
+	it("buckets it on a survey form, which has no case type of its own", () => {
+		// HQ's `usercase_update` is a form action on any module form, and a
+		// survey form is exactly that. Refusing it here would refuse the write
+		// on the form type where it is most often the only write there is.
+		const result = inventory({
+			formType: "survey",
+			moduleCaseType: "parent",
+			workerProperties: ["visits_done"],
+			fields: [writer("visits", USERCASE_CASE_TYPE, "visits_done")],
+		});
+
+		expect(result.buckets.map((b) => b.kind)).toEqual(["usercase"]);
+		expect(result.noActionWriters).toEqual([]);
+	});
+
+	it("still calls an ordinary case writer on a survey form no-action", () => {
+		const result = inventory({
+			formType: "survey",
+			moduleCaseType: "parent",
+			workerProperties: ["visits_done"],
+			fields: [
+				writer("visits", USERCASE_CASE_TYPE, "visits_done"),
+				writer("note", "parent", "note"),
+			],
+		});
+
+		expect(result.noActionWriters.map((w) => w.fieldId)).toEqual(["note"]);
+	});
+
+	it("refuses a destination no worker property declares", () => {
+		// The slug IS the XML element name on the wire, and the derived case
+		// type carries `additionalProperties: false`, so an undeclared
+		// destination is unstorable rather than merely unwise. Refusing it here
+		// means an author is told at authoring time instead of at submission.
+		const result = inventory({
+			moduleCaseType: "parent",
+			formType: "followup",
+			workerProperties: ["visits_done"],
+			fields: [writer("visits", USERCASE_CASE_TYPE, "not_declared")],
+		});
+
+		expect(result.buckets.some((b) => b.kind === "usercase")).toBe(false);
+		expect(result.invalidDestinationWriters).toEqual([
+			{
+				writer: expect.objectContaining({ fieldId: "visits" }),
+				reason: "usercase-property-undeclared",
+			},
+		]);
+	});
+
+	it("refuses a destination materialization owns", () => {
+		// `username` and its siblings are written on every sync from the
+		// worker's profile, so a form answer there would be replaced the next
+		// time that worker changed. Silently, and only later.
+		for (const managed of ["username", "language", "case_name", "hq_user_id"]) {
+			const result = inventory({
+				moduleCaseType: "parent",
+				formType: "followup",
+				workerProperties: [managed],
+				fields: [writer("visits", USERCASE_CASE_TYPE, managed)],
+			});
+			expect(
+				result.invalidDestinationWriters[0]?.reason,
+				`${managed} should be refused`,
+			).toBe("usercase-property-managed");
+		}
+	});
+
+	it("refuses a writer inside a repeat", () => {
+		// One form writes ONE worker record: the emitted block binds to a single
+		// `usercase_id` datum, so every iteration would compete for the same
+		// slot and the last would quietly win.
+		const result = inventory({
+			moduleCaseType: "parent",
+			formType: "followup",
+			workerProperties: ["visits_done"],
+			fields: [
+				f({
+					kind: "repeat",
+					id: "visits",
+					label: proseText("Visits"),
+					children: [writer("count", USERCASE_CASE_TYPE, "visits_done")],
+				}),
+			],
+		});
+
+		expect(
+			caseWriteInventoryIssues(result).map((issue) => issue.kind),
+		).toContain("usercase-writer-in-repeat");
 	});
 });
