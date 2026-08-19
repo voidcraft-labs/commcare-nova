@@ -23,9 +23,14 @@ import {
 } from "@/lib/commcare/featureFlags";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
+import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
 import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
+import {
+	decodeExportAdvisories,
+	EXPORT_ADVISORY_HEADER,
+} from "@/lib/publish/exportAdvisories";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
@@ -34,6 +39,9 @@ vi.mock("@/lib/export/boundaryValidation", () => ({
 	prepareExportBoundary: vi.fn(),
 }));
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
+vi.mock("@/lib/deployment/attachmentSpace", () => ({
+	attachmentDeploymentTargetFor: vi.fn(),
+}));
 vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
 vi.mock("@/lib/commcare/compiler", () => ({ compileCcz: vi.fn() }));
 
@@ -77,6 +85,53 @@ function validDoc() {
 	return doc;
 }
 
+/** An app whose photo question saves a link to the file it captures. */
+function docWithAttachmentLink() {
+	const { fieldParent: _fieldParent, ...doc } = buildDoc({
+		appName: "Vaccine Tracker",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "photo_url", label: proseText("Photo") },
+				],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [
+					{
+						name: "Reg",
+						type: "registration",
+						fields: [
+							{
+								kind: "text",
+								id: "case_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							},
+							{
+								kind: "image",
+								id: "photo",
+								label: proseText("Photo"),
+								caseWrite: {
+									caseType: "patient",
+									property: "photo_url",
+									mode: "url",
+								},
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	return doc;
+}
+
 function docWithCaseSearch() {
 	const doc = validDoc();
 	const moduleUuid = doc.moduleOrder[0];
@@ -110,12 +165,16 @@ beforeEach(() => {
 	vi.mocked(resolveAppAccess).mockReset();
 	vi.mocked(prepareExportBoundary).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
+	vi.mocked(attachmentDeploymentTargetFor).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(compileCcz).mockReset();
 
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
 	loadsDoc(validDoc());
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
+	// No project space holds the fixture app, which is the ordinary state
+	// for a download: an attachment link has nowhere to resolve.
+	vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({ kind: "none" });
 	vi.mocked(prepareExportBoundary).mockImplementation(
 		async (input) =>
 			({
@@ -230,5 +289,69 @@ describe("POST /api/compile — inline archive return", () => {
 		]);
 		expect(report?.message).toContain("support@dimagi.com");
 		expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("ccz-bytes");
+	});
+});
+/**
+ * A download carries no target of its own, so whatever the deployment record
+ * resolves has to survive all the way to the emitter. It travels through the
+ * export boundary and out the other side, and the failure mode if a hop drops
+ * it is invisible: the archive still compiles, still downloads, and quietly
+ * stops recording where its photos went.
+ */
+describe("POST /api/compile — attachment link target", () => {
+	it("hands the emitter nothing while no project space holds the app", async () => {
+		const res = await POST(reqWith({ appId: "a1" }));
+		// Read the body so the response stream closes (async-leak gate).
+		await res.arrayBuffer();
+
+		expect(expandDoc).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({ attachmentTarget: null }),
+		);
+	});
+
+	it("hands the emitter the origin and project space that do", async () => {
+		vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({
+			kind: "known",
+			target: { server: "india", domain: "acme" },
+		});
+
+		const res = await POST(reqWith({ appId: "a1" }));
+		// Read the body so the response stream closes (async-leak gate).
+		await res.arrayBuffer();
+
+		expect(expandDoc).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				attachmentTarget: {
+					origin: "https://india.commcarehq.org",
+					domain: "acme",
+				},
+			}),
+		);
+	});
+
+	it("says what the file could not carry, without changing the bytes", async () => {
+		loadsDoc(docWithAttachmentLink());
+
+		const res = await POST(reqWith({ appId: "a1" }));
+		const advisories = decodeExportAdvisories(
+			res.headers.get(EXPORT_ADVISORY_HEADER),
+		);
+
+		expect(advisories[0]?.id).toBe("attachment_links_without_target");
+		expect(advisories[0]?.message).toContain("photo_url");
+		// The advisory rides beside the archive. It is not a refusal, and the
+		// bytes are exactly what a clean compile returns.
+		expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("ccz-bytes");
+		expect(res.status).toBe(200);
+	});
+
+	it("stays quiet on an app with no attachment links", async () => {
+		const res = await POST(reqWith({ appId: "a1" }));
+		const header = res.headers.get(EXPORT_ADVISORY_HEADER);
+		await res.arrayBuffer();
+
+		expect(decodeExportAdvisories(header)).toEqual([]);
 	});
 });

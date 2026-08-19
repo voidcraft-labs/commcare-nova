@@ -38,6 +38,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
 import { validationError } from "@/lib/commcare/validator/errors";
 import type { AppDoc } from "@/lib/db/types";
+import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
 import type { BlueprintDoc } from "@/lib/domain";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
@@ -68,6 +69,9 @@ vi.mock("@/lib/export/boundaryValidation", () => ({
 /* The manifest resolver reads the DB + GCS; mock it so tests pin the
  * media set. Default empty `Map` = media-free; the media-bearing json test
  * overrides with a byte-carrying asset. */
+vi.mock("@/lib/deployment/attachmentSpace", () => ({
+	attachmentDeploymentTargetFor: vi.fn(),
+}));
 vi.mock("@/lib/media/manifest", () => ({
 	resolveMediaManifest: vi.fn(),
 }));
@@ -183,11 +187,15 @@ beforeEach(() => {
 	vi.mocked(compileCcz).mockReset();
 	vi.mocked(prepareExportBoundary).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
+	vi.mocked(attachmentDeploymentTargetFor).mockReset();
 	/* Default: no media issues → the gate is transparent. Tests that
 	 * exercise the rejection path override with `mockResolvedValueOnce`. */
 	/* Default: media-free → empty manifest. The media-bearing json test
 	 * overrides with a populated `Map`. */
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
+	// No project space holds the fixture app, which is the ordinary state
+	// for a compile: an attachment link has nowhere to resolve.
+	vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({ kind: "none" });
 	vi.mocked(prepareExportBoundary).mockImplementation(
 		async (input) =>
 			({

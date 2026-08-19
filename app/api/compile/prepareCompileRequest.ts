@@ -6,6 +6,8 @@ import {
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { resolveAppAccess } from "@/lib/db/appAccess";
+import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
+import { attachmentUrlTargetFor } from "@/lib/deployment/attachmentTarget";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { PersistableDoc } from "@/lib/domain";
@@ -14,14 +16,23 @@ import {
 	type PreparedExportBoundary,
 	prepareExportBoundary,
 } from "@/lib/export/boundaryValidation";
+import type { AttachmentTargetState } from "@/lib/publish/exportAdvisories";
 
 /**
  * Everything the two CommCare export routes need once their shared front half
  * has run: the validated blueprint and its exact external-resource generation.
  * The lookup snapshot keeps its authorized Project identity because later
  * emitters must consume the generation validated here; it remains server-only.
+ *
+ * `attachmentTargetState` rides alongside the boundary's resolved
+ * `attachmentTarget` because the two answer different questions. The emitter
+ * needs the address or nothing; the person downloading the file needs to know
+ * WHY there is nothing, and "no project space holds this app yet" leaves them
+ * somewhere different than "several do".
  */
-export type PreparedCompileRequest = PreparedExportBoundary;
+export type PreparedCompileRequest = PreparedExportBoundary & {
+	readonly attachmentTargetState: AttachmentTargetState;
+};
 
 /**
  * The shared front half of the two CommCare export routes: `/api/compile`
@@ -77,6 +88,19 @@ export async function prepareCompileRequest(
 	// never leave for a device or CommCare HQ, and a stale media reference
 	// would otherwise make the media-ON `expandDoc` throw `requireAssetRef`
 	// → opaque 500.
+	// A downloadable app and an import file both have to be TOLD where their
+	// attachment links resolve — neither carries a target of its own. The
+	// app's deployment record answers when exactly one project space holds
+	// it; with none, or with several, there is no honest answer and the
+	// links are left out.
+	const scope = {
+		appId,
+		projectId: access.projectId,
+		role: access.role,
+		actorUserId: access.actorUserId,
+	};
+	const attachmentDeploymentTarget = await attachmentDeploymentTargetFor(scope);
+
 	const boundary = await prepareExportBoundary({
 		mode,
 		access: {
@@ -86,6 +110,7 @@ export async function prepareCompileRequest(
 		},
 		doc: docWithParent,
 		compiledAtSeq: app.mutation_seq,
+		attachmentTarget: attachmentUrlTargetFor(attachmentDeploymentTarget),
 	});
 	if (!boundary.ok) {
 		// The concise builder copy on the detail lines: this is a
@@ -98,5 +123,8 @@ export async function prepareCompileRequest(
 		);
 	}
 
-	return boundary.prepared;
+	return {
+		...boundary.prepared,
+		attachmentTargetState: attachmentDeploymentTarget.kind,
+	};
 }

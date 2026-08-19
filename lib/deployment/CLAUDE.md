@@ -296,6 +296,30 @@ relay re-resolves and emits the `preview-project-space` frame
 The App setup workspace's Publishing section stays not-built-yet; it
 belongs to the app-setup-UI unit.
 
+## Two things the record answers besides publishing
+
+`readDeploymentPreviewRecords` serves both from one read of four columns
+(`state`, `resume_phase`, `server`, `domain`), and both filter with the
+DISPLAY predicate `deploymentDisplaysAsReached(record, "uploaded")`: a probe
+that could not be checked did not undo the upload, and withdrawing either
+answer over it would change the app for a reason that has nothing to do with
+the app.
+
+- `previewTarget.ts` names the project space Preview resolves
+  `commcare_project` to. A slug is the whole answer, so it de-dupes on the
+  domain alone.
+- `attachmentTarget.ts` names where a capture's case-bound link resolves.
+  An origin is part of that answer, so it de-dupes on `(server, domain)` —
+  US, India, and EU can hold unrelated project spaces of the same name, and
+  picking either origin would build links that open for one set of workers
+  and nowhere for the other. Its `attachmentSpace.ts` read deliberately does
+  NOT swallow a fault the way `previewSpace.ts` does: degrading to "no
+  target" would silently drop a case write from the exported app.
+
+Both are resolution, never authority. A PUBLISH consults neither: an upload
+IS the act of putting the app on a project space, so `preflight.ts` passes
+its own `(server, domain)` straight through.
+
 ## Tenancy
 
 Keyed by `(app, Project, server, domain)`. The server is part of the key

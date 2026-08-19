@@ -71,6 +71,12 @@ import {
 	UPLOAD_MEDIATYPE_BY_CAPTURE_KIND,
 } from "@/lib/commcare/xform/captureUpload";
 import {
+	type AttachmentUrlTarget,
+	captureUrlCalculate,
+	captureUrlNodeName,
+	captureUrlNodePath,
+} from "@/lib/commcare/xform/captureUrlNode";
+import {
 	attachCaseOperationData,
 	bindLookupFilterFieldPaths,
 	buildCaseOperations,
@@ -85,6 +91,7 @@ import {
 	type BlueprintDoc,
 	type Field,
 	type FieldKind,
+	isCaptureField,
 	isCaptureFieldKind,
 	type Media,
 	makeTranslationUnitId,
@@ -418,6 +425,19 @@ export interface BuildXFormOptions {
 	 * rejects carriers before emission.
 	 */
 	lookupNaming?: LookupWireNaming;
+	/**
+	 * The CommCare HQ origin and project space a capture's case-bound URL
+	 * resolves against, when one is known.
+	 *
+	 * `undefined` means no deployment target has been resolved for this
+	 * emission, so a URL-mode capture emits its `<upload>` question and
+	 * nothing else: no address node, no bind, and no case update. There is
+	 * no placeholder origin, because a link that looks deliberate and
+	 * resolves nowhere is worse than an absent one. `buildFormActions`
+	 * drops the same writers from the same input, so the two cannot
+	 * disagree about whether the property is written.
+	 */
+	attachmentTarget?: AttachmentUrlTarget;
 }
 
 /**
@@ -651,6 +671,7 @@ export function buildXForm(
 			shorthand,
 			opts.assets,
 			lookupSelects,
+			opts.attachmentTarget,
 		);
 	}
 
@@ -871,6 +892,7 @@ function buildFieldParts(
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
+	attachmentTarget: AttachmentUrlTarget | undefined,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
@@ -1035,6 +1057,34 @@ function buildFieldParts(
 	const bindSlot = binds.length;
 	binds.push(el("bind", bindAttribs));
 
+	// A capture saving to a case in URL mode carries a second node beside
+	// it, holding the address of the submitted file. The capture question
+	// answers with a server-minted file name; the case property wants
+	// somewhere that file can be opened, and the two are different values.
+	//
+	// The node is a sibling rather than a hoisted form-root node so that a
+	// capture inside a repeat produces one address per iteration, landing in
+	// the same child-create bucket as the capture. It carries no body
+	// control: nobody answers it.
+	//
+	// `captureUrlNodePath` is shared with `formActions.ts`, which names this
+	// exact node as the case update's question path — the one place the two
+	// halves of the write agree.
+	if (
+		attachmentTarget !== undefined &&
+		isCaptureField(field) &&
+		field.caseWrite?.mode === "url"
+	) {
+		dataElements.push(el(captureUrlNodeName(field.id), {}));
+		binds.push(
+			el("bind", {
+				nodeset: captureUrlNodePath(nodePath).toXPath(),
+				type: "xsd:string",
+				calculate: captureUrlCalculate(nodePath, attachmentTarget),
+			}),
+		);
+	}
+
 	// Options (select kinds).
 	//
 	// itext ids are keyed by the option's stable array INDEX, not its `value` —
@@ -1092,6 +1142,7 @@ function buildFieldParts(
 			shorthand,
 			assets,
 			lookupSelects,
+			attachmentTarget,
 		);
 		return;
 	}
@@ -1337,6 +1388,7 @@ function buildContainer(
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
+	attachmentTarget: AttachmentUrlTarget | undefined,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -1384,6 +1436,7 @@ function buildContainer(
 			shorthand,
 			assets,
 			lookupSelects,
+			attachmentTarget,
 		);
 	}
 

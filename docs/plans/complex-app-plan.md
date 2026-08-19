@@ -1383,10 +1383,10 @@ attachment questions below and never enter this library.
 ### Attachment questions
 
 Five capture kinds — image, audio, video, signature, and file — carry a label,
-hint, `required`, and `relevant` and nothing else. `captureFieldKinds`
-(`lib/domain/fields`) is the single home for which kinds are captures; the
-reference-slot applicability groups, the case-property rejection, and the wire
-emitter all read it. Each emits `<upload ref mediatype>` over a `<bind
+hint, `required`, `relevant`, and a `caseWrite` of their own.
+`captureFieldKinds` (`lib/domain/fields`) is the single home for which kinds
+are captures; the reference-slot applicability groups, the capture-only
+destination shape, and the wire emitter all read it. Each emits `<upload ref mediatype>` over a `<bind
 type="binary">` and nothing else — no suite entry, no app-level declaration
 (fixture: `form_preparation_v2/attachment.xml`).
 
@@ -1440,11 +1440,35 @@ cloudcare — `entry_file.html` binds only `accept` on its file input, and
 signature is the OS file picker. CommCare Android is the contrast, and that
 contrast is a docs fact rather than a Nova behavior.
 
-`lib/commcare/validator/rules/form.ts` rejects a capture kind carrying
-`caseWrite` (`MEDIA_CASE_PROPERTY`), and `formActions.ts` skips capture
-kinds when building the case-update map. Writing a capture onto the case is
-inseparable from emitting its URL column, so the two ship together (the
-attachment-emission-and-link-ux unit).
+**A capture's `caseWrite` carries a required `mode`, and the case update names
+a node the capture question is not.** A capture's answer is the submitted
+file's name, so the answer can never BE the case value; `mode` says what is
+written instead, and `"url"` is the only member — a link to the file, built as
+`if(<capture> = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/',
+/data/meta/instanceID, '/', <capture>))` on a SIBLING node
+(`lib/commcare/xform/captureUrlNode.ts`), which `formActions.ts` then names as
+the update's `question_path`.
+
+That indirection is the unit's whole reason for existing.
+`xform.py::CaseBlock.add_case_updates` routes an update into an `<attachment>`
+block whenever its question path has an `<upload ref>` in the body
+(`::is_attachment`) and consults no toggle, while
+`update_strategy.py::_apply_attachments_action` drops that block on any domain
+without the deprecated `MM_CASE_PROPERTIES`. Pointing the property at the
+capture question therefore writes nothing, silently, on a stock project space.
+
+The origin and project space arrive already resolved from the app's deployment
+record (`lib/deployment/attachmentTarget.ts`, de-duped on `(server, domain)`
+because the three CommCare installations can hold same-named project spaces);
+a publish uses its own target authoritatively. With no single answer the node,
+the bind, and the case update are all withheld, and the download says so
+through `lib/publish/exportAdvisories.ts`. An attachment is refused
+`case_name` and `external_id`, which reach the wire through their own
+FormActions slots and would point back at the capture question.
+
+Rendering that link AS a link in a case list is what remains (the
+attachment-emission-and-link-ux unit), along with the opt-in
+`MM_CASE_PROPERTIES` attachment mode.
 
 ### Attachments a worker captures
 

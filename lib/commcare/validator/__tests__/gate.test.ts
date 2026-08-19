@@ -198,7 +198,6 @@ describe("classification table", () => {
 		expect(byClass.get("shape")?.sort()).toEqual([
 			"CALCULATE_ON_VISIBLE_INPUT",
 			"INVALID_POST_SUBMIT",
-			"MEDIA_CASE_PROPERTY",
 			"REQUIRED_ON_HIDDEN",
 			"SELECT_NO_OPTIONS",
 			"VALIDATION_ON_NON_INPUT_KIND",
@@ -206,8 +205,8 @@ describe("classification table", () => {
 		expect(byClass.get("completeness")).toHaveLength(6);
 		expect(byClass.get("environment")).toHaveLength(9);
 		expect(byClass.get("oracle")).toHaveLength(101);
-		expect(byClass.get("shape")).toHaveLength(6);
-		expect(byClass.get("soundness")).toHaveLength(164);
+		expect(byClass.get("shape")).toHaveLength(5);
+		expect(byClass.get("soundness")).toHaveLength(165);
 		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(286);
 	});
 

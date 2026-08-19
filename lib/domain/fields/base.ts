@@ -130,6 +130,38 @@ export const caseWriteSchema = z
 	.strict();
 
 /**
+ * How a capture field's answer reaches the case.
+ *
+ * The mode is a required member of the destination rather than a slot
+ * beside it, so a destination with no mode is unrepresentable — the two
+ * are one decision. `url` writes a text property holding the CommCare HQ
+ * address of the submitted file, built from the submission's own
+ * `meta/instanceID` plus the attachment name, so it needs a known
+ * deployment target to resolve an origin and a domain.
+ *
+ * The mode also decides which node the case block reads, which is why it
+ * cannot be inferred later. CommCare HQ chooses `<attachment>` over
+ * `<update>` purely structurally — if the emitted question path has an
+ * `<upload ref>` in the body it becomes an attachment block, with no
+ * toggle consulted (`app_manager/xform.py::CaseBlock.add_case_updates`,
+ * `::is_attachment`). So URL mode never points at the capture question
+ * itself; it points at the node carrying the address.
+ */
+export const CAPTURE_CASE_WRITE_MODES = ["url"] as const;
+
+export type CaptureCaseWriteMode = (typeof CAPTURE_CASE_WRITE_MODES)[number];
+
+export interface CaptureCaseWrite extends CaseWrite {
+	mode: CaptureCaseWriteMode;
+}
+
+export const captureCaseWriteSchema = caseWriteSchema
+	.extend({
+		mode: z.enum(CAPTURE_CASE_WRITE_MODES),
+	})
+	.strict();
+
+/**
  * Input-capable fields additionally carry hint / required / relevant
  * / case wiring, plus a text + media pair per secondary message slot.
  *

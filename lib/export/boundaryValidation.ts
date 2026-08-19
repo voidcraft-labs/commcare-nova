@@ -29,6 +29,7 @@ import {
 	validationError,
 } from "@/lib/commcare/validator/errors";
 import { evaluateBoundary } from "@/lib/commcare/validator/gate";
+import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import type { ProjectAccess } from "@/lib/db/appAccess";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { collectLookupCarriers } from "@/lib/doc/lookupCarrierInventory";
@@ -73,6 +74,18 @@ export interface PrepareExportBoundaryInput {
 	/** Hydrated blueprint from the same app load as `compiledAtSeq`. */
 	readonly doc: BlueprintDoc;
 	readonly compiledAtSeq: number;
+	/**
+	 * Where this export's attachment links resolve, already decided by the
+	 * caller.
+	 *
+	 * Resolved rather than looked up here for the same reason the lookup
+	 * snapshot is read exactly once: the boundary consumes one generation of
+	 * external state and never asks a second time. A direct HQ upload knows
+	 * its own target authoritatively; a downloadable app or import file
+	 * resolves the app's deployment record, and `null` when that record names
+	 * no project space, or more than one.
+	 */
+	readonly attachmentTarget: AttachmentUrlTarget | null;
 }
 
 /**
@@ -97,6 +110,8 @@ export interface PreparedExportBoundary {
 	 * no table.
 	 */
 	readonly lookupWire?: PreparedLookupWire;
+	/** The target the emitters build attachment links against, or `null`. */
+	readonly attachmentTarget: AttachmentUrlTarget | null;
 }
 
 export type PrepareExportBoundaryResult =
@@ -439,6 +454,7 @@ async function prepareWithRegistry(
 			lookupSnapshot,
 			lookupContext,
 			...(lookupWire !== undefined && { lookupWire }),
+			attachmentTarget: input.attachmentTarget,
 		},
 	};
 }

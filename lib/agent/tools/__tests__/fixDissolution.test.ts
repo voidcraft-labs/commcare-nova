@@ -15,9 +15,10 @@ import { proseText } from "@/lib/domain/prose";
  *     CLOSE_CONDITION_INCOMPLETE, CLOSE_CONDITION_FIELD_NOT_FOUND,
  *     UNKNOWN_FUNCTION, WRONG_ARITY, CASE_PROPERTY_BAD_FORMAT;
  *   - codes already unrepresentable through construction (shape):
- *     MEDIA_CASE_PROPERTY (no `caseWrite` slot on media kinds —
- *     pinned on the add arm, the edit arm, AND the strict domain
- *     schema), SELECT_NO_OPTIONS (domain schema `.min(2)`; the UI
+ *     an attachment case destination with no `mode` (pinned on the add
+ *     arm, the edit arm, AND the strict domain schema, together with
+ *     the inverse fence that a non-attachment kind carries no mode),
+ *     SELECT_NO_OPTIONS (domain schema `.min(2)`; the UI
  *     picker seeds two starter options; the SA add path fails
  *     assembly);
  *   - INVALID_FIELD_ID — rejected at source by the shared identifier
@@ -305,21 +306,20 @@ describe("RESERVED_CASE_PROPERTY — rejected at the introducing commit", () => 
 	});
 });
 
-// ── MEDIA_CASE_PROPERTY (shape — unrepresentable) ───────────────────
+// ── A mode-less attachment destination (shape — unrepresentable) ────
 
-describe("MEDIA_CASE_PROPERTY — no construction surface can express it", () => {
-	it("the per-kind add arm carries no caseWrite slot on media kinds", () => {
+describe("an attachment destination without a mode — no construction surface can express it", () => {
+	it("the add arm refuses a capture destination with no mode", () => {
 		const parsed = addFieldsItemSchema.safeParse({
 			kind: "image",
 			id: "photo",
 			label: proseText("Photo"),
 			caseWrite: { caseType: "patient", property: "photo" },
 		});
-		// `.strict()` arms reject the unknown key outright.
 		expect(parsed.success).toBe(false);
 	});
 
-	it("the per-kind edit arm carries no caseWrite slot on media kinds", () => {
+	it("the edit arm refuses a capture destination with no mode", () => {
 		const parsed = editFieldUpdatesSchema.safeParse({
 			kind: "image",
 			caseWrite: { caseType: "patient", property: "photo" },
@@ -327,7 +327,7 @@ describe("MEDIA_CASE_PROPERTY — no construction surface can express it", () =>
 		expect(parsed.success).toBe(false);
 	});
 
-	it("the strict domain schema rejects a media field carrying caseWrite", () => {
+	it("the strict domain schema refuses a capture destination with no mode", () => {
 		// The reducers' `safeParse` and the auto-save's `blueprintDocSchema`
 		// both run this schema — the chokepoint behind every surface.
 		const parsed = fieldSchema.safeParse({
@@ -338,6 +338,55 @@ describe("MEDIA_CASE_PROPERTY — no construction surface can express it", () =>
 			caseWrite: { caseType: "patient", property: "photo" },
 		});
 		expect(parsed.success).toBe(false);
+	});
+
+	it("every surface admits the same destination once it names a mode", () => {
+		expect(
+			addFieldsItemSchema.safeParse({
+				kind: "image",
+				id: "photo",
+				label: proseText("Photo"),
+				caseWrite: { caseType: "patient", property: "photo", mode: "url" },
+			}).success,
+		).toBe(true);
+		expect(
+			editFieldUpdatesSchema.safeParse({
+				kind: "image",
+				caseWrite: { caseType: "patient", property: "photo", mode: "url" },
+			}).success,
+		).toBe(true);
+		expect(
+			fieldSchema.safeParse({
+				uuid: "00000000-0000-4000-8000-000000000001",
+				kind: "image",
+				id: "photo",
+				label: proseText("Photo"),
+				caseWrite: { caseType: "patient", property: "photo", mode: "url" },
+			}).success,
+		).toBe(true);
+	});
+
+	it("a mode is refused on a kind whose answer IS the case value", () => {
+		// The inverse fence: `mode` is a decision only a file forces, so a
+		// text field carrying one is a caller that misread the contract, not
+		// a slot to ignore.
+		expect(
+			addFieldsItemSchema.safeParse({
+				kind: "text",
+				id: "nickname",
+				label: proseText("Nickname"),
+				caseWrite: { caseType: "patient", property: "nickname", mode: "url" },
+			}).success,
+		).toBe(false);
+		expect(
+			fieldSchema.safeParse({
+				uuid: "00000000-0000-4000-8000-000000000002",
+				kind: "text",
+				id: "nickname",
+				label: proseText("Nickname"),
+				caseWrite: { caseType: "patient", property: "nickname", mode: "url" },
+			}).success,
+		).toBe(false);
 	});
 });
 

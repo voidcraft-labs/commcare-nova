@@ -7,6 +7,11 @@ import {
 	HQ_FEATURE_FLAG_REPORT_HEADER,
 } from "@/lib/commcare/featureFlags";
 import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
+import {
+	EXPORT_ADVISORY_HEADER,
+	encodeExportAdvisories,
+	exportAdvisories,
+} from "@/lib/publish/exportAdvisories";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 import { prepareCompileRequest } from "../prepareCompileRequest";
 
@@ -27,7 +32,13 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
  */
 export async function POST(req: NextRequest) {
 	try {
-		const { doc, assets, compiledAtSeq } = await prepareCompileRequest(req, {
+		const {
+			doc,
+			assets,
+			compiledAtSeq,
+			attachmentTarget,
+			attachmentTargetState,
+		} = await prepareCompileRequest(req, {
 			boundaryErrorVerb: "export",
 			mode: "hq-json",
 		});
@@ -36,7 +47,10 @@ export async function POST(req: NextRequest) {
 		// media-free app expands media-OFF so its JSON stays byte-identical to
 		// the pre-media output.
 		const hasMedia = assets.size > 0;
-		const hqJson = expandDoc(doc, hasMedia ? { assets } : {});
+		const hqJson = expandDoc(
+			doc,
+			hasMedia ? { assets, attachmentTarget } : { attachmentTarget },
+		);
 		// ASCII-safe name for the `Content-Disposition` HEADER (a Latin-1
 		// ByteString: non-ASCII would throw in the `Headers` constructor). The
 		// ZIP's internal member name is sanitized separately inside the builder
@@ -45,6 +59,11 @@ export async function POST(req: NextRequest) {
 		const appName = sanitizeFilename(doc.appName);
 		const featureFlagReport = featureFlagReportForDownload(doc);
 		const featureFlagHeader = encodeHqFeatureFlagReport(featureFlagReport);
+		// The import file is complete and correct; the advisories say what it
+		// could not carry, so they ride beside it rather than replacing it.
+		const advisoryHeader = encodeExportAdvisories(
+			exportAdvisories(doc, attachmentTargetState),
+		);
 
 		// The HQ-import body (plain JSON, or the zip bundle) stays byte-identical:
 		// it's the artifact the user hands to HQ, and HQ's importer owns its
@@ -59,6 +78,7 @@ export async function POST(req: NextRequest) {
 					"Content-Disposition": `attachment; filename="${appName}.json"`,
 					"X-Compiled-At-Seq": String(compiledAtSeq),
 					[HQ_FEATURE_FLAG_REPORT_HEADER]: featureFlagHeader,
+					[EXPORT_ADVISORY_HEADER]: advisoryHeader,
 				},
 			});
 		}
@@ -73,6 +93,7 @@ export async function POST(req: NextRequest) {
 				"Content-Disposition": `attachment; filename="${appName}.zip"`,
 				"X-Compiled-At-Seq": String(compiledAtSeq),
 				[HQ_FEATURE_FLAG_REPORT_HEADER]: featureFlagHeader,
+				[EXPORT_ADVISORY_HEADER]: advisoryHeader,
 			},
 		});
 	} catch (err) {

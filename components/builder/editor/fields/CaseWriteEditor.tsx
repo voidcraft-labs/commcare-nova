@@ -48,14 +48,26 @@ import {
 	useProseProjection,
 } from "@/lib/doc/hooks/useProseProjection";
 import {
+	type AuthoredCasePropertyName,
 	authoredCasePropertyNameSchema,
+	type CaptureCaseWrite,
 	type CaseProperty,
 	type CaseType,
 	type CaseWrite,
 	type Field,
 	getModuleCaseTypes,
 	humanizeId,
+	isCaptureField,
 } from "@/lib/domain";
+
+/**
+ * Either destination shape a field's schema may carry.
+ *
+ * The capture kinds extend the pair with a `mode` naming what reaches the
+ * case, because their answer is a file name rather than the value itself.
+ */
+type AuthoredCaseWrite = CaseWrite | CaptureCaseWrite;
+
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
 
@@ -69,7 +81,7 @@ interface CaseWriteChoice {
 	readonly detailIsRef?: boolean;
 	readonly searchText: string;
 	readonly kind: "clear" | "destination" | "new";
-	readonly caseWrite?: CaseWrite;
+	readonly caseWrite?: AuthoredCaseWrite;
 	readonly disabledReason?: string;
 }
 
@@ -89,6 +101,7 @@ function typeLabel(caseType: string): string {
 function propertyChoice(
 	caseType: CaseType,
 	property: CaseProperty,
+	caseWrite: AuthoredCaseWrite,
 	verdict: CaseWriteChoiceVerdict,
 	project: ProseProjector,
 ): CaseWriteChoice {
@@ -101,7 +114,7 @@ function propertyChoice(
 		detailIsRef: verdict.ok,
 		searchText: `${caseType.name} ${property.name} ${label}`,
 		kind: "destination",
-		caseWrite: { caseType: caseType.name, property: property.name },
+		caseWrite,
 		...(!verdict.ok && { disabledReason: verdict.reason }),
 	};
 }
@@ -135,8 +148,38 @@ export function CaseWriteEditor<F extends Field>(
 
 	const current =
 		typeof value === "object" && value !== null
-			? (value as unknown as CaseWrite)
+			? (value as unknown as AuthoredCaseWrite)
 			: undefined;
+	/**
+	 * Whether this field's answer is a file rather than the value itself.
+	 *
+	 * What a capture puts in the case is a link, and the link's address comes
+	 * from the CommCare HQ project space the app was published to. That is a
+	 * fact about the destination, not a reason it cannot be chosen, so it is
+	 * stated here rather than raised as a finding: every one of these
+	 * destinations is admissible, and the commit gate the verdicts run
+	 * through only ever reports states the document itself is in.
+	 */
+	const savesAttachment = isCaptureField(field);
+	/**
+	 * The destination shape this field's schema takes.
+	 *
+	 * An attachment's answer is a file name, so its destination also says
+	 * what reaches the case. `url` is the only thing Nova can put there
+	 * today — a link to the attached file — so the author picks a property
+	 * and the mode follows, rather than being asked a question with one
+	 * answer.
+	 */
+	const destinationFor = useCallback(
+		(
+			caseType: string,
+			property: AuthoredCasePropertyName,
+		): AuthoredCaseWrite =>
+			isCaptureField(field)
+				? { caseType, property, mode: "url" }
+				: { caseType, property },
+		[field],
+	);
 	const writableTypeNames = useMemo(
 		() =>
 			context === null
@@ -171,14 +214,12 @@ export function CaseWriteEditor<F extends Field>(
 		];
 		for (const caseType of writableTypes) {
 			for (const property of caseType.properties) {
-				const caseWrite: CaseWrite = {
-					caseType: caseType.name,
-					property: property.name,
-				};
+				const caseWrite = destinationFor(caseType.name, property.name);
 				result.push(
 					propertyChoice(
 						caseType,
 						property,
+						caseWrite,
 						choiceVerdict(caseWrite),
 						projectProse,
 					),
@@ -196,7 +237,13 @@ export function CaseWriteEditor<F extends Field>(
 			});
 		}
 		return result;
-	}, [choiceVerdict, clearVerdict, projectProse, writableTypes]);
+	}, [
+		choiceVerdict,
+		clearVerdict,
+		destinationFor,
+		projectProse,
+		writableTypes,
+	]);
 	const groups = useMemo<readonly CaseWriteChoiceGroup[]>(() => {
 		const order: string[] = [];
 		const byGroup = new Map<string, CaseWriteChoice[]>();
@@ -218,7 +265,7 @@ export function CaseWriteEditor<F extends Field>(
 	const selected = choices.find((choice) => choice.id === selectedId) ?? null;
 
 	const commit = useCallback(
-		(next: CaseWrite | undefined) => {
+		(next: AuthoredCaseWrite | undefined) => {
 			const outcome = onChange(next as F["caseWrite" & keyof F]);
 			setRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
 			return outcome.ok;
@@ -242,10 +289,7 @@ export function CaseWriteEditor<F extends Field>(
 	const parsedNewName = authoredCasePropertyNameSchema.safeParse(newName);
 	const newChoiceVerdict =
 		parsedNewName.success && newCaseType !== ""
-			? choiceVerdict({
-					caseType: newCaseType,
-					property: parsedNewName.data,
-				})
+			? choiceVerdict(destinationFor(newCaseType, parsedNewName.data))
 			: null;
 	const newChoiceError =
 		newChoiceVerdict !== null && !newChoiceVerdict.ok
@@ -358,7 +402,9 @@ export function CaseWriteEditor<F extends Field>(
 							Choose case information
 						</h3>
 						<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-							The question name and saved case property are independent
+							{savesAttachment
+								? "Saves a link to the attached file, not the file itself"
+								: "The question name and saved case property are independent"}
 						</p>
 					</header>
 					<div className="border-y border-white/[0.06] pb-2">
@@ -443,6 +489,13 @@ export function CaseWriteEditor<F extends Field>(
 				</p>
 			)}
 
+			{savesAttachment && current !== undefined && (
+				<p className="text-[13px] leading-5 text-nova-text-muted">
+					Nova fills this link in once the app reaches a CommCare project space,
+					so it stays empty in the preview and in a download made before then.
+				</p>
+			)}
+
 			{creating && (
 				<div className="space-y-3 rounded-lg border border-white/[0.06] bg-nova-deep/35 p-3">
 					<div>
@@ -492,12 +545,7 @@ export function CaseWriteEditor<F extends Field>(
 							onKeyDown={(event) => {
 								if (event.key === "Enter" && canCreate) {
 									event.preventDefault();
-									if (
-										commit({
-											caseType: newCaseType,
-											property: parsedNewName.data,
-										})
-									) {
+									if (commit(destinationFor(newCaseType, parsedNewName.data))) {
 										setCreating(false);
 									}
 								}
@@ -549,12 +597,7 @@ export function CaseWriteEditor<F extends Field>(
 							disabled={!canCreate}
 							onClick={() => {
 								if (!parsedNewName.success) return;
-								if (
-									commit({
-										caseType: newCaseType,
-										property: parsedNewName.data,
-									})
-								) {
+								if (commit(destinationFor(newCaseType, parsedNewName.data))) {
 									setCreating(false);
 								}
 							}}

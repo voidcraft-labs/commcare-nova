@@ -11,9 +11,11 @@ import {
 	caseWriteAdmissionIssues,
 } from "@/lib/commcare/caseWriteAdmission";
 import { buildFormActions } from "@/lib/commcare/formActions";
+import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	type CaptureCaseWrite,
 	type CaseWrite,
 	caseWriteSchema,
 	deriveCaseWriteInventory,
@@ -917,4 +919,236 @@ describe("canonical case-write surface parity", () => {
 			}),
 		).toThrow(/invalid element name "bad-id"/);
 	});
+});
+/**
+ * A capture writer is the one destination whose wire spelling is not the
+ * field's own node, so the surfaces have a fresh way to disagree: the
+ * validator could admit it, the emitter could point at the upload, and
+ * Preview could invent an address none of them can resolve. This block
+ * holds all three to the same answer.
+ */
+describe("capture case-write surface parity", () => {
+	const CAPTURE_CASE_TYPES = [
+		{
+			name: "patient",
+			properties: [
+				{ name: "case_name", label: proseText("Name") },
+				{ name: "photo_url", label: proseText("Photo") },
+			],
+		},
+	];
+
+	const TARGET: AttachmentUrlTarget = {
+		origin: "https://www.commcarehq.org",
+		domain: "demo-project",
+	};
+
+	function captureFixture(caseWrite?: CaptureCaseWrite) {
+		const doc = buildDoc({
+			appName: "Capture case-write parity",
+			caseTypes: CAPTURE_CASE_TYPES,
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "image",
+									id: "photo",
+									label: proseText("Photo"),
+									...(caseWrite !== undefined && { caseWrite }),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const field = Object.values(doc.fields).find(
+			(candidate) => candidate.id === "photo",
+		);
+		if (field === undefined)
+			throw new Error("capture fixture writer is missing");
+		const inventory = deriveCaseWriteInventory(
+			doc,
+			formUuid,
+			{ caseType: "patient" },
+			"followup",
+		);
+		const engine = new FormEngine(
+			{
+				form: doc.forms[formUuid],
+				formUuid,
+				fields: doc.fields,
+				fieldOrder: doc.fieldOrder,
+				caseTypes: CAPTURE_CASE_TYPES,
+			},
+			"patient",
+		);
+		// The answer a capture carries is the submitted file's name, which is
+		// also the last segment of the address the case property stores.
+		engine.setValue("/data/photo", "24b0f1e8-6f66-4a2e-9f2f-9a5b0c1d2e3f.jpg");
+		return { doc, moduleUuid, formUuid, field, inventory, engine };
+	}
+
+	it("admits a capture saving to its own property across builder, SA, and MCP", async () => {
+		const caseWrite: CaptureCaseWrite = {
+			caseType: "patient",
+			property: "photo_url",
+			mode: "url",
+		};
+		const built = captureFixture(caseWrite);
+		expect(caseWriteAdmissionIssues(built.inventory)).toEqual([]);
+		expect(
+			runValidation(built.doc, LOOKUP_CONTEXT_UNAVAILABLE)
+				.map((finding) => finding.code)
+				.filter(
+					(code) =>
+						code.startsWith("CASE_WRITE_") || code.startsWith("CAPTURE_"),
+				),
+		).toEqual([]);
+
+		const unset = captureFixture();
+		expect(
+			caseWriteChoiceVerdict(
+				unset.doc,
+				unset.field,
+				caseWrite,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
+		).toEqual({ ok: true });
+
+		const input = {
+			moduleUuid: unset.moduleUuid,
+			formUuid: unset.formUuid,
+			fieldUuid: unset.field.uuid,
+			updates: { kind: "image" as const, caseWrite },
+		};
+		expect(editFieldTool.inputSchema.safeParse(input).success).toBe(true);
+
+		const sa = await makeToolWorkspaceHarness(unset.doc).runTool(
+			editFieldTool,
+			input,
+		);
+		expect("message" in sa.result).toBe(true);
+
+		const mcp = await new CanonicalMutationWorkspace({
+			host: makeMcpTestContext({ initialDoc: unset.doc }).ctx,
+			initialDoc: unset.doc,
+		}).invoke({
+			toolName: "edit_field",
+			execute: (invocationCtx) =>
+				editFieldTool.execute(input as never, invocationCtx),
+		});
+		expect("message" in mcp.result).toBe(true);
+	});
+
+	it("names the address node on the wire and writes nothing in Preview", () => {
+		const built = captureFixture({
+			caseType: "patient",
+			property: "photo_url",
+			mode: "url",
+		});
+
+		expect(
+			buildFormActions(built.doc, built.formUuid, "patient", TARGET).update_case
+				.update.photo_url,
+		).toEqual({
+			question_path: "/data/__nova_url_photo",
+			update_mode: "always",
+		});
+		// No CommCare HQ project space holds this app, so there is no origin to
+		// build an address from and the property is left unwritten rather than
+		// written against a guess.
+		expect(
+			buildFormActions(built.doc, built.formUuid, "patient").update_case.update
+				.photo_url,
+		).toBeUndefined();
+
+		// Preview runs on Nova's own case rows, where the submission the
+		// address would name does not exist. It declines to invent one.
+		const mutation = built.engine.computeSubmissionMutation({
+			caseId: "patient-1",
+			entryKey: "11111111-1111-4111-8111-111111111111",
+		});
+		expect(mutation.kind).toBe("followup");
+		if (mutation.kind !== "followup") return;
+		expect(mutation.patch).toEqual({ properties: {} });
+	});
+
+	it.each([...WRITABLE_STANDARD_CASE_PROPERTIES])(
+		"rejects a capture aimed at the standard property %s across every surface",
+		async (property) => {
+			const caseWrite: CaptureCaseWrite = {
+				caseType: "patient",
+				property,
+				mode: "url",
+			};
+			const built = captureFixture(caseWrite);
+
+			expect(caseWriteAdmissionIssues(built.inventory)).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						kind: "capture-standard-property",
+						writer: expect.objectContaining({ property }),
+					}),
+				]),
+			);
+			expect(
+				runValidation(built.doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+					(finding) => finding.code,
+				),
+			).toContain("CAPTURE_CASE_WRITE_STANDARD_PROPERTY");
+			expect(() =>
+				buildFormActions(built.doc, built.formUuid, "patient", TARGET),
+			).toThrow();
+			expect(() =>
+				built.engine.computeSubmissionMutation({
+					caseId: "patient-1",
+					entryKey: "11111111-1111-4111-8111-111111111111",
+				}),
+			).toThrow();
+
+			const unset = captureFixture();
+			expect(
+				caseWriteChoiceVerdict(
+					unset.doc,
+					unset.field,
+					caseWrite,
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				).ok,
+			).toBe(false);
+
+			const input = {
+				moduleUuid: unset.moduleUuid,
+				formUuid: unset.formUuid,
+				fieldUuid: unset.field.uuid,
+				updates: { kind: "image" as const, caseWrite },
+			};
+			const sa = await makeToolWorkspaceHarness(unset.doc).runTool(
+				editFieldTool,
+				input,
+			);
+			expect("error" in sa.result, `SA accepted ${property}`).toBe(true);
+
+			const mcp = await new CanonicalMutationWorkspace({
+				host: makeMcpTestContext({ initialDoc: unset.doc }).ctx,
+				initialDoc: unset.doc,
+			}).invoke({
+				toolName: "edit_field",
+				execute: (invocationCtx) =>
+					editFieldTool.execute(input as never, invocationCtx),
+			});
+			expect("error" in mcp.result, `MCP accepted ${property}`).toBe(true);
+		},
+	);
 });

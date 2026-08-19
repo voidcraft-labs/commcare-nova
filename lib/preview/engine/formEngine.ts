@@ -192,6 +192,40 @@ function retainSelection(
 	return joined === value ? value : joined;
 }
 
+/**
+ * Strip every attachment writer from an admitted inventory.
+ *
+ * Preview's own rule, applied after admission rather than inside it: the
+ * document is genuinely valid and the device genuinely writes these
+ * properties. What preview lacks is the CommCare HQ submission the address
+ * would point at, so it declines to invent one. Keeping this out of
+ * `assertAndProjectCaseWriteInventory` matters — that projection is what
+ * the wire emitters consume, and they must keep seeing every writer.
+ */
+function dropCaptureWriters(
+	projected: ProjectedCaseWriteInventory,
+): ProjectedCaseWriteInventory {
+	const isCapture = (writer: { readonly writer: CaseWriteField }) =>
+		isCaptureFieldKind(writer.writer.fieldKind);
+	if (!projected.buckets.some((bucket) => bucket.writers.some(isCapture))) {
+		return projected;
+	}
+	const writerByUuid = new Map(projected.writerByUuid);
+	for (const bucket of projected.buckets) {
+		for (const writer of bucket.writers) {
+			if (isCapture(writer)) writerByUuid.delete(writer.writer.fieldUuid);
+		}
+	}
+	return {
+		inventory: projected.inventory,
+		buckets: projected.buckets.map((bucket) => ({
+			...bucket,
+			writers: bucket.writers.filter((writer) => !isCapture(writer)),
+		})),
+		writerByUuid,
+	};
+}
+
 export class FormEngine {
 	/** Zustand store holding per-path FieldState. Components subscribe
 	 *  via `useStore(engine.store, s => s[path])` for surgical reactivity. */
@@ -863,6 +897,18 @@ export class FormEngine {
 	 * Derive and admit case writes through the same path-aware inventory used
 	 * by validation and wire emission. Preview never re-interprets field ids as
 	 * case properties and never invents child membership independently.
+	 *
+	 * An attachment's destination is dropped, and this is the one place
+	 * Preview deliberately writes LESS than the device. The address a URL
+	 * mode property carries is
+	 * `<origin>/a/<domain>/api/form_attachment/v1/<instance id>/<name>`, and
+	 * a preview submission has no CommCare HQ instance behind any of it: the
+	 * bytes live in Nova's own submission-scoped lane, `meta/instanceID`
+	 * names no form on any project space, and the endpoint would resolve to
+	 * nothing whatever origin preceded it. Writing a plausible-looking
+	 * address would put a broken link in real case data and make an author
+	 * believe the column works. So the property stays unwritten and a column
+	 * over it reads empty — which is the truth about what preview knows.
 	 */
 	private projectedCaseWrites(): ProjectedCaseWriteInventory {
 		const inventory = deriveCaseWriteInventory(
@@ -871,7 +917,7 @@ export class FormEngine {
 			{ caseType: this.moduleCaseType },
 			this.formType,
 		);
-		return assertAndProjectCaseWriteInventory(inventory);
+		return dropCaptureWriters(assertAndProjectCaseWriteInventory(inventory));
 	}
 
 	private primaryCaseWritesByField(

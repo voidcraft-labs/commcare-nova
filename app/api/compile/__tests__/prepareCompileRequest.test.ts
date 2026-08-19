@@ -18,6 +18,7 @@ import { ApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
+import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
 import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
@@ -29,6 +30,9 @@ vi.mock("@/lib/export/boundaryValidation", () => ({
 	prepareExportBoundary: vi.fn(),
 }));
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
+vi.mock("@/lib/deployment/attachmentSpace", () => ({
+	attachmentDeploymentTargetFor: vi.fn(),
+}));
 
 const SESSION = { user: { id: "u1" } };
 
@@ -89,6 +93,9 @@ function loadsDoc(doc: ReturnType<typeof validDoc>, mutationSeq = 7) {
 beforeEach(() => {
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
+	// No project space holds the fixture app, which is the ordinary state
+	// for a download: an attachment link has nowhere to resolve.
+	vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({ kind: "none" });
 	vi.mocked(prepareExportBoundary).mockImplementation(
 		async (input) =>
 			({

@@ -200,10 +200,10 @@ const VALIDATED_INPUT_KINDS = [
 	"secret",
 ] as const satisfies readonly FieldKind[];
 
-/** Binary capture kinds — label + hint + required + relevant only
- *  (no help, no case wiring, no validation, no default). Aliases the
- *  domain's `captureFieldKinds`; the audit test proves the group exact
- *  against the per-kind schemas. */
+/** Binary capture kinds — label + hint + required + relevant plus the
+ *  capture case-write destination (no help, no validation, no default).
+ *  Aliases the domain's `captureFieldKinds`; the audit test proves the
+ *  group exact against the per-kind schemas. */
 const CAPTURE_KINDS = captureFieldKinds;
 
 const SELECT_KINDS = [
@@ -374,14 +374,19 @@ export const FIELD_REFERENCE_SLOTS = [
 		// One half of the field's explicit case-storage destination.
 		// The sibling `caseWrite.property` is registered independently as
 		// the name-backed property identity on that case type.
-		appliesTo: [...INPUT_KINDS, "hidden"],
+		//
+		// Capture kinds belong here even though their destination carries
+		// an extra `mode` member: the reference leaves are the same two
+		// paths, and leaving them out would make an app-wide property
+		// rename silently miss every capture writer.
+		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS, "hidden"],
 	},
 	{
 		entity: "field",
 		slot: "case_write_property",
 		path: "caseWrite.property",
 		kind: "case-property-ref",
-		appliesTo: [...INPUT_KINDS, "hidden"],
+		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS, "hidden"],
 	},
 ] as const satisfies readonly FieldReferenceSlot[];
 
@@ -943,6 +948,7 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	hint_media: "media",
 	help_media: "media",
 	validate_msg_media: "media",
+	"caseWrite.mode": "discriminator",
 	"optionsSource.options[].uuid": "identity",
 	"optionsSource.options[].value": "data-literal",
 	"optionsSource.options[].media": "media",

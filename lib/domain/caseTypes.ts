@@ -23,11 +23,15 @@ import type { XPathPrintableDoc } from "./xpath/print";
  * field kind whose semantic data type isn't already covered cascades
  * to this table; no other surface may hold a parallel mapping.
  *
- * Returns `undefined` for kinds that don't pin a value type:
- * `hidden` — the calculate expression's output type drives the
- * property's actual data type, which is a separate type-checker
- * concern — and the structural / media / display kinds, whose schemas
- * carry no `caseWrite` slot at all. `barcode` and `secret`
+ * Returns `undefined` for kinds that don't pin a value type, whether or
+ * not they can write a case. `hidden` writes one, and its calculate
+ * expression's output type drives the property's actual data type — a
+ * separate type-checker concern. The capture kinds write one too, and what
+ * lands there depends on the destination's mode rather than the kind, so
+ * the kind alone cannot answer. Both stamp an untyped catalog entry, which
+ * `effectiveDataType` reads as text. The structural and display kinds
+ * return `undefined` because they carry no `caseWrite` slot at all.
+ * `barcode` and `secret`
  * map to `text` because they're text-shaped at the wire layer despite
  * carrying a separate authoring kind; coercion paths (e.g. `text`
  * field → `int` property) are deliberately not expressed.

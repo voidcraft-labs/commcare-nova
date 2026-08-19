@@ -501,8 +501,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(formName(e))} has more than one field naming the same new ${q(det(e, "caseType", "case"))} case. Keep one "case_name" writer and change or clear the others.`,
 	RESERVED_CASE_PROPERTY: (e) =>
 		`${q(formName(e))} has a field that saves to ${q(det(e, "reservedName", "a reserved name"))}, which is a reserved name. Have it save somewhere else.`,
-	MEDIA_CASE_PROPERTY: (e) =>
-		`${q(formName(e))} is trying to save an attachment question to the case. Photos, audio, video, signatures, and files can't be saved as case data, so don't have that field save to the case.`,
+	CAPTURE_CASE_WRITE_STANDARD_PROPERTY: (e) =>
+		`${q(formName(e))} saves an attachment question to ${q(det(e, "property", "a standard property"))}, which CommCare keeps as the case's own ${det(e, "property", "") === "external_id" ? "external id" : "name"}. Save the attachment to a property of its own instead.`,
 	FORM_TOO_MANY_ATTACHMENTS: (e) =>
 		`${q(formName(e))} asks for ${det(e, "captureCount", "too many")} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form, a worker who answered them all couldn't submit. Split this into more than one form, or remove some attachment questions.`,
 	CLOSE_CONDITION_WRONG_TYPE: (e) =>

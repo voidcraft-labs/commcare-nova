@@ -471,7 +471,7 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 // + `label_media` but no help/required/validate message slots, the
 // label-media entry joins each kind's pre-existing hint entry.
 const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
-	data: [],
+	data: [caseWriteEntry<ImageField>()],
 	logic: [
 		requiredEntry<ImageField>(),
 		xpathEntry<ImageField, "relevant">("relevant", "Show when"),
@@ -483,7 +483,7 @@ const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
 };
 
 const audioFieldEditorSchema: FieldEditorSchema<AudioField> = {
-	data: [],
+	data: [caseWriteEntry<AudioField>()],
 	logic: [
 		requiredEntry<AudioField>(),
 		xpathEntry<AudioField, "relevant">("relevant", "Show when"),
@@ -495,7 +495,7 @@ const audioFieldEditorSchema: FieldEditorSchema<AudioField> = {
 };
 
 const videoFieldEditorSchema: FieldEditorSchema<VideoField> = {
-	data: [],
+	data: [caseWriteEntry<VideoField>()],
 	logic: [
 		requiredEntry<VideoField>(),
 		xpathEntry<VideoField, "relevant">("relevant", "Show when"),
@@ -507,7 +507,7 @@ const videoFieldEditorSchema: FieldEditorSchema<VideoField> = {
 };
 
 const fileFieldEditorSchema: FieldEditorSchema<FileField> = {
-	data: [],
+	data: [caseWriteEntry<FileField>()],
 	logic: [
 		requiredEntry<FileField>(),
 		xpathEntry<FileField, "relevant">("relevant", "Show when"),
@@ -519,7 +519,7 @@ const fileFieldEditorSchema: FieldEditorSchema<FileField> = {
 };
 
 const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
-	data: [],
+	data: [caseWriteEntry<SignatureField>()],
 	logic: [
 		requiredEntry<SignatureField>(),
 		xpathEntry<SignatureField, "relevant">("relevant", "Show when"),
