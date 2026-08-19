@@ -9,8 +9,12 @@
  * private candidate may carry gating findings the whole time.
  */
 
+import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { asDesignId } from "@/lib/agent/design/ids";
+import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
+import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
+import type { Database } from "@/lib/case-store/sql/database";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { commitGuardedBatch } from "@/lib/db/apps";
@@ -49,7 +53,51 @@ import {
 	type ChangeSetWorkspaceHost,
 } from "../workspace";
 
+/* Route the case store to the per-test database — production parity, just
+ * bypassing the singleton's Cloud SQL connector. The same recipe as
+ * `materializeGenesis.integration.test.ts`.
+ *
+ * These tests need it because a change set that edits worker properties
+ * changes the `commcare-user` case type's property surface, so the commit
+ * materializes a schema the way any other case-type change does. Without the
+ * routing the commit reaches the real connector and fails on a missing
+ * `NOVA_DB_WORKLOAD`, which is the singleton refusing to guess a connection
+ * budget rather than anything wrong with the commit. */
+const { withSchemaContextMock, withProjectContextMock } = vi.hoisted(() => ({
+	withSchemaContextMock: vi.fn(),
+	withProjectContextMock: vi.fn(),
+}));
+vi.mock("@/lib/case-store", async () => {
+	const actual = (await vi.importActual("@/lib/case-store")) as Record<
+		string,
+		unknown
+	>;
+	return {
+		...actual,
+		withSchemaContext: withSchemaContextMock,
+		withProjectContext: withProjectContextMock,
+	};
+});
+
 const h = setupAppStateTestDb("change_set_runtime_");
+
+beforeEach(() => {
+	withSchemaContextMock.mockReset();
+	withProjectContextMock.mockReset();
+	const store = (projectId: string | null, ownerId: string | null) =>
+		new PostgresCaseStore({
+			projectId,
+			actorUserId: ACTOR,
+			ownerId,
+			db: h.db() as unknown as Kysely<Database>,
+			sampleGenerator: new HeuristicCaseGenerator(),
+		});
+	withSchemaContextMock.mockImplementation(async () => store(null, null));
+	withProjectContextMock.mockImplementation(
+		async (projectId: string, _actor: string, ownerId: string) =>
+			store(projectId, ownerId),
+	);
+});
 
 const ACTOR = "actor-user";
 const PROJECT = "project-test";
