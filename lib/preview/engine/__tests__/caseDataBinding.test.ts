@@ -695,6 +695,103 @@ describe("readCases", () => {
 		expect(ids).toEqual([ALICE_CASE_ID, BOB_CASE_ID].sort());
 	});
 
+	// The reveal beside Results is the ONLY consumer of the whole-tenant count
+	// behind `outsideRestoreCount`. It is a second `store.count` over the same
+	// predicate with the restriction lifted, so a path that draws nothing must
+	// not pay for it.
+	describe("the restore-scope reveal", () => {
+		// Two rows in ONE tenant under two different owners. `owner_id` is
+		// stamped by the store from the identity it is bound to, never named
+		// on the insert, so the second row needs a second store — the same
+		// member acting as a different worker.
+		async function seedTwoOwners(): Promise<CaseStore> {
+			const store = makeStore(PROJECT_A, OWNER_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: ALICE_CASE_ID,
+					case_type: "patient",
+					case_name: "mine",
+					status: "open",
+					properties: { age: 30 },
+				},
+			});
+			await makeStore(PROJECT_A, OWNER_A, OWNER_B).insert({
+				appId: APP_ID,
+				row: {
+					case_id: BOB_CASE_ID,
+					case_type: "patient",
+					case_name: "theirs",
+					status: "open",
+					properties: { age: 45 },
+				},
+			});
+			return store;
+		}
+
+		it("counts what a bounded read left out", async () => {
+			const store = await seedTwoOwners();
+			const result = await readCases(store, {
+				appId: APP_ID,
+				caseType: "patient",
+				page: { offset: 0, limit: 10 },
+				restoreScope: { ownerIds: [OWNER_A] },
+			});
+			expect(result.kind).toBe("rows");
+			if (result.kind !== "rows") return;
+			expect(result.rows.map((row) => row.case_id)).toEqual([ALICE_CASE_ID]);
+			expect(result.outsideRestoreCount).toBe(1);
+		});
+
+		it("counts what an empty bounded read left out", async () => {
+			const store = await seedTwoOwners();
+			const result = await readCases(store, {
+				appId: APP_ID,
+				caseType: "patient",
+				page: { offset: 0, limit: 10 },
+				restoreScope: { ownerIds: ["owner-nobody"] },
+			});
+			expect(result.kind).toBe("empty");
+			if (result.kind !== "empty") return;
+			// The screen renders this INSTEAD of "no case data", which would be
+			// the only other reading of an empty list over a populated project.
+			expect(result.outsideRestoreCount).toBe(2);
+		});
+
+		it("stays silent on the unpaged read, which draws nothing", async () => {
+			const store = await seedTwoOwners();
+			const counts = vi.spyOn(store, "count");
+			const result = await readCases(store, {
+				appId: APP_ID,
+				caseType: "patient",
+				restoreScope: { ownerIds: [OWNER_A] },
+			});
+			expect(result.kind).toBe("rows");
+			if (result.kind !== "rows") return;
+			// Still RESTRICTED — the form's auto-selection candidate read may
+			// only offer a case the worker's device would hold.
+			expect(result.rows.map((row) => row.case_id)).toEqual([ALICE_CASE_ID]);
+			expect(result.outsideRestoreCount).toBeUndefined();
+			expect(counts).not.toHaveBeenCalled();
+			counts.mockRestore();
+		});
+
+		it("stays silent when no restore is bound", async () => {
+			const store = await seedTwoOwners();
+			const result = await readCases(store, {
+				appId: APP_ID,
+				caseType: "patient",
+				page: { offset: 0, limit: 10 },
+			});
+			expect(result.kind).toBe("rows");
+			if (result.kind !== "rows") return;
+			expect(result.rows).toHaveLength(2);
+			expect(result.outsideRestoreCount).toBeUndefined();
+		});
+	});
+
 	it("returns stable bounded windows with honest totals and clamps a stale offset", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);

@@ -514,6 +514,11 @@ export function useCaseData(args: {
 	 * worker's device would hold. Builder chrome leaves it unset and reads
 	 * the tenant. */
 	deviceScoped?: boolean;
+	/** Extra identity from the caller. A device-scoped read depends on the
+	 * worker's restore, whose inputs live in the document and in the place
+	 * tree rather than in any argument here — `useRestoreScopeKey` signs them
+	 * and the running surfaces pass it. */
+	scopeKey?: string;
 }): {
 	state: LoadingState<LoadCaseDataResult>;
 	reload: () => Promise<void>;
@@ -527,6 +532,7 @@ export function useCaseData(args: {
 		caseTypes,
 		includeHeld,
 		deviceScoped,
+		scopeKey = "",
 	} = args;
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
@@ -543,7 +549,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${caseDataRevision}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`

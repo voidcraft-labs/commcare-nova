@@ -163,6 +163,49 @@ function isRuntimeCalculatedColumn(
 }
 
 /**
+ * The half of a case read that every reader in this file builds identically:
+ * which tenant and case type, the schemas the compiler casts against, the
+ * runtime bindings, the lookup definitions, the predicate, and the restore.
+ *
+ * It exists because that field list kept being retyped. Each reader built its
+ * own object literal, so an OPTIONAL field added to one was silently absent
+ * from the others, and the type system had nothing to say — an absent optional
+ * field is a valid object. That is not hypothetical: the restore scope itself,
+ * and then the count behind the restore's reveal, were each added to the flat
+ * reader and each silently skipped the grouped one. The grouped list kept
+ * rendering, looked right, and disagreed with the ungrouped list beside it.
+ *
+ * A reader's job is now to say what is DIFFERENT about its read — how the rows
+ * are ordered, windowed, grouped, or deliberately unrestricted — and nothing
+ * else. A field added here reaches every reader at once.
+ *
+ * `restoreScope` rides along rather than being passed separately, so an
+ * authoring surface is restore-free because its own arguments carry no
+ * restore, not because its call site remembered to leave it out.
+ */
+function caseReadCore(
+	args: {
+		readonly appId: string;
+		readonly caseType: string;
+		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
+		readonly bindings?: TermBindings;
+		readonly lookupTableSchemas?: LookupTableSchemas;
+		readonly restoreScope?: RestoreScope;
+	},
+	predicate: Predicate | undefined,
+) {
+	return {
+		appId: args.appId,
+		caseType: args.caseType,
+		caseTypeSchemas: args.caseTypeSchemas,
+		bindings: args.bindings,
+		lookupTableSchemas: args.lookupTableSchemas,
+		predicate,
+		restoreScope: args.restoreScope,
+	};
+}
+
+/**
  * Read an optional bounded window of one case type for the bound tenant,
  * projecting each `caseListConfig.columns` calc-arm column's expression as a
  * SELECT slot. Running Results always supplies a page; the current form
@@ -241,20 +284,29 @@ export async function readCases(
 	// even when the module's tile is grouped.
 	const grouping =
 		page === undefined ? undefined : args.caseListConfig?.tile?.grouping;
+	// ⚠️ This is an EARLY EXIT, not a stage. Everything below it — the count,
+	// the stale-page reclamp, the empty-state cause — belongs to the flat path
+	// only, and `readGroupedCases` repeats whatever it needs. Two things have
+	// already been added below and silently skipped the grouped path (the
+	// restore scope itself, and the count behind its reveal), and the failure
+	// mode is the bad kind: the grouped list looks right and quietly disagrees
+	// with the ungrouped list beside it.
+	//
+	// `caseReadCore` closes that hole for what the two readers ASK the store.
+	// What they do with the answer is still two tails, so adding to the tail
+	// below means checking whether the grouped reader needs it too.
 	if (grouping !== undefined && page !== undefined) {
 		return readGroupedCases(store, args, composedQuery, page, grouping);
 	}
-	const countArgs = {
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
-		predicate: composedQuery.predicate,
-		restoreScope: args.restoreScope,
-	};
+	const countArgs = caseReadCore(args, composedQuery.predicate);
+	// One guard for all three exits: the reveal belongs to a BOUNDED running
+	// list. The unpaged caller is the form's auto-selection candidate read,
+	// which draws nothing and would pay for a whole-tenant count to fill a
+	// field no one reads.
 	const outsideRestoreCount = (restricted: number) =>
-		casesOutsideRestore(store, args, composedQuery, restricted);
+		page === undefined
+			? undefined
+			: casesOutsideRestore(store, args, composedQuery, restricted);
 	let totalCount =
 		page === undefined ? undefined : await store.count(countArgs);
 	if (page !== undefined && totalCount === 0) {
@@ -279,19 +331,13 @@ export async function readCases(
 				);
 	const queryAtOffset = (offset: number) =>
 		store.query({
-			appId: args.appId,
-			caseType: args.caseType,
-			caseTypeSchemas: args.caseTypeSchemas,
-			bindings: args.bindings,
-			lookupTableSchemas: args.lookupTableSchemas,
-			predicate: composedQuery.predicate,
+			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 			calculated: args.caseListConfig?.columns.filter(
 				isRuntimeCalculatedColumn,
 			),
 			limit: page?.limit,
 			offset: page === undefined ? undefined : offset,
-			restoreScope: args.restoreScope,
 		});
 	let rows = await queryAtOffset(pageOffset);
 
@@ -328,10 +374,7 @@ export async function readCases(
 			...(outside !== undefined && { outsideRestoreCount: outside }),
 		};
 	}
-	const outside =
-		page === undefined
-			? undefined
-			: await outsideRestoreCount(totalCount ?? rows.length);
+	const outside = await outsideRestoreCount(totalCount ?? rows.length);
 	return {
 		kind: "rows",
 		rows,
@@ -364,14 +407,15 @@ async function casesOutsideRestore(
 	restricted: number,
 ): Promise<number | undefined> {
 	if (args.restoreScope === undefined) return undefined;
-	const everything = await store.count({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
-		predicate: composedQuery.predicate,
-	});
+	// The one read in this file that deliberately LIFTS the restriction: the
+	// note's whole job is to say how much the restore left out, which only a
+	// tenant-wide count of the same query can answer. Destructured rather
+	// than omitted so the deviation is a statement instead of a gap.
+	const { restoreScope: _wholeTenant, ...tenantWide } = caseReadCore(
+		args,
+		composedQuery.predicate,
+	);
+	const everything = await store.count(tenantWide);
 	const outside = everything - restricted;
 	return outside > 0 ? outside : undefined;
 }
@@ -403,12 +447,7 @@ async function readGroupedCases(
 ): Promise<LoadCasesResult> {
 	const queryAtOffset = (groupOffset: number) =>
 		store.queryGrouped({
-			appId: args.appId,
-			caseType: args.caseType,
-			caseTypeSchemas: args.caseTypeSchemas,
-			bindings: args.bindings,
-			lookupTableSchemas: args.lookupTableSchemas,
-			predicate: composedQuery.predicate,
+			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 			calculated: args.caseListConfig?.columns.filter(
 				isRuntimeCalculatedColumn,
@@ -416,7 +455,6 @@ async function readGroupedCases(
 			indexIdentifier: grouping.identifier,
 			groupOffset,
 			groupLimit: page.limit,
-			restoreScope: args.restoreScope,
 		});
 
 	let pageOffset = page.offset;
@@ -512,12 +550,7 @@ async function countAuthoredCasePopulation(
 		args.authoredExcludedOwnerIds,
 	);
 	return store.count({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
-		predicate: authoredQuery.predicate,
+		...caseReadCore(args, authoredQuery.predicate),
 		// The same restore the caller's own count used. This number answers
 		// "would clearing Search reveal a case?", and a device that cannot
 		// hold the case would not reveal it either.
@@ -761,27 +794,15 @@ export async function readFilterPreview(
 	// Row sample. Calculated columns are projected by the case store so
 	// callers receive the same row shape as the running case list.
 	const rows = await store.query({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
+		...caseReadCore(args, predicate),
 		calculated: args.caseListConfig.columns.filter(isRuntimeCalculatedColumn),
-		predicate,
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		limit,
 	});
 
 	// Count of all matching rows, through the same `compilePredicate`
 	// stack with the same predicate.
-	const totalCount = await store.count({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
-		predicate,
-	});
+	const totalCount = await store.count(caseReadCore(args, predicate));
 
 	return { kind: "rows", rows, totalCount };
 }
@@ -932,16 +953,13 @@ export async function readCaseData(
 	},
 ): Promise<LoadCaseDataResult> {
 	const rows = await store.query({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		bindings: args.bindings,
-		lookupTableSchemas: args.lookupTableSchemas,
-		predicate: eq(prop(args.caseType, "case_id"), literal(args.caseId)),
+		...caseReadCore(
+			args,
+			eq(prop(args.caseType, "case_id"), literal(args.caseId)),
+		),
 		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 		limit: 1,
 		includeHeld: args.includeHeld,
-		restoreScope: args.restoreScope,
 	});
 	const found = rows[0];
 	if (found === undefined) return { kind: "missing" };

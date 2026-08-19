@@ -425,7 +425,22 @@ so beside Results: how many cases the same query matches that this worker
 would not have, named to the worker. Same doctrine as `HiddenItemsReveal` —
 authoring-only inspection sitting BESIDE a runtime-faithful list, never a
 blend of the two modes. It cannot list the rows, because the preview never
-loaded them, which is the point.
+loaded them, which is the point. That count also OUTRANKS every other empty
+state on the screen: the other causes are each read off a tenant-wide count,
+so an empty restore over a populated project would otherwise report "no case
+data" or blame the worker's Search values, next to a note saying the project
+holds hundreds. `restoreScopeEmptyCopy` is the copy that arm renders, and
+`PreviewWorkerLabel` is a discriminant rather than a name because previewing
+as yourself reads in the second person and as a persona in the third.
+
+`useRestoreScopeKey` is what makes a cached read follow its worker. The scope
+is resolved server-side from the persona's assignment, the level catalog, and
+the place tree — and the place tree is not in the document, so no doc
+subscription can see it move. The hook signs all three (the builder stream's
+organization poke covers the Postgres half) and every running surface folds it
+into its request identity. Without it the preview keeps serving the previous
+worker's rows with nothing on screen to say so, which is the exact failure the
+note exists to prevent, arriving through the back door.
 
 Server side, every persona-aware running path — Results/Details reads, sample populate/reset, and submission — calls `resolveAuthorizedPreviewContext` once. It authenticates the member, resolves membership plus the committed blueprint under the same app-row and membership locks, resolves the selector from that one authorized snapshot, and binds the explicit actor/owner pair. A selector naming a missing persona returns `persona-unavailable`; it never silently runs a read or write as the member. The selected owner rides populate/reset and `submitFormAction`, so all rows the persona creates belong to the persona, while the actor remains the authorization and lookup identity. Client side, `useSelectedPreviewIdentityState()` makes selected-but-missing a distinct `persona-unavailable` state rather than collapsing it with signed-out/loading or falling back to the member for one frame. `PreviewShell` replaces the running screens with an explicit unavailable-persona refusal and a **Preview as me** recovery action, while `BuilderFormEngineProvider` marks the `EngineController` blocked so activation cannot execute behind that refusal. Leaving Preview clears the persona selector before edit-only sample/data surfaces become active; the next preview therefore starts as the member unless the author chooses another persona. Visual consumers of the compatibility `useSelectedPreviewIdentity()` keep the server/client hydration render identity-free, while `BuilderFormEngineProvider` opts into a warm cached session and seeds that result on the `EngineController` inside its `useState` initializer — the provider itself renders no identity-dependent markup, and child effects flush before parent effects, so an effect-only install would hand every warm-session form mount an identity-less engine plus an immediate rebuild. A follow-up effect tracks later session changes. Identity is engine-lifetime state: a materially different identity rebuilds any active engine (one evaluation world), a re-derived-but-identical identity is a no-op (`samePreviewIdentity`), a cold session resolving mid-entry restores user-touched values through the engine's shared snapshot/restore (same touched-only contract as blueprint-edit recreation — untouched values may be world-dependent defaults and must re-derive), and replacing a NON-null identity (sign-out, different worker) discards — restoring would leak one worker's entries into another's session. Every suite that mounts `BuilderFormEngineProvider` (directly or transitively) must mock `@/lib/auth/hooks/useAuth`, or the session atom's `setTimeout(0) → fetchSession()` trips the async-leak gate. `#user/<prop>` resolves from the identity's `usercase` projection — the `commcare-user` case the wire's `#user/` hashtag expands to, NOT the session block, whose built-in keys differ (`first_name` there, `commcare_first_name` in the session). An absent key reads blank at evaluation, matching the device's missing property. The signed-out projection (`previewSessionValues(null)`) carries device context only.
 

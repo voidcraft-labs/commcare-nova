@@ -165,28 +165,6 @@ export interface SortKey {
 }
 
 /**
- * Arguments for `CaseStore.query`. Single-shaped result regardless
- * of whether `calculated` is supplied — the `calculated: {}` map per
- * row reads uniformly across consumers.
- *
- * `caseTypeSchemas` is required when `predicate`, `sort`, or
- * `calculated` references a case property — the term compiler
- * resolves each `prop` term's `data_type` from the case-type schema
- * map to pick the column cast. Optional when the query is
- * predicate-free, sort-free, and calc-free, OR when every operand
- * touches only the reserved scalar columns at
- * `lib/case-store/sql/dataTypeTokens.ts`'s `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
- *
- * `calculated` projections evaluate inline at the SQL layer keyed
- * by the column's `uuid`. The Postgres compiler is the single
- * evaluator — no parallel JS evaluator, no parity tests.
- *
- * Empty / absent `calculated` produces an empty `calculated: {}`
- * map per row. Postgres has no per-row value-budget on SELECT
- * projections, but consumers should keep the count proportional to
- * the case list's authored shape.
- */
-/**
  * Restrict a read to what one worker's device would actually hold.
  *
  * CommCare does not filter a restore by ownership — it takes a fixpoint over
@@ -210,6 +188,28 @@ export interface RestoreScope {
 	readonly ownerIds: readonly string[];
 }
 
+/**
+ * Arguments for `CaseStore.query`. Single-shaped result regardless
+ * of whether `calculated` is supplied — the `calculated: {}` map per
+ * row reads uniformly across consumers.
+ *
+ * `caseTypeSchemas` is required when `predicate`, `sort`, or
+ * `calculated` references a case property — the term compiler
+ * resolves each `prop` term's `data_type` from the case-type schema
+ * map to pick the column cast. Optional when the query is
+ * predicate-free, sort-free, and calc-free, OR when every operand
+ * touches only the reserved scalar columns at
+ * `lib/case-store/sql/dataTypeTokens.ts`'s `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
+ *
+ * `calculated` projections evaluate inline at the SQL layer keyed
+ * by the column's `uuid`. The Postgres compiler is the single
+ * evaluator — no parallel JS evaluator, no parity tests.
+ *
+ * Empty / absent `calculated` produces an empty `calculated: {}`
+ * map per row. Postgres has no per-row value-budget on SELECT
+ * projections, but consumers should keep the count proportional to
+ * the case list's authored shape.
+ */
 export interface QueryArgs {
 	appId: string;
 	caseType: string;

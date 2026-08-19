@@ -22,6 +22,8 @@ import { orderedColumns } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
+import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
+import { usePreviewPersonaUuid } from "@/lib/session/hooks";
 import { CaseTile } from "./CaseTile";
 import { useColumnDisplayContext } from "./useColumnDisplayContext";
 
@@ -49,6 +51,10 @@ export function PersistentCaseTile({
 	 * read deliberately carries no display config: it feeds the engine,
 	 * not a screen, and widening it would put this band's concerns inside
 	 * the engine's preload identity. */
+	// The worker's restore is derived from their assignment and the place tree,
+	// neither of which is an argument to this read. See `useRestoreScopeKey`.
+	const previewPersonaUuid = usePreviewPersonaUuid();
+	const restoreScopeKey = useRestoreScopeKey(previewPersonaUuid);
 	const { state, reload } = useCaseData({
 		appId,
 		caseType,
@@ -59,6 +65,7 @@ export function PersistentCaseTile({
 		// The tile pinned above a running form draws the case the worker
 		// selected on their device.
 		deviceScoped: true,
+		scopeKey: restoreScopeKey,
 	});
 	const displayContext = useColumnDisplayContext(
 		config,
