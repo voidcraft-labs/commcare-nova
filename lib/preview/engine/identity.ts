@@ -36,13 +36,17 @@ import {
 	BUILT_IN_USER_PROPERTIES,
 	COMMCARE_MOBILE_WORKER_USER_TYPE,
 	COMMCARE_STANDARD_USER_TYPE,
+	declaredUsercaseSlots,
 	mergeOwnRecords,
-	ownRecordValue,
 	type Persona,
 	personaUserData,
 	recordFromEntries,
+	splitWorkerName,
 	type UserCollections,
+	type UsercaseWorker,
 	type Uuid,
+	usercaseRecord,
+	usercaseValuesBySlug,
 	userPropertiesOf,
 } from "@/lib/domain";
 import type { SessionContextField } from "@/lib/domain/predicate";
@@ -101,12 +105,6 @@ const ANONYMOUS_SESSION_VALUES: PreviewSearchSessionValues = {
 	userPropertySlugs: {},
 };
 
-/** Split a display name the way an HQ profile's first/last name divides. */
-function splitName(name: string): { first: string; last: string } {
-	const parts = name.trim().split(/\s+/).filter(Boolean);
-	return { first: parts[0] ?? "", last: parts.slice(1).join(" ") };
-}
-
 /**
  * The framework keys CommCare injects into `session/user/data` AFTER the
  * authored data, so they win every collision
@@ -141,7 +139,7 @@ function frameworkSessionKeys(
 	displayName: string,
 	projectSpace: string | null,
 ): Record<string, string> {
-	const { first, last } = splitName(displayName);
+	const { first, last } = splitWorkerName(displayName);
 	return {
 		commcare_first_name: first,
 		commcare_last_name: last,
@@ -154,104 +152,6 @@ function frameworkSessionKeys(
 }
 
 /**
- * The usercase's built-in fields, from
- * `callcenter/sync_usercase.py::_get_user_case_fields`. These are the
- * unprefixed names `#user/<prop>` reads — a DIFFERENT set from the session
- * block's `commcare_`-prefixed keys, which is the whole reason the two
- * projections exist separately.
- *
- * The worker's name is `case_name`, NOT `name`. `_get_user_case_fields`
- * does put `name` in its dict, but both writers pop it straight back out
- * into the case's name — `_UserCaseHelper.create_usercase` does
- * `case_name=fields.pop('name', None)` and `::update_user_case` does
- * `kwargs['case_name'] = fields.pop('name')` — so it never reaches the
- * case's `<update>` as a property. What the device exposes is the casedb's
- * own `case_name` node (`commcare-core .../CaseChildElement.java`), which
- * is why HQ's `app_schemas/case_properties.py::get_usercase_properties`
- * lists no `name` either. Emitting `name` here would make `#user/name`
- * read the worker's name in Preview and blank on a device.
- *
- * `commcare_project` is written unconditionally by the same function —
- * `_get_user_case_fields` ends with
- * `fields.update({... 'commcare_project': domain})` — so it is a usercase
- * property in a way it is not a session key. It still appears only when
- * Nova knows the project space, because the domain is never empty on a
- * device: emitting `""` would make `#user/commcare_project = ''` fire in
- * Preview and never in the field, which is the opposite of what an absent
- * key does. That is the split from `language` and `last_device_id_used`,
- * which HQ genuinely writes empty (`user.language or ''`) and Preview
- * therefore carries empty.
- *
- * The three location keys behave DIFFERENTLY here than in the session
- * block, and the difference is easy to get wrong: `_get_user_case_fields`
- * writes all three unconditionally, taking the `else` branch to `''` when
- * the worker has no location, where `get_user_session_data` omits them
- * entirely. So the usercase carries them empty and the session block does
- * not carry them at all. `commcare_profile` rides in the same way it does
- * on the session side — the dict starts from `UserData.to_dict()`, which
- * always includes the slot, and it survives the valid-XML-name filter.
- */
-function usercaseBuiltIns(
-	worker: {
-		id: string;
-		username: string;
-		personName: string;
-		email: string;
-	},
-	projectSpace: string | null,
-): Record<string, string> {
-	const { first, last } = splitName(worker.personName);
-	return {
-		case_name: worker.personName,
-		username: worker.username,
-		email: worker.email,
-		first_name: first,
-		last_name: last,
-		hq_user_id: worker.id,
-		language: "",
-		phone_number: "",
-		last_device_id_used: "",
-		commcare_profile: "",
-		commcare_location_id: "",
-		commcare_location_ids: "",
-		commcare_primary_case_sharing_id: "",
-		...(projectSpace === null ? {} : { commcare_project: projectSpace }),
-	};
-}
-
-/**
- * Every DECLARED property, seeded blank.
- *
- * HQ's `users/user_data.py::UserData.to_dict` starts from
- * `{field: '' for field in self._schema_fields}` before layering authored
- * values on top, so a property the app declares but this worker has no
- * value for arrives as a present, empty node — while an undeclared key is
- * genuinely absent. Reproducing that split is what makes a `= ''`
- * comparison behave the same in Preview as on a device.
- */
-function declaredPropertySlots(doc: UserCollections): Record<string, string> {
-	return recordFromEntries(
-		Object.values(userPropertiesOf(doc)).map(
-			(property) => [property.slug, ""] as const,
-		),
-	);
-}
-
-/** Authored values keyed by slug rather than by property UUID. */
-function authoredBySlug(
-	values: Record<string, string>,
-	doc: UserCollections,
-): Record<string, string> {
-	const properties = userPropertiesOf(doc);
-	const entries: Array<readonly [string, string]> = [];
-	for (const [propertyUuid, value] of Object.entries(values)) {
-		const property = ownRecordValue(properties, propertyUuid);
-		if (property !== undefined) entries.push([property.slug, value]);
-	}
-	return recordFromEntries(entries);
-}
-
-/**
  * Build both wire projections for one worker.
  *
  * The layering is CommCare's: declared slots blank, authored values over
@@ -259,20 +159,13 @@ function authoredBySlug(
  * `get_user_session_data` writes in.
  */
 function projections(
-	worker: {
-		id: string;
-		/** The login handle — `session/context/username` and the usercase's. */
-		username: string;
-		/** The human name the first/last split comes from. */
-		personName: string;
-		email: string;
-	},
+	worker: UsercaseWorker,
 	authored: Record<string, string>,
 	doc: UserCollections,
 	projectSpace: string | null,
 ): Pick<ResolvedPreviewIdentity, "session" | "usercase"> {
-	const declared = declaredPropertySlots(doc);
-	const values = authoredBySlug(authored, doc);
+	const declared = declaredUsercaseSlots(doc);
+	const values = usercaseValuesBySlug(authored, doc);
 	return {
 		session: {
 			context: {
@@ -292,11 +185,11 @@ function projections(
 				),
 			),
 		},
-		usercase: mergeOwnRecords(
-			declared,
-			values,
-			usercaseBuiltIns(worker, projectSpace),
-		),
+		// The SAME derivation the materializer writes into the stored row, not a
+		// parallel one. `#user/` resolves from `casedb` on the wire, so the row
+		// is the truth; a projection computed separately here would answer
+		// differently the moment a worker's case had been saved once.
+		usercase: usercaseRecord(worker, authored, doc, projectSpace),
 	};
 }
 
@@ -331,6 +224,10 @@ export function previewAsMe(
 				username: email || name || user.id,
 				personName: name || email || user.id,
 				email,
+				// A member is a Nova account rather than a worker the app
+				// assigns, so they are assigned nowhere — which is a real answer
+				// and the same one the restore scope gives them.
+				locationIds: [],
 			},
 			{},
 			doc,
@@ -361,18 +258,19 @@ export function previewAsPersona(
 	if (user === null || user === undefined) return null;
 	if (user.id.trim() === "") return null;
 
+	const locationIds = assignedLocationUuids(persona.locations);
 	const projected = projections(
 		{
 			id: persona.uuid,
 			username: persona.name,
 			personName: persona.name,
 			email: "",
+			locationIds,
 		},
 		personaUserData(persona, doc),
 		doc,
 		projectSpace,
 	);
-	const locationIds = assignedLocationUuids(persona.locations);
 	const primary = locationIds[0];
 	const locationSession: Record<string, string> =
 		primary === undefined
@@ -382,12 +280,6 @@ export function previewAsPersona(
 					commcare_location_ids: locationIds.join(" "),
 					commcare_primary_case_sharing_id: primary,
 				};
-	const locationUsercase = {
-		commcare_location_id: primary ?? "",
-		commcare_location_ids: locationIds.join(" "),
-		commcare_primary_case_sharing_id: primary ?? "",
-	};
-
 	return {
 		actorUserId: user.id,
 		ownerId: persona.uuid,
@@ -396,7 +288,12 @@ export function previewAsPersona(
 			...projected.session,
 			user: mergeOwnRecords(projected.session.user, locationSession),
 		},
-		usercase: mergeOwnRecords(projected.usercase, locationUsercase),
+		// No location overlay here: the assignment is one of the worker's facts,
+		// so `usercaseBuiltInValues` writes those three keys and the stored row
+		// carries the same values. An overlay would put them on the projection
+		// and not on the row, and `#user/commcare_location_id` would answer one
+		// way in Preview and another on a device.
+		usercase: projected.usercase,
 	};
 }
 

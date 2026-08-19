@@ -20,6 +20,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
+import { USERCASE_CASE_TYPE } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { classifyCaseTypeChanges } from "../classifyCaseTypeChanges";
 
@@ -302,5 +303,82 @@ describe("classifyCaseTypeChanges — writer-derived type flips", () => {
 			prospective: docWithWriterKind("text"),
 		});
 		expect(result).toEqual([]);
+	});
+});
+
+// ── The worker's own case ──────────────────────────────────────────
+
+/** `makeDoc` plus a worker-property catalog. */
+function withWorkerProperties(
+	caseTypes: CaseType[] | null,
+	properties: ReadonlyArray<{ uuid: string; slug: string; label: string }>,
+): BlueprintDoc {
+	return {
+		...makeDoc(caseTypes),
+		userProperties: Object.fromEntries(
+			properties.map((property) => [property.uuid, property]),
+		),
+	} as unknown as BlueprintDoc;
+}
+
+describe("classifyCaseTypeChanges — commcare-user", () => {
+	const CADRE = { uuid: "u-1", slug: "cadre", label: "Cadre" };
+
+	it("syncs the worker's case when a worker property is added", () => {
+		// The gap this closes: `commcare-user` is derived from the worker
+		// catalog rather than declared, so it is deliberately absent from
+		// `materializableCaseTypes` and the loops above cannot see it. Without
+		// its own comparison an author adds a worker property, no schema sync
+		// runs, and the next usercase write is refused by a stale case type —
+		// the failure looking like a bug in the write rather than in the sync
+		// that never happened.
+		const result = classifyCaseTypeChanges({
+			prior: withWorkerProperties([PATIENT], []),
+			prospective: withWorkerProperties([PATIENT], [CADRE]),
+		});
+		expect(result).toEqual([{ kind: "sync", caseType: USERCASE_CASE_TYPE }]);
+	});
+
+	it("syncs when a worker property is removed", () => {
+		const result = classifyCaseTypeChanges({
+			prior: withWorkerProperties([PATIENT], [CADRE]),
+			prospective: withWorkerProperties([PATIENT], []),
+		});
+		expect(result).toEqual([{ kind: "sync", caseType: USERCASE_CASE_TYPE }]);
+	});
+
+	it("syncs when a worker property is renamed", () => {
+		// A slug rename changes the case type's property surface, because the
+		// slug IS the property name on the worker's case.
+		const result = classifyCaseTypeChanges({
+			prior: withWorkerProperties([PATIENT], [CADRE]),
+			prospective: withWorkerProperties(
+				[PATIENT],
+				[{ ...CADRE, slug: "role" }],
+			),
+		});
+		expect(result).toEqual([{ kind: "sync", caseType: USERCASE_CASE_TYPE }]);
+	});
+
+	it("stays silent when the worker catalog did not change", () => {
+		// The cost control. Emitting an entry on every commit would put a
+		// schema sync on the autosave path for every keystroke-sized save.
+		const result = classifyCaseTypeChanges({
+			prior: withWorkerProperties([PATIENT], [CADRE]),
+			prospective: withWorkerProperties([PATIENT], [{ ...CADRE }]),
+		});
+		expect(result).toEqual([]);
+	});
+
+	it("never retires the worker's case", () => {
+		// Every app has one, so it is added and re-synced but never removed —
+		// a retire entry would drop the schema out from under a live persona.
+		const result = classifyCaseTypeChanges({
+			prior: withWorkerProperties([PATIENT], [CADRE]),
+			prospective: withWorkerProperties(null, []),
+		});
+		expect(
+			result.filter((entry) => entry.caseType === USERCASE_CASE_TYPE),
+		).toEqual([{ kind: "sync", caseType: USERCASE_CASE_TYPE }]);
 	});
 });

@@ -63,6 +63,7 @@ const {
 	drainPendingIndexConvergenceMock,
 	drainRetiredIndexConvergenceMock,
 	withSchemaContextMock,
+	withProjectContextMock,
 } = vi.hoisted(() => ({
 	applySchemaChangeMock: vi.fn(),
 	applyCasePropertyRenamePhaseAMock: vi.fn(),
@@ -71,6 +72,7 @@ const {
 	drainPendingIndexConvergenceMock: vi.fn(),
 	drainRetiredIndexConvergenceMock: vi.fn(),
 	withSchemaContextMock: vi.fn(),
+	withProjectContextMock: vi.fn(),
 }));
 
 vi.mock("@/lib/db/apps", () => ({
@@ -85,6 +87,7 @@ vi.mock("@/lib/case-store", async () => {
 	return {
 		...actual,
 		withSchemaContext: withSchemaContextMock,
+		withProjectContext: withProjectContextMock,
 	};
 });
 
@@ -171,6 +174,14 @@ function mockGuardedCommit(
 	});
 }
 
+/** The per-worker store `sweepCommittedUsercaseRows` binds, one per worker. */
+const usercaseStoreMock = {
+	query: vi.fn(),
+	insert: vi.fn(),
+	update: vi.fn(),
+	close: vi.fn(),
+};
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	// Every sync returns the empty report by default — the boundary aggregates
@@ -192,6 +203,11 @@ beforeEach(() => {
 		caseTypes: ["patient"],
 		completeAfterCommit: completeRetirementMock,
 	});
+	usercaseStoreMock.query.mockResolvedValue([]);
+	usercaseStoreMock.insert.mockResolvedValue(undefined);
+	usercaseStoreMock.update.mockResolvedValue(undefined);
+	usercaseStoreMock.close.mockResolvedValue(undefined);
+	withProjectContextMock.mockResolvedValue(usercaseStoreMock);
 	withSchemaContextMock.mockResolvedValue({
 		applySchemaChange: applySchemaChangeMock,
 		applyCasePropertyRenamePhaseA: applyCasePropertyRenamePhaseAMock,
@@ -755,5 +771,137 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 		// skipped entirely.
 		expect(result.seq).toBe(4);
 		expect(applySchemaChangeMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("applyBlueprintChange — the worker's own case follows the commit", () => {
+	const WORKER_A = "1a2b3c4d-0000-4000-8000-00000000000a";
+	const WORKER_B = "1a2b3c4d-0000-4000-8000-00000000000b";
+
+	/** A document carrying nothing but personas — the sweep reads no more. */
+	function withPersonas(
+		personas: ReadonlyArray<{ uuid: string; name: string }>,
+	): BlueprintDoc {
+		return {
+			...toPersistableDoc(minDoc()),
+			personas: Object.fromEntries(
+				personas.map((persona) => [persona.uuid, persona]),
+			),
+			personaOrder: personas.map((persona) => persona.uuid),
+			userProperties: {},
+			userTypes: {},
+		} as unknown as BlueprintDoc;
+	}
+
+	/** Drive one commit whose fresh doc is `prior` and result is `next`. */
+	async function commit(prior: BlueprintDoc, next: BlueprintDoc) {
+		commitGuardedBatchMock.mockImplementationOnce(async (_args, hooks) => {
+			await hooks?.beforeWrite?.({
+				tx: {},
+				freshDoc: prior,
+				nextDoc: next,
+				seq: 7,
+			});
+			return { seq: 7, committedDoc: next, deduped: false };
+		});
+		return applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			expectedProjectId: PROJECT_ID,
+			batchId: "batch-usercase",
+			kind: "autosave",
+			guard: { mutations: addHouseholdBatch() },
+		});
+	}
+
+	it("closes a removed worker's case and leaves every other worker alone", async () => {
+		// Closed, never deleted: HQ's own deactivation path closes the usercase
+		// and leaves the cases that worker owned open
+		// (`sync_usercase.py::_get_sync_usercase_helper`), and it is the same
+		// preserve-the-rows policy every other Nova removal follows. The only
+		// row named here is the departing worker's own.
+		await commit(
+			withPersonas([
+				{ uuid: WORKER_A, name: "Amara" },
+				{ uuid: WORKER_B, name: "Bilal" },
+			]),
+			withPersonas([{ uuid: WORKER_B, name: "Bilal" }]),
+		);
+
+		expect(usercaseStoreMock.close).toHaveBeenCalledTimes(1);
+		expect(usercaseStoreMock.close).toHaveBeenCalledWith({
+			appId: "app-1",
+			caseId: WORKER_A,
+		});
+		// Bilal is unchanged, so nothing about him is read or written either.
+		expect(usercaseStoreMock.query).not.toHaveBeenCalled();
+	});
+
+	it("binds the close to the departing worker's own identity", async () => {
+		// `CaseInsert` carries no `owner_id` — the store stamps it from the
+		// identity it is bound to — so the sweep takes one store per worker. A
+		// shared store would stamp every worker's case with whoever happened to
+		// come first, putting it outside its own worker's restore.
+		await commit(
+			withPersonas([{ uuid: WORKER_A, name: "Amara" }]),
+			withPersonas([]),
+		);
+
+		expect(withProjectContextMock).toHaveBeenCalledWith(
+			PROJECT_ID,
+			"user-1",
+			WORKER_A,
+		);
+	});
+
+	it("costs no database work at all when a commit touches no worker", async () => {
+		// THE point of `workersNeedingUsercaseSync` being pure. A field edit is
+		// the overwhelmingly common commit and fires on every autosave; one read
+		// per persona there would be a real cost for nothing.
+		const unchanged = withPersonas([
+			{ uuid: WORKER_A, name: "Amara" },
+			{ uuid: WORKER_B, name: "Bilal" },
+		]);
+		await commit(unchanged, structuredClone(unchanged));
+
+		expect(withProjectContextMock).not.toHaveBeenCalled();
+		expect(usercaseStoreMock.query).not.toHaveBeenCalled();
+		expect(usercaseStoreMock.close).not.toHaveBeenCalled();
+	});
+
+	it("re-syncs only the worker a rename actually changed", async () => {
+		await commit(
+			withPersonas([
+				{ uuid: WORKER_A, name: "Amara" },
+				{ uuid: WORKER_B, name: "Bilal" },
+			]),
+			withPersonas([
+				{ uuid: WORKER_A, name: "Amara Sow" },
+				{ uuid: WORKER_B, name: "Bilal" },
+			]),
+		);
+
+		expect(withProjectContextMock).toHaveBeenCalledTimes(1);
+		expect(withProjectContextMock).toHaveBeenCalledWith(
+			PROJECT_ID,
+			"user-1",
+			WORKER_A,
+		);
+		expect(usercaseStoreMock.close).not.toHaveBeenCalled();
+	});
+
+	it("lets a commit stand when the worker's case cannot be written", async () => {
+		// Best-effort, and swallowed exactly like the schema sweep: this runs on
+		// the already-committed autosave thread, so a blip must not fail a
+		// commit that has landed. A missed row self-heals — the preview creates
+		// one when it resolves a persona without it.
+		usercaseStoreMock.query.mockRejectedValue(new Error("connection reset"));
+
+		const result = await commit(
+			withPersonas([]),
+			withPersonas([{ uuid: WORKER_A, name: "Amara" }]),
+		);
+
+		expect(result.seq).toBe(7);
 	});
 });

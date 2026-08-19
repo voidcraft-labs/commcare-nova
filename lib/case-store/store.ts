@@ -32,6 +32,8 @@ import {
 	type Column,
 	materializableCaseTypes,
 	type PersistableDoc,
+	USERCASE_CASE_TYPE,
+	usercaseCaseType,
 } from "@/lib/domain";
 import type {
 	Predicate,
@@ -1219,5 +1221,13 @@ export function buildCaseTypeMap(
 	for (const caseType of materializableCaseTypes(blueprint)) {
 		map.set(caseType.name, caseType);
 	}
+	// The worker's own case joins the catalog HERE and nowhere above. It is a
+	// storable case type but not an authorable one: no module lists it, no form
+	// creates one, and no picker offers it, so it stays out of
+	// `effectiveCaseTypes` and enters at the storage boundary, which is exactly
+	// the set of callers that must resolve a `commcare-user` property's type to
+	// read or write a row. `lib/domain/usercase.ts` is why it looks the way it
+	// does.
+	map.set(USERCASE_CASE_TYPE, usercaseCaseType(blueprint));
 	return map;
 }

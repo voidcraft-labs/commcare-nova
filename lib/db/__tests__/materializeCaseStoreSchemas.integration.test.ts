@@ -40,7 +40,11 @@ import {
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
-import type { CaseType, PersistableDoc } from "@/lib/domain";
+import {
+	type CaseType,
+	type PersistableDoc,
+	USERCASE_CASE_TYPE,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 // ── Hoisted spy shells ─────────────────────────────────────────────
@@ -117,29 +121,39 @@ function makeBlueprint(caseTypes: CaseType[] | null): PersistableDoc {
 
 // ── No-op paths — survey-only / empty case_types ─────────────────
 
-describe("materializeCaseStoreSchemas — no-op paths", () => {
-	it("does not allocate withSchemaContext when caseTypes is null", async () => {
-		// Survey-only build — the SA generated no case types. The
-		// helper's early return must skip the connection-pool
-		// allocation entirely; otherwise a survey-only completion
-		// pays the lookup cost for a loop that wouldn't issue any
-		// work.
+describe("materializeCaseStoreSchemas — a survey-only app", () => {
+	async function materializedTypes(): Promise<string[]> {
+		const rows = await dbHandle.pool.query<{ case_type: string }>(
+			"SELECT case_type FROM case_type_schemas WHERE app_id = $1 ORDER BY case_type",
+			[APP_ID],
+		);
+		return rows.rows.map((row) => row.case_type);
+	}
+
+	it("still materializes the worker's own case when caseTypes is null", async () => {
+		// Survey-only build — the SA declared no case types. The worker's own
+		// case is NOT derived from what was declared: HQ gives every worker a
+		// usercase whatever the app collects, `#user/<prop>` reads it through a
+		// `casedb` join rather than a projection, and a persona exists on an app
+		// with no case types at all. So this app has exactly one case type, and
+		// it is the one nobody authored.
 		await materializeCaseStoreSchemas({
 			appId: APP_ID,
 			blueprint: makeBlueprint(null),
 		});
 		expect(withSchemaContextMock).toHaveBeenCalledTimes(1);
+		expect(await materializedTypes()).toEqual([USERCASE_CASE_TYPE]);
 	});
 
-	it("does not allocate withSchemaContext when caseTypes is empty", async () => {
-		// Same shape as `null` but the array is empty — the SA
-		// declared a `caseTypes` array but never filled it. The
-		// helper treats the two the same way.
+	it("treats an empty caseTypes array the same as null", async () => {
+		// The SA declared the array and never filled it. Both spellings mean
+		// the same app, so both must reach the same materialized state.
 		await materializeCaseStoreSchemas({
 			appId: APP_ID,
 			blueprint: makeBlueprint([]),
 		});
 		expect(withSchemaContextMock).toHaveBeenCalledTimes(1);
+		expect(await materializedTypes()).toEqual([USERCASE_CASE_TYPE]);
 	});
 });
 
@@ -180,7 +194,11 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 			"SELECT case_type FROM case_type_schemas WHERE app_id = $1 ORDER BY case_type",
 			[APP_ID],
 		);
+		// `commcare-user` rides along with every app: HQ gives every worker a
+		// usercase whatever the app collects, so it is materialized
+		// unconditionally rather than derived from what was declared.
 		expect(schemaRows.rows.map((r) => r.case_type)).toEqual([
+			"commcare-user",
 			"patient",
 			"visit",
 		]);
@@ -274,8 +292,11 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 			syncedSeq: 12,
 		});
 
-		// Every per-type sync carries the same materialized-blueprint seq.
-		expect(seqs).toEqual([12, 12]);
+		// Every per-type sync carries the same materialized-blueprint seq —
+		// including the worker's own case, which rides the same loop and must
+		// not be exempt from the monotone gate that keeps concurrent syncs
+		// converging.
+		expect(seqs).toEqual([12, 12, 12]);
 	});
 
 	it("omits `syncedSeq` entirely when the caller supplies none", async () => {
@@ -480,7 +501,10 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 
 		// `a` once, `b` retried to the budget (3 attempts), then `c` still ran.
 		expect(calls.filter((n) => n === "b")).toHaveLength(3);
-		expect(calls[calls.length - 1]).toBe("c");
+		expect(calls).toContain("c");
+		// The worker's own case is appended after the declared types, so it is
+		// also proof the loop ran to completion past the swallowed failure.
+		expect(calls[calls.length - 1]).toBe(USERCASE_CASE_TYPE);
 	});
 
 	it("retries a TRANSIENT per-type blip and lands the sync (no gap left for the heal)", async () => {
@@ -546,8 +570,9 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 				blueprint: makeBlueprint([a]),
 			}),
 		).resolves.toBeUndefined();
-		// One transient failure + one success = two attempts for the one type.
-		expect(applySchemaChangeMock).toHaveBeenCalledTimes(2);
+		// One transient failure + one success = two attempts for `a`, plus the
+		// one clean attempt for the worker's own case.
+		expect(applySchemaChangeMock).toHaveBeenCalledTimes(3);
 	});
 });
 
@@ -655,8 +680,9 @@ describe("materializeCaseStoreSchemas — monotone synced_seq gate (integration)
 				syncedSeq: 4,
 			}),
 		).resolves.toBeUndefined();
-		// Retried to the budget (3 attempts) then swallowed.
-		expect(throwingApply).toHaveBeenCalledTimes(3);
+		// Retried to the budget (3 attempts) then swallowed — for `patient` and
+		// again for the worker's own case, which this store fails too.
+		expect(throwingApply).toHaveBeenCalledTimes(6);
 		const missing = await dbHandle.pool.query(
 			"SELECT case_type FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
 			[APP_ID, "patient"],

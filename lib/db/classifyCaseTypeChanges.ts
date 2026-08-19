@@ -51,6 +51,8 @@ import {
 	type CaseProperty,
 	type CaseType,
 	materializableCaseTypes,
+	USERCASE_CASE_TYPE,
+	usercaseCaseType,
 } from "@/lib/domain";
 
 /**
@@ -124,6 +126,25 @@ export function classifyCaseTypeChanges(
 		if (!prospectiveByName.has(name)) {
 			entries.push({ kind: "retire", caseType: name });
 		}
+	}
+
+	// The worker's own case is compared SEPARATELY because it is derived from
+	// the worker-property catalog rather than declared, so it is absent from
+	// `materializableCaseTypes` by design (it is storable, not authorable) and
+	// the loops above can never see it. Without this an author adding a worker
+	// property gets no schema sync, and the next usercase write is refused by a
+	// stale case type with `additionalProperties` — the failure looking like a
+	// bug in the write rather than in the sync that never ran.
+	//
+	// No retire arm: every app has a usercase, so it is added and re-synced but
+	// never removed.
+	if (
+		caseTypePropertySurfaceDiffers(
+			usercaseCaseType(args.prior),
+			usercaseCaseType(args.prospective),
+		)
+	) {
+		entries.push({ kind: "sync", caseType: USERCASE_CASE_TYPE });
 	}
 
 	return entries;
