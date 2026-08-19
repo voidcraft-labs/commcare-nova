@@ -145,12 +145,48 @@ owner-relative destination stores the destination level UUID plus a typed owner
 case expression; admission requires a case-owning destination, the nearest
 case-owning ancestor needed for the reverse hop, one scalar destination per
 owner, and a destination present in every applicable persona footprint. The
-wire compiler can lower those identities to a fixed location id or the exact
-flat-fixture lineage lookup, but every export mode remains closed while the
-deployment/usercase work has not yet shipped the matching persona-scoped
-`locations` fixture and HQ identity mapping. Location terms occupy the entire
-owner rule, so they cannot become a subtly wrong arithmetic, name, or nested
-expression.
+wire compiler lowers those identities to a fixed location id or the exact
+flat-fixture lineage lookup. Location terms occupy the entire owner rule, so
+they cannot become a subtly wrong arithmetic, name, or nested expression.
+
+**A device's `locations` fixture is HQ's to deliver, not Nova's.**
+`FlatLocationSerializer` runs on RESTORE, from the domain's own `SQLLocation`
+rows, so nothing Nova exports carries it and nothing Nova could export would:
+a `.ccz` is an app, and this fixture is per worker. Nova emits it anyway, as a
+TEST ASSET (`lib/commcare/locations/__tests__/flatLocationsFixture.ts`), for one
+reason — the lowering has to be provable against the exact bytes a device reads,
+and a shape nobody can execute is a shape nobody can check. It is the wire's
+specimen, not a delivery path, and it lives beside the test that reads it so
+nobody mistakes it for one. It matches
+`locations/fixtures.py::FlatLocationSerializer.get_xml_nodes` node for node: the
+sorted app-wide index schema, places ordered by `site_code`, one `{code}_id`
+attribute per level present-and-empty except for the place itself and each
+ancestor, HQ's seven children in order, and one `location_data` carrying every
+declared field. It is a RESTORE fixture and never a suite one — it carries
+`user_id` and differs per worker, which is exactly what `suiteOracle::checkFixtures`
+rejects inside a `<suite>`. The instance declaration that would otherwise void
+it silently rides the XForm already: a location term is authorable in exactly
+one slot, a case operation's `owner`, and reaches the XForm through the
+AST-level accumulator rather than as text, so no authored placeholder question
+exists for an author to wonder about.
+
+**The bytes are load-bearing rather than plausible.** One authored rule has two
+independent lowerings — XPath over the fixture, and a recursive CTE over
+`app_locations` — that share a rule but no code path, so they can drift into
+disagreement with no symptom until a device assigns a case somewhere the
+preview did not. Over generated organizations, every owner/destination pair the
+commit gate admits resolves to the same place id on both sides, with the wire
+side evaluated by a Lezer-driven reference evaluator that knows nothing about
+organizations. An ambiguous hop is skipped rather than compared:
+`assertReverseHopTargetsUnambiguous` refuses that shape and both sides pick
+arbitrarily, so comparing them would test two coin flips.
+
+**Export stays closed, and now for exactly one reason.** A `fixed-location`
+owner emits a Nova place UUID as a literal `owner_id` and a reverse hop joins on
+HQ `location_id` values; neither names anything on a target domain until push
+and provisioning ships the HQ identity map. The other half of the refusal was
+never Nova's to ship: once the place tree is pushed, HQ builds each worker's
+fixture itself, so the identity map closes both halves at once.
 
 Blueprint commits and place writes share the app-row-first lock order. Each
 commit replaces the exact set of concrete place-reference edges for persona
@@ -1071,6 +1107,63 @@ The wire facts the shape rests on:
   and is deliberately not the provisioning model; a user type compiles to plain
   per-user `user_data` values.
 
+**Every app has a worker's case, whether or not it declares anything.** The
+`commcare-user` case type is DERIVED from the worker-property catalog rather
+than declared beside it, so it is storable but not authorable: it is absent
+from `effectiveCaseTypes` (nothing can create, close, or model it) and present
+in `buildCaseTypeMap` (the case store materializes it and the wire reads it).
+Its contents come from one derivation with two consumers — Preview's `#user/`
+answers and the materialized row — because `#user/` resolves against `casedb`
+on the wire, so two derivations would make Preview disagree with a device for
+any worker saved once.
+
+The row is Nova-managed. Materialization runs on the commit that changes a
+persona, a role, or the worker-property catalog — HQ's "each time a user is
+saved" trigger (`sync_usercase.py::sync_usercases`) — plus lazily when a
+preview resolves a persona with no row, and the sweep costs zero queries on the
+overwhelmingly common commit that touches no worker at all. It diffs like
+`::_get_changed_fields`: write only the keys whose value differs, and never
+remove one. That is the whole non-clobbering contract — a value a form wrote
+through `usercase_update` survives until a persona edit names that same
+property. `owner_id` is the persona's own uuid (HQ passes `user.get_id`), the
+case id IS the persona uuid so a double sync collides with itself instead of
+racing, and removing a persona CLOSES the row rather than deleting it. Two
+values are deliberately not written: `case_name` carries the worker's display
+name with HQ's own `user.name or user.raw_username` fallback because
+`cases.case_name` is `NOT NULL`, and **`external_id` is left empty**.
+`external_id` is HQ's READ key for finding a usercase
+(`CommCareCase.objects.get_case_by_external_id`, reached from
+`CouchUser.get_usercase`); `_get_user_case_fields` never writes it and
+`create_usercase` never passes it, so writing it would make an
+`external_id = ''` comparison answer one way in Preview and the other in the
+field.
+
+**A form can save an answer into it.** `commcare-user` is a third
+`deriveCaseWriteInventory` bucket beside primary and child, available on any
+form including a survey with no case type of its own, with the fixed usercase
+rather than a repeat as its bucket identity — a usercase writer inside a repeat
+is refused, because one form writes one worker record. The destination must be
+a declared worker property (the slug is emitted as an XML element name), never
+a built-in worker field, and never `case_name`: HQ permits writing the name and
+its byte oracle asserts exactly that, but materialization owns the worker's
+name here, so a form-written one would be silently replaced by the next persona
+edit. That refusal is a Nova authoring fence rather than a wire constraint, and
+it says so. On the wire this populates `usercase_update` and emits the
+`commcare_usercase` block, the computed `usercase_id` datum, and the
+`count(…) = 1` assertion — all three gated exactly as HQ gates them on
+`actions_use_usercase`, and the datum rides forms only, so Nova's case-list-only
+browse entry carries neither. `usercase_preload` stays empty as a stated fence:
+`#user/<prop>` already compiles to the identical `casedb` join, and a preload
+action would be a second representation of one read.
+
+**The usercase is behind a paid privilege, and the failure is sharper than it
+looks.** `app_manager/util.py::domain_has_usercase_access` gates it, and on a
+target without it NO usercase rows exist — so the emitted `count(…) = 1`
+assertion fails and blocks entry into the form entirely. Not a degraded write, a
+dead end. Nova cannot see a target's plan, so authoring stays ungated and this
+travels as a publish-preflight attention edge and a line in the setup artifact,
+never a refusal.
+
 Two of HQ's `Field` columns are deliberately excluded from constructible state.
 `regex` / `regex_msg` sit behind the paid `REGEX_FIELD_VALIDATION` privilege —
 `edit_model.py::CustomDataModelMixin.get_field` drops the pattern and keeps
@@ -1103,11 +1196,10 @@ from the committed blueprint under the same locks, and binds the explicit
 pair; a stale or missing persona is a typed refusal behind an explicit
 **Preview as me** recovery — never an anonymous or one-frame member fallback.
 
-The identity carries **two projections of one worker**, because the wire has
-two: `session` (`SessionInstanceBuilder.java::addMetadata` +
-`::addUserProperties`) and `usercase`
-(`callcenter/sync_usercase.py::_get_user_case_fields`) — same authored data,
-different built-in keys (`first_name` there, `commcare_first_name` in the
+The identity carries **two readings of one worker**, because the wire has two:
+`session` (`SessionInstanceBuilder.java::addMetadata` + `::addUserProperties`)
+and `usercase` (`callcenter/sync_usercase.py::_get_user_case_fields`) — same
+authored data, different built-in keys (`first_name` there, `commcare_first_name` in the
 session block). The three location keys diverge between them, and the
 asymmetry is easy to state backwards: `get_user_session_data` writes all three
 or none, so the session block omits them while nobody is assigned anywhere,
@@ -1119,8 +1211,57 @@ supplies a domain, the worker's name rides as `case_name` rather than `name`
 always-written HQ keys are present-and-empty rather than absent, `user_type`
 is `"standard"`, and a **declared** property with no value is
 present-and-empty while an undeclared key is genuinely absent — the split a
-`= ''` comparison depends on. `lib/preview/CLAUDE.md` (§ Resolved preview
-identity) owns the full contract and citations.
+`= ''` comparison depends on.
+
+The session reading is computed; **the usercase reading is a read of the
+materialized row**, not a second computation of the same values. Once a form
+can write through `usercase_update`, a computed projection and the row diverge
+the moment a worker answers — and they diverge without that, because the
+never-remove diff keeps a key on the row after the catalog drops the property
+while the projection forgets it. The wire reads `casedb`, so the row is the one
+to believe; the derivation survives as the materializer's input.
+`lib/preview/CLAUDE.md` (§ Resolved preview identity) owns the full contract
+and citations.
+
+**Previewing as a persona shows what that worker's device would hold.** The
+identity carries an owner SET beside the single `ownerId` scalar, and the two
+are not interchangeable: `ownerId` stamps writes and answers
+`session/context/userid`, while the set is the worker's own id plus one id per
+case-sharing location group — `CouchUser.get_owner_ids`, whose location half is
+(assigned places whose level shares cases) ∪ (descendants of assigned places
+whose level views descendants), with the group's `_id` being the `location_id`
+itself (`SQLLocation.case_sharing_group_object`). **Preview as me** is a worker
+assigned nowhere, so its set is just the member id. Both modes materialize a
+usercase, because HQ gives every real worker one and without a row for the
+member identity the two modes would answer `#user/<prop>` differently.
+
+That set seeds a restore CLOSURE, not an owner filter, and the difference is
+the whole point: CommCare's restore is a liveness fixpoint over the case graph
+(`livequery.py::get_live_case_ids_and_indices` — the fixpoint is there, NOT in
+`do_livequery`, which only seeds it). A closed case can be in the result while a
+closed HOST kills its extension chain. Nova reproduces it as two recursive CTEs
+inside the case-store query, and it is applied at every relation hop as well as
+the outer scan: restricting only the top level would leave the preview faithful
+in the list and wrong one hop down, with nothing to reveal it. Authoring
+surfaces — the case workspace, automations, every count that models HQ's
+server-side sweep — keep their whole-tenant view; the closure is opt-in by
+argument rather than by flag. A held row stays out of the returned list but
+still relays liveness through the closure, because parking one property value
+must not silently drop an extension subtree from what the preview shows. The
+running case list offers a ghosted count of the rows the closure excluded, which
+is authoring-only inspection and says which worker's restore it is showing.
+
+Nova's closure is HQ's monotone completion rather than a transliteration.
+`classify`'s first branch is order-dependent for an extension edge whose
+subordinate is closed, so HQ's own answer changes under permutation on some
+graphs; the declarative form is always a superset, never smaller, and identical
+on all 45 of HQ's pinned relationship fixtures
+(`casexml/apps/phone/tests/data/case_relationship_tests.json`, driven by
+`test_extension_indexes.py`). **That file is the oracle, and `livequery.py`'s
+module docstring contradicts it** — the docstring's eighth example claims
+`a(closed) <--ext-- b <--chi-- c(owned) >> []`, while the pinned fixture of
+exactly that shape, `open_child_of_closed_extension`, expects `["a","b","c"]`.
+Build to the fixtures.
 
 Deleting a persona never deletes case data: rows it owns keep naming it, and
 the confirmation must successfully count every retained row for that owner —
@@ -1967,22 +2108,11 @@ Units are named, not numbered: the file's name is the unit's identity, so a
 unit that ships leaves no gap and nothing ever renumbers.
 
 
-### Usercase, owner sets, restore scope, and wire
-
-[`complex-app/usercase-owner-sets-and-wire.md`](complex-app/usercase-owner-sets-and-wire.md)
-· depends on nothing outstanding · blocks the app-setup-UI unit
-
-Usercase materialization, owner-set derivation, tenant-complete restore closure,
-and the flat location fixture. **The file holds** the three-rule liveness fixpoint
-the preview must reproduce rather than approximate, the flat fixture's byte
-contract, and the instance-declaration precondition that silently voids the whole
-fixture when missed.
 
 ### App setup UI, SA, MCP, and docs
 
 [`complex-app/app-setup-ui-sa-mcp-and-docs.md`](complex-app/app-setup-ui-sa-mcp-and-docs.md)
-· depends on the remaining deployment-chain units plus the usercase unit
-· blocks nothing
+· depends on nothing outstanding · blocks nothing
 
 The App setup workspace's remaining Deployment section, plus the SA and MCP
 surfaces and public docs for the remaining prerequisite units.
@@ -2040,27 +2170,26 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
-| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase |
+| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | — |
 | [form links and sections](complex-app/form-links-and-sections.md) | — |
 | [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | form links and sections |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | — |
 
-Three units have no outstanding prerequisites and can start in any order: the
-usercase, form links and sections, and multi-select. They are the independent
+Three units have no outstanding prerequisites and can start in any order: form
+links and sections, multi-select, and the App setup UI. They are the independent
 entry points — every other unit descends from one of them.
 
 There is no critical path left. Push and provisioning was it, and with the
-drivers shipped the remaining work is two short chains and three loose units:
-the usercase gates the App setup UI, and form links → nested menus → session
-endpoints runs on its own.
+drivers and the usercase both shipped the remaining work is one short chain and
+two loose units: form links → nested menus → session endpoints runs on its own,
+and the App setup UI now waits on nothing.
 
 The App setup UI, session endpoints, and multi-select are leaves — nothing waits
-on them, so each can land whenever its own prerequisites are met. Multi-select is
-both an entry point and a leaf: nothing blocks it and nothing waits on it, which
-makes it the natural filler whenever another unit is blocked on something
-external.
+on them, so each can land whenever its own prerequisites are met. The App setup
+UI and multi-select are both entry points and leaves: nothing blocks either and
+nothing waits on either, which makes them the natural filler whenever another
+unit is blocked on something external.
 
 ---
 
