@@ -1653,6 +1653,45 @@ export function tileCellIsGroupHeader(
 	return cell.y < headerRows;
 }
 
+/**
+ * Every header depth that cuts THIS tile cleanly, ascending.
+ *
+ * A clean cut is one an author could actually have meant: something in
+ * the header, something below it, and no field split across the
+ * boundary. Those are exactly the three states
+ * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts` refuses,
+ * so the builder offers this list and an author never reaches a
+ * rejected commit to learn a depth was unavailable. A test pins the two
+ * against each other in both directions.
+ *
+ * `cells` is the SHOWN cells — what `tileCellFor` admits, never the
+ * stored placements. A hidden, order-driving column keeps its cell but
+ * emits no `<style>`, so it is not on the tile and must not widen this
+ * arithmetic either.
+ *
+ * Empty when the tile has no shown cell, and empty for a one-row tile:
+ * a single row has no room for both a header and a body.
+ */
+export function tileGroupHeaderRowChoices(
+	cells: readonly TileCell[],
+): readonly number[] {
+	if (cells.length === 0) return [];
+	const occupiedRows = Math.max(...cells.map(tileCellBottomEdge));
+	const choices: number[] = [];
+	for (let headerRows = 1; headerRows < occupiedRows; headerRows += 1) {
+		const straddles = cells.some(
+			(cell) =>
+				tileCellIsGroupHeader(cell, headerRows) &&
+				tileCellBottomEdge(cell) > headerRows,
+		);
+		if (straddles) continue;
+		if (!cells.some((cell) => tileCellIsGroupHeader(cell, headerRows)))
+			continue;
+		choices.push(headerRows);
+	}
+	return choices;
+}
+
 export const caseTileLayoutSchema = z
 	.object({
 		/**

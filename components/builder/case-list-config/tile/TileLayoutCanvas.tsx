@@ -23,11 +23,14 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import type {
 	CaseListConfig,
+	CaseTileGrouping,
 	CaseTileLayout,
+	CaseType,
 	TileCell,
 	Uuid,
 } from "@/lib/domain";
 import { TileGridEditor } from "./TileGridEditor";
+import { TileGroupingSection } from "./TileGroupingSection";
 import { tileMembership, tileMemberUuids } from "./tileModel";
 import {
 	matchingTilePreset,
@@ -39,6 +42,10 @@ import {
 export interface TileLayoutCanvasProps {
 	readonly config: CaseListConfig;
 	readonly tile: CaseTileLayout;
+	/** The type this list shows, for the grouping section's connection hint
+	 *  and the population it measures. */
+	readonly caseType: CaseType | undefined;
+	readonly appId: string;
 	readonly selectedUuid: string | null;
 	readonly issues: ReadonlyMap<Uuid, readonly string[]>;
 	readonly canEdit: boolean;
@@ -47,11 +54,14 @@ export interface TileLayoutCanvasProps {
 	readonly onPlaceUnplaced: (uuid: Uuid) => void;
 	readonly onApplyPreset: (preset: TilePresetId) => void;
 	readonly onPersistOnFormsChange: (persist: boolean) => void;
+	readonly onGroupingChange: (next: CaseTileGrouping | undefined) => void;
 }
 
 export function TileLayoutCanvas({
 	config,
 	tile,
+	caseType,
+	appId,
 	selectedUuid,
 	issues,
 	canEdit,
@@ -60,6 +70,7 @@ export function TileLayoutCanvas({
 	onPlaceUnplaced,
 	onApplyPreset,
 	onPersistOnFormsChange,
+	onGroupingChange,
 }: TileLayoutCanvasProps) {
 	const memberCount = tileMemberUuids(config).length;
 	const { placed } = tileMembership(config);
@@ -96,6 +107,16 @@ export function TileLayoutCanvas({
 					description="Workers see the case they picked above every question in this module."
 					checked={tile.persistOnForms === true}
 					onChange={onPersistOnFormsChange}
+				/>
+			)}
+
+			{canEdit && (
+				<TileGroupingSection
+					config={config}
+					tile={tile}
+					caseType={caseType}
+					appId={appId}
+					onGroupingChange={onGroupingChange}
 				/>
 			)}
 		</div>

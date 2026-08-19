@@ -59,6 +59,7 @@ import {
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
+import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/predicate/types";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
 	mapFilterPreviewError,
@@ -464,6 +465,61 @@ export async function loadCaseCountAction(args: {
 		if (err instanceof AppAccessError)
 			return { kind: "error", message: "App not found." };
 		reportUnexpectedActionError("loadCaseCount", err, {
+			appId: args.appId,
+			caseType: args.caseType,
+		});
+		return {
+			kind: "error",
+			message: err instanceof Error ? err.message : "Failed to count cases.",
+		};
+	}
+}
+
+/**
+ * How many cases of one type carry NO connection with the given name.
+ *
+ * The measurement behind the grouping surface's second statement.
+ * `string(./index/<id>)` evaluates to `""` for a case with no such
+ * index, and the clustering map takes that as an ordinary key, so every
+ * one of these lands in a single group on the device. Which cases those
+ * are is runtime data, so the commit gate cannot speak to it
+ * (`docs/plans/complex-app/00-contracts.md` § What the commit gate may
+ * read) — the author is told the number instead.
+ *
+ * Held rows are counted: this answers a question about the stored data
+ * an author governs, not about what the running app can currently reach.
+ *
+ * The identifier is caller-supplied, so it is checked here at the trust
+ * boundary rather than trusted into a query. It reaches SQL as a bound
+ * parameter either way; the check is what keeps a blank or malformed
+ * name from quietly counting the whole population.
+ */
+export async function loadMissingConnectionCountAction(args: {
+	appId: string;
+	caseType: string;
+	identifier: string;
+}): Promise<LoadCaseCountResult> {
+	if (!XML_ELEMENT_NAME_PATTERN.test(args.identifier)) {
+		return {
+			kind: "error",
+			message:
+				"A connection name must start with a letter or underscore and contain only letters, numbers, and underscores.",
+		};
+	}
+	try {
+		const identity = await resolvePreviewIdentity();
+		if (!identity) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, identity, "view");
+		const count = await store.count({
+			appId: args.appId,
+			caseType: args.caseType,
+			missingIndexIdentifier: args.identifier,
+		});
+		return { kind: "count", count };
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
+		reportUnexpectedActionError("loadMissingConnectionCount", err, {
 			appId: args.appId,
 			caseType: args.caseType,
 		});

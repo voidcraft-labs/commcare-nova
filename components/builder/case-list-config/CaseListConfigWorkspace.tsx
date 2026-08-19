@@ -81,6 +81,7 @@ import {
 	type CaseListConfig,
 	type CaseProperty,
 	type CaseSearchConfig,
+	type CaseTileGrouping,
 	type Column,
 	caseSearchConfigAfterFinalInputRemoval,
 	DEFAULT_CASE_SEARCH_TITLE,
@@ -137,6 +138,7 @@ import {
 	tileMembership,
 } from "./tile/tileModel";
 import {
+	planTileGrouping,
 	planTileLayoutDisable,
 	planTileLayoutEnable,
 	planTilePersistOnForms,
@@ -1377,6 +1379,19 @@ function useController(
 		[commitMany, config.tile, moduleUuid],
 	);
 
+	const setTileGrouping = useCallback(
+		(next: CaseTileGrouping | undefined) => {
+			commitMany([
+				...planTileGrouping(
+					requireRetainedModuleUuid(moduleUuid),
+					next,
+					config.tile,
+				),
+			]);
+		},
+		[commitMany, config.tile, moduleUuid],
+	);
+
 	// ── Inspector resolution ──
 	//
 	// Computed only while the workspace is actually on-screen (`active`). When
@@ -1543,6 +1558,7 @@ function useController(
 		putColumnOnTile,
 		applyTilePreset,
 		setTilePersistOnForms,
+		setTileGrouping,
 		addDisabledReason,
 		addResultsDisabledReason,
 		opensResultsAutomatically,
@@ -1810,6 +1826,7 @@ export function CaseListWorkspaceCanvas() {
 		putColumnOnTile,
 		applyTilePreset,
 		setTilePersistOnForms,
+		setTileGrouping,
 		addDisabledReason,
 		addResultsDisabledReason,
 		opensResultsAutomatically,
@@ -1916,6 +1933,7 @@ export function CaseListWorkspaceCanvas() {
 							brokenColumns={brokenColumns}
 							selection={sel}
 							onSelect={setSel}
+							onTileGroupingChange={setTileGrouping}
 							onAddColumn={(property) => addColumn("list", property)}
 							onAddCalculated={() => addCalculatedColumn("list")}
 							addColumnDisabledReason={addResultsDisabledReason}

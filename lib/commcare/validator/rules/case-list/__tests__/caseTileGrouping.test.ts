@@ -20,8 +20,10 @@ import {
 	type Column,
 	caseTileLayoutSchema,
 	plainColumn,
+	TILE_GRID_ROWS,
 	type TileCell,
 	tileCell,
+	tileGroupHeaderRowChoices,
 } from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
@@ -183,6 +185,45 @@ describe("caseTileGrouping", () => {
 				grouping(1),
 			),
 		).toEqual([HEADER_EMPTY]);
+	});
+
+	it("agrees exactly with the depths the builder offers", () => {
+		// The builder withholds an unavailable header depth instead of
+		// letting an author reach a rejected commit to discover it. That is
+		// only honest while the two answers match, in BOTH directions: every
+		// offered depth commits clean, and every withheld one is refused.
+		const layouts: readonly (readonly Column[])[] = [
+			CLEAN_CUT,
+			[
+				named("a", "case_name", tileCell(0, 0, 6, 3)),
+				named("b", "town", tileCell(6, 0, 6, 1)),
+				named("c", "seen_on", tileCell(6, 2, 6, 1)),
+			],
+			[
+				named("a", "case_name", tileCell(0, 1, 12, 1)),
+				named("b", "town", tileCell(0, 2, 12, 1)),
+				named("c", "seen_on", tileCell(0, 3, 12, 1)),
+			],
+			[
+				named("a", "case_name", tileCell(0, 0, 12, 1)),
+				named("b", "town", tileCell(0, 1, 6, 3)),
+				named("c", "seen_on", tileCell(6, 1, 6, 3)),
+			],
+			[named("a", "case_name", tileCell(0, 0, 12, 1))],
+		];
+		for (const columns of layouts) {
+			const cells = columns.flatMap((column) =>
+				column.tile === undefined ? [] : [column.tile],
+			);
+			const offered = new Set(tileGroupHeaderRowChoices(cells));
+			for (let headerRows = 1; headerRows <= TILE_GRID_ROWS - 1; headerRows++) {
+				const clean = codesFor(columns, grouping(headerRows)).length === 0;
+				expect({ headerRows, clean }).toEqual({
+					headerRows,
+					clean: offered.has(headerRows),
+				});
+			}
+		}
 	});
 
 	it("cannot represent grouping without a tile", () => {

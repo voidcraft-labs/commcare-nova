@@ -17,6 +17,7 @@ import {
 	tileCell,
 } from "@/lib/domain";
 import {
+	planTileGrouping,
 	planTileLayoutDisable,
 	planTileLayoutEnable,
 	planTilePersistOnForms,
@@ -227,6 +228,69 @@ describe("planTilePersistOnForms", () => {
 				tile: { futureSlot: "kept", persistOnForms: true },
 			},
 		});
+	});
+});
+
+describe("planTileGrouping", () => {
+	it("stores the grouping beside the layout's other slots", () => {
+		expect(
+			planTileGrouping(
+				MODULE,
+				{ identifier: "parent", headerRows: 2 },
+				{ persistOnForms: true },
+			),
+		).toEqual([
+			{
+				kind: "setCaseListMeta",
+				uuid: MODULE,
+				patch: {
+					tile: {
+						persistOnForms: true,
+						grouping: { identifier: "parent", headerRows: 2 },
+					},
+				},
+			},
+		]);
+	});
+
+	it("removes the slot rather than storing a switched-off grouping", () => {
+		// `Module.has_grouped_tiles` reads the identifier's presence and
+		// `<group>` is emitted or it is not, so there is no off value to
+		// store. A dormant one would also bring an author's old header depth
+		// back on a later toggle without them choosing it again.
+		expect(
+			planTileGrouping(MODULE, undefined, {
+				persistOnForms: true,
+				grouping: { identifier: "parent", headerRows: 2 },
+			}),
+		).toEqual([
+			{
+				kind: "setCaseListMeta",
+				uuid: MODULE,
+				patch: { tile: { persistOnForms: true } },
+			},
+		]);
+	});
+
+	it("keeps the keep-on-screen switch through a grouping edit, and back", () => {
+		// The two settings live in one wholesale-replaced object, so each
+		// planner has to rebuild from the current layout. Toggling either one
+		// must never be how the other disappears.
+		const persistOn = planTilePersistOnForms(MODULE, true, {
+			grouping: { identifier: "parent", headerRows: 1 },
+		});
+		expect(persistOn).toEqual([
+			{
+				kind: "setCaseListMeta",
+				uuid: MODULE,
+				patch: {
+					tile: {
+						grouping: { identifier: "parent", headerRows: 1 },
+						persistOnForms: true,
+					},
+				},
+			},
+		]);
 	});
 });
 

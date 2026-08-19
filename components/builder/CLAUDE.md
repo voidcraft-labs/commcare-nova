@@ -615,7 +615,7 @@ The chrome's global Preview toggle is the only interactive run-through. It assem
 
 Running Results rows keep their full-row case action and every authored cell action as sibling controls. Phone links and value explanations remain independently focusable, keyboard/touch usable, and at least 44px; activating one never opens the case. Never place an interactive cell inside the row's primary button.
 
-**Results arranges its fields as rows or as a tile, and the switch lives on the canvas** (`tile/TileLayoutToggle.tsx`, beside the *Information shown* heading) — not in Module settings, which owns the module's MENU appearance and isn't even mounted in this workspace for a form-bearing module. Choosing Tile replaces the row composer with a 12 × 12 grid (`tile/TileGridEditor.tsx`); its cell geometry comes from `lib/preview/caseTileLayout` so the authoring grid and the running tile can never derive differently, and the occupied extent is drawn distinctly from the canvas because the device stretches that extent to the list's full width. Everything the arrangement can do routes through one pure model, `tile/tileModel.ts`: a gesture (drag, arrow key, Shift+arrow resize, typed number, preset) yields either a placement or a stated refusal, and a refused drag holds the last valid place with its reason on screen instead of snapping back. Six consequences bind any change here:
+**Results arranges its fields as rows or as a tile, and the switch lives on the canvas** (`tile/TileLayoutToggle.tsx`, beside the *Information shown* heading) — not in Module settings, which owns the module's MENU appearance and isn't even mounted in this workspace for a form-bearing module. Choosing Tile replaces the row composer with a 12 × 12 grid (`tile/TileGridEditor.tsx`); its cell geometry comes from `lib/preview/caseTileLayout` so the authoring grid and the running tile can never derive differently, and the occupied extent is drawn distinctly from the canvas because the device stretches that extent to the list's full width. Everything the arrangement can do routes through one pure model, `tile/tileModel.ts`: a gesture (drag, arrow key, Shift+arrow resize, typed number, preset) yields either a placement or a stated refusal, and a refused drag holds the last valid place with its reason on screen instead of snapping back. Seven consequences bind any change here:
 
 - **Turning the tile on lands a working layout.** `tile/tileMutationPlan.ts::planTileLayoutEnable` seeds a place for every field that lacks one and commits those placements in the SAME gated batch as the switch — the switch alone introduces `CASE_LIST_TILE_COLUMN_NOT_PLACED` and would be refused. Turning it OFF writes only `tilePatch: null`: every cell survives, inert and valid, so switching back restores the drawing. What can't survive is `persistOnForms` (there is no tile to keep on screen), so that switch confirms the loss first rather than letting the setting vanish.
 - **Anything JOINING Results on a tile carries a RE-ADJUDICATED place.** Add
@@ -639,6 +639,22 @@ Running Results rows keep their full-row case action and every authored cell act
   columns the tile shows, so an off-tile saved cell reports nothing. **Saved
   tile place** therefore offers its numeric controls and removal
   unconditionally; a reveal receives one valid re-adjudicated placement.
+- **Grouping is part of the tile, and it says what it costs**
+  (`tile/TileGroupingSection.tsx`, `tileMutationPlan.ts::planTileGrouping`).
+  `caseListConfig.tile.grouping` shows the cases that share a connection
+  together under one heading drawn from the first of them. The heading depth
+  offers only the depths `tileGroupHeaderRowChoices` calls clean cuts — the
+  same arithmetic the validator refuses on — so an author never reaches a
+  rejected commit to learn a depth was unavailable, and a test pins the two
+  against each other in both directions. Two facts are stated permanently
+  rather than as dismissible notices, because neither is visible from the
+  arrangement: **choosing a group opens its FIRST case** (Web Apps keeps only
+  that case in the rendered collection, so the rows beneath carry no handler),
+  and **cases with no such connection all land in one group** — followed by the
+  MEASURED count of them (`useMissingConnectionCount`), with measured, measured
+  zero, and not-yet-known kept as three different sentences. Grouping lives
+  inside the layout object, so turning the tile off takes it along, and both
+  planners rebuild from the current layout rather than writing a bare patch.
 - **The grid's floor is arithmetic.** A chip insets itself 2px per side, so a 44px pointer target needs a 48px square: `min-w-[36rem]` (12 × 48) and a 3rem row, scrolling sideways below that rather than shrinking. Change one of those three and re-derive the other two.
 
 Rules that aren't enforced by tooling:

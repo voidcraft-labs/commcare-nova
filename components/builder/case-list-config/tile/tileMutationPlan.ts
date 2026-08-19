@@ -20,6 +20,7 @@ import { columnTileMutations } from "@/lib/doc/caseListColumnMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
+	type CaseTileGrouping,
 	type CaseTileLayout,
 	type Column,
 	type TileCell,
@@ -156,6 +157,38 @@ export function planTilePersistOnForms(
 			uuid: moduleUuid,
 			patch: {
 				tile: persist ? { ...rest, persistOnForms: true } : rest,
+			},
+		},
+	];
+}
+
+/**
+ * Group the tile's cases under a connected case, or stop grouping them.
+ *
+ * Rebuilt from the current layout for the same reason
+ * `planTilePersistOnForms` is: `patch.tile` replaces the layout object
+ * wholesale, so a bare `{ grouping }` would silently drop the
+ * keep-on-screen switch beside it.
+ *
+ * Turning grouping OFF removes the slot entirely rather than storing a
+ * disabled shape. Grouping is not a setting with an off value on the
+ * wire — `Module.has_grouped_tiles` reads the identifier's presence and
+ * `<group>` is emitted or it is not — and an app document that carried a
+ * dormant one would let an author's stored header depth reappear on a
+ * later toggle without them choosing it again.
+ */
+export function planTileGrouping(
+	moduleUuid: Uuid,
+	grouping: CaseTileGrouping | undefined,
+	current: CaseTileLayout | undefined,
+): readonly Mutation[] {
+	const { grouping: _cleared, ...rest } = current ?? {};
+	return [
+		{
+			kind: "setCaseListMeta",
+			uuid: moduleUuid,
+			patch: {
+				tile: grouping === undefined ? rest : { ...rest, grouping },
 			},
 		},
 	];

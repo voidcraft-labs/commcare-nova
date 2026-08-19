@@ -18,6 +18,7 @@ import {
 	type Column,
 	emptyCaseListConfig,
 	plainColumn,
+	tileGroupHeaderRowChoices,
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -27,6 +28,7 @@ import {
 	tileMembership,
 } from "../tile/tileModel";
 import {
+	planTileGrouping,
 	planTileLayoutDisable,
 	planTileLayoutEnable,
 } from "../tile/tileMutationPlan";
@@ -329,5 +331,113 @@ describe("turning the tile off", () => {
 			{ x: 0, y: 0, width: 6, height: 2 },
 			{ x: 6, y: 0, width: 6, height: 1 },
 		]);
+	});
+});
+
+describe("grouping the tile", () => {
+	/** A two-band tile: a name row over a village row, so a one-row
+	 *  heading is a clean cut and a two-row one is not. */
+	function bandedDoc() {
+		const { doc, moduleUuid } = docWithColumns([
+			column("case_name", "Patient name", {
+				tile: { x: 0, y: 0, width: 12, height: 1 },
+			}),
+			column("village", "Village", {
+				tile: { x: 0, y: 1, width: 12, height: 1 },
+			}),
+		]);
+		const enabled = accepts(doc, [
+			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: { tile: {} } },
+		]);
+		if (!enabled.ok) throw new Error("tile did not turn on");
+		return { doc: enabled.nextDoc, moduleUuid };
+	}
+
+	it("commits the depth the builder offers", () => {
+		const { doc, moduleUuid } = bandedDoc();
+		const config = doc.modules[moduleUuid]?.caseListConfig;
+		const cells = (config?.columns ?? []).flatMap((entry) =>
+			entry.tile === undefined ? [] : [entry.tile],
+		);
+		const offered = tileGroupHeaderRowChoices(cells);
+		expect(offered).toEqual([1]);
+		const verdict = accepts(doc, [
+			...planTileGrouping(
+				moduleUuid,
+				{ identifier: "parent", headerRows: offered[0] ?? 1 },
+				config?.tile,
+			),
+		]);
+		expect(verdict.ok).toBe(true);
+		if (!verdict.ok) return;
+		expect(
+			verdict.nextDoc.modules[moduleUuid]?.caseListConfig?.tile?.grouping,
+		).toEqual({ identifier: "parent", headerRows: 1 });
+	});
+
+	it("is refused at a depth the builder withholds", () => {
+		// The other half of the same contract: a heading covering both bands
+		// leaves nothing per case, and the gate says so rather than the
+		// author discovering it on the device.
+		const { doc, moduleUuid } = bandedDoc();
+		const verdict = accepts(doc, [
+			...planTileGrouping(
+				moduleUuid,
+				{ identifier: "parent", headerRows: 2 },
+				doc.modules[moduleUuid]?.caseListConfig?.tile,
+			),
+		]);
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) return;
+		expect(
+			verdict.findings.some(
+				(finding) =>
+					finding.code === "CASE_LIST_TILE_GROUP_HEADER_ROWS_OUT_OF_RANGE",
+			),
+		).toBe(true);
+	});
+
+	it("goes away with the tile, and the drawing still comes back", () => {
+		const { doc, moduleUuid } = bandedDoc();
+		const grouped = accepts(doc, [
+			...planTileGrouping(
+				moduleUuid,
+				{ identifier: "parent", headerRows: 1 },
+				doc.modules[moduleUuid]?.caseListConfig?.tile,
+			),
+		]);
+		expect(grouped.ok).toBe(true);
+		if (!grouped.ok) return;
+
+		const disabled = accepts(
+			grouped.nextDoc,
+			planTileLayoutDisable(moduleUuid),
+		);
+		expect(disabled.ok).toBe(true);
+		if (!disabled.ok) return;
+		// Grouping lives INSIDE the layout, so turning the tile off takes it
+		// with the layout: there is no orphaned `<group>` to emit and no
+		// grouping setting waiting under a rows list. Every cell survives.
+		const config = disabled.nextDoc.modules[moduleUuid]?.caseListConfig;
+		expect(config?.tile).toBeUndefined();
+		expect(config?.columns.map((entry) => entry.tile)).toEqual([
+			{ x: 0, y: 0, width: 12, height: 1 },
+			{ x: 0, y: 1, width: 12, height: 1 },
+		]);
+
+		// And coming back on is an ungrouped tile, not the old grouping
+		// silently restored.
+		const plan = planTileLayoutEnable({
+			moduleUuid,
+			config: config ?? emptyCaseListConfig(),
+		});
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		const reenabled = accepts(disabled.nextDoc, plan.mutations);
+		expect(reenabled.ok).toBe(true);
+		if (!reenabled.ok) return;
+		expect(reenabled.nextDoc.modules[moduleUuid]?.caseListConfig?.tile).toEqual(
+			{},
+		);
 	});
 });
