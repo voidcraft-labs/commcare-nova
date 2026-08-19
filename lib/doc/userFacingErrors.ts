@@ -662,8 +662,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
 		`This setting needs ${det(e, "acceptedColumnTypes", "a different kind of")} data, but the selected lookup column contains ${det(e, "actualColumnType", "incompatible")} data. Choose a compatible column.`,
-	LOOKUP_CARRIER_EXPORT_NOT_ACTIVE: () =>
-		"Lookup-powered choices and calculations aren't ready to export yet. Remove the lookup-powered setting before exporting.",
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another value column.`,
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: (e) =>
@@ -674,6 +672,12 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its labels, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another label column.`,
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: () =>
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
+	LOOKUP_HQ_PUSH_TOO_LARGE: () =>
+		"This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.",
+	LOOKUP_TAG_TOO_LONG_FOR_HQ: (e) =>
+		`CommCare HQ addresses a lookup table by its export tag, and ${det(e, "tag", "one referenced table")} is too long for it. Shorten the tag to ${det(e, "tagAllowed", "31")} characters or fewer in Project data, then try again.`,
+	LOOKUP_TAG_RESERVED_BY_HQ: (e) =>
+		`CommCare HQ keeps the name ${det(e, "tag", "types")} for its own list of the tables in an upload, so a table cannot be exported under it. Rename that table's export tag in Project data, then try again.`,
 
 	// ── Media (export boundary) ──────────────────────────────────────
 	MEDIA_ASSET_NOT_FOUND: () =>

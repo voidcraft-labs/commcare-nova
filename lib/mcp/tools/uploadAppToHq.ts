@@ -21,6 +21,12 @@
  * A media failure leaves the app intact and surfaces as a
  * warning; it never fails the upload.
  *
+ * The app's Project data goes FIRST, before the app itself: an app whose
+ * selects read a table that is not there yet installs and misbehaves. That
+ * step is not optional and has no argument of its own, but it can refuse
+ * (`hq_resource_conflict`), and it reports through the `resources_pushed`
+ * progress stage when it lands.
+ *
  * Target space (the optional `domain` argument):
  *   An HQ API key can reach several project spaces (an unscoped key reaches
  *   every space its owner belongs to). Omitting `domain` works only when the
@@ -51,14 +57,25 @@
  *                                 resolution, before the HQ network call;
  *                                 the message carries each rule's
  *                                 actionable text.
- *   6. `remote_app_missing`:      the in-place update found the mapped HQ
+ *   6. `hq_resource_conflict`:    the project space already holds a lookup
+ *                                 table this app's data would land on, and
+ *                                 Nova did not make it. Nothing was sent.
+ *                                 Rename the table in Project data, or name
+ *                                 the exact Nova table ids in
+ *                                 `adopt_resources` to take the existing
+ *                                 ones over. Never resolved by guessing:
+ *                                 a shared name is not evidence of
+ *                                 ownership.
+ *   7. `remote_app_missing`:      the in-place update found the mapped HQ
  *                                 app deleted there. Nothing was changed;
  *                                 calling again creates a fresh app and
  *                                 supersedes the dead mapping.
- *   7. `hq_upload_failed`:        `importApp` returned a non-success
+ *   8. `hq_upload_failed`:        `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
- *                                 returned 5xx). A thrown transport fault
- *                                 goes through the shared MCP classifier.
+ *                                 returned 5xx), or CommCare HQ would not
+ *                                 take the app's lookup tables. A thrown
+ *                                 transport fault goes through the shared
+ *                                 MCP classifier.
  *
  * (`not_found` from the ownership pre-gate is also possible but not
  * actionable: it collapses cross-tenant probes to the same shape as
@@ -80,7 +97,11 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { resolveUploadTarget } from "@/lib/db/settings";
 import { activeRemoteApp } from "@/lib/deployment/resources";
-import { publishAppToHq } from "@/lib/deployment/service";
+import {
+	currentResourceIdentities,
+	publishAppToHq,
+} from "@/lib/deployment/service";
+import type { DeploymentResourceConflict } from "@/lib/deployment/types";
 import { initMcpCall } from "../context";
 import {
 	McpInvalidInputError,
@@ -119,6 +140,8 @@ export const UPLOAD_ERROR_TAGS = {
 	domain_ambiguous: "domain_ambiguous",
 	/** The mapped HQ app is gone; the next call creates a fresh one. */
 	remote_app_missing: "remote_app_missing",
+	/** The target already holds a same-named lookup table Nova didn't make. */
+	hq_resource_conflict: "hq_resource_conflict",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
 
 /**
@@ -146,6 +169,42 @@ function makeGateError(
 					error_type: errorType,
 					message,
 					app_id: appId,
+				}),
+			},
+		],
+	};
+}
+
+/**
+ * Build the name-clash envelope, which carries its resources structurally.
+ *
+ * Every other gate answers with a sentence because a sentence is all the
+ * caller can act on. This one is different: the client has to put a choice
+ * to the user per resource and then send exact ids back, so the ids travel
+ * as data rather than being spelled out in prose for the client to parse
+ * back.
+ */
+function makeConflictError(
+	message: string,
+	appId: string,
+	conflicts: readonly DeploymentResourceConflict[],
+): McpToolErrorResult {
+	return {
+		isError: true,
+		content: [
+			{
+				type: "text",
+				text: JSON.stringify({
+					error_type: UPLOAD_ERROR_TAGS.hq_resource_conflict,
+					message,
+					app_id: appId,
+					resource_conflicts: conflicts.map((conflict) => ({
+						kind: conflict.kind,
+						nova_resource_id: conflict.novaResourceId,
+						name: conflict.name,
+						hq_name: conflict.identity,
+						hq_id: conflict.remoteId,
+					})),
 				}),
 			},
 		],
@@ -187,6 +246,12 @@ export function registerUploadAppToHq(
 					.optional()
 					.describe(
 						"Optional target project space (domain slug). Must be one the user's API key can reach. See `get_hq_connection`'s `available_domains`. Omit only when the key reaches a single space; a multi-space key requires it.",
+					),
+				adopt_resources: z
+					.array(z.string())
+					.optional()
+					.describe(
+						"Nova lookup table ids whose name already exists on the project space and which the user has confirmed Nova may take over. Send only after an `hq_resource_conflict` refusal named them and the user said yes for each one; a shared name is not evidence that the existing table is theirs. Omit to adopt nothing.",
 					),
 			}),
 		},
@@ -294,6 +359,7 @@ export function registerUploadAppToHq(
 						appName: args.app_name?.trim() || app.app_name,
 						server: target.server,
 						domain: targetDomain,
+						adoptResourceIds: args.adopt_resources ?? [],
 						onUploadStarted: () => {
 							call.current = initMcpCall(
 								ctx,
@@ -307,6 +373,13 @@ export function registerUploadAppToHq(
 								"upload_started",
 								`Uploading to ${targetDomain}`,
 								{ app_id: appId },
+							);
+						},
+						onResourcesPushed: (tableCount) => {
+							call.current?.progress.notify(
+								"resources_pushed",
+								`Put ${tableCount} lookup table${tableCount === 1 ? "" : "s"} on ${targetDomain}`,
+								{ app_id: appId, tables: tableCount },
 							);
 						},
 					});
@@ -359,6 +432,20 @@ export function registerUploadAppToHq(
 								appId,
 							);
 						}
+						/* A name clash on the target's Project data. The envelope
+						 * carries the conflicts structurally, because the
+						 * caller's only two moves both need to know WHICH: rename
+						 * the table in Project data, or ask the user about that
+						 * exact table and send its `nova_resource_id` back in
+						 * `adopt_resources`. A prose list would make the client
+						 * parse names back into ids to do either. */
+						if (failure.code === "hq_resource_conflict") {
+							return makeConflictError(
+								failure.message,
+								appId,
+								outcome.refusal.resourceConflicts,
+							);
+						}
 						return makeGateError(
 							UPLOAD_ERROR_TAGS.hq_upload_failed,
 							failure.message,
@@ -385,7 +472,18 @@ export function registerUploadAppToHq(
 						warnings: outcome.warnings,
 						feature_flag_requirements: outcome.featureFlags,
 						deployment_state: record.state,
-						deployment: describeDeployment(outcome.deployment),
+						deployment: describeDeployment(
+							outcome.deployment,
+							await currentResourceIdentities(
+								{
+									appId,
+									projectId: access.projectId,
+									role: access.role,
+									actorUserId: ctx.userId,
+								},
+								doc,
+							),
+						),
 						setup_artifact: outcome.artifact,
 					};
 

@@ -34,6 +34,7 @@ export type ProgressStage =
 	| "validation_fix_applied"
 	| "validation_passed"
 	| "upload_started"
+	| "resources_pushed"
 	| "upload_complete";
 
 export interface ProgressEmitter {

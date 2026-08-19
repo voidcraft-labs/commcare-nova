@@ -344,20 +344,23 @@ export type ValidationErrorCode =
 	| "LOOKUP_TABLE_NOT_AVAILABLE"
 	| "LOOKUP_COLUMN_NOT_AVAILABLE"
 	| "LOOKUP_COLUMN_TYPE_MISMATCH"
-	// The HQ export targets cannot push or map lookup resources yet, so the
-	// mode-aware Nova export boundary rejects every carrier for `hq-json` and
-	// `hq-upload`. `ccz` embeds its fixtures locally and never takes this.
-	| "LOOKUP_CARRIER_EXPORT_NOT_ACTIVE"
 	| "LOCATION_OWNER_EXPORT_NOT_ACTIVE"
-	// Row-dependent lookup findings, produced only by the ccz export
-	// boundary: rows live outside the document, so these are functions of
-	// current Project data, not of any commit.
+	// Row-dependent lookup findings from the export boundary: rows live
+	// outside the document, so these are functions of current Project data,
+	// not of any commit. Every export mode takes them — a choice list whose
+	// saved values are blank or duplicated is equally broken however the
+	// table reached the device.
 	| "LOOKUP_SELECT_SOURCE_VALUE_BLANK"
 	| "LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE"
 	| "LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE"
 	| "LOOKUP_SELECT_SOURCE_LABEL_BLANK"
-	// Aggregate embedded-fixture budget across every referenced table.
+	// What each carrier can hold: fixture bytes a downloadable app embeds,
+	// rows CommCare HQ's importer takes in one workbook, and the sheet name
+	// its importer addresses a table by.
 	| "LOOKUP_FIXTURE_EXPORT_TOO_LARGE"
+	| "LOOKUP_HQ_PUSH_TOO_LARGE"
+	| "LOOKUP_TAG_TOO_LONG_FOR_HQ"
+	| "LOOKUP_TAG_RESERVED_BY_HQ"
 	// Aggregate export-budget guard (not a per-ref rule): the media-ON
 	// compile / HQ-upload paths load every referenced ready asset into
 	// memory at once, so the total count + bytes are bounded before any

@@ -19,16 +19,22 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
  * HQ-JSON export endpoint: the manual-import twin of the HQ-upload path,
  * for users who import into CommCare HQ themselves rather than via an API key.
  * Shares the auth + parse + boundary-gate + manifest preamble with the `.ccz`
- * twin via `prepareCompileRequest`, then branches on whether the app has media:
+ * twin via `prepareCompileRequest`, then branches on whether the app depends on
+ * anything CommCare HQ imports separately:
  *
- *   - Media-free app → a plain `<app>.json` (import via HQ → Settings →
+ *   - App on its own → a plain `<app>.json` (import via HQ → Settings →
  *     Import App from Another Server). Byte-identical to the pre-media output:
  *     a media-free app expands media-OFF (no manifest) so its JSON never
  *     depends on an empty manifest reducing to the same shape.
- *   - App with media → a `<app>.zip` bundling the MEDIA-ON JSON + the HQ
- *     bulk-upload `multimedia.zip` + a README, assembled by the shared
+ *   - App with media or lookup tables → a `<app>.zip` bundling the JSON with
+ *     the HQ bulk-upload `multimedia.zip`, the fixture workbook, and a README
+ *     covering the steps that apply, assembled by the shared
  *     `buildHqJsonExportArchive` so this download and the MCP `compile_app`
  *     json tool ship one format.
+ *
+ * The workbook is the SAME artifact the direct upload pushes through CommCare
+ * HQ's fixture API, built from the generation the boundary validated, so a
+ * hand-imported app carries the data an API-uploaded one gets.
  */
 export async function POST(req: NextRequest) {
 	try {
@@ -38,6 +44,8 @@ export async function POST(req: NextRequest) {
 			compiledAtSeq,
 			attachmentTarget,
 			attachmentTargetState,
+			lookupNaming,
+			lookupWorkbook,
 		} = await prepareCompileRequest(req, {
 			boundaryErrorVerb: "export",
 			mode: "hq-json",
@@ -47,10 +55,11 @@ export async function POST(req: NextRequest) {
 		// media-free app expands media-OFF so its JSON stays byte-identical to
 		// the pre-media output.
 		const hasMedia = assets.size > 0;
-		const hqJson = expandDoc(
-			doc,
-			hasMedia ? { assets, attachmentTarget } : { attachmentTarget },
-		);
+		const hqJson = expandDoc(doc, {
+			attachmentTarget,
+			...(hasMedia && { assets }),
+			...(lookupNaming && { lookupNaming }),
+		});
 		// ASCII-safe name for the `Content-Disposition` HEADER (a Latin-1
 		// ByteString: non-ASCII would throw in the `Headers` constructor). The
 		// ZIP's internal member name is sanitized separately inside the builder
@@ -70,8 +79,8 @@ export async function POST(req: NextRequest) {
 		// version slots. The blueprint's `mutation_seq` rides out-of-band in the
 		// `X-Compiled-At-Seq` response header so the export still names its
 		// document version without perturbing the body.
-		if (!hasMedia) {
-			// Media-free: the plain JSON file.
+		if (!hasMedia && lookupWorkbook === undefined) {
+			// Nothing to carry alongside: the plain JSON file.
 			return new NextResponse(JSON.stringify(hqJson, null, 2), {
 				headers: {
 					"Content-Type": "application/json",
@@ -83,10 +92,16 @@ export async function POST(req: NextRequest) {
 			});
 		}
 
-		// Media-ON: the json + HQ-format multimedia zip + import README bundle.
+		// Companions present: the json + whichever of the HQ-format multimedia
+		// zip and the fixture workbook this app needs + the import README.
 		// Pass the RAW name: the builder's Unicode-safe member sanitizer keeps
 		// non-Latin/accented names intact inside the archive.
-		const archive = buildHqJsonExportArchive(doc.appName, hqJson, assets);
+		const archive = buildHqJsonExportArchive(
+			doc.appName,
+			hqJson,
+			assets,
+			lookupWorkbook,
+		);
 		return new NextResponse(new Uint8Array(archive), {
 			headers: {
 				"Content-Type": "application/zip",

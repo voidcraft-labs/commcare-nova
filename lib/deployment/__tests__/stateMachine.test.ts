@@ -58,7 +58,7 @@ const broke = {
 describe("progress ordering", () => {
 	it("gives incomplete no position on the ladder", () => {
 		expect(deploymentProgressIndex("incomplete")).toBeNull();
-		expect(deploymentProgressIndex("runnable")).toBe(4);
+		expect(deploymentProgressIndex("runnable")).toBe(5);
 	});
 
 	it("says a refused deployment has reached nothing, not even preflight", () => {
@@ -137,8 +137,10 @@ describe("what Check status may answer", () => {
 	it("refuses to observe a deployment refused before its app got there", () => {
 		// It may still hold an earlier publish's mapping, and observing that
 		// would fold three green outcomes over the refusal and erase the
-		// retry point, from a button sitting next to it.
-		for (const resumePhase of ["preflight", "upload"] as const) {
+		// retry point, from a button sitting next to it. `resources` is in
+		// here for exactly the same reason as `preflight`: the app was never
+		// sent on this attempt.
+		for (const resumePhase of ["preflight", "resources", "upload"] as const) {
 			expect(
 				deploymentIsObservable(record({ state: "incomplete", resumePhase })),
 			).toBe(false);
@@ -259,6 +261,41 @@ describe("what a person sees on a refused deployment", () => {
 		expect(refusedAttempt).toBe(live);
 	});
 
+	it("puts the data rung between checked and uploaded", () => {
+		/* The app's lookup tables go on the project space BEFORE the app, so
+		 * the rung sits there too: a deployment that got its data there and
+		 * then failed the import has genuinely reached further than one that
+		 * never started. */
+		const checked = record({ state: "preflight" });
+		const pushed = applyPhaseOutcome(checked, "resources", ok);
+		expect(pushed.state).toBe("resources");
+		expect(deploymentHasReached(pushed, "preflight")).toBe(true);
+		expect(deploymentHasReached(pushed, "uploaded")).toBe(false);
+	});
+
+	it("resumes at the data push, without re-importing anything", () => {
+		const refused = applyPhaseOutcome(
+			record({ state: "preflight" }),
+			"resources",
+			{
+				status: "failed",
+				at: AT,
+				failure: {
+					code: "hq_resource_conflict",
+					message: "that table isn't Nova's",
+					details: ["Districts (districts)"],
+				},
+			},
+		);
+		expect(refused.state).toBe("incomplete");
+		expect(refused.resumePhase).toBe("resources");
+		expect(deploymentResumeState(refused)).toBe("preflight");
+		/* Checked is filled, the data rung is not: the check that failed is
+		 * never drawn as passed. */
+		expect(deploymentDisplaysAsReached(refused, "preflight")).toBe(true);
+		expect(deploymentDisplaysAsReached(refused, "resources")).toBe(false);
+	});
+
 	it("does not walk a live deployment back to preflight on a clean check", () => {
 		const live = record({ state: "runnable" });
 		expect(applyAttemptOutcome(live, "preflight", ok).state).toBe("runnable");
@@ -293,6 +330,16 @@ describe("what a person sees on a refused deployment", () => {
 			failure: { code: "hq_not_connected", message: "no key", details: [] },
 		});
 		expect(after).toBe(probeRefused);
+	});
+
+	it("does not walk a live deployment back when its data is re-pushed", () => {
+		/* A republish pushes the tables again before the app. That SUCCEEDS
+		 * on a deployment already released over there, and folding it as a
+		 * plain phase outcome would set the state to `resources` — reporting
+		 * a live app as not yet uploaded, from a publish that was going
+		 * fine. */
+		const live = record({ state: "runnable" });
+		expect(applyAttemptOutcome(live, "resources", ok).state).toBe("runnable");
 	});
 
 	it("keeps a live deployment live when a RE-UPLOAD is rejected", () => {

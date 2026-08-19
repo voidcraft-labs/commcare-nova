@@ -44,6 +44,7 @@ const REFUSAL = {
 		message: "CommCare HQ isn't connected yet.",
 		details: [],
 	},
+	resourceConflicts: [],
 };
 
 describe("a publish that landed", () => {
@@ -128,6 +129,7 @@ describe("a publish that was refused", () => {
 					message: "This app isn't ready to publish yet.",
 					details: ["Give the module a case list column."],
 				},
+				resourceConflicts: [],
 			},
 			preview_project_space: null,
 		});

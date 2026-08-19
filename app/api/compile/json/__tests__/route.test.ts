@@ -1,12 +1,14 @@
 /**
  * `POST /api/compile/json`: media-aware HQ-JSON export.
  *
- * A media-free app returns a plain JSON file (unchanged). An app WITH
- * media returns a `.zip` bundling the media-ON JSON + a CommCare-HQ
- * bulk-upload-format `multimedia.zip` (each media file at
- * `commcare/<hash><ext>`, the path HQ's `process_bulk_upload_zip` maps via
- * `get_form_path` to `jr://file/commcare/<hash><ext>` and matches against
- * the imported app's refs) + a README for the two-step manual import.
+ * An app that depends on nothing outside itself returns a plain JSON file
+ * (unchanged). An app WITH media returns a `.zip` bundling the media-ON
+ * JSON + a CommCare-HQ bulk-upload-format `multimedia.zip` (each media
+ * file at `commcare/<hash><ext>`, the path HQ's `process_bulk_upload_zip`
+ * maps via `get_form_path` to `jr://file/commcare/<hash><ext>` and matches
+ * against the imported app's refs) + a README for the manual import. An
+ * app that reads lookup tables ships the fixapi workbook the same way, so
+ * a hand-imported app carries the data a directly-uploaded one is pushed.
  *
  * Boundaries mocked: `requireSession`, `resolveAppAccess` (loads the
  * blueprint server-side), the boundary gate, manifest, and expand.
@@ -196,6 +198,53 @@ describe("POST /api/compile/json", () => {
 		const pngEntry = mediaZip.getEntry("commcare/abc123def.png");
 		if (!pngEntry) throw new Error("png entry missing from multimedia.zip");
 		expect(pngEntry.getData().toString()).toBe("PNG-BYTES");
+	});
+
+	it("ships the fixapi workbook beside the json for a media-free app", async () => {
+		/* The three emission paths offer the same thing: the `.ccz` embeds
+		 * its tables, the direct upload pushes them, and a hand-imported app
+		 * gets the workbook to upload itself. Media-free here on purpose —
+		 * the zip is what carries a COMPANION, and media is only one kind. */
+		vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
+			ok: true,
+			prepared: {
+				mode: "hq-json",
+				doc: validDoc(),
+				compiledAtSeq: 13,
+				assets: new Map(),
+				lookupTargets: { tableIds: [], columns: [] },
+				lookupSnapshot: undefined,
+				lookupContext: { kind: "unavailable" },
+				lookupWorkbook: {
+					bytes: Uint8Array.from([0x50, 0x4b, 0x03, 0x04]),
+					tables: [
+						{
+							tableId: "018f0000-0000-7000-8000-000000000001",
+							tag: "districts",
+							columnCount: 2,
+							rowCount: 3,
+						},
+					],
+					totalWorkbookRows: 6,
+				},
+			},
+		} as never);
+
+		const res = await POST(reqWith({ appId: "a1" }));
+
+		expect(res.headers.get("content-type")).toContain("application/zip");
+		const bundle = new AdmZip(Buffer.from(await res.arrayBuffer()));
+		const names = bundle.getEntries().map((e) => e.entryName);
+		expect(names).toContain("lookup-tables.xlsx");
+		expect(names).toContain("README.txt");
+		/* No media, so no empty multimedia.zip and no step about one. */
+		expect(names).not.toContain("multimedia.zip");
+		expect(bundle.getEntry("lookup-tables.xlsx")?.getData()).toEqual(
+			Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+		);
+		const readme = bundle.readAsText("README.txt");
+		expect(readme).toContain("=== 1. Upload the lookup tables ===");
+		expect(readme).toContain("districts");
 	});
 
 	it("returns file requirements as unverified response metadata", async () => {

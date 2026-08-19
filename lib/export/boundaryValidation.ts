@@ -22,8 +22,18 @@ import {
 	lookupFixtureBudgetExcess,
 	type PreparedLookupWire,
 } from "@/lib/commcare/lookup/fixtures";
-import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	type LookupWireNaming,
+	lookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
 import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
+import {
+	buildLookupWorkbook,
+	type LookupWorkbook,
+	MAX_HQ_FIXTURE_SHEET_NAME_LENGTH,
+	MAX_HQ_FIXTURE_WORKBOOK_ROWS,
+	TYPES_SHEET,
+} from "@/lib/commcare/lookup/workbook";
 import {
 	type ValidationError,
 	validationError,
@@ -32,7 +42,6 @@ import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import type { ProjectAccess } from "@/lib/db/appAccess";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { collectLookupCarriers } from "@/lib/doc/lookupCarrierInventory";
 import {
 	extractLookupReferenceTargets,
 	type LookupReferenceExtractorRegistry,
@@ -44,14 +53,8 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import { MAX_MEDIA_EXPORT_ASSETS } from "@/lib/domain/multimedia";
 import { walkExpressionTerms } from "@/lib/domain/predicate";
-import {
-	getLookupDefinitions,
-	getLookupFixtureData,
-} from "@/lib/lookup/service";
-import type {
-	LookupDefinitionsSnapshot,
-	LookupFixtureDataSnapshot,
-} from "@/lib/lookup/types";
+import { getLookupFixtureData } from "@/lib/lookup/service";
+import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import {
 	builtinAssetRows,
 	partitionAssetRefs,
@@ -92,8 +95,11 @@ export interface PrepareExportBoundaryInput {
  * The exact external-resource generation validated for one export.
  *
  * `lookupSnapshot.definitions` and `lookupContext.definitions` are the same
- * array object. Future emitters consume this value directly; a second lookup
- * read after validation would create a generation-skew race and is forbidden.
+ * array object, and the snapshot carries every referenced table's complete
+ * ordered rows on every mode. Emitters and the resource push consume this
+ * value directly; a second lookup read after validation would create a
+ * generation-skew race and is forbidden — the bytes CommCare HQ is sent
+ * must be the bytes that were validated.
  */
 export interface PreparedExportBoundary {
 	readonly mode: ExportMode;
@@ -101,17 +107,34 @@ export interface PreparedExportBoundary {
 	readonly compiledAtSeq: number;
 	readonly assets: Awaited<ReturnType<typeof resolveMediaManifest>>;
 	readonly lookupTargets: LookupReferenceTargetSet;
-	readonly lookupSnapshot: LookupDefinitionsSnapshot;
+	readonly lookupSnapshot: LookupFixtureDataSnapshot;
 	readonly lookupContext: AvailableLookupValidationContext;
 	/**
-	 * Identity naming plus budget-checked fixture blocks, built from the same
-	 * snapshot generation the validator saw. Present exactly on `ccz` — the
-	 * one mode that embeds lookup data — and absent when the doc references
-	 * no table.
+	 * What each referenced table and column is called on the wire, from the
+	 * same snapshot generation the validator saw. Present on EVERY mode when
+	 * the doc references a table, because every mode emits the app: a
+	 * lookup-backed select compiles to an `instance(...)` reference whatever
+	 * carries the data, and `buildXForm` throws without this. `.ccz` embeds
+	 * the rows beside it, the two HQ modes put them on the project space,
+	 * and the app JSON is the same either way.
+	 */
+	readonly lookupNaming?: LookupWireNaming;
+	/**
+	 * The above plus budget-checked fixture blocks. Present exactly on
+	 * `ccz` — the one mode that embeds its lookup data as suite fixtures —
+	 * and absent when the doc references no table.
 	 */
 	readonly lookupWire?: PreparedLookupWire;
 	/** The target the emitters build attachment links against, or `null`. */
 	readonly attachmentTarget: AttachmentUrlTarget | null;
+	/**
+	 * The same tables as the workbook CommCare HQ's fixture upload reads.
+	 * Present on the two HQ modes when the doc references a table: the
+	 * upload pushes it before the app goes out, and the manual import
+	 * artifact ships it beside the app JSON so a hand-imported app has its
+	 * data too.
+	 */
+	readonly lookupWorkbook?: LookupWorkbook;
 }
 
 export type PrepareExportBoundaryResult =
@@ -120,7 +143,7 @@ export type PrepareExportBoundaryResult =
 
 /** Build the available validator context without cloning its exact snapshot. */
 function availableLookupContext(
-	snapshot: LookupDefinitionsSnapshot,
+	snapshot: LookupFixtureDataSnapshot,
 ): AvailableLookupValidationContext {
 	return {
 		kind: "available",
@@ -234,32 +257,126 @@ function organizationExportFindings(
 	return findings;
 }
 
-/** Row snapshot plus the pre-built fixture set for the ccz row verdicts. */
+/** The row-bearing generation each mode's lookup verdicts are drawn from. */
 interface LookupRowVerdictInput {
 	readonly fixtureData: LookupFixtureDataSnapshot;
-	readonly fixtures: CompiledLookupFixtureSet;
+	/** Built for `ccz` only: the bytes the archive would embed. */
+	readonly fixtures?: CompiledLookupFixtureSet;
+	/**
+	 * The referenced tables' current wire identities, present on the two HQ
+	 * modes only. Read for the checks that are about a NAME rather than
+	 * about bytes, which must therefore run even when the workbook could
+	 * not be built.
+	 */
+	readonly hqNaming?: LookupWireNaming;
+	/** Built for the two HQ modes only: the bytes CommCare HQ would read. */
+	readonly workbook?: LookupWorkbook;
 }
 
 /**
- * The mode's complete lookup verdict. `ccz` embeds lookup data, so it swaps
- * the carrier rejection for the row-dependent checks a definitions snapshot
- * cannot prove: select-source option validity over complete tables and the
- * aggregate embedded-fixture budget. `hq-json` and `hq-upload` keep rejecting
- * every carrier until the complex-app plan's push-and-provisioning unit
- * pushes and maps the resources.
+ * The mode's complete lookup verdict.
+ *
+ * The row-dependent checks are common to all three, because a choice list
+ * whose saved values are blank or duplicated is equally broken however the
+ * table reached the device. What differs is what each CARRIER can hold:
+ * `ccz` embeds fixture XML into the archive and is bounded by what an
+ * unindexed runtime can carry, while the HQ modes hand CommCare HQ a
+ * workbook and are bounded both by the rows its importer takes and by the
+ * length of a spreadsheet sheet name.
  */
 function lookupExportFindings(
 	doc: BlueprintDoc,
 	mode: ExportMode | undefined,
 	lookupRows: LookupRowVerdictInput | undefined,
 ): ValidationError[] {
-	if (mode === undefined) return [];
-	if (mode !== "ccz") return lookupCarrierExportFindings(doc, mode);
-	if (lookupRows === undefined) return [];
+	if (mode === undefined || lookupRows === undefined) return [];
 	return [
 		...lookupSelectSourceRowFindings(doc, lookupRows.fixtureData),
-		...lookupFixtureBudgetFindings(lookupRows.fixtures),
+		...(lookupRows.fixtures === undefined
+			? []
+			: lookupFixtureBudgetFindings(lookupRows.fixtures)),
+		...(lookupRows.hqNaming === undefined
+			? []
+			: [
+					...lookupHqSheetNameFindings(lookupRows.hqNaming),
+					...lookupHqReservedTagFindings(lookupRows.hqNaming),
+				]),
+		...(lookupRows.workbook === undefined
+			? []
+			: lookupWorkbookBudgetFindings(lookupRows.workbook)),
 	];
+}
+
+/**
+ * Whether any referenced tag is too long to be a data sheet's name.
+ *
+ * Read before the workbook is built, because the builder cannot name a
+ * sheet it has no legal name for; the boundary refuses first so the
+ * emitter stays total.
+ */
+function hasUnpushableTag(naming: LookupWireNaming): boolean {
+	return naming.tables.some(
+		(table) =>
+			table.tag.length > MAX_HQ_FIXTURE_SHEET_NAME_LENGTH ||
+			table.tag.toLowerCase() === TYPES_SHEET,
+	);
+}
+
+/**
+ * The tags CommCare HQ's fixture upload has no way to address.
+ *
+ * A table's rows travel on a sheet NAMED for its export tag, and a sheet
+ * name holds at most 31 characters while a tag may be authored up to 32.
+ * That one length is unpushable, and CommCare HQ's own answer for it is
+ * "worksheet not found" against a sheet the author never named, so Nova
+ * says which tag and how to fix it. Applies to both HQ modes, and to
+ * neither the archive (whose fixtures are addressed by element name) nor
+ * a commit, since a table's tag is Project data rather than app state.
+ */
+function lookupHqSheetNameFindings(
+	naming: LookupWireNaming,
+): ValidationError[] {
+	return naming.tables
+		.filter((table) => table.tag.length > MAX_HQ_FIXTURE_SHEET_NAME_LENGTH)
+		.map((table) =>
+			validationError(
+				"LOOKUP_TAG_TOO_LONG_FOR_HQ",
+				"app",
+				`CommCare HQ reads each lookup table from a sheet named for its export tag, and a sheet name holds at most ${MAX_HQ_FIXTURE_SHEET_NAME_LENGTH} characters. The export tag ${table.tag} is ${table.tag.length}. Shorten it in Project data, then try again.`,
+				{},
+				{
+					tag: table.tag,
+					tagLength: String(table.tag.length),
+					tagAllowed: String(MAX_HQ_FIXTURE_SHEET_NAME_LENGTH),
+				},
+			),
+		);
+}
+
+/**
+ * The one tag CommCare HQ has already spent on itself.
+ *
+ * Every upload carries a mandatory sheet named `types` listing the tables
+ * in it, so a table whose own tag is `types` has nowhere to put its rows.
+ * Nova would throw appending the second sheet and CommCare HQ would read
+ * the wrong one, so the boundary refuses first and the emitter stays
+ * total. Sheet names are matched case-insensitively, so `Types` collides
+ * just as `types` does.
+ */
+function lookupHqReservedTagFindings(
+	naming: LookupWireNaming,
+): ValidationError[] {
+	return naming.tables
+		.filter((table) => table.tag.toLowerCase() === TYPES_SHEET)
+		.map((table) =>
+			validationError(
+				"LOOKUP_TAG_RESERVED_BY_HQ",
+				"app",
+				`CommCare HQ keeps the sheet name ${TYPES_SHEET} for its own list of the tables in an upload, so the export tag ${table.tag} has nowhere to put its rows. Rename it in Project data, then try again.`,
+				{},
+				{ tag: table.tag, reservedTag: TYPES_SHEET },
+			),
+		);
 }
 
 const EXPORT_MODE_LABELS: Readonly<Record<ExportMode, string>> = {
@@ -269,31 +386,44 @@ const EXPORT_MODE_LABELS: Readonly<Record<ExportMode, string>> = {
 };
 
 /**
- * The HQ export targets stay closed while lookup resources cannot be pushed
- * or mapped. The selected Nova export intent is part of both the finding
- * details and its identity so the boundary never silently collapses three
- * distinct decisions.
+ * What CommCare HQ's fixture importer will take in one workbook.
+ *
+ * The limit is a whole-workbook row total across every sheet, headers
+ * included (`fixtures/upload/const.py::MAX_FIXTURE_ROWS`, applied in
+ * `util/workbook_json/excel.py::WorkbookJSONReader.__init__`). Nova's own
+ * 5,000-row per-table cap puts it about a hundred tables away, so this
+ * fires only for an app referencing an unusual number of them — but when
+ * it does, CommCare HQ's own refusal names a limit nobody set in Nova, so
+ * Nova measures it first and says which tables are large.
  */
-function lookupCarrierExportFindings(
-	doc: BlueprintDoc,
-	mode: ExportMode,
+function lookupWorkbookBudgetFindings(
+	workbook: LookupWorkbook,
 ): ValidationError[] {
-	return collectLookupCarriers(doc).map((carrier) =>
+	if (workbook.totalWorkbookRows <= MAX_HQ_FIXTURE_WORKBOOK_ROWS) return [];
+	const largest = [...workbook.tables]
+		.sort((left, right) => right.rowCount - left.rowCount)
+		.slice(0, 3);
+	return [
 		validationError(
-			"LOOKUP_CARRIER_EXPORT_NOT_ACTIVE",
-			carrier.location.scope,
-			`Lookup-powered choices and calculations cannot be exported as ${EXPORT_MODE_LABELS[mode]} yet. Remove the lookup-powered setting before exporting.`,
-			carrier.location,
+			"LOOKUP_HQ_PUSH_TOO_LARGE",
+			"app",
+			`This app references more lookup data than CommCare HQ accepts in one upload: ${workbook.totalWorkbookRows.toLocaleString(
+				"en-US",
+			)} rows (the limit is ${MAX_HQ_FIXTURE_WORKBOOK_ROWS.toLocaleString(
+				"en-US",
+			)}). The largest tables are ${largest
+				.map((table) => table.tag)
+				.join(", ")}; shrink or split them, or remove some lookup references.`,
+			{},
 			{
-				exportMode: mode,
-				carrierOwnerUuid: carrier.ownerUuid,
-				carrierOwnerKind: carrier.ownerKind,
-				carrierSlot: carrier.slot,
-				carrierSubpath: carrier.subpath,
-				carrierFingerprint: carrier.fingerprint,
+				rowsActual: String(workbook.totalWorkbookRows),
+				rowsAllowed: String(MAX_HQ_FIXTURE_WORKBOOK_ROWS),
+				largestTables: largest
+					.map((table) => `${table.tag}:${table.rowCount}`)
+					.join(","),
 			},
 		),
-	);
+	];
 }
 
 const BUDGET_AXIS_LABELS = {
@@ -383,21 +513,18 @@ async function prepareWithRegistry(
 		role: input.access.role,
 	};
 
-	/* Always read, including `[]`. Besides definitions, the read captures the
-	 * Project revision that identifies this exact snapshot. The service uses
-	 * one read-only REPEATABLE READ transaction. On `ccz` — the one mode that
-	 * embeds lookup data — the same snapshot also carries every referenced
-	 * table's complete ordered rows, so validation, the row-dependent
-	 * verdicts, and emission all consume one generation. Any operational
-	 * failure intentionally throws through this function; it is not a document
+	/* Always read, including `[]`, and always with rows. Besides definitions,
+	 * the read captures the Project revision that identifies this exact
+	 * snapshot, and the service uses one read-only REPEATABLE READ
+	 * transaction — so validation, the row-dependent verdicts, and whatever
+	 * carries the data outward all consume ONE generation. Every mode needs
+	 * the rows now: `ccz` embeds them as fixtures, and the two HQ modes turn
+	 * them into the workbook CommCare HQ reads. Any operational failure
+	 * intentionally throws through this function; it is not a document
 	 * finding and must stop the export rather than masquerade as unavailable
 	 * context. */
-	const fixtureData =
-		input.mode === "ccz"
-			? await getLookupFixtureData(scope, lookupTargets.tableIds)
-			: undefined;
-	const lookupSnapshot: LookupDefinitionsSnapshot =
-		fixtureData ?? (await getLookupDefinitions(scope, lookupTargets.tableIds));
+	const fixtureData = await getLookupFixtureData(scope, lookupTargets.tableIds);
+	const lookupSnapshot: LookupFixtureDataSnapshot = fixtureData;
 	if (lookupSnapshot.projectId !== input.access.projectId) {
 		throw new Error(
 			"Lookup definition reader returned a snapshot for the wrong Project.",
@@ -405,19 +532,25 @@ async function prepareWithRegistry(
 	}
 	const lookupContext = availableLookupContext(lookupSnapshot);
 
-	/* Fixture blocks are built before the verdict so the aggregate budget
-	 * measures the exact serialized bytes the compiler would embed; the
-	 * elements are reused on success rather than rebuilt. */
-	const lookupWire =
-		fixtureData === undefined || lookupTargets.tableIds.length === 0
+	/* The carrier for this mode is built BEFORE the verdict, so the size
+	 * limit measures the exact bytes that would go out rather than an
+	 * estimate of them, and the built artifact is reused on success rather
+	 * than rebuilt. An app referencing no table builds neither. */
+	const naming =
+		lookupTargets.tableIds.length === 0
 			? undefined
-			: (() => {
-					const naming = lookupWireNaming(fixtureData.definitions);
-					return {
-						naming,
-						fixtures: buildLookupFixtures(naming, fixtureData.rowsByTable),
-					};
-				})();
+			: lookupWireNaming(fixtureData.definitions);
+	const lookupWire =
+		naming === undefined || input.mode !== "ccz"
+			? undefined
+			: {
+					naming,
+					fixtures: buildLookupFixtures(naming, fixtureData.rowsByTable),
+				};
+	const lookupWorkbook =
+		naming === undefined || input.mode === "ccz" || hasUnpushableTag(naming)
+			? undefined
+			: buildLookupWorkbook(naming, fixtureData.rowsByTable);
 
 	/* This subordinate loader evaluates the complete document gate with both
 	 * the exact lookup context and the Project-filtered media rows. It returns
@@ -428,9 +561,12 @@ async function prepareWithRegistry(
 		lookupContext,
 		registry,
 		input.mode,
-		fixtureData === undefined || lookupWire === undefined
-			? undefined
-			: { fixtureData, fixtures: lookupWire.fixtures },
+		{
+			fixtureData,
+			...(lookupWire !== undefined && { fixtures: lookupWire.fixtures }),
+			...(naming !== undefined && input.mode !== "ccz" && { hqNaming: naming }),
+			...(lookupWorkbook !== undefined && { workbook: lookupWorkbook }),
+		},
 	);
 	if (violations.length > 0) {
 		return { ok: false, violations };
@@ -453,8 +589,10 @@ async function prepareWithRegistry(
 			lookupTargets,
 			lookupSnapshot,
 			lookupContext,
+			...(naming !== undefined && { lookupNaming: naming }),
 			...(lookupWire !== undefined && { lookupWire }),
 			attachmentTarget: input.attachmentTarget,
+			...(lookupWorkbook !== undefined && { lookupWorkbook }),
 		},
 	};
 }

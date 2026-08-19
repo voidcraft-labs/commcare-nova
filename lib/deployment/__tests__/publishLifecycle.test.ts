@@ -19,6 +19,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import {
+	listHqLookupTables,
+	uploadLookupTableWorkbook,
+} from "@/lib/commcare/hq/lookupTables";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { proseText } from "@/lib/domain/prose";
@@ -30,6 +34,7 @@ import {
 	applyDeploymentObservation,
 	foldDeploymentAttempt,
 	readDeployment,
+	recordPushedResources,
 	recordRemoteResource,
 } from "../store";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "../types";
@@ -67,7 +72,19 @@ vi.mock("../store", () => ({
 	applyDeploymentObservation: vi.fn(),
 	foldDeploymentAttempt: vi.fn(),
 	readDeployment: vi.fn(),
+	recordPushedResources: vi.fn(),
 	recordRemoteResource: vi.fn(),
+}));
+vi.mock("@/lib/commcare/hq/lookupTables", () => ({
+	listHqLookupTables: vi.fn(),
+	uploadLookupTableWorkbook: vi.fn(),
+}));
+vi.mock("@/lib/lookup/service", () => ({
+	getLookupDefinitions: vi.fn(async () => ({
+		projectId: "proj-1",
+		projectRevision: "1",
+		definitions: [],
+	})),
 }));
 
 const SCOPE = {
@@ -118,17 +135,27 @@ function mapping(overrides: Record<string, unknown> = {}) {
 
 /**
  * Make the fold mock behave like the real store: apply the REAL
- * `applyAttemptOutcome` to whatever `readDeployment` currently answers
- * (or to a fresh record when `ensure` is set), and return the folded
- * view. What the tests then assert about states is the state machine's
- * own answer, not a fixture's.
+ * `applyAttemptOutcome` to whatever the target currently holds (or to a
+ * fresh record when `ensure` is set), and return the folded view. What
+ * the tests then assert about states is the state machine's own answer,
+ * not a fixture's.
+ *
+ * It REMEMBERS what it folded, because a publish folds more than once —
+ * preflight creates the record, and a later phase folds onto that same
+ * row. A mock that re-read the original answer each time would raise "no
+ * such record" on the second fold of a first publish, which the real
+ * store never does.
  */
 function installRealisticFold() {
+	let current: ReturnType<typeof view> | null = null;
 	vi.mocked(foldDeploymentAttempt).mockImplementation(
 		async (_scope, _target, phase, outcome, options) => {
-			const existing = await vi
-				.mocked(readDeployment)
-				.getMockImplementation()?.(_scope, _target);
+			const existing =
+				current ??
+				(await vi.mocked(readDeployment).getMockImplementation()?.(
+					_scope,
+					_target,
+				));
 			const base = existing ?? (options?.ensure === true ? view() : null);
 			if (base === null) throw new Error("fold on a missing record");
 			const next = applyAttemptOutcome(
@@ -136,7 +163,8 @@ function installRealisticFold() {
 				phase,
 				outcome,
 			);
-			return { ...base, deployment: next } as never;
+			current = { ...base, deployment: next } as never;
+			return current as never;
 		},
 	);
 }
@@ -377,6 +405,342 @@ describe("publishAppToHq — what a successful publish records", () => {
 	it("skips the media upload for a media-free app", async () => {
 		await publishAppToHq(publishInput());
 		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
+	});
+});
+
+describe("publishAppToHq — the app's data goes first", () => {
+	const TABLE = "018f0000-0000-7000-8000-000000000001";
+	const WORKBOOK = {
+		bytes: Uint8Array.from([1, 2, 3]),
+		tables: [{ tableId: TABLE, tag: "districts", columnCount: 2, rowCount: 4 }],
+		totalWorkbookRows: 8,
+	};
+
+	function preparedWithTables() {
+		vi.mocked(prepareExportBoundary).mockResolvedValue({
+			ok: true,
+			prepared: {
+				mode: "hq-upload",
+				doc: validDoc(),
+				compiledAtSeq: 7,
+				assets: new Map(),
+				lookupTargets: { tableIds: [TABLE], columns: [] },
+				lookupSnapshot: {
+					projectId: "proj-1",
+					projectRevision: "9",
+					definitions: [
+						{
+							id: TABLE,
+							name: "Districts",
+							tag: "districts",
+							definitionRevision: "2",
+							columns: [],
+						},
+					],
+					rowsByTable: new Map(),
+				},
+				lookupContext: { kind: "unavailable" },
+				lookupWorkbook: WORKBOOK,
+			},
+		} as never);
+	}
+
+	beforeEach(() => {
+		preparedWithTables();
+		vi.mocked(listHqLookupTables).mockResolvedValue([]);
+		vi.mocked(uploadLookupTableWorkbook).mockResolvedValue({
+			success: true,
+			message: "Table(s) uploaded.",
+		} as never);
+		vi.mocked(recordPushedResources).mockImplementation(
+			async () => view({ state: "resources" }) as never,
+		);
+	});
+
+	it("pushes the tables BEFORE the app, and records what landed", async () => {
+		vi.mocked(listHqLookupTables)
+			.mockResolvedValueOnce([])
+			.mockResolvedValueOnce([
+				{ id: "hq-districts", tag: "districts" },
+			] as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(true);
+		/* The app's selects read these tables by name while somebody is
+		 * using it, so an app that arrived first would be installable and
+		 * broken. */
+		expect(
+			vi.mocked(uploadLookupTableWorkbook).mock.invocationCallOrder[0],
+		).toBeLessThan(vi.mocked(importApp).mock.invocationCallOrder[0] ?? 0);
+		expect(uploadLookupTableWorkbook).toHaveBeenCalledWith(
+			expect.anything(),
+			"acme",
+			WORKBOOK.bytes,
+			{ replace: true },
+		);
+		expect(recordPushedResources).toHaveBeenCalledWith(
+			SCOPE,
+			{ server: "production", domain: "acme" },
+			[
+				expect.objectContaining({
+					kind: "lookup-table",
+					novaResourceId: TABLE,
+					remoteId: "hq-districts",
+					ownership: "nova-created",
+					pushedIdentity: "districts",
+				}),
+			],
+			{
+				status: "complete",
+				kinds: ["lookup-table"],
+				pushedAt: expect.any(String),
+			},
+		);
+	});
+
+	it("refuses at the data, without sending the app, when a name is taken", async () => {
+		vi.mocked(listHqLookupTables).mockResolvedValue([
+			{ id: "somebody-elses", tag: "districts" },
+		] as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.failure.code).toBe("hq_resource_conflict");
+		/* The refusal names the table twice over, because the two ways out
+		 * both need it: rename it in Nova, or take that exact table over. */
+		expect(outcome.refusal?.resourceConflicts).toEqual([
+			{
+				kind: "lookup-table",
+				novaResourceId: TABLE,
+				name: "Districts",
+				identity: "districts",
+				remoteId: "somebody-elses",
+			},
+		]);
+		expect(uploadLookupTableWorkbook).not.toHaveBeenCalled();
+		expect(importApp).not.toHaveBeenCalled();
+	});
+
+	it("pushes into a named table once somebody says it is theirs", async () => {
+		vi.mocked(listHqLookupTables).mockResolvedValue([
+			{ id: "hq-districts", tag: "districts" },
+		] as never);
+
+		const outcome = await publishAppToHq(
+			publishInput({ adoptResourceIds: [TABLE] }),
+		);
+
+		expect(outcome.landed).toBe(true);
+		expect(recordPushedResources).toHaveBeenCalledWith(
+			SCOPE,
+			expect.anything(),
+			[
+				expect.objectContaining({
+					ownership: "adopted",
+					/* Attributed to the person who said so, which the ledger
+					 * requires rather than trusting each writer to remember. */
+					adoptedBy: "u1",
+				}),
+			],
+			{
+				status: "complete",
+				kinds: ["lookup-table"],
+				pushedAt: expect.any(String),
+			},
+		);
+	});
+
+	it("stops rather than push when it cannot see what is already there", async () => {
+		/* Reading the table list needs a paid privilege the upload does not,
+		 * so this is genuinely reachable on a project space that would have
+		 * accepted the push. Reading the failure as "there are none" is the
+		 * one interpretation that overwrites somebody's data. */
+		vi.mocked(listHqLookupTables).mockResolvedValue({
+			success: false,
+			status: 403,
+		} as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.failure.code).toBe("hq_resource_state_unknown");
+		expect(outcome.refusal?.failure.message).toContain("Access APIs");
+		expect(uploadLookupTableWorkbook).not.toHaveBeenCalled();
+		expect(importApp).not.toHaveBeenCalled();
+	});
+
+	it("resumes at the data push when CommCare HQ rejected the workbook", async () => {
+		vi.mocked(uploadLookupTableWorkbook).mockResolvedValue({
+			success: false,
+			status: 405,
+			mayHaveLanded: false,
+			message:
+				"Please fix the following formatting issues in your Excel file: Fixture upload couldn't succeed due to the following error: Excel file has unrecognised format",
+		} as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.phase).toBe("resources");
+		expect(outcome.refusal?.failure.code).toBe("hq_rejected_resource_push");
+		expect(outcome.deployment?.deployment.resumePhase).toBe("resources");
+		/* CommCare HQ's own sentence is the only thing that names what was
+		 * wrong with the data. Summarizing it away would leave a person
+		 * told that the upload was refused and nothing else. */
+		expect(outcome.refusal?.failure.details).toEqual([
+			"Please fix the following formatting issues in your Excel file: Fixture upload couldn't succeed due to the following error: Excel file has unrecognised format",
+		]);
+		/* A `fail` verdict is raised by `validate_fixture_file_format`
+		 * before anything is written, so there is nothing over there to
+		 * claim. */
+		expect(recordPushedResources).not.toHaveBeenCalled();
+		/* Nothing of the app itself went out, which is what makes the retry
+		 * cheap: it re-pushes the data and never re-imports the app. */
+		expect(importApp).not.toHaveBeenCalled();
+	});
+
+	it("keeps the tables it made when CommCare HQ took only some of them", async () => {
+		/* 402 is `warning`: `_upload_fixture_api` reaches it only after
+		 * `upload_fixture_file` ran, so the tables ARE on the project
+		 * space. Walking away without a mapping would make the next
+		 * publish read Nova's own table as a stranger's and stop to ask
+		 * somebody to adopt it. */
+		vi.mocked(uploadLookupTableWorkbook).mockResolvedValue({
+			success: false,
+			status: 402,
+			mayHaveLanded: true,
+			message: "Rows were not added for table districts",
+		} as never);
+		vi.mocked(listHqLookupTables)
+			.mockResolvedValueOnce([])
+			.mockResolvedValueOnce([
+				{ id: "hq-districts", tag: "districts" },
+			] as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.failure.code).toBe("hq_rejected_resource_push");
+		expect(outcome.refusal?.failure.details).toEqual([
+			"Rows were not added for table districts",
+		]);
+		expect(recordPushedResources).toHaveBeenCalledWith(
+			SCOPE,
+			expect.anything(),
+			[expect.objectContaining({ remoteId: "hq-districts" })],
+			{ status: "partial" },
+		);
+		expect(importApp).not.toHaveBeenCalled();
+	});
+
+	it("keeps CommCare HQ's complaint when it then won't say what it holds", async () => {
+		/* Two stories end at the same read. This one starts with a refusal,
+		 * so reporting it as "CommCare HQ took your tables but wouldn't
+		 * confirm them" would announce a success that did not happen and
+		 * bury the only sentence naming what was wrong with the data. */
+		vi.mocked(uploadLookupTableWorkbook).mockResolvedValue({
+			success: false,
+			status: 402,
+			mayHaveLanded: true,
+			message: "Rows were not added for table districts",
+		} as never);
+		vi.mocked(listHqLookupTables)
+			.mockResolvedValueOnce([])
+			.mockResolvedValueOnce({ success: false, status: 401 } as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.refusal?.failure.code).toBe("hq_rejected_resource_push");
+		expect(outcome.refusal?.failure.message).not.toContain("took this app's");
+		expect(outcome.refusal?.failure.details).toEqual([
+			"Rows were not added for table districts",
+		]);
+		expect(importApp).not.toHaveBeenCalled();
+	});
+
+	it("says what a half-taken workbook did to the project space", async () => {
+		/* The push replaces, so the tables CommCare HQ DID take now hold
+		 * what Nova sent. "Nothing was taken" would invite somebody to
+		 * believe their project space is as they left it. */
+		vi.mocked(uploadLookupTableWorkbook).mockResolvedValue({
+			success: false,
+			status: 402,
+			mayHaveLanded: true,
+			message: "Rows were not added for table districts",
+		} as never);
+		vi.mocked(listHqLookupTables)
+			.mockResolvedValueOnce([])
+			.mockResolvedValueOnce([
+				{ id: "hq-districts", tag: "districts" },
+			] as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.refusal?.failure.message).toContain("only part of");
+		expect(outcome.refusal?.failure.message).not.toContain("nothing on the");
+	});
+
+	it("refuses when the tables are not there after CommCare HQ said yes", async () => {
+		vi.mocked(uploadLookupTableWorkbook).mockResolvedValue({
+			success: true,
+			message: "Table(s) uploaded.",
+		} as never);
+		vi.mocked(listHqLookupTables).mockResolvedValue([]);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.failure.code).toBe("hq_rejected_resource_push");
+		expect(outcome.refusal?.failure.details).toEqual(["districts"]);
+		/* Nothing came back to claim, so nothing is written. The ledger
+		 * never holds a mapping Nova cannot name a remote id for. */
+		expect(recordPushedResources).not.toHaveBeenCalled();
+		expect(importApp).not.toHaveBeenCalled();
+	});
+
+	it("tells a progress-reporting caller once the data is there", async () => {
+		vi.mocked(listHqLookupTables)
+			.mockResolvedValueOnce([])
+			.mockResolvedValueOnce([
+				{ id: "hq-districts", tag: "districts" },
+			] as never);
+		const pushed = vi.fn();
+
+		await publishAppToHq(publishInput({ onResourcesPushed: pushed }));
+
+		expect(pushed).toHaveBeenCalledWith(1);
+	});
+
+	it("says nothing about data for an app that reads none", async () => {
+		/* The default prepared boundary carries no workbook. A publish must
+		 * not announce a step this app does not have. */
+		vi.mocked(prepareExportBoundary).mockResolvedValue({
+			ok: true,
+			prepared: {
+				mode: "hq-upload",
+				doc: validDoc(),
+				compiledAtSeq: 7,
+				assets: new Map(),
+				lookupTargets: { tableIds: [], columns: [] },
+				lookupSnapshot: undefined,
+				lookupContext: { kind: "unavailable" },
+			},
+		} as never);
+		const pushed = vi.fn();
+
+		const outcome = await publishAppToHq(
+			publishInput({ onResourcesPushed: pushed }),
+		);
+
+		expect(outcome.landed).toBe(true);
+		expect(listHqLookupTables).not.toHaveBeenCalled();
+		expect(uploadLookupTableWorkbook).not.toHaveBeenCalled();
+		expect(pushed).not.toHaveBeenCalled();
+		expect(outcome.checks.some((check) => check.id === "project-data")).toBe(
+			false,
+		);
 	});
 });
 

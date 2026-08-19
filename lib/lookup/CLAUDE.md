@@ -55,6 +55,15 @@ table-tag and column-wire-name changes plus those destructive schema actions
 require the existing `delete` capability; row operations and non-identity edits
 require `edit`; reads require `view`.
 
+A tag change has a consequence outside this package worth knowing here:
+CommCare HQ addresses a lookup table BY ITS TAG, so a rename makes a NEW table
+on every project space the app was published to and leaves the old one where it
+is. Nova never deletes a remote resource, so it reports the old tag instead
+(`lib/deployment/CLAUDE.md`). A tag is capped at 32 characters here, one past
+what a CommCare HQ data sheet can be named for, so the export boundary refuses
+the 32-character case by name rather than the emitter meeting a sheet it cannot
+name.
+
 ## Reference edges and schema governance
 
 `lookup_table_references` and `lookup_column_references` store only stable
@@ -129,11 +138,13 @@ boundary.
 definitions-plus-rows read: the same definitions projection plus every present
 table's complete rows in authored `(order_key, id)` order, from one read-only
 `REPEATABLE READ` transaction (`fixtureSnapshot.ts`). Its consumers must not
-loop `getLookupTable`, whose per-call snapshots could mix generations: the
-local-CCZ export validates and emits one generation, and the preview's
-builder-session cache (`lib/preview/engine/lookupDataBinding.ts`) evaluates
-carriers over one. Missing and foreign ids are absent from both the
-definitions and the rows map.
+loop `getLookupTable`, whose per-call snapshots could mix generations: EVERY
+export mode validates and emits one generation (the `.ccz` embeds it as
+fixtures, the two CommCare HQ modes turn it into the fixapi workbook — so the
+generation Nova pushes is provably the generation it validated), and the
+preview's builder-session cache
+(`lib/preview/engine/lookupDataBinding.ts`) evaluates carriers over one.
+Missing and foreign ids are absent from both the definitions and the rows map.
 
 `nova_lookup_stream` writes and reads are live. The one shared dedicated listener
 fans exact decimal revisions only to subscribers for that Project, and the app

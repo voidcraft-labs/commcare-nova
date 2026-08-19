@@ -3,8 +3,9 @@
 // Promise-returning sleep, shared by the modules that need a bounded
 // backoff. A one-shot `setTimeout` that self-clears when it fires, so an
 // awaited `delay` never leaves a pending timer. One near-identical copy
-// elsewhere is intentionally left in place: `lib/commcare/client.ts`
-// keeps a local one-liner rather than reach across packages.
+// elsewhere is intentionally left in place: `lib/commcare/hq/http.ts`
+// keeps a local one-liner for the CommCare HQ drivers rather than have
+// that package reach across into this one.
 
 /** Resolve after `ms` milliseconds. */
 export function delay(ms: number): Promise<void> {

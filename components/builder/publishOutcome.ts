@@ -23,7 +23,10 @@
  */
 
 import type { DeploymentView } from "@/lib/deployment/actions";
-import type { DeploymentAttemptRefusal } from "@/lib/deployment/types";
+import type {
+	DeploymentAttemptRefusal,
+	DeploymentResourceConflict,
+} from "@/lib/deployment/types";
 
 /** The parts of the publish response this decision reads. */
 export interface PublishResponseBody {
@@ -37,6 +40,7 @@ export interface PublishResponseBody {
 	readonly warnings?: string[];
 	readonly deployment?: DeploymentView["deployment"] | null;
 	readonly setup_artifact?: DeploymentView["artifact"];
+	readonly left_behind?: DeploymentView["leftBehind"];
 	/** Why THIS attempt stopped, from the one publish lifecycle. */
 	readonly refusal?: DeploymentAttemptRefusal | null;
 	/**
@@ -90,6 +94,14 @@ export type PublishOutcome =
 				readonly message: string;
 				readonly items: readonly string[];
 			};
+			/**
+			 * The resources on the target this publish would have written over
+			 * and did not, because Nova did not create them. Empty for every
+			 * other refusal. Naming them back is the only thing that changes
+			 * the answer, so they travel structurally rather than as the prose
+			 * `items` above.
+			 */
+			readonly resourceConflicts: readonly DeploymentResourceConflict[];
 			readonly warnings: string[];
 			readonly previewProjectSpace: string | null;
 	  }
@@ -114,7 +126,15 @@ export function publishOutcome(
 		body.deployment !== undefined &&
 		body.deployment !== null &&
 		body.setup_artifact !== undefined
-			? { deployment: body.deployment, artifact: body.setup_artifact }
+			? {
+					deployment: body.deployment,
+					artifact: body.setup_artifact,
+					/* Defaulted rather than required: only the server can tell a
+					 * rename from a recreate, so a response without the field
+					 * reports nothing left behind instead of the client guessing
+					 * from `superseded` and naming tables that are not there. */
+					leftBehind: body.left_behind ?? [],
+				}
 			: null;
 	if (responseOk && body.success === true) {
 		return {
@@ -134,6 +154,10 @@ export function publishOutcome(
 				message: body.refusal.failure.message,
 				items: body.refusal.failure.details,
 			},
+			/* Defaulted rather than required: a response from a server that
+			 * predates the field is a refusal with nothing to take over, not
+			 * a crash. */
+			resourceConflicts: body.refusal.resourceConflicts ?? [],
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,
 		};

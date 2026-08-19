@@ -545,6 +545,31 @@ export interface AppDeploymentResourcesTable {
 	nova_resource_id: string;
 	remote_id: string;
 	ownership: string;
+	/**
+	 * The external name the resource was pushed under: a lookup table's
+	 * tag, a place's site code, a worker's username. Null for a kind that
+	 * has no external name of its own, and for rows written before a kind
+	 * had one. It is what lets Nova name a resource an earlier publish
+	 * left behind after a rename, which the remote id alone cannot do:
+	 * the thing left behind is findable on CommCare HQ by its name.
+	 */
+	pushed_identity: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** Set together with `ownership = 'adopted'`, never on its own. */
+	adopted_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	/** The member who explicitly took over an existing remote resource. */
+	adopted_by: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	pushed_revision: ColumnType<
 		string | number | null,
 		number | null | undefined,

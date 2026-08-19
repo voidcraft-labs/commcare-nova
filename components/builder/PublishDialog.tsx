@@ -36,6 +36,7 @@ import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
 import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
 import { publishOutcome } from "@/components/builder/publishOutcome";
 import { Button } from "@/components/shadcn/button";
+import { Checkbox } from "@/components/shadcn/checkbox";
 import {
 	Dialog,
 	DialogBody,
@@ -65,6 +66,7 @@ import {
 	readDeploymentsAction,
 } from "@/lib/deployment/actions";
 import { plannedInPlaceUpdate } from "@/lib/deployment/resources";
+import type { DeploymentResourceConflict } from "@/lib/deployment/types";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
@@ -148,6 +150,8 @@ type PublishStatus =
 			 * here that would drift from it. */
 			type: "refused";
 			refusal: { detail: string; items: readonly string[] };
+			/** What the publish would have written over and did not. */
+			resourceConflicts: readonly DeploymentResourceConflict[];
 			warnings: string[];
 			featureFlagReport?: HqFeatureFlagReport;
 	  }
@@ -198,6 +202,19 @@ export function PublishDialog({
 	const [status, setStatus] = useState<PublishStatus>({ type: "idle" });
 	const [appName, setAppName] = useState(storeAppName);
 	const [selectedDomain, setSelectedDomain] = useState("");
+	/**
+	 * Which of the tables already on the selected project space this person
+	 * has said Nova may take over.
+	 *
+	 * Per attempt, never remembered. Nova refuses a name clash rather than
+	 * inheriting the table, and the ONLY thing that changes the answer is
+	 * somebody looking at the specific table and saying yes — so the set is
+	 * cleared whenever the target changes or a publish lands, and an
+	 * unchanged one is never re-applied to a later publish.
+	 */
+	const [adoptResourceIds, setAdoptResourceIds] = useState<readonly string[]>(
+		[],
+	);
 	const [featureFlagState, setFeatureFlagState] = useState<FeatureFlagState>({
 		type: "loading",
 	});
@@ -433,8 +450,22 @@ export function PublishDialog({
 			operationGenerationRef.current += 1;
 			setSelectedDomain(next);
 			setStatus({ type: "idle" });
+			/* A choice about acme's tables says nothing about beta's. */
+			setAdoptResourceIds([]);
 		},
 		[featureFlagDomain, invalidateFeatureFlagReport],
+	);
+	const handleAdoptChange = useCallback(
+		(novaResourceId: string, adopt: boolean) => {
+			setAdoptResourceIds((current) =>
+				adopt
+					? current.includes(novaResourceId)
+						? current
+						: [...current, novaResourceId]
+					: current.filter((id) => id !== novaResourceId),
+			);
+		},
+		[],
 	);
 	const handleRefreshFeatureFlags = useCallback(() => {
 		loadFeatureFlagReport();
@@ -468,6 +499,7 @@ export function PublishDialog({
 					domain: selectedDomain,
 					appName: appName.trim(),
 					appId: getAppId(),
+					adopt_resources: adoptResourceIds,
 				}),
 				signal: controller.signal,
 			});
@@ -508,6 +540,10 @@ export function PublishDialog({
 			setProjectSpace(outcome.previewProjectSpace);
 			if (outcome.kind === "landed") {
 				if (outcome.deployment !== null) upsertView(outcome.deployment);
+				/* Taking a table over happened; the ledger remembers it now, so
+				 * the next publish must not re-assert a choice nobody made
+				 * again. */
+				setAdoptResourceIds([]);
 				const record = outcome.deployment?.deployment.deployment;
 				setStatus({
 					type: "landed",
@@ -529,6 +565,7 @@ export function PublishDialog({
 					detail: outcome.refusal.message,
 					items: outcome.refusal.items,
 				},
+				resourceConflicts: outcome.resourceConflicts,
 				warnings: outcome.warnings,
 				featureFlagReport: data.feature_flag_requirements,
 			});
@@ -551,7 +588,15 @@ export function PublishDialog({
 				uploadControllerRef.current = null;
 			}
 		}
-	}, [selectedDomain, appName, getAppId, session, setProjectSpace, upsertView]);
+	}, [
+		adoptResourceIds,
+		selectedDomain,
+		appName,
+		getAppId,
+		session,
+		setProjectSpace,
+		upsertView,
+	]);
 
 	const handleDownload = useCallback(
 		async (downloadTarget: "web" | "mobile") => {
@@ -731,7 +776,19 @@ export function PublishDialog({
 												warnings={status.warnings}
 												featureFlagReport={status.featureFlagReport}
 												mode="upload"
-											/>
+											>
+												{/* The one refusal a person can answer from here.
+												    Everything else needs a fix elsewhere; this needs
+												    them to recognize a table. */}
+												{status.resourceConflicts.length > 0 && canEdit ? (
+													<ResourceConflictChoice
+														conflicts={status.resourceConflicts}
+														domain={selectedDomain}
+														adopted={adoptResourceIds}
+														onAdoptChange={handleAdoptChange}
+													/>
+												) : null}
+											</PublishSuccess>
 										) : null}
 										{/* Before the form, because "you already published this
 										    to acme, and here is what is left to do there" is what
@@ -1227,6 +1284,71 @@ function PublishSuccess({
 			)}
 
 			{children}
+		</div>
+	);
+}
+
+/**
+ * The name clash, and the only thing that resolves it.
+ *
+ * CommCare HQ's fixture upload addresses a table by its name, so pushing
+ * over one Nova did not create would silently replace somebody else's
+ * data. Nova refuses instead, and this is where a person says which of
+ * those tables is in fact theirs.
+ *
+ * Deliberately per table and deliberately unticked: a "use the existing
+ * tables" shortcut would be one click away from overwriting a table that
+ * happens to share a name, which is the whole failure this refusal
+ * exists to prevent. The other way out is renaming the table in Project
+ * data, which is why the tag is printed beside the name.
+ */
+function ResourceConflictChoice({
+	conflicts,
+	domain,
+	adopted,
+	onAdoptChange,
+}: {
+	conflicts: readonly DeploymentResourceConflict[];
+	domain: string;
+	adopted: readonly string[];
+	onAdoptChange: (novaResourceId: string, adopt: boolean) => void;
+}) {
+	return (
+		<div className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-3">
+			<p className="text-[13px] leading-relaxed text-nova-text">
+				Pick any of these that are already yours. Nova will replace their rows
+				with this app's data every time you publish, and leave the rest alone.
+			</p>
+			<ul className="mt-2.5 flex flex-col gap-1">
+				{conflicts.map((conflict) => (
+					<li key={conflict.novaResourceId}>
+						<label
+							htmlFor={`adopt-${conflict.novaResourceId}`}
+							className="flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
+						>
+							<Checkbox
+								id={`adopt-${conflict.novaResourceId}`}
+								checked={adopted.includes(conflict.novaResourceId)}
+								onCheckedChange={(next) =>
+									onAdoptChange(conflict.novaResourceId, next === true)
+								}
+							/>
+							<span>
+								{conflict.name}
+								<span className="text-nova-text-secondary">
+									{" "}
+									({conflict.identity})
+								</span>
+							</span>
+						</label>
+					</li>
+				))}
+			</ul>
+			<p className="mt-1 text-[12px] leading-relaxed text-nova-text-secondary">
+				Leave one unticked and it stays untouched on{" "}
+				{domain || "the project space"}; rename that table in Project data and
+				publish again to send yours alongside it.
+			</p>
 		</div>
 	);
 }

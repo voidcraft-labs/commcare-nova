@@ -28,6 +28,7 @@ import {
  */
 export const DEPLOYMENT_STATES = [
 	"preflight",
+	"resources",
 	"uploaded",
 	"built",
 	"released",
@@ -44,6 +45,7 @@ export type DeploymentState = (typeof DEPLOYMENT_STATES)[number];
  */
 export const DEPLOYMENT_PROGRESS_STATES = [
 	"preflight",
+	"resources",
 	"uploaded",
 	"built",
 	"released",
@@ -68,6 +70,7 @@ export type DeploymentProgressState =
  */
 export const DEPLOYMENT_PHASES = [
 	"preflight",
+	"resources",
 	"upload",
 	"build",
 	"release",
@@ -75,12 +78,30 @@ export const DEPLOYMENT_PHASES = [
 ] as const;
 export type DeploymentPhase = (typeof DEPLOYMENT_PHASES)[number];
 
+/**
+ * The phases a person's click actually DRIVES.
+ *
+ * Nova performs these; it only asks CommCare HQ about the rest. The
+ * distinction is not cosmetic: a driven phase's failure belongs to the
+ * attempt (this key, this draft, this moment) and must not rewrite what
+ * the project space already holds, which is exactly the rule
+ * `applyAttemptOutcome` enforces. An observed phase's answer is about the
+ * target and folds unconditionally.
+ */
+export const DRIVEN_DEPLOYMENT_PHASES = [
+	"preflight",
+	"resources",
+	"upload",
+] as const;
+export type DrivenDeploymentPhase = (typeof DRIVEN_DEPLOYMENT_PHASES)[number];
+
 /** The state a phase runs from. */
 export const DEPLOYMENT_PHASE_ENTRY_STATE: Readonly<
 	Record<DeploymentPhase, DeploymentProgressState>
 > = {
 	preflight: "preflight",
-	upload: "preflight",
+	resources: "preflight",
+	upload: "resources",
 	build: "uploaded",
 	release: "built",
 	probe: "released",
@@ -91,6 +112,7 @@ export const DEPLOYMENT_PHASE_SUCCESS_STATE: Readonly<
 	Record<DeploymentPhase, DeploymentProgressState>
 > = {
 	preflight: "preflight",
+	resources: "resources",
 	upload: "uploaded",
 	build: "built",
 	release: "released",
@@ -106,6 +128,7 @@ export const DEPLOYMENT_STATE_PRODUCING_PHASE: Readonly<
 	Record<DeploymentProgressState, DeploymentPhase>
 > = {
 	preflight: "preflight",
+	resources: "resources",
 	uploaded: "upload",
 	built: "build",
 	released: "release",
@@ -125,6 +148,18 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	"domain_not_authorized",
 	/** The app itself has findings that must be fixed before it can go out. */
 	"app_not_ready",
+	/**
+	 * CommCare HQ would not say what the target already holds, so Nova
+	 * stopped rather than push over something it cannot account for.
+	 */
+	"hq_resource_state_unknown",
+	/**
+	 * The target already holds a resource under a name this app needs, and
+	 * Nova did not create it. Nova never takes one over on its own.
+	 */
+	"hq_resource_conflict",
+	/** CommCare HQ refused one of the resources this app needs. */
+	"hq_rejected_resource_push",
 	/** CommCare HQ refused the upload. */
 	"hq_rejected_upload",
 	/** The app Nova published is no longer on the target project space. */
@@ -178,14 +213,46 @@ export type DeploymentPhaseOutcomes = Readonly<
  * answer instead.
  */
 export interface DeploymentAttemptRefusal {
-	/** The phase this attempt stopped in. Publishing drives only these two. */
-	readonly phase: "preflight" | "upload";
+	/** The phase this attempt stopped in. Publishing drives only these three. */
+	readonly phase: DrivenDeploymentPhase;
 	readonly failure: DeploymentFailure;
+	/**
+	 * The resources this attempt refused to write over, when that is why it
+	 * stopped. Empty every other time.
+	 *
+	 * Structured rather than folded into `failure.details`, because both
+	 * moves a caller has need the ids: a person picks the exact resources to
+	 * take over and the caller sends those ids back in `adoptResourceIds`,
+	 * while the display needs the author's own name for each one beside the
+	 * name CommCare HQ shows.
+	 */
+	readonly resourceConflicts: readonly DeploymentResourceConflict[];
+}
+
+/**
+ * A remote resource the target already holds under the name this app's
+ * resource needs, which Nova did not create.
+ *
+ * Naming one back through `adoptResourceIds` is the ONLY way it is ever
+ * taken over. See `DEPLOYMENT_RESOURCE_OWNERSHIPS` for why a name match is
+ * never enough on its own.
+ */
+export interface DeploymentResourceConflict {
+	readonly kind: DeploymentResourceKind;
+	/** The Nova id to name in `adoptResourceIds` to take this one over. */
+	readonly novaResourceId: string;
+	/** What the author calls it in Nova. */
+	readonly name: string;
+	/** What CommCare HQ shows it as: a table's tag, later a place's code. */
+	readonly identity: string;
+	/** CommCare HQ's own id for the resource already sitting there. */
+	readonly remoteId: string;
 }
 
 /** Every phase, never run. */
 export const NO_DEPLOYMENT_PHASE_OUTCOMES: DeploymentPhaseOutcomes = {
 	preflight: null,
+	resources: null,
 	upload: null,
 	build: null,
 	release: null,
@@ -195,24 +262,33 @@ export const NO_DEPLOYMENT_PHASE_OUTCOMES: DeploymentPhaseOutcomes = {
 /**
  * How Nova came to hold a remote resource.
  *
- * `nova-created` is the only way: Nova made it, so Nova may keep pointing
- * at it. There is deliberately no arm for "matched by name": Nova never
- * infers ownership from a name, because two project spaces can hold two
- * unrelated apps called "Household Survey" and picking one would silently
- * attach a deployment to somebody else's work.
+ * `nova-created` is the ordinary way: Nova made it, so Nova may keep
+ * pointing at it. `adopted` is the only other way, and it is never
+ * inferred — a person is shown the exact resource already sitting on the
+ * target under the name this app needs, and says to take it over. There
+ * is deliberately no arm for "matched by name": two project spaces can
+ * hold two unrelated tables called `districts`, and picking one on a name
+ * match would silently attach a deployment to somebody else's work.
+ *
+ * An adoption is attributed. `DeploymentResource.adoptedAt` / `adoptedBy`
+ * are set together with it and never on their own, which the ledger
+ * enforces rather than trusting every writer to remember.
  */
-export const DEPLOYMENT_RESOURCE_OWNERSHIPS = ["nova-created"] as const;
+export const DEPLOYMENT_RESOURCE_OWNERSHIPS = [
+	"nova-created",
+	"adopted",
+] as const;
 export type DeploymentResourceOwnership =
 	(typeof DEPLOYMENT_RESOURCE_OWNERSHIPS)[number];
 
 /**
  * Which kind of remote thing a mapping names.
  *
- * Only `app` exists today. Lookup tables, places, and workers become kinds
- * here when their push drivers ship; the mapping shape already carries
- * everything they need, so they add a value rather than a second table.
+ * Places and workers become kinds here when their push drivers ship; the
+ * mapping shape already carries everything they need, so they add a value
+ * rather than a second table.
  */
-export const DEPLOYMENT_RESOURCE_KINDS = ["app"] as const;
+export const DEPLOYMENT_RESOURCE_KINDS = ["app", "lookup-table"] as const;
 export type DeploymentResourceKind = (typeof DEPLOYMENT_RESOURCE_KINDS)[number];
 
 /**
@@ -238,6 +314,21 @@ export interface DeploymentResource {
 	readonly novaResourceId: string;
 	readonly remoteId: string;
 	readonly ownership: DeploymentResourceOwnership;
+	/**
+	 * The external name the resource carries on CommCare HQ: a lookup
+	 * table's tag, and later a place's site code or a worker's username.
+	 * Null for the `app` kind, whose remote id IS how CommCare HQ names it.
+	 *
+	 * A rename is what makes this load-bearing. Nova pushes the new name as
+	 * a new resource and supersedes the mapping, and the old one is still
+	 * sitting on the project space under the OLD name — which is the only
+	 * way anybody will find it there.
+	 */
+	readonly pushedIdentity: string | null;
+	/** When somebody took over a resource Nova did not create. */
+	readonly adoptedAt: string | null;
+	/** Who took it over. Set together with `adoptedAt`, never alone. */
+	readonly adoptedBy: string | null;
 	/** The Nova mutation sequence this remote resource was built from. */
 	readonly pushedRevision: number | null;
 	readonly pushedAt: string | null;
@@ -342,6 +433,7 @@ export const deploymentPhaseOutcomeSchema = z.discriminatedUnion("status", [
 export const deploymentPhaseOutcomesSchema = z
 	.object({
 		preflight: deploymentPhaseOutcomeSchema.nullable(),
+		resources: deploymentPhaseOutcomeSchema.nullable(),
 		upload: deploymentPhaseOutcomeSchema.nullable(),
 		build: deploymentPhaseOutcomeSchema.nullable(),
 		release: deploymentPhaseOutcomeSchema.nullable(),

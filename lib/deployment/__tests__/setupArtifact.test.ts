@@ -91,6 +91,12 @@ describe("only what the app actually has", () => {
 		expect(artifact().sections.some((s) => s.id === "worker-data")).toBe(false);
 	});
 
+	it("omits Project data when the app reads no lookup tables", () => {
+		expect(artifact().sections.some((s) => s.id === "lookup-tables")).toBe(
+			false,
+		);
+	});
+
 	it("omits organization when the app has no levels", () => {
 		expect(artifact().sections.some((s) => s.id === "organization")).toBe(
 			false,
@@ -101,6 +107,64 @@ describe("only what the app actually has", () => {
 		const ids = artifact().sections.map((s) => s.id);
 		expect(ids).toContain("build-and-release");
 		expect(ids).toContain("web-apps");
+	});
+});
+
+describe("Project data, the first section that is a record", () => {
+	/* Every other section tells somebody what to do on the project space.
+	 * This one says what Nova already did there, which is the shape each
+	 * section takes as its push driver ships. */
+	function withTables(
+		tables: readonly {
+			name: string;
+			tag: string;
+			pushed: boolean;
+			adopted: boolean;
+		}[],
+	) {
+		return artifact({ lookupTables: tables });
+	}
+
+	it("names each table the way both Nova and CommCare HQ do", () => {
+		const section = withTables([
+			{ name: "Districts", tag: "districts", pushed: true, adopted: false },
+		]).sections.find((s) => s.id === "lookup-tables");
+		expect(section?.title).toBe("Project data");
+		expect(section?.steps[0]?.text).toBe("Districts (districts)");
+		expect(section?.url).toBe(
+			"https://www.commcarehq.org/a/rhi-bihar/fixtures/",
+		);
+	});
+
+	it("says whether the table is there yet, in the present tense", () => {
+		const section = withTables([
+			{ name: "Districts", tag: "districts", pushed: true, adopted: false },
+			{ name: "Statuses", tag: "statuses", pushed: false, adopted: false },
+		]).sections.find((s) => s.id === "lookup-tables");
+		expect(section?.steps[0]?.detail[0]).toContain("Nova keeps this");
+		expect(section?.steps[1]?.detail[0]).toContain("the next time you publish");
+	});
+
+	it("says so when somebody took an existing table over", () => {
+		const section = withTables([
+			{ name: "Districts", tag: "districts", pushed: true, adopted: true },
+		]).sections.find((s) => s.id === "lookup-tables");
+		expect(section?.steps[0]?.detail.join(" ")).toContain("You chose to use");
+	});
+
+	it("warns that publishing overwrites, and that a rename leaves the old one", () => {
+		const section = withTables([
+			{ name: "Districts", tag: "districts", pushed: true, adopted: false },
+		]).sections.find((s) => s.id === "lookup-tables");
+		expect(section?.caveats.join(" ")).toContain("overwritten");
+		expect(section?.caveats.join(" ")).toContain("The old one stays");
+	});
+
+	it("comes first, because the data goes on before the app", () => {
+		const ids = withTables([
+			{ name: "Districts", tag: "districts", pushed: true, adopted: false },
+		]).sections.map((s) => s.id);
+		expect(ids[0]).toBe("lookup-tables");
 	});
 });
 

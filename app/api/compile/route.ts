@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
 			doc,
 			assets,
 			compiledAtSeq,
+			lookupNaming,
 			lookupWire,
 			attachmentTarget,
 			attachmentTargetState,
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
 		const hqJson = expandDoc(doc, {
 			assets,
 			attachmentTarget,
-			...(lookupWire && { lookupNaming: lookupWire.naming }),
+			...(lookupNaming && { lookupNaming }),
 		});
 		const buffer = compileCcz(hqJson, doc.appName, doc, {
 			assets,

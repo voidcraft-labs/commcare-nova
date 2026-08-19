@@ -27,7 +27,6 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"AUTOMATION_HQ_MANUAL_SETUP",
 	"HQ_BUILD_RELEASE_NOT_API_DRIVEN",
 	// Deployment / HQ export closures
-	"LOOKUP_HQ_EXPORT_CLOSED",
 	"WORKER_PROVISIONING_NOT_SHIPPED",
 	"LOCATION_OWNER_EXPORT_CLOSED",
 	// Case / data shape rules
@@ -89,12 +88,6 @@ export const PLATFORM_CONSTRAINTS: Record<
 		statement:
 			"Nova drives HQ upload with an API key but cannot build or release an app remotely; the deployment lifecycle's built/released/runnable phases are observed, and a person completes them in CommCare HQ.",
 		sourceAnchor: "lib/deployment/CLAUDE.md",
-	},
-	LOOKUP_HQ_EXPORT_CLOSED: {
-		code: "LOOKUP_HQ_EXPORT_CLOSED",
-		statement:
-			"An app referencing lookup tables exports as a local .ccz with embedded fixture bytes only; direct HQ JSON and HQ upload modes refuse a lookup-carrying document until the resource-push driver ships.",
-		sourceAnchor: "lib/export/boundaryValidation.ts",
 	},
 	WORKER_PROVISIONING_NOT_SHIPPED: {
 		code: "WORKER_PROVISIONING_NOT_SHIPPED",

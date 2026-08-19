@@ -15,15 +15,20 @@
 // `https://www.commcarehq.org/a/rhi-bihar/settings/locations/location_types/`
 // is.
 //
-// **It never claims a prerequisite was installed.** Each section here
-// exists precisely because CommCare HQ exposes no API-key path for it:
+// **It never claims a prerequisite was installed.** Most sections here
+// exist precisely because CommCare HQ exposes no API-key path for them:
 // the user-data schema and organization levels are session-only HTML
 // forms (`users/views/mobile/custom_data_fields.py::UserFieldsView`,
 // `locations/views.py::LocationTypesView`), automations have no REST
 // resource at all, and building and releasing sit behind
-// `require_can_edit_apps`. When a push driver ships for one of these, its
-// section becomes a record of what Nova did rather than an instruction:
-// the same artifact, one section rewritten, not a second document.
+// `require_can_edit_apps`.
+//
+// Lookup tables are the first one that flipped, and they show the shape
+// the rest take when their drivers ship: the same artifact, one section
+// rewritten from an instruction into a RECORD of what Nova did, never a
+// second document and never a capability flag. It still states what a
+// person cannot see for themselves — which tables Nova owns there — so
+// the section remains worth reading after the work is done.
 
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
@@ -36,6 +41,7 @@ import {
 import type { StoredLocation } from "@/lib/organization/types";
 
 type SetupArtifactSectionId =
+	| "lookup-tables"
 	| "worker-data"
 	| "organization"
 	| "automations"
@@ -98,6 +104,12 @@ export interface SetupArtifactInput {
 	readonly hqAppId: string | null;
 	/** App-scoped places, for naming the ones an automation refers to. */
 	readonly locations: readonly StoredLocation[];
+	/**
+	 * The lookup tables this app reads, and whether they are on the target
+	 * yet. Absent when the caller has no deployment to speak for — the
+	 * artifact then simply omits the section rather than guessing.
+	 */
+	readonly lookupTables?: readonly SetupArtifactLookupTable[];
 }
 
 function hqBase(server: CommCareServer): string {
@@ -434,6 +446,60 @@ function webAppsSection(input: SetupArtifactInput): SetupArtifactSection {
 	};
 }
 
+/** One lookup table this app reads, and where it stands on the target. */
+export interface SetupArtifactLookupTable {
+	/** The name a person sees in Nova. */
+	readonly name: string;
+	/** The name CommCare HQ shows, and the one the app looks up at runtime. */
+	readonly tag: string;
+	/** Whether the project space already holds Nova's copy of it. */
+	readonly pushed: boolean;
+	/** True when Nova took over a table it did not create. */
+	readonly adopted: boolean;
+}
+
+/**
+ * What Nova put on the project space, and what a person should know about
+ * it.
+ *
+ * Unlike its neighbours this is a record rather than an instruction, so it
+ * carries no numbered steps to follow — but it is not decoration. It is
+ * the only place an author can see that Nova now owns a table on somebody
+ * else's server, which is exactly the fact they will want when a
+ * colleague asks why `districts` changed.
+ */
+function lookupTablesSection(
+	input: SetupArtifactInput,
+): SetupArtifactSection | null {
+	const tables = input.lookupTables ?? [];
+	if (tables.length === 0) return null;
+	const steps = tables.map((table) => ({
+		id: table.tag,
+		text: `${table.name} (${table.tag})`,
+		detail: [
+			table.pushed
+				? `Nova keeps this on “${input.domain}”, replacing its rows whenever you publish.`
+				: `Nova will put this on “${input.domain}” the next time you publish.`,
+			...(table.adopted
+				? [
+						"You chose to use the table already on that project space rather than a new one, so publishing replaces its rows.",
+					]
+				: []),
+		],
+	}));
+	return {
+		id: "lookup-tables",
+		title: "Project data",
+		summary: `The lookup tables this app reads. Nova puts these on “${input.domain}” before it sends the app, because the app looks them up by name while somebody is using it.`,
+		url: `${hqBase(input.server)}/a/${input.domain}/fixtures/`,
+		steps,
+		caveats: [
+			"Publishing replaces the rows of these tables on CommCare HQ with the rows in Nova. Anything edited there is overwritten.",
+			"Renaming a table in Project data makes a new one on CommCare HQ. The old one stays where it is, so nothing anybody else built on it breaks.",
+		],
+	};
+}
+
 /**
  * Build the artifact for one target.
  *
@@ -441,9 +507,13 @@ function webAppsSection(input: SetupArtifactInput): SetupArtifactSection {
  * with no organization does not get a page of instructions about levels it
  * does not have. The last two always appear once there is somewhere to
  * apply them, because they are true of every published app.
+ *
+ * Project data comes first because that is the order things happen in: the
+ * tables go on the project space before the app does.
  */
 export function buildSetupArtifact(input: SetupArtifactInput): SetupArtifact {
 	const sections = [
+		lookupTablesSection(input),
 		workerDataSection(input),
 		organizationSection(input),
 		automationsSection(input),

@@ -12,22 +12,40 @@
  *   - `state` alongside `retry_from`. A deployment in `incomplete` names
  *     the phase a retry re-enters, so "what do I do next" has an answer
  *     rather than being inferred from which fields are empty.
- *   - `left_behind`. Apps this deployment once pointed at and no longer
- *     does: publishes made before Nova updated apps in place created a new
- *     app beside the old one each time, and a recreate after the mapped
- *     app was deleted on CommCare HQ supersedes the dead mapping. An
- *     ordinary republish updates the same app and adds nothing here.
- *     Reporting them is the contract; a client that omits it lets an
- *     author accumulate abandoned apps without ever being told.
+ *   - `left_behind`. Everything this deployment once pointed at and no
+ *     longer does: apps from publishes made before Nova updated them in
+ *     place, an app superseded after being deleted on CommCare HQ, and a
+ *     lookup table the app no longer points at, whether because its tag
+ *     was renamed or because the last select reading it is gone. An
+ *     ordinary republish updates the same resources and adds nothing
+ *     here. Reporting them is the contract, and Nova never deletes
+ *     a remote resource; a client that omits it lets an author accumulate
+ *     abandoned apps and tables without ever being told.
  */
 
-import { activeRemoteApp } from "@/lib/deployment/resources";
+import {
+	activeRemoteApp,
+	leftBehindResources,
+} from "@/lib/deployment/resources";
 import { deploymentResumeState } from "@/lib/deployment/stateMachine";
 import type {
 	DeploymentPhase,
+	DeploymentResourceKind,
 	DeploymentWithResources,
 } from "@/lib/deployment/types";
 import { DEPLOYMENT_PHASES } from "@/lib/deployment/types";
+
+/** One remote resource an earlier publish left on the project space. */
+export interface LeftBehindResource {
+	readonly kind: DeploymentResourceKind;
+	/** CommCare HQ's own id, which is how a person finds it there. */
+	readonly hq_id: string;
+	/**
+	 * The name it carries on CommCare HQ: a lookup table's tag. Null for an
+	 * app, whose id IS how CommCare HQ names it.
+	 */
+	readonly hq_name: string | null;
+}
 
 export interface DeploymentProjection {
 	readonly server: string;
@@ -50,13 +68,26 @@ export interface DeploymentProjection {
 			{ readonly status: string; readonly detail: string | null } | null
 		>
 	>;
-	/** CommCare HQ apps this deployment once pointed at; a later publish
+	/** Remote resources this deployment once pointed at; a later publish
 	 * superseded them rather than updating them in place. */
-	readonly left_behind: readonly string[];
+	readonly left_behind: readonly LeftBehindResource[];
 }
 
+/**
+ * Project one deployment.
+ *
+ * `currentIdentities` maps each of the app's pushable Nova resources to
+ * the name it carries NOW (`service.ts::currentResourceIdentities`), which
+ * is what tells a superseded row apart from a genuinely abandoned one: a
+ * table recreated after being deleted on CommCare HQ supersedes its
+ * mapping and leaves nothing behind, while a renamed one leaves the old
+ * table sitting there. Pass `null` when Nova could not read them, and only
+ * superseded apps are reported: sending somebody to tidy up tables that
+ * are perfectly fine is worse than saying less.
+ */
 export function describeDeployment(
 	view: DeploymentWithResources,
+	currentIdentities: ReadonlyMap<string, string> | null,
 ): DeploymentProjection {
 	const record = view.deployment;
 	const remote = activeRemoteApp(view);
@@ -91,8 +122,13 @@ export function describeDeployment(
 		remote_revision: remote?.remoteRevision ?? null,
 		last_checked_at: record.lastObservedAt,
 		phases,
-		left_behind: view.superseded
-			.filter((resource) => resource.kind === "app")
-			.map((resource) => resource.remoteId),
+		left_behind: (currentIdentities === null
+			? view.superseded.filter((resource) => resource.kind === "app")
+			: leftBehindResources(view, currentIdentities)
+		).map((resource) => ({
+			kind: resource.kind,
+			hq_id: resource.remoteId,
+			hq_name: resource.pushedIdentity,
+		})),
 	};
 }

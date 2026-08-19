@@ -150,17 +150,20 @@ describe("classification table", () => {
 		);
 	});
 
-	it("pins the environment classification set (asset/row-context rules + the export-budget guards)", () => {
+	it("pins the environment classification set (asset/row-context rules + the export-budget and CommCare HQ push guards)", () => {
 		const environment = Object.entries(VALIDITY_CLASS_BY_CODE)
 			.filter(([, cls]) => cls === "environment")
 			.map(([code]) => code)
 			.sort();
 		expect(environment).toEqual([
 			"LOOKUP_FIXTURE_EXPORT_TOO_LARGE",
+			"LOOKUP_HQ_PUSH_TOO_LARGE",
 			"LOOKUP_SELECT_SOURCE_LABEL_BLANK",
 			"LOOKUP_SELECT_SOURCE_VALUE_BLANK",
 			"LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE",
 			"LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE",
+			"LOOKUP_TAG_RESERVED_BY_HQ",
+			"LOOKUP_TAG_TOO_LONG_FOR_HQ",
 			"MEDIA_ASSET_NOT_FOUND",
 			"MEDIA_ASSET_NOT_READY",
 			"MEDIA_EXPORT_TOO_LARGE",
@@ -203,11 +206,11 @@ describe("classification table", () => {
 			"VALIDATION_ON_NON_INPUT_KIND",
 		]);
 		expect(byClass.get("completeness")).toHaveLength(6);
-		expect(byClass.get("environment")).toHaveLength(9);
+		expect(byClass.get("environment")).toHaveLength(12);
 		expect(byClass.get("oracle")).toHaveLength(101);
 		expect(byClass.get("shape")).toHaveLength(5);
-		expect(byClass.get("soundness")).toHaveLength(166);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(287);
+		expect(byClass.get("soundness")).toHaveLength(165);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(289);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {
