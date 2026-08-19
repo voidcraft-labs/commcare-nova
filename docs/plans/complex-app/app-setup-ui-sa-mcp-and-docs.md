@@ -2,8 +2,8 @@
 
 **PR:** `App setup: deployment`
 
-**Depends on:** [usercase & wire](usercase-owner-sets-and-wire.md) and
-[push and provisioning](push-and-provisioning-drivers.md). · **Blocks:** nothing.
+**Depends on:** [usercase & wire](usercase-owner-sets-and-wire.md).
+· **Blocks:** nothing.
 
 > Read [the binding contracts](00-contracts.md) first — the workspace-structure,
 > baseline-UI-review, and three-surfaces rules there are the acceptance criteria
@@ -23,6 +23,13 @@ Build the Deployment section with responsive layout, permissions, conflict and
 recovery states, deployment progress and retry, and honest target prerequisites.
 Complete the SA and MCP tools and the public docs for the remaining prerequisite
 units, and the cross-facility owner/restore walkthrough scenario.
+
+The Publish dialog's per-target **Workers** area
+(`components/builder/DeploymentWorkers.tsx`) is another thing this section
+**inherits and relocates, not rebuilds**. It already makes mobile workers for an
+app's personas on one project space, shows each new password exactly once, and
+asks about a username that already belongs to somebody. Moving it here must keep
+all three; a second panel would be a second place a credential can be shown.
 
 The **user-property, user-type, and persona** vocabulary is already shipped on
 all three authoring surfaces — builder, Solutions Architect, and MCP

@@ -263,6 +263,12 @@ a memory of an older one.
   rather than `AppDatabase`. It is advisory only — never a gate.
 - Do not import `lib/commcare` here. Unit 9 owns the fixture's meaning and its
   budget; it may refuse to emit a footprint but cannot reinterpret these rows.
+- A persona's assignment now reaches CommCare HQ, but only through the
+  provisioning call: `lib/deployment/workers.ts` maps each assigned place
+  through the deployment ledger's `location` mappings and sends
+  `primary_location` + `locations` together. That is a WORKER's assignment,
+  not a case-owner rule, and the two stay separate — a place the ledger has no
+  live mapping for refuses the call rather than being created on the way past.
 - The compiler can lower fixed-place and reverse-hop owner terms, but every
   export mode remains closed while the persona-scoped device location fixture
   is absent. The HQ identity map is no longer missing — publishing creates and

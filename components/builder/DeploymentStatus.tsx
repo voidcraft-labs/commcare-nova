@@ -41,6 +41,7 @@ import {
 } from "@/lib/deployment/actions";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import { DeploymentWorkers } from "./DeploymentWorkers";
 
 /** What each rung means, in the author's words. */
 const STATE_LABELS: Readonly<Record<DeploymentProgressState, string>> = {
@@ -77,17 +78,25 @@ export function DeploymentStatus({
 	view,
 	canRefresh = true,
 	onUpdated,
+	onProvisioned,
 }: {
 	appId: string;
 	view: DeploymentView;
 	/**
-	 * Whether this viewer may ask CommCare HQ again. Checking WRITES what
-	 * it observes, so a viewer cannot. Offering them a button that
-	 * would be refused is worse than not offering it.
+	 * Whether this viewer may ask CommCare HQ again, and may make workers.
+	 * Both WRITE — one Nova's observed state, the other real accounts — so
+	 * a viewer does neither. Offering them a button that would be refused
+	 * is worse than not offering it.
 	 */
 	canRefresh?: boolean;
 	/** Lets the surrounding dialog keep the record it is holding current. */
 	onUpdated: (next: RefreshedDeploymentView) => void;
+	/**
+	 * The same, for a provisioning call. Separate because provisioning
+	 * cannot change which project space Preview names, so it answers with
+	 * the record alone rather than with the record plus that.
+	 */
+	onProvisioned: (next: DeploymentView) => void;
 }) {
 	const record = view.deployment.deployment;
 	/* An app with no lookup tables and no places has no data rung: drawing
@@ -275,6 +284,13 @@ export function DeploymentStatus({
 			) : null}
 
 			<LeftBehindNotice resources={view.leftBehind} />
+
+			<DeploymentWorkers
+				appId={appId}
+				deployment={view.deployment}
+				canProvision={canRefresh}
+				onUpdated={onProvisioned}
+			/>
 
 			<SetupNotes sections={view.artifact.sections} />
 		</section>

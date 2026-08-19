@@ -67,6 +67,7 @@ import { registerListApps } from "./tools/listApps";
 import { registerListMembers } from "./tools/listMembers";
 import { registerListProjects } from "./tools/listProjects";
 import { registerMoveApp } from "./tools/moveApp";
+import { registerProvisionWorkers } from "./tools/provisionWorkers";
 import { registerSearchApps } from "./tools/searchApps";
 import { registerUpdateMemberRole } from "./tools/updateMemberRole";
 import { registerUploadAppToHq } from "./tools/uploadAppToHq";
@@ -106,6 +107,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerUploadAppToHq(server, ctx);
 	registerGetDeployment(server, ctx);
 	registerRefreshDeployment(server, ctx);
+	registerProvisionWorkers(server, ctx);
 	registerUploadMediaAsset(server, ctx);
 	registerListProjects(server, ctx);
 	registerCreateProject(server, ctx);

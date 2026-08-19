@@ -20,7 +20,10 @@ import {
 	type DeploymentWithResources,
 	deploymentAppIdSchema,
 	deploymentTargetSchema,
+	provisionWorkersSchema,
 } from "./types";
+import type { ProvisionedWorker, WorkerProvisionRefusal } from "./workers";
+import { provisionWorkers } from "./workers";
 
 /**
  * The browser's refresh surface for deployments.
@@ -285,6 +288,131 @@ function leftBehindFor(
 	return identities === null
 		? deployment.superseded.filter((resource) => resource.kind === "app")
 		: leftBehindResources(deployment, identities);
+}
+
+/**
+ * What one provisioning call gives the screen back.
+ *
+ * The refusal and the workers travel TOGETHER rather than as a
+ * discriminated pair, because a call that stopped halfway has both: three
+ * real accounts whose passwords exist only in this answer, and a sentence
+ * about the fourth. A shape that made them exclusive would make throwing
+ * the passwords away the easy thing to do.
+ */
+export interface ProvisionWorkersView {
+	readonly refusal: WorkerProvisionRefusal | null;
+	readonly workers: readonly ProvisionedWorker[];
+	/**
+	 * The deployment as it stands now, in the same shape the dialog already
+	 * renders, so a call that made accounts redraws that project space's
+	 * card without a second round trip. Null when nothing was written.
+	 */
+	readonly view: DeploymentView | null;
+}
+
+/**
+ * Make mobile workers for this app's personas on a project space.
+ *
+ * An explicit act rather than part of publishing: it creates accounts for
+ * named people and hands back a password for each new one, which is not
+ * something a publish should do on the way past. Authorizes as an EDIT —
+ * it writes to CommCare HQ and to the ownership ledger.
+ *
+ * The passwords in the answer are the only copies. Nova stores none of
+ * them, and this action is the one moment they exist outside CommCare HQ.
+ */
+export async function provisionWorkersAction(
+	input: unknown,
+): Promise<DeploymentActionResult<ProvisionWorkersView>> {
+	const parsed = provisionWorkersSchema.safeParse(input);
+	if (!parsed.success) {
+		return {
+			success: false,
+			code: "invalid_input",
+			message: "That worker request wasn't in a shape Nova understands.",
+		};
+	}
+	const resolved = await resolveScope(parsed.data.appId, "edit");
+	if (!resolved.ok) return resolved.result;
+	try {
+		const { doc, locations } = await committedDocWithLocations(resolved.scope);
+		const outcome = await provisionWorkers({
+			scope: resolved.scope,
+			doc,
+			locations,
+			server: parsed.data.server,
+			domain: parsed.data.domain,
+			workers: parsed.data.workers,
+			...(parsed.data.adoptPersonaUuids && {
+				adoptPersonaUuids: parsed.data.adoptPersonaUuids,
+			}),
+		});
+		/* Everything after this point is REPORTING, and none of it may cost
+		 * the answer. The accounts are on CommCare HQ and their passwords
+		 * exist nowhere but `outcome.workers` — an artifact read or a
+		 * left-behind read that throws would land in the catch below and
+		 * hand back a failure, destroying the only copy of credentials for
+		 * accounts that now exist. So the view is built inside its own
+		 * guard and degrades to null. */
+		const view = await provisionedView(
+			resolved.scope,
+			outcome.deployment,
+			doc,
+			locations,
+		);
+		return {
+			success: true,
+			data: {
+				refusal: outcome.refusal,
+				workers: outcome.workers,
+				view,
+			},
+		};
+	} catch (error) {
+		return failure(error, "provision workers", resolved.scope);
+	}
+}
+
+/** What `committedDocWithLocations` hands back, so this file names it once. */
+type CommittedDoc = Awaited<ReturnType<typeof committedDocWithLocations>>;
+
+/** The record `provisionWorkers` reports, which may be absent. */
+type ProvisionWorkersOutcomeDeployment = Awaited<
+	ReturnType<typeof provisionWorkers>
+>["deployment"];
+
+/**
+ * The deployment view to show beside a provisioning answer, or nothing.
+ *
+ * Its two reads are the app's setup artifact and the left-behind report,
+ * both of which reach Postgres. Neither is worth a generated password: by
+ * the time they run the accounts exist, and the answer being assembled is
+ * the only place their credentials will ever be. So a failure here is
+ * recorded and the panel simply shows no refreshed record — one click of
+ * Check restores it, which is not true of a password nobody wrote down.
+ */
+async function provisionedView(
+	scope: DeploymentScope,
+	deployment: ProvisionWorkersOutcomeDeployment,
+	doc: CommittedDoc["doc"],
+	locations: CommittedDoc["locations"],
+): Promise<ProvisionWorkersView["view"]> {
+	if (deployment === null) return null;
+	try {
+		return {
+			deployment,
+			artifact: await setupArtifactFor(scope, deployment, doc, locations),
+			leftBehind: leftBehindFor(
+				deployment,
+				await currentResourceIdentities(scope, doc),
+			),
+		};
+	} catch (error) {
+		log.error("[deployment] provisioning view could not be built", error, {
+			appId: scope.appId,
+		});
+		return null;
+	}
 }
 
 function failure(

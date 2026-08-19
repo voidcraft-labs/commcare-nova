@@ -2,13 +2,13 @@
 
 **PR:** `Session endpoints and shareable deep links`
 
-**Depends on:** [push and provisioning](push-and-provisioning-drivers.md) and
-[nested menus](nested-menus-and-linked-form-reuse.md) — push and provisioning
-rather than the deployment record alone, because a shareable link must resolve to a
-*released* build whose referenced tables and locations already exist on the
-target; linking into an app whose lookup tables were never pushed produces a
-dead claim frame at runtime rather than a build-time error. · **Blocks:**
-nothing.
+**Depends on:** [nested menus](nested-menus-and-linked-form-reuse.md).
+· **Blocks:** nothing.
+
+A shareable link must resolve to a *released* build whose referenced tables and
+locations already exist on the target — linking into an app whose lookup tables
+were never pushed produces a dead claim frame at runtime rather than a
+build-time error. Publishing puts both there, so that half is shipped.
 
 > Read [the binding contracts](00-contracts.md) first — the HQ deployment safety
 > contract there names the two hardcoded US hosts this unit must retire, and

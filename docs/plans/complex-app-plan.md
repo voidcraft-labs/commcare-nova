@@ -958,11 +958,13 @@ distinction is load-bearing everywhere downstream (`lib/domain/users.ts`):
 A **deployed worker** — a real identity on a target HQ domain, with credentials
 and its own lifecycle — is deliberately absent. It is owned by a deployment,
 created *from* a type or persona, and is not a blueprint identity.
-The current app export/upload path does not configure HQ's project-level custom
-user-data schema, role templates, role/persona values, or worker accounts; these
-collections remain Nova authoring and Preview state until the
-push-and-provisioning-drivers unit's explicit provisioning driver applies
-them.
+A persona is not an account. An explicit provisioning call makes a CommCare
+mobile worker FROM one, carrying that persona's worker information and place
+assignment, and the deployment's ownership ledger remembers which account stands
+for which persona on which project space. What the app export and upload path
+still does not configure is the project space's own custom user-data schema and
+its role templates: neither has a REST resource, so both stay setup
+instructions.
 
 The builder, Solutions Architect, and MCP API author all three collections
 through the same granular mutations and commit gate. Values cross the JSON
@@ -1712,6 +1714,38 @@ iterates the project space's own fields without rejecting unknown keys, so an
 undefined slug arrives as real but unvalidated loose data while a field the
 target marks required with no value takes the whole batch down.
 
+**Mobile workers are provisioned by an explicit call, never by a publish.**
+Making somebody an account hands out a credential and is aimed at named people,
+so it is a button and an MCP tool (`provision_workers`) rather than a rung: it
+folds no phase and leaves the deployment's states where it found them. The
+ledger's `worker` kind keys a mapping on the PERSONA, with the complete username
+in `pushed_identity`, because a persona is a design actor that can hold a
+different name on each project space — so no blueprint schema changes and the SA
+gains no vocabulary. Nova generates a strong password per new account, hands it
+back once in the answer, and stores it nowhere. It never issues the resource's
+DELETE: that is `users/models.py::CommCareUser.retire`, which soft-deletes every
+case the worker owns, so a removed persona is reported as left behind, which is
+also why a worker Nova already owns is UPDATED rather than remade even when the
+account has vanished from the search.
+
+Everything knowable is refused before the first account exists, because
+`api/resources/v0_5.py::CommCareUserResource.obj_create` calls `_update` and
+DISCARDS the errors it returns — a create whose location ids do not resolve
+answers 201 with the worker standing nowhere and says nothing about it. So the
+call refuses up front on an unusable username, on required worker information a
+persona has no value for (the same rule the publish reports as attention, since
+a publish creates no workers), and on a persona standing in a place the project
+space does not hold; and a create that DOES carry places sends them as a second
+call, which reports. The username is create-only
+(`users/util.py::generate_mobile_username`, popped before `_update`), the update
+field map is closed (`api/user_updates.py::CommcareUserUpdates.update`), and
+`primary_location` and `locations` travel together or not at all. Nova speaks
+about places only when the app has an organization, so an adopted account on an
+app with none keeps whatever assignment a person gave it. Web users stay out of
+reach: `InvitationResource` resolves a role BY NAME against the domain's roles
+and fails without one, which is why the user-property catalog authors no
+`required_for` and every pushed value is `["commcare_user"]`.
+
 **Nova drives the first three states and observes the last three, because HQ
 draws that line.** `app_import_api.py::import_app_api` passes
 `login_decorator=api_auth()`, so an API key may import; `views/releases.py::save_copy`
@@ -1944,18 +1978,6 @@ the preview must reproduce rather than approximate, the flat fixture's byte
 contract, and the instance-declaration precondition that silently voids the whole
 fixture when missed.
 
-### Provisioning drivers
-
-[`complex-app/push-and-provisioning-drivers.md`](complex-app/push-and-provisioning-drivers.md)
-· depends on nothing outstanding · blocks the app-setup-UI, session-endpoints,
-and multi-select units
-
-Explicit mobile-worker provisioning against the deployment record's ownership
-mappings. **The file holds** the user resource's create-only identity, what its
-DELETE actually does to a worker's cases, the closed field map an update
-accepts, the together-or-not-at-all location assignment, and why web users are
-out of reach.
-
 ### App setup UI, SA, MCP, and docs
 
 [`complex-app/app-setup-ui-sa-mcp-and-docs.md`](complex-app/app-setup-ui-sa-mcp-and-docs.md)
@@ -1991,7 +2013,7 @@ shape with no shadow authoring object and no domain toggle.
 ### Session endpoints and deep links
 
 [`complex-app/session-endpoints-and-deep-links.md`](complex-app/session-endpoints-and-deep-links.md)
-· depends on push-and-provisioning and nested menus · blocks nothing
+· depends on nested menus · blocks nothing
 
 Session endpoints and shareable deep links resolved against the selected HQ
 server. **The file holds** the emission shape and why it pushes rather than
@@ -2002,7 +2024,7 @@ sharp edges rather than Nova bugs.
 ### Multi-select, related cases, and profile extensions
 
 [`complex-app/multi-select-related-cases-and-profile.md`](complex-app/multi-select-related-cases-and-profile.md)
-· depends on push-and-provisioning · blocks nothing
+· depends on nothing outstanding · blocks nothing
 
 Three independent vocabularies that ship as three PRs because they share only a
 dependency. **The file holds** the multi-select datum and its virtual instance,
@@ -2019,26 +2041,26 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | Unit | Needs |
 | --- | --- |
 | [usercase, owner sets, wire](complex-app/usercase-owner-sets-and-wire.md) | — |
-| [push and provisioning drivers](complex-app/push-and-provisioning-drivers.md) | — |
-| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase, push and provisioning |
+| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | usercase |
 | [form links and sections](complex-app/form-links-and-sections.md) | — |
 | [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | form links and sections |
-| [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | push and provisioning, nested menus |
-| [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | push and provisioning |
+| [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | nested menus |
+| [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | — |
 
 Three units have no outstanding prerequisites and can start in any order: the
-usercase, push and provisioning, and form links and sections. They are the
-independent entry points — every other unit descends from one of them.
+usercase, form links and sections, and multi-select. They are the independent
+entry points — every other unit descends from one of them.
 
-Push and provisioning is the critical path: it gates the App setup UI, session
-endpoints, and multi-select, so anything needing resources on a real HQ target
-waits on it. The navigation chain (form links → nested menus) runs
-independently until session endpoints, which needs both.
+There is no critical path left. Push and provisioning was it, and with the
+drivers shipped the remaining work is two short chains and three loose units:
+the usercase gates the App setup UI, and form links → nested menus → session
+endpoints runs on its own.
 
 The App setup UI, session endpoints, and multi-select are leaves — nothing waits
-on them, so each can land whenever its own prerequisites are met.
-The usercase unit sits off the critical path too — only the App setup UI waits
-on it, so it can proceed independently without holding up push and provisioning.
+on them, so each can land whenever its own prerequisites are met. Multi-select is
+both an entry point and a leaf: nothing blocks it and nothing waits on it, which
+makes it the natural filler whenever another unit is blocked on something
+external.
 
 ---
 

@@ -133,11 +133,31 @@ When Nova compiles the app, conditions and calculations that read custom worker
 information use each property's current saved key. The worker running the app
 must already carry data under those keys for the expressions to see it.
 
-Nova does not currently configure your CommCare project's custom user-data
-schema, create role templates, copy role or persona values to workers, or create
-worker accounts. Worker information, roles, and personas remain Nova authoring
-and Preview data until deployment provisioning for those resources is built.
-Publishing the app does not make those project-level changes.
+Once the app is published to a project space, Nova can make a CommCare mobile
+worker for each persona. Open **Publish**, find that project space, and use the
+**Workers** list: tick the personas you want, adjust the username Nova suggests,
+and choose Make workers. Each account carries that persona's worker information
+and the places it stands in, and each new one comes with a password shown once,
+right there. Copy them before you close the dialog. Nova keeps no copy, so a
+password you lose has to be reset on CommCare HQ.
+
+A few things that follow from how CommCare works:
+
+- **The username cannot change later.** CommCare fixes it when the account is
+  made. Giving a persona a different username makes a second account and leaves
+  the first one alone.
+- **A username already in use belongs to somebody.** Nova refuses rather than
+  writing over it, shows you the account, and takes it over only if you say so
+  for that exact account.
+- **Removing a persona never deletes the worker.** CommCare's own delete also
+  deletes every case that worker owns, so Nova will not do it. The account is
+  reported as left behind, and removing it is yours to do on CommCare HQ.
+- **Roles are separate.** Nova does not create CommCare user roles, and it does
+  not set up your project's custom user-data schema — CommCare offers no way in
+  for either, so both stay on the setup list Nova shows you.
+- **Worker information marked required has to have a value.** CommCare will not
+  save a worker without one, so a persona missing one is named before anything
+  is created. Publishing still works: publishing creates no workers.
 
 One thing worth knowing about the devices themselves: CommCare merges worker
 data into a device on each sync and never clears it. If you remove a piece of

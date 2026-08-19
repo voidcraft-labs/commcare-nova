@@ -276,20 +276,23 @@ constraint). Once recorded, the decision stands: later publishes read the
 mapping rather than asking again.
 
 `pushed_identity` is the external name a resource carries on CommCare HQ — a
-lookup table's tag, a place's site code. What makes it load-bearing is a
-resource the app stops carrying: whatever Nova pushed is still there under the
+lookup table's tag, a place's site code, a worker's complete username. What
+makes it load-bearing is a resource the app stops carrying: whatever Nova pushed is still there under the
 name it went out under, and per the contract Nova does not take it down, so that
 name is the only way anybody will find it. `resources.ts::leftBehindResources`
 therefore tests the NAME, not the supersession: a table deleted on CommCare HQ
 and recreated by the next push supersedes its mapping and leaves nothing behind,
 and reporting it would send somebody to tidy up a table that does not exist.
 
-The two kinds reach it differently. A tag is mutable, so a RENAME is the common
-route for a table. A site code is create-once in Nova, so a place never renames;
-its route is ARCHIVING, which stops the push naming it — and CommCare HQ's v0.6
-resource exposes neither archive nor delete, so Nova could not have taken it
-down even if the contract allowed it. Its code stays reserved over there either
-way.
+The three kinds reach it differently. A tag is mutable, so a RENAME is the
+common route for a table. A site code is create-once in Nova, so a place never
+renames; its route is ARCHIVING, which stops the push naming it — and CommCare
+HQ's v0.6 resource exposes neither archive nor delete, so Nova could not have
+taken it down even if the contract allowed it. Its code stays reserved over
+there either way. A worker's route is a DELETED PERSONA, reconciled from the
+document rather than from a call (below); its username is create-once on
+CommCare HQ, so asking for a different one makes a second account and supersedes
+the first.
 
 An ordinary republish updates the mapped app in place: the import
 carries the active mapping's remote id (`plannedInPlaceUpdate`,
@@ -323,6 +326,14 @@ nothing, and folds no rung. Recording is not optional on a refusal — a
 table Nova made and never wrote a mapping for reads as a stranger's on
 the next publish, which would stop and ask somebody to adopt Nova's own
 work.
+
+Workers supersede on a THIRD rule, because provisioning is not a publish.
+Somebody naming three personas says nothing about the other twelve, so
+"not named by this call" cannot mean "no longer used" the way it does for
+a push. What can: the document. `recordPushedResources`'s `reconciled`
+outcome takes the personas the app still has and supersedes every worker
+mapping outside that set, so a deleted persona's account starts being
+reported. It folds no rung either, because provisioning is not a rung.
 
 A superseded row is kept with `superseded_at` set rather than deleted,
 because "report any old remote resource left behind" is impossible if
@@ -407,10 +418,52 @@ for one of them, that section becomes a record of what Nova did: the same
 artifact, one section rewritten, never a second document and never a
 capability flag.
 
+## Provisioning workers is not a rung
+
+`workers.ts::provisionWorkers` is the one worker lifecycle, shared by the
+Publish dialog's Workers panel and MCP's `provision_workers`. It is
+deliberately outside the publish: making somebody an account hands out a
+credential and is aimed at named people, which is not something a publish
+should do on the way past. So it folds no phase, leaves the deployment's
+states where it found them, and writes only the ledger.
+
+**A password exists in exactly one place: the answer.**
+`workerCredentials.ts` generates it, the create sends it, and the outcome
+carries it back once. Nothing writes it to Postgres, hands it to `log.*`
+or a `LogWriter`, or logs a request body that contains it — the refusal
+path in `lib/commcare/hq/workers.ts` deliberately logs the status and
+never the body for that reason. An update never sends a password at all,
+because an update is what an account somebody is already using gets.
+
+**Nova never issues the resource's DELETE.** It is
+`users/models.py::CommCareUser.retire`, a soft delete that reaches
+`tag_cases_as_deleted_and_remove_indices` and takes down every case that
+worker owns. The same fact is why a worker Nova already owns is UPDATED
+by its `user_id` rather than remade when the search does not find it:
+retire leaves the Couch document and its username behind, so remaking
+would either be refused or hand a second account to somebody meant to be
+gone.
+
+**Everything knowable is refused before the first account exists**, which
+is stricter than the other two drivers because CommCare HQ is quieter
+here: `api/resources/v0_5.py::CommCareUserResource.obj_create` calls
+`_update` and DISCARDS its errors, so a create whose location ids do not
+resolve answers 201 with the worker standing nowhere. Hence
+`workerProvisionPlan.ts` refuses up front on an unusable username, on
+required worker information a persona has no value for, and on a persona
+standing in a place the project space does not hold — and hence a create
+that DOES carry places sends them as a second call, because `obj_update`
+gathers the same errors into one 400.
+
+Nova speaks about a worker's places only when the app HAS an organization.
+`::_update_location` reads an empty list as "remove all", so an app with
+no places would strip a hand-made assignment off an adopted account on
+the strength of Nova having nothing to say.
+
 ## Surfaces
 
 Builder (the publish dialog) and MCP (`get_deployment`,
-`refresh_deployment`). **Deliberately not the Solutions Architect** — the same standing decision that keeps
+`refresh_deployment`, `provision_workers`). **Deliberately not the Solutions Architect** — the same standing decision that keeps
 `get_app_hq_feature_flags` off that surface. A deployment is durable state
 about somebody else's server, not authored vocabulary an agent designing
 an app should reason about.
@@ -442,8 +495,16 @@ pokes it (`notifyAppDeployments`, in the write's own transaction), and the
 relay re-resolves and emits the `preview-project-space` frame
 (`lib/preview/CLAUDE.md` § `commcare_project`).
 
+The Workers panel (`components/builder/DeploymentWorkers.tsx`) lives inside
+each record's card for the same reason the ledger keys a worker on
+`(persona, target)`: an account belongs to a project space, and the same
+persona can hold a different username on each. It stays quiet until the
+app is actually there, because the places a persona stands in only exist
+over there once a publish has put them there.
+
 The App setup workspace's Publishing section stays not-built-yet; it
-belongs to the app-setup-UI unit.
+belongs to the app-setup-UI unit, which INHERITS this panel rather than
+building a second one.
 
 ## Two things the record answers besides publishing
 

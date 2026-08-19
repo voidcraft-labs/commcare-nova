@@ -810,6 +810,7 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 | `upload_app_to_hq` | Push the app to CommCare HQ: its lookup tables and its organization's places first, then the app itself. The first upload to a project space creates the app there; uploading again updates that same HQ app in place (`hq_app_action` in the result says which happened). Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL, the deployment's state, the app's required [feature flags](../feature-flags.mdx) checked against that space, and the setup steps the project space still needs by hand. |
 | `get_deployment` | Report every project space the app has been published to and how far along each one is: `preflight`, `resources`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`. Reads Commcare Nova's own record, without contacting CommCare HQ. |
 | `refresh_deployment` | Ask CommCare HQ again what has happened to a published app, and update the stored state. Read-only against CommCare HQ. It can move a deployment forward, and can move it back when a build stops being released there. |
+| `provision_workers` | Create CommCare mobile-worker accounts on a project space for the app's personas, or bring existing ones into step with what the app says. The app must already be published there. Each new account carries that persona's worker information and places, and comes back with a password that exists only in that answer. |
 
 <Callout type="info">
 An upload never changes your Commcare Nova copy. If the linked HQ app was deleted on HQ, the upload refuses with `remote_app_missing` and tells you that uploading again will create a fresh one. The deployment record names anything an earlier upload left behind, under `left_behind`, so you can archive or delete it on HQ. Commcare Nova never deletes a resource it put on a project space.
@@ -825,6 +826,22 @@ An upload never changes your Commcare Nova copy. If the linked HQ app was delete
 
 <Callout type="warn">
 **Places go out in groups, and a group is all or nothing.** HQ takes at most 100 places per atomic request, so Commcare Nova sends one group per level, working down. If a group is refused, the groups above it are already on the project space and are recorded as such; uploading again carries on from there rather than making a second copy. Never tell the user nothing was created after a partial upload — call `get_deployment` and report what the record says.
+</Callout>
+
+<Callout type="warn">
+**A password comes back once and exists nowhere else.** `provision_workers` generates a password for every account it creates and hands it back in `workers[].password`. Commcare Nova stores none of them and cannot show one again — a lost one is reset on HQ. **Show every password to the user immediately, before doing anything else with the result**, including when the result also carries an `error_type`: a call that stopped partway still made real accounts, and their passwords are in that same answer. An account that was updated rather than created has `password: null`, because its person's password is untouched.
+</Callout>
+
+<Callout type="warn">
+**A username that is taken belongs to somebody.** CommCare makes a mobile username unique across the whole of HQ, so a name already in use is a real person's account. `provision_workers` refuses with `hq_worker_conflict`, writes nothing, and names each one in `worker_conflicts`. **Ask the user about each account by name and never decide for them.** Re-call with `adopt_personas` carrying the `persona_uuid` of exactly the ones they confirmed. The other way out is a username nobody has yet — a username is set once when the account is made, so giving a persona a new one makes a second account and leaves the first alone.
+</Callout>
+
+<Callout type="info">
+**Commcare Nova never deletes or retires a worker.** HQ's own delete soft-deletes every case that worker owns, so removing a persona reports its account under the deployment's `left_behind` instead. Removing it is the user's to do on HQ. For the same reason, a persona Commcare Nova already has an account for is always updated rather than remade, even when the account no longer turns up on HQ.
+</Callout>
+
+<Callout type="warn">
+**Provisioning refuses before it writes, because HQ would not.** `CommCareUserResource` creates a worker and silently drops a location assignment it cannot resolve, so `provision_workers` decides everything knowable first and answers `workers_not_provisionable` with each reason named: a username HQ will not take, worker information the app marks required that a persona has no value for, or a persona standing in a place the project space does not hold yet. The last one is fixed by uploading the app there, which puts the places there. Roles and the project's user-data field definitions are not created either — neither has an API — so they stay in the upload result's setup steps.
 </Callout>
 
 <Callout type="warn">

@@ -18,14 +18,7 @@ import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { BlueprintDoc } from "@/lib/domain";
-import {
-	locationPropertiesOf,
-	organizationLevelsOf,
-	ownRecordValue,
-	personasOf,
-	userPropertiesOf,
-	userTypesOf,
-} from "@/lib/domain";
+import { locationPropertiesOf, organizationLevelsOf } from "@/lib/domain";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { readOrganization } from "@/lib/organization/service";
@@ -47,6 +40,7 @@ import type {
 	DeploymentResource,
 	DeploymentResourceConflict,
 } from "./types";
+import { describeRequiredWorkerDataGaps } from "./workerProvisionPlan";
 
 /**
  * The dependency graph Nova checks before anything externally visible
@@ -228,45 +222,6 @@ function blockedOutcome(
 	readonly failure: DeploymentFailure;
 } {
 	return { status: "failed", at: now, failure: { code, message, details } };
-}
-
-/**
- * Which personas have no value for a worker property CommCare HQ marks
- * required.
- *
- * A persona inherits its user type's defaults and may override them, so a
- * value counts when either supplies a non-blank one. This is deliberately
- * not a document finding: whether a property is required is a fact about
- * the target's user-data schema, and gating the app on it would make
- * marking an existing property required impossible.
- */
-export function personasMissingRequiredWorkerData(
-	doc: BlueprintDoc,
-): readonly string[] {
-	const properties = Object.values(userPropertiesOf(doc)).filter(
-		(property) => property.required === true,
-	);
-	if (properties.length === 0) return [];
-	const types = userTypesOf(doc);
-	const gaps: string[] = [];
-	for (const persona of Object.values(personasOf(doc))) {
-		const roleValues =
-			persona.userTypeUuid === undefined
-				? undefined
-				: ownRecordValue(types, persona.userTypeUuid)?.values;
-		const missing = properties
-			.filter((property) => {
-				const own = ownRecordValue(persona.values ?? {}, property.uuid);
-				if (own !== undefined && own.trim() !== "") return false;
-				const inherited = ownRecordValue(roleValues ?? {}, property.uuid);
-				return inherited === undefined || inherited.trim() === "";
-			})
-			.map((property) => property.label);
-		if (missing.length > 0) {
-			gaps.push(`${persona.name}: ${missing.join(", ")}`);
-		}
-	}
-	return gaps;
 }
 
 /** "1 lookup table" / "3 lookup tables", counted for a sentence. */
@@ -737,9 +692,13 @@ export async function runDeploymentPreflight(
 	});
 
 	// ── 6. Will the workers you create there have what they need? ───
-	// Attention rather than blocking: Nova creates no workers yet, so
-	// refusing the publish would refuse one that would have worked.
-	const workerGaps = personasMissingRequiredWorkerData(boundary.prepared.doc);
+	// Attention rather than blocking: a publish creates no workers, so
+	// refusing it over a gap would refuse a publish that would have
+	// worked. The same gap IS blocking on the call that provisions
+	// workers, and both readings come from one function
+	// (`workerProvisionPlan.ts::requiredWorkerDataGaps`) so the warning
+	// here and the refusal there can never name different personas.
+	const workerGaps = describeRequiredWorkerDataGaps(boundary.prepared.doc);
 	checks.push({
 		id: "required-worker-data",
 		title: "Required worker information",
@@ -747,7 +706,7 @@ export async function runDeploymentPreflight(
 		detail:
 			workerGaps.length === 0
 				? "Every persona has a value for the worker information marked required."
-				: "CommCare HQ won't let you save a worker without these. Fill them in on the persona, or give the role a default, before you create workers on this project space.",
+				: "CommCare HQ won't let you save a worker without these, so publishing works but provisioning these personas won't. Fill them in on the persona, or give the role a default.",
 		items: workerGaps,
 	});
 

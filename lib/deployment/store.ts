@@ -712,6 +712,27 @@ export type ResourcePushOutcome =
 			 * because the phase did not succeed.
 			 */
 			readonly status: "partial";
+	  }
+	| {
+			/**
+			 * Not a push at all: an act OUTSIDE the publish that wrote some
+			 * of one kind's resources and separately knows which of that
+			 * kind the app still has.
+			 *
+			 * Provisioning workers is the case. Somebody names three
+			 * personas and gets three accounts, which says nothing about the
+			 * other twelve personas — so supersession cannot be read off
+			 * what the call named, the way a publish's can. What it CAN be
+			 * read off is the document: a persona that no longer exists has
+			 * an account on the project space that nothing in Nova names any
+			 * more, and `stillUsed` is what tells the ledger to stop claiming
+			 * it and start reporting it. No rung folds, because provisioning
+			 * is not a rung.
+			 */
+			readonly status: "reconciled";
+			readonly kind: DeploymentResourceKind;
+			/** Every Nova resource of that kind the app still has. */
+			readonly stillUsed: readonly string[];
 	  };
 
 /**
@@ -727,7 +748,9 @@ export type ResourcePushOutcome =
  *
  * A COMPLETE push is also the AUTHORITATIVE statement of which resources
  * of its kinds this app still uses, so any mapping it does not name is
- * superseded here. Dropping the last select that read a table, or
+ * superseded here. A RECONCILED write says the same thing about one kind
+ * from a list it was handed rather than from what it wrote, which is what
+ * an act outside the publish needs. Dropping the last select that read a table, or
  * archiving a place, leaves that resource sitting on the project space
  * under Nova's own claim, and without this its row would stay live forever
  * and `leftBehindResources` — which only ever scans superseded rows —
@@ -754,10 +777,10 @@ export async function recordPushedResources(
 				await notifyAppDeployments(tx, scope.appId);
 				return loadWithinTransaction(tx, row.id);
 			}
-			for (const kind of outcome.kinds) {
-				const stillUsed = inputs
-					.filter((input) => input.kind === kind)
-					.map((input) => input.novaResourceId);
+			const supersede = async (
+				kind: DeploymentResourceKind,
+				stillUsed: readonly string[],
+			) => {
 				await tx
 					.updateTable("app_deployment_resources")
 					.set({ superseded_at: now })
@@ -768,6 +791,19 @@ export async function recordPushedResources(
 						qb.where("nova_resource_id", "not in", stillUsed),
 					)
 					.execute();
+			};
+			if (outcome.status === "reconciled") {
+				await supersede(outcome.kind, outcome.stillUsed);
+				await notifyAppDeployments(tx, scope.appId);
+				return loadWithinTransaction(tx, row.id);
+			}
+			for (const kind of outcome.kinds) {
+				await supersede(
+					kind,
+					inputs
+						.filter((input) => input.kind === kind)
+						.map((input) => input.novaResourceId),
+				);
 			}
 			const record = toDeploymentRecord(row);
 			const progress = applyAttemptOutcome(record, "resources", {

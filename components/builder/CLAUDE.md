@@ -190,6 +190,15 @@ decision from then on. A viewer sees the ladder
 without the button (`canRefresh`), because checking writes what it observed;
 the button is also withheld when the record is one checking cannot answer.
 
+`DeploymentWorkers` sits inside each record's card and is the ONE place a
+worker's password is ever shown. It shows each one once, above any refusal the
+same call carried, because a call that stopped partway still made real accounts
+and Nova stores no copy of their passwords. The panel stays quiet until the app
+is on that project space, since the places a persona stands in only exist there
+after a publish. A username already in use gets the same untickable-by-default
+treatment a lookup table does, for the same reason: a shared name is not
+evidence of ownership, and here it is somebody's account.
+
 `PublishPanel` owns one `PublishDialog` with a single destination selector for
 direct CommCare HQ upload, a CommCare HQ app file, or a mobile app file. The
 selector's supporting line explains the current option; only its fields and

@@ -3,8 +3,8 @@ import "server-only";
 /**
  * The one way Nova talks to CommCare HQ over HTTP.
  *
- * Every driver in this directory — apps, lookup tables, and later places
- * and workers — shares these primitives rather than restating them. That
+ * Every driver in this directory — apps, lookup tables, places, and
+ * workers — shares these primitives rather than restating them. That
  * is not tidiness: the base-URL catalog is an SSRF boundary, the auth
  * header is CommCare HQ's own scheme rather than a standard one, and the
  * padding field below is the difference between a publish that works and
