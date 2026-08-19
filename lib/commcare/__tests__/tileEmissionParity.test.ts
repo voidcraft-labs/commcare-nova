@@ -20,12 +20,14 @@ import AdmZip from "adm-zip";
 import { Parser } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import type { BlueprintDoc } from "@/lib/domain";
 import { orderedColumns, tileCell } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { splitTileGridByGroupHeader } from "@/lib/preview/caseTileGrouping";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 
@@ -120,6 +122,95 @@ function suiteGrids(doc: BlueprintDoc): Record<string, string>[] {
 	return grids;
 }
 
+/**
+ * The same shape, GROUPED: a name band over a visit band, plus the same
+ * hidden carrier — placed so that if any path counted it, the header band
+ * would gain a cell that straddles the boundary.
+ */
+function groupedDoc(): BlueprintDoc {
+	const base = caseListConfig([
+		{ field: "case_name", header: "Name" },
+		{ field: "village", header: "Village" },
+		{ field: "last_visit", header: "Last visit" },
+	]);
+	return buildDoc({
+		appName: "GroupedTileEmissionParity",
+		modules: [
+			{
+				name: "Visits",
+				caseType: "patient",
+				caseListConfig: {
+					...base,
+					columns: [
+						{ ...base.columns[0], tile: tileCell(0, 0, 4, 1) },
+						{
+							...base.columns[1],
+							tile: HIDDEN_CARRIER,
+							visibleInList: false,
+							sort: { direction: "asc" as const, priority: 0 },
+						},
+						{ ...base.columns[2], tile: tileCell(0, 1, 4, 1) },
+					],
+					tile: { grouping: { identifier: "parent", headerRows: 1 } },
+				},
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({ kind: "text", id: "notes", label: proseText("Notes") }),
+						],
+					},
+				],
+			},
+		],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
+					{ name: "last_visit", label: proseText("Last visit") },
+				],
+			},
+		],
+	});
+}
+
+/** Every `<group>` under the short detail, as attribute maps. */
+function suiteGroups(doc: BlueprintDoc): Record<string, string>[] {
+	const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
+	const entry = zip.getEntry("suite.xml");
+	if (entry === null) throw new Error("compileCcz produced no suite.xml");
+
+	const groups: Record<string, string>[] = [];
+	let depth = 0;
+	let inShortDetail = false;
+	const parser = new Parser(
+		{
+			onopentag(name, attribs) {
+				if (name === "detail" && attribs.id === "m0_case_short") {
+					inShortDetail = true;
+					depth = 0;
+				}
+				if (inShortDetail) {
+					depth += 1;
+					if (name === "group") groups.push({ ...attribs });
+				}
+			},
+			onclosetag() {
+				if (!inShortDetail) return;
+				depth -= 1;
+				if (depth === 0) inShortDetail = false;
+			},
+		},
+		{ xmlMode: true },
+	);
+	parser.write(entry.getData().toString("utf-8"));
+	parser.end();
+	return groups;
+}
+
 describe("the three emission paths agree about which columns hold a square", () => {
 	it("gives a square to the shown column and to nothing else", () => {
 		const doc = tiledDoc();
@@ -177,5 +268,54 @@ describe("the three emission paths agree about which columns hold a square", () 
 		expect(carried).toHaveLength(2);
 		expect(carried[1].valueHidden).toBe(true);
 		expect(caseDetails.short.columns[1].format).toBe("invisible");
+	});
+});
+
+describe("every surface agrees about a GROUPED tile, on one document", () => {
+	it("splits the same tile the same way in the wire, the preview, and the read surface", () => {
+		const doc = groupedDoc();
+		const module = doc.modules[doc.moduleOrder[0]];
+		const config = module.caseListConfig;
+		if (config === undefined) throw new Error("expected a case-list config");
+
+		// (1) The local `.ccz` suite. HQ's own byte oracle for this element is
+		// `commcare-hq/corehq/apps/app_manager/tests/test_suite_case_tiles_grouping.py::SuiteCaseTilesGroupingTest`,
+		// whose inline partial is exactly this attribute pair.
+		expect(suiteGroups(doc)).toEqual([
+			{ function: "string(./index/parent)", "header-rows": "1" },
+		]);
+
+		// (2) HQ JSON — the PRIMARY delivery path.
+		const { caseDetails } = projectCaseListForHq(module, doc);
+		expect(caseDetails.short.case_tile_group).toEqual({
+			doc_type: "CaseTileGroupConfig",
+			index_identifier: "parent",
+			header_rows: 1,
+		});
+		expect(caseDetails.long.case_tile_group).toBeUndefined();
+
+		// (3) The preview projection, split for the grouped renderer.
+		const carried = tileResultsColumns(
+			orderedColumns(config, "list"),
+			config.tile,
+		);
+		const projection = projectTileGrid(carried.map((entry) => entry.column));
+		const split = splitTileGridByGroupHeader(projection, 1);
+		// The hidden carrier reaches row 0 and spans two rows, so any path that
+		// counted it would put a boundary-crossing cell in the header. Exactly
+		// one cell in each half, and the extent stays the shown columns'.
+		expect(split.header.cells.map((cell) => cell.columnUuid)).toEqual([
+			config.columns[0].uuid,
+		]);
+		expect(split.body.cells.map((cell) => cell.columnUuid)).toEqual([
+			config.columns[2].uuid,
+		]);
+		expect(split.header.columns).toBe(4);
+		expect(split.header.rows).toBe(2);
+
+		// (4) The SA's read surface, which is the only read an edit turn gets.
+		const summary = summarizeBlueprint(doc);
+		expect(summary).toContain("grouped_by: parent connection");
+		expect(summary).toContain("top row is the group heading");
 	});
 });

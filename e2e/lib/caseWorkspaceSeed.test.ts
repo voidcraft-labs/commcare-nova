@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { blueprintDocSchema, isOwnerOnlyCaseSearchConfig } from "@/lib/domain";
+import {
+	blueprintDocSchema,
+	isOwnerOnlyCaseSearchConfig,
+	tileGroupHeaderRowChoices,
+} from "@/lib/domain";
+import { splitTileGridByGroupHeader } from "@/lib/preview/caseTileGrouping";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import {
 	buildCaseWorkspaceBlueprint,
@@ -103,12 +108,39 @@ describe("case workspace visual-QA seed", () => {
 			condition: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/condition`,
 			firstCase: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/cases/${CASE_ID}`,
 			tileResults: `/build/${APP_ID}/${tile.moduleUuid}/results`,
+			groupedResults: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.grouped.moduleUuid}/results`,
 			tileForm: `/build/${APP_ID}/${tile.formUuid}`,
 			projectData: `/build/${APP_ID}/project-data`,
 			// A selected field serializes as its own uuid, so the smoke's deep
 			// link into the options-source editor is one segment, not two.
 			selectField: `/build/${APP_ID}/${tile.selectFieldUuid}`,
 		});
+	});
+
+	it("groups the visit module on a heading depth that cuts its tile cleanly", () => {
+		const doc = buildCaseWorkspaceBlueprint(APP_ID);
+		const grouped = CASE_WORKSPACE_SEED.grouped;
+		const config = doc.modules[grouped.moduleUuid]?.caseListConfig;
+		expect(config?.tile?.grouping).toEqual({
+			identifier: "parent",
+			headerRows: grouped.headerRows,
+		});
+
+		// The offered depths and the seeded one have to agree, or the fixture
+		// is a document the builder would never have produced.
+		const cells = (config?.columns ?? []).flatMap((column) =>
+			column.tile === undefined ? [] : [column.tile],
+		);
+		expect(tileGroupHeaderRowChoices(cells)).toContain(grouped.headerRows);
+
+		// One heading cell drawn once per group, two body cells drawn per
+		// visit — the shape every assertion in the smoke reads.
+		const split = splitTileGridByGroupHeader(
+			projectTileGrid(config?.columns ?? []),
+			grouped.headerRows,
+		);
+		expect(split.header.cells).toHaveLength(1);
+		expect(split.body.cells).toHaveLength(2);
 	});
 
 	it("lays the tile module out on a six-column grid whose only boxed cell is the one that asked", () => {

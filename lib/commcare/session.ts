@@ -35,7 +35,11 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
-import type { FormType, PostSubmitDestination } from "@/lib/domain";
+import type {
+	CaseTileGrouping,
+	FormType,
+	PostSubmitDestination,
+} from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import {
 	effectiveDisplayConditionForEmission,
@@ -400,6 +404,7 @@ export function deriveSessionDatums(
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
 	persistentDetailId?: string,
+	tileGrouping?: CaseTileGrouping,
 ): SessionDatum[] {
 	const datums: SessionDatum[] = [];
 
@@ -424,38 +429,64 @@ export function deriveSessionDatums(
 		});
 	}
 
-	if (!actions) return datums;
+	if (actions) {
+		// (2) Case-create datum for an active `open_case` action. CCHQ
+		// emits this whenever `'open_case' in form.active_actions()`, which
+		// in Nova's FormActions shape is condition.type in {always, if}.
+		const opensCase =
+			actions.open_case.condition.type === "always" ||
+			actions.open_case.condition.type === "if";
+		const opensSubcaseIndexOffset = opensCase ? 1 : 0;
+		if (opensCase && caseType) {
+			datums.push({
+				id: `case_id_new_${validateCaseType(caseType)}_0`,
+				function: "uuid()",
+			});
+		}
 
-	// (2) Case-create datum for an active `open_case` action. CCHQ
-	// emits this whenever `'open_case' in form.active_actions()`, which
-	// in Nova's FormActions shape is condition.type in {always, if}.
-	const opensCase =
-		actions.open_case.condition.type === "always" ||
-		actions.open_case.condition.type === "if";
-	const opensSubcaseIndexOffset = opensCase ? 1 : 0;
-	if (opensCase && caseType) {
-		datums.push({
-			id: `case_id_new_${validateCaseType(caseType)}_0`,
-			function: "uuid()",
-		});
+		// (3) Per-subcase datums. Skip subcases whose action is inactive or
+		// that live in a repeat — CCHQ also skips repeat-context subcases
+		// for session emission and uses a per-iteration calculate bind on
+		// the form side. The wire-layer datum index counts ALL active
+		// subcases (including any repeat-context ones), then this function
+		// only EMITS for the non-repeat-context ones — matching the
+		// `Form.session_var_for_action` numbering at the CCHQ side.
+		for (let i = 0; i < actions.subcases.length; i++) {
+			const sc = actions.subcases[i];
+			if (sc.condition.type !== "always" && sc.condition.type !== "if") {
+				continue;
+			}
+			if (sc.repeat_context) continue;
+			datums.push({
+				id: `case_id_new_${validateCaseType(sc.case_type)}_${i + opensSubcaseIndexOffset}`,
+				function: "uuid()",
+			});
+		}
 	}
 
-	// (3) Per-subcase datums. Skip subcases whose action is inactive or
-	// that live in a repeat — CCHQ also skips repeat-context subcases
-	// for session emission and uses a per-iteration calculate bind on
-	// the form side. The wire-layer datum index counts ALL active
-	// subcases (including any repeat-context ones), then this function
-	// only EMITS for the non-repeat-context ones — matching the
-	// `Form.session_var_for_action` numbering at the CCHQ side.
-	for (let i = 0; i < actions.subcases.length; i++) {
-		const sc = actions.subcases[i];
-		if (sc.condition.type !== "always" && sc.condition.type !== "if") {
-			continue;
-		}
-		if (sc.repeat_context) continue;
+	// (4) The grouped-tile companion datum. CCHQ emits it from
+	// `commcare-hq/.../suite_xml/sections/entries.py::EntriesHelper.get_extra_case_id_datums`,
+	// last and only when there IS a form with a case-selection datum
+	// (`::get_case_datums_basic_module` takes `case_datum = datums[-1] if
+	// datums else None`, then guards the whole call on `if form:`), so a
+	// registration form's entry and the standalone case-list browse entry
+	// never carry it. Nova mirrors both gates: the identifier is present
+	// only for a grouped tile, and the case-loading datum above is what
+	// proves this entry selects a case.
+	//
+	// The predicate is a plain `@case_id` match against the selected case
+	// and deliberately NOT the case-list nodeset's type / status / filter
+	// fragment — the datum resolves the ONE selected case's index target,
+	// so re-narrowing the candidate set would be a different question.
+	// `join(' ', distinct-values(...))` looks redundant for a single case
+	// and is not: it is the shape the multi-select variant reuses when it
+	// swaps the datum class to `<instance-datum>`, so keeping it verbatim
+	// makes that a second predicate arm rather than a reshape.
+	const caseSelectDatum = datums.find((datum) => datum.id === "case_id");
+	if (tileGrouping !== undefined && caseSelectDatum !== undefined) {
 		datums.push({
-			id: `case_id_new_${validateCaseType(sc.case_type)}_${i + opensSubcaseIndexOffset}`,
-			function: "uuid()",
+			id: `${caseSelectDatum.id}_parent_ids`,
+			function: `join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/${caseSelectDatum.id}]/index/${tileGrouping.identifier}))`,
 		});
 	}
 
@@ -672,6 +703,7 @@ export function deriveEntryDefinition(
 	formDisplayCondition?: Predicate,
 	lookupNaming?: LookupWireNaming,
 	persistentDetailId?: string,
+	tileGrouping?: CaseTileGrouping,
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -686,6 +718,7 @@ export function deriveEntryDefinition(
 		relationContext,
 		lookupNaming,
 		persistentDetailId,
+		tileGrouping,
 	);
 	const instances: EntryInstance[] = [];
 	const seen = new Set<string>();

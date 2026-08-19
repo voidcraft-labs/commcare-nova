@@ -122,6 +122,8 @@ import type {
 	ConversionImpact,
 	CountArgs,
 	GenerateSampleDataArgs,
+	GroupedQueryArgs,
+	GroupedQueryResult,
 	MigrationReport,
 	ParkedValueEntry,
 	PreparedCasePropertyRenamePhaseB,
@@ -440,6 +442,30 @@ function automationDateCriterionClause(criterion: {
 }
 
 /** The Postgres-backed implementation of `CaseStore`. */
+/**
+ * Window columns the grouped read materializes and then strips.
+ *
+ * They ride the same `__nova_` namespace the calculated-column prefix
+ * uses, for the same reason: a `cases` column can never collide with
+ * one, so the partition between "a case's data" and "this query's
+ * bookkeeping" is structural rather than a naming convention somebody
+ * has to remember.
+ */
+const GROUP_KEY_ALIAS = "__nova_group_key";
+const ROW_ORDINAL_ALIAS = "__nova_row_ordinal";
+const GROUP_FIRST_ALIAS = "__nova_group_first";
+const GROUP_ORDINAL_ALIAS = "__nova_group_ordinal";
+const TOTAL_GROUPS_ALIAS = "__nova_total_groups";
+const TOTAL_ROWS_ALIAS = "__nova_total_rows";
+const GROUPED_ROW_ALIASES = [
+	GROUP_KEY_ALIAS,
+	ROW_ORDINAL_ALIAS,
+	GROUP_FIRST_ALIAS,
+	GROUP_ORDINAL_ALIAS,
+	TOTAL_GROUPS_ALIAS,
+	TOTAL_ROWS_ALIAS,
+] as const;
+
 export class PostgresCaseStore implements CaseStore {
 	/**
 	 * Bound Project (tenant) for every read/write, or `null` for a
@@ -622,7 +648,18 @@ export class PostgresCaseStore implements CaseStore {
 		if (parent === undefined) throw new CaseNotFoundError(args.parentCaseId);
 	}
 
-	async query(args: QueryArgs): Promise<CaseRowWithCalculated[]> {
+	/**
+	 * The half of a case-list read that grouping and the ordinary page
+	 * share: tenant scope, the hold exclusion, every calculated-column
+	 * projection, and the authored predicate — everything except how the
+	 * rows are ordered and windowed.
+	 *
+	 * It is one method rather than two similar ones because the tenant
+	 * filter and the hold exclusion are the two things a new read surface
+	 * must never re-derive. `queryGrouped` wraps the builder this returns
+	 * in window functions; `query` orders and paginates it directly.
+	 */
+	private buildCaseSelect(args: QueryArgs) {
 		const calculated: ReadonlyArray<CalculatedColumn> = args.calculated ?? [];
 
 		const ctx = this.buildPredicateContext({
@@ -750,6 +787,24 @@ export class PostgresCaseStore implements CaseStore {
 			qb = qb.where(compilePredicate(args.predicate, ctx));
 		}
 
+		// Materialize the alias allowlist once outside the row loop so
+		// the per-row partition is O(rows × calc-cols) rather than
+		// O(rows × all-keys × calc-cols). Each entry pairs the wire
+		// alias (`__nova_calc__<uuid>`) with the consumer-facing key
+		// (the column's `uuid`) so the loop body needs no extra
+		// string ops per row.
+		const calcAliases = calculated.map((c) => ({
+			alias: aliasFor(c.uuid),
+			uuid: c.uuid,
+		}));
+
+		return { qb, exprCtx, calcAliases };
+	}
+
+	async query(args: QueryArgs): Promise<CaseRowWithCalculated[]> {
+		const { qb: base, exprCtx, calcAliases } = this.buildCaseSelect(args);
+		let qb = base;
+
 		// Sort keys compile through `compileExpression` against the
 		// thunk-wired context — `expressionContextFor` handles the
 		// cycle break for the predicate-bearing arms (`if.cond`,
@@ -787,73 +842,204 @@ export class PostgresCaseStore implements CaseStore {
 			CaseRow & Record<string, unknown>
 		>;
 
-		// Materialize the alias allowlist once outside the row loop so
-		// the per-row partition is O(rows × calc-cols) rather than
-		// O(rows × all-keys × calc-cols). Each entry pairs the wire
-		// alias (`__nova_calc__<uuid>`) with the consumer-facing key
-		// (the column's `uuid`) so the loop body needs no extra
-		// string ops per row.
-		const calcAliases = calculated.map((c) => ({
-			alias: aliasFor(c.uuid),
-			uuid: c.uuid,
-		}));
+		return rows.map((row) => this.shapeCaseRow(row, calcAliases));
+	}
 
-		return rows.map((row) => {
-			const calculatedMap: Record<string, CalculatedValue> = {};
-			// Postgres returns calculated-column NULL as JS `null`; the
-			// `CalculatedValue` union admits `null`. Non-null typed
-			// values come back per pg's per-OID deserializer:
-			//   - text → string
-			//   - integer → number
-			//   - numeric → string (pg's arbitrary-precision decimal
-			//     deserializer)
-			//   - boolean → boolean
-			//   - date / timestamptz → Date object (NOT ISO string)
-			//   - jsonb → object / array
-			// The contract test for the date arm at
-			// `lib/case-store/__tests__/storeContract.ts` pins the Date
-			// shape; the renderer in `DisplayPreview.tsx` discriminates
-			// on `instanceof Date` to format the temporal value without
-			// `JSON.stringify`'s quoted-ISO output.
-			for (const { alias, uuid } of calcAliases) {
-				// `Object.hasOwn` guards against the rare case where
-				// Postgres elides the alias from the row; the explicit
-				// guard keeps the map clean of `undefined`-typed slots.
-				if (Object.hasOwn(row, alias)) {
-					calculatedMap[uuid] = row[alias] as CalculatedValue;
-				} else {
-					// Defensive fall-through: treat missing alias as null.
-					// Documented contract from the interface JSDoc says
-					// "expression evaluates to SQL NULL → uuid → null";
-					// an elided alias is functionally equivalent at the
-					// consumer layer (renderer reads the same blank
-					// value).
-					calculatedMap[uuid] = null;
-				}
-			}
+	/**
+	 * Turn one raw result row into the `CaseRow & { calculated }` shape
+	 * every consumer reads.
+	 *
+	 * Two keyspaces get stripped: the bound tenant's `project_id`, which
+	 * `selectAll("c")` materializes but the `CaseRow` contract does not
+	 * carry, and every `__nova_calc__<uuid>` alias, whose value moves into
+	 * `calculated` under the column's own uuid. `extraAliases` covers the
+	 * grouped read's window columns, which exist for exactly as long as it
+	 * takes to rebuild the groups.
+	 *
+	 * Postgres returns calculated-column NULL as JS `null`; the
+	 * `CalculatedValue` union admits it. Non-null typed values come back
+	 * per pg's per-OID deserializer:
+	 *   - text -> string
+	 *   - integer -> number
+	 *   - numeric -> string (arbitrary-precision decimal)
+	 *   - boolean -> boolean
+	 *   - date / timestamptz -> Date object (NOT ISO string)
+	 *   - jsonb -> object / array
+	 * The contract test for the date arm at
+	 * `lib/case-store/__tests__/storeContract.ts` pins the Date shape; the
+	 * renderer in `DisplayPreview.tsx` discriminates on `instanceof Date`
+	 * to format the temporal value without `JSON.stringify`'s quoted-ISO
+	 * output.
+	 */
+	private shapeCaseRow(
+		row: Record<string, unknown>,
+		calcAliases: ReadonlyArray<{ alias: string; uuid: string }>,
+		extraAliases: readonly string[] = [],
+	): CaseRowWithCalculated {
+		const calculatedMap: Record<string, CalculatedValue> = {};
+		for (const { alias, uuid } of calcAliases) {
+			// `Object.hasOwn` guards against the rare case where Postgres
+			// elides the alias from the row; the explicit guard keeps the
+			// map clean of `undefined`-typed slots. A missing alias is
+			// treated as null, which is what the interface JSDoc already
+			// promises for an expression evaluating to SQL NULL.
+			calculatedMap[uuid] = Object.hasOwn(row, alias)
+				? (row[alias] as CalculatedValue)
+				: null;
+		}
+		const cleaned = stripTenantKey(row) as Record<string, unknown>;
+		for (const { alias } of calcAliases) delete cleaned[alias];
+		for (const alias of extraAliases) delete cleaned[alias];
+		return {
+			...(cleaned as unknown as CaseRow),
+			calculated: calculatedMap,
+		};
+	}
 
-			// Strip the prefixed-alias keys from the row's top-level
-			// shape so the consumer's `row.calculated[uuid]` is the
-			// only path to each evaluated value. The cases-side scalar
-			// columns (`case_name`, `case_id`, etc.) survive verbatim
-			// because the prefix puts the calculated slots in a
-			// disjoint keyspace — the strip touches ONLY the prefixed
-			// aliases, never a `cases` column.
-			// `stripTenantKey` removes the bound-tenant `project_id` that
-			// `selectAll("c")` materialized (not part of the `CaseRow`
-			// contract); the loop then strips the dynamic calc aliases.
-			const cleaned = stripTenantKey(row) as Record<string, unknown>;
-			for (const { alias } of calcAliases) {
-				delete cleaned[alias];
-			}
+	async queryGrouped(args: GroupedQueryArgs): Promise<GroupedQueryResult> {
+		const { qb: base, exprCtx, calcAliases } = this.buildCaseSelect(args);
+
+		// The group key, as the device computes it. `string(./index/<id>)`
+		// takes the FIRST node of a node-set, and Nova's writers keep one
+		// target per `(case_id, identifier)` — `submissionEnvelope.ts`
+		// deletes by that exact pair before inserting, and the parent-edge
+		// re-derivation does the same — so the ordering here is
+		// determinism insurance rather than a real fan-out. It is spelled
+		// out anyway, for the same reason `automationRelationIndexFilter`
+		// spells out its own tie-break: a storage-order-dependent answer
+		// is one that changes under VACUUM.
+		//
+		// `coalesce(…, '')` is not a null-safety flourish. It IS the
+		// empty-key contract: a case with no such index evaluates to the
+		// empty string on device and clusters with every other such case
+		// into one group.
+		const groupKey = sql<string>`coalesce((select grouping_index.ancestor_id from case_indices as grouping_index where grouping_index.case_id = c.case_id and grouping_index.identifier = ${args.indexIdentifier} and grouping_index.depth = 1 order by grouping_index.ancestor_id limit 1), '')`;
+
+		// The user's sort, as a window ORDER BY. `row_number()` is
+		// evaluated after WHERE, so this ordinal is the position the row
+		// holds in the fully filtered, fully sorted list — the exact input
+		// `groupEntities` clusters over. The ungrouped default is repeated
+		// rather than shared with `query` because the two express it in
+		// different syntax (an `orderBy` chain there, a window clause
+		// here); `__tests__` pin that they agree.
+		const orderBy =
+			args.sort === undefined || args.sort.length === 0
+				? [sql`c.opened_on asc`, sql`c.case_id asc`]
+				: args.sort.map(
+						(key) =>
+							sql`${compileExpression(key.expression, exprCtx)} ${key.direction === "desc" ? sql`desc` : sql`asc`}`,
+					);
+		const rowOrdinal = sql<number>`row_number() over (order by ${sql.join(orderBy, sql`, `)})`;
+
+		const matched = base
+			.select(groupKey.as(GROUP_KEY_ALIAS))
+			.select(rowOrdinal.as(ROW_ORDINAL_ALIAS));
+
+		// One statement, four window levels:
+		//
+		//   clustered — each row learns its group's first-appearance
+		//               ordinal (`min(row ordinal) over (partition by key)`).
+		//   ordinal   — groups are dense-ranked on that, which IS the
+		//               first-appearance ordinal `groupEntities` assigns.
+		//   totals    — the denominators, computed BEFORE the page filter,
+		//               because a window function in the final SELECT runs
+		//               after WHERE and would count only the page.
+		//
+		// `max(group ordinal)` is the group count precisely because the
+		// rank is dense; Postgres has no `count(distinct …) over ()`.
+		const paged = await sql<Record<string, unknown>>`
+			with matched as (${matched}),
+			clustered as (
+				select *, min(${sql.ref(ROW_ORDINAL_ALIAS)}) over (partition by ${sql.ref(GROUP_KEY_ALIAS)}) as ${sql.ref(GROUP_FIRST_ALIAS)}
+				from matched
+			),
+			ordinal as (
+				select *, dense_rank() over (order by ${sql.ref(GROUP_FIRST_ALIAS)}) as ${sql.ref(GROUP_ORDINAL_ALIAS)}
+				from clustered
+			),
+			totals as (
+				select *,
+					max(${sql.ref(GROUP_ORDINAL_ALIAS)}) over () as ${sql.ref(TOTAL_GROUPS_ALIAS)},
+					count(*) over () as ${sql.ref(TOTAL_ROWS_ALIAS)}
+				from ordinal
+			)
+			select * from totals
+			where ${sql.ref(GROUP_ORDINAL_ALIAS)} > ${args.groupOffset}
+				and ${sql.ref(GROUP_ORDINAL_ALIAS)} <= ${args.groupOffset + args.groupLimit}
+			order by ${sql.ref(GROUP_FIRST_ALIAS)}, ${sql.ref(ROW_ORDINAL_ALIAS)}
+		`.execute(this.db);
+
+		const rows = paged.rows;
+		if (rows.length === 0) {
+			// An empty page says nothing about the totals, so ask for them
+			// only when there is nothing to read them off. This is the one
+			// branch that costs a second statement, and it is the branch
+			// where correctness is cheapest: a page past the end still has
+			// to report how many groups there really are so the pager can
+			// walk back.
+			const empty = await sql<{
+				total_groups: string | number | null;
+				total_rows: string | number | null;
+			}>`
+				with matched as (${matched})
+				select count(distinct ${sql.ref(GROUP_KEY_ALIAS)}) as total_groups, count(*) as total_rows
+				from matched
+			`.execute(this.db);
+			const totals = empty.rows[0];
 			return {
-				...(cleaned as unknown as CaseRow),
-				calculated: calculatedMap,
+				groups: [],
+				totalGroups: Number(totals?.total_groups ?? 0),
+				totalRows: Number(totals?.total_rows ?? 0),
 			};
-		});
+		}
+
+		// Rows arrive already clustered and already in member order, so
+		// one linear pass on adjacent keys rebuilds the groups — the same
+		// adjacency `getEntitiesForCurrentPage` counts boundaries on.
+		const groups: { key: string; rows: CaseRowWithCalculated[] }[] = [];
+		for (const row of rows) {
+			const key = String(row[GROUP_KEY_ALIAS] ?? "");
+			const last = groups.at(-1);
+			const shaped = this.shapeCaseRow(row, calcAliases, GROUPED_ROW_ALIASES);
+			if (last !== undefined && last.key === key) last.rows.push(shaped);
+			else groups.push({ key, rows: [shaped] });
+		}
+
+		const first = rows[0];
+		return {
+			groups,
+			totalGroups: Number(first[TOTAL_GROUPS_ALIAS] ?? 0),
+			totalRows: Number(first[TOTAL_ROWS_ALIAS] ?? 0),
+		};
 	}
 
 	async count(args: CountArgs): Promise<number> {
+		if (args.missingIndexIdentifier !== undefined) {
+			// The empty-key population: cases of this type carrying no index
+			// with the named identifier. Held rows are included because this
+			// answers a question about the stored data an author governs, not
+			// about what the running app can currently reach.
+			const identifier = args.missingIndexIdentifier;
+			const missing = await this.db
+				.selectFrom("cases as c")
+				.select((eb) => eb.fn.countAll<string>().as("total"))
+				.where("c.app_id", "=", args.appId)
+				.where("c.case_type", "=", args.caseType)
+				.where("c.project_id", "=", this.requireProjectId())
+				.where(({ not, exists, selectFrom }) =>
+					not(
+						exists(
+							selectFrom("case_indices as grouping_index")
+								.select("grouping_index.ancestor_id")
+								.whereRef("grouping_index.case_id", "=", "c.case_id")
+								.where("grouping_index.identifier", "=", identifier)
+								.where("grouping_index.depth", "=", 1),
+						),
+					),
+				)
+				.executeTakeFirst();
+			return Number(missing?.total ?? 0);
+		}
 		if ("ownerId" in args) {
 			if (
 				typeof args.ownerId !== "string" ||

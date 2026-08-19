@@ -81,6 +81,7 @@ import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	type BlueprintDoc,
+	type CaseTileGrouping,
 	effectiveCaseTypes,
 	type Module,
 	orderedColumns,
@@ -93,6 +94,7 @@ import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { emitCaseListFilter } from "../../predicate";
 import { buildColumnField } from "./columns";
 import { buildSortDirectives } from "./sortKeys";
+import { buildTileGroupElement } from "./tileGroup";
 import type {
 	CaseListEmission,
 	CaseListEmitContext,
@@ -204,6 +206,7 @@ export function buildShortDetail(args: {
 				detailId,
 				[],
 				searchAction,
+				undefined,
 				moduleIndex,
 				relationContext,
 				args.lookupNaming,
@@ -267,6 +270,7 @@ export function buildShortDetail(args: {
 			detailId,
 			fields,
 			searchAction,
+			config.tile?.grouping,
 			moduleIndex,
 			relationContext,
 			args.lookupNaming,
@@ -307,6 +311,7 @@ function buildDetailShell(
 	detailId: string,
 	fields: readonly Element[],
 	searchAction: SearchActionContext | undefined,
+	grouping: CaseTileGrouping | undefined,
 	moduleIndex: number,
 	relationContext: {
 		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
@@ -329,6 +334,7 @@ function buildDetailShell(
 			),
 		);
 	}
+	if (grouping !== undefined) children.push(buildTileGroupElement(grouping));
 	return el("detail", { id: detailId }, children);
 }
 

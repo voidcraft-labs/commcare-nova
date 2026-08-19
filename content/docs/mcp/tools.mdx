@@ -546,6 +546,21 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `update_search_input` | Replace a search input's body, addressed by `moduleUuid` and `searchInputUuid`. |
 | `remove_search_input` | Remove one search input by `moduleUuid` and `searchInputUuid`. |
 | `reorder_search_inputs` | Reorder search inputs by passing their complete `searchInputUuids` sequence. |
+| `set_case_list_tile` | Lay the case list out as a tile — a 12 x 12 grid where each field shown in Results occupies a rectangle — and place its fields on that grid. `tile` turns the layout on or off (`null` turns it off and keeps every placement), `placements` moves fields, and both may ride one call. While the tile is on, every field shown in Results needs a place and no two fields may share a square, so the whole layout lands in one call. |
+
+`set_case_list_tile` also carries **grouping**, through `tile.grouping`. It shows
+the cases that share a connection together, under one heading:
+
+| Field | What it does |
+|---|---|
+| `identifier` | The name of the case connection to group by, almost always `parent`. Grouping is by a connection, never by a property value: the heading is drawn from the first case in each group, which is only honest when every case in the group shares it. |
+| `headerRows` | How many of the tile's top rows form the group heading. Those rows are drawn once per group, from the group's first case; the rows below are drawn for every case. The line must be a clean cut — at least one field above it, at least one below it, and no field crossing it. |
+
+Two consequences to pass on to whoever asked for grouping. Choosing a group
+opens its **first** case: the rows beneath the heading are there to read and
+cannot be chosen. And every case with no such connection lands together in one
+group. The list also pages by group, so a page holds whole groups and however
+many cases they carry.
 
 ## Working on case search
 

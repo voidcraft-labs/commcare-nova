@@ -75,6 +75,7 @@ import {
 	TILE_HORIZONTAL_ALIGNS,
 	TILE_VERTICAL_ALIGNS,
 	tileCell,
+	tileGroupHeaderRowChoices,
 	type Uuid,
 } from "@/lib/domain";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
@@ -465,6 +466,13 @@ interface ModuleGenSpec {
 	 * divergence shipped past the fuzz.
 	 */
 	readonly hiddenSortCarrier: boolean;
+	/**
+	 * Whether a tiled module ALSO groups its cases. Honored only where the
+	 * generated layout offers a clean cut (`tileGroupHeaderRowChoices`) —
+	 * one shown row cannot carry both a heading and a body — so the flag is
+	 * a request rather than a guarantee, exactly like `hiddenSortCarrier`.
+	 */
+	readonly grouping: boolean;
 	/** Whether the module's home tile carries an icon. */
 	readonly hasIcon: boolean;
 	/** Whether the module's home tile carries an audio label. */
@@ -525,6 +533,7 @@ const moduleGenSpecArb: fc.Arbitrary<ModuleGenSpec> = fc.record({
 		},
 	),
 	hiddenSortCarrier: fc.boolean(),
+	grouping: fc.boolean(),
 	hasIcon: fc.boolean(),
 	hasAudioLabel: fc.boolean(),
 	hasDisplayCondition: fc.boolean(),
@@ -664,6 +673,24 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 							: column,
 					);
 
+		// Grouping, where the generated layout can carry one. The heading depth
+		// comes from the SHOWN cells through the same helper the builder offers
+		// and the validator refuses on, so the fuzz never generates a document
+		// the commit gate would reject — and the hidden carrier's retained cell
+		// is excluded here for the same reason it is excluded everywhere else.
+		const shownCells = carrierColumns.flatMap((column) =>
+			column.visibleInList === false || column.tile === undefined
+				? []
+				: [column.tile],
+		);
+		const headingChoices = modSpec.grouping
+			? tileGroupHeaderRowChoices(shownCells)
+			: [];
+		const grouping =
+			modSpec.tile === false || headingChoices.length === 0
+				? undefined
+				: { identifier: "parent", headerRows: headingChoices[0] };
+
 		const caseListConfig: CaseListConfig = resolveCaseListConfig({
 			columns: carrierColumns,
 			searchInputs,
@@ -671,9 +698,12 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			...(modSpec.tile === false
 				? {}
 				: {
-						tile: modSpec.tile.persistOnForms
-							? { persistOnForms: true as const }
-							: {},
+						tile: {
+							...(modSpec.tile.persistOnForms
+								? { persistOnForms: true as const }
+								: {}),
+							...(grouping !== undefined ? { grouping } : {}),
+						},
 					}),
 		});
 

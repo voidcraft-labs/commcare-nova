@@ -137,6 +137,17 @@ function summarizeCaseList(mod: Module): string | undefined {
 		lines.push(
 			`      layout: tile${config.tile.persistOnForms === true ? " (kept above every form)" : ""}`,
 		);
+		// Grouping changes what a placement MEANS — a cell in the header band
+		// is drawn once per group, from the group's first case — so a read
+		// surface that reported the cells without it would have the model
+		// rearranging a tile it does not know the shape of. Both consequences
+		// it cannot infer ride along for the same reason.
+		const grouping = config.tile.grouping;
+		if (grouping !== undefined) {
+			lines.push(
+				`      grouped_by: ${grouping.identifier} connection, top ${grouping.headerRows === 1 ? "row is" : `${grouping.headerRows} rows are`} the group heading (drawn once per group from its first case; choosing a group opens that first case; cases with no ${grouping.identifier} connection are one group)`,
+			);
+		}
 	}
 	// Each screen reads its OWN sequence: the summary is what the SA reasons
 	// about arrangement from, so a storage-order read would have it move the

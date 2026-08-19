@@ -69,6 +69,7 @@ import {
 	type BlueprintDoc,
 	type CaseListConfig,
 	type CaseOperation,
+	type CaseTileGrouping,
 	type CaseType,
 	type Column,
 	caseListColumnIsEmitted,
@@ -224,6 +225,15 @@ export async function readCases(
 		args.authoredExcludedOwnerIds,
 	);
 	const page = normalizeCaseListPage(args.page);
+	// Grouping is a property of a BOUNDED running-list read. An unpaged
+	// caller (the form auto-selection candidate read) wants the complete
+	// candidate set and has no list to draw, so it stays on the flat path
+	// even when the module's tile is grouped.
+	const grouping =
+		page === undefined ? undefined : args.caseListConfig?.tile?.grouping;
+	if (grouping !== undefined && page !== undefined) {
+		return readGroupedCases(store, args, composedQuery, page, grouping);
+	}
 	const countArgs = {
 		appId: args.appId,
 		caseType: args.caseType,
@@ -309,6 +319,83 @@ export async function readCases(
 			pageOffset,
 			pageSize: page.limit,
 		}),
+	};
+}
+
+/**
+ * The grouped twin of `readCases`' bounded path: one `store.queryGrouped`
+ * whose window counts GROUPS, so a page holds whole groups and however many
+ * cases those groups happen to carry. That row-unboundedness is the
+ * platform's own behaviour
+ * (`formplayer/.../beans/menus/EntityListResponse::getEntitiesForCurrentPage`
+ * pages on group boundaries), so the preview reproduces it rather than
+ * re-clamping to a row budget no device applies.
+ *
+ * `rows` still carries the flat page in clustered order, so every consumer
+ * that reads rows — selection, the persistent tile, the empty-state copy —
+ * keeps working unchanged; `grouped` adds the clustering the tile renderer
+ * draws from.
+ *
+ * The reclamp mirrors `readCases`' stale-final-page repair, once and only
+ * once, but needs no recount: `totalGroups` comes from the same statement as
+ * the page, so the pager's denominator and the page can never disagree.
+ */
+async function readGroupedCases(
+	store: CaseStore,
+	args: Parameters<typeof readCases>[1],
+	composedQuery: ComposedCaseQuery,
+	page: { readonly offset: number; readonly limit: number },
+	grouping: CaseTileGrouping,
+): Promise<LoadCasesResult> {
+	const queryAtOffset = (groupOffset: number) =>
+		store.queryGrouped({
+			appId: args.appId,
+			caseType: args.caseType,
+			caseTypeSchemas: args.caseTypeSchemas,
+			bindings: args.bindings,
+			lookupTableSchemas: args.lookupTableSchemas,
+			predicate: composedQuery.predicate,
+			sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
+			calculated: args.caseListConfig?.columns.filter(
+				isRuntimeCalculatedColumn,
+			),
+			indexIdentifier: grouping.identifier,
+			groupOffset,
+			groupLimit: page.limit,
+		});
+
+	let pageOffset = page.offset;
+	let result = await queryAtOffset(pageOffset);
+	if (result.groups.length === 0 && result.totalGroups > 0) {
+		const clamped =
+			Math.floor((result.totalGroups - 1) / page.limit) * page.limit;
+		if (clamped !== pageOffset) {
+			pageOffset = clamped;
+			result = await queryAtOffset(pageOffset);
+		}
+	}
+	if (result.groups.length === 0) {
+		const authoredMatchingCount =
+			composedQuery.constraintSource === "worker-search"
+				? await countAuthoredCasePopulation(store, args)
+				: undefined;
+		return {
+			kind: "empty",
+			constraintSource: composedQuery.constraintSource,
+			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+		};
+	}
+	return {
+		kind: "rows",
+		rows: result.groups.flatMap((group) => group.rows),
+		totalCount: result.totalRows,
+		grouped: {
+			groups: result.groups,
+			pageOffset,
+			pageSize: page.limit,
+			totalGroupCount: result.totalGroups,
+		},
+		constraintSource: composedQuery.constraintSource,
 	};
 }
 
@@ -1928,6 +2015,7 @@ export function schemaHealingCaseStore(
 		withSchemaHeal(args, run);
 	return {
 		query: (a) => heal(() => store.query(a)),
+		queryGrouped: (a) => heal(() => store.queryGrouped(a)),
 		count: (a) => heal(() => store.count(a)),
 		insert: (a) => heal(() => store.insert(a)),
 		applySubmission: (a) => heal(() => store.applySubmission(a)),

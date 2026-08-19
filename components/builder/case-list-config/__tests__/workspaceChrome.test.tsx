@@ -100,6 +100,7 @@ const ROW_LAYOUT_PROPS = {
 	onPutColumnOnTile: () => {},
 	onApplyTilePreset: () => {},
 	onTilePersistOnFormsChange: () => {},
+	onTileGroupingChange: () => {},
 } as const;
 
 const NAME = column("1", "case_name", "Patient name");

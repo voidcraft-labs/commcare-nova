@@ -28,6 +28,7 @@ import {
 	loadCaseCountAction,
 	loadCaseDataAction,
 	loadCasesAction,
+	loadMissingConnectionCountAction,
 	loadParkedValuesAction,
 	populateSampleCasesAction,
 	replaceParkedValueAction,
@@ -339,9 +340,13 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 	fetcher: (ids: { appId: string; caseType: string }) => Promise<T>;
 	settledKind: T["kind"];
 	/** Distinguishes callers whose fetchers differ beyond (appId,
-	 * caseType) — e.g. the count's includeHeld variants — in the
-	 * module-level in-flight dedupe key, so concurrent mounts of
-	 * DIFFERENT variants never share one call. */
+	 * caseType) — the count's includeHeld variants, the connection name a
+	 * missing-connection count measures. It is part of the REQUEST
+	 * IDENTITY, not only the in-flight dedupe key: concurrent mounts of
+	 * different variants must never share one call, and a variant that
+	 * changes while mounted must re-fire and read `loading` in between
+	 * rather than showing the previous variant's settled number as if it
+	 * answered the new question. */
 	variant?: string;
 	errorMessage: string;
 }): {
@@ -357,7 +362,7 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
 	const ready = Boolean(appId && caseType && accessPhase === "authorized");
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${variant ?? ""}`
 		: "";
 	const reloadToken = useMemo(
 		() => [requestIdentity, caseDataRevision],
@@ -383,7 +388,7 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 							kind: "per-case-type" as const,
 							key: requestIdentity,
 							value: await dedupedPerCaseTypeCall(
-								`${settledKind}\u0000${variant ?? ""}\u0000${requestIdentity}\u0000${caseDataRevision}`,
+								`${settledKind}\u0000${requestIdentity}\u0000${caseDataRevision}`,
 								() => fetcher({ appId, caseType }),
 							),
 						}),
@@ -438,6 +443,41 @@ export function useCaseCount(args: {
 		// must never share one in-flight result.
 		settledKind: "count",
 		variant: includeHeld ? "held-included" : undefined,
+		errorMessage: "Failed to count cases.",
+	});
+}
+
+/**
+ * Subscribe to how many cases of one type carry NO connection with the
+ * given name — the measurement the grouping surface states beside its
+ * "cases with no connection land in one group" line.
+ *
+ * The identifier rides the resource variant, so changing the connection
+ * name re-fires the read and shows `loading` in between rather than
+ * presenting the previous name's answer as this one's. `idle` while the
+ * caller has no identifier to ask about: unknown stays unknown, and a
+ * count of zero is a measured fact the surface must be able to say.
+ */
+export function useMissingConnectionCount(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+	identifier: string | undefined;
+}): {
+	state: LoadingState<LoadCaseCountResult>;
+	fetching: boolean;
+	reload: () => Promise<void>;
+} {
+	const identifier = args.identifier;
+	return usePerCaseTypeResource<LoadCaseCountResult>({
+		appId: args.appId,
+		caseType: identifier === undefined ? undefined : args.caseType,
+		fetcher: (ids) =>
+			loadMissingConnectionCountAction({
+				...ids,
+				identifier: identifier ?? "",
+			}),
+		settledKind: "count",
+		variant: `missing-connection:${identifier ?? ""}`,
 		errorMessage: "Failed to count cases.",
 	});
 }

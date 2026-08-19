@@ -60,7 +60,9 @@ import {
 	buildCaseWorkspaceBlueprint,
 	CASE_WORKSPACE_SEED,
 	caseWorkspaceCaseRows,
+	caseWorkspaceHouseholdRows,
 	caseWorkspaceRoutes,
+	caseWorkspaceVisitRows,
 } from "./lib/caseWorkspaceSeed";
 import {
 	CASE_CHANGES_FIXTURE_COUNT,
@@ -523,6 +525,20 @@ async function main(): Promise<void> {
 	const firstCaseId = caseWorkspaceCaseIds[0];
 	if (!firstCaseId) {
 		throw new Error("e2e/seed.ts: patient workspace seeded no case rows");
+	}
+	/* The grouped module's own population. Households land first so their
+	 * minted ids can be the visits' `parent` connection — the same edge
+	 * `string(./index/parent)` reads on the device. */
+	const householdIds: string[] = [];
+	for (const row of caseWorkspaceHouseholdRows()) {
+		const inserted = await caseStore.insert({
+			appId: caseWorkspaceAppId,
+			row,
+		});
+		householdIds.push(inserted.caseId);
+	}
+	for (const row of caseWorkspaceVisitRows(householdIds)) {
+		await caseStore.insert({ appId: caseWorkspaceAppId, row });
 	}
 	/* One Project data table for the smoke's primary gesture: open the
 	 * workspace, open the table, then bind a select to a column of it. Written

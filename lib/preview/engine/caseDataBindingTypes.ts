@@ -18,6 +18,7 @@
 
 import type {
 	CalculatedValue,
+	CaseGroup,
 	CasePropertyFailure,
 	CaseRow,
 	CaseRowWithCalculated,
@@ -42,6 +43,7 @@ import type { CasePropertyDataType } from "@/lib/domain";
 // imports from it.
 export type {
 	CalculatedValue,
+	CaseGroup,
 	CasePropertyFailure,
 	CaseRow,
 	CaseRowWithCalculated,
@@ -75,13 +77,39 @@ export type LoadCasesResult =
 	| {
 			kind: "rows";
 			rows: ReadonlyArray<CaseRowWithCalculated>;
-			/** Full population matching the authored + worker query. Present for
-			 * bounded running-list reads; absent for current unpaged helper callers. */
+			/** Full ROW population matching the authored + worker query, in
+			 * both the ordinary and the grouped shape. Present for bounded
+			 * running-list reads; absent for current unpaged helper callers. */
 			totalCount?: number;
-			/** Effective bounded window returned by the server. The server may
-			 * clamp an offset past the final page after concurrent deletion. */
+			/** Effective bounded ROW window returned by the server. The server
+			 * may clamp an offset past the final page after concurrent
+			 * deletion. Absent for a grouped read, which has no row window —
+			 * see `grouped` below. */
 			pageOffset?: number;
 			pageSize?: number;
+			/**
+			 * Present exactly when the case list is grouped.
+			 *
+			 * `rows` above stays the flat page in clustered order, so every
+			 * consumer that reads rows keeps working; this adds the clustering
+			 * the tile renderer draws from.
+			 *
+			 * Its window is a SEPARATE slot rather than an alternate reading of
+			 * `pageOffset` / `pageSize` because its unit is different: a
+			 * grouped list pages by group, so the numbers here count groups
+			 * while `totalCount` still counts cases. **A grouped page is
+			 * therefore unbounded in rows** — a window of N groups returns
+			 * however many cases those groups hold, which is the platform's
+			 * own behaviour
+			 * (`formplayer/.../beans/menus/EntityListResponse::getEntitiesForCurrentPage`
+			 * counts group boundaries), not something to engineer around.
+			 */
+			grouped?: {
+				groups: ReadonlyArray<CaseGroup>;
+				pageOffset: number;
+				pageSize: number;
+				totalGroupCount: number;
+			};
 			constraintSource: CaseQueryConstraintSource;
 	  }
 	| {

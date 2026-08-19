@@ -185,6 +185,9 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: "soundness",
 	CASE_LIST_TILE_CELLS_OVERLAP: "soundness",
 	CASE_LIST_TILE_COLUMN_NOT_PLACED: "soundness",
+	CASE_LIST_TILE_GROUP_HEADER_ROWS_OUT_OF_RANGE: "soundness",
+	CASE_LIST_TILE_GROUP_CELL_STRADDLES_HEADER: "soundness",
+	CASE_LIST_TILE_GROUP_HEADER_EMPTY: "soundness",
 	FIELD_KIND_PROPERTY_TYPE_MISMATCH: "soundness",
 	FIELD_KIND_WRITERS_DISAGREE: "soundness",
 	// ── Case-search-config rules ─────────────────────────────────────
@@ -315,6 +318,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	SUITE_FIELD_NO_HEADER: "oracle",
 	SUITE_FIELD_NO_TEMPLATE: "oracle",
 	SUITE_FIELD_STYLE_INVALID: "oracle",
+	SUITE_DETAIL_GROUP_INVALID: "oracle",
 	SUITE_ENTRY_NO_DISPLAY: "oracle",
 	SUITE_INVALID_XPATH: "oracle",
 	SUITE_NON_PATH_XPATH: "oracle",

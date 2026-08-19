@@ -1561,6 +1561,137 @@ export function simpleSearchInputHasCoherentRangeWidget(
  * them: one tile per row and non-uniform (`min-content`) row
  * heights.
  */
+/**
+ * How a grouped case list clusters its rows.
+ *
+ * **Nova narrows the group key to a case index. That is Nova's choice,
+ * not the platform's rule.**
+ * `commcare-core/.../org/commcare/xml/DetailGroupParser.java::DetailGroupParser.parse`
+ * validates the group function with `XPathParseTool.parseXPath` and
+ * nothing else, the runtime keeps the result as an opaque string
+ * (`cases/entity/NodeEntityFactory::getEntity` evaluates it to a
+ * `String` that only ever gets compared and used as a map key), and a
+ * shipped fixture groups by `string(case_name)`. The narrowing exists
+ * because the group header is drawn from the group's FIRST case, so a
+ * header cell is honest only when its value is invariant across every
+ * member — and a case index is the only key Nova can statically prove
+ * invariant. Grouping by a plain property would make exactly one value
+ * shared and turn every other header cell into a guess taken from an
+ * arbitrary member. Do not write "CommCare requires an index"
+ * anywhere; property-keyed grouping is out of scope, not impossible.
+ *
+ * The empty key is the sharpest hazard and the runtime has no answer
+ * for it: `string(./index/parent)` on a case carrying no such index
+ * evaluates to `""`, which the clustering map accepts as an ordinary
+ * key, so every such case collapses into ONE group headed by whichever
+ * of them sorts first. There is no "ungrouped" concept in the engine,
+ * so Nova must not invent one — the authoring surface measures and
+ * states the consequence instead.
+ */
+export const caseTileGroupingSchema = z
+	.object({
+		/**
+		 * The case-index identifier whose target is the group key —
+		 * `parent` for the relationship a `CaseType.parent_type`
+		 * declares (`lib/commcare/xform/caseBlocks.ts` emits that
+		 * identifier literally), or the identifier an advanced case
+		 * operation's link carries.
+		 *
+		 * Drawn from the same XML-element-name vocabulary
+		 * `RelationStep.identifier` uses, for the same reason: it is
+		 * written straight into the emitted `string(./index/<id>)` path
+		 * step, so anything outside that class would emit an expression
+		 * the runtime cannot parse. Constraining it here is what makes
+		 * the emitter total — there is no escaping step anywhere.
+		 */
+		identifier: z
+			.string()
+			.regex(
+				XML_ELEMENT_NAME_PATTERN,
+				"A grouping connection name must start with a letter or underscore and contain only letters, digits, or underscores. It is written straight into the group's `string(./index/…)` path step, so characters outside that class emit an expression the runtime cannot parse.",
+			),
+		/**
+		 * Rows of the tile that form the group header, counted from the
+		 * top. Always stored and always emitted: the two sides default
+		 * `header-rows` differently — the CLIENT falls back to `1`
+		 * (`DetailGroupParser::parse`) while HQ's model defaults to `2`
+		 * (`commcare-hq/.../models/case_list.py::CaseTileGroupConfig.header_rows`)
+		 * — so an omitted attribute silently halves or doubles the
+		 * header depending on which side reads it.
+		 *
+		 * The bound here is the grid; the real constraint is
+		 * layout-relative (strictly less than the tile's occupied row
+		 * extent, and never splitting a cell) and lives in
+		 * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts`.
+		 */
+		headerRows: persistableJsonPositiveIntegerSchema.max(TILE_GRID_ROWS - 1),
+	})
+	.strict();
+export type CaseTileGrouping = z.infer<typeof caseTileGroupingSchema>;
+
+/**
+ * Whether a tile cell belongs to the group header rather than the
+ * group's body rows.
+ *
+ * START ROW ONLY — the cell's height is deliberately ignored, because
+ * `commcare-hq/corehq/apps/cloudcare/static/cloudcare/js/formplayer/menus/views.js::CaseTileGroupedListView.initialize`
+ * classifies with `const isHeaderRow = (y) => y < groupHeaderRows` and
+ * the client never splits a cell across the boundary. A cell that
+ * straddles is therefore drawn entirely in the header, from the
+ * group's first case; the validator refuses that state rather than
+ * letting per-case content silently become group content.
+ *
+ * One home, called by the validator, the preview projection, and the
+ * builder canvas — the same discipline `tileCellFor` carries, and for
+ * the same reason: paths agreeing by hand is a coincidence with a
+ * short half-life.
+ */
+export function tileCellIsGroupHeader(
+	cell: TileCell,
+	headerRows: number,
+): boolean {
+	return cell.y < headerRows;
+}
+
+/**
+ * Every header depth that cuts THIS tile cleanly, ascending.
+ *
+ * A clean cut is one an author could actually have meant: something in
+ * the header, something below it, and no field split across the
+ * boundary. Those are exactly the three states
+ * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts` refuses,
+ * so the builder offers this list and an author never reaches a
+ * rejected commit to learn a depth was unavailable. A test pins the two
+ * against each other in both directions.
+ *
+ * `cells` is the SHOWN cells — what `tileCellFor` admits, never the
+ * stored placements. A hidden, order-driving column keeps its cell but
+ * emits no `<style>`, so it is not on the tile and must not widen this
+ * arithmetic either.
+ *
+ * Empty when the tile has no shown cell, and empty for a one-row tile:
+ * a single row has no room for both a header and a body.
+ */
+export function tileGroupHeaderRowChoices(
+	cells: readonly TileCell[],
+): readonly number[] {
+	if (cells.length === 0) return [];
+	const occupiedRows = Math.max(...cells.map(tileCellBottomEdge));
+	const choices: number[] = [];
+	for (let headerRows = 1; headerRows < occupiedRows; headerRows += 1) {
+		const straddles = cells.some(
+			(cell) =>
+				tileCellIsGroupHeader(cell, headerRows) &&
+				tileCellBottomEdge(cell) > headerRows,
+		);
+		if (straddles) continue;
+		if (!cells.some((cell) => tileCellIsGroupHeader(cell, headerRows)))
+			continue;
+		choices.push(headerRows);
+	}
+	return choices;
+}
+
 export const caseTileLayoutSchema = z
 	.object({
 		/**
@@ -1581,6 +1712,24 @@ export const caseTileLayoutSchema = z
 		 * column slots already follow.
 		 */
 		persistOnForms: z.literal(true).optional(),
+		/**
+		 * Cluster the list's rows under a shared connected case, drawing
+		 * the top `headerRows` rows of this same tile once per group from
+		 * the group's first case. Absent is ungrouped.
+		 *
+		 * Grouping lives INSIDE the layout rather than beside it, which
+		 * is what makes a `<group>` on a detail with no tile
+		 * unrepresentable instead of merely rejected. That state is
+		 * reachable in the wire and is silently broken: Formplayer sets
+		 * `groupHeaderRows` from the `<group>` whether or not tiles exist
+		 * (`EntityListResponse`'s constructor), so the list still
+		 * clusters and still pages by group, while
+		 * `cloudcare/.../formplayer/menus/utils.js::getCaseListView`
+		 * routes to `CaseTileGroupedListView` only when `tiles` is
+		 * present and therefore renders it flat. Nesting also means
+		 * turning the tile off clears the grouping in the same write.
+		 */
+		grouping: caseTileGroupingSchema.optional(),
 	})
 	.strict();
 export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;

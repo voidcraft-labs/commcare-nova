@@ -17,6 +17,7 @@ import type {
 	CaseListConfig,
 	CaseProperty,
 	CaseSearchConfig,
+	CaseTileGrouping,
 	CaseType,
 	Column,
 	CommitOutcome,
@@ -86,6 +87,7 @@ export interface CaseListCanvasProps {
 	readonly onPutColumnOnTile: (uuid: Uuid) => void;
 	readonly onApplyTilePreset: (preset: TilePresetId) => void;
 	readonly onTilePersistOnFormsChange: (persist: boolean) => void;
+	readonly onTileGroupingChange: (next: CaseTileGrouping | undefined) => void;
 }
 
 export function CaseListCanvas({
@@ -119,6 +121,7 @@ export function CaseListCanvas({
 	onPutColumnOnTile,
 	onApplyTilePreset,
 	onTilePersistOnFormsChange,
+	onTileGroupingChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
 	const projection = projectCaseWorkspaceColumns(config);
@@ -199,6 +202,8 @@ export function CaseListCanvas({
 							<TileLayoutCanvas
 								config={config}
 								tile={tile}
+								caseType={caseType}
+								appId={appId}
 								selectedUuid={selectedColumnUuid}
 								issues={tileIssues}
 								canEdit={canEdit}
@@ -207,6 +212,7 @@ export function CaseListCanvas({
 								onPlaceUnplaced={onPutColumnOnTile}
 								onApplyPreset={onApplyTilePreset}
 								onPersistOnFormsChange={onTilePersistOnFormsChange}
+								onGroupingChange={onTileGroupingChange}
 							/>
 						) : (
 							<DisplayFieldComposer

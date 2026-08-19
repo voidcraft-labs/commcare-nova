@@ -142,6 +142,53 @@ describe("case-list read projections", () => {
 		expect(summary).toContain("@ 0,1 6x2");
 	});
 
+	it("reports grouping on both read surfaces, with what it costs", async () => {
+		// Grouping changes what a placement MEANS: a cell in the header band is
+		// drawn once per group, from the group's first case. A read surface
+		// that showed the cells without it would have the model rearranging a
+		// tile whose shape it does not know — and the two consequences it
+		// cannot infer from the layout are what it has to tell the user.
+		const base = independentlyArrangedDoc();
+		const doc = {
+			...base,
+			modules: {
+				...base.modules,
+				[MOD_A]: {
+					...base.modules[MOD_A],
+					caseListConfig: {
+						searchInputs: [],
+						columns: [
+							plainColumn(A, "case_name", "Patient", {
+								tile: tileCell(0, 0, 12, 1),
+							}),
+							plainColumn(B, "phone", "Phone", {
+								tile: tileCell(0, 1, 12, 1),
+							}),
+						],
+						listColumnOrder: [A, B],
+						detailColumnOrder: [A, B],
+						tile: {
+							grouping: { identifier: "parent", headerRows: 1 },
+						},
+					},
+				},
+			},
+		};
+
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(getModuleTool, { moduleUuid: MOD_A });
+		if ("error" in result.data) throw new Error(result.data.error);
+		expect(result.data.case_list_config?.tile).toEqual({
+			grouping: { identifier: "parent", headerRows: 1 },
+		});
+
+		const summary = summarizeBlueprint(doc);
+		expect(summary).toContain("grouped_by: parent connection");
+		expect(summary).toContain("top row is the group heading");
+		expect(summary).toContain("choosing a group opens that first case");
+		expect(summary).toContain("cases with no parent connection are one group");
+	});
+
 	it("leaves an untiled case list's summary unchanged", () => {
 		// A case list with no DRAWN placement pays nothing, so an app that has
 		// never used a tile keeps a byte-identical prompt prefix — which is what
