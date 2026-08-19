@@ -22,8 +22,6 @@ import { orderedColumns } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
-import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
-import { usePreviewPersonaUuid } from "@/lib/session/hooks";
 import { CaseTile } from "./CaseTile";
 import { useColumnDisplayContext } from "./useColumnDisplayContext";
 
@@ -36,6 +34,12 @@ interface PersistentCaseTileProps {
 	/** The live compiler catalog, paired with `config` for the projection. */
 	readonly caseTypes: readonly CaseType[];
 	readonly fallbackProperties: readonly CaseProperty[];
+	/** The signature of everything this worker's restore is derived from,
+	 * from `useRestoreScopeKey`. A PROP rather than a read of its own: the
+	 * tile takes every input from its parent, and reading the document here
+	 * would give a purely presentational component a provider it has never
+	 * needed. `FormScreen` already holds the value. */
+	readonly restoreScopeKey: string;
 }
 
 export function PersistentCaseTile({
@@ -45,16 +49,13 @@ export function PersistentCaseTile({
 	config,
 	caseTypes,
 	fallbackProperties,
+	restoreScopeKey,
 }: PersistentCaseTileProps) {
 	/* A read of its own, with the display config attached, so calculated
 	 * cells project exactly as they did in Results. The form's own case
 	 * read deliberately carries no display config: it feeds the engine,
 	 * not a screen, and widening it would put this band's concerns inside
 	 * the engine's preload identity. */
-	// The worker's restore is derived from their assignment and the place tree,
-	// neither of which is an argument to this read. See `useRestoreScopeKey`.
-	const previewPersonaUuid = usePreviewPersonaUuid();
-	const restoreScopeKey = useRestoreScopeKey(previewPersonaUuid);
 	const { state, reload } = useCaseData({
 		appId,
 		caseType,

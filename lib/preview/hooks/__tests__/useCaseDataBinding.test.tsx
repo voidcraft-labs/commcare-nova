@@ -19,6 +19,20 @@
 //      `resetSampleCasesAction` — `caseType` is the live `CaseType`
 //      definition the client passes through (never the whole blueprint) —
 //      and returns the action's resolved result.
+//
+// ## This suite mounts NO `BlueprintDocProvider`, and that is the point
+//
+// Every `lib/doc/hooks` read THROWS without that ancestor, so this file
+// passing is the standing proof that no hook here reaches the document.
+// The rule it pins: a hook in `useCaseDataBinding.ts` takes what it needs
+// as an argument, and the components — which live under the provider —
+// are what read the store. `useRestoreScopeKey` is the live example: it
+// signs the persona assignment, the level catalog, and the place tree
+// into a cache key, and the SCREENS call it and hand the result down as
+// `requestScopeKey` / `scopeKey` rather than the hooks calling it
+// themselves. Moving such a read down into a hook would leave every
+// provider-wrapped component suite green and break here, which is the
+// only reason that mistake is catchable at all.
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";

@@ -1267,6 +1267,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					caseTypes.find((candidate) => candidate.name === mod.caseType)
 						?.properties ?? []
 				}
+				restoreScopeKey={restoreScopeKey}
 			/>
 		) : null;
 
