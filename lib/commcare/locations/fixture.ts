@@ -123,8 +123,10 @@ function lineageAttributes(
  * Build the two nodes for one worker's footprint.
  *
  * `places` is that worker's footprint, already scoped — this emitter never
- * decides who sees what. `levels` is the whole app's level catalog, because
- * the index and the per-place attribute set are app-wide.
+ * decides WHO sees what. It does drop an ARCHIVED place, which is a different
+ * question: HQ's own queryset prunes those in every arm, so shipping one would
+ * be a divergence rather than a wider scope. `levels` is the whole app's level
+ * catalog, because the index and the per-place attribute set are app-wide.
  */
 export function buildFlatLocationsFixture(args: {
 	readonly userId: string;
@@ -137,9 +139,19 @@ export function buildFlatLocationsFixture(args: {
 	const levelCodes = new Map<string, string>(
 		levels.map((level) => [level.uuid as string, level.code]),
 	);
-	const byId = new Map(args.places.map((place) => [place.id as string, place]));
+	// An archived place never reaches a device.
+	// `get_location_fixture_ids.sql` filters `is_archived = FALSE` in EVERY arm
+	// and recurses from `parent_id IS NULL`, so an archived place is absent and
+	// so is everything under it. This emitter enforces it rather than trusting
+	// the caller, because the failure is silent in the direction that matters:
+	// a place shipped after archiving is a destination a worker can still be
+	// handed cases at, and nothing downstream would notice. Nova's archive
+	// cascades to descendants, so filtering here is enough to reproduce HQ's
+	// pruning without walking for it.
+	const live = args.places.filter((place) => place.archivedAt === null);
+	const byId = new Map(live.map((place) => [place.id as string, place]));
 	// `order_by('site_code')`. Byte-for-byte with HQ, and stable for a diff.
-	const places = [...args.places].sort((a, b) =>
+	const places = [...live].sort((a, b) =>
 		a.siteCode < b.siteCode ? -1 : a.siteCode > b.siteCode ? 1 : 0,
 	);
 	// Every level's attribute, empty, then the place's own lineage over the

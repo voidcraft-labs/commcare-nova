@@ -86,14 +86,20 @@ interface World {
 }
 
 function generateWorld(seed: number): World {
-	const rand = seeded(seed);
-	const levelCount = 2 + Math.floor(rand() * 3);
+	const rand = seeded(20260819 + seed * 7919);
+	// Three levels minimum, so every world HAS a middle rung. Two-level worlds
+	// can only ever produce a parent hop, and a sweep made mostly of those
+	// leaves the emitter's walk to the nearest case-owning ancestor proved by
+	// almost nothing.
+	const levelCount = 3 + (seed % 2);
 	const levels: OrganizationLevel[] = [];
 	for (let index = 0; index < levelCount; index += 1) {
-		// Level 0 always owns cases, so every world has at least one usable
-		// source. Below it, ownership varies — that is what makes the emitter's
-		// "walk up to the nearest case-owning ancestor" step do real work.
-		const ownsCases = index === 0 || rand() < 0.5;
+		// Enumerated from the world index rather than rolled. Ownership is the
+		// one input that decides whether the walk-up runs at all, and leaving it
+		// to chance is what made an earlier version of this sweep cover the
+		// multi-rung hop exactly once across 24 worlds. Level 0 always owns
+		// cases, so every world has a usable source.
+		const ownsCases = index === 0 || ((seed >> (index + 1)) & 1) === 1;
 		levels.push({
 			uuid: testUuid(`parity-level-${seed}-${index}`),
 			code: `lvl${index}`,
@@ -106,6 +112,7 @@ function generateWorld(seed: number): World {
 		});
 	}
 
+	const spine = Math.floor(seed / 2) % 2 === 0;
 	const places: Place[] = [];
 	let counter = 0;
 	const spawn = (levelIndex: number, parentId: string | null): void => {
@@ -119,7 +126,12 @@ function generateWorld(seed: number): World {
 			archived: false,
 		});
 		if (levelIndex + 1 >= levelCount) return;
-		const children = Math.floor(rand() * 3);
+		// Half the worlds are SPINES — one child per place, all the way down —
+		// and half are BUSHY. Only spines reliably put a destination under every
+		// source, which is what makes an assertion prove an ID rather than prove
+		// two empties match; only bushy trees produce the empty and ambiguous
+		// cases. Generating one kind makes the property vacuous in one direction.
+		const children = spine ? 1 : Math.floor(rand() * 3);
 		for (let index = 0; index < children; index += 1) spawn(levelIndex + 1, id);
 	};
 	const roots = 1 + Math.floor(rand() * 2);
@@ -176,21 +188,19 @@ function sourceIndexFor(
 // ── The two evaluators ───────────────────────────────────────────────
 
 function storedLocations(world: World): StoredLocation[] {
-	return world.places
-		.filter((place) => !place.archived)
-		.map((place) => ({
-			id: place.id as Uuid,
-			levelUuid: world.levels[place.levelIndex].uuid,
-			parentId: place.parentId as Uuid | null,
-			siteCode: place.siteCode,
-			name: place.siteCode,
-			externalId: null,
-			latitude: null,
-			longitude: null,
-			values: {},
-			archivedAt: null,
-			orderKey: "a",
-		}));
+	return world.places.map((place) => ({
+		id: place.id as Uuid,
+		levelUuid: world.levels[place.levelIndex].uuid,
+		parentId: place.parentId as Uuid | null,
+		siteCode: place.siteCode,
+		name: place.siteCode,
+		externalId: null,
+		latitude: null,
+		longitude: null,
+		values: {},
+		archivedAt: place.archived ? new Date("2026-01-01T00:00:00Z") : null,
+		orderKey: "a",
+	}));
 }
 
 function wireWorld(world: World, ownerId: string) {
@@ -309,14 +319,21 @@ function wireDestination(
 
 // ── The property ─────────────────────────────────────────────────────
 
-const WORLDS = Array.from({ length: 24 }, (_, index) =>
-	generateWorld(20260819 + index * 7919),
-);
+const WORLDS = Array.from({ length: 24 }, (_, index) => generateWorld(index));
 
 describe("a reverse hop resolves to the same place on both sides", () => {
 	test("over generated organizations", async ({ db }) => {
 		let checked = 0;
 		let ambiguous = 0;
+		/** Pairs whose expected answer is an actual place id. An empty answer is
+		 *  also what a broken emitter produces, so these are the assertions that
+		 *  carry weight. */
+		let resolved = 0;
+		/** Pairs where the source is more than one rung above the destination —
+		 *  the only shape where the walk to the nearest case-owning ancestor
+		 *  does anything. */
+		let multiRung = 0;
+		let multiRungResolved = 0;
 		for (const world of WORLDS) {
 			await db
 				.insertInto("cases")
@@ -359,6 +376,11 @@ describe("a reverse hop resolves to the same place on both sides", () => {
 						continue;
 					}
 					const expected = owner.archived ? "" : (candidates[0]?.id ?? "");
+					if (expected !== "") resolved += 1;
+					if (sourceIndex < destinationIndex - 1) {
+						multiRung += 1;
+						if (expected !== "") multiRungResolved += 1;
+					}
 
 					await db
 						.updateTable("cases")
@@ -382,8 +404,14 @@ describe("a reverse hop resolves to the same place on both sides", () => {
 			await db.deleteFrom("cases").where("case_id", "=", CASE_ID).execute();
 		}
 		// A generator that quietly stopped producing hoppable worlds would make
-		// every assertion above vacuous, so the count is asserted too.
+		// every assertion above vacuous, so the SHAPE of the coverage is
+		// asserted too, not just its size. Counting pairs alone hid exactly this
+		// once: 73 pairs of which 56 were empty-equals-empty and one exercised
+		// the multi-rung walk.
 		expect(checked).toBeGreaterThan(60);
+		expect(resolved).toBeGreaterThan(40);
+		expect(multiRung).toBeGreaterThan(20);
+		expect(multiRungResolved).toBeGreaterThan(12);
 		expect(ambiguous).toBeGreaterThan(0);
 	});
 

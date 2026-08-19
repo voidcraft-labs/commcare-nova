@@ -288,6 +288,28 @@ describe("the flat locations fixture", () => {
 		]);
 	});
 
+	it("drops an archived place, and everything the caller passed under it", () => {
+		// `get_location_fixture_ids.sql` filters `is_archived = FALSE` in every
+		// arm, so an archived place is absent from a real restore and so is its
+		// subtree. The emitter enforces it rather than trusting the caller,
+		// because shipping one is silent in the direction that matters: an
+		// archived place is still a destination a worker could be handed cases
+		// at, and nothing downstream would notice.
+		const places = threeGenerations();
+		const archived = [
+			places[0],
+			{ ...places[1], archivedAt: new Date("2026-01-01T00:00:00Z") },
+			{ ...places[2], archivedAt: new Date("2026-01-01T00:00:00Z") },
+		] as StoredLocation[];
+
+		const built = build(archived);
+		expect(built.placeCount).toBe(1);
+		const [, fixture] = parse(built.xml);
+		expect(fixture.children[0].children.map((node) => node.attribs.id)).toEqual(
+			[MASSACHUSETTS],
+		);
+	});
+
 	it("is empty for a worker whose footprint is empty", () => {
 		// Not a whole-tree fallback. HQ ships an empty fixture to a user with no
 		// locations, so an expression naming a place finds nothing rather than
