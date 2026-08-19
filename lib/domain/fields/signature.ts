@@ -42,6 +42,6 @@ export const signatureFieldMetadata: FieldKindMetadata<"signature"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs:
-		"Signature, the worker signs on a drawing pad and the app saves a PNG. The only capture kind that does not attach an existing file. Can save to a case property as a link to the attached file; that needs the app published to a CommCare HQ project space, because the address comes from the target.",
+		"Signature, the worker signs on a drawing pad and the app saves a PNG. The only capture kind that does not attach an existing file.",
 	convertTargets: ["image", "audio", "video", "file"],
 };

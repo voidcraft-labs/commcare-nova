@@ -48,6 +48,6 @@ export const fileFieldMetadata: FieldKindMetadata<"file"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs:
-		"File attachment, the worker attaches a PDF, Word, Excel, HTML, RTF, text, or Outlook message file from their device. Web Apps only: on Android this renders as a plain text box. Can save to a case property as a link to the attached file; that needs the app published to a CommCare HQ project space, because the address comes from the target.",
+		"File attachment, the worker attaches a PDF, Word, Excel, HTML, RTF, text, or Outlook message file from their device. Web Apps only: on Android this renders as a plain text box.",
 	convertTargets: ["image", "audio", "video", "signature"],
 };
