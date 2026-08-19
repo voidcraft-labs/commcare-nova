@@ -67,6 +67,7 @@ import {
 	simpleSearchInputDef,
 	startsWithMode,
 	tileCell,
+	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -125,6 +126,38 @@ import {
 import type { SubmissionMutation } from "../caseDataBindingTypes";
 import { previewAsMe } from "../identity";
 import type { SearchInputValues } from "../runtimeBindings";
+
+/**
+ * A `query` mock that answers the acting worker's own-case read separately.
+ *
+ * Resolving a preview context reads the `commcare-user` row before anything
+ * else, because `#user/<prop>` answers from that ROW rather than from a
+ * projection — the wire resolves the hashtag against `casedb`, so the row is
+ * what a device would read. A mock returning one canned page for every case
+ * type hands that page to the usercase read instead, and the test then asserts
+ * against a store its own case type never reached.
+ *
+ * Each argument is one page, handed out in order to the reads that are about
+ * the case type under test. Reads past the last page get nothing, which is
+ * what an exhausted `mockResolvedValueOnce` chain meant before.
+ */
+type CaseQuery = CaseStore["query"];
+
+function appCaseQuery(...pages: ReadonlyArray<Awaited<ReturnType<CaseQuery>>>) {
+	const remaining = [...pages];
+	return vi.fn<CaseQuery>(async (args) =>
+		args.caseType === USERCASE_CASE_TYPE ? [] : (remaining.shift() ?? []),
+	);
+}
+
+/** The first read that is about the case type under test, never the usercase. */
+function appCaseQueryArg<T extends { readonly caseType: string }>(mock: {
+	readonly mock: { readonly calls: ReadonlyArray<readonly [T, ...unknown[]]> };
+}): T | undefined {
+	return mock.mock.calls
+		.map((call) => call[0])
+		.find((arg) => arg.caseType !== USERCASE_CASE_TYPE);
+}
 
 // ---------------------------------------------------------------
 // Module mocks for the `submitFormAction` Server Action tests
@@ -385,7 +418,7 @@ const BOB_CASE_ID = "40000000-0000-0000-0000-000000000002";
 /** Actor-action stub with every CaseStore method present and no database work. */
 function actionStore(overrides: Partial<CaseStore> = {}): CaseStore {
 	return {
-		query: vi.fn(),
+		query: appCaseQuery(),
 		queryGrouped: vi.fn(),
 		count: vi.fn(),
 		insert: vi.fn(),
@@ -3789,7 +3822,7 @@ describe("submitFormAction", () => {
 		// recheck a receipt that could have committed between the action
 		// snapshot and this transaction.
 		const stubStore = {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -3846,7 +3879,7 @@ describe("submitFormAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -3896,7 +3929,7 @@ describe("submitFormAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -4020,7 +4053,7 @@ describe("submitFormAction", () => {
 		});
 
 		const stubStore = {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -4083,7 +4116,7 @@ describe("submitFormAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const stubStore = {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -4267,7 +4300,7 @@ describe("submitFormAction", () => {
 		applySubmission: CaseStore["applySubmission"] = vi.fn(),
 	): CaseStore {
 		return {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -4982,7 +5015,7 @@ describe("loadCasesAction", () => {
 			[personaUuid]: { uuid: personaUuid, name: "Asha" },
 		};
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
-		const store = actionStore({ query: vi.fn().mockResolvedValueOnce([]) });
+		const store = actionStore({ query: appCaseQuery([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
 
 		const { loadCasesAction } = await import("../caseDataBinding");
@@ -5028,7 +5061,7 @@ describe("loadCasesAction", () => {
 			},
 		};
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
-		const store = actionStore({ query: vi.fn().mockResolvedValueOnce([]) });
+		const store = actionStore({ query: appCaseQuery([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
 		const columnUuid = testUuid("worker-column");
 
@@ -5049,7 +5082,7 @@ describe("loadCasesAction", () => {
 			caseTypes: [PATIENT_CASE_TYPE],
 		});
 
-		const bindings = vi.mocked(store.query).mock.calls[0]?.[0].bindings;
+		const bindings = appCaseQueryArg(vi.mocked(store.query))?.bindings;
 		expect(bindings?.userPropertySlugs?.get(propertyUuid)).toBe(
 			"supervision_area",
 		);
@@ -5125,7 +5158,7 @@ describe("loadCasesAction", () => {
 			[personaUuid, { uuid: personaUuid, name: "Constructor persona" }],
 		]);
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
-		const store = actionStore({ query: vi.fn().mockResolvedValueOnce([]) });
+		const store = actionStore({ query: appCaseQuery([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
 
 		const { loadCasesAction } = await import("../caseDataBinding");
@@ -5177,7 +5210,7 @@ describe("loadCasesAction", () => {
 			calculated: {},
 		}));
 		const stubStore = {
-			query: vi.fn().mockResolvedValueOnce(legacyRows),
+			query: appCaseQuery(legacyRows),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -5208,7 +5241,7 @@ describe("loadCasesAction", () => {
 		expect(result.rows).toHaveLength(51);
 		// The catalog is rebuilt into the `(name → CaseType)` map the SQL
 		// compiler reads — sourced from the wire arg, not a server read.
-		const queryArg = stubStore.query.mock.calls[0]?.[0];
+		const queryArg = appCaseQueryArg(stubStore.query);
 		// An old client omits `page` and has no pager. Rolling compatibility
 		// requires the legacy call to remain unbounded.
 		expect(queryArg?.limit).toBeUndefined();
@@ -5228,11 +5261,9 @@ describe("loadCasesAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi
-				.fn()
-				.mockResolvedValueOnce([
-					{ ...buildSyntheticRow({ name: "Alice" }), calculated: {} },
-				]),
+			query: appCaseQuery([
+				{ ...buildSyntheticRow({ name: "Alice" }), calculated: {} },
+			]),
 			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(150),
 			insert: vi.fn(),
@@ -5262,7 +5293,7 @@ describe("loadCasesAction", () => {
 		expect(stubStore.query).toHaveBeenCalledWith(
 			expect.objectContaining({ limit: 100, offset: 25 }),
 		);
-		expect(stubStore.query.mock.calls[0]?.[0].bindings).toBe(
+		expect(appCaseQueryArg(stubStore.query)?.bindings).toBe(
 			stubStore.count.mock.calls[0]?.[0].bindings,
 		);
 	});
@@ -5321,7 +5352,7 @@ describe("loadCasesAction", () => {
 			},
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn().mockResolvedValueOnce([]),
+			query: appCaseQuery([]),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -5369,7 +5400,7 @@ describe("loadCasesAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn().mockResolvedValueOnce([]),
+			query: appCaseQuery([]),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -5416,7 +5447,7 @@ describe("loadCasesAction", () => {
 			},
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn().mockResolvedValueOnce([]),
+			query: appCaseQuery([]),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -5491,7 +5522,7 @@ describe("loadCasesAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -5579,7 +5610,7 @@ describe("loadCaseCountAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(37),
 			insert: vi.fn(),
@@ -5727,7 +5758,7 @@ describe("resetSampleCasesAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -5818,7 +5849,7 @@ describe("resetSampleCasesAction", () => {
 			{ path: "/age", message: "must be integer" },
 		];
 		const stubStore = {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -5872,7 +5903,7 @@ describe("resetSampleCasesAction", () => {
 		loadAppMock.mockResolvedValueOnce({ owner: OWNER_A, blueprint });
 		materializeMock.mockResolvedValueOnce(undefined);
 		const stubStore = {
-			query: vi.fn(),
+			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -5917,7 +5948,7 @@ describe("loadCaseDataAction session projection", () => {
 			user: { id: OWNER_A, name: "Owner A", email: "owner-a@example.org" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn().mockResolvedValueOnce([
+			query: appCaseQuery([
 				{
 					...buildSyntheticRow({ name: "Alice" }),
 					case_id: ALICE_CASE_ID,
@@ -5965,7 +5996,7 @@ describe("loadCaseDataAction session projection", () => {
 		);
 
 		expect(result.kind).toBe("row");
-		const queryArg = stubStore.query.mock.calls[0]?.[0];
+		const queryArg = appCaseQueryArg(stubStore.query);
 		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
 		expect(queryArg?.bindings?.sessionUserFallback).toBe("");
 	});
@@ -5982,7 +6013,7 @@ describe("loadCaseDataAction session projection", () => {
 			[personaUuid]: { uuid: personaUuid, name: "Asha" },
 		};
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
-		const store = actionStore({ query: vi.fn().mockResolvedValueOnce([]) });
+		const store = actionStore({ query: appCaseQuery([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
 
 		const { loadCaseDataAction } = await import("../caseDataBinding");
@@ -6035,7 +6066,7 @@ describe("loadCaseDataAction session projection", () => {
 			},
 		};
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
-		const store = actionStore({ query: vi.fn().mockResolvedValueOnce([]) });
+		const store = actionStore({ query: appCaseQuery([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
 		const columnUuid = testUuid("worker-detail-column");
 
@@ -6062,7 +6093,7 @@ describe("loadCaseDataAction session projection", () => {
 			personaUuid,
 		);
 
-		const bindings = vi.mocked(store.query).mock.calls[0]?.[0].bindings;
+		const bindings = appCaseQueryArg(vi.mocked(store.query))?.bindings;
 		expect(bindings?.userPropertySlugs?.get(propertyUuid)).toBe(
 			"supervision_area",
 		);
@@ -6496,7 +6527,7 @@ describe("loadFilterPreviewAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
-			query: vi.fn().mockResolvedValueOnce([]),
+			query: appCaseQuery([]),
 			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(0),
 			insert: vi.fn(),
@@ -6542,7 +6573,7 @@ describe("loadFilterPreviewAction", () => {
 		// Filter preview returns a single `rows` arm even when empty. The
 		// load-bearing assertion is the negative: NOT `invalid-blueprint`.
 		expect(result).toEqual({ kind: "rows", rows: [], totalCount: 0 });
-		const queryArg = stubStore.query.mock.calls[0]?.[0];
+		const queryArg = appCaseQueryArg(stubStore.query);
 		const countArg = stubStore.count.mock.calls[0]?.[0];
 		expect(queryArg?.bindings).toBe(countArg?.bindings);
 		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
@@ -6578,7 +6609,7 @@ describe("loadFilterPreviewAction", () => {
 		};
 		candidate.userPropertyOrder = [propertyUuid];
 		const store = actionStore({
-			query: vi.fn().mockResolvedValueOnce([]),
+			query: appCaseQuery([]),
 			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(0),
 		});
@@ -6601,7 +6632,7 @@ describe("loadFilterPreviewAction", () => {
 			}),
 		});
 
-		const bindings = vi.mocked(store.query).mock.calls[0]?.[0].bindings;
+		const bindings = appCaseQueryArg(vi.mocked(store.query))?.bindings;
 		expect(bindings?.userPropertySlugs?.get(propertyUuid)).toBe(
 			"candidate_area",
 		);
