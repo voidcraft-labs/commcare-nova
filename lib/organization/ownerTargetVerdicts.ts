@@ -5,6 +5,7 @@ import {
 	type BlueprintDoc,
 	levelHoldsWorkers,
 	levelOwnsCases,
+	type OrganizationCollections,
 	organizationLevelsOf,
 	personasOf,
 } from "@/lib/domain";
@@ -72,7 +73,19 @@ function isSameOrDescendant(
 	);
 }
 
-function levelDepth(levelUuid: string, doc: BlueprintDoc): number | undefined {
+/**
+ * The organization slice is all these predicates read.
+ *
+ * Declared narrower than `BlueprintDoc` on purpose: the preview resolves a
+ * worker's owner set from the authorized `PersistableDoc` snapshot, which
+ * carries no `fieldParent` index and has no reason to build one to answer a
+ * question about places. `BlueprintDoc` is assignable here, so every caller
+ * that already had one is unaffected.
+ */
+function levelDepth(
+	levelUuid: string,
+	doc: OrganizationCollections,
+): number | undefined {
 	const levels = organizationLevelsOf(doc);
 	const level = levels[levelUuid];
 	return level === undefined ? undefined : ancestorLevels(level, levels).length;
@@ -88,7 +101,7 @@ function locationIsWithinDepth(
 	candidate: OwnerVerdictLocation,
 	bottomLevelUuid: string,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
-	doc: BlueprintDoc,
+	doc: OrganizationCollections,
 ): boolean {
 	const candidateDepth = ancestors(candidate, byId).length;
 	const bottomDepth = levelDepth(bottomLevelUuid, doc);
@@ -99,7 +112,7 @@ function topSliceIncludes(
 	target: OwnerVerdictLocation,
 	downToLevelUuid: string | undefined,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
-	doc: BlueprintDoc,
+	doc: OrganizationCollections,
 ): boolean {
 	return (
 		downToLevelUuid === undefined ||
@@ -111,7 +124,7 @@ export function assignmentFootprintIncludes(
 	target: OwnerVerdictLocation,
 	assigned: OwnerVerdictLocation,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
-	doc: BlueprintDoc,
+	doc: OrganizationCollections,
 ): boolean {
 	const levels = organizationLevelsOf(doc);
 	const assignedLevel = levels[assigned.levelUuid];
@@ -197,7 +210,7 @@ export function assignmentReceivesCasesFrom(
 	source: OwnerVerdictLocation,
 	assigned: OwnerVerdictLocation,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
-	doc: BlueprintDoc,
+	doc: OrganizationCollections,
 ): boolean {
 	const levels = organizationLevelsOf(doc);
 	const assignedLevel = levels[assigned.levelUuid];

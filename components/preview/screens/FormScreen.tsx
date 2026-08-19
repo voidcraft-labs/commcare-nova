@@ -366,6 +366,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		caseType: mod?.caseType,
 		caseId: effectiveCaseId,
 		ancestorDepth: Math.max(0, reachableChain.length - 1),
+		// A case-loading form runs on the worker's device, so it may only
+		// preload from a case that device holds.
+		deviceScoped: true,
 	});
 
 	/* The settled row arm alone: NOT the whole load state, keys the

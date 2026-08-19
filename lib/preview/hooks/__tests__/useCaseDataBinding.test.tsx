@@ -710,7 +710,10 @@ describe("case-data invalidation", () => {
 		act(() => store.getState().setPreviewPersonaUuid("persona-asha"));
 		expect(selected.result.current.state).toEqual({ kind: "loading" });
 		await waitFor(() => expect(loadCaseDataAction).toHaveBeenCalledTimes(2));
-		expect(vi.mocked(loadCaseDataAction).mock.calls[1]?.at(-1)).toBe(
+		// By position, not `at(-1)`: the persona is the ninth argument and the
+		// action keeps growing trailing optional ones, so "last" drifts onto
+		// whatever was appended most recently.
+		expect(vi.mocked(loadCaseDataAction).mock.calls[1]?.[8]).toBe(
 			"persona-asha",
 		);
 

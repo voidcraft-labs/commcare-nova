@@ -1,7 +1,7 @@
 import {
 	assignedLocationUuids,
-	type BlueprintDoc,
 	levelOwnsCases,
+	type OrganizationCollections,
 	organizationLevelsOf,
 	type Persona,
 } from "@/lib/domain";
@@ -34,7 +34,7 @@ import {
  * bounded, and a walk over a map cannot be subtly wrong about cycles.
  */
 export function personaOwnerIds(
-	doc: BlueprintDoc,
+	doc: OrganizationCollections,
 	persona: Persona,
 	rows: readonly OwnerVerdictLocation[],
 ): readonly string[] {

@@ -510,6 +510,10 @@ export function useCaseData(args: {
 	/** The review surface's View case dialog reads a HELD case by
 	 * design; running-app callers leave this unset. */
 	includeHeld?: boolean;
+	/** True for the running app's screens — they may only open a case the
+	 * worker's device would hold. Builder chrome leaves it unset and reads
+	 * the tenant. */
+	deviceScoped?: boolean;
 }): {
 	state: LoadingState<LoadCaseDataResult>;
 	reload: () => Promise<void>;
@@ -522,6 +526,7 @@ export function useCaseData(args: {
 		caseListConfig,
 		caseTypes,
 		includeHeld,
+		deviceScoped,
 	} = args;
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
@@ -538,7 +543,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${caseDataRevision}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${caseDataRevision}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -582,6 +587,7 @@ export function useCaseData(args: {
 								viewerTimeZone(),
 								includeHeld,
 								personaUuid,
+								deviceScoped,
 							),
 						}),
 					},

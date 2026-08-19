@@ -407,6 +407,7 @@ export async function loadCasesAction(args: {
 			// The running Results surface passes a bounded window. The form-selection
 			// caller deliberately omits it because it needs the complete candidate set.
 			page: args.page,
+			restoreScope: context.restoreScope,
 		});
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
@@ -640,6 +641,20 @@ export async function loadCaseDataAction(
 	/** Which persona Preview is running as, if any — a selector, never an
 	 *  identity. */
 	personaUuid?: string,
+	/**
+	 * True for the RUNNING app's screens, which may only open a case the
+	 * worker's device would hold. The builder's review dialog leaves it unset
+	 * and reads the tenant — it is looking at stored data on the author's
+	 * behalf, not standing at a device.
+	 *
+	 * Explicit rather than inferred from `includeHeld`. A held case is
+	 * definitionally not on a device, so today the two happen to coincide, but
+	 * an authoring surface that opened an unheld case would then be scoped
+	 * silently — and a case that quietly stops loading is the hardest kind of
+	 * regression to attribute. Client-supplied is safe here: it can only
+	 * narrow, and Project membership is what authorizes the read either way.
+	 */
+	deviceScoped?: boolean,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -680,6 +695,7 @@ export async function loadCaseDataAction(
 				caseTypes && caseTypes.length > 0
 					? new Map(caseTypes.map((entry) => [entry.name, entry]))
 					: undefined,
+			...(deviceScoped === true && { restoreScope: context.restoreScope }),
 		});
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)

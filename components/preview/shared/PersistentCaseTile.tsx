@@ -56,6 +56,9 @@ export function PersistentCaseTile({
 		ancestorDepth: 0,
 		caseListConfig: config,
 		caseTypes,
+		// The tile pinned above a running form draws the case the worker
+		// selected on their device.
+		deviceScoped: true,
 	});
 	const displayContext = useColumnDisplayContext(
 		config,

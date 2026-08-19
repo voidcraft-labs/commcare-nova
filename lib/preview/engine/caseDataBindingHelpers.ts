@@ -34,6 +34,7 @@ import type {
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
+	RestoreScope,
 	SubmissionReceiptIdentity,
 	TermBindings,
 } from "@/lib/case-store";
@@ -65,6 +66,7 @@ import {
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import {
+	assignedLocationUuids,
 	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
@@ -117,6 +119,8 @@ import {
 	getLookupFixtureData,
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import { memberOwnerIds, personaOwnerIds } from "@/lib/organization/ownerSets";
+import { readOrganizationTopology } from "@/lib/organization/service";
 import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
 	CaseQueryConstraintSource,
@@ -214,6 +218,12 @@ export async function readCases(
 		excludedOwnerIds?: readonly string[];
 		authoredExcludedOwnerIds?: readonly string[];
 		page?: { offset: number; limit: number };
+		/**
+		 * Read as this worker's device would. Passed by the RUNNING preview and
+		 * by nothing else — the case workspace and the sample-data surfaces read
+		 * the tenant, because neither is standing at a device.
+		 */
+		restoreScope?: RestoreScope;
 	},
 ): Promise<LoadCasesResult> {
 	const composedQuery = composeQueryPredicate(
@@ -241,6 +251,25 @@ export async function readCases(
 		bindings: args.bindings,
 		lookupTableSchemas: args.lookupTableSchemas,
 		predicate: composedQuery.predicate,
+		restoreScope: args.restoreScope,
+	};
+	/**
+	 * How many cases the SAME authored query matches across the tenant, minus
+	 * what the device holds. One extra count, run only when a restore is bound
+	 * and only for a paged (running-list) read, so the authoring-only reveal
+	 * can say what it is hiding instead of leaving an author to wonder why
+	 * their data vanished.
+	 */
+	const outsideRestoreCount = async (
+		restricted: number,
+	): Promise<number | undefined> => {
+		if (args.restoreScope === undefined) return undefined;
+		const everything = await store.count({
+			...countArgs,
+			restoreScope: undefined,
+		});
+		const outside = everything - restricted;
+		return outside > 0 ? outside : undefined;
 	};
 	let totalCount =
 		page === undefined ? undefined : await store.count(countArgs);
@@ -249,10 +278,12 @@ export async function readCases(
 			composedQuery.constraintSource === "worker-search"
 				? await countAuthoredCasePopulation(store, args)
 				: undefined;
+		const outside = await outsideRestoreCount(0);
 		return {
 			kind: "empty",
 			constraintSource: composedQuery.constraintSource,
 			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+			...(outside !== undefined && { outsideRestoreCount: outside }),
 		};
 	}
 	let pageOffset =
@@ -276,6 +307,7 @@ export async function readCases(
 			),
 			limit: page?.limit,
 			offset: page === undefined ? undefined : offset,
+			restoreScope: args.restoreScope,
 		});
 	let rows = await queryAtOffset(pageOffset);
 
@@ -304,12 +336,18 @@ export async function readCases(
 			composedQuery.constraintSource === "worker-search"
 				? await countAuthoredCasePopulation(store, args)
 				: undefined;
+		const outside = await outsideRestoreCount(totalCount ?? 0);
 		return {
 			kind: "empty",
 			constraintSource: composedQuery.constraintSource,
 			...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+			...(outside !== undefined && { outsideRestoreCount: outside }),
 		};
 	}
+	const outside =
+		page === undefined
+			? undefined
+			: await outsideRestoreCount(totalCount ?? rows.length);
 	return {
 		kind: "rows",
 		rows,
@@ -319,6 +357,7 @@ export async function readCases(
 			pageOffset,
 			pageSize: page.limit,
 		}),
+		...(outside !== undefined && { outsideRestoreCount: outside }),
 	};
 }
 
@@ -434,6 +473,7 @@ async function countAuthoredCasePopulation(
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly authoredExcludedOwnerIds?: readonly string[];
+		readonly restoreScope?: RestoreScope;
 	},
 ): Promise<number> {
 	const authoredQuery = composeQueryPredicate(
@@ -451,6 +491,10 @@ async function countAuthoredCasePopulation(
 		bindings: args.bindings,
 		lookupTableSchemas: args.lookupTableSchemas,
 		predicate: authoredQuery.predicate,
+		// The same restore the caller's own count used. This number answers
+		// "would clearing Search reveal a case?", and a device that cannot
+		// hold the case would not reveal it either.
+		restoreScope: args.restoreScope,
 	});
 }
 
@@ -848,6 +892,16 @@ export async function readCaseData(
 		 * design; running-app callers leave this unset and inherit the
 		 * hold (a held case reads as `missing`, like its list absence). */
 		includeHeld?: boolean;
+		/**
+		 * Read as this worker's device would — a device can only open a case
+		 * its restore holds, so a canonical Details URL for a case outside it
+		 * reads as `missing` exactly as an off-device case does.
+		 *
+		 * The ancestor walk below inherits nothing and needs nothing: every
+		 * parent and host of a live case is itself live (the closure's
+		 * up-rule), so the chain cannot leave the restore.
+		 */
+		restoreScope?: RestoreScope;
 	},
 ): Promise<LoadCaseDataResult> {
 	const rows = await store.query({
@@ -860,6 +914,7 @@ export async function readCaseData(
 		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 		limit: 1,
 		includeHeld: args.includeHeld,
+		restoreScope: args.restoreScope,
 	});
 	const found = rows[0];
 	if (found === undefined) return { kind: "missing" };
@@ -1756,6 +1811,20 @@ export type AuthorizedPreviewContext =
 			store: CaseStore;
 			scope: LookupScope;
 			blueprint?: PersistableDoc;
+			/**
+			 * What this worker's device would hold — pass it to every RUNNING
+			 * read and to none of the authoring ones.
+			 *
+			 * It rides here rather than on `ResolvedPreviewIdentity` because it
+			 * is not part of the evaluation world. The identity is the ONE
+			 * contract the browser and the server both speak, and the browser
+			 * cannot derive this: expanding a persona's assignments into the
+			 * places it receives cases from reads the app's place tree out of
+			 * Postgres. Putting a server-only field on the shared identity would
+			 * make the client's copy quietly wrong, and `samePreviewIdentity`
+			 * would then compare a field only one side can fill.
+			 */
+			restoreScope: RestoreScope;
 	  };
 
 export const PERSONA_UNAVAILABLE_MESSAGE =
@@ -1844,6 +1913,11 @@ export async function resolveAuthorizedPreviewContext(args: {
 	return {
 		kind: "ready",
 		identity,
+		restoreScope: await resolveRestoreScope({
+			appId: args.appId,
+			identity,
+			blueprint,
+		}),
 		store: schemaHealingCaseStore(
 			await withProjectContext(
 				access.projectId,
@@ -1859,6 +1933,42 @@ export async function resolveAuthorizedPreviewContext(args: {
 		},
 		...(blueprint !== undefined && { blueprint }),
 	};
+}
+
+/**
+ * The owner ids seeding this preview's restore.
+ *
+ * `CouchUser.get_owner_ids` is the worker's own id plus one per case-sharing
+ * group, and in Nova every group is a place the persona receives cases from.
+ * Previewing as the signed-in member is a worker assigned nowhere, so it is
+ * their own id and nothing else — a real answer, not a degraded one.
+ *
+ * The place tree is read only when a persona could actually reach one. An app
+ * with no organization gives every persona its own uuid and nothing more, and
+ * that is derivable from the document alone, so the common case adds no query
+ * to a case-list render.
+ */
+async function resolveRestoreScope(args: {
+	readonly appId: string;
+	readonly identity: ResolvedPreviewIdentity;
+	readonly blueprint: PersistableDoc | undefined;
+}): Promise<RestoreScope> {
+	const { appId, identity, blueprint } = args;
+	const personaUuid = identity.personaUuid;
+	if (personaUuid === undefined || blueprint === undefined) {
+		return { ownerIds: memberOwnerIds(identity.actorUserId) };
+	}
+	const persona = ownRecordValue(personasOf(blueprint), personaUuid);
+	if (persona === undefined) {
+		// Unreachable through `resolveAuthorizedPreviewContext`, which refuses a
+		// missing persona above rather than falling back to the member.
+		return { ownerIds: memberOwnerIds(identity.actorUserId) };
+	}
+	if (assignedLocationUuids(persona.locations).length === 0) {
+		return { ownerIds: personaOwnerIds(blueprint, persona, []) };
+	}
+	const { rows } = await readOrganizationTopology(appId);
+	return { ownerIds: personaOwnerIds(blueprint, persona, rows) };
 }
 
 export async function gatedCaseStore(

@@ -64,6 +64,7 @@ import {
 	ListFilterBox,
 	rowMatchesFilterText,
 } from "@/components/preview/shared/listFilter";
+import { RestoreScopeNote } from "@/components/preview/shared/RestoreScopeNote";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useColumnDisplayContext } from "@/components/preview/shared/useColumnDisplayContext";
 import { Button } from "@/components/shadcn/button";
@@ -78,6 +79,7 @@ import {
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
@@ -136,6 +138,7 @@ import {
 	useAppId,
 	useCanEdit,
 	usePreviewCaseTarget,
+	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
 	useSetPreviewSelectedCase,
@@ -572,6 +575,21 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * only runs when a constrained empty result needs that distinction. */
 	const authoredMatchingCount =
 		state.kind === "empty" ? state.authoredMatchingCount : undefined;
+	/* Cases the same query matches that this worker's device would not hold.
+	 * Present only while previewing as a persona whose restore actually left
+	 * something out, so the note appears exactly when there is something to
+	 * say. */
+	const outsideRestoreCount =
+		state.kind === "rows" || state.kind === "empty"
+			? state.outsideRestoreCount
+			: undefined;
+	const previewPersonaUuid = usePreviewPersonaUuid();
+	const personas = usePersonas();
+	const previewWorkerName =
+		previewPersonaUuid === undefined
+			? "You"
+			: (personas.find((persona) => persona.uuid === previewPersonaUuid)
+					?.name ?? "This worker");
 	const workerSearchProvesUnderlyingRows =
 		queryConstraintSource === "worker-search" &&
 		authoredMatchingCount !== undefined &&
@@ -596,6 +614,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		ancestorDepth: 0,
 		caseListConfig: config,
 		caseTypes,
+		// A canonical Details URL loads its case by identity rather than off
+		// the page, so this is the one read that could otherwise open a case
+		// the worker's device does not hold.
+		deviceScoped: true,
 	});
 	const retryCasesWithFocus = useCallback(async () => {
 		const pending = reloadCases();
@@ -1356,6 +1378,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						</p>
 					)}
 				</div>
+			)}
+			{outsideRestoreCount !== undefined && (
+				<RestoreScopeNote
+					count={outsideRestoreCount}
+					workerName={previewWorkerName}
+				/>
 			)}
 			<ResultsBody
 				state={state}

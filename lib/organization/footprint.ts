@@ -1,6 +1,6 @@
 import {
 	assignedLocationUuids,
-	type BlueprintDoc,
+	type OrganizationCollections,
 	type Persona,
 } from "@/lib/domain";
 import {
@@ -31,7 +31,7 @@ import {
  * the wire's `site_code` ordering.
  */
 export function personaFootprint(
-	doc: BlueprintDoc,
+	doc: OrganizationCollections,
 	persona: Persona,
 	rows: readonly OwnerVerdictLocation[],
 ): readonly OwnerVerdictLocation[] {

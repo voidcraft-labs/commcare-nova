@@ -111,6 +111,17 @@ export type LoadCasesResult =
 				totalGroupCount: number;
 			};
 			constraintSource: CaseQueryConstraintSource;
+			/**
+			 * Cases matching the authored query that this worker's device would
+			 * NOT hold — the ghosted reveal's number.
+			 *
+			 * Present only on a persona preview whose restore actually excluded
+			 * something, so the reveal appears exactly when there is something
+			 * to reveal. It is authoring-only inspection, never a blend of the
+			 * two preview modes: the list itself stays honest about what the
+			 * device holds, and this says how much the author is not seeing.
+			 */
+			outsideRestoreCount?: number;
 	  }
 	| {
 			kind: "empty";
@@ -120,6 +131,9 @@ export type LoadCasesResult =
 			 * Search itself narrowed the authored population to zero. */
 			authoredMatchingCount?: number;
 			constraintSource: CaseQueryConstraintSource;
+			/** Same reveal as the `rows` arm — an empty restore over a populated
+			 * tenant is exactly when an author most needs to be told why. */
+			outsideRestoreCount?: number;
 	  }
 	/** A safe, deterministic Search-value rejection. Unlike `error`, retrying
 	 * unchanged input cannot help, so consumers show the cause beside Search
