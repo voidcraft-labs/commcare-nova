@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { Parser } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { LocationProperty, OrganizationLevel } from "@/lib/domain";
+import type { LocationProperty, OrganizationLevel, Uuid } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 import { buildFlatLocationsFixture } from "../fixture";
 
@@ -82,31 +82,35 @@ const STATE = testUuid("level-state");
 const COUNTY = testUuid("level-county");
 const CITY = testUuid("level-city");
 
-const LEVELS = [
+const LEVELS: OrganizationLevel[] = [
 	{
 		uuid: STATE,
 		code: "state",
 		name: "State",
-		caseFlow: { sharesCases: false },
-		addressBook: { kind: "assigned-only" },
+		caseFlow: { workers: "none", ownsCases: false },
+		addressBook: { reach: "own-branch" },
 	},
 	{
 		uuid: COUNTY,
 		code: "county",
 		name: "County",
 		parentLevelUuid: STATE,
-		caseFlow: { sharesCases: false },
-		addressBook: { kind: "assigned-only" },
+		caseFlow: { workers: "none", ownsCases: true },
+		addressBook: { reach: "own-branch" },
 	},
 	{
 		uuid: CITY,
 		code: "city",
 		name: "City",
 		parentLevelUuid: COUNTY,
-		caseFlow: { sharesCases: true },
-		addressBook: { kind: "assigned-only" },
+		caseFlow: {
+			workers: "assigned",
+			ownsCases: true,
+			descendantCases: { kind: "none" },
+		},
+		addressBook: { reach: "own-branch" },
 	},
-] as unknown as OrganizationLevel[];
+];
 
 function place(args: {
 	id: string;
@@ -117,9 +121,9 @@ function place(args: {
 	values?: Record<string, string>;
 }): StoredLocation {
 	return {
-		id: args.id,
+		id: args.id as Uuid,
 		levelUuid: args.levelUuid,
-		parentId: args.parentId ?? null,
+		parentId: (args.parentId ?? null) as Uuid | null,
 		siteCode: args.siteCode,
 		name: args.name,
 		externalId: null,
@@ -128,7 +132,7 @@ function place(args: {
 		values: args.values ?? {},
 		archivedAt: null,
 		orderKey: "a0",
-	} as unknown as StoredLocation;
+	};
 }
 
 const MASSACHUSETTS = testUuid("place-massachusetts");
@@ -260,10 +264,14 @@ describe("the flat locations fixture", () => {
 	it("carries every defined custom field, empty when a place has none", () => {
 		// `_get_metadata_node` seeds every DEFINED field before applying values,
 		// the same declared-but-empty vs absent split worker data has.
-		const properties = [
-			{ uuid: testUuid("loc-prop-catchment"), slug: "catchment", label: "C" },
-			{ uuid: testUuid("loc-prop-ward"), slug: "ward", label: "W" },
-		] as unknown as LocationProperty[];
+		const properties: LocationProperty[] = [
+			{
+				uuid: testUuid("loc-prop-catchment"),
+				slug: "catchment",
+				label: "Catchment",
+			},
+			{ uuid: testUuid("loc-prop-ward"), slug: "ward", label: "Ward" },
+		];
 		const places = threeGenerations();
 		const withValue = {
 			...places[2],
@@ -329,9 +337,9 @@ describe("the flat locations fixture", () => {
 			const removed = readFileSync(CCHQ_INDEXED_FIXTURE, "utf8");
 			expect(removed).toContain("data_");
 
-			const properties = [
-				{ uuid: testUuid("loc-prop-ward"), slug: "ward", label: "W" },
-			] as unknown as LocationProperty[];
+			const properties: LocationProperty[] = [
+				{ uuid: testUuid("loc-prop-ward"), slug: "ward", label: "Ward" },
+			];
 			expect(build(threeGenerations(), properties).xml).not.toContain("data_");
 		},
 	);
