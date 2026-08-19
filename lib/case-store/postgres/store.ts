@@ -92,12 +92,14 @@ import {
 } from "../errors";
 import type { SampleCaseGenerator } from "../sample/generator";
 import {
+	buildRestoreScope,
 	compileExpression,
 	compilePredicate,
 	compileRelationPath,
 	expressionContextFor,
 	POSTGRES_CAST_FOR_DATA_TYPE,
 	type PredicateCompileContext,
+	type RestoreScopeQuery,
 } from "../sql";
 import type {
 	CaseIndicesTable,
@@ -131,6 +133,7 @@ import type {
 	PreparedSchemaChangePhaseB,
 	QueryArgs,
 	ResetSampleDataArgs,
+	RestoreScope,
 	SchemaChangeKind,
 } from "../store";
 import { CasePropertyRenameStorageConflictError } from "../store";
@@ -662,13 +665,26 @@ export class PostgresCaseStore implements CaseStore {
 	private buildCaseSelect(args: QueryArgs) {
 		const calculated: ReadonlyArray<CalculatedColumn> = args.calculated ?? [];
 
+		// The restore closure, when the caller is standing at a device. It rides
+		// the predicate context so relation walks apply it per hop too — a list
+		// filtered by "households with an open member" must count only members
+		// the worker's device holds.
+		const restore = this.buildRestoreScopeFor(args.appId, args.restoreScope);
 		const ctx = this.buildPredicateContext({
+			// The PLAIN handle, deliberately. `restore.creator` carries the
+			// `WITH` clause into every query built from it, and the compile
+			// stack builds subqueries — a relation walk's leaf, a `count`'s
+			// scalar select. Each would then re-declare and recompute the whole
+			// closure, and inside a `UNION` branch it is not even legal SQL.
+			// Only the outermost statement below attaches the CTEs; the
+			// membership reference is visible throughout it.
 			db: this.db,
 			appId: args.appId,
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
 			lookupTableSchemas: args.lookupTableSchemas,
 			bindings: args.bindings ?? {},
+			restore,
 		});
 		const exprCtx = expressionContextFor(ctx);
 
@@ -754,12 +770,20 @@ export class PostgresCaseStore implements CaseStore {
 		// `selectAll("c")` first so every `cases` column lands; the
 		// per-calculated-column projection chains via `select(...)`
 		// under prefixed aliases.
-		let qb = this.db
+		let qb = (restore?.creator ?? this.db)
 			.selectFrom("cases as c")
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
 			.where("c.project_id", "=", this.requireProjectId());
+		// The RESTORE: what this worker's device would hold. Sits beside the
+		// tenant filter rather than inside the closure so pagination, sorting,
+		// the authored predicate, and the hold all see the same restricted
+		// population — a scope applied anywhere else would let `count` and
+		// `query` disagree.
+		if (restore !== undefined) {
+			qb = restore.restrict(qb, "c");
+		}
 		// The HOLD: a case with an active (undismissed) kept value is
 		// out of every read unless the caller opts in — the running app
 		// never sees a case whose data is waiting on review. Dismissal
@@ -1076,13 +1100,22 @@ export class PostgresCaseStore implements CaseStore {
 		// count with a limited `query` against the same predicate, so
 		// any divergence between the two compile paths would surface
 		// as a count vs row-list mismatch.
+		const restore = this.buildRestoreScopeFor(args.appId, args.restoreScope);
 		const ctx = this.buildPredicateContext({
+			// The PLAIN handle, deliberately. `restore.creator` carries the
+			// `WITH` clause into every query built from it, and the compile
+			// stack builds subqueries — a relation walk's leaf, a `count`'s
+			// scalar select. Each would then re-declare and recompute the whole
+			// closure, and inside a `UNION` branch it is not even legal SQL.
+			// Only the outermost statement below attaches the CTEs; the
+			// membership reference is visible throughout it.
 			db: this.db,
 			appId: args.appId,
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
 			lookupTableSchemas: args.lookupTableSchemas,
 			bindings: args.bindings ?? {},
+			restore,
 		});
 
 		// pg-driver returns BIGINT counts as
@@ -1110,7 +1143,14 @@ export class PostgresCaseStore implements CaseStore {
 				where automation_host_candidate.app_id = ${args.appId}
 					and automation_host_candidate.project_id = ${projectId}
 					and automation_host_candidate.case_type = ${args.caseType}
-					and automation_host_candidate.status = 'open'
+					-- Open means "not closed", never "status = 'open'". The column is
+					-- nullable with no default and optional on insert, so a great
+					-- many rows carry NULL, and equality would drop every one of
+					-- them from this probe. That direction fails OPEN: the probe
+					-- exists to REFUSE a count whose host resolution is ambiguous,
+					-- so a missed row means the count runs on an ambiguous
+					-- population and reports a number nobody can trust.
+					and automation_host_candidate.status is distinct from 'closed'
 					and ${ambiguityHoldClause}
 					and (
 						select count(distinct automation_host_index.ancestor_id)
@@ -1121,7 +1161,7 @@ export class PostgresCaseStore implements CaseStore {
 					) > 1
 			)`
 			: sql<string>`'0'`;
-		let qb = this.db
+		let qb = (restore?.creator ?? this.db)
 			.selectFrom("cases as c")
 			.select((eb) => [
 				eb.fn.countAll<string>().as("total"),
@@ -1130,6 +1170,13 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
 			.where("c.project_id", "=", projectId);
+		// Same restore restriction `query` applies, for the same reason the
+		// hold exclusion below is duplicated: a count that saw a different
+		// population than its row list surfaces as a count-versus-rows
+		// mismatch, not as a missing filter.
+		if (restore !== undefined) {
+			qb = restore.restrict(qb, "c");
+		}
 		// Same HOLD exclusion `query` applies — a count must agree with
 		// the row list its caller pairs it with.
 		if (args.includeHeld !== true) {
@@ -4305,6 +4352,8 @@ export class PostgresCaseStore implements CaseStore {
 		schemas: ReadonlyMap<string, CaseType>;
 		lookupTableSchemas?: PredicateCompileContext["lookupTableSchemas"];
 		bindings: PredicateCompileContext["bindings"];
+		/** Bound only by a read standing at a device — see `RestoreScope`. */
+		restore?: RestoreScopeQuery;
 	}): PredicateCompileContext {
 		return {
 			db: args.db,
@@ -4316,8 +4365,28 @@ export class PostgresCaseStore implements CaseStore {
 			...(args.lookupTableSchemas === undefined
 				? {}
 				: { lookupTableSchemas: args.lookupTableSchemas }),
+			...(args.restore === undefined
+				? {}
+				: { restrictToRestoreScope: args.restore.restrict }),
 			bindings: args.bindings,
 		};
+	}
+
+	/**
+	 * Compile one worker's restore closure, or nothing when the caller did not
+	 * ask for one. Absent is the whole tenant — see `RestoreScope`.
+	 */
+	private buildRestoreScopeFor(
+		appId: string,
+		scope: RestoreScope | undefined,
+	): RestoreScopeQuery | undefined {
+		return scope === undefined
+			? undefined
+			: buildRestoreScope(this.db, {
+					appId,
+					projectId: this.requireProjectId(),
+					ownerIds: scope.ownerIds,
+				});
 	}
 
 	/**

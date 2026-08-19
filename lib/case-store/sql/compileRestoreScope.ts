@@ -43,7 +43,7 @@
 // HQ, which is the direction that matters — a restore Nova shows must not omit
 // a case the device would hold.
 
-import type { AliasableExpression, Expression, Kysely } from "kysely";
+import type { AliasableExpression, Kysely } from "kysely";
 import type { Database } from "./database";
 
 export interface RestoreScopeArgs {
@@ -74,8 +74,20 @@ export interface RestoreScopeQuery {
 	 * from it. Every existing filter, sort key, and join stays where it is.
 	 */
 	readonly creator: Kysely<Database>;
-	/** `SELECT case_id FROM live` — pair with `where(<caseIdColumn>, "in", …)`. */
-	readonly membership: Expression<string>;
+	/**
+	 * Restrict one `cases` row source to the closure.
+	 *
+	 * Shaped like `compileRelationPath`'s `whereNotHeld`, and applied the same
+	 * way: once on the outer scan, and once per `cases` row a relation walk
+	 * touches. A leaf builder that restricts nothing is a preview that lists
+	 * the right households and counts members the worker's device does not
+	 * hold — faithful at the top level, wrong one hop down, with nothing on
+	 * screen to reveal it.
+	 *
+	 * Loosely typed for the same reason `whereNotHeld` is: the multi-hop walk's
+	 * per-iteration alias permutations are not enumerable in the type system.
+	 */
+	readonly restrict: <QB>(qb: QB, casesAlias: string) => QB;
 }
 
 /**
@@ -270,11 +282,33 @@ export function buildRestoreScope(
 				),
 		);
 
+	// Built off the PLAIN database, never off `scoped`.
+	//
+	// A Kysely creator carries its `WITH` clause into every query built from
+	// it, so `scoped.selectFrom("live")` is the whole `WITH RECURSIVE avail…,
+	// live… SELECT case_id FROM live` statement, not a reference to the CTE.
+	// Used as a subquery that reads as `IN (WITH RECURSIVE … )`: a second,
+	// independent copy of the closure per call site — recomputed for the outer
+	// scan and again inside every relation walk — and inside a `UNION` branch
+	// it is not even syntactically legal.
+	//
+	// The CTE is already visible everywhere in the statement `creator` builds,
+	// including a relation walk's leaf subqueries, so the reference is all that
+	// is wanted here. The cast names `live` without attaching anything.
+	const membership = (
+		db as unknown as Kysely<Database & { live: { case_id: string } }>
+	)
+		.selectFrom("live")
+		.select("live.case_id");
+
 	return {
 		creator: scoped as unknown as Kysely<Database>,
-		membership: scoped
-			.selectFrom("live")
-			.select("live.case_id") as unknown as Expression<string>,
+		restrict: <QB>(qb: QB, casesAlias: string): QB =>
+			(
+				qb as {
+					where: (column: string, op: "in", value: unknown) => QB;
+				}
+			).where(`${casesAlias}.case_id`, "in", membership),
 	};
 }
 

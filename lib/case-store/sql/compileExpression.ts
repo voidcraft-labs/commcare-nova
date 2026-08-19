@@ -76,7 +76,10 @@ import {
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain/standardCaseProperties";
 import { compileTableLookup } from "./compileLookup";
-import { compileRelationPath } from "./compileRelationPath";
+import {
+	compileRelationPath,
+	relationPathContextFrom,
+} from "./compileRelationPath";
 import {
 	compileBoundRef,
 	compileBoundValue,
@@ -629,13 +632,10 @@ function compileCount(
 			.else(eb.lit(0))
 			.end();
 	}
-	const compiledPath = compileRelationPath(relation.via, {
-		db: ctx.db,
-		appId: ctx.appId,
-		projectId: ctx.projectId,
-		anchorAlias: ctx.anchorAlias,
-		relationPathDepth: ctx.relationPathDepth ?? 0,
-	});
+	const compiledPath = compileRelationPath(
+		relation.via,
+		relationPathContextFrom(ctx),
+	);
 	if (compiledPath.kind === "self") {
 		throw new Error(
 			"compileExpression.compileCount: canonical non-self relation unexpectedly compiled as self",

@@ -92,18 +92,20 @@ async function seedTenant(): Promise<void> {
 it("keeps the closure proportional to the restore, not to the tenant", async () => {
 	await seedTenant();
 
-	const { creator, membership } = buildRestoreScope(db, {
+	const { creator, restrict } = buildRestoreScope(db, {
 		appId: APP,
 		projectId: PROJECT,
 		ownerIds: OWNER_IDS,
 	});
-	const compiled = creator
-		.selectFrom("cases as c")
-		.selectAll("c")
-		.where("c.app_id", "=", APP)
-		.where("c.project_id", "=", PROJECT)
-		.where("c.case_type", "=", "patient")
-		.where("c.case_id", "in", membership)
+	const compiled = restrict(
+		creator
+			.selectFrom("cases as c")
+			.selectAll("c")
+			.where("c.app_id", "=", APP)
+			.where("c.project_id", "=", PROJECT)
+			.where("c.case_type", "=", "patient"),
+		"c",
+	)
 		.orderBy("c.opened_on")
 		.limit(50)
 		.compile();

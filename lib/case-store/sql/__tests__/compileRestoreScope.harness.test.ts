@@ -80,18 +80,19 @@ async function restoreScope(
 	db: Kysely<Database>,
 	ownerIds: readonly string[] = [WORKER],
 ): Promise<string[]> {
-	const { creator, membership } = buildRestoreScope(db, {
+	const { creator, restrict } = buildRestoreScope(db, {
 		appId: APP_ID,
 		projectId: PROJECT_ID,
 		ownerIds,
 	});
-	const rows = await creator
-		.selectFrom("cases as c")
-		.select("c.case_id")
-		.where("c.app_id", "=", APP_ID)
-		.where("c.project_id", "=", PROJECT_ID)
-		.where("c.case_id", "in", membership)
-		.execute();
+	const rows = await restrict(
+		creator
+			.selectFrom("cases as c")
+			.select("c.case_id")
+			.where("c.app_id", "=", APP_ID)
+			.where("c.project_id", "=", PROJECT_ID),
+		"c",
+	).execute();
 	return rows.map((row) => row.case_id).sort();
 }
 

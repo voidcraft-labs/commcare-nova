@@ -186,6 +186,30 @@ export interface SortKey {
  * projections, but consumers should keep the count proportional to
  * the case list's authored shape.
  */
+/**
+ * Restrict a read to what one worker's device would actually hold.
+ *
+ * CommCare does not filter a restore by ownership — it takes a fixpoint over
+ * the case-index graph that ownership only SEEDS, so this is not
+ * `owner_id IN (…)` and cannot be expressed as one.
+ * `lib/case-store/sql/compileRestoreScope.ts` is the rule and carries the
+ * CommCare citations.
+ *
+ * Absent means today's behavior: the whole tenant. That is the contract for
+ * every AUTHORING surface — the case workspace, sample data, the property
+ * rename preflight, and the automation sweep all read the tenant, because
+ * none of them is standing at a device. Only the running preview passes one.
+ */
+export interface RestoreScope {
+	/**
+	 * The worker's owner ids: their own id plus one per case-sharing group
+	 * (`lib/organization/ownerSets.ts`, mirroring `CouchUser.get_owner_ids`).
+	 * Never empty — every worker owns at least their own id, and the closure
+	 * refuses an empty set rather than answering it with an empty restore.
+	 */
+	readonly ownerIds: readonly string[];
+}
+
 export interface QueryArgs {
 	appId: string;
 	caseType: string;
@@ -217,6 +241,11 @@ export interface QueryArgs {
 	 * hold without knowing it exists.
 	 */
 	includeHeld?: boolean;
+	/**
+	 * Read as one worker's device would. See {@link RestoreScope} — absent is
+	 * the whole tenant, which is what every authoring surface wants.
+	 */
+	restoreScope?: RestoreScope;
 }
 
 /**
@@ -357,6 +386,17 @@ export type CountArgs =
 			 * agree with the row list its caller pairs it with. */
 			includeHeld?: boolean;
 			missingIndexIdentifier?: never;
+			/**
+			 * Same restore contract as `QueryArgs.restoreScope`, and for the same
+			 * reason as `includeHeld`: a count that saw a different population
+			 * than its row list surfaces as a count-versus-rows mismatch.
+			 *
+			 * The automation criteria above never carry one. They model HQ's
+			 * SERVER-side rule sweep, which runs against every case in the
+			 * domain — a restore is a fact about a device, and no device is
+			 * involved.
+			 */
+			restoreScope?: RestoreScope;
 	  }
 	| {
 			/**
