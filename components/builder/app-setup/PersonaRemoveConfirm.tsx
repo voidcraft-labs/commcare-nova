@@ -10,6 +10,12 @@
  * a surprise. The confirmation counts every retained row and states exactly
  * what persists.
  *
+ * The worker's OWN record is the one thing that does change, and it is stated
+ * separately because the count deliberately leaves it out — that count answers
+ * "how much of your data stays behind", and the worker's record is Nova's
+ * bookkeeping rather than the author's data. Without this line an author sees
+ * "no cases owned" and never learns the record closed.
+ *
  * The count is fetched when the confirmation opens rather than on every
  * render: it is a real query, and it only matters at the moment of the
  * decision.
@@ -138,6 +144,12 @@ function ConfirmPanel({
 					`${persona.name} owns ${owned.count} ${owned.count === 1 ? "case" : "cases"}, including any in retired case types. Removing this persona will not delete or reassign them. They stay stored under this persona and may still appear in unfiltered data views.`
 				)}
 			</p>
+			{owned.state === "known" && (
+				<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+					Their own worker record closes with them, and everything saved to it
+					stays.
+				</p>
+			)}
 			{owned.state === "failed" && (
 				<Button
 					type="button"

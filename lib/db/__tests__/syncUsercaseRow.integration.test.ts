@@ -99,10 +99,11 @@ async function storedRow(): Promise<{
 	owner_id: string | null;
 	case_name: string;
 	status: string | null;
+	external_id: string | null;
 	properties: Record<string, unknown>;
 }> {
 	const rows = await dbHandle.pool.query(
-		"SELECT case_id, owner_id, case_name, status, properties FROM cases WHERE app_id = $1 AND case_type = $2",
+		"SELECT case_id, owner_id, case_name, status, external_id, properties FROM cases WHERE app_id = $1 AND case_type = $2",
 		[APP_ID, USERCASE_CASE_TYPE],
 	);
 	expect(rows.rows).toHaveLength(1);
@@ -273,6 +274,66 @@ describe("syncUsercaseRow", () => {
 		// replacement.
 		expect(row.properties.hq_user_id).toBe(PERSONA_ID);
 		expect(row.properties.username).toBe("amara");
+	});
+
+	it("leaves external_id empty, because HQ never writes one", async () => {
+		// HQ FINDS a usercase by external id (`get_case_by_external_id`, reached
+		// from `CouchUser.get_usercase`) but never WRITES one:
+		// `_get_user_case_fields` sets it nowhere and `create_usercase` passes it
+		// nowhere. The read/write asymmetry is easy to mistake for an omission,
+		// so this test is here to argue with the later helpful fix — writing it
+		// would make `#user/external_id = ''` answer one way in Preview and the
+		// other in the field.
+		const d = doc([CADRE]);
+		await seedSchema(d);
+		await syncUsercaseRow(workerStore(), {
+			appId: APP_ID,
+			worker: WORKER,
+			authored: { "u-1": "nurse" },
+			doc: d,
+			projectSpace: "my-domain",
+		});
+
+		const row = await storedRow();
+		expect(row.external_id).toBeNull();
+		expect(Object.hasOwn(row.properties, "external_id")).toBe(false);
+	});
+
+	it("puts the row inside its own worker's restore", async () => {
+		// The wire emits `<assert test="count(instance('casedb')/casedb/case[
+		// @case_type='commcare-user'][hq_user_id=…]) = 1">`, and a device
+		// evaluates that against what its restore delivered. A usercase outside
+		// its own worker's restore would fail that assertion and block entry
+		// into the form entirely, so this is the row's whole reason for being
+		// owned by the worker rather than by the author.
+		const d = doc([CADRE]);
+		await seedSchema(d);
+		await syncUsercaseRow(workerStore(), {
+			appId: APP_ID,
+			worker: WORKER,
+			authored: { "u-1": "nurse" },
+			doc: d,
+			projectSpace: "my-domain",
+		});
+
+		const held = await workerStore().query({
+			appId: APP_ID,
+			caseType: USERCASE_CASE_TYPE,
+			caseTypeSchemas: new Map([[USERCASE_CASE_TYPE, usercaseCaseType(d)]]),
+			restoreScope: { ownerIds: [PERSONA_ID] },
+		});
+		expect(held.map((row) => row.case_id)).toEqual([PERSONA_ID]);
+
+		// And outside anyone else's. Another worker restoring must not receive
+		// it — `count(…) = 1` is an equality, so a second usercase in scope
+		// fails the assertion exactly as zero does.
+		const someoneElse = await workerStore().query({
+			appId: APP_ID,
+			caseType: USERCASE_CASE_TYPE,
+			caseTypeSchemas: new Map([[USERCASE_CASE_TYPE, usercaseCaseType(d)]]),
+			restoreScope: { ownerIds: ["a-different-worker"] },
+		});
+		expect(someoneElse).toEqual([]);
 	});
 
 	it("renames the case when the worker's display name changes", async () => {

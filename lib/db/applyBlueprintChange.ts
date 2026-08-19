@@ -283,15 +283,16 @@ export async function applyBlueprintChange(
 	 * derived, idempotent convergence and must not outlive the slice deadline.
 	 * Point-of-use schema healing drains the durable lag. */
 	if (args.deadlineAt !== undefined) return result;
+	// Ahead of EVERY schema early-return, and deliberately so. A commit that
+	// only touches workers changes no case type's property surface, so
+	// `entries` is empty on exactly the commits this sweep exists for — a
+	// persona renamed, added, or removed. Below either return it would run on
+	// none of them.
+	await sweepCommittedUsercaseRows(args, result, priorDoc);
 	if (entries.length === 0) return result;
 	if (preparedRetirement !== undefined) {
 		await completeRetirementIndexes(args.appId, result, preparedRetirement);
 	}
-	// BEFORE the schema early-returns below, and deliberately so: renaming a
-	// persona changes its case's NAME without changing any case type's property
-	// surface, so `entries` is empty and every return below this point would
-	// skip the row that needs rewriting.
-	await sweepCommittedUsercaseRows(args, result, priorDoc);
 	const syncEntries = entries.filter((entry) => entry.kind === "sync");
 	if (syncEntries.length === 0) return result;
 	store ??= await withSchemaContext();
