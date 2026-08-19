@@ -274,7 +274,6 @@ const CONSTRAINT_AREAS: Readonly<
 	CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES: ["forms"],
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: ["navigation", "users", "case-list"],
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: ["forms", "case-operations"],
-	GAP_CASE_ATTACHMENT_EMISSION: ["forms", "case-list"],
 	GAP_USERCASE_OWNER_SETS: ["users", "organization-shape", "case-operations"],
 	GAP_PUSH_PROVISIONING_DRIVERS: [
 		"lookup-references",

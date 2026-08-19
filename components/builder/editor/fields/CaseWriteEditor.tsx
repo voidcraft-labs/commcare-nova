@@ -51,6 +51,7 @@ import {
 	type AuthoredCasePropertyName,
 	authoredCasePropertyNameSchema,
 	type CaptureCaseWrite,
+	type CaptureCaseWriteMode,
 	type CaseProperty,
 	type CaseType,
 	type CaseWrite,
@@ -137,6 +138,7 @@ export function CaseWriteEditor<F extends Field>(
 	const triggerId = useId();
 	const newNameId = useId();
 	const newTypeId = useId();
+	const modeId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const newNameRef = useRef<HTMLInputElement>(null);
 	const [open, setOpen] = useState(false);
@@ -165,20 +167,25 @@ export function CaseWriteEditor<F extends Field>(
 	 * The destination shape this field's schema takes.
 	 *
 	 * An attachment's answer is a file name, so its destination also says
-	 * what reaches the case. `url` is the only thing Nova can put there
-	 * today — a link to the attached file — so the author picks a property
-	 * and the mode follows, rather than being asked a question with one
-	 * answer.
+	 * what reaches the case — a link to the file, or the file itself. The
+	 * mode carries forward when the author changes property, because
+	 * picking a different destination is not a decision about what to put
+	 * in it; only the mode control below changes the mode.
 	 */
+	const currentMode: CaptureCaseWriteMode =
+		current !== undefined && "mode" in current
+			? (current as CaptureCaseWrite).mode
+			: "url";
 	const destinationFor = useCallback(
 		(
 			caseType: string,
 			property: AuthoredCasePropertyName,
+			mode: CaptureCaseWriteMode = currentMode,
 		): AuthoredCaseWrite =>
 			isCaptureField(field)
-				? { caseType, property, mode: "url" }
+				? { caseType, property, mode }
 				: { caseType, property },
-		[field],
+		[field, currentMode],
 	);
 	const writableTypeNames = useMemo(
 		() =>
@@ -490,10 +497,37 @@ export function CaseWriteEditor<F extends Field>(
 			)}
 
 			{savesAttachment && current !== undefined && (
-				<p className="text-[13px] leading-5 text-nova-text-muted">
-					Nova fills this link in once the app reaches a CommCare project space,
-					so it stays empty in the preview and in a download made before then.
-				</p>
+				<div className="space-y-1.5">
+					<label htmlFor={modeId} className={`${INSPECTOR_LABEL_CLS} block`}>
+						What reaches the case
+					</label>
+					<Select
+						value={currentMode}
+						onValueChange={(next) => {
+							if (next === null) return;
+							commit(
+								destinationFor(
+									current.caseType,
+									current.property,
+									next as CaptureCaseWriteMode,
+								),
+							);
+						}}
+					>
+						<SelectTrigger id={modeId}>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="url">A link to the file</SelectItem>
+							<SelectItem value="attachment">The file itself</SelectItem>
+						</SelectContent>
+					</Select>
+					<p className="text-[13px] leading-5 text-nova-text-muted">
+						{currentMode === "url"
+							? "Nova fills this link in once the app reaches a CommCare project space, so it stays empty in the preview and in a download made before then."
+							: "CommCare stores the file on the case. The project space needs the Multimedia Case Properties setting, which Dimagi is retiring, and nothing in the app can show a case attachment, so a link is the better choice unless you already rely on this."}
+					</p>
+				</div>
 			)}
 
 			{creating && (

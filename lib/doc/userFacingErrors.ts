@@ -276,6 +276,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`One item in ${q(modName(e))} shows ${q(det(e, "field", "case information"))}, but that information isn't saved on this case type. Choose information that exists.`,
 	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: (e) =>
 		`An item in ${q(modName(e))} shows ${q(det(e, "field", "case information"))}, but its display style can't format ${det(e, "resolvedType", "this kind of")} information. Choose matching information or change the display style. Plain text always works.`,
+	CASE_LIST_COLUMN_OVER_ATTACHMENT_SLOT: (e) =>
+		`An item in ${q(modName(e))} shows ${q(det(e, "field", "case information"))}, but that case property holds an attached file rather than a value, so the item would stay empty on every case. Show something else, or change the question that saves it so it saves a link to the file instead.`,
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: (e) =>
 		`A calculated value in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and fix the calculation.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>

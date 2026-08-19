@@ -11,7 +11,9 @@ import {
 	type BlueprintDoc,
 	CONNECT_TYPE_LABELS,
 	effectiveCaseSearchConfig,
+	isCaptureField,
 	type Module,
+	proseTemplateText,
 } from "@/lib/domain";
 import {
 	featureFlagReportForUnverifiedRequirements,
@@ -105,7 +107,7 @@ function advancedCaseSearchReasons(module: Module): string[] {
  * wire rules or presenting every catalog entry as applicable.
  */
 export function requiredHqFeatureFlagUses(
-	doc: Pick<BlueprintDoc, "connectType" | "modules">,
+	doc: Pick<BlueprintDoc, "connectType" | "fields" | "modules">,
 ): HqFeatureFlagUse[] {
 	const reasonsById = new Map<HqFeatureFlagId, Set<string>>();
 	const addReason = (id: HqFeatureFlagId, reason: string): void => {
@@ -128,6 +130,36 @@ export function requiredHqFeatureFlagUses(
 		}
 	}
 
+	// Both attachment save-to-case modes name a project-space toggle, and
+	// they name DIFFERENT ones, because the two modes put the file in
+	// different places. `attachment` stores the file on the case, which
+	// `SqlCaseUpdateStrategy._apply_attachments_action` discards outright
+	// without `MM_CASE_PROPERTIES`. `url` stores an address instead, and
+	// the address resolves for a worker without the Submission History
+	// permission only when `VIEW_FORM_ATTACHMENT` is on
+	// (`apps/reports/views.py::_can_view_form_attachment`) — so the app
+	// works either way, but its links open for nobody who needs them.
+	//
+	// Both stay ADVISORY, like every flag here: a project space's
+	// configuration never edits the app, and never refuses a publish.
+	for (const field of Object.values(doc.fields)) {
+		if (!isCaptureField(field)) continue;
+		const write = field.caseWrite;
+		if (write === undefined) continue;
+		const name = proseTemplateText(field.label) || field.id;
+		if (write.mode === "attachment") {
+			addReason(
+				"multimedia-case-properties",
+				`The “${name}” question saves its file onto the case.`,
+			);
+		} else {
+			addReason(
+				"view-form-attachment",
+				`The “${name}” question saves a link to its file on the case.`,
+			);
+		}
+	}
+
 	if (doc.connectType !== null) {
 		addReason(
 			"commcare-connect",
@@ -145,14 +177,14 @@ export function requiredHqFeatureFlagUses(
 
 /** Exact, ordered set of HQ feature flags needed by this blueprint. */
 export function requiredHqFeatureFlags(
-	doc: Pick<BlueprintDoc, "connectType" | "modules">,
+	doc: Pick<BlueprintDoc, "connectType" | "fields" | "modules">,
 ): HqFeatureFlagRequirement[] {
 	return requiredHqFeatureFlagUses(doc).map((use) => use.requirement);
 }
 
 /** Report for a downloaded artifact, whose eventual HQ domain is unknown. */
 export function featureFlagReportForDownload(
-	doc: Pick<BlueprintDoc, "connectType" | "modules">,
+	doc: Pick<BlueprintDoc, "connectType" | "fields" | "modules">,
 ): HqFeatureFlagReport {
 	return featureFlagReportForUnverifiedRequirements(
 		requiredHqFeatureFlags(doc),
@@ -163,7 +195,7 @@ export function featureFlagReportForDownload(
  * while domain state is deliberately unknown until a direct HQ upload can
  * probe its selected destination. */
 export function featureFlagReportForPrepublish(
-	doc: Pick<BlueprintDoc, "connectType" | "modules">,
+	doc: Pick<BlueprintDoc, "connectType" | "fields" | "modules">,
 ): HqFeatureFlagReport {
 	return featureFlagReportForUnverifiedRequirements(
 		requiredHqFeatureFlags(doc),

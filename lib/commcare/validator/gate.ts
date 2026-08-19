@@ -153,6 +153,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	// ── Case-list-config rules ───────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: "soundness",
 	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: "soundness",
+	CASE_LIST_COLUMN_OVER_ATTACHMENT_SLOT: "soundness",
 	CASE_LIST_FILTER_TYPE_ERROR: "soundness",
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: "soundness",
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: "soundness",

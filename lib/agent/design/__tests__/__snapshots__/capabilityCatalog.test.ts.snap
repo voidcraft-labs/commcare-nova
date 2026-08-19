@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "95baf838dc166949e120dc6c7a3a86c316f4f4d5af2518cc2a1ea00a7ca2c235",
+  "catalogDigest": "01594d6121d48bd992e30924f81deb891ed4d325d6137e8676d301b35f39cb6f",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -34,7 +34,6 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES",
     "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
     "ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
-    "GAP_CASE_ATTACHMENT_EMISSION",
     "GAP_USERCASE_OWNER_SETS",
     "GAP_PUSH_PROVISIONING_DRIVERS",
     "GAP_APP_SETUP_UI",

@@ -69,6 +69,40 @@
 					"contains": "toggles.COMMCARE_CONNECT.enabled(domain)"
 				}
 			]
+		},
+		{
+			"id": "multimedia-case-properties",
+			"slug": "mm_case_properties",
+			"symbol": "MM_CASE_PROPERTIES",
+			"label": "Multimedia Case Properties",
+			"description": "Stores an attachment question's file on the case itself, rather than a link to it",
+			"requiredFor": "An attachment question that saves to a case with the attachment mode",
+			"docsAnchor": "multimedia-case-properties",
+			"expectedTag": "TAG_DEPRECATED",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/form_processor/backends/sql/update_strategy.py",
+					"contains": "if not toggles.MM_CASE_PROPERTIES.enabled(self.case.domain):"
+				}
+			]
+		},
+		{
+			"id": "view-form-attachment",
+			"slug": "view_form_attachments",
+			"symbol": "VIEW_FORM_ATTACHMENT",
+			"label": "View Form Attachments",
+			"description": "Lets a mobile worker open a form attachment without the Submission History report permission",
+			"requiredFor": "An attachment question that saves a link to a case, so workers can open the link",
+			"docsAnchor": "view-form-attachments",
+			"expectedTag": "TAG_GA_PATH",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/apps/reports/views.py",
+					"contains": "if VIEW_FORM_ATTACHMENT.enabled(domain):"
+				}
+			]
 		}
 	]
 }

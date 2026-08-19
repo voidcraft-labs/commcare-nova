@@ -24,6 +24,7 @@ import {
 	type BlueprintDoc,
 	type CasePropertyDataType,
 	type Column,
+	casePropertyIsAttachmentSlot,
 	columnKindAcceptsPropertyType,
 	columnKindPropertyRequirement,
 	type Module,
@@ -56,6 +57,17 @@ export function columnKindPropertyType(
 	for (let index = 0; index < config.columns.length; index++) {
 		const col = config.columns[index];
 		if (col.kind === "calculated") continue;
+		// Checked before the type requirement, and for every kind rather
+		// than only the demanding ones: a property whose writers all save
+		// an attachment has no scalar value at any type, so `plain` — the
+		// escape hatch the mismatch message recommends — is just as empty
+		// here as `date` is. Unknown stays permissive everywhere else in
+		// this file because the wire is stringly; this is the one case
+		// where the document positively says there is nothing to read.
+		if (casePropertyIsAttachmentSlot(doc, mod.caseType, col.field)) {
+			errors.push(buildAttachmentSlotError(mod, moduleUuid, index, col));
+			continue;
+		}
 		const requirement = columnKindPropertyRequirement(col.kind);
 		if (requirement === null) continue; // universal kinds accept everything
 		// Raw `data_type` off the effective view, NOT
@@ -102,6 +114,27 @@ function buildMismatchError(
 			index: String(index),
 			columnKind: col.kind,
 			resolvedType,
+		},
+	);
+}
+
+function buildAttachmentSlotError(
+	mod: Module,
+	moduleUuid: Uuid,
+	index: number,
+	col: Exclude<Column, { kind: "calculated" }>,
+): ValidationError {
+	const columnName = col.header || col.field;
+	return validationError(
+		"CASE_LIST_COLUMN_OVER_ATTACHMENT_SLOT",
+		"module",
+		`The "${columnName}" column (column #${index + 1}) on the case list of module "${mod.name}" shows the case property "${col.field}", but every question saving that property saves its file as a case attachment, so the property itself holds no value and the column would be empty on every case. Either point the column at a property that holds a value, or change those questions to save a link to the file instead, which a link column can open.`,
+		{ moduleUuid, moduleName: mod.name },
+		{
+			field: col.field,
+			columnUuid: col.uuid,
+			index: String(index),
+			columnKind: col.kind,
 		},
 	);
 }

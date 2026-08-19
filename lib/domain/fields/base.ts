@@ -146,8 +146,20 @@ export const caseWriteSchema = z
  * toggle consulted (`app_manager/xform.py::CaseBlock.add_case_updates`,
  * `::is_attachment`). So URL mode never points at the capture question
  * itself; it points at the node carrying the address.
+ *
+ * `attachment` makes the opposite choice deliberately: the question path
+ * IS the capture question, so the case block carries an `<attachment>`
+ * element and CommCare stores the file on the case rather than a link to
+ * it. It is the deprecated path and an explicit opt-in, because it only
+ * does anything on a project space carrying the `MM_CASE_PROPERTIES`
+ * toggle — with the toggle off,
+ * `form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy._apply_attachments_action`
+ * returns before applying anything and the block is discarded without a
+ * word. Nothing reads one back inside the app either: Web Apps never
+ * displays a case attachment, so the mode's only surfaces are the HQ
+ * case page and CommCare Android.
  */
-export const CAPTURE_CASE_WRITE_MODES = ["url"] as const;
+export const CAPTURE_CASE_WRITE_MODES = ["url", "attachment"] as const;
 
 export type CaptureCaseWriteMode = (typeof CAPTURE_CASE_WRITE_MODES)[number];
 

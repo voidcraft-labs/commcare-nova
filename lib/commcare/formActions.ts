@@ -136,12 +136,20 @@ export function buildFormActions(
 	 * With no deployment target there is no origin and no project space to
 	 * build an address from, so the write is dropped rather than emitted
 	 * against a guess. `expandDoc`'s caller reports that at export time.
+	 *
+	 * `attachment` mode wants exactly the routing URL mode avoids, so it
+	 * names the capture question and lets HQ's structural rule do the
+	 * rest. It needs no deployment target: the file travels with the
+	 * submission instead of being addressed after it.
 	 */
 	const caseUpdateQuestionPath = (
 		binding: DerivedCasePropertyBinding,
 		field: Field,
 	): string | null => {
 		if (!isCaptureField(field)) return binding.path.toXPath();
+		if (field.caseWrite?.mode === "attachment") {
+			return binding.path.toXPath();
+		}
 		if (attachmentTarget === null) return null;
 		return captureUrlNodePath(binding.path).toXPath();
 	};

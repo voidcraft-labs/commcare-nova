@@ -42,7 +42,7 @@
  */
 
 import { type ChildNode, Element } from "domhandler";
-import { findOne, getChildren } from "domutils";
+import { findAll, findOne, getChildren } from "domutils";
 import type { FormActionCondition, FormActions } from "@/lib/commcare";
 import { el } from "@/lib/commcare/elementBuilders";
 import {
@@ -161,9 +161,46 @@ interface CaseBlocksEmission {
  * asserts (`<case case_id="" date_modified="" user_id="" xmlns="...">`)
  * survive.
  */
+/**
+ * The question paths CommCare HQ will route into an `<attachment>` block
+ * rather than an `<update>` child.
+ *
+ * HQ decides this by one structural rule and consults no toggle: it
+ * collects every `<upload ref>` in the form body, and a case write whose
+ * question path is one of them becomes an attachment
+ * (`app_manager/xform.py::CaseBlock.is_attachment`, `::add_case_updates`).
+ *
+ * The local `.ccz` runs that same rule over those same two inputs rather
+ * than being handed the answer by the domain, and the reason is the
+ * lockstep contract this file exists to keep: HQ regenerates an uploaded
+ * app's case blocks from `FormActions` plus the body ALONE and cannot be
+ * told anything else, so a `.ccz` that consulted a third input could emit
+ * a form HQ would never produce. Nova still decides which spelling
+ * happens — a capture's `caseWrite.mode` picks whether its write names
+ * the upload or the sibling address node
+ * (`lib/commcare/formActions.ts`) — but that decision travels inside the
+ * question path, which is exactly where HQ can read it too.
+ */
+export function attachmentQuestionPaths(
+	doc: ReturnType<typeof parseXForm>,
+): ReadonlySet<string> {
+	const paths = new Set<string>();
+	// `findAll` recurses, so this reaches `<upload>` wherever the body
+	// nests it — inside a `<group>`, inside a `<repeat>`, at the root.
+	for (const upload of findAll(
+		(node) => node.tagName === "upload",
+		doc.children,
+	)) {
+		const ref = upload.attribs.ref;
+		if (ref) paths.add(ref);
+	}
+	return paths;
+}
+
 function buildCaseBlocks(
 	actions: FormActions,
 	caseType: string,
+	attachmentPaths: () => ReadonlySet<string>,
 ): CaseBlocksEmission | null {
 	const openCase = actions.open_case;
 	const updateCase = actions.update_case;
@@ -308,17 +345,6 @@ function buildCaseBlocks(
 		// `XFormCaseBlock.update_block`'s memoized side-effect, and we
 		// match for byte-level parity so any future CCHQ-side check on
 		// the element's presence agrees on every Nova-emitted form.
-		const props = Object.keys(updateCase.update);
-		if (openExternalId !== null) props.unshift("external_id");
-		caseChildren.push(
-			el(
-				"update",
-				{},
-				props.map((property) =>
-					el(validatePropertyName(formActionsPropertyToWire(property)), {}),
-				),
-			),
-		);
 		const primaryUpdatePath = primaryCasePath.child("update");
 		const updateMappings: Array<
 			readonly [
@@ -336,11 +362,74 @@ function buildCaseBlocks(
 					]),
 			...Object.entries(updateCase.update),
 		];
-		for (const [prop, mapping] of updateMappings) {
+		// Resolve every write's question path once, then split on HQ's own
+		// structural rule. A write naming an `<upload ref>` is an attachment
+		// and belongs in the `<attachment>` block; everything else is an
+		// ordinary `<update>` child. Splitting here rather than at each use
+		// keeps `<update>`'s child list and its binds reading the same
+		// partition — listing an attachment property under `<update>` would
+		// leave a scalar child the receiver writes the file NAME into,
+		// beside the attachment carrying the file.
+		const resolvedWrites = updateMappings.map(([prop, mapping]) => {
 			const validProp = validatePropertyName(formActionsPropertyToWire(prop));
 			const qPath =
 				mapping.question_path || FormPath.root().child(prop).toXPath();
-			const resolvedQPath = validateXFormPath(qPath);
+			return { validProp, resolvedQPath: validateXFormPath(qPath) } as const;
+		});
+		const attachmentWrites = resolvedWrites.filter((write) =>
+			attachmentPaths().has(write.resolvedQPath),
+		);
+		const scalarWrites = resolvedWrites.filter(
+			(write) => !attachmentPaths().has(write.resolvedQPath),
+		);
+		caseChildren.push(
+			el(
+				"update",
+				{},
+				scalarWrites.map((write) => el(write.validProp, {})),
+			),
+		);
+		if (attachmentWrites.length > 0) {
+			// `<attachment>` follows `<update/>`, and its child is named by
+			// the CASE PROPERTY while `@src` points at the QUESTION — the two
+			// are different names and swapping them is silent
+			// (`update_attachment_case.xml`, both the basic and advanced
+			// form_preparation_v2 fixtures). `from="local"` is CommCare's
+			// marker for a file the submission carries rather than one the
+			// server should fetch.
+			const primaryAttachmentPath = primaryCasePath.child("attachment");
+			caseChildren.push(
+				el(
+					"attachment",
+					{},
+					attachmentWrites.map((write) =>
+						el(write.validProp, { src: "", from: "local" }),
+					),
+				),
+			);
+			for (const write of attachmentWrites) {
+				// `count(...) = 1`, not the `> 0` the scalar writes carry.
+				// This is CCHQ's spelling for the attachment binds and it is
+				// asserted as bytes, so it stays theirs rather than being
+				// normalized to look like its neighbours.
+				binds.push(
+					el("bind", {
+						nodeset: primaryAttachmentPath.child(write.validProp).toXPath(),
+						relevant: `count(${write.resolvedQPath}) = 1`,
+					}),
+				);
+				binds.push(
+					el("bind", {
+						nodeset: primaryAttachmentPath
+							.child(write.validProp)
+							.attr("src")
+							.toXPath(),
+						calculate: write.resolvedQPath,
+					}),
+				);
+			}
+		}
+		for (const { validProp, resolvedQPath } of scalarWrites) {
 			// `relevant="count(<qPath>) > 0"` skips the case-update bind
 			// when the source question's data node is absent at submission
 			// time — the JavaRosa semantic when a `<bind relevant="...">`
@@ -609,20 +698,63 @@ function buildCaseBlocks(
 		// `XFormCaseBlock.update_block`'s memoized side-effect). Matching
 		// preserves byte-level parity with `multiple_subcase_repeat.xml`
 		// + future CCHQ-side checks.
-		const props = Object.entries(sc.case_properties);
+		// Same partition as the primary case block, and for the same
+		// reason: HQ routes a child-create's writes through the identical
+		// structural check, and `form_preparation_v2_advanced/`'s own
+		// `update_attachment_case.xml` carries the identical
+		// `<update/>` + `<attachment>` shape nested under its case wrapper.
+		const scWrites = Object.entries(sc.case_properties).map(
+			([prop, mapping]) => {
+				const validProp = validatePropertyName(prop);
+				const qPath =
+					mapping.question_path || FormPath.root().child(prop).toXPath();
+				return { validProp, resolvedQPath: validateXFormPath(qPath) } as const;
+			},
+		);
+		const scAttachmentWrites = scWrites.filter((write) =>
+			attachmentPaths().has(write.resolvedQPath),
+		);
+		const scScalarWrites = scWrites.filter(
+			(write) => !attachmentPaths().has(write.resolvedQPath),
+		);
 		scChildren.push(
 			el(
 				"update",
 				{},
-				props.map(([p]) => el(validatePropertyName(p), {})),
+				scScalarWrites.map((write) => el(write.validProp, {})),
 			),
 		);
+		if (scAttachmentWrites.length > 0) {
+			const subcaseAttachmentPath = subcaseCasePath.child("attachment");
+			scChildren.push(
+				el(
+					"attachment",
+					{},
+					scAttachmentWrites.map((write) =>
+						el(write.validProp, { src: "", from: "local" }),
+					),
+				),
+			);
+			for (const write of scAttachmentWrites) {
+				binds.push(
+					el("bind", {
+						nodeset: subcaseAttachmentPath.child(write.validProp).toXPath(),
+						relevant: `count(${write.resolvedQPath}) = 1`,
+					}),
+				);
+				binds.push(
+					el("bind", {
+						nodeset: subcaseAttachmentPath
+							.child(write.validProp)
+							.attr("src")
+							.toXPath(),
+						calculate: write.resolvedQPath,
+					}),
+				);
+			}
+		}
 		const subcaseUpdatePath = subcaseCasePath.child("update");
-		for (const [prop, mapping] of props) {
-			const validProp = validatePropertyName(prop);
-			const qPath =
-				mapping.question_path || FormPath.root().child(prop).toXPath();
-			const resolvedQPath = validateXFormPath(qPath);
+		for (const { validProp, resolvedQPath } of scScalarWrites) {
 			// Subcase update binds nest the property under `<case>` — the
 			// path is `<subcase_n>/case/update/<prop>`, NOT
 			// `<subcase_n>/update/<prop>`. The case element is what wraps
@@ -807,10 +939,22 @@ export function addCaseBlocks(
 	actions: FormActions,
 	caseType: string,
 ): string {
-	const emission = buildCaseBlocks(actions, caseType);
+	/* The upload-ref scan needs the parsed document, and the early return
+	 * below is documented as skipping the parse entirely, so both parse
+	 * through one memo: a form with no case-block work never reaches the
+	 * thunk and never pays, and a form that does pay exactly once and
+	 * shares the result with the splice below. */
+	let parsed: ReturnType<typeof parseXForm> | null = null;
+	const parsedXForm = () => (parsed ??= parseXForm(xform));
+	let uploadRefs: ReadonlySet<string> | null = null;
+	const emission = buildCaseBlocks(
+		actions,
+		caseType,
+		() => (uploadRefs ??= attachmentQuestionPaths(parsedXForm())),
+	);
 	if (emission === null) return xform;
 
-	const doc = parseXForm(xform);
+	const doc = parsedXForm();
 	const dataEl = findDataElement(doc, "addCaseBlocks");
 
 	// Group dataChildren by their splice parent's serialized XPath and walk
