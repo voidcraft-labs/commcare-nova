@@ -338,8 +338,10 @@ temporarily invalid.
 
 A persona's `locationUuids` replace its complete place assignment in main-first
 order. Case flow controls ownership and delivery independently from address-book
-visibility. Fixed place owners and reverse-hop place owners are available in
-Preview only until device location data and HQ identity mapping ship.
+visibility. Reverse-hop place owners export on every mode: they
+travel as level codes and the case's own owner. A fixed place owner is Preview
+only, because it travels as Nova's own place id and would match nobody on a
+CommCare HQ project.
 
 Archiving is a two-call confirmation flow. First call
 `set_location_archived` with `archived: true` and no confirmation, review its

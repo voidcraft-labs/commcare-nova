@@ -67,9 +67,10 @@ export function OrganizationSection() {
 				aria-label="Current support"
 				className="mt-4 max-w-prose rounded-lg border border-nova-violet/30 bg-nova-violet/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
 			>
-				Preview can use assigned places and place-based case ownership. These
-				settings do not filter Preview case lists yet, and places are not
-				included when you publish.
+				Preview can use assigned places and place-based case ownership, and
+				publishing puts these places on your CommCare HQ project space. These
+				settings do not filter Preview case lists yet, and an owner rule set to
+				a particular place cannot be exported.
 			</aside>
 			<div className="mt-8 flex flex-col gap-10">
 				{status ?? (

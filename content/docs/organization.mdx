@@ -12,14 +12,17 @@ There are three things on that screen, and the order is the order you build
 them: the **levels** of your organization, the **information** its places
 carry, and the **places** themselves.
 
-Nova authors this model today. Preview projects a persona's assigned places into
-their session identity and can use place-based case-owner expressions when a
-form submits. It does **not** yet use case-delivery or address-book reach to
-filter Preview case lists. That owner-set behavior, downloadable location data,
-worker and place provisioning, and the mapping from Nova's place identities to
-CommCare all ship in later units. Nova blocks place-based case-owner rules at
-export instead of producing an app whose destinations would be missing on the
-device.
+Nova authors this model today, and publishing puts these places on your CommCare
+HQ project space. Preview projects a persona's assigned places into their session
+identity and can use place-based case-owner expressions when a form submits. It
+does **not** yet use case-delivery or address-book reach to filter Preview case
+lists.
+
+One owner rule still cannot be exported: **a particular place**, which names that
+place by Nova's own id rather than by the one CommCare HQ gave it. **A place
+beneath the current case owner** exports on every mode, because it travels as
+level codes and the case's own owner, both of which mean the same thing on
+CommCare HQ.
 
 ## Levels
 
@@ -56,8 +59,9 @@ Those two are independent, and all four combinations are useful:
 **Workers also receive cases from places below** widens the delivery scope you
 are authoring. "Everything below" is the common answer. Preview case lists do
 not apply this scope yet. When Nova can deploy this model, stopping at a
-particular level will also require a setting on the target CommCare project.
-Nova does not configure that setting or publish the location model today.
+particular level will also require a setting on the target CommCare project,
+which Nova does not configure. Publishing does put the places themselves on the
+project space.
 
 ### Address-book reach (authored today)
 
@@ -78,9 +82,9 @@ The choices:
 
 Nova uses this footprint now to validate whether an authored place-owner
 expression is safe for every assigned persona. Preview does not yet filter a
-case list or interactive address book by it. When device location data ships,
-widening it will increase the location fixture downloaded for every worker at
-that level. That future payload cost is the trade you are designing for.
+case list or interactive address book by it. Widening it increases the location
+data CommCare HQ sends every worker at that level on restore, so that payload
+cost is the trade you are designing for.
 
 ## Place information
 
@@ -126,9 +130,10 @@ where Nova only asks their codes to differ, so two clinics called "North" in the
 same district stop a publish until one is renamed. Both are checked before any
 place is sent, so a publish never leaves half a tree over there.
 
-Place-based case owner rules stay closed at export for now. They need the device
-location data that ships with the usercase work, and Nova blocks the rule rather
-than publish one whose place is missing on the phone.
+One owner rule stays closed at export: **a particular place**, which names that
+place by Nova's own id rather than the one CommCare HQ gave it, so the rule would
+match nobody over there. **A place beneath the current case owner** exports on
+every mode, because it travels as level codes and the case's own owner.
 
 Every place gets a **code** when you create it, and that code never changes —
 renaming a place leaves it alone. The code is what bulk uploads and CommCare use
