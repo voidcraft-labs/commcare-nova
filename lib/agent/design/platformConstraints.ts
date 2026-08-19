@@ -44,7 +44,6 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
-	"GAP_USERCASE_OWNER_SETS",
 	"GAP_APP_SETUP_UI",
 	"GAP_FORM_LINKS_AND_SECTIONS",
 	"GAP_NESTED_MENUS",
@@ -97,7 +96,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 	LOCATION_OWNER_EXPORT_CLOSED: {
 		code: "LOCATION_OWNER_EXPORT_CLOSED",
 		statement:
-			"Typed location-based case ownership executes in Preview, but every export mode for it stays closed until the usercase/deployment work ships the persona-scoped locations fixture and HQ identity mapping.",
+			"Typed location-based case ownership executes in Preview, and publishing puts an app's places on the target project space, but every export mode for it stays closed: the compiler emits Nova's own place UUID and no compile path resolves it through the deployment's location mappings.",
 		sourceAnchor: "docs/plans/complex-app-plan.md#what-is-built",
 	},
 	CASE_SEARCH_IS_LIVE_AND_ONLINE: {
@@ -181,13 +180,6 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"On-device date arithmetic can faithfully add fixed seconds through weeks to a date. Calendar-relative months or years, and date-add over a datetime, are rejected because JavaRosa cannot preserve their semantics; a design that requires true calendar milestones must resolve that requirement instead of lowering it to hand-built leap-year arithmetic or an unstated day approximation.",
 		sourceAnchor:
 			"lib/commcare/expression/onDeviceCompatibility.ts::onDeviceDateAddIssue",
-	},
-	GAP_USERCASE_OWNER_SETS: {
-		code: "GAP_USERCASE_OWNER_SETS",
-		statement:
-			"Usercase materialization, owner-set derivation, tenant-complete restore closure, and the flat location fixture are a deliberate target gap.",
-		sourceAnchor: "docs/plans/complex-app/usercase-owner-sets-and-wire.md",
-		gapUnitFile: "usercase-owner-sets-and-wire.md",
 	},
 	GAP_APP_SETUP_UI: {
 		code: "GAP_APP_SETUP_UI",

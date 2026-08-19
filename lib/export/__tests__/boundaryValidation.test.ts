@@ -609,7 +609,7 @@ describe("prepareExportBoundary", () => {
 	});
 
 	it.each(["ccz", "hq-json", "hq-upload"] as const)(
-		"keeps place-owner terms closed for %s exports until the device fixture ships",
+		"keeps place-owner terms closed for %s exports until the HQ identity map ships",
 		async (mode) => {
 			for (const [kind, makeDoc] of [
 				["fixed", fixedOwnerDoc],
@@ -632,6 +632,22 @@ describe("prepareExportBoundary", () => {
 							details: expect.objectContaining({ exportMode: mode }),
 						}),
 					]),
+				);
+
+				// The refusal has exactly ONE reason left, and it has to SAY so.
+				// BOTH reasons it used to give are closed: HQ builds the device
+				// `locations` fixture on restore from its own rows, and
+				// publishing now puts the places there and records each one's
+				// `location_id`. What is left is that the compiler still writes
+				// Nova's place UUID. A message naming either closed reason sends
+				// an author looking for a feature that exists.
+				const finding = result.violations.find(
+					(candidate) => candidate.code === "LOCATION_OWNER_EXPORT_NOT_ACTIVE",
+				);
+				expect(finding?.message).toContain("CommCare HQ project");
+				expect(finding?.message).toMatch(/Nova's own id/);
+				expect(finding?.message).not.toMatch(
+					/fixture|device location data|identity map/i,
 				);
 			}
 		},

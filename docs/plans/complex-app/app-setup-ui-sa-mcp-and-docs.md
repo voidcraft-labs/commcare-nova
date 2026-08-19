@@ -2,8 +2,7 @@
 
 **PR:** `App setup: deployment`
 
-**Depends on:** [usercase & wire](usercase-owner-sets-and-wire.md).
-· **Blocks:** nothing.
+**Depends on:** nothing outstanding. · **Blocks:** nothing.
 
 > Read [the binding contracts](00-contracts.md) first — the workspace-structure,
 > baseline-UI-review, and three-surfaces rules there are the acceptance criteria

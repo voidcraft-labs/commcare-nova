@@ -241,7 +241,7 @@ function organizationExportFindings(
 				validationError(
 					"LOCATION_OWNER_EXPORT_NOT_ACTIVE",
 					"form",
-					`A place-based case owner cannot be exported as ${EXPORT_MODE_LABELS[mode]} until Nova ships the matching device location data and HQ identity mapping. Choose a non-location owner or remove this owner rule before exporting.`,
+					`A place-based case owner cannot be exported as ${EXPORT_MODE_LABELS[mode]} yet. The exported rule names each place by Nova's own id, and your CommCare HQ project knows its places by different ids, so the rule would match nobody. Choose a different owner for this rule, or remove it, and this app will export.`,
 					{
 						formUuid: form.uuid,
 					},

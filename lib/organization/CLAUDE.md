@@ -305,13 +305,18 @@ about places.
   `primary_location` + `locations` together. That is a WORKER's assignment,
   not a case-owner rule, and the two stay separate — a place the ledger has no
   live mapping for refuses the call rather than being created on the way past.
-- The compiler can lower fixed-place and reverse-hop owner terms, but every
-  export mode remains closed while the persona-scoped device location fixture
-  is absent. The HQ identity map is no longer missing — publishing creates and
-  updates these rows on the target project space and the deployment ledger
-  holds each one's `location_id` — so the remaining half is the fixture, and
-  the usercase unit owns it. Do not describe an authored owner term as
-  deployable until that boundary opens.
+- The compiler lowers fixed-place and reverse-hop owner terms, and every export
+  mode is still closed — but for neither of the two reasons this file used to
+  give. The HQ identity map exists: publishing creates the places on the target
+  project space and the deployment ledger holds each one's `location_id`. The
+  device fixture is not Nova's to ship either — HQ builds it on RESTORE from
+  those same rows (`locations/fixtures.py::FlatLocationSerializer`), so nothing
+  Nova exports could carry one. What remains is the translation: `emitTerm`
+  writes Nova's own place UUID, and no compile path resolves it through the
+  deployment's `location` mappings — and a local `.ccz` has no deployment to
+  resolve against at all. Do not describe an authored owner term as deployable
+  until a compile path reads those mappings, and do not re-add the fixture or
+  the identity map to the refusal's reasons.
 
 Keep pure schema/derivation/plan tests separate from Postgres integration
 tests, and bundle the Postgres-focused ones into one invocation so local and
