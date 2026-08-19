@@ -77,6 +77,7 @@ import {
 	type Column,
 	caseListColumnIsEmitted,
 	isCaptureFieldKind,
+	mergeOwnRecords,
 	orderedCaseOperations,
 	orderedColumns,
 	organizationLevelsOf,
@@ -1976,20 +1977,25 @@ export async function resolveAuthorizedPreviewContext(args: {
 	// be written. The projection on `identity` still answers `#user/` from the
 	// same derivation, so a failed create degrades to exactly today's behaviour
 	// rather than to a broken screen.
-	await ensureUsercaseRow({ appId: args.appId, identity, blueprint, store });
+	const identityOnRecord = await withMaterializedUsercase({
+		appId: args.appId,
+		identity,
+		blueprint,
+		store,
+	});
 
 	return {
 		kind: "ready",
-		identity,
+		identity: identityOnRecord,
 		restoreScope: await resolveRestoreScope({
 			appId: args.appId,
-			identity,
+			identity: identityOnRecord,
 			blueprint,
 		}),
 		store,
 		scope: {
 			projectId: access.projectId,
-			actorId: identity.actorUserId,
+			actorId: identityOnRecord.actorUserId,
 			role: access.role,
 		},
 		...(blueprint !== undefined && { blueprint }),
@@ -1997,25 +2003,41 @@ export async function resolveAuthorizedPreviewContext(args: {
 }
 
 /**
- * Create the acting worker's `commcare-user` row if it is missing.
+ * Point the identity's usercase at the stored row, creating it if it is
+ * missing.
  *
- * The commit path owns keeping a worker's case in STEP; this owns its
- * existence, for the two cases the commit path structurally cannot reach: a
+ * Two jobs, and they belong together because the second needs the first's
+ * result. The commit path owns keeping a worker's case in STEP; this owns its
+ * EXISTENCE, for the two workers the commit path structurally cannot reach: a
  * persona authored before this feature existed, and the signed-in member, who
  * is a worker Nova never commits a document about.
+ *
+ * Then the row wins. `#user/<prop>` compiles to a `casedb` join
+ * (`app_manager/xpath.py::UsercaseXPath.case()`), so the ROW is what a device
+ * reads and the derived record is only ever an input to it. The two can
+ * genuinely differ today: `usercaseChangedFields` never removes a key, so a
+ * property dropped from the worker-property catalog is still on the row while
+ * the derivation has forgotten it — and a device would still answer with it.
+ * Reading the row is what keeps Preview's answer and the field's answer the
+ * same one.
+ *
+ * Best-effort by design. A worker whose row could not be written still gets a
+ * running preview off the derived record, which is what this returns
+ * unchanged — a case list that will not load is a far worse answer than a
+ * usercase value that is momentarily derived rather than stored.
  *
  * `projectSpace` is deliberately null. The CommCare domain is a deployment
  * fact rather than a document one, and an absent `commcare_project` reads
  * blank on a device, which is what an unpublished app has.
  */
-async function ensureUsercaseRow(args: {
+async function withMaterializedUsercase(args: {
 	readonly appId: string;
 	readonly identity: ResolvedPreviewIdentity;
 	readonly blueprint: PersistableDoc | undefined;
 	readonly store: CaseStore;
-}): Promise<void> {
+}): Promise<ResolvedPreviewIdentity> {
 	const { appId, identity, blueprint, store } = args;
-	if (blueprint === undefined) return;
+	if (blueprint === undefined) return identity;
 	const persona =
 		identity.personaUuid === undefined
 			? undefined
@@ -2032,24 +2054,33 @@ async function ensureUsercaseRow(args: {
 					username: memberName,
 					personName: memberName,
 					email: "",
+					locationIds: [],
 				}
 			: workerFromPersona(persona);
 	const authored =
 		persona === undefined ? {} : personaUserData(persona, blueprint);
 	try {
-		await syncUsercaseRow(store, {
+		const { stored } = await syncUsercaseRow(store, {
 			appId,
 			worker,
 			authored,
 			doc: blueprint,
 			projectSpace: null,
 		});
+		// `case_name` is a column rather than a property, so the row's
+		// properties never carry it and the derived record is the only place it
+		// lives. Layering the row OVER the record keeps it.
+		return {
+			...identity,
+			usercase: mergeOwnRecords(identity.usercase, stored),
+		};
 	} catch (err) {
 		log.warn("[preview] usercase row ensure failed", {
 			appId,
 			workerId: worker.id,
 			error: err instanceof Error ? err.message : String(err),
 		});
+		return identity;
 	}
 }
 

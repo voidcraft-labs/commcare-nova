@@ -113,7 +113,13 @@ describe("usercaseCaseType", () => {
 		const declared = new Set(names(d));
 		for (const projectSpace of [null, "my-domain"]) {
 			const record = usercaseRecord(
-				{ id: "p-1", username: "amara", personName: "Amara", email: "" },
+				{
+					id: "p-1",
+					username: "amara",
+					personName: "Amara",
+					email: "",
+					locationIds: [],
+				},
 				{ "u-1": "nurse" },
 				d,
 				projectSpace,
@@ -164,6 +170,7 @@ describe("usercaseRecord", () => {
 		username: "Amara",
 		personName: "Amara Diallo",
 		email: "",
+		locationIds: [],
 	};
 
 	it("layers built-ins over authored values, the way HQ does", () => {
@@ -184,6 +191,32 @@ describe("usercaseRecord", () => {
 		const record = usercaseRecord(worker, {}, d, "my-domain");
 		expect(record.cadre).toBe("");
 		expect(Object.hasOwn(record, "undeclared")).toBe(false);
+	});
+
+	it("carries the assignment, most important place first", () => {
+		// `_get_user_case_fields` writes all three in the same pass as every
+		// other built-in, so they belong to the worker's facts rather than to an
+		// overlay a caller remembers to apply. Nova has no separate
+		// primary-sharing concept, so that key is the primary location.
+		const assigned = usercaseRecord(
+			{ ...worker, locationIds: ["place-a", "place-b"] },
+			{},
+			doc([]),
+			"my-domain",
+		);
+		expect(assigned.commcare_location_id).toBe("place-a");
+		expect(assigned.commcare_location_ids).toBe("place-a place-b");
+		expect(assigned.commcare_primary_case_sharing_id).toBe("place-a");
+	});
+
+	it("carries the assignment keys present and empty for a worker with none", () => {
+		// HQ's explicit `else ''` branch. Absent and empty answer differently to
+		// a `= ''` comparison, and a device reading an unassigned worker gets
+		// the empty one.
+		const unassigned = usercaseRecord(worker, {}, doc([]), "my-domain");
+		expect(unassigned.commcare_location_id).toBe("");
+		expect(unassigned.commcare_location_ids).toBe("");
+		expect(unassigned.commcare_primary_case_sharing_id).toBe("");
 	});
 
 	it("omits commcare_project when Nova does not know the project space", () => {
@@ -260,7 +293,6 @@ describe("usercaseName", () => {
 				id: "p-1",
 				username: "amara",
 				personName: "Amara Diallo",
-				email: "",
 			}),
 		).toBe("Amara Diallo");
 	});
@@ -274,15 +306,14 @@ describe("usercaseName", () => {
 				id: "p-1",
 				username: "amara",
 				personName: "   ",
-				email: "",
 			}),
 		).toBe("amara");
 	});
 
 	it("falls back to the id when the worker has neither", () => {
-		expect(
-			usercaseName({ id: "p-1", username: "", personName: "", email: "" }),
-		).toBe("p-1");
+		expect(usercaseName({ id: "p-1", username: "", personName: "" })).toBe(
+			"p-1",
+		);
 	});
 
 	it("normalizes through the same scalar contract every other case write uses", () => {
@@ -297,7 +328,6 @@ describe("usercaseName", () => {
 				id: "p-1",
 				username: "amara",
 				personName: "\u0001Amara\u0002",
-				email: "",
 			}),
 		).toBe("Amara");
 		expect(
@@ -305,7 +335,6 @@ describe("usercaseName", () => {
 				id: "p-1",
 				username: "amara",
 				personName: "\u200bAmara",
-				email: "",
 			}),
 		).toBe("\u200bAmara");
 	});

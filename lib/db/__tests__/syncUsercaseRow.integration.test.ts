@@ -52,6 +52,7 @@ const WORKER = {
 	username: "amara",
 	personName: "Amara Diallo",
 	email: "",
+	locationIds: [],
 };
 
 function doc(
@@ -151,8 +152,58 @@ describe("syncUsercaseRow", () => {
 		await syncUsercaseRow(workerStore(), args);
 		const second = await syncUsercaseRow(workerStore(), args);
 
-		expect(second).toEqual({ created: false, changed: 0 });
+		expect(second.created).toBe(false);
+		expect(second.changed).toBe(0);
 		await storedRow(); // asserts exactly one row survives
+	});
+
+	it("reports what the ROW holds, not what this sync changed", async () => {
+		// Preview hands `stored` straight to `ResolvedPreviewIdentity.usercase`,
+		// because `#user/<prop>` resolves against `casedb` on the wire and the
+		// row is therefore the truth. Returning the diff instead would leave a
+		// worker's whole record blank on every sync that changed nothing, which
+		// is the overwhelmingly common one.
+		const d = doc([CADRE]);
+		await seedSchema(d);
+		const args = {
+			appId: APP_ID,
+			worker: WORKER,
+			authored: { "u-1": "nurse" },
+			doc: d,
+			projectSpace: "my-domain",
+		};
+
+		await syncUsercaseRow(workerStore(), args);
+		const second = await syncUsercaseRow(workerStore(), args);
+
+		expect(second.changed).toBe(0);
+		expect(second.stored.cadre).toBe("nurse");
+		expect(second.stored.hq_user_id).toBe(PERSONA_ID);
+		expect(second.stored.username).toBe("amara");
+	});
+
+	it("reports the value a sync just wrote, not the one it replaced", async () => {
+		const d = doc([CADRE]);
+		await seedSchema(d);
+		await syncUsercaseRow(workerStore(), {
+			appId: APP_ID,
+			worker: WORKER,
+			authored: { "u-1": "nurse" },
+			doc: d,
+			projectSpace: "my-domain",
+		});
+
+		const updated = await syncUsercaseRow(workerStore(), {
+			appId: APP_ID,
+			worker: WORKER,
+			authored: { "u-1": "driver" },
+			doc: d,
+			projectSpace: "my-domain",
+		});
+
+		expect(updated.stored.cadre).toBe("driver");
+		// And still everything the update did not name.
+		expect(updated.stored.hq_user_id).toBe(PERSONA_ID);
 	});
 
 	it("refuses a property the case type does not declare, at the storage layer", async () => {

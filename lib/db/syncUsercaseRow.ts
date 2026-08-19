@@ -17,6 +17,7 @@ import "server-only";
 
 import type { CaseStore, JsonObject } from "@/lib/case-store";
 import {
+	assignedLocationUuids,
 	isStandardCaseListProperty,
 	type Persona,
 	personasOf,
@@ -99,7 +100,13 @@ export interface SyncUsercaseRowArgs {
 export async function syncUsercaseRow(
 	store: CaseStore,
 	args: SyncUsercaseRowArgs,
-): Promise<{ readonly created: boolean; readonly changed: number }> {
+): Promise<{
+	readonly created: boolean;
+	readonly changed: number;
+	/** The row's properties AFTER the sync — what `casedb` would hand a
+	 *  device, which is not always what the projection derived. */
+	readonly stored: Record<string, string>;
+}> {
 	const { appId, worker, authored, doc, projectSpace } = args;
 	const caseId = usercaseIdFor(worker);
 	const record = usercaseRecord(worker, authored, doc, projectSpace);
@@ -132,7 +139,11 @@ export async function syncUsercaseRow(
 				properties,
 			},
 		});
-		return { created: true, changed: Object.keys(properties).length };
+		return {
+			created: true,
+			changed: Object.keys(properties).length,
+			stored: properties as Record<string, string>,
+		};
 	}
 
 	const changed = usercaseChangedFields(
@@ -142,9 +153,19 @@ export async function syncUsercaseRow(
 		// absorb exactly that.
 		properties as Record<string, string>,
 	);
+	const storedBefore = (current.properties ?? {}) as Record<string, unknown>;
+	// What the row holds once this sync lands: everything already on it, with
+	// the changed keys over the top. A MERGE, matching what `update` does —
+	// keys outside the desired record stay, which is exactly why the row and
+	// the projection can differ and why the row is the one to believe.
+	const stored: Record<string, string> = {};
+	for (const [key, value] of Object.entries(storedBefore)) {
+		if (value !== null && value !== undefined) stored[key] = String(value);
+	}
+	Object.assign(stored, changed);
 	const renamed = current.case_name !== caseName;
 	if (Object.keys(changed).length === 0 && !renamed) {
-		return { created: false, changed: 0 };
+		return { created: false, changed: 0, stored };
 	}
 	await store.update({
 		appId,
@@ -154,7 +175,7 @@ export async function syncUsercaseRow(
 			...(Object.keys(changed).length > 0 && { properties: changed }),
 		},
 	});
-	return { created: false, changed: Object.keys(changed).length };
+	return { created: false, changed: Object.keys(changed).length, stored };
 }
 
 /**
@@ -213,6 +234,7 @@ export function workerFromPersona(persona: Persona): UsercaseWorker {
 		username: persona.name,
 		personName: persona.name,
 		email: "",
+		locationIds: assignedLocationUuids(persona.locations),
 	};
 }
 

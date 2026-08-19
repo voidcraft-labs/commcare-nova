@@ -43,6 +43,7 @@ import {
 	recordFromEntries,
 	splitWorkerName,
 	type UserCollections,
+	type UsercaseWorker,
 	type Uuid,
 	usercaseRecord,
 	usercaseValuesBySlug,
@@ -158,14 +159,7 @@ function frameworkSessionKeys(
  * `get_user_session_data` writes in.
  */
 function projections(
-	worker: {
-		id: string;
-		/** The login handle — `session/context/username` and the usercase's. */
-		username: string;
-		/** The human name the first/last split comes from. */
-		personName: string;
-		email: string;
-	},
+	worker: UsercaseWorker,
 	authored: Record<string, string>,
 	doc: UserCollections,
 	projectSpace: string | null,
@@ -230,6 +224,10 @@ export function previewAsMe(
 				username: email || name || user.id,
 				personName: name || email || user.id,
 				email,
+				// A member is a Nova account rather than a worker the app
+				// assigns, so they are assigned nowhere — which is a real answer
+				// and the same one the restore scope gives them.
+				locationIds: [],
 			},
 			{},
 			doc,
@@ -260,18 +258,19 @@ export function previewAsPersona(
 	if (user === null || user === undefined) return null;
 	if (user.id.trim() === "") return null;
 
+	const locationIds = assignedLocationUuids(persona.locations);
 	const projected = projections(
 		{
 			id: persona.uuid,
 			username: persona.name,
 			personName: persona.name,
 			email: "",
+			locationIds,
 		},
 		personaUserData(persona, doc),
 		doc,
 		projectSpace,
 	);
-	const locationIds = assignedLocationUuids(persona.locations);
 	const primary = locationIds[0];
 	const locationSession: Record<string, string> =
 		primary === undefined
@@ -281,12 +280,6 @@ export function previewAsPersona(
 					commcare_location_ids: locationIds.join(" "),
 					commcare_primary_case_sharing_id: primary,
 				};
-	const locationUsercase = {
-		commcare_location_id: primary ?? "",
-		commcare_location_ids: locationIds.join(" "),
-		commcare_primary_case_sharing_id: primary ?? "",
-	};
-
 	return {
 		actorUserId: user.id,
 		ownerId: persona.uuid,
@@ -295,7 +288,12 @@ export function previewAsPersona(
 			...projected.session,
 			user: mergeOwnRecords(projected.session.user, locationSession),
 		},
-		usercase: mergeOwnRecords(projected.usercase, locationUsercase),
+		// No location overlay here: the assignment is one of the worker's facts,
+		// so `usercaseBuiltInValues` writes those three keys and the stored row
+		// carries the same values. An overlay would put them on the projection
+		// and not on the row, and `#user/commcare_location_id` would answer one
+		// way in Preview and another on a device.
+		usercase: projected.usercase,
 	};
 }
 

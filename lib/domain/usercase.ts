@@ -64,6 +64,16 @@ export interface UsercaseWorker {
 	/** The human name the case's name and the first/last split come from. */
 	readonly personName: string;
 	readonly email: string;
+	/**
+	 * The places this worker is assigned to, most important first.
+	 *
+	 * Part of the worker's facts rather than an overlay a caller adds
+	 * afterwards, because `_get_user_case_fields` writes the three
+	 * `commcare_location_*` keys in the SAME pass as every other built-in. A
+	 * worker with no assignment carries them empty, which is HQ's explicit
+	 * `else ''` branch and not an absence.
+	 */
+	readonly locationIds: readonly string[];
 }
 
 /** Split a display name the way an HQ profile's first/last name divides. */
@@ -121,7 +131,9 @@ export const USERCASE_BUILT_IN_KEYS: readonly string[] = [
  * resort: it is never blank, and a case named for its own id is at least
  * findable.
  */
-export function usercaseName(worker: UsercaseWorker): string {
+export function usercaseName(
+	worker: Pick<UsercaseWorker, "id" | "username" | "personName">,
+): string {
 	for (const candidate of [worker.personName, worker.username, worker.id]) {
 		const prepared = prepareCaseScalarTextValue(candidate, "reject");
 		if (prepared.ok) return prepared.value;
@@ -173,9 +185,16 @@ export function usercaseBuiltInValues(
 		phone_number: "",
 		last_device_id_used: "",
 		commcare_profile: "",
-		commcare_location_id: "",
-		commcare_location_ids: "",
-		commcare_primary_case_sharing_id: "",
+		// HQ writes all three from the assignment, with an explicit `else ''`
+		// when there is none — so an unassigned worker has them present and
+		// empty rather than missing, and `#user/commcare_location_id = ''`
+		// answers the same here as in the field. The primary sharing id is the
+		// same place as the primary location: Nova has no separate
+		// primary-sharing concept, and HQ's own default is the primary location
+		// unless a user overrides it, which Nova offers no way to do.
+		commcare_location_id: worker.locationIds[0] ?? "",
+		commcare_location_ids: worker.locationIds.join(" "),
+		commcare_primary_case_sharing_id: worker.locationIds[0] ?? "",
 		...(projectSpace === null ? {} : { commcare_project: projectSpace }),
 	};
 }
