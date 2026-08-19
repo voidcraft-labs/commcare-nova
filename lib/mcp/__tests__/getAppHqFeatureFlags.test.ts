@@ -23,7 +23,7 @@ vi.mock("@/lib/db/settings", () => ({
 const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 function loaded(
-	doc: Pick<BlueprintDoc, "connectType" | "modules">,
+	doc: Pick<BlueprintDoc, "connectType" | "fields" | "modules">,
 	appName = "Vaccine Tracker",
 ) {
 	return {
@@ -55,6 +55,7 @@ describe("registerGetAppHqFeatureFlags", () => {
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
 			loaded({
 				connectType: "learn",
+				fields: {},
 				modules: {
 					module1: {
 						uuid: "module1",
@@ -111,7 +112,7 @@ describe("registerGetAppHqFeatureFlags", () => {
 
 	it("returns a quiet, explicit result when the app needs no flags", async () => {
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
-			loaded({ connectType: null, modules: {} }),
+			loaded({ connectType: null, fields: {}, modules: {} }),
 		);
 		const { server, capture } = makeFakeServer();
 		registerGetAppHqFeatureFlags(server, toolCtx);
@@ -127,10 +128,50 @@ describe("registerGetAppHqFeatureFlags", () => {
 		);
 	});
 
+	it("reports the flag an attachment question's destination needs", async () => {
+		// The projection reads `fields`, not just `modules`, and this is the
+		// surface an MCP client actually sees — an app whose only flag comes
+		// from a field would report nothing if the two ever came apart.
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
+			loaded({
+				connectType: null,
+				modules: {},
+				fields: {
+					field1: {
+						uuid: "field1",
+						id: "thepicture",
+						kind: "image",
+						label: { parts: [{ kind: "text", text: "Photo" }] },
+						caseWrite: {
+							caseType: "patient",
+							property: "photo",
+							mode: "attachment",
+						},
+					} as unknown as BlueprintDoc["fields"][string],
+				},
+			}),
+		);
+		const { server, capture } = makeFakeServer();
+		registerGetAppHqFeatureFlags(server, toolCtx);
+
+		const payload = parseResult(await capture()({ app_id: "app-1" }, {}));
+		const report = payload.feature_flag_requirements as Record<string, unknown>;
+		const flags = report.required_flags as Array<{
+			slug: string;
+			reasons: string[];
+		}>;
+
+		expect(flags.map((flag) => flag.slug)).toEqual(["mm_case_properties"]);
+		expect(flags[0]?.reasons).toEqual([
+			"The \u201cPhoto\u201d question saves its file onto the case.",
+		]);
+	});
+
 	it("checks one explicit connected domain and preserves reasons on missing and unverified flags", async () => {
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
 			loaded({
 				connectType: "learn",
+				fields: {},
 				modules: {
 					module1: {
 						uuid: "module1",
