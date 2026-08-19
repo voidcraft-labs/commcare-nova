@@ -44,7 +44,7 @@ import {
 	splitWorkerName,
 	type UserCollections,
 	type Uuid,
-	usercaseBuiltInValues,
+	usercaseRecord,
 	usercaseValuesBySlug,
 	userPropertiesOf,
 } from "@/lib/domain";
@@ -191,11 +191,11 @@ function projections(
 				),
 			),
 		},
-		usercase: mergeOwnRecords(
-			declared,
-			values,
-			usercaseBuiltInValues(worker, projectSpace),
-		),
+		// The SAME derivation the materializer writes into the stored row, not a
+		// parallel one. `#user/` resolves from `casedb` on the wire, so the row
+		// is the truth; a projection computed separately here would answer
+		// differently the moment a worker's case had been saved once.
+		usercase: usercaseRecord(worker, authored, doc, projectSpace),
 	};
 }
 

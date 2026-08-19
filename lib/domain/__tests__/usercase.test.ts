@@ -1,16 +1,22 @@
-// The worker's own case, as a case type rather than a projection.
+// The worker's own case: its shape, its contents, and what a re-sync writes.
 //
-// The projection half (`usercaseBuiltInValues`, `declaredUsercaseSlots`) is
-// covered where its consumer is, in the preview identity suite. What is new
-// here is the SCHEMA: `commcare-user` as something the case store can
-// materialize, whose shape is derived from the worker-property catalog rather
-// than declared beside it.
+// Three things, and the seam between them is the point. `usercaseCaseType` is
+// the SCHEMA the case store materializes, derived from the worker-property
+// catalog rather than declared beside it. `usercaseRecord` is the CONTENTS,
+// and it is one derivation with two consumers — Preview answers `#user/<prop>`
+// from it and the materializer writes it into the row — because `#user/`
+// resolves from `casedb` on the wire, so the two disagreeing would make
+// Preview answer differently from a device for any worker saved once.
+// `usercaseChangedFields` is the DIFF, and it is the never-clobber contract
+// that decides whether a form-written value survives the next persona edit.
 
 import { describe, expect, it } from "vitest";
 import type { PersistableDoc } from "@/lib/domain";
 import {
 	USERCASE_CASE_TYPE,
 	usercaseCaseType,
+	usercaseChangedFields,
+	usercaseRecord,
 	usercaseValuesBySlug,
 } from "@/lib/domain";
 
@@ -121,5 +127,100 @@ describe("usercaseValuesBySlug", () => {
 		// longer declares.
 		const d = doc([{ uuid: "u-1", slug: "cadre", label: "Cadre" }]);
 		expect(usercaseValuesBySlug({ "u-gone": "orphan" }, d)).toEqual({});
+	});
+});
+
+describe("usercaseRecord", () => {
+	const worker = {
+		id: "persona-1",
+		username: "Amara",
+		personName: "Amara Diallo",
+		email: "",
+	};
+
+	it("layers built-ins over authored values, the way HQ does", () => {
+		// `_get_user_case_fields` layers its own keys over `UserData.to_dict()`,
+		// and nothing reserves the built-in names against the slug grammar, so
+		// an author CAN declare `language`. HQ's answer, and ours, is that the
+		// built-in wins.
+		const d = doc([{ uuid: "u-1", slug: "language", label: "Language" }]);
+		const record = usercaseRecord(worker, { "u-1": "Wolof" }, d, "my-domain");
+		expect(record.language).toBe("");
+	});
+
+	it("carries a declared property with no value as present and empty", () => {
+		// `UserData.to_dict()` seeds every schema field blank before applying
+		// anything, so declared-but-empty and undeclared are different states
+		// and a `= ''` comparison can tell them apart.
+		const d = doc([{ uuid: "u-1", slug: "cadre", label: "Cadre" }]);
+		const record = usercaseRecord(worker, {}, d, "my-domain");
+		expect(record.cadre).toBe("");
+		expect(Object.hasOwn(record, "undeclared")).toBe(false);
+	});
+
+	it("omits commcare_project when Nova does not know the project space", () => {
+		// HQ writes the domain unconditionally, but a domain is never empty on
+		// a device. Emitting "" would make `#user/commcare_project = ''` fire
+		// in Preview and never in the field, which is the opposite of what an
+		// absent key does.
+		expect(
+			Object.hasOwn(
+				usercaseRecord(worker, {}, doc([]), null),
+				"commcare_project",
+			),
+		).toBe(false);
+		expect(
+			usercaseRecord(worker, {}, doc([]), "my-domain").commcare_project,
+		).toBe("my-domain");
+	});
+});
+
+describe("usercaseChangedFields", () => {
+	it("returns only what differs", () => {
+		expect(
+			usercaseChangedFields(
+				{ cadre: "nurse", language: "" },
+				{ cadre: "nurse", language: "en" },
+			),
+		).toEqual({ language: "en" });
+	});
+
+	it("never removes a key the stored row has and the desired record lacks", () => {
+		// THE never-clobber contract. A form wrote `visits_done` through
+		// `usercase_update`; a later persona edit must not erase it just
+		// because the persona's own record has nothing to say about it.
+		expect(
+			usercaseChangedFields({ visits_done: "12" }, { cadre: "nurse" }),
+		).toEqual({ cadre: "nurse" });
+	});
+
+	it("overwrites a form-written value when the persona edit names it", () => {
+		// The other half: a property the persona DOES declare is the persona's
+		// to set, so an edit that changes it wins over what a form left there.
+		expect(
+			usercaseChangedFields({ cadre: "driver" }, { cadre: "nurse" }),
+		).toEqual({ cadre: "nurse" });
+	});
+
+	it("writes a key the stored row is missing entirely", () => {
+		expect(usercaseChangedFields({}, { cadre: "nurse" })).toEqual({
+			cadre: "nurse",
+		});
+	});
+
+	it("settles rather than rewriting a row whose stored value is not a string", () => {
+		// A JSONB read can return a number for a row written before every slot
+		// was text. Comparing untouched would mark it changed on every sync,
+		// forever.
+		expect(usercaseChangedFields({ visits: 12 }, { visits: "12" })).toEqual({});
+	});
+
+	it("treats a stored null as absent rather than as the empty string", () => {
+		// Null is the absence of a value; "" is a value HQ writes deliberately
+		// for a declared-but-empty slot. Collapsing them would leave a declared
+		// slot unwritten on a row that has never carried it.
+		expect(usercaseChangedFields({ cadre: null }, { cadre: "" })).toEqual({
+			cadre: "",
+		});
 	});
 });

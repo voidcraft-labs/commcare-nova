@@ -37,7 +37,7 @@
 
 import type { CaseType } from "./blueprint";
 import { proseText } from "./prose";
-import { recordFromEntries } from "./records";
+import { mergeOwnRecords, recordFromEntries } from "./records";
 import { isStandardCaseListProperty } from "./standardCaseProperties";
 import type { UserCollections } from "./users";
 import { userPropertiesOf } from "./users";
@@ -193,4 +193,61 @@ export function usercaseCaseType(doc: UserCollections): CaseType {
 			data_type: "text" as const,
 		})),
 	};
+}
+
+/**
+ * Everything on one worker's usercase: the declared slots, their authored
+ * values, and the built-ins over the top.
+ *
+ * One derivation with two consumers. Preview reads it to answer
+ * `#user/<prop>` before a row exists, and the materializer writes it into
+ * that row. They cannot be allowed to differ: the wire resolves `#user/` from
+ * `casedb`, so the row is the truth, and a projection that disagreed with it
+ * would make Preview answer a question differently from the device for a
+ * worker who had simply been saved once.
+ *
+ * Built-ins last. An author may declare a worker property whose slug collides
+ * with one (nothing reserves them), and HQ resolves that the same way:
+ * `_get_user_case_fields` layers its own keys over `UserData.to_dict()`.
+ */
+export function usercaseRecord(
+	worker: UsercaseWorker,
+	authored: Record<string, string>,
+	doc: UserCollections,
+	projectSpace: string | null,
+): Record<string, string> {
+	return mergeOwnRecords(
+		declaredUsercaseSlots(doc),
+		usercaseValuesBySlug(authored, doc),
+		usercaseBuiltInValues(worker, projectSpace),
+	);
+}
+
+/**
+ * The subset of `desired` that a stored usercase does not already carry.
+ *
+ * This is HQ's `_get_changed_fields` and it is the "without clobbering"
+ * contract: it writes a key only when the value differs, and it NEVER removes
+ * one. A property a form wrote through `usercase_update` therefore survives
+ * every subsequent persona edit that does not name that same property, which
+ * is exactly the behaviour a worker sees in the field.
+ *
+ * The comparison is against the stored value coerced to text, because a
+ * usercase property is text everywhere it matters — HQ stores user data as
+ * strings, and the case type declares every slot `text` — while a JSONB read
+ * can hand back a number or boolean for a row written before that was true.
+ * Comparing untouched would rewrite such a row on every sync forever.
+ */
+export function usercaseChangedFields(
+	stored: Readonly<Record<string, unknown>>,
+	desired: Readonly<Record<string, string>>,
+): Record<string, string> {
+	const changed: Array<readonly [string, string]> = [];
+	for (const [key, value] of Object.entries(desired)) {
+		const current = Object.hasOwn(stored, key) ? stored[key] : undefined;
+		const asText =
+			current === undefined || current === null ? undefined : String(current);
+		if (asText !== value) changed.push([key, value]);
+	}
+	return recordFromEntries(changed);
 }
