@@ -43,6 +43,7 @@ import {
 	logAndReturnError,
 	WAF_PADDING,
 	warnAndReturnError,
+	writeMayHaveLanded,
 } from "./http";
 
 /** One lookup table as CommCare HQ reports it. */
@@ -240,12 +241,13 @@ export interface FixtureUploadRefusal extends CommCareApiError {
 	 * True when Nova cannot rule out that tables reached the project
 	 * space, so the caller has to go and look rather than walk away.
 	 *
-	 * Only three answers rule it out: the `fail` verdict, which
+	 * Two things rule it out: the `fail` verdict, which
 	 * `validate_fixture_file_format` raises before `upload_fixture_file`
-	 * runs; a refusal from the permission layer, which never reaches the
-	 * view; and an edge that answered instead of CommCare HQ. Everything
-	 * else — a 5xx out of the view, a connection that died waiting, an
-	 * answer Nova cannot read — counts as landed, because `_run_upload` is
+	 * runs, and the statuses `http.ts::writeMayHaveLanded` settles, which
+	 * are CommCare HQ or its front door saying no before the view ran.
+	 * Everything else — a 5xx out of the view, a gateway that gave up
+	 * waiting, a connection that died, an answer Nova cannot read —
+	 * counts as landed, because `_run_upload` is
 	 * NOT one transaction: only `flush` is `@atomic`, and `process_table`
 	 * calls it mid-pass once a table has more than a thousand rows to
 	 * write or delete. A big workbook that dies after that flush leaves
@@ -315,14 +317,16 @@ export async function uploadLookupTableWorkbook(
 	}
 	if (!res.ok) {
 		/* No verdict body, so no sentence to keep. Whether anything landed
-		 * depends on how far the request got: the permission layer and the
-		 * edge both answer before `_run_upload` can run, while a 5xx out
-		 * of the view means it ran and stopped somewhere unknown. */
+		 * is the shared rule: the permission layer answers before
+		 * `_run_upload` can run, while anything else means it may have run
+		 * and stopped somewhere unknown. That deliberately includes a
+		 * gateway's own 502 or 504, which says the request was forwarded
+		 * and then waited on, not that it never arrived. */
 		const refusal = await logAndReturnError("lookup table upload failed", res);
 		return {
 			...refusal,
 			message: "",
-			mayHaveLanded: res.status >= 500 && refusal.edgeRefusal !== true,
+			mayHaveLanded: writeMayHaveLanded(res.status, refusal.edgeRefusal),
 		};
 	}
 	let body: FixtureUploadResponse;

@@ -23,12 +23,13 @@
  * as permission.
  */
 
-import type { OrganizationCollections } from "@/lib/domain";
+import type { BlueprintDoc, OrganizationCollections } from "@/lib/domain";
 import {
 	orderedLocationProperties,
 	organizationLevelsOf,
 	ownRecordValue,
 } from "@/lib/domain";
+import { walkExpressionTerms } from "@/lib/domain/predicate";
 import type { StoredLocation } from "@/lib/organization/types";
 import type { DeploymentResource, DeploymentResourceOwnership } from "./types";
 
@@ -562,4 +563,166 @@ export function plannedPlacesFor(
 		});
 	}
 	return live;
+}
+
+/**
+ * A reverse owner hop that the TARGET's own tree makes ambiguous.
+ *
+ * Nova already refuses this shape over its own places
+ * (`lib/organization/commitIntegrity.ts::assertReverseHopTargetsUnambiguous`):
+ * the emitted XPath selects `@id` from every place matching the
+ * destination level under the owner, so two of them make owner choice
+ * depend on fixture order. That check runs over `app_locations`, and
+ * CommCare HQ builds the fixture from ITS rows — which can hold places
+ * Nova never created, or ones an administrator adds beside them.
+ *
+ * So the invariant has to be proved again over there, and this is the
+ * only moment Nova can see that tree. A publish reads it; a `.ccz` and an
+ * import file have no target to read, which is why the export boundary's
+ * docstring names this as a coupling it cannot close.
+ */
+/**
+ * The minimum of a target place this check reads: its identity, its
+ * level, and its parent. Deliberately narrower than `RemotePlace`, which
+ * carries what a PUSH needs; this walks a tree.
+ */
+export interface RemoteTreePlace {
+	readonly locationId: string;
+	readonly name: string;
+	readonly locationTypeCode: string;
+	readonly parentLocationId: string | null;
+}
+
+export interface AmbiguousReverseHop {
+	/** The destination level's code, as both sides spell it. */
+	readonly destinationCode: string;
+	/** The case-owning ancestor level the hop starts from. */
+	readonly sourceCode: string;
+	/** The ancestor place holding more than one destination beneath it. */
+	readonly ownerName: string;
+	/** What it holds, so a person can go and look at exactly those. */
+	readonly destinationNames: readonly string[];
+}
+
+/**
+ * Every reverse hop this app authors that the project space would make
+ * ambiguous.
+ *
+ * Empty when the app authors none, and empty when every owning place over
+ * there holds at most one destination — which is the ordinary case, and
+ * the one a Nova-pushed tree guarantees by construction.
+ */
+export function ambiguousReverseHopsOnTarget(
+	hops: readonly {
+		readonly destinationCode: string;
+		readonly sourceCode: string;
+	}[],
+	hqPlaces: readonly RemoteTreePlace[],
+): readonly AmbiguousReverseHop[] {
+	if (hops.length === 0) return [];
+	const byId = new Map(hqPlaces.map((place) => [place.locationId, place]));
+	const found: AmbiguousReverseHop[] = [];
+
+	for (const hop of hops) {
+		/* Group every destination-level place by its ancestor at the source
+		 * level, walking parents exactly as the emitted `@<sourceCode>_id`
+		 * attribute resolves (`FlatLocationSerializer` writes one such
+		 * attribute per ancestor level). */
+		const byOwner = new Map<string, RemoteTreePlace[]>();
+		for (const place of hqPlaces) {
+			if (place.locationTypeCode !== hop.destinationCode) continue;
+			let cursor: RemoteTreePlace | undefined = place;
+			const seen = new Set<string>();
+			while (
+				cursor !== undefined &&
+				cursor.locationTypeCode !== hop.sourceCode
+			) {
+				if (seen.has(cursor.locationId)) break;
+				seen.add(cursor.locationId);
+				cursor =
+					cursor.parentLocationId === null
+						? undefined
+						: byId.get(cursor.parentLocationId);
+			}
+			if (cursor === undefined || cursor.locationTypeCode !== hop.sourceCode) {
+				continue;
+			}
+			const siblings = byOwner.get(cursor.locationId) ?? [];
+			siblings.push(place);
+			byOwner.set(cursor.locationId, siblings);
+		}
+
+		for (const [ownerId, destinations] of byOwner) {
+			if (destinations.length < 2) continue;
+			found.push({
+				destinationCode: hop.destinationCode,
+				sourceCode: hop.sourceCode,
+				ownerName: byId.get(ownerId)?.name ?? ownerId,
+				destinationNames: destinations.map((place) => place.name).sort(),
+			});
+		}
+	}
+	return found;
+}
+
+/**
+ * Every reverse hop this app authors, as the pair of level CODES the
+ * emitted XPath actually carries.
+ *
+ * Mirrors `predicate/termEmitter.ts::emitTerm`: the destination is the
+ * term's own level, and the source is the nearest ancestor level that
+ * owns cases — the one whose `@<code>_id` attribute the predicate matches
+ * the case owner against. A hop whose destination or source cannot be
+ * resolved is skipped rather than reported: emission itself refuses that
+ * shape, and this check is about the TARGET's tree, not the app's.
+ */
+export function authoredReverseHops(doc: BlueprintDoc): readonly {
+	readonly destinationCode: string;
+	readonly sourceCode: string;
+}[] {
+	const levels = organizationLevelsOf(doc);
+	const pairs = new Map<
+		string,
+		{ destinationCode: string; sourceCode: string }
+	>();
+
+	/* Only the levels a rule actually hops TO. Walking every level would
+	 * report an ambiguity in a part of the organization no expression
+	 * reads, which is a shape somebody may hold on purpose. */
+	const destinations = new Set<string>();
+	for (const form of Object.values(doc.forms)) {
+		for (const operation of form.caseOperations ?? []) {
+			if (operation.owner === undefined) continue;
+			walkExpressionTerms(operation.owner, (term) => {
+				if (term.kind === "owner-location-at-level") {
+					destinations.add(term.levelUuid);
+				}
+			});
+		}
+	}
+	if (destinations.size === 0) return [];
+
+	for (const destinationUuid of destinations) {
+		const destination = levels[destinationUuid];
+		if (destination === undefined) continue;
+		let source =
+			destination.parentLevelUuid === undefined
+				? undefined
+				: levels[destination.parentLevelUuid];
+		const seen = new Set<string>([destination.uuid]);
+		while (source !== undefined && !source.caseFlow.ownsCases) {
+			if (seen.has(source.uuid)) break;
+			seen.add(source.uuid);
+			source =
+				source.parentLevelUuid === undefined
+					? undefined
+					: levels[source.parentLevelUuid];
+		}
+		if (source === undefined || !source.caseFlow.ownsCases) continue;
+		pairs.set(destination.uuid, {
+			destinationCode: destination.code,
+			sourceCode: source.code,
+		});
+	}
+	return [...pairs.values()];
 }

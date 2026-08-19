@@ -305,18 +305,22 @@ about places.
   `primary_location` + `locations` together. That is a WORKER's assignment,
   not a case-owner rule, and the two stay separate — a place the ledger has no
   live mapping for refuses the call rather than being created on the way past.
-- The compiler lowers fixed-place and reverse-hop owner terms, and every export
-  mode is still closed — but for neither of the two reasons this file used to
-  give. The HQ identity map exists: publishing creates the places on the target
-  project space and the deployment ledger holds each one's `location_id`. The
-  device fixture is not Nova's to ship either — HQ builds it on RESTORE from
-  those same rows (`locations/fixtures.py::FlatLocationSerializer`), so nothing
-  Nova exports could carry one. What remains is the translation: `emitTerm`
-  writes Nova's own place UUID, and no compile path resolves it through the
-  deployment's `location` mappings — and a local `.ccz` has no deployment to
-  resolve against at all. Do not describe an authored owner term as deployable
-  until a compile path reads those mappings, and do not re-add the fixture or
-  the identity map to the refusal's reasons.
+- The compiler lowers fixed-place and reverse-hop owner terms, and only ONE of
+  them is still closed at export. Neither of the two reasons this file used to
+  give is among the surviving ones. The HQ identity map exists: publishing
+  creates the places on the target project space and the deployment ledger
+  holds each one's `location_id`. The device fixture is not Nova's to ship
+  either — HQ builds it on RESTORE from those same rows
+  (`locations/fixtures.py::FlatLocationSerializer`), so nothing Nova exports
+  could carry one. A REVERSE HOP therefore exports on every mode: `emitTerm`
+  writes level codes, which a publish puts on the project space as
+  `location_type_code`, matched against the case's own `owner_id`, which is
+  HQ's value at runtime — no Nova identity crosses. A FIXED PLACE stays
+  refused, because `emitTerm` writes Nova's own place UUID as a literal and no
+  compile path resolves it through the deployment's `location` mappings. Do not
+  describe a fixed-place owner as deployable until a compile path reads those
+  mappings, do not re-add the fixture or the identity map to the refusal's
+  reasons, and do not widen the refusal back over the reverse hop.
   `lib/commcare/locations/__tests__/flatLocationsFixture.ts` emits Nova's own
   copy of that fixture purely so the lowering can be proved against the real
   bytes; it is a test asset on no delivery path.

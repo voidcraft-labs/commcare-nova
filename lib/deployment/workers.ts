@@ -58,6 +58,7 @@ import type { DeploymentWithResources } from "./types";
 import { generateWorkerPassword } from "./workerCredentials";
 import type {
 	PlannedWorkerPush,
+	UnconfirmedWorker,
 	WorkerConflict,
 	WorkerProvisionProblem,
 } from "./workerProvisionPlan";
@@ -69,6 +70,8 @@ import {
 	requiredWorkerDataGaps,
 	workerProvisionProblems,
 } from "./workerProvisionPlan";
+
+export type { UnconfirmedWorker } from "./workerProvisionPlan";
 
 /** Why a provisioning call stopped. */
 export const WORKER_REFUSAL_CODES = [
@@ -97,6 +100,13 @@ export const WORKER_REFUSAL_CODES = [
 	"hq_worker_conflict",
 	/** CommCare HQ refused to make or change one of the accounts. */
 	"hq_rejected_worker",
+	/**
+	 * CommCare HQ broke off partway through making an account and did not
+	 * say whether it made one. The password for that account is in the
+	 * answer either way, because if the account IS there it is the only
+	 * copy that will ever exist.
+	 */
+	"hq_worker_may_exist",
 ] as const;
 export type WorkerRefusalCode = (typeof WORKER_REFUSAL_CODES)[number];
 
@@ -177,6 +187,12 @@ export interface ProvisionWorkersInput {
 export interface ProvisionWorkersOutcome {
 	readonly refusal: WorkerProvisionRefusal | null;
 	readonly workers: readonly ProvisionedWorker[];
+	/**
+	 * The accounts CommCare HQ may or may not have made, with their
+	 * passwords. Always empty on a clean run. A caller shows these exactly
+	 * as loudly as `workers`, because the cost of being wrong is the same.
+	 */
+	readonly unconfirmed: readonly UnconfirmedWorker[];
 	/**
 	 * The record as it stands now. Null when nothing was written, and also
 	 * when the write itself failed — the accounts and their passwords are
@@ -294,12 +310,14 @@ export async function provisionWorkers(
 		Object.keys(organizationLevelsOf(input.doc)).length > 0;
 
 	const provisioned: ProvisionedWorker[] = [];
+	const unconfirmed: UnconfirmedWorker[] = [];
 	const landed: RecordRemoteResourceInput[] = [];
 	const stopped = async (
 		refusal: WorkerProvisionRefusal,
 	): Promise<ProvisionWorkersOutcome> => ({
 		refusal,
 		workers: provisioned,
+		unconfirmed,
 		deployment: await recordLanded(input, target, landed),
 	});
 
@@ -337,9 +355,24 @@ export async function provisionWorkers(
 			});
 			input.onWorkerProvisioned?.(provisioned.length, plan.pushes.length);
 		}
+		/* Collected before the refusal is read, for the same reason a
+		 * landing is: this password is the only copy of a credential for an
+		 * account that may be real, and a return that ran first would take
+		 * it with it. */
+		if (written.unconfirmed !== null) {
+			unconfirmed.push({
+				personaUuid: push.personaUuid,
+				personaName: push.personaName,
+				username: push.completeUsername,
+				password: written.unconfirmed.password,
+			});
+		}
 		if (written.refusal !== null) {
 			return stopped({
-				code: "hq_rejected_worker",
+				code:
+					written.unconfirmed === null
+						? "hq_rejected_worker"
+						: "hq_worker_may_exist",
 				message: written.refusal.message,
 				details: written.refusal.details,
 				conflicts: [],
@@ -356,6 +389,7 @@ export async function provisionWorkers(
 	return {
 		refusal: null,
 		workers: provisioned,
+		unconfirmed,
 		deployment: await recordLanded(input, target, landed),
 	};
 }
@@ -376,6 +410,14 @@ interface WorkerWriteResult {
 		/** Only ever set on a create; an update never resets a password. */
 		readonly password: string | null;
 	} | null;
+	/**
+	 * The password of a create CommCare HQ neither confirmed nor ruled
+	 * out. Filled instead of `landed`, never beside it, and always with a
+	 * refusal: there is no id, so nothing can be recorded, and the
+	 * password is here because it may be the only copy of a real account's
+	 * credential.
+	 */
+	readonly unconfirmed: { readonly password: string } | null;
 	readonly refusal: {
 		readonly message: string;
 		readonly details: readonly string[];
@@ -428,14 +470,27 @@ async function writeWorker(
 			userData: push.userData,
 		});
 		if ("success" in created) {
-			return {
-				landed: null,
-				refusal: rejection(created, domain, push, "make"),
-			};
+			/* The password survives the refusal when the refusal cannot rule
+			 * the account out. This is the whole defect the ambiguity guard
+			 * exists for: dropping it here leaves a real worker on the
+			 * project space that nobody can sign in to and nothing in Nova
+			 * points at, and no later call can recover it, because CommCare
+			 * HQ stores passwords hashed. */
+			return created.mayHaveLanded
+				? {
+						landed: null,
+						unconfirmed: { password },
+						refusal: unresolvedCreate(created, domain, push),
+					}
+				: {
+						landed: null,
+						unconfirmed: null,
+						refusal: rejection(created, domain, push, "make"),
+					};
 		}
 		const account = { userId: created.userId, password };
 		if (places === undefined || places === null) {
-			return { landed: account, refusal: null };
+			return { landed: account, unconfirmed: null, refusal: null };
 		}
 		const assigned = await updateHqMobileWorker(creds, domain, created.userId, {
 			locations: places,
@@ -448,13 +503,14 @@ async function writeWorker(
 			 * nobody can sign in to and nothing in Nova points at. */
 			return {
 				landed: account,
+				unconfirmed: null,
 				refusal: {
-					message: `Nova made the account for “${push.personaName}” on “${domain}”, but CommCare HQ wouldn't put them in the places their persona names. The account works; the assignment didn't happen.`,
+					message: `Nova made the account for “${push.personaName}” on “${domain}”, but CommCare HQ wouldn't put them in the places their persona names. The account works; the assignment ${assigned.mayHaveLanded ? "may only have partly happened" : "didn't happen"}. Provision this persona again to finish it.`,
 					details: assigned.message === "" ? [] : [assigned.message],
 				},
 			};
 		}
-		return { landed: account, refusal: null };
+		return { landed: account, unconfirmed: null, refusal: null };
 	}
 
 	const updated = await updateHqMobileWorker(creds, domain, push.remoteId, {
@@ -466,10 +522,15 @@ async function writeWorker(
 		 * there, under a mapping Nova already holds. */
 		return {
 			landed: null,
+			unconfirmed: null,
 			refusal: rejection(updated, domain, push, "update"),
 		};
 	}
-	return { landed: { userId: push.remoteId, password: null }, refusal: null };
+	return {
+		landed: { userId: push.remoteId, password: null },
+		unconfirmed: null,
+		refusal: null,
+	};
 }
 
 /**
@@ -486,11 +547,64 @@ function rejection(
 	push: PlannedWorkerPush,
 	verb: "make" | "update",
 ): NonNullable<WorkerWriteResult["refusal"]> {
-	const permissions = error.status === 401 || error.status === 403;
+	/* An edge answering 403 says nothing about the key or the account's
+	 * permissions (`http.ts::isEdgeRefusal`), so sending somebody to
+	 * change a permission that is already correct would be a wild goose
+	 * chase. Only CommCare HQ's own refusal earns that sentence. */
+	const permissions =
+		error.edgeRefusal !== true &&
+		(error.status === 401 || error.status === 403);
 	return {
 		message: permissions
 			? `CommCare HQ wouldn't let Nova ${verb} the account for “${push.personaName}” on “${domain}”. Creating mobile workers needs the Edit Mobile Workers permission on your CommCare HQ account.`
-			: `CommCare HQ wouldn't ${verb} the account for “${push.personaName}” on “${domain}”, so Nova stopped there. Any workers before this one are on the project space.`,
+			: error.mayHaveLanded
+				? /* Only ever an update by the time this arm is reached, so
+					 * the account itself is not in question and its password is
+					 * untouched. What is in question is whether the change
+					 * took. NOT because `_update` half-writes — for the two
+					 * fields Nova sends it writes nothing until
+					 * `bundle.obj.save()` (see `hq/workers.ts`) — but because
+					 * this arm is reached when CommCare HQ broke off somewhere
+					 * unknown, and `save()` itself is somewhere it could break
+					 * off. */
+					`CommCare HQ broke off while bringing the account for “${push.personaName}” on “${domain}” into step with the app, so the change may or may not have taken. Provision this persona again to settle it.`
+				: `CommCare HQ wouldn't ${verb} the account for “${push.personaName}” on “${domain}”, so Nova stopped there. Any workers before this one are on the project space.`,
+		details: error.message === "" ? [] : [error.message],
+	};
+}
+
+/**
+ * A create CommCare HQ neither completed nor took back.
+ *
+ * Its own sentence, rather than an arm of `rejection`, because the thing
+ * a person has to do about it is different in kind. Every other refusal
+ * says something did not happen; this one says Nova does not know, and
+ * the answer it travels on carries a password that is worthless if the
+ * account is absent and irreplaceable if it is not.
+ *
+ * Two things the wording has to get right, both learned the hard way.
+ *
+ * It never says where the password is. This sentence is rendered ABOVE
+ * the credentials on one surface and beside them as a sibling JSON key on
+ * the other, so "below" would send somebody looking in the wrong place
+ * for the one thing they must not miss.
+ *
+ * And it does not promise that provisioning again offers the account to
+ * take over. That path runs through `findHqMobileWorkers`, the same
+ * Elasticsearch read this design refuses to trust for exactly this
+ * window: while it still trails the create, a retry finds no account,
+ * plans a create, and gets CommCare HQ's own "already taken" — an
+ * adoption offer is not available yet, and sending `adoptPersonaUuids`
+ * does nothing because no conflict was found to match it against. So the
+ * sentence names the wait rather than an affordance that is not there.
+ */
+function unresolvedCreate(
+	error: HqMobileWorkerRefusal,
+	domain: string,
+	push: PlannedWorkerPush,
+): NonNullable<WorkerWriteResult["refusal"]> {
+	return {
+		message: `CommCare HQ broke off while making the account for “${push.personaName}” on “${domain}” and didn't say whether it made one. Keep the password Nova just showed you either way, because if that account is there this is the only password it will ever have. Then look for “${push.completeUsername}” on the project space: if it isn't there, provision ${push.personaName} again to make it, and if it is, give CommCare HQ a minute to notice its own new account before provisioning again, which is when Nova can offer to take it over.`,
 		details: error.message === "" ? [] : [error.message],
 	};
 }
@@ -668,6 +782,7 @@ function refused(
 	return {
 		refusal: { ...refusal, conflicts },
 		workers: [],
+		unconfirmed: [],
 		deployment: null,
 	};
 }

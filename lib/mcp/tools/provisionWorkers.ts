@@ -22,6 +22,14 @@
  *     anything else with this result, including when `error_type` is also
  *     present: a call that stopped halfway still made real accounts, and
  *     their passwords are in the same answer.
+ *   * **A refused call can still have made an account.** CommCare HQ
+ *     commits a worker before it serializes the answer, so a failure past
+ *     that point is a live account and an error. `hq_worker_may_exist`
+ *     reports exactly that, and `unconfirmed_workers` carries the
+ *     passwords for accounts that may or may not be there. Show them with
+ *     the same urgency as `workers`, because if the account exists the
+ *     password is irreplaceable. Never say the account was not created —
+ *     Nova does not know, and neither does the client.
  *   * **A conflict is never resolved by guessing.** A username that is
  *     already taken belongs to somebody; `hq_worker_conflict` names each
  *     one, and only a person saying yes to that exact account turns into
@@ -49,9 +57,32 @@
  *                            accounts Nova didn't create. Nothing was
  *                            written; `worker_conflicts` carries them
  *                            structurally.
- *   8. `hq_rejected_worker`: CommCare HQ refused one of the writes. The
- *                            accounts before it are real and are in
- *                            `workers`, passwords included.
+ *   8. `hq_rejected_worker`: CommCare HQ would not complete one of the
+ *                            writes. The accounts before it are real and
+ *                            are in `workers`, passwords included. This
+ *                            one is NOT always a proven non-event: an
+ *                            UPDATE that broke off mid-flight lands here
+ *                            too, and its `message` says whether the
+ *                            change may have taken. Relay the message
+ *                            rather than reading the tag as "nothing
+ *                            changed".
+ *   9. `hq_worker_may_exist`: CommCare HQ broke off mid-create and said
+ *                            nothing about what it made. The username may
+ *                            or may not be an account now;
+ *                            `unconfirmed_workers` carries it with its
+ *                            password. Tell the user to look for that
+ *                            username on the project space. If it is not
+ *                            there, call again to make it. If it IS,
+ *                            calling again straight away still tries to
+ *                            create and comes back as
+ *                            `hq_rejected_worker` saying the name is
+ *                            taken — CommCare HQ's username search runs on
+ *                            an index that trails its own new account by
+ *                            seconds, so `hq_worker_conflict` and the
+ *                            adoption path only become available once that
+ *                            catches up. Wait a moment before retrying,
+ *                            and never send `adopt_personas` for an
+ *                            account no `worker_conflicts` entry names.
  */
 
 import type { McpServer } from "@modelcontextprotocol/server";
@@ -60,6 +91,7 @@ import { provisionWorkersSchema } from "@/lib/deployment/types";
 import type { WorkerConflict } from "@/lib/deployment/workerProvisionPlan";
 import type {
 	ProvisionedWorker,
+	UnconfirmedWorker,
 	WorkerRefusalCode,
 } from "@/lib/deployment/workers";
 import { provisionWorkers } from "@/lib/deployment/workers";
@@ -90,6 +122,7 @@ const WORKER_ERROR_TAGS = {
 	workers_not_provisionable: "workers_not_provisionable",
 	hq_worker_conflict: "hq_worker_conflict",
 	hq_rejected_worker: "hq_rejected_worker",
+	hq_worker_may_exist: "hq_worker_may_exist",
 } as const satisfies Record<WorkerRefusalCode, string>;
 
 /**
@@ -111,6 +144,22 @@ function describeWorker(worker: ProvisionedWorker) {
 	};
 }
 
+/**
+ * One account CommCare HQ neither confirmed nor ruled out.
+ *
+ * Shaped deliberately unlike `describeWorker`: there is no `hq_user_id`
+ * and no `action`, because neither is known. What it does carry is the
+ * password, which is the entire reason it is on the wire.
+ */
+function describeUnconfirmed(worker: UnconfirmedWorker) {
+	return {
+		persona_uuid: worker.personaUuid,
+		persona_name: worker.personaName,
+		username: worker.username,
+		password: worker.password,
+	};
+}
+
 function describeConflict(conflict: WorkerConflict) {
 	return {
 		persona_uuid: conflict.personaUuid,
@@ -128,7 +177,7 @@ export function registerProvisionWorkers(
 		"provision_workers",
 		{
 			description:
-				"Create CommCare HQ mobile-worker accounts for this app's personas on a project space, or bring existing ones into step with what the app says. The app must already be published there. Each account this call creates comes back with a `password` that exists only in this answer — show every one of them to the user immediately, including when the call also reports an error, because Nova stores none of them and cannot show them again. Omit a worker's `username` to take Nova's suggestion from the persona's name. If a username already belongs to an account Nova didn't create, the call refuses with `hq_worker_conflict` and names each one; ask the user about that exact account and only then send its persona in `adopt_personas`. Nova never deletes or retires a worker, because CommCare HQ's own delete soft-deletes every case that worker owns.",
+				"Create CommCare HQ mobile-worker accounts for this app's personas on a project space, or bring existing ones into step with what the app says. The app must already be published there. Each account this call creates comes back with a `password` that exists only in this answer — show every one of them to the user immediately, including when the call also reports an error, because Nova stores none of them and cannot show them again. Omit a worker's `username` to take Nova's suggestion from the persona's name. If a username already belongs to an account Nova didn't create, the call refuses with `hq_worker_conflict` and names each one; ask the user about that exact account and only then send its persona in `adopt_personas`. If CommCare HQ breaks off mid-create, the call refuses with `hq_worker_may_exist` and puts that account's password in `unconfirmed_workers`: show it to the user immediately, because the account may be real and that password is the only one it will ever have, and tell them to look for that username on the project space rather than saying it was not created. Nova never deletes or retires a worker, because CommCare HQ's own delete soft-deletes every case that worker owns.",
 			inputSchema: z.object({
 				app_id: provisionWorkersSchema.shape.appId.describe(
 					"App id whose personas to provision. Must be an app the caller can edit.",
@@ -208,6 +257,7 @@ export function registerProvisionWorkers(
 				 * exist nowhere else, and an envelope that dropped them to
 				 * report the fourth would lose them for good. */
 				const workers = outcome.workers.map(describeWorker);
+				const unconfirmed = outcome.unconfirmed.map(describeUnconfirmed);
 				if (outcome.refusal !== null) {
 					const refusal = outcome.refusal;
 					return {
@@ -223,6 +273,9 @@ export function registerProvisionWorkers(
 											: refusal.message,
 									app_id: args.app_id,
 									workers,
+									...(unconfirmed.length > 0 && {
+										unconfirmed_workers: unconfirmed,
+									}),
 									...(refusal.conflicts.length > 0 && {
 										worker_conflicts: refusal.conflicts.map(describeConflict),
 									}),

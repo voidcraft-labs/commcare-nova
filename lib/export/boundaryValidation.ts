@@ -206,11 +206,86 @@ async function collectViolationsWithRegistry(
 	];
 }
 
-/** Location-owner terms remain closed at every export boundary. The domain
- * terms and Preview behavior are complete, but the exact persona-scoped
- * `locations` fixture and HQ identity mapping ship with deployment/usercase.
- * Printing an expression without that data would create a valid-looking app
- * whose owner lookup resolves to nothing on a device. */
+/**
+ * The one owner term that cannot cross an export boundary.
+ *
+ * The fixture is not what decides this, which is worth saying first
+ * because it used to be half the stated reason. `owner-location-at-level`
+ * reads `instance('locations')`, and that is CommCare's own restore
+ * fixture on every mode alike (`jr://fixture/locations`; Nova emits no
+ * copy, and the flat serializer under `lib/commcare/locations/__tests__`
+ * is an oracle rather than a producer). `fixed-location` reads no
+ * instance at all — `predicate/instances.ts` groups it with `literal`.
+ * What decides this is WHOSE IDENTITIES the printed expression carries.
+ *
+ * `owner-location-at-level` carries none of Nova's.
+ * `termEmitter.ts::emitTerm` prints level CODES, which a publish puts on
+ * the project space as `location_type_code` and which are therefore the
+ * same word on both sides, and matches them against the case's own
+ * `owner_id`, which is CommCare HQ's value at runtime. Every part of that
+ * expression means the same thing over there, so it exports.
+ *
+ * What that expression DOES assume is three things about the target
+ * project space, none of which Nova can see from here, and all of which a
+ * publish to a space Nova pushed makes true. Each is stated because it
+ * cannot be closed from here, not as a note to somebody later:
+ *
+ *   * **It spells its levels the way Nova does.** A publish writes each
+ *     level's code as `location_type_code`, so a direct upload is sound by
+ *     construction. A downloadable app or an import file dropped into a
+ *     project space whose organization somebody built by hand can carry
+ *     different codes, and the rule then selects nothing.
+ *   * **It has the LOCATIONS privilege.**
+ *     `locations/fixtures.py::should_sync_flat_fixture` answers False
+ *     unless `domain/models.py::Domain.uses_locations` (that privilege,
+ *     plus commtrack or at least one `LocationType`). A publish proves it,
+ *     since the location push takes a 403 without it, and a `.ccz` or
+ *     import file cannot. This one is not quiet: with no fixture the
+ *     device fails to resolve the instance rather than matching nobody.
+ *
+ *     Whether the project space's own
+ *     `LocationFixtureConfiguration.sync_flat_fixture` row is on used to
+ *     belong on this list and no longer does. `expander.ts` emits
+ *     `location_fixture_restore: "both_fixtures"` on any app that reads
+ *     the fixture, and `::should_sync_flat_fixture` returns True for that
+ *     BEFORE it consults the row.
+ *   * **Its tree has no second place under the same owner at the
+ *     destination level.** What makes this expression yield ONE `@id`
+ *     rather than a node-set is
+ *     `lib/organization/commitIntegrity.ts::assertReverseHopTargetsUnambiguous`,
+ *     and that runs over `app_locations` — Nova's tree. CommCare HQ builds
+ *     the fixture from its own `SQLLocation` rows, which can hold places
+ *     Nova never created or ones added after the publish. A publish
+ *     re-proves it over there:
+ *     `lib/deployment/preflight.ts` blocks on
+ *     `ambiguousReverseHopsOnTarget`. A `.ccz` or an import file has no
+ *     target to prove it against.
+ *
+ * A publish settles all three, and none is a reason to refuse an export:
+ * they are the name-and-shape agreement every code-based binding Nova
+ * emits already rests on, case types included, and refusing because a
+ * target MIGHT disagree would refuse far more than this. What is left
+ * unproved is the two modes that have no target to ask — and they are
+ * named here rather than left to be noticed, because the first and third
+ * fail QUIETLY: a predicate that matches nobody, or matches two, is not a
+ * runtime error.
+ *
+ * `fixed-location` prints Nova's place UUID as a literal `owner_id`.
+ * CommCare HQ keys its places by ids it minted itself, so that literal
+ * names nobody there, and it does so quietly: an owner that resolves to
+ * nothing is indistinguishable from an owner who is simply absent.
+ *
+ * This is a missing translation, not a missing feature, and it is not
+ * permanent on any mode. The place mapping exists — the deployment
+ * ledger holds Nova's place UUID against CommCare HQ's `location_id` —
+ * and nothing threads it into emission yet. A direct upload knows its
+ * target authoritatively and is where that will land first; the other two
+ * resolve a target through the app's deployment record, exactly as
+ * `PreparedExportBoundary.attachmentTarget` already does, and become
+ * exportable for an app whose record names one project space. Hence one
+ * message for all three: the reason is the same everywhere, and only the
+ * availability of a target differs.
+ */
 function organizationExportFindings(
 	doc: BlueprintDoc,
 	mode: ExportMode | undefined,
@@ -222,33 +297,24 @@ function organizationExportFindings(
 			form.caseOperations ?? []
 		).entries()) {
 			if (operation.owner === undefined) continue;
-			let ownerTarget: Record<string, string> | undefined;
+			let locationUuid: string | undefined;
 			walkExpressionTerms(operation.owner, (term) => {
-				if (term.kind === "fixed-location") {
-					ownerTarget = {
-						ownerKind: term.kind,
-						locationUuid: term.locationUuid,
-					};
-				} else if (term.kind === "owner-location-at-level") {
-					ownerTarget = {
-						ownerKind: term.kind,
-						levelUuid: term.levelUuid,
-					};
-				}
+				if (term.kind === "fixed-location") locationUuid = term.locationUuid;
 			});
-			if (ownerTarget === undefined) continue;
+			if (locationUuid === undefined) continue;
 			findings.push(
 				validationError(
 					"LOCATION_OWNER_EXPORT_NOT_ACTIVE",
 					"form",
-					`A place-based case owner cannot be exported as ${EXPORT_MODE_LABELS[mode]} yet. The exported rule names each place by Nova's own id, and your CommCare HQ project knows its places by different ids, so the rule would match nobody. Choose a different owner for this rule, or remove it, and this app will export.`,
+					`A case owner set to one particular place cannot be exported as ${EXPORT_MODE_LABELS[mode]} yet. The exported rule names that place by Nova's own id, and your CommCare HQ project knows its places by different ids, so the rule would match nobody. Setting it to a place beneath the current case owner exports fine, so use that instead, or remove this rule.`,
 					{
 						formUuid: form.uuid,
 					},
 					{
 						exportMode: mode,
 						operationIndex: String(operationIndex),
-						...ownerTarget,
+						ownerKind: "fixed-location",
+						locationUuid,
 					},
 				),
 			);

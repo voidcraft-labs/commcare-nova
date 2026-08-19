@@ -13,6 +13,11 @@
  * the code, because a refusal that echoed the request body would put every
  * generated password in Cloud Logging forever and would look perfectly
  * ordinary in review.
+ *
+ * The refused-but-not-ruled-out create is covered here alongside the
+ * plain ones. It is the path where a password OUTLIVES the failure, so it
+ * is also the path where a well-meant "log what went wrong" would do the
+ * most damage.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -97,6 +102,30 @@ describe("a password never reaches a log", () => {
 			password,
 		});
 		expect(result).toMatchObject({ success: false, status: 400 });
+
+		expect(logCalls.length).toBeGreaterThan(0);
+		expect(JSON.stringify(logCalls)).not.toContain(password);
+	});
+
+	it("keeps it out of the refusal that hands it back anyway", async () => {
+		/* The path that matters most. A 5xx cannot rule out an account, so
+		 * this password travels onward to the caller instead of being
+		 * dropped — and a driver that logged the refusal body to explain
+		 * itself would be putting a live account's only credential in Cloud
+		 * Logging forever. */
+		const password = generateWorkerPassword();
+		fetchMock.mockResolvedValue(
+			new Response(JSON.stringify({ error: `boom ${password}` }), {
+				status: 500,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+
+		const result = await createHqMobileWorker(CREDS, "myproject", {
+			username: "amina",
+			password,
+		});
+		expect(result).toMatchObject({ success: false, mayHaveLanded: true });
 
 		expect(logCalls.length).toBeGreaterThan(0);
 		expect(JSON.stringify(logCalls)).not.toContain(password);

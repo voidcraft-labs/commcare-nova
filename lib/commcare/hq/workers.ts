@@ -18,6 +18,12 @@ import "server-only";
  *     and an update is exactly what happens to a worker somebody handed
  *     Nova. So the password is a create-only field in this module's types,
  *     not a flag on a shared one.
+ *   * **A refusal is not proof that nothing happened.** CommCare HQ
+ *     unwinds a failed create itself, but only for what is raised inside
+ *     its own guard, and the account is committed before the answer is
+ *     serialized. So every refusal carries `mayHaveLanded`, and a caller
+ *     holding a generated password has to treat it as the only copy of a
+ *     credential for an account that may be real.
  *   * **Reading is separate from writing, and reading is a hint.**
  *     `v0_1.py::CommCareUserResource.obj_get_list` supports no username
  *     filter at all — only `group` and `archived` — so the search below
@@ -34,9 +40,11 @@ import {
 	type CommCareApiError,
 	type CommCareCredentials,
 	INVALID_DOMAIN_SLUG,
+	isEdgeRefusal,
 	isValidDomainSlug,
 	logAndReturnError,
 	warnAndReturnError,
+	writeMayHaveLanded,
 } from "./http";
 
 /** One worker the project space already holds. */
@@ -98,6 +106,52 @@ export interface HqMobileWorkerUpdate {
 export interface HqMobileWorkerRefusal extends CommCareApiError {
 	/** CommCare HQ's own words. Empty when it gave none. */
 	readonly message: string;
+	/**
+	 * True when Nova cannot rule out that this write took effect anyway.
+	 *
+	 * A refused create is the case that matters, because the thing it may
+	 * have left behind is a person's account holding a password that
+	 * exists only in the answer Nova is assembling. CommCare HQ tries hard
+	 * to make that impossible — `v0_5.py::CommCareUserResource.obj_create`
+	 * wraps the whole creation in `except Exception:` and calls
+	 * `bundle.obj.retire(...)` plus `django_user.delete()` before
+	 * re-raising — but that guard only covers what is raised INSIDE it.
+	 * The account is committed before tastypie serializes the answer, so a
+	 * failure past that point is a live account and a 5xx, which is
+	 * exactly what a real project space handed Nova.
+	 *
+	 * `http.ts::writeMayHaveLanded` owns which statuses settle it, and
+	 * the reasoning that applies to EVERY driver lives there. Two things
+	 * specific to this one are worth keeping here.
+	 *
+	 * A 400 rules out a create because `obj_create` raises every one of
+	 * its `BadRequest`s — `generate_mobile_username`, the connect gate,
+	 * `validate_profile_id`, the missing password — before
+	 * `CommCareUser.create`.
+	 *
+	 * A 400 rules out an update in the sense that matters here — the
+	 * worker DOCUMENT — because `obj_update` gathers `_update`'s errors
+	 * and raises before `bundle.obj.save()`.
+	 *
+	 * It does NOT mean the project space is untouched, and that is worth
+	 * stating because `commit=False` reads like it should.
+	 * `user_data.py::UserData.update` really is in memory. The location
+	 * half is not: `users/models.py::CommCareUser.set_location` creates a
+	 * supply point through `SupplyInterface.get_or_create_by_location`,
+	 * calls `create_location_delegates`, and writes
+	 * `_update_locations_fixture` BEFORE it reaches `if commit`, and
+	 * `::unset_location` reaches `clear_location_delegates`, which
+	 * `safe_hard_delete`s the location-map case. `commit` defers the
+	 * user document and nothing else.
+	 *
+	 * Nova's own payload does not reach that ordering:
+	 * `user_updates.py::_update_location` runs `_validate_locations` and
+	 * `_verify_location_ids` before any of it, so a bad place id refuses
+	 * clean, and the only other field Nova sends can raise solely for the
+	 * system-provided keys its slug rules already forbid. So no message
+	 * here claims the worker is exactly as it was.
+	 */
+	readonly mayHaveLanded: boolean;
 }
 
 /** How many workers one search asks about at a time. */
@@ -215,7 +269,7 @@ export async function createHqMobileWorker(
 	worker: HqMobileWorkerCreate,
 ): Promise<{ readonly userId: string } | HqMobileWorkerRefusal> {
 	if (!isValidDomainSlug(domain)) {
-		return { ...INVALID_DOMAIN_SLUG, message: "" };
+		return { ...INVALID_DOMAIN_SLUG, message: "", mayHaveLanded: false };
 	}
 	const body = JSON.stringify({
 		username: worker.username,
@@ -255,13 +309,13 @@ export async function updateHqMobileWorker(
 	worker: HqMobileWorkerUpdate,
 ): Promise<{ readonly userId: string } | HqMobileWorkerRefusal> {
 	if (!isValidDomainSlug(domain)) {
-		return { ...INVALID_DOMAIN_SLUG, message: "" };
+		return { ...INVALID_DOMAIN_SLUG, message: "", mayHaveLanded: false };
 	}
 	if (userId === "" || userId.includes("/")) {
 		log.error("[commcare] worker update given an unusable id", undefined, {
 			domain,
 		});
-		return { success: false, status: 400, message: "" };
+		return { success: false, status: 400, message: "", mayHaveLanded: false };
 	}
 	const body = JSON.stringify(workerFields(worker));
 	return writeWorker(
@@ -328,7 +382,9 @@ async function writeWorker(
 			method,
 			error: error instanceof Error ? error.message : String(error),
 		});
-		return { success: false, status: 503, message: "" };
+		/* The request went out and no answer came back, so what CommCare HQ
+		 * did with it is unknown. */
+		return { success: false, status: 503, message: "", mayHaveLanded: true };
 	}
 
 	let text = "";
@@ -353,12 +409,19 @@ async function writeWorker(
 		 * generated password, and a refusal echoing the request would put
 		 * it in Cloud Logging forever. */
 		const context = { domain, method, status: res.status };
+		const edgeRefusal = isEdgeRefusal(text);
 		if (res.status === 401 || res.status === 403) {
 			log.warn("[commcare] worker write refused", context);
 		} else {
 			log.error("[commcare] worker write failed", undefined, context);
 		}
-		return { success: false, status: res.status, message };
+		return {
+			success: false,
+			status: res.status,
+			message,
+			edgeRefusal,
+			mayHaveLanded: writeMayHaveLanded(res.status, edgeRefusal),
+		};
 	}
 
 	const result = read(parsed);
@@ -367,7 +430,10 @@ async function writeWorker(
 			domain,
 			method,
 		});
-		return { success: false, status: 502, message: "" };
+		/* CommCare HQ answered SUCCESS and Nova could not read which
+		 * account it was talking about. The write took effect; only its
+		 * subject is unknown. */
+		return { success: false, status: 502, message: "", mayHaveLanded: true };
 	}
 	return result;
 }

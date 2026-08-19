@@ -3,9 +3,12 @@
  * claim.
  *
  * The ownership rule is the one every resource kind follows: a NAME is
- * never evidence of ownership, and a mobile username is unique across the
- * whole of CommCare HQ (`users/util.py::is_username_available`), so a name
- * already in use is a real person's account until somebody says otherwise.
+ * never evidence of ownership. A mobile username is unique to ONE project
+ * space — `users/util.py::is_username_available` asks `dbaccessors.py::user_exists`
+ * about the complete `<name>@<domain>.commcarehq.org` (`::format_username`
+ * + `::cc_user_domain`) — so the same name is free everywhere else and,
+ * here, already in use means a real person's account until somebody says
+ * otherwise.
  *
  * The rule peculiar to workers is the OTHER direction: a worker Nova
  * already owns is never remade. `users/models.py::CommCareUser.retire` is
@@ -27,6 +30,8 @@ import {
 	plannedWorkersFor,
 	planWorkerProvisioning,
 	requiredWorkerDataGaps,
+	retainUnconfirmedWorkers,
+	unconfirmedWorkerKey,
 } from "../workerProvisionPlan";
 
 const DOMAIN = "myproject";
@@ -418,5 +423,105 @@ describe("plannedWorkersFor", () => {
 		expect(
 			plannedWorkersFor(doc, [{ personaUuid: "gone", username: "gone" }]),
 		).toHaveLength(0);
+	});
+});
+
+/**
+ * Which unconfirmed credentials a surface keeps.
+ *
+ * Pinned because the refusal that produces one asks the person to
+ * provision again, and the button that does it sits right beside the
+ * password. A rule that dropped the row on the next answer would make
+ * following Nova's own instruction the way to lose a live account's only
+ * credential, and CommCare HQ stores passwords hashed, so there is no
+ * second chance at it.
+ */
+describe("retainUnconfirmedWorkers", () => {
+	const AMINA_NAME = "amina@acme.commcarehq.org";
+	const DOUBTED = {
+		personaUuid: AMINA,
+		personaName: "Amina",
+		username: AMINA_NAME,
+		password: "kept-once",
+	};
+	const held = { [unconfirmedWorkerKey(AMINA, AMINA_NAME)]: DOUBTED };
+
+	it("keeps a doubtful credential through an answer that says nothing about it", () => {
+		expect(
+			retainUnconfirmedWorkers(held, {
+				workers: [
+					{
+						personaUuid: JOSEPH,
+						username: "joseph@acme.commcarehq.org",
+						created: true,
+					},
+				],
+			}),
+		).toEqual(held);
+	});
+
+	it("drops it once that exact account is really created", () => {
+		// A create succeeding under this name proves the doubtful account
+		// never existed, because CommCare HQ refuses a taken username.
+		expect(
+			retainUnconfirmedWorkers(held, {
+				workers: [{ personaUuid: AMINA, username: AMINA_NAME, created: true }],
+			}),
+		).toEqual({});
+	});
+
+	it("keeps it when the same persona is created under a DIFFERENT name", () => {
+		/* Renaming is one of the two ways out Nova offers for a taken
+		 * username, so this is an ordinary next step — and it says nothing
+		 * about whether the first account exists. Dropping here would throw
+		 * away the password for the very account the person went to look
+		 * at. */
+		expect(
+			retainUnconfirmedWorkers(held, {
+				workers: [
+					{
+						personaUuid: AMINA,
+						username: "amina2@acme.commcarehq.org",
+						created: true,
+					},
+				],
+			}),
+		).toEqual(held);
+	});
+
+	it("keeps it when that account was ADOPTED rather than created", () => {
+		/* The account that was in doubt turned out to be real and Nova has
+		 * now claimed it. The password held here is the one it was made
+		 * with, and nothing else has a copy. */
+		expect(
+			retainUnconfirmedWorkers(held, {
+				workers: [{ personaUuid: AMINA, username: AMINA_NAME, created: false }],
+			}),
+		).toEqual(held);
+	});
+
+	it("survives an answer from a server that predates the field", () => {
+		/* Server Action ids are stable across builds so open tabs live
+		 * through a deploy, which is exactly when a client can get an answer
+		 * carrying no `unconfirmed` at all. */
+		expect(retainUnconfirmedWorkers(held, { workers: [] })).toEqual(held);
+	});
+
+	it("accumulates rather than replacing", () => {
+		const second = {
+			personaUuid: JOSEPH,
+			personaName: "Joseph",
+			username: "joseph@acme.commcarehq.org",
+			password: "also-kept",
+		};
+		expect(
+			retainUnconfirmedWorkers(held, {
+				workers: [],
+				unconfirmed: [second],
+			}),
+		).toEqual({
+			...held,
+			[unconfirmedWorkerKey(JOSEPH, second.username)]: second,
+		});
 	});
 });

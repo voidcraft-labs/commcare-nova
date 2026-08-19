@@ -435,6 +435,34 @@ path in `lib/commcare/hq/workers.ts` deliberately logs the status and
 never the body for that reason. An update never sends a password at all,
 because an update is what an account somebody is already using gets.
 
+**A refusal is not proof that nothing happened.** `obj_create` wraps its
+whole creation in `except Exception:` and calls `bundle.obj.retire(...)`
+plus `django_user.delete()` before re-raising, but that guard covers only
+what is raised inside it, and the account is committed before tastypie
+serializes the answer. A real project space answered 500 with the worker
+live. So every refusal from `hq/workers.ts` carries `mayHaveLanded`, and
+`http.ts::writeMayHaveLanded` is the ONE definition of it, shared with the
+lookup-table driver. It is false only for the statuses CommCare HQ
+produces before the view runs — 400, 401, 403, 405, 413, 429, 501 — and
+for an edge answering a 4xx, which means the edge refused and CommCare HQ
+never saw the request. An edge answering 502 or 504 is the opposite and
+counts as landed: it forwarded the request and then gave up waiting.
+Anything else counts as landed too, a 404 included, because
+`always_return_data` makes `post_list` dehydrate after the commit. An
+ambiguous create returns its password to the caller as an
+`UnconfirmedWorker` instead of dropping it. **Do not reintroduce a blanket
+4xx rule or an `edgeRefusal` exclusion on 5xx** — both were there, both
+lost credentials, and both read as obviously correct. **Nova does not go looking to
+settle it.** Every username-shaped read CommCare HQ offers runs on
+Elasticsearch (`query_adapters.py::UserQuerySetAdapter` for the user
+resource, `v0_5.py::user_es_call` for `bulk-user`) and trails a create by
+seconds, so an empty answer would be read as proof of the one thing it
+cannot prove. The person looks, and the next call makes the account
+if it was never made. If it WAS, the conflict-and-adopt path only opens
+once Elasticsearch catches up — until then a retry plans a create and
+meets CommCare HQ's own "already taken", so every message about this
+names the wait rather than offering an affordance that is not there yet.
+
 **Nova never issues the resource's DELETE.** It is
 `users/models.py::CommCareUser.retire`, a soft delete that reaches
 `tag_cases_as_deleted_and_remove_indices` and takes down every case that

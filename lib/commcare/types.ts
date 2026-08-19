@@ -534,6 +534,32 @@ export interface HqApplication {
 	 * CommCare HQ, while an absent one is retained by the merge.
 	 */
 	logo_refs?: Record<string, LogoRef>;
+	/**
+	 * Present only when the app reads `instance('locations')`, and then
+	 * always `both_fixtures`.
+	 *
+	 * CommCare HQ decides whether to put that fixture in a worker's
+	 * restore, and by default it asks the PROJECT SPACE:
+	 * `locations/fixtures.py::should_sync_flat_fixture` falls through to
+	 * `LocationFixtureConfiguration.for_domain(...).sync_flat_fixture`, a
+	 * row an administrator can switch off. An app that declares
+	 * `jr://fixture/locations` and does not get one fails to resolve the
+	 * instance on the device, so leaving that to a setting nobody told
+	 * the author about is not an option.
+	 *
+	 * The app can settle it: the same function returns True as soon as
+	 * `app.location_fixture_restore` is in `const.py::SYNC_FLAT_FIXTURES`,
+	 * BEFORE it reads the project row. `both_fixtures` rather than
+	 * `only_flat_fixture` because Nova is answering for its own needs and
+	 * has no business switching the hierarchical fixture OFF —
+	 * `::should_sync_hierarchical_fixture` keeps deciding that from the
+	 * `HIERARCHICAL_LOCATION_FIXTURE` toggle, exactly as it did.
+	 *
+	 * Absent otherwise, for the reason `logo_refs` is: an app with no
+	 * place-based rule has no opinion, and emitting one would overwrite a
+	 * choice somebody made on CommCare HQ on every republish.
+	 */
+	location_fixture_restore?: "both_fixtures";
 	add_ons: Record<string, boolean>;
 	modules: HqModule[];
 	_attachments: Record<string, string>;

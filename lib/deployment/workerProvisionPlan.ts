@@ -5,8 +5,14 @@
  * This is the third planner beside `lookupResourcePlan` and
  * `locationResourcePlan`, and it follows their rule for the same reason:
  * a NAME is never evidence of ownership. `users/util.py::is_username_available`
- * makes a mobile username unique across the whole of CommCare HQ, so a
- * name already taken belongs to somebody until a person says otherwise.
+ * asks `dbaccessors.py::user_exists` for the COMPLETE username, which keys
+ * the `users/by_username` view on `<name>@<domain>.commcarehq.org`
+ * (`util.py::format_username` + `::cc_user_domain`) — so the namespace is one
+ * project space, not CommCare HQ, and the same persona name is free to exist
+ * on every other space. Within this one, a name already taken belongs to
+ * somebody until a person says otherwise. `user_exists` also queries
+ * `deleted_users_by_username`, so a RETIRED account still holds its name and
+ * no one can ever take it back.
  *
  * Two things make workers stricter than the other two kinds.
  *
@@ -596,4 +602,95 @@ export function plannedWorkersFor(
 		});
 	}
 	return workers;
+}
+
+/**
+ * An account that may be on the project space, and the password it would
+ * have.
+ *
+ * This exists because a refusal from CommCare HQ is not proof that
+ * nothing happened: `v0_5.py::CommCareUserResource.obj_create` commits
+ * the account before the answer is serialized, so a failure past that
+ * point is a live worker and a 5xx. Nova cannot record a mapping for it
+ * (there is no id to record, and the ownership ledger stores none), and
+ * it cannot go and look either, because every username-shaped read
+ * CommCare HQ offers runs on Elasticsearch and lags a create by seconds
+ * (`query_adapters.py::UserQuerySetAdapter` for the user resource,
+ * `v0_5.py::user_es_call` for `bulk-user`), so an empty answer would be
+ * read as proof of the very thing it cannot prove.
+ *
+ * What Nova CAN do is refuse to throw the password away. If the account
+ * is there, this is the only copy of its credential in existence; if it
+ * is not, this costs a person one glance at their project space.
+ */
+export interface UnconfirmedWorker {
+	readonly personaUuid: string;
+	readonly personaName: string;
+	/** The complete username the account would have. */
+	readonly username: string;
+	/** The generated password. The only copy, exactly as for a real one. */
+	readonly password: string;
+}
+
+/** How one held credential is addressed: the persona AND the exact name. */
+export function unconfirmedWorkerKey(
+	personaUuid: string,
+	username: string,
+): string {
+	return `${personaUuid}:${username}`;
+}
+
+/**
+ * Which unconfirmed credentials a surface must still be holding after the
+ * next answer arrives.
+ *
+ * A pure rule rather than a line inside the panel, because it is the last
+ * guard on a value that cannot be regenerated: CommCare HQ stores
+ * passwords hashed, so one lost here is lost for good. The refusal that
+ * produces an unconfirmed worker asks the person to provision again, and
+ * the button that does it is right there — so an answer that simply
+ * replaced the previous one would make following the on-screen
+ * instruction the way to destroy a live account's only password.
+ *
+ * A row is dropped on exactly one proof: a later call CREATED an account
+ * for that persona UNDER THE SAME USERNAME. Only then is the doubtful
+ * account ruled out, because CommCare HQ would have refused the create if
+ * the name were taken.
+ *
+ * The username half of that is not a detail. Renaming is one of the two
+ * ways out Nova offers a person whose username is taken, so "provision
+ * Amina again as `amina2`" is an ordinary next step — and it says NOTHING
+ * about whether `amina` exists. Keying the drop on the persona alone
+ * would throw away the password for the very account they went to look
+ * at.
+ *
+ * An ADOPTED account is never dropped either. That is the account that
+ * was in doubt, now proven real and claimed in the ledger, and the
+ * generated password held here is the one it was made with — CommCare HQ
+ * never told Nova a second one.
+ */
+export function retainUnconfirmedWorkers(
+	held: Readonly<Record<string, UnconfirmedWorker>>,
+	answer: {
+		readonly workers: readonly {
+			readonly personaUuid: string;
+			readonly username: string;
+			readonly created: boolean;
+		}[];
+		readonly unconfirmed?: readonly UnconfirmedWorker[];
+	},
+): Record<string, UnconfirmedWorker> {
+	const next = { ...held };
+	for (const worker of answer.workers) {
+		if (!worker.created) continue;
+		delete next[unconfirmedWorkerKey(worker.personaUuid, worker.username)];
+	}
+	/* Optional because a client loaded against one revision can reach a
+	 * server running another: Server Action ids are pinned stable across
+	 * builds so open tabs survive a deploy, which is exactly the window
+	 * where an older answer carries no `unconfirmed` at all. */
+	for (const worker of answer.unconfirmed ?? []) {
+		next[unconfirmedWorkerKey(worker.personaUuid, worker.username)] = worker;
+	}
+	return next;
 }

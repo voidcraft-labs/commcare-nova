@@ -25,6 +25,8 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
+import type { UnconfirmedWorker } from "@/lib/deployment/workerProvisionPlan";
+import { retainUnconfirmedWorkers } from "@/lib/deployment/workerProvisionPlan";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { planConnectTargetState } from "@/lib/doc/connectTargetState";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -290,6 +292,37 @@ export interface BuilderSessionState {
 	/** Remove a staged record (upload confirmed and the attach dispatched,
 	 *  or the user dismissed an error). Drops the abort handle. */
 	clearStagedUpload: (slotKey: string) => void;
+
+	/** Mobile-worker passwords for accounts CommCare HQ neither confirmed
+	 *  nor ruled out, keyed by `<personaUuid>:<completeUsername>`.
+	 *
+	 *  It lives HERE rather than in the Publish dialog because of what the
+	 *  refusal that produces one asks a person to do: go and look for that
+	 *  username on their project space. Doing that means closing the
+	 *  dialog, which unmounts its whole subtree — so dialog-local state
+	 *  would be destroyed by the very action Nova just told them to take,
+	 *  and CommCare HQ stores the password hashed, so it is gone for good.
+	 *
+	 *  It is transient like everything else in this store: nothing writes
+	 *  it to Postgres, to a log, or to storage, and a page load clears it.
+	 *  That is the deliberate ceiling — a credential Nova cannot show
+	 *  twice must not be one Nova keeps. */
+	unconfirmedWorkers: Record<string, UnconfirmedWorker>;
+
+	/** Fold one provisioning answer into the held credentials.
+	 *  `retainUnconfirmedWorkers` owns the rule; this is the store seam. */
+	recordProvisioningOutcome: (answer: {
+		readonly workers: readonly {
+			readonly personaUuid: string;
+			readonly username: string;
+			readonly created: boolean;
+		}[];
+		readonly unconfirmed?: readonly UnconfirmedWorker[];
+	}) => void;
+
+	/** Forget one held credential, once a person says they have it. The
+	 *  only way one leaves short of a page load. */
+	dismissUnconfirmedWorker: (key: string) => void;
 
 	/** Cancel a staged upload: abort the in-flight transfer (if any) and
 	 *  remove the record. The upload driver sees the abort and stays
@@ -669,6 +702,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				/* Staged media uploads */
 				stagedUploads: {} as Record<string, StagedUpload>,
+				unconfirmedWorkers: {} as Record<string, UnconfirmedWorker>,
 				assetMeta: {} as Record<string, ExportBudgetRowView>,
 
 				/* UI hints */
@@ -1180,6 +1214,23 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
+				recordProvisioningOutcome(answer) {
+					set((s) => ({
+						unconfirmedWorkers: retainUnconfirmedWorkers(
+							s.unconfirmedWorkers,
+							answer,
+						),
+					}));
+				},
+
+				dismissUnconfirmedWorker(key: string) {
+					if (get().unconfirmedWorkers[key] === undefined) return;
+					set((s) => {
+						const { [key]: _dropped, ...rest } = s.unconfirmedWorkers;
+						return { unconfirmedWorkers: rest };
+					});
+				},
+
 				cancelStagedUpload(slotKey: string) {
 					const abort = stagedUploadAborts.get(slotKey);
 					/* Abort BEFORE clearing so the driver's rejection handler
@@ -1337,6 +1388,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 						/* Staged media uploads */
 						stagedUploads: {} as Record<string, StagedUpload>,
+						unconfirmedWorkers: {} as Record<string, UnconfirmedWorker>,
 						assetMeta: {} as Record<string, ExportBudgetRowView>,
 
 						/* UI hints */

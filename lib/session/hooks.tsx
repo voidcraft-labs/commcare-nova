@@ -12,6 +12,7 @@
 import { useContext, useMemo } from "react";
 import { useStore } from "zustand";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import type { UnconfirmedWorker } from "@/lib/deployment/workerProvisionPlan";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { docHasData } from "@/lib/doc/predicates";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
@@ -31,7 +32,12 @@ import {
 	useBuilderSession,
 	useBuilderSessionShallow,
 } from "./provider";
-import type { AccessPhase, EditScrollMemory, SidebarKind } from "./store";
+import type {
+	AccessPhase,
+	BuilderSessionState,
+	EditScrollMemory,
+	SidebarKind,
+} from "./store";
 import { createBuilderSessionStore } from "./store";
 
 export type { AccessPhase } from "./store";
@@ -592,4 +598,29 @@ export function useChatAppReady(): boolean {
 	}));
 	const hasData = useBlueprintDoc(docHasData);
 	return deriveChatAppReady(session, hasData);
+}
+
+/**
+ * The mobile-worker passwords Nova is holding for accounts CommCare HQ
+ * never confirmed, newest last.
+ *
+ * A hook rather than a dialog-local `useState` because the refusal that
+ * produces one asks the person to go and look at their project space,
+ * which means closing the dialog that would have held it.
+ */
+export function useUnconfirmedWorkers(): readonly [
+	string,
+	UnconfirmedWorker,
+][] {
+	return useBuilderSessionShallow((s) => Object.entries(s.unconfirmedWorkers));
+}
+
+/** Fold one provisioning answer into the held credentials. */
+export function useRecordProvisioningOutcome(): BuilderSessionState["recordProvisioningOutcome"] {
+	return useBuilderSession((s) => s.recordProvisioningOutcome);
+}
+
+/** Forget one held credential, once a person says they have it. */
+export function useDismissUnconfirmedWorker(): (key: string) => void {
+	return useBuilderSession((s) => s.dismissUnconfirmedWorker);
 }

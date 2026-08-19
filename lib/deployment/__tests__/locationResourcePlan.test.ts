@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	ambiguousReverseHopsOnTarget,
 	type PlannedPlace,
 	planLocationResourcePush,
 	plannedPlacesFor,
@@ -403,5 +404,83 @@ describe("plannedPlacesFor", () => {
 		expect(
 			plannedPlacesFor(doc, [stored({ archivedAt: new Date() })]),
 		).toHaveLength(0);
+	});
+});
+
+/**
+ * A reverse owner hop the TARGET's tree makes ambiguous.
+ *
+ * Nova proves this invariant over its own places at commit time, but
+ * CommCare HQ builds the fixture from ITS rows, which can hold places
+ * Nova never created. The emitted XPath selects `@id` from every match,
+ * so two of them make owner choice depend on fixture order — and no
+ * runtime error says so. Publishing is the one moment Nova can look.
+ */
+describe("ambiguousReverseHopsOnTarget", () => {
+	const HOP = [{ destinationCode: "clinic", sourceCode: "district" }] as const;
+	const place = (
+		locationId: string,
+		locationTypeCode: string,
+		parentLocationId: string | null,
+		name = locationId,
+	) => ({ locationId, name, locationTypeCode, parentLocationId });
+
+	it("says nothing when each owner holds one destination", () => {
+		expect(
+			ambiguousReverseHopsOnTarget(HOP, [
+				place("d1", "district", null, "North"),
+				place("c1", "clinic", "d1", "North Clinic"),
+				place("d2", "district", null, "South"),
+				place("c2", "clinic", "d2", "South Clinic"),
+			]),
+		).toEqual([]);
+	});
+
+	it("names the owner and every place it would choose between", () => {
+		expect(
+			ambiguousReverseHopsOnTarget(HOP, [
+				place("d1", "district", null, "North"),
+				place("c1", "clinic", "d1", "Riverside"),
+				place("c2", "clinic", "d1", "Hilltop"),
+			]),
+		).toEqual([
+			{
+				destinationCode: "clinic",
+				sourceCode: "district",
+				ownerName: "North",
+				destinationNames: ["Hilltop", "Riverside"],
+			},
+		]);
+	});
+
+	it("finds the owner through a level the hop skips", () => {
+		/* The emitted attribute is `@district_id` on the clinic itself, and
+		 * `FlatLocationSerializer` writes one per ANCESTOR level, so a ward
+		 * in between does not break the match. */
+		expect(
+			ambiguousReverseHopsOnTarget(HOP, [
+				place("d1", "district", null, "North"),
+				place("w1", "ward", "d1"),
+				place("c1", "clinic", "w1", "Riverside"),
+				place("c2", "clinic", "w1", "Hilltop"),
+			]),
+		).toHaveLength(1);
+	});
+
+	it("ignores a destination with no owning ancestor over there", () => {
+		// Nothing matches it, so the rule selects nothing rather than
+		// choosing wrongly — a different problem, and not this one.
+		expect(
+			ambiguousReverseHopsOnTarget(HOP, [
+				place("c1", "clinic", null),
+				place("c2", "clinic", null),
+			]),
+		).toEqual([]);
+	});
+
+	it("asks nothing of a project space when the app authors no hop", () => {
+		expect(
+			ambiguousReverseHopsOnTarget([], [place("c1", "clinic", null)]),
+		).toEqual([]);
 	});
 });
