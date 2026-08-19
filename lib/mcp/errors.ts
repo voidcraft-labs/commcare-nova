@@ -113,15 +113,21 @@ export type HqToolErrorType =
  *     it is gone (deleted there). Nothing was changed; calling again
  *     creates a fresh app and supersedes the dead mapping.
  *   - `hq_resource_conflict` — the project space already holds a lookup
- *     table with a name this app's data would land on, and Nova did not
- *     make it. Nothing was sent. A name match is never evidence of
- *     ownership, so the caller either renames the table in Project data or
- *     names the exact tables in `adopt_resources` to take them over.
+ *     table or a place with a name this app's data would land on, and Nova
+ *     did not make it. Nothing was sent. A name match is never evidence of
+ *     ownership, so the caller either changes the name in Nova or names
+ *     the exact resources in `adopt_resources` to take them over.
+ *   - `hq_organization_mismatch` — the app's organization does not fit the
+ *     levels the project space defines, so CommCare HQ would refuse its
+ *     places. Nothing was sent. Distinct from a conflict because no
+ *     ownership decision resolves it: the tree changes in Nova, or the
+ *     levels change on CommCare HQ.
  */
 export type UploadErrorType =
 	| HqToolErrorType
 	| "remote_app_missing"
-	| "hq_resource_conflict";
+	| "hq_resource_conflict"
+	| "hq_organization_mismatch";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can

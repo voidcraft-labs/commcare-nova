@@ -97,11 +97,18 @@ closed list of accepted values. Nova checks existing places before tightening
 any of those rules, so a catalog edit cannot strand information that no longer
 fits it.
 
+Nova sends these values with every place it publishes, but it cannot define the
+fields themselves: that page on CommCare HQ takes no API. Nova lists what to add
+and where after you publish. Until a field is defined over there, its value
+still arrives, as loose data that nothing on CommCare HQ can validate or filter
+on.
+
 ## Places
 
 The places themselves — your actual districts and facilities. Unlike levels,
-these are data, so you can add thousands. Nova stores and previews them today;
-it does not push them to CommCare yet.
+these are data, so you can add thousands. [Publishing](/docs/publishing) sends
+them to your CommCare HQ project space, working down from the top so each place
+can name the one above it.
 
 Each place sits at a level. A root place has no containing place; every other
 place sits inside a compatible place above it. **A place may skip a level** — if
@@ -111,16 +118,24 @@ made-up place is worse than an absent one: expressions that look for the
 district would find the fake one and give a confident wrong answer, where a
 genuine gap gives an honest empty one.
 
-One thing to know if you plan to publish: CommCare's ordinary place editor cannot
-create a place that skips a level. Nova stores and previews the gap accurately,
-but it does not yet include your places in a downloadable app or provision that
-hierarchy in an HQ project. That arrives with Deployment and device location
-data; Nova will block any place-based owner rule at export until both sides are
-present rather than publish a rule whose place is missing on the phone.
+Two things to know if you plan to publish. **CommCare HQ will not take a place
+that skips a level**, so Nova stops before sending anything and names each
+place, and you either add the missing rung on CommCare HQ or move the place.
+And **CommCare HQ needs the places under one parent to have different names**,
+where Nova only asks their codes to differ, so two clinics called "North" in the
+same district stop a publish until one is renamed. Both are checked before any
+place is sent, so a publish never leaves half a tree over there.
+
+Place-based case owner rules stay closed at export for now. They need the device
+location data that ships with the usercase work, and Nova blocks the rule rather
+than publish one whose place is missing on the phone.
 
 Every place gets a **code** when you create it, and that code never changes —
 renaming a place leaves it alone. The code is what bulk uploads and CommCare use
-to identify the place, so it has to stay put even as the name changes.
+to identify the place, so it has to stay put even as the name changes. It is
+also what Nova matches on when it publishes: a place whose code is already taken
+on the project space by something Nova did not make stops the publish, and you
+choose whether that one is yours.
 
 Open a place to edit its name, its ID in another system, where it sits, and the
 place-information values that apply at its level. Moving a place keeps its code
@@ -130,7 +145,10 @@ hierarchy.
 ### Archiving
 
 Places are archived rather than deleted, because deleting one would strand the
-cases it owns with no way back.
+cases it owns with no way back. Archiving stops Nova sending that place when you
+publish, and leaves the one already on CommCare HQ exactly where it is: its API
+offers no way to archive or delete a place, so Nova names it rather than
+pretending. Its code stays reserved over there either way.
 
 Archiving a place also archives everything under it. Nova shows complete counts
 and a short name preview before you confirm; the confirmation itself is bound

@@ -14,13 +14,14 @@
  *     rather than being inferred from which fields are empty.
  *   - `left_behind`. Everything this deployment once pointed at and no
  *     longer does: apps from publishes made before Nova updated them in
- *     place, an app superseded after being deleted on CommCare HQ, and a
- *     lookup table the app no longer points at, whether because its tag
- *     was renamed or because the last select reading it is gone. An
+ *     place, an app superseded after being deleted on CommCare HQ, a
+ *     lookup table the app no longer points at (its tag renamed, or the
+ *     last select reading it gone), and a place the app archived, which
+ *     CommCare HQ's location API offers Nova no way to take down. An
  *     ordinary republish updates the same resources and adds nothing
  *     here. Reporting them is the contract, and Nova never deletes
  *     a remote resource; a client that omits it lets an author accumulate
- *     abandoned apps and tables without ever being told.
+ *     abandoned apps, tables, and places without ever being told.
  */
 
 import {
@@ -41,8 +42,9 @@ export interface LeftBehindResource {
 	/** CommCare HQ's own id, which is how a person finds it there. */
 	readonly hq_id: string;
 	/**
-	 * The name it carries on CommCare HQ: a lookup table's tag. Null for an
-	 * app, whose id IS how CommCare HQ names it.
+	 * The name it carries on CommCare HQ: a lookup table's tag, or a
+	 * place's site code. Null for an app, whose id IS how CommCare HQ
+	 * names it.
 	 */
 	readonly hq_name: string | null;
 }

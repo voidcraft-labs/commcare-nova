@@ -1640,8 +1640,9 @@ restored. No lock spans the HQ round trips: every record write is one short
 transaction folding against the freshly locked row, and an observation applies
 only while the mapping it asked about is still the active one.
 
-`resources` is what the app DEPENDS ON, put there before the app itself. Its
-first inhabitant is the app's lookup tables: the app's selects read them by name
+`resources` is what the app DEPENDS ON, put there before the app itself: its
+lookup tables and its organization's places. Take the tables first — the app's
+selects read them by name
 at runtime, so an app that arrived first would install and misbehave. CommCare
 HQ has no REST endpoint that takes a table's rows in bulk — the row resource
 keys rows by a server-minted UUID with no natural key — so the push is the Excel
@@ -1665,6 +1666,51 @@ exactly the case Nova must refuse rather than push into. A publish refused at
 `resources` sent nothing of the app, so its retry re-pushes the data and never
 re-imports the app; a SUCCEEDED push folds through `applyAttemptOutcome` so a
 republish of a `runnable` app is not walked backward by its own data landing.
+
+`resources` also carries the app's PLACES, through
+`locations/resources/v0_6.py::LocationResource`. Its `patch_list` is `@atomic`
+and capped at `patch_limit = 100`, upserting on the presence of `location_id`,
+so the push is one batch per level working down, threading each parent's
+returned `location_id` into its children's batch — and each batch is the
+partial-failure boundary, so a tree that stops partway really did leave the
+levels above it there. Those are recorded (`ResourcePushOutcome` distinguishes a
+`complete` push, which supersedes what it did not name, from a `partial` one,
+which supersedes nothing and folds no rung), so a retry updates them rather than
+making a second copy. The answer is a BARE ARRAY of ids in request order with
+status 202 (`api/resources/__init__.py::patch_list_replica`), so position is the
+only link back and a mismatched length is refused rather than recorded.
+
+**The LEVELS are not pushable at all** — `v0_5.py::LocationTypeResource` allows
+only `get` — which is why the `organization` preflight edge reads them and
+refuses shapes CommCare HQ will not hold, rather than fixing anything: a level
+the target lacks; a place whose level is not the IMMEDIATE child of its parent's
+(`forms.py::LocationForm.get_allowed_types` filters
+`parent_type=parent.location_type`, while Nova deliberately allows a skipped
+rung); two live siblings sharing a name (`util.py::has_siblings_with_name`,
+where Nova constrains only the site code); and a place Nova moved to the top
+that the target holds under a parent, which `_update` offers no way to undo.
+Two more are unknowable from here and surface as CommCare HQ's own sentence: a
+site code an ARCHIVED place still holds (`util.py::validate_site_code` queries
+`SQLLocation.objects` while the v0.6 list is `active_objects`), and a level
+change on a place with children over there. Both location resources sit behind
+four authorization gates — the project space's `LOCATIONS` and `API_ACCESS`
+privileges and the account's Edit Locations and Access APIs permissions, the
+last two checked together by `users/decorators.py::require_api_permission` —
+and two of the four answer with an identical bodyless 403, so the refusal names
+all of them rather than guessing.
+
+A place's site code is create-once in Nova and domain-unique on CommCare HQ, so
+unlike a table's tag it never renames; the route to `pushed_identity` mattering
+is ARCHIVING, which stops the push naming the place while v0.6 offers Nova
+neither archive nor delete, so the place stays there and its code stays
+reserved. `location_data` is sent for every place the app models information
+for, merged over whatever the target already holds, because `_update` REPLACES
+`metadata` wholesale and the fields Nova does not model belong to whoever made
+them. The field DEFINITION has no REST resource, and
+`custom_data_fields/models.py::CustomDataFieldsDefinition.get_validator`
+iterates the project space's own fields without rejecting unknown keys, so an
+undefined slug arrives as real but unvalidated loose data while a field the
+target marks required with no value takes the whole batch down.
 
 **Nova drives the first three states and observes the last three, because HQ
 draws that line.** `app_import_api.py::import_app_api` passes
@@ -1711,11 +1757,13 @@ rule).
 
 Preflight is a dependency graph with two kinds of edge. A blocking edge is a
 real prerequisite — no connection, an app the export boundary refuses, or
-Project data Nova may not write over — and failing one leaves the deployment
-`incomplete` before anything externally visible happens. The `project-data`
-edge is the one that talks to HQ during preflight, appearing only when the app
-reads a table; its refusal is all-or-nothing, because the workbook is one
-upload and a half-pushed project space has no honest state to describe it. An attention edge is something the target needs that Nova
+Project data or places Nova may not write over — and failing one leaves the
+deployment `incomplete` before anything externally visible happens. The
+`project-data` and `organization` edges are the two that talk to HQ during
+preflight, each appearing only when the app carries that thing; the table
+refusal is all-or-nothing because the workbook is one upload and a half-pushed
+project space has no honest state to describe it, and the place refusals are
+decided in full before the first batch for the same reason one level down. An attention edge is something the target needs that Nova
 cannot do from here, so it becomes a line in the setup artifact rather than a
 refusal; whether a persona satisfies a `required` worker property is one of
 these, because refusing a publish over it would refuse one that works while
@@ -1726,14 +1774,15 @@ the app.
 The setup artifact regenerates from the document on every read and is never
 stored — a stored copy goes stale the first time a worker property is renamed,
 and somebody following stale instructions has no way to tell. It is target-aware
-throughout, and never claims a prerequisite was installed. **Project data is the
-first section that flipped from instruction to record** — it names the tables
-Nova keeps on that project space, which is the shape every other section takes
-as its push driver ships. The rest are instructions still: the user-data schema
-and organization levels are session-only HTML forms
-(`users/views/mobile/custom_data_fields.py::UserFieldsView`,
-`locations/views.py::LocationTypesView`), automations have no REST resource, and
-building and releasing are the pages above. It also states that
+throughout, and never claims a prerequisite was installed. **Project data and
+Places are the sections that flipped from instruction to record** — they name
+what Nova keeps on that project space, which is the shape every other section
+takes as its push driver ships. The rest are instructions still: the user-data
+schema, the location-fields schema, and organization levels are session-only
+HTML forms (`users/views/mobile/custom_data_fields.py::UserFieldsView`,
+`locations/views.py::LocationFieldsView`, `locations/views.py::LocationTypesView`),
+automations have no REST resource, and building and releasing are the pages
+above. It also states that
 `models/applications.py::_create_app_from_doc` initializes `cloudcare_enabled`
 from the domain's Web Apps privilege at create, so an app published before the
 feature was on starts with it off. The remedy is the ordinary **Web App**
@@ -1895,17 +1944,17 @@ the preview must reproduce rather than approximate, the flat fixture's byte
 contract, and the instance-declaration precondition that silently voids the whole
 fixture when missed.
 
-### Push and provisioning drivers
+### Provisioning drivers
 
 [`complex-app/push-and-provisioning-drivers.md`](complex-app/push-and-provisioning-drivers.md)
 · depends on nothing outstanding · blocks the app-setup-UI, session-endpoints,
 and multi-select units
 
-Location push and explicit worker provisioning against the deployment record's
-ownership mappings. **The file holds** the v0.6 location API's semantics and
-caps, why HQ requires the immediate parent level while Nova allows a skipped
-rung, why an archived place keeps its site code, the user resource's create-only
-identity, and which part of the org model is not pushable at all.
+Explicit mobile-worker provisioning against the deployment record's ownership
+mappings. **The file holds** the user resource's create-only identity, what its
+DELETE actually does to a worker's cases, the closed field map an update
+accepts, the together-or-not-at-all location assignment, and why web users are
+out of reach.
 
 ### App setup UI, SA, MCP, and docs
 

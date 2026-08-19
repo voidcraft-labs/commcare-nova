@@ -68,6 +68,7 @@ import * as executorNativeCalls from "./20260814010000_executor_native_calls";
 import * as appLocalization from "./20260815000000_app_localization";
 import * as designLocalization from "./20260815010000_design_localization";
 import * as deploymentResourcePush from "./20260818010000_deployment_resource_push";
+import * as deploymentLocationResources from "./20260819000000_deployment_location_resources";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -133,6 +134,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260815000000_app_localization": appLocalization,
 	"20260815010000_design_localization": designLocalization,
 	"20260818010000_deployment_resource_push": deploymentResourcePush,
+	"20260819000000_deployment_location_resources": deploymentLocationResources,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

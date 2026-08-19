@@ -274,11 +274,7 @@ const CONSTRAINT_AREAS: Readonly<
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: ["navigation", "users", "case-list"],
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: ["forms", "case-operations"],
 	GAP_USERCASE_OWNER_SETS: ["users", "organization-shape", "case-operations"],
-	GAP_PUSH_PROVISIONING_DRIVERS: [
-		"lookup-references",
-		"users",
-		"organization-shape",
-	],
+	GAP_PUSH_PROVISIONING_DRIVERS: ["users"],
 	GAP_APP_SETUP_UI: [],
 	GAP_FORM_LINKS_AND_SECTIONS: ["forms", "navigation"],
 	GAP_NESTED_MENUS: ["navigation"],

@@ -104,6 +104,44 @@ describe("leftBehindResources", () => {
 		expect(left.map((entry) => entry.remoteId)).toEqual(["hq-old-app"]);
 	});
 
+	it("reports an archived place, which Nova can no longer take down", () => {
+		/* Archiving in Nova stops the push naming that place, so its mapping
+		 * is superseded and no current identity answers to it. CommCare HQ's
+		 * v0.6 resource exposes no archive and no delete, so the place is
+		 * still there and its site code is still reserved
+		 * (`util.py::validate_site_code` counts archived rows). */
+		const left = leftBehindResources(
+			view([
+				resource({
+					kind: "location",
+					novaResourceId: "018f0000-0000-7000-8000-0000000000b1",
+					remoteId: "hq-colorado",
+					pushedIdentity: "colorado",
+				}),
+			]),
+			new Map(),
+		);
+		expect(left.map((entry) => entry.pushedIdentity)).toEqual(["colorado"]);
+	});
+
+	it("says nothing about a place that is still live under the same code", () => {
+		/* A site code is create-once in Nova, so a live place always answers
+		 * with the code it was pushed under. A superseded row beside it is a
+		 * place CommCare HQ lost and the next push recreated. */
+		const left = leftBehindResources(
+			view([
+				resource({
+					kind: "location",
+					novaResourceId: "018f0000-0000-7000-8000-0000000000b1",
+					remoteId: "hq-old",
+					pushedIdentity: "colorado",
+				}),
+			]),
+			new Map([["018f0000-0000-7000-8000-0000000000b1", "colorado"]]),
+		);
+		expect(left).toEqual([]);
+	});
+
 	it("says nothing about a non-app mapping that never recorded a name", () => {
 		/* A row from before pushed identities existed. Nova cannot say what
 		 * it is called over there, and guessing would send somebody looking

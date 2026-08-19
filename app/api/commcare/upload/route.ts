@@ -21,9 +21,10 @@
  *
  * `adopt_resources` is the one field that says something about the target
  * rather than the app. Nova never takes over a CommCare HQ resource because
- * a name matched, so a name clash refuses; sending the exact Nova table ids
- * back is how a person says "yes, that one is mine". It is per-request and
- * never remembered as a preference: the next publish decides again.
+ * a name matched, so a name clash refuses; sending the exact Nova ids back
+ * — a lookup table's or a place's — is how a person says "yes, that one is
+ * mine". It is per-request and never remembered as a preference: the next
+ * publish decides again.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -93,10 +94,10 @@ export async function POST(req: NextRequest) {
 			throw new ApiError("App data is required", 400);
 		}
 		/* Validated to a list of strings here rather than trusted: these ids
-		 * decide whether Nova writes over a CommCare HQ table it did not
-		 * make, and `publishAppToHq` matches them against the exact conflicts
-		 * it found, so anything else is simply not a conflict it can resolve.
-		 * Absent means adopt nothing. */
+		 * decide whether Nova writes over a CommCare HQ table or place it did
+		 * not make, and `publishAppToHq` matches them against the exact
+		 * conflicts it found, so anything else is simply not a conflict it can
+		 * resolve. Absent means adopt nothing. */
 		const adoptResourceIds = readAdoptResourceIds(body.adopt_resources);
 
 		/* Publishing to CommCare HQ requires edit, not view: a viewer can't
