@@ -353,10 +353,14 @@ export async function readCases(
 		return readGroupedCases(store, args, composedQuery, page, grouping);
 	}
 	const countArgs = caseReadCore(args, composedQuery.predicate);
-	// One guard for all three exits: the reveal belongs to a BOUNDED running
-	// list. The unpaged caller is the form's auto-selection candidate read,
-	// which draws nothing and would pay for a whole-tenant count to fill a
-	// field no one reads.
+	// The guard for the ROWS exit below; the two empty exits carry the same
+	// rule inside `emptyCaseResult`. Editing this one changes what a
+	// populated list reveals and nothing else.
+	//
+	// The rule either way: the reveal belongs to a BOUNDED running list. The
+	// unpaged caller is the form's auto-selection candidate read, which draws
+	// nothing and would pay for a whole-tenant count to fill a field no one
+	// reads.
 	const outsideRestoreCount = (restricted: number) =>
 		page === undefined
 			? undefined
