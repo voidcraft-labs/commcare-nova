@@ -131,7 +131,7 @@ function place(args: {
 		longitude: null,
 		values: args.values ?? {},
 		archivedAt: null,
-		orderKey: "a0",
+		orderKey: "a",
 	};
 }
 
