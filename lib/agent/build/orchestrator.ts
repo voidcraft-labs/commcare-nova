@@ -91,6 +91,8 @@ import {
 	setDesignSessionAwaitingInput,
 } from "@/lib/db/designSessions";
 import { getAppDb } from "@/lib/db/pg";
+import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
+import { attachmentUrlTargetFor } from "@/lib/deployment/attachmentTarget";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
@@ -1369,6 +1371,18 @@ async function assertAuthoritativePlanCompletion(
 		},
 		doc: hydratePersistedBlueprint(access.app.blueprint),
 		compiledAtSeq: access.baseSeq,
+		// A build's export-readiness proof compiles the app as a downloadable
+		// artifact, which carries no target of its own. A newly built app has
+		// never been published, so this is `null` in practice; resolving it
+		// anyway keeps the proof identical to what the download path emits.
+		attachmentTarget: attachmentUrlTargetFor(
+			await attachmentDeploymentTargetFor({
+				appId: args.appId,
+				projectId: access.projectId,
+				role: access.role,
+				actorUserId: access.actorUserId,
+			}),
+		),
 	});
 	if (!boundary.ok) {
 		refuseBuildCompletion(

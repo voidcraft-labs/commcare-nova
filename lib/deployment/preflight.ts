@@ -18,6 +18,7 @@ import {
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
+import { attachmentUrlTarget } from "./attachmentTarget";
 import type { DeploymentFailure } from "./types";
 
 /**
@@ -265,6 +266,14 @@ export async function runDeploymentPreflight(
 		access: input.access,
 		doc: input.doc,
 		compiledAtSeq: input.compiledAtSeq,
+		// A publish knows its target exactly: it IS this server and this
+		// project space. So it never consults the deployment record the
+		// download paths fall back on — the record describes where the app
+		// has been, and this is where it is going.
+		attachmentTarget: attachmentUrlTarget({
+			server: input.server,
+			domain: input.domain,
+		}),
 	});
 	if (!boundary.ok) {
 		const details = boundary.violations.map(userFacingError);

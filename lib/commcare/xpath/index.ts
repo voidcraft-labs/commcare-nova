@@ -29,4 +29,5 @@ export {
 export { lowerXPathForJavaRosa } from "./javaRosaLowering";
 export { parser } from "./parser";
 export * from "./parser.terms";
+export { xpathStringLiteral } from "./stringLiteral";
 export { transpile } from "./transpiler";

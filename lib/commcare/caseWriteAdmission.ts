@@ -99,13 +99,13 @@ export function assertCaseWriteAdmission(inventory: CaseWriteInventory): void {
 			throw new Error(
 				`Field '${issue.writer.fieldUuid}' writes case type '${issue.writer.caseType}', which is not the module's own type or an exact direct child.`,
 			);
+		case "capture-standard-property":
+			throw new Error(
+				`Attachment field '${issue.writer.fieldUuid}' cannot write standard case property '${issue.writer.property}'.`,
+			);
 		case "reserved-property":
 			throw new Error(
 				`Field '${issue.writer.fieldUuid}' writes reserved case property '${issue.writer.property}'.`,
-			);
-		case "media-field":
-			throw new Error(
-				`Media field '${issue.writer.fieldUuid}' cannot write case property '${issue.writer.property}'.`,
 			);
 		case "primary-writer-in-repeat":
 			throw new Error(

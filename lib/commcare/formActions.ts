@@ -29,6 +29,8 @@ import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	deriveCaseWriteInventory,
+	type Field,
+	isCaptureField,
 	type Uuid,
 } from "@/lib/domain";
 import { assertAndProjectCaseWriteInventory } from "./caseWriteAdmission";
@@ -40,6 +42,10 @@ import type { ResolvedConnectConfig } from "./connectSlugs";
 import type { DerivedCasePropertyBinding } from "./deriveCaseConfig";
 import { deriveCaseConfig } from "./deriveCaseConfig";
 import { readFieldString } from "./fieldProps";
+import {
+	type AttachmentUrlTarget,
+	captureUrlNodePath,
+} from "./xform/captureUrlNode";
 import { descendFormPathIntoField, FormPath } from "./xform/formPath";
 
 /** Find one stable field identity inside a specific form tree. */
@@ -95,6 +101,7 @@ export function buildFormActions(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	moduleCaseType: string | undefined,
+	attachmentTarget: AttachmentUrlTarget | null = null,
 ): FormActions {
 	const base = emptyFormActions();
 	const form = doc.forms[formUuid];
@@ -113,9 +120,46 @@ export function buildFormActions(
 	const { caseNames, caseProperties, casePreload, childCases } =
 		deriveCaseConfig(doc, projectedInventory);
 
+	/**
+	 * The node one case update actually reads, or `null` when this binding
+	 * has no honest wire spelling against the current target.
+	 *
+	 * An ordinary field's answer IS the case value, so the question path is
+	 * the field's own node. A capture's is not: the answer is a file name,
+	 * and the property carries an address built from it, which lives on the
+	 * sibling node `captureUrlNodePath` names. Routing the update at the
+	 * capture node instead would not merely write the wrong value — HQ reads
+	 * the question path structurally and would emit an `<attachment>` block
+	 * rather than an `<update>` child
+	 * (`app_manager/xform.py::CaseBlock.is_attachment`).
+	 *
+	 * With no deployment target there is no origin and no project space to
+	 * build an address from, so the write is dropped rather than emitted
+	 * against a guess. `expandDoc`'s caller reports that at export time.
+	 */
+	const caseUpdateQuestionPath = (
+		binding: DerivedCasePropertyBinding,
+		field: Field,
+	): string | null => {
+		if (!isCaptureField(field)) return binding.path.toXPath();
+		if (attachmentTarget === null) return null;
+		return captureUrlNodePath(binding.path).toXPath();
+	};
+
+	const requireBindingField = (binding: DerivedCasePropertyBinding): Field => {
+		const field = doc.fields[binding.fieldUuid];
+		if (field === undefined) {
+			throw new Error(
+				`Case binding targets missing field '${binding.fieldUuid}'.`,
+			);
+		}
+		return field;
+	};
+
 	// Domain `case_name` projects one-way to HQ FormActions' private `name`
 	// key; HQ's XFormCaseBlock then emits `<update><case_name>`. Shared
-	// admission has already rejected every reserved/media writer.
+	// admission has already rejected every reserved writer, and every capture
+	// writer aimed at a standard scalar slot.
 	const buildUpdateMap = (
 		bindings?: readonly DerivedCasePropertyBinding[],
 	): Record<string, { question_path: string; update_mode: string }> => {
@@ -125,16 +169,13 @@ export function buildFormActions(
 		> = {};
 		if (!bindings) return updateMap;
 		for (const binding of bindings) {
-			const field = doc.fields[binding.fieldUuid];
-			if (field === undefined) {
-				throw new Error(
-					`Case binding targets missing field '${binding.fieldUuid}'.`,
-				);
-			}
+			const field = requireBindingField(binding);
+			const questionPath = caseUpdateQuestionPath(binding, field);
+			if (questionPath === null) continue;
 			const property =
 				binding.property === "case_name" ? "name" : binding.property;
 			updateMap[property] = {
-				question_path: binding.path.toXPath(),
+				question_path: questionPath,
 				update_mode: "always",
 			};
 		}
@@ -235,14 +276,11 @@ export function buildFormActions(
 				{ question_path: string; update_mode: string }
 			> = {};
 			for (const binding of child.caseProperties) {
-				const field = doc.fields[binding.fieldUuid];
-				if (field === undefined) {
-					throw new Error(
-						`Child-case binding targets missing field '${binding.fieldUuid}'.`,
-					);
-				}
+				const field = requireBindingField(binding);
+				const questionPath = caseUpdateQuestionPath(binding, field);
+				if (questionPath === null) continue;
 				childProps[binding.property] = {
-					question_path: binding.path.toXPath(),
+					question_path: questionPath,
 					update_mode: "always",
 				};
 			}

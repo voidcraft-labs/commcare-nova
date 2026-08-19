@@ -271,23 +271,29 @@ export async function readDeploymentsForApp(
 }
 
 /**
- * Just the columns Preview's project-space rule reads, without the
- * ownership ledger or the phase history.
+ * Just the columns the target rules read, without the ownership ledger or
+ * the phase history.
  *
- * Preview asks only "which project space, and how far along". Every
- * preview case-data action pays this read, so it selects exactly the
- * three columns that answer it.
+ * Two rules share this read and ask slightly different questions. Preview
+ * asks "which project space, and how far along", and needs the domain
+ * alone. Attachment URLs need the origin as well, and an origin comes from
+ * the server — CommCare's US, India, and EU installations are separate
+ * systems that can each hold a project space of the same name, so `server`
+ * belongs here even though Preview ignores it.
  */
 export async function readDeploymentPreviewRecords(
 	scope: DeploymentScope,
 ): Promise<
-	readonly Pick<DeploymentRecord, "state" | "resumePhase" | "domain">[]
+	readonly Pick<
+		DeploymentRecord,
+		"state" | "resumePhase" | "server" | "domain"
+	>[]
 > {
 	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
 	const db = await getAppDb();
 	const rows = await db
 		.selectFrom("app_deployments")
-		.select(["state", "resume_phase", "domain"])
+		.select(["state", "resume_phase", "server", "domain"])
 		.where("app_id", "=", scope.appId)
 		.where("project_id", "=", scope.projectId)
 		.execute();
@@ -302,9 +308,15 @@ export async function readDeploymentPreviewRecords(
 				`A deployment of app ${scope.appId} is stored in a state Nova does not know.`,
 			);
 		}
+		if (!isDeploymentServer(row.server)) {
+			throw new Error(
+				`A deployment of app ${scope.appId} names CommCare server "${row.server}", which Nova does not know.`,
+			);
+		}
 		return {
 			state: state.data,
 			resumePhase: resumePhase === null ? null : resumePhase.data,
+			server: row.server,
 			domain: row.domain,
 		};
 	});

@@ -10,9 +10,10 @@
 
 import type { BlueprintDoc } from "./blueprint";
 import { fieldCaseWrite } from "./caseTypes";
-import type { Field } from "./fields";
+import { type Field, isCaptureFieldKind } from "./fields";
 import type { FormType } from "./forms";
 import type { Module } from "./modules";
+import { isWritableStandardCaseProperty } from "./standardCaseProperties";
 import type { Uuid } from "./uuid";
 
 /** One authored field path step, including query-bound repeat iteration. */
@@ -65,7 +66,7 @@ export type CaseWriteInventoryIssue =
 	| { kind: "no-case-action"; writer: CaseWriteField }
 	| { kind: "destination-type-unknown"; writer: CaseWriteField }
 	| { kind: "destination-not-direct-child"; writer: CaseWriteField }
-	| { kind: "media-field"; writer: CaseWriteField }
+	| { kind: "capture-standard-property"; writer: CaseWriteField }
 	| {
 			kind: "primary-writer-in-repeat";
 			writer: CaseWriteField;
@@ -252,14 +253,18 @@ export function caseWriteInventoryIssues(
 					bucket,
 				});
 			}
+			// A capture's answer is a server-minted file name, and in URL
+			// mode the property carries an address built from it. Neither is
+			// a case's name or its external id: those two are dedicated
+			// scalar slots CommCare trims and caps at 255, and they are
+			// emitted through their own FormActions members rather than the
+			// update map, so a capture there would bypass the node the URL
+			// actually lives on.
 			if (
-				writer.fieldKind === "image" ||
-				writer.fieldKind === "audio" ||
-				writer.fieldKind === "video" ||
-				writer.fieldKind === "signature" ||
-				writer.fieldKind === "file"
+				isCaptureFieldKind(writer.fieldKind) &&
+				isWritableStandardCaseProperty(writer.property)
 			) {
-				issues.push({ kind: "media-field", writer });
+				issues.push({ kind: "capture-standard-property", writer });
 			}
 		}
 		for (const [property, propertyWriters] of caseWritersByProperty(bucket)) {

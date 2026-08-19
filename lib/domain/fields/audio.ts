@@ -1,9 +1,10 @@
 // lib/domain/fields/audio.ts
 //
 // Audio capture field. Emits `<upload mediatype="audio/*">` over a
-// `binary` bind. Cannot be calculated, validated, or saved to a case
-// property — extends fieldBaseSchema directly rather than
-// inputFieldBaseSchema.
+// `binary` bind. Cannot be calculated or validated — extends
+// fieldBaseSchema directly rather than inputFieldBaseSchema, and takes
+// its own `captureCaseWriteSchema` destination, which carries the mode
+// deciding how the answer reaches the case.
 //
 // This is an attachment, not a recording: CommCare Web Apps has no
 // microphone or recorder anywhere in cloudcare, so the worker picks an
@@ -15,6 +16,7 @@ import tablerMicrophone from "@iconify-icons/tabler/microphone";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
+	captureCaseWriteSchema,
 	fieldBaseSchema,
 	proseTemplateSchema,
 	xpathExpressionSchema,
@@ -25,6 +27,7 @@ export const audioFieldSchema = fieldBaseSchema.extend({
 	hint: proseTemplateSchema.optional(),
 	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
+	caseWrite: captureCaseWriteSchema.optional(),
 });
 
 export type AudioField = z.infer<typeof audioFieldSchema>;
@@ -38,6 +41,6 @@ export const audioFieldMetadata: FieldKindMetadata<"audio"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs:
-		"Audio attachment, the worker attaches an existing MP3, WAV, OGG, AMR, QCP, or 3GA file. Web Apps has no recorder, so never describe this as recording audio. Cannot be saved to a case property.",
+		"Audio attachment, the worker attaches an existing MP3, WAV, OGG, AMR, QCP, or 3GA file. Web Apps has no recorder, so never describe this as recording audio. Can save to a case property as a link to the attached file; that needs the app published to a CommCare HQ project space, because the address comes from the target.",
 	convertTargets: ["image", "video", "signature", "file"],
 };

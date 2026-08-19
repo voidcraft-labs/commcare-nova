@@ -237,6 +237,7 @@ describe("prepareExportBoundary", () => {
 				access: ACCESS,
 				doc: validDoc(),
 				compiledAtSeq: 12,
+				attachmentTarget: null,
 			});
 
 			expect(result.ok).toBe(true);
@@ -252,6 +253,7 @@ describe("prepareExportBoundary", () => {
 			access: ACCESS,
 			doc: validDoc(),
 			compiledAtSeq: 4,
+			attachmentTarget: null,
 		});
 
 		expect(result.ok).toBe(true);
@@ -272,6 +274,7 @@ describe("prepareExportBoundary", () => {
 			access: ACCESS,
 			doc: validDoc(),
 			compiledAtSeq: 4,
+			attachmentTarget: null,
 		});
 
 		expect(result.ok).toBe(true);
@@ -297,6 +300,7 @@ describe("prepareExportBoundary", () => {
 			access: ACCESS,
 			doc: validDoc(),
 			compiledAtSeq: 9,
+			attachmentTarget: null,
 		});
 
 		if (!result.ok) throw new Error("expected prepared export");
@@ -323,6 +327,7 @@ describe("prepareExportBoundary", () => {
 				access: ACCESS,
 				doc: validDoc(),
 				compiledAtSeq: 3,
+				attachmentTarget: null,
 			}),
 		).rejects.toBe(operational);
 		expect(loadAssetsByIds).not.toHaveBeenCalled();
@@ -337,6 +342,7 @@ describe("prepareExportBoundary", () => {
 					access: ACCESS,
 					doc: validDoc(),
 					compiledAtSeq: 1,
+					attachmentTarget: null,
 				},
 				[],
 			),
@@ -372,6 +378,7 @@ describe("prepareExportBoundary", () => {
 				access: ACCESS,
 				doc: validDoc(),
 				compiledAtSeq: 1,
+				attachmentTarget: null,
 			},
 			registry,
 		);
@@ -381,6 +388,7 @@ describe("prepareExportBoundary", () => {
 				access: ACCESS,
 				doc: validDoc(),
 				compiledAtSeq: 1,
+				attachmentTarget: null,
 			},
 			registry,
 		);
@@ -407,6 +415,7 @@ describe("prepareExportBoundary", () => {
 				access: ACCESS,
 				doc: lookupCarrierDoc(),
 				compiledAtSeq: 15,
+				attachmentTarget: null,
 			});
 
 			expect(result.ok).toBe(false);
@@ -434,6 +443,7 @@ describe("prepareExportBoundary", () => {
 					access: ACCESS,
 					doc: makeDoc(),
 					compiledAtSeq: 16,
+					attachmentTarget: null,
 				});
 
 				expect(result.ok, `${kind} owner must stay closed`).toBe(false);
@@ -481,6 +491,7 @@ describe("prepareExportBoundary", () => {
 			access: ACCESS,
 			doc: lookupCarrierDoc(),
 			compiledAtSeq: 15,
+			attachmentTarget: null,
 		});
 
 		expect(result.ok).toBe(true);
@@ -521,6 +532,7 @@ describe("prepareExportBoundary", () => {
 			access: ACCESS,
 			doc: lookupCarrierDoc(),
 			compiledAtSeq: 16,
+			attachmentTarget: null,
 		});
 
 		expect(result.ok).toBe(false);
@@ -549,6 +561,7 @@ describe("prepareExportBoundary", () => {
 			access: ACCESS,
 			doc: lookupCarrierDoc(),
 			compiledAtSeq: 17,
+			attachmentTarget: null,
 		});
 
 		expect(result.ok).toBe(false);

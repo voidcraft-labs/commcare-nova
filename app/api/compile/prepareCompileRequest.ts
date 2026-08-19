@@ -6,6 +6,8 @@ import {
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { resolveAppAccess } from "@/lib/db/appAccess";
+import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
+import { attachmentUrlTargetFor } from "@/lib/deployment/attachmentTarget";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { PersistableDoc } from "@/lib/domain";
@@ -77,6 +79,19 @@ export async function prepareCompileRequest(
 	// never leave for a device or CommCare HQ, and a stale media reference
 	// would otherwise make the media-ON `expandDoc` throw `requireAssetRef`
 	// → opaque 500.
+	// A downloadable app and an import file both have to be TOLD where their
+	// attachment links resolve — neither carries a target of its own. The
+	// app's deployment record answers when exactly one project space holds
+	// it; with none, or with several, there is no honest answer and the
+	// links are left out.
+	const scope = {
+		appId,
+		projectId: access.projectId,
+		role: access.role,
+		actorUserId: access.actorUserId,
+	};
+	const attachmentDeploymentTarget = await attachmentDeploymentTargetFor(scope);
+
 	const boundary = await prepareExportBoundary({
 		mode,
 		access: {
@@ -86,6 +101,7 @@ export async function prepareCompileRequest(
 		},
 		doc: docWithParent,
 		compiledAtSeq: app.mutation_seq,
+		attachmentTarget: attachmentUrlTargetFor(attachmentDeploymentTarget),
 	});
 	if (!boundary.ok) {
 		// The concise builder copy on the detail lines: this is a

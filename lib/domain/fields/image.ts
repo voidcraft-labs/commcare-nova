@@ -1,9 +1,10 @@
 // lib/domain/fields/image.ts
 //
 // Image capture field. Emits `<upload mediatype="image/*">` over a
-// `binary` bind. Cannot be calculated, validated, or saved to a case
-// property — extends fieldBaseSchema directly rather than
-// inputFieldBaseSchema.
+// `binary` bind. Cannot be calculated or validated — extends
+// fieldBaseSchema directly rather than inputFieldBaseSchema, and takes
+// its own `captureCaseWriteSchema` destination, which carries the mode
+// deciding how the answer reaches the case.
 //
 // The worker ATTACHES a photo; they do not take one. CommCare Web Apps
 // has no camera — `entry_file.html` binds only `accept` on its file
@@ -16,6 +17,7 @@ import tablerPhoto from "@iconify-icons/tabler/photo";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
+	captureCaseWriteSchema,
 	fieldBaseSchema,
 	proseTemplateSchema,
 	xpathExpressionSchema,
@@ -26,6 +28,7 @@ export const imageFieldSchema = fieldBaseSchema.extend({
 	hint: proseTemplateSchema.optional(),
 	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
+	caseWrite: captureCaseWriteSchema.optional(),
 });
 
 export type ImageField = z.infer<typeof imageFieldSchema>;
@@ -39,6 +42,6 @@ export const imageFieldMetadata: FieldKindMetadata<"image"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs:
-		'Photo attachment, the worker attaches a JPG, JPEG, or PNG from their device. Those three are the whole accepted set; GIF and WebP are rejected at pick time. Web Apps has no camera, so say "attach a photo", never "take a photo". Cannot be saved to a case property.',
+		'Photo attachment, the worker attaches a JPG, JPEG, or PNG from their device. Those three are the whole accepted set; GIF and WebP are rejected at pick time. Web Apps has no camera, so say "attach a photo", never "take a photo". Can save to a case property as a link to the attached file; that needs the app published to a CommCare HQ project space, because the address comes from the target.',
 	convertTargets: ["audio", "video", "signature", "file"],
 };

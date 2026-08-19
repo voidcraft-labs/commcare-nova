@@ -64,6 +64,7 @@ import {
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { xpathStringLiteral } from "@/lib/commcare/xpath/stringLiteral";
 
 /**
  * CommCare case-transaction XML namespace. Every `<case>` element on the wire
@@ -781,40 +782,6 @@ function conditionToRelevantXPath(condition: FormActionCondition): string {
 	return op === "selected"
 		? `selected(${qPath}, ${answer})`
 		: `${qPath} = ${answer}`;
-}
-
-/**
- * Render `value` as a valid XPath 1.0 string literal.
- *
- * XPath 1.0 has no escape sequence inside string literals: a `'...'` literal
- * cannot contain `'`, a `"..."` literal cannot contain `"`. The standard
- * encoding picks the delimiter the value doesn't contain, and falls back to
- * `concat()` (alternating delimiters across pieces) when the value contains
- * BOTH quote characters. The result is always parse-safe under JavaRosa's
- * XPath evaluator.
- *
- * The XML serializer escapes the returned string into the attribute value
- * separately — its `'` / `"` escaping is XML-spec, not XPath-spec, so a
- * downstream `&apos;` decodes back to `'` before JavaRosa parses the
- * expression. Both layers compose correctly.
- */
-function xpathStringLiteral(value: string): string {
-	const hasSingle = value.includes("'");
-	const hasDouble = value.includes('"');
-	if (!hasSingle) return `'${value}'`;
-	if (!hasDouble) return `"${value}"`;
-	// Both quote characters present — split on `'` and reassemble via
-	// `concat()`, alternating single-quoted pieces with the literal `"'"`
-	// rendered as the double-quoted literal that joins them. Each piece is
-	// safe in its own delimiter because the split removes the only
-	// disqualifying character.
-	const pieces = value.split("'");
-	const parts: string[] = [];
-	for (let i = 0; i < pieces.length; i++) {
-		if (i > 0) parts.push(`"'"`);
-		if (pieces[i].length > 0) parts.push(`'${pieces[i]}'`);
-	}
-	return `concat(${parts.join(", ")})`;
 }
 
 /**

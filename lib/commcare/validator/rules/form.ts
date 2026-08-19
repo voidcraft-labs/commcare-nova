@@ -170,13 +170,13 @@ function caseWriteAdmission(
 			);
 			continue;
 		}
-		if (issue.kind === "media-field") {
+		if (issue.kind === "capture-standard-property") {
 			const { writer } = issue;
 			errors.push(
 				validationError(
-					"MEDIA_CASE_PROPERTY",
+					"CAPTURE_CASE_WRITE_STANDARD_PROPERTY",
 					"form",
-					`"${ctx.formName}" tries to save the ${writer.fieldKind} field "${writer.fieldId}" as case property "${writer.property}". Attachments can't be stored as case properties; clear this case destination.`,
+					`"${ctx.formName}" saves the ${writer.fieldKind} field "${writer.fieldId}" to "${writer.property}", which CommCare keeps as the case's own ${writer.property === "case_name" ? "name" : "external id"}. Save the attachment to a property of its own instead.`,
 					{
 						...baseLocation(ctx),
 						fieldUuid: writer.fieldUuid,

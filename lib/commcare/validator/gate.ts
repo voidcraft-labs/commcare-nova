@@ -79,10 +79,7 @@ export type ValidityClass =
  *     backstops for schema-unrepresentable states, verified against the
  *     domain schemas: `required`/`calculate`/`validate` are absent from
  *     the kinds the rules flag, `postSubmit` is a Zod enum, select
- *     `options` carries `.min(2)`, and media kinds carry no
- *     `caseWrite` (MEDIA_CASE_PROPERTY can still fire on a
- *     cousin-id collision — `findFieldById` resolves by first id match —
- *     which is a rule quirk, not an authoring state).
+ *     `options` carries `.min(2)`.
  *   - MEDIA_EXPORT_TOO_LARGE is `environment`: it is a function of the
  *     referenced assets' external byte sizes/status, fires only from the
  *     media-validation boundary entry point, and can never gate a commit.
@@ -204,7 +201,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_CREATE_NAME_MISSING: "completeness",
 	CASE_CREATE_NAME_DUPLICATE: "soundness",
 	RESERVED_CASE_PROPERTY: "soundness",
-	MEDIA_CASE_PROPERTY: "shape",
+	CAPTURE_CASE_WRITE_STANDARD_PROPERTY: "soundness",
 	FORM_TOO_MANY_ATTACHMENTS: "soundness",
 	CLOSE_CONDITION_WRONG_TYPE: "soundness",
 	CLOSE_FORM_NO_CASE_TYPE: "soundness",

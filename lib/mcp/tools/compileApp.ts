@@ -38,6 +38,8 @@ import {
 } from "@/lib/commcare/featureFlags";
 import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { errorToString } from "@/lib/commcare/validator/errors";
+import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
+import { attachmentUrlTargetFor } from "@/lib/deployment/attachmentTarget";
 import {
 	type ExportMode,
 	prepareExportBoundary,
@@ -112,11 +114,25 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * manifest resolves only the ids the app's own blueprint references,
 				 * filtered to the project. */
 				const mode = COMPILE_EXPORT_MODE_BY_FORMAT[args.format];
+				/* Neither artifact carries a target of its own, so attachment
+				 * links resolve from the app's deployment record — exactly what
+				 * the browser download path does. With no project space holding
+				 * the app, or more than one, there is no honest address and the
+				 * links are left out. */
+				const attachmentTarget = attachmentUrlTargetFor(
+					await attachmentDeploymentTargetFor({
+						appId,
+						projectId: access.projectId,
+						role: access.role,
+						actorUserId: access.actorUserId,
+					}),
+				);
 				const boundary = await prepareExportBoundary({
 					mode,
 					access,
 					doc,
 					compiledAtSeq: app.mutation_seq,
+					attachmentTarget,
 				});
 				if (!boundary.ok) {
 					throw new McpInvalidInputError(
