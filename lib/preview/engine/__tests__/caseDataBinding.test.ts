@@ -66,6 +66,7 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 	startsWithMode,
+	tileCell,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -913,6 +914,183 @@ describe("readCases", () => {
 		expect(result).toMatchObject({ kind: "rows", totalCount: 1 });
 		if (result.kind !== "rows") return;
 		expect(result.rows[0]?.calculated[regionUuid]).toBe("");
+	});
+});
+
+// ---------------------------------------------------------------
+// `readCases` — grouped tile
+// ---------------------------------------------------------------
+
+describe("readCases — grouped tile", () => {
+	/**
+	 * Two patients with two visits each, interleaved by name, plus one
+	 * visit with no patient at all. Sorting by name puts Ada, Ben, Cal,
+	 * Dot in that order, so a result that shows whole groups is really
+	 * showing the clustering rather than the sort.
+	 */
+	async function seedVisits(store: CaseStore) {
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE, VISIT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await seedSchema(store, blueprint, "visit");
+		const parents: string[] = [];
+		for (const name of ["North", "South"]) {
+			const { caseId } = await store.insert({
+				appId: APP_ID,
+				row: {
+					case_type: "patient",
+					case_name: name,
+					status: "open",
+					properties: {},
+				},
+			});
+			parents.push(caseId);
+		}
+		for (const [name, parent] of [
+			["Ada", parents[0]],
+			["Ben", parents[1]],
+			["Cal", parents[0]],
+			["Dot", parents[1]],
+		] as const) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_type: "visit",
+					case_name: name,
+					status: "open",
+					parent_case_id: parent,
+					properties: { notes: name },
+				},
+			});
+		}
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_type: "visit",
+				case_name: "Eve",
+				status: "open",
+				properties: { notes: "Eve" },
+			},
+		});
+		return { blueprint, north: parents[0], south: parents[1] };
+	}
+
+	const groupedConfig = (headerRows = 1) =>
+		makeCaseListConfig({
+			columns: [
+				plainColumn(NAME_COLUMN_UUID, "case_name", "Visit", {
+					sort: { direction: "asc", priority: 0 },
+					tile: tileCell(0, 0, 6, 1),
+				}),
+			],
+			tile: { grouping: { identifier: "parent", headerRows } },
+		});
+
+	it("clusters the page, counts the window in groups, and keeps rows flat beside it", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const { blueprint, north, south } = await seedVisits(store);
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: groupedConfig(),
+			page: { offset: 0, limit: 2 },
+		});
+
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		// Two GROUPS on the page, four cases in them: a grouped page is
+		// unbounded in rows, exactly as `getEntitiesForCurrentPage` is.
+		expect(result.grouped?.groups.map((group) => group.key)).toEqual([
+			north,
+			south,
+		]);
+		expect(
+			result.grouped?.groups.map((group) =>
+				group.rows.map((row) => row.case_name),
+			),
+		).toEqual([
+			["Ada", "Cal"],
+			["Ben", "Dot"],
+		]);
+		expect(result.grouped?.pageOffset).toBe(0);
+		expect(result.grouped?.pageSize).toBe(2);
+		// Three groups (North, South, and Eve's empty key) over five cases.
+		expect(result.grouped?.totalGroupCount).toBe(3);
+		expect(result.totalCount).toBe(5);
+		// `totalCount` counts CASES in both shapes, and the flat `rows` slot
+		// stays the page in clustered order so every row-reading consumer
+		// keeps working unchanged.
+		expect(result.rows.map((row) => row.case_name)).toEqual([
+			"Ada",
+			"Cal",
+			"Ben",
+			"Dot",
+		]);
+		// A grouped read reports no ROW window — its window counts groups.
+		expect(result.pageOffset).toBeUndefined();
+		expect(result.pageSize).toBeUndefined();
+	});
+
+	it("puts every case with no such connection in one group", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const { blueprint } = await seedVisits(store);
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: groupedConfig(),
+			page: { offset: 2, limit: 2 },
+		});
+
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		// The empty key is what `string(./index/parent)` evaluates to on the
+		// device for a parentless child, so the collapse is the runtime's,
+		// not a synthetic bucket Nova invented.
+		expect(result.grouped?.groups).toEqual([
+			expect.objectContaining({ key: "" }),
+		]);
+		expect(result.rows.map((row) => row.case_name)).toEqual(["Eve"]);
+	});
+
+	it("reclamps a page past the last group instead of reporting an empty list", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const { blueprint } = await seedVisits(store);
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: groupedConfig(),
+			page: { offset: 100, limit: 2 },
+		});
+
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.grouped?.pageOffset).toBe(2);
+		expect(result.grouped?.totalGroupCount).toBe(3);
+		expect(result.rows.map((row) => row.case_name)).toEqual(["Eve"]);
+	});
+
+	it("leaves an unpaged read flat, because grouping is a list's shape", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const { blueprint } = await seedVisits(store);
+
+		// The form's auto-selection read wants the complete candidate set and
+		// draws no list, so it stays on the ordinary path even here.
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: groupedConfig(),
+		});
+
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.grouped).toBeUndefined();
+		expect(result.rows).toHaveLength(5);
 	});
 });
 

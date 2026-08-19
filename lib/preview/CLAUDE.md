@@ -407,7 +407,7 @@ Results rows and the tile pinned above forms, so the two cannot draw one case
 differently. Both files carry the CommCare citations — read them before changing
 a number.
 
-Three things the rest of the preview has to know:
+Four things the rest of the preview has to know:
 
 - **A tile carries more columns than it shows, and the extra ones hold no
   square.** `tileResultsColumns` selects the set the short detail emits: every
@@ -425,6 +425,28 @@ Three things the rest of the preview has to know:
   18rem floor and scrolls horizontally below it rather than crushing 12 columns,
   and from the medium breakpoint up the tile is capped at a 48rem measure instead
   of stretching to an extra-large canvas. The reasoning lives on `ResultsTiles`.
+- **A grouped tile draws one card per GROUP, and that card is one choice.**
+  `caseListConfig.tile.grouping` puts the tile's top `headerRows` rows on the
+  group (drawn once, from the group's first case) and everything below them on
+  each member. `caseTileGrouping.ts::splitTileGridByGroupHeader` cuts the
+  projection, `components/preview/shared/CaseTileGroup.tsx` stacks the halves,
+  and both keep the WHOLE tile's `grid-template-*` because the template draws
+  header and every body row as separate divs sharing one `-cell-grid-style`
+  block. The split reads a cell's START row only, never its height. **Choosing a
+  group opens its FIRST case** — Web Apps clones the group's models and removes
+  every non-first one from the rendered collection
+  (`views.js::CaseTileGroupedListView.initialize`), so the body rows carry no
+  id, no checkbox, and no handler; the running list says so permanently rather
+  than inventing a per-row selection the device does not have. Reading side:
+  `readCases` branches onto `store.queryGrouped` for a BOUNDED read only (the
+  form's unpaged auto-selection read stays flat), `rows` stays the flat page in
+  clustered order so every row-reading consumer keeps working, and the extra
+  `grouped` slot carries the clustering plus a window whose unit is GROUPS while
+  `totalCount` still counts cases. A grouped page is therefore unbounded in rows
+  — N groups arrive with however many cases they hold, which is
+  `EntityListResponse::getEntitiesForCurrentPage`'s own behaviour, not a bug to
+  clamp. Cases carrying no such connection all land in the empty-key group,
+  because that is what `string(./index/<id>)` evaluates to for them.
 - **The persistent tile is a separate read.** `PersistentCaseTile` loads its own
   row with the display config attached so calculated cells project exactly as in
   Results; the form's case read stays display-free because it feeds the engine.

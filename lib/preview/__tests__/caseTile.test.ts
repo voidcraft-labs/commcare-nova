@@ -17,6 +17,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { splitTileGridByGroupHeader } from "../caseTileGrouping";
 import {
 	projectTileGrid,
 	TILE_ENTITIES_PER_ROW,
@@ -288,5 +289,62 @@ describe("the columns a tile carries", () => {
 		);
 		expect(carried).toHaveLength(1);
 		expect(carried[0].valueHidden).toBe(false);
+	});
+});
+
+describe("the grouped tile's header/body split", () => {
+	/** A three-row tile: a name band, a village band, and a per-visit row. */
+	const projection = projectTileGrid([
+		plainColumn(NAME, "case_name", "Patient", { tile: tileCell(0, 0, 6, 1) }),
+		plainColumn(VILLAGE, "village", "Village", { tile: tileCell(0, 1, 6, 1) }),
+		dateColumn(VISIT, "last_visit", "Last visit", "%d %b %Y", {
+			tile: tileCell(0, 2, 6, 1),
+		}),
+	]);
+
+	it("splits on the cell's START row and nothing else", () => {
+		const split = splitTileGridByGroupHeader(projection, 2);
+		expect(split.header.cells.map((cell) => cell.columnUuid)).toEqual([
+			NAME,
+			VILLAGE,
+		]);
+		expect(split.body.cells.map((cell) => cell.columnUuid)).toEqual([VISIT]);
+	});
+
+	it("classifies a straddling cell as header, exactly as the runtime does", () => {
+		// `isHeaderRow = (y) => y < groupHeaderRows` reads gridY alone, so a
+		// two-row cell starting inside the header band is wholly header — the
+		// state `CASE_LIST_TILE_GROUP_CELL_STRADDLES_HEADER` refuses to commit
+		// precisely because per-case content would silently become group
+		// content.
+		const straddling = projectTileGrid([
+			plainColumn(NAME, "case_name", "Patient", { tile: tileCell(0, 0, 6, 2) }),
+			dateColumn(VISIT, "last_visit", "Last visit", "%d %b %Y", {
+				tile: tileCell(0, 2, 6, 1),
+			}),
+		]);
+		const split = splitTileGridByGroupHeader(straddling, 1);
+		expect(split.header.cells.map((cell) => cell.columnUuid)).toEqual([NAME]);
+		expect(split.body.cells.map((cell) => cell.columnUuid)).toEqual([VISIT]);
+	});
+
+	it("gives both halves the WHOLE tile's geometry", () => {
+		// The template draws header and every body row as separate divs
+		// sharing one `-cell-grid-style` block, and each cell keeps its
+		// absolute `grid-area`. Re-deriving a narrower extent per half would
+		// slide every cell out of the square its author placed it in.
+		const split = splitTileGridByGroupHeader(projection, 2);
+		for (const half of [split.header, split.body]) {
+			expect(half.columns).toBe(projection.columns);
+			expect(half.rows).toBe(projection.rows);
+		}
+		expect(cellFor(split.body, VISIT).gridArea).toBe(
+			cellFor(projection, VISIT).gridArea,
+		);
+	});
+
+	it("stays total at both edges rather than repairing an unloadable layout", () => {
+		expect(splitTileGridByGroupHeader(projection, 3).body.cells).toEqual([]);
+		expect(splitTileGridByGroupHeader(projection, 0).header.cells).toEqual([]);
 	});
 });

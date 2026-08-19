@@ -43,6 +43,7 @@ import tablerLogin2 from "@iconify-icons/tabler/login-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import {
@@ -56,6 +57,7 @@ import {
 	useLocalizedValues,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
+import { CaseTileGroup } from "@/components/preview/shared/CaseTileGroup";
 import { caseColumnLabel } from "@/components/preview/shared/caseColumnLabel";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import {
@@ -97,6 +99,10 @@ import {
 } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { PreviewMarkdown } from "@/lib/markdown";
+import {
+	type GroupedTileProjection,
+	splitTileGridByGroupHeader,
+} from "@/lib/preview/caseTileGrouping";
 import {
 	projectTileGrid,
 	type TileGridProjection,
@@ -649,6 +655,22 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * a config whose columns are all gone. */
 	const tileActive =
 		config?.tile !== undefined && tileProjection.cells.length > 0;
+	/* Grouping is a slot inside the tile layout, so a grouped list is always a
+	 * tile list. The split is derived once here — the same geometry, cut into
+	 * the header a group draws once and the body every member repeats. */
+	const tileGrouping = config?.tile?.grouping;
+	const resultsTileLayout: ResultsTileLayout | undefined = !tileActive
+		? undefined
+		: {
+				projection: tileProjection,
+				columns: tileColumns,
+				...(tileGrouping !== undefined && {
+					grouped: splitTileGridByGroupHeader(
+						tileProjection,
+						tileGrouping.headerRows,
+					),
+				}),
+			};
 	const detailColumns = (
 		config === undefined ? [] : orderedColumns(config, "detail")
 	).filter((col) => col.visibleInDetail !== false);
@@ -657,19 +679,34 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const loadedRows = state.kind === "rows" ? state.rows : [];
 	const totalMatchingCases =
 		state.kind === "rows" ? (state.totalCount ?? loadedRows.length) : 0;
+	/* Present exactly when the case list groups its tile. `loadedRows` is
+	 * still the flat page in clustered order, so everything that reads rows
+	 * keeps working; this is the clustering on top of it. */
+	const groupedResult = state.kind === "rows" ? state.grouped : undefined;
+	/* A grouped list PAGES BY GROUP, so the pager's unit changes with it —
+	 * `EntityListResponse::getEntitiesForCurrentPage` counts group
+	 * boundaries, not rows. The window therefore comes off the grouped slot,
+	 * whose numbers count groups, while `totalMatchingCases` keeps counting
+	 * cases. A grouped page is unbounded in rows by construction: N groups
+	 * arrive with however many cases they hold. */
 	const settledPageOffset =
-		state.kind === "rows"
+		groupedResult?.pageOffset ??
+		(state.kind === "rows"
 			? (state.pageOffset ?? requestedPageIndex * CASE_LIST_PAGE_SIZE)
-			: requestedPageIndex * CASE_LIST_PAGE_SIZE;
+			: requestedPageIndex * CASE_LIST_PAGE_SIZE);
 	const settledPageSize =
-		state.kind === "rows" ? (state.pageSize ?? CASE_LIST_PAGE_SIZE) : 0;
+		groupedResult?.pageSize ??
+		(state.kind === "rows" ? (state.pageSize ?? CASE_LIST_PAGE_SIZE) : 0);
 	const settledPageIndex =
 		settledPageSize > 0
 			? Math.floor(settledPageOffset / settledPageSize)
 			: requestedPageIndex;
-	const pageStart = loadedRows.length === 0 ? 0 : settledPageOffset + 1;
-	const pageEnd = settledPageOffset + loadedRows.length;
-	const pageLocalFilter = totalMatchingCases > loadedRows.length;
+	/** What the pager counts: groups when the list is grouped, cases when not. */
+	const pagedUnitTotal = groupedResult?.totalGroupCount ?? totalMatchingCases;
+	const pagedUnitCount = groupedResult?.groups.length ?? loadedRows.length;
+	const pageStart = pagedUnitCount === 0 ? 0 : settledPageOffset + 1;
+	const pageEnd = settledPageOffset + pagedUnitCount;
+	const pageLocalFilter = pagedUnitTotal > pagedUnitCount;
 	const routeCase = useMemo<CaseRowWithCalculated | null>(() => {
 		if (!routeCaseId || routeCaseReplaced) return null;
 		const projected = loadedRows.find((row) => row.case_id === routeCaseId);
@@ -728,12 +765,49 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					),
 		[loadedRows, visibleColumns, filterText, columnDisplayContext],
 	);
+	/* The same narrowing, applied inside each group. A group whose members all
+	 * fail the filter disappears; the ones that survive keep drawing their
+	 * header from the group's OWN first case, because the header names the
+	 * group rather than one of the matches. */
+	const filteredGroups = useMemo<
+		readonly ResultsTileGroup[] | undefined
+	>(() => {
+		if (groupedResult === undefined) return undefined;
+		return groupedResult.groups.flatMap<ResultsTileGroup>((group) => {
+			const header = group.rows[0];
+			if (header === undefined) return [];
+			const rows =
+				filterText === ""
+					? group.rows
+					: group.rows.filter((row) =>
+							rowMatchesFilterText(
+								visibleColumns,
+								row,
+								filterText,
+								columnDisplayContext,
+							),
+						);
+			return rows.length === 0 ? [] : [{ key: group.key, header, rows }];
+		});
+	}, [groupedResult, visibleColumns, filterText, columnDisplayContext]);
+	const caseWord = (count: number) => (count === 1 ? "case" : "cases");
+	const groupWord = (count: number) => (count === 1 ? "group" : "groups");
 	const visibleResultCount =
 		filterText !== ""
-			? `${filteredRows.length.toLocaleString()} of ${loadedRows.length.toLocaleString()} ${loadedRows.length === 1 ? "case" : "cases"}${pageLocalFilter ? " on this page" : ""}`
-			: pageLocalFilter
-				? `${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${totalMatchingCases.toLocaleString()} cases`
-				: `${totalMatchingCases.toLocaleString()} ${totalMatchingCases === 1 ? "case" : "cases"}`;
+			? `${filteredRows.length.toLocaleString()} of ${loadedRows.length.toLocaleString()} ${caseWord(loadedRows.length)}${pageLocalFilter ? " on this page" : ""}`
+			: groupedResult !== undefined
+				? pageLocalFilter
+					? `${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${pagedUnitTotal.toLocaleString()} ${groupWord(pagedUnitTotal)}`
+					: `${totalMatchingCases.toLocaleString()} ${caseWord(totalMatchingCases)} in ${pagedUnitTotal.toLocaleString()} ${groupWord(pagedUnitTotal)}`
+				: pageLocalFilter
+					? `${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${totalMatchingCases.toLocaleString()} cases`
+					: `${totalMatchingCases.toLocaleString()} ${caseWord(totalMatchingCases)}`;
+	/** The pager's own line. It counts the same unit the pager steps through,
+	 *  so a grouped list never reports a page of cases it did not page by. */
+	const pagerSummary =
+		groupedResult !== undefined
+			? `Showing ${groupWord(pagedUnitTotal)} ${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${pagedUnitTotal.toLocaleString()}`
+			: `Showing ${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${totalMatchingCases.toLocaleString()} cases`;
 	const announcedResultCount =
 		filterText !== ""
 			? visibleResultCount
@@ -1292,14 +1366,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				onRetryCount={retryCountWithFocus}
 				onSignIn={() => void signIn()}
 				rows={filteredRows}
+				groups={filteredGroups}
 				filterActive={filterText !== ""}
 				pageLocalFilter={pageLocalFilter}
 				visibleColumns={visibleColumns}
-				tile={
-					tileActive
-						? { projection: tileProjection, columns: tileColumns }
-						: undefined
-				}
+				tile={resultsTileLayout}
 				caseProperties={caseType.properties}
 				columnDisplayContext={columnDisplayContext}
 				emptyResultContext={queryConstraintSource}
@@ -1309,15 +1380,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				onOpenCase={handleOpenCase}
 				busy={fetching}
 			/>
-			{state.kind === "rows" && totalMatchingCases > settledPageSize && (
+			{state.kind === "rows" && pagedUnitTotal > settledPageSize && (
 				<nav
 					aria-label="Results pages"
 					className="mt-4 flex flex-wrap items-center justify-between gap-3"
 				>
-					<p className="text-xs text-nova-text-muted">
-						Showing {pageStart.toLocaleString()}–{pageEnd.toLocaleString()} of{" "}
-						{totalMatchingCases.toLocaleString()} cases
-					</p>
+					<p className="text-xs text-nova-text-muted">{pagerSummary}</p>
 					<div className="flex items-center gap-2">
 						<Button
 							type="button"
@@ -1331,7 +1399,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						<Button
 							type="button"
 							variant="outline"
-							disabled={fetching || pageEnd >= totalMatchingCases}
+							disabled={fetching || pageEnd >= pagedUnitTotal}
 							onClick={() => choosePage(settledPageIndex + 1)}
 							className=""
 						>
@@ -1413,6 +1481,7 @@ function ResultsBody({
 	onRetryCount,
 	onSignIn,
 	rows,
+	groups,
 	filterActive,
 	pageLocalFilter,
 	visibleColumns,
@@ -1437,6 +1506,8 @@ function ResultsBody({
 	readonly onSignIn: () => void;
 	/** Rows after the list filter box's narrowing. */
 	readonly rows: readonly CaseRowWithCalculated[];
+	/** Present exactly when the list is grouped, narrowed the same way. */
+	readonly groups: readonly ResultsTileGroup[] | undefined;
 	readonly filterActive: boolean;
 	readonly pageLocalFilter: boolean;
 	readonly visibleColumns: CaseListConfig["columns"];
@@ -1608,6 +1679,7 @@ function ResultsBody({
 			) : (
 				<ResultsTiles
 					rows={rows}
+					groups={groups}
 					tile={tile}
 					caseProperties={caseProperties}
 					columnDisplayContext={columnDisplayContext}
@@ -2015,6 +2087,24 @@ function primaryRowActionLabel(
 interface ResultsTileLayout {
 	readonly projection: TileGridProjection;
 	readonly columns: readonly TileResultsColumn[];
+	/**
+	 * Present when the case list groups its tile: the same geometry split
+	 * into the header the group shows once and the body every member
+	 * repeats. Absent keeps one tile per case.
+	 */
+	readonly grouped?: GroupedTileProjection;
+}
+
+/**
+ * One group as the list draws it: the case its header comes from, and the
+ * members whose body rows it stacks. `header` is the group's own first
+ * case even when the list filter has narrowed `rows`, because the header
+ * names the group rather than one of the matches.
+ */
+interface ResultsTileGroup {
+	readonly key: string;
+	readonly header: CaseRowWithCalculated;
+	readonly rows: readonly CaseRowWithCalculated[];
 }
 
 /**
@@ -2046,6 +2136,7 @@ interface ResultsTileLayout {
  */
 function ResultsTiles({
 	rows,
+	groups,
 	tile,
 	caseProperties,
 	columnDisplayContext,
@@ -2054,6 +2145,8 @@ function ResultsTiles({
 	busy,
 }: {
 	readonly rows: readonly CaseRowWithCalculated[];
+	/** Present exactly when the list is grouped; one entry per drawn card. */
+	readonly groups: readonly ResultsTileGroup[] | undefined;
 	readonly tile: ResultsTileLayout;
 	readonly caseProperties: readonly CaseProperty[];
 	readonly columnDisplayContext: ColumnDisplayContext;
@@ -2070,27 +2163,70 @@ function ResultsTiles({
 	const spokenColumns = tile.columns
 		.filter((entry) => !entry.valueHidden)
 		.map((entry) => entry.column);
+	/* One drawn card and the ONE case choosing it opens. Grouped or not, a
+	 * card is a single target: Web Apps keeps only the group's first model in
+	 * the rendered collection, so its body rows carry no id and no handler
+	 * (`views.js::CaseTileGroupedListView.initialize`). */
+	const groupedTile = groups === undefined ? undefined : tile.grouped;
+	const cards: ReadonlyArray<{
+		readonly key: string;
+		readonly actionRow: CaseRowWithCalculated;
+		readonly tile: ReactNode;
+	}> =
+		groups !== undefined && groupedTile !== undefined
+			? groups.map((group) => ({
+					key: `group:${group.key}`,
+					actionRow: group.header,
+					tile: (
+						<CaseTileGroup
+							projection={groupedTile}
+							columns={tile.columns}
+							headerRow={group.header}
+							rows={group.rows}
+							caseProperties={caseProperties}
+							displayContext={columnDisplayContext}
+							className="relative z-10"
+						/>
+					),
+				}))
+			: rows.map((row) => ({
+					key: row.case_id,
+					actionRow: row,
+					tile: (
+						<CaseTile
+							projection={tile.projection}
+							columns={tile.columns}
+							row={row}
+							caseProperties={caseProperties}
+							displayContext={columnDisplayContext}
+							surface="results"
+							className="relative z-10"
+						/>
+					),
+				}));
 	return (
 		<div
 			data-case-results="tile"
+			data-case-results-grouped={groupedTile !== undefined || undefined}
 			data-refreshing={busy || undefined}
 			aria-busy={busy}
 			inert={busy ? true : undefined}
 			className={`@container/results overflow-x-auto overflow-y-clip rounded-lg border border-pv-input-border bg-pv-surface transition-opacity ${busy ? "opacity-60" : ""}`}
 		>
+			{groupedTile !== undefined && (
+				/* Said plainly, permanently, and where a worker sees it: a
+				 * grouped card is one choice. The rows beneath the header are
+				 * there to read. */
+				<p className="border-nova-violet/[0.07] border-b px-3 py-2 text-xs text-nova-text-muted @min-[37.5rem]/results:px-5">
+					Choosing a group opens its first case. The rows beneath are there to
+					read.
+				</p>
+			)}
 			<ul className="m-0 w-full min-w-[18rem] list-none p-0" aria-label="Cases">
-				{rows.map((row) => {
+				{cards.map(({ key, actionRow: row, tile: drawnTile }) => {
 					const content = (
 						<>
-							<CaseTile
-								projection={tile.projection}
-								columns={tile.columns}
-								row={row}
-								caseProperties={caseProperties}
-								displayContext={columnDisplayContext}
-								surface="results"
-								className="relative z-10"
-							/>
+							{drawnTile}
 							<span
 								aria-hidden="true"
 								className="pointer-events-none absolute top-3 right-3 z-10 grid place-items-center text-nova-text-muted"
@@ -2106,7 +2242,7 @@ function ResultsTiles({
 					if (!clickable) {
 						return (
 							<li
-								key={row.case_id}
+								key={key}
 								data-case-result-row="informational"
 								className={rowClassName}
 							>
@@ -2116,7 +2252,7 @@ function ResultsTiles({
 					}
 					return (
 						<li
-							key={row.case_id}
+							key={key}
 							data-case-result-row="interactive"
 							className={`${rowClassName} ${INTERACTIVE_RESULT_ROW_CLASSES}`}
 						>

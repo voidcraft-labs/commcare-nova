@@ -95,6 +95,16 @@ export interface TileCellProjection {
 	/** The column this cell draws. */
 	readonly columnUuid: string;
 	/**
+	 * The authored row this cell STARTS on, zero-based — the runtime's own
+	 * `tile.gridY`. Carried beside `gridArea` (which encodes the same number
+	 * one-based, alongside three others) because the grouped renderer splits
+	 * header from body on exactly this value and nothing else:
+	 * `views.js::CaseTileGroupedListView.initialize` computes
+	 * `isHeaderRow = (y) => y < groupHeaderRows` against `tile.gridY`, so a
+	 * cell's height never moves it across the boundary.
+	 */
+	readonly gridY: number;
+	/**
 	 * CSS `grid-area`, already 1-based:
 	 * `row-start / column-start / row-end / column-end`. Mirrors
 	 * `views.js::getGridAttributes`, whose own doc comment claims
@@ -173,6 +183,7 @@ export function projectTileGrid(
 					: "inset";
 			return {
 				columnUuid: uuid,
+				gridY: cell.y,
 				gridArea: tileCellGridArea(cell),
 				horizontalAlign:
 					cell.horizontalAlign === undefined
