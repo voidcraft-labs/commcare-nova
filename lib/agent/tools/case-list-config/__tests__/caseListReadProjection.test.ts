@@ -184,7 +184,7 @@ describe("case-list read projections", () => {
 
 		const summary = summarizeBlueprint(doc);
 		expect(summary).toContain("grouped_by: parent connection");
-		expect(summary).toContain("top row are the group heading");
+		expect(summary).toContain("top row is the group heading");
 		expect(summary).toContain("choosing a group opens that first case");
 		expect(summary).toContain("cases with no parent connection are one group");
 	});

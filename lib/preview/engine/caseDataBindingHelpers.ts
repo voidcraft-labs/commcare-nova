@@ -2015,7 +2015,7 @@ export function schemaHealingCaseStore(
 		withSchemaHeal(args, run);
 	return {
 		query: (a) => heal(() => store.query(a)),
-		queryGrouped: (a) => store.queryGrouped(a),
+		queryGrouped: (a) => heal(() => store.queryGrouped(a)),
 		count: (a) => heal(() => store.count(a)),
 		insert: (a) => heal(() => store.insert(a)),
 		applySubmission: (a) => heal(() => store.applySubmission(a)),

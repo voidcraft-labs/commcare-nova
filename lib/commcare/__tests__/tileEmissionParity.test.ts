@@ -316,6 +316,6 @@ describe("every surface agrees about a GROUPED tile, on one document", () => {
 		// (4) The SA's read surface, which is the only read an edit turn gets.
 		const summary = summarizeBlueprint(doc);
 		expect(summary).toContain("grouped_by: parent connection");
-		expect(summary).toContain("top row are the group heading");
+		expect(summary).toContain("top row is the group heading");
 	});
 });

@@ -237,6 +237,52 @@ describe("withSchemaHeal — stale schema row (CasePropertiesValidationError)", 
 	});
 });
 
+describe("schemaHealingCaseStore — the grouped read heals like the flat one", () => {
+	beforeEach(() => {
+		loadAppMock.mockReset();
+		materializeMock.mockReset();
+	});
+
+	// `queryGrouped` reaches the stored schema row through the very same
+	// `buildCaseSelect` / calculated-column compilation `query` does, so it
+	// raises the same missing-schema signal. Left un-healed it would make a
+	// grouped Results list the one read in the preview that surfaces a raw
+	// schema error where every neighbour repairs itself and retries.
+	it("re-materializes and retries a grouped read that hits a missing schema row", async () => {
+		loadAppMock.mockResolvedValue({
+			owner: "user-1",
+			blueprint: { caseTypes: [{ name: "visit", properties: [] }] },
+			mutation_seq: 3,
+		});
+		materializeMock.mockResolvedValue(undefined);
+
+		const settled = { groups: [], totalGroups: 0, totalRows: 0 };
+		const queryGrouped = vi
+			.fn()
+			.mockRejectedValueOnce(new SchemaNotSyncedError("app-1", "visit"))
+			.mockResolvedValueOnce(settled);
+		const store = schemaHealingCaseStore(
+			{ queryGrouped } as unknown as CaseStore,
+			ARGS,
+		);
+
+		const groupedArgs = {
+			appId: "app-1",
+			caseType: "visit",
+			indexIdentifier: "parent",
+			groupOffset: 0,
+			groupLimit: 50,
+		} as unknown as Parameters<CaseStore["queryGrouped"]>[0];
+
+		await expect(store.queryGrouped(groupedArgs)).resolves.toEqual(settled);
+
+		expect(queryGrouped).toHaveBeenCalledTimes(2);
+		expect(queryGrouped).toHaveBeenNthCalledWith(1, groupedArgs);
+		expect(queryGrouped).toHaveBeenNthCalledWith(2, groupedArgs);
+		expect(materializeMock).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe("schemaHealingCaseStore — the whole submission envelope is one healed operation", () => {
 	beforeEach(() => {
 		loadAppMock.mockReset();

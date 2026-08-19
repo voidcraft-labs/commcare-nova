@@ -145,7 +145,7 @@ function summarizeCaseList(mod: Module): string | undefined {
 		const grouping = config.tile.grouping;
 		if (grouping !== undefined) {
 			lines.push(
-				`      grouped_by: ${grouping.identifier} connection, top ${grouping.headerRows === 1 ? "row" : `${grouping.headerRows} rows`} are the group heading (drawn once per group from its first case; choosing a group opens that first case; cases with no ${grouping.identifier} connection are one group)`,
+				`      grouped_by: ${grouping.identifier} connection, top ${grouping.headerRows === 1 ? "row is" : `${grouping.headerRows} rows are`} the group heading (drawn once per group from its first case; choosing a group opens that first case; cases with no ${grouping.identifier} connection are one group)`,
 			);
 		}
 	}

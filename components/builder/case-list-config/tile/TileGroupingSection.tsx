@@ -284,7 +284,9 @@ function rowLabel(rows: number): string {
  * The measured population with no such connection. Three distinct
  * sentences, never collapsed: a measured number, a measured zero, and
  * a not-yet-known. Rendering an unknown as zero would tell an author
- * their data is clean when nothing has counted it.
+ * their data is clean when nothing has counted it, and rendering it as
+ * still-counting would promise a number that is not coming — so the
+ * not-yet-known splits again on whether a count is actually in flight.
  */
 function MissingConnectionCount({
 	appId,
@@ -305,7 +307,16 @@ function MissingConnectionCount({
 			</p>
 		);
 	}
-	if (state.kind === "error" || state.kind === "unauthenticated") {
+	// `idle` joins the failures rather than the wait: `usePerCaseTypeResource`
+	// returns it only when the request was never made — no case type resolved,
+	// or access not yet granted — and every state a live request passes through
+	// is `loading`. Reading it as "counting" would leave a count that is not
+	// coming permanently in flight.
+	if (
+		state.kind === "error" ||
+		state.kind === "unauthenticated" ||
+		state.kind === "idle"
+	) {
 		return (
 			<p className="mt-1">
 				How many cases have no {identifier} connection is not available right

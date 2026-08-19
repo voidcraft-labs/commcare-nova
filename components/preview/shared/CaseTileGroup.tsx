@@ -48,8 +48,20 @@ export function CaseTileGroup({
 	readonly className?: string;
 }) {
 	return (
-		<div data-case-tile-group="" className={className}>
-			<div data-case-tile-group-header="" className="relative z-10">
+		/* The group is one box covering the whole row, so it carries
+		 * `CaseTile`'s pass-through rule at ITS root for the same reason the
+		 * tile carries it at the grid: the wrappers that stack a header over a
+		 * run of body rows are hit-testable boxes, and a hit-testable box over
+		 * the row's stretched action swallows every tap meant for it — a
+		 * worker chooses a group and nothing happens. The authored cell
+		 * controls each `CaseTile` re-enables (`[&_a]` / `[&_button]` at
+		 * `pointer-events-auto`) still win, because a descendant opting back in
+		 * overrides an ancestor opting out. */
+		<div
+			data-case-tile-group=""
+			className={`pointer-events-none ${className ?? ""}`}
+		>
+			<div data-case-tile-group-header="">
 				<CaseTile
 					projection={projection.header}
 					columns={columns}
@@ -64,10 +76,7 @@ export function CaseTileGroup({
 			 *  alongside the header it also drew
 			 *  (`views.js::CaseTileGroupedView.getIndexedRowDataList` walks the
 			 *  whole `groupModelsList`). */}
-			<div
-				data-case-tile-group-rows=""
-				className="relative z-10 mt-1 flex flex-col gap-1"
-			>
+			<div data-case-tile-group-rows="" className="mt-1 flex flex-col gap-1">
 				{rows.map((row) => (
 					<CaseTile
 						key={row.case_id}
