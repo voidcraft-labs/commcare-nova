@@ -145,8 +145,17 @@ export interface FormEngineInput {
 	fieldOrder: Record<string, Uuid[]>;
 	/** Complete case-type catalog used to admit own/direct-child writes. */
 	caseTypes: readonly CaseType[];
-	/** Custom worker-information identities used to print `#user/*` refs. */
-	userProperties?: XPathPrintableDoc["userProperties"];
+	/**
+	 * The worker-property catalog.
+	 *
+	 * The whole entry rather than the print surface's `{ slug }` minimum,
+	 * because two consumers here need different halves of it: printing
+	 * resolves a `#user/*` ref by slug, and case-write admission checks a
+	 * usercase destination against the declared entries. Narrowing this to
+	 * what printing needs is what once made every declared worker detail read
+	 * as undeclared to admission.
+	 */
+	userProperties?: BlueprintDoc["userProperties"];
 }
 
 /** The print surface for the engine's input slice: its one form plus
@@ -163,11 +172,21 @@ function printableDocOf(input: FormEngineInput): XPathPrintableDoc {
 
 function caseWriteDocOf(
 	input: FormEngineInput,
-): Pick<BlueprintDoc, "fields" | "fieldOrder" | "caseTypes"> {
+): Pick<
+	BlueprintDoc,
+	"fields" | "fieldOrder" | "caseTypes" | "userProperties"
+> {
 	return {
 		fields: input.fields,
 		fieldOrder: input.fieldOrder as BlueprintDoc["fieldOrder"],
 		caseTypes: [...input.caseTypes],
+		// The worker-property catalog is part of the topology, not decoration:
+		// admission checks a usercase writer's destination against it, so an
+		// engine built without it refuses every declared worker property and
+		// the form never opens. `userProperties` is optional on `BlueprintDoc`,
+		// so omitting it here still satisfies the `Pick` — nothing but this
+		// comment and the test beside it keeps it from being dropped again.
+		userProperties: input.userProperties,
 	};
 }
 
@@ -240,7 +259,7 @@ export class FormEngine {
 	/** Exact topology surface consumed by the shared case-write inventory. */
 	private caseWriteDoc: Pick<
 		BlueprintDoc,
-		"fields" | "fieldOrder" | "caseTypes"
+		"fields" | "fieldOrder" | "caseTypes" | "userProperties"
 	>;
 	/** Rose-tree of the active form's fields. Rebuilt on schema refresh so
 	 *  every walker inside the engine agrees on the same snapshot. */
@@ -1316,6 +1335,16 @@ export class FormEngine {
 				const projected = projectedCaseWrites.writerByUuid.get(f.uuid);
 				if (projected === undefined) continue;
 				const { writer, bucket } = projected;
+				// The worker's own record is collected by
+				// `collectUsercaseWrites`, which rides every submission arm
+				// including a survey's. It must not also walk through here: the
+				// usercase is derived from the worker-property catalog rather
+				// than declared, so it is absent from `materializableCaseTypes`
+				// by construction and the property lookup below would report a
+				// missing declaration for a destination that is perfectly
+				// declared. Its slots are all text, so there is nothing to
+				// coerce either.
+				if (bucket.kind === "usercase") continue;
 				if (bucket.repeatUuid !== activeRepeat?.uuid) {
 					throw new Error(
 						compilerBugMessage({

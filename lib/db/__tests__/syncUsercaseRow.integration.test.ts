@@ -276,6 +276,55 @@ describe("syncUsercaseRow", () => {
 		expect(row.properties.username).toBe("amara");
 	});
 
+	it("ensureOnly leaves a form-written value alone, and still reports it", async () => {
+		// Preview's reason for calling this is EXISTENCE, not step: it resolves
+		// an identity on every render, and a full sync there would erase what a
+		// form had just written onto the record — `cadre` is declared and the
+		// persona has no value for it, so the diff above would blank it seconds
+		// after the worker answered. Keeping a worker in step is the commit
+		// path's job, which runs when the document actually says something new.
+		const d = doc([CADRE]);
+		await seedSchema(d);
+		await syncUsercaseRow(workerStore(), {
+			appId: APP_ID,
+			worker: WORKER,
+			authored: { "u-1": "nurse" },
+			doc: d,
+			projectSpace: "my-domain",
+		});
+
+		const outcome = await syncUsercaseRow(workerStore(), {
+			appId: APP_ID,
+			worker: WORKER,
+			authored: {},
+			doc: d,
+			projectSpace: "my-domain",
+			ensureOnly: true,
+		});
+
+		expect(outcome.created).toBe(false);
+		expect(outcome.changed).toBe(0);
+		// What it REPORTS is the row, because the row is what a device reads.
+		expect(outcome.stored.cadre).toBe("nurse");
+		expect((await storedRow()).properties.cadre).toBe("nurse");
+	});
+
+	it("ensureOnly still creates the row when the worker has none", async () => {
+		const d = doc([CADRE]);
+		await seedSchema(d);
+		const outcome = await syncUsercaseRow(workerStore(), {
+			appId: APP_ID,
+			worker: WORKER,
+			authored: { "u-1": "nurse" },
+			doc: d,
+			projectSpace: "my-domain",
+			ensureOnly: true,
+		});
+
+		expect(outcome.created).toBe(true);
+		expect((await storedRow()).properties.cadre).toBe("nurse");
+	});
+
 	it("leaves external_id empty, because HQ never writes one", async () => {
 		// HQ FINDS a usercase by external id (`get_case_by_external_id`, reached
 		// from `CouchUser.get_usercase`) but never WRITES one:

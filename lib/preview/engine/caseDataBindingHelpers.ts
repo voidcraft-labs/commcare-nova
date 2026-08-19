@@ -2104,6 +2104,10 @@ async function withMaterializedUsercase(args: {
 			authored,
 			doc: blueprint,
 			projectSpace: null,
+			// Existence only. Keeping the row in step is the commit path's job,
+			// and a diff here would overwrite whatever a form last wrote onto
+			// the record with the persona's own blank for that property.
+			ensureOnly: true,
 		});
 		// `case_name` is a column rather than a property, so the row's
 		// properties never carry it and the derived record is the only place it
