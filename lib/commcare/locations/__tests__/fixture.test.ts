@@ -23,7 +23,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { LocationProperty, OrganizationLevel, Uuid } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
-import { buildFlatLocationsFixture } from "../fixture";
+import { buildFlatLocationsFixture } from "./flatLocationsFixture";
 
 const CCHQ_FLAT_FIXTURE = join(
 	homedir(),

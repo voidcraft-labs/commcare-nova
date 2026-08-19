@@ -1,22 +1,32 @@
 /**
- * The flat `locations` fixture, the per-worker place list a device reads.
+ * The flat `locations` fixture — a TEST ASSET, and deliberately not a module
+ * the product imports.
  *
- * `instance('locations')` is what every location owner term lowers against
- * (`lib/commcare/predicate/termEmitter.ts::emitTerm`), so without these bytes a
- * fixed-location or reverse-hop rule resolves to nothing on a device — with no
- * build-time error, because a missing fixture is indistinguishable from an
- * empty one at evaluation (`commcare-core .../CommCareInstanceInitializer
- * ::loadFixtureRoot`). The emitter is what makes those already-shipped
- * lowerings real.
+ * Nova never delivers this fixture and cannot: HQ builds one per worker at
+ * RESTORE time from the domain's own `SQLLocation` rows
+ * (`locations/fixtures.py::FlatLocationSerializer`), and nothing Nova exports
+ * could carry it anyway — a `.ccz` is an app, and this is per worker. So it
+ * lives here rather than under `lib/commcare/`, beside the only thing that
+ * reads it.
+ *
+ * What it is for: `instance('locations')` is what every location owner term
+ * lowers against (`predicate/termEmitter.ts::emitTerm`), and that lowering has
+ * to be provable against the exact bytes a device reads. A wire shape nobody
+ * can execute is a wire shape nobody can check, and the failure it hides is
+ * silent — a missing fixture and an empty one are indistinguishable at
+ * evaluation (`commcare-core .../CommCareInstanceInitializer::loadFixtureRoot`),
+ * so a wrong element name resolves to nothing with no build-time error.
+ * `ownerHopParity.harness.test.ts` is what makes that concrete: this emitter's
+ * output and `compileTerm.ts`'s SQL must name the same place.
  *
  * Two nodes, matching `locations/fixtures.py::FlatLocationSerializer
  * ::get_xml_nodes`: the index schema and the fixture itself.
  *
- * It is NOT a suite fixture. `suiteOracle.ts::checkFixtures` rejects `user_id`
- * on an embedded fixture and requires an embedded `<fixture>` for every
- * suite-scoped `jr://fixture/X` instance — and rightly, because a suite fixture
- * is global while this one is per-worker by construction. It is delivered by
- * the restore, so nothing here enters the compiled `<suite>`.
+ * It is also not a SUITE fixture, and `instanceDeclaration.test.ts` pins that:
+ * `suiteOracle.ts::checkFixtures` rejects `user_id` on an embedded fixture and
+ * requires an embedded `<fixture>` for every suite-scoped `jr://fixture/X`
+ * instance — rightly, because a suite fixture is global while this one is per
+ * worker by construction.
  *
  * Byte facts, each read out of the serializer rather than a doc:
  *
@@ -41,9 +51,9 @@
 
 import render from "dom-serializer";
 import type { Element } from "domhandler";
+import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import type { LocationProperty, OrganizationLevel, Uuid } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
-import { el, RENDER_OPTS, text } from "../elementBuilders";
 
 /** The fixture id, its instance id, and the `jr://fixture/` suffix — all one
  *  string, because `loadFixtureRoot` resolves the instance by the substring

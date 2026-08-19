@@ -35,7 +35,7 @@ import { emitTerm } from "@/lib/commcare/predicate/termEmitter";
 import type { CaseType, OrganizationLevel, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import type { StoredLocation } from "@/lib/organization/types";
-import { buildFlatLocationsFixture } from "../fixture";
+import { buildFlatLocationsFixture } from "./flatLocationsFixture";
 import { evaluateWireXPath } from "./wireXPathReference";
 
 const APP_ID = "app-location-parity";
