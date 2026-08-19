@@ -22,7 +22,11 @@ import {
 	deploymentTargetSchema,
 	provisionWorkersSchema,
 } from "./types";
-import type { ProvisionedWorker, WorkerProvisionRefusal } from "./workers";
+import type {
+	ProvisionedWorker,
+	UnconfirmedWorker,
+	WorkerProvisionRefusal,
+} from "./workers";
 import { provisionWorkers } from "./workers";
 
 /**
@@ -303,6 +307,12 @@ export interface ProvisionWorkersView {
 	readonly refusal: WorkerProvisionRefusal | null;
 	readonly workers: readonly ProvisionedWorker[];
 	/**
+	 * The accounts CommCare HQ may or may not have made, with their
+	 * passwords. On the view for the same reason `workers` is: the screen
+	 * is the only place these will ever appear.
+	 */
+	readonly unconfirmed: readonly UnconfirmedWorker[];
+	/**
 	 * The deployment as it stands now, in the same shape the dialog already
 	 * renders, so a call that made accounts redraws that project space's
 	 * card without a second round trip. Null when nothing was written.
@@ -365,6 +375,7 @@ export async function provisionWorkersAction(
 			data: {
 				refusal: outcome.refusal,
 				workers: outcome.workers,
+				unconfirmed: outcome.unconfirmed,
 				view,
 			},
 		};

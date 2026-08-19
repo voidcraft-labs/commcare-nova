@@ -186,6 +186,67 @@ export async function warnAndReturnError(
 	};
 }
 
+/**
+ * The statuses CommCare HQ produces BEFORE the view that would do the
+ * work ever runs.
+ *
+ * Each one is read in source rather than assumed. Tastypie's
+ * `resources.py::dispatch` runs `method_check` (405), then
+ * `is_authenticated` (401/403), then `throttle_check` (429), and only
+ * then calls the method — and answers 501 when the resource declares no
+ * handler at all. `api/decorators.py::api_throttle`, which the fixapi
+ * view carries, returns its own 429 without calling the view. 413 never
+ * reaches application code. And 400 is where every API view raises its
+ * own complaint up front: `v0_5.py::CommCareUserResource.obj_create`
+ * raises all of its before `CommCareUser.create`, `::obj_update` raises
+ * its gathered errors before `bundle.obj.save()`.
+ *
+ * 400 carries one residual, kept deliberately. `Meta.always_return_data`
+ * makes `post_list` dehydrate AFTER the commit, and a `fields.ApiFieldError`
+ * raised there also becomes a 400. Treating every 400 as unknown was the
+ * alternative, and it would put a "this may exist, here is its password"
+ * warning on the ordinary refusals — a taken username, a weak password —
+ * where it is wrong nearly every time, which is how a warning stops being
+ * read. So 400 settles it, and the rare shape it cannot see is named here
+ * rather than papered over.
+ */
+const SETTLED_BEFORE_THE_VIEW: ReadonlySet<number> = new Set([
+	400, 401, 403, 405, 413, 429, 501,
+]);
+
+/**
+ * Whether a refused write may have taken effect on CommCare HQ anyway.
+ *
+ * One definition for every driver that writes, because it is the most
+ * safety-critical judgement any of them makes and two spellings of it
+ * would drift. Answering "nothing landed" wrongly is the expensive
+ * direction: the caller records no mapping and discards whatever the
+ * write produced, and for a mobile worker that is a live account whose
+ * generated password existed only in the answer being thrown away.
+ *
+ * `edgeRefusal` is consulted rather than ignored, and its two halves
+ * point opposite ways. An edge answering a 4xx REFUSED the request, so
+ * CommCare HQ never saw it and nothing landed. An edge answering 502 or
+ * 504 did the opposite: it forwarded the request and then gave up
+ * waiting, so CommCare HQ most likely received it and ran it. Reading a
+ * gateway timeout as "never arrived" is what discards a credential in
+ * precisely the case this exists for.
+ *
+ * Everything the set does not name counts as landed. That includes a
+ * 404, because `always_return_data` makes `resources.py::post_list`
+ * dehydrate after the commit and
+ * `::get_response_class_for_exception` turns an `ObjectDoesNotExist`
+ * raised there into a 404 over a resource that already exists, and a
+ * 406, which `create_response` raises later still.
+ */
+export function writeMayHaveLanded(
+	status: number,
+	edgeRefusal?: boolean,
+): boolean {
+	if (edgeRefusal === true) return status >= 500;
+	return !SETTLED_BEFORE_THE_VIEW.has(status);
+}
+
 /** Promise-returning sleep for the bounded status polls. */
 export function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));

@@ -285,6 +285,7 @@ describe("making an account", () => {
 			success: false,
 			status: 400,
 			message: "Could not find location ids: hq-denver.",
+			mayHaveLanded: false,
 		});
 
 		const outcome = await call();
@@ -353,6 +354,7 @@ describe("making an account", () => {
 				success: false,
 				status: 400,
 				message: "Username is already taken or reserved.",
+				mayHaveLanded: false,
 			});
 
 		const outcome = await call({
@@ -369,6 +371,94 @@ describe("making an account", () => {
 		/* The one that landed is really there, so it is recorded rather
 		 * than forgotten: a retry has to update it, not make a second. */
 		expect(vi.mocked(recordPushedResources).mock.calls[0]?.[2]).toHaveLength(1);
+	});
+
+	/* A refusal CommCare HQ could not stand behind. `obj_create` commits
+	 * the account before tastypie serializes the answer, so a failure past
+	 * that point is a live worker and a 5xx — which is what a real project
+	 * space handed Nova. Everything below is about not throwing away the
+	 * one credential that account will ever have. */
+	describe("a create CommCare HQ neither finished nor took back", () => {
+		beforeEach(() => {
+			vi.mocked(createHqMobileWorker).mockResolvedValue({
+				success: false,
+				status: 500,
+				message: "",
+				mayHaveLanded: true,
+			});
+		});
+
+		it("hands back the password rather than losing it", async () => {
+			const outcome = await call();
+			expect(outcome.unconfirmed).toEqual([
+				{
+					personaUuid: AMINA,
+					personaName: "Amina",
+					username: `amina@${DOMAIN}.commcarehq.org`,
+					password: expect.any(String),
+				},
+			]);
+			/* The SAME password that was sent. A freshly generated one would
+			 * open nothing. */
+			expect(outcome.unconfirmed[0]?.password).toBe(
+				vi.mocked(createHqMobileWorker).mock.calls[0]?.[2]?.password,
+			);
+		});
+
+		it("says it does not know, rather than saying it failed", async () => {
+			const outcome = await call();
+			expect(outcome.refusal?.code).toBe("hq_worker_may_exist");
+			expect(outcome.refusal?.message).toContain("didn't say whether");
+			/* The complete username, because looking for it on the project
+			 * space is the next thing a person does. */
+			expect(outcome.refusal?.message).toContain(
+				`amina@${DOMAIN}.commcarehq.org`,
+			);
+		});
+
+		it("claims nothing in the ledger, having no id to claim", async () => {
+			// A row needs a `remote_id`, and inventing one would make Nova
+			// report a stranger's account as its own on the next call.
+			const outcome = await call();
+			expect(outcome.workers).toEqual([]);
+			expect(vi.mocked(recordPushedResources).mock.calls[0]?.[2]).toEqual([]);
+		});
+
+		it("stops there rather than compounding the doubt", async () => {
+			await call({
+				doc: doc({ organizationLevels: {}, organizationLevelOrder: [] }),
+				workers: [
+					{ personaUuid: AMINA, username: "amina" },
+					{ personaUuid: JOSEPH, username: "joseph" },
+				],
+			});
+			expect(vi.mocked(createHqMobileWorker)).toHaveBeenCalledTimes(1);
+		});
+
+		it("does not go looking, because the only read available lags", async () => {
+			/* Every username-shaped read CommCare HQ offers runs on
+			 * Elasticsearch (`query_adapters.py::UserQuerySetAdapter`,
+			 * `v0_5.py::user_es_call`), which trails a create by seconds. An
+			 * empty answer would be read as proof the account is absent,
+			 * which is the one thing it cannot prove. */
+			await call();
+			expect(vi.mocked(findHqMobileWorkers)).toHaveBeenCalledTimes(1);
+		});
+
+		it("keeps a 4xx meaning what it means", async () => {
+			// Every `BadRequest` in `obj_create` is raised before
+			// `CommCareUser.create`, so nothing was made and there is no
+			// password worth keeping.
+			vi.mocked(createHqMobileWorker).mockResolvedValue({
+				success: false,
+				status: 400,
+				message: "Password is not strong enough.",
+				mayHaveLanded: false,
+			});
+			const outcome = await call();
+			expect(outcome.refusal?.code).toBe("hq_rejected_worker");
+			expect(outcome.unconfirmed).toEqual([]);
+		});
 	});
 });
 

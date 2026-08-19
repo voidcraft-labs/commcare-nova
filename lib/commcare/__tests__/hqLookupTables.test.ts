@@ -274,6 +274,31 @@ describe("uploadLookupTableWorkbook", () => {
 		).toMatchObject({ success: false, status: 500, mayHaveLanded: true });
 	});
 
+	it("assumes tables landed when a gateway gave up waiting", async () => {
+		/* nginx's own page, not CommCare HQ's. A proxy REFUSING is a 4xx;
+		 * a proxy answering 504 forwarded the request first and then
+		 * stopped waiting, so `_run_upload` may well have run and flushed.
+		 * Reading the edge's page as "never arrived" would tell somebody
+		 * their project space is as they left it when `replace` has already
+		 * rewritten the tables it reached. */
+		fetchMock.mockResolvedValue(
+			new Response(
+				"<html><head><title>504 Gateway Time-out</title></head><body><center>nginx</center></body></html>",
+				{ status: 504, headers: { "Content-Type": "text/html" } },
+			),
+		);
+		expect(
+			await uploadLookupTableWorkbook(CREDS, DOMAIN, WORKBOOK, {
+				replace: true,
+			}),
+		).toMatchObject({
+			success: false,
+			status: 504,
+			edgeRefusal: true,
+			mayHaveLanded: true,
+		});
+	});
+
 	it("assumes tables landed when the answer never came back", async () => {
 		// The request went out. What CommCare HQ did with it is unknown.
 		fetchMock.mockRejectedValue(new Error("socket hang up"));

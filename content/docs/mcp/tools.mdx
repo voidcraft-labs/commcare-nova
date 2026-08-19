@@ -854,6 +854,10 @@ An upload never changes your Commcare Nova copy. If the linked HQ app was delete
 </Callout>
 
 <Callout type="warn">
+**An error does not always mean the account was not made.** HQ saves a worker before it writes its reply, so a request that breaks off after that point leaves a real account behind and still answers with an error. When that happens `provision_workers` refuses with `hq_worker_may_exist` and puts that account in `unconfirmed_workers` with its password. **Show it exactly as urgently as any other password**: if the account is there, that password is the only one it will ever have, and Commcare Nova cannot look it up, because HQ's username search runs on a search index that trails a new account by seconds. Tell the user to look for that username on their project space. If it isn't there, call again to make the account. If it is, wait a moment before calling again: HQ's username search trails its own new account by seconds, so until it catches up a retry still tries to create and comes back saying the name is taken, and the take-over path isn't offered yet.
+</Callout>
+
+<Callout type="warn">
 **A username that is taken belongs to somebody.** A mobile username is the whole address, `name@project-space.commcarehq.org`, so the same name is free on every other project space and taken only on this one. Here, a name already in use is a real person's account, and retiring that account does not give the name back. `provision_workers` refuses with `hq_worker_conflict`, writes nothing, and names each one in `worker_conflicts`. **Ask the user about each account by name and never decide for them.** Re-call with `adopt_personas` carrying the `persona_uuid` of exactly the ones they confirmed. The other way out is a username nobody has yet — a username is set once when the account is made, so giving a persona a new one makes a second account and leaves the first alone.
 </Callout>
 

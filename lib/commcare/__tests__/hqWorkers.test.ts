@@ -186,6 +186,11 @@ describe("createHqMobileWorker", () => {
 			status: 400,
 			message:
 				"Username 'amina@myproject.commcarehq.org' is already taken or reserved.",
+			edgeRefusal: false,
+			/* A 400 is the one status that settles it: every `BadRequest` in
+			 * `v0_5.py::CommCareUserResource.obj_create` is raised BEFORE
+			 * `CommCareUser.create`, so nothing was made. */
+			mayHaveLanded: false,
 		});
 	});
 
@@ -198,7 +203,155 @@ describe("createHqMobileWorker", () => {
 			username: "amina",
 			password: "Sup3r-secret!x",
 		});
-		expect(result).toEqual({ success: false, status: 502, message: "" });
+		/* Not `mayHaveLanded: false` — CommCare HQ answered 201, so the
+		 * account is there. Only which account is unknown. */
+		expect(result).toEqual({
+			success: false,
+			status: 502,
+			message: "",
+			mayHaveLanded: true,
+		});
+	});
+});
+
+/**
+ * Whether a refusal rules out a write.
+ *
+ * This is the whole reason `mayHaveLanded` exists.
+ * `v0_5.py::CommCareUserResource.obj_create` wraps its creation in
+ * `except Exception:` and retires whatever it made before re-raising, but
+ * the account is committed before tastypie serializes the answer, so a
+ * failure past that point is a live worker AND a 5xx. A real project
+ * space handed Nova exactly that, and the caller holds the only copy of
+ * that account's password.
+ */
+describe("what a refusal rules out", () => {
+	it("cannot rule out a create that answered 5xx", async () => {
+		fetchMock.mockResolvedValue(jsonResponse({}, 500));
+		const result = await createHqMobileWorker(CREDS, DOMAIN, {
+			username: "amina",
+			password: "Sup3r-secret!x",
+		});
+		expect(result).toMatchObject({ status: 500, mayHaveLanded: true });
+	});
+
+	it("rules out a permission refusal, which never reaches the view", async () => {
+		fetchMock.mockResolvedValue(jsonResponse({ error: "no" }, 403));
+		const result = await createHqMobileWorker(CREDS, DOMAIN, {
+			username: "amina",
+			password: "Sup3r-secret!x",
+		});
+		expect(result).toMatchObject({ status: 403, mayHaveLanded: false });
+	});
+
+	it("cannot rule out a gateway that gave up waiting", async () => {
+		/* An edge answer is NOT evidence nothing happened. A proxy refusing
+		 * is a 4xx; a proxy answering 502 or 504 means it forwarded the
+		 * request and then stopped waiting, so CommCare HQ most likely ran
+		 * it. Reading nginx's own page as "never arrived" would discard the
+		 * password for a live account, which is the one outcome this whole
+		 * path exists to prevent. */
+		fetchMock.mockResolvedValue(
+			new Response(
+				"<html><head><title>504 Gateway Time-out</title></head><body><center>nginx</center></body></html>",
+				{ status: 504, headers: { "Content-Type": "text/html" } },
+			),
+		);
+		const result = await createHqMobileWorker(CREDS, DOMAIN, {
+			username: "amina",
+			password: "Sup3r-secret!x",
+		});
+		expect(result).toMatchObject({
+			status: 504,
+			/* Still reported, because the status says nothing about the key
+			 * or the account's permissions. It just does not settle this. */
+			edgeRefusal: true,
+			mayHaveLanded: true,
+		});
+	});
+
+	it("rules out the statuses raised before the view runs", async () => {
+		/* `resources.py::dispatch` runs `method_check`, `is_authenticated`
+		 * and `throttle_check` before it calls the method, so each of these
+		 * provably never reached `obj_create`. Reporting a password for an
+		 * account CommCare HQ certainly did not make would send somebody
+		 * hunting through their project space for nothing, and teach them
+		 * to skip the warning next time. */
+		for (const status of [405, 413, 429, 501]) {
+			fetchMock.mockResolvedValue(jsonResponse({}, status));
+			expect(
+				await createHqMobileWorker(CREDS, DOMAIN, {
+					username: "amina",
+					password: "Sup3r-secret!x",
+				}),
+			).toMatchObject({ status, mayHaveLanded: false });
+		}
+	});
+
+	it("rules out an edge that refused, and only when it refused", async () => {
+		/* The two halves of an edge answer point opposite ways. A 4xx from
+		 * the proxy is a refusal, so CommCare HQ never saw the request. */
+		const page = (title: string) =>
+			`<html><head><title>${title}</title></head><body><center>nginx</center></body></html>`;
+		fetchMock.mockResolvedValue(
+			new Response(page("403 Forbidden"), {
+				status: 403,
+				headers: { "Content-Type": "text/html" },
+			}),
+		);
+		expect(
+			await createHqMobileWorker(CREDS, DOMAIN, {
+				username: "amina",
+				password: "Sup3r-secret!x",
+			}),
+		).toMatchObject({ edgeRefusal: true, mayHaveLanded: false });
+
+		/* A 404 from the proxy did not route it either — which the status
+		 * alone cannot say, because tastypie raises 404 over a live
+		 * account. Only `edgeRefusal` separates the two. */
+		fetchMock.mockResolvedValue(
+			new Response(page("404 Not Found"), {
+				status: 404,
+				headers: { "Content-Type": "text/html" },
+			}),
+		);
+		expect(
+			await createHqMobileWorker(CREDS, DOMAIN, {
+				username: "amina",
+				password: "Sup3r-secret!x",
+			}),
+		).toMatchObject({ edgeRefusal: true, mayHaveLanded: false });
+	});
+
+	it("cannot rule out a 404, which tastypie raises over a live account", async () => {
+		/* `Meta.always_return_data` is true, so `resources.py::post_list`
+		 * runs `full_dehydrate` AFTER `obj_create` committed, and
+		 * `::get_response_class_for_exception` turns an `ObjectDoesNotExist`
+		 * raised there into a 404 over a worker that already exists. */
+		fetchMock.mockResolvedValue(jsonResponse({}, 404));
+		const result = await createHqMobileWorker(CREDS, DOMAIN, {
+			username: "amina",
+			password: "Sup3r-secret!x",
+		});
+		expect(result).toMatchObject({ status: 404, mayHaveLanded: true });
+	});
+
+	it("cannot rule out a request that never got an answer", async () => {
+		fetchMock.mockRejectedValue(new Error("socket hang up"));
+		const result = await createHqMobileWorker(CREDS, DOMAIN, {
+			username: "amina",
+			password: "Sup3r-secret!x",
+		});
+		expect(result).toMatchObject({ status: 503, mayHaveLanded: true });
+	});
+
+	it("cannot rule out an update that answered 5xx", async () => {
+		// The account is not in doubt here; how much of the change took is.
+		fetchMock.mockResolvedValue(jsonResponse({}, 502));
+		const result = await updateHqMobileWorker(CREDS, DOMAIN, "u9", {
+			userData: { cadre: "chw" },
+		});
+		expect(result).toMatchObject({ status: 502, mayHaveLanded: true });
 	});
 });
 
@@ -258,12 +411,22 @@ describe("updateHqMobileWorker", () => {
 			status: 400,
 			message:
 				"The request resulted in the following errors: Could not find location ids: l7.",
+			edgeRefusal: false,
+			/* `obj_update` raises its gathered errors before
+			 * `bundle.obj.save()`, and the two fields Nova sends are both
+			 * in memory until that call, so the worker is as it was. */
+			mayHaveLanded: false,
 		});
 	});
 
 	it("refuses an id it cannot put in a path", async () => {
 		const result = await updateHqMobileWorker(CREDS, DOMAIN, "../admin", {});
-		expect(result).toEqual({ success: false, status: 400, message: "" });
+		expect(result).toEqual({
+			success: false,
+			status: 400,
+			message: "",
+			mayHaveLanded: false,
+		});
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

@@ -36,8 +36,17 @@ import type {
 import { provisionWorkersAction } from "@/lib/deployment/actions";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import type { DeploymentWithResources } from "@/lib/deployment/types";
-import { defaultWorkerUsername } from "@/lib/deployment/workerProvisionPlan";
+import type { UnconfirmedWorker } from "@/lib/deployment/workerProvisionPlan";
+import {
+	defaultWorkerUsername,
+	unconfirmedWorkerKey,
+} from "@/lib/deployment/workerProvisionPlan";
 import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
+import {
+	useDismissUnconfirmedWorker,
+	useRecordProvisioningOutcome,
+	useUnconfirmedWorkers,
+} from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /** One row: a persona, the name it will sign in with, and where it stands. */
@@ -96,6 +105,13 @@ export function DeploymentWorkers({
 	const [chosen, setChosen] = useState<readonly string[]>([]);
 	const [adopting, setAdopting] = useState<readonly string[]>([]);
 	const [result, setResult] = useState<ProvisionWorkersView | null>(null);
+	/* Held in the builder session, not here. The refusal that produces one
+	 * asks the person to go and look at their project space, and doing that
+	 * closes this dialog — which would unmount dialog-local state and take
+	 * the only copy of a live account's password with it. */
+	const heldUnconfirmed = useUnconfirmedWorkers();
+	const recordOutcome = useRecordProvisioningOutcome();
+	const dismissUnconfirmed = useDismissUnconfirmedWorker();
 	const [requestError, setRequestError] = useState<string | null>(null);
 	const [pending, startTransition] = useTransition();
 
@@ -131,6 +147,7 @@ export function DeploymentWorkers({
 					return;
 				}
 				setResult(response.data);
+				recordOutcome(response.data);
 				/* Only the personas that still need a decision stay ticked, so
 				 * pressing the button again does the remaining work rather
 				 * than repeating what already landed. */
@@ -159,6 +176,7 @@ export function DeploymentWorkers({
 		usernameFor,
 		onUpdated,
 		sessionApi,
+		recordOutcome,
 	]);
 
 	if (personas.length === 0) return null;
@@ -251,8 +269,13 @@ export function DeploymentWorkers({
 					{/* The passwords come FIRST, above any refusal. A call that
 					    stopped halfway still made real accounts, and this screen
 					    holds the only copy of their passwords. */}
-					{result !== null && result.workers.length > 0 ? (
-						<ProvisionedWorkers workers={result.workers} />
+					{(result !== null && result.workers.length > 0) ||
+					heldUnconfirmed.length > 0 ? (
+						<WorkerCredentials
+							workers={result?.workers ?? []}
+							unconfirmed={heldUnconfirmed}
+							onDismiss={dismissUnconfirmed}
+						/>
 					) : null}
 
 					{result?.refusal != null ? (
@@ -350,23 +373,66 @@ function WorkerChoice({
 }
 
 /**
- * The accounts this call made or brought into step, with the passwords.
+ * Every password this call produced, whether or not its account is
+ * certain.
  *
- * The copy button copies every new one at once, because the person doing
- * this is about to hand them out and copying six passwords one at a time
- * is how one gets missed.
+ * One block and ONE copy button for both kinds, deliberately. The person
+ * doing this is about to hand these out, and copying six passwords one at
+ * a time is how one gets missed; splitting the unconfirmed ones into a
+ * second block with a second button would make missing them the default.
+ * They are marked in place instead, so what is uncertain is the account
+ * rather than whether the credential is worth keeping.
  */
-function ProvisionedWorkers({
+function WorkerCredentials({
 	workers,
+	unconfirmed,
+	onDismiss,
 }: {
 	workers: ProvisionWorkersView["workers"];
+	unconfirmed: readonly (readonly [string, UnconfirmedWorker])[];
+	onDismiss: (key: string) => void;
 }) {
-	const [copied, setCopied] = useState(false);
+	/* What was copied, not whether something was. The block now stays
+	 * mounted across calls, so a latched boolean would still read "Copied"
+	 * after a later answer added a password the clipboard has never held —
+	 * telling somebody they have a credential they do not. */
+	const [copiedText, setCopiedText] = useState<string | null>(null);
 	const [copyError, setCopyError] = useState(false);
-	const withPasswords = workers.filter((worker) => worker.password !== null);
+	/* One row per ACCOUNT, addressed by persona AND username, because a
+	 * persona can hold a doubtful account under one name and a real one
+	 * under another. Merging on the persona alone would collide those
+	 * under one React key and badge a confirmed account as doubtful. */
+	const held = new Map(unconfirmed);
+	const rows = [
+		...workers.map((worker) => {
+			const key = unconfirmedWorkerKey(worker.personaUuid, worker.username);
+			return {
+				key,
+				personaName: worker.personaName,
+				username: worker.username,
+				/* An adopted account has no password of Nova's — CommCare HQ
+				 * never told it one — but if this IS the account that was in
+				 * doubt, the generated password held in the session is the one
+				 * it was made with, and the only copy anywhere. */
+				password: worker.password ?? held.get(key)?.password ?? null,
+				certain: true,
+			};
+		}),
+		...unconfirmed
+			.filter(([key]) => !workers.some((worker) => sameAccount(worker, key)))
+			.map(([key, worker]) => ({
+				key,
+				personaName: worker.personaName,
+				username: worker.username,
+				password: worker.password as string | null,
+				certain: false,
+			})),
+	];
+	const withPasswords = rows.filter((row) => row.password !== null);
 	const text = withPasswords
-		.map((worker) => `${worker.username}\t${worker.password}`)
+		.map((row) => `${row.username}\t${row.password}`)
 		.join("\n");
+	const doubtful = rows.filter((row) => !row.certain);
 	return (
 		<div className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-3">
 			<div className="flex flex-wrap items-start justify-between gap-2">
@@ -381,7 +447,7 @@ function ProvisionedWorkers({
 						onClick={async () => {
 							try {
 								await navigator.clipboard.writeText(text);
-								setCopied(true);
+								setCopiedText(text);
 								setCopyError(false);
 							} catch {
 								setCopyError(true);
@@ -389,7 +455,7 @@ function ProvisionedWorkers({
 						}}
 					>
 						<Icon icon={tablerCopy} aria-hidden="true" />
-						{copied ? "Copied" : "Copy all"}
+						{copiedText === text ? "Copied" : "Copy all"}
 					</Button>
 				) : null}
 			</div>
@@ -398,19 +464,48 @@ function ProvisionedWorkers({
 					Couldn't copy them. Select the lines below instead.
 				</p>
 			) : null}
+			{doubtful.length > 0 ? (
+				<p className="mt-2 text-[12px] leading-relaxed text-nova-text-secondary">
+					{doubtful.length === 1
+						? "The one marked below may not be an account at all. Nova keeps it here until you say you have it, because if it is there this is the only copy."
+						: "The ones marked below may not be accounts at all. Nova keeps them here until you say you have them, because if they are there these are the only copies."}
+				</p>
+			) : null}
 			<ul className="mt-2.5 flex flex-col gap-1.5 text-[13px]">
-				{workers.map((worker) => (
-					<li key={worker.personaUuid} className="break-words">
-						<span className="text-nova-text">{worker.personaName}</span>
+				{rows.map((row) => (
+					<li key={row.key} className="break-words">
+						<span className="text-nova-text">{row.personaName}</span>
+						{row.certain ? null : (
+							<>
+								<span className="ml-1.5 rounded border border-nova-amber/40 bg-nova-amber/10 px-1.5 py-0.5 text-[11px] text-nova-text-secondary">
+									May not exist
+								</span>
+								<Button
+									variant="ghost-action"
+									className="ml-1.5 h-auto px-1.5 py-0.5 text-[11px]"
+									onClick={() => onDismiss(row.key)}
+								>
+									I have this
+								</Button>
+							</>
+						)}
 						<span className="block font-mono text-[12px] text-nova-text-secondary">
-							{worker.username}
-							{worker.password !== null ? `  ${worker.password}` : ""}
+							{row.username}
+							{row.password !== null ? `  ${row.password}` : ""}
 						</span>
 					</li>
 				))}
 			</ul>
 		</div>
 	);
+}
+
+/** Whether a landed account is the one a held credential belongs to. */
+function sameAccount(
+	worker: ProvisionWorkersView["workers"][number],
+	key: string,
+): boolean {
+	return unconfirmedWorkerKey(worker.personaUuid, worker.username) === key;
 }
 
 /**
