@@ -249,7 +249,10 @@ export interface DeploymentResourceConflict {
 	readonly novaResourceId: string;
 	/** What the author calls it in Nova. */
 	readonly name: string;
-	/** What CommCare HQ shows it as: a table's tag, or a place's site code. */
+	/**
+	 * What CommCare HQ shows it as: a table's tag, a place's site code, or
+	 * a worker's full username.
+	 */
 	readonly identity: string;
 	/** CommCare HQ's own id for the resource already sitting there. */
 	readonly remoteId: string;
@@ -290,14 +293,18 @@ export type DeploymentResourceOwnership =
 /**
  * Which kind of remote thing a mapping names.
  *
- * Workers become a kind here when their provisioning driver ships; the
- * mapping shape already carries everything they need, so they add a value
- * rather than a second table.
+ * All four share one mapping shape rather than a table each, because they
+ * answer the same four questions: which Nova thing, which CommCare HQ
+ * thing, under what claim, and by what name over there. A worker's
+ * `novaResourceId` is its PERSONA — a design actor, which is why one
+ * persona can hold a different username on each project space and why the
+ * username lives in `pushedIdentity` rather than in the blueprint.
  */
 export const DEPLOYMENT_RESOURCE_KINDS = [
 	"app",
 	"lookup-table",
 	"location",
+	"worker",
 ] as const;
 export type DeploymentResourceKind = (typeof DEPLOYMENT_RESOURCE_KINDS)[number];
 
@@ -326,15 +333,16 @@ export interface DeploymentResource {
 	readonly ownership: DeploymentResourceOwnership;
 	/**
 	 * The external name the resource carries on CommCare HQ: a lookup
-	 * table's tag, a place's site code, and later a worker's username.
-	 * Null for the `app` kind, whose remote id IS how CommCare HQ names it.
+	 * table's tag, a place's site code, a worker's full username. Null for
+	 * the `app` kind, whose remote id IS how CommCare HQ names it.
 	 *
 	 * A resource the app stops carrying is what makes this load-bearing.
 	 * Whatever Nova pushed is still sitting on the project space under the
 	 * name it was pushed under, and per the deployment contract Nova does
 	 * not delete it — so that name is the only way anybody will find it
-	 * there. A renamed lookup table and an archived place both reach the
-	 * left-behind report through this column.
+	 * there. A renamed lookup table, an archived place, and a deleted
+	 * persona's worker all reach the left-behind report through this
+	 * column.
 	 */
 	readonly pushedIdentity: string | null;
 	/** When somebody took over a resource Nova did not create. */
@@ -465,6 +473,53 @@ export const deploymentTargetSchema = z
 	})
 	.strict();
 export type DeploymentTarget = z.infer<typeof deploymentTargetSchema>;
+
+/**
+ * How many workers one provisioning call may ask for.
+ *
+ * Not a CommCare HQ limit: an account is made one request at a time and
+ * the whole call is one person's deliberate act, so the ceiling is about
+ * how many credentials it is reasonable to hand somebody on one screen.
+ * An app with more personas than this provisions them in batches, which
+ * is also how anybody would want to hand them out.
+ */
+export const MAX_WORKERS_PER_PROVISION_CALL = 50;
+
+/**
+ * One provisioning call, as the browser and MCP both state it.
+ *
+ * The username lives HERE rather than on the persona, because a persona
+ * is a design actor and the same one can be provisioned on several
+ * project spaces under a different name on each. Omitting it takes Nova's
+ * suggestion from the persona's name; the surfaces show that suggestion
+ * in an editable box rather than deciding silently.
+ */
+export const provisionWorkersSchema = z
+	.object({
+		appId: deploymentAppIdSchema,
+		server: deploymentServerSchema,
+		domain: z.string().trim().min(1).max(255),
+		workers: z
+			.array(
+				z
+					.object({
+						personaUuid: z.string().min(1),
+						username: z.string().trim().min(1).max(128).optional(),
+					})
+					.strict(),
+			)
+			.min(1)
+			.max(MAX_WORKERS_PER_PROVISION_CALL)
+			.readonly(),
+		/**
+		 * The personas whose username already belongs to an account Nova did
+		 * not create, and which the caller is choosing to take over. Nothing
+		 * is ever adopted without being named here.
+		 */
+		adoptPersonaUuids: z.array(z.string().min(1)).readonly().optional(),
+	})
+	.strict();
+export type ProvisionWorkersRequest = z.infer<typeof provisionWorkersSchema>;
 
 /** Narrow an arbitrary string to a known CommCare server, or refuse. */
 export function isDeploymentServer(value: string): value is CommCareServer {

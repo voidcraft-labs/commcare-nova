@@ -758,6 +758,7 @@ export function PublishDialog({
 												view={landedView}
 												canRefresh={canEdit}
 												onUpdated={handleRefreshed}
+												onProvisioned={upsertView}
 											/>
 										) : null}
 									</PublishSuccess>
@@ -804,6 +805,7 @@ export function PublishDialog({
 														view={view}
 														canRefresh={canEdit}
 														onUpdated={handleRefreshed}
+														onProvisioned={upsertView}
 													/>
 												))
 											: null}

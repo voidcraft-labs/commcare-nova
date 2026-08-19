@@ -27,7 +27,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"AUTOMATION_HQ_MANUAL_SETUP",
 	"HQ_BUILD_RELEASE_NOT_API_DRIVEN",
 	// Deployment / HQ export closures
-	"WORKER_PROVISIONING_NOT_SHIPPED",
+	"WORKER_SCHEMA_AND_ROLES_NOT_PUSHED",
 	"LOCATION_OWNER_EXPORT_CLOSED",
 	// Case / data shape rules
 	"CASE_SEARCH_IS_LIVE_AND_ONLINE",
@@ -45,7 +45,6 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
 	"GAP_USERCASE_OWNER_SETS",
-	"GAP_PUSH_PROVISIONING_DRIVERS",
 	"GAP_APP_SETUP_UI",
 	"GAP_FORM_LINKS_AND_SECTIONS",
 	"GAP_NESTED_MENUS",
@@ -89,11 +88,11 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"Nova drives HQ upload with an API key but cannot build or release an app remotely; the deployment lifecycle's built/released/runnable phases are observed, and a person completes them in CommCare HQ.",
 		sourceAnchor: "lib/deployment/CLAUDE.md",
 	},
-	WORKER_PROVISIONING_NOT_SHIPPED: {
-		code: "WORKER_PROVISIONING_NOT_SHIPPED",
+	WORKER_SCHEMA_AND_ROLES_NOT_PUSHED: {
+		code: "WORKER_SCHEMA_AND_ROLES_NOT_PUSHED",
 		statement:
-			"User properties, user types, and personas are Nova authoring and Preview state; export and HQ upload configure no HQ user-data schema, role, or worker account until the provisioning driver ships.",
-		sourceAnchor: "lib/domain/users.ts",
+			"An explicit provisioning call creates mobile workers on a project space, carrying each persona's worker information and place assignment; the domain's user-data field definition and its user roles have no REST resource, so they stay a setup instruction, and a persona is never a Nova account.",
+		sourceAnchor: "lib/deployment/workers.ts",
 	},
 	LOCATION_OWNER_EXPORT_CLOSED: {
 		code: "LOCATION_OWNER_EXPORT_CLOSED",
@@ -189,13 +188,6 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"Usercase materialization, owner-set derivation, tenant-complete restore closure, and the flat location fixture are a deliberate target gap.",
 		sourceAnchor: "docs/plans/complex-app/usercase-owner-sets-and-wire.md",
 		gapUnitFile: "usercase-owner-sets-and-wire.md",
-	},
-	GAP_PUSH_PROVISIONING_DRIVERS: {
-		code: "GAP_PUSH_PROVISIONING_DRIVERS",
-		statement:
-			"Publishing puts an app's referenced lookup tables and its organization's places on the target project space against a deployment's ownership mappings; explicit mobile-worker provisioning is a deliberate target gap, so no worker account is created there yet.",
-		sourceAnchor: "docs/plans/complex-app/push-and-provisioning-drivers.md",
-		gapUnitFile: "push-and-provisioning-drivers.md",
 	},
 	GAP_APP_SETUP_UI: {
 		code: "GAP_APP_SETUP_UI",

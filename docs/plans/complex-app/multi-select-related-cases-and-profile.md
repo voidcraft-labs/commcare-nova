@@ -5,10 +5,11 @@
 2. `Related-case pulls in case search`
 3. `Authored app-profile properties`
 
-**Depends on:** [push and provisioning](push-and-provisioning-drivers.md) —
-the profile PR needs a live push path to confirm that
-the `CUSTOM_PROPERTIES` toggle is present on the target before offering authored
-properties that HQ would otherwise merge away silently. · **Blocks:** nothing.
+**Depends on:** nothing outstanding. · **Blocks:** nothing.
+
+The profile PR needs a live push path to confirm that the `CUSTOM_PROPERTIES`
+toggle is present on the target before offering authored properties that HQ
+would otherwise merge away silently. That path is shipped.
 
 > Read [the binding contracts](00-contracts.md) first — the wire-fixture rule
 > there is why the three PRs below name their suite fixtures up front.

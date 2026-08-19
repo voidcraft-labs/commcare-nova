@@ -330,7 +330,7 @@ describe("deriveSliceExecutionBrief", () => {
 		const constraintCodes = brief.loweringConstraints.map(
 			(entry) => entry.code,
 		);
-		expect(constraintCodes).toContain("WORKER_PROVISIONING_NOT_SHIPPED");
+		expect(constraintCodes).toContain("WORKER_SCHEMA_AND_ROLES_NOT_PUSHED");
 		expect(constraintCodes).toContain("SINGLE_DIRECT_CASE_WRITE_PER_FIELD");
 		expect(constraintCodes).not.toContain("PREVIEW_AUTOMATIONS_NOT_EXECUTED");
 		expect(constraintCodes).toContain("CASE_SEARCH_IS_LIVE_AND_ONLINE");

@@ -113,6 +113,39 @@ the only one of the five steps Nova can confirm rather than take on trust.
 The **Open in CommCare HQ** link appears as soon as the app is there, and it
 goes to the app's page for you to work on. It is not the link workers use.
 
+## Making workers
+
+Publishing sends an app. It does not create anybody an account, because handing
+out a credential is not something to do by accident.
+
+Once the app is on a project space, that project space's card in the Publish
+dialog has a **Workers** list, one row per persona. Tick the ones you want,
+adjust the username Nova suggests, and choose Make workers. Each account carries
+that persona's worker information and the places it stands in.
+
+**Every new account comes with a password, shown once.** Copy them before you
+close the dialog. Nova keeps no copy, so a password you lose has to be reset on
+CommCare HQ.
+
+Ticking a persona that already has an account brings that account into step with
+what the app says now, rather than making a second one. Its password is
+untouched.
+
+Three things Nova will refuse rather than guess at:
+
+- **A username somebody already has.** Nova shows you the account and takes it
+  over only if you say so for that exact one. A shared name is not evidence it
+  is yours.
+- **A persona missing worker information you marked required.** CommCare HQ will
+  not save a worker without it. Publishing still works; only making the worker
+  stops.
+- **A persona standing in a place that is not on the project space yet.**
+  Publish the app there first, which puts the places there.
+
+Nova never deletes or retires a worker, because CommCare HQ's own delete also
+deletes every case that worker owns. Remove a persona and its account is
+reported as left behind, still there for you to deal with on CommCare HQ.
+
 ## What you set up by hand
 
 Some of what your app needs lives on the project space rather than in the app,
@@ -121,7 +154,10 @@ exactly what those are, with a link to the right page on **your** project space
 and the values already filled in.
 
 - **Worker information.** One field per piece of information your workers carry,
-  on the project's user-data page.
+  on the project's user-data page. Do this before you make workers: CommCare HQ
+  validates a worker's information against these fields.
+- **Roles.** Nova does not create CommCare user roles. A worker Nova makes has
+  no role until you give it one.
 - **Organization levels.** The rungs of your organization. Create these before
   you publish, because every place names the level it stands at and CommCare HQ
   will not take a place whose level is not there.

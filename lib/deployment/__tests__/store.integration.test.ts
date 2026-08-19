@@ -753,9 +753,9 @@ describe("pushed Project data", () => {
 				.insertInto("app_deployment_resources")
 				.values({
 					deployment_id: view.deployment.id,
-					kind: "worker" as never,
-					nova_resource_id: "persona-1",
-					remote_id: "hq-worker",
+					kind: "user-role" as never,
+					nova_resource_id: "role-1",
+					remote_id: "hq-role",
 					ownership: "nova-created",
 					pushed_revision: null,
 					pushed_at: null,
@@ -764,6 +764,147 @@ describe("pushed Project data", () => {
 				})
 				.execute(),
 		).rejects.toThrow();
+	});
+});
+
+describe("provisioned workers", () => {
+	const AMINA = "018f0000-0000-7000-8000-0000000000c1";
+	const JOSEPH = "018f0000-0000-7000-8000-0000000000c2";
+
+	async function provision(
+		scope: DeploymentScope,
+		workers: readonly {
+			readonly personaUuid: string;
+			readonly username: string;
+		}[],
+		stillUsed: readonly string[],
+	) {
+		return recordPushedResources(
+			scope,
+			TARGET,
+			workers.map((worker) => ({
+				kind: "worker" as const,
+				novaResourceId: worker.personaUuid,
+				remoteId: `hq-${worker.username}`,
+				ownership: "nova-created" as const,
+				pushedIdentity: `${worker.username}@acme.commcarehq.org`,
+				adoptedBy: null,
+				pushedRevision: null,
+				remoteRevision: null,
+			})),
+			{ status: "reconciled", kind: "worker", stillUsed },
+		);
+	}
+
+	it("files the account without folding a rung", async () => {
+		/* Provisioning is not a publish step. A deployment that has reached
+		 * `uploaded` must not be walked backward to `resources` by somebody
+		 * making an account, and one still at `preflight` must not be
+		 * carried forward by it either. */
+		const scope = await seed();
+		await create(scope);
+
+		const view = await provision(
+			scope,
+			[{ personaUuid: AMINA, username: "amina" }],
+			[AMINA, JOSEPH],
+		);
+
+		expect(view.deployment.state).toBe("preflight");
+		expect(view.active).toEqual([
+			expect.objectContaining({
+				kind: "worker",
+				novaResourceId: AMINA,
+				remoteId: "hq-amina",
+				pushedIdentity: "amina@acme.commcarehq.org",
+			}),
+		]);
+	});
+
+	it("leaves the personas this call did not name alone", async () => {
+		/* Naming one persona says nothing about the others, so the "not
+		 * named here" rule a complete push uses would supersede accounts
+		 * that are perfectly live. */
+		const scope = await seed();
+		await create(scope);
+		await provision(
+			scope,
+			[
+				{ personaUuid: AMINA, username: "amina" },
+				{ personaUuid: JOSEPH, username: "joseph" },
+			],
+			[AMINA, JOSEPH],
+		);
+
+		const view = await provision(
+			scope,
+			[{ personaUuid: AMINA, username: "amina" }],
+			[AMINA, JOSEPH],
+		);
+
+		expect(
+			view.active
+				.filter((resource) => resource.kind === "worker")
+				.map((resource) => resource.novaResourceId)
+				.sort(),
+		).toEqual([AMINA, JOSEPH].sort());
+		expect(view.superseded).toHaveLength(0);
+	});
+
+	it("stops claiming the account of a persona the app no longer has", async () => {
+		/* Nova never retires a worker — CommCare HQ's own delete takes down
+		 * every case they own — so the account is still there. Superseding
+		 * the mapping is what makes the left-behind report name it. */
+		const scope = await seed();
+		await create(scope);
+		await provision(
+			scope,
+			[
+				{ personaUuid: AMINA, username: "amina" },
+				{ personaUuid: JOSEPH, username: "joseph" },
+			],
+			[AMINA, JOSEPH],
+		);
+
+		const view = await provision(scope, [], [AMINA]);
+
+		expect(
+			view.active
+				.filter((resource) => resource.kind === "worker")
+				.map((resource) => resource.novaResourceId),
+		).toEqual([AMINA]);
+		expect(
+			view.superseded.find((resource) => resource.novaResourceId === JOSEPH),
+		).toMatchObject({
+			kind: "worker",
+			pushedIdentity: "joseph@acme.commcarehq.org",
+		});
+	});
+
+	it("supersedes the old account when a persona takes a new username", async () => {
+		/* A username is create-once on CommCare HQ, so a new one is a new
+		 * account. The old one stays where it is and is named from its own
+		 * superseded row. */
+		const scope = await seed();
+		await create(scope);
+		await provision(
+			scope,
+			[{ personaUuid: AMINA, username: "amina" }],
+			[AMINA],
+		);
+
+		const view = await provision(
+			scope,
+			[{ personaUuid: AMINA, username: "amina.b" }],
+			[AMINA],
+		);
+
+		expect(
+			view.active.find((resource) => resource.kind === "worker"),
+		).toMatchObject({ pushedIdentity: "amina.b@acme.commcarehq.org" });
+		expect(
+			view.superseded.find((resource) => resource.kind === "worker"),
+		).toMatchObject({ pushedIdentity: "amina@acme.commcarehq.org" });
 	});
 });
 
