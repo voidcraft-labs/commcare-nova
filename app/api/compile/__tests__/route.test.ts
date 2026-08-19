@@ -87,19 +87,32 @@ function validDoc() {
 
 /** An app whose photo question saves a link to the file it captures. */
 function docWithAttachmentLink() {
-	const doc = validDoc();
-	const moduleUuid = doc.moduleOrder[0];
-	if (!moduleUuid) throw new Error("fixture module missing");
-	const formUuid = doc.formOrder[moduleUuid][0];
-	const photo = buildDoc({
+	const { fieldParent: _fieldParent, ...doc } = buildDoc({
+		appName: "Vaccine Tracker",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "photo_url", label: proseText("Photo") },
+				],
+			},
+		],
 		modules: [
 			{
-				name: "M",
+				name: "Patients",
+				caseType: "patient",
 				forms: [
 					{
-						name: "F",
-						type: "survey",
+						name: "Reg",
+						type: "registration",
 						fields: [
+							{
+								kind: "text",
+								id: "case_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							},
 							{
 								kind: "image",
 								id: "photo",
@@ -116,9 +129,6 @@ function docWithAttachmentLink() {
 			},
 		],
 	});
-	const [photoUuid] = Object.keys(photo.fields);
-	doc.fields[photoUuid] = photo.fields[photoUuid];
-	doc.fieldOrder[formUuid].push(photoUuid);
 	return doc;
 }
 
