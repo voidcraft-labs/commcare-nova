@@ -236,7 +236,14 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	repeat: repeatFieldMetadata,
 };
 
-export { type CaseWrite, caseWriteSchema } from "./base";
+export {
+	CAPTURE_CASE_WRITE_MODES,
+	type CaptureCaseWrite,
+	type CaptureCaseWriteMode,
+	type CaseWrite,
+	captureCaseWriteSchema,
+	caseWriteSchema,
+} from "./base";
 export type { RepeatMode };
 // `RepeatMode` (the three `repeat_mode` discriminator literals) comes
 // from `./repeat`, where the `repeatModes` tuple is declared beside the

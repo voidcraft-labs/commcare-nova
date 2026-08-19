@@ -18,10 +18,10 @@
  * table this rule and the reducer-side catalog sync both consult, so
  * the data type a writer stamps into the catalog and the data type
  * this rule expects can never disagree. Coercion paths (e.g. `text`
- * field → `int` property) are explicitly rejected; `hidden` fields
- * are skipped: `kind === "hidden"` doesn't pin a value type — the
- * calculate expression's output type does, and that's a separate
- * type-checker concern.
+ * field → `int` property) are explicitly rejected; `hidden` and the
+ * capture kinds are skipped, because neither pins a value type from the
+ * kind alone — a hidden field's calculate output does, and a capture's
+ * destination mode does, and both are separate concerns.
  *
  * Container kinds (group, repeat) and media kinds (image, audio, video,
  * signature) carry no `caseWrite` slot in their schema and never reach this

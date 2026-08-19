@@ -230,9 +230,9 @@ const KIND_POOL = [
 	"decimal",
 	"single_select",
 	"hidden",
-	// Media kind — its add arm declares no `caseWrite` slot, so a
-	// generated combination of the two is a schema refusal the proof
-	// exercises (the structural exclusion behind MEDIA_CASE_PROPERTY).
+	// Attachment kind — its case destination needs a `mode` the generated
+	// `caseWrite` never supplies, so every combination of the two is a
+	// schema refusal the proof exercises.
 	"image",
 ];
 

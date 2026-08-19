@@ -61,10 +61,12 @@
 import { z } from "zod";
 import type { FieldKind } from "@/lib/domain";
 import {
+	CAPTURE_CASE_WRITE_MODES,
 	caseWriteSchema,
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldRegistry,
+	isCaptureFieldKind,
 	lookupOptionsSourceSchema,
 	proseTemplateSchema,
 	uuidSchema,
@@ -138,7 +140,10 @@ const FIELD_DOCS = {
 		"type and `property` names the property on that type. The module's own " +
 		"type writes its primary case; a different type creates a child case " +
 		"(that child needs a writer whose `property` is `case_name`). The field " +
-		"id may differ from the property. Never set this on media kinds.",
+		"id may differ from the property. Attachment kinds (image, audio, " +
+		'video, signature, file) additionally require `mode: "url"`, which ' +
+		"saves a link to the attached file, and cannot write `case_name` or " +
+		"`external_id`. Every other kind must leave `mode` out.",
 	repeat_mode:
 		'"user_controlled" — user adds/removes rows at fill. "count_bound" ' +
 		'— row count from `count`. "query_bound" — one row per case id ' +
@@ -270,8 +275,59 @@ const validateConfigField = () =>
 				"object entirely to skip validation.",
 		);
 
+/**
+ * One flat case destination covering both domain shapes.
+ *
+ * `mode` is optional HERE and required by the per-kind rule below, rather
+ * than the schema splitting into a union: the flat object is what the
+ * provider's strict-mode normalization handles predictably, and per-kind
+ * legality is what `superRefine` is for on every other slot in this file.
+ * The domain schemas stay strict — an attachment destination without a mode
+ * is unrepresentable there — so this boundary refuses the same shapes, it
+ * just refuses them with a sentence instead of a union mismatch.
+ */
+const caseWriteToolSchema = caseWriteSchema
+	.extend({
+		mode: z.enum(CAPTURE_CASE_WRITE_MODES).optional(),
+	})
+	.strict();
+
 const caseWriteField = () =>
-	caseWriteSchema.nullable().optional().describe(FIELD_DOCS.caseWrite);
+	caseWriteToolSchema.nullable().optional().describe(FIELD_DOCS.caseWrite);
+
+/**
+ * `mode` belongs to exactly the kinds whose answer is a file.
+ *
+ * An attachment's answer is a server-minted file name, so what reaches the
+ * case is a decision the author has to make; every other kind's answer IS
+ * the case value and has nothing to decide.
+ */
+function gateCaseWriteMode(
+	ctx: z.RefinementCtx,
+	kind: FieldKind,
+	caseWrite: { readonly mode?: string } | null | undefined,
+): void {
+	if (caseWrite == null) return;
+	const isCapture = isCaptureFieldKind(kind);
+	if (isCapture && caseWrite.mode === undefined) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["caseWrite", "mode"],
+			message:
+				`kind "${kind}" saves a file, so its case destination needs a ` +
+				`\`mode\`: "url" saves a link to the attached file.`,
+		});
+	}
+	if (!isCapture && caseWrite.mode !== undefined) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["caseWrite", "mode"],
+			message:
+				`kind "${kind}" saves its answer to the case directly, so its ` +
+				`case destination carries no \`mode\` — leave it out.`,
+		});
+	}
+}
 
 // ── Flat tool inputs, kind-gated by refinement ───────────────────────
 //
@@ -410,7 +466,10 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			// gap (a select bound to a property recorded without options)
 			// still fails the per-kind assembly parse downstream, naming the
 			// offending field.
-			const caseBound = item.caseWrite != null;
+			// An attachment's destination is a URL property this very write
+			// creates, so there is no catalog record to inherit a label from.
+			const caseBound =
+				item.caseWrite != null && !isCaptureFieldKind(item.kind);
 			if (
 				fieldKindDeclaresKey(item.kind, "label") &&
 				!fieldRegistry[item.kind].isContainer &&
@@ -445,6 +504,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 						'kind "repeat" needs its `repeat` config — pass at least { mode: "user_controlled" }.',
 				});
 			}
+			gateCaseWriteMode(ctx, item.kind, item.caseWrite);
 			gateRepeatSlot(ctx, item.kind, item.repeat);
 		});
 }
@@ -509,6 +569,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 					undeclaredSlotIssue(ctx, patch.kind, key);
 				}
 			}
+			gateCaseWriteMode(ctx, patch.kind, patch.caseWrite);
 			gateRepeatSlot(ctx, patch.kind, patch.repeat);
 		});
 }
