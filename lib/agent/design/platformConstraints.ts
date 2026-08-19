@@ -194,7 +194,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 	GAP_CASE_ATTACHMENT_EMISSION: {
 		code: "GAP_CASE_ATTACHMENT_EMISSION",
 		statement:
-			"Save-to-case attachment emission and attachment-link presentation are a deliberate target gap; a captured photo saves with the submission but cannot be attached to a case or linked from a case list yet.",
+			"Presenting a saved attachment link is a deliberate target gap; an attachment question can save a link to its file on a case property, but no case-list column renders that link as a link yet.",
 		sourceAnchor: "docs/plans/complex-app/attachment-emission-and-link-ux.md",
 		gapUnitFile: "attachment-emission-and-link-ux.md",
 	},

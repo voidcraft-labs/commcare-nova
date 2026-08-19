@@ -8,16 +8,26 @@ nothing outstanding. · **Blocks:** nothing.
 > Read [the binding contracts](00-contracts.md) first — the link-first
 > case-attachment gap there is the product decision this unit implements.
 
-Lift the `MEDIA_CASE_PROPERTY` rejection for exactly the save-to-case shapes —
-keeping it for a media kind with `caseWrite` and no mode — and ship that
-constructibility together with the emission it needs, so save-to-case is never
-authorable without a wire spelling.
+**Built:** the save-to-case shape and its URL emission. A capture's `caseWrite`
+carries a required `mode` whose only member is `"url"`, so a destination
+without a wire spelling is unrepresentable and `MEDIA_CASE_PROPERTY` is retired
+rather than narrowed. The address is emitted on a sibling node
+(`lib/commcare/xform/captureUrlNode.ts`) that the case update names instead of
+the capture question, from a target resolved off the deployment record
+(`lib/deployment/attachmentTarget.ts`); with none, nothing is emitted and
+`lib/publish/exportAdvisories.ts` says so on the download. Preview writes
+nothing. Preview replacement and removal were already shipped.
 
-Add target-aware URL-property emission only when the deployment server and domain
-are known, explicit link presentation, preview replacement and removal, SA and
-docs coverage, and the deprecated attachment compatibility path — offered only
-when the deployment record shows the target domain carries HQ's
-`MM_CASE_PROPERTIES` toggle, and stated in the field UI before selection.
+**Remains, in two PRs:**
+
+1. **The `link` column kind.** A translatable `linkText` emitted as
+   `<template form="markdown">` over a
+   `concat('[', $link_text, '](', value, ')')` xpath with a locale variable.
+   This is the only thing that makes the saved address usable in a case list.
+2. **The opt-in `MM_CASE_PROPERTIES` attachment mode.** A second `mode` member
+   with the `<case><attachment>` emission, offered only when the deployment
+   record shows the target domain carries HQ's deprecated toggle, and stated in
+   the field UI before selection. Never a publish gate.
 
 ## Binding facts
 
@@ -32,9 +42,29 @@ when the deployment record shows the target domain carries HQ's
   `form_data/<instance_id>/attachment/<attachment_id>` is a **human HTML viewer
   page** and must never be targeted from an image or link column.
 - `detail_screen.py::Picture` is the correct wire format for an image-valued
-  column once the cloudcare HTTPS passthrough is fixed. Until then the
-  plain/markdown column formats render the stored URL as a clickable link, which
-  is the working link-first path. Do not default to a broken HTTPS picture column.
+  column once the cloudcare HTTPS passthrough is fixed. `resolveUri`
+  (`cloudcare/.../formplayer/app.js`) passes through only `http://` (7
+  characters) and never `https://`, so an https URL falls into the multimedia
+  map, misses, and yields `<img src="">`. Do not default to a broken HTTPS
+  picture column.
+- **Neither column format autolinks a bare URL, and a `plain` cell is not a
+  link at all.** `case_list/item.html` renders a plain cell as `<%- datum %>`
+  (escaped text); only a `Markdown` cell reaches `renderMarkdown`, and a tile
+  cell (`tile_item.html`) runs it on every non-image cell regardless of format.
+  `markdown.js::initMd` builds `markdowner({breaks: true})`, leaving `linkify`
+  at its `false` default, and DOMPurify sanitizes the SOURCE before rendering,
+  so an `<url>` autolink is stripped too. **A literal `[label](url)` in a
+  markdown-format cell is the only spelling that produces a link** — which is
+  what makes `linkText` a required part of the column rather than a nicety.
+- Nova targets the API route rather than the reports viewer for a reason the
+  MIME type does not cover: `reports/views.py::_can_view_form_attachment`
+  admits the API route via `api_auth()` plus the `VIEW_FORM_ATTACHMENT` domain
+  toggle **or** `require_form_view_permission`, while the reports route has
+  `login_and_domain_required` + `require_form_view_permission` and no toggle
+  bypass. A mobile worker without Submission History cannot open the reports
+  page at all. **`VIEW_FORM_ATTACHMENT` (`view_form_attachments`, `TAG_GA_PATH`,
+  domain) is therefore a second target prerequisite**, and belongs in
+  `config/commcare-hq-feature-flags.json` alongside `MM_CASE_PROPERTIES`.
 - An empty `<attachment>` element removes a case attachment on both runtimes.
 - **Preview must not synthesize the URL at all — the whole column is absent
   there, not merely origin-less.** The capture answer is identical in shape
