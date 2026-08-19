@@ -492,9 +492,12 @@ export function convertNeedsOptionSeed(
  *     a `calculate` or `default_value` on the result — the commit gate
  *     adjudicates that, not this function.
  *   - `single_select` → `text`: `optionsSource` drops; everything else carries.
- *   - Media subkinds (image/audio/video/signature): identity + label +
- *     hint + required + relevant carry over; no caseWrite, no
- *     validate (not in media schemas today).
+ *   - Capture subkinds (image/audio/video/signature/file): identity +
+ *     label + hint + required + relevant carry over, and so does
+ *     `caseWrite` with its `mode` — every capture kind declares the same
+ *     destination shape, so a conversion among them keeps saving to the
+ *     same place in the same way. No `validate` (not in capture schemas
+ *     today).
  *   - `group` ↔ `repeat`: container; only identity + label + relevant
  *     carry over. Children are untouched — they stay in `fieldOrder`
  *     under the same parent uuid, which is still a valid container after
