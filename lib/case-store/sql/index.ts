@@ -51,6 +51,11 @@ export {
 	RELATION_PATH_LEAF_ALIAS,
 } from "./compileRelationPath";
 export type {
+	RestoreScopeArgs,
+	RestoreScopeQuery,
+} from "./compileRestoreScope";
+export { buildRestoreScope } from "./compileRestoreScope";
+export type {
 	FormFieldBindingValue,
 	TermBindings,
 	TermBindingValue,
