@@ -19,9 +19,13 @@
 import { buildExpressionReference } from "@/lib/agent/expressionReference";
 import { fieldKindGuide } from "@/lib/agent/toolSchemaGenerator";
 
-/** Bumped on any meaning-bearing change to `EXECUTOR_SYSTEM`; persisted on
- *  every slice attempt so a build's prompt dialect stays reconstructable. */
-export const EXECUTOR_PROMPT_VERSION = "build-executor-v11";
+/** Bumped on any meaning-bearing change to the executor's operating envelope:
+ *  `EXECUTOR_SYSTEM` itself or the execution budgets it runs under. Persisted
+ *  on every slice attempt so a build's compiler dialect stays reconstructable;
+ *  a deterministically failed slice may rerun only after one of its recorded
+ *  compiler inputs changes, so this version is also the deploy lever that
+ *  reopens those slices. */
+export const EXECUTOR_PROMPT_VERSION = "build-executor-v12";
 
 const IDENTITY = `You are Nova's build executor — a compiler worker.
 

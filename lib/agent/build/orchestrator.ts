@@ -817,8 +817,7 @@ export async function runBuildOrchestration(
 								outcome.kind === "read-set-stale"
 									? "external-read-change-budget-exhausted"
 									: "rebase-budget-exhausted",
-							message:
-								"This workflow's underlying app or Project data kept changing, so Nova stopped before saving an unsafe revision. Everything already added is intact.",
+							message: `This workflow's underlying app or Project data kept changing, so Nova stopped before saving an unsafe revision. ${failureIntactTail(appId)}`,
 							recoverable: false,
 						};
 					}
@@ -881,10 +880,19 @@ export async function runBuildOrchestration(
 							attemptId: attempt.id,
 							...(outcome.kind === "budget-exhausted"
 								? {
+										axis: outcome.axis,
 										modelStepsSpent: outcome.spent.modelSteps,
 										modelStepsLimit: budget.maxModelSteps,
 										mutationCallsSpent: outcome.spent.mutationCalls,
 										mutationCallsLimit: budget.maxMutationCalls,
+										commitAttemptsSpent: outcome.spent.commitAttempts,
+										commitAttemptsLimit: budget.maxCommitAttempts,
+										wallClockMsSpent: outcome.spent.wallClockMs,
+										wallClockMsLimit: budget.maxWallClockMs,
+										/* The spent/limit pairs above are the base budget; each paid
+										 * blocker report extended the enforced step, call, and
+										 * wall-clock limits by one BLOCKER_RESOLUTION_ALLOWANCE. */
+										blockerReports: outcome.spent.blockerReports,
 									}
 								: { protocolCode: outcome.code }),
 						},
@@ -898,7 +906,13 @@ export async function runBuildOrchestration(
 								: outcome.code,
 						message:
 							outcome.kind === "budget-exhausted"
-								? "This workflow needed more correction rounds than a build allows, so Nova stopped before saving it. Everything already added is intact."
+								? `${
+										outcome.axis === "wall-clock"
+											? "This workflow needed more time than one build attempt allows, so Nova stopped before saving it."
+											: outcome.axis === "commit-attempts"
+												? "This workflow needed more correction rounds than one build attempt allows, so Nova stopped before saving it."
+												: "This workflow needed more build steps than one attempt allows, so Nova stopped before saving it."
+									} ${failureIntactTail(appId)}`
 								: outcome.message,
 						recoverable: false,
 					};
@@ -1150,6 +1164,14 @@ function productionDeps(
 					productionInitialBuildLocalizationDeps(translationContext),
 				)),
 	};
+}
+
+/** The honest tail of a terminal slice-failure message: what survives depends
+ * on whether the materialization root ever committed. */
+function failureIntactTail(appId: string | null): string {
+	return appId === null
+		? "No app was created yet, and your accepted design is safe. Nova recorded what stopped the build so it can be fixed."
+		: "Everything already saved to your app is intact.";
 }
 
 async function appendFailure(

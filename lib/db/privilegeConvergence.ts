@@ -96,18 +96,43 @@ export function readDatabasePrivilegeRoleConfig(
 export type PublicTableClass = "application" | "control" | "migration";
 
 /**
- * The serving role's exact capability on a fixed public table. PostgreSQL
- * requires `UPDATE` privilege for every table named by `SELECT ... FOR
- * UPDATE/SHARE`, so only `read-write` tables are row-lockable at runtime.
- * Keep each table in exactly one capability list below: inventory, grants,
- * sequence access, and the row-lock source guard all derive from this policy.
+ * The serving role's exact capability on a fixed public table. Each
+ * capability maps to an exact privilege set in
+ * `RUNTIME_CAPABILITY_PRIVILEGES`; inventory, grants, sequence access, and
+ * the row-lock and write-verb source guards all derive from that mapping.
+ * PostgreSQL requires `UPDATE` privilege for every table named by
+ * `SELECT ... FOR UPDATE/SHARE`, and policy additionally reserves row locks
+ * to `read-write` tables — an `insert-update` table's UPDATE grant never
+ * licenses a lock. Keep each table in exactly one capability list below.
  */
 export type RuntimeTableCapability =
 	| "read-write"
 	| "append-only"
+	| "insert-update"
 	| "insert-delete"
 	| "read-only"
 	| "none";
+
+/** The exact table privileges each capability grants the serving role. A
+ * `Record` over the union so an added capability cannot compile without
+ * declaring its privileges — grant emission, sequence access, and the
+ * source-guard sets all read from here. */
+const RUNTIME_CAPABILITY_PRIVILEGES: Record<
+	RuntimeTableCapability,
+	{
+		readonly select: boolean;
+		readonly insert: boolean;
+		readonly update: boolean;
+		readonly delete: boolean;
+	}
+> = {
+	"read-write": { select: true, insert: true, update: true, delete: true },
+	"append-only": { select: true, insert: true, update: false, delete: false },
+	"insert-update": { select: true, insert: true, update: true, delete: false },
+	"insert-delete": { select: true, insert: true, update: false, delete: true },
+	"read-only": { select: true, insert: false, update: false, delete: false },
+	none: { select: false, insert: false, update: false, delete: false },
+};
 
 export interface PublicTablePolicy {
 	readonly name: string;
@@ -159,8 +184,8 @@ const RUNTIME_READ_WRITE_TABLES = [
 
 /** The change-set runtime's durable staging ledgers are append-only: the
  * mutable authority row (`design_change_sets`) serializes them, so no code
- * may row-lock or update a request, step, stage, handle, or receipt row —
- * retention is a future, separately-owned service path. */
+ * may row-lock or update a request, step, stage, change-set handle, or
+ * receipt row — retention is a future, separately-owned service path. */
 const RUNTIME_APPEND_ONLY_TABLES = [
 	"app_changes",
 	"design_change_set_requests",
@@ -180,9 +205,16 @@ const RUNTIME_APPEND_ONLY_TABLES = [
 	"design_model_step_usage_accounts",
 	"design_localization_receipts",
 	"design_localization_batch_usage_accounts",
-	"design_identity_handles",
 	"design_slice_attempt_budget_claims",
 ] as const;
+
+/** The design loop's identity-handle ledger writes rows in place: a forward
+ * reference binds eagerly under the `referenced` marker kind and the
+ * declaring item upgrades that row to its real kind, so runtime needs UPDATE.
+ * No runtime path deletes a handle, and the workspace authority row
+ * (`design_artifact_workspaces`) serializes writers, so no code may row-lock
+ * a handle row. */
+const RUNTIME_INSERT_UPDATE_TABLES = ["design_identity_handles"] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
  * row in place: writers insert, reconcilers delete, and every other path reads. */
@@ -259,6 +291,11 @@ const REQUIRED_PUBLIC_TABLE_POLICIES: readonly PublicTablePolicy[] = [
 		classification: "application" as const,
 		runtimeCapability: "append-only" as const,
 	})),
+	...RUNTIME_INSERT_UPDATE_TABLES.map((name) => ({
+		name,
+		classification: "application" as const,
+		runtimeCapability: "insert-update" as const,
+	})),
 	...RUNTIME_INSERT_DELETE_TABLES.map((name) => ({
 		name,
 		classification: "application" as const,
@@ -304,12 +341,33 @@ export const REQUIRED_PUBLIC_TABLES = REQUIRED_PUBLIC_TABLE_POLICIES.map(
 );
 
 /** Runtime-visible public tables where PostgreSQL row-lock clauses are
- * structurally forbidden because the serving role intentionally lacks UPDATE. */
-export const RUNTIME_TABLES_WITHOUT_UPDATE = PUBLIC_TABLE_POLICIES.filter(
+ * forbidden by policy. On most of these the serving role lacks UPDATE, so a
+ * lock would fail with 42501 anyway; an `insert-update` table holds UPDATE
+ * and only this guard set keeps it lock-free. */
+export const RUNTIME_TABLES_WITHOUT_ROW_LOCKS = PUBLIC_TABLE_POLICIES.filter(
 	(policy) =>
 		policy.runtimeCapability !== "none" &&
 		policy.runtimeCapability !== "read-write",
 ).map((policy) => policy.name);
+
+const runtimeTablesLackingPrivilege = (
+	privilege: "insert" | "update" | "delete",
+): readonly string[] =>
+	PUBLIC_TABLE_POLICIES.filter(
+		(policy) =>
+			policy.runtimeCapability !== "none" &&
+			!RUNTIME_CAPABILITY_PRIVILEGES[policy.runtimeCapability][privilege],
+	).map((policy) => policy.name);
+
+/** Runtime-visible public tables whose grant omits the named privilege — the
+ * write-verb source guard's sets: a serving statement using that verb against
+ * one of these fails with 42501 in production. */
+export const RUNTIME_TABLES_WITHOUT_UPDATE =
+	runtimeTablesLackingPrivilege("update");
+export const RUNTIME_TABLES_WITHOUT_DELETE =
+	runtimeTablesLackingPrivilege("delete");
+export const RUNTIME_TABLES_WITHOUT_INSERT =
+	runtimeTablesLackingPrivilege("insert");
 
 const ALLOWED_PUBLIC_TABLES = new Set<string>([
 	...PUBLIC_TABLE_POLICIES.map((policy) => policy.name),
@@ -376,7 +434,7 @@ export function auditPublicTableInventory(
 		];
 		if (unknown.length > 0) {
 			parts.push(
-				`The database has ${unknown.length === 1 ? "a table" : "tables"} the inventory doesn't list: ${unknown.join(", ")}. If you just added ${unknown.length === 1 ? "it" : "them"} in a migration, register each table exactly once in the matching runtime-capability list in that file. Choose from read-write, append-only, insert-delete, read-only, or migration-only based on the real serving statements. \`PUBLIC_TABLE_POLICIES\`, inventory, grants, sequence access, and the row-lock source guard all derive from that choice. PostgreSQL row-lock clauses require UPDATE, so only read-write tables may use \`FOR UPDATE\` or \`FOR SHARE\`.`,
+				`The database has ${unknown.length === 1 ? "a table" : "tables"} the inventory doesn't list: ${unknown.join(", ")}. If you just added ${unknown.length === 1 ? "it" : "them"} in a migration, register each table exactly once in the matching runtime-capability list in that file. Choose from read-write, append-only, insert-update, insert-delete, read-only, or migration-only based on the real serving statements. \`PUBLIC_TABLE_POLICIES\`, inventory, grants, sequence access, and the row-lock and write-verb source guards all derive from that choice. PostgreSQL row-lock clauses require UPDATE, and policy reserves them further: only read-write tables may use \`FOR UPDATE\` or \`FOR SHARE\`.`,
 			);
 		}
 		if (missing.length > 0) {
@@ -1346,34 +1404,18 @@ async function grantRuntimeTableCapability(
 	capability: RuntimeTableCapability,
 	runtimeRole: string,
 ): Promise<void> {
-	switch (capability) {
-		case "read-write":
-			await sql`
-				GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.${sql.id(table)}
-				TO ${sql.id(runtimeRole)}
-			`.execute(tx);
-			return;
-		case "append-only":
-			await sql`
-				GRANT SELECT, INSERT ON TABLE public.${sql.id(table)}
-				TO ${sql.id(runtimeRole)}
-			`.execute(tx);
-			return;
-		case "insert-delete":
-			await sql`
-				GRANT SELECT, INSERT, DELETE ON TABLE public.${sql.id(table)}
-				TO ${sql.id(runtimeRole)}
-			`.execute(tx);
-			return;
-		case "read-only":
-			await sql`
-				GRANT SELECT ON TABLE public.${sql.id(table)}
-				TO ${sql.id(runtimeRole)}
-			`.execute(tx);
-			return;
-		case "none":
-			return;
-	}
+	const privileges = RUNTIME_CAPABILITY_PRIVILEGES[capability];
+	const keywords = [
+		...(privileges.select ? ["SELECT"] : []),
+		...(privileges.insert ? ["INSERT"] : []),
+		...(privileges.update ? ["UPDATE"] : []),
+		...(privileges.delete ? ["DELETE"] : []),
+	];
+	if (keywords.length === 0) return;
+	await sql`
+		GRANT ${sql.raw(keywords.join(", "))} ON TABLE public.${sql.id(table)}
+		TO ${sql.id(runtimeRole)}
+	`.execute(tx);
 }
 
 async function convergePrivilegesInTransaction(
@@ -1487,9 +1529,8 @@ async function convergePrivilegesInTransaction(
 		`.execute(tx);
 		const capability = runtimeTableCapability(parent);
 		if (
-			capability === "read-write" ||
-			capability === "append-only" ||
-			capability === "insert-delete"
+			capability !== null &&
+			RUNTIME_CAPABILITY_PRIVILEGES[capability].insert
 		) {
 			await sql`
 				GRANT USAGE, SELECT ON SEQUENCE public.${sql.id(sequence.name)}

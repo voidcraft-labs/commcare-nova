@@ -150,7 +150,7 @@ describe("database privilege convergence contract", () => {
 		expect(unknown).toContain("brand_new");
 		// Routes the reader to the registration site, not to their migration.
 		expect(unknown).toContain("read-write");
-		expect(unknown).toContain("row-lock source guard");
+		expect(unknown).toContain("row-lock and write-verb source guards");
 		expect(unknown).toContain("lib/db/privilegeConvergence.ts");
 		// And does not also lecture them about the cause that did not fire.
 		expect(unknown).not.toContain("hasn't run against this database");
@@ -167,7 +167,7 @@ describe("database privilege convergence contract", () => {
 		})();
 		expect(missing).toContain("apps");
 		expect(missing).toContain("hasn't run against this database");
-		expect(missing).not.toContain("row-lock source guard");
+		expect(missing).not.toContain("row-lock and write-verb source guards");
 	});
 
 	test("derives each table's exact runtime capability from one policy entry", () => {
@@ -176,6 +176,9 @@ describe("database privilege convergence contract", () => {
 		).toBe(PUBLIC_TABLE_POLICIES.length);
 		expect(runtimeTableCapability("apps")).toBe("read-write");
 		expect(runtimeTableCapability("app_changes")).toBe("append-only");
+		expect(runtimeTableCapability("design_identity_handles")).toBe(
+			"insert-update",
+		);
 		expect(runtimeTableCapability("media_asset_refs")).toBe("insert-delete");
 		expect(runtimeTableCapability("app_change_fold_baselines")).toBe(
 			"read-only",

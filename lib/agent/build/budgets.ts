@@ -1,10 +1,16 @@
 /**
- * Bounded slice execution (the plan's §13.8).
+ * Bounded slice execution.
  *
  * Every axis a slice attempt can spend is capped before the first model call,
- * and every cap is a pure function of the admitted construction strategy — so a budget is
+ * and every cap is a pure function of the admitted construction strategy and
+ * the executor role's funded step pace
+ * (`MODEL_ROLES.buildExecutor.msPerModelStep`) — so a budget is
  * reproducible from the plan alone, comparable across attempts, and provable
- * in a test rather than tuned at runtime. Exceeding any axis ends the attempt
+ * in a test rather than tuned at runtime. Every wall-clock axis is its step
+ * count times that pace, base through ceiling, so one generous pace
+ * assumption holds across the whole range and the deadline is a backstop
+ * against a runaway attempt, not a per-slice estimate. Exceeding any axis
+ * ends the attempt
  * as `budget-exhausted`: it never commits a partial canonical prefix and never
  * reports completion. There is no unbounded "amend until valid" loop.
  *
@@ -16,6 +22,9 @@
  */
 
 import type { BuildSlice } from "@/lib/agent/design/buildPlan";
+import { MODEL_ROLES } from "@/lib/models";
+
+const STEP_PACE_MS = MODEL_ROLES.buildExecutor.msPerModelStep;
 
 export interface SliceExecutionBudget {
 	readonly maxModelSteps: number;
@@ -45,13 +54,15 @@ export interface SliceAttemptBudgetSpent {
 	readonly blockerReports: number;
 }
 
+const BASE_MODEL_STEPS = 10;
+
 /**
  * The floor every slice gets. Sized for the smallest real slice — one record,
  * one form, its case list — with room for reads and bounded correction after
  * a rejected private mutation.
  */
 const BASE_BUDGET: SliceExecutionBudget = {
-	maxModelSteps: 10,
+	maxModelSteps: BASE_MODEL_STEPS,
 	maxMutationCalls: 16,
 	/* Three commit attempts: the first, one after a rebase refresh, one after
 	 * a diagnostics fix. A fourth is a replan, not a retry. */
@@ -60,12 +71,20 @@ const BASE_BUDGET: SliceExecutionBudget = {
 	/* Two fresh architect decisions are enough to turn compiler evidence into
 	 * exact guidance. A third unresolved report is a construction defect. */
 	maxBlockerResolutions: 2,
-	maxWallClockMs: 4 * 60_000,
+	maxWallClockMs: BASE_MODEL_STEPS * STEP_PACE_MS,
 };
 
 const MODEL_STEPS_PER_GROUP = 3;
 const MUTATION_CALLS_PER_GROUP = 3;
-const WALL_CLOCK_MS_PER_GROUP = 75_000;
+const WALL_CLOCK_MS_PER_GROUP = MODEL_STEPS_PER_GROUP * STEP_PACE_MS;
+
+/** A risk arm's wall clock funds exactly the extra steps it grants. */
+function riskAllowance(
+	modelSteps: number,
+	mutationCalls: number,
+): { modelSteps: number; mutationCalls: number; ms: number } {
+	return { modelSteps, mutationCalls, ms: modelSteps * STEP_PACE_MS };
+}
 
 const RISK_ALLOWANCE: Readonly<
 	Record<
@@ -73,21 +92,27 @@ const RISK_ALLOWANCE: Readonly<
 		{ modelSteps: number; mutationCalls: number; ms: number }
 	>
 > = {
-	ordinary: { modelSteps: 0, mutationCalls: 0, ms: 0 },
-	"cross-record": { modelSteps: 3, mutationCalls: 6, ms: 90_000 },
-	"external-effect": { modelSteps: 2, mutationCalls: 4, ms: 60_000 },
+	ordinary: riskAllowance(0, 0),
+	"cross-record": riskAllowance(3, 6),
+	"external-effect": riskAllowance(2, 4),
 };
+
+const CEILING_MODEL_STEPS = 40;
 
 /**
  * Hard global ceilings. A slice that would need more than this is mis-sized:
  * the planner owns splitting it, and letting one attempt grow past these
  * numbers only converts a planning defect into a long, expensive failure.
+ * The wall-clock ceiling funds exactly the step ceiling, so both bind at the
+ * same slice shape and the funded pace never degrades at the top of the range.
  */
 const CEILINGS = {
-	maxModelSteps: 40,
+	maxModelSteps: CEILING_MODEL_STEPS,
 	maxMutationCalls: 96,
-	maxWallClockMs: 12 * 60_000,
+	maxWallClockMs: CEILING_MODEL_STEPS * STEP_PACE_MS,
 } as const;
+
+const BLOCKER_MODEL_STEPS = 5;
 
 /**
  * Priced rework for one answered architect blocker. A `continue` decision
@@ -97,16 +122,27 @@ const CEILINGS = {
  * the worst case adds exactly two allowances, never an open-ended stream.
  */
 export const BLOCKER_RESOLUTION_ALLOWANCE = {
-	modelSteps: 5,
+	modelSteps: BLOCKER_MODEL_STEPS,
 	mutationCalls: 8,
-	ms: 150_000,
+	ms: BLOCKER_MODEL_STEPS * STEP_PACE_MS,
 } as const;
 
-/** The wall clock an attempt may still spend: its budget plus the priced
- * allowance for every durably paid architect blocker, minus durable active
- * spend, floored at zero. The executor deadline is now plus this — never
- * elapsed time since the attempt's original start, which would count the
- * dead gap a process-death recovery necessarily sits behind. */
+/** The attempt's total wall-clock allowance: its budget plus the priced
+ * allowance for every durably paid architect blocker. The one spelling both
+ * the deadline mint and the exhaustion report's spent figure derive from. */
+export function totalWallClockAllowanceMs(
+	budget: SliceExecutionBudget,
+	blockerReportsUsed: number,
+): number {
+	return (
+		budget.maxWallClockMs + blockerReportsUsed * BLOCKER_RESOLUTION_ALLOWANCE.ms
+	);
+}
+
+/** The wall clock an attempt may still spend: its total allowance minus
+ * durable active spend, floored at zero. The executor deadline is now plus
+ * this — never elapsed time since the attempt's original start, which would
+ * count the dead gap a process-death recovery necessarily sits behind. */
 export function remainingWallClockMs(
 	budget: SliceExecutionBudget,
 	wallClockMsUsed: number,
@@ -114,9 +150,7 @@ export function remainingWallClockMs(
 ): number {
 	return Math.max(
 		0,
-		budget.maxWallClockMs +
-			blockerReportsUsed * BLOCKER_RESOLUTION_ALLOWANCE.ms -
-			wallClockMsUsed,
+		totalWallClockAllowanceMs(budget, blockerReportsUsed) - wallClockMsUsed,
 	);
 }
 

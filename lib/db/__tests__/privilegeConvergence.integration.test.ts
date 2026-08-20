@@ -717,6 +717,29 @@ describe("database privilege convergence", () => {
 					WHERE app_id = ${genesis.appId}
 				`.execute(runtime.db),
 			).rejects.toMatchObject({ code: "42501" });
+			/* The identity-handle ledger's reference-to-declaration kind upgrade
+			 * is ordinary runtime DML; a zero-row statement still requires the
+			 * UPDATE privilege, so no fixture rows are needed. */
+			await expect(
+				sql`
+					UPDATE design_identity_handles
+					SET entity_kind = 'record'
+					WHERE design_session_id = ${crypto.randomUUID()}::uuid
+				`.execute(runtime.db),
+			).resolves.toBeDefined();
+			await expect(
+				sql`
+					DELETE FROM design_identity_handles
+					WHERE design_session_id = ${crypto.randomUUID()}::uuid
+				`.execute(runtime.db),
+			).rejects.toMatchObject({ code: "42501" });
+			await expect(
+				sql`
+					UPDATE design_change_set_handles
+					SET handle = handle
+					WHERE change_set_id = ${crypto.randomUUID()}::uuid
+				`.execute(runtime.db),
+			).rejects.toMatchObject({ code: "42501" });
 			await expect(
 				sql`
 					SELECT nova_insert_app_change_genesis_fold_baseline(${missingProbeAppId})

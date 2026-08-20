@@ -4,12 +4,14 @@ import {
 	budgetForSlice,
 	remainingWallClockMs,
 } from "@/lib/agent/build/budgets";
+import { EXECUTOR_PROMPT_VERSION } from "@/lib/agent/build/executorPrompt";
 import {
 	did,
 	fixtureValue,
 	makeBuildPlan,
 } from "@/lib/agent/design/__tests__/fixtures";
 import type { BuildSlice } from "@/lib/agent/design/buildPlan";
+import { MODEL_ROLES } from "@/lib/models";
 
 function sliceWithGroups(count: number): BuildSlice {
 	return {
@@ -37,12 +39,12 @@ describe("budgetForSlice", () => {
 		expect(budgetForSlice(sliceWithGroups(1))).toMatchObject({
 			maxModelSteps: 13,
 			maxMutationCalls: 19,
-			maxWallClockMs: 315_000,
+			maxWallClockMs: 1_170_000,
 		});
 		expect(budgetForSlice(sliceWithGroups(5))).toMatchObject({
 			maxModelSteps: 25,
 			maxMutationCalls: 31,
-			maxWallClockMs: 615_000,
+			maxWallClockMs: 2_250_000,
 		});
 	});
 
@@ -50,8 +52,36 @@ describe("budgetForSlice", () => {
 		expect(budgetForSlice(sliceWithGroups(500))).toMatchObject({
 			maxModelSteps: 40,
 			maxMutationCalls: 96,
-			maxWallClockMs: 720_000,
+			maxWallClockMs: 3_600_000,
 		});
+	});
+
+	it("funds every slice's wall clock at exactly the executor role's step pace", () => {
+		const pace = MODEL_ROLES.buildExecutor.msPerModelStep;
+		for (const groups of [0, 1, 5, 9, 10, 500]) {
+			const budget = budgetForSlice(sliceWithGroups(groups));
+			expect(budget.maxWallClockMs).toBe(budget.maxModelSteps * pace);
+		}
+		const crossRecord: BuildSlice = {
+			...sliceWithGroups(2),
+			risk: "cross-record",
+		};
+		const budget = budgetForSlice(crossRecord);
+		expect(budget.maxWallClockMs).toBe(budget.maxModelSteps * pace);
+		expect(BLOCKER_RESOLUTION_ALLOWANCE.ms).toBe(
+			BLOCKER_RESOLUTION_ALLOWANCE.modelSteps * pace,
+		);
+	});
+
+	it("couples any budget retune to the executor prompt version", () => {
+		/* The failed-slice rerun gate fingerprints (executor model, prompt
+		 * version, brief digest); the budgets are enforced but not recorded.
+		 * Changing any number in budgets.ts — or the pace in lib/models.ts —
+		 * changes the executor's operating envelope, so the same diff must
+		 * bump EXECUTOR_PROMPT_VERSION or every budget-exhausted slice stays
+		 * permanently closed under the old limits. The pins above break on any
+		 * retune; this pin makes that diff also name the version bump. */
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v12");
 	});
 
 	it("is pure for a derived slice", () => {
