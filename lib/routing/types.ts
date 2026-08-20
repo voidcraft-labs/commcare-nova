@@ -175,6 +175,18 @@ export const locationSchema = z.discriminatedUnion("kind", [
 			operationUuid: uuidSchema.optional(),
 		})
 		.strict(),
+	// `/build/[id]/{formUuid}/links[/{linkUuid}]` — the form's after-submit
+	// links, with one selected link in the URL for the same reason
+	// `form-operations` carries its operation: a link must be sendable, and
+	// the rail body is keyed by it.
+	z
+		.object({
+			kind: z.literal("form-links"),
+			moduleUuid: uuidSchema,
+			formUuid: uuidSchema,
+			linkUuid: uuidSchema.optional(),
+		})
+		.strict(),
 	z
 		.object({
 			kind: z.literal("form"),

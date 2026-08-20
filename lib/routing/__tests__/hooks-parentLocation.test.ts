@@ -13,6 +13,8 @@
  *   cases (with caseId)     → cases (drops the id, stays on list)
  *   form (no selection)     → module
  *   form (with selection)   → form (drops the selection, stays on form)
+ *   form-links (no link)    → form
+ *   form-links (with link)  → form-links (drops the link, stays on the list)
  */
 
 import { describe, expect, it } from "vitest";
@@ -23,6 +25,7 @@ import { parentLocation } from "@/lib/routing/hooks";
 const MOD = testUuid("mod-1");
 const FORM = testUuid("form-1");
 const Q = testUuid("q-1");
+const LINK = testUuid("link-1");
 
 describe("parentLocation", () => {
 	it("home → undefined (root has no parent)", () => {
@@ -67,5 +70,24 @@ describe("parentLocation", () => {
 				selectedUuid: Q,
 			}),
 		).toEqual({ kind: "form", moduleUuid: MOD, formUuid: FORM });
+	});
+
+	it("form-links (no link) → form", () => {
+		expect(
+			parentLocation({ kind: "form-links", moduleUuid: MOD, formUuid: FORM }),
+		).toEqual({ kind: "form", moduleUuid: MOD, formUuid: FORM });
+	});
+
+	it("form-links (with link) → the list with the link dropped", () => {
+		/* Same inward walk as a selected field or operation: one click drops
+		 * the selection and stays on the list. */
+		expect(
+			parentLocation({
+				kind: "form-links",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				linkUuid: LINK,
+			}),
+		).toEqual({ kind: "form-links", moduleUuid: MOD, formUuid: FORM });
 	});
 });

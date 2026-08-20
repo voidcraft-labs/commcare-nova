@@ -120,7 +120,11 @@ export function previewBreadcrumbTrail(
 	if (loc.kind === "module-condition") {
 		return homeAndModule.filter((crumb) => crumb.location.kind === "home");
 	}
-	if (loc.kind === "form-condition" || loc.kind === "form-operations") {
+	if (
+		loc.kind === "form-condition" ||
+		loc.kind === "form-operations" ||
+		loc.kind === "form-links"
+	) {
 		return previewBreadcrumbTrail({
 			...input,
 			loc: { kind: "form", moduleUuid, formUuid: loc.formUuid },

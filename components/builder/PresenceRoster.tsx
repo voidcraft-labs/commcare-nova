@@ -72,6 +72,8 @@ function whereLabel(location: Location): string {
 			return "setting when something appears";
 		case "form-operations":
 			return "editing case changes";
+		case "form-links":
+			return "editing what happens after submit";
 		case "form":
 			return location.selectedUuid !== undefined
 				? "editing a field"

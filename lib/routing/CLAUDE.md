@@ -18,6 +18,8 @@ The builder's "where you are" and "what's focused" state lives in the URL, not i
 /build/[id]/{formUuid}/operations             → form case operations
 /build/[id]/{formUuid}/operations/{operationUuid}
                                                → selected case operation
+/build/[id]/{formUuid}/links                  → form after-submit links
+/build/[id]/{formUuid}/links/{linkUuid}       → selected after-submit link
 /build/[id]/{formUuid}/{fieldUuid}             → form with field selected
 ```
 
@@ -27,7 +29,7 @@ same doc lookup the bare single-uuid path already does. They are separate kinds
 because CommCare evaluates the two conditions in different places, which decides
 what each editor may offer.
 
-All entity UUIDs are globally unique in the doc store, so a single UUID segment identifies the entity type by a lookup in the doc's module / form / field maps. Case-operation selection is also URL-owned: the form UUID fixes the operation list and the optional operation UUID fixes the opened detail canvas, so refresh, back/forward, and multiplayer presence retain the same authored change.
+All entity UUIDs are globally unique in the doc store, so a single UUID segment identifies the entity type by a lookup in the doc's module / form / field maps. Case-operation selection is also URL-owned: the form UUID fixes the operation list and the optional operation UUID fixes the opened detail canvas, so refresh, back/forward, and multiplayer presence retain the same authored change. After-submit links (`form-links`) carry their selected link the same way, and `recoverLocation` drops a link a peer removed while keeping the list open.
 
 `{caseId}` is the one non-UUID segment: case ids are opaque text (`/`, `%`, `:`, spaces are legal), so `serializePath` percent-encodes the segment and `parsePathToLocation` decodes it — keep the pair symmetric. An undecodable segment (a raw `%` from a hand-typed URL) is taken verbatim and at worst reads as a missing case.
 
