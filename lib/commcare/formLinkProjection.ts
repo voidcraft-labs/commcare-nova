@@ -391,6 +391,13 @@ export interface SourceMatch {
 	/** Selection datums no source datum could satisfy (HQ would emit a
 	 *  self-named reference that resolves to an empty value). */
 	readonly unmatched: FrameDatum[];
+	/** Which source datum each matched selection datum reads, in target
+	 *  order — the structural answer a surface needs to say "the case this
+	 *  form opened" without reading the session reference back out of text. */
+	readonly matched: ReadonlyArray<{
+		readonly id: string;
+		readonly sourceId: string;
+	}>;
 }
 
 /** HQ's `_get_datums_matched_to_source`. */
@@ -401,6 +408,7 @@ export function matchFrameToSource(
 	let unused = [...source];
 	const pending: PendingChild[] = [];
 	const unmatched: FrameDatum[] = [];
+	const matched: Array<{ id: string; sourceId: string }> = [];
 	for (const child of target) {
 		if (child.type === "command") {
 			pending.push(child);
@@ -424,6 +432,7 @@ export function matchFrameToSource(
 		// HQ filters the consumed source by the MATCH's id, which is the
 		// target's id (`match.id`), not the source's — mirrored as is.
 		unused = unused.filter((candidate) => candidate.id !== datum.id);
+		matched.push({ id: datum.id, sourceId: match.sourceId });
 		pending.push({
 			type: "datum",
 			id: datum.id,
@@ -436,6 +445,7 @@ export function matchFrameToSource(
 			new Set(source.map((datum) => datum.id)),
 		),
 		unmatched,
+		matched,
 	};
 }
 

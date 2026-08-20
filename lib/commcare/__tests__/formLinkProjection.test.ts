@@ -362,6 +362,7 @@ describe("datum matching", () => {
 	it("keeps the target id when the source carries the same id and type", () => {
 		const match = matchFrameToSource(target, [datum("case_id", true, "frog")]);
 		expect(match.unmatched).toEqual([]);
+		expect(match.matched).toEqual([{ id: "case_id", sourceId: "case_id" }]);
 		expect(match.children).toEqual([
 			{ type: "command", id: "m1" },
 			{ type: "command", id: "m1-f0" },
@@ -374,6 +375,9 @@ describe("datum matching", () => {
 			datum("case_id_new_frog_0", false, "frog", "uuid()"),
 		]);
 		expect(match.unmatched).toEqual([]);
+		expect(match.matched).toEqual([
+			{ id: "case_id", sourceId: "case_id_new_frog_0" },
+		]);
 		expect(match.children[2]).toEqual({
 			type: "datum",
 			id: "case_id",
