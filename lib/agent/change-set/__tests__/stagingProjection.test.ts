@@ -52,6 +52,7 @@ const EVERY_FAMILY: Readonly<Record<AuthorableIdentityFamily, true>> = {
 	"location-property": true,
 	location: true,
 	"case-operation": true,
+	"form-link": true,
 	automation: true,
 	"automation-criterion": true,
 	"automation-setup-criterion": true,
@@ -68,7 +69,7 @@ const EVERY_FAMILY: Readonly<Record<AuthorableIdentityFamily, true>> = {
 /** Adding an identity family is a REVIEW DUTY: classify it in
  *  `STAGING_PROJECTION_DECISIONS` (and, if handle-eligible, give it a staged
  *  entity kind), then move this count. */
-const REVIEWED_FAMILY_COUNT = 24;
+const REVIEWED_FAMILY_COUNT = 25;
 
 function walkJson(
 	node: unknown,

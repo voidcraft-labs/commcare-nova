@@ -100,6 +100,22 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		doing: "Moving case operation",
 		done: "Moved case operation",
 	},
+	addFormLinks: {
+		doing: "Adding after-submit links",
+		done: "Added after-submit links",
+	},
+	updateFormLink: {
+		doing: "Updating after-submit link",
+		done: "Updated after-submit link",
+	},
+	removeFormLink: {
+		doing: "Removing after-submit link",
+		done: "Removed after-submit link",
+	},
+	moveFormLink: {
+		doing: "Moving after-submit link",
+		done: "Moved after-submit link",
+	},
 	getCaseOperations: {
 		doing: "Inspecting case operations",
 		done: "Inspected case operations",
@@ -265,6 +281,7 @@ const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 		`Added ${n} ${n === 1 ? "search input" : "search inputs"}`,
 	addCaseOperations: (n) =>
 		`Added ${n} case ${n === 1 ? "operation" : "operations"}`,
+	addFormLinks: (n) => `Added ${n} after-submit ${n === 1 ? "link" : "links"}`,
 	renameCaseProperties: (n) =>
 		`Renamed ${n} case ${n === 1 ? "property" : "properties"}`,
 	addUserProperties: (n) =>

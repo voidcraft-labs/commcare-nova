@@ -17,10 +17,10 @@ Read an app before editing it. Commcare Nova returns stable UUIDs for modules, f
 fields, choices, case-list columns, search inputs, automations and their nested
 criteria, updates, recipients, events, and filters, worker-information
 properties, roles, personas, organization levels, place-information properties,
-places, case operations, Project data tables, columns, and rows. Editing tools address those
+places, case operations, after-submit links, Project data tables, columns, and rows. Editing tools address those
 objects by their UUID parameters, such as `moduleUuid`, `formUuid`,
-`fieldUuid`, `columnUuid` (the case-list column), `searchInputUuid`, and
-`operationUuid`, rather than by a display name, saved field id, path, list
+`fieldUuid`, `columnUuid` (the case-list column), `searchInputUuid`,
+`operationUuid`, and `linkUuid`, rather than by a display name, saved field id, path, list
 position, or operation id. Project data tables and columns carry their UUID on
 `id`. Names, saved ids, lookup tags, and column export names remain readable,
 editable authoring values; changing one does not retarget a UUID-linked
@@ -582,7 +582,27 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 | `create_form` | Add a new form to `moduleUuid` together with its fields, in one call. It returns the form plus every field and inline-choice UUID; predeclare only identities referenced inside the call. |
 | `update_form` | Rename, refine one participant's CommCare Connect config after a mode exists, or set close condition/post-submit destination, addressed by `moduleUuid` and `formUuid`. |
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
-| `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs and complete case-operation ASTs. |
+| `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, complete case-operation ASTs, and its after-submit links with their `linkUuid` in the order they are checked. |
+
+### Where a form goes after submit
+
+A form's `post_submit` says where people go once it is submitted. When the
+destination depends on data, give the form after-submit links: they are checked
+in order after the form closes and the first true condition is followed. An
+unconditional link is the otherwise and can only be last; with conditional links
+and no otherwise link, `post_submit` is where people go when nothing matches,
+and Commcare Nova stores it explicitly if it was not set. A link's condition and
+datums run after the form has closed, so they read the module's case, worker,
+and session values, never the form's answers; save an answer to a case
+property first. A link that names `datums` must name every selection datum the
+target needs. Each link has an immutable `linkUuid`.
+
+| Tool | What it does |
+|---|---|
+| `add_form_links` | Add one or more complete links to `moduleUuid` and `formUuid`, in the order they are checked. Predeclare `linkUuid` only when you need the handle before reading it back; `afterLinkUuid` is the existing anchor (`null` puts the block first, omission lets Commcare Nova place it). |
+| `update_form_link` | Replace one link's complete shape by `linkUuid`. Only changed slots are written; removing the condition makes it the otherwise link, which must already be last. |
+| `move_form_link` | Move `linkUuid` after `afterLinkUuid`, or pass `null` to check it first. Refuses an order that puts a conditional link after the otherwise link, or the otherwise link anywhere but last. |
+| `remove_form_link` | Remove one link by `linkUuid`. Removing the otherwise link while conditional links remain stores `post_submit` explicitly as the fallback. |
 
 ## Working with Project data in expressions
 

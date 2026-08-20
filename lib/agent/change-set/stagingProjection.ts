@@ -51,6 +51,14 @@ export const STAGING_PROJECTION_DECISIONS: Readonly<
 	"automation-recipient": "handle-eligible",
 	"automation-event": "handle-eligible",
 	"automation-user-data-filter": "handle-eligible",
+	/* After-submit links are Blueprint entities, but no change set can
+	 * create one: the executor authorizes no form-link tool from any area
+	 * (reviewed construction has no Design Contract carrier for after-submit
+	 * links, the same standing as CommCare Connect), and a handle-eligible
+	 * family needs a durable staged entity kind, which is a migration of the
+	 * staging tables' kind constraint. The eligibility decision rides with
+	 * that carrier. */
+	"form-link": "canonical-only",
 	/* External identities — never handles, per the plan's identity
 	 * isolation rules. */
 	location: "canonical-only",

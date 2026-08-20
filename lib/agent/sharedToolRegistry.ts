@@ -36,6 +36,10 @@ import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
+import { addFormLinksTool } from "@/lib/agent/tools/form-links/addFormLinks";
+import { moveFormLinkTool } from "@/lib/agent/tools/form-links/moveFormLink";
+import { removeFormLinkTool } from "@/lib/agent/tools/form-links/removeFormLink";
+import { updateFormLinkTool } from "@/lib/agent/tools/form-links/updateFormLink";
 import { generateSchemaTool } from "@/lib/agent/tools/generateSchema";
 import { getFieldTool } from "@/lib/agent/tools/getField";
 import { getFormTool } from "@/lib/agent/tools/getForm";
@@ -458,6 +462,34 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "moveCaseOperation",
 		mcpName: "move_case_operation",
 		tool: moveCaseOperationTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "addFormLinks",
+		mcpName: "add_form_links",
+		tool: addFormLinksTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "updateFormLink",
+		mcpName: "update_form_link",
+		tool: updateFormLinkTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "removeFormLink",
+		mcpName: "remove_form_link",
+		tool: removeFormLinkTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "moveFormLink",
+		mcpName: "move_form_link",
+		tool: moveFormLinkTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},
