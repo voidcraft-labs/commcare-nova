@@ -21,7 +21,12 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import type { CommitOutcome, FormLink, FormLinkTarget } from "@/lib/domain";
+import type {
+	CommitOutcome,
+	FormLink,
+	FormLinkTarget,
+	PostSubmitDestination,
+} from "@/lib/domain";
 import {
 	type AfterSubmitPlan,
 	afterSubmitPlan,
@@ -48,6 +53,17 @@ import {
 import type { Uuid } from "../types";
 import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
 import { useBlueprintMutations } from "./useBlueprintMutations";
+
+/**
+ * A write that may have pinned the form's built-in fallback in the same
+ * batch (`pinsFallback`): adding a conditional link, or giving the
+ * otherwise link a condition, leaves every link conditional, and the
+ * planner then stores the current destination explicitly so the gate's
+ * `FORM_LINK_NO_FALLBACK` is never met. The surface says so.
+ */
+export type FormLinkWriteOutcome = CommitOutcome & {
+	readonly pinsFallback?: PostSubmitDestination;
+};
 
 export type FormLinkMoveCommitOutcome =
 	| { readonly ok: true; readonly index: number; readonly total: number }
@@ -79,11 +95,8 @@ export interface FormLinksView {
 	readonly removalPlan: (uuid: Uuid) => FormLinkCommitPlan;
 	/** The fallback plan, for the confirm copy. */
 	readonly fallbackPlan: (next: FallbackChoice) => FormLinkCommitPlan;
-	readonly add: (
-		link: FormLink,
-		after?: Uuid | null,
-	) => CommitOutcome & { readonly pinsFallback?: string };
-	readonly update: (next: FormLink, base: FormLink) => CommitOutcome;
+	readonly add: (link: FormLink, after?: Uuid | null) => FormLinkWriteOutcome;
+	readonly update: (next: FormLink, base: FormLink) => FormLinkWriteOutcome;
 	readonly remove: (uuid: Uuid) => CommitOutcome | undefined;
 	readonly move: (
 		uuid: Uuid,
@@ -142,7 +155,7 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 	 * and these surfaces all have somewhere to put it. Every write reads
 	 * the store at invocation, never the render's doc. */
 	const add = useCallback(
-		(link: FormLink, after?: Uuid | null) => {
+		(link: FormLink, after?: Uuid | null): FormLinkWriteOutcome => {
 			const planned = planFormLinkAdd(docApi.getState(), formUuid, link, after);
 			if (!planned.ok) {
 				return refused(
@@ -165,7 +178,7 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 	);
 
 	const update = useCallback(
-		(next: FormLink, base: FormLink) => {
+		(next: FormLink, base: FormLink): FormLinkWriteOutcome => {
 			const planned = planFormLinkUpdate(
 				docApi.getState(),
 				formUuid,
@@ -182,7 +195,13 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 				);
 			}
 			if (planned.mutations.length === 0) return { ok: true as const };
-			return mutations.inline.commitMany([...planned.mutations]);
+			const outcome = mutations.inline.commitMany([...planned.mutations]);
+			return outcome.ok
+				? {
+						...outcome,
+						...(planned.pinsFallback && { pinsFallback: planned.pinsFallback }),
+					}
+				: outcome;
 		},
 		[docApi, formUuid, mutations],
 	);

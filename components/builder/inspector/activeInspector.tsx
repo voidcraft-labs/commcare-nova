@@ -30,12 +30,16 @@ import { CaseOperationInspectorBody } from "@/components/builder/case-operations
 import { operationSentence } from "@/components/builder/case-operations/operationSentence";
 import { useOperationSentenceContext } from "@/components/builder/case-operations/useOperationSentenceContext";
 import { FieldInspectorBody } from "@/components/builder/editor/FieldInspectorBody";
+import { FormLinkInspectorBody } from "@/components/builder/form-links/FormLinkInspectorBody";
+import { linkLead } from "@/components/builder/form-links/linkSentence";
+import { useLinkSentenceContext } from "@/components/builder/form-links/useLinkSentenceContext";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useProjectDataInspector } from "@/components/builder/project-data/projectDataInspector";
 import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
+import { useFormLink } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
-import type { CaseOperation } from "@/lib/domain";
+import type { CaseOperation, FormLink } from "@/lib/domain";
 import { fieldRegistry } from "@/lib/domain";
 import {
 	useLocation,
@@ -58,6 +62,7 @@ export function useActiveInspector(): ActiveInspector | null {
 	const caseList = useCaseListInspector();
 	const projectData = useProjectDataInspector();
 	const operation = useSelectedCaseOperation();
+	const link = useSelectedFormLink();
 	const navigate = useNavigate();
 	const projectProse = useProseProjection();
 
@@ -111,6 +116,23 @@ export function useActiveInspector(): ActiveInspector | null {
 				navigate.openFormOperations(operation.moduleUuid, operation.formUuid),
 		};
 	}
+	if (link !== null) {
+		return {
+			kicker: "After submit",
+			title: link.title,
+			body: (
+				/* Keyed by the link for the same reason the case-change body is:
+				 * an armed removal must not survive Previous / Next. */
+				<FormLinkInspectorBody
+					key={link.linkUuid}
+					moduleUuid={link.moduleUuid}
+					formUuid={link.formUuid}
+					linkUuid={link.linkUuid}
+				/>
+			),
+			onClose: () => navigate.openFormLinks(link.moduleUuid, link.formUuid),
+		};
+	}
 	return null;
 }
 
@@ -128,6 +150,7 @@ export function useInspectorPresence(): {
 	const caseList = useCaseListInspector();
 	const projectData = useProjectDataInspector();
 	const operation = useSelectedCaseOperationTarget();
+	const link = useSelectedFormLinkTarget();
 	const navigate = useNavigate();
 	const caseListClose = caseList?.onClose;
 	const projectDataClose = projectData?.onClose;
@@ -135,16 +158,27 @@ export function useInspectorPresence(): {
 		field !== null ||
 		(caseList?.inspector ?? null) !== null ||
 		(projectData?.inspector ?? null) !== null ||
-		operation !== null;
+		operation !== null ||
+		link !== null;
 	const requestClose = useCallback(() => {
 		if (field !== null) select(undefined);
 		else if (operation !== null) {
 			navigate.openFormOperations(operation.moduleUuid, operation.formUuid);
+		} else if (link !== null) {
+			navigate.openFormLinks(link.moduleUuid, link.formUuid);
 		} else {
 			caseListClose?.();
 			projectDataClose?.();
 		}
-	}, [field, select, operation, navigate, caseListClose, projectDataClose]);
+	}, [
+		field,
+		select,
+		operation,
+		link,
+		navigate,
+		caseListClose,
+		projectDataClose,
+	]);
 	return { docked, requestClose };
 }
 
@@ -184,6 +218,44 @@ function useSelectedCaseOperationTarget(): SelectedCaseOperationTarget | null {
 		return null;
 	}
 	return { moduleUuid: loc.moduleUuid, formUuid, operationUuid, operation };
+}
+
+interface SelectedFormLinkTarget {
+	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
+	readonly linkUuid: Uuid;
+	readonly link: FormLink;
+}
+
+/**
+ * The fourth selection source: one after-submit link, selected in the URL.
+ * Split the same way the case-change source is: this one is cheap enough
+ * for layout code, the titled one below resolves the destination's name.
+ */
+function useSelectedFormLinkTarget(): SelectedFormLinkTarget | null {
+	const loc = useLocation();
+	const formUuid = loc.kind === "form-links" ? loc.formUuid : undefined;
+	const linkUuid = loc.kind === "form-links" ? loc.linkUuid : undefined;
+	const link = useFormLink(formUuid, linkUuid);
+	if (
+		loc.kind !== "form-links" ||
+		linkUuid === undefined ||
+		formUuid === undefined ||
+		link === undefined
+	) {
+		return null;
+	}
+	return { moduleUuid: loc.moduleUuid, formUuid, linkUuid, link };
+}
+
+/** The selected link plus the sentence that names it in the rail header. */
+function useSelectedFormLink():
+	| (SelectedFormLinkTarget & { readonly title: string })
+	| null {
+	const target = useSelectedFormLinkTarget();
+	const context = useLinkSentenceContext();
+	if (target === null) return null;
+	return { ...target, title: linkLead(target.link.target, context) };
 }
 
 /** The selected change plus the sentence that names it in the rail header. */
