@@ -20,3 +20,7 @@ export const CASE_CHANGES_FIXTURE_COUNT = SMOKE_RETRIES + 1;
 /** The organization journey authors levels and persisted places, so a retry
  *  starts from a fresh app instead of inheriting a half-completed hierarchy. */
 export const ORGANIZATION_FIXTURE_COUNT = SMOKE_RETRIES + 1;
+
+/** The after-submit journey authors a link and submits twice into its one
+ *  case row, so a retry needs its own app and row. */
+export const FORM_LINKS_FIXTURE_COUNT = SMOKE_RETRIES + 1;

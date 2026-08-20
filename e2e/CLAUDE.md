@@ -72,6 +72,15 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   `seed.organizationCaseChangeRoutes[testInfo.retry]` keep a retry away from a
   partially authored hierarchy and route every owner edit back to that attempt's
   exact app.
+- **The after-submit journey gets one app and one case row per attempt.** It
+  authors a link into the blueprint and submits the form twice into its one
+  patient row (`e2e/lib/formLinksSeed.ts`: the link's condition reads back the
+  property the form writes, so one submission proves the otherwise path and the
+  next proves the link, the post-submission read, and the carried case).
+  `FORM_LINKS_FIXTURE_COUNT` + `seed.formLinks[testInfo.retry]` keep a retry off
+  a row the prior attempt already wrote. The condition editor is CodeMirror:
+  drive it as one `.cm-content[contenteditable="true"]` surface (select-all,
+  type, `ControlOrMeta+Enter` saves), never as a textbox.
 - **Chat sends are stubbed at the network layer.** The chat-scroll tests answer
   `POST /api/chat` from `page.route` with a canned UI-message SSE stream
   (`stubChatSends` in `authed.spec.ts`, chunk shapes pinned by
