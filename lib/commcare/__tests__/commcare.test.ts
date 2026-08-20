@@ -266,8 +266,14 @@ describe("shell factories", () => {
 			"none",
 			emptyFormActions(),
 			{},
+			"default",
+			null,
+			[],
 		);
 		expect(f.doc_type).toBe("Form");
+		expect(f.post_form_workflow).toBe("default");
+		expect(f.post_form_workflow_fallback).toBeNull();
+		expect(f.form_links).toEqual([]);
 		expect(f.name.en).toBe("My Form");
 		expect(f.xmlns).toBe("urn:x");
 	});

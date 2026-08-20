@@ -966,6 +966,7 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	postSubmit: "config",
 	"closeCondition.answer": "data-literal",
 	"closeCondition.operator": "config",
+	"formLinks[].uuid": "identity",
 	"formLinks[].datums[].name": "wire-token",
 	"caseOperations[].uuid": "identity",
 	"caseOperations[].id": "declaration",

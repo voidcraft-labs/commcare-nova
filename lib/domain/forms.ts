@@ -105,12 +105,37 @@ const closeConditionSchema = z
 
 const formLinkDatumSchema = z
 	.object({
-		name: z.string(),
+		name: z.string().min(1),
 		xpath: xpathExpressionSchema,
 	})
 	.strict();
+export type FormLinkDatum = z.infer<typeof formLinkDatumSchema>;
 
-const formLinkTargetSchema = z.discriminatedUnion("type", [
+/**
+ * Each datum name once. HQ keys manual datums by name in a dict and would
+ * silently keep the last; Nova refuses the duplicate at the boundary so the
+ * emitted frame is the authored frame. Shared by the link schema and the
+ * link patch schema so the rule lives in one place.
+ */
+export function uniqueFormLinkDatumNames(
+	datums: readonly FormLinkDatum[] | null | undefined,
+	ctx: z.RefinementCtx,
+	path: readonly (string | number)[] = ["datums"],
+): void {
+	const seen = new Set<string>();
+	for (const [index, datum] of (datums ?? []).entries()) {
+		if (seen.has(datum.name)) {
+			ctx.addIssue({
+				code: "custom",
+				path: [...path, index, "name"],
+				message: `The session value "${datum.name}" is listed twice on this link. Name each value once.`,
+			});
+		}
+		seen.add(datum.name);
+	}
+}
+
+export const formLinkTargetSchema = z.discriminatedUnion("type", [
 	z
 		.object({
 			type: z.literal("form"),
@@ -126,8 +151,16 @@ const formLinkTargetSchema = z.discriminatedUnion("type", [
 		.strict(),
 ]);
 
-const formLinkSchema = z
+/**
+ * The bare link object, before the datum-uniqueness refinement. The mutation
+ * layer builds the link PATCH from this shape (`clearablePartialPatch` needs
+ * a plain object schema); everything else uses `formLinkSchema`.
+ */
+export const formLinkObjectSchema = z
 	.object({
+		/** Immutable identity: every editor, mutation anchor, and finding
+		 *  addresses the link by it. */
+		uuid: uuidSchema,
 		// An empty condition is semantically meaningless (the emitters
 		// treat absence as "unconditional"), so the slot is either absent
 		// or a non-empty expression — the printed projection of an empty
@@ -135,10 +168,21 @@ const formLinkSchema = z
 		// stores one (an empty commit clears the slot).
 		condition: xpathExpressionSchema.optional(),
 		target: formLinkTargetSchema,
-		datums: z.array(formLinkDatumSchema).optional(),
+		/**
+		 * Explicit session values for the target. Absent means CommCare
+		 * matches the target's datums against this form's own session
+		 * (HQ's `_get_datums_matched_to_source`); present means the link
+		 * names every selection datum the target needs. `[]` is not a state:
+		 * it would be a second spelling of "match automatically".
+		 */
+		datums: z.array(formLinkDatumSchema).min(1).optional(),
 	})
 	.strict();
+export const formLinkSchema = formLinkObjectSchema.superRefine((link, ctx) =>
+	uniqueFormLinkDatumNames(link.datums, ctx),
+);
 export type FormLink = z.infer<typeof formLinkSchema>;
+export type FormLinkTarget = FormLink["target"];
 
 /**
  * A typed case identity used by a form submission operation.
@@ -441,7 +485,14 @@ export const formSchema = z
 		closeCondition: closeConditionSchema.optional(),
 		connect: connectConfigSchema.optional(),
 		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
-		formLinks: z.array(formLinkSchema).optional(),
+		/**
+		 * Where the app goes after this form is submitted, checked in order:
+		 * the first link whose condition holds is followed, and `postSubmit`
+		 * is where it goes when none does. Array position IS the sequence;
+		 * each link carries its own uuid. `[]` is not a state: the reducers
+		 * delete the slot when the last link goes.
+		 */
+		formLinks: z.array(formLinkSchema).min(1).optional(),
 		/** Ordered, typed case effects: what one submission does to the case
 		 *  universe, in the order the runtime applies it. */
 		caseOperations: z.array(caseOperationReadSchema).optional(),

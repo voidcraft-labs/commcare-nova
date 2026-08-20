@@ -331,6 +331,15 @@ export function blueprintTopologyIssues(
 				"uuid",
 			]);
 		}
+		for (const [index, link] of (form.formLinks ?? []).entries()) {
+			registerIdentity(link.uuid, "form link", [
+				"forms",
+				formUuid,
+				"formLinks",
+				index,
+				"uuid",
+			]);
+		}
 	}
 	for (const [fieldUuid, field] of Object.entries(doc.fields)) {
 		if (!("optionsSource" in field) || field.optionsSource.kind !== "inline") {
