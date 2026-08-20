@@ -1,0 +1,93 @@
+---
+title: Send people somewhere after a form is submitted
+description: Choose where the app goes next, with links that depend on the case and the person.
+---
+
+When a form is submitted, the app has to go somewhere. Often the right place
+depends on what was just saved: a screening that found a risk should open the
+referral form, a visit that closed the case should go back to the list, and
+everything else should return to the module.
+
+**After submit** is where a form says that. It holds a short list of links,
+each with a destination and a condition, and an **Otherwise** row that says
+where the form goes when none of the links apply.
+
+## Where to find it
+
+Open a form, choose the settings gear, and find **After submit**. With no links
+yet, the row offers the three built-in destinations and **Add links**; once
+links exist it tells you how many the form checks and offers **Edit links**.
+
+The After submit screen has its own address, so you can link a teammate
+straight to it. The **Preview** control runs the form the links belong to, and
+Preview follows the links the same way the app does.
+
+## The order matters
+
+Links are checked from the top down, and the first one whose condition is true
+wins. Two links can both be true at the same time; the one higher up is the one
+people follow, so order is part of what you are saying.
+
+Drag a link by its handle, or focus the handle and use the arrow keys (**Home**
+and **End** jump to the ends).
+
+The **Otherwise** row is always last. It is where the form goes when nothing
+above it matched, and it can be any of:
+
+- **App home**: back to the main screen.
+- **This module**: stay in this module's form list.
+- **Previous screen**: back to where the person was.
+- **Another form or module**: open a form, or a module's form list, as a link
+  with no condition.
+
+A form with links always has a real answer for the Otherwise row, even if you
+never chose one: the built-in destination is filled in for you, and you can
+change it.
+
+## What a condition can read
+
+A link's condition runs after the form has closed. That decides what it can use:
+
+- **The case the form just saved**, including the values this very submission
+  wrote to it. A link on a visit form can read the status the visit just set.
+- **The person using the app**: their worker information.
+
+It cannot read the form's answers, because by the time the link runs the form
+is gone. If a link should depend on something someone typed, save that answer
+to a case property and read the property instead. The condition editor only
+offers what a link can use, and says so when you reach for a form answer.
+
+## Carry values
+
+Some destinations open straight away. Others open a case, and need to know
+which one. The link's detail screen shows what its destination needs:
+
+- When this form opened or created a case of the right type, the link carries
+  it automatically: **Carry it automatically** says which case travels with the
+  person.
+- When it cannot, choose **Work it out here** and give the case id the
+  destination should open. The screen lists every value the destination needs;
+  a link carries all of them or none of them, so there is no half-filled
+  handover.
+- A module's form list needs nothing carried: the person picks a case when
+  they arrive.
+
+## What Nova refuses
+
+Nova keeps the list in a shape the app can run, and says why before anything
+changes:
+
+- A link back to the same form, or a chain of links that leads back to this
+  form. The target picker disables those destinations and names the chain.
+- A link after the Otherwise link. Nothing can come after the place the form
+  goes when nothing matched, so a link moved below it, or the Otherwise link
+  moved above one, stays where it was with the reason beside it.
+- A link whose destination needs a case this form cannot hand over. Carry the
+  value by hand, or choose a destination this form can pass its case to.
+- A second Otherwise. Change the one you have instead.
+
+## On a device
+
+The installed app behaves the same way: the first true link wins, the
+Otherwise destination runs when none does, and a carried case opens the
+destination directly. What you see in Preview is what the app does.
