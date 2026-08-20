@@ -9,6 +9,7 @@
 
 import { type Diagnostic, linter } from "@codemirror/lint";
 import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
+import { parser } from "@/lib/commcare/xpath";
 import {
 	caseRefAcceptMap,
 	type FieldKind,
@@ -69,6 +70,16 @@ export interface XPathLintContext {
 	 * the validator's rejection set.
 	 */
 	formType: FormType;
+	/**
+	 * Where the expression runs. `"form"` (the default) is a field's slot,
+	 * evaluated inside the open form instance. `"session"` is an after-submit
+	 * link's condition or carried value, which CommCare evaluates after the
+	 * form has closed: form paths and `#form/` references have nothing to
+	 * read, so the linter names that (`SESSION_FORM_READ_MESSAGE`) instead
+	 * of reporting an unknown field, and autocomplete withholds both.
+	 * `buildSessionLintContext` is the one producer of `"session"`.
+	 */
+	scope?: "form" | "session";
 }
 
 /**
@@ -86,41 +97,118 @@ export function caseTypePropsForValidation(
 	return caseRefAcceptMap(ctx.reachableCaseTypes, ctx.formType);
 }
 
-/** Create a CodeMirror lint extension that validates against the live context. */
-export function xpathLinter(getContext: () => XPathLintContext | undefined) {
-	return linter((view) => {
-		const expr = view.state.doc.toString();
-		if (!expr.trim()) return [];
+/**
+ * What a session-scoped slot says about a form read. The deep validator
+ * refuses the same reference (`FORM_LINK` slots, form-local references);
+ * this is the author-facing form of that rule, shown while typing.
+ */
+export const SESSION_FORM_READ_MESSAGE =
+	"This runs after the form has closed, so it can't read the form's answers. Save the answer to a case property and read that instead.";
 
-		const ctx = getContext();
-		// The per-type accept set comes from `caseTypePropsForValidation`, the
-		// single home of the registration-narrowing rule. On a registration form
-		// it narrows to the own type's `case_id` only (the case being created
-		// doesn't exist at form-init, ancestor reads aren't permitted on a create
-		// form); every other form type exposes each reachable type's full
-		// property set. The linter, the save gate, and the deep validator all
-		// read that one rule — three predicates, one accept set.
-		const caseTypeProps = ctx ? caseTypePropsForValidation(ctx) : undefined;
+/** Pre-resolved node type for typed comparisons (never by name at runtime). */
+const HASHTAG_REF = (() => {
+	const found = parser.nodeSet.types.find((t) => t.name === "HashtagRef");
+	if (!found) throw new Error("Unknown node type: HashtagRef");
+	return found;
+})();
 
-		const errors = validateXPath(
-			expr,
-			ctx?.validPaths,
-			caseTypeProps,
-			ctx?.formType === "registration",
+/** The span of every `#form/…` reference, read off the syntax tree. */
+function formHashtagSpans(
+	expr: string,
+): ReadonlyArray<{ readonly from: number; readonly to: number }> {
+	const spans: Array<{ from: number; to: number }> = [];
+	parser.parse(expr).iterate({
+		enter(node) {
+			if (node.type !== HASHTAG_REF) return;
+			const text = expr.slice(node.from, node.to);
+			const slashIdx = text.indexOf("/");
+			const namespace = slashIdx >= 0 ? text.slice(1, slashIdx) : text.slice(1);
+			if (namespace === "form") spans.push({ from: node.from, to: node.to });
+		},
+	});
+	return spans;
+}
+
+/**
+ * The diagnostics for one expression against one context — the pure heart
+ * of `xpathLinter`, exported so the session-scope rewrite is testable
+ * without an editor view.
+ */
+export function xpathDiagnostics(
+	expr: string,
+	ctx: XPathLintContext | undefined,
+): Diagnostic[] {
+	if (!expr.trim()) return [];
+
+	// The per-type accept set comes from `caseTypePropsForValidation`, the
+	// single home of the registration-narrowing rule. On a registration form
+	// it narrows to the own type's `case_id` only (the case being created
+	// doesn't exist at form-init, ancestor reads aren't permitted on a create
+	// form); every other form type exposes each reachable type's full
+	// property set. The linter, the save gate, and the deep validator all
+	// read that one rule — three predicates, one accept set.
+	const caseTypeProps = ctx ? caseTypePropsForValidation(ctx) : undefined;
+	const session = ctx?.scope === "session";
+
+	const errors = validateXPath(
+		expr,
+		ctx?.validPaths,
+		caseTypeProps,
+		ctx?.formType === "registration",
+	);
+	const diagnostics: Diagnostic[] = [];
+
+	for (const err of errors) {
+		/* Under session scope every `/data/…` path is unknown by construction
+		 * (the context carries none), so the finding is about WHERE the
+		 * expression runs, not about a misspelt field. */
+		const formRead =
+			session && err.code === "INVALID_REF" && err.ref?.startsWith("/data/");
+		const from =
+			err.position ??
+			(formRead && err.ref !== undefined
+				? Math.max(0, expr.indexOf(err.ref))
+				: 0);
+		const to = Math.min(
+			formRead && err.ref !== undefined ? from + err.ref.length : from + 1,
+			expr.length,
 		);
-		const diagnostics: Diagnostic[] = [];
+		diagnostics.push({
+			from,
+			to,
+			severity: "error",
+			message: formRead ? SESSION_FORM_READ_MESSAGE : err.message,
+		});
+	}
 
-		for (const err of errors) {
-			const from = err.position ?? 0;
-			const to = Math.min(from + 1, expr.length);
+	/* `validateXPath` leaves `#form/` to the wire (it resolves there on a
+	 * field slot), so a session slot has to name the read itself. */
+	if (session) {
+		for (const span of formHashtagSpans(expr)) {
 			diagnostics.push({
-				from,
-				to,
+				from: span.from,
+				to: span.to,
 				severity: "error",
-				message: err.message,
+				message: SESSION_FORM_READ_MESSAGE,
 			});
 		}
+	}
 
-		return diagnostics;
+	/* The validator resolves `#form/x` to its `/data/x` path before checking
+	 * it, so a session slot can reach the same finding twice: once through
+	 * the path, once through the hashtag. One sentence per place. */
+	const seen = new Set<string>();
+	return diagnostics.filter((diagnostic) => {
+		const key = `${diagnostic.from}:${diagnostic.message}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
 	});
+}
+
+/** Create a CodeMirror lint extension that validates against the live context. */
+export function xpathLinter(getContext: () => XPathLintContext | undefined) {
+	return linter((view) =>
+		xpathDiagnostics(view.state.doc.toString(), getContext()),
+	);
 }
