@@ -37,6 +37,8 @@ import {
 	fieldPatchSchemaByKind,
 	fieldSchema,
 	formIconRefSchema,
+	formLinkObjectSchema,
+	formLinkSchema,
 	formSchema,
 	languageTagSchema,
 	localizedValueSchema,
@@ -56,6 +58,7 @@ import {
 	tileCellSchema,
 	translationEntrySchema,
 	translationUnitIdSchema,
+	uniqueFormLinkDatumNames,
 	userPropertySchema,
 	userTypeSchema,
 	uuidSchema,
@@ -489,9 +492,30 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	id: true,
 	name: true,
 	caseOperations: true,
+	// Links are entities with their own four kinds below; a whole-array
+	// replacement would erase identity and never survives the wire.
+	formLinks: true,
 	icon: true,
 	audioLabel: true,
 });
+/**
+ * Granular edit of one established after-submit link, addressed by uuid.
+ * `target` is required on a link so it replaces rather than clears;
+ * `condition` and `datums` clear with `null`. The datum-uniqueness rule is
+ * the same one the link schema applies.
+ */
+const canonicalFormLinkPatchSchema = clearablePartialPatch(formLinkObjectSchema)
+	.strict()
+	.superRefine((patch, ctx) => {
+		if (Object.keys(patch).length === 0) {
+			ctx.addIssue({
+				code: "custom",
+				message:
+					"A form link update changes at least one of condition, target, or datums.",
+			});
+		}
+		uniqueFormLinkDatumNames(patch.datums, ctx);
+	});
 const canonicalCaseOperationChangeSchema =
 	caseOperationChangeSchemaFor(caseOperationSchema);
 const canonicalCaseOperationPatchSchema =
@@ -626,6 +650,8 @@ const finalMutationFamily = {
 	formUpdatePatch: canonicalFormUpdatePatchSchema,
 	caseOperationChange: canonicalCaseOperationChangeSchema,
 	caseOperationPatch: canonicalCaseOperationPatchSchema,
+	formLink: formLinkSchema,
+	formLinkPatch: canonicalFormLinkPatchSchema,
 	column: columnSchema,
 	searchInput: searchInputDefSchema,
 	predicate: predicateSchema,
@@ -711,6 +737,8 @@ function createMutationSchema({
 	formUpdatePatch: mutationFormUpdatePatchSchema,
 	caseOperationChange: mutationCaseOperationChangeSchema,
 	caseOperationPatch: mutationCaseOperationPatchSchema,
+	formLink: mutationFormLinkSchema,
+	formLinkPatch: mutationFormLinkPatchSchema,
 	column: mutationColumnSchema,
 	searchInput: mutationSearchInputSchema,
 	predicate: mutationPredicateSchema,
@@ -886,6 +914,42 @@ function createMutationSchema({
 					});
 				}
 			}),
+		// After-submit links: form-owned entities whose array position is the
+		// sequence, so add and move both say "after this link" (`null` first,
+		// absent appends), exactly like Search inputs.
+		z
+			.object({
+				kind: z.literal("addFormLink"),
+				formUuid: uuidSchema,
+				link: mutationFormLinkSchema,
+				/** The link this one now follows; `null` first, absent appends. */
+				after: uuidSchema.nullable().optional(),
+			})
+			.strict(),
+		z
+			.object({
+				kind: z.literal("updateFormLink"),
+				formUuid: uuidSchema,
+				uuid: uuidSchema,
+				patch: mutationFormLinkPatchSchema,
+			})
+			.strict(),
+		z
+			.object({
+				kind: z.literal("removeFormLink"),
+				formUuid: uuidSchema,
+				uuid: uuidSchema,
+			})
+			.strict(),
+		z
+			.object({
+				kind: z.literal("moveFormLink"),
+				formUuid: uuidSchema,
+				uuid: uuidSchema,
+				/** The link this one now follows, or `null` for first. */
+				after: uuidSchema.nullable(),
+			})
+			.strict(),
 		// Field
 		z
 			.object({

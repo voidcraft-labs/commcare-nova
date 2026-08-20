@@ -244,6 +244,15 @@ export function mutationTargetsInvalid(
 			seedCaseOperation(form.uuid, operation);
 		}
 	}
+	// After-submit links are form-owned entities addressed by uuid. A link a
+	// peer removed (or a duplicate uuid on add) is a conflict, not a silent
+	// reducer no-op.
+	const formLinkOwners = new Map<string, string>();
+	for (const form of Object.values(doc.forms)) {
+		for (const link of form.formLinks ?? []) {
+			formLinkOwners.set(link.uuid, form.uuid);
+		}
+	}
 	function removeFieldTree(fieldUuid: string): void {
 		for (const childUuid of fieldChildren.get(fieldUuid) ?? []) {
 			removeFieldTree(childUuid);
@@ -271,6 +280,9 @@ export function mutationTargetsInvalid(
 			removeSeededCaseOperation(formUuid, operationUuid);
 		}
 		caseOperationsByForm.delete(formUuid);
+		for (const [linkUuid, owner] of formLinkOwners) {
+			if (owner === formUuid) formLinkOwners.delete(linkUuid);
+		}
 	};
 	const removeModuleTree = (moduleUuid: string): void => {
 		for (const [formUuid, owner] of formOwners) {
@@ -375,10 +387,32 @@ export function mutationTargetsInvalid(
 				for (const operation of m.form.caseOperations ?? []) {
 					seedCaseOperation(m.form.uuid, operation);
 				}
+				for (const link of m.form.formLinks ?? []) {
+					formLinkOwners.set(link.uuid, m.form.uuid);
+				}
 				break;
 			case "removeForm":
 				if (!forms.has(m.uuid)) return true;
 				removeFormTree(m.uuid);
+				break;
+			// ── After-submit links (form-owned) ────────────────────────
+			case "addFormLink":
+				if (!forms.has(m.formUuid)) return true;
+				// A second add of the same uuid is a conflict, never a no-op: the
+				// reducer would drop it silently.
+				if (formLinkOwners.has(m.link.uuid)) return true;
+				formLinkOwners.set(m.link.uuid, m.formUuid);
+				break;
+			case "updateFormLink":
+				if (formLinkOwners.get(m.uuid) !== m.formUuid) return true;
+				break;
+			case "moveFormLink":
+				if (formLinkOwners.get(m.uuid) !== m.formUuid) return true;
+				if (m.after === m.uuid) return true;
+				break;
+			case "removeFormLink":
+				if (formLinkOwners.get(m.uuid) !== m.formUuid) return true;
+				formLinkOwners.delete(m.uuid);
 				break;
 			case "moveForm":
 				if (!forms.has(m.uuid) || !modules.has(m.toModuleUuid)) return true;

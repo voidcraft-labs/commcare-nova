@@ -121,12 +121,24 @@ function richDoc(): BlueprintDoc {
 						fields: [
 							f({ kind: "text", id: "comments", label: proseText("Comments") }),
 						],
+						// A conditional link followed by its exhaustive "otherwise":
+						// the baseline is valid with no explicit postSubmit, and each
+						// link kind's probe below breaks exactly one rule of it.
 						formLinks: [
 							{
+								uuid: "lnk-cond",
+								condition: "1 = 1",
 								target: {
 									type: "form",
 									moduleUuid: testUuid("mod-patients"),
 									formUuid: testUuid("frm-reg"),
+								},
+							},
+							{
+								uuid: "lnk-else",
+								target: {
+									type: "module",
+									moduleUuid: testUuid("mod-patients"),
 								},
 							},
 						],
@@ -495,6 +507,95 @@ const GUARD_COVERAGE = {
 			};
 		},
 		expectCodes: ["NO_CASE_TYPE"],
+	},
+	// ── After-submit link kinds ─────────────────────────────────────
+	// richDoc's Archive survey carries [conditional → Register, else →
+	// Patients menu]; the probes break the link rules one at a time.
+	addFormLink: {
+		build: () => {
+			const doc = richDoc();
+			const formUuid = formUuidAt(doc, 1, 0);
+			return {
+				doc,
+				// Appended after the unconditional "else" link, so it can never
+				// fire — and it points back at its own form.
+				batch: [
+					{
+						kind: "addFormLink",
+						formUuid,
+						link: {
+							uuid: testUuid("lnk-new"),
+							target: {
+								type: "form",
+								moduleUuid: doc.moduleOrder[1],
+								formUuid,
+							},
+						},
+					},
+				],
+			};
+		},
+		expectCodes: ["FORM_LINK_UNREACHABLE", "FORM_LINK_SELF_REFERENCE"],
+	},
+	updateFormLink: {
+		build: () => {
+			const doc = richDoc();
+			const formUuid = formUuidAt(doc, 1, 0);
+			return {
+				doc,
+				batch: [
+					{
+						kind: "updateFormLink",
+						formUuid,
+						uuid: testUuid("lnk-cond"),
+						patch: {
+							target: {
+								type: "form",
+								moduleUuid: doc.moduleOrder[1],
+								formUuid,
+							},
+						},
+					},
+				],
+			};
+		},
+		expectCodes: ["FORM_LINK_SELF_REFERENCE"],
+	},
+	removeFormLink: {
+		build: () => {
+			const doc = richDoc();
+			return {
+				doc,
+				// Dropping the "else" leaves a conditional last link with no
+				// explicit postSubmit to fall back to.
+				batch: [
+					{
+						kind: "removeFormLink",
+						formUuid: formUuidAt(doc, 1, 0),
+						uuid: testUuid("lnk-else"),
+					},
+				],
+			};
+		},
+		expectCodes: ["FORM_LINK_NO_FALLBACK"],
+	},
+	moveFormLink: {
+		build: () => {
+			const doc = richDoc();
+			return {
+				doc,
+				// The unconditional link moved first shadows the conditional one.
+				batch: [
+					{
+						kind: "moveFormLink",
+						formUuid: formUuidAt(doc, 1, 0),
+						uuid: testUuid("lnk-else"),
+						after: null,
+					},
+				],
+			};
+		},
+		expectCodes: ["FORM_LINK_UNREACHABLE"],
 	},
 	setFormMedia: {
 		neverGates:

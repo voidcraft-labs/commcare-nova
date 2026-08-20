@@ -1367,6 +1367,14 @@ export function planReferenceIndexMaintenance(
 		case "setFormMedia":
 			carriers.add(mut.uuid);
 			break;
+		// After-submit links are form-owned; the form carrier re-extracts
+		// its link condition / target / datum edges.
+		case "addFormLink":
+		case "updateFormLink":
+		case "removeFormLink":
+		case "moveFormLink":
+			carriers.add(mut.formUuid);
+			break;
 		case "addField":
 			carriers.add(mut.field.uuid);
 			break;

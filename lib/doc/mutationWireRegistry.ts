@@ -96,6 +96,10 @@ const MUTATION_KIND_OWNERSHIP = {
 	updateSearchInput: "whole-value",
 	removeSearchInput: "whole-value",
 	moveSearchInput: "whole-value",
+	addFormLink: "whole-value",
+	updateFormLink: "patch",
+	removeFormLink: "whole-value",
+	moveFormLink: "whole-value",
 	setCaseListMeta: "patch",
 	addOption: "whole-value",
 	updateOption: "whole-value",
@@ -641,6 +645,7 @@ function nullMeaning(
 		(kind === "updateForm" &&
 			(jsonPointer.startsWith("/patch/") ||
 				jsonPointer.includes("/caseOperationPatch/"))) ||
+		(kind === "updateFormLink" && jsonPointer.startsWith("/patch/")) ||
 		(kind === "updateField" && jsonPointer.startsWith("/patch/")) ||
 		kind === "setAppLogo" ||
 		kind === "setTranslation" ||

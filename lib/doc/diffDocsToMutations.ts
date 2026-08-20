@@ -116,6 +116,7 @@ import type {
 	CaseType,
 	Field,
 	Form,
+	FormLink,
 	Media,
 	Module,
 	SearchInputDef,
@@ -370,6 +371,9 @@ const FORM_PATCH_SKIP = new Set<string>([
 	"name",
 	"order",
 	"caseOperations",
+	// Links diff granularly (`diffFormLinks`); the form patch never carries
+	// the whole array.
+	"formLinks",
 ]);
 
 // ── Field media diff ─────────────────────────────────────────────────
@@ -644,6 +648,13 @@ export function diffDocsToMutations(
 			});
 		}
 		updates.push(...diffCaseOperations(prevForm, nextForm, uuid));
+		updates.push(
+			...diffFormLinks(
+				prevForm.formLinks ?? [],
+				nextForm.formLinks ?? [],
+				uuid,
+			),
+		);
 		if (menuMediaChanged(p, n)) {
 			media.push({
 				kind: "setFormMedia",
@@ -1542,6 +1553,75 @@ function diffSearchInputs(
 	for (const input of prev) {
 		if (!nextUuids.has(input.uuid)) {
 			out.push({ kind: "removeSearchInput", moduleUuid, uuid: input.uuid });
+		}
+	}
+	return out;
+}
+
+/**
+ * After-submit links, granularly: adds with their landing anchor, per-slot
+ * patches (a slot present before and absent after travels as `null`), the
+ * moves that turn the previous sequence into the next one, then removals —
+ * the `diffSearchInputs` shape, one collection down.
+ */
+function diffFormLinks(
+	prev: readonly FormLink[],
+	next: readonly FormLink[],
+	formUuid: Uuid,
+): Mutation[] {
+	const out: Mutation[] = [];
+	const prevByUuid = new Map(prev.map((link) => [link.uuid, link]));
+	const nextUuids = new Set(next.map((link) => link.uuid));
+	const nextOrder = next.map((link) => link.uuid);
+	for (const link of next) {
+		const before = prevByUuid.get(link.uuid);
+		if (before === undefined) {
+			out.push({
+				kind: "addFormLink",
+				formUuid,
+				link: cloneEntity(link),
+				after: predecessorIn(nextOrder, link.uuid),
+			});
+			continue;
+		}
+		const patch: Extract<Mutation, { kind: "updateFormLink" }>["patch"] = {};
+		if (!deepEqual(before.condition, link.condition)) {
+			patch.condition =
+				link.condition === undefined ? null : cloneEntity(link.condition);
+		}
+		if (!deepEqual(before.target, link.target)) {
+			patch.target = cloneEntity(link.target);
+		}
+		if (!deepEqual(before.datums, link.datums)) {
+			patch.datums =
+				link.datums === undefined ? null : cloneEntity(link.datums);
+		}
+		if (Object.keys(patch).length > 0) {
+			out.push({
+				kind: "updateFormLink",
+				formUuid,
+				uuid: link.uuid,
+				patch,
+			});
+		}
+	}
+	for (const move of sequenceMovesTo(
+		arrivalsProjected(
+			prev.map((link) => link.uuid),
+			nextOrder,
+		),
+		nextOrder,
+	)) {
+		out.push({
+			kind: "moveFormLink",
+			formUuid,
+			uuid: move.uuid,
+			after: move.after,
+		});
+	}
+	for (const link of prev) {
+		if (!nextUuids.has(link.uuid)) {
+			out.push({ kind: "removeFormLink", formUuid, uuid: link.uuid });
 		}
 	}
 	return out;
