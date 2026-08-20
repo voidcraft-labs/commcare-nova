@@ -973,7 +973,8 @@ describe("failure and finalization policy", () => {
 		});
 		expect(result).toMatchObject({
 			kind: "budget-exhausted",
-			spent: { mutationCalls: 1 },
+			axis: "mutation-calls",
+			spent: { mutationCalls: 1, commitAttempts: 0, blockerReports: 0 },
 		});
 		expect(workspace.dispatched.map((call) => call.requestId)).toEqual([
 			"first",

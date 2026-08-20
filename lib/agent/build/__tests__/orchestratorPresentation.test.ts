@@ -10,7 +10,7 @@ import {
 
 describe("reviewed-build presentation", () => {
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v11");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v12");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"Use several native calls in one response when their inputs and identities are already known",

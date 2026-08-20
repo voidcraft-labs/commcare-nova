@@ -121,10 +121,15 @@ table the runtime may only read. That is load-bearing — the genesis writer
 `nova_insert_app_change_genesis_fold_baseline`, and a direct runtime insert
 fails with `42501`. Every fixed public table is registered once by runtime
 capability in `privilegeConvergence.ts`; inventory, grants, owned-sequence
-access, and the source guard derive from that policy. PostgreSQL requires
+access, and the row-lock and write-verb source guards derive from that policy.
+PostgreSQL requires
 `UPDATE` privilege for every table named by a row-lock clause, so serving code
 must never use `FOR UPDATE`, `FOR SHARE`, `FOR NO KEY UPDATE`, or `FOR KEY SHARE`
-on the append-only, insert-delete, or read-only capability sets.
+on the append-only, insert-update, insert-delete, or read-only capability sets.
+The insert-update set (`design_identity_handles`) carries `SELECT, INSERT,
+UPDATE` for the design loop's in-place reference-to-declaration kind upgrade
+and still may never be row-locked or deleted from; the source guard, not
+PostgreSQL, enforces its lock ban.
 
 App creation writes the complete canonical starter, exact lookup/media
 projections, a Project-bearing sequence-one baseline, and one attributed

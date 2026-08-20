@@ -89,6 +89,12 @@ export function reasoningProviderOptions(
 interface ModelRoleConfig {
 	readonly modelId: string;
 	readonly reasoningEffort: ReasoningEffort;
+	/** The all-in active wall-clock allowance per provider step at this role's
+	 * effort: model reasoning plus tool dispatch and staging. Sized generously
+	 * so a deadline derived from it is a rare backstop, never the ordinary
+	 * stop. Consumed today only by the build-executor slice budgets
+	 * (`lib/agent/build/budgets.ts`). */
+	readonly msPerModelStep: number;
 }
 
 /**
@@ -100,30 +106,37 @@ export const MODEL_ROLES = {
 	designAuthor: {
 		modelId: "gpt-5.6-sol",
 		reasoningEffort: "medium",
+		msPerModelStep: 60_000,
 	},
 	designReviewer: {
 		modelId: "gpt-5.6-sol",
 		reasoningEffort: "medium",
+		msPerModelStep: 60_000,
 	},
 	executorHelper: {
 		modelId: "gpt-5.6-sol",
 		reasoningEffort: "medium",
+		msPerModelStep: 60_000,
 	},
 	buildExecutor: {
 		modelId: "gpt-5.6-luna",
 		reasoningEffort: "xhigh",
+		msPerModelStep: 90_000,
 	},
 	followUpEditor: {
 		modelId: "gpt-5.6-luna",
 		reasoningEffort: "xhigh",
+		msPerModelStep: 90_000,
 	},
 	documentExtractor: {
 		modelId: "gpt-5.6-luna",
 		reasoningEffort: "xhigh",
+		msPerModelStep: 90_000,
 	},
 	translator: {
 		modelId: "gpt-5.6-sol",
 		reasoningEffort: "medium",
+		msPerModelStep: 60_000,
 	},
 } as const satisfies Record<string, ModelRoleConfig>;
 

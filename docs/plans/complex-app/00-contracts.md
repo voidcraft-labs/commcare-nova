@@ -433,9 +433,13 @@ app-scoped unless a later approved contract says otherwise. Every table has
 explicit tenancy keys, authorization, project-move behavior, indexes, migration
 ownership, retention/deletion behavior, and one explicit runtime privilege
 capability. PostgreSQL row-lock clauses require `UPDATE` on every locked table:
-a serving query may lock only a read-write-capability table, while append-only,
-insert-delete, and read-only tables remain non-row-lockable by construction.
-The source guard checks the complete live `app/` and `lib/` query surface, and
+a serving query may lock only a read-write-capability table. Append-only,
+insert-delete, and read-only tables remain non-row-lockable by construction,
+and insert-update tables (UPDATE granted, DELETE withheld) by the source guard.
+The source guard checks the complete live `app/` and `lib/` query surface for
+row locks and for update/delete/insert statements — `ON CONFLICT DO UPDATE`
+included, which PostgreSQL charges as UPDATE — against tables whose
+capability withholds that privilege, and
 the post-migration runtime-role probe executes the shared production reads that
 span reduced-capability tables.
 

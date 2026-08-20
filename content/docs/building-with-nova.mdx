@@ -57,7 +57,10 @@ failed later step does not invalidate or hide the working revision that already
 exists. Temporary provider, connection, and database interruptions resume the
 same saved attempt automatically. A schema, validation, compiler, or budget
 failure stops as an internal build defect; Nova does not ask you to retry or
-reduce the accepted workflows. When a temporary failure has already closed its
+reduce the accepted workflows. A time-budget stop is a rare backstop rather
+than a design problem: everything already saved stays intact, and once Nova's
+build limits are updated, a fresh build message in the same chat retries the
+same accepted plan without a new design instruction. When a temporary failure has already closed its
 connection cleanly and cannot auto-reconnect, **Resume build** continues the
 same accepted plan from its last durable workflow without adding a new design
 instruction. That action remains available after a refresh and appears only to

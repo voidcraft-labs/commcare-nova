@@ -64,6 +64,7 @@ import {
 	type SliceAttemptBudgetCounter,
 	type SliceAttemptBudgetSpent,
 	type SliceExecutionBudget,
+	totalWallClockAllowanceMs,
 } from "./budgets";
 import {
 	type ArchitectBlockerDecision,
@@ -151,6 +152,19 @@ export type SliceCommitResult =
 	| { kind: "rebase-conflict"; report: unknown }
 	| { kind: "read-set-stale"; stale: unknown };
 
+/** The longest a single slice-commit transaction may run. The slice
+ * deadline funds model pacing, but the commit transaction holds the app
+ * row lock, so its PostgreSQL timeout is capped here independently of how
+ * much wall-clock budget the attempt still carries. */
+const MAX_COMMIT_TRANSACTION_WINDOW_MS = 10 * 60_000;
+
+/** The budget axis whose limit ended a slice attempt. */
+export type SliceBudgetAxis =
+	| "wall-clock"
+	| "model-steps"
+	| "mutation-calls"
+	| "commit-attempts";
+
 export type SliceExecutionOutcome =
 	| {
 			kind: "committed";
@@ -161,7 +175,17 @@ export type SliceExecutionOutcome =
 	| { kind: "architect-decision"; decision: ArchitectBlockerDecision }
 	| {
 			kind: "budget-exhausted";
-			spent: { modelSteps: number; mutationCalls: number };
+			axis: SliceBudgetAxis;
+			spent: {
+				modelSteps: number;
+				mutationCalls: number;
+				commitAttempts: number;
+				wallClockMs: number;
+				/** Paid architect blockers: each one extended the enforced step,
+				 * call, and wall-clock limits by one BLOCKER_RESOLUTION_ALLOWANCE
+				 * past the base budget. */
+				blockerReports: number;
+			};
 	  }
 	| { kind: "protocol-failure"; code: string; message: string };
 
@@ -1031,9 +1055,26 @@ export async function runSliceExecutor(
 		else blockerReports += 1;
 		return "claimed";
 	};
-	const exhausted = (): SliceExecutionOutcome => ({
+	/* The ledger deadline embodies (budget + paid blocker allowances − durable
+	 * active spend), and each mid-run paid blocker grows `deadlineAt` and
+	 * `blockerReports` in lockstep, so allowance minus remaining is the
+	 * attempt's total active wall-clock spend across recoveries. */
+	const wallClockMsSpent = () =>
+		Math.max(
+			0,
+			totalWallClockAllowanceMs(budget, blockerReports) -
+				(deadlineAt - Date.now()),
+		);
+	const exhausted = (axis: SliceBudgetAxis): SliceExecutionOutcome => ({
 		kind: "budget-exhausted",
-		spent: { modelSteps, mutationCalls },
+		axis,
+		spent: {
+			modelSteps,
+			mutationCalls,
+			commitAttempts,
+			wallClockMs: wallClockMsSpent(),
+			blockerReports,
+		},
 	});
 
 	const context = args.context ?? { messages: [] };
@@ -1448,7 +1489,7 @@ export async function runSliceExecutor(
 					message: "This workflow attempt was cancelled before it finished.",
 				};
 			}
-			if (deadlineExceeded()) return exhausted();
+			if (deadlineExceeded()) return exhausted("wall-clock");
 
 			let step: Awaited<ReturnType<ExecutorStepFn>>;
 			let stepKey: string;
@@ -1488,7 +1529,7 @@ export async function runSliceExecutor(
 					continue;
 				}
 			} else {
-				if (modelSteps >= allowedModelSteps()) return exhausted();
+				if (modelSteps >= allowedModelSteps()) return exhausted("model-steps");
 				if (
 					(await claimBudget(
 						"modelSteps",
@@ -1496,7 +1537,7 @@ export async function runSliceExecutor(
 						`model:${scopeKey}:${modelSteps + 1}`,
 					)) === "exhausted"
 				) {
-					return exhausted();
+					return exhausted("model-steps");
 				}
 				stepKey = `${scopeKey}:${modelSteps}`;
 				await context.recordStep?.(stepKey, {
@@ -1517,7 +1558,7 @@ export async function runSliceExecutor(
 						boundedSignal,
 					);
 				} catch (error) {
-					if (deadlineExceeded()) return exhausted();
+					if (deadlineExceeded()) return exhausted("wall-clock");
 					throw error;
 				}
 				const responseKey = `step:${scopeKey}:${modelSteps}:response`;
@@ -1556,7 +1597,7 @@ export async function runSliceExecutor(
 					});
 				}
 			}
-			if (deadlineExceeded()) return exhausted();
+			if (deadlineExceeded()) return exhausted("wall-clock");
 			if (step.reasoningText) args.onReasoning?.(step.reasoningText);
 			if (step.toolCalls.length === 0) {
 				consecutiveEmptySteps += 1;
@@ -1636,7 +1677,10 @@ export async function runSliceExecutor(
 											"This workflow exhausted its bounded private-mutation budget.",
 									}),
 								);
-								dispatch = { kind: "stop", outcome: exhausted() };
+								dispatch = {
+									kind: "stop",
+									outcome: exhausted("mutation-calls"),
+								};
 							}
 						}
 						if (dispatch.kind === "continue") {
@@ -1748,7 +1792,10 @@ export async function runSliceExecutor(
 									}
 								} catch (error) {
 									if (deadlineExceeded()) {
-										dispatch = { kind: "stop", outcome: exhausted() };
+										dispatch = {
+											kind: "stop",
+											outcome: exhausted("wall-clock"),
+										};
 									} else if (error instanceof ChangeSetStagingRejectedError) {
 										const failure = await observeNativeCallFailure({
 											call,
@@ -1912,20 +1959,35 @@ export async function runSliceExecutor(
 									error: "This workflow exhausted its bounded commit budget.",
 								}),
 							);
-							dispatch = { kind: "stop", outcome: exhausted() };
+							dispatch = {
+								kind: "stop",
+								outcome: exhausted("commit-attempts"),
+							};
 						} else {
 							args.onProgress?.("committing");
 							let result: SliceCommitResult;
 							try {
+								/* The commit converts its deadline into the transaction's
+								 * PostgreSQL timeout while holding the app row lock, so it
+								 * gets the nearer of executor authority expiry and one
+								 * bounded window — a canonical commit finishes in seconds,
+								 * and a wedged one must not hold the app for the long
+								 * wall-clock budget a ceiling-range slice carries. */
 								result = await awaitWithAbort(
-									args.commit(boundedSignal, deadlineAt),
+									args.commit(
+										boundedSignal,
+										Math.min(
+											deadlineAt,
+											Date.now() + MAX_COMMIT_TRANSACTION_WINDOW_MS,
+										),
+									),
 									boundedSignal,
 								);
 							} catch (error) {
 								if (!deadlineExceeded()) throw error;
 								const reconciled = await args.reconcileCommit?.();
 								if (reconciled?.kind !== "committed") {
-									dispatch = { kind: "stop", outcome: exhausted() };
+									dispatch = { kind: "stop", outcome: exhausted("wall-clock") };
 									result = { kind: "gate-rejected", message: "deadline" };
 								} else {
 									result = reconciled;

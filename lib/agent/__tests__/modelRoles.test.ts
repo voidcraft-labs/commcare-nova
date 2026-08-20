@@ -7,30 +7,37 @@ describe("production model roles", () => {
 			designAuthor: {
 				modelId: "gpt-5.6-sol",
 				reasoningEffort: "medium",
+				msPerModelStep: 60_000,
 			},
 			designReviewer: {
 				modelId: "gpt-5.6-sol",
 				reasoningEffort: "medium",
+				msPerModelStep: 60_000,
 			},
 			executorHelper: {
 				modelId: "gpt-5.6-sol",
 				reasoningEffort: "medium",
+				msPerModelStep: 60_000,
 			},
 			buildExecutor: {
 				modelId: "gpt-5.6-luna",
 				reasoningEffort: "xhigh",
+				msPerModelStep: 90_000,
 			},
 			followUpEditor: {
 				modelId: "gpt-5.6-luna",
 				reasoningEffort: "xhigh",
+				msPerModelStep: 90_000,
 			},
 			documentExtractor: {
 				modelId: "gpt-5.6-luna",
 				reasoningEffort: "xhigh",
+				msPerModelStep: 90_000,
 			},
 			translator: {
 				modelId: "gpt-5.6-sol",
 				reasoningEffort: "medium",
+				msPerModelStep: 60_000,
 			},
 		});
 	});
