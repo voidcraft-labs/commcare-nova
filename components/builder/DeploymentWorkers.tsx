@@ -14,9 +14,8 @@
  * only exist on the project space once a publish has put them there, so
  * before that the honest thing to show is the sentence saying so.
  *
- * (The App setup workspace will one day hold the Deployment section this
- * lives under. When it does it INHERITS this panel and relocates it; it
- * does not build a second one.)
+ * The App setup Publishing section is this panel's one mount: it fills
+ * DeploymentStatus's `workers` slot there, and no other surface does.
  */
 "use client";
 

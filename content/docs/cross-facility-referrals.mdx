@@ -1,0 +1,150 @@
+---
+title: A referral network, end to end
+description: Build a district and clinic organization, route referrals to a shared desk, preview each worker's device, and publish with real worker accounts.
+---
+
+This guide builds one small app the way a real multi-site program would: a
+district with two clinics, client cases that belong to a place rather than a
+person, and a referral that lands on the clinic's shared desk instead of in
+one nurse's pocket. Along the way it shows the two ideas that make apps like
+this work, and how Preview lets you check both before anything is deployed.
+
+The two ideas:
+
+- **Ownership is the delivery address.** A worker's device carries the cases
+  they own plus the cases owned by the places they are assigned to. A case
+  owned by a person reaches exactly that person; a case owned by a place
+  reaches everyone assigned there. Where a case lives decides who sees it.
+- **A place can exist just to own cases.** A level where cases live but nobody
+  works is a shared desk: work lands there and reaches whoever the levels
+  above say should receive it, and nothing lands in one person's private list.
+
+If you have not read [Organization](/docs/organization) yet, it explains each
+setting this guide uses; this page puts them together.
+
+## The organization
+
+Open **App setup → Organization** and add three levels:
+
+1. **District**. People work here (your coordinators), it does not own cases,
+   and it **receives cases from places below**. That last setting is what
+   gives a coordinator sight of the whole district.
+2. **Clinic**, under District. People work here, it owns cases, and it also
+   receives from below, so clinic staff see their own desk. Set its
+   address-book reach to **Everything under a level further up**, choosing
+   District: referrals cross clinic lines, so a nurse needs to be able to name
+   places beside their own.
+3. **Referral desk**, under Clinic. It owns cases and nobody works there. This
+   is the shared desk: a queue each clinic owns without anyone being assigned
+   to it.
+
+Then add the places: one district, two clinics under it, and one referral desk
+under each clinic. Every place gets a code when you create it; codes never
+change, and they are what publishing later matches on.
+
+## The people
+
+On **App setup → Users and personas**, describe one role, **Nurse**, and one
+**Coordinator**, then three personas: Asha at the first clinic, Bilal at the
+second, and Devi at the district. A persona's places are set under **Where
+they work**; each of these three stands in exactly one.
+
+Personas are not accounts yet. They are how you design and preview; the
+accounts come at the end, from these same records.
+
+## The cases
+
+The program pilots at Asha's clinic, and two case types carry the work:
+
+- **client**, registered at the pilot clinic. On the registration form's
+  [Case changes](/docs/case-changes) screen, set **Who owns the case** to
+  **A particular place**: that clinic. That gives every client a home the
+  whole clinic shares, rather than leaving each client in the registering
+  nurse's private list.
+- **referral**, created from a client. Add a follow-up form on the client
+  module, **Refer for services**, and give it a case change that creates a
+  referral. Set its **Who owns the case** to **A place beneath the current
+  case owner**, choosing the Referral desk level.
+
+That second rule is the routing. It reads the selected client's owner, finds
+the clinic that client belongs to, and puts the new referral on that clinic's
+desk. It is structural: no clinic is named in the form, so the same form
+serves every clinic the program grows into, and adding a third clinic later
+changes nothing about it.
+
+One honesty note before you build on it: of these two rules, **A place beneath
+the current case owner** publishes and exports, because it travels as level
+codes that mean the same thing on CommCare HQ. **A particular place** works in
+Preview only for now; the section on publishing below says what to do about
+it.
+
+## Preview each device
+
+Now the part that makes the design checkable. Open Preview and choose who you
+are.
+
+**Preview as Asha.** Register a few clients. Her case list shows them, because
+her clinic owns them and she is assigned there. Open one and send a referral:
+it lands on her clinic's desk, and because her clinic receives from below, it
+is on her list too.
+
+**Preview as Bilal.** His clinic owns none of these cases, so his lists come
+up empty, and Preview says so plainly, with a line like "3 more cases in this
+project match this list, but they would not be on Bilal's device, so the list
+leaves them out." That line is Nova talking to you, the author; a worker's
+device simply would not have the cases. Fewer cases than the project holds is
+not data loss, it is the delivery scope doing its job.
+
+**Preview as Devi.** The district receives from below, so her list holds the
+clinic's clients and the desk's referrals. This is the oversight view, and you
+did not build a separate report to get it; it falls out of where cases live.
+
+**Preview as me** is a worker assigned nowhere: it carries only the cases you
+own yourself. If a list you expected to be full comes up empty there, that is
+the reason, and previewing as a persona is the answer.
+
+## Publish it
+
+[Publishing](/docs/publishing) sends the app to a CommCare HQ project space.
+For an app with an organization, a publish does more than send the app: it
+creates the places on the project space first, working down from the top, so
+every owner rule's addresses exist before the app does. Two things to have
+ready:
+
+- **Create the levels on CommCare HQ first.** CommCare HQ has no API for
+  levels, so Nova cannot make District, Clinic, and Referral desk for you. The
+  publish stops and names them if they are missing; the list it gives you is
+  complete and in order.
+- **Swap the one Preview-only rule.** The client registration's **A particular
+  place** rule cannot be exported yet, and the publish says so rather than
+  shipping a rule that would match nothing. Remove it before publishing, and
+  seed client ownership on the project space the way HQ programs usually do,
+  with a case import that sets each client's owner to its clinic. The referral
+  rule needs no such help: it exports as written and routes on the real
+  project space exactly as it did in Preview.
+
+## Make the workers
+
+Once the app is on the project space, open **App setup → Publishing**. That
+project space's card has a **Workers** list with one row per persona: Asha,
+Bilal, and Devi. Tick them and choose Make workers. Each account carries its
+persona's information and the places it stands in, so the delivery you
+previewed is the delivery their devices get.
+
+Every new account's password is shown once, and Nova keeps no copy, so copy
+the passwords before you leave the page. The full rules, including what Nova
+refuses to guess at, are in
+[Making workers](/docs/publishing#making-workers).
+
+## Where to go from here
+
+- **Growing past the pilot.** A second clinic's enrollment can be its own
+  registration form shown only to that clinic's workers through a
+  [display condition](/docs/display-conditions) on worker information, with
+  its owner rule pointing at that clinic. The referral form never changes.
+- **A district-wide desk** works the same way: a level under District that
+  owns cases with nobody assigned makes a queue the whole district receives,
+  so Devi can watch it without owning any of it herself.
+- [Automations](/docs/automations) can watch the desks: a conditional alert on
+  referral cases can tell a clinic something new is waiting, using the case's
+  owner as the address.

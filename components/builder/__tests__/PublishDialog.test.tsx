@@ -98,6 +98,7 @@ function renderDialog(
 		getAppId: () => "app-1",
 		availableDomains: [{ name: "project-space", displayName: "Project Space" }],
 		canUploadToHq: true,
+		onOpenPublishing: vi.fn(),
 		isRefreshingHqConnection: false,
 		onRefreshHqConnection: vi.fn(),
 		onLoadFeatureFlags: vi.fn((domain?: string) =>
@@ -562,6 +563,7 @@ describe("PublishDialog", () => {
 							{ name: "project-space", displayName: "Project Space" },
 						]}
 						canUploadToHq
+						onOpenPublishing={vi.fn()}
 						isRefreshingHqConnection={false}
 						onRefreshHqConnection={vi.fn()}
 						onLoadFeatureFlags={(domain, _signal) =>

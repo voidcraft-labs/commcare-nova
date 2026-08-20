@@ -624,3 +624,24 @@ export function useRecordProvisioningOutcome(): BuilderSessionState["recordProvi
 export function useDismissUnconfirmedWorker(): (key: string) => void {
 	return useBuilderSession((s) => s.dismissUnconfirmedWorker);
 }
+
+// ── Publish dialog open request ───────────────────────────────────────────
+
+/** The pending request to open the Publish dialog on a target, or null.
+ *  Written by the Publishing section's "Publish again"; consumed by
+ *  PublishPanel, which owns the dialog. */
+export function usePublishDialogRequest(): { readonly domain: string } | null {
+	return useBuilderSession((s) => s.publishDialogRequest);
+}
+
+/** Ask PublishPanel to open the Publish dialog preseeded to a domain. */
+export function useRequestPublishDialog(): (request: {
+	readonly domain: string;
+}) => void {
+	return useBuilderSession((s) => s.requestPublishDialog);
+}
+
+/** Consume (or abandon) the pending Publish dialog open request. */
+export function useClearPublishDialogRequest(): () => void {
+	return useBuilderSession((s) => s.clearPublishDialogRequest);
+}

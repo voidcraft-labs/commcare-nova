@@ -324,6 +324,23 @@ export interface BuilderSessionState {
 	 *  only way one leaves short of a page load. */
 	dismissUnconfirmedWorker: (key: string) => void;
 
+	/** A one-shot request to open the Publish dialog aimed at a project
+	 *  space. Written by the App setup Publishing section's "Publish again"
+	 *  and read by PublishPanel, which owns the dialog: the two live in
+	 *  different render trees (the panel is portaled into the header band),
+	 *  so the request rides the session store rather than a prop chain.
+	 *  Consumed once — the panel clears it as it opens — so a later manual
+	 *  open never inherits a stale target. */
+	publishDialogRequest: { readonly domain: string } | null;
+
+	/** Ask PublishPanel to open the Publish dialog preseeded to `domain`.
+	 *  A second request before the first is consumed replaces it — the
+	 *  latest click names the target the person means. */
+	requestPublishDialog: (request: { readonly domain: string }) => void;
+
+	/** Consume (or abandon) the pending open request. */
+	clearPublishDialogRequest: () => void;
+
 	/** Cancel a staged upload: abort the in-flight transfer (if any) and
 	 *  remove the record. The upload driver sees the abort and stays
 	 *  silent — cancel already cleared the slot. */
@@ -704,6 +721,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				stagedUploads: {} as Record<string, StagedUpload>,
 				unconfirmedWorkers: {} as Record<string, UnconfirmedWorker>,
 				assetMeta: {} as Record<string, ExportBudgetRowView>,
+				publishDialogRequest: null as { readonly domain: string } | null,
 
 				/* UI hints */
 				focusHint: undefined as string | undefined,
@@ -1231,6 +1249,15 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
+				requestPublishDialog(request: { readonly domain: string }) {
+					set({ publishDialogRequest: request });
+				},
+
+				clearPublishDialogRequest() {
+					if (get().publishDialogRequest === null) return;
+					set({ publishDialogRequest: null });
+				},
+
 				cancelStagedUpload(slotKey: string) {
 					const abort = stagedUploadAborts.get(slotKey);
 					/* Abort BEFORE clearing so the driver's rejection handler
@@ -1291,6 +1318,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						runCompletedAt: undefined,
 						stagedUploads: {},
 						assetMeta: {},
+						/* A pending dialog-open request names a project space the
+						 * OLD Project's records offered; the destination must not
+						 * open a publish aimed by it. */
+						publishDialogRequest: null,
 						/* Case/persona identity is retained until
 						 * `applyAccessSnapshot` can distinguish an ordinary refresh from
 						 * a confirmed Project move. Clearing it here would rotate a
@@ -1390,6 +1421,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						stagedUploads: {} as Record<string, StagedUpload>,
 						unconfirmedWorkers: {} as Record<string, UnconfirmedWorker>,
 						assetMeta: {} as Record<string, ExportBudgetRowView>,
+						publishDialogRequest: null as { readonly domain: string } | null,
 
 						/* UI hints */
 						focusHint: undefined as string | undefined,

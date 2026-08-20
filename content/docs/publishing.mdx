@@ -21,11 +21,17 @@ do them.
 | **Released** | You, on CommCare HQ |
 | **Ready for workers** | Nova checks it |
 
-Nova shows all of these in the Publish dialog, filled in as far as you have got.
-Open **Publish** at any time and every project space this app has reached is
-there, above the form, so a version you made on CommCare HQ last week is one
-**Check status** away, and you never have to publish again just to find out
-where things stand.
+Nova shows all of these in **App setup → Publishing**, one card per project
+space this app has reached, filled in as far as you have got. A version you
+made on CommCare HQ last week is one **Check status** away there, and you never
+have to publish again just to find out where things stand. The card also holds
+everything else a publish leaves behind: the workers list, the set-up-by-hand
+notes, and a **Publish again** that opens the Publish dialog already pointed at
+that project space.
+
+The Publish dialog is where a publish starts. Opening it shows the same
+project spaces as short status rows above the form, with a link across to
+Publishing for the full picture.
 
 ### Checked
 
@@ -69,8 +75,8 @@ insists on, publishing stops and names each place. Add the levels on CommCare HQ
 first; the list Nova gives you after a publish has them all, in order.
 
 **Renaming a table's export tag makes a new table on CommCare HQ.** The old one
-stays where it is, so nothing anybody else built on it breaks, and Nova names it
-in the dialog so you can delete it there when you no longer need it. Archiving a
+stays where it is, so nothing anybody else built on it breaks, and Nova names
+it so you can delete it there when you no longer need it. Archiving a
 place works the same way: Nova stops sending it and names it, and the one on
 CommCare HQ stays exactly where it is, because CommCare HQ's API has no way to
 archive or delete a place.
@@ -86,7 +92,7 @@ tells you so when you try, and publishing once more creates a fresh one.
 
 Nova never deletes anything on CommCare HQ. So when a publish stops pointing at
 something it put there before, whether that is an app it replaced or a lookup
-table whose tag you renamed, the dialog names it and leaves it to you. A table
+table whose tag you renamed, Nova names it and leaves it to you. A table
 is named by the tag it still carries on CommCare HQ, which is what you will
 look for on the Lookup Tables screen. Nothing appears here for a table you
 simply republished, only for one nothing in your app points at any more.
@@ -118,13 +124,14 @@ goes to the app's page for you to work on. It is not the link workers use.
 Publishing sends an app. It does not create anybody an account, because handing
 out a credential is not something to do by accident.
 
-Once the app is on a project space, that project space's card in the Publish
-dialog has a **Workers** list, one row per persona. Tick the ones you want,
-adjust the username Nova suggests, and choose Make workers. Each account carries
-that persona's worker information and the places it stands in.
+Once the app is on a project space, that project space's card in
+**App setup → Publishing** has a **Workers** list, one row per persona. Tick
+the ones you want, adjust the username Nova suggests, and choose Make workers.
+Each account carries that persona's worker information and the places it
+stands in.
 
 **Every new account comes with a password, shown once.** Copy them before you
-close the dialog. Nova keeps no copy, so a password you lose has to be reset on
+leave the page. Nova keeps no copy, so a password you lose has to be reset on
 CommCare HQ.
 
 Ticking a persona that already has an account brings that account into step with

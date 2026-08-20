@@ -1380,3 +1380,43 @@ describe("events buffer + run lifecycle", () => {
 		expect(s.runCompletedAt).toBeUndefined();
 	});
 });
+
+// ── Publish dialog request (one-shot) ─────────────────────────────────────
+
+describe("BuilderSession publish dialog request", () => {
+	it("starts empty and holds the latest request", () => {
+		const store = createBuilderSessionStore();
+		expect(store.getState().publishDialogRequest).toBeNull();
+
+		store.getState().requestPublishDialog({ domain: "alpha" });
+		expect(store.getState().publishDialogRequest).toEqual({ domain: "alpha" });
+
+		store.getState().requestPublishDialog({ domain: "beta" });
+		expect(store.getState().publishDialogRequest).toEqual({ domain: "beta" });
+	});
+
+	it("clears once and no-ops on an already-empty request", () => {
+		const store = createBuilderSessionStore();
+		store.getState().requestPublishDialog({ domain: "alpha" });
+		store.getState().clearPublishDialogRequest();
+		expect(store.getState().publishDialogRequest).toBeNull();
+
+		/* A second clear must not write: the consumer clears as it opens, and
+		 * a redundant write would re-notify every subscriber for nothing. */
+		const prev = store.getState();
+		store.getState().clearPublishDialogRequest();
+		expect(store.getState()).toBe(prev);
+	});
+
+	it("is dropped by reset and by the Project-scope boundary", () => {
+		const viaReset = createBuilderSessionStore();
+		viaReset.getState().requestPublishDialog({ domain: "alpha" });
+		viaReset.getState().reset();
+		expect(viaReset.getState().publishDialogRequest).toBeNull();
+
+		const viaScope = createBuilderSessionStore();
+		viaScope.getState().requestPublishDialog({ domain: "alpha" });
+		viaScope.getState().resetProjectScope();
+		expect(viaScope.getState().publishDialogRequest).toBeNull();
+	});
+});

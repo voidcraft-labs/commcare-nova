@@ -38,6 +38,7 @@ import { BuilderAccessGate } from "@/components/builder/AccessStatus";
 import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
 import { BuilderHeader } from "@/components/builder/BuilderHeader";
 import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceProvider";
+import { CommCareConnectionProvider } from "@/components/builder/CommCareConnectionContext";
 import { CaseTargetDraftProvider } from "@/components/builder/case-operations/CaseTargetDraftContext";
 import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
@@ -77,22 +78,15 @@ interface BuilderLayoutProps {
 	/** True when the app was loaded from Postgres (not a new build).
 	 *  Drives the chat empty-state copy. */
 	isExistingApp?: boolean;
-	/** CommCare HQ settings read by the RSC page: drives the export
-	 *  dropdown's configured/unconfigured state and upload dialog domain. */
+	/** CommCare HQ settings read by the RSC page. Provided to the whole
+	 *  builder tree as `CommCareConnectionContext`: PublishPanel (in the
+	 *  header band) and App setup's Publishing section both read it. */
 	commcareSettings?: CommCareSettingsPublic;
 	/** A resumed pre-app design (`/build/new?design=<id>`): its id and the
 	 *  stage the server derived from the durable orchestration, so the
 	 *  conversation opens saying where the design actually stopped. */
 	initialDesignSession?: DesignSessionSeed | null;
 }
-
-/**
- * Stable empty reference for the unconfigured / not-yet-loaded case. Reusing
- * one module-level array keeps `commcareAvailableDomains`'s identity constant
- * across renders so `PublishPanel`'s `memo` holds: a fresh `[]` literal each
- * render would defeat it (and re-fire the upload dialog's reset effect).
- */
-const EMPTY_DOMAINS: { name: string; displayName: string }[] = [];
 
 export function BuilderLayout({
 	threads,
@@ -105,15 +99,6 @@ export function BuilderLayout({
 }: BuilderLayoutProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
-
-	/* CommCare settings: server-resolved, passed through to BuilderSubheader.
-	 * `commcareSettings` is a discriminated union; narrow on `configured` to
-	 * read the full reachable set `availableDomains` (the upload dialog picks
-	 * the target from it per upload). */
-	const commcareConfigured = commcareSettings?.configured ?? false;
-	const commcareAvailableDomains = commcareSettings?.configured
-		? commcareSettings.availableDomains
-		: EMPTY_DOMAINS;
 
 	// ── Flipbook scroll sync ──────────────────────────────────────────────
 	// Toggling preview preserves scroll position so the same field stays
@@ -382,55 +367,54 @@ export function BuilderLayout({
 
 	if (phase === BuilderPhase.Loading) {
 		return (
-			<div className="h-full flex flex-col overflow-hidden">
-				<BuilderHeader
-					commcareConfigured={commcareConfigured}
-					commcareAvailableDomains={commcareAvailableDomains}
-					onSetPreviewing={handleSetPreviewing}
-				/>
-				{/* Not a second lockup. The header above is already showing the mark,
-				    and the mark breathes: two of them on one screen turns presence
-				    into a loop. A blueprint on its way is an ordinary wait. */}
-				<div className="flex-1 flex items-center justify-center">
-					<Spinner className="size-8 text-nova-text-muted" />
+			<CommCareConnectionProvider settings={commcareSettings}>
+				<div className="h-full flex flex-col overflow-hidden">
+					<BuilderHeader onSetPreviewing={handleSetPreviewing} />
+					{/* Not a second lockup. The header above is already showing the mark,
+					    and the mark breathes: two of them on one screen turns presence
+					    into a loop. A blueprint on its way is an ordinary wait. */}
+					<div className="flex-1 flex items-center justify-center">
+						<Spinner className="size-8 text-nova-text-muted" />
+					</div>
 				</div>
-			</div>
+			</CommCareConnectionProvider>
 		);
 	}
 
 	return (
-		<BuilderReferenceProvider>
-			<CaseTargetDraftProvider>
-				{/* `data-builder-tree` marks the subtree that `BuilderProvider`'s
-				    `key={buildId}` would rebuild. Creation installs its app in
-				    place precisely so this node survives, and the end-to-end test
-				    stamps it to prove that; the header cannot serve, since it is
-				    mounted above both route groups and survives a route change
-				    whether or not the builder does. */}
-				<div data-builder-tree className="h-full flex flex-col overflow-hidden">
-					{/* Fills the shared band with the builder's own controls: Preview
-					 *  dead centre, the document tools on the right. It renders nothing
-					 *  in place; the band itself is mounted above both route groups. */}
-					<BuilderHeader
-						commcareConfigured={commcareConfigured}
-						commcareAvailableDomains={commcareAvailableDomains}
-						onSetPreviewing={handleSetPreviewing}
-					/>
+		<CommCareConnectionProvider settings={commcareSettings}>
+			<BuilderReferenceProvider>
+				<CaseTargetDraftProvider>
+					{/* `data-builder-tree` marks the subtree that `BuilderProvider`'s
+					    `key={buildId}` would rebuild. Creation installs its app in
+					    place precisely so this node survives, and the end-to-end test
+					    stamps it to prove that; the header cannot serve, since it is
+					    mounted above both route groups and survives a route change
+					    whether or not the builder does. */}
+					<div
+						data-builder-tree
+						className="h-full flex flex-col overflow-hidden"
+					>
+						{/* Fills the shared band with the builder's own controls: Preview
+						 *  dead centre, the document tools on the right. It renders nothing
+						 *  in place; the band itself is mounted above both route groups. */}
+						<BuilderHeader onSetPreviewing={handleSetPreviewing} />
 
-					<BuilderAccessGate>
-						{/* Content area: self-sufficient, owns sidebar/preview/chat layout */}
-						<BuilderContentArea
-							isCentered={isCentered}
-							isExistingApp={!!isExistingApp}
-							threads={threads}
-							initialThread={initialThread}
-							appGenerating={appGenerating}
-							currentUserId={currentUserId}
-							initialDesignSession={initialDesignSession}
-						/>
-					</BuilderAccessGate>
-				</div>
-			</CaseTargetDraftProvider>
-		</BuilderReferenceProvider>
+						<BuilderAccessGate>
+							{/* Content area: self-sufficient, owns sidebar/preview/chat layout */}
+							<BuilderContentArea
+								isCentered={isCentered}
+								isExistingApp={!!isExistingApp}
+								threads={threads}
+								initialThread={initialThread}
+								appGenerating={appGenerating}
+								currentUserId={currentUserId}
+								initialDesignSession={initialDesignSession}
+							/>
+						</BuilderAccessGate>
+					</div>
+				</CaseTargetDraftProvider>
+			</BuilderReferenceProvider>
+		</CommCareConnectionProvider>
 	);
 }

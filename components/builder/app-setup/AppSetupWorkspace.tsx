@@ -34,6 +34,7 @@ import { selectableSegmentCls } from "@/lib/styles";
 import { AutomationsSection } from "./AutomationsSection";
 import { LanguagesSection } from "./LanguagesSection";
 import { OrganizationSection } from "./OrganizationSection";
+import { PublishingSection } from "./PublishingSection";
 import { UsersSection } from "./UsersSection";
 
 const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
@@ -42,25 +43,6 @@ const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
 	languages: tablerLanguage,
 	automations: tablerClockBolt,
 	publishing: tablerCloudUpload,
-};
-
-/**
- * What each not-yet-built section will hold, in the author's words. Naming
- * the contents is the honest empty state: it tells someone who opened the
- * section what belongs here, rather than showing a blank panel or, worse:
- * a control that does nothing.
- */
-const SECTION_PENDING_COPY: Readonly<
-	Record<
-		Exclude<
-			AppSetupSection,
-			"users" | "organization" | "languages" | "automations"
-		>,
-		string
-	>
-> = {
-	publishing:
-		"The CommCare project this app is published to, what Nova will create there, and what you set up by hand.",
 };
 
 export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
@@ -114,40 +96,10 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 					) : section === "automations" ? (
 						<AutomationsSection />
 					) : (
-						<PendingSection section={section} />
+						<PublishingSection />
 					)}
 				</ContentFrame>
 			</div>
 		</div>
-	);
-}
-
-/**
- * A section whose contents have not been built. It names what will live
- * here so the author knows the section is real and reserved, not broken.
- */
-function PendingSection({
-	section,
-}: {
-	section: Exclude<
-		AppSetupSection,
-		"users" | "organization" | "languages" | "automations"
-	>;
-}) {
-	return (
-		<section aria-labelledby={`app-setup-${section}-heading`}>
-			{/* Named three times in 135px: breadcrumb, selected tab, heading.
-			    The tab already carries current-screen semantics, so this stays
-			    as the section's accessible name and leaves the eye alone. */}
-			<h2 id={`app-setup-${section}-heading`} className="sr-only">
-				{APP_SETUP_SECTION_LABELS[section]}
-			</h2>
-			<p className="mt-2 max-w-prose text-[13px] leading-relaxed text-nova-text-secondary">
-				{SECTION_PENDING_COPY[section]}
-			</p>
-			<p className="mt-4 max-w-prose text-[13px] leading-relaxed text-nova-text-muted">
-				There is nothing to set up here yet.
-			</p>
-		</section>
 	);
 }

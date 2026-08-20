@@ -12,11 +12,11 @@ There are three things on that screen, and the order is the order you build
 them: the **levels** of your organization, the **information** its places
 carry, and the **places** themselves.
 
-Nova authors this model today, and publishing puts these places on your CommCare
-HQ project space. Preview projects a persona's assigned places into their session
-identity and can use place-based case-owner expressions when a form submits. It
-does **not** yet use case-delivery or address-book reach to filter Preview case
-lists.
+Nova authors this model, and publishing puts these places on your CommCare HQ
+project space. Previewing as a persona shows what that worker's device would
+hold: their assigned places ride their session identity, case delivery decides
+which cases their lists show, and place-based case-owner expressions run when
+a form submits.
 
 One owner rule still cannot be exported: **a particular place**, which names that
 place by Nova's own id rather than by the one CommCare HQ gave it. **A place
@@ -34,7 +34,7 @@ Each level answers two questions, and the screen keeps them apart on purpose,
 because they are genuinely separate and mixing them up is the most common way an
 app ends up behaving strangely.
 
-### Case delivery (authored today)
+### Case delivery
 
 **People work here** decides whether workers can be assigned to places at this
 level.
@@ -44,26 +44,25 @@ level.
 
 Those two are independent, and all four combinations are useful:
 
-- **Both on** — an ordinary place people work out of. The setting declares that
-  an assigned worker receives the cases their place owns. Preview case lists do
-  not apply that delivery scope yet; deployment support will use it when it
-  provisions workers and locations.
+- **Both on** — an ordinary place people work out of. An assigned worker
+  receives the cases their place owns. Previewing as a persona applies that
+  delivery scope, so the case lists you see are the ones that worker's device
+  would hold.
 - **Owns cases, nobody works here** — a queue. Cases live there and reach
-  nobody by assignment. Once owner-set behavior and device provisioning ship,
-  the same design keeps a large backlog off every assigned worker's case list.
+  nobody by assignment, which keeps a large backlog off every assigned
+  worker's case list.
 - **People work here, owns nothing** — an oversight rung. Everything those
   workers receive comes from the setting below.
 - **Neither** — pure structure, a rung that exists so places below it have
   something to sit in.
 
 **Workers also receive cases from places below** widens the delivery scope you
-are authoring. "Everything below" is the common answer. Preview case lists do
-not apply this scope yet. When Nova can deploy this model, stopping at a
-particular level will also require a setting on the target CommCare project,
-which Nova does not configure. Publishing does put the places themselves on the
-project space.
+are authoring, and Preview applies it the same way. "Everything below" is the
+common answer. On a real project space, stopping at a particular level also
+needs a setting on the CommCare project itself, which Nova does not configure.
+Publishing puts the places themselves on the project space.
 
-### Address-book reach (authored today)
+### Address-book reach
 
 Seeing a place and receiving its cases are different things, and this is the
 setting people most often expect to do both. It does not. Widening it lets your
@@ -80,11 +79,11 @@ The choices:
   their own, such as the other clinics in their district.
 - **The whole organization** — every place, for apps small enough to afford it.
 
-Nova uses this footprint now to validate whether an authored place-owner
-expression is safe for every assigned persona. Preview does not yet filter a
-case list or interactive address book by it. Widening it increases the location
-data CommCare HQ sends every worker at that level on restore, so that payload
-cost is the trade you are designing for.
+Nova uses this footprint to validate whether an authored place-owner
+expression is safe for every assigned persona. It never filters a case list;
+that is case delivery's job. Widening it increases the location data CommCare
+HQ sends every worker at that level on restore, so that payload cost is the
+trade you are designing for.
 
 ## Place information
 
@@ -165,10 +164,9 @@ fresh review:
   main one, and a persona left with nowhere carries no location information at
   all;
 - how many cases are owned there. **Those cases do not move.** They stay where
-  they are, still linked to the archived owner. Preview case lists do not yet
-  enforce location owner sets, so archiving or restoring a place does not change
-  their list visibility today. Future device delivery will use the restored path
-  and the worker's current assignments.
+  they are, still linked to the archived owner. A persona the archive displaced
+  no longer receives them in Preview, because delivery follows the worker's
+  current assignments.
 
 If an archive would break a fixed-place or next-level case-owner rule, Nova
 names that form and blocks the archive. Change the owner rule first; silently
@@ -187,9 +185,9 @@ they work**. The first place in the list is their main one; use **Make main** to
 promote another.
 
 A persona assigned nowhere carries no location information in Preview. That is
-the same empty session shape CommCare gives an unassigned worker. Nova does not
-currently provision that worker or session on a device; Preview lets you test
-the authored condition before that deployment support exists.
+the same empty session shape CommCare gives an unassigned worker. When you
+[make workers](/docs/publishing#making-workers) from your personas after a
+publish, each account carries these same assignments onto the project space.
 
 ## Sending a case to a place
 
@@ -208,6 +206,10 @@ These are structural references, not pasted expressions. Nova updates their
 printed names from the current organization and refuses a rule whose level or
 place can no longer work. Case flow still decides whether the destination owns
 cases; address-book visibility decides whether a worker can name it. One does
-not substitute for the other. They work in Preview today. Publishing remains
-blocked for an app that uses either rule until Nova can ship the matching
-persona-scoped place data and map the same identities in CommCare.
+not substitute for the other. Both work in Preview. **A place beneath the
+current case owner** also publishes and exports: the rule names levels by
+their codes, which a publish puts on the project space, so it means the same
+thing on both sides. **A particular place** works in Preview only for now,
+because the exported rule would name the place by Nova's own id, which the
+project space does not know; Nova refuses the export and says so, and pointing
+the rule at a place beneath the current owner is the way through.

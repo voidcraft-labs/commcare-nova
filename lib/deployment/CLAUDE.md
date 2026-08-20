@@ -236,10 +236,12 @@ more specific than anything Nova could say about a rule it did not predict.
 
 An **attention** edge is something the target needs that Nova cannot do
 from here, so it becomes a line in the setup artifact. Required worker
-information is deliberately one of these: refusing to publish because a
-persona has no value for a required property would refuse a publish that
-would have worked, since Nova creates no workers yet. It becomes blocking
-when the provisioning driver ships, which is that unit's job.
+information is deliberately one of these on the PUBLISH: refusing to publish
+because a persona has no value for a required property would refuse a publish
+that would have worked, since a publish creates no workers. The step that does
+create them carries the block instead — provisioning refuses up front on
+exactly those gaps (`workerProvisionPlan.ts`), naming the persona and the
+property, before any account exists.
 
 Organization LEVELS and place-information FIELDS are attention edges for a
 different reason: neither has a writable resource at all, so their setup
@@ -490,33 +492,46 @@ the strength of Nova having nothing to say.
 
 ## Surfaces
 
-Builder (the publish dialog) and MCP (`get_deployment`,
-`refresh_deployment`, `provision_workers`). **Deliberately not the Solutions Architect** — the same standing decision that keeps
-`get_app_hq_feature_flags` off that surface. A deployment is durable state
-about somebody else's server, not authored vocabulary an agent designing
-an app should reason about.
+Builder (the App setup Publishing section and the publish dialog) and MCP
+(`get_deployment`, `refresh_deployment`, `provision_workers`).
+**Deliberately not the Solutions Architect** — the same standing decision
+that keeps `get_app_hq_feature_flags` off that surface. A deployment is
+durable state about somebody else's server, not authored vocabulary an
+agent designing an app should reason about.
 
-**The dialog opens on the record, not only after a publish creates one.**
-`readDeploymentsAction` loads every project space this app has reached when
-the dialog opens, above the publish form. Without it the only route to
-Check status would be publishing the app all over again just to see the
-record. The records are also what tells the form whether the selected
-project space gets an in-place update or a fresh app
-(`plannedInPlaceUpdate`, the same predicate the publish applies). The
-read authorizes as a `view` and refresh as an `edit`, which is also why
+**The Builder splits the work: the dialog publishes, the section manages.**
+App setup's Publishing section (`components/builder/app-setup/
+PublishingSection.tsx`) is the durable home of the records — one full
+`DeploymentStatus` card per project space the app has reached, with Check
+status, the Workers panel, and a "Publish again" that reopens the ONE
+publish dialog preseeded to that target through a one-shot session-store
+request, so a retry never grows a second publish flow. The section's read
+authorizes as a `view`, which is what gives a viewer the answer to "where
+is this app" without any control that would be refused.
+
+**The dialog opens on the records too, not only after a publish creates
+one.** `readDeploymentsAction` loads every project space this app has
+reached when the dialog opens. The records tell the form whether the
+selected project space gets an in-place update or a fresh app
+(`plannedInPlaceUpdate`, the same predicate the publish applies), and
+above the form they render as compact per-target rows linking to the
+Publishing section rather than a second set of full cards that would have
+to be kept honest. Refresh authorizes as an `edit`, which is also why
 `DeploymentStatus` takes `canRefresh`: offering a viewer a button that
 would be refused is worse than not offering it. The same reasoning hides
 Check status entirely on a record checking cannot answer — one that is
 not observable, or has no active mapping — since its every press could
 only error.
 
-**The dialog keeps ONE copy of each record.** The open-time read seeds a
-store keyed by target; a publish response and every Check status upsert
-into that same store. The landed hero looks its record up there rather
+**Each surface keeps ONE copy of each record.** The record fold is the
+shared pure model (`components/builder/app-setup/publishingSectionModel.ts`
+`upsertDeploymentViews`, keyed on `(server, domain)`): an open-time read
+seeds a store; a publish response and every Check status upsert into that
+same store. The dialog's landed hero looks its record up there rather
 than holding its own copy, so a record can never render twice with
 disagreeing contents, and a fresh deployment survives the status resets
 that switching the destination select causes. Refreshes return
-`previewProjectSpace` beside the record and the dialog applies it, so the
+`previewProjectSpace` beside the record and the caller applies it, so the
 own tab updates without waiting for the stream; every OTHER open tab
 converges through the app stream's deployment lane — each store write
 pokes it (`notifyAppDeployments`, in the write's own transaction), and the
@@ -524,15 +539,14 @@ relay re-resolves and emits the `preview-project-space` frame
 (`lib/preview/CLAUDE.md` § `commcare_project`).
 
 The Workers panel (`components/builder/DeploymentWorkers.tsx`) lives inside
-each record's card for the same reason the ledger keys a worker on
-`(persona, target)`: an account belongs to a project space, and the same
-persona can hold a different username on each. It stays quiet until the
-app is actually there, because the places a persona stands in only exist
-over there once a publish has put them there.
-
-The App setup workspace's Publishing section stays not-built-yet; it
-belongs to the app-setup-UI unit, which INHERITS this panel rather than
-building a second one.
+each record's card in the Publishing section — and ONLY there:
+`DeploymentStatus` takes it as a composed `workers` slot the section fills
+and the dialog leaves empty, so a worker's password has exactly one surface
+that can ever show it. It sits inside the record's card for the same reason
+the ledger keys a worker on `(persona, target)`: an account belongs to a
+project space, and the same persona can hold a different username on each.
+It stays quiet until the app is actually there, because the places a
+persona stands in only exist over there once a publish has put them there.
 
 ## Two things the record answers besides publishing
 

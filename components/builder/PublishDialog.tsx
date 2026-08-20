@@ -32,6 +32,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	compactTargetRows,
+	preseededDomainSelection,
+} from "@/components/builder/app-setup/publishingSectionModel";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
 import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
 import { publishOutcome } from "@/components/builder/publishOutcome";
@@ -115,6 +119,14 @@ interface PublishDialogProps {
 	getAppId: () => string;
 	availableDomains: Domain[];
 	canUploadToHq: boolean;
+	/** A project space to open the form on — the Publishing section's
+	 *  "Publish again" names its target this way. Undefined for an
+	 *  ordinary open, which keeps the single-space/placeholder defaults. */
+	requestedDomain?: string;
+	/** Navigate to App setup's Publishing section, the durable home of the
+	 *  records this dialog summarizes. Owned by PublishPanel (a plain
+	 *  History-API push) so this dialog carries no location subscription. */
+	onOpenPublishing: () => void;
 	isRefreshingHqConnection: boolean;
 	onRefreshHqConnection: () => void;
 	onLoadFeatureFlags: (
@@ -181,6 +193,8 @@ export function PublishDialog({
 	getAppId,
 	availableDomains,
 	canUploadToHq,
+	requestedDomain,
+	onOpenPublishing,
 	isRefreshingHqConnection,
 	onRefreshHqConnection,
 	onLoadFeatureFlags,
@@ -224,6 +238,13 @@ export function PublishDialog({
 		uploadControllerRef.current = null;
 		onClose();
 	}, [onClose]);
+	/* The durable home for everything a publish starts: full ladders, Check
+	 * status, workers, and retry live in App setup's Publishing section. The
+	 * dialog closes first so the section isn't opened under a modal. */
+	const openPublishing = useCallback(() => {
+		handleClose();
+		onOpenPublishing();
+	}, [handleClose, onOpenPublishing]);
 
 	useEffect(
 		() =>
@@ -278,9 +299,9 @@ export function PublishDialog({
 		setTarget(canUploadToHq ? "hq" : "web");
 		setAppName(storeAppName);
 		setSelectedDomain(
-			availableDomains.length === 1 ? availableDomains[0].name : "",
+			preseededDomainSelection(requestedDomain, availableDomains),
 		);
-	}, [open, storeAppName, availableDomains, canUploadToHq]);
+	}, [open, storeAppName, availableDomains, canUploadToHq, requestedDomain]);
 	useEffect(() => {
 		if (!open || availableDomains.length === 0) return;
 		setSelectedDomain((current) => {
@@ -758,9 +779,20 @@ export function PublishDialog({
 												view={landedView}
 												canRefresh={canEdit}
 												onUpdated={handleRefreshed}
-												onProvisioned={upsertView}
 											/>
 										) : null}
+										{/* Workers are made in exactly one place — the
+										    Publishing section — so a password can only ever
+										    be shown there. */}
+										<div className="mt-2 text-left">
+											<Button
+												type="button"
+												variant="ghost-action"
+												onClick={openPublishing}
+											>
+												Make workers in App setup
+											</Button>
+										</div>
 									</PublishSuccess>
 								) : notConfigured ? (
 									<NotConfigured
@@ -791,24 +823,18 @@ export function PublishDialog({
 												) : null}
 											</PublishSuccess>
 										) : null}
-										{/* Before the form, because "you already published this
-										    to acme, and here is what is left to do there" is what
-										    somebody reopening this dialog came for. A refused
-										    publish's record renders HERE too (it was upserted
-										    into this same store), so one project space never
-										    appears twice with disagreeing contents. */}
-										{existing.type === "ready"
-											? existing.views.map((view) => (
-													<DeploymentStatus
-														key={view.deployment.deployment.id}
-														appId={getAppId()}
-														view={view}
-														canRefresh={canEdit}
-														onUpdated={handleRefreshed}
-														onProvisioned={upsertView}
-													/>
-												))
-											: null}
+										{/* Before the form, in brief: where the app already is,
+										    so the form below reads as "publish again" where it
+										    is one. The full records — ladder, Check status,
+										    workers, retry — live in the Publishing section,
+										    which is one link away; a second full copy here
+										    would be a second surface to keep honest. */}
+										{existing.type === "ready" && existing.views.length > 0 ? (
+											<ExistingTargetRows
+												views={existing.views}
+												onOpenPublishing={openPublishing}
+											/>
+										) : null}
 										{existing.type === "error" ? (
 											<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 												{existing.message}
@@ -949,6 +975,58 @@ export function PublishDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+/**
+ * The targets this app has already reached, one line each. Deliberately
+ * compact: the record's full story (the ladder, the refusal, workers, what
+ * was left behind) lives in the Publishing section this links to, and a
+ * second full rendering here would be a second copy to keep honest.
+ */
+function ExistingTargetRows({
+	views,
+	onOpenPublishing,
+}: {
+	views: readonly DeploymentView[];
+	onOpenPublishing: () => void;
+}) {
+	const rows = compactTargetRows(views);
+	return (
+		<div className="rounded-lg border border-nova-border bg-nova-well px-3 py-1">
+			<ul className="flex flex-col">
+				{rows.map((row) => (
+					<li
+						key={row.key}
+						className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-b border-nova-border py-2 text-[13px] leading-relaxed last:border-b-0"
+					>
+						<span className="min-w-0 break-words font-medium text-nova-text">
+							{row.domain}
+							{!row.updatesInPlace && !row.stopped ? (
+								<span className="block text-[12px] font-normal text-nova-text-muted">
+									Publishing again creates a fresh app here
+								</span>
+							) : null}
+						</span>
+						<span
+							className={
+								row.stopped ? "text-nova-amber" : "text-nova-text-secondary"
+							}
+						>
+							{row.statusLabel}
+						</span>
+					</li>
+				))}
+			</ul>
+			<div className="flex items-center justify-between gap-3 py-1">
+				<p className="text-[12px] leading-relaxed text-nova-text-muted">
+					Check status, workers, and setup notes live in App setup
+				</p>
+				<Button type="button" variant="ghost-action" onClick={onOpenPublishing}>
+					Open Publishing
+				</Button>
+			</div>
+		</div>
 	);
 }
 
@@ -1580,7 +1658,7 @@ function NotConfigured({
 					</h3>
 					<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
 						You can add your CommCare HQ API key in Settings to upload directly
-						from Commcare Nova
+						from commcare nova
 					</p>
 					<p className="mt-2 text-xs leading-relaxed text-nova-text-muted">
 						You can still choose a CommCare HQ app file or mobile app file above
