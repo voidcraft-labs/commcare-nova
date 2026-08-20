@@ -26,7 +26,7 @@ import {
 	type LookupValidationContext,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, formLinkDestination } from "@/lib/domain";
 import type { ValidationError, ValidationErrorCode } from "./errors";
 import { validationError } from "./errors";
 import {
@@ -331,12 +331,31 @@ function runDeepValidation(
 				);
 
 			case "form-link-xpath": {
+				// Name the link by where it goes — "the link to “Visit”" is
+				// something a person can find; "form link 3" is not once links
+				// are reordered. Position is the fallback for a dangling target.
 				const linkNumber = (deep.indices[0] ?? 0) + 1;
 				const datumNumber = (deep.indices[1] ?? 0) + 1;
+				const link =
+					deep.linkUuid === undefined
+						? undefined
+						: doc.forms[deep.formUuid]?.formLinks?.find(
+								(candidate) => candidate.uuid === deep.linkUuid,
+							);
+				const destination =
+					link === undefined
+						? undefined
+						: formLinkDestination(doc, link.target);
+				const linkLabel =
+					destination === undefined
+						? `form link ${linkNumber}`
+						: destination.kind === "form"
+							? `the link to "${destination.name}"`
+							: `the link to the "${destination.name}" module`;
 				const carrier =
 					deep.slot === "form_link_condition"
-						? `form link ${linkNumber} ${FORM_LINK_SLOT_LABELS[deep.slot]}`
-						: `form link ${linkNumber} datum ${datumNumber} ${FORM_LINK_SLOT_LABELS[deep.slot]}`;
+						? `${linkLabel}, ${FORM_LINK_SLOT_LABELS[deep.slot]}`
+						: `${linkLabel}, value ${datumNumber} ${FORM_LINK_SLOT_LABELS[deep.slot]}`;
 				return validationError(
 					deep.error.code,
 					"form",
@@ -349,6 +368,13 @@ function runDeepValidation(
 						moduleName: deep.moduleName,
 						formUuid: deep.formUuid,
 						formName: deep.formName,
+					},
+					{
+						...(deep.linkUuid !== undefined && { linkUuid: deep.linkUuid }),
+						...(destination !== undefined && {
+							destination: destination.name,
+							destinationKind: destination.kind,
+						}),
 					},
 				);
 			}

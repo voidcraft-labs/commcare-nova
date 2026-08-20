@@ -171,6 +171,8 @@ export type DeepValidationError =
 			kind: "form-link-xpath";
 			slot: FormLinkXPathSlot;
 			indices: readonly number[];
+			/** The link the slot belongs to; absent only when the index is stale. */
+			linkUuid?: Uuid;
 			error: XPathError;
 	  })
 	| (DeepLocation & { kind: "cycle"; cycle: readonly string[] });
@@ -450,6 +452,7 @@ export function validateBlueprintDeep(
 			// so preserve their indices for an actionable form-level finding.
 			for (const slot of FORM_LINK_XPATH_SLOT_IDS) {
 				for (const read of formExpressionSourceEntries(form, slot, doc)) {
+					const linkUuid = form.formLinks?.[read.indices[0] ?? -1]?.uuid;
 					if (read.text.trim().length === 0) {
 						if (slot === "form_link_datum_xpath") {
 							errors.push({
@@ -457,6 +460,7 @@ export function validateBlueprintDeep(
 								kind: "form-link-xpath",
 								slot,
 								indices: read.indices,
+								...(linkUuid !== undefined && { linkUuid }),
 								error: {
 									code: "XPATH_SYNTAX",
 									message: "A form-link datum XPath must not be empty",
@@ -475,6 +479,7 @@ export function validateBlueprintDeep(
 							kind: "form-link-xpath",
 							slot,
 							indices: read.indices,
+							...(linkUuid !== undefined && { linkUuid }),
 							error: {
 								code: "INVALID_REF",
 								message:
@@ -496,6 +501,7 @@ export function validateBlueprintDeep(
 							kind: "form-link-xpath",
 							slot,
 							indices: read.indices,
+							...(linkUuid !== undefined && { linkUuid }),
 							error: canonicalError,
 						});
 						continue;
@@ -511,6 +517,7 @@ export function validateBlueprintDeep(
 							kind: "form-link-xpath",
 							slot,
 							indices: read.indices,
+							...(linkUuid !== undefined && { linkUuid }),
 							error: withStoredRef(error, read.expr),
 						});
 					}
