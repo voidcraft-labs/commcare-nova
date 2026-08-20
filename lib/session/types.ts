@@ -31,7 +31,11 @@ export type SidebarState = { open: boolean; stashed: boolean | undefined };
  * `formUuid` is the destination form: seeded when the user taps a
  * case-loading form in the module menu, or defaulted by the case list to
  * the module's first case-loading form when previewing the list directly.
- * `caseId` / `caseName` are filled once the user picks a case and continues.
+ * `caseId` / `caseName` are filled once the user picks a case and continues,
+ * or by a form's after-submit link carrying the case the next form opens
+ * with. `caseId` is `""` when that link's session value was blank: the form
+ * is then bound to nothing and says so, rather than auto-selecting a case
+ * (absent `caseId`) the device would not have opened.
  * PreviewShell reads `caseId` to preload that form with the chosen case;
  * the breadcrumb reads `caseName` to name the bound case on the form. It's
  * cleared on every preview-mode toggle so each preview session starts caseless.
