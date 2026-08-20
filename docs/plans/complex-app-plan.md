@@ -2124,33 +2124,6 @@ directly. Request and run timings are three independently authored fields in
 `config/runtime-capabilities.json`; none derives from another.
 `lib/db/CLAUDE.md` owns the run lifecycle.
 
-### Exclusive after-submit links
-
-A form's after-submit links are entities — `{uuid, condition?, target,
-datums?}` in a form-owned ordered array, edited through four mutation kinds
-(`addFormLink` / `updateFormLink` / `removeFormLink` / `moveFormLink`) whose
-anchors are link uuids — and one projector (`lib/commcare/formLinkProjection.ts`)
-makes "first true link wins" true on a runtime that executes every true
-`<create>` and lands on the last: link i is guarded by its own condition AND
-the negation of every prior, a terminal unconditional link is the exhaustive
-else that suppresses the fallback frame, and the fallback frame's guard is
-HQ's own literal join over the emitted guards, so the local suite and HQ's
-build carry identical bytes. HQ JSON now carries HQ's real `FormLink` shape
-with `post_form_workflow: "form"` and `post_form_workflow_fallback`, so an
-uploaded link is no longer inert. Frame children follow HQ's
-`get_frame_children` and `_find_best_match`; `previous` follows HQ's pop loop
-on both paths. Because Core opens a target with an EMPTY case id rather than
-prompting when a pushed frame's selection datum is unmatched, Nova refuses
-such a link at commit (`FORM_LINK_DATUMS_INCOMPLETE`), refuses a link after an
-unconditional one (`FORM_LINK_UNREACHABLE`), requires an explicit `postSubmit`
-when every link is conditional (`FORM_LINK_NO_FALLBACK`), and refuses a
-carried value the destination never reads (`FORM_LINK_DATUM_UNUSED`);
-removing a form or module that links point into refuses with the sources
-named. The production scan (`scripts/scan-form-links.ts`, run and removed in
-the PR) found zero stored links, so the identity change shipped with no data
-migration. `lib/commcare/CLAUDE.md` § After-submit links is the contract;
-`lib/domain/CLAUDE.md` and `lib/doc/CLAUDE.md` hold the shape and the kinds.
-
 ---
 
 ## What remains
@@ -2166,16 +2139,16 @@ unit that ships leaves no gap and nothing ever renumbers.
 
 
 
-### Form sections
+### Exclusive form links and sections
 
 [`complex-app/form-links-and-sections.md`](complex-app/form-links-and-sections.md)
 · depends on nothing · blocks the nested-menus unit
 
-Form sections with durable identity in authored order (the links half of this
-unit has shipped — see "Exclusive after-submit links" above). **The file holds**
-the negative sweep proving sections have no wire notion, the no-expression-slots
-design fence, and the verified mechanics that make sections beat multi-form
-chains.
+An exhaustive-`else` link projection with durable link identity in one release,
+then form sections in authored order. **The file holds** the six end-of-form
+workflow mappings and their traps, the closed stack vocabulary, the negative sweep
+proving sections have no wire notion, the no-expression-slots design fence, and
+the verified mechanics that make sections beat multi-form chains.
 
 ### Nested menus and linked-form reuse
 
