@@ -121,6 +121,9 @@ function baselineApp(): HqApplication {
 		"none",
 		actions,
 		{},
+		"default",
+		null,
+		[],
 	);
 
 	const detail = detailPair(

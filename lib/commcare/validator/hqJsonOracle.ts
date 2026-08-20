@@ -68,6 +68,8 @@
  * | `FormActionCondition.operator` ∈ {=,selected,boolean_true} | `FormActionCondition.operator = StringProperty(choices=…)` | fatal | only when non-null |
  * | `Form.requires` ∈ {case,referral,none}   | `Form.requires = StringProperty(choices=…)`         | fatal  | |
  * | `Form.post_form_workflow` ∈ ALL_WORKFLOWS | `FormBase.post_form_workflow = StringProperty(choices=const.ALL_WORKFLOWS)` | fatal | {default,root,parent_module,module,previous_screen,form} |
+ * | `Form.post_form_workflow_fallback` (any string / null) | `FormBase.post_form_workflow_fallback = StringProperty(choices=const.WORKFLOW_FALLBACK_OPTIONS)` with `WORKFLOW_FALLBACK_OPTIONS = None` | NOT fatal | read only by `_get_fallback_frame` at suite build; the emitter's table is the contract (`checkFormLinks`) |
+ * | `Form.form_links[*]` ids resolve            | `FormLink.form_id` / `form_module_id` / `module_unique_id` (bare `StringProperty` / `FormIdProperty`) | NOT fatal | `workflow.py::_get_link_frame` resolves them on the first build; the oracle resolves them here (`checkFormLinks`) |
  * | `ConditionalCaseUpdate.update_mode` ∈ {always,edit} | `ConditionalCaseUpdate.update_mode = StringProperty(choices=…)` | fatal | every update/subcase property |
  * | `OpenSubCaseAction.relationship` ∈ {child,extension} | `OpenSubCaseAction.relationship = StringProperty(choices=…)` | fatal | subcases |
  * | `DetailColumn.late_flag` finite int      | `DetailColumn.late_flag = IntegerProperty(default=30)` | fatal | NaN/Inf would break number coercion |
@@ -377,7 +379,159 @@ function checkSubcase(
  * the menu media dicts (`media_image` / `media_audio`) the
  * `NavMenuItemMediaMixin` shell carries.
  */
-function checkForm(form: HqForm, errors: ValidationError[]): void {
+/**
+ * Every module and form `unique_id` in the emitted document. A form link
+ * names its target by these ids, and HQ resolves them at suite build
+ * (`workflow.py::_get_link_frame` → `get_module_by_unique_id` /
+ * `get_form`): a dangling id wraps clean at import and raises on the first
+ * build, so the oracle resolves them here.
+ */
+interface HqIdentityTable {
+	readonly moduleIds: ReadonlySet<string>;
+	readonly formIds: ReadonlySet<string>;
+}
+
+/**
+ * Validate one form's `form_links` + `post_form_workflow_fallback` against
+ * HQ's `FormLink` contract (`app_manager/models/forms.py::FormLink`) and the
+ * emitter's own invariants. HQ reads `form_links` only under
+ * `post_form_workflow == "form"`, so links beside any other workflow are
+ * silently inert and `"form"` with no links is a navigation that goes
+ * nowhere — both are emitter bugs. The fallback workflow is read only when
+ * a link list ends conditionally (`_get_fallback_frame`), and HQ's own
+ * `WORKFLOW_FALLBACK_OPTIONS` is `None`, so the emitter's choice table is
+ * the only thing pinning its value.
+ */
+function checkFormLinks(
+	form: HqForm,
+	formName: string,
+	ids: HqIdentityTable,
+	loc: ValidationLocation,
+	errors: ValidationError[],
+): void {
+	const hasLinks = form.form_links.length > 0;
+	if (hasLinks !== (form.post_form_workflow === "form")) {
+		errors.push(
+			validationError(
+				"HQJSON_BAD_FORM_LINK",
+				"form",
+				hasLinks
+					? `"${formName}" carries ${form.form_links.length} form link(s) but declares post_form_workflow="${form.post_form_workflow}"; CommCare HQ reads form_links only under post_form_workflow="form", so these links would be silently ignored. This is a bug in the app generator.`
+					: `"${formName}" declares post_form_workflow="form" but carries no form_links, so end-of-form navigation would go nowhere. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+
+	const fallback = form.post_form_workflow_fallback;
+	if (fallback !== null) {
+		if (!VALID_POST_FORM_WORKFLOWS.has(fallback) || fallback === "form") {
+			errors.push(
+				validationError(
+					"HQJSON_BAD_POST_FORM_WORKFLOW_FALLBACK",
+					"form",
+					`"${formName}" declares post_form_workflow_fallback="${fallback}", but the fallback must be one of the static workflows (${[...VALID_POST_FORM_WORKFLOWS].filter((w) => w !== "form").join(", ")}) or null. This is a bug in the app generator.`,
+					loc,
+				),
+			);
+		} else if (!hasLinks) {
+			errors.push(
+				validationError(
+					"HQJSON_BAD_POST_FORM_WORKFLOW_FALLBACK",
+					"form",
+					`"${formName}" declares post_form_workflow_fallback="${fallback}" without any form_links; the fallback is read only when a conditional link list ends without a match, so the emitter wrote a value nothing consumes. This is a bug in the app generator.`,
+					loc,
+				),
+			);
+		}
+	}
+
+	form.form_links.forEach((link, index) => {
+		const ordinal = `form link ${index + 1}`;
+		if (typeof link.xpath !== "string") {
+			errors.push(
+				validationError(
+					"HQJSON_BAD_FORM_LINK",
+					"form",
+					`"${formName}" ${ordinal} has a non-string xpath; CommCare HQ's FormLink.xpath is a StringProperty and the empty string is its "unconditional". This is a bug in the app generator.`,
+					loc,
+				),
+			);
+		}
+		if ("form_id" in link) {
+			if (!ids.formIds.has(link.form_id)) {
+				errors.push(
+					validationError(
+						"HQJSON_BAD_FORM_LINK",
+						"form",
+						`"${formName}" ${ordinal} targets form_id="${link.form_id}", which names no form in the emitted app; CommCare HQ resolves it on the first build and fails. This is a bug in the app generator.`,
+						loc,
+					),
+				);
+			}
+			if (!ids.moduleIds.has(link.form_module_id)) {
+				errors.push(
+					validationError(
+						"HQJSON_BAD_FORM_LINK",
+						"form",
+						`"${formName}" ${ordinal} targets form_module_id="${link.form_module_id}", which names no module in the emitted app; CommCare HQ resolves it on the first build and fails. This is a bug in the app generator.`,
+						loc,
+					),
+				);
+			}
+		} else if (!ids.moduleIds.has(link.module_unique_id)) {
+			errors.push(
+				validationError(
+					"HQJSON_BAD_FORM_LINK",
+					"form",
+					`"${formName}" ${ordinal} targets module_unique_id="${link.module_unique_id}", which names no module in the emitted app; CommCare HQ resolves it on the first build and fails. This is a bug in the app generator.`,
+					loc,
+				),
+			);
+		}
+		const seenNames = new Set<string>();
+		for (const datum of link.datums) {
+			if (typeof datum.name !== "string" || datum.name.length === 0) {
+				errors.push(
+					validationError(
+						"HQJSON_BAD_FORM_LINK",
+						"form",
+						`"${formName}" ${ordinal} carries a datum with no name; CommCare HQ matches manual datums to the target's session by name, so an unnamed one satisfies nothing. This is a bug in the app generator.`,
+						loc,
+					),
+				);
+				continue;
+			}
+			if (seenNames.has(datum.name)) {
+				errors.push(
+					validationError(
+						"HQJSON_BAD_FORM_LINK",
+						"form",
+						`"${formName}" ${ordinal} names the datum "${datum.name}" twice; CommCare HQ keeps whichever it reads last, so one authored value would be dropped. This is a bug in the app generator.`,
+						loc,
+					),
+				);
+			}
+			seenNames.add(datum.name);
+			if (typeof datum.xpath !== "string" || datum.xpath.length === 0) {
+				errors.push(
+					validationError(
+						"HQJSON_BAD_FORM_LINK",
+						"form",
+						`"${formName}" ${ordinal} datum "${datum.name}" has an empty xpath; the stack frame would push an empty value. This is a bug in the app generator.`,
+						loc,
+					),
+				);
+			}
+		}
+	});
+}
+
+function checkForm(
+	form: HqForm,
+	ids: HqIdentityTable,
+	errors: ValidationError[],
+): void {
 	const formName = form.name.en ?? form.unique_id;
 	const loc: ValidationLocation = { formName };
 
@@ -432,6 +586,7 @@ function checkForm(form: HqForm, errors: ValidationError[]): void {
 		);
 	}
 
+	checkFormLinks(form, formName, ids, loc, errors);
 	checkFormActions(form.actions, formName, errors);
 }
 
@@ -644,7 +799,11 @@ function checkLogoRefs(
  * in the suite, which the suite oracle owns; nothing in the HQ-JSON
  * `search_config` projection can break the wrap.
  */
-function checkModule(module: HqModule, errors: ValidationError[]): void {
+function checkModule(
+	module: HqModule,
+	ids: HqIdentityTable,
+	errors: ValidationError[],
+): void {
 	const moduleName = module.name.en ?? module.unique_id;
 	const loc: ValidationLocation = { moduleName };
 
@@ -693,7 +852,7 @@ function checkModule(module: HqModule, errors: ValidationError[]): void {
 	);
 
 	for (const form of module.forms) {
-		checkForm(form, errors);
+		checkForm(form, ids, errors);
 	}
 
 	// Touch `search_config` so a future enum slot added to `CaseSearchConfig`
@@ -744,8 +903,16 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 		);
 	}
 
+	const ids: HqIdentityTable = {
+		moduleIds: new Set(hqApp.modules.map((module) => module.unique_id)),
+		formIds: new Set(
+			hqApp.modules.flatMap((module) =>
+				module.forms.map((form) => form.unique_id),
+			),
+		),
+	};
 	for (const module of hqApp.modules) {
-		checkModule(module, errors);
+		checkModule(module, ids, errors);
 	}
 
 	// Application-level multimedia surfaces: the `multimedia_map` keys + the

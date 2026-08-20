@@ -49,6 +49,7 @@ import {
 } from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
+import type { MatchedChild, ProjectedFormLinks } from "./formLinkProjection";
 import { validateCaseType } from "./identifierValidation";
 import type { LookupWireNaming } from "./lookup/naming";
 import {
@@ -60,7 +61,7 @@ import {
 	emitExcludedOwnerNodesetFilter,
 	emitNodesetFilter,
 } from "./suite/case-list/nodesetFilter";
-import type { FormActions, HqFormLink } from "./types";
+import type { FormActions } from "./types";
 import {
 	USERCASE_DATUM_ID,
 	USERCASE_ID_FUNCTION,
@@ -129,6 +130,25 @@ export interface SessionDatum {
 	 */
 	detailPersistent?: string;
 	autoselect?: boolean;
+	/**
+	 * The case type this datum selects (`case_id`) or creates
+	 * (`case_id_new_<type>_N`, the worker's own `commcare-user`). Not
+	 * rendered: it is what HQ's end-of-form workflow reads back off the
+	 * emitted datum (`workflow.py::WorkflowDatumMeta.case_type`) to match a
+	 * link target's datums against the source entry's, and
+	 * `formLinkProjection.ts` reads it here instead of re-deriving it from
+	 * the nodeset string.
+	 */
+	caseType?: string;
+	/**
+	 * For a function datum whose function reads other session values:
+	 * re-renders `function` with every `session/data/<id>` reference
+	 * supplied by the caller. Not rendered directly; the entry emits
+	 * `function`. `formLinkProjection.ts` uses it to follow HQ's
+	 * `_replace_session_references_in_stack` without reading XPath out of a
+	 * string.
+	 */
+	renderFunction?: (sessionRef: (datumId: string) => string) => string;
 }
 
 /** A secondary instance required by a form entry. */
@@ -148,7 +168,10 @@ export interface EntryInstance {
 //   4. For <clear>: frames are removed from the stack.
 //   5. If a rewind occurs during <create>/<push>, remaining ops are SKIPPED.
 //   6. Multiple <create> ops that all match ALL execute (not mutually exclusive).
-//      They're popped in LIFO order during session resolution.
+//      They're popped in LIFO order during session resolution — which is why
+//      Nova's after-submit links never share a true `if`: the projection at
+//      `formLinkProjection.ts` gives each link an exclusive guard, so "the
+//      first true link wins" holds by construction rather than by runtime.
 //
 // Key difference between no <stack> and empty <create/>:
 //   - No <stack>: form frame is popped, user returns to previous level
@@ -219,8 +242,6 @@ export interface EntryDefinition {
 }
 
 // ── Derivation Functions ───────────────────────────────────────────────
-
-const SESSION_REF = "instance('commcaresession')/session/data";
 
 /**
  * Build the case-loading datum's nodeset:
@@ -473,6 +494,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 			...(persistentDetailId !== undefined && {
 				detailPersistent: persistentDetailId,
 			}),
+			caseType,
 		});
 	}
 
@@ -503,6 +525,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 			// resolves to nothing at runtime with no build-time error
 			// (`CommCareInstanceInitializer::loadFixtureRoot`).
 			instanceIds: ["casedb", "commcaresession"],
+			caseType: "commcare-user",
 		});
 	};
 
@@ -518,6 +541,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 			datums.push({
 				id: `case_id_new_${validateCaseType(caseType)}_0`,
 				function: "uuid()",
+				caseType,
 			});
 		}
 
@@ -537,6 +561,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 			datums.push({
 				id: `case_id_new_${validateCaseType(sc.case_type)}_${i + opensSubcaseIndexOffset}`,
 				function: "uuid()",
+				caseType: sc.case_type,
 			});
 		}
 	}
@@ -563,34 +588,52 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 
 	const caseSelectDatum = datums.find((datum) => datum.id === "case_id");
 	if (tileGrouping !== undefined && caseSelectDatum !== undefined) {
+		const renderFunction = (sessionRef: (datumId: string) => string): string =>
+			`join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = ${sessionRef(caseSelectDatum.id)}]/index/${tileGrouping.identifier}))`;
 		datums.push({
 			id: `${caseSelectDatum.id}_parent_ids`,
-			function: `join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/${caseSelectDatum.id}]/index/${tileGrouping.identifier}))`,
+			function: renderFunction(
+				(datumId) => `instance('commcaresession')/session/data/${datumId}`,
+			),
+			renderFunction,
 		});
 	}
 
 	return datums;
 }
 
+/** A projected frame child as the suite's `<create>` child. */
+export function toStackChild(child: MatchedChild): StackChild {
+	return child.type === "command"
+		? { type: "command", value: `'${child.id}'` }
+		: { type: "datum", id: child.id, value: child.value };
+}
+
 /**
- * Derive stack operations for simple post-submit destinations.
+ * Derive stack operations for simple post-submit destinations, mirroring
+ * HQ's `workflow.py::EndOfFormNavigationWorkflow::_get_static_stack_frame`
+ * for the three workflows Nova authors:
  *
- * | Destination      | Operation                                              |
- * |------------------|--------------------------------------------------------|
- * | `app_home`       | `<create/>` — empty frame, resolves to home             |
- * | `module`         | `<create><command value="'m{idx}'"/></create>`          |
- * | `previous`       | `<create>` with module cmd + case datums from session  |
+ * | Destination | Operation                                                      |
+ * |-------------|----------------------------------------------------------------|
+ * | `app_home`  | nothing (HQ `default`: no frame; the form frame pops to home)  |
+ * | `module`    | `<create><command value="'m{idx}'"/></create>`                  |
+ * | `previous`  | `<create>` carrying `previousFrame` (HQ `previous_screen`)      |
+ *
+ * `previousFrame` is the source entry's own frame children with the last
+ * child and every trailing computed datum popped — derived by
+ * `formLinkProjection.ts::previousFrameChildren`, never guessed here from
+ * the form type. A childless `previous` frame (HQ drops a childless frame
+ * unless the workflow is `root`, which Nova does not author) emits nothing.
  */
 export function derivePostSubmitStack(
 	postSubmit: PostSubmitDestination,
 	moduleIndex: number,
-	formType: FormType,
-	caseType?: string,
+	previousFrame: readonly MatchedChild[],
 ): StackOperation[] {
 	switch (postSubmit) {
 		case "app_home":
-			return [{ op: "create", children: [] }];
-
+			return [];
 		case "module":
 			return [
 				{
@@ -598,131 +641,61 @@ export function derivePostSubmitStack(
 					children: [{ type: "command", value: `'m${moduleIndex}'` }],
 				},
 			];
-
 		case "previous":
-			return [
-				{
-					op: "create",
-					children: [
-						{ type: "command", value: `'m${moduleIndex}'` },
-						...(CASE_LOADING_FORM_TYPES.has(formType) && caseType
-							? [
-									{
-										type: "datum" as const,
-										id: "case_id",
-										value: `${SESSION_REF}/case_id`,
-									},
-								]
-							: []),
-					],
-				},
-			];
+			return previousFrame.length === 0
+				? []
+				: [{ op: "create", children: previousFrame.map(toStackChild) }];
 	}
 }
 
 /**
- * Derive stack operations for a form whose `formLinks` array is populated.
+ * Derive stack operations for a form that carries after-submit links.
  *
- * Each link becomes one `<create>` — conditional when the link carries an
- * XPath condition, unconditional when it doesn't. For `form` targets the
- * create pushes the module command followed by the form command (CommCare
- * requires the module frame on the stack before the form frame). For
- * `module` targets it pushes only the module command, landing the user on
- * the module's form list. Link-level `datums` are appended verbatim —
- * they override auto-derived session variables when the defaults don't
- * fit (e.g. conditionally passing a different case_id).
+ * One `<create>` per link, guarded by the projection's EXCLUSIVE guard
+ * (`formLinkProjection.ts::planFormLinkGuards`), so exactly one frame fires
+ * whatever the runtime does with several true `if`s: the first true link
+ * wins by construction. Each frame's children are the target's frame
+ * children after datum matching (HQ's `get_frame_children` +
+ * `_get_datums_matched_to_source` / `…_to_manual_values`).
  *
- * When at least one link has a condition, an additional fallback create
- * is appended whose `if` negates every link condition (`not(c1) and
- * not(c2) and …`). The fallback's body is the same operation
- * `derivePostSubmitStack` would emit for the form's `postSubmit`
- * destination, so the form still navigates somewhere sensible when none
- * of the conditions matches. No fallback is emitted when every link is
- * unconditional — one of them is guaranteed to fire.
- *
- * Indices are resolved by the caller before this function runs; link
- * targets here speak HQ's 0-based module/form index vocabulary, not
- * domain uuids.
+ * The fallback frame is appended only when the projection says the last
+ * link is conditional (`fallback.kind === "guarded"`): its `if` is the
+ * conjunction of the negated emitted guards, byte for byte what HQ derives
+ * from the `xpath`s Nova sends it, and its body is the `postSubmit`
+ * destination's frame. A terminal unconditional link is the exhaustive else
+ * and suppresses it; `app_home` emits no frame (HQ `default`).
  */
 export function deriveFormLinkStack(
-	links: HqFormLink[],
+	projected: ProjectedFormLinks,
 	fallback: PostSubmitDestination,
 	sourceModuleIndex: number,
-	sourceFormType: FormType,
-	sourceCaseType?: string,
+	previousFrame: readonly MatchedChild[],
 ): StackOperation[] {
-	const ops: StackOperation[] = [];
-	const conditions: string[] = [];
-
-	for (const link of links) {
-		if (link.condition) conditions.push(link.condition);
-
-		const children: StackChild[] = [];
-
-		// Form targets need the module frame AND the form frame; module
-		// targets need only the module. CommCare's session resolver walks
-		// the stack top-down, so the order here (module before form)
-		// matches the enclosing-context semantics the mobile runtime
-		// expects.
-		if (link.target.type === "form") {
-			children.push({
-				type: "command",
-				value: `'m${link.target.moduleIndex}'`,
-			});
-			children.push({
-				type: "command",
-				value: `'m${link.target.moduleIndex}-f${link.target.formIndex}'`,
-			});
-		} else {
-			children.push({
-				type: "command",
-				value: `'m${link.target.moduleIndex}'`,
-			});
-		}
-
-		// Link-level datum overrides. When CommCare's auto-derivation
-		// would install the wrong session variable (e.g. the target form
-		// expects a different case than the source form just submitted),
-		// the authoring surface lets users supply the datum explicitly.
-		if (link.datums) {
-			for (const d of link.datums) {
-				children.push({ type: "datum", id: d.name, value: d.xpath });
-			}
-		}
-
-		ops.push({
-			op: "create",
-			...(link.condition && { ifClause: link.condition }),
-			children,
-		});
-	}
-
-	// Fallback frame: only needed when at least one link is conditional.
-	// If every link is unconditional, the first one always fires and
-	// appending a fallback would produce unreachable XML.
-	if (conditions.length > 0) {
-		const negated = conditions.map((c) => `not(${c})`).join(" and ");
-		const fallbackOps = derivePostSubmitStack(
+	const ops: StackOperation[] = projected.links.map((link) => ({
+		op: "create",
+		...(link.guard !== undefined && { ifClause: link.guard }),
+		children: link.children.map(toStackChild),
+	}));
+	if (projected.fallback.kind === "guarded") {
+		const guard = projected.fallback.guard;
+		for (const op of derivePostSubmitStack(
 			fallback,
 			sourceModuleIndex,
-			sourceFormType,
-			sourceCaseType,
-		);
-		for (const op of fallbackOps) {
-			ops.push({ ...op, ifClause: negated });
+			previousFrame,
+		)) {
+			ops.push({ ...op, ifClause: guard });
 		}
 	}
-
 	return ops;
 }
 
 /**
  * Build a complete EntryDefinition for a form.
  *
- * The compiler resolves the form's module/form indices + case type +
- * indexed form_links from their uuids before calling this —
- * `deriveEntryDefinition` only deals with the suite-level index world
- * and never touches the doc.
+ * The compiler resolves the form's module/form indices, its case type,
+ * its projected after-submit links, and its `previous` frame before
+ * calling this — `deriveEntryDefinition` only deals with the suite-level
+ * index world and never touches the doc.
  *
  */
 export interface EntryDefinitionInput extends SessionDatumsInput {
@@ -730,12 +703,19 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly formIndex: number;
 	readonly postSubmit: PostSubmitDestination;
 	/**
-	 * Takes priority over `postSubmit` when non-empty: the stack becomes one
-	 * conditional `<create>` per link plus a fallback firing the `postSubmit`
-	 * destination when no condition matches. Empty or omitted falls back to
-	 * the simple `postSubmit` derivation.
+	 * The form's projected after-submit links (`formLinkProjection.ts::
+	 * projectFormLinks`). Present, the stack is one exclusive `<create>` per
+	 * link plus the fallback frame the projection calls for; absent, the
+	 * stack is the simple `postSubmit` derivation.
 	 */
-	readonly formLinks?: HqFormLink[];
+	readonly formLinks?: ProjectedFormLinks;
+	/**
+	 * The source entry's `previous` frame (`formLinkProjection.ts::
+	 * previousFrameChildren`), read whenever `postSubmit` (or the links'
+	 * fallback) is `previous`. Omitted, a `previous` destination emits no
+	 * frame: the caller that wants HQ's `previous_screen` bytes derives it.
+	 */
+	readonly previousFrame?: readonly MatchedChild[];
 	/**
 	 * The module's `caseSearchConfig.searchButtonDisplayCondition`. It lowers
 	 * to the `<action relevant>` attribute on the case-list detail's
@@ -771,10 +751,9 @@ export function deriveEntryDefinition(
 		formXmlns,
 		moduleIndex,
 		formIndex,
-		formType,
 		postSubmit,
-		caseType,
 		formLinks,
+		previousFrame = [],
 		caseListFilter,
 		searchButtonDisplayCondition,
 		caseListColumnExpressions,
@@ -827,13 +806,18 @@ export function deriveEntryDefinition(
 		lookupNaming,
 	);
 
-	// Post-form stack conditions/datums evaluate in this entry scope. Their
-	// strings are already projected to wire XPath by the expander, so collect
-	// literal instance() roots structurally and declare the matching sources.
-	for (const link of formLinks ?? []) {
+	// Post-form stack guards, frame datum values, and manual datum XPath all
+	// evaluate in this entry scope (a registration entry declares no `casedb`
+	// of its own, and a guard reading the just-created case needs it). The
+	// strings are already wire XPath, so collect literal instance() roots
+	// structurally and declare the matching sources.
+	for (const link of formLinks?.links ?? []) {
 		const expressions = [
-			...(link.condition === undefined ? [] : [link.condition]),
-			...(link.datums ?? []).map((datum) => datum.xpath),
+			...(link.guard === undefined ? [] : [link.guard]),
+			...link.children.flatMap((child) =>
+				child.type === "datum" ? [child.value] : [],
+			),
+			...link.datums.map((datum) => datum.xpath),
 		];
 		for (const expression of expressions) {
 			for (const id of collectInstanceRefs(expression)) {
@@ -843,33 +827,23 @@ export function deriveEntryDefinition(
 			}
 		}
 	}
-
-	// Determine stack operations. Three cases:
-	//   1. Form has form_links → emit one <create> per link plus a
-	//      negated-conditions fallback (when any link is conditional).
-	//   2. No form_links, postSubmit !== 'app_home' → emit the simple
-	//      post-submit stack.
-	//   3. No form_links, postSubmit === 'app_home' → omit <stack>
-	//      entirely; CommCare's default (no stack ops) pops the form
-	//      frame, producing the same home-navigation result as an empty
-	//      <create/> with cleaner XML.
-	let operations: StackOperation[] | undefined;
-	if (formLinks && formLinks.length > 0) {
-		operations = deriveFormLinkStack(
-			formLinks,
-			postSubmit,
-			moduleIndex,
-			formType,
-			caseType,
-		);
-	} else if (postSubmit !== "app_home") {
-		operations = derivePostSubmitStack(
-			postSubmit,
-			moduleIndex,
-			formType,
-			caseType,
-		);
+	if (formLinks?.fallback.kind === "guarded") {
+		for (const id of collectInstanceRefs(formLinks.fallback.guard)) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
+		}
 	}
+
+	// The stack: one exclusive `<create>` per link plus the projection's
+	// fallback when the form carries links, else the simple `postSubmit`
+	// frame. `app_home` (HQ `default`) contributes no frame either way, so a
+	// form with no links and `app_home` emits no `<stack>` at all — CommCare
+	// pops the form frame and lands home.
+	const operations =
+		formLinks !== undefined
+			? deriveFormLinkStack(formLinks, postSubmit, moduleIndex, previousFrame)
+			: derivePostSubmitStack(postSubmit, moduleIndex, previousFrame);
 
 	return {
 		formXmlns,
@@ -888,7 +862,7 @@ export function deriveEntryDefinition(
 				},
 			],
 		}),
-		...(operations && { stack: { operations } }),
+		...(operations.length > 0 && { stack: { operations } }),
 	};
 }
 

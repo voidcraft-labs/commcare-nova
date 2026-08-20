@@ -3756,15 +3756,18 @@ describe("case-property rename cascade — pipeline regression", () => {
 
 // ── Form links ─────────────────────────────────────────────────────────
 //
-// The expander emits `doc.forms[*].formLinks` into `HqForm.form_links`,
-// translating uuid-based targets into HQ's 0-based module/form indices.
-// Links with dangling target uuids are dropped at the boundary (the
-// validator catches these first in production, but the expander stays
-// defense-in-depth so an unchecked call never produces HQ JSON with
-// null targets).
+// The expander emits `doc.forms[*].formLinks` into `HqForm.form_links` in
+// HQ's own `FormLink` shape: the exclusive guard as `xpath`, the target as
+// `form_id` + `form_module_id` (or `module_unique_id`), explicit datums as
+// `datums`, with `post_form_workflow = "form"` (the only workflow under
+// which HQ reads links) and the authored `postSubmit` as
+// `post_form_workflow_fallback` when the list ends conditionally. A dangling
+// target aborts projection (the validator catches it first in production;
+// the expander stays fail-closed so an unchecked call never produces HQ
+// JSON pointing nowhere).
 
 describe("form_links emission", () => {
-	it("emits HQ form_links with indexed form targets", () => {
+	it("emits HQ form_links with form_id / form_module_id targets and the fallback workflow", () => {
 		// Pre-assign UUIDs so the DSL-level `formLinks` target can reference
 		// the sibling form without post-construction mutation.
 		const moduleUuid = "mod-fl";
@@ -3778,6 +3781,9 @@ describe("form_links emission", () => {
 					uuid: moduleUuid,
 					name: "M",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: intakeUuid,
@@ -3792,7 +3798,8 @@ describe("form_links emission", () => {
 										moduleUuid: testUuid(moduleUuid),
 										formUuid: testUuid(followupUuid),
 									},
-									datums: [{ name: "worker", xpath: "#user/username" }],
+									// The target's one selection datum, named by hand.
+									datums: [{ name: "case_id", xpath: "#user/username" }],
 								},
 							],
 							fields: [
@@ -3810,7 +3817,7 @@ describe("form_links emission", () => {
 						{
 							uuid: followupUuid,
 							name: "Followup",
-							type: "survey",
+							type: "followup",
 							fields: [
 								f({ kind: "text", id: "notes", label: proseText("Notes") }),
 							],
@@ -3834,23 +3841,31 @@ describe("form_links emission", () => {
 		).toEqual([]);
 
 		const hq = expandDoc(doc);
-		// Expander resolves uuid target → indexed target:
-		// followup form is index 1 within module 0.
-		expect(hq.modules[0].forms[0].form_links).toEqual([
+		const module = hq.modules[0];
+		const [intake, followup] = module.forms;
+		expect(intake.post_form_workflow).toBe("form");
+		// The list ends conditionally, so the authored `module` destination
+		// is the fallback HQ reads when the guard is false.
+		expect(intake.post_form_workflow_fallback).toBe("module");
+		expect(intake.form_links).toEqual([
 			{
-				condition: lowerXPathForJavaRosa(
+				xpath: lowerXPathForJavaRosa(
 					"normalize-space(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/status) = 'open'",
 				),
-				target: { type: "form", moduleIndex: 0, formIndex: 1 },
+				form_id: followup.unique_id,
+				form_module_id: module.unique_id,
 				datums: [
 					{
-						name: "worker",
+						name: "case_id",
 						xpath:
 							"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username",
 					},
 				],
 			},
 		]);
+		// The target form keeps the ordinary workflow: no links of its own.
+		expect(followup.post_form_workflow).toBe("previous_screen");
+		expect(followup.post_form_workflow_fallback).toBeNull();
 	});
 
 	it("emits module-target links with module index only", () => {
@@ -3894,8 +3909,11 @@ describe("form_links emission", () => {
 
 		const hq = expandDoc(doc);
 		expect(hq.modules[0].forms[0].form_links).toEqual([
-			{ target: { type: "module", moduleIndex: 1 } },
+			{ xpath: "", module_unique_id: hq.modules[1].unique_id, datums: [] },
 		]);
+		expect(hq.modules[0].forms[0].post_form_workflow).toBe("form");
+		// A sole unconditional link always fires: no fallback to declare.
+		expect(hq.modules[0].forms[0].post_form_workflow_fallback).toBeNull();
 	});
 
 	it("forwards literal condition + datum overrides", () => {
@@ -3948,13 +3966,88 @@ describe("form_links emission", () => {
 		});
 
 		const hq = expandDoc(doc);
-		expect(hq.modules[0].forms[0].form_links).toEqual([
+		const module = hq.modules[0];
+		expect(module.forms[0].form_links).toEqual([
 			{
-				condition: "true()",
-				target: { type: "form", moduleIndex: 0, formIndex: 1 },
+				xpath: "true()",
+				form_id: module.forms[1].unique_id,
+				form_module_id: module.unique_id,
 				datums: [{ name: "case_id", xpath: "'patient-id'" }],
 			},
 		]);
+	});
+
+	it("emits the exclusive guard, not the raw condition, on every link after the first", () => {
+		const moduleUuid = "mod-x";
+		const [a, b, c] = ["frm-a", "frm-b", "frm-c"];
+		const doc = buildDoc({
+			appName: "FL",
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "M",
+					forms: [
+						{
+							uuid: a,
+							name: "A",
+							type: "survey",
+							formLinks: [
+								{
+									condition: "#user/role = 'chw' or #user/role = 'nurse'",
+									target: {
+										type: "form",
+										moduleUuid: testUuid(moduleUuid),
+										formUuid: testUuid(b),
+									},
+								},
+								{
+									condition: "#user/role = 'super'",
+									target: {
+										type: "form",
+										moduleUuid: testUuid(moduleUuid),
+										formUuid: testUuid(c),
+									},
+								},
+								{
+									target: { type: "module", moduleUuid: testUuid(moduleUuid) },
+								},
+							],
+							fields: [f({ kind: "text", id: "x", label: proseText("X") })],
+						},
+						{
+							uuid: b,
+							name: "B",
+							type: "survey",
+							fields: [f({ kind: "text", id: "y", label: proseText("Y") })],
+						},
+						{
+							uuid: c,
+							name: "C",
+							type: "survey",
+							fields: [f({ kind: "text", id: "z", label: proseText("Z") })],
+						},
+					],
+				},
+			],
+		});
+		const hq = expandDoc(doc);
+		const form = hq.modules[0].forms[0];
+		const role =
+			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/role";
+		const first = `${role} = 'chw' or ${role} = 'nurse'`;
+		const second = `${role} = 'super'`;
+		expect(form.form_links.map((link) => link.xpath)).toEqual([
+			// The first guard is the bare condition (byte-identical to HQ's
+			// own first frame); the second wraps its `or` before ANDing the
+			// negated prior; the terminal else is the negation of every prior.
+			first,
+			`(${second}) and not(${first})`,
+			`not(${first}) and not(${second})`,
+		]);
+		// A terminal unconditional link is the exhaustive else: HQ's
+		// fallback frame is suppressed by leaving the fallback null.
+		expect(form.post_form_workflow).toBe("form");
+		expect(form.post_form_workflow_fallback).toBeNull();
 	});
 
 	it("defaults to [] when no formLinks are defined", () => {
@@ -3973,7 +4066,10 @@ describe("form_links emission", () => {
 				},
 			],
 		});
-		expect(expandDoc(doc).modules[0].forms[0].form_links).toEqual([]);
+		const form = expandDoc(doc).modules[0].forms[0];
+		expect(form.form_links).toEqual([]);
+		expect(form.post_form_workflow).toBe("default");
+		expect(form.post_form_workflow_fallback).toBeNull();
 	});
 
 	// The validator blocks dangling targets before they reach the expander.
@@ -4017,7 +4113,7 @@ describe("form_links emission", () => {
 		});
 
 		expect(() => expandDoc(doc)).toThrowError(
-			"Cannot emit form link: target module",
+			/Cannot project a form link: target module .* is missing/,
 		);
 	});
 });

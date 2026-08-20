@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { HqFormLink } from "@/lib/commcare";
+import type {
+	MatchedChild,
+	ProjectedFormLink,
+} from "@/lib/commcare/formLinkProjection";
 import {
 	deriveCaseListEntryDefinition,
 	deriveEntryDefinition,
@@ -234,100 +237,135 @@ describe("deriveSessionDatums", () => {
 // ── derivePostSubmitStack ──────────────────────────────────────────
 
 describe("derivePostSubmitStack", () => {
+	const previousFrame: MatchedChild[] = [
+		{ type: "command", id: "m0" },
+		{
+			type: "datum",
+			id: "case_id",
+			value: "instance('commcaresession')/session/data/case_id",
+		},
+	];
+
 	describe("app_home", () => {
-		it("produces empty create operation for any form type", () => {
-			for (const formType of ["registration", "followup", "survey"] as const) {
-				const ops = derivePostSubmitStack("app_home", 0, formType, "patient");
-				expect(ops).toHaveLength(1);
-				expect(ops[0].op).toBe("create");
-				expect(ops[0].children).toEqual([]);
-			}
+		it("emits no frame — an empty stack pops to home, HQ's `default`", () => {
+			// `finishAndPop` on an empty stack ends the session; an empty
+			// `<create/>` would land in the same place with one more frame.
+			expect(derivePostSubmitStack("app_home", 0, previousFrame)).toEqual([]);
 		});
 	});
 
 	describe("module", () => {
 		it("produces module command with correct index", () => {
-			const ops = derivePostSubmitStack("module", 2, "registration");
+			const ops = derivePostSubmitStack("module", 2, []);
 			expect(ops).toHaveLength(1);
 			expect(ops[0].children).toEqual([{ type: "command", value: "'m2'" }]);
 		});
 	});
 
 	describe("previous", () => {
-		it("includes case_id datum for followup forms", () => {
-			const ops = derivePostSubmitStack("previous", 0, "followup", "patient");
+		it("pushes the projected previous frame verbatim", () => {
+			const ops = derivePostSubmitStack("previous", 0, previousFrame);
 			expect(ops).toHaveLength(1);
-			expect(ops[0].children).toHaveLength(2);
-			expect(ops[0].children[0]).toEqual({ type: "command", value: "'m0'" });
-			expect(ops[0].children[1]).toEqual({
-				type: "datum",
-				id: "case_id",
-				value: "instance('commcaresession')/session/data/case_id",
-			});
+			expect(ops[0].children).toEqual([
+				{ type: "command", value: "'m0'" },
+				{
+					type: "datum",
+					id: "case_id",
+					value: "instance('commcaresession')/session/data/case_id",
+				},
+			]);
 		});
 
-		it("omits case_id datum for registration forms", () => {
-			const ops = derivePostSubmitStack(
-				"previous",
-				0,
-				"registration",
-				"patient",
-			);
-			expect(ops[0].children).toHaveLength(1);
-		});
-
-		it("omits case_id datum for survey forms", () => {
-			const ops = derivePostSubmitStack("previous", 0, "survey");
-			expect(ops[0].children).toHaveLength(1);
+		it("emits no frame when the previous frame is empty", () => {
+			expect(derivePostSubmitStack("previous", 0, [])).toEqual([]);
 		});
 	});
 });
 
 // ── deriveFormLinkStack ────────────────────────────────────────────
 
+/** A projected link as the stack derivation receives it. */
+function projectedLink(
+	uuid: string,
+	children: MatchedChild[],
+	guard?: string,
+): ProjectedFormLink {
+	return {
+		uuid: testUuid(uuid),
+		...(guard !== undefined && { guard }),
+		target: { type: "module", moduleUuid: testUuid("unused") },
+		children,
+		datums: [],
+		unmatched: [],
+		missing: [],
+		unused: [],
+	};
+}
+
 describe("deriveFormLinkStack", () => {
-	it("emits module + form commands for conditional form targets", () => {
-		const links: HqFormLink[] = [
+	const formTarget: MatchedChild[] = [
+		{ type: "command", id: "m2" },
+		{ type: "command", id: "m2-f3" },
+	];
+
+	it("emits one `<create if>` per link carrying the projection's guard and children", () => {
+		const ops = deriveFormLinkStack(
 			{
-				condition: "/data/refer = 'yes'",
-				target: { type: "form", moduleIndex: 2, formIndex: 3 },
+				links: [projectedLink("l1", formTarget, "/data/refer = 'yes'")],
+				fallback: { kind: "guarded", guard: "not(/data/refer = 'yes')" },
 			},
-		];
-		const ops = deriveFormLinkStack(links, "app_home", 0, "survey");
-		// One conditional link + one fallback (negated condition).
-		expect(ops).toHaveLength(2);
-		expect(ops[0]).toEqual({
-			op: "create",
-			ifClause: "/data/refer = 'yes'",
-			children: [
-				{ type: "command", value: "'m2'" },
-				{ type: "command", value: "'m2-f3'" },
-			],
-		});
-		expect(ops[1].ifClause).toBe("not(/data/refer = 'yes')");
+			"app_home",
+			0,
+			[],
+		);
+		// `app_home` as the fallback emits no frame, so the guarded
+		// fallback adds nothing.
+		expect(ops).toEqual([
+			{
+				op: "create",
+				ifClause: "/data/refer = 'yes'",
+				children: [
+					{ type: "command", value: "'m2'" },
+					{ type: "command", value: "'m2-f3'" },
+				],
+			},
+		]);
 	});
 
-	it("emits only module command for module targets", () => {
-		const links: HqFormLink[] = [
-			{ target: { type: "module", moduleIndex: 4 } },
-		];
-		const ops = deriveFormLinkStack(links, "app_home", 0, "survey");
-		// Unconditional link, no fallback needed.
-		expect(ops).toHaveLength(1);
-		expect(ops[0]).toEqual({
-			op: "create",
-			children: [{ type: "command", value: "'m4'" }],
-		});
+	it("emits no `if` at all for an unguarded frame", () => {
+		// `if=""` fails Core's `StackOpParser` — absence is the only
+		// spelling of "always".
+		const ops = deriveFormLinkStack(
+			{
+				links: [projectedLink("l1", [{ type: "command", id: "m4" }])],
+				fallback: { kind: "none" },
+			},
+			"app_home",
+			0,
+			[],
+		);
+		expect(ops).toEqual([
+			{ op: "create", children: [{ type: "command", value: "'m4'" }] },
+		]);
+		expect("ifClause" in ops[0]).toBe(false);
 	});
 
-	it("appends datum overrides after the command children", () => {
-		const links: HqFormLink[] = [
+	it("carries matched datum children after the commands", () => {
+		const ops = deriveFormLinkStack(
 			{
-				target: { type: "form", moduleIndex: 1, formIndex: 0 },
-				datums: [{ name: "case_id", xpath: "/data/patient_id" }],
+				links: [
+					projectedLink("l1", [
+						{ type: "command", id: "m1" },
+						{ type: "command", id: "m1-f0" },
+						{ type: "datum", id: "case_id", value: "/data/patient_id" },
+					]),
+				],
+				fallback: { kind: "none" },
 			},
-		];
-		const ops = deriveFormLinkStack(links, "app_home", 0, "survey");
+			"app_home",
+			0,
+			[],
+		);
 		expect(ops[0].children).toEqual([
 			{ type: "command", value: "'m1'" },
 			{ type: "command", value: "'m1-f0'" },
@@ -335,57 +373,71 @@ describe("deriveFormLinkStack", () => {
 		]);
 	});
 
-	it("skips the fallback when every link is unconditional", () => {
-		const links: HqFormLink[] = [
-			{ target: { type: "form", moduleIndex: 0, formIndex: 1 } },
-			{ target: { type: "module", moduleIndex: 2 } },
-		];
-		const ops = deriveFormLinkStack(links, "app_home", 0, "survey");
-		expect(ops).toHaveLength(2);
-		expect(ops.every((op) => op.ifClause === undefined)).toBe(true);
-	});
-
-	it("ANDs negated conditions into the fallback", () => {
-		const links: HqFormLink[] = [
+	it("appends the fallback frame with the projection's guard when the list ends conditionally", () => {
+		const ops = deriveFormLinkStack(
 			{
-				condition: "/data/a = 1",
-				target: { type: "form", moduleIndex: 0, formIndex: 0 },
+				links: [
+					projectedLink("l1", [{ type: "command", id: "m0" }], "/data/a = 1"),
+					projectedLink(
+						"l2",
+						[{ type: "command", id: "m1" }],
+						"(/data/b = 2) and not(/data/a = 1)",
+					),
+				],
+				fallback: {
+					kind: "guarded",
+					guard: "not(/data/a = 1) and not((/data/b = 2) and not(/data/a = 1))",
+				},
 			},
-			{
-				condition: "/data/b = 2",
-				target: { type: "module", moduleIndex: 1 },
-			},
-		];
-		const ops = deriveFormLinkStack(links, "module", 3, "followup", "patient");
-		// Two conditional links + one fallback.
-		expect(ops).toHaveLength(3);
-		expect(ops[2].ifClause).toBe("not(/data/a = 1) and not(/data/b = 2)");
-		// Fallback body mirrors the simple post-submit derivation for "module".
-		expect(ops[2].children).toEqual([{ type: "command", value: "'m3'" }]);
-	});
-
-	it("wraps `or`-joined operands inside each not() without splitting them", () => {
-		// XPath's `and` binds tighter than `or`, so a naive fallback like
-		// `not(a) or b and not(c) or d` would silently change truth-table
-		// semantics. `not(a or b) and not(c or d)` is the correct form
-		// and depends on `not()` enclosing the entire condition verbatim.
-		// This test pins that wrapping against a future refactor that
-		// forgets the parenthesization.
-		const links: HqFormLink[] = [
-			{
-				condition: "#form/q = 'a' or #form/q = 'b'",
-				target: { type: "form", moduleIndex: 0, formIndex: 0 },
-			},
-			{
-				condition: "#form/r = 1 or #form/r = 2",
-				target: { type: "module", moduleIndex: 1 },
-			},
-		];
-		const ops = deriveFormLinkStack(links, "app_home", 0, "survey");
-		expect(ops).toHaveLength(3);
-		expect(ops[2].ifClause).toBe(
-			"not(#form/q = 'a' or #form/q = 'b') and not(#form/r = 1 or #form/r = 2)",
+			"module",
+			3,
+			[],
 		);
+		expect(ops).toHaveLength(3);
+		expect(ops[2]).toEqual({
+			op: "create",
+			ifClause: "not(/data/a = 1) and not((/data/b = 2) and not(/data/a = 1))",
+			children: [{ type: "command", value: "'m3'" }],
+		});
+	});
+
+	it("routes a `previous` fallback through the projected previous frame", () => {
+		const ops = deriveFormLinkStack(
+			{
+				links: [projectedLink("l1", [{ type: "command", id: "m1" }], "a = 1")],
+				fallback: { kind: "guarded", guard: "not(a = 1)" },
+			},
+			"previous",
+			0,
+			[
+				{ type: "command", id: "m0" },
+				{ type: "command", id: "m0-f1" },
+			],
+		);
+		expect(ops[1]).toEqual({
+			op: "create",
+			ifClause: "not(a = 1)",
+			children: [
+				{ type: "command", value: "'m0'" },
+				{ type: "command", value: "'m0-f1'" },
+			],
+		});
+	});
+
+	it("emits no fallback frame when a terminal unconditional link is the else", () => {
+		const ops = deriveFormLinkStack(
+			{
+				links: [
+					projectedLink("l1", [{ type: "command", id: "m0" }], "a = 1"),
+					projectedLink("l2", [{ type: "command", id: "m1" }], "not(a = 1)"),
+				],
+				fallback: { kind: "suppressed-by-else" },
+			},
+			"module",
+			3,
+			[],
+		);
+		expect(ops).toHaveLength(2);
 	});
 });
 
@@ -400,6 +452,14 @@ describe("deriveEntryDefinition", () => {
 			formType: "followup",
 			postSubmit: "previous",
 			caseType: "patient",
+			previousFrame: [
+				{ type: "command", id: "m0" },
+				{
+					type: "datum",
+					id: "case_id",
+					value: "instance('commcaresession')/session/data/case_id",
+				},
+			],
 		});
 		expect(entry.commandId).toBe("m0-f1");
 		expect(entry.localeId).toBe("forms.m0f1");
@@ -645,53 +705,128 @@ describe("deriveEntryDefinition", () => {
 
 	it("prioritizes formLinks over simple post_submit", () => {
 		// When formLinks is present, the stack is derived from the links
-		// (with the post_submit value used only as the negated-conditions
-		// fallback) rather than from post_submit directly.
-		const links: HqFormLink[] = [
-			{
-				condition: "/data/go = 'yes'",
-				target: { type: "form", moduleIndex: 1, formIndex: 0 },
-			},
-		];
+		// (with the post_submit value used only as the fallback frame)
+		// rather than from post_submit directly.
 		const entry = deriveEntryDefinition({
 			formXmlns: "http://openrosa.org/formdesigner/xyz",
 			moduleIndex: 0,
 			formIndex: 0,
 			formType: "survey",
-			postSubmit: "app_home",
-			formLinks: links,
+			postSubmit: "module",
+			formLinks: {
+				links: [
+					projectedLink(
+						"l1",
+						[
+							{ type: "command", id: "m1" },
+							{ type: "command", id: "m1-f0" },
+						],
+						"/data/go = 'yes'",
+					),
+				],
+				fallback: { kind: "guarded", guard: "not(/data/go = 'yes')" },
+			},
 		});
 		const ops = entry.stack?.operations;
 		expect(ops).toBeDefined();
 		expect(ops?.[0].ifClause).toBe("/data/go = 'yes'");
+		expect(ops?.[1].ifClause).toBe("not(/data/go = 'yes')");
+		expect(ops?.[1].children).toEqual([{ type: "command", value: "'m0'" }]);
+	});
+
+	it("routes a `previous` post-submit through the projected previous frame", () => {
+		// A forms-first module's previous frame is [m0, m0-f1] (HQ pops the
+		// trailing non-selection datums), not Nova's old [m0, case_id].
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/xyz",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "registration",
+			postSubmit: "previous",
+			caseType: "patient",
+			previousFrame: [
+				{ type: "command", id: "m0" },
+				{ type: "command", id: "m0-f1" },
+			],
+		});
+		expect(entry.stack?.operations).toEqual([
+			{
+				op: "create",
+				children: [
+					{ type: "command", value: "'m0'" },
+					{ type: "command", value: "'m0-f1'" },
+				],
+			},
+		]);
 	});
 
 	it("declares every secondary instance used by form-link stack XPath", () => {
-		const links: HqFormLink[] = [
-			{
-				condition:
-					"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/status = 'open'",
-				target: { type: "form", moduleIndex: 1, formIndex: 0 },
-				datums: [
-					{
-						name: "worker",
-						xpath: "instance('commcaresession')/session/user/data/username",
-					},
-				],
-			},
-		];
+		// The guard reads casedb + the session; a datum child reads the
+		// session; an explicit datum reads the session user. The entry
+		// declares each instance once, on the entry that evaluates it.
 		const entry = deriveEntryDefinition({
 			formXmlns: "http://openrosa.org/formdesigner/xyz",
 			moduleIndex: 0,
 			formIndex: 0,
-			formType: "followup",
+			formType: "survey",
 			postSubmit: "previous",
-			caseType: "patient",
-			formLinks: links,
+			formLinks: {
+				links: [
+					{
+						...projectedLink(
+							"l1",
+							[
+								{ type: "command", id: "m1" },
+								{ type: "command", id: "m1-f0" },
+								{
+									type: "datum",
+									id: "case_id",
+									value: "instance('commcaresession')/session/data/case_id",
+								},
+							],
+							"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/status = 'open'",
+						),
+						datums: [
+							{
+								name: "worker",
+								xpath: "instance('commcaresession')/session/user/data/username",
+							},
+						],
+					},
+				],
+				fallback: { kind: "suppressed-by-else" },
+			},
 		});
 
 		expect(entry.instances).toEqual([
 			{ id: "casedb", src: "jr://instance/casedb" },
+			{ id: "commcaresession", src: "jr://instance/session" },
+		]);
+	});
+
+	it("declares the instances a guarded fallback guard reads", () => {
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/xyz",
+			moduleIndex: 0,
+			formIndex: 0,
+			formType: "survey",
+			postSubmit: "module",
+			formLinks: {
+				links: [
+					projectedLink(
+						"l1",
+						[{ type: "command", id: "m1" }],
+						"instance('commcaresession')/session/user/data/role = 'chw'",
+					),
+				],
+				fallback: {
+					kind: "guarded",
+					guard:
+						"not(instance('commcaresession')/session/user/data/role = 'chw')",
+				},
+			},
+		});
+		expect(entry.instances).toEqual([
 			{ id: "commcaresession", src: "jr://instance/session" },
 		]);
 	});
@@ -794,6 +929,14 @@ describe("renderEntryXml", () => {
 			formType: "followup",
 			postSubmit: "previous",
 			caseType: "patient",
+			previousFrame: [
+				{ type: "command", id: "m1" },
+				{
+					type: "datum",
+					id: "case_id",
+					value: "instance('commcaresession')/session/data/case_id",
+				},
+			],
 		});
 		const xml = renderEntryXml(entry);
 		expect(xml).toContain("<session>");
