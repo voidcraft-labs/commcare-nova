@@ -74,20 +74,12 @@ import {
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 
 interface BuilderHeaderProps {
-	/** Whether CommCare HQ credentials are configured. */
-	commcareConfigured: boolean;
-	/** Every project space the key can upload to (drives the dialog picker). */
-	commcareAvailableDomains: { name: string; displayName: string }[];
 	/** Preview toggle handler: BuilderLayout's scroll-anchor-capturing
 	 *  wrapper around the store's `setPreviewing`. */
 	onSetPreviewing: (on: boolean) => void;
 }
 
-export function BuilderHeader({
-	commcareConfigured,
-	commcareAvailableDomains,
-	onSetPreviewing,
-}: BuilderHeaderProps) {
+export function BuilderHeader({ onSetPreviewing }: BuilderHeaderProps) {
 	const slots = useHeaderSlots();
 	const appId = useAppId();
 	const phase = useBuilderPhase();
@@ -235,12 +227,7 @@ export function BuilderHeader({
 					</>
 				)
 			) : null}
-			{showToolbar ? (
-				<PublishPanel
-					commcareConfigured={commcareConfigured}
-					commcareAvailableDomains={commcareAvailableDomains}
-				/>
-			) : null}
+			{showToolbar ? <PublishPanel /> : null}
 		</>
 	) : null;
 

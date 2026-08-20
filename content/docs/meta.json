@@ -1,6 +1,7 @@
 {
 	"title": "Docs",
 	"pages": [
+		"building-with-nova",
 		"languages",
 		"case-workspace",
 		"publishing",
@@ -11,6 +12,7 @@
 		"case-changes",
 		"users-and-personas",
 		"organization",
+		"cross-facility-referrals",
 		"automations",
 		"projects",
 		"claude-code",

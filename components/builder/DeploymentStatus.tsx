@@ -22,14 +22,20 @@ import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerExternalLink from "@iconify-icons/tabler/external-link";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
-import { useCallback, useId, useState, useTransition } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useId,
+	useState,
+	useTransition,
+} from "react";
+import { DEPLOYMENT_STATE_LABELS } from "@/components/builder/app-setup/publishingSectionModel";
 import { Button } from "@/components/shadcn/button";
 import type { SetupArtifactSection } from "@/lib/deployment";
 import {
 	DEPLOYMENT_PROGRESS_STATES,
 	DEPLOYMENT_STATE_PRODUCING_PHASE,
 	type DeploymentPhase,
-	type DeploymentProgressState,
 	type DeploymentResource,
 	deploymentDisplaysAsReached,
 	deploymentIsObservable,
@@ -41,22 +47,11 @@ import {
 } from "@/lib/deployment/actions";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import { DeploymentWorkers } from "./DeploymentWorkers";
-
-/** What each rung means, in the author's words. */
-const STATE_LABELS: Readonly<Record<DeploymentProgressState, string>> = {
-	preflight: "Checked",
-	resources: "Tables in place",
-	uploaded: "On CommCare HQ",
-	built: "Version made",
-	released: "Released",
-	runnable: "Ready for workers",
-};
 
 /**
  * How each resume point reads in a sentence.
  *
- * Separate from `STATE_LABELS` because those are column headings and these
+ * Separate from `DEPLOYMENT_STATE_LABELS` because those are column headings and these
  * are mid-sentence clauses: lower-casing "On CommCare HQ" produced "carry
  * on from on commcare hq", and "Checked" produced "carry on from checked".
  */
@@ -78,25 +73,26 @@ export function DeploymentStatus({
 	view,
 	canRefresh = true,
 	onUpdated,
-	onProvisioned,
+	workers,
 }: {
 	appId: string;
 	view: DeploymentView;
 	/**
-	 * Whether this viewer may ask CommCare HQ again, and may make workers.
-	 * Both WRITE — one Nova's observed state, the other real accounts — so
-	 * a viewer does neither. Offering them a button that would be refused
-	 * is worse than not offering it.
+	 * Whether this viewer may ask CommCare HQ again. Checking WRITES what
+	 * it observed, so a viewer may not. Offering a button that would be
+	 * refused is worse than not offering it.
 	 */
 	canRefresh?: boolean;
-	/** Lets the surrounding dialog keep the record it is holding current. */
+	/** Lets the surrounding surface keep the record it is holding current. */
 	onUpdated: (next: RefreshedDeploymentView) => void;
 	/**
-	 * The same, for a provisioning call. Separate because provisioning
-	 * cannot change which project space Preview names, so it answers with
-	 * the record alone rather than with the record plus that.
+	 * The Workers panel, when this record's surface owns one. A slot rather
+	 * than a built-in render because a worker's password is shown in exactly
+	 * one place — the App setup Publishing section composes `DeploymentWorkers`
+	 * here, and every other surface (the Publish dialog) passes nothing, so
+	 * a second credential surface cannot exist by accident.
 	 */
-	onProvisioned: (next: DeploymentView) => void;
+	workers?: ReactNode;
 }) {
 	const record = view.deployment.deployment;
 	/* An app with no lookup tables and no places has no data rung: drawing
@@ -223,7 +219,7 @@ export function DeploymentStatus({
 										reached ? "text-nova-text" : "text-nova-text-muted"
 									}
 								>
-									{STATE_LABELS[state]}
+									{DEPLOYMENT_STATE_LABELS[state]}
 								</span>
 								<span className="sr-only">
 									{reached ? ", done" : ", not yet"}
@@ -285,12 +281,7 @@ export function DeploymentStatus({
 
 			<LeftBehindNotice resources={view.leftBehind} />
 
-			<DeploymentWorkers
-				appId={appId}
-				deployment={view.deployment}
-				canProvision={canRefresh}
-				onUpdated={onProvisioned}
-			/>
+			{workers}
 
 			<SetupNotes sections={view.artifact.sections} />
 		</section>

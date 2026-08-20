@@ -25,8 +25,17 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
-import type { UnconfirmedWorker } from "@/lib/deployment/workerProvisionPlan";
-import { retainUnconfirmedWorkers } from "@/lib/deployment/workerProvisionPlan";
+import type {
+	HeldProvisioningOutcome,
+	ProvisionedWorker,
+	UnconfirmedWorker,
+	WorkerProvisionRefusal,
+} from "@/lib/deployment/workerProvisionPlan";
+import {
+	foldProvisioningOutcome,
+	provisioningOutcomeKey,
+	retainUnconfirmedWorkers,
+} from "@/lib/deployment/workerProvisionPlan";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { planConnectTargetState } from "@/lib/doc/connectTargetState";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -309,20 +318,57 @@ export interface BuilderSessionState {
 	 *  twice must not be one Nova keeps. */
 	unconfirmedWorkers: Record<string, UnconfirmedWorker>;
 
-	/** Fold one provisioning answer into the held credentials.
-	 *  `retainUnconfirmedWorkers` owns the rule; this is the store seam. */
+	/** Each target's held provisioning outcome — the confirmed accounts a
+	 *  call made (their passwords included) and the latest call's refusal —
+	 *  keyed by `provisioningOutcomeKey(server, domain)`.
+	 *
+	 *  Here for the same reason `unconfirmedWorkers` is: the Workers panel
+	 *  unmounts on an ordinary App setup section switch, and a new
+	 *  account's password exists nowhere but on screen. Same transient
+	 *  ceiling too — nothing persists it, and a page load clears it. */
+	provisioningOutcomes: Record<string, HeldProvisioningOutcome>;
+
+	/** Fold one provisioning answer into the held credentials and the
+	 *  target's held outcome. `retainUnconfirmedWorkers` and
+	 *  `foldProvisioningOutcome` own the rules; this is the store seam. */
 	recordProvisioningOutcome: (answer: {
-		readonly workers: readonly {
-			readonly personaUuid: string;
-			readonly username: string;
-			readonly created: boolean;
-		}[];
+		readonly server: string;
+		readonly domain: string;
+		readonly workers: readonly ProvisionedWorker[];
 		readonly unconfirmed?: readonly UnconfirmedWorker[];
+		readonly refusal: WorkerProvisionRefusal | null;
 	}) => void;
 
 	/** Forget one held credential, once a person says they have it. The
 	 *  only way one leaves short of a page load. */
 	dismissUnconfirmedWorker: (key: string) => void;
+
+	/** Bumped whenever a surface writes a deployment record — a publish
+	 *  that landed or was refused with a record, or a Check status answer
+	 *  folded in the Publish dialog. The Publishing section reloads on it,
+	 *  so a publish made in the dialog reaches the section's held records
+	 *  without waiting for a remount. */
+	deploymentRecordsRevision: number;
+
+	/** Say a deployment record changed. Called by every dialog upsert. */
+	noteDeploymentRecordsChanged: () => void;
+
+	/** A one-shot request to open the Publish dialog aimed at a project
+	 *  space. Written by the App setup Publishing section's "Publish again"
+	 *  and read by PublishPanel, which owns the dialog: the two live in
+	 *  different render trees (the panel is portaled into the header band),
+	 *  so the request rides the session store rather than a prop chain.
+	 *  Consumed once — the panel clears it as it opens — so a later manual
+	 *  open never inherits a stale target. */
+	publishDialogRequest: { readonly domain: string } | null;
+
+	/** Ask PublishPanel to open the Publish dialog preseeded to `domain`.
+	 *  A second request before the first is consumed replaces it — the
+	 *  latest click names the target the person means. */
+	requestPublishDialog: (request: { readonly domain: string }) => void;
+
+	/** Consume (or abandon) the pending open request. */
+	clearPublishDialogRequest: () => void;
 
 	/** Cancel a staged upload: abort the in-flight transfer (if any) and
 	 *  remove the record. The upload driver sees the abort and stays
@@ -703,7 +749,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				/* Staged media uploads */
 				stagedUploads: {} as Record<string, StagedUpload>,
 				unconfirmedWorkers: {} as Record<string, UnconfirmedWorker>,
+				provisioningOutcomes: {} as Record<string, HeldProvisioningOutcome>,
 				assetMeta: {} as Record<string, ExportBudgetRowView>,
+				publishDialogRequest: null as { readonly domain: string } | null,
+				deploymentRecordsRevision: 0,
 
 				/* UI hints */
 				focusHint: undefined as string | undefined,
@@ -1215,11 +1264,25 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				recordProvisioningOutcome(answer) {
+					const key = provisioningOutcomeKey(answer.server, answer.domain);
 					set((s) => ({
 						unconfirmedWorkers: retainUnconfirmedWorkers(
 							s.unconfirmedWorkers,
 							answer,
 						),
+						provisioningOutcomes: {
+							...s.provisioningOutcomes,
+							[key]: foldProvisioningOutcome(
+								s.provisioningOutcomes[key],
+								answer,
+							),
+						},
+					}));
+				},
+
+				noteDeploymentRecordsChanged() {
+					set((s) => ({
+						deploymentRecordsRevision: s.deploymentRecordsRevision + 1,
 					}));
 				},
 
@@ -1229,6 +1292,15 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						const { [key]: _dropped, ...rest } = s.unconfirmedWorkers;
 						return { unconfirmedWorkers: rest };
 					});
+				},
+
+				requestPublishDialog(request: { readonly domain: string }) {
+					set({ publishDialogRequest: request });
+				},
+
+				clearPublishDialogRequest() {
+					if (get().publishDialogRequest === null) return;
+					set({ publishDialogRequest: null });
 				},
 
 				cancelStagedUpload(slotKey: string) {
@@ -1291,6 +1363,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						runCompletedAt: undefined,
 						stagedUploads: {},
 						assetMeta: {},
+						/* A pending dialog-open request names a project space the
+						 * OLD Project's records offered; the destination must not
+						 * open a publish aimed by it. */
+						publishDialogRequest: null,
 						/* Case/persona identity is retained until
 						 * `applyAccessSnapshot` can distinguish an ordinary refresh from
 						 * a confirmed Project move. Clearing it here would rotate a
@@ -1389,7 +1465,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						/* Staged media uploads */
 						stagedUploads: {} as Record<string, StagedUpload>,
 						unconfirmedWorkers: {} as Record<string, UnconfirmedWorker>,
+						provisioningOutcomes: {} as Record<string, HeldProvisioningOutcome>,
 						assetMeta: {} as Record<string, ExportBudgetRowView>,
+						publishDialogRequest: null as { readonly domain: string } | null,
+						deploymentRecordsRevision: 0,
 
 						/* UI hints */
 						focusHint: undefined as string | undefined,

@@ -156,8 +156,18 @@ identity does not re-arm the lock after `buildUnfinished` is released.
 
 ## Publishing
 
+**The dialog publishes; App setup's Publishing section manages.** The one
+publish flow — destination select, feature-flag preflight, the publish
+itself, and the landed outcome — lives in `PublishDialog`. Everything a
+publish leaves behind — the full record per project space, Check status,
+workers, setup notes, and publishing again — lives in the Publishing
+section (§ App setup — Publishing below). The two share one record fold
+and one state-label table, the pure model in
+`app-setup/publishingSectionModel.ts`, so they cannot disagree about what
+a target holds.
+
 A publish returns a durable deployment record, and `DeploymentStatus` renders
-it on the success screen: the progress states as a ladder with only the reached
+it: the progress states as a ladder with only the reached
 ones filled, each rung stating its own condition in text so nothing is conveyed
 by fill alone, and the pending reason printed beside a rung that has not been
 reached. `incomplete` draws as a refusal rather than a rung, with the failure
@@ -165,19 +175,31 @@ and the phase a retry resumes at. **Never call an uploaded app released, live,
 or ready for workers** — Nova cannot make a version or release one, so those
 rungs are watched rather than performed, and Check status is what advances
 them. Anything an earlier publish left behind on CommCare HQ is named on the
-same screen.
+same card. `DeploymentStatus` takes the Workers panel as a composed
+`workers?: ReactNode` slot: the Publishing section fills it, every other
+surface (the dialog) passes nothing, which is what makes the
+one-credential-surface rule structural rather than a convention.
 
-The dialog **opens** on those records, above the publish form, not only after a
-publish creates one — the record outlives the request, and without this the only
-way to reach Check status would be publishing the app all over again. The
-records also drive target-aware copy: the form says whether the selected
+The dialog still **opens** on the records, not only after a publish creates
+one. They drive target-aware copy: the form says whether the selected
 project space gets an in-place update or a fresh app (`plannedInPlaceUpdate`,
 the same predicate the publish applies), claims neither while the records are
-still loading or unavailable, and the landed hero says which happened. The dialog keeps ONE copy per target: the open-time read
+still loading or unavailable, and the landed hero says which happened. Above
+the form they render as compact per-target rows (`compactTargetRows` in the
+model: domain, status label, an amber stopped-partway note, an update-vs-fresh
+line) with an "Open Publishing" affordance, never a second set of full cards.
+Record identity is `(server, domain)` on every one of these reads: a key
+reaches exactly one CommCare HQ installation, so a row whose record lives on
+another says so instead of claiming what publishing again would do, and the
+form's update-vs-create blurb consults `plannedInPlaceUpdate` only for records
+on the connection's own server.
+The dialog keeps ONE copy per target: the open-time read
 seeds a store, and the publish response and every Check status upsert into it,
-so the landed hero and the list can never show the same project space with
+so the landed hero and the rows can never show the same project space with
 disagreeing contents, and a fresh deployment survives the status resets a
-destination-select change causes. A refusal renders the ATTEMPT's own failure
+destination-select change causes. Every dialog upsert also bumps the session
+store's `deploymentRecordsRevision`, which is what tells a mounted Publishing
+section to reload its own records. A refusal renders the ATTEMPT's own failure
 (`refusal` on the response) beside the shared record; the record itself
 carries a failure only while genuinely `incomplete`. One refusal is answerable
 from the dialog: a lookup table on the project space that Nova did not create
@@ -190,20 +212,35 @@ decision from then on. A viewer sees the ladder
 without the button (`canRefresh`), because checking writes what it observed;
 the button is also withheld when the record is one checking cannot answer.
 
-`DeploymentWorkers` sits inside each record's card and is the ONE place a
-worker's password is ever shown. It shows each one once, above any refusal the
+`DeploymentWorkers` sits inside each record's card in the Publishing section
+and is the ONE place a worker's password is ever shown. Every call's answer —
+the accounts made, their once-shown passwords, the latest refusal — is held in
+the builder session per target (`provisioningOutcomes`, folded by
+`foldProvisioningOutcome`), never in the panel: the panel unmounts on an
+ordinary App setup section switch, and the docs promise a password stays until
+the person leaves the page. Passwords render above any refusal the
 same call carried, because a call that stopped partway still made real accounts
 and Nova stores no copy of their passwords. The panel stays quiet until the app
 is on that project space, since the places a persona stands in only exist there
 after a publish. A username already in use gets the same untickable-by-default
 treatment a lookup table does, for the same reason: a shared name is not
-evidence of ownership, and here it is somebody's account.
+evidence of ownership, and here it is somebody's account. The dialog's landed
+hero points at it with "Make workers in App setup" instead of mounting a
+second panel.
 
 `PublishPanel` owns one `PublishDialog` with a single destination selector for
 direct CommCare HQ upload, a CommCare HQ app file, or a mobile app file. The
 selector's supporting line explains the current option; only its fields and
 action change below, while shared prerequisite information keeps one stable
-place in the dialog.
+place in the dialog. The panel is memo-isolated in the header band and takes
+no props: connection state comes from `CommCareConnectionContext` (provided in
+`BuilderLayout`, shared with the Publishing section), and the section's
+"Publish again" reaches it through the session store's one-shot
+`publishDialogRequest` — the panel consumes the request, clears it, and opens
+the dialog preseeded to that target (`preseededDomainSelection`). Opening
+Publishing from the dialog navigates with `pushBuilderHistory` directly, never
+`useNavigate`, whose `useLocation` subscription would re-render this
+memo-isolated pair on every selection change and doc edit.
 Show feature-flag information before the action, never for the first time after
 the user commits: file options show exact app requirements with unknown domain
 state, while HQ probes the selected project space on open/selection and on an
@@ -498,6 +535,40 @@ must remain usable at the 320px dock layout, and all repeated rows keep explicit
 labels, remove names, keyboard focus, and visible refusal text. Add focuses the
 new rule, successful removal returns focus to Add, and no meaning relies on
 color alone.
+
+## App setup — Publishing
+
+`app-setup/PublishingSection.tsx` is the durable home of what publishing
+leaves behind; the Publish dialog remains the only place a publish starts
+(§ Publishing above holds the split). The section loads
+`readDeploymentsAction` (a `view` read, so viewers see it) into its own
+generation-guarded record store — reloading whenever the dialog bumps the
+session's `deploymentRecordsRevision`, so a publish made while the section is
+mounted reaches it — and renders one full `DeploymentStatus` card
+per project space the app has reached, composing `DeploymentWorkers` into the
+card's `workers` slot — the panel's one mount in the product. Every state is
+explicit: loading, a `role="alert"` load failure with Try again, a
+`role="status"` refreshing line and a stale warning when a reload is pending
+or has failed while held records still
+render, a permission-aware empty state pointing at the header's Publish
+button, and a not-configured aside linking to Settings when no CommCare HQ
+connection exists (connection state comes from `CommCareConnectionContext`,
+the same source the dialog uses).
+
+"Publish again" renders under a card when the record's target is reachable
+through the current connection (`publishAgainDomain`, which compares the
+connection's server before the domain name — a key reaches exactly one
+CommCare HQ installation); it never mounts a
+second publish form — it writes the session store's one-shot
+`publishDialogRequest`, which `PublishPanel` consumes to open the one dialog
+preseeded to that domain. Check status is gated exactly as in the dialog
+(`canEdit`, observable record, active mapping); a refresh or provisioning
+result upserts the store under a fresh generation — superseding any load in
+flight, whose stale answer is then ignored — and a refresh also applies
+`previewProjectSpace`. All derivations — the record fold,
+the generation guard, compact rows, retry eligibility, preseeding — live in
+the pure `publishingSectionModel.ts` and are unit-tested there, never in the
+component.
 
 ## Preview mode
 

@@ -22,6 +22,7 @@ import {
 	useState,
 	useTransition,
 } from "react";
+import { useCommCareConnection } from "@/components/builder/CommCareConnectionContext";
 import {
 	PublishDialog,
 	type PublishDownloadOutcome,
@@ -40,17 +41,16 @@ import {
 	HQ_FEATURE_FLAG_REPORT_HEADER,
 	type HqFeatureFlagReport,
 } from "@/lib/publish/hqFeatureFlags";
-import { useCanEdit } from "@/lib/session/hooks";
+import { buildUrl } from "@/lib/routing/location";
+import { pushBuilderHistory } from "@/lib/routing/useClientPath";
+import {
+	useCanEdit,
+	useClearPublishDialogRequest,
+	usePublishDialogRequest,
+} from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { apiFailureToastBody, describeApiFailure } from "@/lib/ui/apiFailure";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
-
-interface PublishPanelProps {
-	/** Whether CommCare HQ credentials are configured. */
-	commcareConfigured: boolean;
-	/** Every project space the key can upload to (drives the dialog picker). */
-	commcareAvailableDomains: { name: string; displayName: string }[];
-}
 
 /**
  * Download a Blob under `filename` via a transient object URL. Centralizes the
@@ -158,20 +158,27 @@ async function downloadArtifact(opts: {
 /**
  * Memoized to prevent parent-cascade re-renders from BuilderSubheader.
  * BuilderSubheader re-renders on breadcrumb/navigation changes (correct),
- * but PublishPanel's props (commcareConfigured, commcareAvailableDomains) are
- * stable across navigations: the cascade is pure waste (profiler: 16ms wasted).
+ * but PublishPanel's inputs (the connection context, stable per page load)
+ * are unchanged across navigations: the cascade is pure waste (profiler:
+ * 16ms wasted).
  */
-export const PublishPanel = memo(function PublishPanel({
-	commcareConfigured,
-	commcareAvailableDomains,
-}: PublishPanelProps) {
+export const PublishPanel = memo(function PublishPanel() {
 	const router = useRouter();
 	const docStore = useContext(BlueprintDocContext);
 	const session = useBuilderSessionApi();
 	const canEdit = useCanEdit();
+	const { server, availableDomains } = useCommCareConnection();
 	const reconciler = useReconcilerContext();
 	const projectToast = useProjectToast();
 	const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+	/** The project space a pending open request named, held locally so it
+	 *  survives past the store request's one-shot clear and is retired on
+	 *  close (or on an ordinary manual open, which preseeds nothing). */
+	const [requestedDomain, setRequestedDomain] = useState<string | undefined>(
+		undefined,
+	);
+	const publishDialogRequest = usePublishDialogRequest();
+	const clearPublishDialogRequest = useClearPublishDialogRequest();
 	const [isRefreshingHqConnection, startHqConnectionRefresh] = useTransition();
 	const downloadControllersRef = useRef(new Set<AbortController>());
 	useEffect(
@@ -347,19 +354,52 @@ export const PublishPanel = memo(function PublishPanel({
 	const handleOpenPublish = useCallback(() => {
 		const current = session.getState();
 		if (current.accessPhase === "authorized") {
+			setRequestedDomain(undefined);
 			setPublishDialogOpen(true);
 		}
 	}, [session]);
 	const handleClosePublish = useCallback(() => {
 		for (const controller of downloadControllersRef.current) controller.abort();
 		downloadControllersRef.current.clear();
+		setRequestedDomain(undefined);
 		setPublishDialogOpen(false);
 	}, []);
+
+	/* The Publishing section's "Publish again": a one-shot session-store
+	 * request, because the section and this panel live in different render
+	 * trees. Consumed here whether or not it can open, so an unauthorized
+	 * moment doesn't leave a stale request that fires on the next render. */
+	useEffect(() => {
+		if (publishDialogRequest === null) return;
+		const request = publishDialogRequest;
+		clearPublishDialogRequest();
+		if (session.getState().accessPhase !== "authorized") return;
+		setRequestedDomain(request.domain);
+		setPublishDialogOpen(true);
+	}, [publishDialogRequest, clearPublishDialogRequest, session]);
 	const handleRefreshHqConnection = useCallback(() => {
 		startHqConnectionRefresh(() => {
 			router.refresh();
 		});
 	}, [router]);
+
+	/* A plain History-API push rather than `useNavigate`: that hook carries
+	 * a `useLocation` subscription, which would re-render this memo-isolated
+	 * panel (and the whole dialog tree under it) on every selection change
+	 * and doc edit. The base path is read at call time because the new-build
+	 * flow rewrites it once the server mints the appId. Preview is exited
+	 * first — App setup renders only in edit mode, so landing on its URL
+	 * while previewing would show a blank canvas. */
+	const handleOpenPublishing = useCallback(() => {
+		session.getState().setPreviewing(false);
+		const parts = window.location.pathname.split("/").filter(Boolean);
+		pushBuilderHistory(
+			buildUrl(`/${parts.slice(0, 2).join("/")}`, {
+				kind: "app-setup",
+				section: "publishing",
+			}),
+		);
+	}, [session]);
 
 	return (
 		<>
@@ -370,8 +410,13 @@ export const PublishPanel = memo(function PublishPanel({
 				open={publishDialogOpen}
 				onClose={handleClosePublish}
 				getAppId={getAppId}
-				availableDomains={commcareConfigured ? commcareAvailableDomains : []}
+				/* The context already answers a stable empty list when no key is
+				 * configured, so this is identity-stable across renders. */
+				availableDomains={availableDomains}
+				connectionServer={server}
 				canUploadToHq={canEdit}
+				requestedDomain={requestedDomain}
+				onOpenPublishing={handleOpenPublishing}
 				isRefreshingHqConnection={isRefreshingHqConnection}
 				onRefreshHqConnection={handleRefreshHqConnection}
 				onLoadFeatureFlags={loadFeatureFlags}

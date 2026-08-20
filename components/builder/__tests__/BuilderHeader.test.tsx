@@ -112,12 +112,7 @@ function renderIntoBand(
 	 * than props. */
 	const element = () => (
 		<HeaderSlotsProvider value={slots}>
-			<BuilderHeader
-				commcareConfigured={false}
-				commcareAvailableDomains={[]}
-				onSetPreviewing={() => {}}
-				{...props}
-			/>
+			<BuilderHeader onSetPreviewing={() => {}} {...props} />
 		</HeaderSlotsProvider>
 	);
 	const view = render(element());

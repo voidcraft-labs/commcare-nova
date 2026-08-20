@@ -273,7 +273,6 @@ const CONSTRAINT_AREAS: Readonly<
 	CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES: ["forms"],
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: ["navigation", "users", "case-list"],
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: ["forms", "case-operations"],
-	GAP_APP_SETUP_UI: [],
 	GAP_FORM_LINKS_AND_SECTIONS: ["forms", "navigation"],
 	GAP_NESTED_MENUS: ["navigation"],
 	GAP_SESSION_ENDPOINTS_DEEP_LINKS: ["navigation"],

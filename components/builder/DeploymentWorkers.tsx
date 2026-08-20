@@ -14,9 +14,8 @@
  * only exist on the project space once a publish has put them there, so
  * before that the honest thing to show is the sentence saying so.
  *
- * (The App setup workspace will one day hold the Deployment section this
- * lives under. When it does it INHERITS this panel and relocates it; it
- * does not build a second one.)
+ * The App setup Publishing section is this panel's one mount: it fills
+ * DeploymentStatus's `workers` slot there, and no other surface does.
  */
 "use client";
 
@@ -44,6 +43,7 @@ import {
 import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
 import {
 	useDismissUnconfirmedWorker,
+	useProvisioningOutcome,
 	useRecordProvisioningOutcome,
 	useUnconfirmedWorkers,
 } from "@/lib/session/hooks";
@@ -104,11 +104,12 @@ export function DeploymentWorkers({
 	const [names, setNames] = useState<Readonly<Record<string, string>>>({});
 	const [chosen, setChosen] = useState<readonly string[]>([]);
 	const [adopting, setAdopting] = useState<readonly string[]>([]);
-	const [result, setResult] = useState<ProvisionWorkersView | null>(null);
-	/* Held in the builder session, not here. The refusal that produces one
-	 * asks the person to go and look at their project space, and doing that
-	 * closes this dialog — which would unmount dialog-local state and take
-	 * the only copy of a live account's password with it. */
+	/* Everything a call answered with — the accounts made (passwords
+	 * included) and the latest refusal — is held in the builder session,
+	 * not here. This panel unmounts on an ordinary App setup section
+	 * switch, and a password shown once must survive that: the person was
+	 * told it stays until they leave the page. */
+	const outcome = useProvisioningOutcome(record.server, record.domain);
 	const heldUnconfirmed = useUnconfirmedWorkers();
 	const recordOutcome = useRecordProvisioningOutcome();
 	const dismissUnconfirmed = useDismissUnconfirmedWorker();
@@ -146,8 +147,13 @@ export function DeploymentWorkers({
 					setRequestError(response.message);
 					return;
 				}
-				setResult(response.data);
-				recordOutcome(response.data);
+				recordOutcome({
+					server: record.server,
+					domain: record.domain,
+					workers: response.data.workers,
+					unconfirmed: response.data.unconfirmed,
+					refusal: response.data.refusal,
+				});
 				/* Only the personas that still need a decision stay ticked, so
 				 * pressing the button again does the remaining work rather
 				 * than repeating what already landed. */
@@ -232,10 +238,10 @@ export function DeploymentWorkers({
 						))}
 					</ul>
 
-					{result?.refusal?.conflicts !== undefined &&
-					result.refusal.conflicts.length > 0 ? (
+					{outcome?.refusal?.conflicts !== undefined &&
+					outcome.refusal.conflicts.length > 0 ? (
 						<WorkerAdoptionChoice
-							conflicts={result.refusal.conflicts}
+							conflicts={outcome.refusal.conflicts}
 							domain={record.domain}
 							adopting={adopting}
 							onAdoptChange={(personaUuid, adopt) =>
@@ -269,16 +275,16 @@ export function DeploymentWorkers({
 					{/* The passwords come FIRST, above any refusal. A call that
 					    stopped halfway still made real accounts, and this screen
 					    holds the only copy of their passwords. */}
-					{(result !== null && result.workers.length > 0) ||
+					{(outcome !== undefined && outcome.workers.length > 0) ||
 					heldUnconfirmed.length > 0 ? (
 						<WorkerCredentials
-							workers={result?.workers ?? []}
+							workers={outcome?.workers ?? []}
 							unconfirmed={heldUnconfirmed}
 							onDismiss={dismissUnconfirmed}
 						/>
 					) : null}
 
-					{result?.refusal != null ? (
+					{outcome?.refusal != null ? (
 						<div
 							role="alert"
 							className="mt-3 rounded-lg border border-nova-amber/40 bg-nova-amber/10 p-3 text-[13px] leading-relaxed"
@@ -291,11 +297,11 @@ export function DeploymentWorkers({
 									className="mt-0.5 shrink-0 text-nova-amber"
 									aria-hidden="true"
 								/>
-								<span>{result.refusal.message}</span>
+								<span>{outcome.refusal.message}</span>
 							</p>
-							{result.refusal.details.length > 0 ? (
+							{outcome.refusal.details.length > 0 ? (
 								<ul className="mt-2 flex list-disc flex-col gap-1 pl-9 text-nova-text-secondary">
-									{result.refusal.details.map((detail) => (
+									{outcome.refusal.details.map((detail) => (
 										<li key={detail}>{detail}</li>
 									))}
 								</ul>

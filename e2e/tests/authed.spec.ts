@@ -1092,6 +1092,59 @@ test.describe("authenticated builder", () => {
 		).toBeDisabled();
 	});
 
+	test("the Publishing section states where the app stands and keeps the one publish flow in the header", async ({
+		page,
+	}) => {
+		await page.goto(`/build/${seed.openAppId}/setup/publishing`);
+
+		const nav = page.getByRole("navigation", { name: "App setup sections" });
+		await expect(nav.getByRole("button", { name: "Publishing" })).toBeVisible();
+		await expect(
+			nav.getByRole("button", { name: "Publishing" }),
+		).toHaveAttribute("aria-current", "page");
+
+		// The hermetic smoke stack has no CommCare HQ connection, so the section
+		// invites one rather than pretending, and points at Settings.
+		const connection = page.getByRole("complementary", {
+			name: "CommCare HQ connection",
+		});
+		await expect(connection).toBeVisible();
+		await expect(
+			connection.getByRole("link", { name: /Open Settings/ }),
+		).toBeVisible();
+
+		// The record read settles on the honest empty state: this app has never
+		// been published, and the editor is pointed at the header's Publish.
+		await expect(
+			page.getByText(
+				"This app hasn't been published yet. Choose Publish in the header",
+			),
+		).toBeVisible();
+
+		// No records means no per-target card: publishing again and the Workers
+		// panel exist only under a real deployment record.
+		await expect(
+			page.getByRole("button", { name: "Publish again" }),
+		).toHaveCount(0);
+
+		// The dialog stays the one publish flow, opened from the header band.
+		await expect(
+			page.getByRole("button", { name: "Publish", exact: true }),
+		).toBeVisible();
+
+		// The section strip and body stay usable at the handset dock layout.
+		await page.setViewportSize({ width: 390, height: 844 });
+		await expect(nav).toBeVisible();
+		await expect
+			.poll(() =>
+				page
+					.locator("body")
+					.evaluate((element) => element.scrollWidth - element.clientWidth),
+			)
+			.toBeLessThanOrEqual(1);
+		await page.setViewportSize({ width: 1440, height: 900 });
+	});
+
 	test("builder secondary headers stay aligned through sidebar and inspector states", async ({
 		page,
 	}) => {

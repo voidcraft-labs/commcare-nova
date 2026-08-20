@@ -44,7 +44,6 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
-	"GAP_APP_SETUP_UI",
 	"GAP_FORM_LINKS_AND_SECTIONS",
 	"GAP_NESTED_MENUS",
 	"GAP_SESSION_ENDPOINTS_DEEP_LINKS",
@@ -180,13 +179,6 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"On-device date arithmetic can faithfully add fixed seconds through weeks to a date. Calendar-relative months or years, and date-add over a datetime, are rejected because JavaRosa cannot preserve their semantics; a design that requires true calendar milestones must resolve that requirement instead of lowering it to hand-built leap-year arithmetic or an unstated day approximation.",
 		sourceAnchor:
 			"lib/commcare/expression/onDeviceCompatibility.ts::onDeviceDateAddIssue",
-	},
-	GAP_APP_SETUP_UI: {
-		code: "GAP_APP_SETUP_UI",
-		statement:
-			"The App setup workspace's remaining Deployment section, and the SA/MCP/docs surfaces for the outstanding deployment-chain units, are a deliberate target gap.",
-		sourceAnchor: "docs/plans/complex-app/app-setup-ui-sa-mcp-and-docs.md",
-		gapUnitFile: "app-setup-ui-sa-mcp-and-docs.md",
 	},
 	GAP_FORM_LINKS_AND_SECTIONS: {
 		code: "GAP_FORM_LINKS_AND_SECTIONS",

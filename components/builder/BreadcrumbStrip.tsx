@@ -100,13 +100,18 @@ export function BreadcrumbStrip() {
 	/* In preview the trail follows the RUNNING APP, not the editor (the
 	 * rewrite lives in the pure, tested `previewBreadcrumbTrail`). Home +
 	 * module crumbs are unchanged; edit mode keeps the URL-derived trail. */
+	/* Workspaces whose fixed tab strip already carries current-screen
+	 * semantics (the case workspace's Search / Results / Details, App
+	 * setup's section strip): on handsets the breadcrumb drops the
+	 * redundant leaf and collapses its ancestors into one path menu. */
 	const previewing = usePreviewing();
 	const compactWorkspaceBreadcrumb =
 		handsetLayout &&
 		!previewing &&
 		((loc.kind === "cases" && loc.caseId === undefined) ||
 			loc.kind === "search-config" ||
-			loc.kind === "detail-config");
+			loc.kind === "detail-config" ||
+			loc.kind === "app-setup");
 	const previewCaseTarget = usePreviewCaseTarget();
 	const previewSelectedCase = usePreviewSelectedCase();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();

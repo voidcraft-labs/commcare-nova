@@ -634,8 +634,8 @@ not masquerade as a child of that tree.
 - **Project data** is a URL-owned workspace for Project-shared lookup tables. It
   is reachable from expanded and collapsed desktop navigation and the mobile path
   menu, and it always states that changes affect every referencing app.
-- **App setup** is a URL-owned workspace with Users & Personas, Organization,
-  Automations, and Deployment sections.
+- **App setup** is a URL-owned workspace with Users and personas, Organization,
+  Languages, Automations, and Publishing sections.
 - Configuration workspaces own breadcrumbs, deep links, route recovery, viewer
   mode, focus restoration, mobile layout, and global Preview behavior.
 - Destructive or dependency-affecting edits explain consequences before commit.

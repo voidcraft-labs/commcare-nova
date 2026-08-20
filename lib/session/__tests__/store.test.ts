@@ -15,12 +15,13 @@
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import type { ProvisionedWorker } from "@/lib/deployment/workerProvisionPlan";
+import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { ConnectConfig } from "@/lib/domain";
-
 import type { Event } from "@/lib/log/types";
 import { toastStore } from "@/lib/ui/toastStore";
 import { createBuilderSessionStore } from "../store";
@@ -1378,5 +1379,121 @@ describe("events buffer + run lifecycle", () => {
 		const s = store.getState();
 		expect(s.events).toEqual([]);
 		expect(s.runCompletedAt).toBeUndefined();
+	});
+});
+
+// ── Publish dialog request (one-shot) ─────────────────────────────────────
+
+describe("BuilderSession publish dialog request", () => {
+	it("starts empty and holds the latest request", () => {
+		const store = createBuilderSessionStore();
+		expect(store.getState().publishDialogRequest).toBeNull();
+
+		store.getState().requestPublishDialog({ domain: "alpha" });
+		expect(store.getState().publishDialogRequest).toEqual({ domain: "alpha" });
+
+		store.getState().requestPublishDialog({ domain: "beta" });
+		expect(store.getState().publishDialogRequest).toEqual({ domain: "beta" });
+	});
+
+	it("clears once and no-ops on an already-empty request", () => {
+		const store = createBuilderSessionStore();
+		store.getState().requestPublishDialog({ domain: "alpha" });
+		store.getState().clearPublishDialogRequest();
+		expect(store.getState().publishDialogRequest).toBeNull();
+
+		/* A second clear must not write: the consumer clears as it opens, and
+		 * a redundant write would re-notify every subscriber for nothing. */
+		const prev = store.getState();
+		store.getState().clearPublishDialogRequest();
+		expect(store.getState()).toBe(prev);
+	});
+
+	it("is dropped by reset and by the Project-scope boundary", () => {
+		const viaReset = createBuilderSessionStore();
+		viaReset.getState().requestPublishDialog({ domain: "alpha" });
+		viaReset.getState().reset();
+		expect(viaReset.getState().publishDialogRequest).toBeNull();
+
+		const viaScope = createBuilderSessionStore();
+		viaScope.getState().requestPublishDialog({ domain: "alpha" });
+		viaScope.getState().resetProjectScope();
+		expect(viaScope.getState().publishDialogRequest).toBeNull();
+	});
+});
+
+describe("BuilderSession deployment records revision", () => {
+	it("counts every record write and is rewound by reset", () => {
+		const store = createBuilderSessionStore();
+		expect(store.getState().deploymentRecordsRevision).toBe(0);
+		store.getState().noteDeploymentRecordsChanged();
+		store.getState().noteDeploymentRecordsChanged();
+		expect(store.getState().deploymentRecordsRevision).toBe(2);
+		store.getState().reset();
+		expect(store.getState().deploymentRecordsRevision).toBe(0);
+	});
+});
+
+describe("BuilderSession held provisioning outcomes", () => {
+	const worker = (
+		overrides: Partial<ProvisionedWorker>,
+	): ProvisionedWorker => ({
+		personaUuid: "persona-1",
+		personaName: "Asha",
+		username: "asha@space.commcarehq.org",
+		userId: "hq-user-1",
+		created: true,
+		adopted: false,
+		password: "shown-once",
+		...overrides,
+	});
+
+	it("accumulates workers per target and keeps a made password through an update", () => {
+		const store = createBuilderSessionStore();
+		store.getState().recordProvisioningOutcome({
+			server: "production",
+			domain: "space",
+			workers: [worker({})],
+			refusal: null,
+		});
+		// A later call updates the same account; updates carry no password.
+		store.getState().recordProvisioningOutcome({
+			server: "production",
+			domain: "space",
+			workers: [
+				worker({ created: false, password: null }),
+				worker({
+					personaUuid: "persona-2",
+					personaName: "Bilal",
+					username: "bilal@space.commcarehq.org",
+					password: "second-password",
+				}),
+			],
+			refusal: null,
+		});
+		const held =
+			store.getState().provisioningOutcomes[
+				provisioningOutcomeKey("production", "space")
+			];
+		expect(held.workers).toHaveLength(2);
+		expect(held.workers[0].password).toBe("shown-once");
+		expect(held.workers[1].password).toBe("second-password");
+	});
+
+	it("keys outcomes by server AND domain, and clears them on reset", () => {
+		const store = createBuilderSessionStore();
+		store.getState().recordProvisioningOutcome({
+			server: "production",
+			domain: "space",
+			workers: [worker({})],
+			refusal: null,
+		});
+		expect(
+			store.getState().provisioningOutcomes[
+				provisioningOutcomeKey("india", "space")
+			],
+		).toBeUndefined();
+		store.getState().reset();
+		expect(store.getState().provisioningOutcomes).toEqual({});
 	});
 });

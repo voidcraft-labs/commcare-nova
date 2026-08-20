@@ -22,6 +22,7 @@ export {
 	deploymentResumeState,
 } from "./stateMachine";
 export {
+	type CommCareServer,
 	DEPLOYMENT_PHASE_ENTRY_STATE,
 	DEPLOYMENT_PHASE_SUCCESS_STATE,
 	DEPLOYMENT_PHASES,
@@ -42,5 +43,6 @@ export {
 	type DeploymentState,
 	type DeploymentWithResources,
 	type DrivenDeploymentPhase,
+	deploymentServerLabel,
 	isDeploymentServer,
 } from "./types";

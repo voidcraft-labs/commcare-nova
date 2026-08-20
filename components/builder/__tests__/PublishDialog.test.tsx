@@ -22,6 +22,7 @@ import {
 const mocks = vi.hoisted(() => ({
 	fetch: vi.fn(),
 	renderCanEdit: true,
+	noteDeploymentRecordsChanged: vi.fn(),
 	sessionState: {
 		accessPhase: "authorized" as const,
 		canEdit: true,
@@ -48,6 +49,7 @@ vi.mock("@/lib/doc/hooks/useAppName", () => ({
 vi.mock("@/lib/session/hooks", () => ({
 	useAccessPhase: () => "authorized",
 	useCanEdit: () => mocks.renderCanEdit,
+	useNoteDeploymentRecordsChanged: () => mocks.noteDeploymentRecordsChanged,
 }));
 vi.mock("@/lib/session/provider", () => ({
 	useBuilderSessionApi: () => ({
@@ -97,7 +99,9 @@ function renderDialog(
 		onClose: vi.fn(),
 		getAppId: () => "app-1",
 		availableDomains: [{ name: "project-space", displayName: "Project Space" }],
+		connectionServer: "production",
 		canUploadToHq: true,
+		onOpenPublishing: vi.fn(),
 		isRefreshingHqConnection: false,
 		onRefreshHqConnection: vi.fn(),
 		onLoadFeatureFlags: vi.fn((domain?: string) =>
@@ -561,7 +565,9 @@ describe("PublishDialog", () => {
 						availableDomains={[
 							{ name: "project-space", displayName: "Project Space" },
 						]}
+						connectionServer="production"
 						canUploadToHq
+						onOpenPublishing={vi.fn()}
 						isRefreshingHqConnection={false}
 						onRefreshHqConnection={vi.fn()}
 						onLoadFeatureFlags={(domain, _signal) =>

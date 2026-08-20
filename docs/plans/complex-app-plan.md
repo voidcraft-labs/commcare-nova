@@ -1987,7 +1987,7 @@ client-only value would make one expression answer two ways.
 attempt's refusal plus whatever record the target has (none, when the app
 never reached it), and both callers read whether THIS attempt landed rather
 than inferring it from a state that describes the target. Deployments
-are reachable from the Builder's Publish dialog and from MCP (`get_deployment`,
+are reachable from the Builder and from MCP (`get_deployment`,
 `refresh_deployment`) and deliberately NOT from the Solutions
 Architect, the same standing decision that keeps `get_app_hq_feature_flags` off
 that surface. Deployments carry `app_id` and `project_id` but not the composite tenant key
@@ -1995,6 +1995,32 @@ case rows use, because the auth-app tenancy migration keeps an exact catalog of
 everything referencing `apps.project_id` and blocks additions; coherence is
 proved under the app lock every write already takes, and a Project move
 re-tenants them in the same transaction.
+
+**The Builder splits publishing across two surfaces: the dialog publishes, App
+setup's Publishing section manages.** The App setup workspace
+(`/build/<appId>/setup/<section>`) is complete — Users and personas,
+Organization, Languages, Automations, and Publishing — and the Publishing
+section is the durable home of everything a publish starts: one full record
+per project space the app has reached (the progress ladder, a refusal and the
+phase a retry resumes at, what an earlier publish left behind, the
+set-up-by-hand notes), Check status, and "Publish again", which reopens the
+one Publish dialog preseeded to that target through a one-shot session-store
+request so a retry never grows a second publish flow. The record read
+authorizes as a Project `view`, so a viewer sees exactly where the app stands;
+checking and provisioning write and are withheld from viewers. The Workers
+panel lives inside each record's card there and NOWHERE else — it is the only
+place a worker's password is ever shown, and `DeploymentStatus` takes the
+panel as a composed slot precisely so a second credential surface cannot exist
+by accident. The Publish dialog keeps the destination select, the feature-flag
+preflight, the publish itself, and the landed outcome's record; above its form
+the targets the app has already reached render as compact rows linking to the
+section rather than as a second full copy that would have to be kept honest.
+`components/builder/CLAUDE.md` and `lib/deployment/CLAUDE.md` own the
+mechanics; `content/docs/publishing.mdx` is the user-facing guide, and
+`content/docs/cross-facility-referrals.mdx` is the worked cross-facility
+walkthrough (a district/facility organization, owner-relative routing,
+preview-as-persona restore scope, provisioning, and publishing in one
+scenario).
 
 Publishing also reports the HQ feature flags required by the emitted app.
 Direct upload checks the selected project space after import and distinguishes
@@ -2102,7 +2128,7 @@ directly. Request and run timings are three independently authored fields in
 
 ## What remains
 
-Nine units, one file each. **Every entry below is a pointer, not a summary of
+Four units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -2112,16 +2138,6 @@ Units are named, not numbered: the file's name is the unit's identity, so a
 unit that ships leaves no gap and nothing ever renumbers.
 
 
-
-### App setup UI, SA, MCP, and docs
-
-[`complex-app/app-setup-ui-sa-mcp-and-docs.md`](complex-app/app-setup-ui-sa-mcp-and-docs.md)
-· depends on nothing outstanding · blocks nothing
-
-The App setup workspace's remaining Deployment section, plus the SA and MCP
-surfaces and public docs for the remaining prerequisite units.
-**The file is deliberately short**: its substance is the prerequisite units'
-files and the baseline UI review in the contracts.
 
 ### Exclusive form links and sections
 
@@ -2174,26 +2190,24 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [App setup UI, SA, MCP, and docs](complex-app/app-setup-ui-sa-mcp-and-docs.md) | — |
 | [form links and sections](complex-app/form-links-and-sections.md) | — |
 | [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | form links and sections |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | — |
 
-Three units have no outstanding prerequisites and can start in any order: form
-links and sections, multi-select, and the App setup UI. They are the independent
-entry points — every other unit descends from one of them.
+Two units have no outstanding prerequisites and can start in either order: form
+links and sections, and multi-select. They are the independent entry points —
+every other unit descends from one of them.
 
 There is no critical path left. Push and provisioning was it, and with the
-drivers and the usercase both shipped the remaining work is one short chain and
-two loose units: form links → nested menus → session endpoints runs on its own,
-and the App setup UI now waits on nothing.
+drivers, the usercase, and the App setup workspace all shipped the remaining
+work is one short chain and one loose unit: form links → nested menus → session
+endpoints runs on its own, and multi-select waits on nothing.
 
-The App setup UI, session endpoints, and multi-select are leaves — nothing waits
-on them, so each can land whenever its own prerequisites are met. The App setup
-UI and multi-select are both entry points and leaves: nothing blocks either and
-nothing waits on either, which makes them the natural filler whenever another
-unit is blocked on something external.
+Session endpoints and multi-select are leaves — nothing waits on them, so each
+can land whenever its own prerequisites are met. Multi-select is both an entry
+point and a leaf: nothing blocks it and nothing waits on it, which makes it the
+natural filler whenever another unit is blocked on something external.
 
 ---
 
