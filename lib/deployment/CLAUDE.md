@@ -530,7 +530,9 @@ seeds a store; a publish response and every Check status upsert into that
 same store. The dialog's landed hero looks its record up there rather
 than holding its own copy, so a record can never render twice with
 disagreeing contents, and a fresh deployment survives the status resets
-that switching the destination select causes. Refreshes return
+that switching the destination select causes. The two surfaces converge
+through the builder session: every dialog upsert bumps
+`deploymentRecordsRevision`, and the section reloads on it. Refreshes return
 `previewProjectSpace` beside the record and the caller applies it, so the
 own tab updates without waiting for the stream; every OTHER open tab
 converges through the app stream's deployment lane — each store write
@@ -542,7 +544,13 @@ The Workers panel (`components/builder/DeploymentWorkers.tsx`) lives inside
 each record's card in the Publishing section — and ONLY there:
 `DeploymentStatus` takes it as a composed `workers` slot the section fills
 and the dialog leaves empty, so a worker's password has exactly one surface
-that can ever show it. It sits inside the record's card for the same reason
+that can ever show it. What that surface shows is held in the builder
+session per target (`provisioningOutcomes`, folded by
+`workerProvisionPlan.ts::foldProvisioningOutcome`), never in the panel: it
+unmounts on an ordinary App setup section switch, and a password shown once
+must survive until the person leaves the page. The transient ceiling is the
+same as the unconfirmed credentials' — nothing persists it, a page load
+clears it. It sits inside the record's card for the same reason
 the ledger keys a worker on `(persona, target)`: an account belongs to a
 project space, and the same persona can hold a different username on each.
 It stays quiet until the app is actually there, because the places a

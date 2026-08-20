@@ -12,7 +12,11 @@
 import { useContext, useMemo } from "react";
 import { useStore } from "zustand";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
-import type { UnconfirmedWorker } from "@/lib/deployment/workerProvisionPlan";
+import type {
+	HeldProvisioningOutcome,
+	UnconfirmedWorker,
+} from "@/lib/deployment/workerProvisionPlan";
+import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { docHasData } from "@/lib/doc/predicates";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
@@ -623,6 +627,34 @@ export function useRecordProvisioningOutcome(): BuilderSessionState["recordProvi
 /** Forget one held credential, once a person says they have it. */
 export function useDismissUnconfirmedWorker(): (key: string) => void {
 	return useBuilderSession((s) => s.dismissUnconfirmedWorker);
+}
+
+/** One target's held provisioning outcome: the accounts made this session
+ *  (their once-shown passwords included) and the latest call's refusal.
+ *  Session-held so an App setup section switch cannot destroy a password
+ *  the person was told stays until they leave the page. */
+export function useProvisioningOutcome(
+	server: string,
+	domain: string,
+): HeldProvisioningOutcome | undefined {
+	return useBuilderSession(
+		(s) => s.provisioningOutcomes[provisioningOutcomeKey(server, domain)],
+	);
+}
+
+// ── Deployment records ──────────────────────────────────────────────────────
+
+/** Bumped whenever a surface writes a deployment record. The Publishing
+ *  section reloads on it so a publish made in the dialog reaches the
+ *  section's held records. */
+export function useDeploymentRecordsRevision(): number {
+	return useBuilderSession((s) => s.deploymentRecordsRevision);
+}
+
+/** Say a deployment record changed. Action-only: reading it here would
+ *  re-render the memo-isolated Publish dialog on every bump. */
+export function useNoteDeploymentRecordsChanged(): () => void {
+	return useBuilderSession((s) => s.noteDeploymentRecordsChanged);
 }
 
 // ── Publish dialog open request ───────────────────────────────────────────

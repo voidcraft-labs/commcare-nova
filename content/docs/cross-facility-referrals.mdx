@@ -26,14 +26,16 @@ setting this guide uses; this page puts them together.
 
 Open **App setup → Organization** and add three levels:
 
-1. **District**. People work here (your coordinators), it does not own cases,
-   and it **receives cases from places below**. That last setting is what
-   gives a coordinator sight of the whole district.
-2. **Clinic**, under District. People work here, it owns cases, and it also
-   receives from below, so clinic staff see their own desk. Set its
-   address-book reach to **Everything under a level further up**, choosing
-   District: referrals cross clinic lines, so a nurse needs to be able to name
-   places beside their own.
+1. **District**. People work here (your coordinators) and it does not own
+   cases. Turn on **Include cases from places below in worker delivery** and
+   choose **Everything below**: that setting is what gives a coordinator
+   sight of the whole district.
+2. **Clinic**, under District. People work here and it owns cases. Turn on
+   the same **Include cases from places below in worker delivery** setting,
+   again with **Everything below**, so clinic staff see their own desk. Set
+   its address-book reach to **Everything under a level further up**,
+   choosing District: referrals cross clinic lines, so a nurse needs to be
+   able to name places beside their own.
 3. **Referral desk**, under Clinic. It owns cases and nobody works there. This
    is the shared desk: a queue each clinic owns without anyone being assigned
    to it.
@@ -85,8 +87,8 @@ are.
 
 **Preview as Asha.** Register a few clients. Her case list shows them, because
 her clinic owns them and she is assigned there. Open one and send a referral:
-it lands on her clinic's desk, and because her clinic receives from below, it
-is on her list too.
+it lands on her clinic's desk, and because her clinic includes cases from
+below, it is on her list too.
 
 **Preview as Bilal.** His clinic owns none of these cases, so his lists come
 up empty, and Preview says so plainly, with a line like "3 more cases in this
@@ -95,7 +97,7 @@ leaves them out." That line is Nova talking to you, the author; a worker's
 device simply would not have the cases. Fewer cases than the project holds is
 not data loss, it is the delivery scope doing its job.
 
-**Preview as Devi.** The district receives from below, so her list holds the
+**Preview as Devi.** The district includes cases from below, so her list holds the
 clinic's clients and the desk's referrals. This is the oversight view, and you
 did not build a separate report to get it; it falls out of where cases live.
 

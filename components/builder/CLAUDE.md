@@ -188,11 +188,18 @@ still loading or unavailable, and the landed hero says which happened. Above
 the form they render as compact per-target rows (`compactTargetRows` in the
 model: domain, status label, an amber stopped-partway note, an update-vs-fresh
 line) with an "Open Publishing" affordance, never a second set of full cards.
+Record identity is `(server, domain)` on every one of these reads: a key
+reaches exactly one CommCare HQ installation, so a row whose record lives on
+another says so instead of claiming what publishing again would do, and the
+form's update-vs-create blurb consults `plannedInPlaceUpdate` only for records
+on the connection's own server.
 The dialog keeps ONE copy per target: the open-time read
 seeds a store, and the publish response and every Check status upsert into it,
 so the landed hero and the rows can never show the same project space with
 disagreeing contents, and a fresh deployment survives the status resets a
-destination-select change causes. A refusal renders the ATTEMPT's own failure
+destination-select change causes. Every dialog upsert also bumps the session
+store's `deploymentRecordsRevision`, which is what tells a mounted Publishing
+section to reload its own records. A refusal renders the ATTEMPT's own failure
 (`refusal` on the response) beside the shared record; the record itself
 carries a failure only while genuinely `incomplete`. One refusal is answerable
 from the dialog: a lookup table on the project space that Nova did not create
@@ -206,8 +213,12 @@ without the button (`canRefresh`), because checking writes what it observed;
 the button is also withheld when the record is one checking cannot answer.
 
 `DeploymentWorkers` sits inside each record's card in the Publishing section
-and is the ONE place a worker's password is ever shown. It shows each one
-once, above any refusal the
+and is the ONE place a worker's password is ever shown. Every call's answer —
+the accounts made, their once-shown passwords, the latest refusal — is held in
+the builder session per target (`provisioningOutcomes`, folded by
+`foldProvisioningOutcome`), never in the panel: the panel unmounts on an
+ordinary App setup section switch, and the docs promise a password stays until
+the person leaves the page. Passwords render above any refusal the
 same call carried, because a call that stopped partway still made real accounts
 and Nova stores no copy of their passwords. The panel stays quiet until the app
 is on that project space, since the places a persona stands in only exist there
@@ -531,23 +542,30 @@ color alone.
 leaves behind; the Publish dialog remains the only place a publish starts
 (§ Publishing above holds the split). The section loads
 `readDeploymentsAction` (a `view` read, so viewers see it) into its own
-generation-guarded record store and renders one full `DeploymentStatus` card
+generation-guarded record store — reloading whenever the dialog bumps the
+session's `deploymentRecordsRevision`, so a publish made while the section is
+mounted reaches it — and renders one full `DeploymentStatus` card
 per project space the app has reached, composing `DeploymentWorkers` into the
 card's `workers` slot — the panel's one mount in the product. Every state is
 explicit: loading, a `role="alert"` load failure with Try again, a
-`role="status"` stale warning when a refresh fails while held records still
+`role="status"` refreshing line and a stale warning when a reload is pending
+or has failed while held records still
 render, a permission-aware empty state pointing at the header's Publish
 button, and a not-configured aside linking to Settings when no CommCare HQ
 connection exists (connection state comes from `CommCareConnectionContext`,
 the same source the dialog uses).
 
 "Publish again" renders under a card when the record's target is reachable
-through the current connection (`publishAgainDomain`); it never mounts a
+through the current connection (`publishAgainDomain`, which compares the
+connection's server before the domain name — a key reaches exactly one
+CommCare HQ installation); it never mounts a
 second publish form — it writes the session store's one-shot
 `publishDialogRequest`, which `PublishPanel` consumes to open the one dialog
 preseeded to that domain. Check status is gated exactly as in the dialog
-(`canEdit`, observable record, active mapping); a refresh result upserts the
-store and applies `previewProjectSpace`. All derivations — the record fold,
+(`canEdit`, observable record, active mapping); a refresh or provisioning
+result upserts the store under a fresh generation — superseding any load in
+flight, whose stale answer is then ignored — and a refresh also applies
+`previewProjectSpace`. All derivations — the record fold,
 the generation guard, compact rows, retry eligibility, preseeding — live in
 the pure `publishingSectionModel.ts` and are unit-tested there, never in the
 component.

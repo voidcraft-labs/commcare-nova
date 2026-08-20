@@ -14,8 +14,11 @@
 import { z } from "zod";
 import {
 	COMMCARE_SERVER_IDS,
+	COMMCARE_SERVERS,
 	type CommCareServer,
 } from "@/lib/commcare/servers";
+
+export type { CommCareServer } from "@/lib/commcare/servers";
 
 /**
  * Every state a deployment can be in.
@@ -524,4 +527,14 @@ export type ProvisionWorkersRequest = z.infer<typeof provisionWorkersSchema>;
 /** Narrow an arbitrary string to a known CommCare server, or refuse. */
 export function isDeploymentServer(value: string): value is CommCareServer {
 	return (COMMCARE_SERVER_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * The server's short human label ("US", "India", "EU"), for surfaces that
+ * must tell two same-named project spaces on different installations
+ * apart. Re-exposed here because `lib/commcare` is import-restricted and
+ * components reach deployment vocabulary through this package.
+ */
+export function deploymentServerLabel(server: CommCareServer): string {
+	return COMMCARE_SERVERS[server].label;
 }

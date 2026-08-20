@@ -158,59 +158,128 @@ describe("the section's record load", () => {
 			1,
 			{ ok: true, views: [view({ state: "uploaded" })] },
 		);
-		const refreshed = applyRecordUpsert(loaded, view({ state: "released" }));
+		const refreshed = applyRecordUpsert(loaded, view({ state: "released" }), 2);
 		expect(refreshed.views).toHaveLength(1);
 		expect(refreshed.views?.[0].deployment.deployment.state).toBe("released");
 	});
 
 	it("accepts an upsert before any load has succeeded", () => {
-		const state = applyRecordUpsert(INITIAL_PUBLISHING_RECORDS, view({}));
+		const state = applyRecordUpsert(INITIAL_PUBLISHING_RECORDS, view({}), 1);
 		expect(state.views).toHaveLength(1);
+	});
+
+	it("supersedes a load in flight, so its stale answer cannot wind back", () => {
+		const loading = beginRecordsLoad(
+			resolveRecordsLoad(beginRecordsLoad(INITIAL_PUBLISHING_RECORDS, 1), 1, {
+				ok: true,
+				views: [view({ state: "uploaded" })],
+			}),
+			2,
+		);
+		// A Check status answers while the reload is still on the wire.
+		const refreshed = applyRecordUpsert(
+			loading,
+			view({ state: "released" }),
+			3,
+		);
+		expect(refreshed.pending).toBe(false);
+		// The reload finally answers with the older record; it must be ignored.
+		const settled = resolveRecordsLoad(refreshed, 2, {
+			ok: true,
+			views: [view({ state: "uploaded" })],
+		});
+		expect(settled).toBe(refreshed);
+		expect(settled.views?.[0].deployment.deployment.state).toBe("released");
 	});
 });
 
 describe("compactTargetRows", () => {
 	it("labels a reached record with its furthest rung", () => {
-		const rows = compactTargetRows([view({ state: "released" })]);
+		const rows = compactTargetRows([view({ state: "released" })], "production");
 		expect(rows[0].statusLabel).toBe(DEPLOYMENT_STATE_LABELS.released);
 		expect(rows[0].stopped).toBe(false);
 	});
 
 	it("labels a refused record as stopped partway, whatever it reached", () => {
-		const rows = compactTargetRows([
-			view({
-				state: "incomplete",
-				resumePhase: "upload",
-				phases: {
-					preflight: { status: "succeeded", at: "2026-08-01T00:00:00Z" },
-					resources: { status: "succeeded", at: "2026-08-01T00:00:00Z" },
-				},
-			}),
-		]);
+		const rows = compactTargetRows(
+			[
+				view({
+					state: "incomplete",
+					resumePhase: "upload",
+					phases: {
+						preflight: { status: "succeeded", at: "2026-08-01T00:00:00Z" },
+						resources: { status: "succeeded", at: "2026-08-01T00:00:00Z" },
+					},
+				}),
+			],
+			"production",
+		);
 		expect(rows[0].statusLabel).toBe("Publish stopped partway");
 		expect(rows[0].stopped).toBe(true);
 	});
 
 	it("says an update lands in place only while a live app mapping exists", () => {
-		const updating = compactTargetRows([view({ active: [appResource()] })]);
+		const updating = compactTargetRows(
+			[view({ active: [appResource()] })],
+			"production",
+		);
 		expect(updating[0].updatesInPlace).toBe(true);
-		const fresh = compactTargetRows([view({})]);
+		const fresh = compactTargetRows([view({})], "production");
 		expect(fresh[0].updatesInPlace).toBe(false);
+	});
+
+	it("marks a record on another CommCare HQ installation unreachable", () => {
+		const rows = compactTargetRows(
+			[view({ server: "india" }), view({ server: "production" })],
+			"production",
+		);
+		expect(rows[0].reachable).toBe(false);
+		expect(rows[0].server).toBe("india");
+		expect(rows[1].reachable).toBe(true);
 	});
 });
 
 describe("publishAgainDomain", () => {
 	it("offers the record's own domain when the connection reaches it", () => {
 		const target = view({ domain: "clinic-network" });
-		expect(publishAgainDomain(target, [{ name: "clinic-network" }])).toBe(
-			"clinic-network",
-		);
+		expect(
+			publishAgainDomain(target, {
+				server: "production",
+				availableDomains: [{ name: "clinic-network" }],
+			}),
+		).toBe("clinic-network");
 	});
 
 	it("withholds the affordance when the key cannot upload there", () => {
 		const target = view({ domain: "clinic-network" });
-		expect(publishAgainDomain(target, [{ name: "another-space" }])).toBeNull();
-		expect(publishAgainDomain(target, [])).toBeNull();
+		expect(
+			publishAgainDomain(target, {
+				server: "production",
+				availableDomains: [{ name: "another-space" }],
+			}),
+		).toBeNull();
+		expect(
+			publishAgainDomain(target, {
+				server: "production",
+				availableDomains: [],
+			}),
+		).toBeNull();
+	});
+
+	it("withholds it for a same-named space on a different server", () => {
+		const target = view({ server: "india", domain: "clinic-network" });
+		expect(
+			publishAgainDomain(target, {
+				server: "production",
+				availableDomains: [{ name: "clinic-network" }],
+			}),
+		).toBeNull();
+		expect(
+			publishAgainDomain(target, {
+				server: null,
+				availableDomains: [{ name: "clinic-network" }],
+			}),
+		).toBeNull();
 	});
 });
 

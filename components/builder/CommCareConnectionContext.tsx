@@ -14,6 +14,7 @@
 
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
+import type { CommCareServer } from "@/lib/deployment";
 
 /* The dialog's own domain shape, restated rather than imported: the wire
  * type lives in lib/commcare, whose import boundary components/* stays
@@ -26,6 +27,11 @@ interface ConnectionDomain {
 export interface CommCareConnection {
 	/** Whether an API key is configured (and so direct HQ upload is offered). */
 	readonly configured: boolean;
+	/** Which CommCare HQ installation the key authenticates against, or
+	 *  null when not configured. A key reaches exactly one — US, India, and
+	 *  EU share no accounts — so anything matching a deployment record to
+	 *  this connection must compare the server before the domain name. */
+	readonly server: CommCareServer | null;
 	/** Every project space the key can upload to; empty when not configured. */
 	readonly availableDomains: ConnectionDomain[];
 }
@@ -33,6 +39,7 @@ export interface CommCareConnection {
 const EMPTY_DOMAINS: ConnectionDomain[] = [];
 const NOT_CONFIGURED: CommCareConnection = {
 	configured: false,
+	server: null,
 	availableDomains: EMPTY_DOMAINS,
 };
 
@@ -49,7 +56,11 @@ export function CommCareConnectionProvider({
 	const value = useMemo<CommCareConnection>(
 		() =>
 			settings?.configured
-				? { configured: true, availableDomains: settings.availableDomains }
+				? {
+						configured: true,
+						server: settings.server,
+						availableDomains: settings.availableDomains,
+					}
 				: NOT_CONFIGURED,
 		[settings],
 	);

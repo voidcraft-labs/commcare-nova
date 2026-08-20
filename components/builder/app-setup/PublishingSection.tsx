@@ -34,6 +34,7 @@ import {
 import {
 	useAppId,
 	useCanEdit,
+	useDeploymentRecordsRevision,
 	useRequestPublishDialog,
 } from "@/lib/session/hooks";
 import {
@@ -52,10 +53,14 @@ export function PublishingSection() {
 	// Absent only on a brand-new build before its app row exists, where
 	// nothing has been published and there is no record to read.
 	const appId = useAppId();
-	const { configured, availableDomains } = useCommCareConnection();
+	const connection = useCommCareConnection();
 	const canEdit = useCanEdit();
 	const requestPublishDialog = useRequestPublishDialog();
 	const setProjectSpace = useSetDeploymentProjectSpace();
+	/* The dialog bumps this on every record it writes (a publish landing,
+	 * a Check status made from its landed hero), so a publish made while
+	 * this section is mounted reaches its held records. */
+	const recordsRevision = useDeploymentRecordsRevision();
 
 	const [records, setRecords] = useState(INITIAL_PUBLISHING_RECORDS);
 	/* The stale-response guard's counter. A ref rather than state because it
@@ -93,24 +98,36 @@ export function PublishingSection() {
 			});
 	}, [appId]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: recordsRevision is the reload trigger on PURPOSE — the dialog bumps it on every record write, and this effect is how those writes reach the section's held records.
 	useEffect(() => {
 		load();
-	}, [load]);
+	}, [load, recordsRevision]);
 
+	/* Upserts supersede any load in flight (the answer they carry is newer
+	 * than what it will return), so each takes a fresh generation of its
+	 * own — the superseded load's resolve then mismatches and is ignored. */
+	const upsert = useCallback((next: DeploymentView) => {
+		generationRef.current += 1;
+		const generation = generationRef.current;
+		setRecords((current) => applyRecordUpsert(current, next, generation));
+	}, []);
 	/* Every refresh answers with the record AND what Preview may now name,
 	 * because an observation can change both. */
 	const handleRefreshed = useCallback(
 		(next: RefreshedDeploymentView) => {
-			setRecords((current) => applyRecordUpsert(current, next));
+			upsert(next);
 			setProjectSpace(next.previewProjectSpace);
 		},
-		[setProjectSpace],
+		[upsert, setProjectSpace],
 	);
 	/* Provisioning answers with the record alone: making accounts cannot
 	 * change which project space Preview names. */
-	const handleProvisioned = useCallback((next: DeploymentView) => {
-		setRecords((current) => applyRecordUpsert(current, next));
-	}, []);
+	const handleProvisioned = useCallback(
+		(next: DeploymentView) => {
+			upsert(next);
+		},
+		[upsert],
+	);
 
 	const views = records.views;
 	const status =
@@ -141,7 +158,7 @@ export function PublishingSection() {
 				reached, the mobile workers Nova can make there, and what you set up by
 				hand. Publish from the Publish button in the header.
 			</p>
-			{!configured ? (
+			{!connection.configured ? (
 				<aside
 					aria-label="CommCare HQ connection"
 					className="mt-4 max-w-prose rounded-lg border border-nova-violet/30 bg-nova-violet/[0.06] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary"
@@ -167,6 +184,15 @@ export function PublishingSection() {
 			<div className="mt-8 flex flex-col gap-6">
 				{status ?? (
 					<>
+						{records.pending && views !== null ? (
+							<p
+								role="status"
+								className="flex items-center gap-2 text-[13px] text-nova-text-muted"
+							>
+								<Spinner className="size-4" />
+								Checking these records again
+							</p>
+						) : null}
 						{records.failure !== null && views !== null ? (
 							<p
 								role="status"
@@ -188,7 +214,7 @@ export function PublishingSection() {
 						) : null}
 						{views?.map((view) => {
 							const retryDomain = canEdit
-								? publishAgainDomain(view, availableDomains)
+								? publishAgainDomain(view, connection)
 								: null;
 							return (
 								<article

@@ -167,7 +167,7 @@ export const PublishPanel = memo(function PublishPanel() {
 	const docStore = useContext(BlueprintDocContext);
 	const session = useBuilderSessionApi();
 	const canEdit = useCanEdit();
-	const { availableDomains } = useCommCareConnection();
+	const { server, availableDomains } = useCommCareConnection();
 	const reconciler = useReconcilerContext();
 	const projectToast = useProjectToast();
 	const [publishDialogOpen, setPublishDialogOpen] = useState(false);
@@ -387,8 +387,11 @@ export const PublishPanel = memo(function PublishPanel() {
 	 * a `useLocation` subscription, which would re-render this memo-isolated
 	 * panel (and the whole dialog tree under it) on every selection change
 	 * and doc edit. The base path is read at call time because the new-build
-	 * flow rewrites it once the server mints the appId. */
+	 * flow rewrites it once the server mints the appId. Preview is exited
+	 * first — App setup renders only in edit mode, so landing on its URL
+	 * while previewing would show a blank canvas. */
 	const handleOpenPublishing = useCallback(() => {
+		session.getState().setPreviewing(false);
 		const parts = window.location.pathname.split("/").filter(Boolean);
 		pushBuilderHistory(
 			buildUrl(`/${parts.slice(0, 2).join("/")}`, {
@@ -396,7 +399,7 @@ export const PublishPanel = memo(function PublishPanel() {
 				section: "publishing",
 			}),
 		);
-	}, []);
+	}, [session]);
 
 	return (
 		<>
@@ -410,6 +413,7 @@ export const PublishPanel = memo(function PublishPanel() {
 				/* The context already answers a stable empty list when no key is
 				 * configured, so this is identity-stable across renders. */
 				availableDomains={availableDomains}
+				connectionServer={server}
 				canUploadToHq={canEdit}
 				requestedDomain={requestedDomain}
 				onOpenPublishing={handleOpenPublishing}

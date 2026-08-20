@@ -38,6 +38,12 @@
  */
 
 import type { BlueprintDoc } from "@/lib/domain";
+/* Type-only, so the client-safe plan module never executes the
+ * server-only worker driver. */
+import type { ProvisionedWorker, WorkerProvisionRefusal } from "./workers";
+
+export type { ProvisionedWorker, WorkerProvisionRefusal } from "./workers";
+
 import {
 	assignedLocationUuids,
 	ownRecordValue,
@@ -693,4 +699,67 @@ export function retainUnconfirmedWorkers(
 		next[unconfirmedWorkerKey(worker.personaUuid, worker.username)] = worker;
 	}
 	return next;
+}
+
+/**
+ * What one target's Workers panel is showing for its confirmed accounts:
+ * every credential provisioning has produced there, plus the latest call's
+ * refusal.
+ *
+ * Held in the builder session rather than in the panel for the same reason
+ * the unconfirmed credentials are: a new account's password exists nowhere
+ * but on screen, and the panel unmounts on an ordinary App setup section
+ * switch. The public docs promise the passwords stay until the person
+ * leaves the PAGE, so the page-lived session store is the thing that has
+ * to hold them.
+ */
+export interface HeldProvisioningOutcome {
+	readonly workers: readonly ProvisionedWorker[];
+	readonly refusal: WorkerProvisionRefusal | null;
+}
+
+/** How one target's held outcome is addressed. Same identity the record
+ *  fold uses: US, India, and EU can hold unrelated same-named spaces. */
+export function provisioningOutcomeKey(server: string, domain: string): string {
+	return `${server}\u0000${domain}`;
+}
+
+/**
+ * Fold one provisioning answer into a target's held outcome.
+ *
+ * Workers ACCUMULATE across calls, merged per account (persona AND
+ * username, like the unconfirmed key): somebody who makes three workers,
+ * then two more, is handing out five passwords, and an answer that simply
+ * replaced the last one would destroy the first three's only copies. A
+ * later answer for the same account wins except for its password — an
+ * update carries none (`password: null`), and the password the account
+ * was MADE with is still the one it signs in with.
+ *
+ * The refusal is the latest call's, verbatim, including null: it describes
+ * one attempt, and the newest attempt's answer is the standing one.
+ */
+export function foldProvisioningOutcome(
+	held: HeldProvisioningOutcome | undefined,
+	answer: {
+		readonly workers: readonly ProvisionedWorker[];
+		readonly refusal: WorkerProvisionRefusal | null;
+	},
+): HeldProvisioningOutcome {
+	const merged = [...(held?.workers ?? [])];
+	for (const worker of answer.workers) {
+		const key = unconfirmedWorkerKey(worker.personaUuid, worker.username);
+		const at = merged.findIndex(
+			(candidate) =>
+				unconfirmedWorkerKey(candidate.personaUuid, candidate.username) === key,
+		);
+		if (at === -1) {
+			merged.push(worker);
+			continue;
+		}
+		merged[at] = {
+			...worker,
+			password: worker.password ?? merged[at].password,
+		};
+	}
+	return { workers: merged, refusal: answer.refusal };
 }
