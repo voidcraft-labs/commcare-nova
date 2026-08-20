@@ -37,6 +37,7 @@ import {
 	type Uuid,
 	xpathPrintContext,
 } from "@/lib/domain";
+import { deepEqual } from "./deepEqual";
 import { formLinkMoveVerdicts, formLinkTargetVerdict } from "./formLinkReview";
 import type { Mutation } from "./types";
 
@@ -263,8 +264,11 @@ export function planFormLinkAdd(
 	};
 }
 
+/* Structural, not textual: the stored document sorts object keys, and a
+ * caller re-sending an unchanged target with another key order must read
+ * as unchanged. */
 const sameJson = (left: unknown, right: unknown): boolean =>
-	JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+	deepEqual(left ?? null, right ?? null);
 
 /**
  * Rebase an edited link onto the invocation-time document: only the slots

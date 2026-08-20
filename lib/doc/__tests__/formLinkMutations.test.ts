@@ -383,10 +383,20 @@ describe("planFormLinkUpdate", () => {
 		]);
 	});
 
-	it("is a no-op plan when nothing changed", () => {
+	it("is a no-op plan when nothing changed, whatever the key order", () => {
 		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
 		const current = base(doc, "lnk-1");
 		expect(planFormLinkUpdate(doc, SOURCE, { ...current }, current)).toEqual({
+			ok: true,
+			mutations: [],
+		});
+		// A caller re-sending the same target with its keys in another order
+		// (the stored document sorts them) has changed nothing.
+		const reordered = {
+			...current,
+			target: { formUuid: NOTE, moduleUuid: CARE, type: "form" as const },
+		};
+		expect(planFormLinkUpdate(doc, SOURCE, reordered, current)).toEqual({
 			ok: true,
 			mutations: [],
 		});
