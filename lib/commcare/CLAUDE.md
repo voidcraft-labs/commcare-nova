@@ -157,17 +157,90 @@ wire vocabulary never enters the domain. Form-type defaults when absent:
 followup/close → `previous`, registration/survey → `app_home`. The SA only sets
 `post_submit` when overriding the default.
 
-### Form links
+### After-submit links (`form_links`)
 
-`form_links` on a form enables conditional navigation: `condition?` (XPath) + `target` (form or module by uuid) + optional `datums`. First matching condition wins; `post_submit` is the fallback. Fully validated.
+`Form.formLinks` is an ordered array of `{uuid, condition?, target, datums?}`;
+CommCare's `form_links` spelling and the workflow words live only here. ONE
+projector, `formLinkProjection.ts`, owns everything both paths emit (it imports
+`buildFormActions` from `formActions.ts`, never the expander, so the preview
+engine can reach it too); `session.ts::deriveFormLinkStack` and
+`expander.ts::toHqFormLink` are its two printers.
 
-Core evaluates each form-link condition and datum as a post-form session-stack
-operation, after the XForm instance has closed. These expressions may read the
-entry's session and loaded case instances, but never `#form/...` or `/data/...`.
-`expander.ts::translateFormLinks` projects typed case/user references into that
-session scope and lowers JavaRosa shims; `deriveEntryDefinition` declares every
-secondary instance the projected strings use. Empty datum XPath is invalid
-(unlike an omitted condition, which means unconditional navigation).
+- **Exclusive guards.** Core executes EVERY true `<create>` and lands on the
+  LAST one (`CommCareSession::executeStackOperations` / `finishAndPop`), and HQ
+  emits authored conditions raw (`workflow.py::_get_link_frame`; fixture
+  `form_link_multiple.xml`: `if="a = 1"`, `if="a = 2"`). "First true link wins"
+  is therefore Nova's to make true: `planFormLinkGuards` emits link i as
+  `(c_i) and not(c_1) … and not(c_{i-1})` — the first link stays bare `c_i`,
+  byte-identical to HQ's first frame, and the positive operand is parenthesized
+  so a top-level `or` cannot fire two frames. A TERMINAL unconditional link is
+  the exhaustive else: guard `not(c_1) … and not(c_{n-1})`, no fallback frame.
+  A condition that prints to empty XPath is unconditional. The fallback frame
+  is `postSubmit` guarded by `not(g_1) and … and not(g_n)` over the EMITTED
+  guards — HQ's literal `' and '.join(f'not({xpath})')` in `_get_fallback_frame`
+  over the `xpath`s Nova sends, so both paths derive identical bytes —
+  and `app_home` (HQ `default`) emits no frame at all.
+  `formLinkProjection.property.test.ts` proves exactly one guard-or-fallback is
+  true under every assignment; `formLinkParity.test.ts` pins local `<create if>`
+  against HQ `form_links[i].xpath` on one document.
+- **HQ shape.** `form_links[]` is HQ's real `FormLink`:
+  `{xpath, form_id, form_module_id, datums}` or `{xpath, module_unique_id,
+  datums}` (`xpath: ""` = unconditional). `post_form_workflow` is `"form"` iff
+  the form has links (HQ reads links only then); `post_form_workflow_fallback`
+  is the `postSubmit` workflow word when a guarded fallback frame exists, else
+  `null` (`WORKFLOW_FALLBACK_OPTIONS` is `None` — no choice validation). HQ
+  re-ids forms on import (`update_form_unique_ids` rewrites `form_id`) and not
+  modules, so the expander pre-generates every form unique id before the module
+  map. `hqJsonOracle.ts::checkFormLinks` pins the shape and id resolution.
+- **Frame children follow `WorkflowHelper.get_frame_children`** exactly:
+  module command → longest common prefix (by datum id) of every FORM entry's
+  datums in the target module → form command → the target form's remaining
+  datums. A single-form module's whole datum list is that prefix, so its
+  selection datum is hoisted AHEAD of the form command. A module target is the
+  module command alone (`_frame_children_for_module(include_user_selections=
+  False)`), so the runtime prompts for the case there as usual. Auto-match
+  (`datums` absent) mirrors `_find_best_match`: the FIRST source datum in
+  source order with the same case type — same id keeps the id, a different id
+  carries `session/data/<source id>`; function datums carry their function
+  (`uuid()`). Manual datums (`min(1)`, unique names) land on the target datums
+  they name; a name the target never reads is `FORM_LINK_DATUM_UNUSED` (HQ's
+  `_get_datums_matched_to_manual_values` iterates TARGET datums and drops it).
+- **No runtime prompt on an unmatched datum.** HQ yields one as a self-named
+  session ref (`<datum id="case_id"
+  value="instance('commcaresession')/session/data/case_id"/>`), Core evaluates
+  it to `""` at push (`StackFrameStep.defineStep`), `syncState` stores it, and
+  `getFirstMissingDatum` checks only `containsKey` — the target opens with an
+  EMPTY case id. So `FORM_LINK_DATUMS_INCOMPLETE` refuses any form target
+  whose selection datum no source datum (auto) or no named datum (manual)
+  satisfies, and only resolvable frames reach the wire. Nova is deliberately
+  stricter than HQ here.
+- **`previous`** — as `postSubmit` AND as the fallback frame — is the source
+  entry's own frame children with the last child popped, popping again while
+  the child just popped was a non-selection datum (`WORKFLOW_PREVIOUS` arm of
+  `_get_static_stack_frame`): `[m, m-f]` for a followup in a forms-first
+  module, `[m, case_id]` in a case-first one, `[m]` for a registration form
+  beside other forms, and `[m, case_id_new_x=uuid()]` for a single-registration
+  module (HQ's `form_link_tdh_with_fallback_previous.xml` keeps
+  `case_id_new_visit_0=uuid()`). `derivePostSubmitStack` routes `previous`
+  through the same projection, so the local suite matches HQ's build.
+- **Session scope.** Core evaluates link conditions and datum XPath after the
+  XForm instance has closed, with a NULL main instance
+  (`CommCareSession::getEvaluationContext`; `XPathPathExpr::evalRaw` throws on
+  `/data/...`), so they may read the session and loaded case instances, never
+  `#form/` or `/data/`. `formLinkExpressionProjectable` is the predicate; the
+  deep validator reports the offending reference with the link's uuid.
+  `deriveEntryDefinition` declares every secondary instance the projected
+  guards, children, datums, and fallback guard use.
+- **Validator** (`rules/form.ts::formLinkValidation`, all soundness):
+  `FORM_LINK_UNREACHABLE` (a link after an unconditional one),
+  `FORM_LINK_NO_FALLBACK` (every link conditional and no EXPLICIT `postSubmit`
+  — the form-type default does not count), `FORM_LINK_DATUMS_INCOMPLETE`,
+  `FORM_LINK_DATUM_UNUSED`, plus `TARGET_NOT_FOUND` / `SELF_REFERENCE` /
+  `CIRCULAR` (graph-backed, `lib/domain/formLinkGraph.ts`). Every finding
+  carries `details.linkUuid` and names the destination. The projection runs
+  only where every target resolves, every expression is session-scope, and
+  every form the frame reads has buildable actions — each "no" is a finding
+  another rule already owns, which is what keeps this rule total.
 
 ### Repeat modes
 
