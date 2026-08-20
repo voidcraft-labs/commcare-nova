@@ -171,17 +171,6 @@ function evalNode(
 		return "";
 	}
 
-	// ── Parenthesized expression ──
-	const first = node.firstChild;
-	if (first && first.type === T.OpenParen) {
-		// Find the expression between ( and )
-		const inner = first.nextSibling;
-		if (inner && inner.type !== T.CloseParen) {
-			return evalNode(inner, source, ctx);
-		}
-		return "";
-	}
-
 	// ── Unary negative ──
 	if (type === T.UnaryNegativeExpr) {
 		const operand = getLastChild(node);
@@ -318,6 +307,23 @@ function evalNode(
 		// In preview, predicates are simplified — evaluate the base expression
 		const child = node.firstChild;
 		return child ? evalNode(child, source, ctx) : "";
+	}
+
+	// ── Parenthesized expression ──
+	// The grammar splices grouping parens flat into the PARENT node, so a
+	// binary node's first child can be the `(` token: `(a) and b` parses as
+	// `AndExpr → "(" a ")" and b`. Every typed branch above already skips
+	// paren tokens when it collects operands, which is why this branch sits
+	// BELOW them — placed first, it returned the inner expression alone and
+	// silently dropped the rest of the binary expression (`(a) and b` → a,
+	// `(1 + 2) * 3` → 3).
+	const first = node.firstChild;
+	if (first && first.type === T.OpenParen) {
+		const inner = first.nextSibling;
+		if (inner && inner.type !== T.CloseParen) {
+			return evalNode(inner, source, ctx);
+		}
+		return "";
 	}
 
 	// ── Fallback: try to evaluate the first child ──

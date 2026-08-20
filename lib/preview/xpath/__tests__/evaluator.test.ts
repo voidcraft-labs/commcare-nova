@@ -30,6 +30,29 @@ function makeCtx(
 }
 
 describe("XPath evaluator", () => {
+	describe("parenthesized left operands", () => {
+		// The grammar splices grouping parens flat into the parent node, so a
+		// binary node's first child can be the `(` token. The evaluator must
+		// still read the whole binary expression, not just the group.
+		it("keeps the right operand of a binary expression whose left is parenthesized", () => {
+			expect(evaluate("(true()) and false()", makeCtx())).toBe(false);
+			expect(evaluate("(false()) or true()", makeCtx())).toBe(true);
+			expect(evaluate("(1 + 2) * 3", makeCtx())).toBe(9);
+			expect(evaluate("(10 - 4) div 2", makeCtx())).toBe(3);
+			expect(evaluate("(2) = 3", makeCtx())).toBe(false);
+			expect(evaluate("(2) < 3", makeCtx())).toBe(true);
+			expect(evaluate("((1 + 2)) * 3", makeCtx())).toBe(9);
+			expect(evaluate("(true()) and (false())", makeCtx())).toBe(false);
+		});
+
+		it("still evaluates a fully parenthesized expression and a parenthesized right operand", () => {
+			expect(evaluate("(1 + 2)", makeCtx())).toBe(3);
+			expect(evaluate("((true()))", makeCtx())).toBe(true);
+			expect(evaluate("3 * (1 + 2)", makeCtx())).toBe(9);
+			expect(evaluate("true() and (false())", makeCtx())).toBe(false);
+		});
+	});
+
 	describe("literals", () => {
 		it("evaluates number literals", () => {
 			expect(evaluate("42", makeCtx())).toBe(42);
