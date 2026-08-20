@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "6791da9d351a504ecc28947b72d1b72144750389c6c1f34546d82c16b9c295ac",
+  "catalogDigest": "0de94c6018857c15dcf83545014323f55888ed4a167457758aaa167ed76df78d",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -83,6 +83,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "add_fields",
       "saName": "addFields",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "add_form_links",
+      "saName": "addFormLinks",
       "staging": "allowed",
     },
     {
@@ -260,6 +266,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "staging": "allowed",
     },
     {
+      "effect": "mutate-blueprint",
+      "mcpName": "move_form_link",
+      "saName": "moveFormLink",
+      "staging": "allowed",
+    },
+    {
       "effect": "mutate-external",
       "mcpName": "move_location",
       "saName": "moveLocation",
@@ -299,6 +311,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "remove_form",
       "saName": "removeForm",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "remove_form_link",
+      "saName": "removeFormLink",
       "staging": "allowed",
     },
     {
@@ -455,6 +473,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "update_form",
       "saName": "updateForm",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "update_form_link",
+      "saName": "updateFormLink",
       "staging": "allowed",
     },
     {
