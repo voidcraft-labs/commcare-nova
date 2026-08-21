@@ -1,5 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
+import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import {
@@ -29,6 +31,7 @@ import {
 	useForm as useFormEntity,
 	useModule as useModuleEntity,
 } from "@/lib/doc/hooks/useEntity";
+import { useFormIsSectioned } from "@/lib/doc/hooks/useFormSections";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import { useCaseFirstModuleUuids } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
@@ -104,7 +107,14 @@ import {
 	runFormAttachmentBarrier,
 	setAttachmentEntryAuthority,
 } from "../form/fields/attachment/attachmentClient";
+import { SectionPage } from "../form/sections/SectionPage";
+import { SectionStepper } from "../form/sections/SectionPagerControls";
+import { useSectionPaging } from "../form/sections/useSectionPaging";
 import { afterSubmitRoute } from "./afterSubmitRouting";
+import {
+	FORM_PRIMARY_ACTION_CLS,
+	FORM_QUIET_ACTION_CLS,
+} from "./formActionButtonStyles";
 import { openModuleLanding } from "./moduleLanding";
 
 /**
@@ -259,6 +269,10 @@ interface FormScreenProps {
  * `caseRowsToFormPreloads` flattens the bound case + its ancestor
  * chain into the per-case-type map the form engine consumes.
  */
+/** The focusable control inside an invalid question, or the question itself. */
+const INVALID_CONTROL_SELECTOR =
+	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
+
 export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const caseId = screen.caseId;
 	const loc = useLocation();
@@ -593,8 +607,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		kind: "idle",
 	});
 	const [validationAnnouncement, setValidationAnnouncement] = useState<
-		{ readonly attempt: number; readonly message: string } | undefined
+		{ readonly serial: number; readonly message: string } | undefined
 	>();
+	/* Each announcement gets its own serial so the same sentence said twice
+	 * (two failed Next presses) re-renders the alert node and is read twice. */
+	const announcementSerialRef = useRef(0);
+	const announce = useCallback((message: string): void => {
+		setValidationAnnouncement({
+			serial: ++announcementSerialRef.current,
+			message,
+		});
+	}, []);
 	const [clearRevision, setClearRevision] = useState(0);
 	const [clearTargetEntryKey, setClearTargetEntryKey] = useState<
 		string | undefined
@@ -989,12 +1012,32 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const revealAndFocusFirstInvalid = useCallback((): void => {
 		const target = controller.firstInvalidFieldTarget();
 		if (target === undefined) return;
-		revealAndFocusTarget(
-			target,
-			'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])',
-			true,
-		);
+		revealAndFocusTarget(target, INVALID_CONTROL_SELECTOR, true);
 	}, [controller, revealAndFocusTarget]);
+
+	const revealInvalidOnPage = useCallback(
+		(target: InvalidFieldTarget): void =>
+			revealAndFocusTarget(target, INVALID_CONTROL_SELECTOR, true),
+		[revealAndFocusTarget],
+	);
+	/* A sectioned form previews one page at a time (`useSectionPaging`). The
+	 * hook is inert for a single-page form and in edit mode, where the
+	 * canvas shows every page at once. */
+	const formIsSectioned = useFormIsSectioned(formUuid);
+	const paging = useSectionPaging({
+		formUuid,
+		enabled: mode === "preview" && formIsSectioned,
+		revealInvalid: revealInvalidOnPage,
+		refuse: announce,
+	});
+	/** Turn to the page holding a question before revealing it: an invalid
+	 *  question's first ancestor is its section, so the reveal's DOM query
+	 *  finds it mounted. A no-op on a single-page form. */
+	const showPageOf = (target: InvalidFieldTarget): void => {
+		const first = target.ancestorUuids[0];
+		if (first !== undefined) paging.showPage(first);
+	};
+	const showFirstPage = paging.showFirst;
 
 	const focusAttachmentInvariantRecovery = useCallback(
 		(fieldUuid: string | undefined): void => {
@@ -1164,16 +1207,15 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			if (result === "invalid") {
 				settleAttempt({ kind: "idle" });
-				setValidationAnnouncement({
-					attempt,
-					// Deliberately does not name the reason. Submit is blocked by
-					// a missing required answer, an authored validation rule, OR
-					// a temporal answer that is not yet a value of its type, and
-					// the focused question announces its OWN message a moment
-					// later: naming one of the three here would contradict the
-					// other two.
-					message: "Review the highlighted question.",
-				});
+				// Deliberately does not name the reason. Submit is blocked by
+				// a missing required answer, an authored validation rule, OR
+				// a temporal answer that is not yet a value of its type, and
+				// the focused question announces its OWN message a moment
+				// later: naming one of the three here would contradict the
+				// other two.
+				announce("Review the highlighted question.");
+				const firstInvalid = controller.firstInvalidFieldTarget();
+				if (firstInvalid !== undefined) showPageOf(firstInvalid);
 				revealAndFocusFirstInvalid();
 				return;
 			}
@@ -1219,10 +1261,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			if (error instanceof AttachmentNotReadyError) {
 				settleAttempt({ kind: "idle" });
-				setValidationAnnouncement({
-					attempt,
-					message: `Attachment needs attention. ${error.message}`,
-				});
+				announce(`Attachment needs attention. ${error.message}`);
 				const hasInvariantRecovery = [
 					...(formBodyElRef.current?.querySelectorAll<HTMLElement>(
 						"[data-attachment-recovery-field-uuid]",
@@ -1241,6 +1280,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					error.fieldUuid,
 				);
 				if (target !== undefined) {
+					showPageOf(target);
 					revealAndFocusTarget(target, "[data-attachment-recovery]", false);
 				} else {
 					focusAttachmentInvariantRecovery(error.fieldUuid);
@@ -1280,6 +1320,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			clearInFlightRef.current = true;
 			setSubmitStatus({ kind: "idle" });
 			setValidationAnnouncement(undefined);
+			showFirstPage();
 			if (entryKey === undefined) {
 				controller.reset();
 				setClearRevision((revision) => revision + 1);
@@ -1297,7 +1338,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			setClearTargetEntryKey(nextEntryKey);
 		},
-		[appId, controller, entryKey, session, submitStatus.kind],
+		[appId, controller, entryKey, session, showFirstPage, submitStatus.kind],
 	);
 
 	const formFrozen = submitStatus.kind === "running" || clearRunning;
@@ -1442,7 +1483,24 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						 * and other browser-owned drafts for the same app/form/worker. A
 						 * confirmed app/form/Project/worker boundary rotates the entry
 						 * key and retires browser-local continuations with it. */
-						<FormRenderer parentEntityId={formUuid} />
+						paging.enabled ? (
+							paging.current !== undefined ? (
+								<SectionPage
+									key={paging.current.uuid}
+									page={paging.current}
+									index={paging.index}
+									count={paging.count}
+									takeFocusOnMount={paging.takeFocusOnMount}
+								/>
+							) : (
+								<div className="text-center text-nova-text-muted py-8">
+									Nothing to answer right now. Every section is empty or hidden
+									by a display condition.
+								</div>
+							)
+						) : (
+							<FormRenderer parentEntityId={formUuid} />
+						)
 					) : (
 						<div className="text-center text-nova-text-muted py-8">
 							This form has no fields.
@@ -1463,6 +1521,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			 *  always renders; this row adapts to whether a case is bound. */}
 			{mode === "preview" && (
 				<div className="border-t border-pv-input-border bg-pv-surface">
+					{paging.count > 0 ? (
+						<SectionStepper paging={paging} disabled={formFrozen} />
+					) : null}
 					{noSampleCases ? (
 						<div className="px-6 py-4 text-xs leading-relaxed text-nova-text-muted">
 							This form opens an existing case. Start from Results and choose a
@@ -1475,29 +1536,64 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						</div>
 					) : (
 						<div className="flex flex-wrap items-center justify-between gap-2 px-6 py-3">
-							<button
-								type="button"
-								onClick={handleSubmit}
-								disabled={
-									submitStatus.kind === "running" ||
-									clearRunning ||
-									!caseBindingReady ||
-									(appId !== undefined && !attachmentEntryReady) ||
-									!mayWriteCaseData
-								}
-								className="nova-focusable inline-flex min-h-11 touch-manipulation cursor-pointer items-center gap-2 rounded-lg bg-pv-accent px-4 py-2 text-sm font-medium text-nova-void transition-[filter] not-disabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
-							>
-								{submitStatus.kind === "running" && (
-									<Icon
-										icon={tablerLoader2}
-										width="14"
-										height="14"
-										className="animate-spin"
-										aria-hidden="true"
-									/>
+							<div className="flex flex-wrap items-center gap-2">
+								{paging.canGoBack ? (
+									<button
+										type="button"
+										onClick={paging.goBack}
+										disabled={formFrozen}
+										className={FORM_QUIET_ACTION_CLS}
+									>
+										<Icon
+											icon={tablerChevronLeft}
+											width="16"
+											height="16"
+											aria-hidden="true"
+										/>
+										Back
+									</button>
+								) : null}
+								{paging.isLast ? (
+									<button
+										type="button"
+										onClick={handleSubmit}
+										disabled={
+											submitStatus.kind === "running" ||
+											clearRunning ||
+											!caseBindingReady ||
+											(appId !== undefined && !attachmentEntryReady) ||
+											!mayWriteCaseData
+										}
+										className={FORM_PRIMARY_ACTION_CLS}
+									>
+										{submitStatus.kind === "running" && (
+											<Icon
+												icon={tablerLoader2}
+												width="14"
+												height="14"
+												className="animate-spin"
+												aria-hidden="true"
+											/>
+										)}
+										{submitStatus.kind === "running" ? "Submitting" : "Submit"}
+									</button>
+								) : (
+									<button
+										type="button"
+										onClick={paging.goNext}
+										disabled={formFrozen}
+										className={FORM_PRIMARY_ACTION_CLS}
+									>
+										Next
+										<Icon
+											icon={tablerChevronRight}
+											width="16"
+											height="16"
+											aria-hidden="true"
+										/>
+									</button>
 								)}
-								{submitStatus.kind === "running" ? "Submitting" : "Submit"}
-							</button>
+							</div>
 							<button
 								type="button"
 								onClick={handleClear}
@@ -1506,7 +1602,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 									clearRunning ||
 									!mayWriteCaseData
 								}
-								className="nova-focusable inline-flex min-h-11 touch-manipulation cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity) disabled:not-disabled:hover:bg-transparent"
+								className={FORM_QUIET_ACTION_CLS}
 							>
 								<Icon
 									icon={tablerRefresh}
@@ -1521,7 +1617,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					)}
 					{validationAnnouncement ? (
 						<p
-							key={validationAnnouncement.attempt}
+							key={validationAnnouncement.serial}
 							role="alert"
 							className="sr-only"
 						>

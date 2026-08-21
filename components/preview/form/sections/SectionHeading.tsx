@@ -33,6 +33,12 @@ export interface SectionHeadingProps {
 	/** Draw the thin page-break rule above the heading. The first page has
 	 *  nothing above it to break from. */
 	readonly pageBreak?: boolean;
+	/** Pad the title the way the edit canvas's inline editor pads it at
+	 *  rest (`TextEditable`'s idle wrapper), so a static title in the running
+	 *  form sits at the same x/y as the editable one. */
+	readonly titleInset?: boolean;
+	/** The title element, for a caller that moves focus to it. */
+	readonly titleRef?: (element: HTMLElement | null) => void;
 	readonly className?: string;
 }
 
@@ -49,6 +55,8 @@ export function SectionHeading({
 	id,
 	tabIndex,
 	pageBreak = false,
+	titleInset = false,
+	titleRef,
 	className,
 }: SectionHeadingProps) {
 	const Title = as;
@@ -68,8 +76,11 @@ export function SectionHeading({
 			</p>
 			<Title
 				id={id}
+				ref={titleRef}
 				tabIndex={tabIndex}
-				className="nova-focusable mt-1 min-w-0 text-lg font-semibold leading-7 text-nova-text outline-none"
+				className={`nova-focusable mt-1 min-w-0 text-lg font-semibold leading-7 text-nova-text outline-none${
+					titleInset ? " px-[5px] py-[5px]" : ""
+				}`}
 			>
 				{title}
 			</Title>

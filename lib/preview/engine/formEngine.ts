@@ -107,6 +107,19 @@ export interface InvalidFieldTarget {
 	readonly ancestorUuids: readonly Uuid[];
 }
 
+/** One page of a sectioned form, as the running form sees it. */
+export interface SectionPage {
+	readonly uuid: Uuid;
+	/** The section's data path, `/data/<id>`. */
+	readonly path: string;
+	/** Whether the page has anything to show: at least one effectively
+	 *  visible descendant that is neither a container nor `hidden`. A label
+	 *  counts (the device renders a trigger as a prompt). A page with
+	 *  nothing to show is skipped, the way Android skips an empty or
+	 *  all-irrelevant field-list. */
+	readonly hasVisibleQuestions: boolean;
+}
+
 /** Stable fallback for paths that don't exist in the engine. Frozen so
  *  Zustand selectors always return the same reference — no spurious re-renders. */
 export const DEFAULT_ENGINE_STATE: FieldState = Object.freeze({
@@ -727,13 +740,106 @@ export class FormEngine {
 	}
 
 	/**
-	 * First effectively visible invalid question in runtime document order.
+	 * The form's pages, in order: its root sections. Empty for a form with
+	 * no sections. `hasVisibleQuestions` is read against the current store,
+	 * so a page whose every question is irrelevant right now reports false
+	 * and the pager skips it (and re-anchors when the answer that hid it
+	 * changes).
+	 */
+	sectionPages(): ReadonlyArray<SectionPage> {
+		const states = this.store.getState();
+		const effectivelyVisible = this.effectivelyVisiblePaths(states);
+		const hasVisibleQuestion = (
+			nodes: ReadonlyArray<FieldTreeNode>,
+			prefix: string,
+		): boolean => {
+			for (const node of nodes) {
+				const path = `${prefix}/${node.field.id}`;
+				if (!effectivelyVisible.has(path)) continue;
+				if (!isContainer(node.field)) {
+					if (node.field.kind !== "hidden") return true;
+					continue;
+				}
+				if (node.field.kind === "repeat") {
+					const count = this.instance.getRepeatCount(path);
+					for (let index = 0; index < count; index++) {
+						if (hasVisibleQuestion(node.children ?? [], `${path}[${index}]`)) {
+							return true;
+						}
+					}
+				} else if (hasVisibleQuestion(node.children ?? [], path)) {
+					return true;
+				}
+			}
+			return false;
+		};
+		const pages: SectionPage[] = [];
+		for (const node of this.tree) {
+			if (node.field.kind !== "section") continue;
+			const path = `/data/${node.field.id}`;
+			pages.push({
+				uuid: node.field.uuid,
+				path,
+				hasVisibleQuestions:
+					effectivelyVisible.has(path) &&
+					hasVisibleQuestion(node.children ?? [], path),
+			});
+		}
+		return pages;
+	}
+
+	/**
+	 * Validate the effectively visible questions on ONE page: `validateAll`
+	 * restricted to the paths under `/data/<section.id>`. Marks them touched
+	 * and returns whether the page is valid. This is what Next checks on a
+	 * phone before it turns the page; Back never calls it.
+	 */
+	validateSection(sectionUuid: Uuid): boolean {
+		const section = this.tree.find((node) => node.field.uuid === sectionUuid);
+		if (section === undefined || section.field.kind !== "section") return true;
+		const root = `/data/${section.field.id}`;
+		const within = (path: string): boolean =>
+			path === root ||
+			path.startsWith(`${root}/`) ||
+			path.startsWith(`${root}[`);
+
+		let valid = true;
+		const updates: EngineStoreState = {};
+		const currentState = this.store.getState();
+		const effectivelyVisible = this.effectivelyVisiblePaths(currentState);
+
+		for (const [path, state] of Object.entries(currentState)) {
+			if (state === DEFAULT_ENGINE_STATE) continue;
+			if (!within(path)) continue;
+			if (!effectivelyVisible.has(path)) continue;
+
+			const touched = state.touched ? state : { ...state, touched: true };
+			if (touched !== state) updates[path] = touched;
+
+			this.validateAndCollect(path, updates[path] ?? touched, updates);
+			const final = updates[path] ?? touched;
+			if (!final.valid) valid = false;
+		}
+
+		if (Object.keys(updates).length > 0) {
+			this.store.setState(updates);
+		}
+		return valid;
+	}
+
+	/**
+	 * First effectively visible invalid question in runtime document order,
+	 * across the form or, with `withinSection`, on that one page (its
+	 * ancestor trail then starts at the section).
 	 *
 	 * Structural ancestors are returned by UUID because preview collapse state
 	 * is structural, while the target itself keeps its concrete repeat path.
-	 * Call after `validateAll()` so required checks have populated validity.
+	 * Call after `validateAll()` / `validateSection()` so required checks
+	 * have populated validity.
 	 */
-	firstInvalidFieldTarget(): InvalidFieldTarget | undefined {
+	firstInvalidFieldTarget(opts?: {
+		readonly withinSection?: Uuid;
+	}): InvalidFieldTarget | undefined {
 		const states = this.store.getState();
 		const walk = (
 			nodes: ReadonlyArray<FieldTreeNode>,
@@ -781,6 +887,19 @@ export class FormEngine {
 			}
 			return undefined;
 		};
+		if (opts?.withinSection !== undefined) {
+			const section = this.tree.find(
+				(node) => node.field.uuid === opts.withinSection,
+			);
+			if (section === undefined) return undefined;
+			const sectionPath = `/data/${section.field.id}`;
+			return walk(
+				section.children ?? [],
+				sectionPath,
+				states[sectionPath]?.visible !== false,
+				[section.field.uuid],
+			);
+		}
 		return walk(this.tree, "/data", true, []);
 	}
 

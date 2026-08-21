@@ -69,6 +69,7 @@ import {
 	FormEngine,
 	type FormEngineInput,
 	type InvalidFieldTarget,
+	type SectionPage,
 } from "./formEngine";
 import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
@@ -803,9 +804,25 @@ export class EngineController {
 		return result;
 	}
 
-	/** First invalid runtime question plus the collapsed ancestors that hide it. */
-	firstInvalidFieldTarget(): InvalidFieldTarget | undefined {
-		return this.engine?.firstInvalidFieldTarget();
+	/** First invalid runtime question plus the collapsed ancestors that hide
+	 *  it, across the form or on one page (`withinSection`). */
+	firstInvalidFieldTarget(opts?: {
+		readonly withinSection?: Uuid;
+	}): InvalidFieldTarget | undefined {
+		return this.engine?.firstInvalidFieldTarget(opts);
+	}
+
+	/** The form's pages (root sections) with their current visibility. */
+	sectionPages(): ReadonlyArray<SectionPage> {
+		return this.engine?.sectionPages() ?? [];
+	}
+
+	/** Validate the visible questions on one page. Returns true if valid. */
+	validateSection(sectionUuid: Uuid): boolean {
+		if (!this.engine) return true;
+		const result = this.engine.validateSection(sectionUuid);
+		this.syncAllPathsSelectively();
+		return result;
 	}
 
 	/** Resolve a concrete question to the collapsed containers that hide it. */

@@ -179,6 +179,8 @@ writers, two readers: the preview pager writes it on every page change and
 renders from the reactive hook; the edit canvas writes the page its first
 visible row belonged to on unmount and reads it imperatively, once, to seed the
 virtualizer's `initialOffset` (`components/preview/form/virtual/sectionScroll.ts`).
-A form that was never paged has no entry; the form screen clears the entry when
-the form is left. It is not a shadow of the doc: a page the form no longer has
-is simply ignored by both readers.
+A form that was never paged has no entry, and an entry outlives a visit the way
+the scroll memory does (coming back to a form lands on the page you left; Clear
+form returns the running form to its first page). It is not a shadow of the
+doc: a page the form no longer has, or one with nothing to show right now, is
+simply re-anchored by both readers rather than trusted.
