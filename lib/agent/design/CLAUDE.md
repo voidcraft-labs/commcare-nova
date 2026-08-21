@@ -132,7 +132,8 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   ordered layout, Markdown, summary, and duplication decisions. A grouped
   design layout (the schema's `sectioned` arm) lowers to the existing nested
   Blueprint `group` field plus handled
-  children (not the future durable FormSection entity); guidance and record
+  children (never a `section` field, which is a page: the contract carries no
+  page decision); guidance and record
   summaries lower to `label` fields with UUID-backed prose references.
   Semantic record names lower once into exact Blueprint case-type keys; schema,
   parent, module, field-write, and case-operation calls reuse those keys rather
@@ -209,8 +210,8 @@ treatment as one systemic finding naming every affected form. There is no extra
 model-authored build-plan or visual-design pass.
 
 Grouped composition is visual hierarchy inside one continuous form, realized
-with ordinary Blueprint group fields. It is not the future authored
-FormSection-page feature, and that platform gap never justifies flattening an
+with ordinary Blueprint group fields. It is not a form section (a page): the
+contract carries no page decision, and that never justifies flattening an
 otherwise useful grouping.
 
 The same immutable semantic tool grammar is mounted in every phase so a phase

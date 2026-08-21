@@ -2124,11 +2124,60 @@ directly. Request and run timings are three independently authored fields in
 `config/runtime-capabilities.json`; none derives from another.
 `lib/db/CLAUDE.md` owns the run lifecycle.
 
+### After-submit links
+
+A form's after-submit links are entities of the form (`Form.formLinks`, an
+ordered array of `{uuid, condition?, target, datums?}`) with their own four
+mutation kinds (`addFormLink {formUuid, link, after?}` / `updateFormLink` /
+`removeFormLink` / `moveFormLink {formUuid, uuid, after}`), so two authors
+editing different links merge and a reorder is an anchor, never a rewritten
+array. `lib/commcare/formLinkProjection.ts` is the ONE projector both wire
+paths print: it emits the exclusive guards that make "first true link wins"
+true (Core executes every true `<create>` and lands on the last; HQ emits
+authored conditions raw), treats a terminal unconditional link as the
+exhaustive else that suppresses the fallback frame, derives frame children
+exactly as HQ's `WorkflowHelper.get_frame_children` does, and, through the
+validator, refuses a form target whose selection datum nothing can satisfy,
+because the runtime opens such a target with an EMPTY case id rather than
+prompting. `lib/commcare/CLAUDE.md` § After-submit links holds the binding
+facts (the six workflow words, the `previous` pop loop, session scope, the HQ
+JSON shape, the validator codes). The builder authors links on
+`/{formUuid}/links[/{linkUuid}]` (`components/builder/CLAUDE.md` § After
+submit), Preview follows them against the case rows as the submission left
+them (`lib/preview/CLAUDE.md` § End-of-form links), the SA and MCP speak
+`add_form_links` / `update_form_link` / `remove_form_link` /
+`move_form_link`, and `content/docs/form-links.mdx` is the user-facing guide.
+
+### Form sections
+
+A `section` is a field kind of its own: a root-only container whose
+questions sit at depth 0, one page of the form. On the wire it is a DATA
+group with `appearance="field-list"` always (`lib/commcare/CLAUDE.md`
+§ Sections); by schema it carries no expression slots (the design fence: a
+page that wants a condition or a repetition is a group or a repeat); and it
+changes no persistence, because sections live in `fields` + `fieldOrder`,
+moves are `moveField` anchors, and history replays exactly. Three soundness
+rules make a sectioned form a closed state (`FORM_SECTION_NOT_TOP_LEVEL`,
+`FORM_SECTIONS_INCOMPLETE`, `FORM_SECTION_USER_REPEAT`); every gesture is a
+planner over ordinary mutations (`lib/doc/formSectionMutations.ts`, one
+`planPartition` core emitting the minimal re-anchored batch) and one
+placement verdict (`lib/doc/formSectionVerdicts.ts::fieldPlacementVerdict`)
+answers drag, keyboard, the inspector, and the SA's `add_fields` /
+`move_field` / `set_form_sections` before the commit gate does. The edit
+canvas draws a page header row over the shared `SectionHeading`
+(`components/builder/CLAUDE.md` § Sections); Preview pages the form on
+Android's rules, one section per screen, Next validating and Back not, an
+empty or all-irrelevant page skipped, Submit routing to the earliest invalid
+page, the open page a session slot shared across the flip
+(`lib/preview/CLAUDE.md` § Sections page the preview). Default Web Apps
+shows the same form as titled groups on one screen, and the docs say so
+(`content/docs/form-sections.mdx`).
+
 ---
 
 ## What remains
 
-Four units, one file each. **Every entry below is a pointer, not a summary of
+Three units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -2139,21 +2188,10 @@ unit that ships leaves no gap and nothing ever renumbers.
 
 
 
-### Exclusive form links and sections
-
-[`complex-app/form-links-and-sections.md`](complex-app/form-links-and-sections.md)
-· depends on nothing · blocks the nested-menus unit
-
-An exhaustive-`else` link projection with durable link identity in one release,
-then form sections in authored order. **The file holds** the six end-of-form
-workflow mappings and their traps, the closed stack vocabulary, the negative sweep
-proving sections have no wire notion, the no-expression-slots design fence, and
-the verified mechanics that make sections beat multi-form chains.
-
 ### Nested menus and linked-form reuse
 
 [`complex-app/nested-menus-and-linked-form-reuse.md`](complex-app/nested-menus-and-linked-form-reuse.md)
-· depends on form links and sections · blocks the session-endpoints unit
+· depends on nothing · blocks the session-endpoints unit
 
 One-tier menu nesting and native linked-form reuse. **The file holds** what
 `root_module_id` and `put_in_root` each emit, and why shadow modules are
@@ -2190,19 +2228,18 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [form links and sections](complex-app/form-links-and-sections.md) | — |
-| [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | form links and sections |
+| [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | — |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | — |
 
-Two units have no outstanding prerequisites and can start in either order: form
-links and sections, and multi-select. They are the independent entry points —
-every other unit descends from one of them.
+Two units have no outstanding prerequisites and can start in either order: nested
+menus, and multi-select. They are the independent entry points — every other
+unit descends from one of them.
 
 There is no critical path left. Push and provisioning was it, and with the
 drivers, the usercase, and the App setup workspace all shipped the remaining
-work is one short chain and one loose unit: form links → nested menus → session
-endpoints runs on its own, and multi-select waits on nothing.
+work is one short chain and one loose unit: nested menus → session endpoints
+runs on its own, and multi-select waits on nothing.
 
 Session endpoints and multi-select are leaves — nothing waits on them, so each
 can land whenever its own prerequisites are met. Multi-select is both an entry

@@ -573,7 +573,7 @@ export const formCompositionLayoutSchema = z.discriminatedUnion("kind", [
 			kind: z
 				.literal("sectioned")
 				.describe(
-					"A grouped visual layout on one continuous form, lowered through ordinary group fields. This is not authored FormSection pages or page navigation.",
+					"A grouped visual layout on one continuous form, lowered through ordinary group fields. This is not form sections (pages) or page navigation.",
 				),
 			rationale: z.string().min(1).max(1_000),
 			sections: z.array(formCompositionSectionSchema).min(1).max(12),

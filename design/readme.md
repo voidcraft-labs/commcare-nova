@@ -144,6 +144,7 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 | `Toggle.prompt.md` | `components/shadcn/switch.tsx` |
 | `Card.prompt.md` | `components/ui/AppCard.tsx` |
 | `Logo.prompt.md` | `components/ui/Logo.tsx` (plus the logo CSS in `app/globals.css`) |
+| `SectionPager.prompt.md` | `components/preview/form/sections/` (`SectionHeading.tsx`, `SectionPage.tsx`, `SectionPagerControls.tsx`, the `useSectionPaging.ts` hook) and the submit row in `components/preview/screens/FormScreen.tsx` |
 
 ---
 

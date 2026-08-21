@@ -1,0 +1,72 @@
+---
+title: Split a form into sections
+description: Page a long form so people answer one part at a time, with each page checked before the next.
+---
+
+A long form is easier to fill in one part at a time: the questions about the
+person, then the visit, then what happens next. A **section** is one of those
+parts. On a phone each section is its own screen, with Next and Back; the app
+checks a screen's answers before it turns the page, and a page with nothing to
+show is skipped.
+
+## Where to find it
+
+Open a form. The "+" between two questions offers **Split into sections here**
+under Structure: the questions above it become the first section and the
+questions below it the second. Once a form has sections, the "+" between two
+sections adds a section, and the "+" inside a section offers **Split section
+here**, or **New section after this one** at its end.
+
+Every section has a heading on the canvas, **Section 1 of 2** and so on, with a
+title you edit in place the way you edit a question's label. A title can be left
+blank; the heading still shows which page it is.
+
+Select a section's heading for its settings. **Merge with previous section**
+joins two pages into one. **Remove section only** takes the page away and its
+questions join the section beside it, or return to the form as a single page
+when it was the last section. **Delete section and its questions** removes both,
+and asks first. Move up and Move down reorder the sections.
+
+## What a sectioned form keeps true
+
+Once a form has sections, every top-level item is a section: a question cannot
+sit between two pages, because the app would have nowhere to show it. Nova keeps
+that true for you. Dragging a question onto a page lands it there, and a move
+that would leave a question outside every page is refused with the reason.
+
+Two more rules come from the device. A section is always at the top level of a
+form: a page inside a group would just be a group, so Nova offers the gesture
+only there. And a repeat that people add entries to cannot sit on a page,
+because a phone cannot add entries on a screen that shows several questions at
+once; fixed-count repeats, case-query repeats, and groups can.
+
+Nothing is permanent: removing the last section returns the form to a single
+page with its questions in place, and you can undo any of it.
+
+## In Preview
+
+Preview runs the form the way a phone does: one section per screen, a
+**Sections** strip showing where you are, **Next** and **Back**, and **Submit**
+on the last page.
+
+- **Next** checks the questions on the page first. A required question left
+  blank, or an answer a rule refuses, keeps the page and takes you to that
+  question.
+- **Back** never checks anything, and keeps what you answered.
+- Choosing a later section in the strip checks every page on the way; an
+  earlier one opens straight away.
+- A section whose questions are all hidden by their display conditions, or that
+  has no questions yet, is skipped, and the count leaves it out.
+- **Submit** checks the whole form. If an earlier page has a problem, Preview
+  turns to it and shows you the question.
+- **Clear form** starts again on the first page.
+
+Flipping between editing and Preview keeps the page you were on, and the
+heading you were looking at stays where it was.
+
+## On a device
+
+CommCare on Android, and the one-question-per-screen mode of Web Apps, page a
+form exactly this way. Web Apps' default view shows the same form on one screen,
+each section as a titled group. The answers and the rules are the same either
+way; only the paging differs.
