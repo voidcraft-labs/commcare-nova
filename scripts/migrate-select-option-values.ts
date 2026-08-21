@@ -62,9 +62,14 @@ async function dryRun(appIds: readonly string[]): Promise<void> {
 				`  ${plan.closeConditionRewrites} close condition(s) would be rewritten`,
 			);
 		}
+		for (const rewrite of plan.literalRewrites) {
+			console.log(
+				`  ${rewrite.carrier} ${rewrite.slot} compares against ${JSON.stringify(rewrite.value)} -> ${JSON.stringify(rewrite.to)}`,
+			);
+		}
 		for (const reference of plan.literalReferences) {
 			console.log(
-				`  review: ${reference.carrier} ${reference.slot} still compares against ${JSON.stringify(reference.value)}`,
+				`  review: ${reference.carrier} ${reference.slot} compares against ${JSON.stringify(reference.value)}, which was renamed more than one way`,
 			);
 		}
 	}
@@ -83,8 +88,8 @@ async function main(): Promise<void> {
 	const report = await runSelectOptionValueRepair(appIds);
 	console.log(
 		`Repaired ${report.rewrittenValues} value(s) across ${report.repairedApps} of ${report.scannedApps} app(s); ` +
-			`${report.rewrittenCaseRows} case row(s) and ${report.rewrittenCloseConditions} close condition(s) rewritten; ` +
-			`${report.literalReferences} expression literal(s) left for review.`,
+			`${report.rewrittenCaseRows} case row(s), ${report.rewrittenCloseConditions} close condition(s), and ${report.rewrittenLiterals} expression literal(s) rewritten; ` +
+			`${report.literalReferences} ambiguous literal(s) left for review.`,
 	);
 	await closeCaseStoreDatabase();
 }

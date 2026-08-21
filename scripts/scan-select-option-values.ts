@@ -46,6 +46,7 @@ async function main(): Promise<void> {
 	let values = 0;
 	let caseRows = 0;
 	let closeConditions = 0;
+	let rewrittenLiterals = 0;
 	let literals = 0;
 	let stillBlocked = 0;
 	for (const appId of appIds) {
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
 		needingRepair++;
 		values += plan.rewrites.length;
 		closeConditions += plan.closeConditionRewrites;
+		rewrittenLiterals += plan.literalRewrites.length;
 		literals += plan.literalReferences.length;
 		let appRows = 0;
 		for (const rewrite of plan.casePropertyRewrites) {
@@ -83,7 +85,7 @@ async function main(): Promise<void> {
 				);
 		if (otherFindings.length > 0) stillBlocked++;
 		console.log(
-			`${appId} (${snapshot.appName || "unnamed"}): ${plan.rewrites.length} value(s), ${appRows} case row(s), ${plan.closeConditionRewrites} close condition(s), ${plan.literalReferences.length} expression literal(s)${
+			`${appId} (${snapshot.appName || "unnamed"}): ${plan.rewrites.length} value(s), ${appRows} case row(s), ${plan.closeConditionRewrites} close condition(s), ${plan.literalRewrites.length} expression literal(s), ${plan.literalReferences.length} ambiguous literal(s) left for review${
 				otherFindings.length > 0
 					? `, and ${otherFindings.length} other finding(s) that would still refuse the repaired document`
 					: ""
@@ -93,9 +95,14 @@ async function main(): Promise<void> {
 			for (const rewrite of plan.rewrites) {
 				console.log(`  ${describeRewrite(rewrite)}`);
 			}
+			for (const rewrite of plan.literalRewrites) {
+				console.log(
+					`  ${rewrite.carrier} ${rewrite.slot} compares against ${JSON.stringify(rewrite.value)} -> ${JSON.stringify(rewrite.to)}`,
+				);
+			}
 			for (const reference of plan.literalReferences) {
 				console.log(
-					`  review: ${reference.carrier} ${reference.slot} still compares against ${JSON.stringify(reference.value)}`,
+					`  review: ${reference.carrier} ${reference.slot} compares against ${JSON.stringify(reference.value)}, which was renamed more than one way`,
 				);
 			}
 			for (const finding of otherFindings) {
@@ -104,7 +111,7 @@ async function main(): Promise<void> {
 		}
 	}
 	console.log(
-		`\nscanned=${scanned} needing_repair=${needingRepair} values=${values} case_rows=${caseRows} close_conditions=${closeConditions} expression_literals=${literals} still_blocked_by_other_findings=${stillBlocked}`,
+		`\nscanned=${scanned} needing_repair=${needingRepair} values=${values} case_rows=${caseRows} close_conditions=${closeConditions} expression_literals=${rewrittenLiterals} ambiguous_literals=${literals} still_blocked_by_other_findings=${stillBlocked}`,
 	);
 	if (needingRepair > 0) process.exitCode = 1;
 	await closeCaseStoreDatabase();
