@@ -36,21 +36,15 @@
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import {
-	FIELD_PLACEMENT_MESSAGES,
+	fieldPlacementVerdict,
 	formIsSectioned,
-	landingSectionOf,
 } from "@/lib/doc/formSectionVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type Field,
-	type Uuid,
-	uuidSchema,
-} from "@/lib/domain";
+import { asUuid, type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
 import { addFieldsItemSchema } from "../toolSchemas";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
+	applyToDoc,
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
@@ -241,15 +235,18 @@ export const addFieldsTool = {
 };
 
 /**
- * The section placement pre-check over an assembled batch. The verdict
- * (`fieldPlacementVerdict`) reads the document, and a batch may create the
- * very sections and groups its later items land in, so the walk here
- * resolves each item's landing through the batch's own parents first: a
- * section landing under any field (in the batch or the doc) is refused; a
- * question landing at the root of a form that is, or this batch makes,
- * sectioned is refused; an add-entries repeat landing on a page — directly
- * or through batch-created groups — is refused. The commit gate remains the
- * authority; this is the sentence the model reads instead of a finding list.
+ * The section placement pre-check over an assembled batch: the ONE
+ * placement verdict (`fieldPlacementVerdict`), asked once per added field.
+ * The verdict reads a document, and a batch may create the very sections
+ * and groups its later items land in, so it is asked of the candidate the
+ * batch produces, where every item's parent and subtree already exist: a
+ * section under a field, a question at the root of a form that is (or this
+ * batch makes) sectioned, and an add-entries repeat on a page — directly,
+ * or inside a group the batch puts there — are refused with the sentence
+ * every editor uses. The one sentence of its own here is the partition
+ * rule: a first section added beside a form's existing loose questions
+ * needs `setFormSections`. The commit gate remains the authority; this is
+ * what the model reads instead of a finding list.
  */
 function sectionPlacementRefusal(
 	doc: BlueprintDoc,
@@ -259,54 +256,29 @@ function sectionPlacementRefusal(
 	const adds = mutations.filter(
 		(m): m is Extract<Mutation, { kind: "addField" }> => m.kind === "addField",
 	);
-	const batchParent = new Map<Uuid, Uuid>();
-	const batchKind = new Map<Uuid, Field["kind"]>();
-	for (const m of adds) {
-		batchParent.set(m.field.uuid, m.parentUuid);
-		batchKind.set(m.field.uuid, m.field.kind);
-	}
-	const alreadySectioned = formIsSectioned(doc, formUuid);
+	const addsSection = adds.some((m) => m.field.kind === "section");
+	// A batch with no section, on a form with no pages, can meet none of the
+	// four refusals: the candidate is computed only when pages are involved.
+	if (!addsSection && !formIsSectioned(doc, formUuid)) return undefined;
 	const addsRootSection = adds.some(
 		(m) => m.field.kind === "section" && m.parentUuid === formUuid,
 	);
 	if (
 		addsRootSection &&
-		!alreadySectioned &&
+		!formIsSectioned(doc, formUuid) &&
 		(doc.fieldOrder[formUuid]?.length ?? 0) > 0
 	) {
 		const form = doc.forms[formUuid];
 		return `"${form?.name ?? "This form"}" isn't split into sections yet, so adding one here would leave its current questions outside it. Use setFormSections to split the form instead: it takes every top-level question's page in one call.`;
 	}
-	const rootHasSections = alreadySectioned || addsRootSection;
+	const candidate = applyToDoc(doc, mutations);
 	for (const m of adds) {
-		const field = m.field;
-		if (field.kind === "section") {
-			if (m.parentUuid !== formUuid) {
-				return FIELD_PLACEMENT_MESSAGES["section-not-root"];
-			}
-			continue;
-		}
-		if (m.parentUuid === formUuid) {
-			if (rootHasSections) {
-				return FIELD_PLACEMENT_MESSAGES["loose-field-in-sectioned-form"];
-			}
-			continue;
-		}
-		const isUserRepeat =
-			field.kind === "repeat" && field.repeat_mode === "user_controlled";
-		if (!isUserRepeat) continue;
-		// Walk batch-created ancestors to a parent the document knows.
-		let cursor: Uuid = m.parentUuid;
-		let onPage = false;
-		const seen = new Set<Uuid>();
-		while (batchParent.has(cursor) && !seen.has(cursor)) {
-			seen.add(cursor);
-			if (batchKind.get(cursor) === "section") onPage = true;
-			cursor = batchParent.get(cursor) as Uuid;
-		}
-		if (onPage || landingSectionOf(doc, cursor) !== undefined) {
-			return FIELD_PLACEMENT_MESSAGES["user-repeat-in-section"];
-		}
+		const verdict = fieldPlacementVerdict(candidate, {
+			uuid: m.field.uuid,
+			kind: m.field.kind,
+			toParentUuid: m.parentUuid,
+		});
+		if (!verdict.ok) return verdict.message;
 	}
 	return undefined;
 }

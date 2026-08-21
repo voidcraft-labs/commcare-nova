@@ -96,7 +96,8 @@ export function subtreeHasUserRepeat(
 	const stack: Uuid[] = [fieldUuid];
 	const seen = new Set<Uuid>();
 	while (stack.length > 0) {
-		const uuid = stack.pop() as Uuid;
+		const uuid = stack.pop();
+		if (uuid === undefined) break;
 		if (seen.has(uuid)) continue;
 		seen.add(uuid);
 		const field = doc.fields[uuid];

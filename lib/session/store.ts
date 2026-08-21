@@ -432,7 +432,8 @@ export interface BuilderSessionState {
 	 *  pages and by the edit canvas on unmount (the page its first visible
 	 *  row belonged to), read by whichever mode mounts next so a flip keeps
 	 *  the same page on screen. Ephemeral: a form that was never paged has
-	 *  no entry, and the entry is dropped when the form screen is left. */
+	 *  no entry, and an entry outlives a visit the way the scroll memory
+	 *  does, so coming back to a form lands on the page it was left on. */
 	activeSectionByForm: Record<string, string>;
 
 	// ── Actions ───────────────────────────────────────────────────────────
@@ -652,9 +653,8 @@ export interface BuilderSessionState {
 	 *  selector subscription). */
 	getEditScroll: (formUuid: string) => EditScrollMemory | undefined;
 
-	/** Remember which page a sectioned form is open on. `undefined` clears
-	 *  the entry (the form screen was left, or the form lost its pages). */
-	setActiveSection: (formUuid: string, sectionUuid: string | undefined) => void;
+	/** Remember which page a sectioned form is open on. */
+	setActiveSection: (formUuid: string, sectionUuid: string) => void;
 
 	/** Imperative reader for the remembered page (no subscription), for the
 	 *  edit canvas's one-time `initialOffset` computation. The preview
@@ -1431,13 +1431,15 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					return get().editScrollByForm[formUuid];
 				},
 
-				setActiveSection(formUuid: string, sectionUuid: string | undefined) {
+				setActiveSection(formUuid: string, sectionUuid: string) {
 					set((s) => {
 						if (s.activeSectionByForm[formUuid] === sectionUuid) return s;
-						const next = { ...s.activeSectionByForm };
-						if (sectionUuid === undefined) delete next[formUuid];
-						else next[formUuid] = sectionUuid;
-						return { activeSectionByForm: next };
+						return {
+							activeSectionByForm: {
+								...s.activeSectionByForm,
+								[formUuid]: sectionUuid,
+							},
+						};
 					});
 				},
 

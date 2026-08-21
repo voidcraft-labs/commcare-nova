@@ -70,7 +70,7 @@ export const setFormSectionsInputSchema = formAddressSchema
 						sectionUuid: uuidSchema
 							.optional()
 							.describe(
-								"An existing section to keep (its uuid from get_form), or a fresh uuid to create the page under when you need the handle before reading it back. Omit to let Commcare Nova mint one.",
+								"An existing section to keep (its uuid from get_form), or a fresh uuid to create the page under when you need the handle before reading it back. Omit to let Nova mint one.",
 							),
 						label: proseTemplateSchema
 							.nullable()

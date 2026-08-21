@@ -285,11 +285,10 @@ export function useGetActiveSection(): (
 	return useBuilderSession((s) => s.getActiveSection);
 }
 
-/** Setter: the pager on every page change, the edit canvas on unmount,
- *  and the form screen (with `undefined`) when the form is left. */
+/** Setter: the pager on every page change and the edit canvas on unmount. */
 export function useSetActiveSection(): (
 	formUuid: string,
-	sectionUuid: string | undefined,
+	sectionUuid: string,
 ) => void {
 	return useBuilderSession((s) => s.setActiveSection);
 }

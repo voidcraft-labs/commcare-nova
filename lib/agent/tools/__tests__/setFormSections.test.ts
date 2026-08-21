@@ -388,6 +388,33 @@ describe("addFields on a sectioned form", () => {
 		expect(errorOf(mixed)).toContain("setFormSections");
 		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
+
+	it("refuses an add-entries repeat that reaches a page through a group the same batch creates", async () => {
+		const h = makeToolWorkspaceHarness(paged());
+		const viaGroup = await h.runTool(addFieldsTool, {
+			...address,
+			fields: [
+				{
+					id: "visit_block",
+					kind: "group",
+					label: proseText("Visit block"),
+					fieldUuid: NEW,
+					parentUuid: S1,
+				},
+				{
+					id: "visits",
+					kind: "repeat",
+					label: proseText("Visits"),
+					repeat: { mode: "user_controlled" },
+					parentUuid: NEW,
+				},
+			],
+		});
+		expect(errorOf(viaGroup)).toBe(
+			FIELD_PLACEMENT_MESSAGES["user-repeat-in-section"],
+		);
+		expect(h.recordMutations).not.toHaveBeenCalled();
+	});
 });
 
 describe("moveField across pages", () => {

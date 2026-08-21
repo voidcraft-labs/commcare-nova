@@ -12,7 +12,7 @@ import { useField } from "./useEntity";
 import { useOrderedFields } from "./useOrderedFields";
 
 export function useFormIsSectioned(formUuid: Uuid | undefined): boolean {
-	const order = useOrderedFields(formUuid ?? ("" as Uuid));
+	const order = useOrderedFields(formUuid);
 	const first = useField(order[0]);
 	return first?.kind === "section";
 }

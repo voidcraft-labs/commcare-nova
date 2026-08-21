@@ -88,12 +88,15 @@ function pageName(
 	section: DesiredSection,
 	index: number,
 ): string {
+	const existing =
+		section.sectionUuid === undefined
+			? undefined
+			: doc.fields[section.sectionUuid];
 	const label =
-		section.label === undefined && section.sectionUuid !== undefined
-			? (() => {
-					const existing = doc.fields[section.sectionUuid as Uuid];
-					return existing?.kind === "section" ? existing.label : undefined;
-				})()
+		section.label === undefined
+			? existing?.kind === "section"
+				? existing.label
+				: undefined
 			: section.label;
 	const text = label ? proseTemplateText(label).trim() : "";
 	return text.length > 0 ? `"${text}"` : `section ${index + 1}`;
@@ -365,7 +368,10 @@ function planPartition(
 	}
 
 	const pendingIds = new Set<string>();
-	const finals: Uuid[] = [];
+	const pages: {
+		readonly sectionUuid: Uuid;
+		readonly fields: readonly Uuid[];
+	}[] = [];
 	let prevSection: Uuid | null = null;
 	for (const [i, section] of desired.entries()) {
 		const keep =
@@ -412,14 +418,14 @@ function planPartition(
 			model.declare_(uuid);
 			model.place(uuid, formUuid, prevSection);
 		}
-		finals.push(uuid);
+		pages.push({ sectionUuid: uuid, fields: section.fields });
 		prevSection = uuid;
 	}
+	const finals = pages.map((page) => page.sectionUuid);
 
-	for (const [i, section] of desired.entries()) {
-		const sectionUuid = finals[i] as Uuid;
+	for (const { sectionUuid, fields } of pages) {
 		let prev: Uuid | null = null;
-		for (const uuid of section.fields) {
+		for (const uuid of fields) {
 			if (!model.inPlace(uuid, sectionUuid, prev)) {
 				mutations.push({
 					kind: "moveField",

@@ -133,7 +133,8 @@ export function sectionGestureItems(
 					],
 				};
 			}
-			if (atIndex >= children.length) {
+			const atFieldUuid = children[atIndex];
+			if (atFieldUuid === undefined) {
 				return {
 					context,
 					offersKinds: true,
@@ -150,7 +151,6 @@ export function sectionGestureItems(
 					],
 				};
 			}
-			const atFieldUuid = children[atIndex] as Uuid;
 			return {
 				context,
 				offersKinds: true,
