@@ -41,6 +41,9 @@ export const NEW_FIELD_BUILDERS: {
 	) => Omit<Extract<Field, { kind: K }>, "uuid">;
 } = {
 	text: (id, label) => ({ kind: "text", id, label: proseText(label) }),
+	// An untitled section is honest (the header shows its placeholder), so
+	// the suggested label is not used.
+	section: (id) => ({ kind: "section", id }),
 	int: (id, label) => ({ kind: "int", id, label: proseText(label) }),
 	decimal: (id, label) => ({ kind: "decimal", id, label: proseText(label) }),
 	date: (id, label) => ({ kind: "date", id, label: proseText(label) }),

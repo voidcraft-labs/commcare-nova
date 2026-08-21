@@ -246,11 +246,8 @@ describe("user collection mutations", () => {
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
 		const fieldUuid = doc.fieldOrder[formUuid][0];
-		doc.fields[fieldUuid].relevant = parseXPathForForm(
-			doc,
-			formUuid,
-			"#user/region = 'north'",
-		);
+		(doc.fields[fieldUuid] as { relevant?: unknown }).relevant =
+			parseXPathForForm(doc, formUuid, "#user/region = 'north'");
 		doc.userTypes = {
 			[TYPE]: {
 				uuid: TYPE,
@@ -313,10 +310,10 @@ describe("user collection mutations", () => {
 			formUuid,
 			"#user/region = 'north'",
 		);
-		doc.fields[fieldUuid].relevant = reference;
 		if (doc.fields[fieldUuid].kind !== "text") {
 			throw new Error("fixture field must be text");
 		}
+		doc.fields[fieldUuid].relevant = reference;
 		doc.fields[fieldUuid].required = reference;
 
 		expect(removeUserPropertyPlan(doc, propertyUuid)).toMatchObject({

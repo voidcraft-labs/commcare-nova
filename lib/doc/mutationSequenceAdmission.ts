@@ -1,5 +1,6 @@
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { isContainer } from "@/lib/domain";
 import { assertNever } from "@/lib/utils/assertNever";
 
 export type SequencePlacementMode =
@@ -608,10 +609,7 @@ export function mutationSequenceAdmissionIssue(
 				}
 				state.fieldOrder.set(mutation.parentUuid, order);
 				state.fieldOwner.set(mutation.field.uuid, mutation.parentUuid);
-				if (
-					mutation.field.kind === "group" ||
-					mutation.field.kind === "repeat"
-				) {
+				if (isContainer(mutation.field)) {
 					state.fieldOrder.set(mutation.field.uuid, []);
 				}
 				if (

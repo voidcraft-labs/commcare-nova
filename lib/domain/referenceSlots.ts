@@ -211,9 +211,10 @@ const SELECT_KINDS = [
 	"multi_select",
 ] as const satisfies readonly FieldKind[];
 
-/** Every kind whose schema declares `relevant` — all of them: input
- *  kinds, capture kinds, display `label`, `hidden`, and both
- *  containers gate visibility with the same slot. */
+/** Every kind whose schema declares `relevant`: input kinds, capture
+ *  kinds, display `label`, `hidden`, and the `group` / `repeat`
+ *  containers gate visibility with the same slot. A `section` is the one
+ *  kind without it: a page has no logic, by schema. */
 const RELEVANT_KINDS = [
 	"text",
 	"int",
@@ -260,6 +261,7 @@ const LABELED_KINDS = [
 	"secret",
 	"group",
 	"repeat",
+	"section",
 ] as const satisfies readonly FieldKind[];
 
 // ── Field slots ───────────────────────────────────────────────────

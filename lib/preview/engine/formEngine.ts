@@ -44,11 +44,13 @@ import {
 	asUuid,
 	CASE_LOADING_FORM_TYPES,
 	type CaseWriteField,
+	type ContainerField,
 	casePropertyDataTypes,
 	deriveCaseWriteInventory,
 	expressionSource,
 	fieldProseTemplate,
 	isCaptureFieldKind,
+	isContainer,
 	isReadableTemporalValue,
 	orderedCaseOperations,
 	ownRecordValue,
@@ -744,8 +746,7 @@ export class FormEngine {
 				const effective =
 					ancestorsVisible && states[instancePath]?.visible !== false;
 				if (!effective) continue;
-				const structural =
-					node.field.kind === "group" || node.field.kind === "repeat";
+				const structural = isContainer(node.field);
 				if (
 					!structural &&
 					node.field.kind !== "label" &&
@@ -799,8 +800,7 @@ export class FormEngine {
 		): InvalidFieldTarget | undefined => {
 			for (const node of nodes) {
 				const instancePath = `${prefix}/${node.field.id}`;
-				const structural =
-					node.field.kind === "group" || node.field.kind === "repeat";
+				const structural = isContainer(node.field);
 				if (
 					!structural &&
 					instancePath === targetPath &&
@@ -1608,7 +1608,7 @@ export class FormEngine {
 		// flag. Skipping the DataInstance value write keeps the value Map
 		// pristine: only leaf fields own value paths. A repeat container
 		// does register its instance count so its children materialize.
-		if (field.kind === "group" || field.kind === "repeat") {
+		if (isContainer(field)) {
 			const updates: EngineStoreState = {};
 			for (const concrete of this.materializePaths(path)) {
 				if (field.kind === "repeat") {
@@ -1679,7 +1679,7 @@ export class FormEngine {
 	 */
 	private initialContainerState(
 		path: string,
-		kind: "group" | "repeat",
+		kind: ContainerField["kind"],
 	): FieldState {
 		const base: FieldState = {
 			path,
@@ -1821,7 +1821,7 @@ export class FormEngine {
 		const current = this.store.getState();
 		const updates: EngineStoreState = {};
 		const createdPaths: string[] = [];
-		const isStructural = field.kind === "group" || field.kind === "repeat";
+		const isStructural = isContainer(field);
 		const isRequired =
 			!isStructural &&
 			expressionSource(field, "required", this.printDoc) === "true()";
@@ -2473,7 +2473,7 @@ export class FormEngine {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
 
-			if (f.kind === "group" || f.kind === "repeat") {
+			if (isContainer(f)) {
 				states[path] = this.initialContainerState(path, f.kind);
 				if (node.children) {
 					const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;

@@ -18,6 +18,7 @@
 
 import {
 	asUuid,
+	isContainerKindName,
 	ownRecordValue,
 	type PersistableDoc,
 	recordWithValue,
@@ -318,11 +319,11 @@ export function assembleBlueprint(
 		}
 	}
 	for (const [uuid, field] of Object.entries(fields)) {
+		// Every container row gets its order slot, an empty one included: a
+		// container with no slot hydrates as a leaf and every tree walker
+		// stops recursing into it.
 		const kind = (field as { kind?: string }).kind;
-		if (
-			(kind === "group" || kind === "repeat") &&
-			!Object.hasOwn(fieldOrder, uuid)
-		) {
+		if (isContainerKindName(kind) && !Object.hasOwn(fieldOrder, uuid)) {
 			fieldOrder = recordWithValue<Uuid[]>(fieldOrder, uuid, []);
 		}
 	}

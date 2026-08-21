@@ -178,6 +178,7 @@ export function FieldRenderer({
 		// here so the exhaustiveness check below stays tight.
 		case "group":
 		case "repeat":
+		case "section":
 		case "hidden":
 			return null;
 		default:

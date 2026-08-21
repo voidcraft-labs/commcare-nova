@@ -1,0 +1,76 @@
+/**
+ * Container-kind tripwire.
+ *
+ * Three field kinds are containers (`group`, `repeat`, `section`), and the
+ * ONE way a site asks "is this a container" is the registry
+ * (`isContainer` / `isContainerKindName` / `fieldRegistry[kind].isContainer`).
+ * A site that spells the kinds out (`kind === "group" || kind === "repeat"`)
+ * silently excludes the newest container, and the consequence is not a type
+ * error: an empty section hydrates as a leaf, a reducer refuses a child's
+ * anchor, a tree walker stops recursing. This test lists every literal
+ * spelling that remains on purpose, so the next container kind never needs
+ * a sweep.
+ *
+ * The frozen migration under `lib/case-store/migrations/` is immutable by
+ * contract (it must still build a fresh database years later), so it keeps
+ * the two-kind spelling of its era and is excluded from the scan.
+ */
+
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const REPO_ROOT = join(__dirname, "..", "..", "..");
+const SCAN_ROOTS = ["lib", "components", "app"] as const;
+
+/** Sites that still spell the kinds out, each justified. */
+const ALLOWED_LITERAL_SITES: ReadonlySet<string> = new Set<string>([
+	// Edit-mode row model: a section has its own row (`SectionHeaderRow`),
+	// so the group/repeat bracket branch is deliberately those two kinds.
+	"components/preview/form/virtual/rowModel.ts",
+	// The type picker's Structure category offers `section` per insertion
+	// context (`sectionGestureItems`), not as a flat member of the list.
+	"components/preview/form/FieldTypePicker.tsx",
+]);
+
+const LITERAL_PATTERNS = [
+	/kind === "group" \|\| [\w.?]*kind === "repeat"/,
+	/kind === "repeat" \|\| [\w.?]*kind === "group"/,
+	/\["group", "repeat"\]/,
+	/"group" \| "repeat"(?! \| "section")/,
+];
+
+function sourceFiles(dir: string): string[] {
+	const out: string[] = [];
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		if (entry.name === "node_modules" || entry.name === "__tests__") continue;
+		const full = join(dir, entry.name);
+		if (entry.isDirectory()) {
+			if (full.includes(join("lib", "case-store", "migrations"))) continue;
+			out.push(...sourceFiles(full));
+		} else if (
+			(entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) &&
+			!entry.name.endsWith(".test.ts") &&
+			!entry.name.endsWith(".test.tsx") &&
+			!entry.name.endsWith(".d.ts")
+		) {
+			out.push(full);
+		}
+	}
+	return out;
+}
+
+describe("container-kind sites", () => {
+	it("spell the kinds out only where the allowlist says so", () => {
+		const offenders = new Set<string>();
+		for (const root of SCAN_ROOTS) {
+			for (const file of sourceFiles(join(REPO_ROOT, root))) {
+				const source = readFileSync(file, "utf8");
+				if (LITERAL_PATTERNS.some((pattern) => pattern.test(source))) {
+					offenders.add(relative(REPO_ROOT, file));
+				}
+			}
+		}
+		expect([...offenders].sort()).toEqual([...ALLOWED_LITERAL_SITES].sort());
+	});
+});

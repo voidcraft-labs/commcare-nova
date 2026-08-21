@@ -621,6 +621,7 @@ const updateFieldPatchSchemaByKind = {
 	hidden: fieldPatchWithValidId(fieldPatchSchemaByKind.hidden),
 	secret: fieldPatchWithValidId(fieldPatchSchemaByKind.secret),
 	group: fieldPatchWithValidId(fieldPatchSchemaByKind.group),
+	section: fieldPatchWithValidId(fieldPatchSchemaByKind.section),
 	repeat: z.union([
 		fieldPatchWithValidId(fieldPatchSchemaByKind.repeat.options[0]),
 		fieldPatchWithValidId(fieldPatchSchemaByKind.repeat.options[1]),

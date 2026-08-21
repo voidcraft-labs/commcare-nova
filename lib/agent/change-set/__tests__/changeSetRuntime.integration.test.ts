@@ -633,7 +633,13 @@ describe("private staging isolation", () => {
 		const noteUuid =
 			module.receipt?.handles[changeSetHandleSchema.parse("@restricted_note")];
 		if (noteUuid === undefined) throw new Error("note handle was not bound");
-		expect(recovered.currentSnapshot().doc.fields[noteUuid]?.relevant).toEqual({
+		expect(
+			(
+				recovered.currentSnapshot().doc.fields[noteUuid] as
+					| { relevant?: unknown }
+					| undefined
+			)?.relevant,
+		).toEqual({
 			parts: [
 				{
 					kind: "user-property-ref",

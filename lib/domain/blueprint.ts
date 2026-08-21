@@ -15,7 +15,7 @@ import {
 	casePropertyDataTypeSchema,
 	casePropertyDataTypes,
 } from "./casePropertyTypes";
-import { fieldSchema } from "./fields";
+import { fieldSchema, isContainer } from "./fields";
 import { formSchema } from "./forms";
 import { appLocalizationSchema } from "./localization";
 import { isOwnerOnlyCaseSearchConfig, moduleSchema } from "./modules";
@@ -499,7 +499,7 @@ export function blueprintTopologyIssues(
 
 	const containerUuids = new Set(
 		Object.entries(doc.fields)
-			.filter(([, field]) => field.kind === "group" || field.kind === "repeat")
+			.filter(([, field]) => isContainer(field))
 			.map(([uuid]) => uuid),
 	);
 	const expectedFieldParents = new Set([

@@ -9,6 +9,7 @@ import {
 	fieldKindDeclaresKey,
 	fieldSchema,
 	getConvertibleTypes,
+	isContainer,
 	pickFieldKeysForKind,
 	proseText,
 	reconcileFieldForKind,
@@ -67,9 +68,9 @@ export function applyFieldMutation(
 				mut.after,
 			);
 			draft.fields[field.uuid] = field;
-			// If the new field is a group/repeat, pre-seed its order slot
-			// so child insertions have a valid parent to target immediately.
-			if (field.kind === "group" || field.kind === "repeat") {
+			// If the new field is a container, pre-seed its order slot so
+			// child insertions have a valid parent to target immediately.
+			if (isContainer(field)) {
 				draft.fieldOrder[field.uuid] ??= [];
 			}
 			// A landed case-property writer declares its property — sync
@@ -177,9 +178,7 @@ export function applyFieldMutation(
 			}
 			const destIsForm = draft.forms[mut.toParentUuid] !== undefined;
 			const destField = draft.fields[mut.toParentUuid];
-			const destIsContainer =
-				destField &&
-				(destField.kind === "group" || destField.kind === "repeat");
+			const destIsContainer = destField !== undefined && isContainer(destField);
 			if (!destIsForm && !destIsContainer) return;
 
 			if (!destIsForm) {

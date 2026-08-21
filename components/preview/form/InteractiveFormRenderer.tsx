@@ -242,6 +242,41 @@ const InteractiveField = memo(function InteractiveField({
 		);
 	}
 
+	// A section reached here (any path but the preview pager, which owns
+	// sectioned forms) renders its title and its children inline at the same
+	// depth: a page is a place questions live, and outside the pager there is
+	// no page to turn.
+	if (field.kind === "section") {
+		return (
+			<>
+				{field.label && (
+					<div
+						style={{
+							paddingLeft: depthPadding(depth),
+							paddingRight: depthPadding(depth),
+						}}
+					>
+						<LabelContent
+							label={field.label}
+							resolvedLabel={state.resolvedLabel}
+							isEditMode={false}
+							className={FIELD_STYLES.label}
+						/>
+					</div>
+				)}
+				<InteractiveFormRenderer
+					parentEntityId={field.uuid}
+					prefix={path}
+					parentPath={fieldPath}
+					depth={depth}
+					leadingGap={false}
+					instanceScopeKey={instanceScopeKey}
+					accessibleContext={accessibleContext}
+				/>
+			</>
+		);
+	}
+
 	const showInvalid = state.touched && !state.valid;
 	// Point interactive controls at the label workers already see. This keeps
 	// the accessible name on the same resolved/fallback path as LabelContent

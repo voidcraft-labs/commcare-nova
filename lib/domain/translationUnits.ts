@@ -7,6 +7,7 @@
 
 import type { BlueprintDoc, CaseProperty } from "./blueprint";
 import type { Field } from "./fields";
+import { isContainer } from "./fields";
 import {
 	effectiveAppLocalization,
 	type LanguageTag,
@@ -347,7 +348,7 @@ function fieldUnits(
 			}
 		}
 
-		if (field.kind === "group" || field.kind === "repeat") {
+		if (isContainer(field)) {
 			fieldUnits(doc, context, fieldUuid, [...ancestorLabels, label], out);
 		}
 	}

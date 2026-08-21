@@ -605,7 +605,7 @@ export function collectFieldEntries(
 			labelProjection,
 			kind: field.kind,
 		});
-		if (field.kind === "group" || field.kind === "repeat") {
+		if (fieldRegistry[field.kind].isContainer) {
 			entries.push(...collectFieldEntries(src, uuid, path));
 		}
 	}

@@ -220,8 +220,9 @@ export class TriggerDag {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
 
-			if (f.kind === "group") {
-				// Groups can have relevant — register then recurse
+			if (f.kind === "group" || f.kind === "section") {
+				// Groups can have relevant (a section has no slots, so it
+				// registers nothing) — register then recurse
 				this.registerExpressions(path, f);
 				if (node.children) this.collectExpressions(node.children, path);
 			} else if (f.kind === "repeat") {

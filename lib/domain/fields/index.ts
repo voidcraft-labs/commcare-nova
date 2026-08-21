@@ -3,6 +3,12 @@
 // Public barrel: Field discriminated union, ContainerField, fieldKinds
 // tuple, fieldRegistry, isContainer type guard.
 //
+// Three kinds are containers (`group`, `repeat`, `section`): their children
+// are the fields whose `fieldOrder` entry names them. A section is its own
+// kind rather than a flag on group because it has no slots (no relevant, no
+// media), lives only at a form's root, and is always a field-list on the
+// wire; a group is none of those by construction.
+//
 // This file is the ONLY place anything outside lib/domain/ imports from
 // the fields/ directory. Individual kind files are private.
 //
@@ -69,6 +75,11 @@ import {
 	secretFieldMetadata,
 	secretFieldSchema,
 } from "./secret";
+import {
+	type SectionField,
+	sectionFieldMetadata,
+	sectionFieldSchema,
+} from "./section";
 import type { SelectOptionsSource } from "./selectOptionsSource";
 import {
 	type SignatureField,
@@ -106,6 +117,7 @@ export const fieldKinds = [
 	"secret",
 	"group",
 	"repeat",
+	"section",
 ] as const;
 
 export type FieldKind = (typeof fieldKinds)[number];
@@ -203,6 +215,7 @@ const fieldUnionSchema = z.union([
 		hiddenFieldSchema,
 		secretFieldSchema,
 		groupFieldSchema,
+		sectionFieldSchema,
 	]),
 	repeatFieldSchema,
 ]);
@@ -211,7 +224,10 @@ export const fieldSchema = fieldUnionSchema;
 
 export type Field = z.infer<typeof fieldSchema>;
 
-export type ContainerField = Extract<Field, { kind: "group" | "repeat" }>;
+export type ContainerField = Extract<
+	Field,
+	{ kind: "group" | "repeat" | "section" }
+>;
 
 export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	text: textFieldMetadata,
@@ -234,6 +250,7 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	secret: secretFieldMetadata,
 	group: groupFieldMetadata,
 	repeat: repeatFieldMetadata,
+	section: sectionFieldMetadata,
 };
 
 export {
@@ -289,6 +306,7 @@ const fieldKindKeySets: Record<FieldKind, ReadonlySet<string>> = {
 	hidden: new Set(Object.keys(hiddenFieldSchema.shape)),
 	secret: new Set(Object.keys(secretFieldSchema.shape)),
 	group: new Set(Object.keys(groupFieldSchema.shape)),
+	section: new Set(Object.keys(sectionFieldSchema.shape)),
 	// Repeat is a discriminated union — its umbrella key set is the union
 	// of every variant's keys. Consumers that know the mode use the per-
 	// variant key set instead.
@@ -401,6 +419,19 @@ function pickRepeatKeySet(mode: unknown): ReadonlySet<string> {
  *  drag-drop validity checks. */
 export function isContainer(f: Field): f is ContainerField {
 	return fieldRegistry[f.kind].isContainer;
+}
+
+/**
+ * Whether a raw kind name (a persisted row's `kind` before the document
+ * parses, a mutation's declared kind) names a container. Unknown names are
+ * not containers.
+ */
+export function isContainerKindName(kind: unknown): boolean {
+	return (
+		typeof kind === "string" &&
+		Object.hasOwn(fieldRegistry, kind) &&
+		fieldRegistry[kind as FieldKind].isContainer
+	);
 }
 
 /**
@@ -637,6 +668,7 @@ export const fieldPatchSchemaByKind = {
 	hidden: partialOf(hiddenFieldSchema),
 	secret: partialOf(secretFieldSchema),
 	group: partialOf(groupFieldSchema),
+	section: partialOf(sectionFieldSchema),
 	repeat: z.union([
 		partialOf(userControlledRepeatSchema),
 		partialOf(countBoundRepeatSchema),
@@ -703,6 +735,7 @@ export type {
 	QueryBoundRepeatField,
 	RepeatField,
 	SecretField,
+	SectionField,
 	SignatureField,
 	SingleSelectField,
 	TextField,

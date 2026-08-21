@@ -131,6 +131,7 @@ import {
 	emptyCaseListConfig,
 	fieldKindDeclaresKey,
 	hasOwnRecordKey,
+	isContainer,
 	isOwnerOnlyCaseSearchConfig,
 	ownRecordValue,
 	parseLanguageTag,
@@ -1341,7 +1342,7 @@ function nextParentsTopDown(next: BlueprintDoc): Uuid[] {
 			parents.push(formUuid);
 			for (const { uuid } of walkFieldTree(next, formUuid)) {
 				const field = ownRecordValue(next.fields, uuid);
-				if (field && (field.kind === "group" || field.kind === "repeat")) {
+				if (field && isContainer(field)) {
 					parents.push(uuid);
 				}
 			}

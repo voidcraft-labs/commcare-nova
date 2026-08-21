@@ -23,8 +23,8 @@ export class DataInstance {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
 
-			if (f.kind === "group") {
-				// Groups don't have values — recurse into children
+			if (f.kind === "group" || f.kind === "section") {
+				// Groups and sections don't have values — recurse into children
 				if (node.children) this.initFromFields(node.children, path);
 			} else if (f.kind === "repeat") {
 				// Repeats start with one instance [0]

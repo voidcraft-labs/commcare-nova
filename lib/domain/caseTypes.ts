@@ -67,6 +67,7 @@ export function caseDataTypeForFieldKind(
 		case "label":
 		case "group":
 		case "repeat":
+		case "section":
 		case "image":
 		case "audio":
 		case "video":

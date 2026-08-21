@@ -52,6 +52,7 @@ import {
 	type Field,
 	type Form,
 	isCaptureFieldKind,
+	isContainer,
 	type LanguageTag,
 	materializableCaseTypes,
 	projectLocalizedFields,
@@ -1318,8 +1319,7 @@ export class EngineController {
 		if (!input) return;
 
 		const field = input.fields[uuid];
-		const isContainerConversion =
-			field?.kind === "group" || field?.kind === "repeat";
+		const isContainerConversion = field !== undefined && isContainer(field);
 
 		/* Snapshot old paths (container + every descendant) against the
 		 * PRE-rebuild maps — that's where the current values live. For a

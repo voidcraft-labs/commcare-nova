@@ -10,6 +10,7 @@ import {
 	effectiveAppLocalization,
 	fieldKindDeclaresKey,
 	getConvertibleTypes,
+	isContainer,
 	languageTag,
 	type TranslationEntry,
 	translationValueIntegrityIssue,
@@ -57,7 +58,7 @@ export function mutationTargetsInvalid(
 	);
 	const containerFields = new Set<string>(
 		Object.values(doc.fields)
-			.filter((field) => field.kind === "group" || field.kind === "repeat")
+			.filter((field) => isContainer(field))
 			.map((field) => field.uuid),
 	);
 	const caseProperties = new Map(
@@ -534,7 +535,7 @@ export function mutationTargetsInvalid(
 				fieldIds.set(m.field.uuid, m.field.id);
 				fieldOwners.set(m.field.uuid, m.parentUuid);
 				fieldChildren.get(m.parentUuid)?.add(m.field.uuid);
-				if (m.field.kind === "group" || m.field.kind === "repeat") {
+				if (isContainer(m.field)) {
 					containerFields.add(m.field.uuid);
 					fieldChildren.set(m.field.uuid, new Set());
 				}
