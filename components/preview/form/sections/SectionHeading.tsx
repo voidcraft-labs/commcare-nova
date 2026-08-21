@@ -78,8 +78,11 @@ export function SectionHeading({
 				id={id}
 				ref={titleRef}
 				tabIndex={tabIndex}
-				className={`nova-focusable mt-1 min-w-0 text-lg font-semibold leading-7 text-nova-text outline-none${
-					titleInset ? " px-[5px] py-[5px]" : ""
+				className={`nova-focusable mt-1 min-w-0 text-lg font-semibold leading-7 text-nova-text outline-none ${
+					/* An untitled page keeps its title line, so the kicker sits
+					 * where it sits on a titled one (and where the edit canvas's
+					 * placeholder puts it). */
+					titleInset ? "min-h-[38px] px-[5px] py-[5px]" : "min-h-7"
 				}`}
 			>
 				{title}

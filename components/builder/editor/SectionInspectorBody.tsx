@@ -191,7 +191,7 @@ function PageSection({ sectionUuid }: { readonly sectionUuid: Uuid }) {
 					onClick={onRemoveKeepingQuestions}
 				>
 					<Icon icon={tablerStackPop} width="16" height="16" />
-					Remove section, keep its questions
+					Remove section only
 				</Button>
 				<p className="text-[13px] leading-5 text-nova-text-muted">
 					{keepQuestionsDestination}
@@ -224,8 +224,8 @@ function DeleteSectionRow({ sectionUuid }: { readonly sectionUuid: Uuid }) {
 					{questionCount === 1
 						? "the question"
 						: `the ${questionCount} questions`}{" "}
-					on it? To keep the questions, use Remove section, keep its questions
-					instead. You can undo this.
+					on it? To keep the questions, use Remove section only instead. You can
+					undo this.
 				</p>
 				<div className="flex flex-wrap gap-2">
 					<Button

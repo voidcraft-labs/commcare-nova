@@ -1692,6 +1692,32 @@ export class FormEngine {
 		}
 	}
 
+	/**
+	 * Re-seed a field's CONSTANT required flag at every live instance. A
+	 * `required` of `true()` / `false()` is not a DAG expression (nothing
+	 * can trigger it), so it is read once when a state is seeded; an author
+	 * switching it while the form runs reaches the live state only through
+	 * here. A conditional `required` is left to the ordinary evaluation,
+	 * which owns it.
+	 */
+	reseedRequired(pathTemplate: string, field: Field): void {
+		const source = expressionSource(field, "required", this.printDoc);
+		if (source !== undefined && source !== "true()" && source !== "false()") {
+			return;
+		}
+		const required = source === "true()";
+		const updates: EngineStoreState = {};
+		const states = this.store.getState();
+		for (const path of this.materializePaths(pathTemplate)) {
+			const state = states[path];
+			if (state === undefined || state.required === required) continue;
+			updates[path] = { ...state, required };
+		}
+		if (Object.keys(updates).length > 0) {
+			this.store.setState(updates);
+		}
+	}
+
 	/** Return all paths tracked by the DAG, in topological order. */
 	getAllPaths(): string[] {
 		return this.dag.getAllPaths(this.repeatCounts);

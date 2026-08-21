@@ -1442,6 +1442,10 @@ export class EngineController {
 
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return;
+		/* A constant `required` (`true()` / `false()`) never enters the DAG,
+		 * so the evaluation below cannot see it change: re-seed it first. */
+		const field = input.fields[uuid];
+		if (field !== undefined) this.engine.reseedRequired(path, field);
 		const affectedPaths = [
 			...this.engine.materializePaths(path),
 			...this.engine.getAffectedPaths(path),
