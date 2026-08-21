@@ -173,7 +173,10 @@ function evalNode(
 
 	// ── Unary negative ──
 	if (type === T.UnaryNegativeExpr) {
-		const operand = getLastChild(node);
+		// The operand is the first expression child, not the last child: a
+		// parenthesized operand (`-(2)`) splices its `)` token flat as the
+		// last child.
+		const [operand] = getBinaryOperands(node);
 		return operand ? -toNumber(evalNode(operand, source, ctx)) : 0;
 	}
 
@@ -304,9 +307,11 @@ function evalNode(
 
 	// ── Filtered (predicate) — expr[pred] ──
 	if (type === T.Filtered) {
-		// In preview, predicates are simplified — evaluate the base expression
-		const child = node.firstChild;
-		return child ? evalNode(child, source, ctx) : "";
+		// In preview, predicates are simplified — evaluate the base
+		// expression, which is the first EXPRESSION child: a parenthesized
+		// base (`(x)[1]`) splices its `(` token flat ahead of it.
+		const [base] = getBinaryOperands(node);
+		return base ? evalNode(base, source, ctx) : "";
 	}
 
 	// ── Parenthesized expression ──
@@ -509,15 +514,4 @@ function isExpressionNode(node: SyntaxNode): boolean {
 		T.Children.has(node.type) ||
 		T.Descendants.has(node.type)
 	);
-}
-
-/** Get the last child of a node. */
-function getLastChild(node: SyntaxNode): SyntaxNode | null {
-	let child = node.firstChild;
-	let last: SyntaxNode | null = null;
-	while (child) {
-		last = child;
-		child = child.nextSibling;
-	}
-	return last;
 }

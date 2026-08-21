@@ -51,6 +51,14 @@ describe("XPath evaluator", () => {
 			expect(evaluate("3 * (1 + 2)", makeCtx())).toBe(9);
 			expect(evaluate("true() and (false())", makeCtx())).toBe(false);
 		});
+
+		it("negates a parenthesized operand and filters a parenthesized base", () => {
+			expect(evaluate("-(2)", makeCtx())).toBe(-2);
+			expect(evaluate("-(1 + 2)", makeCtx())).toBe(-3);
+			expect(evaluate("-2", makeCtx())).toBe(-2);
+			expect(evaluate("(5)[1]", makeCtx())).toBe(5);
+			expect(evaluate("(5)[1] + 1", makeCtx())).toBe(6);
+		});
 	});
 
 	describe("literals", () => {
