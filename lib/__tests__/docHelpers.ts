@@ -512,10 +512,11 @@ function installFields(
 		};
 		// `label` is required on every non-hidden variant; default to id
 		// so callers that don't care about labels get a sensible fixture.
-		// Hidden has no `label` — omit it when the caller does too.
+		// Hidden has no `label`, and a section's title is optional (absent =
+		// untitled, the canonical state) — omit it when the caller does too.
 		if (label !== undefined) {
 			base.label = fixtureProse(label);
-		} else if (kind !== "hidden") {
+		} else if (kind !== "hidden" && kind !== "section") {
 			base.label = proseText(id);
 		}
 		for (const proseSlot of ["hint", "help", "validate_msg"] as const) {
