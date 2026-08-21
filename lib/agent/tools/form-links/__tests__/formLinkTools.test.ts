@@ -382,7 +382,7 @@ describe("addFormLinks", () => {
 				},
 			],
 		});
-		expect(errorOf(result)).toContain("cannot read form fields");
+		expect(errorOf(result)).toContain("after the form has closed");
 		expect(order(h.currentDoc())).toEqual([]);
 		expect(h.currentDoc().forms[SOURCE]?.postSubmit).toBeUndefined();
 	});

@@ -550,12 +550,12 @@ export function compileCcz(
 				postSubmit,
 				caseType: caseType || undefined,
 				...(projectedLinks !== undefined && { formLinks: projectedLinks }),
-				previousFrame: previousFrameChildren(
-					doc,
-					linkContext,
-					moduleUuid,
-					formUuid,
-				),
+				/* The previous frame is read only when `previous` is the
+				 * destination (plain, or as the guarded fallback). */
+				previousFrame:
+					postSubmit === "previous"
+						? previousFrameChildren(doc, linkContext, moduleUuid, formUuid)
+						: [],
 				caseListFilter: mod.caseListConfig?.filter,
 				searchButtonDisplayCondition,
 				caseListColumnExpressions:

@@ -834,6 +834,21 @@ export function deriveEntryDefinition(
 			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 		}
 	}
+	// The `previous` frame's datum values evaluate here as well (as the
+	// post-submit destination, or as the fallback the projection guards), and
+	// they read `instance('commcaresession')` even on an entry whose own
+	// datums declare only `casedb`. HQ's `InstancesHelper` post-process walks
+	// every stack frame; Nova's local suite declares them at the source.
+	if (postSubmit === "previous") {
+		for (const child of previousFrame) {
+			if (child.type !== "datum") continue;
+			for (const id of collectInstanceRefs(child.value)) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
+			}
+		}
+	}
 
 	// The stack: one exclusive `<create>` per link plus the projection's
 	// fallback when the form carries links, else the simple `postSubmit`

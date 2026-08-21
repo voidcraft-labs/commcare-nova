@@ -463,9 +463,26 @@ describe("deriveEntryDefinition", () => {
 		});
 		expect(entry.commandId).toBe("m0-f1");
 		expect(entry.localeId).toBe("forms.m0f1");
-		expect(entry.instances).toHaveLength(1);
+		// `casedb` from the case datum, `commcaresession` from the previous
+		// frame's datum value — the entry evaluates that stack expression too.
+		expect(entry.instances.map((instance) => instance.id)).toEqual([
+			"casedb",
+			"commcaresession",
+		]);
 		expect(entry.session?.datums).toHaveLength(1);
 		expect(entry.stack?.operations).toHaveLength(1);
+	});
+
+	it("declares no session instance when the previous frame carries no datum", () => {
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/abc",
+			moduleIndex: 0,
+			formIndex: 1,
+			formType: "survey",
+			postSubmit: "previous",
+			previousFrame: [{ type: "command", id: "m0" }],
+		});
+		expect(entry.instances).toEqual([]);
 	});
 
 	it("never declares search-input:results on the ordinary entry, matching the substituted nodeset", () => {

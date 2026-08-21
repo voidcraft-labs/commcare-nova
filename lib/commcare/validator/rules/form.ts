@@ -696,7 +696,7 @@ function formLinkValidation(
 					"FORM_LINK_DATUMS_INCOMPLETE",
 					"form",
 					authored.datums === undefined
-						? `"${ctx.formName}" ${label} cannot carry the case its destination needs (${datumIds}): nothing this form opens or creates matches it, and CommCare would open the destination with an empty case rather than ask for one. Name the value to carry on the link, or point it at a form this one can hand a case to.`
+						? `"${ctx.formName}" ${label} cannot carry the case its destination needs (${datumIds}): nothing this form opens or creates matches it, so the destination would open with no case selected and no way to pick one. Name the value to carry on the link, point it at a form this one can hand a case to, or link to the module's form list so the person picks a case there.`
 						: `"${ctx.formName}" ${label} names values to carry but leaves out one its destination needs (${datumIds}). Name every value the destination form asks for.`,
 					loc,
 					{ ...details, datumIds },

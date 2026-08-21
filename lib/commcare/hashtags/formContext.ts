@@ -32,12 +32,21 @@
  * binding-resolution oracle catches the missing `case_id` datum at compile
  * time; the deep validator rejects it first at authoring time.
  *
+ * Session scope ({@link expandHashtagsForSessionStack}) is different: an
+ * after-submit link runs after the form has closed, when a registration
+ * form's new case EXISTS and the entry's create datum
+ * (`case_id_new_<type>_0`) names it. So the session-scope walk anchors at
+ * whichever datum the source entry carries for its own case — the caller
+ * names it — and `#<own>/case_id` IS that datum. No narrowing applies; the
+ * read-side rule is `caseRefAcceptMap(index, formType, "session")`.
+ *
  * The module's second export, {@link vellumShorthandInContext}, is the
  * companion projection for the `vellum:*` SHADOW attributes: same form
  * context, but targeting HQ's editor vocabulary instead of executable XPath.
  */
 
 import {
+	CURRENT_CASE_ID,
 	expandCaseToWire,
 	resolveFlatHashtag,
 	rewriteHashtags,
@@ -108,10 +117,17 @@ export function expandHashtagsInContext(
  * Expand authored case/user references for a suite post-form stack operation.
  * Core evaluates these expressions after the XForm has closed, in the entry's
  * session instance scope, so no `#form/...` or main `/data` projection exists.
+ *
+ * `ownCaseIdRef` is the session reference of the SOURCE entry's own case —
+ * `instance('commcaresession')/session/data/case_id` on a case-loading form,
+ * `…/case_id_new_<type>_0` on a registration form (its case exists once the
+ * form has closed, and that datum is how the entry names it). Every typed
+ * reference walks from it, and `#<own>/case_id` is that reference itself.
  */
 export function expandHashtagsForSessionStack(
 	expr: string,
 	caseTypeDepths: ReadonlyMap<string, number>,
+	ownCaseIdRef: string = CURRENT_CASE_ID,
 ): string {
 	if (!expr) return expr;
 	return rewriteHashtags(expr, (typeName, segments) => {
@@ -129,9 +145,10 @@ export function expandHashtagsForSessionStack(
 			);
 		}
 		const hops = caseTypeDepths.get(typeName);
-		return hops === undefined
-			? undefined
-			: expandCaseToWire(hops, segments.join("/"));
+		if (hops === undefined) return undefined;
+		const propPath = segments.join("/");
+		if (hops === 0 && propPath === "case_id") return ownCaseIdRef;
+		return expandCaseToWire(hops, propPath, ownCaseIdRef);
 	});
 }
 

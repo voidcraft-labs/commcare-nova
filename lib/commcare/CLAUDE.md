@@ -227,10 +227,22 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   XForm instance has closed, with a NULL main instance
   (`CommCareSession::getEvaluationContext`; `XPathPathExpr::evalRaw` throws on
   `/data/...`), so they may read the session and loaded case instances, never
-  `#form/` or `/data/`. `formLinkExpressionProjectable` is the predicate; the
-  deep validator reports the offending reference with the link's uuid.
+  `#form/` or `/data/`, and a bare relative name has no context node at all.
+  `validateXPath(…, scope: "session")` owns those three refusals, so the deep
+  validator, the inline linter, and the editor's save gate say one sentence;
+  `formLinkExpressionProjectable` is the projector's own precondition, and
+  the deep validator reports the offending reference with the link's uuid.
+  Typed case references anchor at the SOURCE entry's own case datum
+  (`ownCaseSessionRef`): `case_id` on a case-loading form, the create datum
+  `case_id_new_<type>_0` on a registration form — its case exists once the
+  form has closed, which is why `caseRefAcceptMap(index, formType,
+  "session")` applies no registration narrowing — and `#<own>/case_id` IS that
+  datum. A `case_id` leaf at any depth reads casedb's `@case_id` ATTRIBUTE
+  (`commcare-core .../CaseChildElement.java` installs the id under the
+  attribute name; no child element `case_id` exists), in form scope too.
   `deriveEntryDefinition` declares every secondary instance the projected
-  guards, children, datums, and fallback guard use.
+  guards, children, datums, fallback guard, and the `previous` frame's datum
+  values use.
 - **Validator** (`rules/form.ts::formLinkValidation`, all soundness):
   `FORM_LINK_UNREACHABLE` (a link after an unconditional one),
   `FORM_LINK_NO_FALLBACK` (every link conditional and no EXPLICIT `postSubmit`

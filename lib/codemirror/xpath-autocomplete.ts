@@ -188,7 +188,11 @@ export function hashtagSource(
 		// form gets an empty set (it loads no case); ancestor types aren't
 		// reachable until the case exists.
 		const accept = lintCtx?.reachableCaseTypes
-			? caseRefAcceptMap(lintCtx.reachableCaseTypes, lintCtx.formType)
+			? caseRefAcceptMap(
+					lintCtx.reachableCaseTypes,
+					lintCtx.formType,
+					lintCtx.scope ?? "form",
+				)
 			: undefined;
 
 		// Namespace stage: inside HashtagRef but no "/" typed yet — show the

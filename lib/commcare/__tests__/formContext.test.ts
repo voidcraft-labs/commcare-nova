@@ -20,6 +20,7 @@ import {
 	hqLoadReference,
 } from "@/lib/commcare/hashtags";
 import {
+	expandHashtagsForSessionStack,
 	expandHashtagsInContext,
 	type FormHashtagContext,
 	vellumShorthandInContext,
@@ -271,5 +272,56 @@ describe("hqLoadReference", () => {
 		);
 		expect(hqLoadReference("#user/role", depths)).toBe("#user/role");
 		expect(hqLoadReference("#unknown/x", depths)).toBe("#unknown/x");
+	});
+});
+
+describe("expandHashtagsForSessionStack", () => {
+	const depths = new Map([
+		["patient", 0],
+		["household", 1],
+	]);
+	const SESSION = "instance('commcaresession')/session/data";
+
+	it("walks from the selected case by default, and reads case_id as the attribute", () => {
+		expect(
+			expandHashtagsForSessionStack("#patient/mood = 'good'", depths),
+		).toBe(
+			`instance('casedb')/casedb/case[@case_id = ${SESSION}/case_id]/mood = 'good'`,
+		);
+		expect(expandHashtagsForSessionStack("#patient/case_id", depths)).toBe(
+			`${SESSION}/case_id`,
+		);
+		expect(expandHashtagsForSessionStack("#household/case_id", depths)).toBe(
+			`instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = ${SESSION}/case_id]/index/parent]/@case_id`,
+		);
+	});
+
+	it("walks from the case a registration form created when told so", () => {
+		const created = `${SESSION}/case_id_new_patient_0`;
+		expect(
+			expandHashtagsForSessionStack("#patient/mood", depths, created),
+		).toBe(`instance('casedb')/casedb/case[@case_id = ${created}]/mood`);
+		expect(
+			expandHashtagsForSessionStack("#patient/case_id", depths, created),
+		).toBe(created);
+		expect(
+			expandHashtagsForSessionStack("#household/village", depths, created),
+		).toBe(
+			`instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = ${created}]/index/parent]/village`,
+		);
+	});
+
+	it("refuses a form read outright: the validator keeps #form/ out of a session slot first", () => {
+		expect(() => expandHashtagsForSessionStack("#form/note", depths)).toThrow(
+			/closed/,
+		);
+	});
+});
+
+describe("expandCaseToWire case_id leaf", () => {
+	it("reads the casedb @case_id attribute in form scope too", () => {
+		expect(expandCaseToWire(1, "case_id")).toBe(
+			"instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/parent]/@case_id",
+		);
 	});
 });

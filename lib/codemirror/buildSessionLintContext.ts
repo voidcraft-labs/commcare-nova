@@ -6,13 +6,15 @@
  * session rather than the form instance. So the editor for those slots
  * offers and accepts exactly what the deep validator's form-link pass
  * accepts (`lib/commcare/validator/index.ts`, the `FORM_LINK_XPATH_SLOT_IDS`
- * loop): the owning module's readable case types, narrowed by form type
- * through `caseRefAcceptMap` (read here via `caseTypePropsForValidation`,
- * the same one call the linter and the save gate make), and NO form
- * paths. `validPaths` and `formEntries` are empty on purpose — not "unknown",
- * empty — so a `/data/…` path lints as unknown and `#form/` is never
- * offered, and `scope: "session"` lets the linter say WHY in the author's
- * terms rather than as a missing field.
+ * loop): the owning module's readable case types through
+ * `caseRefAcceptMap(index, formType, "session")` (read here via
+ * `caseTypePropsForValidation`, the same one call the linter and the save
+ * gate make; a registration form's new case exists by the time its links
+ * run, so no narrowing applies there), and NO form paths. `validPaths` and
+ * `formEntries` are empty on purpose — not "unknown", empty — and
+ * `scope: "session"` is what makes the validator refuse a form path, a
+ * `#form/` reference, or a bare relative name in the author's terms rather
+ * than as a missing field.
  */
 
 import type { BlueprintDocState } from "@/lib/doc/store";

@@ -85,23 +85,28 @@ describe("buildSessionLintContext", () => {
 			if (ctx === undefined) throw new Error("no context");
 			const accept = caseTypePropsForValidation(ctx);
 			// The validator's own derivation for a form-link slot: the module's
-			// reachable index narrowed by the form's type.
+			// reachable index under SESSION scope (a registration form's new
+			// case exists by the time its links run, so no narrowing applies).
 			const mod = state.modules[moduleUuid];
-			const validatorAccept = caseRefAcceptMap(
-				toReachableIndex(
-					reachableCaseTypes(mod?.caseType ?? "", state.caseTypes ?? []),
-					state,
-				),
-				formType,
+			const index = toReachableIndex(
+				reachableCaseTypes(mod?.caseType ?? "", state.caseTypes ?? []),
+				state,
 			);
-			expect(
-				[...(accept ?? [])].map(([type, props]) => [type, [...props].sort()]),
-			).toEqual(
-				[...validatorAccept].map(([type, props]) => [type, [...props].sort()]),
-			);
-			// And the same set the form's own field slots read.
+			const validatorAccept = caseRefAcceptMap(index, formType, "session");
+			const sorted = (map: Map<string, Set<string>> | undefined) =>
+				[...(map ?? [])].map(([type, props]) => [type, [...props].sort()]);
+			expect(sorted(accept)).toEqual(sorted(validatorAccept));
 			const formCtx = buildLintContext(state, formUuid);
-			expect(formCtx && caseTypePropsForValidation(formCtx)).toEqual(accept);
+			const formAccept = formCtx && caseTypePropsForValidation(formCtx);
+			if (formType === "followup") {
+				// A follow-up's links read what its field slots read.
+				expect(sorted(formAccept)).toEqual(sorted(accept));
+			} else {
+				// A registration form's field slots see only the new case's
+				// `case_id`; its links read the case it created.
+				expect(sorted(formAccept)).toEqual([["patient", ["case_id"]]]);
+				expect(accept?.get("patient")?.has("mood")).toBe(true);
+			}
 		}
 	});
 
@@ -136,6 +141,38 @@ describe("session-scope diagnostics", () => {
 		const { state, formUuid } = storeFor("followup");
 		const ctx = buildSessionLintContext(state, formUuid);
 		expect(xpathDiagnostics("#patient/mood = 'good'", ctx)).toEqual([]);
+	});
+
+	it("accepts the new case's properties on a registration form's links", () => {
+		const { state, formUuid } = storeFor("registration");
+		const ctx = buildSessionLintContext(state, formUuid);
+		expect(xpathDiagnostics("#patient/mood = 'good'", ctx)).toEqual([]);
+	});
+
+	it("refuses a bare relative name, which has no context node after the form closes", () => {
+		const { state, formUuid } = storeFor("followup");
+		const ctx = buildSessionLintContext(state, formUuid);
+		const diagnostics = xpathDiagnostics("mood = 'good'", ctx);
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0]?.message).toContain("after the form has closed");
+		expect(diagnostics[0]).toMatchObject({ from: 0, to: "mood".length });
+	});
+
+	it("reports a `#form/` read once, not once as a hashtag and once as its path", () => {
+		const { state, formUuid } = storeFor("followup");
+		const ctx = buildSessionLintContext(state, formUuid);
+		const diagnostics = xpathDiagnostics(
+			"#form/note = 'yes' and /data/other = 1",
+			ctx,
+		);
+		expect(diagnostics.map((d) => [d.from, d.to, d.message])).toEqual([
+			[0, "#form/note".length, SESSION_FORM_READ_MESSAGE],
+			[
+				"#form/note = 'yes' and ".length,
+				"#form/note = 'yes' and /data/other".length,
+				SESSION_FORM_READ_MESSAGE,
+			],
+		]);
 	});
 
 	it("keeps the form-scope wording for a field slot", () => {

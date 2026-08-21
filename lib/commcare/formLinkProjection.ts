@@ -70,7 +70,7 @@ import {
 	xpathPrintContext,
 } from "@/lib/domain";
 import { caseWriteAdmissionIssues } from "./caseWriteAdmission";
-import { XML_ELEMENT_NAME_REGEX } from "./constants";
+import { CASE_TYPE_REGEX, XML_ELEMENT_NAME_REGEX } from "./constants";
 import { buildFormActions } from "./formActions";
 import { rewriteHashtags } from "./hashtags";
 import {
@@ -132,6 +132,10 @@ export interface FormLinkProjectionContext {
 	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
 	readonly formActions: (formUuid: Uuid) => FormActions;
 	readonly lookupNaming?: LookupWireNaming;
+	/** Entry datums by form, derived once per context: a form target's frame
+	 *  reads every form of its module, once per link, once per pass. The
+	 *  context is built over one immutable document, so the memo is sound. */
+	readonly entryDatums: Map<Uuid, readonly FrameDatum[]>;
 }
 
 /**
@@ -194,6 +198,7 @@ export function formLinkProjectionContext(
 		formOrder,
 		formActions,
 		...(opts.lookupNaming !== undefined && { lookupNaming: opts.lookupNaming }),
+		entryDatums: new Map(),
 	};
 }
 
@@ -260,12 +265,14 @@ export function entryFrameDatums(
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 	formUuid: Uuid,
-): FrameDatum[] {
+): readonly FrameDatum[] {
+	const held = ctx.entryDatums.get(formUuid);
+	if (held !== undefined) return held;
 	const form = doc.forms[formUuid];
 	const mod = doc.modules[moduleUuid];
 	if (form === undefined || mod === undefined) return [];
 	const caseType = moduleCaseTypeForActions(doc, moduleUuid);
-	return deriveSessionDatums({
+	const datums = deriveSessionDatums({
 		formType: form.type,
 		moduleIndex: moduleIndexOf(ctx, moduleUuid),
 		...(caseType !== "" && { caseType }),
@@ -274,6 +281,8 @@ export function entryFrameDatums(
 			tileGrouping: mod.caseListConfig.tile.grouping,
 		}),
 	}).map(toFrameDatum);
+	ctx.entryDatums.set(formUuid, datums);
+	return datums;
 }
 
 /** Longest common prefix of several datum lists, compared by id. */
@@ -702,15 +711,18 @@ export function formLinksProjectable(
 }
 
 /**
- * Whether `buildFormActions` is defined for every form the projection of
- * `formUuid`'s links reads: the source form, and every form of every target
- * module (a form target's frame carries the module's common-prefix datums,
- * which read every form in it). The wire builder fails closed on a form
- * whose case writes the admission refuses or whose field ids are not XML
- * names — each a finding of its own (`CASE_WRITE_*` / `CASE_CREATE_NAME_*` /
- * `INVALID_FIELD_ID`) — so the validator asks this first and never dies
- * where another rule reports. The check reads the same inventory, the same
- * admission, and the same name grammar the builder does.
+ * Whether the projection of `formUuid`'s links is DEFINED: every module it
+ * reads sits in the module sequence with a well-formed case type, and
+ * `buildFormActions` is defined for every form it reads — the source form,
+ * and every form of every target module (a form target's frame carries the
+ * module's common-prefix datums, which read every form in it). The wire
+ * builder fails closed on a module outside the sequence, a case type that
+ * is not an identifier, a form whose case writes the admission refuses, or a
+ * field id that is not an XML name — each a finding of its own
+ * (`INVALID_CASE_TYPE_FORMAT`, `CASE_WRITE_*`, `CASE_CREATE_NAME_*`,
+ * `INVALID_FIELD_ID`, the topology checks) — so the validator asks this
+ * first and never dies where another rule reports. The check reads the same
+ * inventory, the same admission, and the same grammars the builder does.
  */
 export function formLinkActionsBuildable(
 	doc: BlueprintDoc,
@@ -721,11 +733,27 @@ export function formLinkActionsBuildable(
 		doc.moduleOrder.find((moduleUuid) =>
 			(doc.formOrder[moduleUuid] ?? []).includes(uuid),
 		);
+	const sourceModule = moduleOf(formUuid);
+	if (sourceModule === undefined) return false;
+	const modules = new Set<Uuid>([sourceModule]);
 	const forms = new Set<Uuid>([formUuid]);
 	for (const link of links) {
+		modules.add(link.target.moduleUuid);
 		for (const uuid of doc.formOrder[link.target.moduleUuid] ?? []) {
 			forms.add(uuid);
 		}
+	}
+	// `deriveSessionDatums` and the case-loading nodeset validate every case
+	// type they print (`identifierValidation.ts::validateCaseType`), and the
+	// frame indices are positions in the module sequence.
+	const wellFormedCaseType = (caseType: string | undefined): boolean =>
+		caseType === undefined || caseType === "" || CASE_TYPE_REGEX.test(caseType);
+	for (const moduleUuid of modules) {
+		const mod = doc.modules[moduleUuid];
+		if (mod === undefined || !doc.moduleOrder.includes(moduleUuid)) {
+			return false;
+		}
+		if (!wellFormedCaseType(mod.caseType)) return false;
 	}
 	const xmlNames = (
 		segments: readonly { readonly fieldId: string }[] | undefined,
@@ -747,6 +775,7 @@ export function formLinkActionsBuildable(
 		if (
 			!inventory.buckets.every(
 				(bucket) =>
+					wellFormedCaseType(bucket.caseType) &&
 					xmlNames(bucket.repeatPath) &&
 					bucket.writers.every((writer) => xmlNames(writer.path)),
 			)
@@ -765,16 +794,56 @@ export function formLinkIsConditional(
 	return link.condition !== undefined && project(link.condition).length > 0;
 }
 
-/** The session-scope wire projection of a link condition or datum XPath. */
-export function formLinkWireProjector(
+/**
+ * The session reference of the SOURCE entry's own case, which every typed
+ * reference in its links walks from: the `case_id` selection datum on a
+ * case-loading form, the primary create datum (`case_id_new_<type>_0`) on a
+ * registration form — that case exists once the form has closed, and the
+ * datum is how the entry names it. `undefined` when the entry carries
+ * neither (a survey, or a module with no case type), where the read-side
+ * accept set admits no case reference anyway.
+ */
+export function ownCaseSessionRef(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	formType: FormLinkSourceType,
+	sourceDatums: readonly FrameDatum[],
+): string | undefined {
+	const selected = sourceDatums.find(
+		(datum) => datum.requiresSelection && datum.id === "case_id",
+	);
+	if (selected !== undefined) return sessionDataRef(selected.id);
+	if (formType !== "registration") return undefined;
+	const ownType = moduleCaseTypeForActions(doc, moduleUuid);
+	const created = sourceDatums.find(
+		(datum) =>
+			!datum.requiresSelection &&
+			datum.function !== undefined &&
+			datum.caseType === ownType,
+	);
+	return created === undefined ? undefined : sessionDataRef(created.id);
+}
+
+type FormLinkSourceType = BlueprintDoc["forms"][string]["type"];
+
+/**
+ * The session-scope wire projection of a link condition or datum XPath.
+ * `ownCaseIdRef` anchors the typed case references (`ownCaseSessionRef`).
+ */
+function formLinkWireProjector(
 	doc: BlueprintDoc,
 	moduleCaseType: string | undefined,
+	ownCaseIdRef?: string,
 ): (expression: XPathExpression) => string {
 	const ctx = xpathPrintContext(doc);
 	const depths = caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []);
 	return (expression) =>
 		lowerXPathForJavaRosa(
-			expandHashtagsForSessionStack(printXPath(expression, ctx), depths),
+			expandHashtagsForSessionStack(
+				printXPath(expression, ctx),
+				depths,
+				ownCaseIdRef,
+			),
 		).trim();
 }
 
@@ -799,7 +868,12 @@ export function projectFormLinks(
 			`Cannot project form links: form ${formUuid} belongs to no module`,
 		);
 	}
-	const project = formLinkWireProjector(doc, doc.modules[moduleUuid]?.caseType);
+	const sourceDatums = entryFrameDatums(doc, ctx, moduleUuid, formUuid);
+	const project = formLinkWireProjector(
+		doc,
+		doc.modules[moduleUuid]?.caseType,
+		ownCaseSessionRef(doc, moduleUuid, form.type, sourceDatums),
+	);
 	const guards = planFormLinkGuards(
 		links.map((link) => ({
 			uuid: link.uuid,
@@ -809,7 +883,6 @@ export function projectFormLinks(
 				}),
 		})),
 	);
-	const sourceDatums = entryFrameDatums(doc, ctx, moduleUuid, formUuid);
 	const sourceIds = new Set(sourceDatums.map((datum) => datum.id));
 	const projected = links.map((link, index): ProjectedFormLink => {
 		const target = targetFrameChildren(doc, ctx, link.target);

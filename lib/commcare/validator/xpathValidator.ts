@@ -28,6 +28,27 @@ import { checkTypes } from "./typeChecker";
  * (the validation runner) switch on `code` and embed `message` as the
  * detail — they never parse `message` to recover structure.
  */
+/**
+ * Where an expression runs. `"form"` is a field's slot inside the open form
+ * instance. `"session"` is an after-submit link's condition or carried value,
+ * which CommCare evaluates after the form has closed against the session: no
+ * form paths, no `#form/`, and no context node for a relative reference.
+ */
+export type XPathScope = "form" | "session";
+
+/**
+ * What a session-scoped slot says about a form read. The deep validator
+ * refuses the same reference with it; the inline linter shows it while
+ * typing.
+ */
+export const SESSION_FORM_READ_MESSAGE =
+	"This runs after the form has closed, so it can't read the form's answers. Save the answer to a case property and read that instead.";
+
+/** What a session-scoped slot says about a bare relative reference. */
+function sessionRelativeReadMessage(name: string): string {
+	return `"${name}" has nothing to read here: this runs after the form has closed, with no form to look inside. Use #<case type>/<property> for a case value, or #user/<property> for worker information.`;
+}
+
 export interface XPathError {
 	code:
 		| "XPATH_SYNTAX"
@@ -116,11 +137,16 @@ export function validateXPath(
 	validPaths?: Set<string>,
 	caseTypeProps?: Map<string, Set<string>>,
 	isRegistrationForm = false,
+	scope: XPathScope = "form",
 ): XPathError[] {
 	if (!expr) return [];
 
 	const tree = parser.parse(expr);
 	const errors: XPathError[] = [];
+	const session = scope === "session";
+	/* Session scope: the `/data/...` paths a `#form/...` reference resolves
+	 * to, so Phase 2c does not report the same read a second time. */
+	const formHashtagPaths = new Set<string>();
 
 	// Walk every node in the tree
 	tree.iterate({
@@ -153,6 +179,19 @@ export function validateXPath(
 			// names a case type. In an XPath expression a hashtag is a deliberate
 			// reference, so the strict `surface: "xpath"` rule applies (an
 			// unreachable namespace IS an error) — unlike the lenient prose rule.
+			if (node.type === T.HashtagRef && session) {
+				const text = expr.slice(node.from, node.to);
+				if (text.startsWith("#form/")) {
+					formHashtagPaths.add(`/data/${text.slice("#form/".length)}`);
+					errors.push({
+						code: "INVALID_REF",
+						message: SESSION_FORM_READ_MESSAGE,
+						position: node.from,
+						ref: text,
+					});
+					return;
+				}
+			}
 			if (node.type === T.HashtagRef && caseTypeProps) {
 				const text = expr.slice(node.from, node.to);
 				const slashIdx = text.indexOf("/");
@@ -179,8 +218,21 @@ export function validateXPath(
 		},
 	});
 
-	// Phase 2c: Path reference validation (/data/... refs must exist)
-	if (validPaths) {
+	// Phase 2c: Path reference validation (/data/... refs must exist). Under
+	// session scope there is no form to read: every `/data/...` path is the
+	// closed form, named as such (a literal path's position is its text).
+	if (session) {
+		for (const ref of extractPathRefs(expr)) {
+			if (formHashtagPaths.has(ref)) continue;
+			const at = expr.indexOf(ref);
+			errors.push({
+				code: "INVALID_REF",
+				message: SESSION_FORM_READ_MESSAGE,
+				...(at >= 0 && { position: at }),
+				ref,
+			});
+		}
+	} else if (validPaths) {
 		const refs = extractPathRefs(expr);
 		for (const ref of refs) {
 			if (!validPaths.has(ref)) {
@@ -221,7 +273,20 @@ export function validateXPath(
 	// schema tooling and agent-prompt callers that don't supply context
 	// shouldn't get false positives. The editor always supplies context
 	// via useFormLintContext.
-	if (validPaths || caseTypeProps) {
+	//
+	// Under session scope there is NO context node (Core evaluates a stack
+	// expression against a null main instance), so every relative reference
+	// is unreadable, a case property's bare name included.
+	if (session) {
+		walkValuePositions(tree.topNode, expr, (name, position) => {
+			errors.push({
+				code: "INVALID_REF",
+				message: sessionRelativeReadMessage(name),
+				position,
+				ref: name,
+			});
+		});
+	} else if (validPaths || caseTypeProps) {
 		const knownNames = collectKnownNames(validPaths, caseTypeProps);
 		walkValuePositions(tree.topNode, expr, (name, position) => {
 			if (!knownNames.has(name)) {

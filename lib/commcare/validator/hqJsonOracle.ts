@@ -389,6 +389,10 @@ function checkSubcase(
 interface HqIdentityTable {
 	readonly moduleIds: ReadonlySet<string>;
 	readonly formIds: ReadonlySet<string>;
+	/** Each module's form unique ids: HQ resolves a link's `form_id` INSIDE
+	 *  `form_module_id` (`get_module_by_unique_id(...).get_form_by_unique_id`),
+	 *  so the pair must agree, not merely each exist. */
+	readonly formIdsByModule: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /**
@@ -475,6 +479,18 @@ function checkFormLinks(
 						"HQJSON_BAD_FORM_LINK",
 						"form",
 						`"${formName}" ${ordinal} targets form_module_id="${link.form_module_id}", which names no module in the emitted app; CommCare HQ resolves it on the first build and fails. This is a bug in the app generator.`,
+						loc,
+					),
+				);
+			} else if (
+				ids.formIds.has(link.form_id) &&
+				!ids.formIdsByModule.get(link.form_module_id)?.has(link.form_id)
+			) {
+				errors.push(
+					validationError(
+						"HQJSON_BAD_FORM_LINK",
+						"form",
+						`"${formName}" ${ordinal} targets form_id="${link.form_id}" inside form_module_id="${link.form_module_id}", but that form belongs to a different module; CommCare HQ looks the form up inside the module it names and fails on the first build. This is a bug in the app generator.`,
 						loc,
 					),
 				);
@@ -909,6 +925,12 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 			hqApp.modules.flatMap((module) =>
 				module.forms.map((form) => form.unique_id),
 			),
+		),
+		formIdsByModule: new Map(
+			hqApp.modules.map((module) => [
+				module.unique_id,
+				new Set(module.forms.map((form) => form.unique_id)),
+			]),
 		),
 	};
 	for (const module of hqApp.modules) {

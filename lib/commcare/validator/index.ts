@@ -47,6 +47,7 @@ import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplate
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
 	checkCaseHashtag,
+	SESSION_FORM_READ_MESSAGE,
 	validateXPath,
 	type XPathError,
 } from "./xpathValidator";
@@ -218,6 +219,9 @@ function withStoredRef(
 	const storedRef = classifyStoredRef(expr, error.ref);
 	return storedRef === undefined ? error : { ...error, storedRef };
 }
+
+/** A session-scoped slot (an after-submit link) has no form paths to read. */
+const SESSION_VALID_PATHS: Set<string> = new Set();
 
 function canonicalXPathError(
 	doc: BlueprintDoc,
@@ -406,6 +410,9 @@ export function validateBlueprintDeep(
 			const caseTypeProps = caseTypeIndex
 				? caseRefAcceptMap(caseTypeIndex, form.type)
 				: undefined;
+			const sessionCaseTypeProps = caseTypeIndex
+				? caseRefAcceptMap(caseTypeIndex, form.type, "session")
+				: undefined;
 
 			// The uuid-anchored location every finding in this form carries.
 			// Built once here from the indices we're already iterating, so no
@@ -482,8 +489,7 @@ export function validateBlueprintDeep(
 							...(linkUuid !== undefined && { linkUuid }),
 							error: {
 								code: "INVALID_REF",
-								message:
-									"Form-link stack XPath cannot read form fields because Core evaluates it after the XForm instance has closed.",
+								message: SESSION_FORM_READ_MESSAGE,
 							},
 						});
 						continue;
@@ -493,7 +499,7 @@ export function validateBlueprintDeep(
 						formUuid,
 						read.text,
 						read.expr,
-						validPaths,
+						SESSION_VALID_PATHS,
 					);
 					if (canonicalError !== undefined) {
 						errors.push({
@@ -506,11 +512,15 @@ export function validateBlueprintDeep(
 						});
 						continue;
 					}
+					// Session scope: no form paths, no context node, and the
+					// accept set of a link (a registration form's new case exists
+					// by the time its links run, so no narrowing applies there).
 					for (const error of validateXPath(
 						read.text,
-						validPaths,
-						caseTypeProps,
-						isRegistrationForm,
+						SESSION_VALID_PATHS,
+						sessionCaseTypeProps,
+						false,
+						"session",
 					)) {
 						errors.push({
 							...loc,

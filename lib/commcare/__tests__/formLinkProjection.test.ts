@@ -24,6 +24,7 @@ import {
 	matchFrameToManual,
 	matchFrameToSource,
 	moduleCaseTypeForActions,
+	ownCaseSessionRef,
 	planFormLinkGuards,
 	previousFrameChildren,
 	projectFormLinks,
@@ -556,6 +557,55 @@ describe("projectFormLinks", () => {
 		});
 	});
 
+	it("anchors a registration form's case reads at the case it created", () => {
+		// After a registration form closes its case EXISTS and the entry's
+		// create datum names it, so `#frog/mood` walks casedb from
+		// `case_id_new_frog_0` and `#frog/case_id` IS that datum.
+		const doc = structuredClone(frogDoc());
+		const reg = doc.forms[REGISTER];
+		if (reg?.formLinks?.[0] === undefined) throw new Error("fixture");
+		reg.formLinks = [
+			{
+				...reg.formLinks[0],
+				condition: xp("#frog/mood = 'happy' and #frog/case_id != ''"),
+			},
+		];
+		const projected = projectFormLinks(
+			doc,
+			formLinkProjectionContext(doc),
+			REGISTER,
+		);
+		const created = sessionDataRef("case_id_new_frog_0");
+		expect(projected?.links[0]?.guard).toBe(
+			`instance('casedb')/casedb/case[@case_id = ${created}]/mood = 'happy' and ${created} != ''`,
+		);
+	});
+
+	it("anchors a case-loading form's case reads at the selected case, and reads case_id as the attribute", () => {
+		const doc = structuredClone(frogDoc());
+		const visit = doc.forms[VISIT];
+		if (visit === undefined) throw new Error("fixture");
+		visit.formLinks = [
+			{
+				uuid: testUuid("lnk-back"),
+				condition: xp("#frog/case_id != ''"),
+				target: { type: "module", moduleUuid: INTAKE },
+			},
+			{
+				uuid: testUuid("lnk-else"),
+				target: { type: "module", moduleUuid: CARE },
+			},
+		];
+		const projected = projectFormLinks(
+			doc,
+			formLinkProjectionContext(doc),
+			VISIT,
+		);
+		expect(projected?.links[0]?.guard).toBe(
+			`${sessionDataRef("case_id")} != ''`,
+		);
+	});
+
 	it("returns undefined for a form without links", () => {
 		const doc = frogDoc();
 		expect(
@@ -564,7 +614,74 @@ describe("projectFormLinks", () => {
 	});
 });
 
+describe("ownCaseSessionRef", () => {
+	it("is the selection datum on a case-loading form and the create datum on a registration form", () => {
+		const doc = frogDoc();
+		const ctx = formLinkProjectionContext(doc);
+		expect(
+			ownCaseSessionRef(
+				doc,
+				CARE,
+				"followup",
+				entryFrameDatums(doc, ctx, CARE, VISIT),
+			),
+		).toBe(sessionDataRef("case_id"));
+		expect(
+			ownCaseSessionRef(
+				doc,
+				INTAKE,
+				"registration",
+				entryFrameDatums(doc, ctx, INTAKE, REGISTER),
+			),
+		).toBe(sessionDataRef("case_id_new_frog_0"));
+	});
+
+	it("is undefined for a survey, which carries no case", () => {
+		const doc = structuredClone(frogDoc());
+		const mod = doc.modules[INTAKE];
+		const reg = doc.forms[REGISTER];
+		if (mod === undefined || reg === undefined) throw new Error("fixture");
+		mod.caseType = undefined;
+		mod.caseListConfig = undefined;
+		reg.type = "survey";
+		reg.formLinks = undefined;
+		for (const uuid of doc.fieldOrder[REGISTER] ?? []) {
+			delete (doc.fields[uuid] as { caseWrite?: unknown }).caseWrite;
+		}
+		const ctx = formLinkProjectionContext(doc);
+		expect(
+			ownCaseSessionRef(
+				doc,
+				INTAKE,
+				"survey",
+				entryFrameDatums(doc, ctx, INTAKE, REGISTER),
+			),
+		).toBeUndefined();
+	});
+});
+
 describe("totality predicates", () => {
+	it("formLinkActionsBuildable says no when a module the frame reads is outside the sequence or has a malformed case type", () => {
+		const doc = frogDoc();
+		const links = doc.forms[REGISTER]?.formLinks ?? [];
+		expect(formLinkActionsBuildable(doc, REGISTER, links)).toBe(true);
+
+		const badType = structuredClone(doc);
+		const care = badType.modules[CARE];
+		if (care === undefined) throw new Error("fixture");
+		care.caseType = "frog case";
+		expect(formLinkActionsBuildable(badType, REGISTER, links)).toBe(false);
+		expect(() =>
+			projectFormLinks(badType, formLinkProjectionContext(badType), REGISTER),
+		).toThrow();
+
+		const unsequenced = structuredClone(doc);
+		unsequenced.moduleOrder = unsequenced.moduleOrder.filter(
+			(uuid) => uuid !== CARE,
+		);
+		expect(formLinkActionsBuildable(unsequenced, REGISTER, links)).toBe(false);
+	});
+
 	it("moduleCaseTypeForActions mirrors the expander's case-activity gate", () => {
 		const doc = buildDoc({
 			appName: "Gate",

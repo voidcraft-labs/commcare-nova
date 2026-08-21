@@ -9,7 +9,6 @@
 
 import { type Diagnostic, linter } from "@codemirror/lint";
 import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
-import { parser } from "@/lib/commcare/xpath";
 import {
 	caseRefAcceptMap,
 	type FieldKind,
@@ -94,45 +93,22 @@ export function caseTypePropsForValidation(
 	ctx: XPathLintContext,
 ): Map<string, Set<string>> | undefined {
 	if (!ctx.reachableCaseTypes) return undefined;
-	return caseRefAcceptMap(ctx.reachableCaseTypes, ctx.formType);
+	return caseRefAcceptMap(
+		ctx.reachableCaseTypes,
+		ctx.formType,
+		ctx.scope ?? "form",
+	);
 }
 
-/**
- * What a session-scoped slot says about a form read. The deep validator
- * refuses the same reference (`FORM_LINK` slots, form-local references);
- * this is the author-facing form of that rule, shown while typing.
- */
-export const SESSION_FORM_READ_MESSAGE =
-	"This runs after the form has closed, so it can't read the form's answers. Save the answer to a case property and read that instead.";
-
-/** Pre-resolved node type for typed comparisons (never by name at runtime). */
-const HASHTAG_REF = (() => {
-	const found = parser.nodeSet.types.find((t) => t.name === "HashtagRef");
-	if (!found) throw new Error("Unknown node type: HashtagRef");
-	return found;
-})();
-
-/** The span of every `#form/…` reference, read off the syntax tree. */
-function formHashtagSpans(
-	expr: string,
-): ReadonlyArray<{ readonly from: number; readonly to: number }> {
-	const spans: Array<{ from: number; to: number }> = [];
-	parser.parse(expr).iterate({
-		enter(node) {
-			if (node.type !== HASHTAG_REF) return;
-			const text = expr.slice(node.from, node.to);
-			const slashIdx = text.indexOf("/");
-			const namespace = slashIdx >= 0 ? text.slice(1, slashIdx) : text.slice(1);
-			if (namespace === "form") spans.push({ from: node.from, to: node.to });
-		},
-	});
-	return spans;
-}
+export { SESSION_FORM_READ_MESSAGE } from "@/lib/commcare/validator/xpathValidator";
 
 /**
  * The diagnostics for one expression against one context — the pure heart
- * of `xpathLinter`, exported so the session-scope rewrite is testable
- * without an editor view.
+ * of `xpathLinter`, exported so the session-scope behavior is testable
+ * without an editor view. Every rule, the session-scope ones included, is
+ * the validator's own (`validateXPath` with the context's scope), so the
+ * inline lint, `XPathField`'s save gate, and the deep validator cannot
+ * disagree on a sentence.
  */
 export function xpathDiagnostics(
 	expr: string,
@@ -141,68 +117,31 @@ export function xpathDiagnostics(
 	if (!expr.trim()) return [];
 
 	// The per-type accept set comes from `caseTypePropsForValidation`, the
-	// single home of the registration-narrowing rule. On a registration form
-	// it narrows to the own type's `case_id` only (the case being created
-	// doesn't exist at form-init, ancestor reads aren't permitted on a create
-	// form); every other form type exposes each reachable type's full
-	// property set. The linter, the save gate, and the deep validator all
-	// read that one rule — three predicates, one accept set.
+	// single home of the form-type-narrowing rule. On a registration form's
+	// own slots it narrows to the own type's `case_id` only (the case being
+	// created doesn't exist at form-init, ancestor reads aren't permitted on a
+	// create form); every other form type exposes each reachable type's full
+	// property set, and a session-scoped slot (an after-submit link) reads the
+	// full set on a registration form too, because its case exists by then.
 	const caseTypeProps = ctx ? caseTypePropsForValidation(ctx) : undefined;
-	const session = ctx?.scope === "session";
-
 	const errors = validateXPath(
 		expr,
 		ctx?.validPaths,
 		caseTypeProps,
-		ctx?.formType === "registration",
+		ctx?.formType === "registration" && ctx.scope !== "session",
+		ctx?.scope ?? "form",
 	);
-	const diagnostics: Diagnostic[] = [];
-
-	for (const err of errors) {
-		/* Under session scope every `/data/…` path is unknown by construction
-		 * (the context carries none), so the finding is about WHERE the
-		 * expression runs, not about a misspelt field. */
-		const formRead =
-			session && err.code === "INVALID_REF" && err.ref?.startsWith("/data/");
-		const from =
-			err.position ??
-			(formRead && err.ref !== undefined
-				? Math.max(0, expr.indexOf(err.ref))
-				: 0);
+	return errors.map((err) => {
+		const from = err.position ?? 0;
+		/* A reference-bearing error underlines the reference it names; any
+		 * other error marks the character it starts at. */
 		const to = Math.min(
-			formRead && err.ref !== undefined ? from + err.ref.length : from + 1,
+			err.position !== undefined && err.ref !== undefined
+				? from + err.ref.length
+				: from + 1,
 			expr.length,
 		);
-		diagnostics.push({
-			from,
-			to,
-			severity: "error",
-			message: formRead ? SESSION_FORM_READ_MESSAGE : err.message,
-		});
-	}
-
-	/* `validateXPath` leaves `#form/` to the wire (it resolves there on a
-	 * field slot), so a session slot has to name the read itself. */
-	if (session) {
-		for (const span of formHashtagSpans(expr)) {
-			diagnostics.push({
-				from: span.from,
-				to: span.to,
-				severity: "error",
-				message: SESSION_FORM_READ_MESSAGE,
-			});
-		}
-	}
-
-	/* The validator resolves `#form/x` to its `/data/x` path before checking
-	 * it, so a session slot can reach the same finding twice: once through
-	 * the path, once through the hashtag. One sentence per place. */
-	const seen = new Set<string>();
-	return diagnostics.filter((diagnostic) => {
-		const key = `${diagnostic.from}:${diagnostic.message}`;
-		if (seen.has(key)) return false;
-		seen.add(key);
-		return true;
+		return { from, to, severity: "error", message: err.message };
 	});
 }
 

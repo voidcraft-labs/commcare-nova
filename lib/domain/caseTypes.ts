@@ -248,14 +248,25 @@ export function toReachableIndex(
  *
  * An empty index (a form whose module has no case type) yields an empty map
  * regardless of form type.
+ *
+ * `scope` is WHERE the expression runs. `"form"` (the default) is a field's
+ * slot inside the open form instance, narrowed as above. `"session"` is an
+ * after-submit link's condition or carried value, which CommCare evaluates
+ * after the form has closed: by then a registration form's new case EXISTS
+ * and the entry's create datum names it, so the session scope reads every
+ * reachable type's full property set on a registration form too. A survey
+ * still loads no case and accepts none.
  */
+export type CaseRefScope = "form" | "session";
+
 export function caseRefAcceptMap(
 	index: ReachableCaseTypeIndex,
 	formType: FormType,
+	scope: CaseRefScope = "form",
 ): Map<string, Set<string>> {
 	const accept = new Map<string, Set<string>>();
 	if (index.size === 0 || formType === "survey") return accept;
-	if (formType === "registration") {
+	if (formType === "registration" && scope === "form") {
 		for (const [name, { depth }] of index) {
 			if (depth === 0) {
 				accept.set(name, new Set(["case_id"]));

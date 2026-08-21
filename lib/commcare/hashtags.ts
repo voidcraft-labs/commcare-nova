@@ -32,7 +32,14 @@ const T = (() => {
 // project through `expandCaseToWire`; HQ editor metadata privately projects
 // the same selector to its required `#case/` vocabulary.
 const CASEDB_CASE = "instance('casedb')/casedb/case";
-const CURRENT_CASE_ID = "instance('commcaresession')/session/data/case_id";
+/**
+ * The session datum a case-loading entry selects its case into. Every form-
+ * scope case reference walks from it; a session-scope reference (an
+ * after-submit link) walks from whichever datum the SOURCE entry carries for
+ * its own case, which `expandCaseToWire`'s `fromCaseId` names.
+ */
+export const CURRENT_CASE_ID =
+	"instance('commcaresession')/session/data/case_id";
 
 /** A casedb `<case>` selected by its `@case_id` expression. */
 function caseById(idExpr: string): string {
@@ -93,18 +100,30 @@ const EXPANSIONS = new Map<string, string>([
  * HQ's `#case/parent…` spelling is generated from the same depth after
  * projection, never accepted as Nova input.
  */
-export function expandCaseToWire(hops: number, propPath: string): string {
+export function expandCaseToWire(
+	hops: number,
+	propPath: string,
+	fromCaseId: string = CURRENT_CASE_ID,
+): string {
 	// Walk to the target case's id — one `/index/parent` per hop; zero hops
 	// leaves it at the current case. Everything flows through `caseById`, so the
 	// zero-hop output is byte-for-byte the loaded-case prefix used by the
 	// private HQ metadata projection.
-	let idExpr = CURRENT_CASE_ID;
+	let idExpr = fromCaseId;
 	for (let h = 0; h < hops; h++) {
 		idExpr = `${caseById(idExpr)}/index/parent`;
 	}
 	// A walk with no trailing property (a bare `#case/parent` relationship)
 	// resolves to the related case node itself.
-	return propPath ? `${caseById(idExpr)}/${propPath}` : caseById(idExpr);
+	if (!propPath) return caseById(idExpr);
+	// A case's id is the `@case_id` ATTRIBUTE of its casedb element
+	// (`commcare-core .../CaseChildElement.java`: the record id is installed
+	// under the attribute name `case_id`; the children are `case_name`,
+	// `date_opened`, `last_modified`, and the case's own properties). A child
+	// element named `case_id` never exists, so the one property Nova seeds on
+	// every type (`toReachableIndex`) reads the attribute.
+	if (propPath === "case_id") return `${caseById(idExpr)}/@case_id`;
+	return `${caseById(idExpr)}/${propPath}`;
 }
 
 /**
