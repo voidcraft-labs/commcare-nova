@@ -56,7 +56,8 @@ export function BuilderReferenceProvider({
 	const currentFormUuid =
 		loc.kind === "form" ||
 		loc.kind === "form-condition" ||
-		loc.kind === "form-operations"
+		loc.kind === "form-operations" ||
+		loc.kind === "form-links"
 			? loc.formUuid
 			: undefined;
 

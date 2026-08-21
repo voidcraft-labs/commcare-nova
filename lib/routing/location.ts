@@ -20,6 +20,8 @@
  *   [formUuid, "condition"]         → form display condition
  *   [formUuid, "operations"]        → form case operations
  *   [formUuid, "operations", opUuid] → …with one selected
+ *   [formUuid, "links"]             → form after-submit links
+ *   [formUuid, "links", linkUuid]   → …with one selected
  *   [formUuid, fieldUuid]        → form + selected field
  *
  * Entity disambiguation: all UUIDs are globally unique. A single-segment
@@ -119,6 +121,10 @@ export function serializePath(loc: Location): string[] {
 			return loc.operationUuid !== undefined
 				? [loc.formUuid, "operations", loc.operationUuid]
 				: [loc.formUuid, "operations"];
+		case "form-links":
+			return loc.linkUuid !== undefined
+				? [loc.formUuid, "links", loc.linkUuid]
+				: [loc.formUuid, "links"];
 		case "form":
 			/* A selected field is serialized as a single UUID — the parser
 			 * resolves it to its parent form via findFormForField. This
@@ -360,6 +366,30 @@ export function parsePathToLocation(
 		return { kind: "home" };
 	}
 
+	if (second === "links") {
+		/* The form's after-submit links: the same selection-carrying shape as
+		 * `operations`, for the same reason (a link has to be sendable). A
+		 * third segment that no longer names a link degrades to the list. */
+		if (doc.forms[first] === undefined) return { kind: "home" };
+		for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
+			if (!formUuids.includes(first)) continue;
+			const parsedModule = uuidSchema.safeParse(moduleUuid);
+			if (!parsedModule.success) return { kind: "home" };
+			const linkSegment = segments[2];
+			const linkUuid =
+				linkSegment === undefined
+					? undefined
+					: uuidSchema.safeParse(linkSegment);
+			return {
+				kind: "form-links",
+				moduleUuid: parsedModule.data,
+				formUuid: first,
+				...(linkUuid?.success && { linkUuid: linkUuid.data }),
+			};
+		}
+		return { kind: "home" };
+	}
+
 	if (second === "condition") {
 		/* One noun, two carriers: the first segment names either the module
 		 * whose menu tile the condition governs or the form whose menu entry
@@ -449,8 +479,9 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 			return doc.modules[loc.moduleUuid] !== undefined;
 		case "form-condition":
 		case "form-operations":
-			// A selected operation is deliberately NOT validated here: it
-			// lives inside the form record rather than a top-level entity
+		case "form-links":
+			// A selected operation or link is deliberately NOT validated here:
+			// it lives inside the form record rather than a top-level entity
 			// map, and `recoverLocation` drops a stale one.
 			return (
 				doc.modules[loc.moduleUuid] !== undefined &&
@@ -527,6 +558,26 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 		) {
 			return {
 				kind: "form-operations",
+				moduleUuid: loc.moduleUuid,
+				formUuid: loc.formUuid,
+			};
+		}
+		return loc;
+	}
+
+	/* After-submit links walk inward the same way: the form, then the
+	 * selected link. A link a peer removed leaves the list open. */
+	if (loc.kind === "form-links") {
+		const form = doc.forms[loc.formUuid];
+		if (form === undefined) {
+			return { kind: "module", moduleUuid: loc.moduleUuid };
+		}
+		if (
+			loc.linkUuid !== undefined &&
+			!(form.formLinks ?? []).some((link) => link.uuid === loc.linkUuid)
+		) {
+			return {
+				kind: "form-links",
 				moduleUuid: loc.moduleUuid,
 				formUuid: loc.formUuid,
 			};

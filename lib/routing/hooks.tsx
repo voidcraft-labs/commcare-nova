@@ -157,6 +157,12 @@ export interface NavigateActions {
 		formUuid: Uuid,
 		operationUuid?: Uuid,
 	) => void;
+	/**
+	 * Open a form's after-submit links. Routes to
+	 * `/build/{appId}/{formUuid}/links`, or straight to one link's detail
+	 * when given its uuid.
+	 */
+	openFormLinks: (moduleUuid: Uuid, formUuid: Uuid, linkUuid?: Uuid) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -187,6 +193,7 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 			loc.kind === "module-condition" ||
 			loc.kind === "form-condition" ||
 			loc.kind === "form-operations" ||
+			loc.kind === "form-links" ||
 			loc.kind === "form") &&
 		loc.moduleUuid === uuid
 	);
@@ -216,7 +223,8 @@ export function useIsFormSelected(uuid: Uuid): boolean {
 	return (
 		(loc.kind === "form" ||
 			loc.kind === "form-condition" ||
-			loc.kind === "form-operations") &&
+			loc.kind === "form-operations" ||
+			loc.kind === "form-links") &&
 		loc.formUuid === uuid
 	);
 }
@@ -259,13 +267,15 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		loc.kind === "module-condition" ||
 		loc.kind === "form-condition" ||
 		loc.kind === "form-operations" ||
+		loc.kind === "form-links" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
 	const formUuid =
 		loc.kind === "form" ||
 		loc.kind === "form-condition" ||
-		loc.kind === "form-operations"
+		loc.kind === "form-operations" ||
+		loc.kind === "form-links"
 			? loc.formUuid
 			: undefined;
 
@@ -368,7 +378,8 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		if (
 			(loc.kind === "form" ||
 				loc.kind === "form-condition" ||
-				loc.kind === "form-operations") &&
+				loc.kind === "form-operations" ||
+				loc.kind === "form-links") &&
 			formUuid &&
 			moduleUuid
 		) {
@@ -401,6 +412,14 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				key: `form-operations:${formUuid}`,
 				label: "Case changes",
 				location: { kind: "form-operations", moduleUuid, formUuid },
+			});
+		}
+		// The selected link gets no crumb either, for the same reason.
+		if (loc.kind === "form-links" && moduleUuid && formUuid) {
+			items.push({
+				key: `form-links:${formUuid}`,
+				label: "After submit",
+				location: { kind: "form-links", moduleUuid, formUuid },
 			});
 		}
 		return items;
@@ -481,6 +500,13 @@ export function useNavigate(): NavigateActions {
 					formUuid,
 					...(operationUuid !== undefined && { operationUuid }),
 				}),
+			openFormLinks: (moduleUuid: Uuid, formUuid: Uuid, linkUuid?: Uuid) =>
+				push({
+					kind: "form-links",
+					moduleUuid,
+					formUuid,
+					...(linkUuid !== undefined && { linkUuid }),
+				}),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -535,6 +561,19 @@ export function parentLocation(loc: Location): Location | undefined {
 			return loc.operationUuid !== undefined
 				? {
 						kind: "form-operations",
+						moduleUuid: loc.moduleUuid,
+						formUuid: loc.formUuid,
+					}
+				: {
+						kind: "form",
+						moduleUuid: loc.moduleUuid,
+						formUuid: loc.formUuid,
+					};
+		case "form-links":
+			// A selected link's parent is the list; the list's is the form.
+			return loc.linkUuid !== undefined
+				? {
+						kind: "form-links",
 						moduleUuid: loc.moduleUuid,
 						formUuid: loc.formUuid,
 					}

@@ -24,8 +24,8 @@ import { xpathChips } from "@/lib/codemirror/xpath-chips";
 import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
 import { xpath } from "@/lib/codemirror/xpath-language";
 import {
-	caseTypePropsForValidation,
 	type XPathLintContext,
+	xpathDiagnostics,
 	xpathLinter,
 } from "@/lib/codemirror/xpath-lint";
 import {
@@ -33,7 +33,6 @@ import {
 	novaChipTheme,
 	novaXPathTheme,
 } from "@/lib/codemirror/xpath-theme";
-import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { CommitOutcome } from "@/lib/domain";
 import { ReferenceProvider } from "@/lib/references/provider";
@@ -403,8 +402,11 @@ function InlineXPathEditor({
 
 	/**
 	 * Return validation error messages for the current editor content.
-	 * Uses the same `validateXPath` + context as the CodeMirror linter so
-	 * the result is always consistent with the inline diagnostics.
+	 * These ARE the CodeMirror linter's diagnostics (`xpathDiagnostics`, the
+	 * same context), so the save gate can never refuse with a sentence the
+	 * inline lint did not show, or pass a draft it underlined: a
+	 * session-scoped slot's "runs after the form has closed" reads the same
+	 * on both. Context-less validation is allowed: case-ref checks just skip.
 	 */
 	const getErrors = useCallback((): string[] => {
 		if (projectionConflictRef.current) {
@@ -412,18 +414,9 @@ function InlineXPathEditor({
 		}
 		const currentDraft = draftRef.current;
 		if (!currentDraft.trim()) return [];
-		const ctx = getLintContextRef.current?.();
-		// Derive the per-case-type accept map from the context via the shared
-		// `caseTypePropsForValidation` (same registration-narrowing rule the
-		// inline linter uses), so the save gate and the diagnostics agree.
-		// Context-less validation is allowed: case-ref checks just skip.
-		const caseTypeProps = ctx ? caseTypePropsForValidation(ctx) : undefined;
-		return validateXPath(
-			currentDraft,
-			ctx?.validPaths,
-			caseTypeProps,
-			ctx?.formType === "registration",
-		).map((e) => e.message);
+		return xpathDiagnostics(currentDraft, getLintContextRef.current?.()).map(
+			(diagnostic) => diagnostic.message,
+		);
 	}, []);
 
 	/** Trigger the reject shake animation on the editor wrapper. The

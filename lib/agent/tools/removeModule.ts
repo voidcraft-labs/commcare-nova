@@ -21,16 +21,20 @@
  * message. The SA sees the target-already-gone state explicitly and
  * keeps moving rather than assuming the removal just happened.
  *
- * Three exit branches:
+ * Four exit branches:
  *
  *   - Missing UUID → no mutations, "does not exist, no change" message.
  *   - Retirement blocked → `{ error }` naming the references.
+ *   - After-submit links from other modules' forms point into it →
+ *     `{ error }` naming each link and the repair
+ *     (`lib/doc/formLinkDependents.ts`).
  *   - Success → human-readable "Successfully removed" summary tagged
  *     `module:remove:M`.
  */
 
 import type { z } from "zod";
 import { planCaseTypeRetirementOnRemove } from "@/lib/doc/caseTypeRetirement";
+import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import type { Mutation } from "@/lib/doc/types";
 import { removeModuleMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -99,6 +103,23 @@ export const removeModuleTool = {
 					kind: "mutate" as const,
 					mutations: [],
 					result: { error: retirement.message },
+				};
+			}
+
+			/* After-submit links from forms OUTSIDE this module that point at
+			 * it (or at one of its forms) would dangle; the shared planner
+			 * refuses naming each link and the repair
+			 * (`lib/doc/formLinkDependents.ts`), as the builder's remove flow
+			 * does. Links on the module's own forms leave with them. */
+			const dependents = planFormLinkDependentsOnRemove(doc, {
+				kind: "module",
+				moduleUuid,
+			});
+			if (dependents.kind === "blocked") {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: dependents.message },
 				};
 			}
 

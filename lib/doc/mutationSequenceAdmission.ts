@@ -41,6 +41,8 @@ export const MUTATION_SEQUENCE_INVENTORY = [
 	{ path: "moveColumn.after", mode: "required-neighbor" },
 	{ path: "addSearchInput.after", mode: "optional-neighbor" },
 	{ path: "moveSearchInput.after", mode: "required-neighbor" },
+	{ path: "addFormLink.after", mode: "optional-neighbor" },
+	{ path: "moveFormLink.after", mode: "required-neighbor" },
 	{ path: "addOption.after", mode: "optional-neighbor" },
 	{ path: "moveOption.after", mode: "required-neighbor" },
 	{
@@ -102,6 +104,8 @@ interface SequenceState {
 	operationOrder: Map<string, string[]>;
 	operationWrites: Map<string, string[]>;
 	operationLinks: Map<string, string[]>;
+	/** After-submit links per form, in array (= sequence) order. */
+	formLinkOrder: Map<string, string[]>;
 }
 
 const operationKey = (formUuid: string, operationUuid: string): string =>
@@ -165,7 +169,12 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 	const operationOrder = new Map<string, string[]>();
 	const operationWrites = new Map<string, string[]>();
 	const operationLinks = new Map<string, string[]>();
+	const formLinkOrder = new Map<string, string[]>();
 	for (const form of Object.values(doc.forms)) {
+		formLinkOrder.set(
+			form.uuid,
+			(form.formLinks ?? []).map((link) => link.uuid),
+		);
 		const operations = form.caseOperations ?? [];
 		operationOrder.set(
 			form.uuid,
@@ -237,6 +246,7 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 		operationOrder,
 		operationWrites,
 		operationLinks,
+		formLinkOrder,
 	};
 }
 
@@ -321,6 +331,7 @@ function removeFormTree(state: SequenceState, formUuid: string): void {
 		state.operationLinks.delete(key);
 	}
 	state.operationOrder.delete(formUuid);
+	state.formLinkOrder.delete(formUuid);
 }
 
 function removeModuleTree(state: SequenceState, moduleUuid: string): void {
@@ -453,6 +464,10 @@ export function mutationSequenceAdmissionIssue(
 				for (const operation of operations) {
 					seedOperation(state, mutation.form.uuid, operation);
 				}
+				state.formLinkOrder.set(
+					mutation.form.uuid,
+					(mutation.form.formLinks ?? []).map((link) => link.uuid),
+				);
 				break;
 			}
 			case "removeForm":
@@ -783,6 +798,37 @@ export function mutationSequenceAdmissionIssue(
 				break;
 			}
 			case "updateSearchInput":
+				break;
+			case "addFormLink": {
+				const order = state.formLinkOrder.get(mutation.formUuid) ?? [];
+				if (!place(order, mutation.link.uuid, mutation.after)) {
+					return issue(
+						mutation,
+						mutationIndex,
+						`form ${mutation.formUuid} links`,
+						mutation.after,
+					);
+				}
+				state.formLinkOrder.set(mutation.formUuid, order);
+				break;
+			}
+			case "removeFormLink":
+				removeMember(state.formLinkOrder.get(mutation.formUuid), mutation.uuid);
+				break;
+			case "moveFormLink": {
+				const order = state.formLinkOrder.get(mutation.formUuid) ?? [];
+				if (!place(order, mutation.uuid, mutation.after, true)) {
+					return issue(
+						mutation,
+						mutationIndex,
+						`form ${mutation.formUuid} links`,
+						mutation.after,
+					);
+				}
+				state.formLinkOrder.set(mutation.formUuid, order);
+				break;
+			}
+			case "updateFormLink":
 				break;
 			case "addUserProperty":
 				if (

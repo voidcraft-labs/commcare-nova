@@ -1,5 +1,5 @@
 import type { Draft } from "immer";
-import { spliceAfter } from "@/lib/doc/mutations/sequence";
+import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { caseOperationSchema } from "@/lib/domain";
 import { cascadeDeleteForm } from "./helpers";
@@ -68,11 +68,72 @@ export function applyFormMutation(
 				| "moveForm"
 				| "renameForm"
 				| "updateForm"
-				| "setFormMedia";
+				| "setFormMedia"
+				| "addFormLink"
+				| "updateFormLink"
+				| "removeFormLink"
+				| "moveFormLink";
 		}
 	>,
 ): void {
 	switch (mut.kind) {
+		// ── After-submit links ─────────────────────────────────────────
+		// `formLinks` IS the sequence (array position), so add and move are
+		// `spliceEntryAfter`: total, idempotent, and a missing anchor leaves
+		// the sequence unchanged rather than becoming append. The slot is
+		// deleted when the last link goes; `[]` is not a state.
+		case "addFormLink": {
+			const form = draft.forms[mut.formUuid];
+			if (!form) return;
+			const links = form.formLinks ?? [];
+			// Replay idempotence: the same add applied twice lands once.
+			if (links.some((link) => link.uuid === mut.link.uuid)) return;
+			// CLONE, never alias: the payload must not become part of a frozen
+			// produced state that a later `updateFormLink` in the same batch
+			// then edits in place.
+			form.formLinks = spliceEntryAfter(
+				links,
+				structuredClone(mut.link),
+				mut.after,
+			);
+			return;
+		}
+		case "updateFormLink": {
+			const form = draft.forms[mut.formUuid];
+			const link = form?.formLinks?.find(
+				(candidate) => candidate.uuid === mut.uuid,
+			);
+			if (link === undefined) return;
+			// Key-by-key: `null` / `undefined` deletes the slot (only the
+			// clearable `condition` / `datums` can arrive nullable); any other
+			// value sets a clone of it.
+			const target = link as unknown as Record<string, unknown>;
+			for (const [key, value] of Object.entries(mut.patch)) {
+				if (value === null || value === undefined) delete target[key];
+				else target[key] = structuredClone(value);
+			}
+			return;
+		}
+		case "removeFormLink": {
+			const form = draft.forms[mut.formUuid];
+			if (!form) return;
+			const links = (form.formLinks ?? []).filter(
+				(link) => link.uuid !== mut.uuid,
+			);
+			if (links.length === 0) delete form.formLinks;
+			else form.formLinks = links;
+			return;
+		}
+		case "moveFormLink": {
+			const form = draft.forms[mut.formUuid];
+			const links = form?.formLinks;
+			const link = links?.find((candidate) => candidate.uuid === mut.uuid);
+			if (form === undefined || links === undefined || link === undefined) {
+				return;
+			}
+			form.formLinks = spliceEntryAfter(links, link, mut.after);
+			return;
+		}
 		case "addForm": {
 			if (draft.modules[mut.moduleUuid] === undefined) return;
 			const { uuid } = mut.form;
@@ -122,6 +183,21 @@ export function applyFormMutation(
 				mut.uuid,
 				mut.after,
 			);
+			// A form target names its form AND the module that holds it (the
+			// wire addresses `form_id` inside `form_module_id`), so every link
+			// pointing at this form follows it across modules: the pair stays
+			// the one thing it is, "go to this form". A same-module move
+			// rewrites nothing; replaying the move is idempotent.
+			for (const other of Object.values(draft.forms)) {
+				for (const link of other.formLinks ?? []) {
+					if (
+						link.target.type === "form" &&
+						link.target.formUuid === mut.uuid
+					) {
+						link.target.moduleUuid = mut.toModuleUuid;
+					}
+				}
+			}
 			return;
 		}
 		case "renameForm": {

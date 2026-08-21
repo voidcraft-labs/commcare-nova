@@ -189,4 +189,46 @@ describe("useBreadcrumbs", () => {
 			},
 		]);
 	});
+
+	it("at a form's after-submit links, shows [Home, Module, Form, After submit]", () => {
+		mockSegments.current = [formUuid, "links"];
+		const { result } = renderHook(() => useBreadcrumbs(), {
+			wrapper: wrapperFn,
+		});
+		expect(result.current.map((crumb) => crumb.label)).toEqual([
+			"Home",
+			"Patients",
+			"Register",
+			"After submit",
+		]);
+		expect(result.current.at(-1)).toEqual({
+			key: `form-links:${formUuid}`,
+			label: "After submit",
+			location: { kind: "form-links", moduleUuid, formUuid },
+		});
+	});
+
+	it("a selected link adds no crumb of its own", () => {
+		/* A link is a selection inside the screen, the way a field is inside a
+		 * form: the trail ends at the screen, and the crumb points at the list. */
+		mockSegments.current = [
+			formUuid,
+			"links",
+			"00000000-0000-4000-8000-00000000abcd",
+		];
+		const { result } = renderHook(() => useBreadcrumbs(), {
+			wrapper: wrapperFn,
+		});
+		expect(result.current.map((crumb) => crumb.label)).toEqual([
+			"Home",
+			"Patients",
+			"Register",
+			"After submit",
+		]);
+		expect(result.current.at(-1)?.location).toEqual({
+			kind: "form-links",
+			moduleUuid,
+			formUuid,
+		});
+	});
 });

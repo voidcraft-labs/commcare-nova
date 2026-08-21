@@ -35,8 +35,13 @@ import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
 import render from "dom-serializer";
 import type { Element } from "domhandler";
-import type { HqApplication } from "@/lib/commcare";
+import type { FormActions, HqApplication } from "@/lib/commcare";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import {
+	formLinkProjectionContext,
+	previousFrameChildren,
+	projectFormLinks,
+} from "@/lib/commcare/formLinkProjection";
 import { serializeLocaleFileValue } from "@/lib/commcare/localeFile";
 import { commCareLocalization } from "@/lib/commcare/localization";
 import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
@@ -79,6 +84,7 @@ import {
 	effectiveCaseSearchConfig,
 	makeTranslationUnitId,
 	type TranslationUnitId,
+	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
@@ -204,6 +210,31 @@ export function compileCcz(
 	// `hqModules[mIdx]` is `sortedModuleUuids[mIdx]`; per-module forms align
 	// the same way.
 	const sortedModuleUuids = orderedModuleUuids(doc);
+
+	// The after-submit link projection and each form's `previous` frame read
+	// every form's expanded actions. The expander already built them, so the
+	// context reads them back by uuid instead of deriving a second set — the
+	// entry's datums and the frames that reference them come from one source.
+	const actionsByForm = new Map<Uuid, FormActions>();
+	sortedModuleUuids.forEach((moduleUuid, mIdx) => {
+		orderedFormUuids(doc, moduleUuid).forEach((formUuid, fIdx) => {
+			const actions = hqModules[mIdx]?.forms[fIdx]?.actions;
+			if (actions !== undefined) actionsByForm.set(formUuid, actions);
+		});
+	});
+	const linkContext = formLinkProjectionContext(doc, {
+		formActions: (formUuid) => {
+			const actions = actionsByForm.get(formUuid);
+			if (actions === undefined) {
+				throw new Error(
+					`Cannot project after-submit links: form ${formUuid} has no expanded actions`,
+				);
+			}
+			return actions;
+		},
+		...(lookupNaming && { lookupNaming }),
+	});
+
 	for (let mIdx = 0; mIdx < hqModules.length; mIdx++) {
 		const hqMod = hqModules[mIdx];
 		const moduleUuid = sortedModuleUuids[mIdx];
@@ -473,13 +504,14 @@ export function compileCcz(
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
 			// stack from the form's type, its post-submit destination, the
-			// module's case type, any form-level link overrides, the
+			// module's case type, its projected after-submit links, the
 			// module's authored case-list filter, the search-button display
 			// condition, and this form's navigation display condition.
 			//
-			// The expander already resolved form-link uuids into indexed
-			// HQ shape, so the compiler forwards `hqForm.form_links`
-			// verbatim — no second resolution pass needed here.
+			// The links and the `previous` frame are projected here from the
+			// document (`formLinkProjection.ts`), not read back from the HQ
+			// shape: the HQ `form_links` name target forms by HQ id, while
+			// the local suite needs the target's frame children.
 			//
 			// Three authoring surfaces contribute to the entry's
 			// `<instance>` accumulator:
@@ -509,6 +541,7 @@ export function compileCcz(
 			// XForm's `instance('commcaresession')/session/data/<X>`
 			// references against. `caseListColumnExpressions` is the
 			// module-scoped accumulation hoisted above the form loop.
+			const projectedLinks = projectFormLinks(doc, linkContext, formUuid);
 			const entryDef = deriveEntryDefinition({
 				formXmlns: xmlns,
 				moduleIndex: mIdx,
@@ -516,7 +549,13 @@ export function compileCcz(
 				formType,
 				postSubmit,
 				caseType: caseType || undefined,
-				formLinks: hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
+				...(projectedLinks !== undefined && { formLinks: projectedLinks }),
+				/* The previous frame is read only when `previous` is the
+				 * destination (plain, or as the guarded fallback). */
+				previousFrame:
+					postSubmit === "previous"
+						? previousFrameChildren(doc, linkContext, moduleUuid, formUuid)
+						: [],
 				caseListFilter: mod.caseListConfig?.filter,
 				searchButtonDisplayCondition,
 				caseListColumnExpressions:

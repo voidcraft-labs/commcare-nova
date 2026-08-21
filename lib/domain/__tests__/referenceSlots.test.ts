@@ -663,6 +663,7 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"connect.task.id",
 			"connect.task.name",
 			"formLinks[].datums[].name",
+			"formLinks[].uuid",
 			"id",
 			"name",
 			"purpose",

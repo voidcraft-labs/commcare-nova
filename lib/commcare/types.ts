@@ -412,37 +412,44 @@ export interface CaseReferencesData {
 }
 
 /**
- * HQ `form_links[*].target` discriminant.
- *
- * HQ addresses forms + modules by 0-based index — the indices are stable
- * across the wire payload because every other field (`modules[].forms[]`,
- * suite-level `m{n}-f{k}` commands, app strings) shares the same
- * ordering. Domain `FormLink.target` carries uuids; the expander resolves
- * them to indices at the emission boundary before writing the HQ shape.
+ * One explicit session value on an HQ `form_links[*]` entry. The shape is
+ * HQ's `FormLinkDatum` (`app_manager/models/forms.py`): `name` is the
+ * target datum id the value satisfies, `xpath` the session-scope
+ * expression Core evaluates at push.
  */
-export type HqFormLinkTarget =
-	| { type: "form"; moduleIndex: number; formIndex: number }
-	| { type: "module"; moduleIndex: number };
-
-/** A datum override on an HQ `form_link` (explicit session variable). */
 export interface HqFormLinkDatum {
 	name: string;
 	xpath: string;
 }
 
 /**
- * HQ `form_links[*]` entry shape.
+ * HQ `form_links[*]` entry shape — `FormLink` in
+ * `app_manager/models/forms.py`, field for field.
  *
- * `condition` is an XPath expression; `undefined` means the link matches
- * unconditionally. `datums` overrides auto-derived session variables for
- * the target. Matches CommCare HQ's form-link payload field-for-field —
- * HQ validates the shape on upload.
+ * `xpath` is the link's guard; HQ reads the empty string as an
+ * unconditional link, and Nova's projection writes the exclusive guard the
+ * local suite emits so the two paths derive the same `<create if>`. A form
+ * target carries `form_id` + `form_module_id` (HQ's `update_form_unique_ids`
+ * re-ids forms on import and rewrites `form_id` with them, so the expander
+ * pre-generates every form id before the module map and references only
+ * those); a module target carries `module_unique_id` (modules are never
+ * re-ided). `datums` is empty when the target's session is matched from the
+ * source entry (HQ's `_get_datums_matched_to_source`) and lists explicit
+ * values otherwise (`_get_datums_matched_to_manual_values`). HQ reads
+ * `form_links` only while `post_form_workflow === "form"`.
  */
-export interface HqFormLink {
-	condition?: string;
-	target: HqFormLinkTarget;
-	datums?: HqFormLinkDatum[];
-}
+export type HqFormLink =
+	| {
+			xpath: string;
+			form_id: string;
+			form_module_id: string;
+			datums: HqFormLinkDatum[];
+	  }
+	| {
+			xpath: string;
+			module_unique_id: string;
+			datums: HqFormLinkDatum[];
+	  };
 
 export interface HqForm {
 	doc_type: "Form";
@@ -456,6 +463,13 @@ export interface HqForm {
 	case_references_data: CaseReferencesData;
 	form_filter: string | null;
 	post_form_workflow: string;
+	/**
+	 * The workflow HQ falls back to when every `form_links[*].xpath` is
+	 * false (`post_process/workflow.py::_get_fallback_frame`). `null` emits
+	 * no fallback frame; HQ's `WORKFLOW_FALLBACK_OPTIONS` is `None`, so the
+	 * slot carries no choice validation and `null` is its stored default.
+	 */
+	post_form_workflow_fallback: string | null;
 	no_vellum: boolean;
 	media_image: Record<string, string>;
 	media_audio: Record<string, string>;

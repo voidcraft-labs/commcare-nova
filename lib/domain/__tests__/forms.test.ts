@@ -24,16 +24,22 @@ describe("formSchema — formLinks", () => {
 		moduleUuid: testUuid("mod-1"),
 		formUuid: testUuid("frm-2"),
 	};
+	const linkUuid = testUuid("lnk-1");
 
 	it("accepts an empty condition expression — emitters read it as unconditional", () => {
 		// No commit boundary stores an empty condition (an empty commit
-		// clears the slot), and both emitters collapse a degenerate empty
-		// expression to "unconditional": the session emitter's truthy
-		// check over the printed text, and the expander's explicit
-		// empty-printed-condition drop.
+		// clears the slot), and the projection collapses a degenerate empty
+		// expression to "unconditional" (`formLinkIsConditional` reads the
+		// printed text).
 		const result = formSchema.safeParse({
 			...baseForm,
-			formLinks: [{ condition: opaqueXPathExpression(""), target: linkTarget }],
+			formLinks: [
+				{
+					uuid: linkUuid,
+					condition: opaqueXPathExpression(""),
+					target: linkTarget,
+				},
+			],
 		});
 		expect(result.success).toBe(true);
 	});
@@ -41,7 +47,7 @@ describe("formSchema — formLinks", () => {
 	it("accepts an absent condition (unconditional link)", () => {
 		const result = formSchema.safeParse({
 			...baseForm,
-			formLinks: [{ target: linkTarget }],
+			formLinks: [{ uuid: linkUuid, target: linkTarget }],
 		});
 		expect(result.success).toBe(true);
 	});
@@ -51,12 +57,69 @@ describe("formSchema — formLinks", () => {
 			...baseForm,
 			formLinks: [
 				{
+					uuid: linkUuid,
 					condition: opaqueXPathExpression("/data/outcome = 'yes'"),
 					target: linkTarget,
 				},
 			],
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it("requires a link uuid — links are entities with durable identity", () => {
+		const result = formSchema.safeParse({
+			...baseForm,
+			formLinks: [{ target: linkTarget }],
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("refuses an empty link list — absence is the only spelling of 'no links'", () => {
+		expect(formSchema.safeParse({ ...baseForm, formLinks: [] }).success).toBe(
+			false,
+		);
+	});
+
+	it("refuses an empty datums list — absence means auto-match", () => {
+		const result = formSchema.safeParse({
+			...baseForm,
+			formLinks: [{ uuid: linkUuid, target: linkTarget, datums: [] }],
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("refuses two datums with the same name on one link", () => {
+		const result = formSchema.safeParse({
+			...baseForm,
+			formLinks: [
+				{
+					uuid: linkUuid,
+					target: linkTarget,
+					datums: [
+						{ name: "case_id", xpath: opaqueXPathExpression("'a'") },
+						{ name: "case_id", xpath: opaqueXPathExpression("'b'") },
+					],
+				},
+			],
+		});
+		expect(result.success).toBe(false);
+		if (!result.success) {
+			expect(result.error.issues[0]?.message).toContain("listed twice");
+		}
+	});
+
+	it("refuses a blank datum name", () => {
+		const result = formSchema.safeParse({
+			...baseForm,
+			formLinks: [
+				{
+					uuid: linkUuid,
+					target: linkTarget,
+					datums: [{ name: "", xpath: opaqueXPathExpression("'a'") }],
+				},
+			],
+		});
+		expect(result.success).toBe(false);
 	});
 });
 

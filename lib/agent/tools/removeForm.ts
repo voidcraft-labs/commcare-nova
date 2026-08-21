@@ -13,15 +13,18 @@
  * reasoning as though the removal just happened. This mirrors the
  * `removeModule` contract.
  *
- * Two exit branches:
+ * Three exit branches:
  *
  *   - Missing UUID → no mutations, "does not exist, no change" message.
+ *   - After-submit links from other forms point at it → `{ error }`
+ *     naming each link and the repair (`lib/doc/formLinkDependents.ts`).
  *   - Success → human-readable "Successfully removed" summary tagged
  *     `form:M-F`.
  */
 
 import type { z } from "zod";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
+import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
 import { removeFormMutations } from "../blueprintHelpers";
@@ -82,6 +85,22 @@ export const removeFormTool = {
 			// reference the real form even after cascade deletion removes
 			// it from `forms`.
 			const removedName = form.name;
+
+			/* After-submit links from OTHER forms that point at this one would
+			 * dangle. The shared planner refuses and names every link and the
+			 * repair (`lib/doc/formLinkDependents.ts`) — the builder's remove
+			 * flow consults the same planner, so both surfaces refuse alike. */
+			const dependents = planFormLinkDependentsOnRemove(doc, {
+				kind: "form",
+				formUuid,
+			});
+			if (dependents.kind === "blocked") {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: dependents.message },
+				};
+			}
 
 			const mutations: Mutation[] = removeFormMutations(doc, formUuid);
 			const commit = await guardedMutate(ctx, mutations, `form:${formUuid}`);

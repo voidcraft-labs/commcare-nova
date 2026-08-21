@@ -121,6 +121,9 @@ function baselineApp(): HqApplication {
 		"none",
 		actions,
 		{},
+		"default",
+		null,
+		[],
 	);
 
 	const detail = detailPair(
@@ -412,6 +415,42 @@ describe("HQ-JSON oracle — form choice slots", () => {
 		expect(codes(validateHqJson(app))).toContain(
 			"HQJSON_BAD_POST_FORM_WORKFLOW",
 		);
+	});
+
+	it("flags a form link whose form_id lives in a different module than its form_module_id", () => {
+		// HQ resolves `form_id` INSIDE `form_module_id`
+		// (`get_module_by_unique_id(...).get_form_by_unique_id`), so a pair
+		// that each exist but disagree fails on the first build.
+		const app = baselineApp();
+		const second = structuredClone(moduleOf(app));
+		second.unique_id = "second-module-id";
+		second.forms[0].unique_id = "second-form-id";
+		app.modules.push(second);
+		const form = moduleOf(app).forms[0];
+		form.post_form_workflow = "form";
+		form.form_links = [
+			{
+				xpath: "",
+				form_id: "second-form-id",
+				form_module_id: "module-unique-id",
+				datums: [],
+			},
+		];
+		const mismatched = validateHqJson(app).filter(
+			(error) => error.code === "HQJSON_BAD_FORM_LINK",
+		);
+		expect(mismatched).toHaveLength(1);
+		expect(mismatched[0]?.message).toContain("belongs to a different module");
+
+		form.form_links = [
+			{
+				xpath: "",
+				form_id: "second-form-id",
+				form_module_id: "second-module-id",
+				datums: [],
+			},
+		];
+		expect(codes(validateHqJson(app))).not.toContain("HQJSON_BAD_FORM_LINK");
 	});
 });
 

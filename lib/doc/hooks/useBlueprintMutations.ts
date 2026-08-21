@@ -53,6 +53,7 @@ import { automationChangesForUpdate } from "@/lib/doc/diffDocsToMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
+import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
@@ -1179,6 +1180,18 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						warnUnresolved("removeForm", { uuid });
 						return NOOP_REJECTION;
 					}
+					/* After-submit links from OTHER forms that point at this one
+					 * would dangle. The shared planner refuses naming every link
+					 * (`lib/doc/formLinkDependents.ts`); the SA's `removeForm` tool
+					 * consults the same planner, so both surfaces refuse alike. */
+					const dependents = planFormLinkDependentsOnRemove(doc, {
+						kind: "form",
+						formUuid: uuid,
+					});
+					if (dependents.kind === "blocked") {
+						if (announce) notifyRejectedCommit([dependents.userMessage]);
+						return { ok: false, messages: [dependents.userMessage] };
+					}
 					const mutations: Mutation[] = [{ kind: "removeForm", uuid }];
 					/* Removing the LAST form of a case-managing module would leave it
 					 * formless+typed (`NO_FORMS_OR_CASE_LIST`). Convert it to a
@@ -1334,6 +1347,18 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					if (retirement.kind === "blocked") {
 						if (announce) notifyRejectedCommit([retirement.userMessage]);
 						return { ok: false, messages: [retirement.userMessage] };
+					}
+					/* After-submit links from forms OUTSIDE this module that point
+					 * into it would dangle; the shared planner refuses naming each
+					 * (`lib/doc/formLinkDependents.ts`). Links on the module's own
+					 * forms leave with them. */
+					const dependents = planFormLinkDependentsOnRemove(doc, {
+						kind: "module",
+						moduleUuid: uuid,
+					});
+					if (dependents.kind === "blocked") {
+						if (announce) notifyRejectedCommit([dependents.userMessage]);
+						return { ok: false, messages: [dependents.userMessage] };
 					}
 					return toOutcome(
 						guardedApply([

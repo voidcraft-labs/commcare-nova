@@ -89,10 +89,12 @@ Preview never treats an unknown function as an empty answer. If a historical
 formula uses something Preview cannot faithfully run, Preview reports that
 boundary instead of showing a result that may disagree with the installed app.
 
-End-of-form navigation formulas run after the form has closed. They can use
-the current case and worker information, but they cannot read answers from the
-form that just closed. Nova refuses those form-local references instead of
-exporting navigation that will fail on the device.
+A form's [After submit](/docs/form-links) links decide where the app goes once
+the form is submitted, and their conditions run after the form has closed.
+They can use the case the form just saved and worker information, but they
+cannot read answers from the form that just closed. Nova refuses those
+form-local references instead of exporting navigation that will fail on the
+device.
 
 ## External setup
 

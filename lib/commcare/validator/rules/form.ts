@@ -17,6 +17,14 @@ import {
 } from "@/lib/commcare";
 import { caseWriteAdmissionIssues } from "@/lib/commcare/caseWriteAdmission";
 import { connectIdError } from "@/lib/commcare/connectSlugs";
+import {
+	type FormLinkProjectionContext,
+	formLinkActionsBuildable,
+	formLinkIsConditional,
+	formLinkProjectionContext,
+	formLinksProjectable,
+	projectFormLinks,
+} from "@/lib/commcare/formLinkProjection";
 import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import {
 	type BlueprintDoc,
@@ -24,8 +32,10 @@ import {
 	deriveCaseWriteInventory,
 	FORM_REFERENCE_SLOTS,
 	type Form,
+	type FormLink,
 	fieldReferenceSlotsFor,
 	formExpressionValue,
+	formLinkDestination,
 	isConnectLearnConfig,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
@@ -468,20 +478,92 @@ function postSubmitValidation(
 }
 
 /**
- * Form-link validation (per-form). Checks empty-link-array, target
- * existence, self-reference, and missing post_submit fallback. Cycle
- * detection across forms runs at app scope in `circularFormLinks`.
+ * The projection context the form-link rules read, built once per document.
+ * The rules run per form, but the context (module/form sequences plus every
+ * form's expanded actions, cached) is document-wide; rebuilding it per form
+ * would re-expand every target form's actions for every source form.
+ */
+const projectionContexts = new WeakMap<
+	BlueprintDoc,
+	FormLinkProjectionContext
+>();
+function projectionContextFor(doc: BlueprintDoc): FormLinkProjectionContext {
+	const held = projectionContexts.get(doc);
+	if (held !== undefined) return held;
+	const built = formLinkProjectionContext(doc);
+	projectionContexts.set(doc, built);
+	return built;
+}
+
+/**
+ * A link named by where it goes, the way a person finds it in the builder
+ * — "the link to “Visit”" rather than "form link 3", which stops meaning
+ * anything the moment links are reordered. Position is the fallback for a
+ * target that no longer exists.
+ */
+function formLinkLabel(doc: BlueprintDoc, link: FormLink, index: number) {
+	const destination = formLinkDestination(doc, link.target);
+	const label =
+		destination === undefined
+			? `form link ${index + 1}`
+			: destination.kind === "form"
+				? `the link to "${destination.name}"`
+				: `the link to the "${destination.name}" module`;
+	const details: Record<string, string> = {
+		linkUuid: link.uuid,
+		...(destination !== undefined && {
+			destination: destination.name,
+			destinationKind: destination.kind,
+		}),
+	};
+	return { label, details };
+}
+
+/**
+ * Form-link validation (per-form). `formLinkProjection.ts` is the ONE
+ * reading of what a link emits, and these rules read that same projection,
+ * so "valid" means "lands where the author meant" on the local suite and on
+ * the HQ upload alike:
+ *
+ *   - `FORM_LINK_EMPTY` — the schema already refuses an empty list; this is
+ *     the backstop for a document that reached the rules another way.
+ *   - `FORM_LINK_TARGET_NOT_FOUND` / `FORM_LINK_SELF_REFERENCE` — per link.
+ *   - `FORM_LINK_UNREACHABLE` — a link after an unconditional one. The
+ *     projection gives it the exclusive guard `not(<earlier>)`, which an
+ *     unconditional earlier link makes `not(true)`: it can never fire, so
+ *     the author meant something else.
+ *   - `FORM_LINK_NO_FALLBACK` — the last link is conditional and the form
+ *     has no EXPLICIT `postSubmit`. The form-type default is what a form
+ *     does with no links at all, not a destination the author chose for
+ *     "none of these matched"; a terminal unconditional link is the
+ *     exhaustive else and satisfies the rule by itself.
+ *   - `FORM_LINK_DATUMS_INCOMPLETE` — a form target needs a case the link
+ *     cannot supply. The runtime does NOT prompt for it: HQ's
+ *     `_get_datums_matched_to_source` yields an unmatched selection datum
+ *     as a self-named session ref, Core evaluates that to "" at push, and
+ *     the person lands in the target form with an empty case id. Nova
+ *     refuses the link instead. With explicit datums, every selection datum
+ *     of the target must be named.
+ *   - `FORM_LINK_DATUM_UNUSED` — an explicit datum the target never reads
+ *     (HQ's manual matcher iterates the TARGET's datums, so the name is
+ *     dropped silently on upload).
+ *
+ * The datum rules project the links, which is defined only for session-scope
+ * expressions whose targets exist; the other findings cover every document
+ * where it is not, so the rule stays total. Cycle detection across forms
+ * runs at app scope in `circularFormLinks`.
  */
 function formLinkValidation(
 	doc: BlueprintDoc,
 	form: Form,
 	ctx: FormContext,
 ): ValidationError[] {
-	if (!form.formLinks) return [];
+	const links = form.formLinks;
+	if (links === undefined) return [];
 	const errors: ValidationError[] = [];
 	const loc = baseLocation(ctx);
 
-	if (form.formLinks.length === 0) {
+	if (links.length === 0) {
 		errors.push(
 			validationError(
 				"FORM_LINK_EMPTY",
@@ -493,78 +575,144 @@ function formLinkValidation(
 		return errors;
 	}
 
-	const hasAnyCondition = form.formLinks.some((l) => l.condition);
-	if (hasAnyCondition && !form.postSubmit) {
+	// Conditional = prints to non-empty XPath. The friendly projection answers
+	// that without lowering to the wire (which is undefined for a form-local
+	// read the deep validator reports separately).
+	const printContext = xpathPrintContext(doc);
+	const isConditional = (link: FormLink): boolean =>
+		formLinkIsConditional(link, (expression) =>
+			projectXPath(expression, printContext).text.trim(),
+		);
+
+	let targetsResolve = true;
+	let earlierUnconditional: { label: string } | undefined;
+	links.forEach((link, index) => {
+		const { label, details } = formLinkLabel(doc, link, index);
+
+		if (earlierUnconditional !== undefined) {
+			errors.push(
+				validationError(
+					"FORM_LINK_UNREACHABLE",
+					"form",
+					`"${ctx.formName}" can never use ${label}: ${earlierUnconditional.label} comes before it and has no condition, so it always wins. Move ${label} above it, or give ${earlierUnconditional.label} a condition.`,
+					loc,
+					details,
+				),
+			);
+		} else if (!isConditional(link)) {
+			earlierUnconditional = { label };
+		}
+
+		const targetMod = doc.modules[link.target.moduleUuid];
+		if (targetMod === undefined) {
+			targetsResolve = false;
+			errors.push(
+				validationError(
+					"FORM_LINK_TARGET_NOT_FOUND",
+					"form",
+					`"${ctx.formName}" ${label} targets module ${link.target.moduleUuid}, which doesn't exist.\n\n` +
+						`Update the target to reference an existing module.`,
+					loc,
+					details,
+				),
+			);
+			return;
+		}
+		if (link.target.type !== "form") return;
+		const targetForm = doc.forms[link.target.formUuid];
+		if (
+			targetForm === undefined ||
+			!(doc.formOrder[link.target.moduleUuid] ?? []).includes(
+				link.target.formUuid,
+			)
+		) {
+			targetsResolve = false;
+			errors.push(
+				validationError(
+					"FORM_LINK_TARGET_NOT_FOUND",
+					"form",
+					`"${ctx.formName}" ${label} targets form ${link.target.formUuid} in "${targetMod.name}", which doesn't exist.\n\n` +
+						`Update the target to reference an existing form.`,
+					loc,
+					details,
+				),
+			);
+		}
+		if (
+			link.target.moduleUuid === ctx.moduleUuid &&
+			link.target.formUuid === ctx.formUuid
+		) {
+			errors.push(
+				validationError(
+					"FORM_LINK_SELF_REFERENCE",
+					"form",
+					`"${ctx.formName}" ${label} links back to itself, which would loop the user straight back into this form. Point it at the module menu or another form instead.`,
+					loc,
+					details,
+				),
+			);
+		}
+	});
+
+	// An unconditional link anywhere is the exhaustive else (when it is not
+	// last, FORM_LINK_UNREACHABLE already owns that defect); with none, the
+	// form must say explicitly where people go when no condition matches.
+	if (links.every(isConditional) && !form.postSubmit) {
 		errors.push(
 			validationError(
 				"FORM_LINK_NO_FALLBACK",
 				"form",
-				`"${ctx.formName}" has conditional form links but no post_submit fallback for when none match. Set post_submit to a destination like "module" or "app_home".`,
+				`"${ctx.formName}"'s form links all have conditions and the form sets no post_submit, so nothing says where people go when no condition matches. Set post_submit to "app_home", "module", or "previous", or end the list with an unconditional link.`,
 				loc,
 			),
 		);
 	}
 
-	for (let lIdx = 0; lIdx < form.formLinks.length; lIdx++) {
-		const link = form.formLinks[lIdx];
-		const conditionText = link.condition
-			? projectXPath(link.condition, xpathPrintContext(doc)).text
-			: undefined;
-		const linkLabel = conditionText
-			? `form link ${lIdx + 1} (condition: "${conditionText.slice(0, 40)}${conditionText.length > 40 ? "..." : ""}")`
-			: `form link ${lIdx + 1}`;
-
-		if (link.target.type === "form") {
-			const targetMod = doc.modules[link.target.moduleUuid];
-			const targetForm = doc.forms[link.target.formUuid];
-			if (!targetMod) {
-				errors.push(
-					validationError(
-						"FORM_LINK_TARGET_NOT_FOUND",
-						"form",
-						`"${ctx.formName}" ${linkLabel} targets module ${link.target.moduleUuid}, which doesn't exist.\n\n` +
-							`Update the target to reference an existing module.`,
-						loc,
-					),
-				);
-			} else if (!targetForm) {
-				errors.push(
-					validationError(
-						"FORM_LINK_TARGET_NOT_FOUND",
-						"form",
-						`"${ctx.formName}" ${linkLabel} targets form ${link.target.formUuid} in "${targetMod.name}", which doesn't exist.\n\n` +
-							`Update the target to reference an existing form.`,
-						loc,
-					),
-				);
-			}
-
-			if (
-				link.target.moduleUuid === ctx.moduleUuid &&
-				link.target.formUuid === ctx.formUuid
-			) {
-				errors.push(
-					validationError(
-						"FORM_LINK_SELF_REFERENCE",
-						"form",
-						`"${ctx.formName}" ${linkLabel} links back to itself, which would loop the user straight back into this form. Point it at the module menu or another form instead.`,
-						loc,
-					),
-				);
-			}
-		} else {
-			const targetMod = doc.modules[link.target.moduleUuid];
-			if (!targetMod) {
-				errors.push(
-					validationError(
-						"FORM_LINK_TARGET_NOT_FOUND",
-						"form",
-						`"${ctx.formName}" ${linkLabel} targets module ${link.target.moduleUuid}, which doesn't exist.\n\n` +
-							`Update the target to reference an existing module.`,
-						loc,
-					),
-				);
-			}
+	// The projection is defined only where every target exists, every
+	// expression is session-scope, and every form it reads has buildable
+	// actions; each "no" is a finding another rule owns.
+	if (
+		!targetsResolve ||
+		!formLinksProjectable(doc, links) ||
+		!formLinkActionsBuildable(doc, ctx.formUuid, links)
+	) {
+		return errors;
+	}
+	const projected = projectFormLinks(
+		doc,
+		projectionContextFor(doc),
+		ctx.formUuid,
+	);
+	for (const link of projected?.links ?? []) {
+		const index = links.findIndex((candidate) => candidate.uuid === link.uuid);
+		const authored = links[index];
+		if (authored === undefined) continue;
+		const { label, details } = formLinkLabel(doc, authored, index);
+		const unsatisfied = [...link.unmatched, ...link.missing];
+		if (unsatisfied.length > 0) {
+			const datumIds = unsatisfied.map((datum) => datum.id).join(", ");
+			errors.push(
+				validationError(
+					"FORM_LINK_DATUMS_INCOMPLETE",
+					"form",
+					authored.datums === undefined
+						? `"${ctx.formName}" ${label} cannot carry the case its destination needs (${datumIds}): nothing this form opens or creates matches it, so the destination would open with no case selected and no way to pick one. Name the value to carry on the link, point it at a form this one can hand a case to, or link to the module's form list so the person picks a case there.`
+						: `"${ctx.formName}" ${label} names values to carry but leaves out one its destination needs (${datumIds}). Name every value the destination form asks for.`,
+					loc,
+					{ ...details, datumIds },
+				),
+			);
+		}
+		for (const datumName of link.unused) {
+			errors.push(
+				validationError(
+					"FORM_LINK_DATUM_UNUSED",
+					"form",
+					`"${ctx.formName}" ${label} carries a value named "${datumName}" that its destination never reads, so CommCare drops it. Remove it, or rename it to a value the destination needs.`,
+					loc,
+					{ ...details, datumName },
+				),
+			);
 		}
 	}
 

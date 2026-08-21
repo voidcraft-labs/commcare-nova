@@ -1034,6 +1034,7 @@ describe("form_links validation", () => {
 			(d) => {
 				d.forms[d.formOrder[d.moduleOrder[0]][0]].formLinks = [
 					{
+						uuid: testUuid("lnk-10"),
 						target: {
 							type: "form",
 							moduleUuid: testUuid("ghost-module"),
@@ -1057,6 +1058,7 @@ describe("form_links validation", () => {
 		const doc2 = update(doc, (d) => {
 			d.forms[d.formOrder[moduleUuid][0]].formLinks = [
 				{
+					uuid: testUuid("lnk-11"),
 					target: {
 						type: "form",
 						moduleUuid,
@@ -1079,7 +1081,10 @@ describe("form_links validation", () => {
 		const formUuid = doc.formOrder[moduleUuid][0];
 		const doc2 = update(doc, (d) => {
 			d.forms[formUuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid } },
+				{
+					uuid: testUuid("lnk-1"),
+					target: { type: "form", moduleUuid, formUuid },
+				},
 			];
 		});
 		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -1114,6 +1119,7 @@ describe("form_links validation", () => {
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
 				{
+					uuid: testUuid("lnk-12"),
 					condition: xp("x = 1"),
 					target: { type: "form", moduleUuid, formUuid: f1Uuid },
 				},
@@ -1152,6 +1158,7 @@ describe("form_links validation", () => {
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
 				{
+					uuid: testUuid("lnk-13"),
 					condition: xp("x = 1"),
 					target: { type: "form", moduleUuid, formUuid: f1Uuid },
 				},
@@ -1188,10 +1195,16 @@ describe("form_links validation", () => {
 		const [f0Uuid, f1Uuid] = doc.formOrder[moduleUuid];
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f1Uuid } },
+				{
+					uuid: testUuid("lnk-2"),
+					target: { type: "form", moduleUuid, formUuid: f1Uuid },
+				},
 			];
 			d.forms[f1Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
+				{
+					uuid: testUuid("lnk-3"),
+					target: { type: "form", moduleUuid, formUuid: f0Uuid },
+				},
 			];
 		});
 		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -1223,7 +1236,10 @@ describe("form_links validation", () => {
 		const [f0Uuid] = doc.formOrder[moduleUuid];
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
+				{
+					uuid: testUuid("lnk-4"),
+					target: { type: "form", moduleUuid, formUuid: f0Uuid },
+				},
 			];
 		});
 		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -1260,13 +1276,22 @@ describe("form_links validation", () => {
 		const [f0Uuid, f1Uuid, f2Uuid] = doc.formOrder[moduleUuid];
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f1Uuid } },
+				{
+					uuid: testUuid("lnk-5"),
+					target: { type: "form", moduleUuid, formUuid: f1Uuid },
+				},
 			];
 			d.forms[f1Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f2Uuid } },
+				{
+					uuid: testUuid("lnk-6"),
+					target: { type: "form", moduleUuid, formUuid: f2Uuid },
+				},
 			];
 			d.forms[f2Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f0Uuid } },
+				{
+					uuid: testUuid("lnk-7"),
+					target: { type: "form", moduleUuid, formUuid: f0Uuid },
+				},
 			];
 		});
 		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -1298,7 +1323,10 @@ describe("form_links validation", () => {
 		const [f0Uuid, f1Uuid] = doc.formOrder[moduleUuid];
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
-				{ target: { type: "form", moduleUuid, formUuid: f1Uuid } },
+				{
+					uuid: testUuid("lnk-8"),
+					target: { type: "form", moduleUuid, formUuid: f1Uuid },
+				},
 			];
 		});
 		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -1336,7 +1364,7 @@ describe("form_links validation", () => {
 		const f0Uuid = doc.formOrder[m0][0];
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
-				{ target: { type: "module", moduleUuid: m1 } },
+				{ uuid: testUuid("lnk-9"), target: { type: "module", moduleUuid: m1 } },
 			];
 		});
 		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);

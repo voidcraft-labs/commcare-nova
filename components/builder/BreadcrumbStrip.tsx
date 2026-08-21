@@ -124,6 +124,7 @@ export function BreadcrumbStrip() {
 		loc.kind === "module-condition" ||
 		loc.kind === "form-condition" ||
 		loc.kind === "form-operations" ||
+		loc.kind === "form-links" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;

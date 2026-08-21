@@ -49,99 +49,58 @@ import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	defaultPostSubmit,
-	type FormLink,
 	makeTranslationUnitId,
-	printXPath,
 	type Uuid,
 	userPropertySlugsByUuid,
-	type XPathExpression,
-	xpathPrintContext,
 } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/predicate";
 import { buildConnectSlugMap } from "./connectSlugs";
-import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
+import { buildCaseReferencesLoad } from "./formActions";
 import {
-	caseTypeDepthMap,
-	expandHashtagsForSessionStack,
-} from "./hashtags/formContext";
+	formLinkProjectionContext,
+	moduleCaseTypeForActions,
+	type ProjectedFormLink,
+	projectFormLinks,
+} from "./formLinkProjection";
 import { projectCaseListForHq } from "./hqJson/caseList";
 import { buildXForm } from "./xform/builder";
-import { lowerXPathForJavaRosa } from "./xpath";
 
 /**
- * Translate a domain form-link list into the HQ wire shape.
- *
- * Domain `FormLink.target` speaks uuids; HQ's JSON speaks 0-based
- * module/form indices. The expander is the one place that has both
- * pieces of information (it's walking `doc.moduleOrder` / `doc.formOrder`
- * to generate the output), so index resolution happens here rather than
- * being duplicated downstream. A dangling target is an invariant violation
- * and aborts projection; silently dropping authored navigation would turn a
- * bad Blueprint into a different app.
+ * One projected link in HQ's `FormLink` shape. `xpath` carries the
+ * exclusive guard the local suite emits (the empty string is HQ's
+ * "unconditional"); a form target names the form AND its module because
+ * HQ's `workflow.py::_get_link_frame` resolves `form_module_id` first; a
+ * module target names the module alone. A dangling target is an invariant
+ * violation and aborts projection — silently dropping authored navigation
+ * would turn a bad Blueprint into a different app.
  */
-function translateFormLinks(
-	doc: BlueprintDoc,
-	links: FormLink[],
-	moduleCaseType: string | undefined,
-	sortedModuleUuids: Uuid[],
-	sortedFormOrder: Record<string, Uuid[]>,
-): HqFormLink[] {
-	// Canonical AST conditions/datums project to text only here, at the HQ
-	// wire boundary. Pre-cutover text is owned solely by the frozen migration.
-	const ctx = xpathPrintContext(doc);
-	const caseTypeDepths = caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []);
-	const project = (value: XPathExpression): string =>
-		lowerXPathForJavaRosa(
-			expandHashtagsForSessionStack(printXPath(value, ctx), caseTypeDepths),
+function toHqFormLink(
+	link: ProjectedFormLink,
+	moduleUniqueIdOf: ReadonlyMap<Uuid, string>,
+	formUniqueIdOf: ReadonlyMap<Uuid, string>,
+): HqFormLink {
+	const target = link.target;
+	const moduleId = moduleUniqueIdOf.get(target.moduleUuid);
+	if (moduleId === undefined) {
+		throw new Error(
+			`Cannot emit form link: target module ${target.moduleUuid} is missing`,
 		);
-	// The target's `moduleIndex` / `formIndex` are the SORTED menu positions —
-	// the same `orderedModule/FormUuids` sequences the suite's `<command>` ids
-	// (`m{i}-f{j}`) are emitted in — so a `form_links` navigation target resolves
-	// to the right command after a module/form reorder, NOT the raw array slot.
-	// `expandDoc` already computed these once for the whole export; reuse them
-	// rather than re-sorting per form / per link.
-	const out: HqFormLink[] = [];
-	for (const link of links) {
-		const target = link.target;
-		// An empty printed condition is "unconditional" — collapsed to
-		// absence so this view agrees with the session emitter's truthy check.
-		const projectedCondition =
-			link.condition === undefined ? undefined : project(link.condition);
-		const condition =
-			projectedCondition?.trim().length === 0 ? undefined : projectedCondition;
-		const datums = link.datums?.map((datum) => ({
-			name: datum.name,
-			xpath: project(datum.xpath),
-		}));
-		const moduleIndex = sortedModuleUuids.indexOf(target.moduleUuid);
-		if (moduleIndex < 0) {
-			throw new Error(
-				`Cannot emit form link: target module ${target.moduleUuid} is missing`,
-			);
-		}
-		if (target.type === "form") {
-			const formIndex = (sortedFormOrder[target.moduleUuid] ?? []).indexOf(
-				target.formUuid,
-			);
-			if (formIndex < 0) {
-				throw new Error(
-					`Cannot emit form link: target form ${target.formUuid} is missing from module ${target.moduleUuid}`,
-				);
-			}
-			out.push({
-				...(condition !== undefined && { condition }),
-				target: { type: "form", moduleIndex, formIndex },
-				...(datums !== undefined && { datums }),
-			});
-		} else {
-			out.push({
-				...(condition !== undefined && { condition }),
-				target: { type: "module", moduleIndex },
-				...(datums !== undefined && { datums }),
-			});
-		}
 	}
-	return out;
+	const datums = link.datums.map((datum) => ({
+		name: datum.name,
+		xpath: datum.xpath,
+	}));
+	const xpath = link.guard ?? "";
+	if (target.type === "form") {
+		const formId = formUniqueIdOf.get(target.formUuid);
+		if (formId === undefined) {
+			throw new Error(
+				`Cannot emit form link: target form ${target.formUuid} is missing from module ${target.moduleUuid}`,
+			);
+		}
+		return { xpath, form_id: formId, form_module_id: moduleId, datums };
+	}
+	return { xpath, module_unique_id: moduleId, datums };
 }
 
 /**
@@ -232,6 +191,32 @@ export function expandDoc(
 	// with the sorted module sequence so reads into this array by `parentIdx`
 	// are always consistent with the module we're currently emitting.
 	const moduleUniqueIds = sortedModuleUuids.map(() => genHexId());
+	const moduleUniqueIdOf = new Map<Uuid, string>(
+		sortedModuleUuids.map((moduleUuid, index) => [
+			moduleUuid,
+			moduleUniqueIds[index],
+		]),
+	);
+	// Every form's HQ `unique_id` is allocated before the module map for the
+	// same reason: a form link names its target form by id, and the target
+	// may sit in a later module. HQ re-ids forms on import
+	// (`Application.scrub_source` → `update_form_unique_ids`) and rewrites
+	// `form_links[*].form_id` with them, so the one requirement is that the
+	// ids be consistent inside this document.
+	const formUniqueIdOf = new Map<Uuid, string>();
+	for (const moduleUuid of sortedModuleUuids) {
+		for (const formUuid of sortedFormOrder[moduleUuid] ?? []) {
+			formUniqueIdOf.set(formUuid, genHexId());
+		}
+	}
+
+	// The after-submit link projection reads every form's actions, so the
+	// context builds them once (cached) and the shells below consume the
+	// same objects — the projection and the emitted `actions` cannot drift.
+	const linkContext = formLinkProjectionContext(doc, {
+		attachmentTarget: opts.attachmentTarget ?? null,
+		...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
+	});
 
 	// Resolve the per-form Connect configs for emission. `buildConnectSlugMap`
 	// is a typed pass-through — connect ids are already valid + unique + ≤50
@@ -248,16 +233,17 @@ export function expandDoc(
 		// A module "has cases" when it owns a case type AND either runs as
 		// a case-list-only module (no forms) or carries at least one
 		// non-survey form. Surveys are the only form type that never
-		// touches case state.
-		const hasCases =
-			!!mod.caseType &&
-			(mod.caseListOnly ||
-				formUuids.some((fUuid) => doc.forms[fUuid].type !== "survey"));
-		const caseType = hasCases ? (mod.caseType ?? "") : "";
+		// touches case state. `moduleCaseTypeForActions` is that rule's one
+		// home; the link projection gates the same way.
+		const caseType = moduleCaseTypeForActions(doc, moduleUuid);
+		const hasCases = caseType !== "";
 
 		const forms = formUuids.map((formUuid) => {
 			const form = doc.forms[formUuid];
-			const formUniqueId = genHexId();
+			const formUniqueId = formUniqueIdOf.get(formUuid);
+			if (formUniqueId === undefined) {
+				throw new Error(`Cannot emit form ${formUuid}: no unique id allocated`);
+			}
 			const xmlns = `http://openrosa.org/formdesigner/${genShortId()}`;
 
 			// The resolved Connect config for this form, or `undefined` when
@@ -281,36 +267,36 @@ export function expandDoc(
 				}),
 			});
 
-			// Resolve form-link uuids to the 0-based indices HQ expects.
-			// Dangling targets are dropped (validator catches them with a
-			// `FORM_LINK_TARGET_NOT_FOUND` before production runs get
-			// here).
-			const hqFormLinks = form.formLinks?.length
-				? translateFormLinks(
-						doc,
-						form.formLinks,
-						mod.caseType,
-						sortedModuleUuids,
-						sortedFormOrder,
-					)
-				: [];
+			// After-submit navigation. With links, HQ reads `form_links` only
+			// under `post_form_workflow = "form"`, and the authored
+			// `postSubmit` becomes the FALLBACK workflow — emitted only when
+			// the projection says a fallback frame is needed (the last link is
+			// conditional); a terminal unconditional link is the exhaustive
+			// else, and HQ's `_get_fallback_frame` is skipped with a `null`.
+			// Without links, `postSubmit` is the workflow itself, as before.
+			const workflow = toHqWorkflow(
+				form.postSubmit ?? defaultPostSubmit(form.type),
+			);
+			const projectedLinks = projectFormLinks(doc, linkContext, formUuid);
+			const hqFormLinks =
+				projectedLinks === undefined
+					? []
+					: projectedLinks.links.map((link) =>
+							toHqFormLink(link, moduleUniqueIdOf, formUniqueIdOf),
+						);
 
 			const formShellObj = formShell(
 				formUniqueId,
 				localization.textMap(makeTranslationUnitId("form", formUuid, "name")),
 				xmlns,
 				CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
-				buildFormActions(
-					doc,
-					formUuid,
-					caseType,
-					opts.attachmentTarget ?? null,
-				),
+				linkContext.formActions(formUuid),
 				// Raw `mod.caseType` for the same reason as `buildXForm`'s
 				// `moduleCaseType` above: the depth map must match the deep
 				// validator's accept map.
 				buildCaseReferencesLoad(doc, formUuid, effectiveConnect, mod.caseType),
-				toHqWorkflow(form.postSubmit ?? defaultPostSubmit(form.type)),
+				projectedLinks === undefined ? workflow : "form",
+				projectedLinks?.fallback.kind === "guarded" ? workflow : null,
 				hqFormLinks,
 			);
 			formShellObj.form_filter =

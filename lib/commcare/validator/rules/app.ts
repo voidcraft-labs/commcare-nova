@@ -18,6 +18,8 @@ import {
 	blueprintTopologyIssues,
 	collectTranslationUnits,
 	deriveCaseWriteInventory,
+	formLinkAdjacency,
+	formLinkPath,
 	isConnectLearnConfig,
 	projectProseTemplate,
 	projectXPath,
@@ -454,61 +456,34 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
  * once, keyed by the form it started from.
  */
 function circularFormLinks(doc: BlueprintDoc): ValidationError[] {
-	const adj = new Map<Uuid, Set<Uuid>>();
-	for (const moduleUuid of doc.moduleOrder) {
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const form = doc.forms[formUuid];
-			if (!form.formLinks?.length) continue;
-			const targets = new Set<Uuid>();
-			for (const link of form.formLinks) {
-				if (link.target.type === "form") {
-					targets.add(link.target.formUuid);
-				}
-			}
-			if (targets.size > 0) adj.set(formUuid, targets);
-		}
-	}
-
-	const cycles: Array<{ chain: Uuid[]; startUuid: Uuid }> = [];
-	for (const startUuid of adj.keys()) {
-		const visited = new Set<Uuid>();
-		const stack: Array<{ uuid: Uuid; chain: Uuid[] }> = [
-			{ uuid: startUuid, chain: [startUuid] },
-		];
-		while (stack.length > 0) {
-			const popped = stack.pop();
-			if (!popped) break;
-			const { uuid, chain } = popped;
-			const targets = adj.get(uuid);
-			if (!targets) continue;
-			for (const target of targets) {
-				if (target === startUuid) {
-					cycles.push({ chain: [...chain, target], startUuid });
-				} else if (!visited.has(target)) {
-					visited.add(target);
-					stack.push({ uuid: target, chain: [...chain, target] });
-				}
-			}
-		}
-	}
-
-	return cycles.map(({ chain, startUuid }) => {
-		const formNames = chain.map(
-			(uuid) => doc.forms[uuid]?.name ?? String(uuid),
-		);
-		const path = formNames.join(" → ");
+	// `formLinkAdjacency` is the one graph every surface reads — the same
+	// adjacency a target picker consults (with an override) before offering
+	// a destination, so what the picker refuses and what this rule refuses
+	// cannot drift. One finding per form that reaches itself.
+	const adjacency = formLinkAdjacency(doc);
+	const errors: ValidationError[] = [];
+	for (const startUuid of adjacency.keys()) {
+		const chain = formLinkPath(adjacency, startUuid, startUuid);
+		if (chain === undefined) continue;
+		const path = chain
+			.map((uuid) => doc.forms[uuid]?.name ?? String(uuid))
+			.join(" → ");
 		const startForm = doc.forms[startUuid];
-		return validationError(
-			"FORM_LINK_CIRCULAR",
-			"app",
-			`Circular form link detected: ${path}.\n\n` +
-				`"${startForm?.name ?? startUuid}" eventually links back to itself through a chain of form links. ` +
-				`After form submission, CommCare evaluates links in sequence, a cycle means ` +
-				`the user would be trapped in an infinite loop of form submissions.\n\n` +
-				`Break the cycle by changing one of the links in the chain to target a module menu instead of a form.`,
-			{},
+		errors.push(
+			validationError(
+				"FORM_LINK_CIRCULAR",
+				"app",
+				`Circular form link detected: ${path}.\n\n` +
+					`"${startForm?.name ?? startUuid}" eventually links back to itself through a chain of form links. ` +
+					`After form submission, CommCare evaluates links in sequence, a cycle means ` +
+					`the user would be trapped in an infinite loop of form submissions.\n\n` +
+					`Break the cycle by changing one of the links in the chain to target a module menu instead of a form.`,
+				{},
+				{ formUuid: startUuid },
+			),
 		);
-	});
+	}
+	return errors;
 }
 
 /**

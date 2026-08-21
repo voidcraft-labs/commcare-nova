@@ -69,6 +69,16 @@ export interface XPathLintContext {
 	 * the validator's rejection set.
 	 */
 	formType: FormType;
+	/**
+	 * Where the expression runs. `"form"` (the default) is a field's slot,
+	 * evaluated inside the open form instance. `"session"` is an after-submit
+	 * link's condition or carried value, which CommCare evaluates after the
+	 * form has closed: form paths and `#form/` references have nothing to
+	 * read, so the linter names that (`SESSION_FORM_READ_MESSAGE`) instead
+	 * of reporting an unknown field, and autocomplete withholds both.
+	 * `buildSessionLintContext` is the one producer of `"session"`.
+	 */
+	scope?: "form" | "session";
 }
 
 /**
@@ -83,44 +93,61 @@ export function caseTypePropsForValidation(
 	ctx: XPathLintContext,
 ): Map<string, Set<string>> | undefined {
 	if (!ctx.reachableCaseTypes) return undefined;
-	return caseRefAcceptMap(ctx.reachableCaseTypes, ctx.formType);
+	return caseRefAcceptMap(
+		ctx.reachableCaseTypes,
+		ctx.formType,
+		ctx.scope ?? "form",
+	);
+}
+
+export { SESSION_FORM_READ_MESSAGE } from "@/lib/commcare/validator/xpathValidator";
+
+/**
+ * The diagnostics for one expression against one context — the pure heart
+ * of `xpathLinter`, exported so the session-scope behavior is testable
+ * without an editor view. Every rule, the session-scope ones included, is
+ * the validator's own (`validateXPath` with the context's scope), so the
+ * inline lint, `XPathField`'s save gate, and the deep validator cannot
+ * disagree on a sentence.
+ */
+export function xpathDiagnostics(
+	expr: string,
+	ctx: XPathLintContext | undefined,
+): Diagnostic[] {
+	if (!expr.trim()) return [];
+
+	// The per-type accept set comes from `caseTypePropsForValidation`, the
+	// single home of the form-type-narrowing rule. On a registration form's
+	// own slots it narrows to the own type's `case_id` only (the case being
+	// created doesn't exist at form-init, ancestor reads aren't permitted on a
+	// create form); every other form type exposes each reachable type's full
+	// property set, and a session-scoped slot (an after-submit link) reads the
+	// full set on a registration form too, because its case exists by then.
+	const caseTypeProps = ctx ? caseTypePropsForValidation(ctx) : undefined;
+	const errors = validateXPath(
+		expr,
+		ctx?.validPaths,
+		caseTypeProps,
+		ctx?.formType === "registration" && ctx.scope !== "session",
+		ctx?.scope ?? "form",
+	);
+	return errors.map((err) => {
+		const from = err.position ?? 0;
+		/* A reference-bearing error underlines the reference it names; any
+		 * other error marks the character it starts at. */
+		const to = Math.min(
+			err.position !== undefined && err.ref !== undefined
+				? from + err.ref.length
+				: from + 1,
+			expr.length,
+		);
+		return { from, to, severity: "error", message: err.message };
+	});
 }
 
 /** Create a CodeMirror lint extension that validates against the live context. */
 export function xpathLinter(getContext: () => XPathLintContext | undefined) {
-	return linter((view) => {
-		const expr = view.state.doc.toString();
-		if (!expr.trim()) return [];
-
-		const ctx = getContext();
-		// The per-type accept set comes from `caseTypePropsForValidation`, the
-		// single home of the registration-narrowing rule. On a registration form
-		// it narrows to the own type's `case_id` only (the case being created
-		// doesn't exist at form-init, ancestor reads aren't permitted on a create
-		// form); every other form type exposes each reachable type's full
-		// property set. The linter, the save gate, and the deep validator all
-		// read that one rule — three predicates, one accept set.
-		const caseTypeProps = ctx ? caseTypePropsForValidation(ctx) : undefined;
-
-		const errors = validateXPath(
-			expr,
-			ctx?.validPaths,
-			caseTypeProps,
-			ctx?.formType === "registration",
-		);
-		const diagnostics: Diagnostic[] = [];
-
-		for (const err of errors) {
-			const from = err.position ?? 0;
-			const to = Math.min(from + 1, expr.length);
-			diagnostics.push({
-				from,
-				to,
-				severity: "error",
-				message: err.message,
-			});
-		}
-
-		return diagnostics;
-	});
+	return linter((view) =>
+		xpathDiagnostics(view.state.doc.toString(), getContext()),
+	);
 }

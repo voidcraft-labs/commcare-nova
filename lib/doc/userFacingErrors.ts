@@ -86,6 +86,19 @@ const fieldName = (e: ValidationError): string =>
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
 
+/**
+ * An after-submit link named by where it goes, from the `destination` /
+ * `destinationKind` details the form-link rules stamp; "one of the links"
+ * when the target is gone.
+ */
+const formLinkPhrase = (e: ValidationError): string => {
+	const destination = e.details?.destination;
+	if (!destination) return "one of the after-submit links";
+	return e.details?.destinationKind === "module"
+		? `the link to the ${q(destination)} module`
+		: `the link to ${q(destination)}`;
+};
+
 type UserMessageBuilder = (err: ValidationError) => string;
 
 // ── The code → builder table ───────────────────────────────────────
@@ -118,7 +131,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 			: "Some of your forms create child cases that have nowhere to show. Add a module for that case type.";
 	},
 	FORM_LINK_CIRCULAR: () =>
-		"Your follow-on links loop in a circle, so people would get stuck going form to form. Point one of them at a module instead of another form to break the loop.",
+		"Your after-submit links loop in a circle, so people would get stuck going form to form. Point one of them at a module instead of another form to break the loop.",
 	CONNECT_ID_DUPLICATE: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
@@ -520,13 +533,19 @@ const USER_MESSAGE_BY_CODE: Partial<
 	POST_SUBMIT_MODULE_CASE_LIST_ONLY: (e) =>
 		`${q(formName(e))} is set to head back to its module after submitting, but that module has no form list to land on. Send people to "Previous Screen" or "App Home" instead.`,
 	FORM_LINK_EMPTY: (e) =>
-		`${q(formName(e))} has follow-on links turned on but none added. Add a link, or turn the setting off.`,
+		`${q(formName(e))} has after-submit links turned on but none added. Add a link, or turn the setting off.`,
 	FORM_LINK_NO_FALLBACK: (e) =>
-		`${q(formName(e))} has conditional follow-on links but no fallback. Set where people go when none of the conditions match.`,
+		`${q(formName(e))}'s after-submit links all have conditions, so it needs an otherwise. Choose where people go when none of them match, or add a link without a condition at the end.`,
 	FORM_LINK_TARGET_NOT_FOUND: (e) =>
-		`A follow-on link in ${q(formName(e))} points to a form or module that's gone. Update it.`,
+		`An after-submit link in ${q(formName(e))} points to a form or module that's gone. Point it somewhere else, or remove it.`,
 	FORM_LINK_SELF_REFERENCE: (e) =>
-		`A follow-on link in ${q(formName(e))} points back to the same form. Send it somewhere else.`,
+		`An after-submit link in ${q(formName(e))} points back to the same form. Send it somewhere else.`,
+	FORM_LINK_UNREACHABLE: (e) =>
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} can never be used: an earlier link has no condition, so it always wins. Move this link above it, or give that link a condition.`,
+	FORM_LINK_DATUMS_INCOMPLETE: (e) =>
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} can't hand over the case that form needs. Choose a destination this form can pass its case to, or set the value to carry by hand.`,
+	FORM_LINK_DATUM_UNUSED: (e) =>
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a value named ${q(det(e, "datumName", ""))} that its destination never reads. Remove it, or rename it to one the destination needs.`,
 	CONNECT_ID_TOO_LONG: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
 	CONNECT_ID_INVALID_FORMAT: (e) =>

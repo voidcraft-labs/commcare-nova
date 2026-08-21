@@ -193,6 +193,36 @@ describe("previewBreadcrumbTrail — form screens", () => {
 		expect(trail[2].reselectCaseFor).toBe(closeUuid);
 	});
 
+	it("an after-submit links URL previews the form it configures", () => {
+		// Preview from a configuration URL runs the thing it configures, so
+		// the trail names the form, never an "After submit" crumb.
+		const loc: Location = {
+			kind: "form-links",
+			moduleUuid,
+			formUuid: followupUuid,
+			linkUuid: testUuid("link-1"),
+		};
+		const trail = previewBreadcrumbTrail({
+			loc,
+			baseBreadcrumbs: [home, moduleCrumb],
+			moduleUuid,
+			moduleForms: forms,
+			previewCaseTarget: {
+				formUuid: followupUuid,
+				caseId: "c1",
+				caseName: "Yusuf Patel",
+			} as never,
+			previewSelectedCase: undefined,
+		});
+		expect(trail.map((t) => t.label)).toEqual([
+			"Home",
+			"Households",
+			"Household Visit",
+			"Yusuf Patel",
+		]);
+		expect(trail.some((t) => t.label === "After submit")).toBe(false);
+	});
+
 	it("falls back to a 'Form' label when the form is unknown", () => {
 		const trail = run({ loc: formLoc(testUuid("ghost")) });
 		expect(trail[2].label).toBe("Form");

@@ -1099,6 +1099,73 @@ slot × both module shapes against the validator rule itself):
   a target tree (target that create directly), so the create list is EMPTY there.
   Empty rather than absent, because the two owner sentinels stay legal.
 
+## After submit (`form-links/`)
+
+A form's after-submit links are authored on `/{formUuid}/links`, with
+`/{linkUuid}` selecting one — the same selection-carrying URL shape as case
+operations, for the same reason (a link must be sendable; the rail body is keyed
+by it). The form-settings panel's **After submit** row states the whole answer
+(how many links, and where the form goes when none match, from
+`useAfterSubmitPlan`), changes the fallback in place through the shared
+`FallbackChooser`, and hands off to the screen with **Add links / Edit links /
+View links**. Preview from either URL runs the owning form (`PreviewShell`,
+`previewBreadcrumbs.ts`).
+
+**One "otherwise" model.** `afterSubmitPlan` (`lib/doc/formLinkMutations.ts`)
+is the single reader of what runs when nothing matched — the terminal
+unconditional link when one exists, else `postSubmit` explicit or defaulted —
+and `planSetFallback` the single writer. The workspace's terminal row
+(`OtherwiseRow`) is that model on screen: **always last and never draggable**,
+because its position is its meaning. It shows the otherwise link (with a way
+into its detail, where carried values live) or the built-in destination, and
+carries the one `FallbackChooser`. Choosing a built-in destination while an
+otherwise link exists replaces authored work, so it confirms inline first
+("Stop going to “X”? … You can undo this."). "Another form or module" picks a
+destination right there in the workspace (a new otherwise link through
+`view.add` so a destination needing hand-made values is born complete, or the
+existing one retargeted) and hands off to the workspace from the settings
+popover.
+
+**Adding is chooser-first**: "Go somewhere when a condition is true" or
+"Otherwise go somewhere else" (disabled with its reason when
+`formLinkAddChoices` refuses), then where. A conditional seed carries
+`false()` — a condition that never fires, so the running app is unchanged until
+the author writes the real one — and the detail opens with the editor ready
+(`conditionEditorHint.ts`, a one-shot module hint: not doc state, not URL
+state). A destination whose selection datums this form cannot match
+automatically (`formLinkCarryVerdict` → `manual-required`) is seeded with one
+`''` per required datum so `FORM_LINK_DATUMS_INCOMPLETE` never meets a fresh
+link. `__tests__/formLinkValidByConstruction.test.ts` pins every offered seed,
+retarget, and conversion against `mutationCommitVerdict`.
+
+**Conditionality is a kind, not a slot.** A conditional link's editor refuses
+an emptied draft (a link needs a condition; the otherwise link is a different
+kind), and the rail converts between kinds explicitly — "Make this the
+otherwise link" (offered only for the last link with no otherwise) and "Give it
+a condition" (which pins the fallback and says so) — so the list never holds a
+link whose kind is ambiguous.
+
+**Both reorder gestures read ONE map**: `formLinkMoveVerdicts` feeds drag's
+`canDropAtIndex` (captured on the handle's `onPointerDown`) and the keyboard's
+`planKeyboardReorder` (`shared/keyboardReorderPlan.ts`, the generic decision
+`case-operations/keyboardMove.ts` delegates to). The conditional links are a
+prefix of the form's link list, so the reorderable indices ARE the planner's
+indices. A refused keyboard move ANNOUNCES why (`role="alert"`); the polite
+region carries only outcomes that did something, including the fallback pin
+("Added a link. Otherwise now explicitly goes …").
+
+**Session scope.** Every expression here — the condition, each carried value —
+is evaluated after the form has closed, so the editors mount
+`buildSessionLintContext` (`lib/codemirror`): the same readable case types as
+the form's slots, no form paths, a linter that names the closed form instead of
+an unknown field, and a save path that refuses a resolved form reference with
+the same sentence before the gate would. **AST in the canvas, choice in the
+rail**: the detail owns the condition and the carried values (all-or-nothing,
+one row per required datum, hinted "Give the case id the destination should
+open"); the rail owns the destination (`LinkTargetPicker`, every row offered
+with the target planner's verdict — self, cycle with its named chain, gone),
+the kind, and removal (confirmed inline, naming a pinned fallback).
+
 ## Predicate / expression card editor (shared)
 
 Cross-workspace authoring surface for Predicate / ValueExpression ASTs; lives under `shared/` so workspaces don't import each other's chrome.

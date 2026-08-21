@@ -53,7 +53,11 @@ export function FormSettingsPanel({
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
 				<CloseConditionSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
-				<AfterSubmitSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				<AfterSubmitSection
+					moduleUuid={moduleUuid}
+					formUuid={formUuid}
+					onNavigateAway={onClose}
+				/>
 
 				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 

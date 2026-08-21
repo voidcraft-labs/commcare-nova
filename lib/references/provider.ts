@@ -484,7 +484,11 @@ export class ReferenceProvider {
 			});
 		}
 		const accept = ctx.reachableCaseTypes
-			? caseRefAcceptMap(ctx.reachableCaseTypes, ctx.formType)
+			? caseRefAcceptMap(
+					ctx.reachableCaseTypes,
+					ctx.formType,
+					ctx.scope ?? "form",
+				)
 			: new Map<string, Set<string>>();
 		const entry: FormCacheEntry = { ctx, byPath, byUuid, accept };
 		this.caches.set(formUuid, entry);

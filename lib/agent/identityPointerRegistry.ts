@@ -28,6 +28,7 @@ export type AuthorableIdentityFamily =
 	| "location-property"
 	| "location"
 	| "case-operation"
+	| "form-link"
 	| "automation"
 	| "automation-criterion"
 	| "automation-setup-criterion"
@@ -205,6 +206,9 @@ function classifyIdentity(
 		property === "idFrom"
 	) {
 		return "case-operation";
+	}
+	if (property === "linkUuid" || property === "afterLinkUuid") {
+		return "form-link";
 	}
 	if (
 		property === "assetId" ||

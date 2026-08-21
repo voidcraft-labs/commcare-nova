@@ -13,6 +13,7 @@ import {
 } from "../lib/caseWorkspaceSeed";
 import { attachErrorGuard } from "../lib/errorGuard";
 import { expect, test } from "../lib/fixtures";
+import { FORM_LINKS_SEED } from "../lib/formLinksSeed";
 
 /**
  * Authenticated smoke checks, driven by the seeded session cookie in
@@ -85,6 +86,11 @@ interface SeedManifest {
 		identityProjectionRoute: string;
 		caseId: string;
 		viewerStateFile: string;
+	}[];
+	formLinks: {
+		appId: string;
+		route: string;
+		caseId: string;
 	}[];
 }
 
@@ -2722,6 +2728,143 @@ test.describe("authenticated builder", () => {
 				await page.getByRole("menuitem", { name: "Always" }).click();
 			});
 			await expect(page.getByPlaceholder("Search fields")).toHaveCount(0);
+		});
+	});
+
+	test("after-submit links are authored in the builder and followed in Preview", async ({
+		page,
+	}, testInfo) => {
+		test.setTimeout(120_000);
+		const fixture = seed.formLinks[testInfo.retry];
+		if (fixture === undefined) {
+			throw new Error(
+				`After-submit fixture missing for Playwright attempt ${testInfo.retry}`,
+			);
+		}
+		const { visit, followUp } = FORM_LINKS_SEED;
+		const condition = `#${FORM_LINKS_SEED.caseType}/${FORM_LINKS_SEED.property} = '${FORM_LINKS_SEED.linkingNote}'`;
+		const main = page.locator("main");
+		/* The condition editor is CodeMirror: one contenteditable surface,
+		 * saved with Cmd/Ctrl+Enter. Replacing its text is select-all + type. */
+		const conditionEditor = main.locator('.cm-content[contenteditable="true"]');
+		const replaceCondition = async (text: string) => {
+			await conditionEditor.click();
+			await page.keyboard.press("ControlOrMeta+a");
+			await page.keyboard.type(text);
+			await page.keyboard.press("ControlOrMeta+Enter");
+		};
+
+		await test.step("the workspace opens with no links and the form's own destination", async () => {
+			await page.goto(fixture.route);
+			await expect(
+				page.getByRole("heading", { name: "After submit", level: 1 }),
+			).toBeVisible({ timeout: 20_000 });
+			await expect(
+				page.getByText("This form has no links yet", { exact: false }),
+			).toBeVisible();
+			const otherwise = page.locator("[data-form-link-otherwise]");
+			await expect(otherwise).toContainText("After submit");
+			await expect(otherwise).toContainText("Go to the app home");
+		});
+
+		await test.step("adding a conditional link lands on its detail with the editor open", async () => {
+			await page.getByRole("button", { name: "Add a link" }).click();
+			await page
+				.getByRole("button", { name: /Go somewhere when a condition is true/ })
+				.click();
+			await page
+				.getByRole("button", { name: `Go to “${followUp.formName}”` })
+				.click();
+			await expect(page).toHaveURL(
+				new RegExp(`/${visit.formUuid}/links/[0-9a-f-]{36}$`),
+			);
+			await expect(
+				page.getByRole("heading", {
+					name: `Go to “${followUp.formName}”`,
+					level: 1,
+				}),
+			).toBeVisible();
+			await expect(conditionEditor).toBeVisible();
+			// The destination loads a case, and this form opened one: it travels
+			// automatically, and the workspace says which.
+			await expect(
+				page.getByRole("button", { name: /Carry it automatically/ }),
+			).toHaveAttribute("aria-pressed", "true");
+			await expect(
+				page.getByText("The case this form opened travels with the person."),
+			).toBeVisible();
+		});
+
+		await test.step("a condition that reads the form is refused in the editor's own words", async () => {
+			await replaceCondition("#form/visit_note = 'x'");
+			await expect(
+				page
+					.getByRole("alert")
+					.filter({ hasText: "This runs after the form has closed" }),
+			).toBeVisible();
+			// The refused draft stays open; the real condition replaces it.
+			await replaceCondition(condition);
+			await expect(conditionEditor).toHaveCount(0);
+			// The idle editor is a button; its case reference renders as a chip,
+			// so the accessible name carries the property, not the `#patient/`.
+			await expect(
+				main.getByRole("button", { name: /last_note = 'Visited'/ }),
+			).toBeVisible();
+		});
+
+		await test.step("the list reads the link as a sentence above the otherwise row", async () => {
+			await page.goto(fixture.route);
+			const rows = page
+				.getByRole("list", { name: "Links in the order they are checked" })
+				.getByRole("listitem");
+			// The link, then the Otherwise row, which is the list's last item.
+			await expect(rows).toHaveCount(2);
+			await expect(rows.first()).toContainText(`Go to “${followUp.formName}”`);
+			await expect(rows.first()).toContainText("When ");
+			await expect(rows.first()).toContainText("last_note = 'Visited'");
+			const otherwise = page.locator("[data-form-link-otherwise]");
+			await expect(otherwise).toContainText("Otherwise");
+			await expect(otherwise).toContainText("Go to the app home");
+		});
+
+		const submitVisit = async (note: string) => {
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			const noteField = main.getByRole("textbox", {
+				name: visit.noteFieldLabel,
+			});
+			await expect(noteField).toBeVisible({ timeout: 20_000 });
+			const submit = main.getByRole("button", { name: "Submit", exact: true });
+			await expect(submit).toBeEnabled();
+			await noteField.fill(note);
+			await expect(noteField).toHaveValue(note);
+			await submit.click();
+		};
+
+		await test.step("a submission the condition does not match goes where the form goes otherwise", async () => {
+			// The note is stored on the case before the link is checked, so the
+			// condition reads "Routine", not the seeded value, and does not hold.
+			await submitVisit("Routine");
+			await expect(
+				main.getByRole("button", {
+					name: new RegExp(`^${FORM_LINKS_SEED.moduleName}\\b`),
+				}),
+			).toBeVisible({ timeout: 20_000 });
+		});
+
+		await test.step("a submission the condition matches opens the linked form on the same case", async () => {
+			await page.goto(fixture.route);
+			await expect(
+				page.getByRole("heading", { name: "After submit", level: 1 }),
+			).toBeVisible({ timeout: 20_000 });
+			await submitVisit(FORM_LINKS_SEED.linkingNote);
+			await expect(
+				main.getByRole("textbox", { name: followUp.noteFieldLabel }),
+			).toBeVisible({ timeout: 20_000 });
+			// The case "Visit" was on travelled with the person: the running
+			// app's trail names it and the form it opened.
+			const trail = page.getByRole("navigation", { name: "Page navigation" });
+			await expect(trail).toContainText(FORM_LINKS_SEED.caseName);
+			await expect(trail).toContainText(followUp.formName);
 		});
 	});
 

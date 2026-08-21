@@ -300,8 +300,9 @@ export function formShell(
 	requires: string,
 	actions: FormActions,
 	caseRefsLoad: Record<string, string[]>,
-	postFormWorkflow: string = "default",
-	formLinks: HqFormLink[] = [],
+	postFormWorkflow: string,
+	postFormWorkflowFallback: string | null,
+	formLinks: HqFormLink[],
 ): HqForm {
 	return {
 		doc_type: "Form",
@@ -319,6 +320,7 @@ export function formShell(
 		},
 		form_filter: null,
 		post_form_workflow: postFormWorkflow,
+		post_form_workflow_fallback: postFormWorkflowFallback,
 		no_vellum: false,
 		media_image: {},
 		media_audio: {},

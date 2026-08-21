@@ -47,6 +47,7 @@ import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplate
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
 	checkCaseHashtag,
+	SESSION_FORM_READ_MESSAGE,
 	validateXPath,
 	type XPathError,
 } from "./xpathValidator";
@@ -171,6 +172,8 @@ export type DeepValidationError =
 			kind: "form-link-xpath";
 			slot: FormLinkXPathSlot;
 			indices: readonly number[];
+			/** The link the slot belongs to; absent only when the index is stale. */
+			linkUuid?: Uuid;
 			error: XPathError;
 	  })
 	| (DeepLocation & { kind: "cycle"; cycle: readonly string[] });
@@ -216,6 +219,9 @@ function withStoredRef(
 	const storedRef = classifyStoredRef(expr, error.ref);
 	return storedRef === undefined ? error : { ...error, storedRef };
 }
+
+/** A session-scoped slot (an after-submit link) has no form paths to read. */
+const SESSION_VALID_PATHS: Set<string> = new Set();
 
 function canonicalXPathError(
 	doc: BlueprintDoc,
@@ -404,6 +410,9 @@ export function validateBlueprintDeep(
 			const caseTypeProps = caseTypeIndex
 				? caseRefAcceptMap(caseTypeIndex, form.type)
 				: undefined;
+			const sessionCaseTypeProps = caseTypeIndex
+				? caseRefAcceptMap(caseTypeIndex, form.type, "session")
+				: undefined;
 
 			// The uuid-anchored location every finding in this form carries.
 			// Built once here from the indices we're already iterating, so no
@@ -450,6 +459,7 @@ export function validateBlueprintDeep(
 			// so preserve their indices for an actionable form-level finding.
 			for (const slot of FORM_LINK_XPATH_SLOT_IDS) {
 				for (const read of formExpressionSourceEntries(form, slot, doc)) {
+					const linkUuid = form.formLinks?.[read.indices[0] ?? -1]?.uuid;
 					if (read.text.trim().length === 0) {
 						if (slot === "form_link_datum_xpath") {
 							errors.push({
@@ -457,6 +467,7 @@ export function validateBlueprintDeep(
 								kind: "form-link-xpath",
 								slot,
 								indices: read.indices,
+								...(linkUuid !== undefined && { linkUuid }),
 								error: {
 									code: "XPATH_SYNTAX",
 									message: "A form-link datum XPath must not be empty",
@@ -475,10 +486,10 @@ export function validateBlueprintDeep(
 							kind: "form-link-xpath",
 							slot,
 							indices: read.indices,
+							...(linkUuid !== undefined && { linkUuid }),
 							error: {
 								code: "INVALID_REF",
-								message:
-									"Form-link stack XPath cannot read form fields because Core evaluates it after the XForm instance has closed.",
+								message: SESSION_FORM_READ_MESSAGE,
 							},
 						});
 						continue;
@@ -488,7 +499,7 @@ export function validateBlueprintDeep(
 						formUuid,
 						read.text,
 						read.expr,
-						validPaths,
+						SESSION_VALID_PATHS,
 					);
 					if (canonicalError !== undefined) {
 						errors.push({
@@ -496,21 +507,27 @@ export function validateBlueprintDeep(
 							kind: "form-link-xpath",
 							slot,
 							indices: read.indices,
+							...(linkUuid !== undefined && { linkUuid }),
 							error: canonicalError,
 						});
 						continue;
 					}
+					// Session scope: no form paths, no context node, and the
+					// accept set of a link (a registration form's new case exists
+					// by the time its links run, so no narrowing applies there).
 					for (const error of validateXPath(
 						read.text,
-						validPaths,
-						caseTypeProps,
-						isRegistrationForm,
+						SESSION_VALID_PATHS,
+						sessionCaseTypeProps,
+						false,
+						"session",
 					)) {
 						errors.push({
 							...loc,
 							kind: "form-link-xpath",
 							slot,
 							indices: read.indices,
+							...(linkUuid !== undefined && { linkUuid }),
 							error: withStoredRef(error, read.expr),
 						});
 					}

@@ -32,6 +32,7 @@ import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewDat
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
+import { moduleLanding, openModuleLanding } from "./moduleLanding";
 
 export function HomeScreen() {
 	const canonicalAppName = useAppName();
@@ -178,10 +179,16 @@ export function HomeScreen() {
 								/* Case-first modules land on the case list (the running
 								 * app hoists the shared case selection); a caseListOnly
 								 * module has no form menu at all, so it too opens straight
-								 * to its case list. */
-								caseFirstModules.has(mod.uuid) || mod.caseListOnly
-									? navigate.openCaseList(mod.uuid)
-									: navigate.openModule(mod.uuid)
+								 * to its case list. `moduleLanding` is the one rule, shared
+								 * with a form's after-submit link to a module. */
+								openModuleLanding(
+									navigate,
+									mod.uuid,
+									moduleLanding({
+										isCaseFirst: caseFirstModules.has(mod.uuid),
+										isBareCaseList: mod.caseListOnly === true,
+									}),
+								)
 							}
 							className="nova-focusable w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
 						>

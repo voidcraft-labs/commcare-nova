@@ -46,6 +46,11 @@ function nestedFormIdentities(
 			kind: "caseOperation" as const,
 			ownerUuid: form.uuid,
 		})),
+		...(form.formLinks ?? []).map((link) => ({
+			uuid: link.uuid,
+			kind: "formLink" as const,
+			ownerUuid: form.uuid,
+		})),
 	];
 }
 
@@ -228,6 +233,12 @@ function ownedIdentityRemovalBy(
 				kind: "selectOption",
 				ownerUuid: mutation.fieldUuid,
 			};
+		case "removeFormLink":
+			return {
+				uuid: mutation.uuid,
+				kind: "formLink",
+				ownerUuid: mutation.formUuid,
+			};
 		case "editAutomationItem":
 			return mutation.edit.operation === "remove"
 				? {
@@ -299,6 +310,14 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 					uuid: mutation.searchInput.uuid,
 					kind: "searchInput",
 					ownerUuid: mutation.moduleUuid,
+				},
+			]);
+		case "addFormLink":
+			return createClaims([
+				{
+					uuid: mutation.link.uuid,
+					kind: "formLink",
+					ownerUuid: mutation.formUuid,
 				},
 			]);
 		case "addUserProperty":
@@ -394,6 +413,9 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "removeCaseProperty":
 		case "setCaseTypeMeta":
 		case "setCaseListMeta":
+		case "updateFormLink":
+		case "removeFormLink":
+		case "moveFormLink":
 			return [];
 		default:
 			return assertNever(mutation, "identitiesClaimedBy");

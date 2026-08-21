@@ -11,7 +11,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { HqApplication, HqFormLink } from "@/lib/commcare";
+import type { HqApplication } from "@/lib/commcare";
 import { expandDoc } from "@/lib/commcare/expander";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, FormLink } from "@/lib/domain";
@@ -31,11 +31,28 @@ function firstIndices(haystack: string, needles: string[]): number[] {
 	return needles.map((n) => haystack.indexOf(n));
 }
 
-/** The `target` of the first emitted `form_links` entry across the app. */
-function firstFormLinkTarget(app: HqApplication): HqFormLink["target"] {
+/**
+ * The first emitted `form_links` entry across the app, with the HQ ids it
+ * names resolved back to their emitted positions — HQ's `FormLink` speaks
+ * `form_id` / `form_module_id`, and the test cares where those point.
+ */
+function firstFormLinkTarget(app: HqApplication): {
+	moduleIndex: number;
+	formIndex: number;
+} {
 	for (const module of app.modules) {
 		for (const form of module.forms) {
-			if (form.form_links.length > 0) return form.form_links[0].target;
+			const link = form.form_links[0];
+			if (link === undefined) continue;
+			if (!("form_id" in link)) throw new Error("expected a form target");
+			const moduleIndex = app.modules.findIndex(
+				(candidate) => candidate.unique_id === link.form_module_id,
+			);
+			const formIndex =
+				app.modules[moduleIndex]?.forms.findIndex(
+					(candidate) => candidate.unique_id === link.form_id,
+				) ?? -1;
+			return { moduleIndex, formIndex };
 		}
 	}
 	throw new Error("no form_links emitted");
@@ -205,12 +222,14 @@ describe("a move reflects on the wire", () => {
 		// Register links to the Visit form in the OTHER module (by uuid).
 		const linked = produce(doc, (d) => {
 			d.forms[f1].formLinks = [
-				{ target: { type: "form", moduleUuid: m2, formUuid: f2 } },
+				{
+					uuid: testUuid("lnk-register-visit"),
+					target: { type: "form", moduleUuid: m2, formUuid: f2 },
+				},
 			] as FormLink[];
 		});
 		// Before any reorder, Followup is display-index 1.
 		expect(firstFormLinkTarget(expandDoc(linked))).toEqual({
-			type: "form",
 			moduleIndex: 1,
 			formIndex: 0,
 		});
@@ -225,7 +244,6 @@ describe("a move reflects on the wire", () => {
 		// reference against a stale sequence would emit slot 1 (Intake's own
 		// menu), navigating wrong.
 		expect(firstFormLinkTarget(expandDoc(reordered))).toEqual({
-			type: "form",
 			moduleIndex: 0,
 			formIndex: 0,
 		});

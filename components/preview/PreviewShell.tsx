@@ -47,6 +47,8 @@ import { CaseOperationsCanvas } from "@/components/builder/case-operations/CaseO
 import { DisplayConditionCanvas } from "@/components/builder/conditions/DisplayConditionCanvas";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
 import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
+import { FormLinkDetailCanvas } from "@/components/builder/form-links/FormLinkDetailCanvas";
+import { FormLinksCanvas } from "@/components/builder/form-links/FormLinksCanvas";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectDataWorkspace } from "@/components/builder/project-data/ProjectDataWorkspace";
 import { Button } from "@/components/shadcn/button";
@@ -174,6 +176,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 		 * same deferred value so one can never flip a render before the
 		 * other. */
 		const atOperations = loc.kind === "form-operations";
+		/* And the after-submit links URL, for the same reason. */
+		const atLinks = loc.kind === "form-links";
 		/* Graft the bound case onto the form ONLY when the target binds THIS
 		 * form: `previewCaseTargetBindsLocation` is the same predicate the
 		 * breadcrumb gates its case crumb on, so the loaded case and the named
@@ -188,9 +192,10 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				screen: { ...screen, caseId: previewCaseTarget.caseId },
 				atCondition,
 				atOperations,
+				atLinks,
 			};
 		}
-		return { screen, atCondition, atOperations };
+		return { screen, atCondition, atOperations, atLinks };
 	}, [loc, moduleOrder, formOrder, previewCaseTarget]);
 	const zustandScreen: PreviewScreen = zustandView.screen;
 
@@ -325,13 +330,29 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			operationUuid: loc.operationUuid,
 		};
 	}
+	/** The after-submit screen's identity: the form, plus which link is
+	 *  selected. Same shape and same reasons as the case-operations ref. */
+	const formLinksRef = useRef<{
+		moduleUuid: Uuid;
+		formUuid: Uuid;
+		linkUuid: Uuid | undefined;
+	}>(undefined);
+	if (loc.kind === "form-links") {
+		formLinksRef.current = {
+			moduleUuid: loc.moduleUuid,
+			formUuid: loc.formUuid,
+			linkUuid: loc.linkUuid,
+		};
+	}
 	/* `mode` stays immediate: the Preview toggle must never lag, while
 	 * the location half rides the deferred pair above. */
 	const editingDisplayCondition = mode === "edit" && view.atCondition;
 	const editingCaseOperations = mode === "edit" && view.atOperations;
-	/** Either centre-canvas form-configuration surface is up, so every
+	const editingFormLinks = mode === "edit" && view.atLinks;
+	/** Any centre-canvas form-configuration surface is up, so every
 	 *  running screen hides. They are mutually exclusive (one URL kind). */
-	const editingFormConfig = editingDisplayCondition || editingCaseOperations;
+	const editingFormConfig =
+		editingDisplayCondition || editingCaseOperations || editingFormLinks;
 	/** Whether the home screen has been visited at least once. Home carries
 	 *  no per-screen identity, so a boolean flag suffices. */
 	const homeVisitedRef = useRef(false);
@@ -635,6 +656,30 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 								moduleUuid={caseOperationsRef.current.moduleUuid}
 								formUuid={caseOperationsRef.current.formUuid}
 								operationUuid={caseOperationsRef.current.operationUuid}
+							/>
+						)}
+					</Activity>
+				)}
+				{formLinksRef.current && (
+					<Activity
+						mode={editingFormLinks ? "visible" : "hidden"}
+						name="FormLinksCanvas"
+					>
+						{/* The list and one link's detail are two screens on one URL,
+						 *  keyed the same way the case-operations pair is: the list
+						 *  holds a refusal alert per form, the detail per link. */}
+						{formLinksRef.current.linkUuid === undefined ? (
+							<FormLinksCanvas
+								key={formLinksRef.current.formUuid}
+								moduleUuid={formLinksRef.current.moduleUuid}
+								formUuid={formLinksRef.current.formUuid}
+							/>
+						) : (
+							<FormLinkDetailCanvas
+								key={formLinksRef.current.linkUuid}
+								moduleUuid={formLinksRef.current.moduleUuid}
+								formUuid={formLinksRef.current.formUuid}
+								linkUuid={formLinksRef.current.linkUuid}
 							/>
 						)}
 					</Activity>

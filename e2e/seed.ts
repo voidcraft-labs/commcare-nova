@@ -67,9 +67,15 @@ import {
 import {
 	CASE_CHANGES_FIXTURE_COUNT,
 	DELETE_APP_COUNT,
+	FORM_LINKS_FIXTURE_COUNT,
 	MOVE_APP_COUNT,
 	ORGANIZATION_FIXTURE_COUNT,
 } from "./lib/config";
+import {
+	buildFormLinksBlueprint,
+	FORM_LINKS_SEED,
+	formLinksRoute,
+} from "./lib/formLinksSeed";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import { buildSessionStorageState } from "./lib/session";
 
@@ -695,6 +701,45 @@ async function main(): Promise<void> {
 		});
 	}
 
+	/* The after-submit journey authors a link and submits twice into its one
+	 * case row, so every attempt gets its own app and row too. */
+	const formLinks: { appId: string; route: string; caseId: string }[] = [];
+	for (let attempt = 0; attempt < FORM_LINKS_FIXTURE_COUNT; attempt++) {
+		const { appId: formLinksAppId, baseSeq: formLinksGenesisSeq } =
+			await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
+				name: FORM_LINKS_SEED.appName,
+				status: "complete",
+			});
+		const formLinksDoc = toPersistableDoc(
+			buildFormLinksBlueprint(formLinksAppId),
+		);
+		await appendSyntheticBatch({
+			appId: formLinksAppId,
+			expectedBaseSeq: formLinksGenesisSeq,
+			targetDoc: formLinksDoc,
+			authority: { kind: "user", actorUserId: SEED.userId },
+		});
+		await materializeCaseStoreSchemas({
+			appId: formLinksAppId,
+			blueprint: formLinksDoc,
+			syncedSeq: formLinksGenesisSeq + 1,
+		});
+		const formLinksPatient = await caseStore.insert({
+			appId: formLinksAppId,
+			row: {
+				case_type: FORM_LINKS_SEED.caseType,
+				case_name: FORM_LINKS_SEED.caseName,
+				status: "open",
+				properties: { [FORM_LINKS_SEED.property]: "Before submission" },
+			},
+		});
+		formLinks.push({
+			appId: formLinksAppId,
+			route: formLinksRoute(formLinksAppId),
+			caseId: formLinksPatient.caseId,
+		});
+	}
+
 	/* The conversations fixture: a module-bearing app (docked chat) plus two
 	 * tall, settled conversations written through the real thread store (turn
 	 * upsert + response append, live marker cleared) — exactly the rows finished
@@ -1007,6 +1052,7 @@ async function main(): Promise<void> {
 				organizationCaseChangeRoutes,
 				caseWorkspace,
 				caseChanges,
+				formLinks,
 				deleteAppIds,
 				threadsAppId,
 				olderThreadId,

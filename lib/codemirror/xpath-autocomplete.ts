@@ -188,13 +188,21 @@ export function hashtagSource(
 		// form gets an empty set (it loads no case); ancestor types aren't
 		// reachable until the case exists.
 		const accept = lintCtx?.reachableCaseTypes
-			? caseRefAcceptMap(lintCtx.reachableCaseTypes, lintCtx.formType)
+			? caseRefAcceptMap(
+					lintCtx.reachableCaseTypes,
+					lintCtx.formType,
+					lintCtx.scope ?? "form",
+				)
 			: undefined;
 
 		// Namespace stage: inside HashtagRef but no "/" typed yet — show the
-		// fixed prefixes plus one per readable case type.
+		// fixed prefixes plus one per readable case type. A session-scoped
+		// slot (an after-submit link) runs after the form has closed, so
+		// `#form/` is withheld rather than offered and then refused.
 		if (namespace === undefined) {
-			const options: Completion[] = [...STATIC_NAMESPACE_OPTIONS];
+			const options: Completion[] = STATIC_NAMESPACE_OPTIONS.filter(
+				(option) => option.label !== "#form/" || lintCtx?.scope !== "session",
+			);
 			if (accept) {
 				for (const typeName of accept.keys()) {
 					options.push({
@@ -213,7 +221,7 @@ export function hashtagSource(
 		// (callers filter before handing it in).
 		let options: Completion[] = [];
 
-		if (namespace === "form" && lintCtx) {
+		if (namespace === "form" && lintCtx && lintCtx.scope !== "session") {
 			options = lintCtx.formEntries.map(({ path, label }) => ({
 				label: `#form/${path}`,
 				detail: label,
@@ -282,7 +290,8 @@ function dataPathSource(
 			return null;
 
 		const lintCtx = getContext();
-		if (!lintCtx) return null;
+		// No form paths after the form has closed: same rule as `#form/`.
+		if (!lintCtx || lintCtx.scope === "session") return null;
 
 		const options: Completion[] = [...lintCtx.validPaths].map((path) => ({
 			label: path,

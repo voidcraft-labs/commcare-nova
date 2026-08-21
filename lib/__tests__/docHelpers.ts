@@ -121,8 +121,10 @@ export interface FormSpec {
 	connect?: Form["connect"];
 	postSubmit?: Form["postSubmit"];
 	/** Authored with string conditions/datum XPaths (the concise spec
-	 *  shape); `buildDoc` parses them against the assembled form. */
+	 *  shape); `buildDoc` parses them against the assembled form. A link's
+	 *  `uuid` is auto-minted when the spec omits it, like a field's. */
 	formLinks?: Array<{
+		uuid?: string;
 		condition?: string;
 		target: FormLink["target"];
 		datums?: Array<{ name: string; xpath: string }>;
@@ -335,7 +337,10 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 					postSubmit: formSpec.postSubmit,
 				}),
 				...(formSpec.formLinks !== undefined && {
-					formLinks: formSpec.formLinks as unknown as FormLink[],
+					formLinks: formSpec.formLinks.map((link) => ({
+						...link,
+						uuid: testUuid(link.uuid ?? nextUuid("link")),
+					})) as unknown as FormLink[],
 				}),
 			};
 

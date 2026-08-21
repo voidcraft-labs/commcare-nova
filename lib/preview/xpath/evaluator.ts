@@ -171,20 +171,12 @@ function evalNode(
 		return "";
 	}
 
-	// ── Parenthesized expression ──
-	const first = node.firstChild;
-	if (first && first.type === T.OpenParen) {
-		// Find the expression between ( and )
-		const inner = first.nextSibling;
-		if (inner && inner.type !== T.CloseParen) {
-			return evalNode(inner, source, ctx);
-		}
-		return "";
-	}
-
 	// ── Unary negative ──
 	if (type === T.UnaryNegativeExpr) {
-		const operand = getLastChild(node);
+		// The operand is the first expression child, not the last child: a
+		// parenthesized operand (`-(2)`) splices its `)` token flat as the
+		// last child.
+		const [operand] = getBinaryOperands(node);
 		return operand ? -toNumber(evalNode(operand, source, ctx)) : 0;
 	}
 
@@ -315,9 +307,28 @@ function evalNode(
 
 	// ── Filtered (predicate) — expr[pred] ──
 	if (type === T.Filtered) {
-		// In preview, predicates are simplified — evaluate the base expression
-		const child = node.firstChild;
-		return child ? evalNode(child, source, ctx) : "";
+		// In preview, predicates are simplified — evaluate the base
+		// expression, which is the first EXPRESSION child: a parenthesized
+		// base (`(x)[1]`) splices its `(` token flat ahead of it.
+		const [base] = getBinaryOperands(node);
+		return base ? evalNode(base, source, ctx) : "";
+	}
+
+	// ── Parenthesized expression ──
+	// The grammar splices grouping parens flat into the PARENT node, so a
+	// binary node's first child can be the `(` token: `(a) and b` parses as
+	// `AndExpr → "(" a ")" and b`. Every typed branch above already skips
+	// paren tokens when it collects operands, which is why this branch sits
+	// BELOW them — placed first, it returned the inner expression alone and
+	// silently dropped the rest of the binary expression (`(a) and b` → a,
+	// `(1 + 2) * 3` → 3).
+	const first = node.firstChild;
+	if (first && first.type === T.OpenParen) {
+		const inner = first.nextSibling;
+		if (inner && inner.type !== T.CloseParen) {
+			return evalNode(inner, source, ctx);
+		}
+		return "";
 	}
 
 	// ── Fallback: try to evaluate the first child ──
@@ -503,15 +514,4 @@ function isExpressionNode(node: SyntaxNode): boolean {
 		T.Children.has(node.type) ||
 		T.Descendants.has(node.type)
 	);
-}
-
-/** Get the last child of a node. */
-function getLastChild(node: SyntaxNode): SyntaxNode | null {
-	let child = node.firstChild;
-	let last: SyntaxNode | null = null;
-	while (child) {
-		last = child;
-		child = child.nextSibling;
-	}
-	return last;
 }
