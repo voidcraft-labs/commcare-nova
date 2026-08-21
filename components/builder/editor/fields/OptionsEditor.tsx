@@ -168,7 +168,9 @@ export function OptionsEditorWidget({
 	// becomes an underscore and a quote mark is dropped as it is typed, so
 	// the row never holds a value the commit gate would bounce
 	// (`SELECT_OPTION_VALUE_INVALID`). The same grammar the SA's schema
-	// teaches and the validator enforces, applied at the keystroke.
+	// teaches and the validator enforces, applied at the keystroke; the
+	// sanitizer deliberately leaves edge underscores alone, since the one
+	// just typed is an edge until the next character lands.
 	const updateValue = useCallback((index: number, raw: string) => {
 		const value = sanitizeSelectOptionValue(raw);
 		setDraft((prev) => {
@@ -193,14 +195,14 @@ export function OptionsEditorWidget({
 						.filter((_, otherIndex) => otherIndex !== index)
 						.map((other) => other.value),
 				);
-				const suggested = suggestSelectOptionValue(
-					proseTemplateText(label),
-					option.value,
-				);
 				return {
 					...option,
 					label,
-					value: taken.has(suggested) ? option.value : suggested,
+					value: suggestSelectOptionValue(
+						proseTemplateText(label),
+						option.value,
+						taken,
+					),
 				};
 			});
 			setDraft(next);

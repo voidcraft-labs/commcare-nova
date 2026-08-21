@@ -24,9 +24,8 @@ import {
 	projectProseTemplate,
 	projectXPath,
 	proseTemplateText,
-	sanitizeSelectOptionValue,
+	repairSelectOptionValue,
 	selectOptionValueProblem,
-	suggestSelectOptionValue,
 	translationValueIntegrityIssue,
 	type Uuid,
 	xpathPrintContext,
@@ -104,9 +103,15 @@ function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
 				const problem = selectOptionValueProblem(option.value);
 				if (problem === undefined) return;
 				const labelText = proseTemplateText(option.label).trim();
-				const suggestion = suggestSelectOptionValue(
-					sanitizeSelectOptionValue(option.value) || labelText,
+				const suggestion = repairSelectOptionValue(
+					option.value,
+					labelText,
 					`option_${index + 1}`,
+					new Set(
+						(property.options ?? [])
+							.filter((other) => other !== option)
+							.map((o) => o.value),
+					),
 				);
 				const shown = JSON.stringify(option.value);
 				const what =

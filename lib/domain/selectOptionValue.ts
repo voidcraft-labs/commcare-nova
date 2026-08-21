@@ -25,8 +25,6 @@
 // refuse codes that are perfectly safe on the wire (`ICD10`, `a-b`). The
 // slug is the shape Nova TEACHES and mints, not the only one it accepts.
 
-import { slugifyId } from "./idSlug";
-
 /** The characters a stored choice value can never hold. */
 const FORBIDDEN = /[\s'"`]/;
 
@@ -65,27 +63,68 @@ export function isValidSelectOptionValue(value: string): boolean {
 }
 
 /**
- * The nearest admitted spelling of what someone typed: whitespace runs
- * become one underscore, quote characters disappear, and the edges are
- * trimmed of underscores. Case and every other character survive, so a
- * deliberate `ICD10` or `a-b` stays as typed. Returns `""` when nothing
- * survives; callers that need a non-empty value fall back themselves.
+ * The nearest admitted spelling of what someone typed: every whitespace
+ * run becomes one underscore and quote characters disappear. Nothing else
+ * changes, so a deliberate `ICD10` or `a-b` stays as typed, and so does an
+ * underscore at either edge: this runs on every keystroke of a controlled
+ * input, where trimming an edge would erase the `_` someone just typed
+ * (or the space that just became one) before the next character arrives.
+ * Returns `""` when nothing survives; callers that need a non-empty value
+ * fall back themselves.
  */
 export function sanitizeSelectOptionValue(raw: string): string {
-	return raw
-		.replace(/\s+/g, "_")
-		.replace(/['"`]/g, "")
-		.replace(/^_+|_+$/g, "");
+	return raw.replace(/\s+/g, "_").replace(/['"`]/g, "");
 }
 
 /**
- * The value Nova mints for a choice from its label: the same slug every
- * other derived id uses (`slugifyId`), with `fallback` when the label has
- * nothing to keep.
+ * The value Nova mints for a choice from its label, and the one every
+ * refusal suggests: lowercased, every run of characters that is not a
+ * letter or a digit (in any script) collapsed to one underscore, edges
+ * trimmed, `fallback` when nothing survives. Letters outside ASCII are
+ * kept because the grammar admits them: a label of "Sí" should become
+ * `sí`, not `s`, and "はい" should keep its characters rather than fall
+ * back to `option_2`. With `taken` (the field's other values), the slug is
+ * suffixed `_2`, `_3`, … until it names no existing choice, so a repair
+ * never suggests a value a sibling already holds.
  */
 export function suggestSelectOptionValue(
 	label: string,
 	fallback: string,
+	taken: ReadonlySet<string> = new Set(),
 ): string {
-	return slugifyId(label, fallback);
+	return distinctFrom(slugOf(label) || fallback, taken);
+}
+
+/**
+ * The replacement a refusal names for a value already outside the grammar:
+ * the value's own admitted spelling when one survives (`"Prefer not to
+ * say"` keeps its words as `prefer_not_to_say`), else the label's, else
+ * `fallback`; never one a sibling already holds.
+ */
+export function repairSelectOptionValue(
+	value: string,
+	label: string,
+	fallback: string,
+	taken: ReadonlySet<string>,
+): string {
+	return distinctFrom(
+		slugOf(sanitizeSelectOptionValue(value)) || slugOf(label) || fallback,
+		taken,
+	);
+}
+
+function slugOf(text: string): string {
+	return text
+		.trim()
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, "_")
+		.replace(/^_+|_+$/g, "");
+}
+
+function distinctFrom(base: string, taken: ReadonlySet<string>): string {
+	if (!taken.has(base)) return base;
+	for (let i = 2; ; i++) {
+		const candidate = `${base}_${i}`;
+		if (!taken.has(candidate)) return candidate;
+	}
 }

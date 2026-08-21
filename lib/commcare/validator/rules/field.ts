@@ -23,9 +23,8 @@ import {
 	expressionInspectionSource,
 	fieldRegistry,
 	proseTemplateText,
-	sanitizeSelectOptionValue,
+	repairSelectOptionValue,
 	selectOptionValueProblem,
-	suggestSelectOptionValue,
 } from "@/lib/domain";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type ValidationError, validationError } from "../errors";
@@ -187,14 +186,17 @@ function selectOptionValueInvalid(
 		return [];
 	if (field.optionsSource.kind === "lookup") return [];
 	const errors: ValidationError[] = [];
-	field.optionsSource.options.forEach((option, index) => {
+	const options = field.optionsSource.options;
+	options.forEach((option, index) => {
 		const problem = selectOptionValueProblem(option.value);
 		if (problem === undefined) return;
 		const labelText = proseTemplateText(option.label).trim();
 		const position = `Option ${index + 1}${labelText ? ` ("${labelText}")` : ""} of field "${field.id}" in "${ctx.formName}"`;
-		const suggestion = suggestSelectOptionValue(
-			sanitizeSelectOptionValue(option.value) || labelText,
+		const suggestion = repairSelectOptionValue(
+			option.value,
+			labelText,
 			`option_${index + 1}`,
+			new Set(options.filter((other) => other !== option).map((o) => o.value)),
 		);
 		const message =
 			problem === "empty"

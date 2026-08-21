@@ -134,6 +134,28 @@ describe("SELECT_OPTION_VALUE_INVALID", () => {
 		expect(findings[0]?.message).toContain("has an empty value");
 	});
 
+	it("never suggests a value a sibling already holds", () => {
+		const findings = fieldFindings(
+			select("single_select", [
+				["a b", "A b"],
+				["a_b", "A b again"],
+			]),
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.details?.suggestedValue).toBe("a_b_2");
+		expect(findings[0]?.message).toContain('Use "a_b_2" instead');
+	});
+
+	it("suggests a slug in the label's own script rather than an ASCII stub", () => {
+		const findings = fieldFindings(
+			select("single_select", [
+				["Sí claro", "Sí"],
+				["no", "No"],
+			]),
+		);
+		expect(findings[0]?.details?.suggestedValue).toBe("sí_claro");
+	});
+
 	it("reports every broken option, one finding each", () => {
 		const findings = fieldFindings(
 			select("single_select", [
