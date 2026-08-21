@@ -7,8 +7,35 @@ import {
 	SELECT_OPTION_VALUE_REJECTION,
 	sanitizeSelectOptionValue,
 	selectOptionValueProblem,
+	selectOptionValueSchema,
 	suggestSelectOptionValue,
 } from "../selectOptionValue";
+
+describe("selectOptionValueSchema", () => {
+	it("teaches the shape in its description and refuses with the rejection", () => {
+		expect(selectOptionValueSchema.description).toBe(
+			SELECT_OPTION_VALUE_DESCRIPTION,
+		);
+		expect(selectOptionValueSchema.safeParse("prefer_not_to_say").success).toBe(
+			true,
+		);
+		const refused = selectOptionValueSchema.safeParse("Prefer not to say");
+		expect(refused.success).toBe(false);
+		if (!refused.success) {
+			expect(refused.error.issues[0]?.message).toBe(
+				SELECT_OPTION_VALUE_REJECTION,
+			);
+		}
+	});
+
+	it("agrees with the problem classifier on every edge", () => {
+		for (const value of ["", " ", "a b", "a'b", 'a"b', "a`b", "ok", "sí"]) {
+			expect(selectOptionValueSchema.safeParse(value).success).toBe(
+				selectOptionValueProblem(value) === undefined,
+			);
+		}
+	});
+});
 
 describe("selectOptionValueProblem", () => {
 	it("admits the slug Nova teaches and the safe codes it does not mint", () => {

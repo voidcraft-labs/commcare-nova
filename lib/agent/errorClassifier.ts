@@ -56,7 +56,7 @@ export const MESSAGES: Record<ErrorType, string> = {
 	app_changed:
 		"This app moved to another Project while Nova was working. Nova stopped before applying the pending change. Reload to continue.",
 	prompt_flagged:
-		"The model provider flagged this request as a possible usage-policy violation and stopped before finishing. That happens to ordinary content now and then. Send your message again, or reword it, to continue.",
+		"The model provider flagged this request as a possible usage-policy violation and stopped before finishing. That happens to ordinary content now and then. Try again, or reword the request, to continue.",
 	internal: "Something went wrong during generation.",
 };
 

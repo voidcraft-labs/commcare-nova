@@ -69,9 +69,7 @@ import {
 	isCaptureFieldKind,
 	lookupOptionsSourceSchema,
 	proseTemplateSchema,
-	SELECT_OPTION_VALUE_DESCRIPTION,
-	SELECT_OPTION_VALUE_PATTERN,
-	SELECT_OPTION_VALUE_REJECTION,
+	selectOptionValueSchema,
 	uuidSchema,
 	xpathExpressionSchema,
 } from "@/lib/domain";
@@ -238,10 +236,7 @@ export const projectedSelectOptionSchema = z
 			.describe(
 				"Stable UUID for this option. Supply it when preserving an existing option or when another same-call value refers to it; otherwise Nova mints it.",
 			),
-		value: z
-			.string()
-			.regex(SELECT_OPTION_VALUE_PATTERN, SELECT_OPTION_VALUE_REJECTION)
-			.describe(SELECT_OPTION_VALUE_DESCRIPTION),
+		value: selectOptionValueSchema,
 		label: proseTemplateSchema.describe(
 			"What people read for this choice. Put the wording here, never in `value`.",
 		),

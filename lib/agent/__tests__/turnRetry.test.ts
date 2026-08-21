@@ -12,8 +12,32 @@ import {
 	buildTurnRetryContinuation,
 	MAX_TURN_RETRIES,
 	shouldRetryTurn,
+	TURN_RETRY_MESSAGE,
 	turnRetryDelayMs,
+	turnRetryMessage,
 } from "../turnRetry";
+
+describe("turnRetryMessage", () => {
+	it("names a flagged prompt for what it is rather than a provider outage", () => {
+		const flagged = turnRetryMessage("prompt_flagged");
+		expect(flagged).not.toBe(TURN_RETRY_MESSAGE);
+		expect(flagged).toContain("flagged");
+		expect(flagged).not.toContain("temporary provider error");
+		expect(flagged).toContain("automatically");
+	});
+
+	it("keeps the generic wording for every other transient bucket", () => {
+		for (const type of [
+			"api_server",
+			"api_overloaded",
+			"api_timeout",
+			"api_rate_limit",
+			"stream_broken",
+		] as const) {
+			expect(turnRetryMessage(type)).toBe(TURN_RETRY_MESSAGE);
+		}
+	});
+});
 
 function classified(type: ErrorType): ClassifiedError {
 	return { type, message: "m", recoverable: false };

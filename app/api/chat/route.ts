@@ -21,8 +21,8 @@ import {
 	markStablePrefixBoundary,
 	resolveAttachments,
 	shouldRetryTurn,
-	TURN_RETRY_MESSAGE,
 	turnRetryDelayMs,
+	turnRetryMessage,
 } from "@/lib/agent";
 import { isTerminalOrchestrationKind } from "@/lib/agent/build/orchestrationKinds";
 import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
@@ -2350,7 +2350,7 @@ export async function POST(req: Request) {
 									ctx.emitError(
 										{
 											...classified,
-											message: TURN_RETRY_MESSAGE,
+											message: turnRetryMessage(classified.type),
 											recoverable: true,
 										},
 										"route:design-turn-retry",
@@ -3088,7 +3088,11 @@ export async function POST(req: Request) {
 						 * admin-inspect breadcrumb for diagnosing in-flight provider
 						 * faults. The user-facing message says work is preserved. */
 						ctx.emitError(
-							{ ...classified, message: TURN_RETRY_MESSAGE, recoverable: true },
+							{
+								...classified,
+								message: turnRetryMessage(classified.type),
+								recoverable: true,
+							},
 							"route:turn-retry",
 							{ runContinues: true },
 						);

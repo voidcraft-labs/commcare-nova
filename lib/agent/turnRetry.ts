@@ -88,6 +88,19 @@ export const TURN_RETRY_MESSAGE =
 	"A temporary provider error interrupted this run, so Nova is retrying automatically. Anything already built is saved and will not be redone.";
 
 /**
+ * The retry notice for one classified fault. A flagged prompt is not a
+ * provider outage, so telling the person "a temporary provider error"
+ * three times and then "the request was flagged" misnames what happened;
+ * the notice says what the provider did and that the re-run is automatic.
+ * Every other transient bucket keeps the generic wording.
+ */
+export function turnRetryMessage(type: ErrorType): string {
+	return type === "prompt_flagged"
+		? "The model provider flagged this step as a possible usage-policy violation, which happens to ordinary content now and then, so Nova is trying the step again automatically. Anything already built is saved and will not be redone."
+		: TURN_RETRY_MESSAGE;
+}
+
+/**
  * The continuation message appended to the retry attempt's prompt: the
  * committed state (rendered by the same summarizer the edit turn's app-state
  * message uses) plus the instruction to continue rather than restart. Returns null for an empty

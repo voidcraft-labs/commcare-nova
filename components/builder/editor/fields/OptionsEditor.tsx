@@ -14,7 +14,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
@@ -25,10 +25,12 @@ import {
 	asUuid,
 	type CommitOutcome,
 	type Field,
+	isMintedSelectOptionPlaceholder,
+	mintSelectOptionPlaceholder,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
 	proseTemplateText,
-	proseText,
+	repairSelectOptionValue,
 	type SelectOption,
 	type SelectOptionsSource,
 	sanitizeSelectOptionValue,
@@ -45,17 +47,6 @@ import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
  */
 interface DraftOption extends SelectOption {
 	id: number;
-}
-
-/**
- * A row exactly as `addOption` (or the field's default options) minted it:
- * value `option_N` under label "Option N". Nobody chose either, so the
- * first real label may also name the value. Pure and exported for tests.
- */
-export function isMintedPlaceholder(option: SelectOption): boolean {
-	const match = /^option_(\d+)$/.exec(option.value);
-	if (match === null) return false;
-	return proseTemplateText(option.label).trim() === `Option ${match[1]}`;
 }
 
 export interface OptionsEditorWidgetProps {
@@ -96,6 +87,41 @@ function toOptions(draft: DraftOption[]): SelectOption[] {
  */
 function serializeOptions(options: SelectOption[]): string {
 	return JSON.stringify(options);
+}
+
+/** A row worth keeping at commit: anything with a label, a value, or
+ *  media. A row carrying media is kept even with blank text so attaching
+ *  an image and then blanking the text doesn't silently discard the
+ *  asset reference along with the row. */
+function rowHasContent(option: SelectOption): boolean {
+	return (
+		!proseTemplateIsEmpty(option.label) ||
+		option.value.trim().length > 0 ||
+		option.media !== undefined
+	);
+}
+
+/**
+ * The draft as it will be saved: rows with nothing on them dropped, and a
+ * row whose value box was emptied (the sanitizer returns `""` for a lone
+ * quote or a cleared box) given the value its label suggests, so a routine
+ * clear-and-retype never lands a choice that saves nothing. The minted
+ * fallback keeps the row's position, never a sibling's value.
+ */
+export function settleDraft<T extends SelectOption>(draft: T[]): T[] {
+	const kept = draft.filter(rowHasContent);
+	const taken = new Set(kept.map((option) => option.value));
+	return kept.map((option, index) => {
+		if (option.value.length > 0) return option;
+		const value = repairSelectOptionValue(
+			"",
+			proseTemplateText(option.label),
+			mintSelectOptionPlaceholder(index + 1).value,
+			taken,
+		);
+		taken.add(value);
+		return { ...option, value };
+	});
 }
 
 /**
@@ -142,20 +168,20 @@ export function OptionsEditorWidget({
 		setFocusIndex(null);
 	}
 
-	// Commit the draft to the parent, stripping empty rows. The committed
-	// key advances only when the save LANDED: on a gate refusal the doc
-	// is unchanged, so advancing it optimistically would make the
-	// external-change sync block above read the unchanged prop as foreign
-	// and revert the user's draft right as the notice explains the bounce.
+	// Commit the draft to the parent. The committed key advances only when
+	// the save LANDED: on a gate refusal the doc is unchanged, so advancing
+	// it optimistically would make the external-change sync block above
+	// read the unchanged prop as foreign and revert the user's draft right
+	// as the notice explains the bounce. The settled rows (an emptied value
+	// filled from its label) replace the draft so the boxes show what was
+	// saved.
 	const commit = useCallback(
 		(updated: DraftOption[]) => {
-			const cleaned = toOptions(updated).filter(
-				// Drop only fully-empty rows. A row carrying media is kept
-				// even with a blank label/value so attaching an image and
-				// then blanking the text doesn't silently discard the asset
-				// reference along with the row.
-				(o) => !proseTemplateIsEmpty(o.label) || o.value.trim() || o.media,
-			);
+			const settled = settleDraft(updated);
+			if (settled.some((row, index) => row !== updated[index])) {
+				setDraft(settled);
+			}
+			const cleaned = toOptions(settled);
 			const outcome = onSave(cleaned);
 			if (!outcome || outcome.ok) {
 				lastCommittedKeyRef.current = serializeOptions(cleaned);
@@ -170,12 +196,36 @@ export function OptionsEditorWidget({
 	// (`SELECT_OPTION_VALUE_INVALID`). The same grammar the SA's schema
 	// teaches and the validator enforces, applied at the keystroke; the
 	// sanitizer deliberately leaves edge underscores alone, since the one
-	// just typed is an edge until the next character lands.
-	const updateValue = useCallback((index: number, raw: string) => {
+	// just typed is an edge until the next character lands. When the
+	// sanitizer changes what was typed, React reassigns the input's value
+	// and the browser parks the caret at the end, so the caret is put back
+	// where the typing was: its position in the sanitized prefix.
+	const valueInputRefs = useRef(new Map<number, HTMLInputElement>());
+	const [pendingCaret, setPendingCaret] = useState<{
+		draftId: number;
+		caret: number;
+	} | null>(null);
+	useLayoutEffect(() => {
+		if (pendingCaret === null) return;
+		const input = valueInputRefs.current.get(pendingCaret.draftId);
+		input?.setSelectionRange(pendingCaret.caret, pendingCaret.caret);
+		setPendingCaret(null);
+	}, [pendingCaret]);
+	const updateValue = useCallback((index: number, input: HTMLInputElement) => {
+		const raw = input.value;
 		const value = sanitizeSelectOptionValue(raw);
 		setDraft((prev) => {
+			const row = prev[index];
+			if (row === undefined) return prev;
 			const next = [...prev];
-			next[index] = { ...next[index], value };
+			next[index] = { ...row, value };
+			if (value !== raw) {
+				const caretInRaw = input.selectionStart ?? raw.length;
+				setPendingCaret({
+					draftId: row.id,
+					caret: sanitizeSelectOptionValue(raw.slice(0, caretInRaw)).length,
+				});
+			}
 			return next;
 		});
 	}, []);
@@ -184,12 +234,19 @@ export function OptionsEditorWidget({
 	// so the first label it is given also names the value, the way the SA
 	// does (`prefer_not_to_say` for "Prefer not to say"). Once either side
 	// has been edited by hand the two are independent: the value is data
-	// and a later label change must never rewrite it.
+	// and a later label change must never rewrite it. The window in which
+	// a minted token can have reached case data (the row is committed the
+	// moment it is added) is the one `mintSelectOptionPlaceholder`
+	// documents: a placeholder is a choice nobody has named yet, and a
+	// person who wants `option_3` as a real value gives it a real label
+	// first and edits the value after.
 	const saveLabel = useCallback(
 		(index: number, label: ProseTemplate) => {
 			const next = draft.map((option, optionIndex) => {
 				if (optionIndex !== index) return option;
-				if (!isMintedPlaceholder(option)) return { ...option, label };
+				if (!isMintedSelectOptionPlaceholder(option)) {
+					return { ...option, label };
+				}
 				const taken = new Set(
 					draft
 						.filter((_, otherIndex) => otherIndex !== index)
@@ -237,15 +294,13 @@ export function OptionsEditorWidget({
 	);
 
 	const addOption = useCallback(() => {
-		const num = draft.length + 1;
 		// Mint the persisted identity once. Array order remains display order.
 		const next: DraftOption[] = [
 			...draft,
 			{
 				id: nextDraftId++,
 				uuid: asUuid(crypto.randomUUID()),
-				value: `option_${num}`,
-				label: proseText(`Option ${num}`),
+				...mintSelectOptionPlaceholder(draft.length + 1),
 			},
 		];
 		setDraft(next);
@@ -319,8 +374,12 @@ export function OptionsEditorWidget({
 								/>
 							</fieldset>
 							<input
+								ref={(input) => {
+									if (input) valueInputRefs.current.set(opt.id, input);
+									else valueInputRefs.current.delete(opt.id);
+								}}
 								value={opt.value}
-								onChange={(e) => updateValue(i, e.target.value)}
+								onChange={(e) => updateValue(i, e.currentTarget)}
 								onKeyDown={handleKeyDown}
 								placeholder="value"
 								aria-label={`Stored value for ${
@@ -378,10 +437,13 @@ export function OptionsEditor<F extends Field>(
 	const { field, value, onChange, autoFocus } = props;
 	const source = value as SelectOptionsSource;
 	/* The widget's `onSave` has no inline channel of its own, so the
-	 * adapter holds the gate's finding and renders it beneath the rows:
+	 * adapter holds the gate's findings and renders them beneath the rows:
 	 * the section dispatches through the inline (no-toast) flavor on the
-	 * promise that every editor presents its own rejections. Cleared on
-	 * the next save that lands. */
+	 * promise that every editor presents its own rejections. Every message
+	 * is shown, because the gate judges the whole document and the first
+	 * finding is as likely to be about another field as about this one;
+	 * a person who sees only that one would think their own edit was the
+	 * problem. Cleared on the next save that lands. */
 	const [rejection, setRejection] = useState<string | null>(null);
 	if (source.kind === "lookup") {
 		return (
@@ -408,7 +470,11 @@ export function OptionsEditor<F extends Field>(
 						kind: "inline",
 						options: next,
 					} as F["optionsSource" & keyof F]);
-					setRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
+					setRejection(
+						outcome.ok || outcome.messages.length === 0
+							? null
+							: outcome.messages.join(" "),
+					);
 					// The widget gates its committed-key ref on this: a refusal
 					// must keep the user's draft rows on screen.
 					return outcome;

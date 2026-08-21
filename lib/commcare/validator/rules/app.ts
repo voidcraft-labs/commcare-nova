@@ -21,6 +21,7 @@ import {
 	formLinkAdjacency,
 	formLinkPath,
 	isConnectLearnConfig,
+	mintSelectOptionPlaceholder,
 	projectProseTemplate,
 	projectXPath,
 	proseTemplateText,
@@ -102,11 +103,13 @@ function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
 			property.options?.forEach((option, index) => {
 				const problem = selectOptionValueProblem(option.value);
 				if (problem === undefined) return;
-				const labelText = proseTemplateText(option.label).trim();
+				// The projected label is what a person sees, so it is what the
+				// message shows; the plain text is the slug input.
+				const shownLabel = projectProseTemplate(option.label, doc).text.trim();
 				const suggestion = repairSelectOptionValue(
 					option.value,
-					labelText,
-					`option_${index + 1}`,
+					proseTemplateText(option.label),
+					mintSelectOptionPlaceholder(index + 1).value,
 					new Set(
 						(property.options ?? [])
 							.filter((other) => other !== option)
@@ -124,7 +127,7 @@ function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
 					validationError(
 						"CASE_PROPERTY_OPTION_VALUE_INVALID",
 						"app",
-						`Choice ${index + 1}${labelText ? ` ("${labelText}")` : ""} of case property "${caseType.name}.${property.name}" has a value that ${what}. A choice's value is the answer the app stores and compares, not the wording, so it cannot hold spaces or quote marks and cannot be empty. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`,
+						`Choice ${index + 1}${shownLabel ? ` ("${shownLabel}")` : ""} of case property "${caseType.name}.${property.name}" has a value that ${what}. A choice's value is the answer the app stores and compares, not the wording, so it cannot hold spaces or quote marks and cannot be empty. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`,
 						{},
 						{
 							caseType: caseType.name,

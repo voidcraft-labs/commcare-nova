@@ -33,9 +33,7 @@ import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import {
 	authoredCasePropertyNameSchema,
 	proseTemplateSchema,
-	SELECT_OPTION_VALUE_DESCRIPTION,
-	SELECT_OPTION_VALUE_PATTERN,
-	SELECT_OPTION_VALUE_REJECTION,
+	selectOptionValueSchema,
 	uuidSchema,
 	xpathExpressionSchema,
 } from "@/lib/domain";
@@ -72,10 +70,7 @@ const SELECT_DATA_TYPES: ReadonlySet<string> = new Set([
 
 const selectOptionDescribed = z
 	.object({
-		value: z
-			.string()
-			.regex(SELECT_OPTION_VALUE_PATTERN, SELECT_OPTION_VALUE_REJECTION)
-			.describe(SELECT_OPTION_VALUE_DESCRIPTION),
+		value: selectOptionValueSchema,
 		label: proseTemplateSchema.describe(
 			"Option label shown to the user. Put the wording here, never in `value`.",
 		),

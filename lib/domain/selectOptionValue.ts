@@ -25,6 +25,9 @@
 // refuse codes that are perfectly safe on the wire (`ICD10`, `a-b`). The
 // slug is the shape Nova TEACHES and mints, not the only one it accepts.
 
+import { z } from "zod";
+import { suffixUntilFree } from "./idSlug";
+
 /** The characters a stored choice value can never hold. */
 const FORBIDDEN = /[\s'"`]/;
 
@@ -45,6 +48,17 @@ export const SELECT_OPTION_VALUE_DESCRIPTION =
 /** The rejection a schema returns when a value breaks the grammar. */
 export const SELECT_OPTION_VALUE_REJECTION =
 	"A choice value is the stored answer token, not the wording: it cannot hold spaces, quotes, or apostrophes, and cannot be empty. Use a lowercase slug with words joined by underscores (prefer_not_to_say) and put the wording in the label.";
+
+/**
+ * The one Zod leaf every model-facing `value` slot is: the grammar as a
+ * `pattern`, the rejection as its message, and the description that
+ * teaches the shape first. Schemas compose this rather than restating the
+ * triple, so a slot cannot carry the rule without the teaching.
+ */
+export const selectOptionValueSchema = z
+	.string()
+	.regex(SELECT_OPTION_VALUE_PATTERN, SELECT_OPTION_VALUE_REJECTION)
+	.describe(SELECT_OPTION_VALUE_DESCRIPTION);
 
 export type SelectOptionValueProblem = "empty" | "whitespace" | "quote";
 
@@ -92,7 +106,7 @@ export function suggestSelectOptionValue(
 	fallback: string,
 	taken: ReadonlySet<string> = new Set(),
 ): string {
-	return distinctFrom(slugOf(label) || fallback, taken);
+	return suffixUntilFree(slugOf(label) || fallback, taken);
 }
 
 /**
@@ -107,7 +121,7 @@ export function repairSelectOptionValue(
 	fallback: string,
 	taken: ReadonlySet<string>,
 ): string {
-	return distinctFrom(
+	return suffixUntilFree(
 		slugOf(sanitizeSelectOptionValue(value)) || slugOf(label) || fallback,
 		taken,
 	);
@@ -126,12 +140,4 @@ function slugOf(text: string): string {
 		.toLowerCase()
 		.replace(/[^\p{L}\p{M}\p{N}]+/gu, "_")
 		.replace(/^_+|_+$/g, "");
-}
-
-function distinctFrom(base: string, taken: ReadonlySet<string>): string {
-	if (!taken.has(base)) return base;
-	for (let i = 2; ; i++) {
-		const candidate = `${base}_${i}`;
-		if (!taken.has(candidate)) return candidate;
-	}
 }

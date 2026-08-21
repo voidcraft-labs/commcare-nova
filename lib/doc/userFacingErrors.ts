@@ -86,6 +86,10 @@ const fieldName = (e: ValidationError): string =>
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
 
+/** The field id at the end of a `/data/...` path: what the builder calls it. */
+const pathLeaf = (path: string): string =>
+	path.slice(path.lastIndexOf("/") + 1);
+
 /**
  * An after-submit link named by where it goes, from the `destination` /
  * `destinationKind` details the form-link rules stamp; "one of the links"
@@ -104,15 +108,19 @@ const formLinkPhrase = (e: ValidationError): string => {
  * two option-value rules stamp; the neutral phrase when it is absent.
  */
 const optionValueProblemPhrase = (e: ValidationError): string => {
+	/* JSON-quoted rather than `q()`: a blank value would otherwise render
+	 * as an empty pair of quotes, and a tab or a quote mark inside the
+	 * value has to stay visible for the sentence to make sense. */
+	const shown = JSON.stringify(e.details?.optionValue ?? "");
 	switch (e.details?.problem) {
 		case "empty":
-			return "is empty";
+			return "has an empty stored value";
 		case "whitespace":
-			return "contains a space";
+			return `has the stored value ${shown}, which contains a space`;
 		case "quote":
-			return "contains a quote mark";
+			return `has the stored value ${shown}, which contains a quote mark`;
 		default:
-			return "the app can't store";
+			return `has the stored value ${shown}, which the app can't store`;
 	}
 };
 
@@ -186,7 +194,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CASE_PROPERTY_REFERENCE_INVALID: (e) =>
 		`${q(det(e, "caseType", "A case type"))}.${det(e, "property", "property")}'s ${det(e, "slot", "default")} setting contains a reference that isn't available there. Replace it with case, worker, or fixed information that exists in every form using this property.`,
 	CASE_PROPERTY_OPTION_VALUE_INVALID: (e) =>
-		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} has the stored value ${q(det(e, "optionValue", ""))}, which ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
+		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
 	TRANSLATION_UNIT_UNKNOWN: () =>
 		"A translation is attached to content that no longer exists. Open Languages and remove that orphaned translation.",
 	TRANSLATION_VALUE_KIND_MISMATCH: () =>
@@ -665,7 +673,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	SELECT_TOO_FEW_OPTIONS: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with only one choice. Add another so there's something to pick between.`,
 	SELECT_OPTION_VALUE_INVALID: (e) =>
-		`A choice on ${q(fieldName(e))} in ${q(formName(e))} has the stored value ${q(det(e, "optionValue", ""))}, which ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
+		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
 	CASE_WRITE_UNKNOWN_TYPE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} saves to the ${q(det(e, "caseType", "case type"))} case type, but no case type by that name exists. Add that case type, or point the field at one that does.`,
 	HIDDEN_NO_VALUE: (e) =>
@@ -714,8 +722,21 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
 	PROSE_EDITOR_ROUND_TRIP_LOSS: (e) =>
 		`The text on ${q(fieldName(e))} in ${q(formName(e))} contains something the editor can't safely preserve. Re-enter its text and references.`,
-	CYCLE: (e) =>
-		`Some field formulas or lookup choices in ${q(formName(e))} depend on each other in a loop, so their values can't settle. Remove one of the references to break it.`,
+	CYCLE: (e) => {
+		/* A loop closed by a group's or repeat's display condition has no
+		 * reference to remove on one of its edges, so that shape is named by
+		 * its containment (the runner stamps the container and descendant);
+		 * every other loop is one of references. `loop` is the runner's
+		 * step-by-step reading of the cycle, with the form root trimmed. */
+		const container = e.details?.container;
+		const loop = det(e, "loop", "").replaceAll("/data/", "");
+		if (container !== undefined) {
+			const kind = det(e, "containerKind", "group");
+			const inside = q(pathLeaf(det(e, "descendant", "a field")));
+			return `In ${q(formName(e))}, whether the ${kind} ${q(pathLeaf(container))} shows depends, through a chain of references, on ${inside}, which sits inside it, so the ${kind} would control a value it depends on and nothing can settle. ${loop} Move ${inside} out of the ${kind}, or change one of those references so nothing inside the ${kind} feeds its display condition.`;
+		}
+		return `Some field formulas or lookup choices in ${q(formName(e))} depend on each other in a loop, so their values can't settle. ${loop} Remove one of the references to break it.`;
+	},
 	TYPE_ERROR: (e) =>
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses text where it needs a number, so the result might come out wrong. Check the values it's working with.`,
 

@@ -22,6 +22,8 @@ import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
 import {
 	expressionInspectionSource,
 	fieldRegistry,
+	mintSelectOptionPlaceholder,
+	projectProseTemplate,
 	proseTemplateText,
 	repairSelectOptionValue,
 	selectOptionValueProblem,
@@ -190,12 +192,16 @@ function selectOptionValueInvalid(
 	options.forEach((option, index) => {
 		const problem = selectOptionValueProblem(option.value);
 		if (problem === undefined) return;
-		const labelText = proseTemplateText(option.label).trim();
-		const position = `Option ${index + 1}${labelText ? ` ("${labelText}")` : ""} of field "${field.id}" in "${ctx.formName}"`;
+		// Two readings of the label: the projection (references resolved to
+		// their current names) is what a person sees and so what the message
+		// shows; the plain text is the slug input, since a reference has no
+		// words worth minting a value from.
+		const shownLabel = projectProseTemplate(option.label, ctx.doc).text.trim();
+		const position = `Option ${index + 1}${shownLabel ? ` ("${shownLabel}")` : ""} of field "${field.id}" in "${ctx.formName}"`;
 		const suggestion = repairSelectOptionValue(
 			option.value,
-			labelText,
-			`option_${index + 1}`,
+			proseTemplateText(option.label),
+			mintSelectOptionPlaceholder(index + 1).value,
 			new Set(options.filter((other) => other !== option).map((o) => o.value)),
 		);
 		const message =

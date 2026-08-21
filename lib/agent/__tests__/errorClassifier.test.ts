@@ -115,7 +115,10 @@ describe("classifyError", () => {
 			expect(result.type).toBe("prompt_flagged");
 			expect(result.recoverable).toBe(false);
 			expect(result.message).toContain("usage-policy");
-			expect(result.message).toContain("Send your message again");
+			// Surface-neutral: the same sentence reaches chat, MCP, and the build
+			// pipeline, and only one of those has a message to re-send.
+			expect(result.message).toContain("Try again, or reword the request");
+			expect(result.message).not.toContain("Send your message again");
 		});
 
 		it("keeps the provider's code and message in raw instead of [object Object]", () => {

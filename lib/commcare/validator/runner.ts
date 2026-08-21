@@ -381,25 +381,53 @@ function runDeepValidation(
 			}
 
 			case "cycle": {
-				const loop = `"${deep.formName}" in "${deep.moduleName}" has a circular dependency: ${deep.cycle.join(" → ")}.`;
-				/* A loop that closes through a container's relevance cascade has
-				 * no authored expression on one of its edges, so "these
-				 * expressions reference each other" would send the author
-				 * hunting for a reference that is not written anywhere. Name the
-				 * containment instead: the device re-evaluates everything inside
-				 * a group when the group's display condition changes, so a
-				 * group whose condition reads its own contents depends on
-				 * itself. */
+				/* The loop, one edge per sentence. Each consecutive pair in
+				 * `cycle` is one dependency edge (the later node depends on the
+				 * earlier one), so the reading names the authored reference on
+				 * every edge that has one. The edge a container's relevance
+				 * cascade draws has NO authored reference: the device
+				 * re-evaluates everything inside a group or repeat when its
+				 * display condition changes, so that step is named by its
+				 * containment instead of sending the author hunting for a
+				 * reference that is not written anywhere. */
+				const cascade = deep.cascade;
+				const steps: string[] = [];
+				for (let i = 0; i + 1 < deep.cycle.length; i++) {
+					const from = deep.cycle[i];
+					const to = deep.cycle[i + 1];
+					if (from === undefined || to === undefined) continue;
+					steps.push(
+						cascade !== undefined &&
+							cascade.container === from &&
+							cascade.descendant === to
+							? `${to} is inside the ${cascade.containerKind} ${from}, so it follows that ${cascade.containerKind}'s display condition`
+							: `${to} reads ${from}`,
+					);
+				}
+				const loop = `${steps.join("; ")}.`;
 				const explanation =
-					deep.cascade === undefined
+					cascade === undefined
 						? "These field expressions reference each other in a loop, so their values or choices can never settle. Break the cycle by removing one of the references."
-						: `The ${deep.cascade.containerKind} ${deep.cascade.container} is shown or hidden by a condition that depends on ${deep.cascade.descendant}, and ${deep.cascade.descendant} is inside that ${deep.cascade.containerKind}, so whether it shows would depend on a value it controls. CommCare refuses to install a form with this loop. Make the ${deep.cascade.containerKind}'s display condition depend only on fields outside it, or move ${deep.cascade.descendant} out of the ${deep.cascade.containerKind}.`;
-				return validationError("CYCLE", "form", `${loop} ${explanation}`, {
-					moduleUuid: deep.moduleUuid,
-					moduleName: deep.moduleName,
-					formUuid: deep.formUuid,
-					formName: deep.formName,
-				});
+						: `Whether the ${cascade.containerKind} ${cascade.container} shows therefore depends on ${cascade.descendant}, a value inside it that its own display condition controls, and CommCare refuses to install a form with this loop. Move ${cascade.descendant} out of the ${cascade.containerKind}, or change one of the references above so nothing inside the ${cascade.containerKind} feeds its display condition.`;
+				return validationError(
+					"CYCLE",
+					"form",
+					`"${deep.formName}" in "${deep.moduleName}" has a circular dependency: ${loop} ${explanation}`,
+					{
+						moduleUuid: deep.moduleUuid,
+						moduleName: deep.moduleName,
+						formUuid: deep.formUuid,
+						formName: deep.formName,
+					},
+					{
+						loop,
+						...(cascade !== undefined && {
+							container: cascade.container,
+							containerKind: cascade.containerKind,
+							descendant: cascade.descendant,
+						}),
+					},
+				);
 			}
 
 			default: {

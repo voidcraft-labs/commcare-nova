@@ -847,7 +847,11 @@ describe("TriggerDag.reportCycles", () => {
 				}),
 			]);
 			const cycles = new TriggerDag().reportCycles(tree, doc);
-			expect(cycles.length).toBeGreaterThan(0);
+			// Reading `/data/question1/question2` also depends on the prefix
+			// `/data/question1`, which closes a two-node twin of the same
+			// loop; one authored loop is one report, the one that can explain
+			// the containment.
+			expect(cycles).toHaveLength(1);
 			const withCascade = cycles.find((c) => c.cascade !== undefined);
 			expect(withCascade?.cascade).toEqual({
 				container: "/data/question1",
@@ -855,6 +859,97 @@ describe("TriggerDag.reportCycles", () => {
 				descendant: "/data/question1/question2",
 			});
 			expect(withCascade?.path).toContain("/data/first");
+		});
+
+		// The device orders only relevant / required / readonly / calculate
+		// (`XFormParser.java::addTriggerable`); a constraint and a label's
+		// `<output>` are evaluated on demand, so a loop that closes only
+		// through one of them installs and runs. The proof must not refuse
+		// it, and the runtime must keep the calculate edge rather than the
+		// constraint edge when it breaks that loop.
+		it("does not report a loop that closes only through a constraint", () => {
+			const { tree, doc } = treeFromFields([
+				f({
+					kind: "text",
+					id: "flag",
+					label: proseText("Flag"),
+					validate: ". != /data/g/child",
+				}),
+				f({
+					kind: "group",
+					id: "g",
+					label: proseText("G"),
+					relevant: "/data/flag = 'yes'",
+					children: [
+						f({ kind: "text", id: "child", label: proseText("Child") }),
+					],
+				}),
+			]);
+			expect(new TriggerDag().reportCycles(tree, doc)).toEqual([]);
+		});
+
+		it("does not report a loop that closes only through a label reference", () => {
+			const childUuid = testUuid("44444444-4444-4444-8444-444444444444");
+			const { tree, doc } = treeFromFields([
+				f({
+					kind: "text",
+					id: "flag",
+					label: {
+						parts: [
+							{ kind: "text", text: "Flag for " },
+							{ kind: "field-ref", uuid: childUuid },
+						],
+					},
+				}),
+				f({
+					kind: "group",
+					id: "g",
+					label: proseText("G"),
+					relevant: "/data/flag = 'yes'",
+					children: [
+						f({
+							kind: "text",
+							id: "child",
+							uuid: childUuid,
+							label: proseText("Child"),
+						}),
+					],
+				}),
+			]);
+			expect(new TriggerDag().reportCycles(tree, doc)).toEqual([]);
+		});
+
+		it("keeps the calculate edge and drops the constraint edge at runtime", () => {
+			// a calculates from b; b's constraint reads a. The only loop is
+			// through the constraint, so a change to b must still re-run a.
+			const { tree, doc } = treeFromFields([
+				f({ kind: "hidden", id: "a", calculate: "/data/b + 1" }),
+				f({
+					kind: "int",
+					id: "b",
+					label: proseText("B"),
+					validate: ". < /data/a",
+				}),
+			]);
+			const dag = new TriggerDag();
+			dag.build(tree, doc);
+			expect(dag.getAffected("/data/b", () => 1)).toContain("/data/a");
+			expect(dag.getAffected("/data/a", () => 1)).not.toContain("/data/b");
+		});
+
+		it("still re-validates on a constraint edge that closes no loop", () => {
+			const { tree, doc } = treeFromFields([
+				f({ kind: "int", id: "a", label: proseText("A") }),
+				f({
+					kind: "int",
+					id: "b",
+					label: proseText("B"),
+					validate: ". < /data/a",
+				}),
+			]);
+			const dag = new TriggerDag();
+			dag.build(tree, doc);
+			expect(dag.getAffected("/data/a", () => 1)).toContain("/data/b");
 		});
 
 		it("cascades through nested containers to a grandchild", () => {
@@ -1244,11 +1339,57 @@ describe("validateBlueprintDeep", () => {
 			(e) => e.code === "CYCLE",
 		);
 		expect(projected).toHaveLength(1);
-		expect(projected[0]?.message).toContain(
-			"/data/question_1_section/answer_1 is inside that group",
+		const message = projected[0]?.message ?? "";
+		expect(message).toContain(
+			"/data/question_1_section/answer_1 is inside the group /data/question_1_section, so it follows that group's display condition",
 		);
-		expect(projected[0]?.message).toContain(
-			"display condition depend only on fields outside it",
+		expect(message).toContain(
+			"/data/question_1_section reads /data/question_1_section/answer_1",
+		);
+		expect(message).toContain(
+			"Move /data/question_1_section/answer_1 out of the group",
+		);
+		// The builder's copy reads the same facts from the details.
+		expect(projected[0]?.details).toMatchObject({
+			container: "/data/question_1_section",
+			containerKind: "group",
+			descendant: "/data/question_1_section/answer_1",
+		});
+		expect(projected[0]?.details?.loop).toContain("reads");
+	});
+
+	it("names the authored reference that closes a multi-hop cascade loop", () => {
+		// commcare-core's group_cyclic_reference shape: the group's own
+		// condition reads only an OUTSIDE field, so "make the condition depend
+		// only on fields outside" would change nothing. The reading has to
+		// name the outside field's reference into the group.
+		const doc = makeDoc([
+			f({
+				kind: "int",
+				id: "first",
+				label: proseText("First"),
+				relevant: "/data/question1/question2 = '2'",
+			}),
+			f({
+				kind: "group",
+				id: "question1",
+				label: proseText("Q1"),
+				relevant: "/data/first = '1'",
+				children: [
+					f({ kind: "text", id: "question2", label: proseText("Q2") }),
+				],
+			}),
+		]);
+		const projected = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(e) => e.code === "CYCLE",
+		);
+		// One authored loop, one report: the prefix-edge twin is folded in.
+		expect(projected).toHaveLength(1);
+		const message = projected[0]?.message ?? "";
+		expect(message).toContain("/data/first reads /data/question1/question2");
+		expect(message).toContain("/data/question1 reads /data/first");
+		expect(message).toContain(
+			"/data/question1/question2 is inside the group /data/question1",
 		);
 	});
 
