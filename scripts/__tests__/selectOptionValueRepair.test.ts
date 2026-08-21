@@ -7,7 +7,9 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { translationSourceFingerprint } from "@/lib/domain/localization";
 import { proseText } from "@/lib/domain/prose";
+import { casePropertyOptionTranslationUnitId } from "@/lib/domain/translationUnits";
 import { planSelectOptionValueRepair } from "../lib/selectOptionValueRepair";
 
 function option(value: string, label: string, n: number) {
@@ -160,6 +162,101 @@ describe("planSelectOptionValueRepair", () => {
 			lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 		});
 		expect(after.ok ? [] : after.findings.map((e) => e.message)).toEqual([]);
+	});
+
+	it("carries a translated catalog option's wording to its new unit id", () => {
+		// A catalog option's translation unit is keyed by the STORED VALUE, so
+		// renaming the value re-keys the unit. The commit kernel prunes an
+		// overlay entry whose unit no longer exists, so a rename that does not
+		// carry the entry deletes the translated wording outright — and leaves
+		// a target the writer's diff cannot even express.
+		const doc = toPersistableDoc(
+			buildDoc({
+				appName: "Program",
+				caseTypes: [
+					{
+						name: "client",
+						properties: [
+							{
+								name: "gender",
+								label: "Gender",
+								data_type: "single_select",
+								options: [
+									{ value: "Another gender", label: "Another gender" },
+									{ value: "woman", label: "Woman" },
+								],
+							},
+						],
+					},
+				],
+				modules: [
+					{
+						name: "Clients",
+						caseType: "client",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										kind: "text",
+										id: "name",
+										caseWrite: { caseType: "client", property: "case_name" },
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+		);
+		const oldUnitId = casePropertyOptionTranslationUnitId(
+			"client",
+			"gender",
+			"Another gender",
+		);
+		const newUnitId = casePropertyOptionTranslationUnitId(
+			"client",
+			"gender",
+			"another_gender",
+		);
+		const entry = {
+			value: proseText("Un autre genre"),
+			sourceFingerprint: translationSourceFingerprint(
+				"prose",
+				proseText("Another gender"),
+			),
+			origin: "ai" as const,
+			review: "needs-review" as const,
+			translatedFrom: "eng" as const,
+		};
+		const localized: typeof doc = {
+			...doc,
+			localization: {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "fra"],
+				translations: { fra: { [oldUnitId]: entry } },
+			},
+		};
+
+		const plan = planSelectOptionValueRepair(localized);
+
+		expect(plan.rewrites.map((r) => [r.from, r.to])).toEqual([
+			["Another gender", "another_gender"],
+		]);
+		const moved = plan.targetDoc.localization?.translations.fra;
+		expect(Object.keys(moved ?? {})).toEqual([newUnitId]);
+		// The wording and its source fingerprint are untouched: these ids are
+		// keyed by the value, but they fingerprint the LABEL, which is unchanged.
+		expect(moved?.[newUnitId]).toEqual(entry);
+		// The source document keeps its original key.
+		expect(Object.keys(localized.localization?.translations.fra ?? {})).toEqual(
+			[oldUnitId],
+		);
 	});
 
 	it("steps past a sibling that already holds the slug and follows the rename into the expression comparing against it", () => {

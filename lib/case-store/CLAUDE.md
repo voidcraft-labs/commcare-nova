@@ -1015,11 +1015,19 @@ one field per batch is the *only* way its apps can be fixed at all. A repair
 plans purely, proposes a whole target document through `appendSyntheticBatch`,
 and is idempotent: it re-plans the live fleet on every deploy and no-ops once
 converged, so none of them pins a scan's app-id list (that census would be
-stale by the deploy shipping it). A repair throws — and fails the deploy — for
-anything that is a defect in itself, but an app the gate still refuses for an
-UNRELATED finding is named in the Job's log and skipped: it was locked before
-the repair ran, and failing there would strand every app the repair could
-have fixed. Grep the Job's log for a repair's `blockedApps` to find them.
+stale by the deploy shipping it).
+
+**A repair must not be able to fail the deploy over one app.** The worst it
+can do to an app it cannot converge is leave it exactly where it already was,
+so a per-app failure is named in the Job's log and skipped; the fleet-wide
+reads around it still throw, because a database that has gone away is not a
+fleet of blocked apps. Grep the Job's log for a repair's `blockedApps` to find
+the ones it could not fix. A repair that renames a value carried in a
+TRANSLATION UNIT ID — a catalog option's, an id-mapping column's mapping label
+— must move the overlay entry to the new id in the same target: the commit
+kernel prunes an entry whose unit no longer exists, so an unfollowed rename
+both deletes the translated wording and yields a target whose localization the
+writer's diff cannot express (`LocalizationEndpointNotRepresentableError`).
 
 Every production migration invocation finishes with the rollback-only runtime
 database probe in `lib/db/runtimeDatabaseProbe.ts`: it assumes the runtime role
