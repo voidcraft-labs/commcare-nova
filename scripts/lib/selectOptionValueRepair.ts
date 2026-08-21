@@ -12,12 +12,15 @@
  * else the label's, else the minted placeholder; never a sibling's value),
  * keeps the catalog and every field writing the same case property in
  * agreement, and follows the rename into everything that spells the old
- * token: the case rows holding it, the close conditions naming it, and the
- * expression literals comparing against it. An old value renamed two
- * different ways in one app is reported rather than followed, because which
- * one an expression meant is a person's call. The document lands through
- * `appendSyntheticBatch`, which derives the mutations and requires the
- * target to be gate-clean.
+ * token: the case rows holding it, the close conditions naming it, the
+ * id-mapping columns rendering a label for it, the expression literals
+ * comparing against it, and the translation unit ids KEYED BY IT (a catalog
+ * option's and an id-mapping label's), whose entries move to the new id so
+ * the commit kernel's orphan prune cannot delete the translated wording. An
+ * old value renamed two different ways in one app is reported rather than
+ * followed, because which one an expression meant is a person's call. The
+ * document lands through `appendSyntheticBatch`, which derives the mutations
+ * and requires the target to be gate-clean.
  */
 
 import { sql } from "kysely";
@@ -38,6 +41,11 @@ import {
 	selectOptionValueProblem,
 } from "../../lib/domain";
 import { isScalarFieldExpressionSlotId } from "../../lib/domain/expressionSource";
+import { makeTranslationUnitId } from "../../lib/domain/localization";
+import {
+	casePropertyOptionOccurrence,
+	casePropertyOptionTranslationUnitId,
+} from "../../lib/domain/translationUnits";
 import { safePersistedSequence } from "../../lib/utils/persistedSequence";
 import { loadPersistedBlueprintReadOnly } from "./loadPersistedBlueprint";
 
@@ -101,6 +109,34 @@ export interface SelectOptionValueRepairPlan {
 type MutableDoc = {
 	-readonly [K in keyof PersistableDoc]: PersistableDoc[K];
 };
+
+/**
+ * Move each overlay entry from its old translation unit id to its new one, in
+ * every language. The whole post-move map is built away from the live record
+ * before anything is written back: one unit's destination is another unit's
+ * source key whenever two values swap, and deleting in place would drop the
+ * entry that had not been moved yet. The wording itself is untouched, and so
+ * is `sourceFingerprint` — these ids are keyed by the stored value, but the
+ * source they fingerprint is the label, which the repair never changes.
+ */
+function moveTranslationUnits(
+	target: MutableDoc,
+	moves: ReadonlyMap<string, string>,
+): void {
+	if (moves.size === 0) return;
+	for (const translations of Object.values(
+		target.localization?.translations ?? {},
+	)) {
+		const moved: Record<string, unknown> = {};
+		for (const [unitId, entry] of Object.entries(translations)) {
+			moved[moves.get(unitId) ?? unitId] = entry;
+		}
+		for (const unitId of Object.keys(translations)) {
+			delete (translations as Record<string, unknown>)[unitId];
+		}
+		Object.assign(translations, moved);
+	}
+}
 
 /**
  * Plan the repair for one document. Pure: the returned `targetDoc` is a deep
@@ -169,6 +205,22 @@ export function planSelectOptionValueRepair(
 		});
 	}
 
+	/* Two translation unit ids are keyed by the stored value itself rather
+	 * than by a uuid — a catalog option's, and an id-mapping column's
+	 * mapping label. Renaming the value re-keys those units, and the commit
+	 * kernel prunes an overlay entry whose unit no longer exists, so an
+	 * unfollowed rename DELETES the translated wording. Snapshot each list's
+	 * values before the rename so the overlay can follow its own ids. */
+	const valuesBeforeRename = new Map<object, string[]>();
+	for (const space of spaces.values()) {
+		for (const list of space.lists) {
+			valuesBeforeRename.set(
+				list.options,
+				list.options.map((option) => option.value),
+			);
+		}
+	}
+
 	const valueMapByKey = new Map<string, Map<string, string>>();
 	for (const [key, space] of spaces) {
 		for (const list of space.lists) {
@@ -205,6 +257,72 @@ export function planSelectOptionValueRepair(
 		}
 		if (renamed.size > 0) valueMapByKey.set(key, renamed);
 	}
+
+	/* An id-mapping or image-map column names the stored value it renders a
+	 * label or an image for. Its wire arm is `selected(field, '<value>')`, so
+	 * a column left spelling the old token stops matching and the cell falls
+	 * through to the raw property value. (Both slots already refuse
+	 * whitespace, so only a quote-bearing rename reaches here.) */
+	const unitMoves = new Map<string, string>();
+	for (const module of Object.values(target.modules)) {
+		for (const column of module?.caseListConfig?.columns ?? []) {
+			if (column.kind !== "id-mapping" && column.kind !== "image-map") {
+				continue;
+			}
+			const caseType = module?.caseType;
+			if (caseType === undefined) continue;
+			const values = valueMapByKey.get(`${caseType}\u0000${column.field}`);
+			if (values === undefined) continue;
+			for (const entry of column.mapping) {
+				const to = values.get(entry.value);
+				if (to === undefined) continue;
+				if (column.kind === "id-mapping") {
+					unitMoves.set(
+						makeTranslationUnitId(
+							"column",
+							column.uuid,
+							"mapping",
+							entry.value,
+						),
+						makeTranslationUnitId("column", column.uuid, "mapping", to),
+					);
+				}
+				entry.value = to;
+			}
+		}
+	}
+
+	/* A catalog option's translation unit is keyed by (case type, property,
+	 * value, same-value occurrence), so every renamed catalog option moves
+	 * its wording to the new id. A field option's unit is keyed by the
+	 * option's uuid and needs no move. */
+	for (const space of spaces.values()) {
+		for (const list of space.lists) {
+			if (list.where.kind !== "catalog-option") continue;
+			const before = valuesBeforeRename.get(list.options);
+			if (before === undefined) continue;
+			const beforeOptions = before.map((value) => ({ value }));
+			for (const [index, option] of list.options.entries()) {
+				const from = before[index];
+				if (from === undefined || from === option.value) continue;
+				unitMoves.set(
+					casePropertyOptionTranslationUnitId(
+						list.where.caseType,
+						list.where.property,
+						from,
+						casePropertyOptionOccurrence(beforeOptions, index),
+					),
+					casePropertyOptionTranslationUnitId(
+						list.where.caseType,
+						list.where.property,
+						option.value,
+						casePropertyOptionOccurrence(list.options, index),
+					),
+				);
+			}
+		}
+	}
+	moveTranslationUnits(target, unitMoves);
 
 	/* A close condition names a field's answer by value. */
 	let closeConditionRewrites = 0;
@@ -526,9 +644,9 @@ export async function rewriteCaseRows(
 }
 
 /**
- * An app whose repaired document the gate still refuses, for findings this
- * repair does not own (a missing translation unit, an incomplete case list).
- * It was already locked before the repair ran and stays locked after, so the
+ * An app this repair could not converge — the gate still refuses the repaired
+ * document for a finding the repair does not own, or the write itself failed.
+ * The app was locked before the repair ran and stays locked after, so the
  * repair names it and moves on rather than holding the fleet hostage.
  */
 export interface SelectOptionValueRepairBlock {
@@ -556,13 +674,14 @@ export interface SelectOptionValueRepairReport {
  * live behind different handles; a failure between them leaves a document
  * whose next scan reports the rows still holding the old token.
  *
- * A refused target is collected into `blockedApps` instead of thrown. This
- * runs on every deploy, and the refusal it can meet is an unrelated finding
- * the repair neither caused nor can fix — failing there would block the
- * deploy AND leave the apps it could have repaired locked too. Every other
- * error still throws: a repair that cannot reach the database, or that
- * plans a batch the writer cannot derive, is a defect and should stop the
- * deploy.
+ * A per-app failure is collected into `blockedApps` instead of thrown. This
+ * runs on every deploy, ahead of the revision it converges for, and the worst
+ * this repair can do to an app it cannot fix is leave it exactly where it
+ * already was: locked, and named in the Job's log. Failing the Job is
+ * strictly worse — it blocks the deploy for everyone AND strands every app
+ * the repair could have fixed. Only the snapshot load sits outside the guard,
+ * so a database that has gone away still fails the Job loudly rather than
+ * reporting a fleet of blocked apps.
  */
 export async function runSelectOptionValueRepair(
 	appIds: readonly string[],
@@ -579,9 +698,9 @@ export async function runSelectOptionValueRepair(
 		const snapshot = await loadSelectOptionValueRepairSnapshot(appId);
 		if (snapshot === null) continue;
 		scannedApps++;
-		const plan = planSelectOptionValueRepair(snapshot.blueprint);
-		if (plan.rewrites.length === 0) continue;
 		try {
+			const plan = planSelectOptionValueRepair(snapshot.blueprint);
+			if (plan.rewrites.length === 0) continue;
 			await appendSyntheticBatch({
 				appId,
 				expectedBaseSeq: snapshot.mutationSeq,
@@ -594,23 +713,25 @@ export async function runSelectOptionValueRepair(
 						"Rewrite choice values the stored-value grammar refuses (spaces, quotes, empty) to the slug the validator suggests.",
 				},
 			});
+			for (const rewrite of plan.casePropertyRewrites) {
+				rewrittenCaseRows += await rewriteCaseRows(appId, rewrite);
+			}
+			rewrittenValues += plan.rewrites.length;
+			rewrittenCloseConditions += plan.closeConditionRewrites;
+			rewrittenLiterals += plan.literalRewrites.length;
+			literalReferences += plan.literalReferences.length;
 		} catch (error) {
-			if (!(error instanceof BlueprintCommitRejectedError)) throw error;
 			blockedApps.push({
 				appId,
 				appName: snapshot.appName,
-				reason: error.message,
+				reason:
+					error instanceof BlueprintCommitRejectedError
+						? error.message
+						: `${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
 			});
 			continue;
 		}
-		for (const rewrite of plan.casePropertyRewrites) {
-			rewrittenCaseRows += await rewriteCaseRows(appId, rewrite);
-		}
 		repairedApps++;
-		rewrittenValues += plan.rewrites.length;
-		rewrittenCloseConditions += plan.closeConditionRewrites;
-		rewrittenLiterals += plan.literalRewrites.length;
-		literalReferences += plan.literalReferences.length;
 	}
 	return {
 		scannedApps,

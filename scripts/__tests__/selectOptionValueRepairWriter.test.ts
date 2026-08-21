@@ -129,8 +129,29 @@ describe("runSelectOptionValueRepair", () => {
 		]);
 	});
 
-	it("rethrows anything that is not a commit refusal", async () => {
-		appendSyntheticBatch.mockImplementation(() => {
+	it("records a write that fails for any other reason and keeps going", async () => {
+		// The worst this repair can do to an app it cannot fix is leave it
+		// where it already was. Failing the Job is strictly worse: it blocks
+		// the deploy for everyone and strands every app it could have fixed.
+		appendSyntheticBatch.mockImplementation(({ appId }: { appId: string }) => {
+			if (appId === "broken") throw new TypeError("cannot read x of undefined");
+			return Promise.resolve({ kind: "committed", seq: 8 });
+		});
+
+		const report = await runSelectOptionValueRepair(["broken", "repairable"]);
+
+		expect(report.repairedApps).toBe(1);
+		expect(report.blockedApps).toEqual([
+			{
+				appId: "broken",
+				appName: "App broken",
+				reason: "TypeError: cannot read x of undefined",
+			},
+		]);
+	});
+
+	it("still fails loudly when the snapshot load itself cannot reach the database", async () => {
+		loadPersistedBlueprintReadOnly.mockImplementation(() => {
 			throw new Error("connection terminated unexpectedly");
 		});
 
