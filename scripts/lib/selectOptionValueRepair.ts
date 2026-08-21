@@ -563,39 +563,9 @@ export async function loadSelectOptionValueRepairSnapshot(
 }
 
 /**
- * How many case rows of `appId` hold one of the old tokens for this
- * property: a single select stores the token as a string, a multi select as
- * an array of tokens.
- */
-export async function countCaseRowsHoldingOldValues(
-	appId: string,
-	rewrite: CasePropertyRewrite,
-): Promise<number> {
-	const db = await getCaseStoreDatabase();
-	let total = 0;
-	for (const from of rewrite.values.keys()) {
-		const result = await sql<{ count: string }>`
-			SELECT count(*)::text AS count
-			FROM cases
-			WHERE app_id = ${appId}
-				AND case_type = ${rewrite.caseType}
-				AND (
-					properties ->> ${rewrite.property} = ${from}
-					OR (
-						jsonb_typeof(properties -> ${rewrite.property}) = 'array'
-						AND properties -> ${rewrite.property} ? ${from}
-					)
-				)
-		`.execute(db);
-		total += Number(result.rows[0]?.count ?? 0);
-	}
-	return total;
-}
-
-/**
- * Rewrite the rows `countCaseRowsHoldingOldValues` counts: the string
- * token is replaced, and inside an array only the matching element is.
- * Returns the number of rows touched.
+ * Rewrite the case rows holding an old token: a single select stores it as
+ * a string and is replaced outright, a multi select as an array in which
+ * only the matching element is. Returns the number of rows touched.
  */
 export async function rewriteCaseRows(
 	appId: string,
@@ -743,17 +713,4 @@ export async function runSelectOptionValueRepair(
 		literalReferences,
 		blockedApps,
 	};
-}
-
-/** One line per rewrite, for the scan and the dry run. */
-export function describeRewrite(rewrite: SelectOptionValueRewrite): string {
-	const where =
-		rewrite.where.kind === "catalog-option"
-			? `catalog ${rewrite.where.caseType}.${rewrite.where.property}`
-			: `field ${rewrite.where.fieldId} in "${rewrite.where.formName}"${
-					rewrite.where.caseType !== undefined
-						? ` (${rewrite.where.caseType}.${rewrite.where.property})`
-						: ""
-				}`;
-	return `${where}: ${JSON.stringify(rewrite.from)} (${rewrite.problem}) -> ${JSON.stringify(rewrite.to)}`;
 }
