@@ -112,6 +112,28 @@ describe("suggestSelectOptionValue", () => {
 		}
 	});
 
+	it("keeps combining marks, so abugida and tone-marked scripts stay whole", () => {
+		// Vowel signs, virama, nukta, and tone marks are \p{M}, not \p{L};
+		// a letters-and-digits class splits every word that uses them.
+		expect(suggestSelectOptionValue("नमस्ते", "option_1")).toBe("नमस्ते");
+		expect(suggestSelectOptionValue("नहीं पता", "option_1")).toBe("नहीं_पता");
+		expect(suggestSelectOptionValue("বাংলা", "option_1")).toBe("বাংলা");
+		expect(suggestSelectOptionValue("ไม่ทราบ", "option_1")).toBe("ไม่ทราบ");
+		expect(suggestSelectOptionValue("Ẹ́kọ́", "option_1")).toBe("ẹ́kọ́");
+		for (const value of ["नमस्ते", "नहीं_पता", "ไม่ทราบ", "ẹ́kọ́"]) {
+			expect(isValidSelectOptionValue(value)).toBe(true);
+		}
+	});
+
+	it("mints one value for a label however its accents are encoded", () => {
+		const decomposed = "Sí";
+		expect(decomposed).not.toBe("Sí");
+		expect(suggestSelectOptionValue(decomposed, "option_1")).toBe(
+			suggestSelectOptionValue("Sí", "option_1"),
+		);
+		expect(suggestSelectOptionValue(decomposed, "option_1")).toBe("sí");
+	});
+
 	it("never names a value a sibling already holds", () => {
 		const taken = new Set(["yes", "yes_2"]);
 		expect(suggestSelectOptionValue("Yes", "option_1", taken)).toBe("yes_3");

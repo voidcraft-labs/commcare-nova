@@ -113,11 +113,18 @@ export function repairSelectOptionValue(
 	);
 }
 
+// Letters, digits, and combining marks survive; everything else is a
+// separator. Marks (`\p{M}`) are load-bearing: vowel signs, virama, nukta,
+// and tone marks are how Devanagari, Bengali, Thai, and decomposed Latin
+// spell a word, so a class of letters and digits alone turns "नमस्ते" into
+// "नमस_त". NFC first, so a label typed decomposed ("Si" + U+0301) and its
+// precomposed twin ("Sí") mint the same value.
 function slugOf(text: string): string {
 	return text
+		.normalize("NFC")
 		.trim()
 		.toLowerCase()
-		.replace(/[^\p{L}\p{N}]+/gu, "_")
+		.replace(/[^\p{L}\p{M}\p{N}]+/gu, "_")
 		.replace(/^_+|_+$/g, "");
 }
 
