@@ -36,6 +36,7 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CommitOutcome,
 	type FieldPatchFor,
+	isContainer,
 	makeTranslationUnitId,
 	type ProseTemplate,
 	type Uuid,
@@ -159,7 +160,7 @@ export const FieldRow = memo(function FieldRow({
 			<LabelField field={q} state={displayState} />
 		) : q.kind === "hidden" ? (
 			<HiddenField field={q} />
-		) : q.kind === "group" || q.kind === "repeat" ? null : (
+		) : isContainer(q) ? null : (
 			<div className="block space-y-1.5">
 				{/* Label media (image above the prompt / audio / video), the way
 				    CommCare renders a question's `<value form="image">`. Visual-only

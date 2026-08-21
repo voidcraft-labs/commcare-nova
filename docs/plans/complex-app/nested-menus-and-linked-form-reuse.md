@@ -2,7 +2,7 @@
 
 **PR:** `One-tier menu nesting and native linked-form reuse`
 
-**Depends on:** [form links and sections](form-links-and-sections.md). ·
+**Depends on:** nothing outstanding (after-submit links and form sections have shipped; see the index's "What is built"). ·
 **Blocks:** [session endpoints](session-endpoints-and-deep-links.md).
 
 > Read [the binding contracts](00-contracts.md) first — the "Nova is not CommCare

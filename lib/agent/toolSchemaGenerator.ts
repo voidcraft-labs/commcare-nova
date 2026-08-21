@@ -180,7 +180,7 @@ const parentUuidField = () =>
 		.nullable()
 		.optional()
 		.describe(
-			"Stable UUID of the parent group/repeat. Pass null to insert at the form root. A parent created in this call must declare fieldUuid and appear earlier.",
+			"Stable UUID of the parent group, repeat, or section. Pass null to insert at the form root. A parent created in this call must declare fieldUuid and appear earlier.",
 		);
 
 // `label` is nullable on the shape; the kind policy (see the builders

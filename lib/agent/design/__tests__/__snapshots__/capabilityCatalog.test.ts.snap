@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "0de94c6018857c15dcf83545014323f55888ed4a167457758aaa167ed76df78d",
+  "catalogDigest": "f1d73171f05ae2593f5e2d306e99e8c55ad1fca9e595812fc017271392022bd8",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -33,7 +33,6 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES",
     "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
     "ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
-    "GAP_FORM_LINKS_AND_SECTIONS",
     "GAP_NESTED_MENUS",
     "GAP_SESSION_ENDPOINTS_DEEP_LINKS",
     "GAP_MULTI_SELECT_RELATED_CASES",
@@ -59,6 +58,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "secret",
     "group",
     "repeat",
+    "section",
   ],
   "toolSurface": [
     {
@@ -431,6 +431,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "set_field_options_source",
       "saName": "setFieldOptionsSource",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "set_form_sections",
+      "saName": "setFormSections",
       "staging": "allowed",
     },
     {

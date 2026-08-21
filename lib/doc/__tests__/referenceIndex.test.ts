@@ -311,11 +311,8 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
 		const fieldUuid = doc.fieldOrder[formUuid][0];
-		doc.fields[fieldUuid].relevant = parseXPathForForm(
-			doc,
-			formUuid,
-			"#user/region = 'north'",
-		);
+		(doc.fields[fieldUuid] as { relevant?: unknown }).relevant =
+			parseXPathForForm(doc, formUuid, "#user/region = 'north'");
 
 		const slots = slotsFor(doc, userPropertyTargetKey(propertyUuid));
 		expect(slots[moduleUuid]).toEqual({ module_display_condition: true });

@@ -301,6 +301,20 @@ export function buildField(
 		return;
 	}
 
+	if (spec.kind === "section") {
+		ctx.fields[uuid] = {
+			uuid,
+			kind: "section",
+			id,
+			...(spec.label === undefined ? {} : { label: proseText(spec.label) }),
+		} as Field;
+		ctx.fieldOrder[uuid] = [];
+		spec.children.forEach((childSpec, i) => {
+			buildField(ctx, uuid, pickSiblingId(i), childSpec);
+		});
+		return;
+	}
+
 	if (spec.kind === "repeat") {
 		const base = {
 			uuid,
@@ -523,6 +537,8 @@ export type FieldGenSpec =
 	  }
 	| { kind: "hidden"; calculate: string }
 	| { kind: "group"; label: string; children: FieldGenSpec[] }
+	/** A page of the form. Only `sectionRoot` places these, at the root. */
+	| { kind: "section"; label?: string; children: FieldGenSpec[] }
 	| (
 			| {
 					kind: "repeat";
@@ -695,19 +711,35 @@ const hiddenSpecArb: fc.Arbitrary<FieldGenSpec> = fc
  * A container (group or repeat) spec, recursive up to `depth`. Children draw
  * from leaf/select/hidden plus (when depth allows) nested containers.
  */
-function containerSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
-	const childArb = fieldSpecArb(depth - 1);
+/**
+ * Generation options below a form's root. `noUserRepeat` is the one
+ * constraint a SECTIONED form imposes on its subtree: an add-entries repeat
+ * under a section is `FORM_SECTION_USER_REPEAT`, so the section arbitrary
+ * draws its pages' contents without that repeat mode. Count- and query-bound
+ * repeats, groups, and every leaf kind stay in the pool.
+ */
+export interface FieldSpecOptions {
+	readonly noUserRepeat?: boolean;
+}
+
+function containerSpecArb(
+	depth: number,
+	opts: FieldSpecOptions,
+): fc.Arbitrary<FieldGenSpec> {
+	const childArb = fieldSpecArb(depth - 1, opts);
 	const children = fc.array(childArb, { minLength: 1, maxLength: 3 });
 	const groupArb: fc.Arbitrary<FieldGenSpec> = fc
 		.record({ label: labelArb, children })
 		.map((r) => ({ kind: "group" as const, ...r }));
 
-	const repeatArb: fc.Arbitrary<FieldGenSpec> = fc.oneof(
-		fc.record({ label: labelArb, children }).map((r) => ({
+	const userRepeatArb: fc.Arbitrary<FieldGenSpec> = fc
+		.record({ label: labelArb, children })
+		.map((r) => ({
 			kind: "repeat" as const,
 			mode: "user_controlled" as const,
 			...r,
-		})),
+		}));
+	const boundRepeatArbs: fc.Arbitrary<FieldGenSpec>[] = [
 		fc
 			.record({
 				label: labelArb,
@@ -733,21 +765,83 @@ function containerSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
 				mode: "query_bound" as const,
 				...r,
 			})),
+	];
+	const repeatArb: fc.Arbitrary<FieldGenSpec> = fc.oneof(
+		...(opts.noUserRepeat ? [] : [userRepeatArb]),
+		...boundRepeatArbs,
 	);
 
 	return fc.oneof(groupArb, repeatArb);
 }
 
 /** Any field spec, leaf-biased; containers only when `depth > 0`. */
-export function fieldSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
+export function fieldSpecArb(
+	depth: number,
+	opts: FieldSpecOptions = {},
+): fc.Arbitrary<FieldGenSpec> {
 	const leaves = fc.oneof(leafSpecArb, selectSpecArb, hiddenSpecArb);
 	if (depth <= 0) return leaves;
 	// Bias toward leaves so trees stay shallow and the run is fast, but reach
 	// containers often enough to exercise repeat nesting heavily.
 	return fc.oneof(
 		{ weight: 3, arbitrary: leaves },
-		{ weight: 2, arbitrary: containerSpecArb(depth) },
+		{ weight: 2, arbitrary: containerSpecArb(depth, opts) },
 	);
+}
+
+/**
+ * The section titles of a SECTIONED form, one entry per page (`undefined` =
+ * untitled). Roughly one form in four is sectioned, so every oracle fuzz
+ * meets sectioned forms often without starving the flat shapes.
+ */
+const sectionTitlesArb: fc.Arbitrary<ReadonlyArray<string | undefined>> =
+	fc.array(fc.option(labelArb, { nil: undefined }), {
+		minLength: 1,
+		maxLength: 4,
+	});
+
+const sectionsChoiceArb: fc.Arbitrary<
+	ReadonlyArray<string | undefined> | undefined
+> = fc.oneof(
+	{ weight: 3, arbitrary: fc.constant(undefined) },
+	{ weight: 1, arbitrary: sectionTitlesArb },
+);
+
+/**
+ * Re-page a finished form: move every root child into one of `titles.length`
+ * new root sections, in contiguous chunks and in order. The root then holds
+ * ONLY sections (`FORM_SECTIONS_INCOMPLETE` is the gate's word for anything
+ * else), and a trailing page may come out EMPTY when the root held fewer
+ * children than sections: that is legal and is the shape the device skips,
+ * so the fuzz keeps it. Section ids (`section_<n>`) are off the sibling pool
+ * and off every injected id, so nothing collides; the children keep the ids
+ * they had, which were unique among root siblings and so stay unique within
+ * each chunk.
+ *
+ * Called AFTER every root injection, so the injected `case_name` /
+ * `saved_prop` writers and the subcase repeat are paged too: a sectioned
+ * case-bearing form emits case blocks over section-nested paths, which is
+ * exactly the shape a real sectioned registration form takes.
+ */
+export function sectionRoot(
+	ctx: FieldBuildCtx,
+	formUuid: Uuid,
+	titles: ReadonlyArray<string | undefined>,
+): void {
+	const rootChildren = ctx.fieldOrder[formUuid];
+	const chunk = Math.ceil(rootChildren.length / titles.length);
+	ctx.fieldOrder[formUuid] = [];
+	titles.forEach((title, i) => {
+		const uuid = ctx.minter.uuid("fld");
+		ctx.fieldOrder[formUuid].push(uuid);
+		ctx.fields[uuid] = {
+			uuid,
+			kind: "section",
+			id: `section_${i + 1}`,
+			...(title === undefined ? {} : { label: proseText(title) }),
+		} as Field;
+		ctx.fieldOrder[uuid] = rootChildren.slice(i * chunk, (i + 1) * chunk);
+	});
 }
 
 // ── Connect config generation ──────────────────────────────────────
@@ -943,6 +1037,11 @@ interface DocGenSpec {
 			 *  for subcase injection. The lowering builds the repeat + child
 			 *  field; the child case type joins the doc's `caseTypes`. */
 			subcase?: SubcaseShapeSpec;
+			/** Present iff the form is SECTIONED: one title per page (an
+			 *  `undefined` title is an untitled page). The lowering pages the
+			 *  finished root with `sectionRoot`, so `fields` and `subcase`
+			 *  were drawn without add-entries repeats. */
+			sections?: ReadonlyArray<string | undefined>;
 		}>;
 	}>;
 }
@@ -957,32 +1056,54 @@ interface DocGenSpec {
  * child-case-type drawn uniformly; the `idsQuery` for `query_bound`
  * matches the leaves the per-mode compiler tests use.
  */
-const subcaseShapeArb: fc.Arbitrary<SubcaseShapeSpec | undefined> = fc.option(
-	fc.record({
-		mode: fc.constantFrom<SubcaseShapeSpec["mode"]>(
-			"user_controlled",
-			"count_bound",
-			"query_bound",
-		),
-		childCaseType: fc.constantFrom("child", "child_visit", "child_followup"),
-	}),
-	{ freq: 3, nil: undefined },
-);
+function subcaseShapeArbFor(
+	modes: readonly SubcaseShapeSpec["mode"][],
+): fc.Arbitrary<SubcaseShapeSpec | undefined> {
+	return fc.option(
+		fc.record({
+			mode: fc.constantFrom<SubcaseShapeSpec["mode"]>(...modes),
+			childCaseType: fc.constantFrom("child", "child_visit", "child_followup"),
+		}),
+		{ freq: 3, nil: undefined },
+	);
+}
+
+const subcaseShapeArb = subcaseShapeArbFor([
+	"user_controlled",
+	"count_bound",
+	"query_bound",
+]);
+
+/** A sectioned form's subcase repeat lands inside a page, where an
+ *  add-entries repeat is refused, so it is drawn bound-only. */
+const sectionSafeSubcaseShapeArb = subcaseShapeArbFor([
+	"count_bound",
+	"query_bound",
+]);
 
 /**
  * The form spec WITHOUT its Connect selection — the connect block is layered
  * on per-app-mode below, because its mode must match the app-level
  * `connectType` (a learn app's forms can't carry a deliver selection).
  */
-const formCoreArb = fc.record({
-	type: fc.constantFrom(...FORM_TYPES),
-	fields: fc.array(fieldSpecArb(2), { minLength: 1, maxLength: 4 }),
-	// Menu-tile media on a form's command. Independent booleans so the
-	// generator covers icon-only, audio-only, both, and neither.
-	hasIcon: fc.boolean(),
-	hasAudioLabel: fc.boolean(),
-	subcase: subcaseShapeArb,
-});
+const formCoreArb = sectionsChoiceArb.chain((sections) =>
+	fc.record({
+		type: fc.constantFrom(...FORM_TYPES),
+		// A sectioned form's subtree is drawn without add-entries repeats
+		// (`FORM_SECTION_USER_REPEAT`); everything else stays in the pool.
+		fields: fc.array(
+			fieldSpecArb(2, { noUserRepeat: sections !== undefined }),
+			{ minLength: 1, maxLength: 4 },
+		),
+		// Menu-tile media on a form's command. Independent booleans so the
+		// generator covers icon-only, audio-only, both, and neither.
+		hasIcon: fc.boolean(),
+		hasAudioLabel: fc.boolean(),
+		subcase:
+			sections === undefined ? subcaseShapeArb : sectionSafeSubcaseShapeArb,
+		sections: fc.constant(sections),
+	}),
+);
 
 const moduleCoreArb = fc.record({
 	caseType: fc.constantFrom("patient", "household", "visit", "service"),
@@ -1194,6 +1315,11 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					childCaseType,
 				});
 			}
+
+			// Last, so every injected root child is paged with the random ones.
+			if (formSpec.sections !== undefined) {
+				sectionRoot(ctx, formUuid, formSpec.sections);
+			}
 		});
 	});
 
@@ -1311,6 +1437,15 @@ export interface FuzzMediaAsset {
  * all-empty slots fails loud rather than turning the media-resolution
  * check into a silent no-op while menu media keeps `hasMedia` true.
  */
+/** Whether any form in `doc` is sectioned (its root holds a section). */
+export function hasSectionedForm(doc: BlueprintDoc): boolean {
+	return Object.keys(doc.forms).some((formUuid) =>
+		(doc.fieldOrder[formUuid] ?? []).some(
+			(uuid) => doc.fields[uuid]?.kind === "section",
+		),
+	);
+}
+
 export function hasFormItextMedia(doc: BlueprintDoc): boolean {
 	for (const ref of walkAssetRefs(doc)) {
 		if (

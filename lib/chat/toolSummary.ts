@@ -104,6 +104,10 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		doing: "Adding after-submit links",
 		done: "Added after-submit links",
 	},
+	setFormSections: {
+		doing: "Arranging sections",
+		done: "Arranged sections",
+	},
 	updateFormLink: {
 		doing: "Updating after-submit link",
 		done: "Updated after-submit link",
@@ -282,6 +286,10 @@ const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 	addCaseOperations: (n) =>
 		`Added ${n} case ${n === 1 ? "operation" : "operations"}`,
 	addFormLinks: (n) => `Added ${n} after-submit ${n === 1 ? "link" : "links"}`,
+	setFormSections: (n) =>
+		n === 0
+			? "Removed the sections"
+			: `Arranged ${n} ${n === 1 ? "section" : "sections"}`,
 	renameCaseProperties: (n) =>
 		`Renamed ${n} case ${n === 1 ? "property" : "properties"}`,
 	addUserProperties: (n) =>
@@ -425,6 +433,8 @@ export const toolAction = (part: ToolUIPart): string => {
 	if (summary?.awaitingConsent) {
 		return `Checked a conversion${summary.subject ? ` "${summary.subject}"` : ""}`;
 	}
+	// A verified no-op changed nothing on purpose: the verb must say so.
+	if (summary?.noop) return "Nothing to change";
 	if (name === "updateApp") return updateAppAction(summary, tense);
 	if (name === "configureConnect") {
 		return configureConnectAction(summary, tense);

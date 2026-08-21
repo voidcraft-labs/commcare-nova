@@ -76,6 +76,11 @@ import {
 	FORM_LINKS_SEED,
 	formLinksRoute,
 } from "./lib/formLinksSeed";
+import {
+	buildFormSectionsBlueprint,
+	FORM_SECTIONS_SEED,
+	formSectionsRoute,
+} from "./lib/formSectionsSeed";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import { buildSessionStorageState } from "./lib/session";
 
@@ -740,6 +745,27 @@ async function main(): Promise<void> {
 		});
 	}
 
+	/* The sections journey runs a form split into two pages in Preview and
+	 * changes nothing durable, so one app serves every attempt. */
+	const { appId: formSectionsAppId, baseSeq: formSectionsGenesisSeq } =
+		await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
+			name: FORM_SECTIONS_SEED.appName,
+			status: "complete",
+		});
+	const formSectionsDoc = toPersistableDoc(
+		buildFormSectionsBlueprint(formSectionsAppId),
+	);
+	await appendSyntheticBatch({
+		appId: formSectionsAppId,
+		expectedBaseSeq: formSectionsGenesisSeq,
+		targetDoc: formSectionsDoc,
+		authority: { kind: "user", actorUserId: SEED.userId },
+	});
+	const formSections = {
+		appId: formSectionsAppId,
+		route: formSectionsRoute(formSectionsAppId),
+	};
+
 	/* The conversations fixture: a module-bearing app (docked chat) plus two
 	 * tall, settled conversations written through the real thread store (turn
 	 * upsert + response append, live marker cleared) — exactly the rows finished
@@ -1053,6 +1079,7 @@ async function main(): Promise<void> {
 				caseWorkspace,
 				caseChanges,
 				formLinks,
+				formSections,
 				deleteAppIds,
 				threadsAppId,
 				olderThreadId,

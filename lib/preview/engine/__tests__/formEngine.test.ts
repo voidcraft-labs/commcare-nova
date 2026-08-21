@@ -128,7 +128,7 @@ function dTree(
 			} as Field;
 			// Containers get an entry in fieldOrder even when empty — the engine's
 			// tree builder treats the presence of an entry as the signal to recurse.
-			if (n.kind === "group" || n.kind === "repeat") {
+			if (n.kind === "group" || n.kind === "repeat" || n.kind === "section") {
 				walk(children ?? [], uuid, `${pathPrefix}.${n.id}`);
 			}
 		}
@@ -3697,5 +3697,56 @@ describe("FormEngine", () => {
 			});
 			expect(mutation.usercase).toEqual({ visits_done: "7" });
 		});
+	});
+});
+
+describe("sections on submission", () => {
+	it("carries the case writes a section's questions hold", () => {
+		const sectionedCaseTypes: CaseType[] = [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "notes", label: proseText("Notes"), data_type: "text" },
+				],
+			},
+		];
+		const engine = new FormEngine(
+			dTree(
+				[
+					{
+						id: "about",
+						kind: "section",
+						label: proseText("About"),
+						children: [
+							{
+								id: "case_name",
+								kind: "text",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							},
+							{
+								id: "notes",
+								kind: "text",
+								label: proseText("Notes"),
+								caseWrite: { caseType: "patient", property: "notes" },
+							},
+						],
+					},
+				],
+				"registration",
+				sectionedCaseTypes,
+			),
+			"patient",
+		);
+		engine.setValue("/data/about/case_name", "Ada");
+		engine.setValue("/data/about/notes", "first visit");
+		const mutation = engine.computeSubmissionMutation({
+			entryKey: ENTRY_KEY,
+			viewerTimeZone: "UTC",
+		});
+		if (mutation.kind !== "registration") throw new Error("expected register");
+		expect(mutation.primary.caseName).toBe("Ada");
+		expect(mutation.primary.properties.notes).toBe("first visit");
 	});
 });

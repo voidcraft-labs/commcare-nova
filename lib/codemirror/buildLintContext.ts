@@ -23,6 +23,7 @@ import {
 	type Field,
 	type FieldKind,
 	type Form,
+	isContainer,
 	type ProseTemplate,
 	projectProseTemplate,
 	type ReachableCaseTypeIndex,
@@ -105,7 +106,7 @@ export function buildLintContext(
 					: field.id,
 				kind: field.kind,
 			});
-			if (field.kind === "group" || field.kind === "repeat") {
+			if (isContainer(field)) {
 				walk(childUuid, path);
 			}
 		}

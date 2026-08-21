@@ -29,6 +29,12 @@ export const EMPTY_CONTAINER_HEIGHT_PX = 72;
 /** Height of a group bracket row (open or close). */
 export const GROUP_BRACKET_HEIGHT_PX = 40;
 
+/** Height of a section header (the page heading: kicker + title). One
+ *  number for both modes: the edit canvas's `SectionHeaderRow` and the
+ *  preview pager's page heading render the same `SectionHeading` box, so a
+ *  flip between them lands every row below at the same Y. */
+export const SECTION_HEADER_HEIGHT_PX = 68;
+
 /**
  * Compute the inline left-padding (in px) for a row at the given depth.
  * Depth 0 (root-level fields) gets the base padding; each additional

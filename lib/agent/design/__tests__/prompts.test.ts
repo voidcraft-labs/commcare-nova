@@ -265,7 +265,7 @@ describe("renderSourcePackage containment", () => {
 		for (const prompt of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {
 			expect(prompt).toContain("ordinary group fields");
 			expect(prompt).toContain("one continuous form");
-			expect(prompt).toContain("FormSection");
+			expect(prompt).toContain("pages (form sections)");
 		}
 		expect(DESIGN_AGENT_SYSTEM).toContain(
 			"never a reason to flatten useful grouping",
@@ -287,15 +287,6 @@ describe("renderSourcePackage containment", () => {
 		expect(constraints).toContain(
 			"blank replacement input that conditionally skips its write",
 		);
-	});
-
-	it("keeps grouped fields distinct from the future FormSection gap", () => {
-		const constraints = renderPlatformConstraintsSection();
-		expect(constraints).toContain("authored FormSection pages");
-		expect(constraints).toContain(
-			"Ordinary group fields still provide visual grouping",
-		);
-		expect(constraints).toContain("are not part of this gap");
 	});
 
 	it("treats missing authoring values as blockers rather than readiness", () => {

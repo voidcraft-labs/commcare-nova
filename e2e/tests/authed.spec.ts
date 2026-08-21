@@ -14,6 +14,7 @@ import {
 import { attachErrorGuard } from "../lib/errorGuard";
 import { expect, test } from "../lib/fixtures";
 import { FORM_LINKS_SEED } from "../lib/formLinksSeed";
+import { FORM_SECTIONS_SEED } from "../lib/formSectionsSeed";
 
 /**
  * Authenticated smoke checks, driven by the seeded session cookie in
@@ -92,6 +93,7 @@ interface SeedManifest {
 		route: string;
 		caseId: string;
 	}[];
+	formSections: { appId: string; route: string };
 }
 
 type SecondaryHeaderName =
@@ -2865,6 +2867,105 @@ test.describe("authenticated builder", () => {
 			const trail = page.getByRole("navigation", { name: "Page navigation" });
 			await expect(trail).toContainText(FORM_LINKS_SEED.caseName);
 			await expect(trail).toContainText(followUp.formName);
+		});
+	});
+
+	test("a sectioned form pages in Preview on the device's rules", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		const { aboutYou, yourVisit } = FORM_SECTIONS_SEED;
+		const main = page.locator("main");
+
+		await test.step("the edit canvas shows every page, headed and counted", async () => {
+			await page.goto(seed.formSections.route);
+			await expect(
+				main.getByText("Section 1 of 2", { exact: true }),
+			).toBeVisible({ timeout: 20_000 });
+			await expect(
+				main.getByText("Section 2 of 2", { exact: true }),
+			).toBeVisible();
+			await expect(
+				main.getByText(aboutYou.title, { exact: true }),
+			).toBeVisible();
+			await expect(
+				main.getByText(yourVisit.title, { exact: true }),
+			).toBeVisible();
+		});
+
+		const stepper = page.getByRole("navigation", { name: "Sections" });
+		const step = (kicker: string) =>
+			stepper.getByRole("button", { name: new RegExp(`^${kicker}`) });
+		const nameField = main.getByRole("textbox", { name: aboutYou.nameLabel });
+		const next = main.getByRole("button", { name: "Next", exact: true });
+
+		await test.step("Preview opens on the first page with the stepper and Next", async () => {
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			await expect(stepper).toBeVisible({ timeout: 20_000 });
+			await expect(stepper.getByRole("button")).toHaveCount(2);
+			await expect(step("Section 1 of 2")).toHaveAttribute(
+				"aria-current",
+				"step",
+			);
+			await expect(
+				main.getByRole("heading", { name: aboutYou.title, level: 2 }),
+			).toBeVisible();
+			await expect(nameField).toBeVisible();
+			await expect(next).toBeVisible();
+			await expect(
+				main.getByRole("button", { name: "Submit", exact: true }),
+			).toHaveCount(0);
+		});
+
+		await test.step("Next refuses a blank required question and focuses it", async () => {
+			await next.click();
+			await expect(
+				page
+					.getByRole("alert")
+					.filter({ hasText: "Review the highlighted question." }),
+			).toBeVisible();
+			await expect(nameField).toBeFocused();
+			await expect(step("Section 1 of 2")).toHaveAttribute(
+				"aria-current",
+				"step",
+			);
+		});
+
+		await test.step("an answered page turns, focuses the next heading, and offers Submit", async () => {
+			await nameField.fill("Ada");
+			await next.click();
+			const heading = main.getByRole("heading", {
+				name: yourVisit.title,
+				level: 2,
+			});
+			await expect(heading).toBeVisible();
+			await expect(heading).toBeFocused();
+			await expect(step("Section 2 of 2")).toHaveAttribute(
+				"aria-current",
+				"step",
+			);
+			await expect(
+				main.getByRole("button", { name: "Submit", exact: true }),
+			).toBeVisible();
+			await expect(next).toHaveCount(0);
+		});
+
+		await test.step("Back never validates and keeps the answer", async () => {
+			await main.getByRole("button", { name: "Back", exact: true }).click();
+			await expect(nameField).toHaveValue("Ada");
+			await expect(step("Section 1 of 2")).toHaveAttribute(
+				"aria-current",
+				"step",
+			);
+		});
+
+		await test.step("a flip back to editing opens on the page that was showing", async () => {
+			await page
+				.getByRole("button", { name: "Back to edit", exact: true })
+				.click();
+			await expect(
+				main.getByText("Section 1 of 2", { exact: true }),
+			).toBeVisible({ timeout: 20_000 });
 		});
 	});
 

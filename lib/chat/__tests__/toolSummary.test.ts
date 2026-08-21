@@ -75,6 +75,14 @@ describe("action tense follows the call's status", () => {
 		expect(toolAction(refused)).toBe("Removing field");
 	});
 
+	it("says nothing changed when a successful call was a no-op", () => {
+		expect(
+			toolAction(
+				donePart("setFormSections", { location: "Intake", noop: true }),
+			),
+		).toBe("Nothing to change");
+	});
+
 	it("falls back to the raw tool name in either tense for an unmapped tool", () => {
 		expect(toolAction(pendingPart("someFutureTool"))).toBe("someFutureTool");
 	});

@@ -52,6 +52,7 @@ import {
 	userControlledRepeatSchema,
 } from "../fields/repeat";
 import { secretFieldSchema } from "../fields/secret";
+import { sectionFieldSchema } from "../fields/section";
 import { signatureFieldSchema } from "../fields/signature";
 import { singleSelectFieldSchema } from "../fields/singleSelect";
 import { textFieldSchema } from "../fields/text";
@@ -120,6 +121,7 @@ const NON_REPEAT_KIND_SCHEMAS: Record<
 	hidden: hiddenFieldSchema,
 	secret: secretFieldSchema,
 	group: groupFieldSchema,
+	section: sectionFieldSchema,
 };
 
 const REPEAT_VARIANT_SCHEMAS: Record<RepeatMode, z.ZodType> = {

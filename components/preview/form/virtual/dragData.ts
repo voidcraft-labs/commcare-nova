@@ -70,8 +70,20 @@ export interface DropGroupHeaderData {
 	readonly siblingIndex: number;
 }
 
+/** A section heading drop target. Like a group header it carries two
+ *  intents keyed by the closest edge: top = before this page at the form
+ *  root (a section landing), bottom = first question of this page (a
+ *  question landing). */
+export interface DropSectionHeaderData {
+	readonly kind: "drop-section-header";
+	readonly uuid: Uuid;
+	/** The form uuid: a page lives only at the root. */
+	readonly parentUuid: Uuid;
+	readonly siblingIndex: number;
+}
+
 /** An empty-container drop target: drop here to become the sole child of
- *  the empty group/repeat. */
+ *  the empty group/repeat/section. */
 export interface DropEmptyContainerData {
 	readonly kind: "drop-empty-container";
 	readonly parentUuid: Uuid;
@@ -80,6 +92,7 @@ export interface DropEmptyContainerData {
 export type DropTargetData =
 	| DropFieldData
 	| DropGroupHeaderData
+	| DropSectionHeaderData
 	| DropEmptyContainerData;
 
 // Factory helpers: keep the `kind` discriminator in one place.
@@ -97,6 +110,14 @@ export function makeDropGroupHeaderData(
 	siblingIndex: number,
 ): DropRecord<DropGroupHeaderData> {
 	return { kind: "drop-group-header", uuid, parentUuid, siblingIndex };
+}
+
+export function makeDropSectionHeaderData(
+	uuid: Uuid,
+	parentUuid: Uuid,
+	siblingIndex: number,
+): DropRecord<DropSectionHeaderData> {
+	return { kind: "drop-section-header", uuid, parentUuid, siblingIndex };
 }
 
 export function makeDropEmptyContainerData(
@@ -118,6 +139,7 @@ export function readDropTargetData(
 	if (
 		kind === "drop-field" ||
 		kind === "drop-group-header" ||
+		kind === "drop-section-header" ||
 		kind === "drop-empty-container"
 	) {
 		return data as unknown as DropTargetData;
@@ -168,27 +190,35 @@ export function isUuidInSubtree(
  *   - `drop-group-header` + edge "top"  → target's parent (source becomes sibling
  *                                          BEFORE the group, not a child of it)
  *   - `drop-group-header` + otherwise   → the group uuid (source becomes child)
+ *   - `drop-section-header` + "top"     → the form root (source becomes the page
+ *                                          before this one)
+ *   - `drop-section-header` + otherwise → the section uuid (source becomes its
+ *                                          first question)
  *   - `drop-empty-container`            → the empty container uuid (source becomes
  *                                          sole child)
  *
- * The `edge` argument is only consulted for `drop-group-header`. Group
- * headers are unique in that a single DOM element encodes two different
- * positional intents: the top half of the header means "insert before
- * the group" (sibling of the group at the parent level); the bottom half
- * means "insert as first child of the group". Cycle detection must pick
- * the correct target container, otherwise a valid "drop before this
- * group" gets rejected on the grounds that the source is an ancestor of
- * the group itself.
+ * The `edge` argument is only consulted for the two header kinds. A header
+ * is unique in that a single DOM element encodes two different positional
+ * intents: the top half means "insert before this container" (a sibling at
+ * the parent level); the bottom half means "insert as its first child".
+ * Cycle detection and the placement verdict must pick the correct target
+ * container, otherwise a valid "drop before this group" gets rejected on
+ * the grounds that the source is an ancestor of the group itself.
  */
 export function targetContainerUuidFor(
 	drop: DropTargetData,
 	edge?: Edge | null,
+	sectionDrag = false,
 ): Uuid {
 	switch (drop.kind) {
 		case "drop-field":
 			return drop.parentUuid;
 		case "drop-group-header":
-			return edge === "top" ? drop.parentUuid : drop.uuid;
+		case "drop-section-header":
+			// A dragged SECTION never nests, so for it a header's bottom
+			// half means "after this container at its level", the same
+			// landing as the top half — never "inside".
+			return edge === "top" || sectionDrag ? drop.parentUuid : drop.uuid;
 		case "drop-empty-container":
 			return drop.parentUuid;
 	}

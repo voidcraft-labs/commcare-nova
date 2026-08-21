@@ -30,6 +30,7 @@ import { CaseOperationInspectorBody } from "@/components/builder/case-operations
 import { operationSentence } from "@/components/builder/case-operations/operationSentence";
 import { useOperationSentenceContext } from "@/components/builder/case-operations/useOperationSentenceContext";
 import { FieldInspectorBody } from "@/components/builder/editor/FieldInspectorBody";
+import { SectionInspectorBody } from "@/components/builder/editor/SectionInspectorBody";
 import { FormLinkInspectorBody } from "@/components/builder/form-links/FormLinkInspectorBody";
 import { linkLead } from "@/components/builder/form-links/linkSentence";
 import { useLinkSentenceContext } from "@/components/builder/form-links/useLinkSentenceContext";
@@ -74,6 +75,22 @@ export function useActiveInspector(): ActiveInspector | null {
 			"label" in field && field.label
 				? projectProse(field.label).trim()
 				: undefined;
+		if (field.kind === "section") {
+			// A page has its own body: its place in the form and its fate, no
+			// logic. An untitled page is named as such rather than by its id,
+			// which is a wire name nobody chose.
+			return {
+				kicker: "Section",
+				title: label || "Untitled section",
+				body: (
+					<>
+						<PeerBadge uuid={field.uuid} className="mb-1" />
+						<SectionInspectorBody field={field} />
+					</>
+				),
+				onClose: () => select(undefined),
+			};
+		}
 		return {
 			kicker: fieldRegistry[field.kind].label,
 			title: label || field.id,

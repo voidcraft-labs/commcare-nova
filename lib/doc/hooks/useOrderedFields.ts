@@ -33,13 +33,18 @@ const EMPTY_ORDER: readonly Uuid[] = Object.freeze([]);
 
 /**
  * Uuids of a parent's direct children (form's top-level fields, or a
- * group/repeat's contained fields), in visual order.
+ * group/repeat's contained fields), in visual order. No parent (a screen
+ * that has not resolved its form yet) reads as the empty sequence, so a
+ * caller never has to invent an identity to keep hook order.
  *
  * Materialize with `useField(uuid)` per child at the call site.
  */
-export function useOrderedFields(parentUuid: Uuid): readonly Uuid[] {
+export function useOrderedFields(
+	parentUuid: Uuid | undefined,
+): readonly Uuid[] {
 	return useBlueprintDocEq((s) => {
-		const order = s.fieldOrder[parentUuid];
+		const order =
+			parentUuid === undefined ? undefined : s.fieldOrder[parentUuid];
 		if (!order || order.length === 0) return EMPTY_ORDER;
 		// The membership array IS the visual sequence, so there is nothing to
 		// derive. The identity equality below still keeps the reference stable

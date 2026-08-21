@@ -53,6 +53,7 @@ import {
 	type FuzzMediaAsset,
 	fuzzManifestFromDoc,
 	hasFormItextMedia,
+	hasSectionedForm,
 } from "./xformDocArbitrary";
 
 /** Fixed seed + run count so a failure reproduces exactly across runs + CI. */
@@ -131,7 +132,7 @@ describe("XForm emitter totality (property-based fuzz)", () => {
 	// docs with field message-slot or option media. A drift in the field-media
 	// arbitrary toward all-empty slots would leave that path unexercised while
 	// every other assertion stayed green; the floor below catches it.
-	const census = { total: 0, formItextMedia: 0 };
+	const census = { total: 0, formItextMedia: 0, sectioned: 0 };
 
 	it("every form of every schema-valid doc emits oracle-clean XForm", {
 		timeout: FUZZ_TIMEOUT_MS,
@@ -145,6 +146,7 @@ describe("XForm emitter totality (property-based fuzz)", () => {
 				// below exercises).
 				census.total += 1;
 				if (hasFormItextMedia(doc)) census.formItextMedia += 1;
+				if (hasSectionedForm(doc)) census.sectioned += 1;
 
 				// Build the fuzz manifest covering every media reference the doc
 				// makes; thread it into `expandDoc` so the XForm emitter actually
@@ -219,5 +221,13 @@ describe("XForm emitter totality (property-based fuzz)", () => {
 		// failure mode this guards against.
 		expect(census.total).toBeGreaterThan(0);
 		expect(census.formItextMedia / census.total).toBeGreaterThan(0.3);
+	});
+
+	it("the run exercised sectioned forms", () => {
+		// Same discipline: `sectionRoot` pages roughly one form in four, and a
+		// doc holds up to four forms, so well over a third of docs carry a
+		// sectioned form. A collapse here means the section arbitrary went
+		// dead and every oracle silently stopped meeting the shape.
+		expect(census.sectioned / census.total).toBeGreaterThan(0.3);
 	});
 });

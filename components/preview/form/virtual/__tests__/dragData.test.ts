@@ -18,6 +18,7 @@ import {
 	makeDropEmptyContainerData,
 	makeDropFieldData,
 	makeDropGroupHeaderData,
+	makeDropSectionHeaderData,
 	readDropTargetData,
 	targetContainerUuidFor,
 } from "../dragData";
@@ -92,6 +93,17 @@ describe("targetContainerUuidFor", () => {
 		expect(targetContainerUuidFor(drop, "top")).toBe(F);
 	});
 
+	// A dragged SECTION never nests, so for it a header's bottom half is
+	// "after this container at its level" — the parent, both halves.
+	it("resolves every header edge to the parent for a dragged section", () => {
+		const data = makeDropSectionHeaderData(G(1), F, 0);
+		const drop = readDropTargetData(data);
+		if (!drop) throw new Error("unreachable");
+		expect(targetContainerUuidFor(drop, "top", true)).toBe(F);
+		expect(targetContainerUuidFor(drop, "bottom", true)).toBe(F);
+		expect(targetContainerUuidFor(drop, "bottom", false)).toBe(G(1));
+	});
+
 	it("resolves a drop-empty-container to the container's uuid", () => {
 		const data = makeDropEmptyContainerData(G(1));
 		const drop = readDropTargetData(data);
@@ -158,5 +170,26 @@ describe("isUuidInSubtree", () => {
 			b: ["a"],
 		};
 		expect(isUuidInSubtree(cyclic, "a", "c")).toBe(false);
+	});
+});
+
+describe("section header drop targets", () => {
+	const S = testUuid("sec1-0000-0000-0000-000000000000");
+
+	it("round-trips through the factory and the narrowing reader", () => {
+		const data = makeDropSectionHeaderData(S, F, 0);
+		expect(readDropTargetData(data)).toEqual({
+			kind: "drop-section-header",
+			uuid: S,
+			parentUuid: F,
+			siblingIndex: 0,
+		});
+	});
+
+	it("lands at the form root for the top edge and inside the page otherwise", () => {
+		const drop = makeDropSectionHeaderData(S, F, 0);
+		expect(targetContainerUuidFor(drop, "top")).toBe(F);
+		expect(targetContainerUuidFor(drop, "bottom")).toBe(S);
+		expect(targetContainerUuidFor(drop, null)).toBe(S);
 	});
 });

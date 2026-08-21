@@ -52,6 +52,7 @@ import {
 	type Field,
 	type Form,
 	isCaptureFieldKind,
+	isContainer,
 	type LanguageTag,
 	materializableCaseTypes,
 	projectLocalizedFields,
@@ -68,6 +69,7 @@ import {
 	FormEngine,
 	type FormEngineInput,
 	type InvalidFieldTarget,
+	type SectionPage,
 } from "./formEngine";
 import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
@@ -802,9 +804,25 @@ export class EngineController {
 		return result;
 	}
 
-	/** First invalid runtime question plus the collapsed ancestors that hide it. */
-	firstInvalidFieldTarget(): InvalidFieldTarget | undefined {
-		return this.engine?.firstInvalidFieldTarget();
+	/** First invalid runtime question plus the collapsed ancestors that hide
+	 *  it, across the form or on one page (`withinSection`). */
+	firstInvalidFieldTarget(opts?: {
+		readonly withinSection?: Uuid;
+	}): InvalidFieldTarget | undefined {
+		return this.engine?.firstInvalidFieldTarget(opts);
+	}
+
+	/** The form's pages (root sections) with their current visibility. */
+	sectionPages(): ReadonlyArray<SectionPage> {
+		return this.engine?.sectionPages() ?? [];
+	}
+
+	/** Validate the visible questions on one page. Returns true if valid. */
+	validateSection(sectionUuid: Uuid): boolean {
+		if (!this.engine) return true;
+		const result = this.engine.validateSection(sectionUuid);
+		this.syncAllPathsSelectively();
+		return result;
 	}
 
 	/** Resolve a concrete question to the collapsed containers that hide it. */
@@ -1318,8 +1336,7 @@ export class EngineController {
 		if (!input) return;
 
 		const field = input.fields[uuid];
-		const isContainerConversion =
-			field?.kind === "group" || field?.kind === "repeat";
+		const isContainerConversion = field !== undefined && isContainer(field);
 
 		/* Snapshot old paths (container + every descendant) against the
 		 * PRE-rebuild maps — that's where the current values live. For a
@@ -1425,6 +1442,10 @@ export class EngineController {
 
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return;
+		/* A constant `required` (`true()` / `false()`) never enters the DAG,
+		 * so the evaluation below cannot see it change: re-seed it first. */
+		const field = input.fields[uuid];
+		if (field !== undefined) this.engine.reseedRequired(path, field);
 		const affectedPaths = [
 			...this.engine.materializePaths(path),
 			...this.engine.getAffectedPaths(path),

@@ -93,6 +93,7 @@ import {
 	type FieldKind,
 	isCaptureField,
 	isCaptureFieldKind,
+	isContainer,
 	type Media,
 	makeTranslationUnitId,
 	type ProseTemplate,
@@ -508,7 +509,7 @@ export function buildXForm(
 					);
 				});
 			}
-			if (field.kind === "group" || field.kind === "repeat") {
+			if (isContainer(field)) {
 				indexItextUnits(fieldUuid, `${key}-`);
 			}
 		}
@@ -937,7 +938,7 @@ function buildFieldParts(
 	const helpMedia = readFieldMedia(field, "help_media");
 	const validateMsgMedia = readFieldMedia(field, "validate_msg_media");
 	const canValidate = supportsValidation(field.kind);
-	const isContainerKind = field.kind === "group" || field.kind === "repeat";
+	const isContainerKind = isContainer(field);
 	const hasLabel =
 		field.kind !== "hidden" &&
 		addItext(`${itextKey}-label`, label, labelMedia, !isContainerKind);
@@ -1118,7 +1119,7 @@ function buildFieldParts(
 		return; // no body; data + bind only
 	}
 
-	if (field.kind === "group" || field.kind === "repeat") {
+	if (isContainer(field)) {
 		buildContainer(
 			doc,
 			field,
@@ -1534,15 +1535,22 @@ function buildContainer(
 
 	// Group body: `<group ref>` wrapping the children. `appearance="field-list"`
 	// is a CommCare semantic that drives single-page rendering of the group's
-	// children. A LABELLED group (text OR media) gets it as Nova's default; a
-	// transparent (no-label) group drops the attribute — there's no group
-	// chrome to anchor a field-list layout against, so leaving it on would
-	// assert a layout posture the author didn't ask for. Gated on the SAME
-	// predicate `labelEl` is computed from so a media-only group label still
-	// counts as labelled (the body emits `<label>` and the group renders as
-	// real chrome, not a transparent wrapper).
+	// children (Vellum's `tests/static/all_question_types.xml` field-list
+	// group is the fixture; HQ's `xform.py::_infer_vellum_type` reads the
+	// attribute as `FieldList`). A SECTION is ALWAYS a field-list: that is
+	// what a section is on the wire, titled or not. A LABELLED group (text OR
+	// media) gets it as Nova's default; a transparent (no-label) group drops
+	// the attribute — there's no group chrome to anchor a field-list layout
+	// against, so leaving it on would assert a layout posture the author
+	// didn't ask for. The group gate is the SAME predicate `labelEl` is
+	// computed from so a media-only group label still counts as labelled (the
+	// body emits `<label>` and the group renders as real chrome, not a
+	// transparent wrapper); an untitled section emits the field-list group
+	// with no `<label>`, legal on every runtime.
 	const groupAttribs: Record<string, string> = { ref: nodePath.toXPath() };
-	if (hasLabel) groupAttribs.appearance = "field-list";
+	if (field.kind === "section" || hasLabel) {
+		groupAttribs.appearance = "field-list";
+	}
 	const groupChildren: Element[] = labelEl
 		? [labelEl, ...childBody]
 		: childBody;
@@ -1823,6 +1831,7 @@ const BIND_TYPE_BY_KIND: Record<FieldKind, string | null> = {
 	label: null,
 	group: null,
 	repeat: null,
+	section: null,
 };
 
 function getBindType(kind: FieldKind): string | null {

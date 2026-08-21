@@ -135,7 +135,7 @@ export function assembleFieldMutations(
 					{
 						id: batchParentUuid,
 						reason:
-							"batch parentUuid must name an existing group/repeat in the addressed form.",
+							"batch parentUuid must name a group, repeat, or section in the addressed form.",
 					},
 				],
 			};
@@ -246,7 +246,7 @@ export function assembleFieldMutations(
 						id: raw.id,
 						reason: predeclared.has(parentUuid)
 							? `parentUuid ${parentUuid} names a field declared later in this call; topology parents must appear earlier.`
-							: `parentUuid ${parentUuid} must name a group/repeat in the addressed form.`,
+							: `parentUuid ${parentUuid} must name a group, repeat, or section in the addressed form.`,
 					});
 					continue;
 				}

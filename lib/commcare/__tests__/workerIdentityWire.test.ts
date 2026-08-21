@@ -82,11 +82,8 @@ function workerReferenceDoc() {
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][0];
 	const fieldUuid = doc.fieldOrder[formUuid][0];
-	doc.fields[fieldUuid].relevant = parseXPathForForm(
-		doc,
-		formUuid,
-		"#user/is_supervisor = 'n'",
-	);
+	(doc.fields[fieldUuid] as { relevant?: unknown }).relevant =
+		parseXPathForForm(doc, formUuid, "#user/is_supervisor = 'n'");
 	return { doc, moduleUuid, fieldUuid };
 }
 
@@ -187,7 +184,7 @@ describe("custom worker reference wire", () => {
 		// carriers keep the same object identity and continue targeting the
 		// same worker-property UUID.
 		const predicateAst = doc.modules[moduleUuid].displayCondition;
-		const xpathAst = doc.fields[fieldUuid].relevant;
+		const xpathAst = (doc.fields[fieldUuid] as { relevant?: unknown }).relevant;
 		doc.userProperties = {
 			[PROPERTY_UUID]: {
 				uuid: PROPERTY_UUID,
@@ -197,7 +194,9 @@ describe("custom worker reference wire", () => {
 		};
 		const renamed = expandDoc(doc);
 		expect(doc.modules[moduleUuid].displayCondition).toBe(predicateAst);
-		expect(doc.fields[fieldUuid].relevant).toBe(xpathAst);
+		expect((doc.fields[fieldUuid] as { relevant?: unknown }).relevant).toBe(
+			xpathAst,
+		);
 		expect(renamed.modules[0].module_filter).toBe(
 			"instance('commcaresession')/session/user/data/supervision_status = 'n'",
 		);

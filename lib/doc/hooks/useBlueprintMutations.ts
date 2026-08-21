@@ -54,6 +54,7 @@ import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
+import type { FormSectionPlan } from "@/lib/doc/formSectionMutations";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
@@ -308,6 +309,14 @@ export interface BlueprintMutations {
 		},
 	) => CommitOutcome;
 	duplicateField: (uuid: Uuid) => DuplicateFieldResult | undefined;
+	/**
+	 * Commit a section plan (`lib/doc/formSectionMutations.ts`) as one
+	 * gated batch. A refused plan commits nothing and returns its reason;
+	 * a committed one returns the form's root sections in page order.
+	 */
+	applyFormSectionPlan: (
+		plan: FormSectionPlan,
+	) => CommitOutcome & { sectionUuids?: readonly Uuid[] };
 	/**
 	 * Convert a field to a different kind atomically.
 	 *
@@ -975,6 +984,20 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					return toOutcome(
 						guardedApply([{ kind: "moveField", uuid, toParentUuid, after }]),
 					);
+				},
+
+				applyFormSectionPlan(plan) {
+					if (!plan.ok) {
+						if (announce) notifyRejectedCommit([plan.reason]);
+						return { ok: false, messages: [plan.reason] };
+					}
+					if (plan.mutations.length === 0) {
+						return { ok: true, sectionUuids: plan.sectionUuids };
+					}
+					const applied = guardedApply(plan.mutations);
+					return applied.ok
+						? { ok: true, sectionUuids: plan.sectionUuids }
+						: applied;
 				},
 
 				duplicateField(uuid) {

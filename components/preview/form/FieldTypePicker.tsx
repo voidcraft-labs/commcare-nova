@@ -9,20 +9,29 @@ import tablerForms from "@iconify-icons/tabler/forms";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { useCallback, useContext, useEffect } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
+import {
+	formSectionsOf,
+	landingSectionOf,
+} from "@/lib/doc/formSectionVerdicts";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
-import { type FieldKind, fieldRegistry } from "@/lib/domain";
+import { type FieldKind, fieldKinds, fieldRegistry } from "@/lib/domain";
 import { useSelect } from "@/lib/routing/hooks";
 import { useMarkNewField } from "@/lib/session/hooks";
 import {
 	FLOATING_LAYER_CLS,
 	MENU_ITEM_CLS,
+	MENU_ITEM_DISABLED_CLS,
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 	MENU_SUBMENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import { NEW_FIELD_BUILDERS } from "./newFieldDefaults";
+import { NEW_FIELD_BUILDERS, newPageRepeat } from "./newFieldDefaults";
+import {
+	type SectionGestureItem,
+	sectionGestureItems,
+} from "./sectionGestureItems";
 
 /* ── Insertion menu organization ────────────────────────────────────────
  * Menu-layout-only concern: which kinds group into submenus, which kinds
@@ -32,7 +41,13 @@ import { NEW_FIELD_BUILDERS } from "./newFieldDefaults";
  *
  * Categories with 2+ types render as submenus; top-level items render as
  * direct `Menu.Item`s (e.g. Hidden: single-purpose types that don't
- * belong in a family). */
+ * belong in a family).
+ *
+ * `section` is never a flat kind here: a page's place is PLANNED (it
+ * lives only at the root, and once a form has one the whole root is
+ * pages), so the Structure submenu offers the page gestures
+ * `sectionGestureItems` computes for the gap instead, and the gap at the
+ * root of a sectioned form offers nothing but a new page. */
 
 interface InsertionCategory {
 	/** Human label shown on the submenu trigger. */
@@ -42,6 +57,13 @@ interface InsertionCategory {
 	/** Field kinds surfaced inside the submenu. */
 	types: readonly FieldKind[];
 }
+
+/** The container kinds offered as plain kinds: the boxed ones. A page is
+ *  a gesture (`sectionGestureItems`), never a flat kind, so it is the one
+ *  container left out. */
+const BOXED_CONTAINER_KINDS: readonly FieldKind[] = fieldKinds.filter(
+	(kind) => fieldRegistry[kind].isContainer && kind !== "section",
+);
 
 /** Grouped families: each becomes a submenu in the insertion menu. */
 const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
@@ -68,8 +90,11 @@ const INSERTION_CATEGORIES: readonly InsertionCategory[] = [
 		icon: tablerPhoto,
 		types: ["image", "audio", "video", "file", "signature", "barcode"],
 	},
-	{ label: "Structure", icon: tablerFolder, types: ["group", "repeat"] },
+	{ label: "Structure", icon: tablerFolder, types: BOXED_CONTAINER_KINDS },
 ];
+
+/** The Structure submenu's label: the page gestures ride in it. */
+const STRUCTURE_LABEL = "Structure";
 
 /** Standalone kinds rendered as level-1 items (no submenu needed). */
 const INSERTION_TOP_LEVEL: readonly FieldKind[] = [
@@ -112,9 +137,54 @@ export function FieldTypePickerPopup({
 }: FieldTypePickerPopupProps) {
 	const { setPending } = useScrollIntoView();
 	const select = useSelect();
-	const { addField } = useBlueprintMutations();
+	const { addField, applyFormSectionPlan } = useBlueprintMutations();
 	const markNewField = useMarkNewField();
 	const docStore = useContext(BlueprintDocContext);
+
+	/* What THIS gap can do, read once per open (the popup mounts per open).
+	 * A sectioned root offers only a new page; a page offers the kinds plus
+	 * a split; a sectionless root offers the kinds plus "Split into
+	 * sections". Reading the doc imperatively here matches `handleSelect`. */
+	const gestures = docStore
+		? sectionGestureItems(docStore.getState(), parentUuid, atIndex)
+		: undefined;
+
+	/** Apply a page gesture and land on the page it produced: the one
+	 *  section uuid that did not exist before the plan, else the first. */
+	const handleGesture = useCallback(
+		(item: SectionGestureItem) => {
+			if (!docStore) return;
+			const doc = docStore.getState();
+			const formUuid =
+				doc.forms[parentUuid] !== undefined
+					? parentUuid
+					: doc.fieldParent[parentUuid];
+			const before = new Set(
+				formUuid === undefined ? [] : formSectionsOf(doc, formUuid),
+			);
+			const outcome = applyFormSectionPlan(item.plan(doc));
+			if (!outcome.ok) return;
+			/* Land on the page the gesture created AT THE GAP. A whole-form
+			 * split mints page one too, so the page the user aimed at is
+			 * the LAST new uuid (a split's second half, an added page). */
+			const minted = (outcome.sectionUuids ?? []).filter(
+				(uuid) => !before.has(uuid),
+			);
+			const landed = minted[minted.length - 1] ?? outcome.sectionUuids?.[0];
+			if (landed === undefined) return;
+			markNewField(landed);
+			setPending(landed, "smooth", false);
+			select(landed);
+		},
+		[
+			docStore,
+			parentUuid,
+			applyFormSectionPlan,
+			markNewField,
+			setPending,
+			select,
+		],
+	);
 
 	/** Generate a unique ID, create the field, and select it.
 	 *  Reads the doc store imperatively at insert time: avoids N
@@ -146,10 +216,17 @@ export function FieldTypePickerPopup({
 			// label mirrors the kind's human-readable name (e.g. "New Text",
 			// "New Single Select") so a freshly-added field is self-describing;
 			// kinds with no label slot ignore it.
-			const newField = NEW_FIELD_BUILDERS[kind](
-				newId,
-				`New ${fieldRegistry[kind].label}`,
-			);
+			/* A repeat born on a page must be count-bound (the device can't
+			 * add entries on a page's single screen), so the picker seeds
+			 * the legal variant there instead of offering a guaranteed
+			 * refusal. */
+			const onPage =
+				docStore !== null &&
+				landingSectionOf(docStore.getState(), parentUuid) !== undefined;
+			const newField =
+				kind === "repeat" && onPage
+					? newPageRepeat(newId, `New ${fieldRegistry.repeat.label}`)
+					: NEW_FIELD_BUILDERS[kind](newId, `New ${fieldRegistry[kind].label}`);
 
 			const outcome = addField(parentUuid, newField, { atIndex });
 			/* A rejected insert (the commit gate refused the batch: the
@@ -181,49 +258,78 @@ export function FieldTypePickerPopup({
 						parentUuid={parentUuid}
 						onChange={onActiveTargetChange}
 					/>
-					{/* ── Category submenus ── */}
-					{INSERTION_CATEGORIES.map((cat) => (
-						<Menu.SubmenuRoot key={cat.label}>
-							<Menu.SubmenuTrigger className={MENU_ITEM_CLS}>
-								<Icon
-									icon={cat.icon}
-									width="16"
-									height="16"
-									className="text-nova-text-muted shrink-0"
-								/>
-								<span className="flex-1 text-left">{cat.label}</span>
-								<Icon
-									icon={tablerChevronRight}
-									width="14"
-									height="14"
-									className="text-nova-text-muted shrink-0 -mr-0.5"
-								/>
-							</Menu.SubmenuTrigger>
-							<Menu.Portal>
-								<Menu.Positioner
-									className={`${FLOATING_LAYER_CLS} ${MENU_SUBMENU_POSITIONER_CLS}`}
-									sideOffset={4}
-								>
-									<Menu.Popup className={MENU_POPUP_CLS}>
-										{cat.types.map((type) => (
-											<TypeMenuItem
-												key={type}
-												type={type}
-												onSelect={handleSelect}
-											/>
-										))}
-									</Menu.Popup>
-								</Menu.Positioner>
-							</Menu.Portal>
-						</Menu.SubmenuRoot>
-					))}
+					{gestures !== undefined && !gestures.offersKinds ? (
+						/* ── Root of a sectioned form: a page break offers a page. ── */
+						gestures.items.map((item) => (
+							<GestureMenuItem
+								key={item.key}
+								item={item}
+								onSelect={handleGesture}
+							/>
+						))
+					) : (
+						<>
+							{/* ── Category submenus ── */}
+							{INSERTION_CATEGORIES.map((cat) => (
+								<Menu.SubmenuRoot key={cat.label}>
+									<Menu.SubmenuTrigger className={MENU_ITEM_CLS}>
+										<Icon
+											icon={cat.icon}
+											width="16"
+											height="16"
+											className="text-nova-text-muted shrink-0"
+										/>
+										<span className="flex-1 text-left">{cat.label}</span>
+										<Icon
+											icon={tablerChevronRight}
+											width="14"
+											height="14"
+											className="text-nova-text-muted shrink-0 -mr-0.5"
+										/>
+									</Menu.SubmenuTrigger>
+									<Menu.Portal>
+										<Menu.Positioner
+											className={`${FLOATING_LAYER_CLS} ${MENU_SUBMENU_POSITIONER_CLS}`}
+											sideOffset={4}
+										>
+											<Menu.Popup className={MENU_POPUP_CLS}>
+												{cat.types.map((type) => (
+													<TypeMenuItem
+														key={type}
+														type={type}
+														onSelect={handleSelect}
+													/>
+												))}
+												{/* The page gestures ride in Structure: a split
+												 *  or a new page is structure, not a question. */}
+												{cat.label === STRUCTURE_LABEL &&
+													gestures !== undefined &&
+													gestures.items.length > 0 && (
+														<>
+															<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
+															{gestures.items.map((item) => (
+																<GestureMenuItem
+																	key={item.key}
+																	item={item}
+																	onSelect={handleGesture}
+																/>
+															))}
+														</>
+													)}
+											</Menu.Popup>
+										</Menu.Positioner>
+									</Menu.Portal>
+								</Menu.SubmenuRoot>
+							))}
 
-					<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
+							<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
 
-					{/* ── Top-level items (no submenu) ── */}
-					{INSERTION_TOP_LEVEL.map((type) => (
-						<TypeMenuItem key={type} type={type} onSelect={handleSelect} />
-					))}
+							{/* ── Top-level items (no submenu) ── */}
+							{INSERTION_TOP_LEVEL.map((type) => (
+								<TypeMenuItem key={type} type={type} onSelect={handleSelect} />
+							))}
+						</>
+					)}
 				</Menu.Popup>
 			</Menu.Positioner>
 		</Menu.Portal>
@@ -248,6 +354,40 @@ function ActiveTargetReporter({
 		return () => onChange(null);
 	}, [atIndex, parentUuid, onChange]);
 	return null;
+}
+
+/* ── A page gesture: split here, or a new page ─────────────────────── */
+
+function GestureMenuItem({
+	item,
+	onSelect,
+}: {
+	item: SectionGestureItem;
+	onSelect: (item: SectionGestureItem) => void;
+}) {
+	const disabled = item.disabledReason !== undefined;
+	return (
+		<Menu.Item
+			disabled={disabled}
+			onClick={disabled ? undefined : () => onSelect(item)}
+			className={disabled ? MENU_ITEM_DISABLED_CLS : MENU_ITEM_CLS}
+		>
+			<Icon
+				icon={fieldRegistry.section.icon}
+				width="16"
+				height="16"
+				className="text-nova-text-muted shrink-0"
+			/>
+			<span className="flex min-w-0 flex-1 flex-col text-left">
+				<span>{item.label}</span>
+				{item.disabledReason !== undefined && (
+					<span className="text-xs text-nova-text-muted">
+						{item.disabledReason}
+					</span>
+				)}
+			</span>
+		</Menu.Item>
+	);
 }
 
 /* ── Reusable menu item for a single field kind ─────────────────────── */

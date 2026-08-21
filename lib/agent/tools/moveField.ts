@@ -12,8 +12,8 @@
  * upgrade: an anchor resolves ANYWHERE in the form and the destination
  * parent is the anchor's own parent, so "move X after Y" lands X beside
  * Y wherever Y nests — no separate parent bookkeeping. `parentUuid` covers
- * the anchor-less placements: a group/repeat to append into, or `null`
- * for the form's top level.
+ * the anchor-less placements: a group, repeat, or section to append into,
+ * or `null` for the form's top level.
  *
  * The reducer warn-and-skips an invalid move (its total-function
  * convention for historical replay), which a tool must never present as
@@ -46,6 +46,7 @@
 
 import type { z } from "zod";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
+import { fieldPlacementVerdict } from "@/lib/doc/formSectionVerdicts";
 import type { Mutation } from "@/lib/doc/types";
 import type { Field, Uuid } from "@/lib/domain";
 import { isContainer, uuidSchema } from "@/lib/domain";
@@ -79,7 +80,7 @@ export const moveFieldInputSchema = fieldAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Group/repeat UUID to move the field into, appended at its end when no anchor is given. null moves it to the form root. Omit when an anchor is given.",
+				"UUID of the group, repeat, or section to move the field into, appended at its end when no anchor is given. null moves it to the form root. Omit when an anchor is given.",
 			),
 	})
 	.strict();
@@ -91,7 +92,7 @@ export type MoveFieldToolResult = MutationSuccess | { error: string };
 
 export const moveFieldTool = {
 	description:
-		"Move an existing field within its form by stable UUID — same identity, every reference preserved. Anchor with beforeFieldUuid/afterFieldUuid, or pass parentUuid to append into a group/repeat (null = form root).",
+		"Move an existing field within its form by stable UUID — same identity, every reference preserved. Anchor with beforeFieldUuid/afterFieldUuid, or pass parentUuid to append into a group, repeat, or section (null = form root). On a form split into sections a question lands inside a section, never at the root.",
 	inputSchema: moveFieldInputSchema,
 	async execute(
 		input: MoveFieldInput,
@@ -121,7 +122,7 @@ export const moveFieldTool = {
 				input.beforeFieldUuid !== undefined ? "before" : "after";
 			if (anchorRef === undefined && parentUuid === undefined) {
 				return fail(
-					`Nothing says where "${moved.id}" should go. Pass beforeFieldUuid or afterFieldUuid, parentUuid for a group/repeat, or parentUuid: null for the form root.`,
+					`Nothing says where "${moved.id}" should go. Pass beforeFieldUuid or afterFieldUuid, parentUuid for a group, repeat, or section, or parentUuid: null for the form root.`,
 				);
 			}
 
@@ -177,11 +178,21 @@ export const moveFieldTool = {
 				}
 				if (!isContainer(resolvedParent.field)) {
 					return fail(
-						`"${resolvedParent.field.id}" is a ${resolvedParent.field.kind} field, not a group or repeat — a field can only move into a container. To place "${moved.id}" beside it, anchor with beforeFieldUuid or afterFieldUuid instead.`,
+						`"${resolvedParent.field.id}" is a ${resolvedParent.field.kind} field, not a group, repeat, or section — a field can only move into a container. To place "${moved.id}" beside it, anchor with beforeFieldUuid or afterFieldUuid instead.`,
 					);
 				}
 				destParentUuid = resolvedParent.field.uuid;
 			}
+
+			// Sections make a form a closed state: a question never lands loose
+			// at a sectioned root, a section never nests, and an add-entries
+			// repeat never lands on a page. One sentence, before the gate.
+			const sectionPlacement = fieldPlacementVerdict(doc, {
+				uuid: moved.uuid,
+				kind: moved.kind,
+				toParentUuid: destParentUuid,
+			});
+			if (!sectionPlacement.ok) return fail(sectionPlacement.message);
 
 			// A container can't move into its own subtree — the splice would
 			// detach the subtree from every walk, so the reducer refuses it

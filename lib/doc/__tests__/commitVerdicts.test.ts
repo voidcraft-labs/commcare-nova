@@ -279,7 +279,9 @@ describe("mutationCommitVerdict", () => {
 				/XPath|expression|reference/i,
 			);
 		}
-		expect(doc.fields[target.uuid].relevant).toBeUndefined();
+		expect(
+			(doc.fields[target.uuid] as { relevant?: unknown }).relevant,
+		).toBeUndefined();
 	});
 
 	it("rejects removing the final Results field but allows empty Details", () => {

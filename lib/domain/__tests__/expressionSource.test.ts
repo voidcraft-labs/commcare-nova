@@ -47,6 +47,7 @@ import {
 	userControlledRepeatSchema,
 } from "../fields/repeat";
 import { secretFieldSchema } from "../fields/secret";
+import { sectionFieldSchema } from "../fields/section";
 import { signatureFieldSchema } from "../fields/signature";
 import { singleSelectFieldSchema } from "../fields/singleSelect";
 import { textFieldSchema } from "../fields/text";
@@ -86,6 +87,7 @@ const KIND_SCHEMAS = {
 	hidden: hiddenFieldSchema,
 	secret: secretFieldSchema,
 	group: groupFieldSchema,
+	section: sectionFieldSchema,
 } as const;
 
 const REPEAT_SCHEMAS = {

@@ -35,11 +35,16 @@
 
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
+import {
+	fieldPlacementVerdict,
+	formIsSectioned,
+} from "@/lib/doc/formSectionVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, uuidSchema } from "@/lib/domain";
+import { asUuid, type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
 import { addFieldsItemSchema } from "../toolSchemas";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
+	applyToDoc,
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
@@ -66,7 +71,7 @@ export const addFieldsInputSchema = formAddressSchema
 		parentUuid: uuidSchema
 			.optional()
 			.describe(
-				"Stable UUID of an existing group/repeat to receive the batch. A field item's own parentUuid overrides this.",
+				"Stable UUID of an existing group, repeat, or section to receive the batch. A field item's own parentUuid overrides this.",
 			),
 		// Optional insertion anchor for the batch's top-level block. The
 		// fields that land in the batch's insertion parent (the form root, or
@@ -101,7 +106,7 @@ export type AddFieldsResult =
 
 export const addFieldsTool = {
 	description:
-		"Add fields to an existing form (a single field is a length-1 array). Appends by default; beforeFieldUuid/afterFieldUuid position the batch. parentUuid names containers by stable identity.",
+		"Add fields to an existing form (a single field is a length-1 array). Appends by default; beforeFieldUuid/afterFieldUuid position the batch. parentUuid names containers (a group, repeat, or section) by stable identity. On a form split into sections, every top-level field is a section, so a question lands inside one.",
 	inputSchema: addFieldsInputSchema,
 	async execute(
 		input: AddFieldsInput,
@@ -171,6 +176,17 @@ export const addFieldsTool = {
 			}
 			const { mutations, created } = assembly;
 
+			// Sections make a form a closed state; say why a landing is refused
+			// in one sentence before the gate's finding list would.
+			const placement = sectionPlacementRefusal(doc, formUuid, mutations);
+			if (placement !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: placement },
+				};
+			}
+
 			// Compute the post-mutation doc once and persist via the shared
 			// context. The client applies via `applyMany` — no wire snapshot
 			// needed; the mutations ARE the update. The `form:M-F` stage tag
@@ -217,3 +233,52 @@ export const addFieldsTool = {
 		}
 	},
 };
+
+/**
+ * The section placement pre-check over an assembled batch: the ONE
+ * placement verdict (`fieldPlacementVerdict`), asked once per added field.
+ * The verdict reads a document, and a batch may create the very sections
+ * and groups its later items land in, so it is asked of the candidate the
+ * batch produces, where every item's parent and subtree already exist: a
+ * section under a field, a question at the root of a form that is (or this
+ * batch makes) sectioned, and an add-entries repeat on a page — directly,
+ * or inside a group the batch puts there — are refused with the sentence
+ * every editor uses. The one sentence of its own here is the partition
+ * rule: a first section added beside a form's existing loose questions
+ * needs `setFormSections`. The commit gate remains the authority; this is
+ * what the model reads instead of a finding list.
+ */
+function sectionPlacementRefusal(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	mutations: readonly Mutation[],
+): string | undefined {
+	const adds = mutations.filter(
+		(m): m is Extract<Mutation, { kind: "addField" }> => m.kind === "addField",
+	);
+	const addsSection = adds.some((m) => m.field.kind === "section");
+	// A batch with no section, on a form with no pages, can meet none of the
+	// four refusals: the candidate is computed only when pages are involved.
+	if (!addsSection && !formIsSectioned(doc, formUuid)) return undefined;
+	const addsRootSection = adds.some(
+		(m) => m.field.kind === "section" && m.parentUuid === formUuid,
+	);
+	if (
+		addsRootSection &&
+		!formIsSectioned(doc, formUuid) &&
+		(doc.fieldOrder[formUuid]?.length ?? 0) > 0
+	) {
+		const form = doc.forms[formUuid];
+		return `"${form?.name ?? "This form"}" isn't split into sections yet, so adding one here would leave its current questions outside it. First call setFormSections with every existing top-level question's page (a new page may be empty), then add the new questions into their page with addFields and parentUuid.`;
+	}
+	const candidate = applyToDoc(doc, mutations);
+	for (const m of adds) {
+		const verdict = fieldPlacementVerdict(candidate, {
+			uuid: m.field.uuid,
+			kind: m.field.kind,
+			toParentUuid: m.parentUuid,
+		});
+		if (!verdict.ok) return verdict.message;
+	}
+	return undefined;
+}

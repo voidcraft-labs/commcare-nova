@@ -218,6 +218,13 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: "soundness",
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: "completeness",
+	// A section is a page. A half-sectioned form, a section inside a field,
+	// and an add-entries repeat inside a section each make the running app
+	// draw the form differently from what the author arranged, so all three
+	// gate commits.
+	FORM_SECTION_NOT_TOP_LEVEL: "soundness",
+	FORM_SECTIONS_INCOMPLETE: "soundness",
+	FORM_SECTION_USER_REPEAT: "soundness",
 	CASE_WRITE_NO_CASE_ACTION: "soundness",
 	CASE_WRITE_NOT_DIRECT_CHILD: "soundness",
 	CASE_WRITE_DUPLICATE_PROPERTY: "soundness",

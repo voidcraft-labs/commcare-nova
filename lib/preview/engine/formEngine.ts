@@ -44,11 +44,13 @@ import {
 	asUuid,
 	CASE_LOADING_FORM_TYPES,
 	type CaseWriteField,
+	type ContainerField,
 	casePropertyDataTypes,
 	deriveCaseWriteInventory,
 	expressionSource,
 	fieldProseTemplate,
 	isCaptureFieldKind,
+	isContainer,
 	isReadableTemporalValue,
 	orderedCaseOperations,
 	ownRecordValue,
@@ -103,6 +105,19 @@ export interface InvalidFieldTarget {
 	readonly fieldUuid: Uuid;
 	readonly instancePath: string;
 	readonly ancestorUuids: readonly Uuid[];
+}
+
+/** One page of a sectioned form, as the running form sees it. */
+export interface SectionPage {
+	readonly uuid: Uuid;
+	/** The section's data path, `/data/<id>`. */
+	readonly path: string;
+	/** Whether the page has anything to show: at least one effectively
+	 *  visible descendant that is neither a container nor `hidden`. A label
+	 *  counts (the device renders a trigger as a prompt). A page with
+	 *  nothing to show is skipped, the way Android skips an empty or
+	 *  all-irrelevant field-list. */
+	readonly hasVisibleQuestions: boolean;
 }
 
 /** Stable fallback for paths that don't exist in the engine. Frozen so
@@ -701,6 +716,15 @@ export class FormEngine {
 	 * checks and validation rules. Returns true if the form is valid.
 	 */
 	validateAll(): boolean {
+		return this.validateWhere(() => true);
+	}
+
+	/**
+	 * The shared body of `validateAll` / `validateSection`: touch, run
+	 * required checks and validation rules on every effectively visible
+	 * field whose path passes `include`, and report whether they all hold.
+	 */
+	private validateWhere(include: (path: string) => boolean): boolean {
 		let valid = true;
 		const updates: EngineStoreState = {};
 		const currentState = this.store.getState();
@@ -708,6 +732,7 @@ export class FormEngine {
 
 		for (const [path, state] of Object.entries(currentState)) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
+			if (!include(path)) continue;
 			if (!effectivelyVisible.has(path)) continue;
 
 			const touched = state.touched ? state : { ...state, touched: true };
@@ -725,13 +750,85 @@ export class FormEngine {
 	}
 
 	/**
-	 * First effectively visible invalid question in runtime document order.
+	 * The form's pages, in order: its root sections. Empty for a form with
+	 * no sections. `hasVisibleQuestions` is read against the current store,
+	 * so a page whose every question is irrelevant right now reports false
+	 * and the pager skips it (and re-anchors when the answer that hid it
+	 * changes).
+	 */
+	sectionPages(): ReadonlyArray<SectionPage> {
+		const states = this.store.getState();
+		const effectivelyVisible = this.effectivelyVisiblePaths(states);
+		const hasVisibleQuestion = (
+			nodes: ReadonlyArray<FieldTreeNode>,
+			prefix: string,
+		): boolean => {
+			for (const node of nodes) {
+				const path = `${prefix}/${node.field.id}`;
+				if (!effectivelyVisible.has(path)) continue;
+				if (!isContainer(node.field)) {
+					if (node.field.kind !== "hidden") return true;
+					continue;
+				}
+				if (node.field.kind === "repeat") {
+					const count = this.instance.getRepeatCount(path);
+					for (let index = 0; index < count; index++) {
+						if (hasVisibleQuestion(node.children ?? [], `${path}[${index}]`)) {
+							return true;
+						}
+					}
+				} else if (hasVisibleQuestion(node.children ?? [], path)) {
+					return true;
+				}
+			}
+			return false;
+		};
+		const pages: SectionPage[] = [];
+		for (const node of this.tree) {
+			if (node.field.kind !== "section") continue;
+			const path = `/data/${node.field.id}`;
+			pages.push({
+				uuid: node.field.uuid,
+				path,
+				hasVisibleQuestions:
+					effectivelyVisible.has(path) &&
+					hasVisibleQuestion(node.children ?? [], path),
+			});
+		}
+		return pages;
+	}
+
+	/**
+	 * Validate the effectively visible questions on ONE page: `validateAll`
+	 * restricted to the paths under `/data/<section.id>`. Marks them touched
+	 * and returns whether the page is valid. This is what Next checks on a
+	 * phone before it turns the page; Back never calls it.
+	 */
+	validateSection(sectionUuid: Uuid): boolean {
+		const section = this.tree.find((node) => node.field.uuid === sectionUuid);
+		if (section === undefined || section.field.kind !== "section") return true;
+		const root = `/data/${section.field.id}`;
+		return this.validateWhere(
+			(path) =>
+				path === root ||
+				path.startsWith(`${root}/`) ||
+				path.startsWith(`${root}[`),
+		);
+	}
+
+	/**
+	 * First effectively visible invalid question in runtime document order,
+	 * across the form or, with `withinSection`, on that one page (its
+	 * ancestor trail then starts at the section).
 	 *
 	 * Structural ancestors are returned by UUID because preview collapse state
 	 * is structural, while the target itself keeps its concrete repeat path.
-	 * Call after `validateAll()` so required checks have populated validity.
+	 * Call after `validateAll()` / `validateSection()` so required checks
+	 * have populated validity.
 	 */
-	firstInvalidFieldTarget(): InvalidFieldTarget | undefined {
+	firstInvalidFieldTarget(opts?: {
+		readonly withinSection?: Uuid;
+	}): InvalidFieldTarget | undefined {
 		const states = this.store.getState();
 		const walk = (
 			nodes: ReadonlyArray<FieldTreeNode>,
@@ -744,8 +841,7 @@ export class FormEngine {
 				const effective =
 					ancestorsVisible && states[instancePath]?.visible !== false;
 				if (!effective) continue;
-				const structural =
-					node.field.kind === "group" || node.field.kind === "repeat";
+				const structural = isContainer(node.field);
 				if (
 					!structural &&
 					node.field.kind !== "label" &&
@@ -780,6 +876,19 @@ export class FormEngine {
 			}
 			return undefined;
 		};
+		if (opts?.withinSection !== undefined) {
+			const section = this.tree.find(
+				(node) => node.field.uuid === opts.withinSection,
+			);
+			if (section === undefined) return undefined;
+			const sectionPath = `/data/${section.field.id}`;
+			return walk(
+				section.children ?? [],
+				sectionPath,
+				states[sectionPath]?.visible !== false,
+				[section.field.uuid],
+			);
+		}
 		return walk(this.tree, "/data", true, []);
 	}
 
@@ -799,8 +908,7 @@ export class FormEngine {
 		): InvalidFieldTarget | undefined => {
 			for (const node of nodes) {
 				const instancePath = `${prefix}/${node.field.id}`;
-				const structural =
-					node.field.kind === "group" || node.field.kind === "repeat";
+				const structural = isContainer(node.field);
 				if (
 					!structural &&
 					instancePath === targetPath &&
@@ -1015,7 +1123,8 @@ export class FormEngine {
 				for (const node of levelNodes) {
 					const f = node.field;
 					const fieldPath = `${prefix}/${f.id}`;
-					if (f.kind === "group") {
+					if (f.kind === "group" || f.kind === "section") {
+						// Both are DATA groups: answers nest under their id.
 						if (node.children) gather(node.children, fieldPath);
 						continue;
 					}
@@ -1313,7 +1422,8 @@ export class FormEngine {
 				const f = node.field;
 				const fieldPath = `${pathPrefix}/${f.id}`;
 
-				if (f.kind === "group") {
+				if (f.kind === "group" || f.kind === "section") {
+					// Both are DATA groups: writers inside nest under their id.
 					if (node.children) {
 						walk(node.children, fieldPath, activeRepeat);
 					}
@@ -1573,6 +1683,32 @@ export class FormEngine {
 		}
 	}
 
+	/**
+	 * Re-seed a field's CONSTANT required flag at every live instance. A
+	 * `required` of `true()` / `false()` is not a DAG expression (nothing
+	 * can trigger it), so it is read once when a state is seeded; an author
+	 * switching it while the form runs reaches the live state only through
+	 * here. A conditional `required` is left to the ordinary evaluation,
+	 * which owns it.
+	 */
+	reseedRequired(pathTemplate: string, field: Field): void {
+		const source = expressionSource(field, "required", this.printDoc);
+		if (source !== undefined && source !== "true()" && source !== "false()") {
+			return;
+		}
+		const required = source === "true()";
+		const updates: EngineStoreState = {};
+		const states = this.store.getState();
+		for (const path of this.materializePaths(pathTemplate)) {
+			const state = states[path];
+			if (state === undefined || state.required === required) continue;
+			updates[path] = { ...state, required };
+		}
+		if (Object.keys(updates).length > 0) {
+			this.store.setState(updates);
+		}
+	}
+
 	/** Return all paths tracked by the DAG, in topological order. */
 	getAllPaths(): string[] {
 		return this.dag.getAllPaths(this.repeatCounts);
@@ -1608,7 +1744,7 @@ export class FormEngine {
 		// flag. Skipping the DataInstance value write keeps the value Map
 		// pristine: only leaf fields own value paths. A repeat container
 		// does register its instance count so its children materialize.
-		if (field.kind === "group" || field.kind === "repeat") {
+		if (isContainer(field)) {
 			const updates: EngineStoreState = {};
 			for (const concrete of this.materializePaths(path)) {
 				if (field.kind === "repeat") {
@@ -1679,7 +1815,7 @@ export class FormEngine {
 	 */
 	private initialContainerState(
 		path: string,
-		kind: "group" | "repeat",
+		kind: ContainerField["kind"],
 	): FieldState {
 		const base: FieldState = {
 			path,
@@ -1821,7 +1957,7 @@ export class FormEngine {
 		const current = this.store.getState();
 		const updates: EngineStoreState = {};
 		const createdPaths: string[] = [];
-		const isStructural = field.kind === "group" || field.kind === "repeat";
+		const isStructural = isContainer(field);
 		const isRequired =
 			!isStructural &&
 			expressionSource(field, "required", this.printDoc) === "true()";
@@ -2473,7 +2609,7 @@ export class FormEngine {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
 
-			if (f.kind === "group" || f.kind === "repeat") {
+			if (isContainer(f)) {
 				states[path] = this.initialContainerState(path, f.kind);
 				if (node.children) {
 					const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;

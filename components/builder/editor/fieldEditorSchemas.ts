@@ -38,6 +38,7 @@ import type {
 	ProseTemplate,
 	RepeatField,
 	SecretField,
+	SectionField,
 	SignatureField,
 	SingleSelectField,
 	TextField,
@@ -577,6 +578,15 @@ const labelFieldEditorSchema: FieldEditorSchema<LabelField> = {
 	ui: [mediaEntry<LabelField, "label_media">("label_media", "Label media")],
 };
 
+// A section has no slots beyond its identity and title: no data, no logic,
+// no media. Its inspector body (`SectionInspectorBody`) is the gestures
+// that re-page the form, not a schema-driven panel.
+const sectionFieldEditorSchema: FieldEditorSchema<SectionField> = {
+	data: [],
+	logic: [],
+	ui: [],
+};
+
 /**
  * All per-kind editor schemas, keyed by `FieldKind`. Consumers
  * (FieldEditorPanel) read this record to dispatch the correct schema
@@ -604,5 +614,6 @@ export const fieldEditorSchemas: {
 	hidden: hiddenFieldEditorSchema,
 	secret: secretFieldEditorSchema,
 	group: groupFieldEditorSchema,
+	section: sectionFieldEditorSchema,
 	repeat: repeatFieldEditorSchema,
 };

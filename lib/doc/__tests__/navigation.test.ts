@@ -118,6 +118,107 @@ const flatTree = () =>
 		{ uuid: Q3, id: "q3", kind: "date", parentUuid: FORM },
 	]);
 
+// A two-page form:
+//   s1 (section)
+//     p1a (text)
+//     p1g (group)
+//       p1g_child (text)
+//   s2 (section)
+//     p2a (text)
+//     p2b (text)
+const SEC1 = testUuid("sec1-uuid");
+const SEC2 = testUuid("sec2-uuid");
+const P1A = testUuid("p1a-uuid");
+const P1G = testUuid("p1g-uuid");
+const P1G_CHILD = testUuid("p1g-child-uuid");
+const P2A = testUuid("p2a-uuid");
+const P2B = testUuid("p2b-uuid");
+const pagedTree = () =>
+	buildDoc(FORM, [
+		{
+			uuid: SEC1,
+			id: "s1",
+			kind: "section",
+			parentUuid: FORM,
+			childrenOrder: [],
+		},
+		{ uuid: P1A, id: "p1a", kind: "text", parentUuid: SEC1 },
+		{
+			uuid: P1G,
+			id: "p1g",
+			kind: "group",
+			parentUuid: SEC1,
+			childrenOrder: [],
+		},
+		{ uuid: P1G_CHILD, id: "p1g_child", kind: "text", parentUuid: P1G },
+		{
+			uuid: SEC2,
+			id: "s2",
+			kind: "section",
+			parentUuid: FORM,
+			childrenOrder: [],
+		},
+		{ uuid: P2A, id: "p2a", kind: "text", parentUuid: SEC2 },
+		{ uuid: P2B, id: "p2b", kind: "text", parentUuid: SEC2 },
+	]);
+
+describe("getCrossLevelFieldMoveTargets — sections", () => {
+	it("never nests a section: a page has no cross-level targets", () => {
+		const doc = pagedTree();
+		expect(getCrossLevelFieldMoveTargets(doc, SEC1)).toEqual({
+			up: undefined,
+			down: undefined,
+		});
+		expect(getCrossLevelFieldMoveTargets(doc, SEC2)).toEqual({
+			up: undefined,
+			down: undefined,
+		});
+	});
+
+	it("crosses a page boundary at a section's edges, never onto the form root", () => {
+		const doc = pagedTree();
+		// First child of the first page: nowhere up (no previous page);
+		// down indents into the following group.
+		const first = getCrossLevelFieldMoveTargets(doc, P1A);
+		expect(first.up).toBeUndefined();
+		expect(first.down).toEqual({
+			toParentUuid: P1G,
+			beforeUuid: P1G_CHILD,
+			direction: "into",
+		});
+		// Last child of the first page: down goes to the START of page two.
+		const last = getCrossLevelFieldMoveTargets(doc, P1G);
+		expect(last.down).toEqual({
+			toParentUuid: SEC2,
+			beforeUuid: P2A,
+			direction: "out-to-next-section",
+		});
+		// First child of page two: up goes to the END of page one.
+		const p2 = getCrossLevelFieldMoveTargets(doc, P2A);
+		expect(p2.up).toEqual({
+			toParentUuid: SEC1,
+			direction: "out-to-previous-section",
+		});
+		// Last child of the last page: nowhere down.
+		expect(getCrossLevelFieldMoveTargets(doc, P2B).down).toBeUndefined();
+	});
+
+	it("keeps ordinary outdent inside a group that sits on a page", () => {
+		const doc = pagedTree();
+		const child = getCrossLevelFieldMoveTargets(doc, P1G_CHILD);
+		expect(child.up).toEqual({
+			toParentUuid: SEC1,
+			beforeUuid: P1G,
+			direction: "out",
+		});
+		expect(child.down).toEqual({
+			toParentUuid: SEC1,
+			afterUuid: P1G,
+			direction: "out",
+		});
+	});
+});
+
 describe("flattenFieldRefs", () => {
 	it("returns fields in visual (depth-first) render order", () => {
 		const doc = flatTree();
