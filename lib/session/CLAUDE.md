@@ -169,3 +169,16 @@ chat status line instead of falling back to `understanding`.
 `stagedUploads` is why a slot upload is session state and not doc state: the doc must never reference an asset that isn't `ready`, so a picked file lives here — keyed by carrier slot, with progress and an error state — until its upload confirms and the slot dispatches the normal gated attach (`components/builder/media/useStagedUpload.ts` is the driver). Abort handles are functions, so they live in a factory-closure registry beside the store (the `docStoreRef` pattern), never in serializable state; `cancelStagedUpload` aborts through it and `reset()` aborts everything (a torn-down session must not let an orphaned upload attach into a dead store). Keying by slot identity (not component instance) is what lets a slot that unmounts mid-upload re-render its chip from the store on remount.
 
 `assetMeta` is the sibling registry: asset rows observed this session (library pages the pickers load, upload confirms, the budget check's own fetches), keyed by id. The browser's pre-dispatch export-ceiling check (`components/builder/media/useAttachBudget.ts`) resolves the doc's referenced ids against it and fetches only the gaps. Advisory by design — the export boundary re-loads fresh rows server-side, so staleness here can only mis-tune the courtesy check, never the enforcement.
+
+## Active page of a sectioned form
+
+`activeSectionByForm` (`setActiveSection` / `useActiveSection` /
+`useGetActiveSection`) remembers which page (section uuid) each sectioned form
+is open on, the way `editScrollByForm` remembers the edit canvas's scroll. Two
+writers, two readers: the preview pager writes it on every page change and
+renders from the reactive hook; the edit canvas writes the page its first
+visible row belonged to on unmount and reads it imperatively, once, to seed the
+virtualizer's `initialOffset` (`components/preview/form/virtual/sectionScroll.ts`).
+A form that was never paged has no entry; the form screen clears the entry when
+the form is left. It is not a shadow of the doc: a page the form no longer has
+is simply ignored by both readers.

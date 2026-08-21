@@ -14,10 +14,14 @@
  * - `field`            a leaf field (text / select / label / hidden).
  * - `group-open`       the opening bracket of a group or repeat container.
  * - `group-close`      the closing bracket of that same container.
- * - `empty-container` placeholder row inside a group/repeat that has no
- *                      children; carries the pragmatic-drag-and-drop drop
- *                      target so the user can drop a field into an
- *                      empty group.
+ * - `section-header`   the page heading of a section at the form root. A
+ *                      section has no close row: the next header (or the
+ *                      end of the form) is the page break, and its
+ *                      children render at depth 0, the same X as the root.
+ * - `empty-container` placeholder row inside a group/repeat/section that
+ *                      has no children; carries the pragmatic-drag-and-drop
+ *                      drop target so the user can drop a field into an
+ *                      empty container.
  * - `insertion`        the gap between two children of the SAME parent; the
  *                      row IS the gap (24px). Owning the gap as a sibling row
  *                      (rather than margins on field rows) makes it
@@ -29,7 +33,7 @@
  * and the nested-bracket border stack.
  */
 
-import type { Field, Uuid } from "@/lib/domain";
+import { type Field, isContainer, type Uuid } from "@/lib/domain";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -47,6 +51,7 @@ export type FormRow =
 	| FieldRow
 	| GroupOpenRow
 	| GroupCloseRow
+	| SectionHeaderRow
 	| EmptyContainerRow
 	| DropPlaceholderRow;
 
@@ -109,12 +114,37 @@ export interface GroupCloseRow {
 	readonly depth: number;
 }
 
-/** Placeholder row inside an empty group/repeat. Carries the drop target. */
+/**
+ * The page heading of a section at the form root. Draggable (the whole
+ * page moves with its heading) and a drop target with two intents keyed
+ * by the closest edge: the top half is "before this page" (only a section
+ * may land there), the bottom half is "first question of this page".
+ * `index` / `count` are the page's position among the form's sections,
+ * for the "Section k of n" kicker. Always depth 0.
+ */
+export interface SectionHeaderRow {
+	readonly kind: "section-header";
+	readonly id: string;
+	readonly uuid: Uuid;
+	/** The form uuid: sections live only at the root. */
+	readonly parentUuid: Uuid;
+	readonly siblingIndex: number;
+	/** 0-based page number. */
+	readonly index: number;
+	/** Number of pages in the form. */
+	readonly count: number;
+	readonly depth: 0;
+}
+
+/** Placeholder row inside an empty group/repeat/section. Carries the drop
+ *  target. `variant` picks the copy: a page with no questions yet reads
+ *  differently from an empty group. */
 export interface EmptyContainerRow {
 	readonly kind: "empty-container";
 	readonly id: string;
 	readonly parentUuid: Uuid;
 	readonly depth: number;
+	readonly variant: "container" | "section";
 }
 
 /** The set of group/repeat uuids currently collapsed. Use a `Set` for O(1)
@@ -166,7 +196,11 @@ export interface BuildFormRowsOptions {
  * An empty group/repeat (depth > 0, no children) emits a single
  * `empty-container` row between its `group-open` and `group-close`, this row
  * owns the drop target so the drop-handling monitor can route drops
- * into empty containers.
+ * into empty containers. A section at the form root expands to a
+ * `section-header` row followed by its flattened children at the SAME
+ * depth (a page is a break, not an indent); an empty section emits the
+ * `empty-container` row in its `"section"` variant so a page can receive
+ * its first question by drop.
  */
 export function buildFormRows(
 	src: RowSource,
@@ -174,7 +208,7 @@ export function buildFormRows(
 	options: BuildFormRowsOptions,
 ): FormRow[] {
 	const rows: FormRow[] = [];
-	walk(src, rootParentUuid, 0, rows, options);
+	walk(src, rootParentUuid, 0, rows, options, rootParentUuid, null);
 	return rows;
 }
 
@@ -184,6 +218,11 @@ function walk(
 	depth: number,
 	rows: FormRow[],
 	options: BuildFormRowsOptions,
+	rootParentUuid: Uuid,
+	/** Which placeholder an empty `parentUuid` gets: `null` at the form
+	 *  root (nothing to render for a form with no fields), `"container"`
+	 *  inside a group/repeat, `"section"` inside a page. */
+	emptyVariant: EmptyContainerRow["variant"] | null,
 ): void {
 	// `fieldOrder` array position is the display sequence. The insertion-point
 	// `beforeIndex` values below address that same sequence.
@@ -200,21 +239,31 @@ function walk(
 		});
 	}
 
-	// An empty container (depth > 0 means we're inside a group/repeat, not
-	// at the form root) gets a single placeholder row that owns the drop
+	// An empty container gets a single placeholder row that owns the drop
 	// target. The form root is allowed to be empty without a placeholder:
 	// there's nothing to render if the form has no fields.
 	if (childUuids.length === 0) {
-		if (depth > 0) {
+		if (emptyVariant !== null) {
 			rows.push({
 				kind: "empty-container",
 				id: `empty:${parentUuid}`,
 				parentUuid,
 				depth,
+				variant: emptyVariant,
 			});
 		}
 		return;
 	}
+
+	// Sections are pages of the form root: count them once so every header
+	// can say "Section k of n". A sectioned form's root holds sections only
+	// (the commit gate refuses anything else), but the count is taken over
+	// the actual section children so a transient shape still renders.
+	const isRoot = parentUuid === rootParentUuid;
+	const sectionCount = isRoot
+		? childUuids.filter((uuid) => src.fields[uuid]?.kind === "section").length
+		: 0;
+	let sectionIndex = 0;
 
 	for (let i = 0; i < childUuids.length; i++) {
 		const uuid = childUuids[i];
@@ -228,7 +277,25 @@ function walk(
 		// must not assume contiguous sequence.
 		if (!q) continue;
 
-		if (q.kind === "group" || q.kind === "repeat") {
+		if (q.kind === "section" && isRoot) {
+			// A page: its heading, then its children at the SAME depth (a
+			// page is not an indent), then nothing: the next heading or the
+			// end of the form closes it.
+			rows.push({
+				kind: "section-header",
+				id: `section:${uuid}`,
+				uuid,
+				parentUuid,
+				siblingIndex: i,
+				index: sectionIndex,
+				count: sectionCount,
+				depth: 0,
+			});
+			sectionIndex++;
+			walk(src, uuid, depth, rows, options, rootParentUuid, "section");
+		} else if (isContainer(q)) {
+			// A group or repeat (or, defensively, a section the gate would
+			// never let sit below the root): a bracketed, indented box.
 			const collapsed = options.collapsed.has(uuid);
 			rows.push({
 				kind: "group-open",
@@ -240,7 +307,7 @@ function walk(
 				collapsed,
 			});
 			if (!collapsed) {
-				walk(src, uuid, depth + 1, rows, options);
+				walk(src, uuid, depth + 1, rows, options, rootParentUuid, "container");
 			}
 			rows.push({
 				kind: "group-close",

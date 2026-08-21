@@ -326,3 +326,140 @@ describe("buildFormRows — row id stability", () => {
 		expect(q1Before?.id).toBe(q1After?.id);
 	});
 });
+
+// ── Sections (pages) ───────────────────────────────────────────────────
+
+const S = (n: number) => testUuid(`sec${n}-0000-0000-0000-000000000000`);
+
+function section(uuid: Uuid, id: string): Field {
+	return { uuid, id, kind: "section", label: id } as unknown as Field;
+}
+
+describe("buildFormRows — sections", () => {
+	const fields = {
+		[S(1)]: section(S(1), "intro"),
+		[S(2)]: section(S(2), "vitals"),
+		[Q(1)]: text(Q(1), "a"),
+		[Q(2)]: text(Q(2), "b"),
+		[G(1)]: group(G(1), "g"),
+		[Q(3)]: text(Q(3), "c"),
+	};
+	const order = {
+		[F]: [S(1), S(2)],
+		[S(1)]: [Q(1), G(1)],
+		[G(1)]: [Q(2)],
+		[S(2)]: [Q(3)],
+	};
+
+	it("emits a heading per page with k-of-n, children at depth 0, no close row", () => {
+		const rows = buildFormRows(src(fields, order), F, {
+			includeInsertionPoints: false,
+			collapsed: EMPTY,
+		});
+		expect(rows.map((r) => r.kind)).toEqual([
+			"section-header",
+			"field",
+			"group-open",
+			"field",
+			"group-close",
+			"section-header",
+			"field",
+		]);
+		expect(rows[0]).toMatchObject({
+			kind: "section-header",
+			uuid: S(1),
+			parentUuid: F,
+			siblingIndex: 0,
+			index: 0,
+			count: 2,
+			depth: 0,
+		});
+		expect(rows[5]).toMatchObject({ uuid: S(2), index: 1, count: 2 });
+		// A page is a break, not an indent: its children sit at depth 0 and
+		// a group inside it indents from there.
+		expect(rows[1]).toMatchObject({ kind: "field", uuid: Q(1), depth: 0 });
+		expect(rows[2]).toMatchObject({ kind: "group-open", uuid: G(1), depth: 0 });
+		expect(rows[3]).toMatchObject({ kind: "field", uuid: Q(2), depth: 1 });
+		expect(rows.some((r) => r.kind === "group-close" && r.uuid === S(1))).toBe(
+			false,
+		);
+	});
+
+	it("puts the page's insertion gaps inside the page and the page breaks at the root", () => {
+		const rows = buildFormRows(src(fields, order), F, {
+			includeInsertionPoints: true,
+			collapsed: EMPTY,
+		});
+		const ids = rows.map((r) => r.id);
+		// root gap, heading 1, page-1 gaps around its children, root gap,
+		// heading 2, page-2 gaps, root gap.
+		expect(ids[0]).toBe(`ins:${F}:0`);
+		expect(ids[1]).toBe(`section:${S(1)}`);
+		expect(ids[2]).toBe(`ins:${S(1)}:0`);
+		const afterPageOne = ids.indexOf(`ins:${F}:1`);
+		expect(afterPageOne).toBeGreaterThan(2);
+		expect(ids[afterPageOne - 1]).toBe(`ins:${S(1)}:2`);
+		expect(ids[afterPageOne + 1]).toBe(`section:${S(2)}`);
+		expect(ids.at(-1)).toBe(`ins:${F}:2`);
+		const insideRows = rows.filter(
+			(r) => r.kind === "insertion" && r.parentUuid === S(1),
+		);
+		expect(insideRows.every((r) => r.depth === 0)).toBe(true);
+	});
+
+	it("gives an empty page a section-variant placeholder", () => {
+		const rows = buildFormRows(
+			src(
+				{ [S(1)]: section(S(1), "intro"), [S(2)]: section(S(2), "vitals") },
+				{ [F]: [S(1), S(2)], [S(1)]: [], [S(2)]: [] },
+			),
+			F,
+			{ includeInsertionPoints: true, collapsed: EMPTY },
+		);
+		expect(rows.map((r) => r.kind)).toEqual([
+			"insertion",
+			"section-header",
+			"insertion",
+			"empty-container",
+			"insertion",
+			"section-header",
+			"insertion",
+			"empty-container",
+			"insertion",
+		]);
+		expect(rows[3]).toMatchObject({
+			kind: "empty-container",
+			parentUuid: S(1),
+			depth: 0,
+			variant: "section",
+		});
+	});
+
+	it("keeps the container variant for an empty group", () => {
+		const rows = buildFormRows(
+			src({ [G(1)]: group(G(1), "g") }, { [F]: [G(1)], [G(1)]: [] }),
+			F,
+			{ includeInsertionPoints: false, collapsed: EMPTY },
+		);
+		expect(rows[1]).toMatchObject({
+			kind: "empty-container",
+			variant: "container",
+			depth: 1,
+		});
+	});
+
+	it("counts only sections for k-of-n when the root is briefly mixed", () => {
+		// The gate never commits this shape, but a replay race can show it
+		// for a frame: the heading still says 1 of 1 rather than 1 of 2.
+		const rows = buildFormRows(
+			src(
+				{ [S(1)]: section(S(1), "intro"), [Q(1)]: text(Q(1), "a") },
+				{ [F]: [S(1), Q(1)], [S(1)]: [] },
+			),
+			F,
+			{ includeInsertionPoints: false, collapsed: EMPTY },
+		);
+		expect(rows[0]).toMatchObject({ kind: "section-header", count: 1 });
+		expect(rows.at(-1)).toMatchObject({ kind: "field", uuid: Q(1) });
+	});
+});

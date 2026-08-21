@@ -427,6 +427,14 @@ export interface BuilderSessionState {
 	 *  Per-session and never persisted. */
 	editScrollByForm: Record<string, EditScrollMemory>;
 
+	/** The page (section uuid) each sectioned form is open on, keyed by
+	 *  form uuid. Written by the preview pager as the worker moves between
+	 *  pages and by the edit canvas on unmount (the page its first visible
+	 *  row belonged to), read by whichever mode mounts next so a flip keeps
+	 *  the same page on screen. Ephemeral: a form that was never paged has
+	 *  no entry, and the entry is dropped when the form screen is left. */
+	activeSectionByForm: Record<string, string>;
+
 	// ── Actions ───────────────────────────────────────────────────────────
 
 	/** Install or clear the doc store reference. Called by SyncBridge when
@@ -644,6 +652,15 @@ export interface BuilderSessionState {
 	 *  selector subscription). */
 	getEditScroll: (formUuid: string) => EditScrollMemory | undefined;
 
+	/** Remember which page a sectioned form is open on. `undefined` clears
+	 *  the entry (the form screen was left, or the form lost its pages). */
+	setActiveSection: (formUuid: string, sectionUuid: string | undefined) => void;
+
+	/** Imperative reader for the remembered page (no subscription), for the
+	 *  edit canvas's one-time `initialOffset` computation. The preview
+	 *  pager subscribes through `useActiveSection` instead. */
+	getActiveSection: (formUuid: string) => string | undefined;
+
 	/** Reset all transient session state to the initial values — generation
 	 *  lifecycle, preview mode, sidebars, connect stash, and one-shot UI
 	 *  hints. The private doc-store reference installed by SyncBridge is NOT
@@ -758,6 +775,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				focusHint: undefined as string | undefined,
 				newFieldUuid: undefined as string | undefined,
 				editScrollByForm: {} as Record<string, EditScrollMemory>,
+				activeSectionByForm: {} as Record<string, string>,
 
 				// ── Reducer-shaped actions ───────────────────────────────
 
@@ -1413,6 +1431,20 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					return get().editScrollByForm[formUuid];
 				},
 
+				setActiveSection(formUuid: string, sectionUuid: string | undefined) {
+					set((s) => {
+						if (s.activeSectionByForm[formUuid] === sectionUuid) return s;
+						const next = { ...s.activeSectionByForm };
+						if (sectionUuid === undefined) delete next[formUuid];
+						else next[formUuid] = sectionUuid;
+						return { activeSectionByForm: next };
+					});
+				},
+
+				getActiveSection(formUuid: string): string | undefined {
+					return get().activeSectionByForm[formUuid];
+				},
+
 				reset() {
 					/* Abort any in-flight staged uploads — their drivers hold
 					 * closures into a session that's being torn down, so letting
@@ -1474,6 +1506,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						focusHint: undefined as string | undefined,
 						newFieldUuid: undefined as string | undefined,
 						editScrollByForm: {} as Record<string, EditScrollMemory>,
+						activeSectionByForm: {} as Record<string, string>,
 					});
 				},
 			})),

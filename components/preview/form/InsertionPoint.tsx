@@ -39,6 +39,7 @@ import {
 	insertionLineCls,
 	insertionLineStyle,
 } from "@/components/ui/insertionReveal";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
 import { useCanEdit, useEditMode } from "@/lib/session/hooks";
 import {
@@ -46,6 +47,7 @@ import {
 	useInsertionZone,
 } from "@/lib/ui/hooks/useInsertionZone";
 import { useFieldPicker } from "./FieldPickerContext";
+import { sectionGestureItems } from "./sectionGestureItems";
 import {
 	INSERTION_OPEN_HEIGHT_PX,
 	INSERTION_REST_HEIGHT_PX,
@@ -190,6 +192,16 @@ function InsertionPointContent({
 	const stopClick = useCallback((e: React.MouseEvent) => {
 		e.stopPropagation();
 	}, []);
+	/* What the "+" names: a question, or, on the root of a sectioned form,
+	 * a page. Read imperatively: this content mounts only while the gap is
+	 * inflated, so the read is rare and a subscription per gap would not
+	 * be. */
+	const docApi = useBlueprintDocApi();
+	const insertLabel = sectionGestureItems(
+		docApi.getState(),
+		parentUuid,
+		atIndex,
+	).insertLabel;
 
 	/* Same z tier as the detector but later in the DOM, so the layer paints
 	 * above it; `pointer-events-none` keeps the gap's clicks on the detector,
@@ -206,7 +218,7 @@ function InsertionPointContent({
 			{/* Detached trigger connected to the shared Menu.Root in
 			 *  VirtualFormList. The payload carries this InsertionPoint's location
 			 *  so the shared FieldTypePickerPopup knows where to insert. */}
-			<SimpleTooltip content="Insert field">
+			<SimpleTooltip content={insertLabel}>
 				<Menu.Trigger
 					ref={triggerRef}
 					handle={pickerCtx?.handle}
@@ -215,7 +227,7 @@ function InsertionPointContent({
 						open ? "pointer-events-auto" : "pointer-events-none"
 					}`}
 					style={insertionCircleStyle(open, "background-color 150ms ease")}
-					aria-label="Insert field"
+					aria-label={insertLabel}
 					onClick={stopClick}
 				>
 					<Icon icon={tablerPlus} width="12" height="12" />

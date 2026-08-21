@@ -23,15 +23,11 @@ import { describe, expect, it } from "vitest";
 const REPO_ROOT = join(__dirname, "..", "..", "..");
 const SCAN_ROOTS = ["lib", "components", "app"] as const;
 
-/** Sites that still spell the kinds out, each justified. */
-const ALLOWED_LITERAL_SITES: ReadonlySet<string> = new Set<string>([
-	// Edit-mode row model: a section has its own row (`SectionHeaderRow`),
-	// so the group/repeat bracket branch is deliberately those two kinds.
-	"components/preview/form/virtual/rowModel.ts",
-	// The type picker's Structure category offers `section` per insertion
-	// context (`sectionGestureItems`), not as a flat member of the list.
-	"components/preview/form/FieldTypePicker.tsx",
-]);
+/** Sites that still spell the kinds out, each justified. None today: the
+ *  row model asks `isContainer` after handling the section row, and the
+ *  type picker's Structure submenu offers the page gestures
+ *  (`sectionGestureItems`) beside the two boxed kinds. */
+const ALLOWED_LITERAL_SITES: ReadonlySet<string> = new Set<string>([]);
 
 const LITERAL_PATTERNS = [
 	/kind === "group" \|\| [\w.?]*kind === "repeat"/,

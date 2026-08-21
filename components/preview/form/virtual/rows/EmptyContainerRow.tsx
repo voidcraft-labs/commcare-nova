@@ -1,9 +1,11 @@
 /**
- * EmptyContainerRow: drop target + placeholder for an empty group/repeat.
+ * EmptyContainerRow: drop target + placeholder for an empty
+ * group/repeat/section.
  *
  * Rendered between a `group-open` and `group-close` row when the
- * container has no children. Provides the sole drop target for "make
- * this the first child of the empty group."
+ * container has no children, or under a page's heading when the page has
+ * no questions yet. Provides the sole drop target for "make this the first
+ * child of the empty container." The `section` variant reads as a page.
  *
  * Unlike field/group rows, an empty container can't participate in
  * live reorder (there are no siblings to shift), so it keeps a local
@@ -22,11 +24,13 @@ import { useRowDnd } from "../useRowDnd";
 interface EmptyContainerRowProps {
 	readonly parentUuid: Uuid;
 	readonly depth: number;
+	readonly variant: "container" | "section";
 }
 
 export const EmptyContainerRow = memo(function EmptyContainerRow({
 	parentUuid,
 	depth,
+	variant,
 }: EmptyContainerRowProps) {
 	const buildDropData = useCallback<
 		Parameters<typeof useRowDnd>[0]["buildDropData"]
@@ -55,7 +59,9 @@ export const EmptyContainerRow = memo(function EmptyContainerRow({
 				style={{ height: EMPTY_CONTAINER_HEIGHT_PX }}
 			>
 				<Icon icon={tablerDragDrop} width="14" height="14" />
-				Empty: drag a field here
+				{variant === "section"
+					? "This section has no questions yet: drop one here, or add one below"
+					: "Empty: drag a field here"}
 			</div>
 		</div>
 	);

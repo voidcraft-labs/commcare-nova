@@ -48,7 +48,12 @@ import {
 import { DragStateProvider } from "@/components/builder/contexts/DragStateContext";
 import type { Uuid } from "@/lib/doc/types";
 import { useSelectedField } from "@/lib/routing/hooks";
-import { useGetEditScroll, useSetEditScroll } from "@/lib/session/hooks";
+import {
+	useGetActiveSection,
+	useGetEditScroll,
+	useSetActiveSection,
+	useSetEditScroll,
+} from "@/lib/session/hooks";
 import { InsertionIntentProvider } from "@/lib/ui/hooks/useInsertionZone";
 import {
 	FieldPickerContext,
@@ -63,11 +68,14 @@ import {
 	EMPTY_CONTAINER_HEIGHT_PX,
 	GROUP_BRACKET_HEIGHT_PX,
 	INSERTION_REST_HEIGHT_PX,
+	SECTION_HEADER_HEIGHT_PX,
 } from "./rowStyles";
 import { EmptyContainerRow } from "./rows/EmptyContainerRow";
 import { FieldRow } from "./rows/FieldRow";
 import { GroupCloseRow, GroupOpenRow } from "./rows/GroupBracket";
 import { InsertionPointRow } from "./rows/InsertionPointRow";
+import { SectionHeaderRow } from "./rows/SectionHeaderRow";
+import { initialEditOffset, sectionOfRowIndex } from "./sectionScroll";
 import { useDragIntent } from "./useDragIntent";
 import { useFormRows } from "./useFormRows";
 import { VirtualFormProvider } from "./VirtualFormContext";
@@ -103,6 +111,13 @@ export const VirtualFormList = memo(function VirtualFormList({
 	const getEditScroll = useGetEditScroll();
 	const setEditScroll = useSetEditScroll();
 	const savedScroll = getEditScroll(formUuid);
+	// On a sectioned form the two modes also agree on WHICH PAGE is open:
+	// the preview pager leaves its page in the session, and this list opens
+	// on that page's heading unless the saved scroll already shows it
+	// (`sectionScroll.ts`). On unmount the list records the page its first
+	// visible row belongs to, so flipping to preview opens the same page.
+	const getActiveSection = useGetActiveSection();
+	const setActiveSection = useSetActiveSection();
 
 	// ── Collapse (shared across edit + live via FormLayoutContext) ───
 	// FormLayoutProvider in FormScreen owns the canonical Set so the same
@@ -155,7 +170,14 @@ export const VirtualFormList = memo(function VirtualFormList({
 		if (!uuid) return -1;
 		for (let i = 0; i < rows.length; i++) {
 			const row = rows[i];
-			if (row.kind === "field" && row.uuid === uuid) return i;
+			if (
+				(row.kind === "field" ||
+					row.kind === "group-open" ||
+					row.kind === "section-header") &&
+				row.uuid === uuid
+			) {
+				return i;
+			}
 		}
 		return -1;
 	}, [rows, selectedField?.uuid]);
@@ -177,6 +199,8 @@ export const VirtualFormList = memo(function VirtualFormList({
 				case "group-open":
 				case "group-close":
 					return GROUP_BRACKET_HEIGHT_PX;
+				case "section-header":
+					return SECTION_HEADER_HEIGHT_PX;
 				case "empty-container":
 					return EMPTY_CONTAINER_HEIGHT_PX;
 				case "drop-placeholder":
@@ -206,6 +230,17 @@ export const VirtualFormList = memo(function VirtualFormList({
 		[rows],
 	);
 
+	// Read once at creation, like the saved scroll: the virtualizer applies
+	// `initialOffset` in its own layout effect and ignores later values.
+	const [initialOffset] = useState(() =>
+		initialEditOffset({
+			rows: baseRows,
+			saved: savedScroll,
+			activeSection: getActiveSection(formUuid),
+			estimateSize,
+		}),
+	);
+
 	const virtualizer = useVirtualizer({
 		count: rows.length,
 		getScrollElement: () => scrollerRef.current,
@@ -213,7 +248,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 		overscan: OVERSCAN,
 		rangeExtractor,
 		getItemKey,
-		initialOffset: savedScroll?.offset ?? 0,
+		initialOffset,
 		initialMeasurementsCache: savedScroll?.measurements,
 	});
 
@@ -244,8 +279,16 @@ export const VirtualFormList = memo(function VirtualFormList({
 				offset: virtualizer.scrollOffset ?? 0,
 				measurements: [...virtualizer.measurementsCache],
 			});
+			// The page the canvas was reading: the first visible row's
+			// section (undefined on a sectionless form, which leaves the
+			// slot alone).
+			const first = virtualizer.getVirtualItems()[0]?.index;
+			if (first !== undefined) {
+				const section = sectionOfRowIndex(baseRowsRef.current, first);
+				if (section !== undefined) setActiveSection(formUuid, section);
+			}
 		};
-	}, [formUuid, setEditScroll, virtualizer]);
+	}, [formUuid, setEditScroll, setActiveSection, virtualizer]);
 
 	// ── Shared field-picker menu ──────────────────────────────────
 
@@ -395,11 +438,25 @@ const RenderRow = memo(function RenderRow({
 					<GroupCloseRow uuid={row.uuid} depth={row.depth} />
 				</>
 			);
+		case "section-header":
+			return (
+				<SectionHeaderRow
+					uuid={row.uuid}
+					parentUuid={row.parentUuid}
+					siblingIndex={row.siblingIndex}
+					index={row.index}
+					count={row.count}
+				/>
+			);
 		case "empty-container":
 			return (
 				<>
 					{rails}
-					<EmptyContainerRow parentUuid={row.parentUuid} depth={row.depth} />
+					<EmptyContainerRow
+						parentUuid={row.parentUuid}
+						depth={row.depth}
+						variant={row.variant}
+					/>
 				</>
 			);
 		case "drop-placeholder":

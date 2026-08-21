@@ -18,6 +18,7 @@ import {
 	makeDropEmptyContainerData,
 	makeDropFieldData,
 	makeDropGroupHeaderData,
+	makeDropSectionHeaderData,
 	readDropTargetData,
 	targetContainerUuidFor,
 } from "../dragData";
@@ -158,5 +159,26 @@ describe("isUuidInSubtree", () => {
 			b: ["a"],
 		};
 		expect(isUuidInSubtree(cyclic, "a", "c")).toBe(false);
+	});
+});
+
+describe("section header drop targets", () => {
+	const S = testUuid("sec1-0000-0000-0000-000000000000");
+
+	it("round-trips through the factory and the narrowing reader", () => {
+		const data = makeDropSectionHeaderData(S, F, 0);
+		expect(readDropTargetData(data)).toEqual({
+			kind: "drop-section-header",
+			uuid: S,
+			parentUuid: F,
+			siblingIndex: 0,
+		});
+	});
+
+	it("lands at the form root for the top edge and inside the page otherwise", () => {
+		const drop = makeDropSectionHeaderData(S, F, 0);
+		expect(targetContainerUuidFor(drop, "top")).toBe(F);
+		expect(targetContainerUuidFor(drop, "bottom")).toBe(S);
+		expect(targetContainerUuidFor(drop, null)).toBe(S);
 	});
 });

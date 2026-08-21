@@ -20,6 +20,14 @@
  *     descendant would reparent the group under itself. We read the
  *     doc's `fieldOrder` imperatively in `canDrop` and consult
  *     `isUuidInSubtree`.
+ *   - Reject landings the commit gate would refuse on a sectioned form:
+ *     a question at the root of a paged form, a page anywhere but the
+ *     root, an add-entries repeat on a page (`fieldPlacementVerdict`,
+ *     the same verdict the rail, the keyboard, and the SA tools ask). A
+ *     row whose landing depends on the edge (a header: before it, or
+ *     into it) lists both landings, and the drop is accepted when EITHER
+ *     is; `useDragIntent` re-asks with the resolved edge so the
+ *     placeholder only opens on the legal half.
  *   - Track `isDraggingSelf`, `isDragOver`, and (optionally) the closest
  *     edge so each row can render its own visual feedback.
  *
@@ -53,6 +61,7 @@ import {
 } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { fieldPlacementVerdict } from "@/lib/doc/formSectionVerdicts";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -99,6 +108,13 @@ export interface UseRowDndOptions {
 	 *   - For empty-container drops, this is the empty container uuid.
 	 */
 	readonly cycleTargetContainerUuid: Uuid;
+
+	/**
+	 * Every container the dragged source could land in from this row, for
+	 * the placement verdict. Defaults to `[cycleTargetContainerUuid]`; a
+	 * header row lists its parent (top edge) and itself (bottom edge).
+	 */
+	readonly landingContainerUuids?: readonly Uuid[];
 
 	/**
 	 * Build the drop-target data payload. Pragmatic DnD calls this on
@@ -152,6 +168,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 	const {
 		draggableUuid,
 		cycleTargetContainerUuid,
+		landingContainerUuids,
 		buildDropData,
 		trackEdge = false,
 		renderPreview,
@@ -232,10 +249,27 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 					// would reparent the group under itself.
 					const doc = docStore?.getState();
 					if (!doc) return true;
-					return !isUuidInSubtree(
-						doc.fieldOrder as Record<string, readonly string[]>,
-						source.data.uuid,
-						cycleTargetContainerUuid,
+					if (
+						isUuidInSubtree(
+							doc.fieldOrder as Record<string, readonly string[]>,
+							source.data.uuid,
+							cycleTargetContainerUuid,
+						)
+					) {
+						return false;
+					}
+					// Placement guard: at least one of this row's landings must
+					// be one the gate accepts for the dragged field.
+					const dragged = doc.fields[source.data.uuid];
+					if (dragged === undefined) return true;
+					const landings = landingContainerUuids ?? [cycleTargetContainerUuid];
+					return landings.some(
+						(toParentUuid) =>
+							fieldPlacementVerdict(doc, {
+								uuid: dragged.uuid,
+								kind: dragged.kind,
+								toParentUuid,
+							}).ok,
 					);
 				},
 				getData: buildDropData,
@@ -267,6 +301,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 		canEdit,
 		draggableUuid,
 		cycleTargetContainerUuid,
+		landingContainerUuids,
 		buildDropData,
 		trackEdge,
 	]);

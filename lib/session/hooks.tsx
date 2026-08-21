@@ -269,6 +269,31 @@ export function useGetEditScroll(): (
 	return useBuilderSession((s) => s.getEditScroll);
 }
 
+// ── Active page of a sectioned form ──────────────────────────────────────
+
+/** The page (section uuid) a sectioned form is open on, or `undefined`
+ *  when it was never paged. Reactive: the preview pager renders from it. */
+export function useActiveSection(formUuid: string): string | undefined {
+	return useBuilderSession((s) => s.activeSectionByForm[formUuid]);
+}
+
+/** Imperative reader for the same slot (no subscription), for the edit
+ *  canvas's one-time `initialOffset` computation. */
+export function useGetActiveSection(): (
+	formUuid: string,
+) => string | undefined {
+	return useBuilderSession((s) => s.getActiveSection);
+}
+
+/** Setter: the pager on every page change, the edit canvas on unmount,
+ *  and the form screen (with `undefined`) when the form is left. */
+export function useSetActiveSection(): (
+	formUuid: string,
+	sectionUuid: string | undefined,
+) => void {
+	return useBuilderSession((s) => s.setActiveSection);
+}
+
 // ── Generation lifecycle ──────────────────────────────────────────────────
 //
 // Every public signal here derives from `session.events` + `runCompletedAt`

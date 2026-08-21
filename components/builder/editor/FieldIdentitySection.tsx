@@ -82,6 +82,22 @@ interface FieldIdentitySectionProps {
 	field: Field;
 }
 
+/** The menu label for a Shift+arrow move, by what the move crosses. */
+export function crossLevelMoveLabel(
+	target: CrossLevelFieldMoveTarget | undefined,
+): string {
+	switch (target?.direction) {
+		case "into":
+			return "Move into group";
+		case "out-to-previous-section":
+			return "Move to previous section";
+		case "out-to-next-section":
+			return "Move to next section";
+		default:
+			return "Move out of group";
+	}
+}
+
 /** Track whether the Shift key is currently held. Resets on window blur
  *  and on `visibilitychange` → hidden so a tab-switch or OS-level
  *  focus change doesn't leave a phantom pressed state (e.g. user
@@ -482,13 +498,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 									{/* Move Up / cross-level up (Shift swaps) */}
 									<MenuItem
 										icon={tablerArrowUp}
-										label={
-											shiftHeld
-												? crossUp?.direction === "into"
-													? "Move into group"
-													: "Move out of group"
-												: "Move up"
-										}
+										label={shiftHeld ? crossLevelMoveLabel(crossUp) : "Move up"}
 										shortcut={shiftHeld ? "⇧↑" : "↑"}
 										disabled={shiftHeld ? !crossUp : isFirst}
 										onClick={
@@ -502,11 +512,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 									<MenuItem
 										icon={tablerArrowDown}
 										label={
-											shiftHeld
-												? crossDown?.direction === "into"
-													? "Move into group"
-													: "Move out of group"
-												: "Move down"
+											shiftHeld ? crossLevelMoveLabel(crossDown) : "Move down"
 										}
 										shortcut={shiftHeld ? "⇧↓" : "↓"}
 										disabled={shiftHeld ? !crossDown : isLast}
