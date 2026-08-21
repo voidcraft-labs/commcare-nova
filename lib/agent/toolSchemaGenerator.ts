@@ -69,6 +69,7 @@ import {
 	isCaptureFieldKind,
 	lookupOptionsSourceSchema,
 	proseTemplateSchema,
+	selectOptionValueSchema,
 	uuidSchema,
 	xpathExpressionSchema,
 } from "@/lib/domain";
@@ -134,7 +135,10 @@ const FIELD_DOCS = {
 		"that must track other fields, use calculate.",
 	optionsSource:
 		'Choice source. Use kind "inline" with at least 2 options, or kind ' +
-		'"lookup" with stable table/column UUIDs and an optional canonical filter.',
+		'"lookup" with stable table/column UUIDs and an optional canonical filter. ' +
+		"Each inline option's `value` is the stored answer token, a lowercase " +
+		"underscore-joined slug (prefer_not_to_say) with no spaces or quotes; " +
+		"its `label` carries the wording.",
 	caseWrite:
 		"Complete case destination for this answer. `caseType` names the case " +
 		"type and `property` names the property on that type. The module's own " +
@@ -232,8 +236,10 @@ export const projectedSelectOptionSchema = z
 			.describe(
 				"Stable UUID for this option. Supply it when preserving an existing option or when another same-call value refers to it; otherwise Nova mints it.",
 			),
-		value: z.string(),
-		label: proseTemplateSchema,
+		value: selectOptionValueSchema,
+		label: proseTemplateSchema.describe(
+			"What people read for this choice. Put the wording here, never in `value`.",
+		),
 	})
 	.strict();
 

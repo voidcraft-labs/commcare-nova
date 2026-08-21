@@ -159,6 +159,62 @@ describe("userFacingError — voice", () => {
 		expect(line).toMatch(/accepted (option|value)/i);
 		expect(line).toMatch(/remove the repeated/i);
 	});
+
+	it("shows an empty or whitespace choice value for what it is, never as a bare pair of quotes", () => {
+		const render = (optionValue: string, problem: string) =>
+			userFacingError(
+				validationError(
+					"SELECT_OPTION_VALUE_INVALID",
+					"field",
+					"verbose internal message",
+					{ formName: "Visit", fieldId: "answer" },
+					{ optionValue, problem, suggestedValue: "not_applicable" },
+				),
+			);
+		expect(render("", "empty")).toContain("has an empty stored value");
+		expect(render("", "empty")).not.toContain('""');
+		expect(render(" ", "whitespace")).toContain('" "');
+		expect(render("a\tb", "whitespace")).toContain('"a\\tb"');
+		expect(render("don't", "quote")).toContain("quote mark");
+		expect(render("", "empty")).toContain('"not_applicable"');
+	});
+
+	it("explains a loop closed by a container's display condition as containment", () => {
+		const line = userFacingError(
+			validationError(
+				"CYCLE",
+				"form",
+				"verbose internal message",
+				{ formName: "Quiz" },
+				{
+					loop: "/data/question1 reads /data/first; /data/question1/question2 is inside the group /data/question1, so it follows that group's display condition; /data/first reads /data/question1/question2.",
+					container: "/data/question1",
+					containerKind: "group",
+					descendant: "/data/question1/question2",
+				},
+			),
+		);
+		expect(line).toContain('the group "question1"');
+		expect(line).toContain('"question2"');
+		expect(line).toContain("question1 reads first");
+		expect(line).not.toContain("/data/");
+		expect(line).toMatch(/move "question2" out of the group/i);
+	});
+
+	it("keeps the reference-loop wording when no container is involved", () => {
+		const line = userFacingError(
+			validationError(
+				"CYCLE",
+				"form",
+				"verbose internal message",
+				{ formName: "Quiz" },
+				{ loop: "/data/b reads /data/a; /data/a reads /data/b." },
+			),
+		);
+		expect(line).toContain("depend on each other in a loop");
+		expect(line).toContain("b reads a; a reads b.");
+		expect(line).not.toContain("/data/");
+	});
 });
 
 describe("userFacingError — delete-aware phrasing", () => {

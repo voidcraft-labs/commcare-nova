@@ -24,6 +24,25 @@ interface DagNode {
 	expressions: { type: ExpressionType; expr: string }[];
 }
 
+/**
+ * One dependency loop found by `reportCycles`.
+ *
+ * `path` is the loop as generic paths with the first node repeated last
+ * (`['/data/a', '/data/b', '/data/a']`). `cascade` is present when the loop
+ * closes through a container's relevance cascade rather than through two
+ * authored expressions: the container shows or hides on a condition that
+ * depends on one of its own descendants. It names the edge so the report
+ * can explain the containment, which no authored expression spells out.
+ */
+export interface CycleReport {
+	readonly path: readonly string[];
+	readonly cascade?: {
+		readonly container: string;
+		readonly containerKind: "group" | "repeat";
+		readonly descendant: string;
+	};
+}
+
 /** Resolves a concrete repeat container path to its live instance count.
  *  The engine passes its `DataInstance.getRepeatCount` — the DAG itself
  *  stays a pure topology with no runtime state. */
@@ -85,6 +104,13 @@ export class TriggerDag {
 	/** Validation cycle scans must remain total over dangling references so the
 	 * owning deep rule can report them. Runtime DAG construction stays strict. */
 	private inspectionMode = false;
+	/** True only while `reportCycles` collects: the authoring proof draws
+	 *  exactly the edges the device orders (see `registerExpressions`). */
+	private cycleProof = false;
+	/** The re-evaluation edges the device does NOT order, collected by
+	 *  `registerExpressions` during a runtime build and added to the graph
+	 *  only where they close no loop (`addSettleFreeEdges`). */
+	private settleFreeEdges: Array<[dependency: string, dependent: string]> = [];
 
 	/** Build the DAG from a field tree. `doc` is the surface the
 	 *  tree's fields live on (the engine's input slice / the
@@ -92,13 +118,60 @@ export class TriggerDag {
 	build(tree: FieldTreeNode[], doc: XPathPrintableDoc, prefix = "/data"): void {
 		this.doc = doc;
 		this.inspectionMode = false;
+		this.cycleProof = false;
 		this.nodes.clear();
 		this.dependedOnBy.clear();
 		this.repeatPaths.clear();
+		this.settleFreeEdges = [];
 		this.fieldPaths = collectFieldPaths(tree, prefix);
 		this.collectExpressions(tree, prefix);
 		this.detectAndBreakCycles();
+		this.addSettleFreeEdges();
 		this.sortedPaths = this.topologicalSort();
+	}
+
+	/** Record that `dependent` re-evaluates when `dependency` changes. A
+	 *  field never depends on itself. */
+	private addEdge(dependency: string, dependent: string): void {
+		if (dependency === dependent) return;
+		let deps = this.dependedOnBy.get(dependency);
+		if (!deps) {
+			deps = new Set();
+			this.dependedOnBy.set(dependency, deps);
+		}
+		deps.add(dependent);
+	}
+
+	/** Whether `to` is reachable from `from` over the current edges. */
+	private reaches(from: string, to: string): boolean {
+		const seen = new Set<string>([from]);
+		const stack = [from];
+		for (let next = stack.pop(); next !== undefined; next = stack.pop()) {
+			if (next === to) return true;
+			for (const dependent of this.dependedOnBy.get(next) ?? []) {
+				if (!seen.has(dependent)) {
+					seen.add(dependent);
+					stack.push(dependent);
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Add the constraint and label/hint edges to the runtime graph, each
+	 * only where it closes no loop. They run AFTER the triggerable edges
+	 * have been settled, so a loop that exists only through one of them
+	 * drops that edge (the preview validates on the next touch and the
+	 * label re-renders on the next read) rather than a calculate or a
+	 * relevance edge, which would leave the form's values wrong.
+	 */
+	private addSettleFreeEdges(): void {
+		for (const [dependency, dependent] of this.settleFreeEdges) {
+			if (this.reaches(dependent, dependency)) continue;
+			this.addEdge(dependency, dependent);
+		}
+		this.settleFreeEdges = [];
 	}
 
 	/** Rebuild the DAG (e.g., after repeat add/remove). */
@@ -255,11 +328,25 @@ export class TriggerDag {
 		if (required && required !== "true()" && required !== "false()") {
 			expressions.push({ type: "required", expr: required });
 		}
-		const validate = readExpression(f, "validate", this.doc);
-		if (validate) expressions.push({ type: "validation", expr: validate });
+		// Two kinds of edge leave this method. The device ORDERS relevant,
+		// required, and calculate (`commcare-core .../xform/parse/
+		// XFormParser.java` registers exactly relevant / required / readonly
+		// / calculate through `addTriggerable`, and `FormDef.java::
+		// finalizeTriggerables` ranges only over those), so those edges are
+		// what the authoring cycle proof walks. A constraint and a label's
+		// `<output>` are evaluated on demand and never registered, so a loop
+		// that closes only through one of them installs and runs; the proof
+		// leaves those edges out, and the runtime keeps them (validation
+		// re-runs and labels re-render when their inputs change) only where
+		// they close no loop (`addSettleFreeEdges`).
+		const triggerExprs = expressions.map((e) => e.expr);
+		const settleFreeExprs: string[] = [];
 
-		// Collect all XPath expressions that create dependency edges
-		const allDepExprs = expressions.map((e) => e.expr);
+		const validate = readExpression(f, "validate", this.doc);
+		if (validate) {
+			expressions.push({ type: "validation", expr: validate });
+			settleFreeExprs.push(validate);
+		}
 
 		// Project typed label/hint atoms to their dependency expressions.
 		const allLabelRefs = proseReferenceExpressions(
@@ -275,7 +362,7 @@ export class TriggerDag {
 		);
 		if (allLabelRefs.length > 0) {
 			expressions.push({ type: "output", expr: "" });
-			for (const ref of allLabelRefs) allDepExprs.push(ref);
+			for (const ref of allLabelRefs) settleFreeExprs.push(ref);
 		}
 
 		// A lookup-backed select's choice list is a real runtime value:
@@ -293,13 +380,7 @@ export class TriggerDag {
 				walkTerms(f.optionsSource.filter, (term) => {
 					if (term.kind !== "field") return;
 					const dependencyPath = this.fieldPaths.get(term.uuid);
-					if (dependencyPath === undefined || dependencyPath === path) return;
-					let deps = this.dependedOnBy.get(dependencyPath);
-					if (!deps) {
-						deps = new Set();
-						this.dependedOnBy.set(dependencyPath, deps);
-					}
-					deps.add(path);
+					if (dependencyPath !== undefined) this.addEdge(dependencyPath, path);
 				});
 			}
 		}
@@ -308,17 +389,13 @@ export class TriggerDag {
 
 		this.nodes.set(path, { path, expressions });
 
-		// Register dependency edges
-		for (const depExpr of allDepExprs) {
-			const refs = extractPathRefs(depExpr);
-			for (const ref of refs) {
-				if (ref === path) continue; // Self-reference doesn't create a dependency
-				let deps = this.dependedOnBy.get(ref);
-				if (!deps) {
-					deps = new Set();
-					this.dependedOnBy.set(ref, deps);
-				}
-				deps.add(path);
+		for (const expr of triggerExprs) {
+			for (const ref of extractPathRefs(expr)) this.addEdge(ref, path);
+		}
+		if (this.cycleProof) return;
+		for (const expr of settleFreeExprs) {
+			for (const ref of extractPathRefs(expr)) {
+				if (ref !== path) this.settleFreeEdges.push([ref, path]);
 			}
 		}
 	}
@@ -335,16 +412,6 @@ export class TriggerDag {
 		tree: readonly FieldTreeNode[],
 		prefix: string,
 	): void {
-		const register = (dependencyPath: string, dependentPath: string): void => {
-			if (dependencyPath === dependentPath) return;
-			let deps = this.dependedOnBy.get(dependencyPath);
-			if (!deps) {
-				deps = new Set();
-				this.dependedOnBy.set(dependencyPath, deps);
-			}
-			deps.add(dependentPath);
-		};
-
 		for (const node of tree) {
 			const field = node.field;
 			const path = `${prefix}/${field.id}`;
@@ -353,7 +420,7 @@ export class TriggerDag {
 			const defaultValue = expressionSource(field, "default_value", this.doc);
 			if (defaultValue !== undefined) {
 				for (const ref of extractPathRefs(defaultValue)) {
-					register(ref, path);
+					this.addEdge(ref, path);
 					hasValidationDependency = true;
 				}
 			}
@@ -368,21 +435,100 @@ export class TriggerDag {
 	}
 
 	/**
-	 * Report all cycles without modifying the runtime graph. Builds a temporary
-	 * superset topology that adds authoring-only default edges on top of the
-	 * full runtime topology (which already includes lookup-choice filter
-	 * edges), then restores the instance maps before walking that snapshot.
-	 * Returns an array of cycle paths (e.g. ['/data/a', '/data/b', '/data/a']).
+	 * Add the authoring-time-only edges JavaRosa draws from a container's
+	 * relevance to everything inside it. This runs exclusively while
+	 * `reportCycles` has swapped in its temporary maps.
+	 *
+	 * On the device a group's or repeat's `relevant` condition cascades to its
+	 * descendants (`commcare-core .../model/condition/Condition.java::
+	 * isCascadingToChildren` is true for the show/hide actions), so when
+	 * `FormDef.java::finalizeTriggerables` orders the form's conditions,
+	 * `fillTriggeredElements` expands the container's target to the container
+	 * PLUS every descendant (`findCascadeReferences`) and makes every
+	 * condition that reads any of those nodes depend on the container's
+	 * condition. A container whose own condition reads one of its descendants
+	 * therefore depends on itself, and `throwGraphCyclesException` rejects the
+	 * form as "Logic is cyclical" at install (`XFormParser.java` runs the same
+	 * check at parse). CommCare HQ runs that parse to validate a build, which
+	 * is where an app passing only the authored-expression edges used to be
+	 * refused. Here the same fact is one edge per (container, descendant)
+	 * pair: a change to the container re-triggers its descendants, so any
+	 * path from a descendant back to the container's condition is a loop. A
+	 * `section` has no `relevant` slot and never cascades.
+	 *
+	 * These are NOT runtime edges: `build` / `rebuild` leave them out because
+	 * the engine derives a descendant's effective visibility from its
+	 * ancestors at read time and re-evaluates nothing on the container's
+	 * account.
+	 */
+	private collectRelevanceCascadeDependencies(
+		tree: readonly FieldTreeNode[],
+		prefix: string,
+		cascadeEdges: Map<string, CycleReport["cascade"]>,
+	): void {
+		const descendantPaths = (
+			nodes: readonly FieldTreeNode[],
+			parentPath: string,
+			out: string[],
+		): void => {
+			for (const node of nodes) {
+				const path = `${parentPath}/${node.field.id}`;
+				out.push(path);
+				if (node.children) descendantPaths(node.children, path, out);
+			}
+		};
+
+		for (const node of tree) {
+			const field = node.field;
+			const path = `${prefix}/${field.id}`;
+			if (node.children === undefined) continue;
+			const containerKind =
+				field.kind === "group" || field.kind === "repeat"
+					? field.kind
+					: undefined;
+			const hasRelevant =
+				this.nodes.get(path)?.expressions.some((e) => e.type === "relevant") ??
+				false;
+			if (containerKind !== undefined && hasRelevant) {
+				const descendants: string[] = [];
+				descendantPaths(node.children, path, descendants);
+				for (const descendant of descendants) {
+					this.addEdge(path, descendant);
+					cascadeEdges.set(`${path}\u0000${descendant}`, {
+						container: path,
+						containerKind,
+						descendant,
+					});
+				}
+			}
+			this.collectRelevanceCascadeDependencies(
+				node.children,
+				path,
+				cascadeEdges,
+			);
+		}
+	}
+
+	/**
+	 * Report all cycles without modifying the runtime graph. Builds a
+	 * temporary topology holding exactly the edges the device orders: the
+	 * triggerable edges (relevant / required / calculate, plus the
+	 * lookup-choice filter edges) and the two authoring-only kinds (field
+	 * defaults and the relevance cascade from a container to its
+	 * descendants), and NOT the constraint or label edges the runtime keeps
+	 * for re-evaluation (see `registerExpressions`). Restores the instance
+	 * maps before walking that snapshot. Returns one `CycleReport` per loop.
 	 */
 	reportCycles(
 		tree: FieldTreeNode[],
 		doc: XPathPrintableDoc,
 		prefix = "/data",
-	): string[][] {
+	): CycleReport[] {
 		this.doc = doc;
 		// Build a fresh graph for cycle detection without mutating the instance
 		const nodes = new Map<string, DagNode>();
 		const dependedOnBy = new Map<string, Set<string>>();
+		const cascadeEdges = new Map<string, CycleReport["cascade"]>();
 
 		// Temporarily swap in fresh maps, collect, then swap back
 		const savedNodes = this.nodes;
@@ -390,20 +536,24 @@ export class TriggerDag {
 		const savedRepeats = this.repeatPaths;
 		const savedFieldPaths = this.fieldPaths;
 		const savedInspectionMode = this.inspectionMode;
+		const savedCycleProof = this.cycleProof;
 		this.nodes = nodes;
 		this.dependedOnBy = dependedOnBy;
 		this.repeatPaths = new Set();
 		try {
 			this.inspectionMode = true;
+			this.cycleProof = true;
 			this.fieldPaths = collectFieldPaths(tree, prefix);
 			this.collectExpressions(tree, prefix);
 			this.collectValidationOnlyDependencies(tree, prefix);
+			this.collectRelevanceCascadeDependencies(tree, prefix, cascadeEdges);
 		} finally {
 			this.nodes = savedNodes;
 			this.dependedOnBy = savedDeps;
 			this.repeatPaths = savedRepeats;
 			this.fieldPaths = savedFieldPaths;
 			this.inspectionMode = savedInspectionMode;
+			this.cycleProof = savedCycleProof;
 		}
 
 		const WHITE = 0,
@@ -411,11 +561,19 @@ export class TriggerDag {
 			BLACK = 2;
 		const color = new Map<string, number>();
 		const parent = new Map<string, string>();
-		const cycles: string[][] = [];
+		const cycles: CycleReport[] = [];
 
 		for (const path of nodes.keys()) {
 			color.set(path, WHITE);
 		}
+
+		const report = (cycle: readonly string[]): CycleReport => {
+			for (let i = 0; i + 1 < cycle.length; i++) {
+				const cascade = cascadeEdges.get(`${cycle[i]}\u0000${cycle[i + 1]}`);
+				if (cascade !== undefined) return { path: cycle, cascade };
+			}
+			return { path: cycle };
+		};
 
 		const dfs = (u: string): void => {
 			color.set(u, GRAY);
@@ -434,7 +592,7 @@ export class TriggerDag {
 							cycle.push(cur);
 						}
 						cycle.reverse();
-						cycles.push(cycle);
+						cycles.push(report(cycle));
 					} else if (c === WHITE) {
 						parent.set(v, u);
 						dfs(v);
@@ -450,7 +608,22 @@ export class TriggerDag {
 			}
 		}
 
-		return cycles;
+		// A reference to a field inside a container also depends on the
+		// container (`extractPathRefs` yields every prefix of a path), so a
+		// loop closed by the cascade usually has a shorter twin through
+		// that prefix edge over a subset of the same nodes. One authored
+		// loop gets one report: the cascade one, which can explain the
+		// containment.
+		const cascadeNodeSets = cycles
+			.filter((cycle) => cycle.cascade !== undefined)
+			.map((cycle) => new Set(cycle.path));
+		return cycles.filter(
+			(cycle) =>
+				cycle.cascade !== undefined ||
+				!cascadeNodeSets.some((nodesOfCascade) =>
+					cycle.path.every((node) => nodesOfCascade.has(node)),
+				),
+		);
 	}
 
 	/** DFS cycle detection. If a cycle is found, break it by removing the back-edge. */

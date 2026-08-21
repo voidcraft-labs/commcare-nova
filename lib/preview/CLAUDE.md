@@ -331,11 +331,35 @@ Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one Fie
 - **Evaluation binds to the instance.** `createEvalContext` rebases every read — `#form/` hashtags and absolute `/data/` paths — onto the evaluating node's own repeat instance by longest-common-repeat-prefix (`rebaseOntoContext`), CommCare's relative-reference semantic. A reference from OUTSIDE a repeat to a child inside one is not rebased and reads blank — the wire's nodeset semantics (sum over instances, indexed predicates) are not modeled.
 - **The TriggerDag topology is index-free; queries materialize.** Nodes and edges are keyed by generic paths, and `getAffected` / `getAllPaths` fan each generic node out over the live instance counts (a `RepeatCountResolver` the engine supplies). Repeat add/remove therefore needs NO DAG bookkeeping; both cardinality changes re-evaluate EVERY instance (`position()` and renumbered sibling reads can shift on removal) plus outside dependents, and `addRepeat` runs defaults-then-evaluate for the new instance, the same order as form load.
 - **Authoring cycle proof is a strict superset of runtime triggers.**
-  `TriggerDag.reportCycles` temporarily adds field-DEFAULT dependencies so
-  validation can reject loops through defaults; `build` / `rebuild` exclude
-  them because defaults apply once during initialization. Lookup-choice
-  filter dependencies are RUNTIME edges (the `choices` expression below) —
-  the proof sees them through the ordinary collection, not the swap.
+  `TriggerDag.reportCycles` temporarily adds two kinds of authoring-only
+  edge: field-DEFAULT dependencies, so validation can reject loops through
+  defaults (`build` / `rebuild` exclude them because defaults apply once
+  during initialization), and the RELEVANCE CASCADE from a group or repeat
+  to every descendant, because the device re-triggers everything inside a
+  container when its display condition changes (`commcare-core
+  .../FormDef.java::fillTriggeredElements` over
+  `Condition.java::isCascadingToChildren`), so a container whose condition
+  reads its own contents is "Logic is cyclical" at install and CommCare HQ
+  refuses the build. The runtime excludes that edge too: the engine derives
+  a descendant's effective visibility from its ancestors at read time.
+  Each report names the cascade edge it closed through (`CycleReport.cascade`)
+  so the validator can explain the containment, which no authored expression
+  spells out; because a reference to a field inside a container also depends
+  on the container (`extractPathRefs` yields every path prefix), a cascade
+  loop usually has a shorter twin through that prefix edge, and
+  `reportCycles` keeps only the cascade report for one authored loop.
+  Lookup-choice filter dependencies are RUNTIME edges (the `choices`
+  expression below) — the proof sees them through the ordinary collection,
+  not the swap. Two runtime edge kinds are deliberately NOT in the proof:
+  a field's constraint (`validate`) and its label/hint `<output>` references.
+  The device orders only relevant / required / readonly / calculate
+  (`XFormParser.java` registers exactly those through `addTriggerable`, and
+  `FormDef.java::finalizeTriggerables` ranges only over triggerables), so a
+  loop that closes only through a constraint or a label installs and runs.
+  The runtime keeps those edges (validation re-runs and labels re-render
+  when their inputs change) but adds them LAST and only where they close
+  no loop (`addSettleFreeEdges`), so a loop through one of them drops that
+  edge and never a calculate or relevance edge.
 - **Instance counts are explicit.** `DataInstance` tracks cardinality in its own map, keyed by concrete repeat path — never derived from which value keys happen to exist (a repeat with only structural children still counts 1). `set` auto-extends counts from indexed path segments so restore/rename flows stay consistent. A new instance seeds the AUTHORED template shape — nested repeats restart at one instance, matching what the deployed form's `jr:template` produces — not `[0]`'s live shape.
 - **The runtime store is dual-keyed.** Every field keeps its uuid key (edit-mode rows); every path with an `[N]` segment ALSO gets a path key — the interactive renderer subscribes via `useEngineStateAt(uuid, path)` and writes through `controller.setValueAt(path, …)` / `touchAt(path)`, so two instances of one field hold independent value/visibility/validity. Uuid-keyed flows (`onValueChange`) address the `[0]` template only.
 - **Doc mutations land on every live instance.** The controller's incremental handlers (field added / removed / retyped / expression edited during live preview) route through the engine's instance-aware ops. Authored topology is reconciled once per committed batch from complete pre/post path maps, so two independent renames or a cross-parent subtree move cannot observe a half-updated map. `materializePaths` expands the uuid map's `[0]` template path over the live counts, and `renamePaths` moves all values/states in one call (materialize-before-move, since renaming or moving a repeat container relocates the count its descendants materialize through). A repeat→group conversion keeps only instance 0; the other instances' values are dropped with their states unplugged.

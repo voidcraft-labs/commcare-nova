@@ -33,6 +33,7 @@ import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import {
 	authoredCasePropertyNameSchema,
 	proseTemplateSchema,
+	selectOptionValueSchema,
 	uuidSchema,
 	xpathExpressionSchema,
 } from "@/lib/domain";
@@ -69,8 +70,10 @@ const SELECT_DATA_TYPES: ReadonlySet<string> = new Set([
 
 const selectOptionDescribed = z
 	.object({
-		value: z.string().min(1).describe("Option value (stored in data)"),
-		label: proseTemplateSchema.describe("Option label shown to the user."),
+		value: selectOptionValueSchema,
+		label: proseTemplateSchema.describe(
+			"Option label shown to the user. Put the wording here, never in `value`.",
+		),
 	})
 	.strict();
 

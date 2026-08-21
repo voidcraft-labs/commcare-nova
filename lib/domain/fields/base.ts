@@ -47,7 +47,12 @@ import {
 	authoredCasePropertyNameSchema,
 } from "../casePropertyName";
 import { type Media, mediaSchema } from "../multimedia";
-import { type ProseTemplate, proseTemplateSchema, proseText } from "../prose";
+import {
+	type ProseTemplate,
+	proseTemplateSchema,
+	proseTemplateText,
+	proseText,
+} from "../prose";
 import { type Uuid, uuidSchema } from "../uuid";
 import { type XPathExpression, xpathExpressionSchema } from "../xpath";
 
@@ -251,10 +256,39 @@ export const selectOptionSchema = z
 export const DEFAULT_SELECT_OPTIONS: readonly Pick<
 	SelectOption,
 	"value" | "label"
->[] = [
-	{ value: "option_1", label: proseText("Option 1") },
-	{ value: "option_2", label: proseText("Option 2") },
-];
+>[] = [mintSelectOptionPlaceholder(1), mintSelectOptionPlaceholder(2)];
+
+/**
+ * The placeholder choice Nova mints at position `n` when nobody has named
+ * one yet: value `option_n` under the label "Option n". The one minter
+ * behind `DEFAULT_SELECT_OPTIONS`, the options editor's "Add option", and
+ * the fallback value a refusal suggests when neither the value nor the
+ * label has a word to keep, so the recognizer below cannot drift from what
+ * was minted.
+ */
+export function mintSelectOptionPlaceholder(
+	n: number,
+): Pick<SelectOption, "value" | "label"> {
+	return { value: `option_${n}`, label: proseText(`Option ${n}`) };
+}
+
+/**
+ * Whether an option still reads exactly as `mintSelectOptionPlaceholder`
+ * left it, at ANY position: value `option_N` under the label "Option N"
+ * for one and the same N. Nobody chose either side of such a row, so the
+ * first real label it is given may also name the value; once either side
+ * has been edited the two are independent.
+ */
+export function isMintedSelectOptionPlaceholder(
+	option: Pick<SelectOption, "value" | "label">,
+): boolean {
+	const match = /^option_([1-9]\d*)$/.exec(option.value);
+	if (match === null) return false;
+	const minted = mintSelectOptionPlaceholder(Number(match[1]));
+	return (
+		proseTemplateText(option.label).trim() === proseTemplateText(minted.label)
+	);
+}
 
 /**
  * The inert value a builder-born hidden field starts with — the XPath

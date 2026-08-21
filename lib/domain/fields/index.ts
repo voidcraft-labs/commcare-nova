@@ -707,6 +707,8 @@ export type { SelectOption } from "./base";
 export {
 	DEFAULT_SELECT_OPTIONS,
 	HIDDEN_INERT_DEFAULT_VALUE,
+	isMintedSelectOptionPlaceholder,
+	mintSelectOptionPlaceholder,
 	selectOptionSchema,
 } from "./base";
 export {

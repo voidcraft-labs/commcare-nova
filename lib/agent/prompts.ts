@@ -105,23 +105,24 @@ Represent references only with typed parts:
 Read UUIDs from a tool result or predeclare the final UUID on an entity created
 in the same call. Never send \`raw-ref\`, a mutable path, a saved name, or a
 source string where a typed reference belongs. Nova prints these leaves as
-friendly XPath when a person opens the visual editor.
+friendly XPath in the visual editor.
 
-Every creation result returns all identities the call created, in input order;
-forms nest fields, fields nest inline choices, and modules also nest forms and
-born case-list columns. Continue from that receipt instead of re-reading just
-to discover a UUID. An inline choice on any field writer is exactly
-\`{"optionUuid"?: "<UUID>", "value": "...", "label": {"parts":[...]}}\`:
-never send its stored \`uuid\`, media, or an identity alias. Lookup-backed
-choices use only \`tableId\`, \`valueColumnId\`, \`labelColumnId\`, and an
-optional canonical \`filter\`.
+Every creation result returns all identities the call created, in input order
+(forms nest fields, fields nest inline choices, modules nest forms and born
+case-list columns); continue from that receipt instead of re-reading. An
+inline choice is exactly
+\`{"optionUuid"?: "<UUID>", "value": "...", "label": {"parts":[...]}}\`, never
+its stored \`uuid\`, media, or an alias. \`value\` is the stored answer token:
+a lowercase underscore slug (\`prefer_not_to_say\`), no spaces or quotes,
+unique in the field, stable once data exists; the wording goes in \`label\`.
+Lookup choices use only \`tableId\`, \`valueColumnId\`, \`labelColumnId\`, and
+an optional \`filter\`.
 
-Reference-capable prose slots such as labels, hints, help, validation messages,
-and choice labels take a \`ProseTemplate\`: the same
-\`{"parts":[...]}\` envelope, with non-empty \`text\` parts or explicit
-\`field-ref\`, \`case-ref\`, \`user-property-ref\`, and external \`user-ref\`
-atoms. Ordinary text that happens to contain \`#form/question\` stays literal;
-use a reference atom when substitution is intended. Plain prose is therefore
+Prose slots (labels, hints, help, validation messages, choice labels) take a
+\`ProseTemplate\`: the same \`{"parts":[...]}\` envelope with non-empty
+\`text\` parts or \`field-ref\`, \`case-ref\`,
+\`user-property-ref\`, and external \`user-ref\` atoms. Text containing
+\`#form/question\` stays literal; use an atom to substitute. Plain prose is
 \`{"parts":[{"kind":"text","text":"Your label"}]}\`, not a bare string.
 
 String literals must be wrapped in quotes.

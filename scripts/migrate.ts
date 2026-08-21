@@ -42,6 +42,10 @@ import {
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
 import { runCaseStatusFilterRepair } from "@/scripts/lib/caseStatusFilterRepair";
 import { runLanguageIdentityRepair } from "@/scripts/lib/languageIdentityRepair";
+import {
+	listRepairCandidateAppIds,
+	runSelectOptionValueRepair,
+} from "@/scripts/lib/selectOptionValueRepair";
 import { runXPathCarrierCompatibilityRepair } from "@/scripts/lib/xpathCarrierCompatibilityRepair";
 
 async function main(): Promise<void> {
@@ -137,6 +141,30 @@ async function main(): Promise<void> {
 			severity: "INFO",
 			message: "[migrate] XPath carrier compatibility converged",
 			...xpathCarrierRepair,
+		}),
+	);
+
+	// The stored-value grammar for select choices is an absolute gate with no
+	// compatibility reader, and it judges the whole document while every editor
+	// commits one field per batch — so an app holding a refused value on two
+	// fields, or on a catalog property no editor can write, cannot be repaired
+	// from inside Nova at all. Converge the fleet here, BEFORE the revision
+	// carrying that gate serves traffic, so no such app is ever observably
+	// locked. Runs the whole fleet rather than a scan-pinned id list because
+	// the census that pinned one would be stale by the deploy that ships it;
+	// planning is a pure read and no-ops on an app already inside the grammar.
+	// An app the gate still refuses for an UNRELATED finding is named and
+	// skipped, not thrown: it was locked before this ran and failing here
+	// would strand the apps this can repair.
+	const selectOptionValueRepair = await runSelectOptionValueRepair(
+		await listRepairCandidateAppIds(),
+	);
+	console.log(
+		JSON.stringify({
+			severity:
+				selectOptionValueRepair.blockedApps.length > 0 ? "WARNING" : "INFO",
+			message: "[migrate] select option value grammar converged",
+			...selectOptionValueRepair,
 		}),
 	);
 

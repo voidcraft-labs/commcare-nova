@@ -1006,6 +1006,21 @@ env wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` /
 requires the migration, runtime, cleanup, and audit role identities after
 migrations.
 
+Between the schema migrations and the privilege pass, the entrypoint runs the
+**data repairs** in `scripts/lib/*Repair.ts`. Each exists because an absolute
+gate was strengthened with no compatibility reader, so historical documents the
+new revision would refuse are converged HERE, before that revision serves —
+and a repair whose gate judges the whole document while every editor commits
+one field per batch is the *only* way its apps can be fixed at all. A repair
+plans purely, proposes a whole target document through `appendSyntheticBatch`,
+and is idempotent: it re-plans the live fleet on every deploy and no-ops once
+converged, so none of them pins a scan's app-id list (that census would be
+stale by the deploy shipping it). A repair throws — and fails the deploy — for
+anything that is a defect in itself, but an app the gate still refuses for an
+UNRELATED finding is named in the Job's log and skipped: it was locked before
+the repair ran, and failing there would strand every app the repair could
+have fixed. Grep the Job's log for a repair's `blockedApps` to find them.
+
 Every production migration invocation finishes with the rollback-only runtime
 database probe in `lib/db/runtimeDatabaseProbe.ts`: it assumes the runtime role
 inside the migration transaction, assembles every app's exact text carriers

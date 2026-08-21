@@ -106,6 +106,7 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"NO_MODULES",
 	"EMPTY_APP_NAME",
 	"RESERVED_CASE_TYPE_NAME",
+	"CASE_PROPERTY_OPTION_VALUE_INVALID",
 	"MISSING_CHILD_CASE_MODULE",
 	"FORM_LINK_CIRCULAR",
 	"CONNECT_ID_DUPLICATE",
@@ -379,18 +380,55 @@ function runDeepValidation(
 				);
 			}
 
-			case "cycle":
+			case "cycle": {
+				/* The loop, one edge per sentence. Each consecutive pair in
+				 * `cycle` is one dependency edge (the later node depends on the
+				 * earlier one), so the reading names the authored reference on
+				 * every edge that has one. The edge a container's relevance
+				 * cascade draws has NO authored reference: the device
+				 * re-evaluates everything inside a group or repeat when its
+				 * display condition changes, so that step is named by its
+				 * containment instead of sending the author hunting for a
+				 * reference that is not written anywhere. */
+				const cascade = deep.cascade;
+				const steps: string[] = [];
+				for (let i = 0; i + 1 < deep.cycle.length; i++) {
+					const from = deep.cycle[i];
+					const to = deep.cycle[i + 1];
+					if (from === undefined || to === undefined) continue;
+					steps.push(
+						cascade !== undefined &&
+							cascade.container === from &&
+							cascade.descendant === to
+							? `${to} is inside the ${cascade.containerKind} ${from}, so it follows that ${cascade.containerKind}'s display condition`
+							: `${to} reads ${from}`,
+					);
+				}
+				const loop = `${steps.join("; ")}.`;
+				const explanation =
+					cascade === undefined
+						? "These field expressions reference each other in a loop, so their values or choices can never settle. Break the cycle by removing one of the references."
+						: `Whether the ${cascade.containerKind} ${cascade.container} shows therefore depends on ${cascade.descendant}, a value inside it that its own display condition controls, and CommCare refuses to install a form with this loop. Move ${cascade.descendant} out of the ${cascade.containerKind}, or change one of the references above so nothing inside the ${cascade.containerKind} feeds its display condition.`;
 				return validationError(
 					"CYCLE",
 					"form",
-					`"${deep.formName}" in "${deep.moduleName}" has a circular dependency: ${deep.cycle.join(" → ")}. These field expressions reference each other in a loop, so their values or choices can never settle. Break the cycle by removing one of the references.`,
+					`"${deep.formName}" in "${deep.moduleName}" has a circular dependency: ${loop} ${explanation}`,
 					{
 						moduleUuid: deep.moduleUuid,
 						moduleName: deep.moduleName,
 						formUuid: deep.formUuid,
 						formName: deep.formName,
 					},
+					{
+						loop,
+						...(cascade !== undefined && {
+							container: cascade.container,
+							containerKind: cascade.containerKind,
+							descendant: cascade.descendant,
+						}),
+					},
 				);
+			}
 
 			default: {
 				// Exhaustiveness tripwire: if a new `DeepValidationError` kind is

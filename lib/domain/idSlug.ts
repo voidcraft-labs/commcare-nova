@@ -44,7 +44,19 @@ export function uniqueSlug(
 	fallback: string,
 	taken: ReadonlySet<string>,
 ): string {
-	const base = slugifyId(name, fallback);
+	return suffixUntilFree(slugifyId(name, fallback), taken);
+}
+
+/**
+ * `base` itself when nothing in `taken` holds it, else the first of
+ * `base_2`, `base_3`, … that is free. The one collision policy for every
+ * slug Nova mints beside its siblings: module and form ids here, a choice's
+ * stored value in `selectOptionValue.ts`.
+ */
+export function suffixUntilFree(
+	base: string,
+	taken: ReadonlySet<string>,
+): string {
 	if (!taken.has(base)) return base;
 	for (let i = 2; ; i++) {
 		const candidate = `${base}_${i}`;

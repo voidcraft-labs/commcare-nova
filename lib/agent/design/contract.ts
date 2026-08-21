@@ -26,6 +26,7 @@ import {
 	type LanguageTag,
 	languageTag,
 } from "@/lib/domain/localization";
+import { selectOptionValueSchema } from "@/lib/domain/selectOptionValue";
 import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
 
 /**
@@ -238,7 +239,12 @@ export const recordPropertySchema = z
 			.enum(["ordinary", "sensitive", "highly-sensitive"])
 			.default("ordinary"),
 		requiredWhen: z.string().min(1).optional(),
-		choiceValues: z.array(z.string().min(1)).optional(),
+		choiceValues: z
+			.array(selectOptionValueSchema)
+			.optional()
+			.describe(
+				"The stored values of this fact's choices, one slug each (in_progress, prefer_not_to_say); the executor derives the wording people read from them. Every later tool that writes these choices refuses a value outside that shape.",
+			),
 		choiceSource: existingLookupChoiceSourceSchema.optional(),
 	})
 	.strict()
@@ -305,7 +311,12 @@ export const workflowInputSchema = z
 		propertyId: designIdSchema.optional(),
 		dataShape: factDataShapeSchema.optional(),
 		requiredWhen: z.string().min(1).optional(),
-		choiceValues: z.array(z.string().min(1)).optional(),
+		choiceValues: z
+			.array(selectOptionValueSchema)
+			.optional()
+			.describe(
+				"The stored values of this fact's choices, one slug each (in_progress, prefer_not_to_say); the executor derives the wording people read from them. Every later tool that writes these choices refuses a value outside that shape.",
+			),
 		choiceSource: existingLookupChoiceSourceSchema.optional(),
 		validation: z
 			.object({

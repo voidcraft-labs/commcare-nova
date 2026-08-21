@@ -21,8 +21,12 @@ import {
 	formLinkAdjacency,
 	formLinkPath,
 	isConnectLearnConfig,
+	mintSelectOptionPlaceholder,
 	projectProseTemplate,
 	projectXPath,
+	proseTemplateText,
+	repairSelectOptionValue,
+	selectOptionValueProblem,
 	translationValueIntegrityIssue,
 	type Uuid,
 	xpathPrintContext,
@@ -79,6 +83,62 @@ function globallyUniqueEntityUuids(doc: BlueprintDoc): ValidationError[] {
 					{ entityUuid: uuid, entityKind: member.kind },
 				),
 			);
+		}
+	}
+	return errors;
+}
+
+/**
+ * The catalog copy of a select property's choices shares the inline
+ * options' grammar (`lib/domain/selectOptionValue.ts`): a catalog value
+ * reaches the suite as the XPath literal the case list compares the
+ * property with (`field = 'value'`), so whitespace, quotes, and emptiness
+ * break the same way they do on the device. `SELECT_OPTION_VALUE_INVALID`
+ * (`field.ts`) is the per-field twin.
+ */
+function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const caseType of doc.caseTypes ?? []) {
+		for (const property of caseType.properties) {
+			property.options?.forEach((option, index) => {
+				const problem = selectOptionValueProblem(option.value);
+				if (problem === undefined) return;
+				// The projected label is what a person sees, so it is what the
+				// message shows; the plain text is the slug input.
+				const shownLabel = projectProseTemplate(option.label, doc).text.trim();
+				const suggestion = repairSelectOptionValue(
+					option.value,
+					proseTemplateText(option.label),
+					mintSelectOptionPlaceholder(index + 1).value,
+					new Set(
+						(property.options ?? [])
+							.filter((other) => other !== option)
+							.map((o) => o.value),
+					),
+				);
+				const shown = JSON.stringify(option.value);
+				const what =
+					problem === "empty"
+						? "is empty"
+						: problem === "whitespace"
+							? `is ${shown}, which contains a space`
+							: `is ${shown}, which contains a quote mark`;
+				errors.push(
+					validationError(
+						"CASE_PROPERTY_OPTION_VALUE_INVALID",
+						"app",
+						`Choice ${index + 1}${shownLabel ? ` ("${shownLabel}")` : ""} of case property "${caseType.name}.${property.name}" has a value that ${what}. A choice's value is the answer the app stores and compares, not the wording, so it cannot hold spaces or quote marks and cannot be empty. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`,
+						{},
+						{
+							caseType: caseType.name,
+							property: property.name,
+							optionValue: option.value,
+							problem,
+							suggestedValue: suggestion,
+						},
+					),
+				);
+			});
 		}
 	}
 	return errors;
@@ -601,6 +661,7 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 export const APP_RULES = [
 	closedBlueprintTopology,
 	globallyUniqueEntityUuids,
+	catalogOptionValuesValid,
 	canonicalCasePropertyDefaults,
 	noModules,
 	emptyAppName,

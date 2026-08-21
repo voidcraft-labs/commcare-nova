@@ -97,6 +97,12 @@ const SOURCE_CLASSIFICATION = {
 	// The finite XPath-carrier cutover follows the same named-system repair
 	// path for the two scan-proven historical here() defaults.
 	"scripts/lib/xpathCarrierCompatibilityRepair.ts": "admits-proposal",
+	// The choice-value grammar repair: the one path that can fix an app the
+	// allowance-free gate has locked (a refused option value on two fields, or
+	// on a catalog property no editor writes). Same named-system repair shape
+	// — it proposes a whole target document through appendSyntheticBatch,
+	// whose canonical commit kernel re-admits it before writing.
+	"scripts/lib/selectOptionValueRepair.ts": "admits-proposal",
 } as const satisfies Readonly<Record<string, LifecycleMode>>;
 
 /**
@@ -134,6 +140,7 @@ const MUTATION_LIFECYCLE_FAMILIES = [
 			"scripts/repair-canonical-identity-foundation.ts",
 			"scripts/lib/caseStatusFilterRepair.ts",
 			"scripts/lib/xpathCarrierCompatibilityRepair.ts",
+			"scripts/lib/selectOptionValueRepair.ts",
 			"lib/db/apps.ts",
 		],
 	],

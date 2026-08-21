@@ -24,6 +24,7 @@ export type ErrorType =
 	| "run_released"
 	| "access_revoked"
 	| "app_changed"
+	| "prompt_flagged"
 	| "internal";
 
 export interface ClassifiedError {
@@ -54,6 +55,8 @@ export const MESSAGES: Record<ErrorType, string> = {
 		"You no longer have permission to edit this app, so Nova stopped. No further changes were applied.",
 	app_changed:
 		"This app moved to another Project while Nova was working. Nova stopped before applying the pending change. Reload to continue.",
+	prompt_flagged:
+		"The model provider flagged this request as a possible usage-policy violation and stopped before finishing. That happens to ordinary content now and then. Try again, or reword the request, to continue.",
 	internal: "Something went wrong during generation.",
 };
 
@@ -69,6 +72,16 @@ function classifyByStatus(
 	raw: string,
 	body: string | undefined,
 ): ClassifiedError {
+	// A pre-stream `invalid_prompt` is a 400 whose body carries the code; it
+	// must not fall into the 400 → `model_error` arm below.
+	if (body !== undefined && isPromptFlaggedText(body)) {
+		return {
+			type: "prompt_flagged",
+			message: MESSAGES.prompt_flagged,
+			recoverable: false,
+			raw,
+		};
+	}
 	if (status === 401 || status === 403) {
 		return {
 			type: "api_auth",
@@ -128,8 +141,55 @@ function classifyByStatus(
 	};
 }
 
+/**
+ * OpenAI's `invalid_prompt` rejection is a moderation verdict on the whole
+ * request (system prompt + transcript + tool results), not a malformed
+ * request. It presents as a 400 `invalid_request_error` before streaming and
+ * as a stream `error` event mid-stream, both carrying
+ * `code: "invalid_prompt"` and the phrase "flagged as potentially violating
+ * our usage policy". It fires on ordinary content and is not deterministic
+ * across attempts, so it has its own bucket: retried like a transient fault,
+ * and explained honestly when the retries run out, rather than reported as
+ * a Nova-internal defect.
+ */
+const PROMPT_FLAGGED_CODE = "invalid_prompt";
+const PROMPT_FLAGGED_PHRASE = "flagged as potentially violating";
+
+function isPromptFlaggedText(text: string): boolean {
+	return (
+		text.includes(`"${PROMPT_FLAGGED_CODE}"`) ||
+		text.toLowerCase().includes(PROMPT_FLAGGED_PHRASE)
+	);
+}
+
+/**
+ * The loggable rendering of whatever was thrown or forwarded. An `Error`
+ * contributes its message. Anything else is serialized whole: once a
+ * response has begun streaming the SDK can no longer throw, so the OpenAI
+ * provider forwards the stream's `error` event (`{ type: "error",
+ * sequence_number, error: { type, code, message, param } }`) or its
+ * `response.failed` event as the VALUE of a terminal `{ type: "error" }`
+ * chunk, and the chat route hands that plain object here unchanged. Coercing
+ * it with `String()` rendered `[object Object]` in the log and hid the
+ * provider's `code` / `message` entirely; serializing it keeps them, and
+ * also lets the token sniffs below read a mid-stream record the same way they
+ * read an `Error` whose message is the provider's JSON body.
+ */
+function rawErrorText(error: unknown): string {
+	if (error instanceof Error) return error.message;
+	if (typeof error === "object" && error !== null) {
+		try {
+			return JSON.stringify(error);
+		} catch {
+			// A self-referential object cannot serialize; the default rendering
+			// still carries the classification through.
+		}
+	}
+	return String(error);
+}
+
 export function classifyError(error: unknown): ClassifiedError {
-	const raw = error instanceof Error ? error.message : String(error);
+	const raw = rawErrorText(error);
 
 	if (error instanceof RunHolderLostError) {
 		return {
@@ -189,8 +249,18 @@ export function classifyError(error: unknown): ClassifiedError {
 		};
 	}
 
-	// Message-pattern matching for errors that don't use APICallError
+	// Message-pattern matching for errors that don't use APICallError. `raw`
+	// is the serialized record for a forwarded mid-stream event, so every
+	// sniff below reads its `type` / `code` / `message` fields too.
 	const lowerMsg = raw.toLowerCase();
+	if (isPromptFlaggedText(raw)) {
+		return {
+			type: "prompt_flagged",
+			message: MESSAGES.prompt_flagged,
+			recoverable: false,
+			raw,
+		};
+	}
 	if (lowerMsg.includes("overloaded")) {
 		return {
 			type: "api_overloaded",
