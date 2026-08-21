@@ -30,6 +30,7 @@ import {
 	type Form,
 	type FormLink,
 	fieldPathResolver,
+	isContainerKindName,
 	type Module,
 	type ProseTemplate,
 	plainColumn,
@@ -551,7 +552,7 @@ function installFields(
 
 		// Container kinds carry a fieldOrder entry; without one, the walkers
 		// treat the field as a leaf.
-		if (kind === "group" || kind === "repeat") {
+		if (isContainerKindName(kind)) {
 			fieldOrder[uuid] = [];
 			if (children?.length) installFields(children, uuid, fields, fieldOrder);
 		}

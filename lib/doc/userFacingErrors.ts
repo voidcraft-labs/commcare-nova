@@ -109,6 +109,20 @@ type UserMessageBuilder = (err: ValidationError) => string;
  * to the generic line. The exhaustiveness test guarantees every
  * shape/soundness/completeness/environment code IS present.
  */
+/** The field a misplaced section sits in, from `parentKind` / `parentId`. */
+const sectionParentPhrase = (e: ValidationError): string => {
+	const id = e.details?.parentId;
+	if (id === undefined || id.trim().length === 0) return "another field";
+	return `the ${det(e, "parentKind", "field")} ${q(id)}`;
+};
+
+/** "one field sits" / "3 fields sit", from `looseCount`. */
+const looseFieldsPhrase = (e: ValidationError): string => {
+	const count = det(e, "looseCount", "");
+	if (count === "1") return "one field sits";
+	return `${present(count, "some")} fields sit`;
+};
+
 const USER_MESSAGE_BY_CODE: Partial<
 	Record<ValidationErrorCode, UserMessageBuilder>
 > = {
@@ -504,6 +518,12 @@ const USER_MESSAGE_BY_CODE: Partial<
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: (e) =>
 		`${q(formName(e))} doesn't have any fields yet. Add at least one.`,
+	FORM_SECTION_NOT_TOP_LEVEL: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} is a section sitting inside ${sectionParentPhrase(e)}. A section is a page of the form, so it belongs at the top level. Move it out.`,
+	FORM_SECTIONS_INCOMPLETE: (e) =>
+		`${q(formName(e))} is split into sections, but ${looseFieldsPhrase(e)} outside every section. Once a form has sections, every field belongs inside one. Add ${det(e, "looseCount", "") === "1" ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
+	FORM_SECTION_USER_REPEAT: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} lets people add entries, but it sits inside section ${q(det(e, "sectionTitle", det(e, "sectionId", "")))}, and a section shows on one screen where entries can't be added. Move the repeat out of the sections, or give it a fixed count.`,
 	CASE_WRITE_NO_CASE_ACTION: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is set to save case data, but this form doesn't create, open, or close a case. Remove that case destination, or move the field to a case form.`,
 	CASE_WRITE_NOT_DIRECT_CHILD: (e) =>

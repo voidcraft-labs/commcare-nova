@@ -30,16 +30,19 @@ import {
 	type BlueprintDoc,
 	type CaseWriteInventory,
 	deriveCaseWriteInventory,
+	type Field,
 	FORM_REFERENCE_SLOTS,
 	type Form,
 	type FormLink,
 	fieldReferenceSlotsFor,
+	fieldRegistry,
 	formExpressionValue,
 	formLinkDestination,
 	isConnectLearnConfig,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
 	type ProseTemplate,
+	projectProseTemplate,
 	projectXPath,
 	readSlotValues,
 	type Uuid,
@@ -106,6 +109,113 @@ function emptyForm(
 			baseLocation(ctx),
 		),
 	];
+}
+
+/** A section named the way a person knows it: its title, else its id. */
+function sectionTitle(doc: BlueprintDoc, section: Field): string {
+	if (section.kind !== "section" || section.label === undefined) {
+		return section.id;
+	}
+	const text = projectProseTemplate(section.label, doc).text.trim();
+	return text.length > 0 ? text : section.id;
+}
+
+/**
+ * Sections make "a sectioned form" a closed state, and one walk of the
+ * form's tree checks all three halves of it.
+ *
+ * A section is one page of the form, so it sits at the form's top level
+ * (`FORM_SECTION_NOT_TOP_LEVEL`): nested, it would be a field-list inside a
+ * field-list, which the CommCare app flattens onto the outer screen. Once a
+ * form has a section, every root field belongs inside one
+ * (`FORM_SECTIONS_INCOMPLETE`): a root that mixes sections and loose fields
+ * pages some questions and not others. And a repeat the worker grows by
+ * hand cannot live under a section (`FORM_SECTION_USER_REPEAT`): a
+ * field-list is one screen, and the app adds repeat entries only from a
+ * screen of its own (`FormEntryController` never raises
+ * `EVENT_PROMPT_NEW_REPEAT` inside a field-list host), so the repeat would
+ * be unreachable on device. Count-bound and query-bound repeats are fine.
+ *
+ * An empty section is legal: the app skips a page with nothing to show, and
+ * so does the preview.
+ */
+function formSections(doc: BlueprintDoc, ctx: FormContext): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const sections: Field[] = [];
+	const loose: Field[] = [];
+	for (const uuid of doc.fieldOrder[ctx.formUuid] ?? []) {
+		const field = doc.fields[uuid];
+		if (!field) continue;
+		(field.kind === "section" ? sections : loose).push(field);
+	}
+	if (sections.length > 0 && loose.length > 0) {
+		const n = loose.length;
+		const ids = loose.map((field) => `"${field.id}"`).join(", ");
+		errors.push(
+			validationError(
+				"FORM_SECTIONS_INCOMPLETE",
+				"form",
+				`"${ctx.formName}" in "${ctx.moduleName}" is split into sections, but ${n} ${n === 1 ? "field sits" : "fields sit"} outside every section: ${ids}. Once a form has sections, every field belongs inside one. Add ${n === 1 ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
+				baseLocation(ctx),
+				{
+					looseCount: String(n),
+					looseFieldUuids: loose.map((field) => field.uuid).join(","),
+					looseFieldIds: loose.map((field) => field.id).join(","),
+				},
+			),
+		);
+	}
+	const walk = (
+		parentUuid: Uuid,
+		parent: Field | undefined,
+		section: Field | undefined,
+	): void => {
+		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
+			const field = doc.fields[uuid];
+			if (!field) continue;
+			if (field.kind === "section" && parent !== undefined) {
+				const parentKind = fieldRegistry[parent.kind].label.toLowerCase();
+				errors.push(
+					validationError(
+						"FORM_SECTION_NOT_TOP_LEVEL",
+						"field",
+						`"${ctx.formName}" has section "${field.id}" inside ${parentKind} "${parent.id}". A section is a page of the form, so it sits at the form's top level. Move it out of "${parent.id}".`,
+						{ ...baseLocation(ctx), fieldUuid: field.uuid, fieldId: field.id },
+						{ parentUuid: parent.uuid, parentId: parent.id, parentKind },
+					),
+				);
+			}
+			if (
+				field.kind === "repeat" &&
+				field.repeat_mode === "user_controlled" &&
+				section !== undefined
+			) {
+				const title = sectionTitle(doc, section);
+				errors.push(
+					validationError(
+						"FORM_SECTION_USER_REPEAT",
+						"field",
+						`"${ctx.formName}" has repeat "${field.id}" inside section "${title}", and that repeat lets the worker add entries. A section shows on one screen, and the CommCare app can't add repeat entries on a single-screen page. Move the repeat out of the sections, or give it a fixed count.`,
+						{ ...baseLocation(ctx), fieldUuid: field.uuid, fieldId: field.id },
+						{
+							sectionUuid: section.uuid,
+							sectionId: section.id,
+							sectionTitle: title,
+						},
+					),
+				);
+			}
+			if (doc.fieldOrder[uuid] !== undefined) {
+				walk(
+					uuid,
+					field,
+					section ?? (field.kind === "section" ? field : undefined),
+				);
+			}
+		}
+	};
+	walk(ctx.formUuid, undefined, undefined);
+	return errors;
 }
 
 function caseWriteAdmission(
@@ -1135,6 +1245,7 @@ export function runFormRules(
 
 	const errors: ValidationError[] = [];
 	errors.push(...emptyForm(doc, form, ctx));
+	errors.push(...formSections(doc, ctx));
 	errors.push(...formDisplayCondition(doc, formUuid, moduleUuid, lookupTables));
 	if (lookupTables !== undefined) {
 		errors.push(
