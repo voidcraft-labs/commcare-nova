@@ -123,6 +123,10 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	MUTATION_CASE_PROPERTY_RENAME_INVALID: "soundness",
 	MUTATION_WIRE_CANONICALITY_INVALID: "soundness",
 	CASE_PROPERTY_REFERENCE_INVALID: "soundness",
+	// A catalog choice value holding whitespace or a quote reaches the suite
+	// as an XPath literal (`field = 'value'`) and the device as a select
+	// value it refuses; the wire cannot carry it.
+	CASE_PROPERTY_OPTION_VALUE_INVALID: "soundness",
 	AUTOMATION_INVALID: "soundness",
 	TRANSLATION_UNIT_UNKNOWN: "soundness",
 	TRANSLATION_VALUE_KIND_MISMATCH: "soundness",
@@ -287,6 +291,10 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	// reducer applies without re-parsing the field through `fieldSchema`'s
 	// `.min(2)`, so it needs a gating rule rather than the shape backstop.
 	SELECT_TOO_FEW_OPTIONS: "soundness",
+	// A choice value holding whitespace or a quote: CommCare Android throws
+	// on any select value with a space, and a multi-select answer is a
+	// space-joined token list, so the form cannot run with it.
+	SELECT_OPTION_VALUE_INVALID: "soundness",
 	// A field still writing to a case type absent from the catalog — reachable
 	// when a peer concurrently retires the type the field was declared against.
 	CASE_WRITE_UNKNOWN_TYPE: "soundness",

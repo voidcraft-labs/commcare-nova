@@ -19,7 +19,14 @@ import {
 } from "@/lib/commcare";
 import { detectUnquotedStringLiteral, parser } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
-import { expressionInspectionSource, fieldRegistry } from "@/lib/domain";
+import {
+	expressionInspectionSource,
+	fieldRegistry,
+	proseTemplateText,
+	sanitizeSelectOptionValue,
+	selectOptionValueProblem,
+	suggestSelectOptionValue,
+} from "@/lib/domain";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type ValidationError, validationError } from "../errors";
 
@@ -160,6 +167,64 @@ function selectTooFewOptions(
 			},
 		),
 	];
+}
+
+/**
+ * A choice's stored VALUE is the answer token, and the wire cannot carry
+ * one holding whitespace or a quote: CommCare Android throws on any select
+ * value with a space, a multi-select answer is a space-joined token list,
+ * and the case list compares the property with `field = 'value'`. An empty
+ * value saves nothing, indistinguishable from "unanswered".
+ * `lib/domain/selectOptionValue.ts` owns the grammar; this rule applies it
+ * to inline options, with `CASE_PROPERTY_OPTION_VALUE_INVALID` (`app.ts`)
+ * covering the catalog copy.
+ */
+function selectOptionValueInvalid(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (field.kind !== "single_select" && field.kind !== "multi_select")
+		return [];
+	if (field.optionsSource.kind === "lookup") return [];
+	const errors: ValidationError[] = [];
+	field.optionsSource.options.forEach((option, index) => {
+		const problem = selectOptionValueProblem(option.value);
+		if (problem === undefined) return;
+		const labelText = proseTemplateText(option.label).trim();
+		const position = `Option ${index + 1}${labelText ? ` ("${labelText}")` : ""} of field "${field.id}" in "${ctx.formName}"`;
+		const suggestion = suggestSelectOptionValue(
+			sanitizeSelectOptionValue(option.value) || labelText,
+			`option_${index + 1}`,
+		);
+		const message =
+			problem === "empty"
+				? `${position} has an empty value. A choice's value is the answer the app stores, so an empty one saves nothing and reads as unanswered. Give it a value such as "${suggestion}": a lowercase slug with words joined by underscores, with the wording kept in the label.`
+				: problem === "whitespace"
+					? `${position} has the value ${JSON.stringify(option.value)}, which contains a space. A choice's value is the answer the app stores, not the wording, and the device refuses a choice value holding a space (a multi-select answer is a space-separated list of these values). Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`
+					: `${position} has the value ${JSON.stringify(option.value)}, which contains a quote mark. A choice's value is the answer the app stores, and the app compares it inside quotes, so a quote or apostrophe in it breaks that comparison. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`;
+		errors.push(
+			validationError(
+				"SELECT_OPTION_VALUE_INVALID",
+				"field",
+				message,
+				{
+					moduleUuid: ctx.moduleUuid,
+					moduleName: ctx.moduleName,
+					formUuid: ctx.formUuid,
+					formName: ctx.formName,
+					fieldUuid: field.uuid,
+					fieldId: field.id,
+				},
+				{
+					optionUuid: option.uuid,
+					optionValue: option.value,
+					problem,
+					suggestedValue: suggestion,
+				},
+			),
+		);
+	});
+	return errors;
 }
 
 function hiddenNoValue(field: Field, ctx: FieldContext): ValidationError[] {
@@ -587,6 +652,7 @@ function fixtureReferenceNotModeled(
 const FIELD_RULES = [
 	selectNoOptions,
 	selectTooFewOptions,
+	selectOptionValueInvalid,
 	hiddenNoValue,
 	requiredOnHidden,
 	calculateOnVisibleInput,

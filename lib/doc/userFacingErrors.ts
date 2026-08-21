@@ -99,6 +99,23 @@ const formLinkPhrase = (e: ValidationError): string => {
 		: `the link to ${q(destination)}`;
 };
 
+/**
+ * Why a choice's stored value was refused, from the `problem` detail the
+ * two option-value rules stamp; the neutral phrase when it is absent.
+ */
+const optionValueProblemPhrase = (e: ValidationError): string => {
+	switch (e.details?.problem) {
+		case "empty":
+			return "is empty";
+		case "whitespace":
+			return "contains a space";
+		case "quote":
+			return "contains a quote mark";
+		default:
+			return "the app can't store";
+	}
+};
+
 type UserMessageBuilder = (err: ValidationError) => string;
 
 // ── The code → builder table ───────────────────────────────────────
@@ -168,6 +185,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"That change was not represented exactly enough to save safely. Retry it so Nova can preserve every value as authored.",
 	CASE_PROPERTY_REFERENCE_INVALID: (e) =>
 		`${q(det(e, "caseType", "A case type"))}.${det(e, "property", "property")}'s ${det(e, "slot", "default")} setting contains a reference that isn't available there. Replace it with case, worker, or fixed information that exists in every form using this property.`,
+	CASE_PROPERTY_OPTION_VALUE_INVALID: (e) =>
+		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} has the stored value ${q(det(e, "optionValue", ""))}, which ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
 	TRANSLATION_UNIT_UNKNOWN: () =>
 		"A translation is attached to content that no longer exists. Open Languages and remove that orphaned translation.",
 	TRANSLATION_VALUE_KIND_MISMATCH: () =>
@@ -645,6 +664,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with no choices yet. Add at least one.`,
 	SELECT_TOO_FEW_OPTIONS: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with only one choice. Add another so there's something to pick between.`,
+	SELECT_OPTION_VALUE_INVALID: (e) =>
+		`A choice on ${q(fieldName(e))} in ${q(formName(e))} has the stored value ${q(det(e, "optionValue", ""))}, which ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces or quote marks and can't be empty. Use ${q(det(e, "suggestedValue", "a_value_like_this"))} and keep the wording in the label.`,
 	CASE_WRITE_UNKNOWN_TYPE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} saves to the ${q(det(e, "caseType", "case type"))} case type, but no case type by that name exists. Add that case type, or point the field at one that does.`,
 	HIDDEN_NO_VALUE: (e) =>

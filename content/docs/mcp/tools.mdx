@@ -44,6 +44,13 @@ is required just to discover a new UUID.
 
 Machine-authored inline choices have exactly
 `{ "optionUuid"?: "...", "value": "...", "label": { "parts": [...] } }`.
+A choice's `value` is the answer the app stores, not its wording: a lowercase
+slug with words joined by underscores (`prefer_not_to_say`), unique within the
+field and kept stable once data exists. It can't hold spaces, quotes, or
+apostrophes, because the device refuses a choice value with a space in it and a
+multi-select answer is a space-separated list of these values. The wording
+people read goes in `label`. A value that breaks that shape is refused with the
+slug to use instead.
 Stored `uuid`, option `media`, and identity aliases are rejected on every field
 writer. Lookup-backed choices use the canonical
 `tableId` / `valueColumnId` / `labelColumnId` fields, plus optional `filter`;

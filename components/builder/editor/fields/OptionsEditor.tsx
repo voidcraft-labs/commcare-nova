@@ -27,9 +27,12 @@ import {
 	type Field,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
+	proseTemplateText,
 	proseText,
 	type SelectOption,
 	type SelectOptionsSource,
+	sanitizeSelectOptionValue,
+	suggestSelectOptionValue,
 } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
@@ -42,6 +45,17 @@ import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
  */
 interface DraftOption extends SelectOption {
 	id: number;
+}
+
+/**
+ * A row exactly as `addOption` (or the field's default options) minted it:
+ * value `option_N` under label "Option N". Nobody chose either, so the
+ * first real label may also name the value. Pure and exported for tests.
+ */
+export function isMintedPlaceholder(option: SelectOption): boolean {
+	const match = /^option_(\d+)$/.exec(option.value);
+	if (match === null) return false;
+	return proseTemplateText(option.label).trim() === `Option ${match[1]}`;
 }
 
 export interface OptionsEditorWidgetProps {
@@ -150,22 +164,45 @@ export function OptionsEditorWidget({
 		[onSave],
 	);
 
-	const updateOption = useCallback(
-		(index: number, field: "label" | "value", val: string | ProseTemplate) => {
-			setDraft((prev) => {
-				const next = [...prev];
-				next[index] = { ...next[index], [field]: val };
-				return next;
-			});
-		},
-		[],
-	);
+	// The value box admits only what the wire can carry: a typed space
+	// becomes an underscore and a quote mark is dropped as it is typed, so
+	// the row never holds a value the commit gate would bounce
+	// (`SELECT_OPTION_VALUE_INVALID`). The same grammar the SA's schema
+	// teaches and the validator enforces, applied at the keystroke.
+	const updateValue = useCallback((index: number, raw: string) => {
+		const value = sanitizeSelectOptionValue(raw);
+		setDraft((prev) => {
+			const next = [...prev];
+			next[index] = { ...next[index], value };
+			return next;
+		});
+	}, []);
 
+	// A row Nova minted (`option_N` / "Option N") has a value nobody chose,
+	// so the first label it is given also names the value, the way the SA
+	// does (`prefer_not_to_say` for "Prefer not to say"). Once either side
+	// has been edited by hand the two are independent: the value is data
+	// and a later label change must never rewrite it.
 	const saveLabel = useCallback(
 		(index: number, label: ProseTemplate) => {
-			const next = draft.map((option, optionIndex) =>
-				optionIndex === index ? { ...option, label } : option,
-			);
+			const next = draft.map((option, optionIndex) => {
+				if (optionIndex !== index) return option;
+				if (!isMintedPlaceholder(option)) return { ...option, label };
+				const taken = new Set(
+					draft
+						.filter((_, otherIndex) => otherIndex !== index)
+						.map((other) => other.value),
+				);
+				const suggested = suggestSelectOptionValue(
+					proseTemplateText(label),
+					option.value,
+				);
+				return {
+					...option,
+					label,
+					value: taken.has(suggested) ? option.value : suggested,
+				};
+			});
 			setDraft(next);
 			commit(next);
 		},
@@ -281,9 +318,12 @@ export function OptionsEditorWidget({
 							</fieldset>
 							<input
 								value={opt.value}
-								onChange={(e) => updateOption(i, "value", e.target.value)}
+								onChange={(e) => updateValue(i, e.target.value)}
 								onKeyDown={handleKeyDown}
 								placeholder="value"
+								aria-label={`Stored value for ${
+									projectProse(opt.label).trim() || `option ${i + 1}`
+								}`}
 								className="w-24 shrink-0 text-[13px] font-mono px-3 min-h-11 rounded-lg bg-nova-deep/50 border border-white/[0.06] focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 text-nova-text-muted transition-colors"
 								autoComplete="off"
 								data-1p-ignore

@@ -23,6 +23,10 @@ import {
 	isConnectLearnConfig,
 	projectProseTemplate,
 	projectXPath,
+	proseTemplateText,
+	sanitizeSelectOptionValue,
+	selectOptionValueProblem,
+	suggestSelectOptionValue,
 	translationValueIntegrityIssue,
 	type Uuid,
 	xpathPrintContext,
@@ -79,6 +83,54 @@ function globallyUniqueEntityUuids(doc: BlueprintDoc): ValidationError[] {
 					{ entityUuid: uuid, entityKind: member.kind },
 				),
 			);
+		}
+	}
+	return errors;
+}
+
+/**
+ * The catalog copy of a select property's choices shares the inline
+ * options' grammar (`lib/domain/selectOptionValue.ts`): a catalog value
+ * reaches the suite as the XPath literal the case list compares the
+ * property with (`field = 'value'`), so whitespace, quotes, and emptiness
+ * break the same way they do on the device. `SELECT_OPTION_VALUE_INVALID`
+ * (`field.ts`) is the per-field twin.
+ */
+function catalogOptionValuesValid(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const caseType of doc.caseTypes ?? []) {
+		for (const property of caseType.properties) {
+			property.options?.forEach((option, index) => {
+				const problem = selectOptionValueProblem(option.value);
+				if (problem === undefined) return;
+				const labelText = proseTemplateText(option.label).trim();
+				const suggestion = suggestSelectOptionValue(
+					sanitizeSelectOptionValue(option.value) || labelText,
+					`option_${index + 1}`,
+				);
+				const shown = JSON.stringify(option.value);
+				const what =
+					problem === "empty"
+						? "is empty"
+						: problem === "whitespace"
+							? `is ${shown}, which contains a space`
+							: `is ${shown}, which contains a quote mark`;
+				errors.push(
+					validationError(
+						"CASE_PROPERTY_OPTION_VALUE_INVALID",
+						"app",
+						`Choice ${index + 1}${labelText ? ` ("${labelText}")` : ""} of case property "${caseType.name}.${property.name}" has a value that ${what}. A choice's value is the answer the app stores and compares, not the wording, so it cannot hold spaces or quote marks and cannot be empty. Use "${suggestion}" instead: a lowercase slug with words joined by underscores, with the wording kept in the label.`,
+						{},
+						{
+							caseType: caseType.name,
+							property: property.name,
+							optionValue: option.value,
+							problem,
+							suggestedValue: suggestion,
+						},
+					),
+				);
+			});
 		}
 	}
 	return errors;
@@ -601,6 +653,7 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 export const APP_RULES = [
 	closedBlueprintTopology,
 	globallyUniqueEntityUuids,
+	catalogOptionValuesValid,
 	canonicalCasePropertyDefaults,
 	noModules,
 	emptyAppName,

@@ -207,6 +207,8 @@ deletion, and Project moves. Schemas, admission, and editor projections retain
 and validate the complete definition; no validator, `lib/doc`, or component
 reads it.
 
+**A choice's stored value has one grammar, and the slug is what Nova teaches, not all it admits.** `selectOptionValue.ts` is the shared leaf for the VALUE of an inline select option and of a catalog property's option: non-empty, no whitespace, no `'` `"` `` ` `` (`SELECT_OPTION_VALUE_PATTERN`). The bound is the wire's, not a naming taste: CommCare Android throws on any select value holding a space, a multi-select answer is a space-joined token list, and the case list compares the property inside an XPath literal. The stored schemas (`selectOptionSchema`, the catalog `options`) stay permissive so a document written before the rule still hydrates; the validator (`SELECT_OPTION_VALUE_INVALID` / `CASE_PROPERTY_OPTION_VALUE_INVALID`), the SA/MCP schemas, and the builder's editor all apply the leaf, and every one of them suggests the underscore-joined slug (`suggestSelectOptionValue`, over `slugifyId`) rather than only refusing. `sanitizeSelectOptionValue` is the keystroke repair (whitespace to `_`, quotes dropped); it keeps case and every other character, because `ICD10` and `a-b` are safe data.
+
 `caseTypes` is a **generation-time catalog**, not a runtime authority: a case type's property defaults bake onto a field when the field is added, so **fields are self-contained**. The catalog is not consulted for a field's own defaults again, though `deriveCaseWriteInventory` and `deriveCaseConfig` still read `caseTypes` at emit to resolve a writable destination's `parent_type`.
 
 ## Property types are derived facts — the effective case-type view

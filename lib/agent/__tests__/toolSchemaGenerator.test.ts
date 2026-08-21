@@ -10,6 +10,7 @@
 // which keeps them robust to Zod's serialization choices.
 
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { fieldKinds, fieldRegistry } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -403,6 +404,34 @@ describe("toolSchemaGenerator", () => {
 				[retiredCaseWriteKey]: "patient",
 			}).success,
 		).toBe(false);
+	});
+
+	it("teaches the option value's slug shape before refusing a value outside it", () => {
+		// The model hears the rule in the slot's description and the system
+		// prompt first; the regex is the repair, carrying the same sentence.
+		const described = JSON.stringify(
+			z.toJSONSchema(projectedOptionsSourceSchema),
+		);
+		expect(described).toContain("prefer_not_to_say");
+		expect(described).toContain("underscores");
+		expect(buildSolutionsArchitectPrompt()).toContain("prefer_not_to_say");
+
+		const withValue = (value: string) =>
+			projectedOptionsSourceSchema.safeParse({
+				kind: "inline",
+				options: [
+					{ value, label: proseText("Prefer not to say") },
+					{ value: "yes", label: proseText("Yes") },
+				],
+			});
+		expect(withValue("prefer_not_to_say").success).toBe(true);
+		expect(withValue("ICD10").success).toBe(true);
+		for (const bad of ["Prefer not to say", "don't_know", 'say_"hi"', ""]) {
+			const result = withValue(bad);
+			expect(result.success).toBe(false);
+			expect(result.error?.issues[0]?.message).toContain("underscores");
+			expect(result.error?.issues[0]?.path).toEqual(["options", 0, "value"]);
+		}
 	});
 
 	it("uses one strict projected option/source contract across all four field writers", () => {
