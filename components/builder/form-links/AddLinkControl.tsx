@@ -21,6 +21,7 @@ import {
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
 import type { FormLinksView } from "@/lib/doc/hooks/useFormLinks";
+import type { Uuid } from "@/lib/doc/types";
 import type { FormLinkTarget } from "@/lib/domain";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { LinkTargetPickerContent } from "./LinkTargetPicker";
@@ -29,11 +30,13 @@ import { otherwiseUnavailableReason } from "./refusalCopy";
 export type LinkKind = "conditional" | "otherwise";
 
 export function AddLinkControl({
+	formUuid,
 	view,
 	open,
 	onOpenChange,
 	onAdd,
 }: {
+	readonly formUuid: Uuid;
 	readonly view: FormLinksView;
 	readonly open: boolean;
 	readonly onOpenChange: (open: boolean) => void;
@@ -72,7 +75,8 @@ export function AddLinkControl({
 								: "Where should the form go when nothing else matched?"}
 						</p>
 						<LinkTargetPickerContent
-							verdict={(target) => view.targetVerdict(undefined, target)}
+							formUuid={formUuid}
+							editing={undefined}
 							onChoose={(target) => {
 								onAdd(intent, target);
 								setIntent(null);

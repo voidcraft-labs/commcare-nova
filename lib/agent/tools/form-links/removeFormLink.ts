@@ -15,6 +15,7 @@ import {
 	linkByUuid,
 	linkLabel,
 	linkRefusalMessage,
+	linkSubject,
 	resolveLinkAddress,
 	sentence,
 } from "./shared";
@@ -98,7 +99,10 @@ export const removeFormLinkTool = {
 				result: {
 					message: `Removed ${label} from form "${name}".${pinned === undefined ? "" : ` ${fallbackPinSentence(pinned)}`}`,
 					...(pinned !== undefined && { pinnedPostSubmit: pinned }),
-					summary: { location: name, subject: label },
+					summary: {
+						location: name,
+						subject: linkSubject(doc, address.formUuid, link.uuid),
+					},
 				},
 			};
 		} catch (error) {

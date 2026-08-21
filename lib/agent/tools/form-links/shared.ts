@@ -124,6 +124,26 @@ export function linkLabel(
 	return `link ${index + 1} (${uuid}, to ${where})`;
 }
 
+/**
+ * A link named for a person reading the chat: its position and where it
+ * goes, no uuid. The tool summary's subject; `linkLabel` stays the message
+ * form, where the uuid is the handle the model edits by.
+ */
+export function linkSubject(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	uuid: Uuid,
+): string {
+	const links = doc.forms[formUuid]?.formLinks ?? [];
+	const index = links.findIndex((link) => link.uuid === uuid);
+	const link = links[index];
+	if (link === undefined) return "link";
+	const destination = formLinkDestination(doc, link.target);
+	return destination === undefined
+		? `link ${index + 1}`
+		: `link ${index + 1} to ${destination.name}`;
+}
+
 /** A link label opening a sentence. */
 export function sentence(label: string): string {
 	return label.charAt(0).toUpperCase() + label.slice(1);

@@ -13,7 +13,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerTable from "@iconify-icons/tabler/table";
 import { useMemo } from "react";
-import type { FormLinkTargetVerdict } from "@/lib/doc/formLinkReview";
+import { formLinkTargetVerdict } from "@/lib/doc/formLinkReview";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
 import type { FormLinkTarget } from "@/lib/domain";
@@ -34,81 +34,98 @@ export function sameTarget(
 }
 
 export function LinkTargetPickerContent({
-	verdict,
+	formUuid,
+	editing,
 	current,
 	onChoose,
 }: {
-	/** The target planner's answer for a candidate. */
-	readonly verdict: (target: FormLinkTarget) => FormLinkTargetVerdict;
+	/** The form whose link is being aimed. */
+	readonly formUuid: Uuid;
+	/** The link being retargeted, when one is (its own edges are ignored). */
+	readonly editing: Uuid | undefined;
 	/** The destination the link already has, if any: shown as chosen. */
 	readonly current?: FormLinkTarget;
 	readonly onChoose: (target: FormLinkTarget) => void;
 }) {
 	/* The whole app is on offer, so the whole doc is read. */
 	const doc = useBlueprintDoc((state) => state);
+	/* Each candidate's verdict is a graph walk over the app's links, so every
+	 * row is decided once, with the groups, and only when the document or the
+	 * link being aimed changes. */
 	const groups = useMemo(
 		() =>
 			doc.moduleOrder.flatMap((moduleUuid) => {
 				const mod = doc.modules[moduleUuid];
 				if (mod === undefined) return [];
+				const moduleTarget: FormLinkTarget = { type: "module", moduleUuid };
 				return [
 					{
 						uuid: moduleUuid,
 						name: mod.name,
-						forms: (doc.formOrder[moduleUuid] ?? []).flatMap((formUuid) => {
-							const form = doc.forms[formUuid];
-							return form === undefined
-								? []
-								: [{ uuid: formUuid, name: form.name }];
+						target: moduleTarget,
+						verdict: formLinkTargetVerdict(
+							doc,
+							formUuid,
+							editing,
+							moduleTarget,
+						),
+						forms: (doc.formOrder[moduleUuid] ?? []).flatMap((candidate) => {
+							const form = doc.forms[candidate];
+							if (form === undefined) return [];
+							const target: FormLinkTarget = {
+								type: "form",
+								moduleUuid,
+								formUuid: candidate,
+							};
+							return [
+								{
+									uuid: candidate,
+									name: form.name,
+									target,
+									verdict: formLinkTargetVerdict(
+										doc,
+										formUuid,
+										editing,
+										target,
+									),
+								},
+							];
 						}),
 					},
 				];
 			}),
-		[doc],
+		[doc, formUuid, editing],
 	);
-	const nameOf = (formUuid: Uuid) => doc.forms[formUuid]?.name;
+	const nameOf = (uuid: Uuid) => doc.forms[uuid]?.name;
 
 	return (
 		<div className="max-h-[22rem] space-y-3 overflow-y-auto p-1">
-			{groups.map((group) => {
-				const moduleTarget: FormLinkTarget = {
-					type: "module",
-					moduleUuid: group.uuid,
-				};
-				return (
-					<div key={group.uuid} className="space-y-0.5">
-						<p className="px-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-nova-text-muted">
-							{group.name}
-						</p>
+			{groups.map((group) => (
+				<div key={group.uuid} className="space-y-0.5">
+					<p className="px-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-nova-text-muted">
+						{group.name}
+					</p>
+					<TargetRow
+						icon={tablerTable}
+						title={`Open the “${group.name}” form list`}
+						detail="The person picks what to do next there"
+						chosen={sameTarget(current, group.target)}
+						reason={targetRefusal(group.verdict, nameOf)}
+						onClick={() => onChoose(group.target)}
+					/>
+					{group.forms.map((form) => (
 						<TargetRow
-							icon={tablerTable}
-							title={`Open the “${group.name}” form list`}
-							detail="The person picks what to do next there"
-							chosen={sameTarget(current, moduleTarget)}
-							reason={targetRefusal(verdict(moduleTarget), nameOf)}
-							onClick={() => onChoose(moduleTarget)}
+							key={form.uuid}
+							icon={tablerArrowRight}
+							title={`Go to “${form.name}”`}
+							detail="Opens this form next"
+							chosen={sameTarget(current, form.target)}
+							reason={targetRefusal(form.verdict, nameOf)}
+							onClick={() => onChoose(form.target)}
 						/>
-						{group.forms.map((form) => {
-							const target: FormLinkTarget = {
-								type: "form",
-								moduleUuid: group.uuid,
-								formUuid: form.uuid,
-							};
-							return (
-								<TargetRow
-									key={form.uuid}
-									icon={tablerArrowRight}
-									title={`Go to “${form.name}”`}
-									detail="Opens this form next"
-									chosen={sameTarget(current, target)}
-									reason={targetRefusal(verdict(target), nameOf)}
-									onClick={() => onChoose(target)}
-								/>
-							);
-						})}
-					</div>
-				);
-			})}
+					))}
+				</div>
+			))}
 		</div>
 	);
 }

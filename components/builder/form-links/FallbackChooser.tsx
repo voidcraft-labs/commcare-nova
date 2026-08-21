@@ -124,13 +124,11 @@ export function FallbackChooser({
 
 	const chooseBuiltIn = (next: PostSubmitDestination) => {
 		setOpen(false);
-		if (
-			plan.fallback.kind === "post-submit" &&
-			plan.fallback.destination === next &&
-			plan.fallback.explicit
-		) {
-			return;
-		}
+		/* Choosing what is already stored changes nothing, so it announces
+		 * nothing: the planner's empty batch is the one authority on that
+		 * (it knows when the form-type default means the slot stays clear). */
+		const planned = view.fallbackPlan(next);
+		if (planned.ok && planned.mutations.length === 0) return;
 		/* Replacing the otherwise link is authored work leaving the app:
 		 * ask first. Storing a built-in over a built-in is not. */
 		if (currentElse !== undefined) {
@@ -250,9 +248,8 @@ export function FallbackChooser({
 								: "Where should the otherwise link go instead?"}
 						</p>
 						<LinkTargetPickerContent
-							verdict={(target) =>
-								view.targetVerdict(currentElse?.uuid, target)
-							}
+							formUuid={formUuid}
+							editing={currentElse?.uuid}
 							current={currentElse?.target}
 							onChoose={chooseTarget}
 						/>

@@ -1353,6 +1353,20 @@ export function planReferenceIndexMaintenance(
 				)) {
 					if (subtree.has(carrier)) carriers.add(carrier);
 				}
+				// The reducer rewrites every inbound form target's moduleUuid
+				// to the new module, so each source form's `form_link_target`
+				// edges re-extract.
+				for (const [sourceUuid, source] of Object.entries(doc.forms)) {
+					if (
+						source.formLinks?.some(
+							(link) =>
+								link.target.type === "form" &&
+								link.target.formUuid === mut.uuid,
+						)
+					) {
+						carriers.add(sourceUuid);
+					}
+				}
 			} else if (oldModule === undefined) {
 				// An unowned form (degenerate) gains a module — every carrier
 				// in its subtree may now resolve context it couldn't before.

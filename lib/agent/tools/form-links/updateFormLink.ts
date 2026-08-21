@@ -21,6 +21,7 @@ import {
 	linkByUuid,
 	linkLabel,
 	linkRefusalMessage,
+	linkSubject,
 	resolveFormLinkInput,
 	resolveLinkAddress,
 	sentence,
@@ -108,6 +109,11 @@ export const updateFormLinkTool = {
 				};
 			}
 			const pinned = plan.pinsFallback;
+			const dropped = plan.droppedDatums ?? [];
+			const droppedSentence =
+				dropped.length === 0
+					? ""
+					: ` The carried ${dropped.length === 1 ? "value" : "values"} the new destination never reads ${dropped.length === 1 ? "was" : "were"} removed: ${dropped.map((datum) => `"${datum}"`).join(", ")}.`;
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
@@ -115,10 +121,18 @@ export const updateFormLinkTool = {
 					message:
 						mutations.length === 0
 							? `${sentence(label)} on form "${name}" was already up to date.`
-							: `Updated ${label} on form "${name}".${pinned === undefined ? "" : ` ${fallbackPinSentence(pinned)}`}`,
+							: `Updated ${label} on form "${name}".${pinned === undefined ? "" : ` ${fallbackPinSentence(pinned)}`}${droppedSentence}`,
 					linkUuid: existing.uuid,
 					...(pinned !== undefined && { pinnedPostSubmit: pinned }),
-					summary: { location: name, subject: label },
+					...(dropped.length > 0 && { droppedDatums: dropped }),
+					summary: {
+						location: name,
+						subject: linkSubject(
+							commit.newDoc,
+							address.formUuid,
+							existing.uuid,
+						),
+					},
 				},
 			};
 		} catch (error) {

@@ -13,7 +13,7 @@ import { useMemo } from "react";
 import type { FormLink } from "@/lib/domain";
 import { type AfterSubmitPlan, afterSubmitPlan } from "../formLinkMutations";
 import type { Uuid } from "../types";
-import { useBlueprintDoc } from "./useBlueprintDoc";
+import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
 
 /** How many after-submit links this form checks. */
 export function useFormLinkCount(formUuid: Uuid): number {
@@ -50,10 +50,13 @@ export function useAfterSubmitPlan(
 	const postSubmit = useBlueprintDoc(
 		(state) => state.forms[formUuid]?.postSubmit,
 	);
-	const doc = useBlueprintDoc((state) => state);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the narrow slots are the memo key; `doc` is read for printing only.
+	/* The doc is read imperatively at memo time rather than subscribed to:
+	 * a whole-doc subscription would re-render on every unrelated edit for
+	 * a plan keyed on three slots. */
+	const api = useBlueprintDocApi();
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the narrow slots are the memo key; the doc is read for printing only.
 	return useMemo(
-		() => afterSubmitPlan(doc, formUuid),
-		[links, formType, postSubmit, formUuid],
+		() => afterSubmitPlan(api.getState(), formUuid),
+		[api, links, formType, postSubmit, formUuid],
 	);
 }

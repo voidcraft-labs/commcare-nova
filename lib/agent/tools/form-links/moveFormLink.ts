@@ -16,6 +16,7 @@ import {
 	linkLabel,
 	linkOrder,
 	linkRefusalMessage,
+	linkSubject,
 	resolveLinkAddress,
 	sentence,
 } from "./shared";
@@ -152,7 +153,10 @@ export const moveFormLinkTool = {
 								: `Moved ${linkLabel(commit.newDoc, address.formUuid, link.uuid)} after ${linkLabel(commit.newDoc, address.formUuid, committedAfter)} on form "${name}".`,
 					afterLinkUuid: committedAfter,
 					linkOrder: committedOrder,
-					summary: { location: name, subject: label },
+					summary: {
+						location: name,
+						subject: linkSubject(commit.newDoc, address.formUuid, link.uuid),
+					},
 				},
 			};
 		} catch (error) {

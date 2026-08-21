@@ -24,7 +24,10 @@ import type { FormLink } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { CarryValuesSection } from "./CarryValuesSection";
-import { takeConditionEditorOpen } from "./conditionEditorHint";
+import {
+	clearConditionEditorOpen,
+	peekConditionEditorOpen,
+} from "./conditionEditorHint";
 import { LinkConditionEditor } from "./LinkConditionEditor";
 import { linkSentence } from "./linkSentence";
 import { useLinkSentenceContext } from "./useLinkSentenceContext";
@@ -44,11 +47,16 @@ export function FormLinkDetailCanvas({
 	const canEdit = useCanEdit();
 	const headingRef = useRef<HTMLHeadingElement>(null);
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
-	/* Taken once, on mount: the list asked for the editor to open because
-	 * the link was just added with a placeholder condition. */
+	/* Read once, on arrival: the list asked for the editor to open because
+	 * the link was just added with a placeholder condition. The read is pure
+	 * (a render may run twice) and the ask retires once this detail has
+	 * mounted with it. */
 	const [openEditorOnArrival] = useState(() =>
-		takeConditionEditorOpen(linkUuid),
+		peekConditionEditorOpen(linkUuid),
 	);
+	useEffect(() => {
+		clearConditionEditorOpen(linkUuid);
+	}, [linkUuid]);
 
 	const plan = view.plan;
 	const links = plan?.links ?? [];

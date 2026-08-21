@@ -99,13 +99,3 @@ export function formLinkDestination(
 	const mod = doc.modules[target.moduleUuid];
 	return mod === undefined ? undefined : { kind: "module", name: mod.name };
 }
-
-/** Whether `from` reaches `to` through after-submit links. */
-export function formLinkReaches(
-	doc: BlueprintDoc,
-	from: Uuid,
-	to: Uuid,
-	override?: FormLinkOverride,
-): boolean {
-	return formLinkPath(formLinkAdjacency(doc, override), from, to) !== undefined;
-}

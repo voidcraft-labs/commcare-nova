@@ -183,6 +183,21 @@ export function applyFormMutation(
 				mut.uuid,
 				mut.after,
 			);
+			// A form target names its form AND the module that holds it (the
+			// wire addresses `form_id` inside `form_module_id`), so every link
+			// pointing at this form follows it across modules: the pair stays
+			// the one thing it is, "go to this form". A same-module move
+			// rewrites nothing; replaying the move is idempotent.
+			for (const other of Object.values(draft.forms)) {
+				for (const link of other.formLinks ?? []) {
+					if (
+						link.target.type === "form" &&
+						link.target.formUuid === mut.uuid
+					) {
+						link.target.moduleUuid = mut.toModuleUuid;
+					}
+				}
+			}
 			return;
 		}
 		case "renameForm": {

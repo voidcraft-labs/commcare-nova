@@ -582,7 +582,7 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 | `create_form` | Add a new form to `moduleUuid` together with its fields, in one call. It returns the form plus every field and inline-choice UUID; predeclare only identities referenced inside the call. |
 | `update_form` | Rename, refine one participant's CommCare Connect config after a mode exists, or set close condition/post-submit destination, addressed by `moduleUuid` and `formUuid`. |
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
-| `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, complete case-operation ASTs, and its after-submit links with their `linkUuid` in the order they are checked. |
+| `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, complete case-operation ASTs, and its after-submit links in the order they are checked (each link's `uuid` is the `linkUuid` the link tools take). |
 
 ### Where a form goes after submit
 
@@ -595,7 +595,8 @@ and Commcare Nova stores it explicitly if it was not set. A link's condition and
 datums run after the form has closed, so they read the module's case, worker,
 and session values, never the form's answers; save an answer to a case
 property first. A link that names `datums` must name every selection datum the
-target needs. Each link has an immutable `linkUuid`.
+target needs. Each link has an immutable identity: `get_form` returns it as the
+link's `uuid`, and the link tools take that value as `linkUuid`.
 
 | Tool | What it does |
 |---|---|

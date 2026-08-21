@@ -20,6 +20,7 @@ import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	casePropertyTargetKey,
+	entityTargetKey,
 	type FormLink,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -213,6 +214,40 @@ describe("reducers", () => {
 		]);
 		expect(none.forms[SOURCE]?.formLinks).toBeUndefined();
 		expect("formLinks" in (none.forms[SOURCE] ?? {})).toBe(false);
+	});
+
+	it("moveForm across modules carries every inbound form target with the form", () => {
+		const doc = fixture();
+		const moved = apply(doc, [
+			{ kind: "moveForm", uuid: TARGET_A, toModuleUuid: M0, after: SOURCE },
+		]);
+		expect(moved.forms[SOURCE]?.formLinks?.[0]?.target).toEqual({
+			type: "form",
+			moduleUuid: M0,
+			formUuid: TARGET_A,
+		});
+		// The module target is untouched, and a replay changes nothing more.
+		expect(moved.forms[SOURCE]?.formLinks?.[1]?.target).toEqual({
+			type: "module",
+			moduleUuid: M1,
+		});
+		expect(
+			apply(moved, [
+				{ kind: "moveForm", uuid: TARGET_A, toModuleUuid: M0, after: SOURCE },
+			]),
+		).toEqual(moved);
+		// The gate admits the move as one batch: the pair stays consistent.
+		expect(
+			mutationCommitVerdict(
+				doc,
+				[{ kind: "moveForm", uuid: TARGET_A, toModuleUuid: M0, after: SOURCE }],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(true);
+		// The index follows: the source form now references the new module.
+		expect(referencingCarrierUuids(moved, entityTargetKey(M0))).toContain(
+			SOURCE,
+		);
 	});
 
 	it("a missing form or link is a no-op, never a throw", () => {

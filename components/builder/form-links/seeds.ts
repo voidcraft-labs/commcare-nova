@@ -43,7 +43,7 @@ export const SEED_CONDITION_TEXT = "false()";
 export const SEED_CARRIED_VALUE_TEXT = "''";
 
 /** Text → stored AST, resolved against the current document. */
-export type XPathParser = (text: string) => XPathExpression;
+type XPathParser = (text: string) => XPathExpression;
 
 /** One `''` per required selection datum, named as the destination names it. */
 export function seedCarriedValues(

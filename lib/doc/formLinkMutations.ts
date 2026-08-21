@@ -38,7 +38,11 @@ import {
 	xpathPrintContext,
 } from "@/lib/domain";
 import { deepEqual } from "./deepEqual";
-import { formLinkMoveVerdicts, formLinkTargetVerdict } from "./formLinkReview";
+import {
+	formLinkMoveVerdicts,
+	formLinkRequiredDatums,
+	formLinkTargetVerdict,
+} from "./formLinkReview";
 import type { Mutation } from "./types";
 
 /** Conditional = prints to non-empty XPath, exactly as the validator reads it. */
@@ -132,6 +136,9 @@ export type FormLinkCommitPlan =
 			/** Set when the batch also stores `postSubmit` explicitly so the
 			 *  result passes `FORM_LINK_NO_FALLBACK`; names what it stored. */
 			readonly pinsFallback?: PostSubmitDestination;
+			/** Set when a retarget dropped carried values the new destination
+			 *  never reads (they would be `FORM_LINK_DATUM_UNUSED`); names them. */
+			readonly droppedDatums?: readonly string[];
 	  }
 	| { readonly ok: false; readonly reason: FormLinkRefusal };
 
@@ -300,8 +307,39 @@ export function planFormLinkUpdate(
 		const badTarget = targetRefusal(doc, formUuid, next.uuid, next.target);
 		if (badTarget !== undefined) return refuse(badTarget);
 	}
+	/* A retarget that leaves the carried values alone drops the ones the new
+	 * destination never reads: HQ's manual path iterates the TARGET's datums
+	 * and the gate refuses the leftovers (`FORM_LINK_DATUM_UNUSED`), so the
+	 * builder's inspector reseeds them and this planner does the same for a
+	 * caller that names only the target. A name the destination still reads
+	 * is kept; an empty remainder clears the slot; the plan says what went.
+	 * Values the caller sets in the same edit are its own. */
+	let datums = next.datums;
+	let droppedDatums: readonly string[] = [];
+	if (
+		changed.includes("target") &&
+		!changed.includes("datums") &&
+		datums !== undefined
+	) {
+		const needed = new Set(
+			formLinkRequiredDatums(doc, formUuid, next.target).map(
+				(datum) => datum.id,
+			),
+		);
+		droppedDatums = datums
+			.filter((datum) => !needed.has(datum.name))
+			.map((datum) => datum.name);
+		const kept = datums.filter((datum) => needed.has(datum.name));
+		datums = kept.length > 0 ? kept : undefined;
+	}
+	const settled: FormLink = {
+		uuid: next.uuid,
+		...(next.condition !== undefined && { condition: next.condition }),
+		target: next.target,
+		...(datums !== undefined && { datums }),
+	};
 	const resulting = plan.links.map((link) =>
-		link.uuid === next.uuid ? next : link,
+		link.uuid === next.uuid ? settled : link,
 	);
 	const nextConditional = formLinkIsConditionalIn(doc, next);
 	if (!nextConditional) {
@@ -321,7 +359,9 @@ export function planFormLinkUpdate(
 	const patch: Record<string, unknown> = {};
 	if (changed.includes("condition")) patch.condition = next.condition ?? null;
 	if (changed.includes("target")) patch.target = next.target;
-	if (changed.includes("datums")) patch.datums = next.datums ?? null;
+	if (changed.includes("datums") || droppedDatums.length > 0) {
+		patch.datums = datums ?? null;
+	}
 	const mutations: Mutation[] = [
 		{
 			kind: "updateFormLink",
@@ -336,6 +376,7 @@ export function planFormLinkUpdate(
 		ok: true,
 		mutations,
 		...(pin !== undefined && { pinsFallback: pin.destination }),
+		...(droppedDatums.length > 0 && { droppedDatums }),
 	};
 }
 
@@ -450,6 +491,12 @@ export function planSetFallback(
 	}
 	if (plan.elseLink !== undefined) {
 		return refuse({ kind: "else-exists", elseUuid: plan.elseLink.uuid });
+	}
+	if (
+		next.uuid !== undefined &&
+		plan.links.some((link) => link.uuid === next.uuid)
+	) {
+		return refuse({ kind: "duplicate-uuid", uuid: next.uuid });
 	}
 	const badTarget = targetRefusal(doc, formUuid, undefined, next.target);
 	if (badTarget !== undefined) return refuse(badTarget);

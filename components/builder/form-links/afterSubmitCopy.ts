@@ -56,7 +56,7 @@ export function destinationDetail(destination: PostSubmitDestination): string {
 export const ELSE_LINK_CHOICE_LABEL = "Another form or module";
 
 /** "to “Visit”" / "to the “Care” form list": where an otherwise link goes. */
-export function elseLinkPhrase(destination: {
+function elseLinkPhrase(destination: {
 	readonly kind: "form" | "module";
 	readonly name: string;
 }): string {
@@ -70,7 +70,7 @@ export function elseLinkPhrase(destination: {
  * `nameOf` resolves a link target to its destination; a target that no
  * longer exists reads as such rather than crashing the sentence.
  */
-export function fallbackPhrase(
+function fallbackPhrase(
 	plan: AfterSubmitPlan,
 	nameOf: (
 		target: FormLinkTarget,

@@ -383,6 +383,62 @@ describe("planFormLinkUpdate", () => {
 		]);
 	});
 
+	it("drops the carried values a new destination never reads, and says so", () => {
+		// Visit needs a case; the link names one by hand. Retargeting it at
+		// Note (a survey: it needs nothing) with the values left alone would
+		// store a name Note never reads (`FORM_LINK_DATUM_UNUSED`), so the
+		// planner removes it and reports it. Values the caller sets in the
+		// same edit are its own.
+		const doc = fixture(
+			[
+				{
+					uuid: "lnk-1",
+					condition: "1 = 1",
+					target: toVisit,
+					datums: [{ name: "case_id", xpath: "'x'" }],
+				},
+			],
+			{ postSubmit: "app_home" },
+		);
+		const current = base(doc, "lnk-1");
+		const plan = planFormLinkUpdate(
+			doc,
+			SOURCE,
+			{ ...current, target: toNote },
+			current,
+		);
+		expect(plan).toMatchObject({ ok: true, droppedDatums: ["case_id"] });
+		expect(plan.ok && plan.mutations).toEqual([
+			{
+				kind: "updateFormLink",
+				formUuid: SOURCE,
+				uuid: L1,
+				patch: { target: toNote, datums: null },
+			},
+		]);
+		const next = commit(doc, plan);
+		expect(next.forms[SOURCE]?.formLinks?.[0]?.datums).toBeUndefined();
+
+		// A module target needs nothing carried either.
+		const toModule = planFormLinkUpdate(
+			doc,
+			SOURCE,
+			{ ...current, target: toCare },
+			current,
+		);
+		expect(toModule).toMatchObject({ ok: true, droppedDatums: ["case_id"] });
+		commit(doc, toModule);
+
+		// Naming the values in the same edit is the caller's decision.
+		const explicit = planFormLinkUpdate(
+			doc,
+			SOURCE,
+			{ ...current, target: toNote, datums: undefined },
+			current,
+		);
+		expect(explicit.ok && explicit.droppedDatums).toBeUndefined();
+	});
+
 	it("is a no-op plan when nothing changed, whatever the key order", () => {
 		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
 		const current = base(doc, "lnk-1");
@@ -577,6 +633,17 @@ describe("planSetFallback", () => {
 		const next = commit(doc, plan);
 		expect(order(next)).toEqual([L1]);
 		expect(next.forms[SOURCE]?.postSubmit).toBe("previous");
+	});
+
+	it("refuses an otherwise link whose predeclared uuid is already a link", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")]);
+		expect(
+			planSetFallback(doc, SOURCE, {
+				kind: "else-link",
+				target: toCare,
+				uuid: L1,
+			}),
+		).toEqual({ ok: false, reason: { kind: "duplicate-uuid", uuid: L1 } });
 	});
 
 	it("appends an otherwise link, and refuses a second one", () => {

@@ -9,8 +9,8 @@
 // before it offers, and `formLinkCarryVerdict` asks the ONE projector the
 // wire uses whether the destination's selection datums can be carried
 // automatically (`FORM_LINK_DATUMS_INCOMPLETE`'s question, asked ahead of
-// time). `__tests__/formLinkValidByConstruction.test.ts` pins every `ok`
-// against `mutationCommitVerdict`.
+// time). `components/builder/form-links/__tests__/formLinkValidByConstruction.test.ts`
+// pins every `ok` against `mutationCommitVerdict`.
 //
 // Pure and cheap: every map is O(n²) over a form's links, and n is the
 // number of destinations a person can name, not the number of cases.

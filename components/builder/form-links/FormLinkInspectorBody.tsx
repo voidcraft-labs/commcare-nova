@@ -124,10 +124,10 @@ export function FormLinkInspectorBody({
 					description="The form or form list the person lands on."
 				>
 					<TargetControl
+						formUuid={formUuid}
 						link={link}
 						lead={lead}
 						canEdit={canEdit}
-						view={view}
 						onChoose={(target) => {
 							const next = retargetLink(
 								link,
@@ -216,16 +216,16 @@ export function FormLinkInspectorBody({
 }
 
 function TargetControl({
+	formUuid,
 	link,
 	lead,
 	canEdit,
-	view,
 	onChoose,
 }: {
+	readonly formUuid: Uuid;
 	readonly link: FormLink;
 	readonly lead: string;
 	readonly canEdit: boolean;
-	readonly view: ReturnType<typeof useFormLinks>;
 	readonly onChoose: (target: FormLinkTarget) => void;
 }) {
 	const [open, setOpen] = useState(false);
@@ -250,7 +250,8 @@ function TargetControl({
 			</PopoverTrigger>
 			<PopoverContent align="start" className="w-[22rem] p-2">
 				<LinkTargetPickerContent
-					verdict={(target) => view.targetVerdict(link.uuid, target)}
+					formUuid={formUuid}
+					editing={link.uuid}
 					current={link.target}
 					onChoose={(target) => {
 						setOpen(false);

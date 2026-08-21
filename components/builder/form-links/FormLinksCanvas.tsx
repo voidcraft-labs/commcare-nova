@@ -397,6 +397,7 @@ export function FormLinksCanvas({
 
 					{canEdit && (
 						<AddLinkControl
+							formUuid={formUuid}
 							view={view}
 							open={addOpen}
 							onOpenChange={setAddOpen}

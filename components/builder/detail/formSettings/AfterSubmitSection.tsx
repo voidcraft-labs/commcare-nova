@@ -101,7 +101,9 @@ export function AfterSubmitSection({
 				formUuid={formUuid}
 				canEdit={canEdit}
 				ariaLabel={
-					count === 0 ? "After submit, go" : "When no link matches, go"
+					plan.conditional.length === 0
+						? "After submit, go"
+						: "When no link matches, go"
 				}
 				elseLink={{ kind: "hand-off", onHandOff: openLinks }}
 				onOutcome={onOutcome}
