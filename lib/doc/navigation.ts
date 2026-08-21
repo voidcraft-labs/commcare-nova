@@ -44,7 +44,11 @@ export interface CrossLevelFieldMoveTarget {
 	toParentUuid: Uuid;
 	beforeUuid?: Uuid;
 	afterUuid?: Uuid;
-	direction: "into" | "out";
+	/** `into` / `out` are indent / outdent through a group or repeat; the
+	 *  two section directions carry a question across a page boundary (the
+	 *  root of a sectioned form holds sections only, so "out" of a section
+	 *  can never land on the root). */
+	direction: "into" | "out" | "out-to-previous-section" | "out-to-next-section";
 }
 
 /**
@@ -150,10 +154,19 @@ export function getCrossLevelFieldMoveTargets(
 } {
 	const parentUuid = doc.fieldParent[fieldUuid];
 	if (!parentUuid) return { up: undefined, down: undefined };
+	// A section is a page: it reorders among its siblings and never nests.
+	if (doc.fields[fieldUuid]?.kind === "section") {
+		return { up: undefined, down: undefined };
+	}
 	// Membership-array neighbors are the visually adjacent siblings.
 	const siblings = orderedFieldUuids(doc, parentUuid);
 	const idx = siblings.indexOf(fieldUuid);
 	if (idx === -1) return { up: undefined, down: undefined };
+
+	/* ── Inside a section, the edges cross to the neighbouring page. ── */
+	if (doc.fields[parentUuid]?.kind === "section") {
+		return crossSectionTargets(doc, parentUuid, siblings, idx);
+	}
 
 	// Outdent is only meaningful when the parent is itself a field (i.e.
 	// a group/repeat). At the form root, `fieldParent` points at the form
@@ -201,6 +214,73 @@ export function getCrossLevelFieldMoveTargets(
 				toParentUuid: nextUuid,
 				// Land as the first child (before any existing head). When the
 				// container is empty, omit `beforeUuid` so the mutation appends.
+				...(firstChild ? { beforeUuid: firstChild } : {}),
+				direction: "into",
+			};
+		}
+	}
+
+	return { up, down };
+}
+
+/**
+ * The cross-level targets of a direct child of a section: the first child
+ * may leave to the END of the previous page, the last child to the START
+ * of the next; in between, the ordinary indent into a neighbouring
+ * container applies. At the first / last page there is no page to cross
+ * to, so that edge is `undefined` (never the form root).
+ */
+function crossSectionTargets(
+	doc: BlueprintDoc,
+	sectionUuid: Uuid,
+	siblings: readonly Uuid[],
+	idx: number,
+): {
+	up: CrossLevelFieldMoveTarget | undefined;
+	down: CrossLevelFieldMoveTarget | undefined;
+} {
+	const formUuid = doc.fieldParent[sectionUuid];
+	const pages =
+		formUuid === undefined
+			? []
+			: orderedFieldUuids(doc, formUuid).filter(
+					(uuid) => doc.fields[uuid]?.kind === "section",
+				);
+	const page = pages.indexOf(sectionUuid);
+
+	let up: CrossLevelFieldMoveTarget | undefined;
+	let down: CrossLevelFieldMoveTarget | undefined;
+
+	if (idx === 0) {
+		const previous = page > 0 ? pages[page - 1] : undefined;
+		if (previous !== undefined) {
+			up = { toParentUuid: previous, direction: "out-to-previous-section" };
+		}
+	} else {
+		const prevUuid = siblings[idx - 1];
+		const prev = prevUuid === undefined ? undefined : doc.fields[prevUuid];
+		if (prevUuid !== undefined && prev && isContainer(prev)) {
+			up = { toParentUuid: prevUuid, direction: "into" };
+		}
+	}
+
+	if (idx === siblings.length - 1) {
+		const next = page !== -1 ? pages[page + 1] : undefined;
+		if (next !== undefined) {
+			const firstChild = orderedFieldUuids(doc, next)[0];
+			down = {
+				toParentUuid: next,
+				...(firstChild ? { beforeUuid: firstChild } : {}),
+				direction: "out-to-next-section",
+			};
+		}
+	} else {
+		const nextUuid = siblings[idx + 1];
+		const next = nextUuid === undefined ? undefined : doc.fields[nextUuid];
+		if (nextUuid !== undefined && next && isContainer(next)) {
+			const firstChild = orderedFieldUuids(doc, nextUuid)[0];
+			down = {
+				toParentUuid: nextUuid,
 				...(firstChild ? { beforeUuid: firstChild } : {}),
 				direction: "into",
 			};
