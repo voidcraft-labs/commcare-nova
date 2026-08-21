@@ -91,6 +91,11 @@ async function main(): Promise<void> {
 			`${report.rewrittenCaseRows} case row(s), ${report.rewrittenCloseConditions} close condition(s), and ${report.rewrittenLiterals} expression literal(s) rewritten; ` +
 			`${report.literalReferences} ambiguous literal(s) left for review.`,
 	);
+	for (const blocked of report.blockedApps) {
+		console.log(
+			`\n${blocked.appId} (${blocked.appName || "unnamed"}) still holds a refused value: its repaired app is turned down for something this repair does not own.\n  ${blocked.reason}`,
+		);
+	}
 	await closeCaseStoreDatabase();
 }
 

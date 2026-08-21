@@ -24,6 +24,7 @@ import { sql } from "kysely";
 import { getCaseStoreDatabase } from "../../lib/case-store/postgres/connection";
 import { parser } from "../../lib/commcare/xpath";
 import { appendSyntheticBatch } from "../../lib/db/apps";
+import { BlueprintCommitRejectedError } from "../../lib/db/commitGuard";
 import { getAppDb } from "../../lib/db/pg";
 import {
 	fieldCaseWrite,
@@ -524,6 +525,18 @@ export async function rewriteCaseRows(
 	return total;
 }
 
+/**
+ * An app whose repaired document the gate still refuses, for findings this
+ * repair does not own (a missing translation unit, an incomplete case list).
+ * It was already locked before the repair ran and stays locked after, so the
+ * repair names it and moves on rather than holding the fleet hostage.
+ */
+export interface SelectOptionValueRepairBlock {
+	readonly appId: string;
+	readonly appName: string;
+	readonly reason: string;
+}
+
 export interface SelectOptionValueRepairReport {
 	readonly scannedApps: number;
 	readonly repairedApps: number;
@@ -532,6 +545,7 @@ export interface SelectOptionValueRepairReport {
 	readonly rewrittenCloseConditions: number;
 	readonly rewrittenLiterals: number;
 	readonly literalReferences: number;
+	readonly blockedApps: readonly SelectOptionValueRepairBlock[];
 }
 
 /**
@@ -541,6 +555,14 @@ export interface SelectOptionValueRepairReport {
  * follow the document rather than share its transaction because the two
  * live behind different handles; a failure between them leaves a document
  * whose next scan reports the rows still holding the old token.
+ *
+ * A refused target is collected into `blockedApps` instead of thrown. This
+ * runs on every deploy, and the refusal it can meet is an unrelated finding
+ * the repair neither caused nor can fix — failing there would block the
+ * deploy AND leave the apps it could have repaired locked too. Every other
+ * error still throws: a repair that cannot reach the database, or that
+ * plans a batch the writer cannot derive, is a defect and should stop the
+ * deploy.
  */
 export async function runSelectOptionValueRepair(
 	appIds: readonly string[],
@@ -552,24 +574,35 @@ export async function runSelectOptionValueRepair(
 	let rewrittenCloseConditions = 0;
 	let rewrittenLiterals = 0;
 	let literalReferences = 0;
+	const blockedApps: SelectOptionValueRepairBlock[] = [];
 	for (const appId of appIds) {
 		const snapshot = await loadSelectOptionValueRepairSnapshot(appId);
 		if (snapshot === null) continue;
 		scannedApps++;
 		const plan = planSelectOptionValueRepair(snapshot.blueprint);
 		if (plan.rewrites.length === 0) continue;
-		await appendSyntheticBatch({
-			appId,
-			expectedBaseSeq: snapshot.mutationSeq,
-			targetDoc: plan.targetDoc,
-			batchId: `${REPAIR_BATCH_PREFIX}:${appId}`,
-			authority: {
-				kind: "system",
-				actorId: REPAIR_ACTOR,
-				reason:
-					"Rewrite choice values the stored-value grammar refuses (spaces, quotes, empty) to the slug the validator suggests.",
-			},
-		});
+		try {
+			await appendSyntheticBatch({
+				appId,
+				expectedBaseSeq: snapshot.mutationSeq,
+				targetDoc: plan.targetDoc,
+				batchId: `${REPAIR_BATCH_PREFIX}:${appId}`,
+				authority: {
+					kind: "system",
+					actorId: REPAIR_ACTOR,
+					reason:
+						"Rewrite choice values the stored-value grammar refuses (spaces, quotes, empty) to the slug the validator suggests.",
+				},
+			});
+		} catch (error) {
+			if (!(error instanceof BlueprintCommitRejectedError)) throw error;
+			blockedApps.push({
+				appId,
+				appName: snapshot.appName,
+				reason: error.message,
+			});
+			continue;
+		}
 		for (const rewrite of plan.casePropertyRewrites) {
 			rewrittenCaseRows += await rewriteCaseRows(appId, rewrite);
 		}
@@ -587,6 +620,7 @@ export async function runSelectOptionValueRepair(
 		rewrittenCloseConditions,
 		rewrittenLiterals,
 		literalReferences,
+		blockedApps,
 	};
 }
 
