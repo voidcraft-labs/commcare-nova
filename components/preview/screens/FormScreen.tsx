@@ -474,6 +474,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		form === undefined
 			? undefined
 			: (form.postSubmit ?? defaultPostSubmit(form.type));
+	const mountedRef = useRef(true);
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+		};
+	}, []);
 	const submissionContextRef = useRef<SubmissionContextSnapshot>({
 		scopeEpoch,
 		appId,
@@ -719,9 +726,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * That read is a tenant read rather than a device-scoped one: the device
 	 * keeps every case it loaded until its next sync, a just-closed one
 	 * included, while the restore scope holds only what a synced device would
-	 * have, which a closed root case is not. A registration or survey source
-	 * reads nothing (its new case is not in the session's casedb yet, so on
-	 * the device its case refs read blank too).
+	 * have, which a closed root case is not. A registration source reads the
+	 * case it CREATED back the same way: the device processes the form's
+	 * case block into its local casedb as the form closes, so the new case
+	 * is readable by the time the link runs (which is why the session-scope
+	 * accept set admits its properties). A survey reads nothing.
+	 *
+	 * The write is announced to the rest of the running app (`announceWrite`)
+	 * only once the route no longer depends on this form's case binding:
+	 * announcing first would reload the bound case under the form mid-read,
+	 * and a close form's now-closed case would resolve missing and abandon
+	 * the route as stale.
 	 *
 	 * The submit row stays in its running state until the next screen is
 	 * pushed: the write has landed, and a second press must not land it
@@ -736,20 +751,30 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		readonly mutation: SubmissionMutation | undefined;
 		readonly isCurrent: () => boolean;
 		readonly settleAttempt: (status: SubmitStatus) => void;
+		/** Announce the landed write to every surface reading case data. */
+		readonly announceWrite: () => void;
 	}): Promise<void> => {
 		const { submitted, result, mutation, isCurrent, settleAttempt } = args;
+		let announced = false;
+		const announceWrite = (): void => {
+			if (announced) return;
+			announced = true;
+			args.announceWrite();
+		};
 		const links = submitted.links;
 		if (
 			links === undefined ||
 			links.length === 0 ||
 			submitted.formUuid === undefined
 		) {
+			announceWrite();
 			settleAttempt({ kind: "idle" });
 			dispatchPostSubmit(submitted.destination, submitted.moduleUuid);
 			return;
 		}
 		const sourceFormUuid = submitted.formUuid;
 		const failAfterSave = (message: string, detail: unknown): void => {
+			announceWrite();
 			/* The browser funnel, not `lib/logger`: this runs client-side, and
 			 * the reporter is what carries a caught browser error to Cloud
 			 * Logging and Sentry. */
@@ -771,7 +796,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 		let caseData: PostSubmissionCaseData = new Map();
 		let boundCaseName: string | undefined;
-		if (result.kind === "followup" || result.kind === "close") {
+		if (result.kind !== "survey") {
 			const caseType = submitted.moduleCaseType;
 			if (caseType === undefined) {
 				failAfterSave(
@@ -796,6 +821,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				false,
 			);
 			if (!isCurrent()) {
+				announceWrite();
 				settleAttempt({ kind: "idle" });
 				return;
 			}
@@ -811,6 +837,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			caseData = caseRowsToFormPreloads(read.row, read.ancestors, chain);
 			boundCaseName = read.row.case_name;
 		}
+		/* The route is decided synchronously from here, so the form's own case
+		 * binding can no longer change it. */
+		announceWrite();
 
 		try {
 			const doc = pickBlueprintDoc(docApi.getState());
@@ -1038,9 +1067,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				latest.formType === submitted.formType &&
 				latest.destination === submitted.destination &&
 				latest.moduleCaseType === submitted.moduleCaseType &&
-				latest.links === submitted.links &&
 				controller.entryKey === submitted.entryKey &&
-				controller.formUuid === submitted.formUuid
+				controller.formUuid === submitted.formUuid &&
+				/* Leaving the screen while a read is in flight means the person
+				 * went somewhere else; the route must not follow them there. */
+				mountedRef.current
 			);
 		};
 		/* Clear any prior error state up-front. Two reasons:
@@ -1152,16 +1183,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				result.kind === "close" ||
 				result.kind === "survey"
 			) {
-				if (result.kind !== "survey") {
-					/* A case-bearing submission may update the primary case plus
-					 * operation-created or related cases. Announce the settled write
-					 * against the live materializable catalog before leaving the form so
-					 * Results, Details, bound forms, and the Case data count all converge
-					 * from the same shared revision signal. */
-					for (const caseType of caseTypes) {
-						invalidateCaseData(submittedAppId, caseType.name);
-					}
-				}
 				await dispatchAfterSubmit({
 					submitted: {
 						...submitted,
@@ -1172,6 +1193,18 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					mutation: landedMutation,
 					isCurrent,
 					settleAttempt,
+					announceWrite: () => {
+						if (result.kind === "survey") return;
+						/* A case-bearing submission may update the primary case plus
+						 * operation-created or related cases. Announce the settled
+						 * write against the live materializable catalog before
+						 * leaving the form so Results, Details, bound forms, and the
+						 * Case data count all converge from the same shared revision
+						 * signal. */
+						for (const caseType of caseTypes) {
+							invalidateCaseData(submittedAppId, caseType.name);
+						}
+					},
 				});
 				return;
 			}

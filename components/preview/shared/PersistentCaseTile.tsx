@@ -82,7 +82,9 @@ export function PersistentCaseTile({
 		[tileColumns],
 	);
 
-	if (caseId === undefined || projection.cells.length === 0) return null;
+	/* A blank id is a case the navigation bound to nothing (a carried value
+	 * that evaluated empty); there is no row to draw. */
+	if (!caseId || projection.cells.length === 0) return null;
 
 	return (
 		<div
