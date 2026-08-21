@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "0de94c6018857c15dcf83545014323f55888ed4a167457758aaa167ed76df78d",
+  "catalogDigest": "6352c5c78f80e9cfba3a3f8832c6ecf61adf4c781af5df697c6bcf1513a46173",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -59,6 +59,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "secret",
     "group",
     "repeat",
+    "section",
   ],
   "toolSurface": [
     {
@@ -431,6 +432,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "set_field_options_source",
       "saName": "setFieldOptionsSource",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "set_form_sections",
+      "saName": "setFormSections",
       "staging": "allowed",
     },
     {

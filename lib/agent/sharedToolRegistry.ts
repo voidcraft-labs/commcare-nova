@@ -80,6 +80,7 @@ import { removeModuleTool } from "@/lib/agent/tools/removeModule";
 import { renameCasePropertiesTool } from "@/lib/agent/tools/renameCaseProperties";
 import { searchBlueprintTool } from "@/lib/agent/tools/searchBlueprint";
 import { setFieldOptionsSourceTool } from "@/lib/agent/tools/setFieldOptionsSource";
+import { setFormSectionsTool } from "@/lib/agent/tools/setFormSections";
 import { updateAppTool } from "@/lib/agent/tools/updateApp";
 import { updateFormTool } from "@/lib/agent/tools/updateForm";
 import { updateModuleTool } from "@/lib/agent/tools/updateModule";
@@ -387,6 +388,13 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "moveField",
 		mcpName: "move_field",
 		tool: moveFieldTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "setFormSections",
+		mcpName: "set_form_sections",
+		tool: setFormSectionsTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

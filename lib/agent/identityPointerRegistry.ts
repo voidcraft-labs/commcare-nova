@@ -149,6 +149,14 @@ function classifyIdentity(
 	) {
 		return "location";
 	}
+	/* `set_form_sections` names sections (fields of kind `section`) and the
+	 * top-level questions on each page; both are field identities. */
+	if (
+		property === "sectionUuid" ||
+		(property === "fields" && tool === "set_form_sections")
+	) {
+		return "field";
+	}
 	if (
 		property === "fieldUuid" ||
 		property === "parentUuid" ||

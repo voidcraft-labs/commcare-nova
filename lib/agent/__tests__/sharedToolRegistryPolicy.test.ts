@@ -110,6 +110,7 @@ describe("shared tool registry — execution policy coherence", () => {
 			updateTranslations: "mutate-blueprint/allowed",
 			getLookupTables: "read-blueprint/allowed",
 			setFieldOptionsSource: "mutate-blueprint/allowed",
+			setFormSections: "mutate-blueprint/allowed",
 			configureConnect: "mutate-blueprint/allowed",
 			createForm: "mutate-blueprint/allowed",
 			createModule: "mutate-blueprint/allowed",

@@ -357,7 +357,7 @@ describe("moveField — refusals", () => {
 			parentUuid: uuidOf(doc, "bravo"),
 		});
 		if (!("error" in result.result)) throw new Error("expected error");
-		expect(result.result.error).toContain("not a group or repeat");
+		expect(result.result.error).toContain("not a group, repeat, or section");
 	});
 
 	it("refuses a parentUuid that contradicts the anchor's parent", async () => {

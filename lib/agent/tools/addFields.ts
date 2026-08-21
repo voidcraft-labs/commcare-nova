@@ -35,8 +35,19 @@
 
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
+import {
+	FIELD_PLACEMENT_MESSAGES,
+	formIsSectioned,
+	landingSectionOf,
+} from "@/lib/doc/formSectionVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, uuidSchema } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type Field,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
 import { addFieldsItemSchema } from "../toolSchemas";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -101,7 +112,7 @@ export type AddFieldsResult =
 
 export const addFieldsTool = {
 	description:
-		"Add fields to an existing form (a single field is a length-1 array). Appends by default; beforeFieldUuid/afterFieldUuid position the batch. parentUuid names containers by stable identity.",
+		"Add fields to an existing form (a single field is a length-1 array). Appends by default; beforeFieldUuid/afterFieldUuid position the batch. parentUuid names containers (a group, repeat, or section) by stable identity. On a form split into sections, every top-level field is a section, so a question lands inside one.",
 	inputSchema: addFieldsInputSchema,
 	async execute(
 		input: AddFieldsInput,
@@ -171,6 +182,17 @@ export const addFieldsTool = {
 			}
 			const { mutations, created } = assembly;
 
+			// Sections make a form a closed state; say why a landing is refused
+			// in one sentence before the gate's finding list would.
+			const placement = sectionPlacementRefusal(doc, formUuid, mutations);
+			if (placement !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: placement },
+				};
+			}
+
 			// Compute the post-mutation doc once and persist via the shared
 			// context. The client applies via `applyMany` — no wire snapshot
 			// needed; the mutations ARE the update. The `form:M-F` stage tag
@@ -217,3 +239,74 @@ export const addFieldsTool = {
 		}
 	},
 };
+
+/**
+ * The section placement pre-check over an assembled batch. The verdict
+ * (`fieldPlacementVerdict`) reads the document, and a batch may create the
+ * very sections and groups its later items land in, so the walk here
+ * resolves each item's landing through the batch's own parents first: a
+ * section landing under any field (in the batch or the doc) is refused; a
+ * question landing at the root of a form that is, or this batch makes,
+ * sectioned is refused; an add-entries repeat landing on a page — directly
+ * or through batch-created groups — is refused. The commit gate remains the
+ * authority; this is the sentence the model reads instead of a finding list.
+ */
+function sectionPlacementRefusal(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	mutations: readonly Mutation[],
+): string | undefined {
+	const adds = mutations.filter(
+		(m): m is Extract<Mutation, { kind: "addField" }> => m.kind === "addField",
+	);
+	const batchParent = new Map<Uuid, Uuid>();
+	const batchKind = new Map<Uuid, Field["kind"]>();
+	for (const m of adds) {
+		batchParent.set(m.field.uuid, m.parentUuid);
+		batchKind.set(m.field.uuid, m.field.kind);
+	}
+	const alreadySectioned = formIsSectioned(doc, formUuid);
+	const addsRootSection = adds.some(
+		(m) => m.field.kind === "section" && m.parentUuid === formUuid,
+	);
+	if (
+		addsRootSection &&
+		!alreadySectioned &&
+		(doc.fieldOrder[formUuid]?.length ?? 0) > 0
+	) {
+		const form = doc.forms[formUuid];
+		return `"${form?.name ?? "This form"}" isn't split into sections yet, so adding one here would leave its current questions outside it. Use setFormSections to split the form instead: it takes every top-level question's page in one call.`;
+	}
+	const rootHasSections = alreadySectioned || addsRootSection;
+	for (const m of adds) {
+		const field = m.field;
+		if (field.kind === "section") {
+			if (m.parentUuid !== formUuid) {
+				return FIELD_PLACEMENT_MESSAGES["section-not-root"];
+			}
+			continue;
+		}
+		if (m.parentUuid === formUuid) {
+			if (rootHasSections) {
+				return FIELD_PLACEMENT_MESSAGES["loose-field-in-sectioned-form"];
+			}
+			continue;
+		}
+		const isUserRepeat =
+			field.kind === "repeat" && field.repeat_mode === "user_controlled";
+		if (!isUserRepeat) continue;
+		// Walk batch-created ancestors to a parent the document knows.
+		let cursor: Uuid = m.parentUuid;
+		let onPage = false;
+		const seen = new Set<Uuid>();
+		while (batchParent.has(cursor) && !seen.has(cursor)) {
+			seen.add(cursor);
+			if (batchKind.get(cursor) === "section") onPage = true;
+			cursor = batchParent.get(cursor) as Uuid;
+		}
+		if (onPage || landingSectionOf(doc, cursor) !== undefined) {
+			return FIELD_PLACEMENT_MESSAGES["user-repeat-in-section"];
+		}
+	}
+	return undefined;
+}
