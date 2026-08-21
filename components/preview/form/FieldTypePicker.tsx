@@ -9,7 +9,10 @@ import tablerForms from "@iconify-icons/tabler/forms";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { useCallback, useContext, useEffect } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { formSectionsOf } from "@/lib/doc/formSectionVerdicts";
+import {
+	formSectionsOf,
+	landingSectionOf,
+} from "@/lib/doc/formSectionVerdicts";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
@@ -24,7 +27,7 @@ import {
 	MENU_POSITIONER_CLS,
 	MENU_SUBMENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import { NEW_FIELD_BUILDERS } from "./newFieldDefaults";
+import { NEW_FIELD_BUILDERS, newPageRepeat } from "./newFieldDefaults";
 import {
 	type SectionGestureItem,
 	sectionGestureItems,
@@ -161,9 +164,13 @@ export function FieldTypePickerPopup({
 			);
 			const outcome = applyFormSectionPlan(item.plan(doc));
 			if (!outcome.ok) return;
-			const landed =
-				outcome.sectionUuids?.find((uuid) => !before.has(uuid)) ??
-				outcome.sectionUuids?.[0];
+			/* Land on the page the gesture created AT THE GAP. A whole-form
+			 * split mints page one too, so the page the user aimed at is
+			 * the LAST new uuid (a split's second half, an added page). */
+			const minted = (outcome.sectionUuids ?? []).filter(
+				(uuid) => !before.has(uuid),
+			);
+			const landed = minted[minted.length - 1] ?? outcome.sectionUuids?.[0];
 			if (landed === undefined) return;
 			markNewField(landed);
 			setPending(landed, "smooth", false);
@@ -209,10 +216,17 @@ export function FieldTypePickerPopup({
 			// label mirrors the kind's human-readable name (e.g. "New Text",
 			// "New Single Select") so a freshly-added field is self-describing;
 			// kinds with no label slot ignore it.
-			const newField = NEW_FIELD_BUILDERS[kind](
-				newId,
-				`New ${fieldRegistry[kind].label}`,
-			);
+			/* A repeat born on a page must be count-bound (the device can't
+			 * add entries on a page's single screen), so the picker seeds
+			 * the legal variant there instead of offering a guaranteed
+			 * refusal. */
+			const onPage =
+				docStore !== null &&
+				landingSectionOf(docStore.getState(), parentUuid) !== undefined;
+			const newField =
+				kind === "repeat" && onPage
+					? newPageRepeat(newId, `New ${fieldRegistry.repeat.label}`)
+					: NEW_FIELD_BUILDERS[kind](newId, `New ${fieldRegistry[kind].label}`);
 
 			const outcome = addField(parentUuid, newField, { atIndex });
 			/* A rejected insert (the commit gate refused the batch: the

@@ -115,7 +115,9 @@ export function sectionGestureItems(
 		}
 		case "in-section": {
 			const formUuid = formOfField(doc, parentUuid);
-			if (atIndex <= 0) {
+			/* An empty page's one gap is both its start and its end; the end
+			 * arm (New section after this one) is the useful offer there. */
+			if (atIndex <= 0 && children.length > 0) {
 				return {
 					context,
 					offersKinds: true,

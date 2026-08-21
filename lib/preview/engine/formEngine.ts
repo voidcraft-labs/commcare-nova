@@ -716,6 +716,15 @@ export class FormEngine {
 	 * checks and validation rules. Returns true if the form is valid.
 	 */
 	validateAll(): boolean {
+		return this.validateWhere(() => true);
+	}
+
+	/**
+	 * The shared body of `validateAll` / `validateSection`: touch, run
+	 * required checks and validation rules on every effectively visible
+	 * field whose path passes `include`, and report whether they all hold.
+	 */
+	private validateWhere(include: (path: string) => boolean): boolean {
 		let valid = true;
 		const updates: EngineStoreState = {};
 		const currentState = this.store.getState();
@@ -723,6 +732,7 @@ export class FormEngine {
 
 		for (const [path, state] of Object.entries(currentState)) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
+			if (!include(path)) continue;
 			if (!effectivelyVisible.has(path)) continue;
 
 			const touched = state.touched ? state : { ...state, touched: true };
@@ -798,33 +808,12 @@ export class FormEngine {
 		const section = this.tree.find((node) => node.field.uuid === sectionUuid);
 		if (section === undefined || section.field.kind !== "section") return true;
 		const root = `/data/${section.field.id}`;
-		const within = (path: string): boolean =>
-			path === root ||
-			path.startsWith(`${root}/`) ||
-			path.startsWith(`${root}[`);
-
-		let valid = true;
-		const updates: EngineStoreState = {};
-		const currentState = this.store.getState();
-		const effectivelyVisible = this.effectivelyVisiblePaths(currentState);
-
-		for (const [path, state] of Object.entries(currentState)) {
-			if (state === DEFAULT_ENGINE_STATE) continue;
-			if (!within(path)) continue;
-			if (!effectivelyVisible.has(path)) continue;
-
-			const touched = state.touched ? state : { ...state, touched: true };
-			if (touched !== state) updates[path] = touched;
-
-			this.validateAndCollect(path, updates[path] ?? touched, updates);
-			const final = updates[path] ?? touched;
-			if (!final.valid) valid = false;
-		}
-
-		if (Object.keys(updates).length > 0) {
-			this.store.setState(updates);
-		}
-		return valid;
+		return this.validateWhere(
+			(path) =>
+				path === root ||
+				path.startsWith(`${root}/`) ||
+				path.startsWith(`${root}[`),
+		);
 	}
 
 	/**
@@ -1134,7 +1123,8 @@ export class FormEngine {
 				for (const node of levelNodes) {
 					const f = node.field;
 					const fieldPath = `${prefix}/${f.id}`;
-					if (f.kind === "group") {
+					if (f.kind === "group" || f.kind === "section") {
+						// Both are DATA groups: answers nest under their id.
 						if (node.children) gather(node.children, fieldPath);
 						continue;
 					}
@@ -1432,7 +1422,8 @@ export class FormEngine {
 				const f = node.field;
 				const fieldPath = `${pathPrefix}/${f.id}`;
 
-				if (f.kind === "group") {
+				if (f.kind === "group" || f.kind === "section") {
+					// Both are DATA groups: writers inside nest under their id.
 					if (node.children) {
 						walk(node.children, fieldPath, activeRepeat);
 					}

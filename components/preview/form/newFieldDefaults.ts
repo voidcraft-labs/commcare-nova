@@ -96,3 +96,22 @@ export const NEW_FIELD_BUILDERS: {
 		default_value: HIDDEN_INERT_DEFAULT_VALUE,
 	}),
 };
+
+/**
+ * The repeat starter for a landing on a PAGE. A page is one device screen,
+ * and the CommCare app can't add repeat entries there
+ * (`FORM_SECTION_USER_REPEAT`), so a repeat born on a page is count-bound
+ * at 1 — legal by construction, with the count the first thing to change.
+ */
+export function newPageRepeat(
+	id: string,
+	label: string,
+): Omit<Extract<Field, { repeat_mode: "count_bound" }>, "uuid"> {
+	return {
+		kind: "repeat",
+		id,
+		label: proseText(label),
+		repeat_mode: "count_bound",
+		repeat_count: { parts: [{ kind: "text", text: "1" }] },
+	};
+}

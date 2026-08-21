@@ -27,11 +27,15 @@ import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryC
 import { InspectorSection } from "@/components/builder/inspector/inspectorChrome";
 import { sectionKicker } from "@/components/preview/form/sections/SectionHeading";
 import { Button } from "@/components/shadcn/button";
+import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import {
 	mergeWithPrevious,
 	removeSectionKeepingQuestions,
 } from "@/lib/doc/formSectionMutations";
-import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import {
+	useBlueprintDocApi,
+	useBlueprintDocEq,
+} from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
 import type { SectionField, Uuid } from "@/lib/domain";
@@ -207,9 +211,13 @@ function DeleteSectionRow({ sectionUuid }: { readonly sectionUuid: Uuid }) {
 	const [confirming, setConfirming] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
 	const deleteSelected = useDeleteSelectedField();
-	const docApi = useBlueprintDocApi();
-	const questionCount = (docApi.getState().fieldOrder[sectionUuid] ?? [])
-		.length;
+	/* Everything the delete takes with it, counted through containers (a
+	 * group of ten is eleven fields) and SUBSCRIBED while the confirm is
+	 * open, so a co-editor's change updates the number the person reads. */
+	const fieldCount = useBlueprintDocEq(
+		(s) => countFieldsUnder(s, sectionUuid),
+		(a, b) => a === b,
+	);
 
 	if (confirming) {
 		return (
@@ -221,11 +229,8 @@ function DeleteSectionRow({ sectionUuid }: { readonly sectionUuid: Uuid }) {
 			>
 				<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 					Delete this section and{" "}
-					{questionCount === 1
-						? "the question"
-						: `the ${questionCount} questions`}{" "}
-					on it? To keep the questions, use Remove section only instead. You can
-					undo this.
+					{fieldCount === 1 ? "the field" : `the ${fieldCount} fields`} on it?
+					To keep them, use Remove section only instead. You can undo this.
 				</p>
 				<div className="flex flex-wrap gap-2">
 					<Button

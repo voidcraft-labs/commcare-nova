@@ -1,8 +1,8 @@
 // lib/doc/formSectionMutations.ts
 //
 // The batch-building planners for a form's sections: how "split here",
-// "add a section", "merge with the previous one", "remove this section",
-// "move this section", and the SA's desired-state `set_form_sections`
+// "add a section", "merge with the previous one", "remove this section
+// keeping its questions", and the SA's desired-state `set_form_sections`
 // become one gated batch of ordinary `addField` / `moveField` /
 // `removeField` / `updateField` mutations that the builder, the SA, and the
 // MCP surface dispatch identically.
@@ -20,8 +20,9 @@
 //   - **Re-anchoring.** A moved field names `after` as its predecessor IN
 //     THE LANDING SEQUENCE (the field placed before it by this batch, or
 //     `null` for the first), never a stale source neighbour, so the batch
-//     replays to the same document and a concurrent peer removal degrades
-//     to an append rather than a throw.
+//     replays to the same document; an anchor a peer removed concurrently
+//     is refused by sequence admission before commit, never silently
+//     reordered.
 //
 //   - **A rejected plan commits nothing.** Every refusal is a sentence in
 //     Nova's voice naming what and what to do next; the SA tools return it
@@ -47,7 +48,7 @@ import {
 	formSectionsOf,
 	subtreeHasUserRepeat,
 } from "./formSectionVerdicts";
-import { fieldIdVerdict } from "./identifierVerdicts";
+import { fieldIdFormatVerdict } from "./identifierVerdicts";
 import type { Mutation } from "./types";
 
 export type FormSectionPlan =
@@ -145,37 +146,24 @@ function sectionContext(
 /**
  * A root-unique, XML-legal id for a new section: the title's slug when it
  * has one and it is legal, else `section_<n>`, suffixed until free among
- * the form's current root siblings and the ids this batch already claimed.
+ * the ids the plan's root will HOLD — the kept pages' ids plus this
+ * batch's claims. Never the pre-move root questions: they land inside
+ * pages, so a page titled like a question it swallows keeps its slug.
  */
 function mintSectionId(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
 	title: ProseTemplate | null | undefined,
 	index: number,
-	pending: Set<string>,
+	claimed: Set<string>,
 ): string {
 	const fallback = `section_${index + 1}`;
-	let base = title ? slugifyId(proseTemplateText(title), fallback) : fallback;
+	const slug = title ? slugifyId(proseTemplateText(title), fallback) : fallback;
+	// An illegal slug (a leading digit, the reserved prefix) falls back to
+	// the numbered name before suffixing.
+	const base = fieldIdFormatVerdict(slug).ok ? slug : fallback;
 	let candidate = base;
 	let n = 2;
-	for (;;) {
-		const verdict = fieldIdVerdict({
-			doc,
-			parentUuid: formUuid,
-			proposedId: candidate,
-			pendingSiblingIds: pending,
-		});
-		if (verdict.ok) break;
-		if (candidate === base && base !== fallback) {
-			// The slug itself is not a legal id (a leading digit, the reserved
-			// prefix): fall back to the numbered name before suffixing.
-			base = fallback;
-			candidate = fallback;
-			continue;
-		}
-		candidate = `${base}_${n++}`;
-	}
-	pending.add(candidate);
+	while (claimed.has(candidate)) candidate = `${base}_${n++}`;
+	claimed.add(candidate);
 	return candidate;
 }
 
@@ -273,6 +261,7 @@ function planPartition(
 				return fail(`${section.sectionUuid} isn't a section of ${formName}.`);
 			}
 		}
+		const idsOnPage = new Map<string, Uuid>();
 		for (const uuid of section.fields) {
 			const parent = questionParent.get(uuid);
 			if (parent === undefined) {
@@ -312,6 +301,20 @@ function planPartition(
 			seenField.set(uuid, i);
 			if (subtreeHasUserRepeat(doc, uuid)) {
 				return fail(FIELD_PLACEMENT_MESSAGES["user-repeat-in-section"]);
+			}
+			/* Ids are sibling-scoped, so two questions that were legal on
+			 * different pages collide the moment they land on one. Refuse
+			 * with the rename path here, before the admission layer would
+			 * reject the move with reload-and-retry prose. */
+			const id = doc.fields[uuid]?.id;
+			if (id !== undefined) {
+				const already = idsOnPage.get(id);
+				if (already !== undefined && already !== uuid) {
+					return fail(
+						`Two questions named "${id}" would land on ${name}, and two siblings can't share an id. Rename one of them first, then arrange the pages.`,
+					);
+				}
+				idsOnPage.set(id, uuid);
 			}
 		}
 	}
@@ -367,7 +370,14 @@ function planPartition(
 		return { ok: true, mutations, sectionUuids: [] };
 	}
 
+	/* The ids the plan's finished root will hold: every kept page keeps
+	 * its id, and each new page's mint claims one. */
 	const pendingIds = new Set<string>();
+	for (const section of desired) {
+		if (section.sectionUuid === undefined) continue;
+		const kept = doc.fields[section.sectionUuid];
+		if (kept?.kind === "section") pendingIds.add(kept.id);
+	}
 	const pages: {
 		readonly sectionUuid: Uuid;
 		readonly fields: readonly Uuid[];
@@ -402,7 +412,7 @@ function planPartition(
 				});
 			}
 		} else {
-			const id = mintSectionId(doc, formUuid, section.label, i, pendingIds);
+			const id = mintSectionId(section.label, i, pendingIds);
 			const field: Field = {
 				uuid,
 				kind: "section",
@@ -454,7 +464,8 @@ function planPartition(
  * Split a single-page form into sections. With `atFieldUuid` (a top-level
  * field), the questions before it become page one and it and everything
  * after become page two; without one (or at the first field) one section
- * takes every question. An empty form gets one empty section.
+ * takes every question. An empty form refuses: its pages could only be
+ * empty, and a form of empty pages can't be built.
  */
 export function splitIntoSections(
 	doc: BlueprintDoc,
@@ -473,6 +484,11 @@ export function splitIntoSections(
 		);
 	}
 	const root = orderedFieldUuids(doc, formUuid);
+	if (root.length === 0) {
+		return fail(
+			`"${form.name}" has nothing to split: pages come from its questions. Add a question first.`,
+		);
+	}
 	let cut = 0;
 	if (opts.atFieldUuid !== undefined) {
 		cut = root.indexOf(opts.atFieldUuid);
@@ -547,9 +563,11 @@ export function addSection(
 	const form = doc.forms[formUuid];
 	if (form === undefined) return fail(`${formUuid} isn't a form.`);
 	const parts = currentPartition(doc, formUuid);
-	if (parts.length === 0 && orderedFieldUuids(doc, formUuid).length > 0) {
+	if (parts.length === 0) {
 		return fail(
-			`"${form.name}" isn't split into sections yet. Split it into sections first, and a new section has somewhere to go.`,
+			orderedFieldUuids(doc, formUuid).length > 0
+				? `"${form.name}" isn't split into sections yet. Split it into sections first, and a new section has somewhere to go.`
+				: `"${form.name}" has no questions yet, and a form of empty pages can't be built. Add a question first.`,
 		);
 	}
 	let at = parts.length;
@@ -617,42 +635,6 @@ export function removeSectionKeepingQuestions(
 			fields: [...prev.fields, ...here.fields],
 		});
 	}
-	return planPartition(doc, ctx.formUuid, parts);
-}
-
-/** Remove a section and everything on it. The caller confirms first. */
-export function removeSectionWithQuestions(
-	doc: BlueprintDoc,
-	sectionUuid: Uuid,
-): FormSectionPlan {
-	const ctx = sectionContext(doc, sectionUuid);
-	if (!ctx.ok) return fail(ctx.reason);
-	return {
-		ok: true,
-		mutations: [{ kind: "removeField", uuid: sectionUuid }],
-		sectionUuids: ctx.sections.filter((uuid) => uuid !== sectionUuid),
-	};
-}
-
-/** Reorder a section among its siblings: after `after`, or first for `null`. */
-export function moveSection(
-	doc: BlueprintDoc,
-	sectionUuid: Uuid,
-	after: Uuid | null,
-): FormSectionPlan {
-	const ctx = sectionContext(doc, sectionUuid);
-	if (!ctx.ok) return fail(ctx.reason);
-	if (after === sectionUuid) {
-		return fail("A section can't be placed after itself.");
-	}
-	if (after !== null && !ctx.sections.includes(after)) {
-		return fail(`${after} isn't a section of this form.`);
-	}
-	const parts = currentPartition(doc, ctx.formUuid);
-	const [here] = parts.splice(ctx.index, 1) as [DesiredSection];
-	const at =
-		after === null ? 0 : parts.findIndex((p) => p.sectionUuid === after) + 1;
-	parts.splice(at, 0, here);
 	return planPartition(doc, ctx.formUuid, parts);
 }
 

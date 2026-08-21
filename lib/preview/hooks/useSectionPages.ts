@@ -7,8 +7,9 @@
  * the whole runtime store would re-render the pager on every keystroke;
  * instead the selector reduces the derivation to one string key (uuid and
  * visibility per page), and the array is rebuilt only when that key
- * changes: a page appears, disappears, moves, or flips between having
- * something to show and not.
+ * changes: a page appears, disappears, moves, is re-ided (its /data path
+ * is part of the key, so a rename re-renders the pager onto the live
+ * paths), or flips between having something to show and not.
  */
 "use client";
 import { useMemo } from "react";
@@ -19,7 +20,9 @@ import { useEngineController } from "./useEngineController";
 
 function pagesKey(pages: ReadonlyArray<SectionPage>): string {
 	return pages
-		.map((page) => `${page.uuid}:${page.hasVisibleQuestions ? 1 : 0}`)
+		.map(
+			(page) => `${page.uuid}:${page.path}:${page.hasVisibleQuestions ? 1 : 0}`,
+		)
 		.join("|");
 }
 

@@ -84,6 +84,14 @@ const OK: FieldIdVerdict = { ok: true };
 /** Format-class checks shared by the add and rename verdicts: XML element-name
  * legality and the reserved synthetic-node prefix. Sibling uniqueness lives
  * with each caller-shaped verdict below. */
+/** The format half of the id law alone — legal characters, no leading
+ *  digit, no reserved prefix — with no sibling scan. For a caller whose
+ *  sibling universe is not the document's current one (the section
+ *  planner collides against the root its plan PRODUCES). */
+export function fieldIdFormatVerdict(proposedId: string): FieldIdVerdict {
+	return formatVerdict(proposedId);
+}
+
 function formatVerdict(proposedId: string): FieldIdVerdict {
 	if (proposedId.length === 0) {
 		return {

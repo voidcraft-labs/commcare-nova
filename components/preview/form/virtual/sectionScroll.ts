@@ -32,6 +32,22 @@ export function sectionOfRowIndex(
 	return undefined;
 }
 
+/** The page a viewer at row `index` is looking at: the nearest header at
+ *  or above it, else the first header below (the root insertion gap above
+ *  page one shows page one). `undefined` only on a sectionless form. */
+export function sectionShownAtRow(
+	rows: readonly FormRow[],
+	index: number,
+): Uuid | undefined {
+	const above = sectionOfRowIndex(rows, index);
+	if (above !== undefined) return above;
+	for (let i = Math.max(index, 0); i < rows.length; i++) {
+		const row = rows[i];
+		if (row?.kind === "section-header") return row.uuid;
+	}
+	return undefined;
+}
+
 /** Row index of a section's heading, or -1 when the form has no such page. */
 export function sectionHeaderIndex(
 	rows: readonly FormRow[],

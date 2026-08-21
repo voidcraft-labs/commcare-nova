@@ -5,7 +5,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type Field, fieldKinds, fieldSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { NEW_FIELD_BUILDERS } from "../newFieldDefaults";
+import { NEW_FIELD_BUILDERS, newPageRepeat } from "../newFieldDefaults";
 
 const UUID = testUuid("00000000-0000-4000-8000-000000000000");
 
@@ -28,6 +28,16 @@ describe("NEW_FIELD_BUILDERS — every kind's starter field is schema-valid", ()
 	it("never gives a hidden field a label (it has no label slot)", () => {
 		const built = NEW_FIELD_BUILDERS.hidden("new_hidden", "ignored");
 		expect("label" in built).toBe(false);
+	});
+
+	it("births a page's repeat count-bound at one, schema-valid", () => {
+		const built = newPageRepeat("new_repeat", "New Repeat");
+		expect(built.repeat_mode).toBe("count_bound");
+		const result = fieldSchema.safeParse({ ...built, uuid: UUID });
+		expect(
+			result.success,
+			result.success ? "" : JSON.stringify(result.error.issues),
+		).toBe(true);
 	});
 });
 

@@ -71,7 +71,7 @@ export const addFieldsInputSchema = formAddressSchema
 		parentUuid: uuidSchema
 			.optional()
 			.describe(
-				"Stable UUID of an existing group/repeat to receive the batch. A field item's own parentUuid overrides this.",
+				"Stable UUID of an existing group, repeat, or section to receive the batch. A field item's own parentUuid overrides this.",
 			),
 		// Optional insertion anchor for the batch's top-level block. The
 		// fields that land in the batch's insertion parent (the form root, or
@@ -269,7 +269,7 @@ function sectionPlacementRefusal(
 		(doc.fieldOrder[formUuid]?.length ?? 0) > 0
 	) {
 		const form = doc.forms[formUuid];
-		return `"${form?.name ?? "This form"}" isn't split into sections yet, so adding one here would leave its current questions outside it. Use setFormSections to split the form instead: it takes every top-level question's page in one call.`;
+		return `"${form?.name ?? "This form"}" isn't split into sections yet, so adding one here would leave its current questions outside it. First call setFormSections with every existing top-level question's page (a new page may be empty), then add the new questions into their page with addFields and parentUuid.`;
 	}
 	const candidate = applyToDoc(doc, mutations);
 	for (const m of adds) {

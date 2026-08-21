@@ -17,9 +17,7 @@ import {
 	currentPartition,
 	type FormSectionPlan,
 	mergeWithPrevious,
-	moveSection,
 	removeSectionKeepingQuestions,
-	removeSectionWithQuestions,
 	setFormSections,
 	splitIntoSections,
 	splitSection,
@@ -165,13 +163,11 @@ describe("splitIntoSections", () => {
 		expect(section?.kind === "section" && section.label).toBeUndefined();
 	});
 
-	it("gives an empty form one empty page", () => {
+	it("refuses an empty form: pages come from questions", () => {
 		const doc = docWith([]);
-		const next = apply(
-			doc,
-			splitIntoSections(doc, FORM, { sectionUuids: [S1] }),
-		);
-		expect(shape(next)).toEqual({ root: ["section_1"], section_1: [] });
+		expect(
+			refusal(splitIntoSections(doc, FORM, { sectionUuids: [S1] })),
+		).toContain("nothing to split");
 	});
 
 	it("refuses a sectioned form and a cut that isn't a top-level field", () => {
@@ -247,15 +243,54 @@ describe("splitSection / addSection / mergeWithPrevious", () => {
 		).toEqual(["s1", "s2", "section_3"]);
 	});
 
-	it("refuses to add a page to a single-page form that has questions", () => {
+	it("refuses to add a page to a single-page or empty form", () => {
 		expect(refusal(addSection(flat(), FORM))).toContain(
 			"isn't split into sections yet",
 		);
-		// An empty form is fine: the page is its first.
+		// An empty form refuses too: a form of empty pages can't be built.
 		const empty = docWith([]);
-		expect(
-			shape(apply(empty, addSection(empty, FORM, { sectionUuid: NEW }))).root,
-		).toEqual(["section_1"]);
+		expect(refusal(addSection(empty, FORM, { sectionUuid: NEW }))).toContain(
+			"no questions yet",
+		);
+	});
+
+	it("refuses a merge that would land two questions with one id on a page", () => {
+		const doc = docWith([
+			f({
+				kind: "section",
+				uuid: S1,
+				id: "s1",
+				children: [
+					f({ kind: "text", uuid: A, id: "notes", label: proseText("Notes") }),
+				],
+			}),
+			f({
+				kind: "section",
+				uuid: S2,
+				id: "s2",
+				children: [
+					f({ kind: "text", uuid: C, id: "notes", label: proseText("Notes") }),
+				],
+			}),
+		]);
+		const reason = refusal(mergeWithPrevious(doc, S2));
+		expect(reason).toContain('named "notes"');
+		expect(reason).toContain("Rename one");
+	});
+
+	it("keeps a new page's title slug when its only clash is a question the plan moves onto it", () => {
+		const doc = docWith([
+			f({ kind: "text", uuid: A, id: "name", label: proseText("Name") }),
+			text(B, "b"),
+		]);
+		const next = apply(
+			doc,
+			splitIntoSections(doc, FORM, {
+				titles: [proseText("Name")],
+				sectionUuids: [S1],
+			}),
+		);
+		expect(next.fields[S1]?.id).toBe("name");
 	});
 
 	it("merges a page into the one before it and refuses on the first page", () => {
@@ -268,7 +303,7 @@ describe("splitSection / addSection / mergeWithPrevious", () => {
 	});
 });
 
-describe("removeSectionKeepingQuestions / removeSectionWithQuestions / moveSection", () => {
+describe("removeSectionKeepingQuestions", () => {
 	it("hands a removed page's questions to the previous page, or the next for the first", () => {
 		const doc = paged();
 		expect(shape(apply(doc, removeSectionKeepingQuestions(doc, S2)))).toEqual({
@@ -288,29 +323,6 @@ describe("removeSectionKeepingQuestions / removeSectionWithQuestions / moveSecti
 		const next = apply(one, plan);
 		expect(shape(next)).toEqual({ root: ["a", "b", "c", "d"] });
 		expect(plan.ok && plan.sectionUuids).toEqual([]);
-	});
-
-	it("removes a page with its questions in one mutation", () => {
-		const doc = paged();
-		const plan = removeSectionWithQuestions(doc, S2);
-		expect(plan.ok && plan.mutations).toEqual([
-			{ kind: "removeField", uuid: S2 },
-		]);
-		const next = apply(doc, plan);
-		expect(shape(next)).toEqual({ root: ["s1"], s1: ["a", "b"] });
-		expect(next.fields[C]).toBeUndefined();
-	});
-
-	it("reorders a page with one mutation and refuses a stranger", () => {
-		const doc = paged();
-		const plan = moveSection(doc, S2, null);
-		expect(plan.ok && plan.mutations).toHaveLength(1);
-		expect(shape(apply(doc, plan)).root).toEqual(["s2", "s1"]);
-		expect(shape(apply(doc, moveSection(doc, S1, S2))).root).toEqual([
-			"s2",
-			"s1",
-		]);
-		expect(refusal(moveSection(doc, S1, A))).toContain("isn't a section");
 	});
 });
 

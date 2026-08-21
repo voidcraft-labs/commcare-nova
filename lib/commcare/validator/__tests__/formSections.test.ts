@@ -227,6 +227,48 @@ describe("form sections", () => {
 		).toEqual([]);
 	});
 
+	it("reads a form of only empty pages as an empty form", () => {
+		const doc = buildDoc({
+			appName: "Sections",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [section("s1", [], "First"), section("s2", [])],
+						},
+					],
+				},
+			],
+		});
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		const empty = findings.find((e) => e.code === "EMPTY_FORM");
+		expect(empty?.message).toContain("nothing on any of them");
+		// One question on any page is a buildable form again.
+		const withQuestion = buildDoc({
+			appName: "Sections",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [section("s1", [text("q")], "First"), section("s2", [])],
+						},
+					],
+				},
+			],
+		});
+		expect(
+			runValidation(withQuestion, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(e) => e.code === "EMPTY_FORM",
+			),
+		).toEqual([]);
+	});
+
 	it("reports a nested section and the add-entries repeat it holds as two findings", () => {
 		const findings = sectionFindings([
 			section("outer", [

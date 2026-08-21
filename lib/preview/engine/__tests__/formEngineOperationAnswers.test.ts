@@ -51,7 +51,7 @@ function dTree(
 			order.push(uuid);
 			const { children, ...rest } = n;
 			fieldMap[uuid as string] = { uuid, ...rest } as Field;
-			if (n.kind === "group" || n.kind === "repeat") {
+			if (n.kind === "group" || n.kind === "repeat" || n.kind === "section") {
 				walk(children ?? [], uuid, `${prefix}.${n.id}`);
 			}
 		}
@@ -210,5 +210,27 @@ describe("computeOperationAnswers", () => {
 			expect(mutation.formUuid).toBe(testUuid("test-form-uuid"));
 			expect(mutation.operationAnswers?.root).toBeDefined();
 		}
+	});
+
+	it("collects a section's questions as root answers, never the section itself", () => {
+		const engine = new FormEngine(
+			dTree(
+				[
+					{
+						id: "about",
+						kind: "section",
+						label: proseText("About"),
+						children: [{ id: "name", kind: "text", label: proseText("Name") }],
+					},
+				],
+				[OPERATION],
+			),
+		);
+		engine.setValue("/data/about/name", "Ada");
+		const answers = engine.computeOperationAnswers();
+		expect(valuesOf(answers?.root ?? [])).toEqual({
+			[testUuid("form.about.name") as string]: "Ada",
+		});
+		expect(answers?.repeats).toEqual([]);
 	});
 });

@@ -208,13 +208,17 @@ export function isUuidInSubtree(
 export function targetContainerUuidFor(
 	drop: DropTargetData,
 	edge?: Edge | null,
+	sectionDrag = false,
 ): Uuid {
 	switch (drop.kind) {
 		case "drop-field":
 			return drop.parentUuid;
 		case "drop-group-header":
 		case "drop-section-header":
-			return edge === "top" ? drop.parentUuid : drop.uuid;
+			// A dragged SECTION never nests, so for it a header's bottom
+			// half means "after this container at its level", the same
+			// landing as the top half — never "inside".
+			return edge === "top" || sectionDrag ? drop.parentUuid : drop.uuid;
 		case "drop-empty-container":
 			return drop.parentUuid;
 	}

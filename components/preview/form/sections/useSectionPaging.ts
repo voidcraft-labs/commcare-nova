@@ -33,8 +33,13 @@ import type {
 	SectionPage,
 } from "@/lib/preview/engine/formEngine";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
+import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useSectionPages } from "@/lib/preview/hooks/useSectionPages";
-import { useActiveSection, useSetActiveSection } from "@/lib/session/hooks";
+import {
+	useActiveSection,
+	useGetActiveSection,
+	useSetActiveSection,
+} from "@/lib/session/hooks";
 import {
 	pagesToValidate,
 	resolveCurrentPage,
@@ -88,26 +93,42 @@ export function useSectionPaging({
 }: SectionPagingArgs): SectionPaging {
 	const controller = useEngineController();
 	const allPages = useSectionPages();
+	/* The engine is one per builder session and activates a form after its
+	 * screen mounts, so `enabled` alone would page this form with another
+	 * form's pages (opening form B while A's engine still runs) or show
+	 * the no-pages state before activation. Everything below keys on the
+	 * engine actually running THIS form. */
+	const engineFormUuid = useEngineEntry().formUuid;
+	const live = enabled && formUuid !== undefined && engineFormUuid === formUuid;
 	const active = useActiveSection(formUuid ?? "");
+	const readActive = useGetActiveSection();
 	const setActive = useSetActiveSection();
 
 	const pages = useMemo(
-		() => (enabled ? visiblePages(allPages) : []),
-		[enabled, allPages],
+		() => (live ? visiblePages(allPages) : []),
+		[live, allPages],
 	);
 	const current = useMemo(
-		() => (enabled ? resolveCurrentPage(allPages, active) : undefined),
-		[enabled, allPages, active],
+		() => (live ? resolveCurrentPage(allPages, active) : undefined),
+		[live, allPages, active],
 	);
 	const index = current === undefined ? -1 : pages.indexOf(current);
 	const count = pages.length;
 
-	/* Write the resolved page back whenever it differs from the slot: the
-	 * first open (no memory yet) and every re-anchor after a page emptied. */
+	/* Write the resolved page back whenever the slot names a page nobody
+	 * can see: the first open (no memory yet) and every re-anchor after a
+	 * page emptied. Resolve against the slot's LIVE value, never this
+	 * render's: on a flip the edit canvas's unmount cleanup writes the
+	 * page it was showing in the same commit this effect runs, and the
+	 * render-time closure would overwrite that page with the first one. */
 	useEffect(() => {
-		if (!enabled || formUuid === undefined || current === undefined) return;
-		if (current.uuid !== active) setActive(formUuid, current.uuid);
-	}, [enabled, formUuid, current, active, setActive]);
+		if (!live || formUuid === undefined) return;
+		const remembered = readActive(formUuid);
+		const resolved = resolveCurrentPage(allPages, remembered);
+		if (resolved !== undefined && resolved.uuid !== remembered) {
+			setActive(formUuid, resolved.uuid);
+		}
+	}, [live, formUuid, allPages, readActive, setActive]);
 
 	const [announced, setAnnounced] = useState<SectionPaging["announced"]>(null);
 	const pendingFocusRef = useRef(false);
@@ -188,7 +209,7 @@ export function useSectionPaging({
 	);
 
 	return {
-		enabled,
+		enabled: live,
 		pages,
 		current,
 		index,

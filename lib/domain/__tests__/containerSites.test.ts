@@ -23,16 +23,28 @@ import { describe, expect, it } from "vitest";
 const REPO_ROOT = join(__dirname, "..", "..", "..");
 const SCAN_ROOTS = ["lib", "components", "app"] as const;
 
-/** Sites that still spell the kinds out, each justified. None today: the
- *  row model asks `isContainer` after handling the section row, and the
- *  type picker's Structure submenu offers the page gestures
- *  (`sectionGestureItems`) beside the two boxed kinds. */
-const ALLOWED_LITERAL_SITES: ReadonlySet<string> = new Set<string>([]);
+/** Sites that still spell the kinds out, each justified. The engine's
+ *  tree walkers DISPATCH rather than test membership: `group` and
+ *  `section` share the DATA-group arm (recurse under the id) while
+ *  `repeat` has its own instance arm, so the registry predicate cannot
+ *  replace the spelling — a fourth container kind must visit each of
+ *  these walkers and choose its arm. Everything else asks the registry
+ *  (the row model asks `isContainer` after handling the section row, and
+ *  the type picker's Structure submenu offers the page gestures beside
+ *  the two boxed kinds). */
+const ALLOWED_LITERAL_SITES: ReadonlySet<string> = new Set<string>([
+	"lib/preview/engine/dataInstance.ts",
+	"lib/preview/engine/formEngine.ts",
+	"lib/preview/engine/triggerDag.ts",
+]);
 
 const LITERAL_PATTERNS = [
-	/kind === "group" \|\| [\w.?]*kind === "repeat"/,
-	/kind === "repeat" \|\| [\w.?]*kind === "group"/,
-	/\["group", "repeat"\]/,
+	// Any pairwise comparison chain over the container names — positive or
+	// negated, in any order, any two of the three. A dispatch that names two
+	// kinds is complete today and still misses the next container kind, so
+	// it lives on the allowlist with its justification, never invisibly.
+	/kind [!=]== "(?:group|repeat|section)"\s*(?:\|\||&&)\s*[\w.?]*kind [!=]== "(?:group|repeat|section)"/,
+	/\["group", "repeat"(?:, "section")?\]/,
 	/"group" \| "repeat"(?! \| "section")/,
 ];
 

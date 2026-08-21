@@ -93,6 +93,17 @@ describe("targetContainerUuidFor", () => {
 		expect(targetContainerUuidFor(drop, "top")).toBe(F);
 	});
 
+	// A dragged SECTION never nests, so for it a header's bottom half is
+	// "after this container at its level" — the parent, both halves.
+	it("resolves every header edge to the parent for a dragged section", () => {
+		const data = makeDropSectionHeaderData(G(1), F, 0);
+		const drop = readDropTargetData(data);
+		if (!drop) throw new Error("unreachable");
+		expect(targetContainerUuidFor(drop, "top", true)).toBe(F);
+		expect(targetContainerUuidFor(drop, "bottom", true)).toBe(F);
+		expect(targetContainerUuidFor(drop, "bottom", false)).toBe(G(1));
+	});
+
 	it("resolves a drop-empty-container to the container's uuid", () => {
 		const data = makeDropEmptyContainerData(G(1));
 		const drop = readDropTargetData(data);

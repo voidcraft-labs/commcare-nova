@@ -114,22 +114,28 @@ export const SectionHeaderRow = memo(function SectionHeaderRow({
 		[previewLabel],
 	);
 
-	const { ref, isDraggingSelf, isDragOver, dropEdge, preview } = useRowDnd({
-		draggableUuid: uuid,
-		cycleTargetContainerUuid: uuid,
-		// Two landings: the form root (top edge, a page before this one) and
-		// this page (bottom edge, its first question). The verdict decides
-		// which of them the dragged thing may take.
-		landingContainerUuids: [parentUuid, uuid],
-		buildDropData,
-		trackEdge: true,
-		renderPreview,
-	});
+	// Two landings: the form root (top edge, a page before this one) and
+	// this page (bottom edge, its first question). The verdict decides
+	// which of them the dragged thing may take. Stable identity: the
+	// registration effect lists this array, and a fresh one per render
+	// would tear the drop target down mid-drag on every hover change.
+	const landings = useMemo(() => [parentUuid, uuid], [parentUuid, uuid]);
+	const { ref, isDraggingSelf, isDragOver, dropEdge, dragOverKind, preview } =
+		useRowDnd({
+			draggableUuid: uuid,
+			cycleTargetContainerUuid: uuid,
+			landingContainerUuids: landings,
+			buildDropData,
+			trackEdge: true,
+			renderPreview,
+		});
 
 	/* The ring says "into this page" and fires only for the bottom half:
 	 * the top half lands at the root, which the placeholder above the
-	 * heading already shows. */
-	const showIntoRing = isDragOver && dropEdge !== "top";
+	 * heading already shows — and never for a dragged page, whose bottom
+	 * half means "after this page" (the line below the page shows it). */
+	const showIntoRing =
+		isDragOver && dropEdge !== "top" && dragOverKind !== "section";
 
 	if (q?.kind !== "section") return null;
 

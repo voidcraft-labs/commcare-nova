@@ -16,15 +16,10 @@
  *     tag (`isDraggableFieldData`).
  *   - Reject a self-drop: a draggable row can't be a drop target for
  *     itself.
- *   - Reject cycle-creating drops: dragging a group onto its own
- *     descendant would reparent the group under itself. We read the
- *     doc's `fieldOrder` imperatively in `canDrop` and consult
- *     `isUuidInSubtree`.
- *   - Reject landings the commit gate would refuse on a sectioned form:
- *     a question at the root of a paged form, a page anywhere but the
- *     root, an add-entries repeat on a page (`fieldPlacementVerdict`,
- *     the same verdict the rail, the keyboard, and the SA tools ask). A
- *     row whose landing depends on the edge (a header: before it, or
+ *   - Reject cycle-creating drops and landings the commit gate would
+ *     refuse on a sectioned form (`landingAllowed` in `landingGuards.ts`,
+ *     the shared guard over `isUuidInSubtree` + `fieldPlacementVerdict`).
+ *     A row whose landing depends on the edge (a header: before it, or
  *     into it) lists both landings, and the drop is accepted when EITHER
  *     is; `useDragIntent` re-asks with the resolved edge so the
  *     placeholder only opens on the legal half.
@@ -61,15 +56,12 @@ import {
 } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { fieldPlacementVerdict } from "@/lib/doc/formSectionVerdicts";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
+import { asUuid, type Field } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
-import {
-	isDraggableFieldData,
-	isUuidInSubtree,
-	makeDraggableFieldData,
-} from "./dragData";
+import { isDraggableFieldData, makeDraggableFieldData } from "./dragData";
+import { landingAllowed } from "./landingGuards";
 
 /** Signature the pragmatic-dnd adapter expects for `getData`. Derived
  *  directly from the library so the hook's contract stays in lockstep
@@ -155,6 +147,8 @@ export interface UseRowDndReturn {
 	 *  `null` otherwise, or when the hit resolved away from the allowed
 	 *  edges. */
 	readonly dropEdge: Edge | null;
+	/** The dragged field's kind while it hovers this row (null otherwise). */
+	readonly dragOverKind: Field["kind"] | null;
 	/** JSX node the caller MUST render somewhere in its return: usually
 	 *  at the end of the root fragment. `null` outside of an active drag.
 	 *  Internally a `createPortal` into a library-owned container at
@@ -180,6 +174,10 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 	const [isDraggingSelf, setIsDraggingSelf] = useState(false);
 	const [isDragOver, setIsDragOver] = useState(false);
 	const [dropEdge, setDropEdge] = useState<Edge | null>(null);
+	/** The dragged field's kind while it hovers this row, for feedback
+	 *  that depends on WHAT is dragged (a page never enters a page, so
+	 *  the section header's into-ring stays off for one). */
+	const [dragOverKind, setDragOverKind] = useState<Field["kind"] | null>(null);
 	const [previewState, setPreviewState] = useState<PreviewState>({
 		type: "idle",
 	});
@@ -245,38 +243,32 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 					if (draggableUuid !== null && source.data.uuid === draggableUuid) {
 						return false;
 					}
-					// Cycle guard: dropping a group onto its own descendant
-					// would reparent the group under itself.
+					// Cycle + placement guard, per landing: at least one of
+					// this row's landings must be one the gate accepts for
+					// the dragged field (`landingAllowed`, shared with
+					// `useDragIntent`, which re-asks on the resolved edge).
 					const doc = docStore?.getState();
 					if (!doc) return true;
-					if (
-						isUuidInSubtree(
-							doc.fieldOrder as Record<string, readonly string[]>,
-							source.data.uuid,
-							cycleTargetContainerUuid,
-						)
-					) {
-						return false;
-					}
-					// Placement guard: at least one of this row's landings must
-					// be one the gate accepts for the dragged field.
-					const dragged = doc.fields[source.data.uuid];
-					if (dragged === undefined) return true;
+					const dragUuid = source.data.uuid;
 					const landings = landingContainerUuids ?? [cycleTargetContainerUuid];
-					return landings.some(
-						(toParentUuid) =>
-							fieldPlacementVerdict(doc, {
-								uuid: dragged.uuid,
-								kind: dragged.kind,
-								toParentUuid,
-							}).ok,
+					return landings.some((toParentUuid) =>
+						landingAllowed(doc, dragUuid, toParentUuid),
 					);
 				},
 				getData: buildDropData,
-				onDragEnter: () => setIsDragOver(true),
+				onDragEnter: ({ source }) => {
+					setIsDragOver(true);
+					if (isDraggableFieldData(source.data)) {
+						setDragOverKind(
+							docStore?.getState().fields[asUuid(source.data.uuid)]?.kind ??
+								null,
+						);
+					}
+				},
 				onDragLeave: () => {
 					setIsDragOver(false);
 					setDropEdge(null);
+					setDragOverKind(null);
 				},
 				// `onDrag` fires for every mouse-move while the cursor is
 				// over the element. Only subscribe when the caller actually
@@ -291,6 +283,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 				onDrop: () => {
 					setIsDragOver(false);
 					setDropEdge(null);
+					setDragOverKind(null);
 				},
 			}),
 		);
@@ -314,5 +307,5 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 			? createPortal(renderPreview(), previewState.container)
 			: null;
 
-	return { ref, isDraggingSelf, isDragOver, dropEdge, preview };
+	return { ref, isDraggingSelf, isDragOver, dropEdge, dragOverKind, preview };
 }

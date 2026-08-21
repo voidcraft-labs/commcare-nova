@@ -12,8 +12,8 @@
  * upgrade: an anchor resolves ANYWHERE in the form and the destination
  * parent is the anchor's own parent, so "move X after Y" lands X beside
  * Y wherever Y nests — no separate parent bookkeeping. `parentUuid` covers
- * the anchor-less placements: a group/repeat to append into, or `null`
- * for the form's top level.
+ * the anchor-less placements: a group, repeat, or section to append into,
+ * or `null` for the form's top level.
  *
  * The reducer warn-and-skips an invalid move (its total-function
  * convention for historical replay), which a tool must never present as
@@ -80,7 +80,7 @@ export const moveFieldInputSchema = fieldAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Group/repeat UUID to move the field into, appended at its end when no anchor is given. null moves it to the form root. Omit when an anchor is given.",
+				"UUID of the group, repeat, or section to move the field into, appended at its end when no anchor is given. null moves it to the form root. Omit when an anchor is given.",
 			),
 	})
 	.strict();

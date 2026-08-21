@@ -75,7 +75,11 @@ import { FieldRow } from "./rows/FieldRow";
 import { GroupCloseRow, GroupOpenRow } from "./rows/GroupBracket";
 import { InsertionPointRow } from "./rows/InsertionPointRow";
 import { SectionHeaderRow } from "./rows/SectionHeaderRow";
-import { initialEditOffset, sectionOfRowIndex } from "./sectionScroll";
+import {
+	firstRowIndexAtOffset,
+	initialEditOffset,
+	sectionShownAtRow,
+} from "./sectionScroll";
 import { useDragIntent } from "./useDragIntent";
 import { useFormRows } from "./useFormRows";
 import { VirtualFormProvider } from "./VirtualFormContext";
@@ -279,14 +283,18 @@ export const VirtualFormList = memo(function VirtualFormList({
 				offset: virtualizer.scrollOffset ?? 0,
 				measurements: [...virtualizer.measurementsCache],
 			});
-			// The page the canvas was reading: the first visible row's
-			// section (undefined on a sectionless form, which leaves the
-			// slot alone).
-			const first = virtualizer.getVirtualItems()[0]?.index;
-			if (first !== undefined) {
-				const section = sectionOfRowIndex(baseRowsRef.current, first);
-				if (section !== undefined) setActiveSection(formUuid, section);
-			}
+			// The page the canvas was showing: the first VISIBLE row's page,
+			// derived from the same offset + measurements the restore reads.
+			// Never `getVirtualItems()[0]` — that is an overscan row, or the
+			// row the rangeExtractor pins for the selection, rows the viewer
+			// may not see at all. Undefined only on a sectionless form,
+			// which leaves the slot alone.
+			const first = firstRowIndexAtOffset(
+				virtualizer.measurementsCache,
+				virtualizer.scrollOffset ?? 0,
+			);
+			const section = sectionShownAtRow(baseRowsRef.current, first);
+			if (section !== undefined) setActiveSection(formUuid, section);
 		};
 	}, [formUuid, setEditScroll, setActiveSection, virtualizer]);
 

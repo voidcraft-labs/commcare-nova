@@ -14,6 +14,7 @@ import {
 	offsetOfRowIndex,
 	sectionHeaderIndex,
 	sectionOfRowIndex,
+	sectionShownAtRow,
 } from "../sectionScroll";
 
 const F = testUuid("form-uuid");
@@ -82,6 +83,16 @@ describe("sectionOfRowIndex", () => {
 		expect(sectionOfRowIndex(rows, 3)).toBe(S1);
 		expect(sectionOfRowIndex(rows, 4)).toBe(S2);
 		expect(sectionOfRowIndex(rows, 99)).toBe(S2);
+	});
+});
+
+describe("sectionShownAtRow", () => {
+	it("reads the gap above page one as page one, and stays quiet on a sectionless form", () => {
+		expect(sectionShownAtRow(rows, 0)).toBe(S1);
+		expect(sectionShownAtRow(rows, 3)).toBe(S1);
+		expect(sectionShownAtRow(rows, 4)).toBe(S2);
+		const sectionless = rows.filter((row) => row.kind !== "section-header");
+		expect(sectionShownAtRow(sectionless, 0)).toBeUndefined();
 	});
 });
 

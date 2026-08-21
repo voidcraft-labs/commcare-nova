@@ -100,15 +100,21 @@ function emptyForm(
 	ctx: FormContext,
 ): ValidationError[] {
 	const order = doc.fieldOrder[ctx.formUuid] ?? [];
-	if (order.length > 0) return [];
-	return [
-		validationError(
-			"EMPTY_FORM",
-			"form",
-			`"${ctx.formName}" in "${ctx.moduleName}" has no fields. CommCare can't build an empty form. Add at least one field.`,
-			baseLocation(ctx),
-		),
-	];
+	/* A section keeps the root non-empty while holding nothing, so the
+	 * honest question is whether the form holds anything at all: a
+	 * non-section root field, or a section with something on it. */
+	const holdsAnything = order.some((uuid) => {
+		const field = doc.fields[uuid];
+		if (field === undefined) return false;
+		if (field.kind !== "section") return true;
+		return (doc.fieldOrder[uuid]?.length ?? 0) > 0;
+	});
+	if (holdsAnything) return [];
+	const message =
+		order.length === 0
+			? `"${ctx.formName}" in "${ctx.moduleName}" has no fields. CommCare can't build an empty form. Add at least one field.`
+			: `"${ctx.formName}" in "${ctx.moduleName}" has sections, but nothing on any of them. CommCare can't build an empty form. Add a question to one of its sections.`;
+	return [validationError("EMPTY_FORM", "form", message, baseLocation(ctx))];
 }
 
 /** A section named the way a person knows it: its title, else its id. */

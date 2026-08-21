@@ -433,6 +433,8 @@ export const toolAction = (part: ToolUIPart): string => {
 	if (summary?.awaitingConsent) {
 		return `Checked a conversion${summary.subject ? ` "${summary.subject}"` : ""}`;
 	}
+	// A verified no-op changed nothing on purpose: the verb must say so.
+	if (summary?.noop) return "Nothing to change";
 	if (name === "updateApp") return updateAppAction(summary, tense);
 	if (name === "configureConnect") {
 		return configureConnectAction(summary, tense);

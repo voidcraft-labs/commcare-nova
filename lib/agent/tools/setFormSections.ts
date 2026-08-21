@@ -68,6 +68,7 @@ export const setFormSectionsInputSchema = formAddressSchema
 				z
 					.object({
 						sectionUuid: uuidSchema
+							.nullable()
 							.optional()
 							.describe(
 								"An existing section to keep (its uuid from get_form), or a fresh uuid to create the page under when you need the handle before reading it back. Omit to let Nova mint one.",
@@ -120,9 +121,10 @@ export const setFormSectionsTool = {
 			const { formUuid, form } = address;
 
 			const desired: DesiredSection[] = input.sections.map((section) => ({
-				...(section.sectionUuid !== undefined && {
-					sectionUuid: asUuid(section.sectionUuid),
-				}),
+				...(section.sectionUuid !== undefined &&
+					section.sectionUuid !== null && {
+						sectionUuid: asUuid(section.sectionUuid),
+					}),
 				...(section.label !== undefined && { label: section.label }),
 				fields: section.fields.map(asUuid),
 			}));
@@ -138,7 +140,7 @@ export const setFormSectionsTool = {
 					result: {
 						message: `"${form.name}" is already arranged this way (${describeCount(sections.length)}); nothing changed.`,
 						sections,
-						summary: { location: form.name, count: sections.length },
+						summary: { location: form.name, noop: true },
 					},
 				};
 			}

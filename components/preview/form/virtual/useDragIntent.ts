@@ -31,18 +31,17 @@ import { monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/element/ad
 import { extractClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { useContext, useEffect, useRef, useState } from "react";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import { fieldPlacementVerdict } from "@/lib/doc/formSectionVerdicts";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { useSelect } from "@/lib/routing/hooks";
 import {
 	isDraggableFieldData,
-	isUuidInSubtree,
 	readDropTargetData,
 	targetContainerUuidFor,
 } from "./dragData";
 import { draggedRowSpan, isNoOpFieldDrop } from "./dropNoOp";
+import { landingAllowed } from "./landingGuards";
 import type { FormRow } from "./rowModel";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -169,12 +168,14 @@ export function useDragIntent({
 				// guard's `targetContainerUuidFor`) to pick the correct
 				// landing container (parent vs group-self).
 				const edge = extractClosestEdge(innermost.data);
+				const sectionDrag =
+					docs.getState().fields[asUuid(dragUuid)]?.kind === "section";
 
 				// Cycle guard + placement guard: no placeholder for a drop the
 				// gate would refuse. The placement verdict is re-asked here,
 				// with the resolved edge, because a header row's `canDrop`
 				// accepts when EITHER of its two landings is legal.
-				const targetContainer = targetContainerUuidFor(drop, edge);
+				const targetContainer = targetContainerUuidFor(drop, edge, sectionDrag);
 				if (!landingAllowed(docs.getState(), dragUuid, targetContainer)) {
 					if (lastPlaceholderRef.current !== null) {
 						lastPlaceholderRef.current = null;
@@ -261,6 +262,20 @@ export function useDragIntent({
 											break;
 										}
 									}
+								} else if (sectionDrag && drop.kind === "drop-section-header") {
+									// A dragged page lands AFTER this page at the
+									// root (pages never nest), so the line is the
+									// root-level gap that follows this page's span.
+									const span = draggedRowSpan(br, drop.uuid);
+									const j = span === null ? -1 : span[1] + 1;
+									const gap = j >= 0 ? br[j] : undefined;
+									if (
+										gap?.kind === "insertion" &&
+										gap.parentUuid === drop.parentUuid
+									) {
+										insertionRowIndex = j;
+										insertionDepth = gap.depth;
+									}
 								} else if (
 									i + 1 < br.length &&
 									br[i + 1].kind === "insertion"
@@ -340,12 +355,14 @@ export function useDragIntent({
 				if (!isDraggableFieldData(source.data)) return;
 				const dragUuid = source.data.uuid;
 				const { drop, edge } = pending;
+				const sectionDrag =
+					docs.getState().fields[asUuid(dragUuid)]?.kind === "section";
 
 				// Cycle + placement guard: same edge-aware target-container
 				// resolution as onDrag, so "drop before a group" doesn't get
 				// rejected for a cycle against the group itself, and a stale
 				// intent can't commit a landing the gate refuses.
-				const targetContainer = targetContainerUuidFor(drop, edge);
+				const targetContainer = targetContainerUuidFor(drop, edge, sectionDrag);
 				if (!landingAllowed(docs.getState(), dragUuid, targetContainer)) {
 					return;
 				}
@@ -367,12 +384,19 @@ export function useDragIntent({
 					drop.kind === "drop-group-header" ||
 					drop.kind === "drop-section-header"
 				) {
-					if (edge === "top") {
+					if (edge === "top" || sectionDrag) {
 						const siblings = orderedFieldUuids(
 							docs.getState(),
 							asUuid(drop.parentUuid),
 						);
-						if (isNoOpFieldDrop(siblings, asUuid(dragUuid), drop.uuid, "top")) {
+						if (
+							isNoOpFieldDrop(
+								siblings,
+								asUuid(dragUuid),
+								drop.uuid,
+								edge === "top" ? "top" : "bottom",
+							)
+						) {
 							return;
 						}
 					} else if (
@@ -403,6 +427,15 @@ export function useDragIntent({
 					case "drop-group-header":
 					case "drop-section-header": {
 						if (drop.uuid === dragUuid) return;
+						// A dragged page lands beside pages: before on the top
+						// half, after on the bottom, never inside a container.
+						if (sectionDrag && edge !== "top") {
+							moveField(asUuid(dragUuid), {
+								afterUuid: drop.uuid,
+								toParentUuid: drop.parentUuid,
+							});
+							break;
+						}
 						// edge === "top" means the user aimed at the gap ABOVE
 						// the header: insert the source at the parent level
 						// immediately before the container, not as a child.
@@ -451,32 +484,4 @@ export function useDragIntent({
 		// `placeholderIndex`, whose state change drives the render.
 		placeholderDepth: placeholderDepthRef.current,
 	};
-}
-
-/** The two guards every landing passes: no cycle (the source is not the
- *  container or one of its ancestors) and a placement the gate accepts on
- *  a sectioned form. Read against the live document. */
-function landingAllowed(
-	doc: ReturnType<
-		NonNullable<React.ContextType<typeof BlueprintDocContext>>["getState"]
-	>,
-	dragUuid: string,
-	toParentUuid: Uuid,
-): boolean {
-	if (
-		isUuidInSubtree(
-			doc.fieldOrder as Record<string, readonly string[]>,
-			dragUuid,
-			toParentUuid,
-		)
-	) {
-		return false;
-	}
-	const dragged = doc.fields[asUuid(dragUuid)];
-	if (dragged === undefined) return true;
-	return fieldPlacementVerdict(doc, {
-		uuid: dragged.uuid,
-		kind: dragged.kind,
-		toParentUuid,
-	}).ok;
 }

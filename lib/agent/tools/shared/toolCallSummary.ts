@@ -51,6 +51,13 @@ export interface ToolCallSummary {
 	 */
 	nameChange?: "named" | "renamed";
 	/**
+	 * The call verified the requested state already holds and wrote nothing.
+	 * The transcript's verb must not claim a change ("Arranged 2 sections"
+	 * for a re-sent partition would), so this flag routes the headline to
+	 * "Nothing to change" instead. Set it INSTEAD of `count`.
+	 */
+	noop?: true;
+	/**
 	 * For a call that changes the app's CommCare Connect type: the RESULTING
 	 * state. `"off"` is the disable; `"learn"` / `"deliver"` cover enable and a
 	 * mode switch alike, so the transcript's verb stays honest without knowing
