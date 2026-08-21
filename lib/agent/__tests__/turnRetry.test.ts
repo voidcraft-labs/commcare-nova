@@ -26,6 +26,9 @@ describe("shouldRetryTurn", () => {
 		"api_timeout",
 		"api_rate_limit",
 		"stream_broken",
+		// OpenAI's `invalid_prompt` moderation verdict is not deterministic over
+		// an unchanged request, so a re-send is the right first response.
+		"prompt_flagged",
 	];
 	const terminal: ErrorType[] = [
 		"api_auth",

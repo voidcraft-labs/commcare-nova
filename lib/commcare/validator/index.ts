@@ -42,7 +42,7 @@ import {
 	buildFieldTree,
 	type FieldTreeNode,
 } from "@/lib/preview/engine/fieldTree";
-import { TriggerDag } from "@/lib/preview/engine/triggerDag";
+import { type CycleReport, TriggerDag } from "@/lib/preview/engine/triggerDag";
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
@@ -145,7 +145,9 @@ interface DeepLocation {
  *     field's uuid + id, the `surface`, and the underlying typed `XPathError`.
  *   - `connect-xpath` — an XPath error in a Connect-block slot.
  *   - `cycle` — a dependency cycle among authored field expressions in one
- *     form, including defaults and lookup-choice filters.
+ *     form, including defaults, lookup-choice filters, and the relevance
+ *     cascade from a group or repeat to its descendants (`cascade` names
+ *     that edge when the loop closes through it).
  * The runner switches on `kind` and projects each into a `ValidationError`.
  */
 export type DeepValidationError =
@@ -176,7 +178,11 @@ export type DeepValidationError =
 			linkUuid?: Uuid;
 			error: XPathError;
 	  })
-	| (DeepLocation & { kind: "cycle"; cycle: readonly string[] });
+	| (DeepLocation & {
+			kind: "cycle";
+			cycle: readonly string[];
+			cascade?: CycleReport["cascade"];
+	  });
 
 /**
  * Classify an INVALID_REF whose identity leaf no longer resolves, so the
@@ -612,13 +618,18 @@ export function validateBlueprintDeep(
 			}
 
 			// Cycle detection runs on the engine's `FieldTreeNode` shape — the
-			// same rose tree we already built. `reportCycles` adds authoring-only
-			// default/filter dependencies without changing Preview's incremental
-			// runtime DAG. The cycle (a list of field ids) travels structured;
-			// the runner formats it.
+			// same rose tree we already built. `reportCycles` adds the
+			// authoring-only default and relevance-cascade dependencies without
+			// changing Preview's incremental runtime DAG. The cycle (a list of
+			// generic paths) travels structured; the runner formats it.
 			const dag = new TriggerDag();
-			for (const cycle of dag.reportCycles(tree, doc)) {
-				errors.push({ ...loc, kind: "cycle", cycle });
+			for (const { path, cascade } of dag.reportCycles(tree, doc)) {
+				errors.push({
+					...loc,
+					kind: "cycle",
+					cycle: path,
+					...(cascade !== undefined && { cascade }),
+				});
 			}
 		}
 	}

@@ -91,6 +91,118 @@ describe("classifyError", () => {
 		).toBe("internal");
 	});
 
+	// Once a response has begun streaming the SDK cannot throw, so the OpenAI
+	// provider forwards the stream's `error` event as the VALUE of a terminal
+	// `{ type: "error" }` chunk and the chat route hands that plain object to
+	// the classifier unchanged. These are the exact shapes observed in
+	// production; `String(object)` used to render every one of them as
+	// `[object Object]` and bucket it as `internal`.
+	describe("mid-stream provider events forwarded as plain objects", () => {
+		const invalidPromptEvent = {
+			type: "error",
+			sequence_number: 84,
+			error: {
+				type: "invalid_request_error",
+				code: "invalid_prompt",
+				message:
+					"Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt: https://platform.openai.com/docs/guides/reasoning#advice-on-prompting",
+				param: null,
+			},
+		};
+
+		it("buckets the Responses `error` event for invalid_prompt as prompt_flagged", () => {
+			const result = classifyError(invalidPromptEvent);
+			expect(result.type).toBe("prompt_flagged");
+			expect(result.recoverable).toBe(false);
+			expect(result.message).toContain("usage-policy");
+			expect(result.message).toContain("Send your message again");
+		});
+
+		it("keeps the provider's code and message in raw instead of [object Object]", () => {
+			const result = classifyError(invalidPromptEvent);
+			expect(result.raw).not.toContain("[object Object]");
+			expect(result.raw).toContain('"invalid_prompt"');
+			expect(result.raw).toContain("flagged as potentially violating");
+		});
+
+		it("buckets the Responses `response.failed` event by its nested error", () => {
+			const result = classifyError({
+				type: "response.failed",
+				response: {
+					id: "resp_1",
+					status: "failed",
+					error: {
+						code: "invalid_prompt",
+						message:
+							"Invalid prompt: your prompt was flagged as potentially violating our usage policy.",
+					},
+				},
+			});
+			expect(result.type).toBe("prompt_flagged");
+		});
+
+		it("buckets a mid-stream server_error object as api_server, like the Error form", () => {
+			const result = classifyError({
+				type: "error",
+				sequence_number: 12,
+				error: {
+					type: "server_error",
+					code: null,
+					message:
+						"The server had an error while processing your request. Sorry about that!",
+					param: null,
+				},
+			});
+			expect(result.type).toBe("api_server");
+			expect(result.raw).toContain("server_error");
+		});
+
+		it("buckets a mid-stream rate_limit object as api_rate_limit", () => {
+			expect(
+				classifyError({
+					type: "error",
+					error: {
+						type: "rate_limit_error",
+						code: "rate_limit_exceeded",
+						message: "Rate limit reached for requests",
+					},
+				}).type,
+			).toBe("api_rate_limit");
+		});
+
+		it("falls back to internal for an unrecognized object, with its JSON in raw", () => {
+			const result = classifyError({
+				type: "error",
+				error: { code: "mystery" },
+			});
+			expect(result.type).toBe("internal");
+			expect(result.raw).toBe('{"type":"error","error":{"code":"mystery"}}');
+		});
+	});
+
+	it("buckets a pre-stream invalid_prompt 400 as prompt_flagged, not model_error", () => {
+		const err = new APICallError({
+			message: "Invalid prompt",
+			url: "https://api.openai.com/v1/responses",
+			requestBodyValues: {},
+			statusCode: 400,
+			responseBody:
+				'{"error":{"message":"Invalid prompt: your prompt was flagged as potentially violating our usage policy.","type":"invalid_request_error","param":null,"code":"invalid_prompt"}}',
+		});
+		expect(classifyError(err).type).toBe("prompt_flagged");
+	});
+
+	it("still buckets an ordinary 400 as model_error", () => {
+		const err = new APICallError({
+			message: "bad request",
+			url: "https://api.openai.com/v1/responses",
+			requestBodyValues: {},
+			statusCode: 400,
+			responseBody: '{"error":{"message":"Invalid schema","code":null}}',
+		});
+		expect(classifyError(err).type).toBe("model_error");
+	});
+
 	it("sniffs an overloaded upstream out of an APICallError 5xx body", () => {
 		expect(
 			classifyError(

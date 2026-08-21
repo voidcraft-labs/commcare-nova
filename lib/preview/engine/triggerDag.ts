@@ -24,6 +24,25 @@ interface DagNode {
 	expressions: { type: ExpressionType; expr: string }[];
 }
 
+/**
+ * One dependency loop found by `reportCycles`.
+ *
+ * `path` is the loop as generic paths with the first node repeated last
+ * (`['/data/a', '/data/b', '/data/a']`). `cascade` is present when the loop
+ * closes through a container's relevance cascade rather than through two
+ * authored expressions: the container shows or hides on a condition that
+ * depends on one of its own descendants. It names the edge so the report
+ * can explain the containment, which no authored expression spells out.
+ */
+export interface CycleReport {
+	readonly path: readonly string[];
+	readonly cascade?: {
+		readonly container: string;
+		readonly containerKind: "group" | "repeat";
+		readonly descendant: string;
+	};
+}
+
 /** Resolves a concrete repeat container path to its live instance count.
  *  The engine passes its `DataInstance.getRepeatCount` — the DAG itself
  *  stays a pure topology with no runtime state. */
@@ -368,21 +387,103 @@ export class TriggerDag {
 	}
 
 	/**
+	 * Add the authoring-time-only edges JavaRosa draws from a container's
+	 * relevance to everything inside it. This runs exclusively while
+	 * `reportCycles` has swapped in its temporary maps.
+	 *
+	 * On the device a group's or repeat's `relevant` condition cascades to its
+	 * descendants (`commcare-core .../model/condition/Condition.java::
+	 * isCascadingToChildren` is true for the show/hide actions), so when
+	 * `FormDef.java::finalizeTriggerables` orders the form's conditions,
+	 * `fillTriggeredElements` expands the container's target to the container
+	 * PLUS every descendant (`findCascadeReferences`) and makes every
+	 * condition that reads any of those nodes depend on the container's
+	 * condition. A container whose own condition reads one of its descendants
+	 * therefore depends on itself, and `throwGraphCyclesException` rejects the
+	 * form as "Logic is cyclical" at install (`XFormParser.java` runs the same
+	 * check at parse). CommCare HQ runs that parse to validate a build, which
+	 * is where an app passing only the authored-expression edges used to be
+	 * refused. Here the same fact is one edge per (container, descendant)
+	 * pair: a change to the container re-triggers its descendants, so any
+	 * path from a descendant back to the container's condition is a loop. A
+	 * `section` has no `relevant` slot and never cascades.
+	 *
+	 * These are NOT runtime edges: `build` / `rebuild` leave them out because
+	 * the engine derives a descendant's effective visibility from its
+	 * ancestors at read time and re-evaluates nothing on the container's
+	 * account.
+	 */
+	private collectRelevanceCascadeDependencies(
+		tree: readonly FieldTreeNode[],
+		prefix: string,
+		cascadeEdges: Map<string, CycleReport["cascade"]>,
+	): void {
+		const descendantPaths = (
+			nodes: readonly FieldTreeNode[],
+			parentPath: string,
+			out: string[],
+		): void => {
+			for (const node of nodes) {
+				const path = `${parentPath}/${node.field.id}`;
+				out.push(path);
+				if (node.children) descendantPaths(node.children, path, out);
+			}
+		};
+
+		for (const node of tree) {
+			const field = node.field;
+			const path = `${prefix}/${field.id}`;
+			if (node.children === undefined) continue;
+			const containerKind =
+				field.kind === "group" || field.kind === "repeat"
+					? field.kind
+					: undefined;
+			const hasRelevant =
+				this.nodes.get(path)?.expressions.some((e) => e.type === "relevant") ??
+				false;
+			if (containerKind !== undefined && hasRelevant) {
+				const descendants: string[] = [];
+				descendantPaths(node.children, path, descendants);
+				let deps = this.dependedOnBy.get(path);
+				if (!deps) {
+					deps = new Set();
+					this.dependedOnBy.set(path, deps);
+				}
+				for (const descendant of descendants) {
+					deps.add(descendant);
+					cascadeEdges.set(`${path} ${descendant}`, {
+						container: path,
+						containerKind,
+						descendant,
+					});
+				}
+			}
+			this.collectRelevanceCascadeDependencies(
+				node.children,
+				path,
+				cascadeEdges,
+			);
+		}
+	}
+
+	/**
 	 * Report all cycles without modifying the runtime graph. Builds a temporary
-	 * superset topology that adds authoring-only default edges on top of the
+	 * superset topology that adds the authoring-only edges (field defaults and
+	 * the relevance cascade from a container to its descendants) on top of the
 	 * full runtime topology (which already includes lookup-choice filter
 	 * edges), then restores the instance maps before walking that snapshot.
-	 * Returns an array of cycle paths (e.g. ['/data/a', '/data/b', '/data/a']).
+	 * Returns one `CycleReport` per loop.
 	 */
 	reportCycles(
 		tree: FieldTreeNode[],
 		doc: XPathPrintableDoc,
 		prefix = "/data",
-	): string[][] {
+	): CycleReport[] {
 		this.doc = doc;
 		// Build a fresh graph for cycle detection without mutating the instance
 		const nodes = new Map<string, DagNode>();
 		const dependedOnBy = new Map<string, Set<string>>();
+		const cascadeEdges = new Map<string, CycleReport["cascade"]>();
 
 		// Temporarily swap in fresh maps, collect, then swap back
 		const savedNodes = this.nodes;
@@ -398,6 +499,7 @@ export class TriggerDag {
 			this.fieldPaths = collectFieldPaths(tree, prefix);
 			this.collectExpressions(tree, prefix);
 			this.collectValidationOnlyDependencies(tree, prefix);
+			this.collectRelevanceCascadeDependencies(tree, prefix, cascadeEdges);
 		} finally {
 			this.nodes = savedNodes;
 			this.dependedOnBy = savedDeps;
@@ -411,11 +513,19 @@ export class TriggerDag {
 			BLACK = 2;
 		const color = new Map<string, number>();
 		const parent = new Map<string, string>();
-		const cycles: string[][] = [];
+		const cycles: CycleReport[] = [];
 
 		for (const path of nodes.keys()) {
 			color.set(path, WHITE);
 		}
+
+		const report = (cycle: readonly string[]): CycleReport => {
+			for (let i = 0; i + 1 < cycle.length; i++) {
+				const cascade = cascadeEdges.get(`${cycle[i]} ${cycle[i + 1]}`);
+				if (cascade !== undefined) return { path: cycle, cascade };
+			}
+			return { path: cycle };
+		};
 
 		const dfs = (u: string): void => {
 			color.set(u, GRAY);
@@ -434,7 +544,7 @@ export class TriggerDag {
 							cycle.push(cur);
 						}
 						cycle.reverse();
-						cycles.push(cycle);
+						cycles.push(report(cycle));
 					} else if (c === WHITE) {
 						parent.set(v, u);
 						dfs(v);

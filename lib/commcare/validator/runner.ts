@@ -379,18 +379,27 @@ function runDeepValidation(
 				);
 			}
 
-			case "cycle":
-				return validationError(
-					"CYCLE",
-					"form",
-					`"${deep.formName}" in "${deep.moduleName}" has a circular dependency: ${deep.cycle.join(" → ")}. These field expressions reference each other in a loop, so their values or choices can never settle. Break the cycle by removing one of the references.`,
-					{
-						moduleUuid: deep.moduleUuid,
-						moduleName: deep.moduleName,
-						formUuid: deep.formUuid,
-						formName: deep.formName,
-					},
-				);
+			case "cycle": {
+				const loop = `"${deep.formName}" in "${deep.moduleName}" has a circular dependency: ${deep.cycle.join(" → ")}.`;
+				/* A loop that closes through a container's relevance cascade has
+				 * no authored expression on one of its edges, so "these
+				 * expressions reference each other" would send the author
+				 * hunting for a reference that is not written anywhere. Name the
+				 * containment instead: the device re-evaluates everything inside
+				 * a group when the group's display condition changes, so a
+				 * group whose condition reads its own contents depends on
+				 * itself. */
+				const explanation =
+					deep.cascade === undefined
+						? "These field expressions reference each other in a loop, so their values or choices can never settle. Break the cycle by removing one of the references."
+						: `The ${deep.cascade.containerKind} ${deep.cascade.container} is shown or hidden by a condition that depends on ${deep.cascade.descendant}, and ${deep.cascade.descendant} is inside that ${deep.cascade.containerKind}, so whether it shows would depend on a value it controls. CommCare refuses to install a form with this loop. Make the ${deep.cascade.containerKind}'s display condition depend only on fields outside it, or move ${deep.cascade.descendant} out of the ${deep.cascade.containerKind}.`;
+				return validationError("CYCLE", "form", `${loop} ${explanation}`, {
+					moduleUuid: deep.moduleUuid,
+					moduleName: deep.moduleName,
+					formUuid: deep.formUuid,
+					formName: deep.formName,
+				});
+			}
 
 			default: {
 				// Exhaustiveness tripwire: if a new `DeepValidationError` kind is

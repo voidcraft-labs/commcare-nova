@@ -34,9 +34,13 @@ import { summarizeBlueprint } from "./summarizeBlueprint";
 
 /**
  * The failure buckets worth an automatic re-run: upstream/transport faults
- * that a fresh attempt can genuinely clear. Everything else — auth, credits,
- * a Nova-internal defect, a deauthorized actor — fails the run as before
- * (retrying those would loop on a deterministic error).
+ * that a fresh attempt can genuinely clear. `prompt_flagged` belongs here
+ * because OpenAI's `invalid_prompt` verdict is not deterministic over an
+ * unchanged request (it fires on ordinary content and clears on a re-send),
+ * so the re-run costs one spaced attempt and spares the person a manual
+ * retry. Everything else — auth, credits, a Nova-internal defect, a
+ * deauthorized actor — fails the run as before (retrying those would loop on
+ * a deterministic error).
  */
 const TRANSIENT_TURN_ERRORS: ReadonlySet<ErrorType> = new Set([
 	"api_server",
@@ -44,6 +48,7 @@ const TRANSIENT_TURN_ERRORS: ReadonlySet<ErrorType> = new Set([
 	"api_timeout",
 	"api_rate_limit",
 	"stream_broken",
+	"prompt_flagged",
 ]);
 
 /** Retries per turn (attempts = this + 1). Two is deliberate: it covers a
