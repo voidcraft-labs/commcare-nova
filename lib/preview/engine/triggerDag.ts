@@ -451,7 +451,7 @@ export class TriggerDag {
 				}
 				for (const descendant of descendants) {
 					deps.add(descendant);
-					cascadeEdges.set(`${path} ${descendant}`, {
+					cascadeEdges.set(`${path}\u0000${descendant}`, {
 						container: path,
 						containerKind,
 						descendant,
@@ -521,7 +521,7 @@ export class TriggerDag {
 
 		const report = (cycle: readonly string[]): CycleReport => {
 			for (let i = 0; i + 1 < cycle.length; i++) {
-				const cascade = cascadeEdges.get(`${cycle[i]} ${cycle[i + 1]}`);
+				const cascade = cascadeEdges.get(`${cycle[i]}\u0000${cycle[i + 1]}`);
 				if (cascade !== undefined) return { path: cycle, cascade };
 			}
 			return { path: cycle };
