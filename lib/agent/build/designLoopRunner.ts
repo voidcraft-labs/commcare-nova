@@ -272,21 +272,29 @@ export interface SuccessfulDesignWait {
 /** A completed wait is durable in the private model ledger before the outer
  * orchestration pause is recorded. Read only the latest provider step: a later
  * ordinary user message or provider response supersedes this terminal. The
- * first provider-ordered input terminal wins: an earlier askQuestions call
- * therefore prevents a later wait from replacing its card, while an earlier
- * successful wait prevents a later question from becoming visible. */
+ * first provider-ordered valid input terminal wins: an earlier valid
+ * askQuestions call therefore prevents a later wait from replacing its card,
+ * while an invalid call yields to that wait and an earlier successful wait
+ * prevents a later question from becoming visible. */
 export function trailingSuccessfulDesignWait(
 	messages: readonly ModelMessage[],
 ): SuccessfulDesignWait | null {
 	const successfulWaits = new Map<string, SuccessfulDesignWait["output"]>();
+	const erroredToolCalls = new Set<string>();
 	let sawToolResults = false;
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
 		if (message?.role === "tool" && Array.isArray(message.content)) {
 			sawToolResults = true;
 			for (const part of message.content) {
+				if (part.type !== "tool-result") continue;
 				if (
-					part.type === "tool-result" &&
+					part.output.type === "error-text" ||
+					part.output.type === "error-json"
+				) {
+					erroredToolCalls.add(part.toolCallId);
+				}
+				if (
 					part.toolName === DESIGN_WAIT_FOR_INPUT_TOOL &&
 					successfulDesignWaitOutput(part.output)
 				) {
@@ -302,7 +310,12 @@ export function trailingSuccessfulDesignWait(
 			if (!sawToolResults || !Array.isArray(message.content)) return null;
 			for (const part of message.content) {
 				if (part.type !== "tool-call") continue;
-				if (part.toolName === "askQuestions") return null;
+				if (
+					part.toolName === "askQuestions" &&
+					!erroredToolCalls.has(part.toolCallId)
+				) {
+					return null;
+				}
 				const output = successfulWaits.get(part.toolCallId);
 				if (
 					part.toolName === DESIGN_WAIT_FOR_INPUT_TOOL &&
@@ -350,14 +363,32 @@ export function trailingSuccessfulDesignWaitForTurn(
 	items: readonly DesignModelContextItem[],
 	args: Parameters<typeof designWaitResponsePrefix>[0],
 ): SuccessfulDesignWait | null {
-	const last = items.at(-1);
+	/* Server-owned receipts may follow a provider response (for example, the
+	 * closure for a question suppressed by an earlier wait). Find the latest
+	 * provider response group so those receipts neither hide a committed wait
+	 * nor let an older wait survive a genuinely newer provider response. */
+	const latestResponseKey = items.findLast((item) =>
+		isDesignProviderResponseAppendKey(item.appendKey),
+	)?.appendKey;
 	if (
-		last === undefined ||
-		!last.appendKey.startsWith(designWaitResponsePrefix(args))
+		latestResponseKey === undefined ||
+		!latestResponseKey.startsWith(designWaitResponsePrefix(args))
 	) {
 		return null;
 	}
-	return trailingSuccessfulDesignWait(items.map((item) => item.message));
+	return trailingSuccessfulDesignWait(
+		items
+			.filter((item) => item.appendKey === latestResponseKey)
+			.map((item) => item.message),
+	);
+}
+
+function isDesignProviderResponseAppendKey(appendKey: string): boolean {
+	return (
+		appendKey.startsWith("response:design:") ||
+		appendKey.startsWith("design-wait:") ||
+		appendKey.includes(":response:design:")
+	);
 }
 
 export function recoverableDesignWaitForTurn(args: {
@@ -1048,13 +1079,6 @@ export async function runDesignAgentLoop(
 		if (gates.plan !== null) break;
 		const phase = phaseFor(gates);
 		const stepBudgetAllowance = terminalCorrectionStepAllowance;
-		if (
-			modelStepsSpent >=
-			designLoopStepBudget(modelContextGeneration) + stepBudgetAllowance
-		) {
-			break;
-		}
-		terminalCorrectionStepAllowance = 0;
 		const stepsBeforeStream = modelStepsSpent;
 		/* One provider invocation identity. A replacement process or bounded
 		 * stream redrive must never reuse the completed-event identity of a call
@@ -1286,6 +1310,16 @@ export async function runDesignAgentLoop(
 				break;
 			}
 		}
+		/* A completed response is already paid work and its input terminal wins
+		 * even when it consumed the final permitted step. Apply the ceiling only
+		 * after giving that durable response its recovery path. */
+		if (
+			modelStepsSpent >=
+			designLoopStepBudget(modelContextGeneration) + stepBudgetAllowance
+		) {
+			break;
+		}
+		terminalCorrectionStepAllowance = 0;
 		const stateMessage = await stateMessageFor(gates);
 		const stateKey = `state:${canonicalJsonDigest(stateMessage)}`;
 		if (!modelContextAppendKeys.has(stateKey)) {

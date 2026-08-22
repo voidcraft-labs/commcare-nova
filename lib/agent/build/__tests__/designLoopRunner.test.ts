@@ -297,6 +297,26 @@ describe("design wait terminal", () => {
 				waitResult,
 			]),
 		).toMatchObject({ toolCallId: "wait-1" });
+		expect(
+			trailingSuccessfulDesignWait([
+				{ role: "assistant", content: [question, wait] } as ModelMessage,
+				{
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: "question-1",
+							toolName: "askQuestions",
+							output: {
+								type: "error-json",
+								value: { error: "The question input was invalid." },
+							},
+						},
+						...(waitResult.role === "tool" ? waitResult.content : []),
+					],
+				} as ModelMessage,
+			]),
+		).toMatchObject({ toolCallId: "wait-1" });
 	});
 
 	it("recreates the complete visible wait tool part", () => {
@@ -333,20 +353,27 @@ describe("design wait terminal", () => {
 			stepKey: "step-1",
 			responseDigest: "a".repeat(64),
 		});
+		const waitAssistant = {
+			role: "assistant",
+			content: [
+				{
+					type: "tool-call",
+					toolCallId: "wait-1",
+					toolName: "waitForInput",
+					input: { reason: "more-requirements-coming" },
+				},
+				{
+					type: "tool-call",
+					toolCallId: "question-after-wait",
+					toolName: "askQuestions",
+					input: { questions: [] },
+				},
+			],
+		} as ModelMessage;
 		const items = [
 			{
 				appendKey,
-				message: {
-					role: "assistant",
-					content: [
-						{
-							type: "tool-call",
-							toolCallId: "wait-1",
-							toolName: "waitForInput",
-							input: { reason: "more-requirements-coming" },
-						},
-					],
-				} as ModelMessage,
+				message: waitAssistant,
 			},
 			{
 				appendKey,
@@ -360,6 +387,23 @@ describe("design wait terminal", () => {
 							output: {
 								type: "json",
 								value: { ok: true, awaitingInput: true },
+							},
+						},
+					],
+				} as ModelMessage,
+			},
+			{
+				appendKey: "input-terminal-rejection:question-after-wait:digest",
+				message: {
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: "question-after-wait",
+							toolName: "askQuestions",
+							output: {
+								type: "json",
+								value: { error: "An earlier input terminal won." },
 							},
 						},
 					],
@@ -382,6 +426,21 @@ describe("design wait terminal", () => {
 				currentGenerationHasCompletedStep: true,
 				turnProvenanceId,
 			}),
+		).toBeNull();
+		expect(
+			trailingSuccessfulDesignWaitForTurn(
+				[
+					...items,
+					{
+						appendKey: "response:design:later-step:digest",
+						message: {
+							role: "assistant",
+							content: "A later provider response superseded the wait.",
+						} as ModelMessage,
+					},
+				],
+				{ turnProvenanceId },
+			),
 		).toBeNull();
 	});
 
