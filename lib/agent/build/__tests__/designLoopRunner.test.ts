@@ -113,10 +113,9 @@ describe("design POST step budget", () => {
 });
 
 describe("design terminal omission correction", () => {
-	it("allows exactly one durable correction per input turn and phase", () => {
+	it("allows exactly one durable correction per logical input turn", () => {
 		const target = {
 			turnProvenanceId: "user-turn-1",
-			phase: "author" as const,
 		};
 		const prefix = designTerminalOmissionCorrectionPrefix(target);
 		expect(designTerminalOmissionCanCorrect(new Set(), target)).toBe(true);

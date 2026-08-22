@@ -2549,6 +2549,7 @@ export function ChatContainer({
 				designProgress,
 				buildUnfinished,
 			)}
+			awaitingTypedInput={trailingDesignWaitsForInput(messages)}
 			/* The design session owns the one activity row until the complete
 			 * frame and transport close. Its details collapse after materialization,
 			 * but its status remains the authoritative current slice/build phase. */

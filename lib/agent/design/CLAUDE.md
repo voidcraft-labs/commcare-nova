@@ -269,9 +269,9 @@ never demanded again: only the unanswered remainder of the pending set is,
 and authoring opens when every currently pending question identity carries a
 durably authorized answer. Transcript text cannot mint that provenance. If a
 clean model step omits the required call, the server appends correction
-guidance and redrives internally without changing the tool grammar or asking
-the user to resend. The demand message also teaches the resolution path:
-after answers arrive the model records them — records each settled choice as a
+guidance, redrives internally, and forces `askQuestions` without changing the
+tool grammar or asking the user to resend. The demand message also teaches the
+resolution path: after answers arrive the model records them — records each settled choice as a
 decision or assumption, removes the question or marks it non-blocking — and a
 delegating answer such as "use sensible defaults" makes the concrete choice
 the model's to bake in.

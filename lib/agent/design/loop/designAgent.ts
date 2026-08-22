@@ -468,6 +468,10 @@ export function requiredDesignQuestionStep(questions: readonly OpenQuestion[]) {
 		? null
 		: {
 				message: requiredDesignQuestionMessage(batch),
+				toolChoice: {
+					type: "tool" as const,
+					toolName: "askQuestions" as const,
+				},
 			};
 }
 
@@ -588,6 +592,7 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			});
 			return {
 				messages: preparedMessages,
+				toolChoice: requiredQuestionStep?.toolChoice,
 				providerOptions: {
 					openai: { ...providerOptions.openai, parallelToolCalls: true },
 				},

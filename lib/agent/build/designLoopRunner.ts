@@ -377,9 +377,8 @@ export function designModelStepKey(args: {
 
 export function designTerminalOmissionCorrectionPrefix(args: {
 	readonly turnProvenanceId: string;
-	readonly phase: "author" | "review" | "revision" | "awaiting-input";
 }): string {
-	return `design-terminal-omission:${args.turnProvenanceId}:${args.phase}:`;
+	return `design-terminal-omission:${args.turnProvenanceId}:`;
 }
 
 /** The one correction allowance is durable across process replacement. The
@@ -1359,9 +1358,8 @@ export async function runDesignAgentLoop(
 			activeRequiredQuestionBatch.length > 0 &&
 			activeRequiredQuestionAuthorizationKey !== null
 		) {
-			/* Stable tool choice intentionally remains automatic for cache reuse. A
-			 * clean response that simply omitted the required client pause is repaired
-			 * inside this same run instead of making the user resend the turn. */
+			/* The next prepared step forces askQuestions. Keep this durable correction
+			 * in context so the model also knows why it may not resume design work. */
 			const omission: ModelMessage = {
 				role: "user",
 				content: [
@@ -1389,12 +1387,10 @@ export async function runDesignAgentLoop(
 			 * resend the same instruction repeatedly. */
 			const correctionPrefix = designTerminalOmissionCorrectionPrefix({
 				turnProvenanceId,
-				phase,
 			});
 			if (
 				designTerminalOmissionCanCorrect(modelContextAppendKeys, {
 					turnProvenanceId,
-					phase,
 				})
 			) {
 				const correction: ModelMessage = {

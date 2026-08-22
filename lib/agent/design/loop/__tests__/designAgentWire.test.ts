@@ -192,7 +192,7 @@ async function captureDesignTurnBody(
 }
 
 describe("design agent Responses wire body", () => {
-	it("appends the exact required question batch without changing tool selection", () => {
+	it("appends the exact required question batch and forces its tool", () => {
 		const questions = requiredQuestions(
 			Array.from(
 				{ length: 7 },
@@ -200,7 +200,10 @@ describe("design agent Responses wire body", () => {
 			),
 		);
 		const step = requiredDesignQuestionStep(questions);
-		expect(step).toMatchObject({ message: { role: "user" } });
+		expect(step).toMatchObject({
+			message: { role: "user" },
+			toolChoice: { type: "tool", toolName: "askQuestions" },
+		});
 		expect(step?.message.content).toContain(questions[0]?.question);
 		expect(step?.message.content).not.toContain(questions[5]?.question);
 		expect(requiredDesignQuestionStep([])).toBeNull();
@@ -277,7 +280,7 @@ describe("design agent Responses wire body", () => {
 		);
 
 		const body = await captureDesignTurnBody(questions);
-		expect(body.tool_choice).not.toEqual({
+		expect(body.tool_choice).toEqual({
 			type: "function",
 			name: "askQuestions",
 		});
