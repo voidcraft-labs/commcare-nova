@@ -295,6 +295,46 @@ describe("design terminal omission correction", () => {
 			}),
 		).toBeNull();
 	});
+
+	it("reconciles a committed question before exhausting its correction", () => {
+		const turnProvenanceId = "user-turn-1";
+		const appendKey = designResponseAppendKey({
+			turnProvenanceId,
+			phase: "author",
+			stepKey: "design:attempt:65:digest",
+			responseDigest: "c".repeat(64),
+		});
+		const correctionKey = `${designTerminalOmissionCorrectionPrefix({
+			turnProvenanceId,
+		})}64`;
+
+		expect(
+			recoverableDesignTerminalOmissionForTurn({
+				currentItems: [
+					{
+						appendKey,
+						message: {
+							role: "assistant",
+							content: [
+								{
+									type: "tool-call",
+									toolCallId: "question-1",
+									toolName: "askQuestions",
+									input: { questions: [] },
+								},
+							],
+						} as ModelMessage,
+					},
+				],
+				predecessorItems: [],
+				currentGenerationHasCompletedStep: true,
+				appendKeys: new Set([appendKey, correctionKey]),
+				turnProvenanceId,
+				phase: "author",
+				modelStepsSpent: 65,
+			}),
+		).toBeNull();
+	});
 });
 
 describe("design wait terminal", () => {
@@ -308,6 +348,10 @@ describe("design wait terminal", () => {
 			{
 				role: "assistant",
 				content: [
+					{
+						type: "text",
+						text: "I have that. Send the rest when you're ready.",
+					},
 					{
 						type: "tool-call",
 						toolCallId: "wait-1",
@@ -333,6 +377,9 @@ describe("design wait terminal", () => {
 		] as ModelMessage[];
 
 		expect(designModelContextTrailsSuccessfulWait(waitStep)).toBe(true);
+		expect(trailingSuccessfulDesignWait(waitStep)).toMatchObject({
+			acknowledgement: "I have that. Send the rest when you're ready.",
+		});
 		expect(
 			designModelContextTrailsSuccessfulWait([
 				...waitStep,
@@ -415,8 +462,22 @@ describe("design wait terminal", () => {
 				toolCallId: "wait-1",
 				input: { reason: "more-requirements-coming" },
 				output: { ok: true, awaitingInput: true },
+				acknowledgement: "I have that. Send the rest when you're ready.",
 			}),
 		).toEqual([
+			{
+				type: "text-start",
+				id: "recovered-design-wait:wait-1",
+			},
+			{
+				type: "text-delta",
+				id: "recovered-design-wait:wait-1",
+				delta: "I have that. Send the rest when you're ready.",
+			},
+			{
+				type: "text-end",
+				id: "recovered-design-wait:wait-1",
+			},
 			{
 				type: "tool-input-start",
 				toolCallId: "wait-1",

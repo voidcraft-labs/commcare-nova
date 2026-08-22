@@ -267,6 +267,7 @@ export interface SuccessfulDesignWait {
 	readonly toolCallId: string;
 	readonly input: unknown;
 	readonly output: { readonly ok: true; readonly awaitingInput: true };
+	readonly acknowledgement: string | null;
 }
 
 /** A completed wait is durable in the private model ledger before the outer
@@ -308,6 +309,10 @@ export function trailingSuccessfulDesignWait(
 		}
 		if (message?.role === "assistant") {
 			if (!sawToolResults || !Array.isArray(message.content)) return null;
+			const acknowledgement = message.content
+				.filter((part) => part.type === "text")
+				.map((part) => part.text)
+				.join("");
 			for (const part of message.content) {
 				if (part.type !== "tool-call") continue;
 				if (
@@ -325,6 +330,8 @@ export function trailingSuccessfulDesignWait(
 						toolCallId: part.toolCallId,
 						input: part.input,
 						output,
+						acknowledgement:
+							acknowledgement.length > 0 ? acknowledgement : null,
 					};
 				}
 			}
@@ -462,6 +469,16 @@ export function recoverableDesignTerminalOmissionForTurn(args: {
 	) {
 		return null;
 	}
+	const latestResponseMessages = responseItems
+		.filter((item) => item.appendKey === latestResponseKey)
+		.map((item) => item.message);
+	/* A question call is itself a valid terminal. Process replacement may happen
+	 * before its card reaches the public thread, in which case the continuation
+	 * reconciler below closes the orphan and redrives it. Never misclassify that
+	 * durable question as an exhausted conversational-text correction. */
+	if (unansweredDesignQuestionCalls(latestResponseMessages).length > 0) {
+		return null;
+	}
 	const correctionPrefix = designTerminalOmissionCorrectionPrefix({
 		turnProvenanceId: args.turnProvenanceId,
 	});
@@ -481,7 +498,25 @@ export function recoverableDesignTerminalOmissionForTurn(args: {
 export function recoveredDesignWaitChunks(
 	wait: SuccessfulDesignWait,
 ): readonly UIMessageChunk[] {
+	const acknowledgementId = `recovered-design-wait:${wait.toolCallId}`;
 	return [
+		...(wait.acknowledgement === null
+			? []
+			: [
+					{
+						type: "text-start" as const,
+						id: acknowledgementId,
+					},
+					{
+						type: "text-delta" as const,
+						id: acknowledgementId,
+						delta: wait.acknowledgement,
+					},
+					{
+						type: "text-end" as const,
+						id: acknowledgementId,
+					},
+				]),
 		{
 			type: "tool-input-start",
 			toolCallId: wait.toolCallId,

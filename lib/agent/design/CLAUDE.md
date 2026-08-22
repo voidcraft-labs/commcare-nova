@@ -300,8 +300,10 @@ absent from the private context, including an answered client-side question
 result, is reconciled in transcript order on its later POST. A persisted
 question call whose client card never reached that transcript receives an
 explicit interrupted result before redrive; the closure is never treated as a
-user answer. Every completed-step usage record from the exact recovered run is
-registered in the replacement meter; the durable `(context, step)` accounting
+user answer, and that reconciliation takes precedence over classifying a
+correction response as a terminal omission. Every completed-step usage record
+from the exact recovered run is registered in the replacement meter; the
+durable `(context, step)` accounting
 ledger admits it exactly once into the run and monthly totals, including across
 overlapping recovery. Recovery does not re-emit that historical step's live
 usage, tool, text, or reasoning events. Already finalized turns and other
