@@ -45,6 +45,11 @@ import {
 export function creditGateDecision(input: {
 	rawMessages: readonly UIMessage[];
 	existingApp: boolean;
+	/** A typed continuation after Nova's explicit wait replaces this actor's
+	 * paused reservation in the authoritative claim transaction. Its advisory
+	 * balance read must not reject against the gross new charge before that
+	 * transaction refunds the prior hold. */
+	replacesPausedHold?: boolean;
 	/** An explicit exact-turn re-drive is a fresh claim even when the frozen
 	 * transcript ends in an assistant question/answer round. */
 	redrive?: boolean;
@@ -60,6 +65,41 @@ export function creditGateDecision(input: {
 	const floor = input.existingApp ? CREDITS_PER_EDIT : CREDITS_PER_BUILD;
 	return {
 		chargeable,
-		preflightCost: chargeable ? floor : 0,
+		preflightCost: chargeable && input.replacesPausedHold !== true ? floor : 0,
 	};
+}
+
+function successfulWaitOutput(output: unknown): boolean {
+	const value = output as
+		| { readonly ok?: unknown; readonly awaitingInput?: unknown }
+		| undefined;
+	return value?.ok === true && value.awaitingInput === true;
+}
+
+/** True only for the client shape that unlocks the text composer after
+ * `waitForInput`: a new trailing user message immediately follows an
+ * assistant whose latest step contains the completed wait. This is merely a
+ * preflight hint. The locked claim transaction still proves the presented
+ * target, actor, paused marker, and net affordability before any generation. */
+export function typedMessageResumesDesignWait(
+	messages: readonly UIMessage[],
+): boolean {
+	const user = messages.at(-1);
+	const assistant = messages.at(-2);
+	if (user?.role !== "user" || assistant?.role !== "assistant") return false;
+	let lastStepIndex = -1;
+	for (let index = 0; index < assistant.parts.length; index += 1) {
+		if (assistant.parts[index]?.type === "step-start") lastStepIndex = index;
+	}
+	return assistant.parts.slice(lastStepIndex + 1).some((part) => {
+		if (
+			part.type !== "tool-waitForInput" ||
+			!("state" in part) ||
+			part.state !== "output-available" ||
+			!("output" in part)
+		) {
+			return false;
+		}
+		return successfulWaitOutput(part.output);
+	});
 }

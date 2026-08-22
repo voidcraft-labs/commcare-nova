@@ -110,6 +110,7 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	appendDesignModelContext,
 	completeDesignModelStep,
+	type DesignModelContextItem,
 	openDesignModelContext,
 	recordDesignModelStepEvent,
 	recoverableCompletedModelSteps,
@@ -325,6 +326,54 @@ export function designModelContextTrailsSuccessfulWait(
 	messages: readonly ModelMessage[],
 ): boolean {
 	return trailingSuccessfulDesignWait(messages) !== null;
+}
+
+export function designWaitResponsePrefix(args: {
+	readonly turnProvenanceId: string;
+}): string {
+	return `design-wait:${args.turnProvenanceId}:`;
+}
+
+export function designWaitResponseAppendKey(args: {
+	readonly turnProvenanceId: string;
+	readonly stepKey: string;
+	readonly responseDigest: string;
+}): string {
+	return `${designWaitResponsePrefix(args)}${args.stepKey}:${args.responseDigest}`;
+}
+
+/** Recover a predecessor-generation wait only when its immutable response key
+ * binds it to this exact logical input. A fresh user message changes the turn
+ * provenance, so re-seeding a new provider context cannot accidentally treat
+ * an older wait as the terminal for the new instruction. */
+export function trailingSuccessfulDesignWaitForTurn(
+	items: readonly DesignModelContextItem[],
+	args: Parameters<typeof designWaitResponsePrefix>[0],
+): SuccessfulDesignWait | null {
+	const last = items.at(-1);
+	if (
+		last === undefined ||
+		!last.appendKey.startsWith(designWaitResponsePrefix(args))
+	) {
+		return null;
+	}
+	return trailingSuccessfulDesignWait(items.map((item) => item.message));
+}
+
+export function recoverableDesignWaitForTurn(args: {
+	readonly currentMessages: readonly ModelMessage[];
+	readonly predecessorItems: readonly DesignModelContextItem[];
+	readonly currentGenerationHasCompletedStep: boolean;
+	readonly turnProvenanceId: string;
+}): SuccessfulDesignWait | null {
+	return (
+		trailingSuccessfulDesignWait(args.currentMessages) ??
+		(args.currentGenerationHasCompletedStep
+			? null
+			: trailingSuccessfulDesignWaitForTurn(args.predecessorItems, {
+					turnProvenanceId: args.turnProvenanceId,
+				}))
+	);
 }
 
 export function recoveredDesignWaitChunks(
@@ -865,6 +914,8 @@ export async function runDesignAgentLoop(
 	 * reconstruct a phase-local prompt. Provider compaction inside
 	 * `prepareStep` is the sole legal prefix replacement. */
 	let modelContext: ModelMessage[] | null = null;
+	let modelContextPredecessorItems: readonly DesignModelContextItem[] = [];
+	let modelContextGenerationHasCompletedStep = false;
 	let modelContextId: string | null = null;
 	let terminalCorrectionStepAllowance = 0;
 	const modelContextAuthority = {
@@ -914,6 +965,9 @@ export async function runDesignAgentLoop(
 		});
 		modelContextId = persisted.id;
 		modelContext = [...persisted.messages];
+		modelContextPredecessorItems = persisted.predecessorItems;
+		modelContextGenerationHasCompletedStep =
+			persisted.completedStepKeys.size > 0;
 		modelContextAppendKeys = new Set(persisted.appendKeys);
 		modelContextProtocolKeys = new Set(persisted.lineageAppendKeys);
 		modelStepsSpent = persisted.totalStartedStepCount;
@@ -940,7 +994,7 @@ export async function runDesignAgentLoop(
 	await openAndRecoverModelContext();
 	terminalCorrectionStepAllowance =
 		pendingDesignTerminalCorrectionStepAllowance({
-			appendKeys: modelContextAppendKeys,
+			appendKeys: modelContextProtocolKeys,
 			turnProvenanceId,
 			modelStepsSpent,
 			ordinaryStepBudget: designLoopStepBudget(modelContextGeneration),
@@ -955,8 +1009,15 @@ export async function runDesignAgentLoop(
 			args.writer.write(chunk);
 		}
 	};
+	const recoveredWaitForCurrentTurn = (): SuccessfulDesignWait | null =>
+		recoverableDesignWaitForTurn({
+			currentMessages: modelContext ?? [],
+			predecessorItems: modelContextPredecessorItems,
+			currentGenerationHasCompletedStep: modelContextGenerationHasCompletedStep,
+			turnProvenanceId,
+		});
 	if (recoveredPlan !== null && initialGates.newestAccepted !== null) {
-		const recoveredWait = trailingSuccessfulDesignWait(modelContext ?? []);
+		const recoveredWait = recoveredWaitForCurrentTurn();
 		if (recoveredWait !== null) {
 			replayRecoveredWait(recoveredWait);
 			return {
@@ -1114,10 +1175,19 @@ export async function runDesignAgentLoop(
 								authorizationKey: activeRequiredQuestionAuthorizationKey,
 								input: requiredQuestionCall.input,
 							});
+				const completedWait = trailingSuccessfulDesignWait(
+					step.responseMessages,
+				);
 				const responseKey =
-					cardKey === null
-						? `response:${stepKey}:${step.responseDigest}`
-						: `${cardKey}:response:${stepKey}:${step.responseDigest}`;
+					cardKey !== null
+						? `${cardKey}:response:${stepKey}:${step.responseDigest}`
+						: completedWait !== null
+							? designWaitResponseAppendKey({
+									turnProvenanceId,
+									stepKey,
+									responseDigest: step.responseDigest,
+								})
+							: `response:${stepKey}:${step.responseDigest}`;
 				await completeDesignModelStep({
 					designSessionId: args.designSessionId,
 					contextId: modelContextId,
@@ -1133,6 +1203,7 @@ export async function runDesignAgentLoop(
 					modelContextProtocolKeys.add(responseKey);
 					modelContext = [...(modelContext ?? []), ...step.responseMessages];
 				}
+				modelContextGenerationHasCompletedStep = true;
 				return { contextId: modelContextId, stepKey };
 			},
 		});
@@ -1206,7 +1277,7 @@ export async function runDesignAgentLoop(
 		 * before the orchestrator records its pause. Re-establish that terminal
 		 * from the latest durable response unless this POST appended newer user
 		 * input. Re-run the post-step question proof before honoring it. */
-		const recoveredWait = trailingSuccessfulDesignWait(modelContext);
+		const recoveredWait = recoveredWaitForCurrentTurn();
 		if (recoveredWait !== null) {
 			const requiredAfterRecovery = await requiredUserQuestions();
 			if (designWaitForInputCanPause(requiredAfterRecovery.length)) {
@@ -1667,7 +1738,7 @@ export async function runDesignAgentLoop(
 				turnProvenanceId,
 			});
 			if (
-				designTerminalOmissionCanCorrect(modelContextAppendKeys, {
+				designTerminalOmissionCanCorrect(modelContextProtocolKeys, {
 					turnProvenanceId,
 				})
 			) {

@@ -12,12 +12,15 @@ import {
 	designToolPulsePhase,
 	designTurnProvenanceId,
 	designWaitForInputCanPause,
+	designWaitResponseAppendKey,
 	pendingDesignTerminalCorrectionStepAllowance,
 	projectAnsweredDesignContinuation,
 	projectMissingDesignUserContinuations,
 	readRequiredDesignQuestionsFromWorkspace,
+	recoverableDesignWaitForTurn,
 	recoveredDesignWaitChunks,
 	trailingSuccessfulDesignWait,
+	trailingSuccessfulDesignWaitForTurn,
 } from "@/lib/agent/build/designLoopRunner";
 import {
 	designPhaseTerminalSucceeded,
@@ -321,6 +324,65 @@ describe("design wait terminal", () => {
 				output: { ok: true, awaitingInput: true },
 			},
 		]);
+	});
+
+	it("recovers a predecessor wait only for the logical turn that produced it", () => {
+		const turnProvenanceId = "user-turn-1";
+		const appendKey = designWaitResponseAppendKey({
+			turnProvenanceId,
+			stepKey: "step-1",
+			responseDigest: "a".repeat(64),
+		});
+		const items = [
+			{
+				appendKey,
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "tool-call",
+							toolCallId: "wait-1",
+							toolName: "waitForInput",
+							input: { reason: "more-requirements-coming" },
+						},
+					],
+				} as ModelMessage,
+			},
+			{
+				appendKey,
+				message: {
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: "wait-1",
+							toolName: "waitForInput",
+							output: {
+								type: "json",
+								value: { ok: true, awaitingInput: true },
+							},
+						},
+					],
+				} as ModelMessage,
+			},
+		];
+
+		expect(
+			trailingSuccessfulDesignWaitForTurn(items, { turnProvenanceId }),
+		).toMatchObject({ toolCallId: "wait-1" });
+		expect(
+			trailingSuccessfulDesignWaitForTurn(items, {
+				turnProvenanceId: "user-turn-2",
+			}),
+		).toBeNull();
+		expect(
+			recoverableDesignWaitForTurn({
+				currentMessages: [{ role: "assistant", content: "New response." }],
+				predecessorItems: items,
+				currentGenerationHasCompletedStep: true,
+				turnProvenanceId,
+			}),
+		).toBeNull();
 	});
 
 	it("recovers blocking questions directly from an accepted head", async () => {

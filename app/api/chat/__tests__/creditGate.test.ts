@@ -1,6 +1,9 @@
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { creditGateDecision } from "../creditGate";
+import {
+	creditGateDecision,
+	typedMessageResumesDesignWait,
+} from "../creditGate";
 
 /**
  * Minimal `UIMessage` whose only load-bearing field for the gate is `role`:
@@ -45,5 +48,49 @@ describe("creditGateDecision", () => {
 				redrive: true,
 			}),
 		).toEqual({ chargeable: true, preflightCost: 5 });
+	});
+
+	it("lets the claim transaction net a typed wait continuation against its paused hold", () => {
+		expect(
+			creditGateDecision({
+				rawMessages: [message("assistant"), message("user")],
+				existingApp: false,
+				replacesPausedHold: true,
+			}),
+		).toEqual({ chargeable: true, preflightCost: 0 });
+	});
+});
+
+describe("typedMessageResumesDesignWait", () => {
+	const waitAssistant = {
+		id: "assistant-wait",
+		role: "assistant",
+		parts: [
+			{ type: "step-start" },
+			{
+				type: "tool-waitForInput",
+				toolCallId: "wait-1",
+				state: "output-available",
+				input: { reason: "more-requirements-coming" },
+				output: { ok: true, awaitingInput: true },
+			},
+		],
+	} as UIMessage;
+
+	it("recognizes a new user message immediately after a completed trailing wait", () => {
+		expect(
+			typedMessageResumesDesignWait([waitAssistant, message("user")]),
+		).toBe(true);
+	});
+
+	it("does not reuse a wait superseded by a later assistant step", () => {
+		const superseded = structuredClone(waitAssistant);
+		superseded.parts.push(
+			{ type: "step-start" },
+			{ type: "text", text: "The design continued." },
+		);
+		expect(typedMessageResumesDesignWait([superseded, message("user")])).toBe(
+			false,
+		);
 	});
 });

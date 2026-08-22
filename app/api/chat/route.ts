@@ -107,7 +107,10 @@ import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
-import { creditGateDecision } from "./creditGate";
+import {
+	creditGateDecision,
+	typedMessageResumesDesignWait,
+} from "./creditGate";
 import { chatRequestSchema, chatRunIdSchema } from "./schema";
 import { isFatalStreamErrorChunk } from "./streamFailure";
 
@@ -266,9 +269,23 @@ export async function POST(req: Request) {
 	 * real mode isn't loaded yet. The authoritative charge is derived from
 	 * the app row's own status once the app is created/loaded (`appReady` /
 	 * `cost` below) and re-checked inside the claim transaction. */
+	/* A typed continuation after waitForInput replaces this actor's paused hold
+	 * inside the locked claim transaction. Do not compare the balance with the
+	 * gross charge first: the transaction refunds the old marker and checks the
+	 * net debit atomically. The raw transcript shape plus the run capability
+	 * keeps this exception narrow; neither is authoritative, so the later claim
+	 * still proves every fact before generation. */
+	const replacesPausedHold =
+		parsed.data.redrive !== true &&
+		parsed.data.runId !== undefined &&
+		parsed.data.holderNonce !== undefined &&
+		(parsed.data.appId !== undefined ||
+			parsed.data.designSessionId !== undefined) &&
+		typedMessageResumesDesignWait(messages);
 	const { chargeable, preflightCost } = creditGateDecision({
 		rawMessages: messages,
 		existingApp: parsed.data.appId !== undefined,
+		replacesPausedHold,
 		redrive: parsed.data.redrive,
 	});
 	/* A holder nonce is a per-CLAIM capability, never thread attribution. A
@@ -312,7 +329,7 @@ export async function POST(req: Request) {
 			);
 		}
 
-		if (chargeable) {
+		if (chargeable && preflightCost > 0) {
 			const balance = await getCurrentCreditBalance(userId);
 			if (balance < preflightCost) {
 				return Response.json(

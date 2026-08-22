@@ -166,6 +166,12 @@ describe("durable model context", () => {
 		expect(successor.generation).toBe(1);
 		expect(successor.supersedesContextId).toBe(original.id);
 		expect(successor.messages).toEqual([]);
+		expect(successor.predecessorItems).toEqual([
+			{
+				appendKey: "old-contract",
+				message: { role: "user", content: "old exact context" },
+			},
+		]);
 		expect(successor.appendKeys).toEqual(new Set());
 		expect(successor.lineageAppendKeys).toEqual(new Set(["old-contract"]));
 		expect(successor.startedStepKeys).toEqual(new Set());
@@ -197,6 +203,18 @@ describe("durable model context", () => {
 		expect(reopened.generation).toBe(1);
 		expect(reopened.lineageAppendKeys).toEqual(new Set(["old-contract"]));
 		expect(reopened.totalStartedStepCount).toBe(1);
+
+		const successorAfterEmptyGeneration = await openDesignModelContext({
+			...spec,
+			toolsetDigest: "d".repeat(64),
+		});
+		expect(successorAfterEmptyGeneration.generation).toBe(2);
+		expect(successorAfterEmptyGeneration.predecessorItems).toEqual([
+			{
+				appendKey: "old-contract",
+				message: { role: "user", content: "old exact context" },
+			},
+		]);
 	});
 
 	it("reopens one slice attempt but starts a fresh executor generation for the next attempt", async () => {
@@ -234,6 +252,7 @@ describe("durable model context", () => {
 		expect(next.generation).toBe(first.generation + 1);
 		expect(next.supersedesContextId).toBe(first.id);
 		expect(next.messages).toEqual([]);
+		expect(next.predecessorItems).toEqual([]);
 		expect(next.lineageAppendKeys).toEqual(new Set(["attempt-a-opening"]));
 		await expect(
 			appendDesignModelContext({
