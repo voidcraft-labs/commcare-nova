@@ -229,11 +229,15 @@ response. The server serializes their effects in provider order, and the small
 immutable artifact insert. `inspectDesign` reads selected exact state only when
 a model needs a narrow lookup. `waitForInput` is the explicit terminal when the
 conversation says more requirements are coming but no question is ready yet.
-It preserves the current workspace and closes the stream as awaiting input.
+It is serialized with every design callback, refuses later calls in the same
+provider response, persists in the private model ledger before orchestration,
+and is recovered from that ledger before any later model call. It preserves the
+current workspace and closes the stream as awaiting input.
 A clean response with no update, question, wait, or phase finalizer receives
-one server-authored correction and one internal redrive. A second omission
-stops as the recoverable `design-terminal-omission` defect instead of silently
-ending the turn.
+one server-authored correction and one internal redrive. If the omission used
+the last ordinary session step, one runner-owned step is reserved solely for
+that correction. A second omission stops as the recoverable
+`design-terminal-omission` defect instead of silently ending the turn.
 
 The contract and post-review revision workspaces remain separate durable
 lineages, but their counters are persistence details. When a blocking review

@@ -62,6 +62,12 @@ export const DESIGN_LOOP_STEP_BUDGET = 64;
 export const DESIGN_ROLLOVER_STEP_ALLOWANCE = 32;
 export const DESIGN_ROLLOVER_ALLOWANCE_CAP = 2;
 
+/** One server-authored terminal correction may cross the ordinary session
+ * ceiling by exactly one provider step. The allowance is armed only after a
+ * clean omission has already consumed the last ordinary step; users and model
+ * output cannot mint it. */
+export const DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE = 1;
+
 /** The session's step ceiling given its current context generation. */
 export function designLoopStepBudget(generation: number): number {
 	return (

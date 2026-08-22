@@ -62,6 +62,7 @@ import {
 } from "@/lib/agent/design/loop/designAgent";
 import {
 	createMemoizedAncestryLoader,
+	DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE,
 	type DesignGateState,
 	DesignRepairTracker,
 	type DesignSubmissionValidationStage,
@@ -76,6 +77,7 @@ import {
 } from "@/lib/agent/design/loop/packageRender";
 import {
 	createDesignLoopTools,
+	createDesignToolExecutionQueue,
 	designWorkspaceLineageForGates,
 	ensureDerivedBuildPlan,
 	projectDesignIdentityHandles,
@@ -239,6 +241,56 @@ function modelToolPartIds(
 		}
 	}
 	return ids;
+}
+
+function successfulDesignWaitOutput(output: unknown): boolean {
+	const value =
+		typeof output === "object" &&
+		output !== null &&
+		"type" in output &&
+		output.type === "json" &&
+		"value" in output
+			? output.value
+			: output;
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"ok" in value &&
+		value.ok === true &&
+		"awaitingInput" in value &&
+		value.awaitingInput === true
+	);
+}
+
+/** A completed wait is durable in the private model ledger before the outer
+ * orchestration pause is recorded. Read only the latest provider step: a later
+ * ordinary user message or provider response supersedes this terminal. */
+export function designModelContextTrailsSuccessfulWait(
+	messages: readonly ModelMessage[],
+): boolean {
+	let successfulWait = false;
+	let sawToolResults = false;
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role === "tool" && Array.isArray(message.content)) {
+			sawToolResults = true;
+			for (const part of message.content) {
+				if (
+					part.type === "tool-result" &&
+					part.toolName === DESIGN_WAIT_FOR_INPUT_TOOL &&
+					successfulDesignWaitOutput(part.output)
+				) {
+					successfulWait = true;
+				}
+			}
+			continue;
+		}
+		if (message?.role === "assistant") {
+			return sawToolResults && successfulWait;
+		}
+		return false;
+	}
+	return false;
 }
 
 function unansweredDesignQuestionCalls(
@@ -600,7 +652,8 @@ export async function runDesignAgentLoop(
 			onReviewerReasoning: args.onReviewerReasoning,
 		}),
 	};
-	const tools = createDesignLoopTools(toolDeps);
+	const toolExecutionQueue = createDesignToolExecutionQueue();
+	const tools = createDesignLoopTools(toolDeps, toolExecutionQueue);
 	const recoveredPlan = await ensureDerivedBuildPlan(toolDeps, initialGates);
 	const stateMessageFor = async (
 		gates: DesignGateState,
@@ -700,6 +753,7 @@ export async function runDesignAgentLoop(
 	 * `prepareStep` is the sole legal prefix replacement. */
 	let modelContext: ModelMessage[] | null = null;
 	let modelContextId: string | null = null;
+	let terminalCorrectionStepAllowance = 0;
 	const modelContextAuthority = {
 		actorUserId: args.actorUserId,
 		runId: args.runId,
@@ -795,7 +849,14 @@ export async function runDesignAgentLoop(
 		const gates = evaluateDesignGates(await loadAncestry());
 		if (gates.plan !== null) break;
 		const phase = phaseFor(gates);
-		if (modelStepsSpent >= designLoopStepBudget(modelContextGeneration)) break;
+		const stepBudgetAllowance = terminalCorrectionStepAllowance;
+		if (
+			modelStepsSpent >=
+			designLoopStepBudget(modelContextGeneration) + stepBudgetAllowance
+		) {
+			break;
+		}
+		terminalCorrectionStepAllowance = 0;
 		const stepsBeforeStream = modelStepsSpent;
 		/* One provider invocation identity. A replacement process or bounded
 		 * stream redrive must never reuse the completed-event identity of a call
@@ -843,6 +904,7 @@ export async function runDesignAgentLoop(
 		const agent = createDesignAgent({
 			model: args.designCtx.model(MODEL_ROLES.designAuthor.modelId),
 			tools,
+			requestInputPause: toolExecutionQueue.pause,
 			phase,
 			catalogText,
 			constraintsText: renderPlatformConstraintsSection(),
@@ -860,6 +922,7 @@ export async function runDesignAgentLoop(
 			},
 			stepsBeforeStream,
 			contextGeneration: modelContextGeneration,
+			stepBudgetAllowance,
 			onStepEnd: (step) => args.onAgentStep?.(step),
 			onStepPrepared: async (step) => {
 				if (modelContextId === null) {
@@ -1000,6 +1063,17 @@ export async function runDesignAgentLoop(
 					userContinuation.appendKey,
 					userContinuation.messages,
 				);
+			}
+		}
+		/* A process may die after the provider step and exact response commit but
+		 * before the orchestrator records its pause. Re-establish that terminal
+		 * from the latest durable response unless this POST appended newer user
+		 * input. Re-run the post-step question proof before honoring it. */
+		if (designModelContextTrailsSuccessfulWait(modelContext)) {
+			const requiredAfterRecovery = await requiredUserQuestions();
+			if (designWaitForInputCanPause(requiredAfterRecovery.length)) {
+				pausedForMoreInput = true;
+				break;
 			}
 		}
 		const stateMessage = await stateMessageFor(gates);
@@ -1403,6 +1477,10 @@ export async function runDesignAgentLoop(
 				const correctionKey = `${correctionPrefix}${modelStepsSpent}`;
 				await appendContext(correctionKey, [correction]);
 				modelContext = [...(modelContext ?? []), correction];
+				if (modelStepsSpent >= designLoopStepBudget(modelContextGeneration)) {
+					terminalCorrectionStepAllowance =
+						DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE;
+				}
 				continue;
 			}
 			protocolFailure = {

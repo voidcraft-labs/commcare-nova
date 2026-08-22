@@ -45,6 +45,7 @@ import { createDesignAgent } from "../lib/agent/design/loop/designAgent";
 import {
 	collectDesignIdentityHandleBindings,
 	createDesignLoopTools,
+	createDesignToolExecutionQueue,
 	projectDesignIdentityHandles,
 	renderDesignValidationIssues,
 	resolveDesignFindingHandles,
@@ -431,15 +432,8 @@ async function main(): Promise<void> {
 		};
 	};
 
-	let previewTail: Promise<void> = Promise.resolve();
-	const ordered = <T>(work: () => Promise<T>): Promise<T> => {
-		const result = previewTail.then(work);
-		previewTail = result.then(
-			() => undefined,
-			() => undefined,
-		);
-		return result;
-	};
+	const toolExecutionQueue = createDesignToolExecutionQueue();
+	const ordered = toolExecutionQueue.run;
 	const collectionToolName = {
 		actors: "updateActors",
 		records: "updateRecords",
@@ -556,6 +550,7 @@ async function main(): Promise<void> {
 		const agent = createDesignAgent({
 			model: ctx.model(MODEL_ROLES.designAuthor.modelId),
 			tools: tools as never,
+			requestInputPause: toolExecutionQueue.pause,
 			phase,
 			catalogText,
 			constraintsText: renderPlatformConstraintsSection(),

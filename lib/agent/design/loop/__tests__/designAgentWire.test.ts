@@ -31,6 +31,7 @@ import { DesignRepairTracker } from "@/lib/agent/design/loop/gates";
 import {
 	collectDesignReferenceBindings,
 	createDesignLoopTools,
+	createDesignToolExecutionQueue,
 	designCreationIdentityIssue,
 	designReservedReferenceIssue,
 	resolveDesignWorkspaceHandles,
@@ -38,6 +39,31 @@ import {
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import { computeSourcePackageDigest } from "@/lib/agent/design/sourcePackage";
 import { MODEL_ROLES } from "@/lib/models";
+
+describe("design tool execution queue", () => {
+	it("serializes a wait and refuses every later callback in the response", async () => {
+		const queue = createDesignToolExecutionQueue();
+		const applied: string[] = [];
+
+		const beforeWait = queue.run(async () => {
+			applied.push("before-wait");
+			return { ok: true as const };
+		});
+		const wait = queue.pause();
+		const afterWait = queue.run(async () => {
+			applied.push("after-wait");
+			return { ok: true as const };
+		});
+
+		await expect(beforeWait).resolves.toEqual({ ok: true });
+		await expect(wait).resolves.toEqual({ ok: true, awaitingInput: true });
+		await expect(afterWait).resolves.toMatchObject({
+			error: expect.stringContaining("already waiting"),
+			diagnostic: { code: "design-input-pause-terminal" },
+		});
+		expect(applied).toEqual(["before-wait"]);
+	});
+});
 
 interface CapturedBody {
 	model?: string;
@@ -128,39 +154,47 @@ async function captureDesignTurnBody(
 	};
 	const openai = createOpenAI({ apiKey: "sk-fake-never-sent", fetch: capture });
 	const pkg = fixturePkg();
-	const tools = createDesignLoopTools({
-		designSessionId: pkg.designSessionId,
-		runId: "run-1",
-		authority: {
-			actorUserId: "u",
+	const toolExecutionQueue = createDesignToolExecutionQueue();
+	const tools = createDesignLoopTools(
+		{
+			designSessionId: pkg.designSessionId,
 			runId: "run-1",
-			holderNonce: "00000000-0000-4000-8000-000000000003",
-			expectedProjectId: "p",
-		},
-		currentPkg: pkg,
-		catalogText: "CATALOG",
-		ctx: {
-			userId: "u",
-			projectId: "p",
-			runId: "run-1",
-			target: { kind: "design-session", designSessionId: pkg.designSessionId },
-			model: () => openai(MODEL_ROLES.designAuthor.modelId),
-			trackSubGeneration: () => {},
-			runStructured: async () => {
+			authority: {
+				actorUserId: "u",
+				runId: "run-1",
+				holderNonce: "00000000-0000-4000-8000-000000000003",
+				expectedProjectId: "p",
+			},
+			currentPkg: pkg,
+			catalogText: "CATALOG",
+			ctx: {
+				userId: "u",
+				projectId: "p",
+				runId: "run-1",
+				target: {
+					kind: "design-session",
+					designSessionId: pkg.designSessionId,
+				},
+				model: () => openai(MODEL_ROLES.designAuthor.modelId),
+				trackSubGeneration: () => {},
+				runStructured: async () => {
+					throw new Error("never called at registration time");
+				},
+			},
+			signal: new AbortController().signal,
+			repair: new DesignRepairTracker(),
+			loadAncestry: async () => {
 				throw new Error("never called at registration time");
 			},
+			ancestryChanged: () => {},
+			rebuildPackageForDigest: async () => null,
 		},
-		signal: new AbortController().signal,
-		repair: new DesignRepairTracker(),
-		loadAncestry: async () => {
-			throw new Error("never called at registration time");
-		},
-		ancestryChanged: () => {},
-		rebuildPackageForDigest: async () => null,
-	});
+		toolExecutionQueue,
+	);
 	const agent = createDesignAgent({
 		model: openai(MODEL_ROLES.designAuthor.modelId),
 		tools,
+		requestInputPause: toolExecutionQueue.pause,
 		phase,
 		catalogText: "CATALOG",
 		constraintsText: "CONSTRAINTS",

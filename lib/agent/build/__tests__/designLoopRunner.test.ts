@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
 	contractSubmissionPulsePhase,
 	designLoopStopMessage,
+	designModelContextTrailsSuccessfulWait,
 	designModelStepKey,
 	designTerminalOmissionCanCorrect,
 	designTerminalOmissionCorrectionPrefix,
@@ -49,6 +50,11 @@ describe("design POST step budget", () => {
 		expect(designStepBudgetReached(62, 1)).toBe(false);
 		expect(designStepBudgetReached(63, 1)).toBe(true);
 		expect(designStepBudgetReached(64, 1)).toBe(true);
+	});
+
+	it("reserves exactly one model step for a terminal correction", () => {
+		expect(designStepBudgetReached(64, 0, 0, 1)).toBe(false);
+		expect(designStepBudgetReached(64, 1, 0, 1)).toBe(true);
 	});
 
 	it("gives a replacement provider attempt a distinct durable step identity", () => {
@@ -177,6 +183,50 @@ describe("design wait terminal", () => {
 	it("cannot bypass a server-required question batch", () => {
 		expect(designWaitForInputCanPause(0)).toBe(true);
 		expect(designWaitForInputCanPause(1)).toBe(false);
+	});
+
+	it("recovers only a successful wait from the latest durable provider step", () => {
+		const waitStep = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId: "wait-1",
+						toolName: "waitForInput",
+						input: { reason: "more-requirements-coming" },
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId: "wait-1",
+						toolName: "waitForInput",
+						output: {
+							type: "json",
+							value: { ok: true, awaitingInput: true },
+						},
+					},
+				],
+			},
+		] as ModelMessage[];
+
+		expect(designModelContextTrailsSuccessfulWait(waitStep)).toBe(true);
+		expect(
+			designModelContextTrailsSuccessfulWait([
+				...waitStep,
+				{ role: "user", content: [{ type: "text", text: "Continue now." }] },
+			]),
+		).toBe(false);
+		expect(
+			designModelContextTrailsSuccessfulWait([
+				...waitStep,
+				{ role: "assistant", content: [{ type: "text", text: "Later step" }] },
+			]),
+		).toBe(false);
 	});
 });
 

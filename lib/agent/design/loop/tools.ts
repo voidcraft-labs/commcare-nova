@@ -582,6 +582,41 @@ interface ToolError {
 	readonly diagnostic?: DesignToolDiagnostic;
 }
 
+/** Serialize every design-side callback in provider order and make an input
+ * pause terminal inside that response. Calls before the pause keep their
+ * durable result; calls after it are refused without touching the workspace. */
+export function createDesignToolExecutionQueue() {
+	let orderedTail: Promise<void> = Promise.resolve();
+	let inputPauseRequested = false;
+	const schedule = <T>(work: () => Promise<T>): Promise<T> => {
+		const result = orderedTail.then(work);
+		orderedTail = result.then(
+			() => undefined,
+			() => undefined,
+		);
+		return result;
+	};
+	return {
+		run<T>(work: () => Promise<T>): Promise<T | ToolError> {
+			return schedule(async () =>
+				inputPauseRequested
+					? {
+							error:
+								"This design is already waiting for the person's next message. No later tool call in this response was applied.",
+							diagnostic: { code: "design-input-pause-terminal" },
+						}
+					: work(),
+			);
+		},
+		pause(): Promise<{ readonly ok: true; readonly awaitingInput: true }> {
+			return schedule(async () => {
+				inputPauseRequested = true;
+				return { ok: true as const, awaitingInput: true as const };
+			});
+		},
+	};
+}
+
 function zodIssueFingerprints(error: ZodError): string[] {
 	return error.issues.map(
 		(issue) => `${issue.path.join(".")}|${issue.code}|${issue.message}`,
@@ -1099,19 +1134,15 @@ export function designCreationIdentityIssue(
 	return null;
 }
 
-export function createDesignLoopTools(deps: DesignLoopToolDeps) {
+export function createDesignLoopTools(
+	deps: DesignLoopToolDeps,
+	executionQueue = createDesignToolExecutionQueue(),
+) {
 	/* The AI SDK may invoke calls from one response concurrently. Queue every
 	 * design-side execute callback at invocation time so provider order becomes
-	 * durable workspace order, including update -> finish -> review chains. */
-	let orderedTail: Promise<void> = Promise.resolve();
-	const inResponseOrder = <T>(work: () => Promise<T>): Promise<T> => {
-		const result = orderedTail.then(work);
-		orderedTail = result.then(
-			() => undefined,
-			() => undefined,
-		);
-		return result;
-	};
+	 * durable workspace order, including update -> finish -> review chains. The
+	 * same queue makes waitForInput exclusive from its position onward. */
+	const inResponseOrder = executionQueue.run;
 
 	const workspaceKind = (gates: DesignGateState): DesignArtifactKind =>
 		gates.verdicts.submitRevision.legal || gates.headReviews.length > 0

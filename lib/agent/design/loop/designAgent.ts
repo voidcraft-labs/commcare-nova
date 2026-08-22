@@ -58,6 +58,11 @@ export const DESIGN_WAIT_FOR_INPUT_DESCRIPTION =
 export interface DesignAgentArgs {
 	readonly model: LanguageModel;
 	readonly tools: ReturnType<typeof createDesignLoopTools>;
+	/** Uses the same provider-order queue as the semantic design tools. */
+	readonly requestInputPause: () => Promise<{
+		readonly ok: true;
+		readonly awaitingInput: true;
+	}>;
 	readonly phase: "author" | "review" | "revision" | "awaiting-input";
 	/** Static instruction suffix: the capability catalog plus the citable
 	 *  platform constraints, byte-identical across a deploy's sessions. */
@@ -94,6 +99,10 @@ export interface DesignAgentArgs {
 	/** The durable context's generation, which raises the step ceiling by the
 	 * capped per-rollover allowance (`designLoopStepBudget`). */
 	readonly contextGeneration: number;
+	/** A runner-owned one-step terminal-correction allowance. Zero for every
+	 * ordinary stream and one only when the prior clean omission exhausted the
+	 * normal session ceiling. */
+	readonly stepBudgetAllowance?: number;
 	readonly onStepPrepared?: (step: {
 		readonly stepNumber: number;
 		readonly requestDigest: string;
@@ -133,10 +142,11 @@ export function designStepBudgetReached(
 	stepsBeforeStream: number,
 	stepsInCurrentStream: number,
 	contextGeneration = 0,
+	stepBudgetAllowance = 0,
 ): boolean {
 	return (
 		stepsBeforeStream + stepsInCurrentStream >=
-		designLoopStepBudget(contextGeneration)
+		designLoopStepBudget(contextGeneration) + stepBudgetAllowance
 	);
 }
 
@@ -509,10 +519,7 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			description: DESIGN_WAIT_FOR_INPUT_DESCRIPTION,
 			inputSchema: zodSchema(waitForInputInputSchema),
 			strict: true,
-			execute: async () => ({
-				ok: true as const,
-				awaitingInput: true as const,
-			}),
+			execute: async () => args.requestInputPause(),
 		},
 		setDesignRoot: args.tools.setDesignRoot,
 		updateActors: args.tools.updateActors,
@@ -554,6 +561,7 @@ export function createDesignAgent(args: DesignAgentArgs) {
 				args.stepsBeforeStream,
 				steps.length,
 				args.contextGeneration,
+				args.stepBudgetAllowance,
 			) ||
 			designPhaseTerminalSucceeded(steps, DESIGN_WAIT_FOR_INPUT_TOOL) ||
 			(phaseTerminal !== null &&
