@@ -464,3 +464,18 @@ The `kind` discriminator is the contract two consumers dispatch on:
 - MCP `projectResult` in `lib/mcp/adapters/sharedToolAdapter.ts` switches on `kind` to project to the wire envelope.
 
 Adding a new shared tool: pick a shape, return it tagged. A future third shape requires updating both consumers — the exhaustive `switch` in `projectResult` is the compile-time tripwire.
+
+## Reviewed-build resilience
+
+A case-typed `createModule` input carries at least one Results column whose
+`visibleInList` is not false. Its Zod boundary refuses an omitted, empty, or
+all-hidden `case_list_columns` array before workspace dispatch and points the
+executor to the module's case-list configuration, never `addFields`. The
+workflow execution brief carries the exact minimum `case_name` column for each
+newly owned case module, and focused validator diagnostics select the available
+case-list correction operation without broadening that slice's tool profile.
+
+`build/failureReporting.ts` keeps product resumability independent of
+operational severity. Only expected external prerequisites are warnings.
+Unexpected provider, protocol, validation, compiler, and budget failures are
+errors and reach Sentry even when the durable design can resume after a deploy.

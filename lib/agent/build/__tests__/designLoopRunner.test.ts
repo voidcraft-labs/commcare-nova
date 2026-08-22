@@ -6,6 +6,8 @@ import {
 	contractSubmissionPulsePhase,
 	designLoopStopMessage,
 	designModelStepKey,
+	designTerminalOmissionCanCorrect,
+	designTerminalOmissionCorrectionPrefix,
 	designToolPulsePhase,
 	projectAnsweredDesignContinuation,
 	projectMissingDesignUserContinuations,
@@ -84,6 +86,46 @@ describe("design POST step budget", () => {
 				],
 				"finishDesign",
 			),
+		).toBe(true);
+	});
+
+	it("treats a completed waitForInput call as an explicit terminal", () => {
+		const call = { toolCallId: "wait-1", toolName: "waitForInput" };
+		expect(
+			designPhaseTerminalSucceeded(
+				[
+					{
+						toolCalls: [call],
+						toolResults: [
+							{
+								toolCallId: call.toolCallId,
+								output: { ok: true, awaitingInput: true },
+							},
+						],
+					},
+				],
+				"waitForInput",
+			),
+		).toBe(true);
+	});
+});
+
+describe("design terminal omission correction", () => {
+	it("allows exactly one durable correction per response and phase", () => {
+		const target = {
+			responseMessageId: "response-1",
+			phase: "author" as const,
+		};
+		const prefix = designTerminalOmissionCorrectionPrefix(target);
+		expect(designTerminalOmissionCanCorrect(new Set(), target)).toBe(true);
+		expect(
+			designTerminalOmissionCanCorrect(new Set([`${prefix}7`]), target),
+		).toBe(false);
+		expect(
+			designTerminalOmissionCanCorrect(new Set([`${prefix}7`]), {
+				...target,
+				responseMessageId: "response-2",
+			}),
 		).toBe(true);
 	});
 });

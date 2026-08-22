@@ -61,6 +61,14 @@ model step, tool name, operation index, workspace revision, a closed outcome
 category, and a stable code. Raw inputs, outputs, rejection prose, and
 customer-authored names never enter either event.
 
+Terminal reviewed-build failures also emit one structured
+`design_build_failed` operational line outside this event stream. Product
+resumability does not choose its severity. Only an expected external
+prerequisite stays at warning; a provider, protocol, validation, compiler, or
+budget defect logs at error and mirrors to Sentry even when the preserved
+design can resume after a deploy. `designSessionId`, `runId`, `errorType`, and
+`failureClass` are bounded searchable tags. No authored payload joins them.
+
 ## Writer semantics
 
 Fire-and-forget. `LogWriter.logEvent(event)` enqueues; a 100ms timer (or

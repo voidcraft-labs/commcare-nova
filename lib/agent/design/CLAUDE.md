@@ -137,7 +137,10 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   summaries lower to `label` fields with UUID-backed prose references.
   Semantic record names lower once into exact Blueprint case-type keys; schema,
   parent, module, field-write, and case-operation calls reuse those keys rather
-  than treating a display name as another record identity.
+  than treating a display name as another record identity. Every newly owned
+  case module also carries one exact `requiredInitialResultsColumn`, a visible
+  plain `case_name` column derived from its host record. This compiler input
+  makes the module's birth call valid without turning Results into form fields.
 - `complexity.ts` deterministically assigns `compact`, `standard`, or
   `extended`. The class chooses process depth and conservative user-facing time
   estimates; it never changes Blueprint validity or authority.
@@ -224,7 +227,13 @@ workspace, or optimistic revision. It may emit several known calls in one
 response. The server serializes their effects in provider order, and the small
 `finishDesign` call replays and validates the whole candidate before one
 immutable artifact insert. `inspectDesign` reads selected exact state only when
-a model needs a narrow lookup.
+a model needs a narrow lookup. `waitForInput` is the explicit terminal when the
+conversation says more requirements are coming but no question is ready yet.
+It preserves the current workspace and closes the stream as awaiting input.
+A clean response with no update, question, wait, or phase finalizer receives
+one server-authored correction and one internal redrive. A second omission
+stops as the recoverable `design-terminal-omission` defect instead of silently
+ending the turn.
 
 The contract and post-review revision workspaces remain separate durable
 lineages, but their counters are persistence details. When a blocking review

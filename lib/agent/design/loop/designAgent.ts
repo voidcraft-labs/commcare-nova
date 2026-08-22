@@ -18,6 +18,7 @@ import type {
 	UIMessage,
 } from "ai";
 import { ToolLoopAgent, zodSchema } from "ai";
+import { z } from "zod";
 import type { OpenQuestion } from "@/lib/agent/design/contract";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
@@ -38,6 +39,21 @@ import type { createDesignLoopTools } from "./tools";
  *  ever-present fallback the user already has rather than an option. */
 export const DESIGN_ASK_QUESTIONS_DESCRIPTION =
 	"Ask the user clarifying questions; execution pauses for their answers. Always available, any number of rounds. Give a question 2-4 concrete options whenever real alternatives or sensible defaults exist — your recommended option first when you have one, its label ending with a short marker meaning 'Recommended' written in the conversation's language (' (Recommended)' in English, ' (Recomendado)' in Spanish). The user can always answer in free text instead of picking an option, so never add an option that means 'something else'; an empty options list is only for questions with no concrete candidates. If a question asks for data or a document, the user may attach a file while answering; it arrives right after the answers. Assume only what the user would not want to be asked.";
+
+export const DESIGN_WAIT_FOR_INPUT_TOOL = "waitForInput";
+
+const waitForInputInputSchema = z
+	.object({
+		reason: z
+			.literal("more-requirements-coming")
+			.describe(
+				"The user explicitly said more requirements or source material are coming, or asked Nova not to begin yet.",
+			),
+	})
+	.strict();
+
+export const DESIGN_WAIT_FOR_INPUT_DESCRIPTION =
+	"Pause this design only when the user's latest message explicitly says more requirements or source material are coming, or asks Nova not to begin yet. First acknowledge what they shared in one short visible sentence, then call this tool. Do not use it when you need the user to answer a material question; use askQuestions instead. Do not use it merely because the design is difficult or incomplete.";
 
 export interface DesignAgentArgs {
 	readonly model: LanguageModel;
@@ -485,6 +501,15 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			inputSchema: requiredDesignQuestionInputSchema(),
 			strict: false,
 		},
+		[DESIGN_WAIT_FOR_INPUT_TOOL]: {
+			description: DESIGN_WAIT_FOR_INPUT_DESCRIPTION,
+			inputSchema: zodSchema(waitForInputInputSchema),
+			strict: true,
+			execute: async () => ({
+				ok: true as const,
+				awaitingInput: true as const,
+			}),
+		},
 		setDesignRoot: args.tools.setDesignRoot,
 		updateActors: args.tools.updateActors,
 		updateRecords: args.tools.updateRecords,
@@ -526,6 +551,7 @@ export function createDesignAgent(args: DesignAgentArgs) {
 				steps.length,
 				args.contextGeneration,
 			) ||
+			designPhaseTerminalSucceeded(steps, DESIGN_WAIT_FOR_INPUT_TOOL) ||
 			(phaseTerminal !== null &&
 				designPhaseTerminalSucceeded(steps, phaseTerminal)),
 		/* Establishment-level provider retries, matching the SA's patience;

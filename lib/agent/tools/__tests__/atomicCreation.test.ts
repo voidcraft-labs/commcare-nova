@@ -524,6 +524,35 @@ describe("createModule — atomic module + forms + case list", () => {
 	});
 
 	it("rejects a case-managing module without case-list columns on a complete app", async () => {
+		const parsed = createModuleInputSchema.safeParse({
+			name: "Households",
+			case_type: "household",
+			forms: [
+				{
+					name: "Register household",
+					type: "registration",
+					fields: [
+						{
+							kind: "text",
+							id: "case_name",
+							label: proseText("Household name"),
+							caseWrite: {
+								caseType: "household",
+								property: "case_name",
+							},
+						} as never,
+					],
+				},
+			],
+		});
+		expect(parsed.success).toBe(false);
+		if (!parsed.success) {
+			expect(parsed.error.issues[0]?.message).toContain(
+				"visible Results field",
+			);
+			expect(parsed.error.issues[0]?.message).toContain("not addFields");
+		}
+
 		const harness = makeHarness(completeDoc());
 		const out = await harness.runTool(createModuleTool, {
 			name: "Households",
@@ -560,6 +589,45 @@ describe("createModule — atomic module + forms + case list", () => {
 			"visible Results field",
 		);
 		expect(harness.recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("rejects an all-hidden initial Results configuration before dispatch", () => {
+		const parsed = createModuleInputSchema.safeParse({
+			name: "Households",
+			case_type: "household",
+			forms: [
+				{
+					name: "Register household",
+					type: "registration",
+					fields: [
+						{
+							kind: "text",
+							id: "case_name",
+							label: proseText("Household name"),
+							caseWrite: {
+								caseType: "household",
+								property: "case_name",
+							},
+						} as never,
+					],
+				},
+			],
+			case_list_columns: [
+				{
+					kind: "plain",
+					field: "case_name",
+					header: "Household",
+					visibleInList: false,
+				},
+			],
+		});
+		expect(parsed.success).toBe(false);
+		if (!parsed.success) {
+			expect(parsed.error.issues[0]?.path).toEqual(["case_list_columns"]);
+			expect(parsed.error.issues[0]?.message).toContain(
+				"visible Results field",
+			);
+		}
 	});
 
 	it("still creates a plain (case-less) survey module the simple way", async () => {

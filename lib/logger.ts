@@ -105,8 +105,9 @@ function emit(payload: LogPayload): void {
  * so an issue is filterable by the entity it happened to — every error on
  * one app, for one user, in one CommCare domain. Tags are indexed and
  * searchable in Sentry where `extra` is not. The allowlist is deliberately
- * identity-shaped and small: promoting an unbounded value (a blueprint, an
- * `args` array) would bloat Sentry's tag index. Anything not listed here
+ * bounded and small: identities plus stable operational enums/codes. Promoting
+ * an unbounded value (a blueprint, an `args` array) would bloat Sentry's tag
+ * index. Anything not listed here
  * still rides along in `extra`, so no detail is lost — only un-indexed.
  * These names match the keys call sites already pass in their log context
  * (`{ appId }`, `{ userId, appId }`, …), so promotion happens with no
@@ -117,10 +118,13 @@ const SENTRY_TAG_KEYS = [
 	"ownerId",
 	"userId",
 	"runId",
+	"designSessionId",
 	"threadId",
 	"domain",
 	"assetId",
 	"clientId",
+	"errorType",
+	"failureClass",
 ] as const;
 
 /**

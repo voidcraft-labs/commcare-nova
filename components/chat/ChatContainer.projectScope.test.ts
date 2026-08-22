@@ -24,7 +24,42 @@ import {
 	threadActivationNeedsIncompleteSeed,
 	threadResumeHealPath,
 	threadResumeHealTarget,
+	trailingDesignWaitsForInput,
 } from "./ChatContainer";
+
+describe("design wait terminal", () => {
+	it("recognizes only a successful wait in the trailing assistant step", () => {
+		expect(
+			trailingDesignWaitsForInput([
+				{
+					role: "assistant",
+					parts: [
+						{ type: "step-start" },
+						{
+							type: "tool-waitForInput",
+							state: "output-available",
+							output: { ok: true, awaitingInput: true },
+						},
+					],
+				},
+			]),
+		).toBe(true);
+		expect(
+			trailingDesignWaitsForInput([
+				{
+					role: "assistant",
+					parts: [
+						{ type: "step-start" },
+						{
+							type: "tool-waitForInput",
+							state: "input-available",
+						},
+					],
+				},
+			]),
+		).toBe(false);
+	});
+});
 
 describe("interrupted-turn request routing", () => {
 	it("preserves automatic regenerate redrive semantics", () => {

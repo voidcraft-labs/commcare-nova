@@ -168,6 +168,12 @@ directly above the composer. A terminal design-build error replaces any stale
 working stage; automatic recovery never invents a user-authored retry message
 in the transcript.
 
+The design-only `waitForInput` terminal is also protocol-internal. It renders
+no mutation row or interactive card. Its completed durable tool part still
+drives the activity line to the needs-input state after the stream closes, and
+only the person's next message resumes the design. It never enters the
+answered-`askQuestions` auto-resend path.
+
 The activity row directly above the composer is the chat surface's only
 rotating progress indicator. A disabled send button keeps its send arrow, and
 in-flight tool rows, attachment chips, thread rows, and secondary actions use

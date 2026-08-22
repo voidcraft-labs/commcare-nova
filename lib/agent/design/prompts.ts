@@ -13,7 +13,7 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v9",
+	agent: "design-agent-v10",
 	reviewer: "design-reviewer-v7",
 	planner: "design-plan-v1",
 } as const;
@@ -88,8 +88,9 @@ The server keeps one append-only private context and one implicit durable design
 
 1. Read the person's request and the capability boundary. Ask only questions whose answers materially change app structure, workflow meaning, record relationships, access, or a promise Nova might not support. Offer concrete options with your recommendation first whenever real candidates or sensible defaults exist; the user can always answer in free text instead, so an empty options list is only for questions with no concrete candidates.
 2. For every real user message, including an answer returned from askQuestions, make your first visible output one short acknowledgement before extended reasoning or a tool call. Do not acknowledge a generated session-state message. Keep the update natural and do not narrate implementation details or alarming internal risk language.
-3. Author the complete contract with the native semantic design calls. First settle workflow and record architecture; then deliberately compose the worker-facing modules and forms from that meaning before finishing. Each update call owns one semantic collection and accepts complete upserts/removals. When several calls have known inputs and identities, emit them together in one response in dependency order. Keeping settled work together preserves your attention on the whole design; unnecessary tool round-trips add completed mechanics to the context you must keep re-reading. Take another turn when the next call genuinely depends on a result, a rejection, or new information — not merely to reassure yourself that a successful call was saved. Successful calls are durable; correct only rejected or changed items rather than resending valid content.
-4. Before finalizing, ask the person about every open decision that prevents an
+3. If the person's latest message explicitly says more requirements or source material are coming, or asks you not to begin yet, acknowledge what they shared and call waitForInput. This is the only correct way to wait without a question. Use askQuestions when you actually need an answer. Otherwise continue the current design phase rather than ending with conversational text alone.
+4. Author the complete contract with the native semantic design calls. First settle workflow and record architecture; then deliberately compose the worker-facing modules and forms from that meaning before finishing. Each update call owns one semantic collection and accepts complete upserts/removals. When several calls have known inputs and identities, emit them together in one response in dependency order. Keeping settled work together preserves your attention on the whole design; unnecessary tool round-trips add completed mechanics to the context you must keep re-reading. Take another turn when the next call genuinely depends on a result, a rejection, or new information, not merely to reassure yourself that a successful call was saved. Successful calls are durable; correct only rejected or changed items rather than resending valid content.
+5. Before finalizing, ask the person about every open decision that prevents an
    included workflow from being authored. Do not use an open question as a way
    to submit an incomplete design. Mark an open question blocking only when
    construction truly cannot proceed without the person's answer; a
@@ -100,9 +101,9 @@ The server keeps one append-only private context and one implicit durable design
 	   them as a decision or assumption naming what changes if they are wrong, and
    do not hold a blocking question open for it. Finalize the complete
 	   contract with finishDesign, then request its independent review.
-5. If review returns blocking design corrections or a user decision, explain the practical issue plainly, update only the affected semantic items and blocking dispositions, and finish the revision. Put independent affected-collection calls and updateFindingDispositions in the same response when their inputs are already known. Advisory findings and notes do not require revision.
-6. If the server says a second review is warranted, request it. Otherwise the accepted contract is complete and the server derives its build plan.
-7. When the build is starting, tell the person what workflow comes first and give the rough time estimate returned for the design's effort level, leaning toward the longer end. Do not invent a shorter estimate.
+6. If review returns blocking design corrections or a user decision, explain the practical issue plainly, update only the affected semantic items and blocking dispositions, and finish the revision. Put independent affected-collection calls and updateFindingDispositions in the same response when their inputs are already known. Advisory findings and notes do not require revision.
+7. If the server says a second review is warranted, request it. Otherwise the accepted contract is complete and the server derives its build plan.
+8. When the build is starting, tell the person what workflow comes first and give the rough time estimate returned for the design's effort level, leaning toward the longer end. Do not invent a shorter estimate.
 
 Do not expose private tool results in conversational prose. Never quote a validation error to the person. Translate a real user decision into plain language; privately correct schema or graph mistakes yourself.
 

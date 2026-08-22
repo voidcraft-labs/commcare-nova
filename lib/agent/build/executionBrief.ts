@@ -82,6 +82,14 @@ export interface SliceExecutionBrief {
 			readonly name: string;
 			readonly blueprintCaseType: string;
 		} | null;
+		/** Minimum valid-by-construction Results configuration for a newly
+		 * created case module. This is compiler input, not a design choice. */
+		readonly requiredInitialResultsColumn?: {
+			readonly kind: "plain";
+			readonly field: "case_name";
+			readonly header: string;
+			readonly visibleInList: true;
+		};
 		readonly role: ModuleComposition["role"];
 		readonly icon: ModuleComposition["icon"];
 		readonly formCompositionIds: readonly DesignId[];
@@ -480,11 +488,12 @@ export function deriveSliceExecutionBrief(args: {
 		const hostRecord = args.contract.records.find(
 			(record) => record.id === composition.hostRecordId,
 		);
+		const action = ownedModuleCompositionIds.has(composition.id)
+			? ("create" as const)
+			: ("reuse" as const);
 		return {
 			compositionId: composition.id,
-			action: ownedModuleCompositionIds.has(composition.id)
-				? ("create" as const)
-				: ("reuse" as const),
+			action,
 			hostRecord:
 				hostRecord === undefined
 					? null
@@ -493,6 +502,16 @@ export function deriveSliceExecutionBrief(args: {
 							name: hostRecord.name,
 							blueprintCaseType: recordKeyById.get(hostRecord.id) ?? "record",
 						},
+			...(action === "create" && hostRecord !== undefined
+				? {
+						requiredInitialResultsColumn: {
+							kind: "plain" as const,
+							field: "case_name" as const,
+							header: hostRecord.name,
+							visibleInList: true as const,
+						},
+					}
+				: {}),
 			role: composition.role,
 			icon: composition.icon,
 			formCompositionIds: formCompositions

@@ -165,7 +165,28 @@ export const createModuleInputSchema = z
 				"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow. null otherwise.",
 			),
 	})
-	.strict();
+	.strict()
+	.superRefine((input, ctx) => {
+		if (
+			input.case_type != null &&
+			!input.case_list_columns?.some((column) => column.visibleInList !== false)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["case_list_columns"],
+				message:
+					"A case-managing module must be born with at least one visible Results field in case_list_columns. Re-issue createModule with a plain case_name column. Results columns belong to the module's case-list configuration, not addFields.",
+			});
+		}
+		if (input.case_list_only === true && input.case_type == null) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["case_type"],
+				message:
+					"A case-list-only module must name the case_type whose records it shows.",
+			});
+		}
+	});
 
 export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
 

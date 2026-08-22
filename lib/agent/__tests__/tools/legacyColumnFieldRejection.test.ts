@@ -10,15 +10,10 @@
  * through the case-list-config tools — a follow-up `updateModule`
  * for an unrelated rename would silently flatten it back to plain.
  *
- * Both fields are gone now; case list authoring lives exclusively on
- * the case-list-config tools (`addCaseListColumns`,
- * `updateCaseListColumn`, `removeCaseListColumn`,
- * `reorderCaseListColumns`, `setCaseListFilter`, and the search-input
- * parallels). These tests pin that the module-scoped tools' input
- * schemas don't carry the legacy fields — every input schema is
- * `.strict()`, so a stale LLM-emitted payload carrying the legacy
- * shape fails to parse rather than reaching the (now-deleted) mapping
- * branch.
+ * Both module tools now accept the canonical kind-discriminated Column
+ * projection only where validity requires a same-call seed. Ongoing case-list
+ * authoring remains on the case-list-config tools. These tests pin that a stale
+ * flat payload fails instead of reaching a compatibility mapping.
  */
 
 import { describe, expect, it } from "vitest";
@@ -86,27 +81,38 @@ describe("updateModule legacy column field rejection", () => {
 });
 
 describe("createModule legacy column field rejection", () => {
-	it("input schema parses a minimal name+case_type payload cleanly", () => {
+	it("rejects a case type without its valid-by-construction Results seed", () => {
 		const result = createModuleInputSchema.safeParse({
 			name: "Patients",
 			case_type: "patient",
 		});
-		expect(result.success).toBe(true);
-		if (result.success) {
-			expect(result.data).toEqual({ name: "Patients", case_type: "patient" });
-		}
+		expect(result.success).toBe(false);
 	});
 
 	it("input schema rejects legacy case_list_columns at parse time", () => {
-		// Same strict-mode rejection as `updateModule`: the legacy field
-		// fails the schema and the tool body never sees it. Case list
-		// authoring goes through the dedicated case-list-config tools
-		// (`addCaseListColumns` et al.) after the module is created.
+		// The key is current, but the old flat entry is not. Creation accepts
+		// only a canonical discriminated Column and never maps this shape.
 		const result = createModuleInputSchema.safeParse({
 			name: "Patients",
 			case_type: "patient",
 			case_list_columns: [{ field: "case_name", header: "Name" }],
 		});
 		expect(result.success).toBe(false);
+	});
+
+	it("accepts the canonical visible Results seed", () => {
+		const result = createModuleInputSchema.safeParse({
+			name: "Patients",
+			case_type: "patient",
+			case_list_columns: [
+				{
+					kind: "plain",
+					field: "case_name",
+					header: "Patient",
+					visibleInList: true,
+				},
+			],
+		});
+		expect(result.success).toBe(true);
 	});
 });

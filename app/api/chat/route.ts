@@ -2374,7 +2374,7 @@ export async function POST(req: Request) {
 									{
 										type: "run_released",
 										message:
-											"This design's question round could not pause safely. Refresh to get the latest state, then continue.",
+											"This design couldn't pause safely. Refresh to get the latest state, then continue.",
 										recoverable: false,
 									},
 									"route:design-pause-lost",

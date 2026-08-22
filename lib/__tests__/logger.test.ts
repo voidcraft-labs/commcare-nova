@@ -24,11 +24,14 @@ describe("sentryTagsFor", () => {
 		expect(sentryTagsFor("no bracket prefix here", {})).toBeUndefined();
 	});
 
-	it("promotes only the allowlisted identity keys, leaving other context out", () => {
+	it("promotes bounded identity and operational keys, leaving other context out", () => {
 		const tags = sentryTagsFor("[mcp] tool handler failed", {
 			appId: "app-1",
 			userId: "user-9",
 			runId: "run-7",
+			designSessionId: "design-3",
+			errorType: "design-terminal-omission",
+			failureClass: "unexpected-failure",
 			// not on the allowlist — stays in `extra`, never becomes a tag
 			error_type: "internal",
 			args: [1, 2, 3],
@@ -38,6 +41,9 @@ describe("sentryTagsFor", () => {
 			appId: "app-1",
 			userId: "user-9",
 			runId: "run-7",
+			designSessionId: "design-3",
+			errorType: "design-terminal-omission",
+			failureClass: "unexpected-failure",
 		});
 	});
 

@@ -104,9 +104,18 @@ describe("deriveSliceExecutionBrief", () => {
 					name: "Patient",
 					blueprintCaseType: "patient",
 				},
+				requiredInitialResultsColumn: {
+					kind: "plain",
+					field: "case_name",
+					header: "Patient",
+					visibleInList: true,
+				},
 				formCompositionIds: [ids.formRegister],
 			}),
 		]);
+		expect(visit.moduleRealizations[0]).not.toHaveProperty(
+			"requiredInitialResultsColumn",
+		);
 		expect(registration.toolProfile.mutationTools).toContain("setMenuMedia");
 		expect(registration.toolProfile.blueprintAreas).toContain("case-list");
 		expect(registration.toolProfile.mutationTools).toContain(
@@ -161,6 +170,9 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(rendered).toContain("Exact form realization instructions");
 		expect(rendered).toContain("Visit notes");
 		expect(rendered).toContain("Exact record lowering");
+		expect(renderBriefMessage(registration)).toContain(
+			'"requiredInitialResultsColumn":{"kind":"plain","field":"case_name","header":"Patient","visibleInList":true}',
+		);
 		expect(visit.recordRealizations).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({

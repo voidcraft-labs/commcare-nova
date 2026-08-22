@@ -79,6 +79,7 @@ const DESIGN_TOOL_NAMES = [
 	"updateOpenQuestions",
 	"updateRecords",
 	"updateWorkflows",
+	"waitForInput",
 ] as const;
 
 function requiredQuestions(

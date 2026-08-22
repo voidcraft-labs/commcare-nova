@@ -135,6 +135,10 @@ import {
 	ExternalActionRequiredError,
 } from "./externalActions";
 import {
+	type BuildFailureOperationalClass,
+	designBuildFailureLogLevel,
+} from "./failureReporting";
+import {
 	appendDesignModelContext,
 	completeDesignModelStep,
 	openDesignModelContext,
@@ -452,6 +456,7 @@ export async function runBuildOrchestration(
 				head = await appendFailure(args, head, {
 					errorType: loopOutcome.errorType,
 					recoverable: loopOutcome.recoverable,
+					operationalClass: "unexpected-failure",
 				});
 				return {
 					kind: "failed",
@@ -463,10 +468,10 @@ export async function runBuildOrchestration(
 			}
 
 			if (loopOutcome.kind === "awaiting-input") {
-				/* The agent's own askQuestions round already streamed through the
-				 * loop; only the durable pause remains: the event arm the stage
-				 * fold reads, and the awaiting-input flag on whichever row holds
-				 * the run. */
+				/* The agent's explicit input terminal already streamed through the
+				 * loop. Only the durable pause remains: the event arm the stage fold
+				 * reads, and the awaiting-input flag on whichever row holds the run.
+				 * The historical state-arm name also covers a waitForInput terminal. */
 				await appendOrchestrationEvent({
 					designSessionId: args.designSessionId,
 					runId: args.runId,
@@ -642,6 +647,7 @@ export async function runBuildOrchestration(
 					head = await appendFailure(args, head, {
 						errorType: "external-action-required",
 						recoverable: true,
+						operationalClass: "expected-prerequisite",
 						detail: { sliceId: slice.id },
 					});
 					return {
@@ -808,6 +814,7 @@ export async function runBuildOrchestration(
 									? "external-read-change-budget-exhausted"
 									: "rebase-budget-exhausted",
 							recoverable: false,
+							operationalClass: "unexpected-failure",
 							detail: { sliceId: slice.id, attemptId: attempt.id },
 						});
 						return {
@@ -840,6 +847,7 @@ export async function runBuildOrchestration(
 						head = await appendFailure(args, head, {
 							errorType,
 							recoverable: false,
+							operationalClass: "unexpected-failure",
 							detail: {
 								sliceId: slice.id,
 								attemptId: attempt.id,
@@ -875,6 +883,7 @@ export async function runBuildOrchestration(
 								? "execution-budget-exhausted"
 								: outcome.code,
 						recoverable: false,
+						operationalClass: "unexpected-failure",
 						detail: {
 							sliceId: slice.id,
 							attemptId: attempt.id,
@@ -1022,6 +1031,7 @@ export async function runBuildOrchestration(
 					head = await appendFailure(args, head, {
 						errorType: error.code,
 						recoverable: true,
+						operationalClass: "unexpected-failure",
 					});
 					return {
 						kind: "failed",
@@ -1039,6 +1049,7 @@ export async function runBuildOrchestration(
 				head = await appendFailure(args, head, {
 					errorType: "final-verification-failed",
 					recoverable: false,
+					operationalClass: "unexpected-failure",
 				});
 				return {
 					kind: "failed",
@@ -1180,25 +1191,29 @@ async function appendFailure(
 	failure: {
 		errorType: string;
 		recoverable: boolean;
+		operationalClass: BuildFailureOperationalClass;
 		/** Machine context for the operational log line: opaque ids, stable
 		 * codes, and aggregate counters only — never customer-authored text. */
 		detail?: Record<string, string | number | boolean>;
 	},
 ): Promise<OrchestrationHead> {
 	/* Every terminal build failure passes through here, so this is the one
-	 * line that must account for the failure without a database visit: the
-	 * stable errorType plus the ids and counters that explain it. Recoverable
-	 * failures are expected external states (a prerequisite the person still
-	 * owes), so they log as warn and stay out of Sentry. */
+	 * line that must account for the failure without a database visit. Product
+	 * resumability is independent of operational severity: an internal defect
+	 * may be safe to resume after a deploy and still belongs in Sentry. */
 	const cause = {
+		...failure.detail,
 		designSessionId: args.designSessionId,
 		runId: args.runId,
 		errorType: failure.errorType,
+		failureClass: failure.operationalClass,
 		recoverable: failure.recoverable,
-		...failure.detail,
 	};
-	if (failure.recoverable) log.warn("design_build_failed", cause);
-	else log.error("design_build_failed", undefined, cause);
+	if (designBuildFailureLogLevel(failure.operationalClass) === "warn") {
+		log.warn("design_build_failed", cause);
+	} else {
+		log.error("design_build_failed", undefined, cause);
+	}
 	return appendOrchestrationEvent({
 		designSessionId: args.designSessionId,
 		runId: args.runId,

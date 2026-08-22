@@ -263,6 +263,16 @@ const isAskPart = (p: unknown): boolean =>
 	(p as { type?: unknown }).type === "tool-askQuestions";
 const isAnsweredAskPart = (p: unknown): boolean =>
 	(p as { state?: unknown }).state === "output-available";
+const isCompletedWaitForInputPart = (p: unknown): boolean => {
+	const part = p as { type?: unknown; state?: unknown; output?: unknown };
+	if (part.type !== "tool-waitForInput" || part.state !== "output-available") {
+		return false;
+	}
+	const output = part.output as
+		| { ok?: unknown; awaitingInput?: unknown }
+		| undefined;
+	return output?.ok === true && output.awaitingInput === true;
+};
 
 /** The transcript's trailing askQuestions posture, read off the LAST step of
  *  a trailing assistant message: `answered` (every ask has its output, the
@@ -280,6 +290,21 @@ function trailingAskPosture(
 	const askParts = parts.slice(lastStepIdx + 1).filter(isAskPart);
 	if (askParts.length === 0) return "none";
 	return askParts.every(isAnsweredAskPart) ? "answered" : "awaiting-input";
+}
+
+/** A completed server-side wait is intentionally not an interactive card.
+ * Its durable tool part still tells the progress region that the closed stream
+ * is waiting for the person's next message. */
+export function trailingDesignWaitsForInput(
+	messages: readonly unknown[],
+): boolean {
+	const parts = trailingAssistantParts(messages);
+	if (!parts) return false;
+	let lastStepIdx = -1;
+	parts.forEach((p, i) => {
+		if ((p as { type?: unknown }).type === "step-start") lastStepIdx = i;
+	});
+	return parts.slice(lastStepIdx + 1).some(isCompletedWaitForInputPart);
 }
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
@@ -1581,11 +1606,11 @@ export function ChatContainer({
 	messagesRef.current = messages;
 	const designStreamOpenRef = useRef(false);
 
-	/* A blocking question round parks the run (§15.8), and the transcript is
-	 * the only place that pause is visible from here: the stream closes and an
-	 * unanswered card is left standing. Report it so the progress region stops
-	 * claiming work is moving while it waits on a person. Retire the previous
-	 * turn's progress only on the CLOSED -> OPEN transport edge. Calling
+	/* An explicit input terminal parks the design run, and the transcript is
+	 * the only place that pause is visible from here. It leaves either an
+	 * unanswered question card or a completed internal wait tool. Report that
+	 * state so the progress region stops claiming work is moving. Retire the
+	 * previous turn's progress only on the CLOSED -> OPEN transport edge. Calling
 	 * `noteTurnOpened` after every streamed message update would erase the live
 	 * review/revision/planning pulse between its two-second frames and make the
 	 * status fall back to first-turn copy during long reasoning stretches. */
@@ -1595,7 +1620,9 @@ export function ChatContainer({
 		if (streamOpen && !designStreamOpenRef.current) store.noteTurnOpened();
 		designStreamOpenRef.current = streamOpen;
 		store.setAwaitingInput(
-			!streamOpen && trailingAskPosture(messages) === "awaiting-input",
+			!streamOpen &&
+				(trailingAskPosture(messages) === "awaiting-input" ||
+					trailingDesignWaitsForInput(messages)),
 		);
 	}, [designProgressStore, messages, status]);
 	const chatRef = useRef(chat);

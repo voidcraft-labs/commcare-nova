@@ -49,6 +49,7 @@ import {
 import type { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import {
 	createDesignAgent,
+	DESIGN_WAIT_FOR_INPUT_TOOL,
 	type DesignAgentStep,
 	isExactRequiredDesignQuestionCall,
 	REQUIRED_DESIGN_QUESTIONS_HEADER,
@@ -372,6 +373,22 @@ export function designModelStepKey(args: {
 	readonly requestDigest: string;
 }): string {
 	return `design:${args.attemptId}:${args.stepNumber}:${args.requestDigest}`;
+}
+
+export function designTerminalOmissionCorrectionPrefix(args: {
+	readonly responseMessageId: string;
+	readonly phase: "author" | "review" | "revision" | "awaiting-input";
+}): string {
+	return `design-terminal-omission:${args.responseMessageId}:${args.phase}:`;
+}
+
+/** The one correction allowance is durable across process replacement. */
+export function designTerminalOmissionCanCorrect(
+	appendKeys: ReadonlySet<string>,
+	args: Parameters<typeof designTerminalOmissionCorrectionPrefix>[0],
+): boolean {
+	const prefix = designTerminalOmissionCorrectionPrefix(args);
+	return ![...appendKeys].some((key) => key.startsWith(prefix));
 }
 
 /** Append every ordinary user turn that is absent from an already-open private
@@ -724,11 +741,13 @@ export async function runDesignAgentLoop(
 	let turnRetries = 0;
 	const openParts = createOpenPartTracker();
 	let pausedOnQuestions = false;
+	let pausedForMoreInput = false;
 	let failure: ClassifiedError | null = null;
 	let protocolFailure: DesignLoopOutcome | null = null;
 
 	for (;;) {
 		pausedOnQuestions = false;
+		pausedForMoreInput = false;
 		let sawFatalError = false;
 		let pendingError: unknown;
 
@@ -1146,6 +1165,18 @@ export async function runDesignAgentLoop(
 			}
 			if (chunk.type === "start" || chunk.type === "finish") continue;
 			trackPulse(chunk);
+			if (
+				chunk.type === "tool-output-available" &&
+				toolNames.get(chunk.toolCallId) === DESIGN_WAIT_FOR_INPUT_TOOL &&
+				typeof chunk.output === "object" &&
+				chunk.output !== null &&
+				"ok" in chunk.output &&
+				chunk.output.ok === true &&
+				"awaitingInput" in chunk.output &&
+				chunk.output.awaitingInput === true
+			) {
+				pausedForMoreInput = true;
+			}
 			/* A required question card is server-authored protocol. Buffer its
 			 * streamed input until the complete call proves byte-for-byte semantic
 			 * equality with the authorized batch. A subset or paraphrase is repaired
@@ -1269,7 +1300,7 @@ export async function runDesignAgentLoop(
 			continue;
 		}
 
-		if (pausedOnQuestions) break;
+		if (pausedOnQuestions || pausedForMoreInput) break;
 		if (
 			!sawFatalError &&
 			activeRequiredQuestionBatch.length > 0 &&
@@ -1296,9 +1327,42 @@ export async function runDesignAgentLoop(
 			const settled = evaluateDesignGates(await loadAncestry());
 			if (settled.plan !== null) break;
 			/* A legal terminal tool advances the durable phase. Continue by
-			 * appending its new authoritative state to this same context; a clean
-			 * stream that did not advance is incomplete and is mapped below. */
+			 * appending its new authoritative state to this same context. */
 			if (phaseFor(settled) !== phase) continue;
+			/* AI SDK stops a ToolLoopAgent as soon as the provider returns a
+			 * non-tool finish, before stopWhen can ask for another step. Give the
+			 * model one durable, exact correction inside this turn. A second clean
+			 * omission is a bounded harness defect, not a reason to make the person
+			 * resend the same instruction repeatedly. */
+			const correctionPrefix = designTerminalOmissionCorrectionPrefix({
+				responseMessageId: args.responseMessageId,
+				phase,
+			});
+			if (
+				designTerminalOmissionCanCorrect(modelContextAppendKeys, {
+					responseMessageId: args.responseMessageId,
+					phase,
+				})
+			) {
+				const correction: ModelMessage = {
+					role: "user",
+					content: [
+						"# Design terminal correction (server-derived)",
+						"The previous response ended without advancing the design or choosing a legal pause. If the person's latest message explicitly says more requirements or source material are coming, or asks you not to begin yet, call waitForInput. If you need a material answer, call askQuestions. Otherwise continue the current design phase and reach its legal terminal. Do not end with conversational text alone.",
+					].join("\n"),
+				};
+				const correctionKey = `${correctionPrefix}${modelStepsSpent}`;
+				await appendContext(correctionKey, [correction]);
+				modelContext = [...(modelContext ?? []), correction];
+				continue;
+			}
+			protocolFailure = {
+				kind: "failed",
+				errorType: "design-terminal-omission",
+				message:
+					"Nova couldn't complete this design turn. Everything already decided is saved, and this design can continue after Nova's design behavior is updated.",
+				recoverable: true,
+			};
 			break;
 		}
 		const classified = classifyError(
@@ -1324,10 +1388,7 @@ export async function runDesignAgentLoop(
 		);
 	}
 
-	/* Terminal mapping: a turn must end in a RECOGNIZED terminal. A loop
-	 * that simply stopped emitting (no pause, no plan, no error) is a
-	 * retriable design-session error, never a silent success or a
-	 * forever-designing hang. */
+	/* Terminal mapping: a turn must end in a recognized terminal. */
 	const fatal = repair.fatalError();
 	if (protocolFailure !== null) return protocolFailure;
 	const finalGates = evaluateDesignGates(await loadAncestry());
@@ -1338,7 +1399,7 @@ export async function runDesignAgentLoop(
 			plan: finalGates.plan,
 		};
 	}
-	if (pausedOnQuestions) {
+	if (pausedOnQuestions || pausedForMoreInput) {
 		return {
 			kind: "awaiting-input",
 			headRevisionId: finalGates.head?.id ?? null,
@@ -1377,9 +1438,9 @@ export async function runDesignAgentLoop(
 	}
 	return {
 		kind: "failed",
-		errorType: "design-loop-incomplete",
+		errorType: "design-terminal-omission",
 		message:
-			"The design turn stopped before reaching a plan or a question for you. Nothing was lost; send your message again to continue from where it stopped.",
+			"Nova couldn't complete this design turn. Everything already decided is saved, and this design can continue after Nova's design behavior is updated.",
 		recoverable: true,
 	};
 }

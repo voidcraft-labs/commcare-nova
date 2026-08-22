@@ -74,8 +74,8 @@ const BLOCKING_DIAGNOSTICS = diagnostics({
 	canCommit: false,
 	allFindings: [
 		{
-			code: "EMPTY_FORM",
-			message: "This form has no questions.",
+			code: "MISSING_CASE_LIST_COLUMNS",
+			message: "This case module has no visible Results fields.",
 			location: { kind: "app" },
 			details: {},
 		},
@@ -921,6 +921,14 @@ describe("failure and finalization policy", () => {
 			status: "needs-correction",
 			code: "WORKFLOW_NEEDS_CORRECTION",
 		});
+		const correctionResult = JSON.stringify(
+			toolResultValues(context.messages).find(
+				(item) => item.toolCallId === "finish-1",
+			)?.value,
+		);
+		expect(correctionResult).toContain("addCaseListColumns");
+		expect(correctionResult).toContain('\\"field\\":\\"case_name\\"');
+		expect(correctionResult).toContain("never addFields");
 	});
 
 	it("reports a lost workspace as a terminal protocol fact", async () => {
