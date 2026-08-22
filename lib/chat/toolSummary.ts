@@ -356,6 +356,10 @@ export const isEditToolPart = (part: {
 }): boolean =>
 	part.type.startsWith("tool-") &&
 	part.type !== "tool-askQuestions" &&
+	/* A design wait is durable protocol evidence for recovery and progress,
+	 * not an app edit or a user-facing tool row. The model's acknowledgement
+	 * immediately before it is the complete visible response. */
+	part.type !== "tool-waitForInput" &&
 	// Historical threads only — retired build-mode tools.
 	part.type !== "tool-generateScaffold" &&
 	part.type !== "tool-planAppDesign" &&

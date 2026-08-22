@@ -263,6 +263,16 @@ const isAskPart = (p: unknown): boolean =>
 	(p as { type?: unknown }).type === "tool-askQuestions";
 const isAnsweredAskPart = (p: unknown): boolean =>
 	(p as { state?: unknown }).state === "output-available";
+const isCompletedWaitForInputPart = (p: unknown): boolean => {
+	const part = p as { type?: unknown; state?: unknown; output?: unknown };
+	if (part.type !== "tool-waitForInput" || part.state !== "output-available") {
+		return false;
+	}
+	const output = part.output as
+		| { ok?: unknown; awaitingInput?: unknown }
+		| undefined;
+	return output?.ok === true && output.awaitingInput === true;
+};
 
 /** The transcript's trailing askQuestions posture, read off the LAST step of
  *  a trailing assistant message: `answered` (every ask has its output, the
@@ -280,6 +290,49 @@ function trailingAskPosture(
 	const askParts = parts.slice(lastStepIdx + 1).filter(isAskPart);
 	if (askParts.length === 0) return "none";
 	return askParts.every(isAnsweredAskPart) ? "answered" : "awaiting-input";
+}
+
+/** A completed server-side wait is intentionally not an interactive card.
+ * Its durable tool part still tells the progress region that the closed stream
+ * is waiting for the person's next message. */
+export function trailingDesignWaitsForInput(
+	messages: readonly unknown[],
+): boolean {
+	const parts = trailingAssistantParts(messages);
+	if (!parts) return false;
+	let lastStepIdx = -1;
+	parts.forEach((p, i) => {
+		if ((p as { type?: unknown }).type === "step-start") lastStepIdx = i;
+	});
+	return parts.slice(lastStepIdx + 1).some(isCompletedWaitForInputPart);
+}
+
+/** AI SDK keeps an optimistic user message when its request fails. If that
+ * message immediately followed a completed design wait, the server still owns
+ * the paused hold and the exact retained transcript is safe to submit again.
+ * A second typed message is not equivalent, so callers expose an explicit
+ * retry instead of reopening the ordinary composer. */
+export function trailingTypedDesignWaitContinuation(
+	messages: readonly unknown[],
+): boolean {
+	if (messages.length < 2) return false;
+	const last = messages.at(-1) as { role?: unknown } | undefined;
+	if (last?.role !== "user") return false;
+	return trailingDesignWaitsForInput([messages.at(-2)]);
+}
+
+/** Claim the design-backed creation path synchronously. The blank-app action
+ * stays visually enabled while it fades, so the shared ref is the authority
+ * that prevents a click race before React commits the hidden state. */
+export function claimDesignAgentPath(args: {
+	readonly blankAppCreationInProgress: boolean;
+	readonly agentEngaged: { current: boolean };
+	readonly clearSendFailure: () => void;
+}): boolean {
+	if (args.blankAppCreationInProgress) return false;
+	args.agentEngaged.current = true;
+	args.clearSendFailure();
+	return true;
 }
 
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
@@ -1581,11 +1634,11 @@ export function ChatContainer({
 	messagesRef.current = messages;
 	const designStreamOpenRef = useRef(false);
 
-	/* A blocking question round parks the run (§15.8), and the transcript is
-	 * the only place that pause is visible from here: the stream closes and an
-	 * unanswered card is left standing. Report it so the progress region stops
-	 * claiming work is moving while it waits on a person. Retire the previous
-	 * turn's progress only on the CLOSED -> OPEN transport edge. Calling
+	/* An explicit input terminal parks the design run, and the transcript is
+	 * the only place that pause is visible from here. It leaves either an
+	 * unanswered question card or a completed internal wait tool. Report that
+	 * state so the progress region stops claiming work is moving. Retire the
+	 * previous turn's progress only on the CLOSED -> OPEN transport edge. Calling
 	 * `noteTurnOpened` after every streamed message update would erase the live
 	 * review/revision/planning pulse between its two-second frames and make the
 	 * status fall back to first-turn copy during long reasoning stretches. */
@@ -1595,7 +1648,9 @@ export function ChatContainer({
 		if (streamOpen && !designStreamOpenRef.current) store.noteTurnOpened();
 		designStreamOpenRef.current = streamOpen;
 		store.setAwaitingInput(
-			!streamOpen && trailingAskPosture(messages) === "awaiting-input",
+			!streamOpen &&
+				(trailingAskPosture(messages) === "awaiting-input" ||
+					trailingDesignWaitsForInput(messages)),
 		);
 	}, [designProgressStore, messages, status]);
 	const chatRef = useRef(chat);
@@ -2229,7 +2284,6 @@ export function ChatContainer({
 			text: string;
 			attachments?: AttachmentRef[];
 		}) => {
-			if (creatingStarterAppRef.current) return;
 			const session = sessionStoreRef.current?.getState();
 			if (
 				!chatGenerationCanWrite(
@@ -2240,8 +2294,15 @@ export function ChatContainer({
 			)
 				return;
 			if (!text.trim() && !attachments?.length) return;
-			agentEngagedRef.current = true;
-			setSendFailedBeforeApp(false);
+			if (
+				!claimDesignAgentPath({
+					blankAppCreationInProgress: creatingStarterAppRef.current,
+					agentEngaged: agentEngagedRef,
+					clearSendFailure: () => setSendFailedBeforeApp(false),
+				})
+			) {
+				return;
+			}
 			/* A typed message is an explicit fresh attempt: clear the fatal
 			 * strikes so an earlier halted round can't bleed into this one. */
 			autoResendFatalStrikesRef.current = 0;
@@ -2256,6 +2317,41 @@ export function ChatContainer({
 		},
 		[scopeEpoch, sendMessage],
 	);
+
+	const retryTypedDesignWaitContinuation = useCallback(() => {
+		const session = sessionStoreRef.current?.getState();
+		if (
+			status !== "error" ||
+			!trailingTypedDesignWaitContinuation(messagesRef.current) ||
+			!chatGenerationCanWrite(
+				session,
+				scopeEpoch,
+				threadHydrationStateRef.current,
+			)
+		) {
+			projectToast(
+				"error",
+				"Couldn't retry the message",
+				"Reload the page, then send your message again.",
+			);
+			return;
+		}
+		if (
+			!claimDesignAgentPath({
+				blankAppCreationInProgress: creatingStarterAppRef.current,
+				agentEngaged: agentEngagedRef,
+				clearSendFailure: () => setSendFailedBeforeApp(false),
+			})
+		) {
+			return;
+		}
+		autoResendFatalStrikesRef.current = 0;
+		clearError();
+		/* No duplicate message is appended. AI SDK resubmits the retained
+		 * optimistic user turn, so the server sees the exact wait -> user shape
+		 * that replaces the paused hold without charging twice. */
+		void sendMessage(undefined);
+	}, [clearError, projectToast, scopeEpoch, sendMessage, status]);
 
 	const resumeAcceptedBuild = useCallback(() => {
 		const session = sessionStoreRef.current?.getState();
@@ -2475,21 +2571,29 @@ export function ChatContainer({
 							actionLabel: "Reload page",
 							onAction: () => window.location.reload(),
 						}
-					: canEdit &&
-							!readOnly &&
-							designBuildCanResume(
-								designProgressStore.getState(),
-								buildUnfinished,
-								status,
-							)
+					: status === "error" && trailingTypedDesignWaitContinuation(messages)
 						? {
-								title: "Build paused",
+								title: "Message not sent",
 								message:
-									"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
-								actionLabel: "Resume build",
-								onAction: resumeAcceptedBuild,
+									"Your message is still here. Try sending this exact message again.",
+								actionLabel: "Try again",
+								onAction: retryTypedDesignWaitContinuation,
 							}
-						: undefined
+						: canEdit &&
+								!readOnly &&
+								designBuildCanResume(
+									designProgressStore.getState(),
+									buildUnfinished,
+									status,
+								)
+							? {
+									title: "Build paused",
+									message:
+										"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
+									actionLabel: "Resume build",
+									onAction: resumeAcceptedBuild,
+								}
+							: undefined
 			}
 			messages={messages}
 			status={status}
@@ -2522,6 +2626,7 @@ export function ChatContainer({
 				designProgress,
 				buildUnfinished,
 			)}
+			awaitingTypedInput={trailingDesignWaitsForInput(messages)}
 			/* The design session owns the one activity row until the complete
 			 * frame and transport close. Its details collapse after materialization,
 			 * but its status remains the authoritative current slice/build phase. */

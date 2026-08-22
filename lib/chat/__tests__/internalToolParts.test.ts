@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { isDesignProtocolToolPartType } from "@/lib/chat/internalToolParts";
-import { toolAction, toolDetail, toolStatus } from "@/lib/chat/toolSummary";
+import {
+	isEditToolPart,
+	toolAction,
+	toolDetail,
+	toolStatus,
+} from "@/lib/chat/toolSummary";
 
 describe("design protocol tool presentation", () => {
 	const DESIGN_PART_TYPES = [
@@ -29,6 +34,18 @@ describe("design protocol tool presentation", () => {
 
 	it("keeps ordinary builder edits out of the protocol set", () => {
 		expect(isDesignProtocolToolPartType("tool-addFields")).toBe(false);
+	});
+
+	it("keeps the explicit wait terminal internal and out of mutation summaries", () => {
+		expect(isDesignProtocolToolPartType("tool-waitForInput")).toBe(true);
+		expect(
+			isEditToolPart({
+				type: "tool-waitForInput",
+				toolCallId: "wait-1",
+				state: "output-available",
+				output: { ok: true, awaitingInput: true },
+			} as never),
+		).toBe(false);
 	});
 
 	it.each(DESIGN_PART_TYPES)(

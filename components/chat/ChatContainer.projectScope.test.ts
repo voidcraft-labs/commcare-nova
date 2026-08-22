@@ -11,6 +11,7 @@ import {
 	chatCallbackCanPublish,
 	chatGenerationCanWrite,
 	chatRequestIsRedrive,
+	claimDesignAgentPath,
 	designBuildCanResume,
 	designProgressLocksInitialBuild,
 	designProgressOwnsActivityStatus,
@@ -24,7 +25,100 @@ import {
 	threadActivationNeedsIncompleteSeed,
 	threadResumeHealPath,
 	threadResumeHealTarget,
+	trailingDesignWaitsForInput,
+	trailingTypedDesignWaitContinuation,
 } from "./ChatContainer";
+
+describe("design wait terminal", () => {
+	it("recognizes only a successful wait in the trailing assistant step", () => {
+		expect(
+			trailingDesignWaitsForInput([
+				{
+					role: "assistant",
+					parts: [
+						{ type: "step-start" },
+						{
+							type: "tool-waitForInput",
+							state: "output-available",
+							output: { ok: true, awaitingInput: true },
+						},
+					],
+				},
+			]),
+		).toBe(true);
+		expect(
+			trailingDesignWaitsForInput([
+				{
+					role: "assistant",
+					parts: [
+						{ type: "step-start" },
+						{
+							type: "tool-waitForInput",
+							state: "input-available",
+						},
+					],
+				},
+			]),
+		).toBe(false);
+	});
+
+	it("keeps an exact wait continuation retryable after the optimistic user message", () => {
+		const wait = {
+			role: "assistant",
+			parts: [
+				{ type: "step-start" },
+				{
+					type: "tool-waitForInput",
+					state: "output-available",
+					output: { ok: true, awaitingInput: true },
+				},
+			],
+		};
+		expect(
+			trailingTypedDesignWaitContinuation([
+				wait,
+				{ role: "user", parts: [{ type: "text", text: "The rest" }] },
+			]),
+		).toBe(true);
+		expect(
+			trailingTypedDesignWaitContinuation([
+				wait,
+				{ role: "user", parts: [{ type: "text", text: "The rest" }] },
+				{ role: "assistant", parts: [{ type: "text", text: "Received" }] },
+			]),
+		).toBe(false);
+	});
+
+	it("reclaims the agent path before retry and refuses a concurrent blank app", () => {
+		const agentEngaged = { current: false };
+		let sendFailed = true;
+		expect(
+			claimDesignAgentPath({
+				blankAppCreationInProgress: false,
+				agentEngaged,
+				clearSendFailure: () => {
+					sendFailed = false;
+				},
+			}),
+		).toBe(true);
+		expect(agentEngaged.current).toBe(true);
+		expect(sendFailed).toBe(false);
+
+		agentEngaged.current = false;
+		sendFailed = true;
+		expect(
+			claimDesignAgentPath({
+				blankAppCreationInProgress: true,
+				agentEngaged,
+				clearSendFailure: () => {
+					sendFailed = false;
+				},
+			}),
+		).toBe(false);
+		expect(agentEngaged.current).toBe(false);
+		expect(sendFailed).toBe(true);
+	});
+});
 
 describe("interrupted-turn request routing", () => {
 	it("preserves automatic regenerate redrive semantics", () => {

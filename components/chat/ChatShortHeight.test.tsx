@@ -118,11 +118,12 @@ describe("short-height chat", () => {
 });
 
 describe("composer activity state", () => {
-	it("keeps a stopped accepted build locked except for a persisted question", () => {
+	it("keeps a stopped accepted build locked except for a persisted question or typed-input pause", () => {
 		const base = {
 			isLoading: false,
 			isGenerating: false,
 			initialBuildLocked: true,
+			awaitingTypedInput: false,
 			activeQuestionCount: 0,
 			composerBusy: false,
 			readOnly: false,
@@ -130,6 +131,9 @@ describe("composer activity state", () => {
 		};
 		expect(chatComposerIsDisabled(base)).toBe(true);
 		expect(chatComposerIsDisabled({ ...base, activeQuestionCount: 1 })).toBe(
+			false,
+		);
+		expect(chatComposerIsDisabled({ ...base, awaitingTypedInput: true })).toBe(
 			false,
 		);
 		expect(chatComposerIsDisabled({ ...base, initialBuildLocked: false })).toBe(

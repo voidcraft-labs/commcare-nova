@@ -120,8 +120,9 @@ describes (preview mode, sidebars, the run event buffer, `buildUnfinished`)
 is about a document that does not exist yet. It holds only the durable
 projections the build orchestrator streams — the reviewed-design outline, the
 build plan's slice names, which slices committed — plus the two facts only the
-client can see: a paused askQuestions round (read off the transcript) and a
-run-stopping stream error. BOTH error kinds stop the stage line — a
+client can see: an explicit input terminal (an unanswered question card or a
+completed internal wait tool, read off the transcript) and a run-stopping
+stream error. BOTH error kinds stop the stage line: a
 recoverable error reads `incomplete` ("Stopped before it finished") and a fatal
 one `failed`; neither creates a user retry action. Marking only fatal
 errors left the line spinning over a dead run, observed live. An automatic

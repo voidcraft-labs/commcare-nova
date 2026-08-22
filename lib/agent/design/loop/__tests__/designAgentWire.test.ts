@@ -31,6 +31,7 @@ import { DesignRepairTracker } from "@/lib/agent/design/loop/gates";
 import {
 	collectDesignReferenceBindings,
 	createDesignLoopTools,
+	createDesignToolExecutionQueue,
 	designCreationIdentityIssue,
 	designReservedReferenceIssue,
 	resolveDesignWorkspaceHandles,
@@ -38,6 +39,57 @@ import {
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import { computeSourcePackageDigest } from "@/lib/agent/design/sourcePackage";
 import { MODEL_ROLES } from "@/lib/models";
+
+describe("design tool execution queue", () => {
+	it("serializes a wait and refuses every later callback in the response", async () => {
+		const queue = createDesignToolExecutionQueue();
+		const applied: string[] = [];
+
+		const beforeWait = queue.run(async () => {
+			applied.push("before-wait");
+			return { ok: true as const };
+		});
+		const wait = queue.pause();
+		const afterWait = queue.run(async () => {
+			applied.push("after-wait");
+			return { ok: true as const };
+		});
+
+		await expect(beforeWait).resolves.toEqual({ ok: true });
+		await expect(wait).resolves.toEqual({ ok: true, awaitingInput: true });
+		await expect(afterWait).resolves.toMatchObject({
+			error: expect.stringContaining("already waiting"),
+			diagnostic: { code: "design-input-pause-terminal" },
+		});
+		expect(applied).toEqual(["before-wait"]);
+	});
+
+	it("reserves a client question in provider order before server execution", async () => {
+		const queue = createDesignToolExecutionQueue();
+		const beforeInput = {};
+		const questionInput = {};
+		const waitInput = {};
+		const applied: string[] = [];
+
+		queue.beginResponse();
+		queue.register("updateActors", beforeInput);
+		queue.register("askQuestions", questionInput);
+		queue.register("waitForInput", waitInput);
+
+		const beforeQuestion = queue.run(beforeInput, async () => {
+			applied.push("before-question");
+			return { ok: true as const };
+		});
+		const laterWait = queue.pause(waitInput);
+
+		await expect(beforeQuestion).resolves.toEqual({ ok: true });
+		await expect(laterWait).resolves.toMatchObject({
+			error: expect.stringContaining("already waiting"),
+			diagnostic: { code: "design-input-pause-terminal" },
+		});
+		expect(applied).toEqual(["before-question"]);
+	});
+});
 
 interface CapturedBody {
 	model?: string;
@@ -79,6 +131,7 @@ const DESIGN_TOOL_NAMES = [
 	"updateOpenQuestions",
 	"updateRecords",
 	"updateWorkflows",
+	"waitForInput",
 ] as const;
 
 function requiredQuestions(
@@ -127,39 +180,47 @@ async function captureDesignTurnBody(
 	};
 	const openai = createOpenAI({ apiKey: "sk-fake-never-sent", fetch: capture });
 	const pkg = fixturePkg();
-	const tools = createDesignLoopTools({
-		designSessionId: pkg.designSessionId,
-		runId: "run-1",
-		authority: {
-			actorUserId: "u",
+	const toolExecutionQueue = createDesignToolExecutionQueue();
+	const tools = createDesignLoopTools(
+		{
+			designSessionId: pkg.designSessionId,
 			runId: "run-1",
-			holderNonce: "00000000-0000-4000-8000-000000000003",
-			expectedProjectId: "p",
-		},
-		currentPkg: pkg,
-		catalogText: "CATALOG",
-		ctx: {
-			userId: "u",
-			projectId: "p",
-			runId: "run-1",
-			target: { kind: "design-session", designSessionId: pkg.designSessionId },
-			model: () => openai(MODEL_ROLES.designAuthor.modelId),
-			trackSubGeneration: () => {},
-			runStructured: async () => {
+			authority: {
+				actorUserId: "u",
+				runId: "run-1",
+				holderNonce: "00000000-0000-4000-8000-000000000003",
+				expectedProjectId: "p",
+			},
+			currentPkg: pkg,
+			catalogText: "CATALOG",
+			ctx: {
+				userId: "u",
+				projectId: "p",
+				runId: "run-1",
+				target: {
+					kind: "design-session",
+					designSessionId: pkg.designSessionId,
+				},
+				model: () => openai(MODEL_ROLES.designAuthor.modelId),
+				trackSubGeneration: () => {},
+				runStructured: async () => {
+					throw new Error("never called at registration time");
+				},
+			},
+			signal: new AbortController().signal,
+			repair: new DesignRepairTracker(),
+			loadAncestry: async () => {
 				throw new Error("never called at registration time");
 			},
+			ancestryChanged: () => {},
+			rebuildPackageForDigest: async () => null,
 		},
-		signal: new AbortController().signal,
-		repair: new DesignRepairTracker(),
-		loadAncestry: async () => {
-			throw new Error("never called at registration time");
-		},
-		ancestryChanged: () => {},
-		rebuildPackageForDigest: async () => null,
-	});
+		toolExecutionQueue,
+	);
 	const agent = createDesignAgent({
 		model: openai(MODEL_ROLES.designAuthor.modelId),
 		tools,
+		toolExecutionQueue,
 		phase,
 		catalogText: "CATALOG",
 		constraintsText: "CONSTRAINTS",
@@ -191,7 +252,7 @@ async function captureDesignTurnBody(
 }
 
 describe("design agent Responses wire body", () => {
-	it("appends the exact required question batch without changing tool selection", () => {
+	it("appends the exact required question batch and forces its tool", () => {
 		const questions = requiredQuestions(
 			Array.from(
 				{ length: 7 },
@@ -199,7 +260,10 @@ describe("design agent Responses wire body", () => {
 			),
 		);
 		const step = requiredDesignQuestionStep(questions);
-		expect(step).toMatchObject({ message: { role: "user" } });
+		expect(step).toMatchObject({
+			message: { role: "user" },
+			toolChoice: { type: "tool", toolName: "askQuestions" },
+		});
 		expect(step?.message.content).toContain(questions[0]?.question);
 		expect(step?.message.content).not.toContain(questions[5]?.question);
 		expect(requiredDesignQuestionStep([])).toBeNull();
@@ -276,7 +340,7 @@ describe("design agent Responses wire body", () => {
 		);
 
 		const body = await captureDesignTurnBody(questions);
-		expect(body.tool_choice).not.toEqual({
+		expect(body.tool_choice).toEqual({
 			type: "function",
 			name: "askQuestions",
 		});

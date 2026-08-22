@@ -107,7 +107,10 @@ import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
-import { creditGateDecision } from "./creditGate";
+import {
+	creditGateDecision,
+	typedMessageResumesDesignWait,
+} from "./creditGate";
 import { chatRequestSchema, chatRunIdSchema } from "./schema";
 import { isFatalStreamErrorChunk } from "./streamFailure";
 
@@ -266,9 +269,23 @@ export async function POST(req: Request) {
 	 * real mode isn't loaded yet. The authoritative charge is derived from
 	 * the app row's own status once the app is created/loaded (`appReady` /
 	 * `cost` below) and re-checked inside the claim transaction. */
+	/* A typed continuation after waitForInput replaces this actor's paused hold
+	 * inside the locked claim transaction. Do not compare the balance with the
+	 * gross charge first: the transaction refunds the old marker and checks the
+	 * net debit atomically. The raw transcript shape plus the run capability
+	 * keeps this exception narrow; neither is authoritative, so the later claim
+	 * still proves every fact before generation. */
+	const replacesPausedHold =
+		parsed.data.redrive !== true &&
+		parsed.data.runId !== undefined &&
+		parsed.data.holderNonce !== undefined &&
+		(parsed.data.appId !== undefined ||
+			parsed.data.designSessionId !== undefined) &&
+		typedMessageResumesDesignWait(messages);
 	const { chargeable, preflightCost } = creditGateDecision({
 		rawMessages: messages,
 		existingApp: parsed.data.appId !== undefined,
+		replacesPausedHold,
 		redrive: parsed.data.redrive,
 	});
 	/* A holder nonce is a per-CLAIM capability, never thread attribution. A
@@ -312,7 +329,7 @@ export async function POST(req: Request) {
 			);
 		}
 
-		if (chargeable) {
+		if (chargeable && preflightCost > 0) {
 			const balance = await getCurrentCreditBalance(userId);
 			if (balance < preflightCost) {
 				return Response.json(
@@ -1452,6 +1469,10 @@ export async function POST(req: Request) {
 						paused?: boolean;
 						heldApp?: boolean;
 						failureSource?: string;
+						/** The typed failure already emitted its canonical structured
+						 * operational report. Finalization still publishes the safe
+						 * conversation event, but must not report it to Sentry again. */
+						failureReportedAtSource?: boolean;
 						/** The TURN finished — its answer streamed to completion and
 						 * every unit it narrates committed — and `failure` is
 						 * post-drain BOOKKEEPING (schema materialization, the
@@ -1599,7 +1620,13 @@ export async function POST(req: Request) {
 							});
 						}
 						if (settleOutcome === "owned") {
-							ctx.emitError(failure, opts?.failureSource ?? "route:failure");
+							ctx.emitError(
+								failure,
+								opts?.failureSource ?? "route:failure",
+								opts?.failureReportedAtSource === true
+									? { reportedAtSource: true }
+									: undefined,
+							);
 							if (chargeable && refundSettled && !refundSignalled) {
 								refundSignalled = true;
 								writer.write({
@@ -1620,7 +1647,13 @@ export async function POST(req: Request) {
 							/* Infrastructure uncertainty is not proof of holder loss. Surface the
 							 * original failure, but make no refund claim; the exact-holder reaper
 							 * remains the settlement backstop. */
-							ctx.emitError(failure, opts?.failureSource ?? "route:failure");
+							ctx.emitError(
+								failure,
+								opts?.failureSource ?? "route:failure",
+								opts?.failureReportedAtSource === true
+									? { reportedAtSource: true }
+									: undefined,
+							);
 						}
 						/* Flip to `error` only for a BUILD (the app is `generating`). A failed
 						 * EDIT must NOT flip its already-`complete` app to `error`: that would
@@ -2374,7 +2407,7 @@ export async function POST(req: Request) {
 									{
 										type: "run_released",
 										message:
-											"This design's question round could not pause safely. Refresh to get the latest state, then continue.",
+											"This design couldn't pause safely. Refresh to get the latest state, then continue.",
 										recoverable: false,
 									},
 									"route:design-pause-lost",
@@ -2402,7 +2435,10 @@ export async function POST(req: Request) {
 										recoverable: outcome.recoverable,
 										raw: outcome.errorType,
 									},
-									{ failureSource: "route:design-build" },
+									{
+										failureSource: "route:design-build",
+										failureReportedAtSource: true,
+									},
 								);
 							} else {
 								usage.markRunFailed();
@@ -2427,6 +2463,7 @@ export async function POST(req: Request) {
 										raw: outcome.errorType,
 									},
 									"route:design-build",
+									{ reportedAtSource: true },
 								);
 								if (chargeable && refunded && !refundSignalled) {
 									refundSignalled = true;

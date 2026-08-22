@@ -2381,20 +2381,55 @@ function terminalProtocolCode(error: unknown): string | null {
  *  whole validator dump. */
 function projectDiagnostics(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
-	_brief: SliceExecutionBrief,
+	brief: SliceExecutionBrief,
 	acceptedRequirementIssues: readonly AcceptedInputRequirementIssue[] = [],
 ): unknown {
 	const MAX_REPORTED_FINDINGS = 20;
-	const validatorFindings = diagnostics.allFindings.map((finding) => ({
-		code: finding.code,
-		message: finding.message,
-		/* Coordinates and structured details are what distinguish several
-		 * instances of the same validator code. They stay inside the private
-		 * executor context; stripping them made the worker guess which carrier
-		 * to repair and turn a local correction into a false design blocker. */
-		location: finding.location,
-		details: finding.details,
-	}));
+	const initialResultsRealizations = brief.moduleRealizations.filter(
+		(realization) =>
+			realization.action === "create" &&
+			realization.requiredInitialResultsColumn !== undefined,
+	);
+	const moduleCompositionById = new Map(
+		brief.moduleCompositions.map((composition) => [
+			composition.id,
+			composition,
+		]),
+	);
+	const validatorFindings = diagnostics.allFindings.map((finding) => {
+		const matchingRealizations = initialResultsRealizations.filter(
+			(realization) =>
+				finding.location.moduleName === undefined ||
+				moduleCompositionById.get(realization.compositionId)?.name ===
+					finding.location.moduleName,
+		);
+		const initialResultsColumn =
+			matchingRealizations.length === 1
+				? matchingRealizations[0]?.requiredInitialResultsColumn
+				: undefined;
+		const missingResultsCorrection =
+			initialResultsColumn === undefined
+				? undefined
+				: brief.toolProfile.mutationTools.includes("addCaseListColumns")
+					? `Call addCaseListColumns for the located module with columns: [${JSON.stringify(initialResultsColumn)}]. Results columns configure the module case list, never addFields.`
+					: brief.toolProfile.mutationTools.includes("updateModule")
+						? `Call updateModule for the located module with its current case_type and case_list_columns: [${JSON.stringify(initialResultsColumn)}]. Results columns configure the module case list, never addFields.`
+						: `Re-issue createModule with case_list_columns: [${JSON.stringify(initialResultsColumn)}]. Results columns configure the module case list, never addFields.`;
+		return {
+			code: finding.code,
+			message: finding.message,
+			/* Coordinates and structured details are what distinguish several
+			 * instances of the same validator code. They stay inside the private
+			 * executor context; stripping them made the worker guess which carrier
+			 * to repair and turn a local correction into a false design blocker. */
+			location: finding.location,
+			details: finding.details,
+			...(finding.code === "MISSING_CASE_LIST_COLUMNS" &&
+				missingResultsCorrection !== undefined && {
+					correction: missingResultsCorrection,
+				}),
+		};
+	});
 	const allFindings = [...acceptedRequirementIssues, ...validatorFindings];
 	return {
 		revision: diagnostics.snapshotRevision,

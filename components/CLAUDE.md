@@ -168,6 +168,19 @@ directly above the composer. A terminal design-build error replaces any stale
 working stage; automatic recovery never invents a user-authored retry message
 in the transcript.
 
+The design-only `waitForInput` terminal is also protocol-internal. It renders
+no mutation row or interactive card. Its completed durable tool part still
+drives the activity line to the needs-input state after the stream closes, and
+its short visible acknowledgement is replayed with that tool part after process
+replacement so the hold never appears beneath an unanswered user message. Only
+the person's next message resumes the design. It never enters the
+answered-`askQuestions` auto-resend path. If that typed continuation fails
+before the server accepts it, the retained optimistic message gets one explicit
+Try again action that resubmits the exact transcript without appending a second
+message or replacing the paused hold twice. That retry synchronously reclaims
+the design-backed creation path before it sends, so the still-fading blank-app
+action cannot race it.
+
 The activity row directly above the composer is the chat surface's only
 rotating progress indicator. A disabled send button keeps its send arrow, and
 in-flight tool rows, attachment chips, thread rows, and secondary actions use

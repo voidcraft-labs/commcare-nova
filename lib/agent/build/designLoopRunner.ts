@@ -49,6 +49,7 @@ import {
 import type { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import {
 	createDesignAgent,
+	DESIGN_WAIT_FOR_INPUT_TOOL,
 	type DesignAgentStep,
 	isExactRequiredDesignQuestionCall,
 	REQUIRED_DESIGN_QUESTIONS_HEADER,
@@ -61,6 +62,7 @@ import {
 } from "@/lib/agent/design/loop/designAgent";
 import {
 	createMemoizedAncestryLoader,
+	DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE,
 	type DesignGateState,
 	DesignRepairTracker,
 	type DesignSubmissionValidationStage,
@@ -75,6 +77,7 @@ import {
 } from "@/lib/agent/design/loop/packageRender";
 import {
 	createDesignLoopTools,
+	createDesignToolExecutionQueue,
 	designWorkspaceLineageForGates,
 	ensureDerivedBuildPlan,
 	projectDesignIdentityHandles,
@@ -107,6 +110,7 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	appendDesignModelContext,
 	completeDesignModelStep,
+	type DesignModelContextItem,
 	openDesignModelContext,
 	recordDesignModelStepEvent,
 	recoverableCompletedModelSteps,
@@ -238,6 +242,320 @@ function modelToolPartIds(
 		}
 	}
 	return ids;
+}
+
+function successfulDesignWaitOutput(output: unknown): boolean {
+	const value =
+		typeof output === "object" &&
+		output !== null &&
+		"type" in output &&
+		output.type === "json" &&
+		"value" in output
+			? output.value
+			: output;
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"ok" in value &&
+		value.ok === true &&
+		"awaitingInput" in value &&
+		value.awaitingInput === true
+	);
+}
+
+export interface SuccessfulDesignWait {
+	readonly toolCallId: string;
+	readonly input: unknown;
+	readonly output: { readonly ok: true; readonly awaitingInput: true };
+	readonly acknowledgement: string | null;
+}
+
+/** A completed wait is durable in the private model ledger before the outer
+ * orchestration pause is recorded. Read only the latest provider step: a later
+ * ordinary user message or provider response supersedes this terminal. The
+ * first provider-ordered valid input terminal wins: an earlier valid
+ * askQuestions call therefore prevents a later wait from replacing its card,
+ * while an invalid call yields to that wait and an earlier successful wait
+ * prevents a later question from becoming visible. */
+export function trailingSuccessfulDesignWait(
+	messages: readonly ModelMessage[],
+): SuccessfulDesignWait | null {
+	const successfulWaits = new Map<string, SuccessfulDesignWait["output"]>();
+	const erroredToolCalls = new Set<string>();
+	let sawToolResults = false;
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role === "tool" && Array.isArray(message.content)) {
+			sawToolResults = true;
+			for (const part of message.content) {
+				if (part.type !== "tool-result") continue;
+				if (
+					part.output.type === "error-text" ||
+					part.output.type === "error-json"
+				) {
+					erroredToolCalls.add(part.toolCallId);
+				}
+				if (
+					part.toolName === DESIGN_WAIT_FOR_INPUT_TOOL &&
+					successfulDesignWaitOutput(part.output)
+				) {
+					successfulWaits.set(part.toolCallId, {
+						ok: true,
+						awaitingInput: true,
+					});
+				}
+			}
+			continue;
+		}
+		if (message?.role === "assistant") {
+			if (!sawToolResults || !Array.isArray(message.content)) return null;
+			const acknowledgement = message.content
+				.filter((part) => part.type === "text")
+				.map((part) => part.text)
+				.join("");
+			for (const part of message.content) {
+				if (part.type !== "tool-call") continue;
+				if (
+					part.toolName === "askQuestions" &&
+					!erroredToolCalls.has(part.toolCallId)
+				) {
+					return null;
+				}
+				const output = successfulWaits.get(part.toolCallId);
+				if (
+					part.toolName === DESIGN_WAIT_FOR_INPUT_TOOL &&
+					output !== undefined
+				) {
+					return {
+						toolCallId: part.toolCallId,
+						input: part.input,
+						output,
+						acknowledgement:
+							acknowledgement.length > 0 ? acknowledgement : null,
+					};
+				}
+			}
+			return null;
+		}
+		return null;
+	}
+	return null;
+}
+
+export function designModelContextTrailsSuccessfulWait(
+	messages: readonly ModelMessage[],
+): boolean {
+	return trailingSuccessfulDesignWait(messages) !== null;
+}
+
+export function designWaitResponsePrefix(args: {
+	readonly turnProvenanceId: string;
+}): string {
+	return `design-wait:${args.turnProvenanceId}:`;
+}
+
+export function designResponsePrefix(args: {
+	readonly turnProvenanceId: string;
+	readonly phase: "author" | "review" | "revision" | "awaiting-input";
+}): string {
+	return `design-response:${args.turnProvenanceId}:${args.phase}:`;
+}
+
+export function designResponseAppendKey(args: {
+	readonly turnProvenanceId: string;
+	readonly phase: "author" | "review" | "revision" | "awaiting-input";
+	readonly stepKey: string;
+	readonly responseDigest: string;
+}): string {
+	return `${designResponsePrefix(args)}${args.stepKey}:${args.responseDigest}`;
+}
+
+export function designWaitResponseAppendKey(args: {
+	readonly turnProvenanceId: string;
+	readonly stepKey: string;
+	readonly responseDigest: string;
+}): string {
+	return `${designWaitResponsePrefix(args)}${args.stepKey}:${args.responseDigest}`;
+}
+
+/** Recover a predecessor-generation wait only when its immutable response key
+ * binds it to this exact logical input. A fresh user message changes the turn
+ * provenance, so re-seeding a new provider context cannot accidentally treat
+ * an older wait as the terminal for the new instruction. */
+export function trailingSuccessfulDesignWaitForTurn(
+	items: readonly DesignModelContextItem[],
+	args: Parameters<typeof designWaitResponsePrefix>[0],
+): SuccessfulDesignWait | null {
+	/* Server-owned receipts may follow a provider response (for example, the
+	 * closure for a question suppressed by an earlier wait). Find the latest
+	 * provider response group so those receipts neither hide a committed wait
+	 * nor let an older wait survive a genuinely newer provider response. */
+	const latestResponseKey = items.findLast((item) =>
+		isDesignProviderResponseAppendKey(item.appendKey),
+	)?.appendKey;
+	if (
+		latestResponseKey === undefined ||
+		!latestResponseKey.startsWith(designWaitResponsePrefix(args))
+	) {
+		return null;
+	}
+	return trailingSuccessfulDesignWait(
+		items
+			.filter((item) => item.appendKey === latestResponseKey)
+			.map((item) => item.message),
+	);
+}
+
+function isDesignProviderResponseAppendKey(appendKey: string): boolean {
+	return (
+		appendKey.startsWith("design-response:") ||
+		appendKey.startsWith("design-wait:") ||
+		appendKey.includes(":response:design:")
+	);
+}
+
+export function recoverableDesignWaitForTurn(args: {
+	readonly currentItems: readonly DesignModelContextItem[];
+	readonly predecessorItems: readonly DesignModelContextItem[];
+	readonly currentGenerationHasCompletedStep: boolean;
+	readonly turnProvenanceId: string;
+}): SuccessfulDesignWait | null {
+	return (
+		trailingSuccessfulDesignWaitForTurn(args.currentItems, {
+			turnProvenanceId: args.turnProvenanceId,
+		}) ??
+		(args.currentGenerationHasCompletedStep
+			? null
+			: trailingSuccessfulDesignWaitForTurn(args.predecessorItems, {
+					turnProvenanceId: args.turnProvenanceId,
+				}))
+	);
+}
+
+export type RecoverableDesignTerminalOmission =
+	| "needs-correction"
+	| "correction-pending"
+	| "correction-exhausted";
+
+/** Classify a provider response that committed before the runner could apply
+ * its clean-omission rule. General response keys bind both the logical input
+ * turn and the phase that produced them, so a successful finalizer whose
+ * durable gate already advanced is never mistaken for an omission. The
+ * correction key's started-step suffix proves whether the one reserved step is
+ * still pending or already returned another omission. */
+export function recoverableDesignTerminalOmissionForTurn(args: {
+	readonly currentItems: readonly DesignModelContextItem[];
+	readonly predecessorItems: readonly DesignModelContextItem[];
+	readonly currentGenerationHasCompletedStep: boolean;
+	readonly appendKeys: ReadonlySet<string>;
+	readonly turnProvenanceId: string;
+	readonly phase: "author" | "review" | "revision" | "awaiting-input";
+	readonly modelStepsSpent: number;
+}): RecoverableDesignTerminalOmission | null {
+	const responseItems = args.currentGenerationHasCompletedStep
+		? args.currentItems
+		: args.predecessorItems;
+	const latestResponseKey = responseItems.findLast((item) =>
+		isDesignProviderResponseAppendKey(item.appendKey),
+	)?.appendKey;
+	if (
+		latestResponseKey === undefined ||
+		!latestResponseKey.startsWith(
+			designResponsePrefix({
+				turnProvenanceId: args.turnProvenanceId,
+				phase: args.phase,
+			}),
+		)
+	) {
+		return null;
+	}
+	const latestResponseMessages = responseItems
+		.filter((item) => item.appendKey === latestResponseKey)
+		.map((item) => item.message);
+	/* A question call is itself a valid terminal. Process replacement may happen
+	 * before its card reaches the public thread, in which case the continuation
+	 * reconciler below closes the orphan and redrives it. Never misclassify that
+	 * durable question as an exhausted conversational-text correction. */
+	if (unansweredDesignQuestionCalls(latestResponseMessages).length > 0) {
+		return null;
+	}
+	const correctionPrefix = designTerminalOmissionCorrectionPrefix({
+		turnProvenanceId: args.turnProvenanceId,
+	});
+	const correctionSteps = [...args.appendKeys].flatMap((key) => {
+		if (!key.startsWith(correctionPrefix)) return [];
+		const suffix = key.slice(correctionPrefix.length);
+		if (!/^\d+$/.test(suffix)) return [];
+		const value = Number.parseInt(suffix, 10);
+		return Number.isSafeInteger(value) ? [value] : [];
+	});
+	if (correctionSteps.length === 0) return "needs-correction";
+	return correctionSteps.includes(args.modelStepsSpent)
+		? "correction-pending"
+		: "correction-exhausted";
+}
+
+export function recoveredDesignWaitChunks(
+	wait: SuccessfulDesignWait,
+): readonly UIMessageChunk[] {
+	const acknowledgementId = `recovered-design-wait:${wait.toolCallId}`;
+	return [
+		...(wait.acknowledgement === null
+			? []
+			: [
+					{
+						type: "text-start" as const,
+						id: acknowledgementId,
+					},
+					{
+						type: "text-delta" as const,
+						id: acknowledgementId,
+						delta: wait.acknowledgement,
+					},
+					{
+						type: "text-end" as const,
+						id: acknowledgementId,
+					},
+				]),
+		{
+			type: "tool-input-start",
+			toolCallId: wait.toolCallId,
+			toolName: DESIGN_WAIT_FOR_INPUT_TOOL,
+		},
+		{
+			type: "tool-input-available",
+			toolCallId: wait.toolCallId,
+			toolName: DESIGN_WAIT_FOR_INPUT_TOOL,
+			input: wait.input,
+		},
+		{
+			type: "tool-output-available",
+			toolCallId: wait.toolCallId,
+			output: wait.output,
+		},
+	];
+}
+
+function uiMessagesContainCompletedDesignWait(
+	messages: readonly UIMessage[],
+	toolCallId: string,
+): boolean {
+	return messages.some((message) =>
+		message.parts.some((part) => {
+			const candidate = part as {
+				type?: unknown;
+				toolCallId?: unknown;
+				state?: unknown;
+				output?: unknown;
+			};
+			return (
+				candidate.type === "tool-waitForInput" &&
+				candidate.toolCallId === toolCallId &&
+				candidate.state === "output-available" &&
+				successfulDesignWaitOutput(candidate.output)
+			);
+		}),
+	);
 }
 
 function unansweredDesignQuestionCalls(
@@ -374,6 +692,88 @@ export function designModelStepKey(args: {
 	return `design:${args.attemptId}:${args.stepNumber}:${args.requestDigest}`;
 }
 
+export function designTerminalOmissionCorrectionPrefix(args: {
+	readonly turnProvenanceId: string;
+}): string {
+	return `design-terminal-omission:${args.turnProvenanceId}:`;
+}
+
+/** The one correction allowance is durable across process replacement. The
+ * key binds to the incoming turn, not its replaceable assistant response: a
+ * dead response can be regenerated under a new id, while the user message (or
+ * answered question message) that authorized the work stays the same. */
+export function designTerminalOmissionCanCorrect(
+	appendKeys: ReadonlySet<string>,
+	args: Parameters<typeof designTerminalOmissionCorrectionPrefix>[0],
+): boolean {
+	const prefix = designTerminalOmissionCorrectionPrefix(args);
+	return ![...appendKeys].some((key) => key.startsWith(prefix));
+}
+
+/** Recover the one runner-owned provider step when its correction message was
+ * committed at the ordinary ceiling but the process died before recording a
+ * new provider-call start. The numeric suffix is the durable started-step
+ * count at correction time, so equality proves the allowance is still unused. */
+export function pendingDesignTerminalCorrectionStepAllowance(args: {
+	readonly appendKeys: ReadonlySet<string>;
+	readonly turnProvenanceId: string;
+	readonly modelStepsSpent: number;
+	readonly ordinaryStepBudget: number;
+}): number {
+	const prefix = designTerminalOmissionCorrectionPrefix({
+		turnProvenanceId: args.turnProvenanceId,
+	});
+	for (const key of args.appendKeys) {
+		if (!key.startsWith(prefix)) continue;
+		const suffix = key.slice(prefix.length);
+		if (!/^\d+$/.test(suffix)) continue;
+		const correctedAt = Number.parseInt(suffix, 10);
+		if (
+			Number.isSafeInteger(correctedAt) &&
+			correctedAt >= args.ordinaryStepBudget &&
+			correctedAt === args.modelStepsSpent
+		) {
+			return DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE;
+		}
+	}
+	return 0;
+}
+
+/** Stable identity of the input that opened this logical design turn. A plain
+ * send uses its user-message id. Answered question rounds share one assistant
+ * message, so each uses the latest answered call plus a digest of its answer;
+ * that distinguishes consecutive rounds and a deliberate re-answer while
+ * remaining stable across response regeneration. */
+export function designTurnProvenanceId(
+	messages: readonly UIMessage[],
+	fallbackResponseMessageId: string,
+): string {
+	const trailing = messages.at(-1);
+	if (trailing === undefined) return fallbackResponseMessageId;
+	if (trailing.role !== "assistant") return trailing.id;
+	for (let index = trailing.parts.length - 1; index >= 0; index -= 1) {
+		const part = trailing.parts[index];
+		if (
+			part?.type === "tool-askQuestions" &&
+			part.state === "output-available"
+		) {
+			return `${trailing.id}:answer:${canonicalJsonDigest({
+				toolCallId: part.toolCallId,
+				output: part.output,
+			})}`;
+		}
+	}
+	return trailing.id;
+}
+
+/** A conversational wait may only become terminal when the server has no
+ * mandatory question batch for the person. */
+export function designWaitForInputCanPause(
+	requiredQuestionCount: number,
+): boolean {
+	return requiredQuestionCount === 0;
+}
+
 /** Append every ordinary user turn that is absent from an already-open private
  * design context. The initial seed is one atomic append whose `seed-through`
  * key proves every UI message through that id was included; later turns carry
@@ -431,6 +831,11 @@ export async function readRequiredDesignQuestionsFromWorkspace(args: {
 	readonly gates: DesignGateState;
 	readonly authority: DesignArtifactWriteAuthority;
 }): Promise<readonly OpenQuestion[]> {
+	if (args.gates.head?.lifecycle === "accepted") {
+		return args.gates.head.envelope.payload.openQuestions.filter(
+			(question) => question.blocking,
+		);
+	}
 	const kind = activeWorkspaceKind(args.gates);
 	if (kind === null) return [];
 	const workspace = await openDesignArtifactWorkspace({
@@ -511,6 +916,10 @@ export async function runDesignAgentLoop(
 	 * Until its durable append keys load, no answered card is authorized. */
 	let modelContextAppendKeys = new Set<string>();
 	let modelContextProtocolKeys = new Set<string>();
+	const turnProvenanceId = designTurnProvenanceId(
+		args.messages,
+		args.responseMessageId,
+	);
 	const toolDeps = {
 		designSessionId: args.designSessionId,
 		runId: args.runId,
@@ -542,7 +951,8 @@ export async function runDesignAgentLoop(
 			onReviewerReasoning: args.onReviewerReasoning,
 		}),
 	};
-	const tools = createDesignLoopTools(toolDeps);
+	const toolExecutionQueue = createDesignToolExecutionQueue();
+	const tools = createDesignLoopTools(toolDeps, toolExecutionQueue);
 	const recoveredPlan = await ensureDerivedBuildPlan(toolDeps, initialGates);
 	const stateMessageFor = async (
 		gates: DesignGateState,
@@ -641,7 +1051,12 @@ export async function runDesignAgentLoop(
 	 * reconstruct a phase-local prompt. Provider compaction inside
 	 * `prepareStep` is the sole legal prefix replacement. */
 	let modelContext: ModelMessage[] | null = null;
+	let modelContextCurrentItems: DesignModelContextItem[] = [];
+	let modelContextPredecessorItems: readonly DesignModelContextItem[] = [];
+	let modelContextGenerationHasCompletedStep = false;
 	let modelContextId: string | null = null;
+	let terminalCorrectionStepAllowance = 0;
+	let recoverTerminalOmissionOnNextLoop = true;
 	const modelContextAuthority = {
 		actorUserId: args.actorUserId,
 		runId: args.runId,
@@ -665,6 +1080,9 @@ export async function runDesignAgentLoop(
 		});
 		modelContextAppendKeys.add(appendKey);
 		modelContextProtocolKeys.add(appendKey);
+		modelContextCurrentItems.push(
+			...messages.map((message) => ({ appendKey, message })),
+		);
 	};
 	const openAndRecoverModelContext = async (): Promise<void> => {
 		if (modelContextId !== null) return;
@@ -689,6 +1107,10 @@ export async function runDesignAgentLoop(
 		});
 		modelContextId = persisted.id;
 		modelContext = [...persisted.messages];
+		modelContextCurrentItems = [...persisted.items];
+		modelContextPredecessorItems = persisted.predecessorItems;
+		modelContextGenerationHasCompletedStep =
+			persisted.completedStepKeys.size > 0;
 		modelContextAppendKeys = new Set(persisted.appendKeys);
 		modelContextProtocolKeys = new Set(persisted.lineageAppendKeys);
 		modelStepsSpent = persisted.totalStartedStepCount;
@@ -713,7 +1135,57 @@ export async function runDesignAgentLoop(
 		}
 	};
 	await openAndRecoverModelContext();
+	terminalCorrectionStepAllowance =
+		pendingDesignTerminalCorrectionStepAllowance({
+			appendKeys: modelContextProtocolKeys,
+			turnProvenanceId,
+			modelStepsSpent,
+			ordinaryStepBudget: designLoopStepBudget(modelContextGeneration),
+		});
+	const appendTerminalCorrection = async (): Promise<void> => {
+		const correction: ModelMessage = {
+			role: "user",
+			content: [
+				"# Design terminal correction (server-derived)",
+				"The previous response ended without advancing the design or choosing a legal pause. If the person's latest message explicitly says more requirements or source material are coming, or asks you not to begin yet, call waitForInput. If you need a material answer, call askQuestions. Otherwise continue the current design phase and reach its legal terminal. Do not end with conversational text alone.",
+			].join("\n"),
+		};
+		const correctionKey = `${designTerminalOmissionCorrectionPrefix({
+			turnProvenanceId,
+		})}${modelStepsSpent}`;
+		await appendContext(correctionKey, [correction]);
+		modelContext = [...(modelContext ?? []), correction];
+		if (modelStepsSpent >= designLoopStepBudget(modelContextGeneration)) {
+			terminalCorrectionStepAllowance =
+				DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE;
+		}
+	};
+	const openParts = createOpenPartTracker();
+	const replayRecoveredWait = (wait: SuccessfulDesignWait): void => {
+		if (uiMessagesContainCompletedDesignWait(args.messages, wait.toolCallId)) {
+			return;
+		}
+		for (const chunk of recoveredDesignWaitChunks(wait)) {
+			openParts.observe(chunk);
+			args.writer.write(chunk);
+		}
+	};
+	const recoveredWaitForCurrentTurn = (): SuccessfulDesignWait | null =>
+		recoverableDesignWaitForTurn({
+			currentItems: modelContextCurrentItems,
+			predecessorItems: modelContextPredecessorItems,
+			currentGenerationHasCompletedStep: modelContextGenerationHasCompletedStep,
+			turnProvenanceId,
+		});
 	if (recoveredPlan !== null && initialGates.newestAccepted !== null) {
+		const recoveredWait = recoveredWaitForCurrentTurn();
+		if (recoveredWait !== null) {
+			replayRecoveredWait(recoveredWait);
+			return {
+				kind: "awaiting-input",
+				headRevisionId: initialGates.head?.id ?? null,
+			};
+		}
 		return {
 			kind: "planned",
 			revision: initialGates.newestAccepted,
@@ -722,20 +1194,46 @@ export async function runDesignAgentLoop(
 	}
 
 	let turnRetries = 0;
-	const openParts = createOpenPartTracker();
 	let pausedOnQuestions = false;
+	let pausedForMoreInput = false;
 	let failure: ClassifiedError | null = null;
 	let protocolFailure: DesignLoopOutcome | null = null;
 
 	for (;;) {
 		pausedOnQuestions = false;
+		pausedForMoreInput = false;
 		let sawFatalError = false;
 		let pendingError: unknown;
 
 		const gates = evaluateDesignGates(await loadAncestry());
 		if (gates.plan !== null) break;
 		const phase = phaseFor(gates);
-		if (modelStepsSpent >= designLoopStepBudget(modelContextGeneration)) break;
+		const recoveredOmission = recoverTerminalOmissionOnNextLoop
+			? recoverableDesignTerminalOmissionForTurn({
+					currentItems: modelContextCurrentItems,
+					predecessorItems: modelContextPredecessorItems,
+					currentGenerationHasCompletedStep:
+						modelContextGenerationHasCompletedStep,
+					appendKeys: modelContextProtocolKeys,
+					turnProvenanceId,
+					phase,
+					modelStepsSpent,
+				})
+			: null;
+		recoverTerminalOmissionOnNextLoop = false;
+		if (recoveredOmission === "needs-correction") {
+			await appendTerminalCorrection();
+		} else if (recoveredOmission === "correction-exhausted") {
+			protocolFailure = {
+				kind: "failed",
+				errorType: "design-terminal-omission",
+				message:
+					"Nova couldn't complete this design turn. Everything already decided is saved, and this design can continue after Nova's design behavior is updated.",
+				recoverable: true,
+			};
+			break;
+		}
+		const stepBudgetAllowance = terminalCorrectionStepAllowance;
 		const stepsBeforeStream = modelStepsSpent;
 		/* One provider invocation identity. A replacement process or bounded
 		 * stream redrive must never reuse the completed-event identity of a call
@@ -744,49 +1242,53 @@ export async function runDesignAgentLoop(
 		const stepEventKeys = new Map<number, string>();
 		let activeRequiredQuestionBatch: readonly OpenQuestion[] = [];
 		let activeRequiredQuestionAuthorizationKey: string | null = null;
+		const requiredUserQuestions = async (): Promise<
+			readonly OpenQuestion[]
+		> => {
+			const pending = repair.requiredUserQuestions();
+			const questions =
+				pending.length > 0
+					? pending
+					: await readRequiredDesignQuestionsFromWorkspace({
+							designSessionId: args.designSessionId,
+							gates: evaluateDesignGates(await loadAncestry()),
+							authority,
+						});
+			/* An answer binds to the exact question identity, so a question the
+			 * user already answered is never demanded again; only genuinely new
+			 * or re-authored questions come back to them. */
+			const unanswered = unansweredRequiredDesignQuestions(
+				args.messages,
+				questions,
+				modelContextProtocolKeys,
+			);
+			if (unanswered.length === 0) {
+				activeRequiredQuestionBatch = [];
+				activeRequiredQuestionAuthorizationKey = null;
+				return [];
+			}
+			activeRequiredQuestionBatch = requiredDesignQuestionBatch(unanswered);
+			const authorizationKey =
+				requiredDesignQuestionAuthorizationKey(unanswered);
+			activeRequiredQuestionAuthorizationKey = authorizationKey;
+			if (!modelContextAppendKeys.has(authorizationKey)) {
+				const authorization = requiredDesignQuestionMessage(unanswered);
+				await appendContext(authorizationKey, [authorization]);
+				modelContext = [...(modelContext ?? []), authorization];
+			}
+			return unanswered;
+		};
 		const agent = createDesignAgent({
 			model: args.designCtx.model(MODEL_ROLES.designAuthor.modelId),
 			tools,
+			toolExecutionQueue,
 			phase,
 			catalogText,
 			constraintsText: renderPlatformConstraintsSection(),
 			instructions: DESIGN_AGENT_SYSTEM,
 			promptCacheKey: `nova:design:${args.designSessionId}`,
 			fatalError: () => repair.fatalError(),
-			requiredUserQuestions: async () => {
-				const pending = repair.requiredUserQuestions();
-				const questions =
-					pending.length > 0
-						? pending
-						: await readRequiredDesignQuestionsFromWorkspace({
-								designSessionId: args.designSessionId,
-								gates: evaluateDesignGates(await loadAncestry()),
-								authority,
-							});
-				/* An answer binds to the exact question identity, so a question the
-				 * user already answered is never demanded again; only genuinely new
-				 * or re-authored questions come back to them. */
-				const unanswered = unansweredRequiredDesignQuestions(
-					args.messages,
-					questions,
-					modelContextProtocolKeys,
-				);
-				if (unanswered.length === 0) {
-					activeRequiredQuestionBatch = [];
-					activeRequiredQuestionAuthorizationKey = null;
-					return [];
-				}
-				activeRequiredQuestionBatch = requiredDesignQuestionBatch(unanswered);
-				const authorizationKey =
-					requiredDesignQuestionAuthorizationKey(unanswered);
-				activeRequiredQuestionAuthorizationKey = authorizationKey;
-				if (!modelContextAppendKeys.has(authorizationKey)) {
-					const authorization = requiredDesignQuestionMessage(unanswered);
-					await appendContext(authorizationKey, [authorization]);
-					modelContext = [...(modelContext ?? []), authorization];
-				}
-				return unanswered;
-			},
+			requiredUserQuestions,
 			freshStateMessage: async () =>
 				stateMessageFor(evaluateDesignGates(await loadAncestry())),
 			onCompactionState: async ({ boundaryDigest, message }) => {
@@ -797,6 +1299,7 @@ export async function runDesignAgentLoop(
 			},
 			stepsBeforeStream,
 			contextGeneration: modelContextGeneration,
+			stepBudgetAllowance,
 			onStepEnd: (step) => args.onAgentStep?.(step),
 			onStepPrepared: async (step) => {
 				if (modelContextId === null) {
@@ -851,10 +1354,24 @@ export async function runDesignAgentLoop(
 								authorizationKey: activeRequiredQuestionAuthorizationKey,
 								input: requiredQuestionCall.input,
 							});
+				const completedWait = trailingSuccessfulDesignWait(
+					step.responseMessages,
+				);
 				const responseKey =
-					cardKey === null
-						? `response:${stepKey}:${step.responseDigest}`
-						: `${cardKey}:response:${stepKey}:${step.responseDigest}`;
+					cardKey !== null
+						? `${cardKey}:response:${stepKey}:${step.responseDigest}`
+						: completedWait !== null
+							? designWaitResponseAppendKey({
+									turnProvenanceId,
+									stepKey,
+									responseDigest: step.responseDigest,
+								})
+							: designResponseAppendKey({
+									turnProvenanceId,
+									phase,
+									stepKey,
+									responseDigest: step.responseDigest,
+								});
 				await completeDesignModelStep({
 					designSessionId: args.designSessionId,
 					contextId: modelContextId,
@@ -869,7 +1386,14 @@ export async function runDesignAgentLoop(
 					modelContextAppendKeys.add(responseKey);
 					modelContextProtocolKeys.add(responseKey);
 					modelContext = [...(modelContext ?? []), ...step.responseMessages];
+					modelContextCurrentItems.push(
+						...step.responseMessages.map((message) => ({
+							appendKey: responseKey,
+							message,
+						})),
+					);
 				}
+				modelContextGenerationHasCompletedStep = true;
 				return { contextId: modelContextId, stepKey };
 			},
 		});
@@ -939,6 +1463,29 @@ export async function runDesignAgentLoop(
 				);
 			}
 		}
+		/* A process may die after the provider step and exact response commit but
+		 * before the orchestrator records its pause. Re-establish that terminal
+		 * from the latest durable response unless this POST appended newer user
+		 * input. Re-run the post-step question proof before honoring it. */
+		const recoveredWait = recoveredWaitForCurrentTurn();
+		if (recoveredWait !== null) {
+			const requiredAfterRecovery = await requiredUserQuestions();
+			if (designWaitForInputCanPause(requiredAfterRecovery.length)) {
+				replayRecoveredWait(recoveredWait);
+				pausedForMoreInput = true;
+				break;
+			}
+		}
+		/* A completed response is already paid work and its input terminal wins
+		 * even when it consumed the final permitted step. Apply the ceiling only
+		 * after giving that durable response its recovery path. */
+		if (
+			modelStepsSpent >=
+			designLoopStepBudget(modelContextGeneration) + stepBudgetAllowance
+		) {
+			break;
+		}
+		terminalCorrectionStepAllowance = 0;
 		const stateMessage = await stateMessageFor(gates);
 		const stateKey = `state:${canonicalJsonDigest(stateMessage)}`;
 		if (!modelContextAppendKeys.has(stateKey)) {
@@ -1104,7 +1651,17 @@ export async function runDesignAgentLoop(
 			}
 		};
 		let contextActivityActive = false;
-		const bufferedRequiredQuestionChunks = new Map<string, UIMessageChunk[]>();
+		type BufferedInputTerminal = {
+			readonly toolCallId: string;
+			readonly toolName: "askQuestions" | typeof DESIGN_WAIT_FOR_INPUT_TOOL;
+			readonly chunks: UIMessageChunk[];
+			input: unknown;
+			inputAvailable: boolean;
+			inputErrored: boolean;
+			waitSucceeded: boolean;
+		};
+		const bufferedInputTerminals = new Map<string, BufferedInputTerminal>();
+		const inputTerminalOrder: string[] = [];
 		let rejectedRequiredQuestionCall: {
 			toolCallId: string;
 			input: unknown;
@@ -1146,69 +1703,44 @@ export async function runDesignAgentLoop(
 			}
 			if (chunk.type === "start" || chunk.type === "finish") continue;
 			trackPulse(chunk);
-			/* A required question card is server-authored protocol. Buffer its
-			 * streamed input until the complete call proves byte-for-byte semantic
-			 * equality with the authorized batch. A subset or paraphrase is repaired
-			 * internally and never becomes a user-facing pause. */
 			if (
 				chunk.type === "tool-input-start" &&
-				chunk.toolName === "askQuestions" &&
-				activeRequiredQuestionBatch.length > 0
+				(chunk.toolName === "askQuestions" ||
+					chunk.toolName === DESIGN_WAIT_FOR_INPUT_TOOL)
 			) {
-				bufferedRequiredQuestionChunks.set(chunk.toolCallId, [chunk]);
+				bufferedInputTerminals.set(chunk.toolCallId, {
+					toolCallId: chunk.toolCallId,
+					toolName: chunk.toolName,
+					chunks: [chunk],
+					input: null,
+					inputAvailable: false,
+					inputErrored: false,
+					waitSucceeded: false,
+				});
+				inputTerminalOrder.push(chunk.toolCallId);
 				continue;
 			}
-			const bufferedQuestion =
+			const bufferedTerminal =
 				"toolCallId" in chunk
-					? bufferedRequiredQuestionChunks.get(chunk.toolCallId)
+					? bufferedInputTerminals.get(chunk.toolCallId)
 					: undefined;
-			if (bufferedQuestion !== undefined) {
-				bufferedQuestion.push(chunk);
-				if (
-					chunk.type === "tool-input-available" &&
-					chunk.toolName === "askQuestions"
-				) {
-					bufferedRequiredQuestionChunks.delete(chunk.toolCallId);
-					if (
-						isExactRequiredDesignQuestionCall(
-							chunk.input,
-							activeRequiredQuestionBatch,
-						)
-					) {
-						pausedOnQuestions = true;
-						for (const bufferedChunk of bufferedQuestion) {
-							openParts.observe(bufferedChunk);
-							try {
-								args.writer.write(bufferedChunk);
-							} catch {
-								break;
-							}
-						}
-					} else {
-						rejectedRequiredQuestionCall = {
-							toolCallId: chunk.toolCallId,
-							input: chunk.input,
-						};
-						noteToolOutcome(
-							chunk.toolCallId,
-							"rejected",
-							"required-question-mismatch",
-						);
-					}
+			if (bufferedTerminal !== undefined) {
+				bufferedTerminal.chunks.push(chunk);
+				if (chunk.type === "tool-input-available") {
+					bufferedTerminal.input = chunk.input;
+					bufferedTerminal.inputAvailable = true;
 				} else if (chunk.type === "tool-input-error") {
-					bufferedRequiredQuestionChunks.delete(chunk.toolCallId);
-					rejectedRequiredQuestionCall = {
-						toolCallId: chunk.toolCallId,
-						input: null,
-					};
+					bufferedTerminal.input = chunk.input;
+					bufferedTerminal.inputErrored = true;
+				} else if (
+					chunk.type === "tool-output-available" &&
+					bufferedTerminal.toolName === DESIGN_WAIT_FOR_INPUT_TOOL
+				) {
+					bufferedTerminal.waitSucceeded = successfulDesignWaitOutput(
+						chunk.output,
+					);
 				}
 				continue;
-			}
-			if (
-				chunk.type === "tool-input-available" &&
-				chunk.toolName === "askQuestions"
-			) {
-				pausedOnQuestions = true;
 			}
 			openParts.observe(chunk);
 			try {
@@ -1245,6 +1777,47 @@ export async function runDesignAgentLoop(
 			};
 			break;
 		}
+		let selectedInputTerminal: BufferedInputTerminal | null = null;
+		for (const toolCallId of inputTerminalOrder) {
+			const candidate = bufferedInputTerminals.get(toolCallId);
+			if (candidate === undefined) continue;
+			if (candidate.toolName === "askQuestions") {
+				if (candidate.inputErrored) {
+					if (activeRequiredQuestionBatch.length > 0) {
+						rejectedRequiredQuestionCall = {
+							toolCallId: candidate.toolCallId,
+							input: candidate.input,
+						};
+					}
+					continue;
+				}
+				if (!candidate.inputAvailable) continue;
+				if (
+					activeRequiredQuestionBatch.length > 0 &&
+					!isExactRequiredDesignQuestionCall(
+						candidate.input,
+						activeRequiredQuestionBatch,
+					)
+				) {
+					rejectedRequiredQuestionCall = {
+						toolCallId: candidate.toolCallId,
+						input: candidate.input,
+					};
+					noteToolOutcome(
+						candidate.toolCallId,
+						"rejected",
+						"required-question-mismatch",
+					);
+					break;
+				}
+				selectedInputTerminal = candidate;
+				break;
+			}
+			if (candidate.waitSucceeded) {
+				selectedInputTerminal = candidate;
+				break;
+			}
+		}
 		if (rejectedRequiredQuestionCall !== null) {
 			const rejection: ModelMessage = {
 				role: "tool",
@@ -1268,16 +1841,74 @@ export async function runDesignAgentLoop(
 			await appendContext(rejectionKey, [rejection]);
 			continue;
 		}
+		if (selectedInputTerminal !== null) {
+			const selectedIndex = inputTerminalOrder.indexOf(
+				selectedInputTerminal.toolCallId,
+			);
+			/* Client-side question calls have no execute callback, so close every
+			 * provider-later card that lost terminal arbitration. It never reaches
+			 * the transcript and can never inherit a user answer on recovery. */
+			for (const toolCallId of inputTerminalOrder.slice(selectedIndex + 1)) {
+				const suppressed = bufferedInputTerminals.get(toolCallId);
+				if (
+					suppressed?.toolName !== "askQuestions" ||
+					!suppressed.inputAvailable
+				) {
+					continue;
+				}
+				const rejection: ModelMessage = {
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: suppressed.toolCallId,
+							toolName: "askQuestions",
+							output: {
+								type: "json",
+								value: {
+									error:
+										"An earlier input terminal already ended this response. Ask again after the person's next message only if the question is still needed.",
+									diagnostic: {
+										code: "design-input-pause-terminal",
+									},
+								},
+							},
+						},
+					],
+				};
+				const rejectionKey = `input-terminal-rejection:${suppressed.toolCallId}:${durableModelValueDigest(suppressed.input)}`;
+				modelContext = [...(modelContext ?? []), rejection];
+				await appendContext(rejectionKey, [rejection]);
+			}
+		}
+		if (selectedInputTerminal?.toolName === DESIGN_WAIT_FOR_INPUT_TOOL) {
+			/* Tool execution in this SAME provider step may have discovered a
+			 * mandatory question after prepareStep took its snapshot. Decide the
+			 * wait only against the post-step durable repair/workspace state. */
+			const requiredAfterStep = await requiredUserQuestions();
+			pausedForMoreInput = designWaitForInputCanPause(requiredAfterStep.length);
+		} else if (selectedInputTerminal?.toolName === "askQuestions") {
+			pausedOnQuestions = true;
+		}
+		if (pausedOnQuestions || pausedForMoreInput) {
+			for (const bufferedChunk of selectedInputTerminal?.chunks ?? []) {
+				openParts.observe(bufferedChunk);
+				try {
+					args.writer.write(bufferedChunk);
+				} catch {
+					break;
+				}
+			}
+		}
 
-		if (pausedOnQuestions) break;
+		if (pausedOnQuestions || pausedForMoreInput) break;
 		if (
 			!sawFatalError &&
 			activeRequiredQuestionBatch.length > 0 &&
 			activeRequiredQuestionAuthorizationKey !== null
 		) {
-			/* Stable tool choice intentionally remains automatic for cache reuse. A
-			 * clean response that simply omitted the required client pause is repaired
-			 * inside this same run instead of making the user resend the turn. */
+			/* The next prepared step forces askQuestions. Keep this durable correction
+			 * in context so the model also knows why it may not resume design work. */
 			const omission: ModelMessage = {
 				role: "user",
 				content: [
@@ -1296,9 +1927,28 @@ export async function runDesignAgentLoop(
 			const settled = evaluateDesignGates(await loadAncestry());
 			if (settled.plan !== null) break;
 			/* A legal terminal tool advances the durable phase. Continue by
-			 * appending its new authoritative state to this same context; a clean
-			 * stream that did not advance is incomplete and is mapped below. */
+			 * appending its new authoritative state to this same context. */
 			if (phaseFor(settled) !== phase) continue;
+			/* AI SDK stops a ToolLoopAgent as soon as the provider returns a
+			 * non-tool finish, before stopWhen can ask for another step. Give the
+			 * model one durable, exact correction inside this turn. A second clean
+			 * omission is a bounded harness defect, not a reason to make the person
+			 * resend the same instruction repeatedly. */
+			if (
+				designTerminalOmissionCanCorrect(modelContextProtocolKeys, {
+					turnProvenanceId,
+				})
+			) {
+				await appendTerminalCorrection();
+				continue;
+			}
+			protocolFailure = {
+				kind: "failed",
+				errorType: "design-terminal-omission",
+				message:
+					"Nova couldn't complete this design turn. Everything already decided is saved, and this design can continue after Nova's design behavior is updated.",
+				recoverable: true,
+			};
 			break;
 		}
 		const classified = classifyError(
@@ -1324,24 +1974,21 @@ export async function runDesignAgentLoop(
 		);
 	}
 
-	/* Terminal mapping: a turn must end in a RECOGNIZED terminal. A loop
-	 * that simply stopped emitting (no pause, no plan, no error) is a
-	 * retriable design-session error, never a silent success or a
-	 * forever-designing hang. */
+	/* Terminal mapping: a turn must end in a recognized terminal. */
 	const fatal = repair.fatalError();
 	if (protocolFailure !== null) return protocolFailure;
 	const finalGates = evaluateDesignGates(await loadAncestry());
+	if (pausedOnQuestions || pausedForMoreInput) {
+		return {
+			kind: "awaiting-input",
+			headRevisionId: finalGates.head?.id ?? null,
+		};
+	}
 	if (finalGates.plan !== null && finalGates.newestAccepted !== null) {
 		return {
 			kind: "planned",
 			revision: finalGates.newestAccepted,
 			plan: finalGates.plan,
-		};
-	}
-	if (pausedOnQuestions) {
-		return {
-			kind: "awaiting-input",
-			headRevisionId: finalGates.head?.id ?? null,
 		};
 	}
 	if (fatal !== undefined) {
@@ -1377,9 +2024,9 @@ export async function runDesignAgentLoop(
 	}
 	return {
 		kind: "failed",
-		errorType: "design-loop-incomplete",
+		errorType: "design-terminal-omission",
 		message:
-			"The design turn stopped before reaching a plan or a question for you. Nothing was lost; send your message again to continue from where it stopped.",
+			"Nova couldn't complete this design turn. Everything already decided is saved, and this design can continue after Nova's design behavior is updated.",
 		recoverable: true,
 	};
 }

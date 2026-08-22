@@ -75,7 +75,7 @@ export interface DesignProgressState {
 	 *  streaming submission's keys ("Working out the records"). Lives and
 	 *  dies with `pulsePhase`. */
 	pulseStep: string | null;
-	/** The run paused on a blocking question round (§15.8). Observed from the
+	/** The design run reached an explicit input terminal. Observed from the
 	 *  transcript, which is the only place the pause is visible client-side. */
 	awaitingInput: boolean;
 	/** An error this turn reported — ANY design-run error stops the run, so

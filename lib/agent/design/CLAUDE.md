@@ -137,7 +137,10 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   summaries lower to `label` fields with UUID-backed prose references.
   Semantic record names lower once into exact Blueprint case-type keys; schema,
   parent, module, field-write, and case-operation calls reuse those keys rather
-  than treating a display name as another record identity.
+  than treating a display name as another record identity. Every newly owned
+  case module also carries one exact `requiredInitialResultsColumn`, a visible
+  plain `case_name` column derived from its host record. This compiler input
+  makes the module's birth call valid without turning Results into form fields.
 - `complexity.ts` deterministically assigns `compact`, `standard`, or
   `extended`. The class chooses process depth and conservative user-facing time
   estimates; it never changes Blueprint validity or authority.
@@ -224,7 +227,25 @@ workspace, or optimistic revision. It may emit several known calls in one
 response. The server serializes their effects in provider order, and the small
 `finishDesign` call replays and validates the whole candidate before one
 immutable artifact insert. `inspectDesign` reads selected exact state only when
-a model needs a narrow lookup.
+a model needs a narrow lookup. `waitForInput` is the explicit terminal when the
+conversation says more requirements are coming but no question is ready yet.
+It is serialized with every server-side design callback, while the stream
+arbiter puts it in the same provider order as the client-side `askQuestions`
+call: the first valid input terminal wins, and a later question is closed
+without ever reaching the transcript. The wait persists in the private model
+ledger before orchestration and is recovered from that ledger before any later
+model call. Recovery also recreates its complete UI tool part when the private
+response outlived the thread chunks, so the ordinary composer opens again. It
+preserves the current workspace and closes the stream as awaiting input. The
+durable response key binds the wait to the exact incoming turn; a later user
+message supersedes that wait instead of replaying an older pause.
+A clean response with no update, question, wait, or phase finalizer receives
+one server-authored correction and one internal redrive. If the omission used
+the last ordinary session step, one runner-owned step is reserved solely for
+that correction. The provider response is keyed to its exact logical turn and
+phase before orchestration inspects it, so process replacement restores the
+same correction before enforcing the step ceiling. A second omission stops as the recoverable
+`design-terminal-omission` defect instead of silently ending the turn.
 
 The contract and post-review revision workspaces remain separate durable
 lineages, but their counters are persistence details. When a blocking review
@@ -260,9 +281,9 @@ never demanded again: only the unanswered remainder of the pending set is,
 and authoring opens when every currently pending question identity carries a
 durably authorized answer. Transcript text cannot mint that provenance. If a
 clean model step omits the required call, the server appends correction
-guidance and redrives internally without changing the tool grammar or asking
-the user to resend. The demand message also teaches the resolution path:
-after answers arrive the model records them — records each settled choice as a
+guidance, redrives internally, and forces `askQuestions` without changing the
+tool grammar or asking the user to resend. The demand message also teaches the
+resolution path: after answers arrive the model records them — records each settled choice as a
 decision or assumption, removes the question or marks it non-blocking — and a
 delegating answer such as "use sensible defaults" makes the concrete choice
 the model's to bake in.
@@ -279,8 +300,10 @@ absent from the private context, including an answered client-side question
 result, is reconciled in transcript order on its later POST. A persisted
 question call whose client card never reached that transcript receives an
 explicit interrupted result before redrive; the closure is never treated as a
-user answer. Every completed-step usage record from the exact recovered run is
-registered in the replacement meter; the durable `(context, step)` accounting
+user answer, and that reconciliation takes precedence over classifying a
+correction response as a terminal omission. Every completed-step usage record
+from the exact recovered run is registered in the replacement meter; the
+durable `(context, step)` accounting
 ledger admits it exactly once into the run and monthly totals, including across
 overlapping recovery. Recovery does not re-emit that historical step's live
 usage, tool, text, or reasoning events. Already finalized turns and other
@@ -304,6 +327,9 @@ provenance also remains readable across the chain even though model messages
 reseed into the successor. That exceptional rollover reseeds from the complete
 browser transcript and durable workspace; it never mutates old messages or
 leaves the session permanently unable to resume.
+Item-only rollover generations never hide an older provider response: terminal
+recovery searches back to the newest generation that actually completed one,
+while a genuinely newer provider response still supersedes the older terminal.
 
 `gates.ts` decides legality only from durable artifact ancestry and persisted
 review counts. A second review is required only for unresolved critical risk,

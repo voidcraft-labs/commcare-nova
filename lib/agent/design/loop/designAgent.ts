@@ -15,9 +15,11 @@ import type {
 	LanguageModelUsage,
 	ModelMessage,
 	StepResultPerformance,
+	ToolInputRefinement,
 	UIMessage,
 } from "ai";
 import { ToolLoopAgent, zodSchema } from "ai";
+import { z } from "zod";
 import type { OpenQuestion } from "@/lib/agent/design/contract";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
@@ -29,7 +31,10 @@ import type { DurableUsageIdentity } from "@/lib/db/usage";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { designLoopStepBudget } from "./gates";
 import { DESIGN_STATE_MESSAGE_HEADING } from "./packageRender";
-import type { createDesignLoopTools } from "./tools";
+import type {
+	createDesignLoopTools,
+	createDesignToolExecutionQueue,
+} from "./tools";
 
 /** The design registration of the client pause tool: same schema, same
  *  client contract, re-described for design pacing (any number of rounds)
@@ -39,9 +44,29 @@ import type { createDesignLoopTools } from "./tools";
 export const DESIGN_ASK_QUESTIONS_DESCRIPTION =
 	"Ask the user clarifying questions; execution pauses for their answers. Always available, any number of rounds. Give a question 2-4 concrete options whenever real alternatives or sensible defaults exist — your recommended option first when you have one, its label ending with a short marker meaning 'Recommended' written in the conversation's language (' (Recommended)' in English, ' (Recomendado)' in Spanish). The user can always answer in free text instead of picking an option, so never add an option that means 'something else'; an empty options list is only for questions with no concrete candidates. If a question asks for data or a document, the user may attach a file while answering; it arrives right after the answers. Assume only what the user would not want to be asked.";
 
+export const DESIGN_WAIT_FOR_INPUT_TOOL = "waitForInput";
+
+const waitForInputInputSchema = z
+	.object({
+		reason: z
+			.literal("more-requirements-coming")
+			.describe(
+				"The user explicitly said more requirements or source material are coming, or asked Nova not to begin yet.",
+			),
+	})
+	.strict();
+
+export const DESIGN_WAIT_FOR_INPUT_DESCRIPTION =
+	"Pause this design only when the user's latest message explicitly says more requirements or source material are coming, or asks Nova not to begin yet. First acknowledge what they shared in one short visible sentence, then call this tool. Do not use it when you need the user to answer a material question; use askQuestions instead. Do not use it merely because the design is difficult or incomplete.";
+
 export interface DesignAgentArgs {
 	readonly model: LanguageModel;
 	readonly tools: ReturnType<typeof createDesignLoopTools>;
+	/** Reserves every parsed provider call before server execution begins, so
+	 * client-side questions and server-side tools share one response order. */
+	readonly toolExecutionQueue: ReturnType<
+		typeof createDesignToolExecutionQueue
+	>;
 	readonly phase: "author" | "review" | "revision" | "awaiting-input";
 	/** Static instruction suffix: the capability catalog plus the citable
 	 *  platform constraints, byte-identical across a deploy's sessions. */
@@ -78,6 +103,10 @@ export interface DesignAgentArgs {
 	/** The durable context's generation, which raises the step ceiling by the
 	 * capped per-rollover allowance (`designLoopStepBudget`). */
 	readonly contextGeneration: number;
+	/** A runner-owned one-step terminal-correction allowance. Zero for every
+	 * ordinary stream and one only when the prior clean omission exhausted the
+	 * normal session ceiling. */
+	readonly stepBudgetAllowance?: number;
 	readonly onStepPrepared?: (step: {
 		readonly stepNumber: number;
 		readonly requestDigest: string;
@@ -117,10 +146,11 @@ export function designStepBudgetReached(
 	stepsBeforeStream: number,
 	stepsInCurrentStream: number,
 	contextGeneration = 0,
+	stepBudgetAllowance = 0,
 ): boolean {
 	return (
 		stepsBeforeStream + stepsInCurrentStream >=
-		designLoopStepBudget(contextGeneration)
+		designLoopStepBudget(contextGeneration) + stepBudgetAllowance
 	);
 }
 
@@ -452,6 +482,10 @@ export function requiredDesignQuestionStep(questions: readonly OpenQuestion[]) {
 		? null
 		: {
 				message: requiredDesignQuestionMessage(batch),
+				toolChoice: {
+					type: "tool" as const,
+					toolName: "askQuestions" as const,
+				},
 			};
 }
 
@@ -485,6 +519,12 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			inputSchema: requiredDesignQuestionInputSchema(),
 			strict: false,
 		},
+		[DESIGN_WAIT_FOR_INPUT_TOOL]: {
+			description: DESIGN_WAIT_FOR_INPUT_DESCRIPTION,
+			inputSchema: zodSchema(waitForInputInputSchema),
+			strict: true,
+			execute: async (input: unknown) => args.toolExecutionQueue.pause(input),
+		},
 		setDesignRoot: args.tools.setDesignRoot,
 		updateActors: args.tools.updateActors,
 		updateRecords: args.tools.updateRecords,
@@ -503,6 +543,36 @@ export function createDesignAgent(args: DesignAgentArgs) {
 		finishDesign: args.tools.finishDesign,
 		requestReview: args.tools.requestReview,
 	};
+	type StableDesignTools = typeof stableTools;
+	const registerToolInput =
+		<NAME extends keyof StableDesignTools>(toolName: NAME) =>
+		(
+			input: Parameters<
+				NonNullable<ToolInputRefinement<StableDesignTools>[NAME]>
+			>[0],
+		) =>
+			args.toolExecutionQueue.register(String(toolName), input);
+	const refineToolInput = {
+		askQuestions: registerToolInput("askQuestions"),
+		[DESIGN_WAIT_FOR_INPUT_TOOL]: registerToolInput(DESIGN_WAIT_FOR_INPUT_TOOL),
+		setDesignRoot: registerToolInput("setDesignRoot"),
+		updateActors: registerToolInput("updateActors"),
+		updateRecords: registerToolInput("updateRecords"),
+		updateWorkflows: registerToolInput("updateWorkflows"),
+		updateLists: registerToolInput("updateLists"),
+		updateAccess: registerToolInput("updateAccess"),
+		updateNavigation: registerToolInput("updateNavigation"),
+		updateModuleCompositions: registerToolInput("updateModuleCompositions"),
+		updateFormCompositions: registerToolInput("updateFormCompositions"),
+		updateExternalRequirements: registerToolInput("updateExternalRequirements"),
+		updateDecisions: registerToolInput("updateDecisions"),
+		updateAssumptions: registerToolInput("updateAssumptions"),
+		updateOpenQuestions: registerToolInput("updateOpenQuestions"),
+		updateFindingDispositions: registerToolInput("updateFindingDispositions"),
+		inspectDesign: registerToolInput("inspectDesign"),
+		finishDesign: registerToolInput("finishDesign"),
+		requestReview: registerToolInput("requestReview"),
+	} satisfies Required<ToolInputRefinement<StableDesignTools>>;
 	const phaseTerminal =
 		args.phase === "author"
 			? "finishDesign"
@@ -525,13 +595,17 @@ export function createDesignAgent(args: DesignAgentArgs) {
 				args.stepsBeforeStream,
 				steps.length,
 				args.contextGeneration,
+				args.stepBudgetAllowance,
 			) ||
+			designPhaseTerminalSucceeded(steps, DESIGN_WAIT_FOR_INPUT_TOOL) ||
 			(phaseTerminal !== null &&
 				designPhaseTerminalSucceeded(steps, phaseTerminal)),
 		/* Establishment-level provider retries, matching the SA's patience;
 		 * mid-stream failures are the loop runner's bounded redrive. */
 		maxRetries: 4,
+		experimental_refineToolInput: refineToolInput,
 		prepareStep: async ({ messages, stepNumber }) => {
+			args.toolExecutionQueue.beginResponse();
 			const fatal = args.fatalError();
 			if (fatal !== undefined) throw fatal;
 			const withFreshState = await projectDesignStepMessages(
@@ -562,6 +636,7 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			});
 			return {
 				messages: preparedMessages,
+				toolChoice: requiredQuestionStep?.toolChoice,
 				providerOptions: {
 					openai: { ...providerOptions.openai, parallelToolCalls: true },
 				},

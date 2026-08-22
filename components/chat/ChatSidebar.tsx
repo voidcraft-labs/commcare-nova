@@ -114,9 +114,12 @@ interface ChatSidebarProps {
 	 * above the composer instead of moving upward as transcript cards arrive. */
 	designProgressStatus?: ReactNode;
 	/** Freeze ordinary composer sends from the first persisted design artifact
-	 * through whole-plan completion. A persisted question round is the only
-	 * pre-build input the composer may route. */
+	 * through whole-plan completion. A persisted question round or an explicit
+	 * typed-input pause is the only pre-build input the composer may route. */
 	initialBuildLocked?: boolean;
+	/** A completed design `waitForInput` has no question card, so it must open
+	 * the ordinary composer while the initial-build lock remains durable. */
+	awaitingTypedInput?: boolean;
 	/** Suppress the generic activity row while `designProgress` owns the
 	 *  status. The design stage line is a live region of its own and says the
 	 *  same thing more precisely; announcing both reads as a stutter. */
@@ -167,6 +170,7 @@ export function chatComposerIsDisabled({
 	isLoading,
 	isGenerating,
 	initialBuildLocked,
+	awaitingTypedInput,
 	activeQuestionCount,
 	composerBusy,
 	readOnly,
@@ -175,6 +179,7 @@ export function chatComposerIsDisabled({
 	readonly isLoading: boolean;
 	readonly isGenerating: boolean;
 	readonly initialBuildLocked: boolean;
+	readonly awaitingTypedInput: boolean;
 	readonly activeQuestionCount: number;
 	readonly composerBusy: boolean;
 	readonly readOnly: boolean;
@@ -182,7 +187,9 @@ export function chatComposerIsDisabled({
 }): boolean {
 	return (
 		isLoading ||
-		((isGenerating || initialBuildLocked) && activeQuestionCount === 0) ||
+		((isGenerating || initialBuildLocked) &&
+			activeQuestionCount === 0 &&
+			!awaitingTypedInput) ||
 		composerBusy ||
 		readOnly ||
 		!authorized
@@ -209,6 +216,7 @@ export function ChatSidebar({
 	designProgressDetails,
 	designProgressStatus,
 	initialBuildLocked = false,
+	awaitingTypedInput = false,
 	activityStatusHidden = false,
 	activityOverride = null,
 }: ChatSidebarProps) {
@@ -772,6 +780,7 @@ export function ChatSidebar({
 							isLoading,
 							isGenerating,
 							initialBuildLocked,
+							awaitingTypedInput,
 							activeQuestionCount,
 							composerBusy: composerBusy === true,
 							readOnly: readOnly === true,

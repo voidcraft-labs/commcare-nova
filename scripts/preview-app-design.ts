@@ -45,6 +45,7 @@ import { createDesignAgent } from "../lib/agent/design/loop/designAgent";
 import {
 	collectDesignIdentityHandleBindings,
 	createDesignLoopTools,
+	createDesignToolExecutionQueue,
 	projectDesignIdentityHandles,
 	renderDesignValidationIssues,
 	resolveDesignFindingHandles,
@@ -72,6 +73,7 @@ import {
 } from "../lib/agent/design/sourcePackage";
 import { stripNullProperties } from "../lib/agent/strictStructuredOutput";
 import { MODEL_ROLES } from "../lib/models";
+import { designPreviewInputTerminal } from "./lib/designPreviewInputTerminal";
 
 function usage(): never {
 	console.log(
@@ -431,15 +433,8 @@ async function main(): Promise<void> {
 		};
 	};
 
-	let previewTail: Promise<void> = Promise.resolve();
-	const ordered = <T>(work: () => Promise<T>): Promise<T> => {
-		const result = previewTail.then(work);
-		previewTail = result.then(
-			() => undefined,
-			() => undefined,
-		);
-		return result;
-	};
+	const toolExecutionQueue = createDesignToolExecutionQueue();
+	const ordered = toolExecutionQueue.run;
 	const collectionToolName = {
 		actors: "updateActors",
 		records: "updateRecords",
@@ -462,7 +457,7 @@ async function main(): Promise<void> {
 				{
 					...realTools[toolName],
 					execute: (input: unknown) =>
-						ordered(() =>
+						ordered(input, () =>
 							stage(activeKind(), {
 								collections: [
 									{
@@ -482,7 +477,7 @@ async function main(): Promise<void> {
 		setDesignRoot: {
 			...realTools.setDesignRoot,
 			execute: (input: unknown) =>
-				ordered(() =>
+				ordered(input, () =>
 					stage(activeKind(), {
 						root: stripNullProperties(input),
 						collections: [],
@@ -492,7 +487,7 @@ async function main(): Promise<void> {
 		updateFindingDispositions: {
 			...realTools.updateFindingDispositions,
 			execute: (input: unknown) =>
-				ordered(() =>
+				ordered(input, () =>
 					stage("revision", {
 						collections: [],
 						dispositions: {
@@ -505,7 +500,7 @@ async function main(): Promise<void> {
 		inspectDesign: {
 			...realTools.inspectDesign,
 			execute: (input: unknown) =>
-				ordered(async () => {
+				ordered(input, async () => {
 					const parsed = parseInput(inspectDesignInputSchema, input);
 					if (!parsed.ok) return { error: parsed.error };
 					const kind = activeKind();
@@ -528,7 +523,7 @@ async function main(): Promise<void> {
 		finishDesign: {
 			...realTools.finishDesign,
 			execute: (input: unknown) =>
-				ordered<unknown>(() =>
+				ordered<unknown>(input, () =>
 					activeKind() === "revision"
 						? finishRevision(input)
 						: finishContract(input),
@@ -536,7 +531,7 @@ async function main(): Promise<void> {
 		},
 		requestReview: {
 			...realTools.requestReview,
-			execute: () => ordered(requestReview),
+			execute: (input: unknown) => ordered(input, requestReview),
 		},
 	};
 
@@ -556,6 +551,7 @@ async function main(): Promise<void> {
 		const agent = createDesignAgent({
 			model: ctx.model(MODEL_ROLES.designAuthor.modelId),
 			tools: tools as never,
+			toolExecutionQueue,
 			phase,
 			catalogText,
 			constraintsText: renderPlatformConstraintsSection(),
@@ -577,11 +573,21 @@ async function main(): Promise<void> {
 		await result.consumeStream();
 		const response = await result.response;
 		messages = [...messages, ...response.messages];
-		const toolCalls = await result.toolCalls;
-		const pendingQuestions = toolCalls.filter(
-			(call): call is NonNullable<typeof call> =>
-				call !== undefined && call.toolName === "askQuestions",
+		const [toolCalls, toolResults] = await Promise.all([
+			result.toolCalls,
+			result.toolResults,
+		]);
+		const inputTerminal = designPreviewInputTerminal(
+			toolCalls.filter(
+				(call): call is NonNullable<typeof call> => call != null,
+			),
+			toolResults.filter(
+				(result): result is NonNullable<typeof result> => result != null,
+			),
 		);
+		if (inputTerminal.kind === "wait") break;
+		const pendingQuestions =
+			inputTerminal.kind === "questions" ? inputTerminal.questions : [];
 		for (const call of pendingQuestions) {
 			const input = call.input as {
 				header?: string;
@@ -614,7 +620,7 @@ async function main(): Promise<void> {
 				},
 			];
 		}
-		if (pendingQuestions.length === 0 && phaseFor(state) === phase) break;
+		if (inputTerminal.kind === "none" && phaseFor(state) === phase) break;
 	}
 	readline.close();
 

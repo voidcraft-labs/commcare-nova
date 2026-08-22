@@ -21,6 +21,7 @@ const DESIGN_PROTOCOL_TOOL_PART_TYPES = new Set([
 	"tool-inspectDesign",
 	"tool-finishDesign",
 	"tool-requestReview",
+	"tool-waitForInput",
 ]);
 
 export function isDesignProtocolToolPartType(type: string): boolean {

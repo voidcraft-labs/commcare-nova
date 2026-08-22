@@ -7,11 +7,19 @@ import {
 	EXECUTOR_PROMPT_VERSION,
 	EXECUTOR_SYSTEM,
 } from "@/lib/agent/build/executorPrompt";
+import { designBuildFailureLogLevel } from "@/lib/agent/build/failureReporting";
 
 describe("reviewed-build presentation", () => {
+	it("reports unexpected resumable defects as errors, independent of resume behavior", () => {
+		expect(designBuildFailureLogLevel("expected-prerequisite")).toBe("warn");
+		expect(designBuildFailureLogLevel("unexpected-failure")).toBe("error");
+	});
+
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v12");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v13");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
+		expect(EXECUTOR_SYSTEM).toContain("exact `requiredInitialResultsColumn`");
+		expect(EXECUTOR_SYSTEM).toContain("never belong in `addFields`");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"Use several native calls in one response when their inputs and identities are already known",
 		);

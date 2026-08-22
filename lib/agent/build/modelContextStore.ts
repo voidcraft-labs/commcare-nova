@@ -44,6 +44,13 @@ export interface DesignModelContextState {
 	readonly revision: number;
 	readonly messages: ModelMessage[];
 	readonly items: readonly DesignModelContextItem[];
+	/** The latest immutable predecessor generation that contains a provider
+	 * response, for design terminal recovery. Provider-contract rollovers can
+	 * append reseeds or state without making another provider call; those
+	 * item-only generations must not hide the response that still proves an
+	 * outer pause or correction a killed process did not record. Executor
+	 * generations never consume this projection. */
+	readonly predecessorItems: readonly DesignModelContextItem[];
 	readonly appendKeys: ReadonlySet<string>;
 	/** Server protocol provenance retained across immutable generations. */
 	readonly lineageAppendKeys: ReadonlySet<string>;
@@ -163,6 +170,41 @@ async function readItems(
 			);
 		}
 	});
+}
+
+/** Read only the newest predecessor that contains an actual provider response.
+ * Reseed, state, and protocol-only rollover generations are skipped, so several
+ * deployments between a committed terminal and recovery cannot hide it. */
+async function readLatestPredecessorItems(
+	tx: Transaction<AppDatabase>,
+	context: {
+		readonly design_session_id: string;
+		readonly context_kind: string;
+		readonly generation: number;
+	},
+): Promise<DesignModelContextItem[]> {
+	const predecessor = await tx
+		.selectFrom("design_model_contexts as context")
+		.innerJoin(
+			"design_model_context_items as item",
+			"item.context_id",
+			"context.id",
+		)
+		.select("context.id")
+		.where("context.design_session_id", "=", context.design_session_id)
+		.where("context.context_kind", "=", context.context_kind)
+		.where("context.generation", "<", context.generation)
+		.where((eb) =>
+			eb.or([
+				eb("item.append_key", "like", "design-response:%"),
+				eb("item.append_key", "like", "design-wait:%"),
+				eb("item.append_key", "like", "%:response:design:%"),
+			]),
+		)
+		.orderBy("context.generation", "desc")
+		.limit(1)
+		.executeTakeFirst();
+	return predecessor === undefined ? [] : readItems(tx, predecessor.id);
 }
 
 /** Both step-key sets in one query — the open path needs started AND
@@ -466,6 +508,10 @@ export async function openDesignModelContext(
 				? new Set(appendKeys)
 				: await readAppendKeysThroughGeneration(tx, row);
 		const stepKeys = await readStepKeysByEvent(tx, row.id);
+		const predecessorItems =
+			spec.kind === "design" && generation > 0
+				? await readLatestPredecessorItems(tx, row)
+				: [];
 		return {
 			id: row.id,
 			generation,
@@ -476,6 +522,7 @@ export async function openDesignModelContext(
 			),
 			messages: items.map((item) => item.message),
 			items,
+			predecessorItems,
 			appendKeys,
 			lineageAppendKeys,
 			startedStepKeys: stepKeys.started,
