@@ -21,6 +21,7 @@ import {
 	type PutOutcome,
 	type Reconciler,
 	type ReconcilerDeps,
+	type ReconcilerObservedFailure,
 	type SaveSignal,
 } from "@/lib/collab/reconciler";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -270,8 +271,8 @@ interface Harness {
 	}>;
 	reloadCalls: number;
 	resubscribeCursors: number[];
-	/** Every `onSaveError` detail the reconciler reported. */
-	saveErrors: string[];
+	/** Every structured `onSaveError` failure the reconciler reported. */
+	saveErrors: ReconcilerObservedFailure[];
 	/** MANUAL reload mode: when enabled, `reload()` returns a pending promise the
 	 *  test resolves with `resolveReload` / `failReload` — so a frame/dispose can
 	 *  land WHILE the reload GET is in flight. */
@@ -322,7 +323,7 @@ function makeHarness(init: {
 	let retryCb: (() => void) | undefined;
 	const reloadQueue: Harness["reloadQueue"] = [];
 	const resubscribeCursors: number[] = [];
-	const saveErrors: string[] = [];
+	const saveErrors: ReconcilerObservedFailure[] = [];
 	const state = { reloadCalls: 0, manual: false };
 	/** Manual-mode reload resolvers/rejecters, FIFO. */
 	const reloadResolvers: Array<{
@@ -376,7 +377,7 @@ function makeHarness(init: {
 				retryCb = undefined;
 			};
 		},
-		onSaveError: (detail) => saveErrors.push(detail),
+		onSaveError: (failure) => saveErrors.push(failure),
 	};
 
 	const reconciler = createReconciler(docStore, seededInit, deps);
@@ -1711,7 +1712,13 @@ describe("reconciler", () => {
 			await h.resolveReload({ blueprint: makeDoc("Recovered"), seq: 5 });
 			expect(h.reconciler.getSnapshot().baseSeq).toBe(5);
 			expect(h.reconciler.getSnapshot().confirmedDoc.appName).toBe("Recovered");
-			expect(h.saveErrors.length).toBeGreaterThan(0); // [7] outage reported
+			expect(h.saveErrors).toEqual([
+				expect.objectContaining({
+					operation: "reload-get",
+					failureKind: "unexpected-error",
+					error: expect.any(Error),
+				}),
+			]); // [7] outage reported
 		});
 
 		// [2] — a reload deferred behind an in-flight PUT runs when that PUT
@@ -1893,7 +1900,13 @@ describe("reconciler", () => {
 			expect(h.reconciler.canPut()).toBe(false);
 			expect(h.hasScheduledRetry()).toBe(false);
 			expect(observed).toContain("permanent");
-			expect(h.saveErrors.length).toBeGreaterThan(0);
+			expect(h.saveErrors).toContainEqual({
+				operation: "autosave-put",
+				failureKind: "canonicality",
+				mutationIndex: 0,
+				pointer: "/0",
+				reason: "schema-parse",
+			});
 			// A later frame is ignored (frozen) — no further mutation.
 			h.reconciler.onFrame(
 				autosaveFrame(1, "peer", "u2", [{ kind: "setAppName", name: "Late" }]),
@@ -2107,7 +2120,12 @@ describe("reconciler", () => {
 			expect(h.hasScheduledRetry()).toBe(false); // no 413-storm
 			// Surfaced + reported.
 			expect(observed).toContain("tooLarge");
-			expect(h.saveErrors.length).toBeGreaterThan(0);
+			expect(h.saveErrors).toContainEqual({
+				operation: "autosave-put",
+				failureKind: "too-large",
+				detail: "HTTP 413",
+				httpStatus: undefined,
+			});
 		});
 
 		it("[3c] a 413 landing under a deferred reload still runs the reload — frames don't freeze", async () => {

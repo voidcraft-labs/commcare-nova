@@ -19,25 +19,18 @@
  */
 
 import * as Sentry from "@sentry/nextjs";
+import {
+	type ClientErrorPayload,
+	type ErrorSource,
+	type NormalizedClientErrorPayload,
+	normalizeClientErrorPayload,
+} from "@/lib/clientErrorContract";
 
-// ── Types ──────────────────────────────────────────────────────────────
-
-/** The source that captured the error — used for filtering in Cloud Logging. */
-export type ErrorSource =
-	| "window.onerror"
-	| "unhandledrejection"
-	| "error-boundary"
-	| "manual";
-
-/** Payload sent to the server logging endpoint. */
-export interface ClientErrorPayload {
-	message: string;
-	stack?: string;
-	source: ErrorSource;
-	url: string;
-	/** React component stack from error boundaries (separate from JS stack). */
-	componentStack?: string;
-}
+export type {
+	ClientErrorDiagnostics,
+	ClientErrorPayload,
+	ErrorSource,
+} from "@/lib/clientErrorContract";
 
 // ── Dedup + Rate Limiting ──────────────────────────────────────────────
 
@@ -45,15 +38,22 @@ export interface ClientErrorPayload {
 const MAX_ERRORS_PER_SESSION = 10;
 
 /**
- * Fingerprints of already-reported errors. Uses the first 200 chars of
- * message + source as a simple dedup key — good enough to catch repeated
- * errors without the overhead of full hashing.
+ * Fingerprints of already-reported errors. Structured failures use their
+ * stable category + app id; generic reports fall back to message + source.
  */
 const reported = new Set<string>();
 
 /** Generate a dedup key from the error payload. */
-function fingerprint(payload: ClientErrorPayload): string {
-	return `${payload.source}::${payload.message.slice(0, 200)}`;
+function fingerprint(payload: NormalizedClientErrorPayload): string {
+	const { appId, component, operation, failureKind } = payload.diagnostics;
+	if (component && operation && failureKind) {
+		return [payload.source, component, operation, failureKind, appId]
+			.filter(Boolean)
+			.join("::");
+	}
+	return [payload.source, payload.message.slice(0, 200)]
+		.filter(Boolean)
+		.join("::");
 }
 
 // ── Sentry capture ─────────────────────────────────────────────────────
@@ -72,19 +72,43 @@ const SENTRY_NATIVE_SOURCES: ReadonlySet<ErrorSource> = new Set([
  * Capture a boundary/manual report to Sentry. Prefers the original
  * thrown value — Sentry fingerprints on its stack, which groups far
  * better than message text. Without one (e.g. an HTTP-status failure
- * with nothing thrown), synthesizes an Error carrying the payload's
- * stack so grouping keys on the original frames, not this reporter's.
+ * with nothing thrown), synthesizes an Error, preserves a caller-supplied
+ * stack when one exists, and supplies a stable explicit fingerprint for
+ * structured failures.
  */
-function captureToSentry(payload: ClientErrorPayload, thrown: unknown): void {
+function captureToSentry(
+	payload: NormalizedClientErrorPayload,
+	thrown: unknown,
+): void {
 	try {
 		let error = thrown;
 		if (error === undefined) {
 			const synthetic = new Error(payload.message);
-			if (payload.stack) synthetic.stack = payload.stack;
+			if (payload.stack !== undefined) synthetic.stack = payload.stack;
 			error = synthetic;
 		}
+		const { appId, component, operation, failureKind } = payload.diagnostics;
+		const tags = Object.fromEntries(
+			Object.entries({
+				source: payload.source,
+				appId,
+				component,
+				operation,
+				failureKind,
+			}).filter((entry): entry is [string, string] => Boolean(entry[1])),
+		);
+		const explicitFingerprint =
+			component &&
+			operation &&
+			failureKind &&
+			(thrown === undefined || operation === "mutation-frame")
+				? { fingerprint: [component, operation, failureKind] }
+				: {};
 		Sentry.captureException(error, {
+			tags,
 			extra: { source: payload.source, url: payload.url },
+			contexts: { client_error: { ...payload.diagnostics } },
+			...explicitFingerprint,
 		});
 	} catch {
 		/* Swallow — error reporting must never throw */
@@ -100,14 +124,13 @@ const ENDPOINT = "/api/log/error";
  * reliability during page unloads; falls back to `fetch` with `keepalive`.
  * Never throws — reporting errors should not cause additional errors.
  */
-function send(payload: ClientErrorPayload): void {
+function send(payload: NormalizedClientErrorPayload): void {
 	try {
 		const body = JSON.stringify(payload);
 
 		if (typeof navigator !== "undefined" && navigator.sendBeacon) {
 			const blob = new Blob([body], { type: "application/json" });
-			navigator.sendBeacon(ENDPOINT, blob);
-			return;
+			if (navigator.sendBeacon(ENDPOINT, blob)) return;
 		}
 
 		/* Fallback for environments without sendBeacon (rare, but defensive). */
@@ -133,8 +156,9 @@ function send(payload: ClientErrorPayload): void {
  * Pass the original thrown value as `thrown` whenever one exists — the
  * Sentry capture keeps its native stack for grouping.
  *
- * Deduplicates by message + source so the same error isn't reported
- * multiple times. Rate-limited to MAX_ERRORS_PER_SESSION per page load.
+ * Deduplicates by stable diagnostics + app id (falling back to message +
+ * source) so the same error isn't reported multiple times. Rate-limited to
+ * MAX_ERRORS_PER_SESSION per page load.
  * Returns true if the error was actually sent, false if deduplicated
  * or rate-limited.
  */
@@ -142,7 +166,8 @@ export function reportClientError(
 	payload: ClientErrorPayload,
 	thrown?: unknown,
 ): boolean {
-	const key = fingerprint(payload);
+	const normalized = normalizeClientErrorPayload(payload);
+	const key = fingerprint(normalized);
 
 	/* Already reported this exact error. */
 	if (reported.has(key)) return false;
@@ -151,9 +176,9 @@ export function reportClientError(
 	if (reported.size >= MAX_ERRORS_PER_SESSION) return false;
 
 	reported.add(key);
-	if (!SENTRY_NATIVE_SOURCES.has(payload.source)) {
-		captureToSentry(payload, thrown);
+	if (!SENTRY_NATIVE_SOURCES.has(normalized.source)) {
+		captureToSentry(normalized, thrown);
 	}
-	send(payload);
+	send(normalized);
 	return true;
 }

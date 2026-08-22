@@ -113,6 +113,13 @@ export default withSentryConfig(withMDX(nextConfig), {
 	org: "dimagi-1l",
 	project: "nova",
 
+	/* Match source-map upload to the same immutable Cloud Build UUID stamped
+	 * into browser/server events. A local build has no release and uploads no
+	 * maps because it also has no SENTRY_AUTH_TOKEN. */
+	...(process.env.NOVA_BUILD_ID
+		? { release: { name: process.env.NOVA_BUILD_ID } }
+		: {}),
+
 	/* Opt out of the Sentry build plugin's own anonymous usage telemetry (the
 	 * "Sending telemetry data on issues and performance to Sentry" build log).
 	 * This is the plugin reporting on itself — unrelated to our error/trace

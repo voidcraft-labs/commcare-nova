@@ -86,7 +86,7 @@ function emptyDoc(): BlueprintDoc {
 	};
 }
 
-type FakeListener = (event: { data?: string }) => void;
+type FakeListener = (event: { data?: string; lastEventId?: string }) => void;
 
 class FakeEventSource {
 	static readonly CLOSED = 2;
@@ -109,8 +109,10 @@ class FakeEventSource {
 		this.readyState = FakeEventSource.CLOSED;
 	}
 
-	emit(type: string, data?: string): void {
-		for (const listener of this.listeners.get(type) ?? []) listener({ data });
+	emit(type: string, data?: string, lastEventId = ""): void {
+		for (const listener of this.listeners.get(type) ?? []) {
+			listener({ data, lastEventId });
+		}
 	}
 }
 
@@ -263,7 +265,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 				],
 			}),
 			reportsClientError: true,
-			errorMessage: "Reconciler: malformed mutation frame",
+			errorMessage: "Reconciler protocol mismatch: mutation frame rejected",
 		},
 		{
 			name: "a malformed revocation frame",
@@ -315,18 +317,33 @@ describe("ReconcilerProvider EventSource ownership", () => {
 			runtime.start();
 			const sourceStream = FakeEventSource.instances[0];
 
-			sourceStream.emit(event, data);
+			sourceStream.emit(event, data, "14");
 
 			expect(sourceStream.readyState).toBe(FakeEventSource.CLOSED);
 			expect(runtime.reconciler.getSnapshot().baseSeq).toBe(0);
 			expect(docStore.getState().appName).toBe("App");
 			expect(reloadFetch).toHaveBeenCalledTimes(1);
 			if (reportsClientError) {
-				expect(reportClientError).toHaveBeenCalledWith(
-					expect.objectContaining({
-						message: errorMessage,
-					}),
-				);
+				if (event === "mutation") {
+					expect(reportClientError).toHaveBeenCalledWith(
+						expect.objectContaining({
+							diagnostics: expect.objectContaining({
+								component: "reconciler",
+								operation: "mutation-frame",
+								failureKind: "mutation-admission",
+								appId: "app-1",
+								baseSeq: 0,
+								eventId: "14",
+								payloadBytes: new TextEncoder().encode(data).byteLength,
+							}),
+						}),
+						expect.any(Error),
+					);
+				} else {
+					expect(reportClientError).toHaveBeenCalledWith(
+						expect.objectContaining({ message: errorMessage }),
+					);
+				}
 			} else {
 				expect(reportClientError).not.toHaveBeenCalled();
 			}
@@ -350,6 +367,100 @@ describe("ReconcilerProvider EventSource ownership", () => {
 			runtime.suspend();
 		},
 	);
+
+	it("links a rejected recovery snapshot to the malformed mutation that triggered it", async () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const persistedDoc = toPersistableDoc(emptyDoc());
+		const propertyUuid = "01890f45-0000-7000-8000-000000000001";
+		const privateChoice = "private-choice-must-not-reach-telemetry";
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(persistedDoc);
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					projectId: "project-source",
+					role: "editor",
+					canEdit: true,
+					blueprint: {
+						...persistedDoc,
+						userProperties: {
+							[propertyUuid]: {
+								uuid: propertyUuid,
+								slug: "private_choice",
+								label: "Private choice",
+								choices: [privateChoice, privateChoice],
+							},
+						},
+						userPropertyOrder: [propertyUuid],
+					},
+					baseSeq: 14,
+				}),
+			),
+		);
+
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 13, userId: "self" },
+			() => {},
+		);
+		runtime.start();
+		FakeEventSource.instances[0].emit(
+			"mutation",
+			JSON.stringify({
+				seq: 14,
+				batchId: "peer-batch",
+				actorId: "peer",
+				kind: "autosave",
+				mutations: [
+					{ kind: "setAppName", name: "not-retained", unexpected: true },
+				],
+			}),
+			"14",
+		);
+
+		await vi.waitFor(() => expect(reportClientError).toHaveBeenCalledTimes(2));
+		expect(reportClientError).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				message: "Reconciler recovery snapshot rejected",
+				diagnostics: expect.objectContaining({
+					component: "reconciler",
+					operation: "reload-get",
+					failureKind: "snapshot-schema",
+					appId: "app-1",
+					baseSeq: 13,
+					httpStatus: 200,
+					recoveryTrigger: "malformed-mutation-frame",
+					eventId: "14",
+					issues: expect.arrayContaining([
+						expect.stringContaining(
+							`/blueprint/userProperties/${propertyUuid}/choices/1`,
+						),
+					]),
+				}),
+			}),
+			expect.any(Error),
+		);
+		const [reportedPayload, reportedError] =
+			reportClientError.mock.lastCall ?? [];
+		expect(reportedPayload?.stack).not.toContain(privateChoice);
+		expect(reportedError).toMatchObject({
+			message: "reconciler reload snapshot failed schema admission",
+		});
+		expect((reportedError as Error).stack).not.toContain(privateChoice);
+		expect(JSON.stringify(reportClientError.mock.calls)).not.toContain(
+			privateChoice,
+		);
+		runtime.suspend();
+	});
 
 	it("does not trust an unknown canonicality reason from a malformed PUT response", async () => {
 		vi.useFakeTimers();

@@ -6,6 +6,10 @@ import { describe, expect, test } from "vitest";
 const cloudBuild = readFileSync("cloudbuild.yaml", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
 const dockerfile = readFileSync("Dockerfile", "utf8");
+const nextConfig = readFileSync("next.config.ts", "utf8");
+const sentryClientConfig = readFileSync("instrumentation-client.ts", "utf8");
+const sentryServerConfig = readFileSync("sentry.server.config.ts", "utf8");
+const sentryEdgeConfig = readFileSync("sentry.edge.config.ts", "utf8");
 const dockerignore = readFileSync(".dockerignore", "utf8");
 const provisioning = readFileSync(
 	"scripts/infra/provision-deployment-identities.sh",
@@ -100,12 +104,33 @@ describe("durable deployment policy", () => {
 	});
 
 	test("pins one image and the final runtime platform limits", () => {
+		expect(
+			execFileSync(
+				"node",
+				["scripts/rollout/render-build-config.mjs", "--check"],
+				{ encoding: "utf8" },
+			),
+		).toContain("Runtime capability manifest and build wiring are valid");
 		expect(cloudBuild).not.toContain("app:$COMMIT_SHA");
 		expect(cloudBuild.match(/app:\$BUILD_ID/g)).toHaveLength(3);
 		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(10);
 		expect(cloudBuild).toContain("--resolve-image");
 		expect(cloudBuild).toContain("--output=/workspace/image.env");
 		expect(cloudBuild).toContain('--build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID"');
+		expect(dockerfile).toMatch(
+			/NEXT_PUBLIC_NOVA_BUILD_ID="\$\{NOVA_BUILD_ID\}"/,
+		);
+		expect(sentryClientConfig).toContain(
+			"release: process.env.NEXT_PUBLIC_NOVA_BUILD_ID || undefined",
+		);
+		for (const serverRuntimeConfig of [sentryServerConfig, sentryEdgeConfig]) {
+			expect(serverRuntimeConfig).toContain(
+				"release: process.env.NOVA_BUILD_ID || undefined",
+			);
+		}
+		expect(nextConfig).toContain(
+			"release: { name: process.env.NOVA_BUILD_ID }",
+		);
 		expect(cloudBuild).toContain(
 			'--timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s"',
 		);

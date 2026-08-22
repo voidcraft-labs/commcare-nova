@@ -6,6 +6,7 @@ import * as Sentry from "@sentry/nextjs";
 
 Sentry.init({
 	dsn: "https://1c43ea684bc94e3c53926a2ca3ab9a51@o4511537737039872.ingest.us.sentry.io/4511537747918848",
+	release: process.env.NOVA_BUILD_ID || undefined,
 
 	/* Never report from a LOCAL run — the E2E smoke suite (and `npm run dev`)
 	 * build+run the production bundle against the local Postgres, so without this

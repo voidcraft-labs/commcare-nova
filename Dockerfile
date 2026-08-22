@@ -67,7 +67,10 @@ ARG NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID
 # Server Action / asset version-skew protection. Both are consumed by
 # `next build`, not at runtime — a build ARG is visible to the RUN step's
 # `process.env`, exactly like SENTRY_AUTH_TOKEN above, so neither needs a
-# separate ENV line and neither leaks into the runner stage.
+# separate runtime lookup. `NOVA_BUILD_ID` is also intentionally exposed as
+# `NEXT_PUBLIC_NOVA_BUILD_ID`: the build UUID is non-secret deployment identity,
+# and stamping it into the browser bundle lets client errors name the exact
+# code that parsed a server response.
 #   • NEXT_SERVER_ACTIONS_ENCRYPTION_KEY pins the key Next derives Server Action
 #     IDs (and closure encryption) from. With it fixed, every UNCHANGED action
 #     keeps the same ID across builds, so an already-open builder tab keeps
@@ -83,6 +86,9 @@ ARG NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID
 #     protection off (no forced reload on a version mismatch).
 ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
 ARG NEXT_DEPLOYMENT_ID
+ARG NOVA_BUILD_ID
+ENV NOVA_BUILD_ID="${NOVA_BUILD_ID}" \
+    NEXT_PUBLIC_NOVA_BUILD_ID="${NOVA_BUILD_ID}"
 
 RUN npm run build
 

@@ -57,6 +57,10 @@ steps:
   #     and a retried/rebuilt commit reuses the same SHA but gets fresh per-build
   #     chunk hashes, so a SHA-keyed id would miss that skew. $BUILD_ID is always
   #     set and unique per build, so it changes between any two deploys.
+  #   • NOVA_BUILD_ID is that same rendered Cloud Build UUID. It remains the
+  #     runtime startup-health identity and is also baked into browser/server
+  #     Sentry releases, so an error names the exact code that observed it and
+  #     uploaded source maps use the same release.
   # Secrets only reach a step through env vars, and env vars only expand under a
   # shell, hence the bash wrapper. The trigger's service account needs
   # `roles/secretmanager.secretAccessor` on each secret or the build fails
