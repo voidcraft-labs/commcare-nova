@@ -9,6 +9,8 @@ import {
 	designTerminalOmissionCanCorrect,
 	designTerminalOmissionCorrectionPrefix,
 	designToolPulsePhase,
+	designTurnProvenanceId,
+	designWaitForInputCanPause,
 	projectAnsweredDesignContinuation,
 	projectMissingDesignUserContinuations,
 } from "@/lib/agent/build/designLoopRunner";
@@ -111,9 +113,9 @@ describe("design POST step budget", () => {
 });
 
 describe("design terminal omission correction", () => {
-	it("allows exactly one durable correction per response and phase", () => {
+	it("allows exactly one durable correction per input turn and phase", () => {
 		const target = {
-			responseMessageId: "response-1",
+			turnProvenanceId: "user-turn-1",
 			phase: "author" as const,
 		};
 		const prefix = designTerminalOmissionCorrectionPrefix(target);
@@ -124,9 +126,25 @@ describe("design terminal omission correction", () => {
 		expect(
 			designTerminalOmissionCanCorrect(new Set([`${prefix}7`]), {
 				...target,
-				responseMessageId: "response-2",
+				turnProvenanceId: "user-turn-2",
 			}),
 		).toBe(true);
+	});
+
+	it("keeps the correction identity when a dead response is regenerated", () => {
+		const messages = [
+			{ id: "user-turn-1", role: "user", parts: [] },
+		] as UIMessage[];
+		expect(designTurnProvenanceId(messages, "response-1")).toBe(
+			designTurnProvenanceId(messages, "response-2"),
+		);
+	});
+});
+
+describe("design wait terminal", () => {
+	it("cannot bypass a server-required question batch", () => {
+		expect(designWaitForInputCanPause(0)).toBe(true);
+		expect(designWaitForInputCanPause(1)).toBe(false);
 	});
 });
 

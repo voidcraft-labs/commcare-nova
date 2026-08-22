@@ -1452,6 +1452,10 @@ export async function POST(req: Request) {
 						paused?: boolean;
 						heldApp?: boolean;
 						failureSource?: string;
+						/** The typed failure already emitted its canonical structured
+						 * operational report. Finalization still publishes the safe
+						 * conversation event, but must not report it to Sentry again. */
+						failureReportedAtSource?: boolean;
 						/** The TURN finished — its answer streamed to completion and
 						 * every unit it narrates committed — and `failure` is
 						 * post-drain BOOKKEEPING (schema materialization, the
@@ -1599,7 +1603,13 @@ export async function POST(req: Request) {
 							});
 						}
 						if (settleOutcome === "owned") {
-							ctx.emitError(failure, opts?.failureSource ?? "route:failure");
+							ctx.emitError(
+								failure,
+								opts?.failureSource ?? "route:failure",
+								opts?.failureReportedAtSource === true
+									? { reportedAtSource: true }
+									: undefined,
+							);
 							if (chargeable && refundSettled && !refundSignalled) {
 								refundSignalled = true;
 								writer.write({
@@ -1620,7 +1630,13 @@ export async function POST(req: Request) {
 							/* Infrastructure uncertainty is not proof of holder loss. Surface the
 							 * original failure, but make no refund claim; the exact-holder reaper
 							 * remains the settlement backstop. */
-							ctx.emitError(failure, opts?.failureSource ?? "route:failure");
+							ctx.emitError(
+								failure,
+								opts?.failureSource ?? "route:failure",
+								opts?.failureReportedAtSource === true
+									? { reportedAtSource: true }
+									: undefined,
+							);
 						}
 						/* Flip to `error` only for a BUILD (the app is `generating`). A failed
 						 * EDIT must NOT flip its already-`complete` app to `error`: that would
@@ -2402,7 +2418,10 @@ export async function POST(req: Request) {
 										recoverable: outcome.recoverable,
 										raw: outcome.errorType,
 									},
-									{ failureSource: "route:design-build" },
+									{
+										failureSource: "route:design-build",
+										failureReportedAtSource: true,
+									},
 								);
 							} else {
 								usage.markRunFailed();
@@ -2427,6 +2446,7 @@ export async function POST(req: Request) {
 										raw: outcome.errorType,
 									},
 									"route:design-build",
+									{ reportedAtSource: true },
 								);
 								if (chargeable && refunded && !refundSignalled) {
 									refundSignalled = true;

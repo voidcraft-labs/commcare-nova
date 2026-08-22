@@ -802,6 +802,37 @@ describe("GenerationContext.emitError", () => {
 		);
 		expect(log.error).not.toHaveBeenCalled();
 	});
+
+	it("does not duplicate an operational report already emitted at the source", () => {
+		vi.mocked(log.warn).mockClear();
+		vi.mocked(log.error).mockClear();
+		const { ctx, logWriter } = makeTestContext();
+		ctx.emitError(
+			{
+				type: "internal",
+				message: "The design stopped safely.",
+				recoverable: true,
+				raw: "design-terminal-omission",
+			},
+			"route:design-build",
+			{ reportedAtSource: true },
+		);
+
+		expect(log.error).not.toHaveBeenCalled();
+		expect(log.warn).not.toHaveBeenCalled();
+		expect(logWriter.logEvent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				payload: {
+					type: "error",
+					error: {
+						type: "internal",
+						message: "The design stopped safely.",
+						fatal: false,
+					},
+				},
+			}),
+		);
+	});
 });
 
 describe("GenerationContext.handleAgentStep", () => {

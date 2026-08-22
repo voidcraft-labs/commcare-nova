@@ -550,7 +550,8 @@ export class GenerationContext
 	 * the error either way, so a broken SSE writer is not fatal for
 	 * admin observability.
 	 *
-	 * Logs the underlying cause server-side BEFORE emitting. The
+	 * Logs the underlying cause server-side BEFORE emitting, unless the caller
+	 * identifies a canonical source report that already captured it. The
 	 * conversation event + event log only carry the user-safe `message`
 	 * (`classifiedErrorPayloadSchema` drops `raw` deliberately — the log
 	 * is not a stack-trace surface), so without this an `internal`
@@ -563,21 +564,23 @@ export class GenerationContext
 	emitError(
 		error: ClassifiedError,
 		context?: string,
-		opts?: { runContinues?: boolean },
+		opts?: { runContinues?: boolean; reportedAtSource?: boolean },
 	): void {
-		const cause = {
-			raw: error.raw ?? "",
-			context: context ?? "",
-			recoverable: error.recoverable,
-		};
-		if (error.type === "internal") {
-			log.error(
-				`[generation] internal error: ${error.message}`,
-				undefined,
-				cause,
-			);
-		} else {
-			log.warn(`[generation] ${error.type}: ${error.message}`, cause);
+		if (opts?.reportedAtSource !== true) {
+			const cause = {
+				raw: error.raw ?? "",
+				context: context ?? "",
+				recoverable: error.recoverable,
+			};
+			if (error.type === "internal") {
+				log.error(
+					`[generation] internal error: ${error.message}`,
+					undefined,
+					cause,
+				);
+			} else {
+				log.warn(`[generation] ${error.type}: ${error.message}`, cause);
+			}
 		}
 		const payload: ClassifiedErrorPayload = {
 			type: error.type,

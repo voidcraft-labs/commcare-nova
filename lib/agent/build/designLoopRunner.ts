@@ -376,19 +376,41 @@ export function designModelStepKey(args: {
 }
 
 export function designTerminalOmissionCorrectionPrefix(args: {
-	readonly responseMessageId: string;
+	readonly turnProvenanceId: string;
 	readonly phase: "author" | "review" | "revision" | "awaiting-input";
 }): string {
-	return `design-terminal-omission:${args.responseMessageId}:${args.phase}:`;
+	return `design-terminal-omission:${args.turnProvenanceId}:${args.phase}:`;
 }
 
-/** The one correction allowance is durable across process replacement. */
+/** The one correction allowance is durable across process replacement. The
+ * key binds to the incoming turn, not its replaceable assistant response: a
+ * dead response can be regenerated under a new id, while the user message (or
+ * answered question message) that authorized the work stays the same. */
 export function designTerminalOmissionCanCorrect(
 	appendKeys: ReadonlySet<string>,
 	args: Parameters<typeof designTerminalOmissionCorrectionPrefix>[0],
 ): boolean {
 	const prefix = designTerminalOmissionCorrectionPrefix(args);
 	return ![...appendKeys].some((key) => key.startsWith(prefix));
+}
+
+/** Stable identity of the input that opened this logical design turn. A plain
+ * send ends in a user message; an answered question continuation ends in the
+ * assistant message carrying that durable tool output. Both survive a
+ * response regeneration, unlike the newly minted response id. */
+export function designTurnProvenanceId(
+	messages: readonly UIMessage[],
+	fallbackResponseMessageId: string,
+): string {
+	return messages.at(-1)?.id ?? fallbackResponseMessageId;
+}
+
+/** A conversational wait may only become terminal when the server has no
+ * mandatory question batch for the person. */
+export function designWaitForInputCanPause(
+	requiredQuestionCount: number,
+): boolean {
+	return requiredQuestionCount === 0;
 }
 
 /** Append every ordinary user turn that is absent from an already-open private
@@ -528,6 +550,10 @@ export async function runDesignAgentLoop(
 	 * Until its durable append keys load, no answered card is authorized. */
 	let modelContextAppendKeys = new Set<string>();
 	let modelContextProtocolKeys = new Set<string>();
+	const turnProvenanceId = designTurnProvenanceId(
+		args.messages,
+		args.responseMessageId,
+	);
 	const toolDeps = {
 		designSessionId: args.designSessionId,
 		runId: args.runId,
@@ -1168,6 +1194,7 @@ export async function runDesignAgentLoop(
 			if (
 				chunk.type === "tool-output-available" &&
 				toolNames.get(chunk.toolCallId) === DESIGN_WAIT_FOR_INPUT_TOOL &&
+				designWaitForInputCanPause(activeRequiredQuestionBatch.length) &&
 				typeof chunk.output === "object" &&
 				chunk.output !== null &&
 				"ok" in chunk.output &&
@@ -1335,12 +1362,12 @@ export async function runDesignAgentLoop(
 			 * omission is a bounded harness defect, not a reason to make the person
 			 * resend the same instruction repeatedly. */
 			const correctionPrefix = designTerminalOmissionCorrectionPrefix({
-				responseMessageId: args.responseMessageId,
+				turnProvenanceId,
 				phase,
 			});
 			if (
 				designTerminalOmissionCanCorrect(modelContextAppendKeys, {
-					responseMessageId: args.responseMessageId,
+					turnProvenanceId,
 					phase,
 				})
 			) {
