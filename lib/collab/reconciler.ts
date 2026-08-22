@@ -152,12 +152,64 @@ export type PutOutcome =
 	 *  the same body won't shrink it, so it STOPS the retry loop (no 413-storm)
 	 *  and surfaces clearly, but does NOT discard the edits — a reload is the
 	 *  user's explicit choice, not an automatic data-drop. */
-	| { ok: false; kind: "tooLarge"; detail?: string }
+	| { ok: false; kind: "tooLarge"; detail?: string; httpStatus?: number }
 	/** A transient 5xx / network failure (and a recoverable 401 — a lapsed
 	 *  session that a re-auth can recover): the batch stays in `sentPending` and
 	 *  the retry loop re-sends it. `detail` (HTTP status / body / network stack)
 	 *  feeds the deduped observability report. */
-	| { ok: false; kind: "network"; detail?: string };
+	| {
+			ok: false;
+			kind: "network";
+			detail?: string;
+			httpStatus?: number;
+			error?: unknown;
+	  };
+
+/** Structured failure handed to the provider-owned observability boundary. */
+export interface ReconcilerObservedFailure {
+	readonly operation: "autosave-put" | "reload-get";
+	readonly failureKind:
+		| "network"
+		| "http"
+		| "too-large"
+		| "canonicality"
+		| "batch-collision"
+		| "invalid-json"
+		| "snapshot-schema"
+		| "unexpected-error";
+	readonly detail?: string;
+	readonly error?: unknown;
+	readonly httpStatus?: number;
+	readonly mutationIndex?: number | null;
+	readonly pointer?: string;
+	readonly reason?: string;
+	readonly issues?: readonly string[];
+}
+
+/** Typed rejection from the provider's authoritative reload transport. */
+export class ReconcilerReloadError extends Error {
+	readonly failureKind: "network" | "http" | "invalid-json" | "snapshot-schema";
+	readonly httpStatus?: number;
+	readonly issues?: readonly string[];
+	readonly originalError?: unknown;
+
+	constructor(
+		failureKind: ReconcilerReloadError["failureKind"],
+		options: {
+			message: string;
+			httpStatus?: number;
+			issues?: readonly string[];
+			originalError?: unknown;
+		},
+	) {
+		super(options.message);
+		this.name = "ReconcilerReloadError";
+		this.failureKind = failureKind;
+		this.httpStatus = options.httpStatus;
+		this.issues = options.issues;
+		this.originalError = options.originalError;
+	}
+}
 
 /** A save-lifecycle signal `useAutoSave` renders as status.
  *  The reconciler fires it to the currently registered observer. */
@@ -267,9 +319,10 @@ export interface ReconcilerDeps {
 	/** Report a persistent save-path failure to the observability channel
 	 *  (Sentry, via the provider's `reportClientError`). Fires for a 5xx /
 	 *  network PUT failure and a reload-GET failure so an app-wide save outage
-	 *  isn't invisible; the provider dedupes per-app so a retry storm is one
-	 *  issue. `detail` carries the HTTP status / body / network stack. */
-	onSaveError?: (detail: string) => void;
+	 *  isn't invisible; the provider dedupes by stable category + app so a retry
+	 *  storm is one issue. The original error remains separate from bounded,
+	 *  data-free diagnostic fields. */
+	onSaveError?: (failure: ReconcilerObservedFailure) => void;
 }
 
 export interface ReconcilerInit {
@@ -885,6 +938,7 @@ export function createReconciler(
 				ok: false,
 				kind: "network",
 				detail: err instanceof Error ? err.message : String(err),
+				error: err,
 			};
 		} finally {
 			batch.putInFlight = false;
@@ -995,8 +1049,17 @@ export function createReconciler(
 			});
 			deps.onSaveError?.(
 				outcome.kind === "canonicality"
-					? `auto-save mutation canonicality rejected. Mutation=${outcome.details.mutationIndex ?? "root"} pointer=${outcome.details.pointer} reason=${outcome.details.reason}`
-					: "auto-save batch id collision",
+					? {
+							operation: "autosave-put",
+							failureKind: "canonicality",
+							mutationIndex: outcome.details.mutationIndex,
+							pointer: outcome.details.pointer,
+							reason: outcome.details.reason,
+						}
+					: {
+							operation: "autosave-put",
+							failureKind: "batch-collision",
+						},
 			);
 			return;
 		}
@@ -1026,7 +1089,12 @@ export function createReconciler(
 			for (const watch of [...unboundHumanBatchWatches]) {
 				settleWatch(watch, { kind: "tooLarge" });
 			}
-			deps.onSaveError?.(`auto-save PUT too large: ${outcome.detail ?? "413"}`);
+			deps.onSaveError?.({
+				operation: "autosave-put",
+				failureKind: "too-large",
+				detail: outcome.detail,
+				httpStatus: outcome.httpStatus,
+			});
 			maybeRunDeferredReload();
 			return;
 		}
@@ -1038,7 +1106,13 @@ export function createReconciler(
 		// channel (deduped per-app)
 		// so an app-wide save outage isn't invisible.
 		batch.observe?.({ kind: "error" });
-		deps.onSaveError?.(`auto-save PUT failed: ${outcome.detail ?? "network"}`);
+		deps.onSaveError?.({
+			operation: "autosave-put",
+			failureKind: outcome.httpStatus === undefined ? "network" : "http",
+			detail: outcome.detail,
+			httpStatus: outcome.httpStatus,
+			error: outcome.error,
+		});
 		scheduleRetryLoop();
 		// A reload deferred behind this PUT must still run even though the PUT
 		// FAILED — otherwise it strands until a later re-send happens to 200.
@@ -1219,9 +1293,19 @@ export function createReconciler(
 				deps.markAccessReconnecting?.();
 				reloadPending = true;
 				deps.onSaveError?.(
-					`reconciler reload GET failed: ${
-						err instanceof Error ? err.message : String(err)
-					}`,
+					err instanceof ReconcilerReloadError
+						? {
+								operation: "reload-get",
+								failureKind: err.failureKind,
+								error: err.originalError ?? err,
+								httpStatus: err.httpStatus,
+								issues: err.issues,
+							}
+						: {
+								operation: "reload-get",
+								failureKind: "unexpected-error",
+								error: err,
+							},
 				);
 				scheduleRetryLoop();
 			}

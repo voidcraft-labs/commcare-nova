@@ -6,6 +6,7 @@ import * as Sentry from "@sentry/nextjs";
 
 Sentry.init({
 	dsn: "https://1c43ea684bc94e3c53926a2ca3ab9a51@o4511537737039872.ingest.us.sentry.io/4511537747918848",
+	release: process.env.NEXT_PUBLIC_NOVA_BUILD_ID || undefined,
 
 	/* Off on localhost — the E2E smoke suite drives the production bundle through
 	 * HeadlessChrome at http://localhost, and local dev runs there too; neither

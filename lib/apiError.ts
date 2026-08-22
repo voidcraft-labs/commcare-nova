@@ -69,8 +69,8 @@ export class ApiError extends Error {
  *   blueprint routes. This is the only UNauthenticated parse, so the cap is
  *   the first line before `resolveOpenAIKey`.
  * - `CLIENT_ERROR_MAX_BYTES` — the public `/api/log/error` relay, whose
- *   schema caps every field; the sum of those caps is ~20 KB, so 32 KB
- *   accepts every valid report and rejects the rest.
+ *   normalized output is under 28 KB; 32 KB leaves room for JSON overhead and
+ *   one legacy pre-normalizer report while bounding the public input.
  * - `OAUTH_REVOKE_MAX_BYTES` — the auth wrapper's pre-handler revoke-token
  *   read, whose body is a single token.
  */

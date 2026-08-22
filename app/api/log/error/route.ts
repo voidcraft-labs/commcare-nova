@@ -12,14 +12,56 @@
  */
 import { z } from "zod/v4";
 import { CLIENT_ERROR_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
+import {
+	CLIENT_ERROR_LIMITS,
+	clientErrorUtf8Bytes,
+	normalizeClientErrorPayload,
+} from "@/lib/clientErrorContract";
 import { log } from "@/lib/logger";
 
 // ── Payload Schema ────────────────────────────────────────────────────
 
 /** Max length for string fields to prevent oversized payloads. */
-const MAX_MESSAGE = 2000;
-const MAX_STACK = 8000;
-const MAX_URL = 2000;
+const diagnosticString = z.string().max(CLIENT_ERROR_LIMITS.diagnosticString);
+const shortDiagnosticString = z
+	.string()
+	.max(CLIENT_ERROR_LIMITS.shortDiagnosticString);
+
+const truncationSchema = z
+	.object({
+		messageBytes: z.number().int().nonnegative().optional(),
+		stackBytes: z.number().int().nonnegative().optional(),
+		componentStackBytes: z.number().int().nonnegative().optional(),
+		urlBytes: z.number().int().nonnegative().optional(),
+		diagnosticFields: z
+			.array(shortDiagnosticString)
+			.max(CLIENT_ERROR_LIMITS.truncatedFields)
+			.optional(),
+	})
+	.strict();
+
+const diagnosticsSchema = z
+	.object({
+		component: shortDiagnosticString.optional(),
+		operation: shortDiagnosticString.optional(),
+		failureKind: shortDiagnosticString.optional(),
+		appId: shortDiagnosticString.optional(),
+		clientBuildId: shortDiagnosticString.optional(),
+		baseSeq: z.number().int().nonnegative().optional(),
+		eventId: shortDiagnosticString.optional(),
+		payloadBytes: z.number().int().nonnegative().optional(),
+		httpStatus: z.number().int().nonnegative().optional(),
+		mutationIndex: z.number().int().nonnegative().nullable().optional(),
+		pointer: diagnosticString.optional(),
+		reason: shortDiagnosticString.optional(),
+		recoveryTrigger: shortDiagnosticString.optional(),
+		issues: z
+			.array(diagnosticString)
+			.max(CLIENT_ERROR_LIMITS.issues)
+			.optional(),
+		truncation: truncationSchema.optional(),
+	})
+	.strict();
 
 // ── Server-side flood control ─────────────────────────────────────────
 //
@@ -36,32 +78,46 @@ const MAX_URL = 2000;
 // only the per-request body-size cap below; aggregate request-rate control is
 // the edge's job.
 
-const clientErrorSchema = z.object({
-	message: z.string().max(MAX_MESSAGE),
-	stack: z.string().max(MAX_STACK).optional(),
-	source: z.enum([
-		"window.onerror",
-		"unhandledrejection",
-		"error-boundary",
-		"manual",
-	]),
-	url: z.string().max(MAX_URL),
-	componentStack: z.string().max(MAX_STACK).optional(),
-});
+const clientErrorSchema = z
+	.object({
+		message: z.string(),
+		stack: z.string().optional(),
+		source: z.enum([
+			"window.onerror",
+			"unhandledrejection",
+			"error-boundary",
+			"manual",
+		]),
+		url: z.string(),
+		componentStack: z.string().optional(),
+		diagnostics: diagnosticsSchema.optional().default({}),
+	})
+	.strict();
 
 // ── Route Handler ─────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-	// Reject a declared-oversized body before parsing: every accepted field is
-	// schema-capped (~20 KB total), so anything over 32 KB is abuse. (Aggregate
-	// request-rate flood control is enforced at the edge by Cloud Armor.)
+	// Reject a declared-oversized body before parsing. Producer + route
+	// normalization keep emitted records under 28 KB; the 32 KB input ceiling
+	// leaves JSON overhead without letting a stale client emit an unbounded log.
+	// (Aggregate request-rate flood control is enforced at the edge by Cloud Armor.)
 	if (declaredBodyTooLarge(req, CLIENT_ERROR_MAX_BYTES)) {
+		return new Response(null, { status: 413 });
+	}
+
+	let bodyText: string;
+	try {
+		bodyText = await req.text();
+	} catch {
+		return new Response(null, { status: 400 });
+	}
+	if (clientErrorUtf8Bytes(bodyText) > CLIENT_ERROR_MAX_BYTES) {
 		return new Response(null, { status: 413 });
 	}
 
 	let body: unknown;
 	try {
-		body = await req.json();
+		body = JSON.parse(bodyText);
 	} catch {
 		return new Response(null, { status: 400 });
 	}
@@ -71,7 +127,15 @@ export async function POST(req: Request) {
 		return new Response(null, { status: 400 });
 	}
 
-	const { message, stack, source, url, componentStack } = parsed.data;
+	/* Normalize again at the trust boundary. This keeps stale pre-normalizer
+	 * clients useful during a rolling deploy (including the former 22 KB Zod
+	 * pseudo-stack) without accepting an unbounded Cloud Logging record. Preserve
+	 * the client-declared build id; absence means an old/unknown client, not this
+	 * server's build. */
+	const { message, stack, source, url, componentStack, diagnostics } =
+		normalizeClientErrorPayload(parsed.data, {
+			clientBuildId: parsed.data.diagnostics.clientBuildId ?? null,
+		});
 
 	/*
 	 * Build a composite message that reads well in Cloud Logging's log viewer.
@@ -102,7 +166,7 @@ export async function POST(req: Request) {
 	log.error(
 		`[client] ${message}`,
 		errorObj,
-		{ source, url, origin: "client" },
+		{ source, url, origin: "client", ...diagnostics },
 		{ sentry: false },
 	);
 

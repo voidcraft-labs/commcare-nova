@@ -27,6 +27,8 @@
 "use client";
 
 import { type ReactNode, useContext, useEffect, useMemo, useRef } from "react";
+import { z } from "zod";
+import { clientErrorUtf8Bytes } from "@/lib/clientErrorContract";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { parseAppReadSnapshot } from "@/lib/collab/appReadSnapshot";
 import { parseAppStatusFrame } from "@/lib/collab/appStatusFrame";
@@ -37,8 +39,8 @@ import {
 	lookupManifestFrameSchema,
 } from "@/lib/collab/lookupManifestFrame";
 import {
+	diagnoseMutationFrameText,
 	type MutationFrame,
-	parseMutationFrame,
 } from "@/lib/collab/mutationFrame";
 import {
 	type PresenceFrame,
@@ -55,6 +57,8 @@ import {
 	type PutOutcome,
 	type Reconciler,
 	type ReconcilerDeps,
+	type ReconcilerObservedFailure,
+	ReconcilerReloadError,
 } from "@/lib/collab/reconciler";
 import { parseRevocationFrame } from "@/lib/collab/revocationFrame";
 import {
@@ -90,6 +94,38 @@ function retryDelayMs(attempt: number): number {
 /** After this many consecutive failed stream reopens, probe the app GET to
  *  distinguish a revocation from an outage (see the reopen listener). */
 const REOPEN_PROBE_AFTER = 3;
+
+/** Zod messages can embed values; observability gets only issue code + path. */
+function safeZodIssues(error: unknown): readonly string[] | undefined {
+	if (!(error instanceof z.ZodError)) return undefined;
+	return error.issues.slice(0, 5).map((issue) => {
+		const pointer = issue.path
+			.map((segment) =>
+				String(segment).replaceAll("~", "~0").replaceAll("/", "~1"),
+			)
+			.join("/");
+		return `${issue.code}:/${pointer}`;
+	});
+}
+
+function observedFailureMessage(failure: ReconcilerObservedFailure): string {
+	if (failure.operation === "reload-get") {
+		return failure.failureKind === "invalid-json" ||
+			failure.failureKind === "snapshot-schema"
+			? "Reconciler recovery snapshot rejected"
+			: "Reconciler reload request failed";
+	}
+	if (
+		failure.failureKind === "canonicality" ||
+		failure.failureKind === "batch-collision"
+	) {
+		return "Reconciler autosave protocol rejected";
+	}
+	if (failure.failureKind === "too-large") {
+		return "Reconciler autosave request too large";
+	}
+	return "Reconciler autosave request failed";
+}
 
 /** Everything the provider builds once per mount and drives via effects. */
 export interface ReconcilerRuntime {
@@ -221,6 +257,12 @@ export function createReconcilerRuntime(
 	 * successful `open`, so an isolated failure retries at 1s while a sustained
 	 * outage backs off to the 30s cap. */
 	let streamRetryAttempt = 0;
+	let pendingReloadRecovery:
+		| {
+				readonly trigger: "malformed-mutation-frame";
+				readonly eventId?: string;
+		  }
+		| undefined;
 
 	/** Atomically disown before closing so callbacks queued by the old source
 	 *  fail their ownership guard. */
@@ -465,26 +507,61 @@ export function createReconcilerRuntime(
 		const es = new EventSource(`/api/apps/${id}/stream?${query}`);
 		eventSource = es;
 
-		function reloadAfterProtocolFailure(): void {
+		function reloadAfterProtocolFailure(
+			recovery?: typeof pendingReloadRecovery,
+		): void {
 			/* Disown the malformed source before the serialized authoritative GET.
 			 * The reconciler has not seen the frame, so its cursor remains at the
 			 * last canonical frame and the reload cannot skip the bad suffix. */
+			pendingReloadRecovery = recovery;
 			closeOwnedStream();
 			reconciler.onReloadEvent();
 		}
 
 		es.addEventListener("mutation", (ev) => {
 			if (es !== eventSource) return;
-			const frame = parseMutationFrame((ev as MessageEvent).data);
-			if (frame === null) {
-				reportClientError({
-					message: "Reconciler: malformed mutation frame",
-					source: "manual",
-					url: window.location.href,
+			const event = ev as MessageEvent<string>;
+			const result = diagnoseMutationFrameText(event.data);
+			if (!result.ok) {
+				const failure = result.failure;
+				const originalError = "error" in failure ? failure.error : undefined;
+				const eventId = event.lastEventId || undefined;
+				reportClientError(
+					{
+						message: "Reconciler protocol mismatch: mutation frame rejected",
+						stack:
+							originalError instanceof Error ? originalError.stack : undefined,
+						source: "manual",
+						url: window.location.href,
+						diagnostics: {
+							component: "reconciler",
+							operation: "mutation-frame",
+							failureKind: failure.stage,
+							appId: id,
+							baseSeq: reconciler.getSnapshot().baseSeq,
+							eventId,
+							payloadBytes: clientErrorUtf8Bytes(event.data),
+							reason: failure.reason,
+							...(failure.stage === "envelope"
+								? { issues: failure.issues }
+								: {}),
+							...(failure.stage === "mutation-admission"
+								? {
+										mutationIndex: failure.mutationIndex,
+										pointer: failure.pointer,
+									}
+								: {}),
+						},
+					},
+					originalError,
+				);
+				reloadAfterProtocolFailure({
+					trigger: "malformed-mutation-frame",
+					...(eventId === undefined ? {} : { eventId }),
 				});
-				reloadAfterProtocolFailure();
 				return;
 			}
+			const frame = result.frame;
 			reconciler.onFrame(frame);
 			// Blueprint commits can change CASE DATA now (write-time
 			// migrations park/restore/reshape rows), and the stream is the
@@ -505,6 +582,7 @@ export function createReconcilerRuntime(
 			if (es !== eventSource) return;
 			/* `requestReload` synchronously disowns this source, pauses editing, and
 			 * resets Project state before starting its serialized GET. */
+			pendingReloadRecovery = undefined;
 			reconciler.onReloadEvent();
 		});
 		es.addEventListener("revoked", (ev) => {
@@ -833,7 +911,12 @@ export function createReconcilerRuntime(
 			if (body.type === "mutation_batch_id_collision") {
 				return { ok: false, kind: "batchCollision" };
 			}
-			return { ok: false, kind: "network", detail: "HTTP 400" };
+			return {
+				ok: false,
+				kind: "network",
+				detail: "HTTP 400",
+				httpStatus: 400,
+			};
 		}
 		// Fine-grained 4xx taxonomy — the terminal-freeze `permanent` is narrowed
 		// to ONLY a 400 "Invalid mutations" (the genuine client↔server commit-gate
@@ -848,17 +931,72 @@ export function createReconcilerRuntime(
 		//   - any OTHER 4xx → transient (retry), never discard.
 		//   - 5xx → transient (retry).
 		const detail = `HTTP ${res.status}`;
-		if (res.status === 413) return { ok: false, kind: "tooLarge", detail };
-		return { ok: false, kind: "network", detail };
+		if (res.status === 413) {
+			return {
+				ok: false,
+				kind: "tooLarge",
+				detail,
+				httpStatus: res.status,
+			};
+		}
+		return {
+			ok: false,
+			kind: "network",
+			detail,
+			httpStatus: res.status,
+		};
 	};
 
 	const reload = async () => {
 		const id = appIdBox.current;
-		if (!id) throw new Error("reconciler reload with no appId");
-		const res = await fetch(`/api/apps/${id}`, { cache: "no-store" });
-		if (res.status === 404) return { kind: "revoked" as const };
-		if (!res.ok) throw new Error(`reload failed: HTTP ${res.status}`);
-		const data = parseAppReadSnapshot(await res.json());
+		if (!id) {
+			throw new ReconcilerReloadError("network", {
+				message: "reconciler reload has no app id",
+			});
+		}
+		let res: Response;
+		try {
+			res = await fetch(`/api/apps/${id}`, { cache: "no-store" });
+		} catch (error) {
+			throw new ReconcilerReloadError("network", {
+				message: "reconciler reload network request failed",
+				originalError: error,
+			});
+		}
+		if (res.status === 404) {
+			pendingReloadRecovery = undefined;
+			return { kind: "revoked" as const };
+		}
+		if (!res.ok) {
+			throw new ReconcilerReloadError("http", {
+				message: `reconciler reload failed with HTTP ${res.status}`,
+				httpStatus: res.status,
+			});
+		}
+		let body: unknown;
+		try {
+			body = await res.json();
+		} catch (error) {
+			throw new ReconcilerReloadError("invalid-json", {
+				message: "reconciler reload response was not JSON",
+				httpStatus: res.status,
+				originalError: error,
+			});
+		}
+		let data: ReturnType<typeof parseAppReadSnapshot>;
+		try {
+			data = parseAppReadSnapshot(body);
+		} catch (error) {
+			throw new ReconcilerReloadError("snapshot-schema", {
+				message: "reconciler reload snapshot failed schema admission",
+				httpStatus: res.status,
+				issues: safeZodIssues(error),
+				/* Do not retain the ZodError itself: custom refinement messages can
+				 * interpolate user-authored blueprint values. The typed wrapper's
+				 * stable stack plus bounded code/path issues are the telemetry record. */
+			});
+		}
+		pendingReloadRecovery = undefined;
 		return {
 			kind: "authorized" as const,
 			projectId: data.projectId,
@@ -908,19 +1046,35 @@ export function createReconcilerRuntime(
 			invalidateDocCaseTypes();
 		},
 		scheduleRetry,
-		onSaveError: (detail) => {
-			// A persistent 5xx / network PUT failure or a reload-GET failure — an
-			// app-wide save-path outage that would otherwise be invisible to Sentry.
-			// The dedup message is keyed on the app id ALONE (no `detail`), so a
-			// retry storm whose messages vary ("Failed to fetch" vs "NetworkError…"
-			// vs "HTTP 503") stays ONE Sentry issue per app per page-load; the
-			// varying `detail` rides `stack` (captured as context, not fingerprinted).
-			reportClientError({
-				message: `Reconciler save-path failure (app ${appIdBox.current})`,
-				stack: detail,
-				source: "manual",
-				url: window.location.href,
-			});
+		onSaveError: (failure) => {
+			// Stable categories group across apps/releases. Entity and sequence
+			// identity stays in structured context, never in the issue message.
+			const recovery =
+				failure.operation === "reload-get" ? pendingReloadRecovery : undefined;
+			reportClientError(
+				{
+					message: observedFailureMessage(failure),
+					stack:
+						failure.error instanceof Error ? failure.error.stack : undefined,
+					source: "manual",
+					url: window.location.href,
+					diagnostics: {
+						component: "reconciler",
+						operation: failure.operation,
+						failureKind: failure.failureKind,
+						appId: appIdBox.current,
+						baseSeq: reconciler.getSnapshot().baseSeq,
+						httpStatus: failure.httpStatus,
+						mutationIndex: failure.mutationIndex,
+						pointer: failure.pointer,
+						reason: failure.reason ?? failure.detail,
+						issues: failure.issues,
+						recoveryTrigger: recovery?.trigger,
+						eventId: recovery?.eventId,
+					},
+				},
+				failure.error,
+			);
 		},
 	};
 

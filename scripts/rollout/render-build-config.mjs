@@ -197,15 +197,21 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		"cloudbuild.yaml",
 		issues,
 	);
-	requireExactlyOnce(
+	requireExactlyTwice(
 		dockerfile,
 		`ARG ${RUNTIME_BUILD_ID_ENV_KEY}`,
 		"Dockerfile",
 		issues,
 	);
+	requireExactlyTwice(
+		dockerfile,
+		`ENV ${RUNTIME_BUILD_ID_ENV_KEY}="\${${RUNTIME_BUILD_ID_ENV_KEY}}"`,
+		"Dockerfile",
+		issues,
+	);
 	requireExactlyOnce(
 		dockerfile,
-		`${RUNTIME_BUILD_ID_ENV_KEY}="\${${RUNTIME_BUILD_ID_ENV_KEY}}"`,
+		`NEXT_PUBLIC_${RUNTIME_BUILD_ID_ENV_KEY}="\${${RUNTIME_BUILD_ID_ENV_KEY}}"`,
 		"Dockerfile",
 		issues,
 	);
