@@ -395,14 +395,30 @@ export function designTerminalOmissionCanCorrect(
 }
 
 /** Stable identity of the input that opened this logical design turn. A plain
- * send ends in a user message; an answered question continuation ends in the
- * assistant message carrying that durable tool output. Both survive a
- * response regeneration, unlike the newly minted response id. */
+ * send uses its user-message id. Answered question rounds share one assistant
+ * message, so each uses the latest answered call plus a digest of its answer;
+ * that distinguishes consecutive rounds and a deliberate re-answer while
+ * remaining stable across response regeneration. */
 export function designTurnProvenanceId(
 	messages: readonly UIMessage[],
 	fallbackResponseMessageId: string,
 ): string {
-	return messages.at(-1)?.id ?? fallbackResponseMessageId;
+	const trailing = messages.at(-1);
+	if (trailing === undefined) return fallbackResponseMessageId;
+	if (trailing.role !== "assistant") return trailing.id;
+	for (let index = trailing.parts.length - 1; index >= 0; index -= 1) {
+		const part = trailing.parts[index];
+		if (
+			part?.type === "tool-askQuestions" &&
+			part.state === "output-available"
+		) {
+			return `${trailing.id}:answer:${canonicalJsonDigest({
+				toolCallId: part.toolCallId,
+				output: part.output,
+			})}`;
+		}
+	}
+	return trailing.id;
 }
 
 /** A conversational wait may only become terminal when the server has no
@@ -789,6 +805,42 @@ export async function runDesignAgentLoop(
 		const stepEventKeys = new Map<number, string>();
 		let activeRequiredQuestionBatch: readonly OpenQuestion[] = [];
 		let activeRequiredQuestionAuthorizationKey: string | null = null;
+		const requiredUserQuestions = async (): Promise<
+			readonly OpenQuestion[]
+		> => {
+			const pending = repair.requiredUserQuestions();
+			const questions =
+				pending.length > 0
+					? pending
+					: await readRequiredDesignQuestionsFromWorkspace({
+							designSessionId: args.designSessionId,
+							gates: evaluateDesignGates(await loadAncestry()),
+							authority,
+						});
+			/* An answer binds to the exact question identity, so a question the
+			 * user already answered is never demanded again; only genuinely new
+			 * or re-authored questions come back to them. */
+			const unanswered = unansweredRequiredDesignQuestions(
+				args.messages,
+				questions,
+				modelContextProtocolKeys,
+			);
+			if (unanswered.length === 0) {
+				activeRequiredQuestionBatch = [];
+				activeRequiredQuestionAuthorizationKey = null;
+				return [];
+			}
+			activeRequiredQuestionBatch = requiredDesignQuestionBatch(unanswered);
+			const authorizationKey =
+				requiredDesignQuestionAuthorizationKey(unanswered);
+			activeRequiredQuestionAuthorizationKey = authorizationKey;
+			if (!modelContextAppendKeys.has(authorizationKey)) {
+				const authorization = requiredDesignQuestionMessage(unanswered);
+				await appendContext(authorizationKey, [authorization]);
+				modelContext = [...(modelContext ?? []), authorization];
+			}
+			return unanswered;
+		};
 		const agent = createDesignAgent({
 			model: args.designCtx.model(MODEL_ROLES.designAuthor.modelId),
 			tools,
@@ -798,40 +850,7 @@ export async function runDesignAgentLoop(
 			instructions: DESIGN_AGENT_SYSTEM,
 			promptCacheKey: `nova:design:${args.designSessionId}`,
 			fatalError: () => repair.fatalError(),
-			requiredUserQuestions: async () => {
-				const pending = repair.requiredUserQuestions();
-				const questions =
-					pending.length > 0
-						? pending
-						: await readRequiredDesignQuestionsFromWorkspace({
-								designSessionId: args.designSessionId,
-								gates: evaluateDesignGates(await loadAncestry()),
-								authority,
-							});
-				/* An answer binds to the exact question identity, so a question the
-				 * user already answered is never demanded again; only genuinely new
-				 * or re-authored questions come back to them. */
-				const unanswered = unansweredRequiredDesignQuestions(
-					args.messages,
-					questions,
-					modelContextProtocolKeys,
-				);
-				if (unanswered.length === 0) {
-					activeRequiredQuestionBatch = [];
-					activeRequiredQuestionAuthorizationKey = null;
-					return [];
-				}
-				activeRequiredQuestionBatch = requiredDesignQuestionBatch(unanswered);
-				const authorizationKey =
-					requiredDesignQuestionAuthorizationKey(unanswered);
-				activeRequiredQuestionAuthorizationKey = authorizationKey;
-				if (!modelContextAppendKeys.has(authorizationKey)) {
-					const authorization = requiredDesignQuestionMessage(unanswered);
-					await appendContext(authorizationKey, [authorization]);
-					modelContext = [...(modelContext ?? []), authorization];
-				}
-				return unanswered;
-			},
+			requiredUserQuestions,
 			freshStateMessage: async () =>
 				stateMessageFor(evaluateDesignGates(await loadAncestry())),
 			onCompactionState: async ({ boundaryDigest, message }) => {
@@ -1154,6 +1173,7 @@ export async function runDesignAgentLoop(
 			toolCallId: string;
 			input: unknown;
 		} | null = null;
+		let successfulWaitRequested = false;
 		for await (const chunk of result.toUIMessageStream({
 			originalMessages: validated,
 			generateMessageId: () => args.responseMessageId,
@@ -1194,7 +1214,6 @@ export async function runDesignAgentLoop(
 			if (
 				chunk.type === "tool-output-available" &&
 				toolNames.get(chunk.toolCallId) === DESIGN_WAIT_FOR_INPUT_TOOL &&
-				designWaitForInputCanPause(activeRequiredQuestionBatch.length) &&
 				typeof chunk.output === "object" &&
 				chunk.output !== null &&
 				"ok" in chunk.output &&
@@ -1202,7 +1221,7 @@ export async function runDesignAgentLoop(
 				"awaitingInput" in chunk.output &&
 				chunk.output.awaitingInput === true
 			) {
-				pausedForMoreInput = true;
+				successfulWaitRequested = true;
 			}
 			/* A required question card is server-authored protocol. Buffer its
 			 * streamed input until the complete call proves byte-for-byte semantic
@@ -1325,6 +1344,13 @@ export async function runDesignAgentLoop(
 			modelContext = [...(modelContext ?? []), rejection];
 			await appendContext(rejectionKey, [rejection]);
 			continue;
+		}
+		if (successfulWaitRequested) {
+			/* Tool execution in this SAME provider step may have discovered a
+			 * mandatory question after prepareStep took its snapshot. Decide the
+			 * wait only against the post-step durable repair/workspace state. */
+			const requiredAfterStep = await requiredUserQuestions();
+			pausedForMoreInput = designWaitForInputCanPause(requiredAfterStep.length);
 		}
 
 		if (pausedOnQuestions || pausedForMoreInput) break;

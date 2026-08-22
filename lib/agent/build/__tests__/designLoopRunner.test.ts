@@ -139,6 +139,39 @@ describe("design terminal omission correction", () => {
 			designTurnProvenanceId(messages, "response-2"),
 		);
 	});
+
+	it("distinguishes consecutive answered-question turns in one assistant message", () => {
+		const firstRound = [
+			{
+				id: "assistant-1",
+				role: "assistant",
+				parts: [
+					{
+						type: "tool-askQuestions",
+						toolCallId: "question-1",
+						state: "output-available",
+						input: { questions: [] },
+						output: { "0": "First answer" },
+					},
+				],
+			},
+		] as UIMessage[];
+		const secondRound = structuredClone(firstRound);
+		secondRound[0]?.parts.push({
+			type: "tool-askQuestions",
+			toolCallId: "question-2",
+			state: "output-available",
+			input: { questions: [] },
+			output: { "0": "Second answer" },
+		} as never);
+
+		expect(designTurnProvenanceId(firstRound, "response-1")).not.toBe(
+			designTurnProvenanceId(secondRound, "response-1"),
+		);
+		expect(designTurnProvenanceId(secondRound, "response-1")).toBe(
+			designTurnProvenanceId(secondRound, "response-2"),
+		);
+	});
 });
 
 describe("design wait terminal", () => {
