@@ -7,6 +7,7 @@ import {
 	designLoopStopMessage,
 	designModelContextTrailsSuccessfulWait,
 	designModelStepKey,
+	designResponseAppendKey,
 	designTerminalOmissionCanCorrect,
 	designTerminalOmissionCorrectionPrefix,
 	designToolPulsePhase,
@@ -17,6 +18,7 @@ import {
 	projectAnsweredDesignContinuation,
 	projectMissingDesignUserContinuations,
 	readRequiredDesignQuestionsFromWorkspace,
+	recoverableDesignTerminalOmissionForTurn,
 	recoverableDesignWaitForTurn,
 	recoveredDesignWaitChunks,
 	trailingSuccessfulDesignWait,
@@ -204,6 +206,94 @@ describe("design terminal omission correction", () => {
 				ordinaryStepBudget: 64,
 			}),
 		).toBe(0);
+	});
+
+	it("recovers a committed clean omission before the ordinary step ceiling", () => {
+		const turnProvenanceId = "user-turn-1";
+		const appendKey = designResponseAppendKey({
+			turnProvenanceId,
+			phase: "author",
+			stepKey: "design:attempt:64:digest",
+			responseDigest: "a".repeat(64),
+		});
+		const response = [
+			{
+				appendKey,
+				message: { role: "assistant", content: "I am still thinking." },
+			},
+		] as const;
+		expect(
+			recoverableDesignTerminalOmissionForTurn({
+				currentItems: response,
+				predecessorItems: [],
+				currentGenerationHasCompletedStep: true,
+				appendKeys: new Set([appendKey]),
+				turnProvenanceId,
+				phase: "author",
+				modelStepsSpent: 64,
+			}),
+		).toBe("needs-correction");
+
+		const correctionKey = `${designTerminalOmissionCorrectionPrefix({
+			turnProvenanceId,
+		})}64`;
+		expect(
+			recoverableDesignTerminalOmissionForTurn({
+				currentItems: response,
+				predecessorItems: [],
+				currentGenerationHasCompletedStep: true,
+				appendKeys: new Set([appendKey, correctionKey]),
+				turnProvenanceId,
+				phase: "author",
+				modelStepsSpent: 64,
+			}),
+		).toBe("correction-pending");
+		expect(
+			recoverableDesignTerminalOmissionForTurn({
+				currentItems: response,
+				predecessorItems: [],
+				currentGenerationHasCompletedStep: true,
+				appendKeys: new Set([appendKey, correctionKey]),
+				turnProvenanceId,
+				phase: "author",
+				modelStepsSpent: 65,
+			}),
+		).toBe("correction-exhausted");
+	});
+
+	it("does not recover another turn or a response whose durable phase advanced", () => {
+		const appendKey = designResponseAppendKey({
+			turnProvenanceId: "user-turn-1",
+			phase: "author",
+			stepKey: "design:attempt:1:digest",
+			responseDigest: "b".repeat(64),
+		});
+		const base = {
+			currentItems: [
+				{
+					appendKey,
+					message: { role: "assistant", content: "Draft finished." },
+				},
+			] as const,
+			predecessorItems: [],
+			currentGenerationHasCompletedStep: true,
+			appendKeys: new Set([appendKey]),
+			modelStepsSpent: 1,
+		};
+		expect(
+			recoverableDesignTerminalOmissionForTurn({
+				...base,
+				turnProvenanceId: "user-turn-2",
+				phase: "author",
+			}),
+		).toBeNull();
+		expect(
+			recoverableDesignTerminalOmissionForTurn({
+				...base,
+				turnProvenanceId: "user-turn-1",
+				phase: "review",
+			}),
+		).toBeNull();
 	});
 });
 
@@ -432,7 +522,12 @@ describe("design wait terminal", () => {
 				[
 					...items,
 					{
-						appendKey: "response:design:later-step:digest",
+						appendKey: designResponseAppendKey({
+							turnProvenanceId: "user-turn-2",
+							phase: "author",
+							stepKey: "design:later-step:digest",
+							responseDigest: "b".repeat(64),
+						}),
 						message: {
 							role: "assistant",
 							content: "A later provider response superseded the wait.",

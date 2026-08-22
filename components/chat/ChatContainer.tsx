@@ -307,6 +307,20 @@ export function trailingDesignWaitsForInput(
 	return parts.slice(lastStepIdx + 1).some(isCompletedWaitForInputPart);
 }
 
+/** AI SDK keeps an optimistic user message when its request fails. If that
+ * message immediately followed a completed design wait, the server still owns
+ * the paused hold and the exact retained transcript is safe to submit again.
+ * A second typed message is not equivalent, so callers expose an explicit
+ * retry instead of reopening the ordinary composer. */
+export function trailingTypedDesignWaitContinuation(
+	messages: readonly unknown[],
+): boolean {
+	if (messages.length < 2) return false;
+	const last = messages.at(-1) as { role?: unknown } | undefined;
+	if (last?.role !== "user") return false;
+	return trailingDesignWaitsForInput([messages.at(-2)]);
+}
+
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
  *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend:
  *  the user needs to reply manually first. */
@@ -2284,6 +2298,32 @@ export function ChatContainer({
 		[scopeEpoch, sendMessage],
 	);
 
+	const retryTypedDesignWaitContinuation = useCallback(() => {
+		const session = sessionStoreRef.current?.getState();
+		if (
+			status !== "error" ||
+			!trailingTypedDesignWaitContinuation(messagesRef.current) ||
+			!chatGenerationCanWrite(
+				session,
+				scopeEpoch,
+				threadHydrationStateRef.current,
+			)
+		) {
+			projectToast(
+				"error",
+				"Couldn't retry the message",
+				"Reload the page, then send your message again.",
+			);
+			return;
+		}
+		autoResendFatalStrikesRef.current = 0;
+		clearError();
+		/* No duplicate message is appended. AI SDK resubmits the retained
+		 * optimistic user turn, so the server sees the exact wait -> user shape
+		 * that replaces the paused hold without charging twice. */
+		void sendMessage(undefined);
+	}, [clearError, projectToast, scopeEpoch, sendMessage, status]);
+
 	const resumeAcceptedBuild = useCallback(() => {
 		const session = sessionStoreRef.current?.getState();
 		if (
@@ -2502,21 +2542,29 @@ export function ChatContainer({
 							actionLabel: "Reload page",
 							onAction: () => window.location.reload(),
 						}
-					: canEdit &&
-							!readOnly &&
-							designBuildCanResume(
-								designProgressStore.getState(),
-								buildUnfinished,
-								status,
-							)
+					: status === "error" && trailingTypedDesignWaitContinuation(messages)
 						? {
-								title: "Build paused",
+								title: "Message not sent",
 								message:
-									"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
-								actionLabel: "Resume build",
-								onAction: resumeAcceptedBuild,
+									"Your message is still here. Try sending this exact message again.",
+								actionLabel: "Try again",
+								onAction: retryTypedDesignWaitContinuation,
 							}
-						: undefined
+						: canEdit &&
+								!readOnly &&
+								designBuildCanResume(
+									designProgressStore.getState(),
+									buildUnfinished,
+									status,
+								)
+							? {
+									title: "Build paused",
+									message:
+										"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
+									actionLabel: "Resume build",
+									onAction: resumeAcceptedBuild,
+								}
+							: undefined
 			}
 			messages={messages}
 			status={status}

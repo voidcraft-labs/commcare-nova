@@ -73,6 +73,7 @@ import {
 } from "../lib/agent/design/sourcePackage";
 import { stripNullProperties } from "../lib/agent/strictStructuredOutput";
 import { MODEL_ROLES } from "../lib/models";
+import { designPreviewPendingQuestions } from "./lib/designPreviewInputTerminal";
 
 function usage(): never {
 	console.log(
@@ -572,10 +573,17 @@ async function main(): Promise<void> {
 		await result.consumeStream();
 		const response = await result.response;
 		messages = [...messages, ...response.messages];
-		const toolCalls = await result.toolCalls;
-		const pendingQuestions = toolCalls.filter(
-			(call): call is NonNullable<typeof call> =>
-				call !== undefined && call.toolName === "askQuestions",
+		const [toolCalls, toolResults] = await Promise.all([
+			result.toolCalls,
+			result.toolResults,
+		]);
+		const pendingQuestions = designPreviewPendingQuestions(
+			toolCalls.filter(
+				(call): call is NonNullable<typeof call> => call != null,
+			),
+			toolResults.filter(
+				(result): result is NonNullable<typeof result> => result != null,
+			),
 		);
 		for (const call of pendingQuestions) {
 			const input = call.input as {

@@ -347,6 +347,22 @@ export function designWaitResponsePrefix(args: {
 	return `design-wait:${args.turnProvenanceId}:`;
 }
 
+export function designResponsePrefix(args: {
+	readonly turnProvenanceId: string;
+	readonly phase: "author" | "review" | "revision" | "awaiting-input";
+}): string {
+	return `design-response:${args.turnProvenanceId}:${args.phase}:`;
+}
+
+export function designResponseAppendKey(args: {
+	readonly turnProvenanceId: string;
+	readonly phase: "author" | "review" | "revision" | "awaiting-input";
+	readonly stepKey: string;
+	readonly responseDigest: string;
+}): string {
+	return `${designResponsePrefix(args)}${args.stepKey}:${args.responseDigest}`;
+}
+
 export function designWaitResponseAppendKey(args: {
 	readonly turnProvenanceId: string;
 	readonly stepKey: string;
@@ -385,7 +401,7 @@ export function trailingSuccessfulDesignWaitForTurn(
 
 function isDesignProviderResponseAppendKey(appendKey: string): boolean {
 	return (
-		appendKey.startsWith("response:design:") ||
+		appendKey.startsWith("design-response:") ||
 		appendKey.startsWith("design-wait:") ||
 		appendKey.includes(":response:design:")
 	);
@@ -405,6 +421,59 @@ export function recoverableDesignWaitForTurn(args: {
 					turnProvenanceId: args.turnProvenanceId,
 				}))
 	);
+}
+
+export type RecoverableDesignTerminalOmission =
+	| "needs-correction"
+	| "correction-pending"
+	| "correction-exhausted";
+
+/** Classify a provider response that committed before the runner could apply
+ * its clean-omission rule. General response keys bind both the logical input
+ * turn and the phase that produced them, so a successful finalizer whose
+ * durable gate already advanced is never mistaken for an omission. The
+ * correction key's started-step suffix proves whether the one reserved step is
+ * still pending or already returned another omission. */
+export function recoverableDesignTerminalOmissionForTurn(args: {
+	readonly currentItems: readonly DesignModelContextItem[];
+	readonly predecessorItems: readonly DesignModelContextItem[];
+	readonly currentGenerationHasCompletedStep: boolean;
+	readonly appendKeys: ReadonlySet<string>;
+	readonly turnProvenanceId: string;
+	readonly phase: "author" | "review" | "revision" | "awaiting-input";
+	readonly modelStepsSpent: number;
+}): RecoverableDesignTerminalOmission | null {
+	const responseItems = args.currentGenerationHasCompletedStep
+		? args.currentItems
+		: args.predecessorItems;
+	const latestResponseKey = responseItems.findLast((item) =>
+		isDesignProviderResponseAppendKey(item.appendKey),
+	)?.appendKey;
+	if (
+		latestResponseKey === undefined ||
+		!latestResponseKey.startsWith(
+			designResponsePrefix({
+				turnProvenanceId: args.turnProvenanceId,
+				phase: args.phase,
+			}),
+		)
+	) {
+		return null;
+	}
+	const correctionPrefix = designTerminalOmissionCorrectionPrefix({
+		turnProvenanceId: args.turnProvenanceId,
+	});
+	const correctionSteps = [...args.appendKeys].flatMap((key) => {
+		if (!key.startsWith(correctionPrefix)) return [];
+		const suffix = key.slice(correctionPrefix.length);
+		if (!/^\d+$/.test(suffix)) return [];
+		const value = Number.parseInt(suffix, 10);
+		return Number.isSafeInteger(value) ? [value] : [];
+	});
+	if (correctionSteps.length === 0) return "needs-correction";
+	return correctionSteps.includes(args.modelStepsSpent)
+		? "correction-pending"
+		: "correction-exhausted";
 }
 
 export function recoveredDesignWaitChunks(
@@ -945,10 +1014,12 @@ export async function runDesignAgentLoop(
 	 * reconstruct a phase-local prompt. Provider compaction inside
 	 * `prepareStep` is the sole legal prefix replacement. */
 	let modelContext: ModelMessage[] | null = null;
+	let modelContextCurrentItems: DesignModelContextItem[] = [];
 	let modelContextPredecessorItems: readonly DesignModelContextItem[] = [];
 	let modelContextGenerationHasCompletedStep = false;
 	let modelContextId: string | null = null;
 	let terminalCorrectionStepAllowance = 0;
+	let recoverTerminalOmissionOnNextLoop = true;
 	const modelContextAuthority = {
 		actorUserId: args.actorUserId,
 		runId: args.runId,
@@ -972,6 +1043,9 @@ export async function runDesignAgentLoop(
 		});
 		modelContextAppendKeys.add(appendKey);
 		modelContextProtocolKeys.add(appendKey);
+		modelContextCurrentItems.push(
+			...messages.map((message) => ({ appendKey, message })),
+		);
 	};
 	const openAndRecoverModelContext = async (): Promise<void> => {
 		if (modelContextId !== null) return;
@@ -996,6 +1070,7 @@ export async function runDesignAgentLoop(
 		});
 		modelContextId = persisted.id;
 		modelContext = [...persisted.messages];
+		modelContextCurrentItems = [...persisted.items];
 		modelContextPredecessorItems = persisted.predecessorItems;
 		modelContextGenerationHasCompletedStep =
 			persisted.completedStepKeys.size > 0;
@@ -1030,6 +1105,24 @@ export async function runDesignAgentLoop(
 			modelStepsSpent,
 			ordinaryStepBudget: designLoopStepBudget(modelContextGeneration),
 		});
+	const appendTerminalCorrection = async (): Promise<void> => {
+		const correction: ModelMessage = {
+			role: "user",
+			content: [
+				"# Design terminal correction (server-derived)",
+				"The previous response ended without advancing the design or choosing a legal pause. If the person's latest message explicitly says more requirements or source material are coming, or asks you not to begin yet, call waitForInput. If you need a material answer, call askQuestions. Otherwise continue the current design phase and reach its legal terminal. Do not end with conversational text alone.",
+			].join("\n"),
+		};
+		const correctionKey = `${designTerminalOmissionCorrectionPrefix({
+			turnProvenanceId,
+		})}${modelStepsSpent}`;
+		await appendContext(correctionKey, [correction]);
+		modelContext = [...(modelContext ?? []), correction];
+		if (modelStepsSpent >= designLoopStepBudget(modelContextGeneration)) {
+			terminalCorrectionStepAllowance =
+				DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE;
+		}
+	};
 	const openParts = createOpenPartTracker();
 	const replayRecoveredWait = (wait: SuccessfulDesignWait): void => {
 		if (uiMessagesContainCompletedDesignWait(args.messages, wait.toolCallId)) {
@@ -1078,6 +1171,31 @@ export async function runDesignAgentLoop(
 		const gates = evaluateDesignGates(await loadAncestry());
 		if (gates.plan !== null) break;
 		const phase = phaseFor(gates);
+		const recoveredOmission = recoverTerminalOmissionOnNextLoop
+			? recoverableDesignTerminalOmissionForTurn({
+					currentItems: modelContextCurrentItems,
+					predecessorItems: modelContextPredecessorItems,
+					currentGenerationHasCompletedStep:
+						modelContextGenerationHasCompletedStep,
+					appendKeys: modelContextProtocolKeys,
+					turnProvenanceId,
+					phase,
+					modelStepsSpent,
+				})
+			: null;
+		recoverTerminalOmissionOnNextLoop = false;
+		if (recoveredOmission === "needs-correction") {
+			await appendTerminalCorrection();
+		} else if (recoveredOmission === "correction-exhausted") {
+			protocolFailure = {
+				kind: "failed",
+				errorType: "design-terminal-omission",
+				message:
+					"Nova couldn't complete this design turn. Everything already decided is saved, and this design can continue after Nova's design behavior is updated.",
+				recoverable: true,
+			};
+			break;
+		}
 		const stepBudgetAllowance = terminalCorrectionStepAllowance;
 		const stepsBeforeStream = modelStepsSpent;
 		/* One provider invocation identity. A replacement process or bounded
@@ -1211,7 +1329,12 @@ export async function runDesignAgentLoop(
 									stepKey,
 									responseDigest: step.responseDigest,
 								})
-							: `response:${stepKey}:${step.responseDigest}`;
+							: designResponseAppendKey({
+									turnProvenanceId,
+									phase,
+									stepKey,
+									responseDigest: step.responseDigest,
+								});
 				await completeDesignModelStep({
 					designSessionId: args.designSessionId,
 					contextId: modelContextId,
@@ -1226,6 +1349,12 @@ export async function runDesignAgentLoop(
 					modelContextAppendKeys.add(responseKey);
 					modelContextProtocolKeys.add(responseKey);
 					modelContext = [...(modelContext ?? []), ...step.responseMessages];
+					modelContextCurrentItems.push(
+						...step.responseMessages.map((message) => ({
+							appendKey: responseKey,
+							message,
+						})),
+					);
 				}
 				modelContextGenerationHasCompletedStep = true;
 				return { contextId: modelContextId, stepKey };
@@ -1768,28 +1897,12 @@ export async function runDesignAgentLoop(
 			 * model one durable, exact correction inside this turn. A second clean
 			 * omission is a bounded harness defect, not a reason to make the person
 			 * resend the same instruction repeatedly. */
-			const correctionPrefix = designTerminalOmissionCorrectionPrefix({
-				turnProvenanceId,
-			});
 			if (
 				designTerminalOmissionCanCorrect(modelContextProtocolKeys, {
 					turnProvenanceId,
 				})
 			) {
-				const correction: ModelMessage = {
-					role: "user",
-					content: [
-						"# Design terminal correction (server-derived)",
-						"The previous response ended without advancing the design or choosing a legal pause. If the person's latest message explicitly says more requirements or source material are coming, or asks you not to begin yet, call waitForInput. If you need a material answer, call askQuestions. Otherwise continue the current design phase and reach its legal terminal. Do not end with conversational text alone.",
-					].join("\n"),
-				};
-				const correctionKey = `${correctionPrefix}${modelStepsSpent}`;
-				await appendContext(correctionKey, [correction]);
-				modelContext = [...(modelContext ?? []), correction];
-				if (modelStepsSpent >= designLoopStepBudget(modelContextGeneration)) {
-					terminalCorrectionStepAllowance =
-						DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE;
-				}
+				await appendTerminalCorrection();
 				continue;
 			}
 			protocolFailure = {

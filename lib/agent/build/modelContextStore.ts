@@ -44,10 +44,11 @@ export interface DesignModelContextState {
 	readonly revision: number;
 	readonly messages: ModelMessage[];
 	readonly items: readonly DesignModelContextItem[];
-	/** The latest non-empty immutable predecessor generation for design
-	 * terminal recovery. Provider-contract rollovers intentionally start with
-	 * an empty prompt, but a response committed immediately before rollover can
-	 * still prove the outer pause that a killed process did not record. Executor
+	/** The latest immutable predecessor generation that contains a provider
+	 * response, for design terminal recovery. Provider-contract rollovers can
+	 * append reseeds or state without making another provider call; those
+	 * item-only generations must not hide the response that still proves an
+	 * outer pause or correction a killed process did not record. Executor
 	 * generations never consume this projection. */
 	readonly predecessorItems: readonly DesignModelContextItem[];
 	readonly appendKeys: ReadonlySet<string>;
@@ -171,9 +172,9 @@ async function readItems(
 	});
 }
 
-/** Read only the newest predecessor that contains model items. Empty rollover
- * generations are skipped, so several deployments between a committed design
- * terminal and its recovery cannot hide that last actual provider response. */
+/** Read only the newest predecessor that contains an actual provider response.
+ * Reseed, state, and protocol-only rollover generations are skipped, so several
+ * deployments between a committed terminal and recovery cannot hide it. */
 async function readLatestPredecessorItems(
 	tx: Transaction<AppDatabase>,
 	context: {
@@ -193,6 +194,13 @@ async function readLatestPredecessorItems(
 		.where("context.design_session_id", "=", context.design_session_id)
 		.where("context.context_kind", "=", context.context_kind)
 		.where("context.generation", "<", context.generation)
+		.where((eb) =>
+			eb.or([
+				eb("item.append_key", "like", "design-response:%"),
+				eb("item.append_key", "like", "design-wait:%"),
+				eb("item.append_key", "like", "%:response:design:%"),
+			]),
+		)
 		.orderBy("context.generation", "desc")
 		.limit(1)
 		.executeTakeFirst();

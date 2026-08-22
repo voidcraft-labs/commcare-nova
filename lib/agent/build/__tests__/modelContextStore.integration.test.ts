@@ -140,13 +140,6 @@ describe("durable model context", () => {
 			authority,
 		};
 		const original = await openDesignModelContext(spec);
-		await appendDesignModelContext({
-			designSessionId,
-			contextId: original.id,
-			appendKey: "old-contract",
-			messages: [{ role: "user", content: "old exact context" }],
-			authority,
-		});
 		await recordDesignModelStepEvent({
 			designSessionId,
 			contextId: original.id,
@@ -155,6 +148,16 @@ describe("durable model context", () => {
 				eventKind: "started",
 				requestDigest: "9".repeat(64),
 			},
+			authority,
+		});
+		const oldResponseKey = `design-response:user-turn-1:old-generation:1:${"8".repeat(64)}`;
+		await completeDesignModelStep({
+			designSessionId,
+			contextId: original.id,
+			appendKey: oldResponseKey,
+			messages: [{ role: "assistant", content: "old exact response" }],
+			stepKey: "old-generation:1",
+			responseDigest: "8".repeat(64),
 			authority,
 		});
 
@@ -168,12 +171,12 @@ describe("durable model context", () => {
 		expect(successor.messages).toEqual([]);
 		expect(successor.predecessorItems).toEqual([
 			{
-				appendKey: "old-contract",
-				message: { role: "user", content: "old exact context" },
+				appendKey: oldResponseKey,
+				message: { role: "assistant", content: "old exact response" },
 			},
 		]);
 		expect(successor.appendKeys).toEqual(new Set());
-		expect(successor.lineageAppendKeys).toEqual(new Set(["old-contract"]));
+		expect(successor.lineageAppendKeys).toEqual(new Set([oldResponseKey]));
 		expect(successor.startedStepKeys).toEqual(new Set());
 		expect(successor.totalStartedStepCount).toBe(1);
 		await expect(
@@ -193,7 +196,7 @@ describe("durable model context", () => {
 			.where("context_id", "=", original.id)
 			.execute();
 		expect(oldItems).toHaveLength(1);
-		expect(oldItems[0]?.append_key).toBe("old-contract");
+		expect(oldItems[0]?.append_key).toBe(oldResponseKey);
 
 		const reopened = await openDesignModelContext({
 			...spec,
@@ -201,18 +204,25 @@ describe("durable model context", () => {
 		});
 		expect(reopened.id).toBe(successor.id);
 		expect(reopened.generation).toBe(1);
-		expect(reopened.lineageAppendKeys).toEqual(new Set(["old-contract"]));
+		expect(reopened.lineageAppendKeys).toEqual(new Set([oldResponseKey]));
 		expect(reopened.totalStartedStepCount).toBe(1);
+		await appendDesignModelContext({
+			designSessionId,
+			contextId: successor.id,
+			appendKey: "state:item-only-rollover",
+			messages: [{ role: "user", content: "new server state" }],
+			authority,
+		});
 
-		const successorAfterEmptyGeneration = await openDesignModelContext({
+		const successorAfterItemOnlyGeneration = await openDesignModelContext({
 			...spec,
 			toolsetDigest: "d".repeat(64),
 		});
-		expect(successorAfterEmptyGeneration.generation).toBe(2);
-		expect(successorAfterEmptyGeneration.predecessorItems).toEqual([
+		expect(successorAfterItemOnlyGeneration.generation).toBe(2);
+		expect(successorAfterItemOnlyGeneration.predecessorItems).toEqual([
 			{
-				appendKey: "old-contract",
-				message: { role: "user", content: "old exact context" },
+				appendKey: oldResponseKey,
+				message: { role: "assistant", content: "old exact response" },
 			},
 		]);
 	});

@@ -240,7 +240,9 @@ preserves the current workspace and closes the stream as awaiting input.
 A clean response with no update, question, wait, or phase finalizer receives
 one server-authored correction and one internal redrive. If the omission used
 the last ordinary session step, one runner-owned step is reserved solely for
-that correction. A second omission stops as the recoverable
+that correction. The provider response is keyed to its exact logical turn and
+phase before orchestration inspects it, so process replacement restores the
+same correction before enforcing the step ceiling. A second omission stops as the recoverable
 `design-terminal-omission` defect instead of silently ending the turn.
 
 The contract and post-review revision workspaces remain separate durable
@@ -321,6 +323,9 @@ provenance also remains readable across the chain even though model messages
 reseed into the successor. That exceptional rollover reseeds from the complete
 browser transcript and durable workspace; it never mutates old messages or
 leaves the session permanently unable to resume.
+Item-only rollover generations never hide an older provider response: terminal
+recovery searches back to the newest generation that actually completed one,
+while a genuinely newer provider response still supersedes the older terminal.
 
 `gates.ts` decides legality only from durable artifact ancestry and persisted
 review counts. A second review is required only for unresolved critical risk,

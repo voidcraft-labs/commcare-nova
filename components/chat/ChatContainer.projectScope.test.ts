@@ -25,6 +25,7 @@ import {
 	threadResumeHealPath,
 	threadResumeHealTarget,
 	trailingDesignWaitsForInput,
+	trailingTypedDesignWaitContinuation,
 } from "./ChatContainer";
 
 describe("design wait terminal", () => {
@@ -56,6 +57,33 @@ describe("design wait terminal", () => {
 						},
 					],
 				},
+			]),
+		).toBe(false);
+	});
+
+	it("keeps an exact wait continuation retryable after the optimistic user message", () => {
+		const wait = {
+			role: "assistant",
+			parts: [
+				{ type: "step-start" },
+				{
+					type: "tool-waitForInput",
+					state: "output-available",
+					output: { ok: true, awaitingInput: true },
+				},
+			],
+		};
+		expect(
+			trailingTypedDesignWaitContinuation([
+				wait,
+				{ role: "user", parts: [{ type: "text", text: "The rest" }] },
+			]),
+		).toBe(true);
+		expect(
+			trailingTypedDesignWaitContinuation([
+				wait,
+				{ role: "user", parts: [{ type: "text", text: "The rest" }] },
+				{ role: "assistant", parts: [{ type: "text", text: "Received" }] },
 			]),
 		).toBe(false);
 	});
