@@ -262,13 +262,22 @@ function successfulDesignWaitOutput(output: unknown): boolean {
 	);
 }
 
+export interface SuccessfulDesignWait {
+	readonly toolCallId: string;
+	readonly input: unknown;
+	readonly output: { readonly ok: true; readonly awaitingInput: true };
+}
+
 /** A completed wait is durable in the private model ledger before the outer
  * orchestration pause is recorded. Read only the latest provider step: a later
- * ordinary user message or provider response supersedes this terminal. */
-export function designModelContextTrailsSuccessfulWait(
+ * ordinary user message or provider response supersedes this terminal. The
+ * first provider-ordered input terminal wins: an earlier askQuestions call
+ * therefore prevents a later wait from replacing its card, while an earlier
+ * successful wait prevents a later question from becoming visible. */
+export function trailingSuccessfulDesignWait(
 	messages: readonly ModelMessage[],
-): boolean {
-	let successfulWait = false;
+): SuccessfulDesignWait | null {
+	const successfulWaits = new Map<string, SuccessfulDesignWait["output"]>();
 	let sawToolResults = false;
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
@@ -280,17 +289,87 @@ export function designModelContextTrailsSuccessfulWait(
 					part.toolName === DESIGN_WAIT_FOR_INPUT_TOOL &&
 					successfulDesignWaitOutput(part.output)
 				) {
-					successfulWait = true;
+					successfulWaits.set(part.toolCallId, {
+						ok: true,
+						awaitingInput: true,
+					});
 				}
 			}
 			continue;
 		}
 		if (message?.role === "assistant") {
-			return sawToolResults && successfulWait;
+			if (!sawToolResults || !Array.isArray(message.content)) return null;
+			for (const part of message.content) {
+				if (part.type !== "tool-call") continue;
+				if (part.toolName === "askQuestions") return null;
+				const output = successfulWaits.get(part.toolCallId);
+				if (
+					part.toolName === DESIGN_WAIT_FOR_INPUT_TOOL &&
+					output !== undefined
+				) {
+					return {
+						toolCallId: part.toolCallId,
+						input: part.input,
+						output,
+					};
+				}
+			}
+			return null;
 		}
-		return false;
+		return null;
 	}
-	return false;
+	return null;
+}
+
+export function designModelContextTrailsSuccessfulWait(
+	messages: readonly ModelMessage[],
+): boolean {
+	return trailingSuccessfulDesignWait(messages) !== null;
+}
+
+export function recoveredDesignWaitChunks(
+	wait: SuccessfulDesignWait,
+): readonly UIMessageChunk[] {
+	return [
+		{
+			type: "tool-input-start",
+			toolCallId: wait.toolCallId,
+			toolName: DESIGN_WAIT_FOR_INPUT_TOOL,
+		},
+		{
+			type: "tool-input-available",
+			toolCallId: wait.toolCallId,
+			toolName: DESIGN_WAIT_FOR_INPUT_TOOL,
+			input: wait.input,
+		},
+		{
+			type: "tool-output-available",
+			toolCallId: wait.toolCallId,
+			output: wait.output,
+		},
+	];
+}
+
+function uiMessagesContainCompletedDesignWait(
+	messages: readonly UIMessage[],
+	toolCallId: string,
+): boolean {
+	return messages.some((message) =>
+		message.parts.some((part) => {
+			const candidate = part as {
+				type?: unknown;
+				toolCallId?: unknown;
+				state?: unknown;
+				output?: unknown;
+			};
+			return (
+				candidate.type === "tool-waitForInput" &&
+				candidate.toolCallId === toolCallId &&
+				candidate.state === "output-available" &&
+				successfulDesignWaitOutput(candidate.output)
+			);
+		}),
+	);
 }
 
 function unansweredDesignQuestionCalls(
@@ -445,6 +524,35 @@ export function designTerminalOmissionCanCorrect(
 	return ![...appendKeys].some((key) => key.startsWith(prefix));
 }
 
+/** Recover the one runner-owned provider step when its correction message was
+ * committed at the ordinary ceiling but the process died before recording a
+ * new provider-call start. The numeric suffix is the durable started-step
+ * count at correction time, so equality proves the allowance is still unused. */
+export function pendingDesignTerminalCorrectionStepAllowance(args: {
+	readonly appendKeys: ReadonlySet<string>;
+	readonly turnProvenanceId: string;
+	readonly modelStepsSpent: number;
+	readonly ordinaryStepBudget: number;
+}): number {
+	const prefix = designTerminalOmissionCorrectionPrefix({
+		turnProvenanceId: args.turnProvenanceId,
+	});
+	for (const key of args.appendKeys) {
+		if (!key.startsWith(prefix)) continue;
+		const suffix = key.slice(prefix.length);
+		if (!/^\d+$/.test(suffix)) continue;
+		const correctedAt = Number.parseInt(suffix, 10);
+		if (
+			Number.isSafeInteger(correctedAt) &&
+			correctedAt >= args.ordinaryStepBudget &&
+			correctedAt === args.modelStepsSpent
+		) {
+			return DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE;
+		}
+	}
+	return 0;
+}
+
 /** Stable identity of the input that opened this logical design turn. A plain
  * send uses its user-message id. Answered question rounds share one assistant
  * message, so each uses the latest answered call plus a digest of its answer;
@@ -537,6 +645,11 @@ export async function readRequiredDesignQuestionsFromWorkspace(args: {
 	readonly gates: DesignGateState;
 	readonly authority: DesignArtifactWriteAuthority;
 }): Promise<readonly OpenQuestion[]> {
+	if (args.gates.head?.lifecycle === "accepted") {
+		return args.gates.head.envelope.payload.openQuestions.filter(
+			(question) => question.blocking,
+		);
+	}
 	const kind = activeWorkspaceKind(args.gates);
 	if (kind === null) return [];
 	const workspace = await openDesignArtifactWorkspace({
@@ -825,7 +938,32 @@ export async function runDesignAgentLoop(
 		}
 	};
 	await openAndRecoverModelContext();
+	terminalCorrectionStepAllowance =
+		pendingDesignTerminalCorrectionStepAllowance({
+			appendKeys: modelContextAppendKeys,
+			turnProvenanceId,
+			modelStepsSpent,
+			ordinaryStepBudget: designLoopStepBudget(modelContextGeneration),
+		});
+	const openParts = createOpenPartTracker();
+	const replayRecoveredWait = (wait: SuccessfulDesignWait): void => {
+		if (uiMessagesContainCompletedDesignWait(args.messages, wait.toolCallId)) {
+			return;
+		}
+		for (const chunk of recoveredDesignWaitChunks(wait)) {
+			openParts.observe(chunk);
+			args.writer.write(chunk);
+		}
+	};
 	if (recoveredPlan !== null && initialGates.newestAccepted !== null) {
+		const recoveredWait = trailingSuccessfulDesignWait(modelContext ?? []);
+		if (recoveredWait !== null) {
+			replayRecoveredWait(recoveredWait);
+			return {
+				kind: "awaiting-input",
+				headRevisionId: initialGates.head?.id ?? null,
+			};
+		}
 		return {
 			kind: "planned",
 			revision: initialGates.newestAccepted,
@@ -834,7 +972,6 @@ export async function runDesignAgentLoop(
 	}
 
 	let turnRetries = 0;
-	const openParts = createOpenPartTracker();
 	let pausedOnQuestions = false;
 	let pausedForMoreInput = false;
 	let failure: ClassifiedError | null = null;
@@ -904,7 +1041,7 @@ export async function runDesignAgentLoop(
 		const agent = createDesignAgent({
 			model: args.designCtx.model(MODEL_ROLES.designAuthor.modelId),
 			tools,
-			requestInputPause: toolExecutionQueue.pause,
+			toolExecutionQueue,
 			phase,
 			catalogText,
 			constraintsText: renderPlatformConstraintsSection(),
@@ -1069,9 +1206,11 @@ export async function runDesignAgentLoop(
 		 * before the orchestrator records its pause. Re-establish that terminal
 		 * from the latest durable response unless this POST appended newer user
 		 * input. Re-run the post-step question proof before honoring it. */
-		if (designModelContextTrailsSuccessfulWait(modelContext)) {
+		const recoveredWait = trailingSuccessfulDesignWait(modelContext);
+		if (recoveredWait !== null) {
 			const requiredAfterRecovery = await requiredUserQuestions();
 			if (designWaitForInputCanPause(requiredAfterRecovery.length)) {
+				replayRecoveredWait(recoveredWait);
 				pausedForMoreInput = true;
 				break;
 			}
@@ -1241,12 +1380,21 @@ export async function runDesignAgentLoop(
 			}
 		};
 		let contextActivityActive = false;
-		const bufferedRequiredQuestionChunks = new Map<string, UIMessageChunk[]>();
+		type BufferedInputTerminal = {
+			readonly toolCallId: string;
+			readonly toolName: "askQuestions" | typeof DESIGN_WAIT_FOR_INPUT_TOOL;
+			readonly chunks: UIMessageChunk[];
+			input: unknown;
+			inputAvailable: boolean;
+			inputErrored: boolean;
+			waitSucceeded: boolean;
+		};
+		const bufferedInputTerminals = new Map<string, BufferedInputTerminal>();
+		const inputTerminalOrder: string[] = [];
 		let rejectedRequiredQuestionCall: {
 			toolCallId: string;
 			input: unknown;
 		} | null = null;
-		let successfulWaitRequested = false;
 		for await (const chunk of result.toUIMessageStream({
 			originalMessages: validated,
 			generateMessageId: () => args.responseMessageId,
@@ -1285,80 +1433,43 @@ export async function runDesignAgentLoop(
 			if (chunk.type === "start" || chunk.type === "finish") continue;
 			trackPulse(chunk);
 			if (
-				chunk.type === "tool-output-available" &&
-				toolNames.get(chunk.toolCallId) === DESIGN_WAIT_FOR_INPUT_TOOL &&
-				typeof chunk.output === "object" &&
-				chunk.output !== null &&
-				"ok" in chunk.output &&
-				chunk.output.ok === true &&
-				"awaitingInput" in chunk.output &&
-				chunk.output.awaitingInput === true
-			) {
-				successfulWaitRequested = true;
-			}
-			/* A required question card is server-authored protocol. Buffer its
-			 * streamed input until the complete call proves byte-for-byte semantic
-			 * equality with the authorized batch. A subset or paraphrase is repaired
-			 * internally and never becomes a user-facing pause. */
-			if (
 				chunk.type === "tool-input-start" &&
-				chunk.toolName === "askQuestions" &&
-				activeRequiredQuestionBatch.length > 0
+				(chunk.toolName === "askQuestions" ||
+					chunk.toolName === DESIGN_WAIT_FOR_INPUT_TOOL)
 			) {
-				bufferedRequiredQuestionChunks.set(chunk.toolCallId, [chunk]);
+				bufferedInputTerminals.set(chunk.toolCallId, {
+					toolCallId: chunk.toolCallId,
+					toolName: chunk.toolName,
+					chunks: [chunk],
+					input: null,
+					inputAvailable: false,
+					inputErrored: false,
+					waitSucceeded: false,
+				});
+				inputTerminalOrder.push(chunk.toolCallId);
 				continue;
 			}
-			const bufferedQuestion =
+			const bufferedTerminal =
 				"toolCallId" in chunk
-					? bufferedRequiredQuestionChunks.get(chunk.toolCallId)
+					? bufferedInputTerminals.get(chunk.toolCallId)
 					: undefined;
-			if (bufferedQuestion !== undefined) {
-				bufferedQuestion.push(chunk);
-				if (
-					chunk.type === "tool-input-available" &&
-					chunk.toolName === "askQuestions"
-				) {
-					bufferedRequiredQuestionChunks.delete(chunk.toolCallId);
-					if (
-						isExactRequiredDesignQuestionCall(
-							chunk.input,
-							activeRequiredQuestionBatch,
-						)
-					) {
-						pausedOnQuestions = true;
-						for (const bufferedChunk of bufferedQuestion) {
-							openParts.observe(bufferedChunk);
-							try {
-								args.writer.write(bufferedChunk);
-							} catch {
-								break;
-							}
-						}
-					} else {
-						rejectedRequiredQuestionCall = {
-							toolCallId: chunk.toolCallId,
-							input: chunk.input,
-						};
-						noteToolOutcome(
-							chunk.toolCallId,
-							"rejected",
-							"required-question-mismatch",
-						);
-					}
+			if (bufferedTerminal !== undefined) {
+				bufferedTerminal.chunks.push(chunk);
+				if (chunk.type === "tool-input-available") {
+					bufferedTerminal.input = chunk.input;
+					bufferedTerminal.inputAvailable = true;
 				} else if (chunk.type === "tool-input-error") {
-					bufferedRequiredQuestionChunks.delete(chunk.toolCallId);
-					rejectedRequiredQuestionCall = {
-						toolCallId: chunk.toolCallId,
-						input: null,
-					};
+					bufferedTerminal.input = chunk.input;
+					bufferedTerminal.inputErrored = true;
+				} else if (
+					chunk.type === "tool-output-available" &&
+					bufferedTerminal.toolName === DESIGN_WAIT_FOR_INPUT_TOOL
+				) {
+					bufferedTerminal.waitSucceeded = successfulDesignWaitOutput(
+						chunk.output,
+					);
 				}
 				continue;
-			}
-			if (
-				chunk.type === "tool-input-available" &&
-				chunk.toolName === "askQuestions"
-			) {
-				pausedOnQuestions = true;
 			}
 			openParts.observe(chunk);
 			try {
@@ -1395,6 +1506,47 @@ export async function runDesignAgentLoop(
 			};
 			break;
 		}
+		let selectedInputTerminal: BufferedInputTerminal | null = null;
+		for (const toolCallId of inputTerminalOrder) {
+			const candidate = bufferedInputTerminals.get(toolCallId);
+			if (candidate === undefined) continue;
+			if (candidate.toolName === "askQuestions") {
+				if (candidate.inputErrored) {
+					if (activeRequiredQuestionBatch.length > 0) {
+						rejectedRequiredQuestionCall = {
+							toolCallId: candidate.toolCallId,
+							input: candidate.input,
+						};
+					}
+					continue;
+				}
+				if (!candidate.inputAvailable) continue;
+				if (
+					activeRequiredQuestionBatch.length > 0 &&
+					!isExactRequiredDesignQuestionCall(
+						candidate.input,
+						activeRequiredQuestionBatch,
+					)
+				) {
+					rejectedRequiredQuestionCall = {
+						toolCallId: candidate.toolCallId,
+						input: candidate.input,
+					};
+					noteToolOutcome(
+						candidate.toolCallId,
+						"rejected",
+						"required-question-mismatch",
+					);
+					break;
+				}
+				selectedInputTerminal = candidate;
+				break;
+			}
+			if (candidate.waitSucceeded) {
+				selectedInputTerminal = candidate;
+				break;
+			}
+		}
 		if (rejectedRequiredQuestionCall !== null) {
 			const rejection: ModelMessage = {
 				role: "tool",
@@ -1418,12 +1570,64 @@ export async function runDesignAgentLoop(
 			await appendContext(rejectionKey, [rejection]);
 			continue;
 		}
-		if (successfulWaitRequested) {
+		if (selectedInputTerminal !== null) {
+			const selectedIndex = inputTerminalOrder.indexOf(
+				selectedInputTerminal.toolCallId,
+			);
+			/* Client-side question calls have no execute callback, so close every
+			 * provider-later card that lost terminal arbitration. It never reaches
+			 * the transcript and can never inherit a user answer on recovery. */
+			for (const toolCallId of inputTerminalOrder.slice(selectedIndex + 1)) {
+				const suppressed = bufferedInputTerminals.get(toolCallId);
+				if (
+					suppressed?.toolName !== "askQuestions" ||
+					!suppressed.inputAvailable
+				) {
+					continue;
+				}
+				const rejection: ModelMessage = {
+					role: "tool",
+					content: [
+						{
+							type: "tool-result",
+							toolCallId: suppressed.toolCallId,
+							toolName: "askQuestions",
+							output: {
+								type: "json",
+								value: {
+									error:
+										"An earlier input terminal already ended this response. Ask again after the person's next message only if the question is still needed.",
+									diagnostic: {
+										code: "design-input-pause-terminal",
+									},
+								},
+							},
+						},
+					],
+				};
+				const rejectionKey = `input-terminal-rejection:${suppressed.toolCallId}:${durableModelValueDigest(suppressed.input)}`;
+				modelContext = [...(modelContext ?? []), rejection];
+				await appendContext(rejectionKey, [rejection]);
+			}
+		}
+		if (selectedInputTerminal?.toolName === DESIGN_WAIT_FOR_INPUT_TOOL) {
 			/* Tool execution in this SAME provider step may have discovered a
 			 * mandatory question after prepareStep took its snapshot. Decide the
 			 * wait only against the post-step durable repair/workspace state. */
 			const requiredAfterStep = await requiredUserQuestions();
 			pausedForMoreInput = designWaitForInputCanPause(requiredAfterStep.length);
+		} else if (selectedInputTerminal?.toolName === "askQuestions") {
+			pausedOnQuestions = true;
+		}
+		if (pausedOnQuestions || pausedForMoreInput) {
+			for (const bufferedChunk of selectedInputTerminal?.chunks ?? []) {
+				openParts.observe(bufferedChunk);
+				try {
+					args.writer.write(bufferedChunk);
+				} catch {
+					break;
+				}
+			}
 		}
 
 		if (pausedOnQuestions || pausedForMoreInput) break;
@@ -1519,17 +1723,17 @@ export async function runDesignAgentLoop(
 	const fatal = repair.fatalError();
 	if (protocolFailure !== null) return protocolFailure;
 	const finalGates = evaluateDesignGates(await loadAncestry());
+	if (pausedOnQuestions || pausedForMoreInput) {
+		return {
+			kind: "awaiting-input",
+			headRevisionId: finalGates.head?.id ?? null,
+		};
+	}
 	if (finalGates.plan !== null && finalGates.newestAccepted !== null) {
 		return {
 			kind: "planned",
 			revision: finalGates.newestAccepted,
 			plan: finalGates.plan,
-		};
-	}
-	if (pausedOnQuestions || pausedForMoreInput) {
-		return {
-			kind: "awaiting-input",
-			headRevisionId: finalGates.head?.id ?? null,
 		};
 	}
 	if (fatal !== undefined) {

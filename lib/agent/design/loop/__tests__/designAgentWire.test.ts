@@ -63,6 +63,32 @@ describe("design tool execution queue", () => {
 		});
 		expect(applied).toEqual(["before-wait"]);
 	});
+
+	it("reserves a client question in provider order before server execution", async () => {
+		const queue = createDesignToolExecutionQueue();
+		const beforeInput = {};
+		const questionInput = {};
+		const waitInput = {};
+		const applied: string[] = [];
+
+		queue.beginResponse();
+		queue.register("updateActors", beforeInput);
+		queue.register("askQuestions", questionInput);
+		queue.register("waitForInput", waitInput);
+
+		const beforeQuestion = queue.run(beforeInput, async () => {
+			applied.push("before-question");
+			return { ok: true as const };
+		});
+		const laterWait = queue.pause(waitInput);
+
+		await expect(beforeQuestion).resolves.toEqual({ ok: true });
+		await expect(laterWait).resolves.toMatchObject({
+			error: expect.stringContaining("already waiting"),
+			diagnostic: { code: "design-input-pause-terminal" },
+		});
+		expect(applied).toEqual(["before-question"]);
+	});
 });
 
 interface CapturedBody {
@@ -194,7 +220,7 @@ async function captureDesignTurnBody(
 	const agent = createDesignAgent({
 		model: openai(MODEL_ROLES.designAuthor.modelId),
 		tools,
-		requestInputPause: toolExecutionQueue.pause,
+		toolExecutionQueue,
 		phase,
 		catalogText: "CATALOG",
 		constraintsText: "CONSTRAINTS",

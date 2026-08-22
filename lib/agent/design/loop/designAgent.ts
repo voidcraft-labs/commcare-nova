@@ -15,6 +15,7 @@ import type {
 	LanguageModelUsage,
 	ModelMessage,
 	StepResultPerformance,
+	ToolInputRefinement,
 	UIMessage,
 } from "ai";
 import { ToolLoopAgent, zodSchema } from "ai";
@@ -30,7 +31,10 @@ import type { DurableUsageIdentity } from "@/lib/db/usage";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { designLoopStepBudget } from "./gates";
 import { DESIGN_STATE_MESSAGE_HEADING } from "./packageRender";
-import type { createDesignLoopTools } from "./tools";
+import type {
+	createDesignLoopTools,
+	createDesignToolExecutionQueue,
+} from "./tools";
 
 /** The design registration of the client pause tool: same schema, same
  *  client contract, re-described for design pacing (any number of rounds)
@@ -58,11 +62,11 @@ export const DESIGN_WAIT_FOR_INPUT_DESCRIPTION =
 export interface DesignAgentArgs {
 	readonly model: LanguageModel;
 	readonly tools: ReturnType<typeof createDesignLoopTools>;
-	/** Uses the same provider-order queue as the semantic design tools. */
-	readonly requestInputPause: () => Promise<{
-		readonly ok: true;
-		readonly awaitingInput: true;
-	}>;
+	/** Reserves every parsed provider call before server execution begins, so
+	 * client-side questions and server-side tools share one response order. */
+	readonly toolExecutionQueue: ReturnType<
+		typeof createDesignToolExecutionQueue
+	>;
 	readonly phase: "author" | "review" | "revision" | "awaiting-input";
 	/** Static instruction suffix: the capability catalog plus the citable
 	 *  platform constraints, byte-identical across a deploy's sessions. */
@@ -519,7 +523,7 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			description: DESIGN_WAIT_FOR_INPUT_DESCRIPTION,
 			inputSchema: zodSchema(waitForInputInputSchema),
 			strict: true,
-			execute: async () => args.requestInputPause(),
+			execute: async (input: unknown) => args.toolExecutionQueue.pause(input),
 		},
 		setDesignRoot: args.tools.setDesignRoot,
 		updateActors: args.tools.updateActors,
@@ -539,6 +543,36 @@ export function createDesignAgent(args: DesignAgentArgs) {
 		finishDesign: args.tools.finishDesign,
 		requestReview: args.tools.requestReview,
 	};
+	type StableDesignTools = typeof stableTools;
+	const registerToolInput =
+		<NAME extends keyof StableDesignTools>(toolName: NAME) =>
+		(
+			input: Parameters<
+				NonNullable<ToolInputRefinement<StableDesignTools>[NAME]>
+			>[0],
+		) =>
+			args.toolExecutionQueue.register(String(toolName), input);
+	const refineToolInput = {
+		askQuestions: registerToolInput("askQuestions"),
+		[DESIGN_WAIT_FOR_INPUT_TOOL]: registerToolInput(DESIGN_WAIT_FOR_INPUT_TOOL),
+		setDesignRoot: registerToolInput("setDesignRoot"),
+		updateActors: registerToolInput("updateActors"),
+		updateRecords: registerToolInput("updateRecords"),
+		updateWorkflows: registerToolInput("updateWorkflows"),
+		updateLists: registerToolInput("updateLists"),
+		updateAccess: registerToolInput("updateAccess"),
+		updateNavigation: registerToolInput("updateNavigation"),
+		updateModuleCompositions: registerToolInput("updateModuleCompositions"),
+		updateFormCompositions: registerToolInput("updateFormCompositions"),
+		updateExternalRequirements: registerToolInput("updateExternalRequirements"),
+		updateDecisions: registerToolInput("updateDecisions"),
+		updateAssumptions: registerToolInput("updateAssumptions"),
+		updateOpenQuestions: registerToolInput("updateOpenQuestions"),
+		updateFindingDispositions: registerToolInput("updateFindingDispositions"),
+		inspectDesign: registerToolInput("inspectDesign"),
+		finishDesign: registerToolInput("finishDesign"),
+		requestReview: registerToolInput("requestReview"),
+	} satisfies Required<ToolInputRefinement<StableDesignTools>>;
 	const phaseTerminal =
 		args.phase === "author"
 			? "finishDesign"
@@ -569,7 +603,9 @@ export function createDesignAgent(args: DesignAgentArgs) {
 		/* Establishment-level provider retries, matching the SA's patience;
 		 * mid-stream failures are the loop runner's bounded redrive. */
 		maxRetries: 4,
+		experimental_refineToolInput: refineToolInput,
 		prepareStep: async ({ messages, stepNumber }) => {
+			args.toolExecutionQueue.beginResponse();
 			const fatal = args.fatalError();
 			if (fatal !== undefined) throw fatal;
 			const withFreshState = await projectDesignStepMessages(

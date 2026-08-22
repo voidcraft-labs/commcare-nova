@@ -12,8 +12,12 @@ import {
 	designToolPulsePhase,
 	designTurnProvenanceId,
 	designWaitForInputCanPause,
+	pendingDesignTerminalCorrectionStepAllowance,
 	projectAnsweredDesignContinuation,
 	projectMissingDesignUserContinuations,
+	readRequiredDesignQuestionsFromWorkspace,
+	recoveredDesignWaitChunks,
+	trailingSuccessfulDesignWait,
 } from "@/lib/agent/build/designLoopRunner";
 import {
 	designPhaseTerminalSucceeded,
@@ -177,6 +181,27 @@ describe("design terminal omission correction", () => {
 			designTurnProvenanceId(secondRound, "response-2"),
 		);
 	});
+
+	it("restores an unused correction allowance after process replacement", () => {
+		const turnProvenanceId = "user-turn-1";
+		const prefix = designTerminalOmissionCorrectionPrefix({ turnProvenanceId });
+		expect(
+			pendingDesignTerminalCorrectionStepAllowance({
+				appendKeys: new Set([`${prefix}64`]),
+				turnProvenanceId,
+				modelStepsSpent: 64,
+				ordinaryStepBudget: 64,
+			}),
+		).toBe(1);
+		expect(
+			pendingDesignTerminalCorrectionStepAllowance({
+				appendKeys: new Set([`${prefix}64`]),
+				turnProvenanceId,
+				modelStepsSpent: 65,
+				ordinaryStepBudget: 64,
+			}),
+		).toBe(0);
+	});
 });
 
 describe("design wait terminal", () => {
@@ -227,6 +252,106 @@ describe("design wait terminal", () => {
 				{ role: "assistant", content: [{ type: "text", text: "Later step" }] },
 			]),
 		).toBe(false);
+	});
+
+	it("honors the first provider-ordered input terminal", () => {
+		const waitResult = {
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "wait-1",
+					toolName: "waitForInput",
+					output: {
+						type: "json",
+						value: { ok: true, awaitingInput: true },
+					},
+				},
+			],
+		} as ModelMessage;
+		const question = {
+			type: "tool-call",
+			toolCallId: "question-1",
+			toolName: "askQuestions",
+			input: { questions: [] },
+		} as const;
+		const wait = {
+			type: "tool-call",
+			toolCallId: "wait-1",
+			toolName: "waitForInput",
+			input: { reason: "more-requirements-coming" },
+		} as const;
+
+		expect(
+			trailingSuccessfulDesignWait([
+				{ role: "assistant", content: [question, wait] } as ModelMessage,
+				waitResult,
+			]),
+		).toBeNull();
+		expect(
+			trailingSuccessfulDesignWait([
+				{ role: "assistant", content: [wait, question] } as ModelMessage,
+				waitResult,
+			]),
+		).toMatchObject({ toolCallId: "wait-1" });
+	});
+
+	it("recreates the complete visible wait tool part", () => {
+		expect(
+			recoveredDesignWaitChunks({
+				toolCallId: "wait-1",
+				input: { reason: "more-requirements-coming" },
+				output: { ok: true, awaitingInput: true },
+			}),
+		).toEqual([
+			{
+				type: "tool-input-start",
+				toolCallId: "wait-1",
+				toolName: "waitForInput",
+			},
+			{
+				type: "tool-input-available",
+				toolCallId: "wait-1",
+				toolName: "waitForInput",
+				input: { reason: "more-requirements-coming" },
+			},
+			{
+				type: "tool-output-available",
+				toolCallId: "wait-1",
+				output: { ok: true, awaitingInput: true },
+			},
+		]);
+	});
+
+	it("recovers blocking questions directly from an accepted head", async () => {
+		const question = {
+			id: "00000000-0000-4000-8000-000000000001",
+			question: "Which queue should open first?",
+			blocking: true,
+			relatedElementIds: [],
+		};
+		const gates = {
+			head: {
+				lifecycle: "accepted",
+				envelope: {
+					payload: {
+						openQuestions: [question, { ...question, blocking: false }],
+					},
+				},
+			},
+		} as unknown as DesignGateState;
+		await expect(
+			readRequiredDesignQuestionsFromWorkspace({
+				designSessionId: "design-session-1",
+				gates,
+				authority: {
+					actorUserId: "user-1",
+					runId: "run-1",
+					holderNonce: "nonce-1",
+					expectedProjectId: "project-1",
+				},
+			}),
+		).resolves.toEqual([question]);
 	});
 });
 

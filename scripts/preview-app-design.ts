@@ -456,7 +456,7 @@ async function main(): Promise<void> {
 				{
 					...realTools[toolName],
 					execute: (input: unknown) =>
-						ordered(() =>
+						ordered(input, () =>
 							stage(activeKind(), {
 								collections: [
 									{
@@ -476,7 +476,7 @@ async function main(): Promise<void> {
 		setDesignRoot: {
 			...realTools.setDesignRoot,
 			execute: (input: unknown) =>
-				ordered(() =>
+				ordered(input, () =>
 					stage(activeKind(), {
 						root: stripNullProperties(input),
 						collections: [],
@@ -486,7 +486,7 @@ async function main(): Promise<void> {
 		updateFindingDispositions: {
 			...realTools.updateFindingDispositions,
 			execute: (input: unknown) =>
-				ordered(() =>
+				ordered(input, () =>
 					stage("revision", {
 						collections: [],
 						dispositions: {
@@ -499,7 +499,7 @@ async function main(): Promise<void> {
 		inspectDesign: {
 			...realTools.inspectDesign,
 			execute: (input: unknown) =>
-				ordered(async () => {
+				ordered(input, async () => {
 					const parsed = parseInput(inspectDesignInputSchema, input);
 					if (!parsed.ok) return { error: parsed.error };
 					const kind = activeKind();
@@ -522,7 +522,7 @@ async function main(): Promise<void> {
 		finishDesign: {
 			...realTools.finishDesign,
 			execute: (input: unknown) =>
-				ordered<unknown>(() =>
+				ordered<unknown>(input, () =>
 					activeKind() === "revision"
 						? finishRevision(input)
 						: finishContract(input),
@@ -530,7 +530,7 @@ async function main(): Promise<void> {
 		},
 		requestReview: {
 			...realTools.requestReview,
-			execute: () => ordered(requestReview),
+			execute: (input: unknown) => ordered(input, requestReview),
 		},
 	};
 
@@ -550,7 +550,7 @@ async function main(): Promise<void> {
 		const agent = createDesignAgent({
 			model: ctx.model(MODEL_ROLES.designAuthor.modelId),
 			tools: tools as never,
-			requestInputPause: toolExecutionQueue.pause,
+			toolExecutionQueue,
 			phase,
 			catalogText,
 			constraintsText: renderPlatformConstraintsSection(),

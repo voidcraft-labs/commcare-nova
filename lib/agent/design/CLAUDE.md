@@ -229,10 +229,14 @@ response. The server serializes their effects in provider order, and the small
 immutable artifact insert. `inspectDesign` reads selected exact state only when
 a model needs a narrow lookup. `waitForInput` is the explicit terminal when the
 conversation says more requirements are coming but no question is ready yet.
-It is serialized with every design callback, refuses later calls in the same
-provider response, persists in the private model ledger before orchestration,
-and is recovered from that ledger before any later model call. It preserves the
-current workspace and closes the stream as awaiting input.
+It is serialized with every server-side design callback, while the stream
+arbiter puts it in the same provider order as the client-side `askQuestions`
+call: the first valid input terminal wins, and a later question is closed
+without ever reaching the transcript. The wait persists in the private model
+ledger before orchestration and is recovered from that ledger before any later
+model call. Recovery also recreates its complete UI tool part when the private
+response outlived the thread chunks, so the ordinary composer opens again. It
+preserves the current workspace and closes the stream as awaiting input.
 A clean response with no update, question, wait, or phase finalizer receives
 one server-authored correction and one internal redrive. If the omission used
 the last ordinary session step, one runner-owned step is reserved solely for

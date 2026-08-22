@@ -586,31 +586,109 @@ interface ToolError {
  * pause terminal inside that response. Calls before the pause keep their
  * durable result; calls after it are refused without touching the workspace. */
 export function createDesignToolExecutionQueue() {
-	let orderedTail: Promise<void> = Promise.resolve();
-	let inputPauseRequested = false;
-	const schedule = <T>(work: () => Promise<T>): Promise<T> => {
-		const result = orderedTail.then(work);
-		orderedTail = result.then(
+	type QueueState = {
+		orderedTail: Promise<void>;
+		inputPauseRequested: boolean;
+	};
+	type Reservation = {
+		readonly state: QueueState;
+		attach: <T>(work: () => Promise<T>) => Promise<T | ToolError>;
+	};
+	const createState = (): QueueState => ({
+		orderedTail: Promise.resolve(),
+		inputPauseRequested: false,
+	});
+	let activeState = createState();
+	const reservations = new WeakMap<object, Reservation>();
+	const schedule = <T>(
+		state: QueueState,
+		work: () => Promise<T>,
+	): Promise<T> => {
+		const result = state.orderedTail.then(work);
+		state.orderedTail = result.then(
 			() => undefined,
 			() => undefined,
 		);
 		return result;
 	};
+	const refusal = (): ToolError => ({
+		error:
+			"This design is already waiting for the person's next message. No later tool call in this response was applied.",
+		diagnostic: { code: "design-input-pause-terminal" },
+	});
+	const reserve = (input: object, clientInputPause: boolean): void => {
+		const state = activeState;
+		let attached = false;
+		let supplyWork: ((work: () => Promise<unknown>) => void) | null = null;
+		const workReady = new Promise<() => Promise<unknown>>((resolve) => {
+			supplyWork = resolve;
+		});
+		const result = schedule(state, async () => {
+			if (state.inputPauseRequested) return refusal();
+			if (clientInputPause) {
+				state.inputPauseRequested = true;
+				return { ok: true as const, awaitingInput: true as const };
+			}
+			return (await workReady)();
+		});
+		if (clientInputPause) return;
+		reservations.set(input, {
+			state,
+			attach<T>(work: () => Promise<T>): Promise<T | ToolError> {
+				if (attached || supplyWork === null) {
+					throw new Error(
+						"A design tool-call reservation was executed more than once.",
+					);
+				}
+				attached = true;
+				supplyWork(work);
+				return result as Promise<T | ToolError>;
+			},
+		});
+	};
+	const runReserved = <T>(
+		input: unknown,
+		work: () => Promise<T>,
+	): Promise<T | ToolError> => {
+		const reservation =
+			typeof input === "object" && input !== null
+				? reservations.get(input)
+				: undefined;
+		if (reservation !== undefined) return reservation.attach(work);
+		const state = activeState;
+		return schedule(state, async () =>
+			state.inputPauseRequested ? refusal() : work(),
+		);
+	};
 	return {
-		run<T>(work: () => Promise<T>): Promise<T | ToolError> {
-			return schedule(async () =>
-				inputPauseRequested
-					? {
-							error:
-								"This design is already waiting for the person's next message. No later tool call in this response was applied.",
-							diagnostic: { code: "design-input-pause-terminal" },
-						}
-					: work(),
-			);
+		beginResponse(): void {
+			activeState = createState();
 		},
-		pause(): Promise<{ readonly ok: true; readonly awaitingInput: true }> {
-			return schedule(async () => {
-				inputPauseRequested = true;
+		register<T>(toolName: string, input: T): T {
+			if (typeof input === "object" && input !== null) {
+				reserve(input, toolName === "askQuestions");
+			}
+			return input;
+		},
+		run<T>(
+			inputOrWork: unknown | (() => Promise<T>),
+			maybeWork?: () => Promise<T>,
+		): Promise<T | ToolError> {
+			return maybeWork === undefined
+				? runReserved(undefined, inputOrWork as () => Promise<T>)
+				: runReserved(inputOrWork, maybeWork);
+		},
+		pause(
+			input?: unknown,
+		): Promise<
+			{ readonly ok: true; readonly awaitingInput: true } | ToolError
+		> {
+			const state =
+				typeof input === "object" && input !== null
+					? (reservations.get(input)?.state ?? activeState)
+					: activeState;
+			return runReserved(input, async () => {
+				state.inputPauseRequested = true;
 				return { ok: true as const, awaitingInput: true as const };
 			});
 		},
@@ -1138,10 +1216,10 @@ export function createDesignLoopTools(
 	deps: DesignLoopToolDeps,
 	executionQueue = createDesignToolExecutionQueue(),
 ) {
-	/* The AI SDK may invoke calls from one response concurrently. Queue every
-	 * design-side execute callback at invocation time so provider order becomes
-	 * durable workspace order, including update -> finish -> review chains. The
-	 * same queue makes waitForInput exclusive from its position onward. */
+	/* The AI SDK may invoke calls from one response concurrently. Input
+	 * refinement reserves provider order before execution; each server callback
+	 * attaches its work to that reservation, including update -> finish -> review
+	 * chains and the client-side askQuestions terminal. */
 	const inResponseOrder = executionQueue.run;
 
 	const workspaceKind = (gates: DesignGateState): DesignArtifactKind =>
@@ -1247,7 +1325,7 @@ export function createDesignLoopTools(
 		),
 		strict: true,
 		execute: (input: unknown, options: { readonly toolCallId: string }) =>
-			inResponseOrder(() =>
+			inResponseOrder(input, () =>
 				semanticUpdate({
 					input,
 					toolCallId: options.toolCallId,
@@ -1262,7 +1340,7 @@ export function createDesignLoopTools(
 		inputSchema: strictWireWithHandles(setDesignRootInputSchema),
 		strict: true,
 		execute: (input: unknown, options: { readonly toolCallId: string }) =>
-			inResponseOrder(() =>
+			inResponseOrder(input, () =>
 				semanticUpdate({
 					input,
 					toolCallId: options.toolCallId,
@@ -1321,7 +1399,7 @@ export function createDesignLoopTools(
 		inputSchema: strictWireWithHandles(updateFindingDispositionsInputSchema),
 		strict: true,
 		execute: (input: unknown, options: { readonly toolCallId: string }) =>
-			inResponseOrder(() =>
+			inResponseOrder(input, () =>
 				semanticUpdate({
 					input,
 					toolCallId: options.toolCallId,
@@ -1336,7 +1414,7 @@ export function createDesignLoopTools(
 		inputSchema: strictWireWithHandles(inspectDesignInputSchema),
 		strict: true,
 		execute: (input: unknown) =>
-			inResponseOrder(async () => {
+			inResponseOrder(input, async () => {
 				const parsed = parseHandledStage(
 					inspectDesignInputSchema,
 					stripNullProperties(input),
@@ -1716,7 +1794,7 @@ export function createDesignLoopTools(
 		inputSchema: strictWireOnly(finishDesignInputSchema),
 		strict: true,
 		execute: (input: unknown) =>
-			inResponseOrder(async () => {
+			inResponseOrder(input, async () => {
 				const gates = await gatesFor(deps);
 				return workspaceKind(gates) === "revision"
 					? finishRevision(input)
@@ -1726,7 +1804,8 @@ export function createDesignLoopTools(
 
 	const requestReview = {
 		...requestReviewInternal,
-		execute: () => inResponseOrder(() => requestReviewInternal.execute()),
+		execute: (input: unknown) =>
+			inResponseOrder(input, () => requestReviewInternal.execute()),
 	};
 
 	return {
