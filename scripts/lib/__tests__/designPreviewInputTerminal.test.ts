@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { designPreviewPendingQuestions } from "../designPreviewInputTerminal";
+import { designPreviewInputTerminal } from "../designPreviewInputTerminal";
 
 const call = (toolCallId: string, toolName: string, invalid = false) => ({
 	toolCallId,
@@ -11,7 +11,7 @@ const call = (toolCallId: string, toolName: string, invalid = false) => ({
 describe("design preview input-terminal arbitration", () => {
 	it("suppresses every question when the ordered queue accepted a wait", () => {
 		expect(
-			designPreviewPendingQuestions(
+			designPreviewInputTerminal(
 				[call("wait", "waitForInput"), call("question", "askQuestions")],
 				[
 					{
@@ -20,12 +20,12 @@ describe("design preview input-terminal arbitration", () => {
 					},
 				],
 			),
-		).toEqual([]);
+		).toEqual({ kind: "wait" });
 	});
 
 	it("prompts only the first valid question when it won before a refused wait", () => {
 		expect(
-			designPreviewPendingQuestions(
+			designPreviewInputTerminal(
 				[
 					call("invalid", "askQuestions", true),
 					call("winner", "askQuestions"),
@@ -37,7 +37,14 @@ describe("design preview input-terminal arbitration", () => {
 						output: { error: "An earlier input terminal won." },
 					},
 				],
-			).map((question) => question.toolCallId),
-		).toEqual(["winner"]);
+			),
+		).toEqual({
+			kind: "questions",
+			questions: [expect.objectContaining({ toolCallId: "winner" })],
+		});
+	});
+
+	it("distinguishes no input terminal from a successful wait", () => {
+		expect(designPreviewInputTerminal([], [])).toEqual({ kind: "none" });
 	});
 });

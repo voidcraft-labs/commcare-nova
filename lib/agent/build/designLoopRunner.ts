@@ -408,13 +408,15 @@ function isDesignProviderResponseAppendKey(appendKey: string): boolean {
 }
 
 export function recoverableDesignWaitForTurn(args: {
-	readonly currentMessages: readonly ModelMessage[];
+	readonly currentItems: readonly DesignModelContextItem[];
 	readonly predecessorItems: readonly DesignModelContextItem[];
 	readonly currentGenerationHasCompletedStep: boolean;
 	readonly turnProvenanceId: string;
 }): SuccessfulDesignWait | null {
 	return (
-		trailingSuccessfulDesignWait(args.currentMessages) ??
+		trailingSuccessfulDesignWaitForTurn(args.currentItems, {
+			turnProvenanceId: args.turnProvenanceId,
+		}) ??
 		(args.currentGenerationHasCompletedStep
 			? null
 			: trailingSuccessfulDesignWaitForTurn(args.predecessorItems, {
@@ -1135,7 +1137,7 @@ export async function runDesignAgentLoop(
 	};
 	const recoveredWaitForCurrentTurn = (): SuccessfulDesignWait | null =>
 		recoverableDesignWaitForTurn({
-			currentMessages: modelContext ?? [],
+			currentItems: modelContextCurrentItems,
 			predecessorItems: modelContextPredecessorItems,
 			currentGenerationHasCompletedStep: modelContextGenerationHasCompletedStep,
 			turnProvenanceId,

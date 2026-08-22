@@ -175,7 +175,9 @@ only the person's next message resumes the design. It never enters the
 answered-`askQuestions` auto-resend path. If that typed continuation fails
 before the server accepts it, the retained optimistic message gets one explicit
 Try again action that resubmits the exact transcript without appending a second
-message or replacing the paused hold twice.
+message or replacing the paused hold twice. That retry synchronously reclaims
+the design-backed creation path before it sends, so the still-fading blank-app
+action cannot race it.
 
 The activity row directly above the composer is the chat surface's only
 rotating progress indicator. A disabled send button keeps its send arrow, and

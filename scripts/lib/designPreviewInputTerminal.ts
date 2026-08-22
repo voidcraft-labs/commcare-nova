@@ -26,17 +26,24 @@ function successfulWaitOutput(output: unknown): boolean {
 	);
 }
 
-export function designPreviewPendingQuestions<T extends PreviewToolCall>(
+export type DesignPreviewInputTerminal<T extends PreviewToolCall> =
+	| { readonly kind: "wait" }
+	| { readonly kind: "questions"; readonly questions: readonly T[] }
+	| { readonly kind: "none" };
+
+export function designPreviewInputTerminal<T extends PreviewToolCall>(
 	toolCalls: readonly T[],
 	toolResults: readonly PreviewToolResult[],
-): T[] {
+): DesignPreviewInputTerminal<T> {
 	const waitWon = toolResults.some(
 		(result) =>
 			result.toolName === "waitForInput" && successfulWaitOutput(result.output),
 	);
-	if (waitWon) return [];
+	if (waitWon) return { kind: "wait" };
 	const firstQuestion = toolCalls.find(
 		(call) => call.toolName === "askQuestions" && call.invalid !== true,
 	);
-	return firstQuestion === undefined ? [] : [firstQuestion];
+	return firstQuestion === undefined
+		? { kind: "none" }
+		: { kind: "questions", questions: [firstQuestion] };
 }

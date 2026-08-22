@@ -511,10 +511,28 @@ describe("design wait terminal", () => {
 		).toBeNull();
 		expect(
 			recoverableDesignWaitForTurn({
-				currentMessages: [{ role: "assistant", content: "New response." }],
+				currentItems: [
+					{
+						appendKey: designResponseAppendKey({
+							turnProvenanceId,
+							phase: "author",
+							stepKey: "design:new-step:digest",
+							responseDigest: "c".repeat(64),
+						}),
+						message: { role: "assistant", content: "New response." },
+					},
+				],
 				predecessorItems: items,
 				currentGenerationHasCompletedStep: true,
 				turnProvenanceId,
+			}),
+		).toBeNull();
+		expect(
+			recoverableDesignWaitForTurn({
+				currentItems: items,
+				predecessorItems: [],
+				currentGenerationHasCompletedStep: true,
+				turnProvenanceId: "user-turn-2",
 			}),
 		).toBeNull();
 		expect(

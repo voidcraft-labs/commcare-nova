@@ -11,6 +11,7 @@ import {
 	chatCallbackCanPublish,
 	chatGenerationCanWrite,
 	chatRequestIsRedrive,
+	claimDesignAgentPath,
 	designBuildCanResume,
 	designProgressLocksInitialBuild,
 	designProgressOwnsActivityStatus,
@@ -86,6 +87,36 @@ describe("design wait terminal", () => {
 				{ role: "assistant", parts: [{ type: "text", text: "Received" }] },
 			]),
 		).toBe(false);
+	});
+
+	it("reclaims the agent path before retry and refuses a concurrent blank app", () => {
+		const agentEngaged = { current: false };
+		let sendFailed = true;
+		expect(
+			claimDesignAgentPath({
+				blankAppCreationInProgress: false,
+				agentEngaged,
+				clearSendFailure: () => {
+					sendFailed = false;
+				},
+			}),
+		).toBe(true);
+		expect(agentEngaged.current).toBe(true);
+		expect(sendFailed).toBe(false);
+
+		agentEngaged.current = false;
+		sendFailed = true;
+		expect(
+			claimDesignAgentPath({
+				blankAppCreationInProgress: true,
+				agentEngaged,
+				clearSendFailure: () => {
+					sendFailed = false;
+				},
+			}),
+		).toBe(false);
+		expect(agentEngaged.current).toBe(false);
+		expect(sendFailed).toBe(true);
 	});
 });
 

@@ -73,7 +73,7 @@ import {
 } from "../lib/agent/design/sourcePackage";
 import { stripNullProperties } from "../lib/agent/strictStructuredOutput";
 import { MODEL_ROLES } from "../lib/models";
-import { designPreviewPendingQuestions } from "./lib/designPreviewInputTerminal";
+import { designPreviewInputTerminal } from "./lib/designPreviewInputTerminal";
 
 function usage(): never {
 	console.log(
@@ -577,7 +577,7 @@ async function main(): Promise<void> {
 			result.toolCalls,
 			result.toolResults,
 		]);
-		const pendingQuestions = designPreviewPendingQuestions(
+		const inputTerminal = designPreviewInputTerminal(
 			toolCalls.filter(
 				(call): call is NonNullable<typeof call> => call != null,
 			),
@@ -585,6 +585,9 @@ async function main(): Promise<void> {
 				(result): result is NonNullable<typeof result> => result != null,
 			),
 		);
+		if (inputTerminal.kind === "wait") break;
+		const pendingQuestions =
+			inputTerminal.kind === "questions" ? inputTerminal.questions : [];
 		for (const call of pendingQuestions) {
 			const input = call.input as {
 				header?: string;
@@ -617,7 +620,7 @@ async function main(): Promise<void> {
 				},
 			];
 		}
-		if (pendingQuestions.length === 0 && phaseFor(state) === phase) break;
+		if (inputTerminal.kind === "none" && phaseFor(state) === phase) break;
 	}
 	readline.close();
 

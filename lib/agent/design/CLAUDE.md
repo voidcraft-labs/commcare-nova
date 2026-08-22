@@ -236,7 +236,9 @@ without ever reaching the transcript. The wait persists in the private model
 ledger before orchestration and is recovered from that ledger before any later
 model call. Recovery also recreates its complete UI tool part when the private
 response outlived the thread chunks, so the ordinary composer opens again. It
-preserves the current workspace and closes the stream as awaiting input.
+preserves the current workspace and closes the stream as awaiting input. The
+durable response key binds the wait to the exact incoming turn; a later user
+message supersedes that wait instead of replaying an older pause.
 A clean response with no update, question, wait, or phase finalizer receives
 one server-authored correction and one internal redrive. If the omission used
 the last ordinary session step, one runner-owned step is reserved solely for

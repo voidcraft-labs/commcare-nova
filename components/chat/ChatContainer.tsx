@@ -321,6 +321,20 @@ export function trailingTypedDesignWaitContinuation(
 	return trailingDesignWaitsForInput([messages.at(-2)]);
 }
 
+/** Claim the design-backed creation path synchronously. The blank-app action
+ * stays visually enabled while it fades, so the shared ref is the authority
+ * that prevents a click race before React commits the hidden state. */
+export function claimDesignAgentPath(args: {
+	readonly blankAppCreationInProgress: boolean;
+	readonly agentEngaged: { current: boolean };
+	readonly clearSendFailure: () => void;
+}): boolean {
+	if (args.blankAppCreationInProgress) return false;
+	args.agentEngaged.current = true;
+	args.clearSendFailure();
+	return true;
+}
+
 /** Only auto-resend when the assistant's LAST step is askQuestions with all outputs available.
  *  If the SA continued past tool calls to ask a freeform text question, don't auto-resend:
  *  the user needs to reply manually first. */
@@ -2270,7 +2284,6 @@ export function ChatContainer({
 			text: string;
 			attachments?: AttachmentRef[];
 		}) => {
-			if (creatingStarterAppRef.current) return;
 			const session = sessionStoreRef.current?.getState();
 			if (
 				!chatGenerationCanWrite(
@@ -2281,8 +2294,15 @@ export function ChatContainer({
 			)
 				return;
 			if (!text.trim() && !attachments?.length) return;
-			agentEngagedRef.current = true;
-			setSendFailedBeforeApp(false);
+			if (
+				!claimDesignAgentPath({
+					blankAppCreationInProgress: creatingStarterAppRef.current,
+					agentEngaged: agentEngagedRef,
+					clearSendFailure: () => setSendFailedBeforeApp(false),
+				})
+			) {
+				return;
+			}
 			/* A typed message is an explicit fresh attempt: clear the fatal
 			 * strikes so an earlier halted round can't bleed into this one. */
 			autoResendFatalStrikesRef.current = 0;
@@ -2314,6 +2334,15 @@ export function ChatContainer({
 				"Couldn't retry the message",
 				"Reload the page, then send your message again.",
 			);
+			return;
+		}
+		if (
+			!claimDesignAgentPath({
+				blankAppCreationInProgress: creatingStarterAppRef.current,
+				agentEngaged: agentEngagedRef,
+				clearSendFailure: () => setSendFailedBeforeApp(false),
+			})
+		) {
 			return;
 		}
 		autoResendFatalStrikesRef.current = 0;
