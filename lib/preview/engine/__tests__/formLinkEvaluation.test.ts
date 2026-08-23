@@ -198,6 +198,16 @@ function inputFor(
 	};
 }
 
+function nestedPatientDoc(): ReturnType<typeof buildDoc> {
+	const doc = buildDoc(spec());
+	doc.modules[PATIENTS].parentModuleUuid = HOUSEHOLDS;
+	// HQ aligns a child entry against the root module's first form. Put a
+	// case-loading form first so the patient's ordinary `case_id` collides
+	// with the root selection and becomes `case_id_patient`.
+	doc.formOrder[HOUSEHOLDS] = [UPDATE, REGISTER, CLOSE];
+	return doc;
+}
+
 function linksOf(doc: ReturnType<typeof buildDoc>, formUuid: string) {
 	const links = doc.forms[testUuid(formUuid)]?.formLinks;
 	if (links === undefined) throw new Error(`${formUuid} has no links`);
@@ -329,6 +339,18 @@ describe("formLinkEvalContext", () => {
 });
 
 describe("sourceSessionDatums", () => {
+	it("values a child menu's renamed own-case datum", () => {
+		const doc = nestedPatientDoc();
+		const datums = sourceSessionDatums(doc, VISIT, {
+			caseId: "p1",
+			caseName: "Ada",
+			childCases: [],
+		});
+		expect([...datums]).toEqual([
+			["case_id_patient", { value: "p1", caseName: "Ada" }],
+		]);
+	});
+
 	it("values a follow-up's case_id with the case it loaded", () => {
 		const doc = buildDoc(spec());
 		const datums = sourceSessionDatums(doc, UPDATE, {
@@ -379,6 +401,35 @@ describe("sourceSessionDatums", () => {
 });
 
 describe("carriedCaseFor", () => {
+	it("carries a nested target through its renamed selected-case datum", () => {
+		const doc = nestedPatientDoc();
+		const sessionDatums = sourceSessionDatums(doc, VISIT, {
+			caseId: "p1",
+			caseName: "Ada",
+			childCases: [],
+		});
+		const automatic: FormLink = {
+			uuid: testUuid("nested-auto-link"),
+			target: { type: "form", moduleUuid: PATIENTS, formUuid: VISIT },
+		};
+		const input = inputFor(doc, { sessionDatums });
+		expect(carriedCaseFor(input, VISIT, automatic)).toEqual({
+			kind: "carried",
+			caseId: "p1",
+			caseName: "Ada",
+		});
+
+		const manual: FormLink = {
+			...automatic,
+			uuid: testUuid("nested-manual-link"),
+			datums: [{ name: "case_id_patient", xpath: xp("'p-manual'") }],
+		};
+		expect(carriedCaseFor(input, VISIT, manual)).toEqual({
+			kind: "carried",
+			caseId: "p-manual",
+		});
+	});
+
 	it("carries nothing into a module target", () => {
 		const doc = buildDoc(spec());
 		expect(

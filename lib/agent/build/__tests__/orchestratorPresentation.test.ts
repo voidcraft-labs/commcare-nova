@@ -16,7 +16,7 @@ describe("reviewed-build presentation", () => {
 	});
 
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v14");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v15");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain("exact `requiredInitialResultsColumn`");
 		expect(EXECUTOR_SYSTEM).toContain("Nova supports one submenu tier");

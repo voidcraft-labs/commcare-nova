@@ -135,7 +135,10 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   each construction group, relevant constraints, and the exact slice tool
   profile. It also lowers relevant composition deterministically into exact
   module create/reuse, host, parent/preceding-sibling placement, and role
-  instructions plus form type, name, icon,
+  instructions. Each module composition lowers from its DesignId to one exact
+  `blueprintModuleHandle` in the existing private change-set handle vocabulary,
+  so equal display names and record hosts never become identity. Form
+  instructions carry type, name, icon,
   ordered layout, Markdown, summary, and duplication decisions. A grouped
   design layout (the schema's `sectioned` arm) lowers to the existing nested
   Blueprint `group` field plus handled
@@ -148,9 +151,10 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   case module also carries one exact `requiredInitialResultsColumn`, a visible
   plain `case_name` column derived from its host record. This compiler input
   makes the module's birth call valid without turning Results into form fields.
-  The executor admits module creation/moves only when their parent and sibling
-  placement matches this accepted realization, and `finishWorkflow` proves the
-  committed module identity, parent, and sibling order before sealing a slice.
+  The executor admits module creation, reuse, forms, updates, and moves only
+  through that exact handle and accepted placement, and `finishWorkflow`
+  proves the committed module identity, parent, and sibling order before
+  sealing a slice.
 - `complexity.ts` deterministically assigns `compact`, `standard`, or
   `extended`. The class chooses process depth and conservative user-facing time
   estimates; it never changes Blueprint validity or authority.

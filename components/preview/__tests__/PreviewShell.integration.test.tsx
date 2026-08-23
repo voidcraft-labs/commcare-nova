@@ -85,6 +85,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useBuilderIsReady: () => true,
 		useSetPreviewing: () => setPreviewingMock,
 		usePreviewCaseTarget: () => undefined,
+		usePreviewMenuCaseSelections: () => ({}),
 		useSetPreviewCaseTarget: () => vi.fn(),
 		useSetPreviewPersonaUuid: () => vi.fn(),
 	};

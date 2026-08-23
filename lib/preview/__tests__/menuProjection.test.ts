@@ -13,6 +13,11 @@ import {
 const ROOT = testUuid("root");
 const CHILD = testUuid("child");
 const OTHER_ROOT = testUuid("other-root");
+const SURVEY_ROOT = testUuid("survey-root");
+const ROOT_FORM = testUuid("root-form");
+const CHILD_FORM = testUuid("child-form");
+const OTHER_ROOT_FORM = testUuid("other-root-form");
+const SURVEY_FORM = testUuid("survey-form");
 
 function module(
 	uuid: typeof ROOT,
@@ -36,6 +41,31 @@ function source(childCaseType = "household"): PreviewMenuSource {
 			[OTHER_ROOT]: module(OTHER_ROOT, "visit"),
 		},
 		moduleOrder: [ROOT, CHILD, OTHER_ROOT],
+		forms: {
+			[ROOT_FORM]: {
+				uuid: ROOT_FORM,
+				id: "root_followup",
+				name: "Root follow-up",
+				type: "followup",
+			},
+			[CHILD_FORM]: {
+				uuid: CHILD_FORM,
+				id: "child_followup",
+				name: "Child follow-up",
+				type: "followup",
+			},
+			[OTHER_ROOT_FORM]: {
+				uuid: OTHER_ROOT_FORM,
+				id: "other_root_followup",
+				name: "Other root follow-up",
+				type: "followup",
+			},
+		},
+		formOrder: {
+			[ROOT]: [ROOT_FORM],
+			[CHILD]: [CHILD_FORM],
+			[OTHER_ROOT]: [OTHER_ROOT_FORM],
+		},
 		caseTypes: [
 			{ name: "household", properties: [] },
 			{ name: "person", parent_type: "household", properties: [] },
@@ -160,5 +190,39 @@ describe("Preview menu projection", () => {
 			},
 		});
 		expect(previewCaseDescendantModuleUuids(doc, "household")).toEqual([CHILD]);
+	});
+
+	it("skips a survey-only case-type module when choosing a parent selector", () => {
+		const base = source("person");
+		const doc = {
+			...base,
+			modules: {
+				...base.modules,
+				[ROOT]: module(ROOT, "clinic"),
+				[SURVEY_ROOT]: module(SURVEY_ROOT, "household"),
+				[OTHER_ROOT]: module(OTHER_ROOT, "household"),
+			},
+			moduleOrder: [ROOT, CHILD, SURVEY_ROOT, OTHER_ROOT],
+			forms: {
+				...base.forms,
+				[SURVEY_FORM]: {
+					uuid: SURVEY_FORM,
+					id: "survey",
+					name: "Survey",
+					type: "survey" as const,
+				},
+			},
+			formOrder: {
+				...base.formOrder,
+				[SURVEY_ROOT]: [SURVEY_FORM],
+			},
+		};
+
+		expect(previewMenuCaseContext(doc, CHILD, {})).toMatchObject({
+			requiredParentCase: {
+				caseType: "household",
+				moduleUuid: OTHER_ROOT,
+			},
+		});
 	});
 });

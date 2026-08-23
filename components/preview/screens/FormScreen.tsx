@@ -250,7 +250,6 @@ interface SubmissionContextSnapshot {
 	readonly entryKey: string | undefined;
 	readonly personaUuid: string | undefined;
 	readonly caseId: string | undefined;
-	readonly parentCaseId: string | undefined;
 	readonly formType: FormType | undefined;
 	readonly destination: PostSubmitDestination | undefined;
 	/** The module's case type: the type of the case the submission loaded,
@@ -325,12 +324,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
-	const menuCaseContext = useMemo(
-		() => previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections),
-		[menuCaseSelections, menuSource, moduleUuid],
-	);
-	const registrationParentCase =
-		form?.type === "registration" ? menuCaseContext.parentCase : undefined;
 	const language = useBuilderLanguage();
 	const formNameUnitId = makeTranslationUnitId(
 		"form",
@@ -459,22 +452,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				reachableChain,
 			);
 		if (autoRow) return caseRowsToFormPreloads(autoRow, [], reachableChain);
-		if (registrationParentCase) {
-			return new Map([
-				[
-					registrationParentCase.caseType,
-					new Map(
-						Object.entries({
-							...(registrationParentCase.caseProperties ?? {}),
-							case_id: registrationParentCase.caseId,
-							case_name: registrationParentCase.caseName,
-						}),
-					),
-				],
-			]);
-		}
 		return undefined;
-	}, [settledCase, autoRow, reachableChain, registrationParentCase]);
+	}, [settledCase, autoRow, reachableChain]);
 
 	const editable = isReady;
 
@@ -533,7 +512,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		entryKey,
 		personaUuid,
 		caseId: effectiveCaseId,
-		parentCaseId: registrationParentCase?.caseId,
 		formType: form?.type,
 		destination: postSubmitDestination,
 		moduleCaseType: mod?.caseType,
@@ -547,7 +525,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		entryKey,
 		personaUuid,
 		caseId: effectiveCaseId,
-		parentCaseId: registrationParentCase?.caseId,
 		formType: form?.type,
 		destination: postSubmitDestination,
 		moduleCaseType: mod?.caseType,
@@ -1145,7 +1122,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				latest.entryKey === submitted.entryKey &&
 				latest.personaUuid === submitted.personaUuid &&
 				latest.caseId === submitted.caseId &&
-				latest.parentCaseId === submitted.parentCaseId &&
 				latest.formType === submitted.formType &&
 				latest.destination === submitted.destination &&
 				latest.moduleCaseType === submitted.moduleCaseType &&
@@ -1208,24 +1184,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				if (!isCurrent()) return "stale";
 				const valid = controller.validateAll();
 				if (!valid) return "invalid";
-				const computedMutation = controller.computeSubmissionMutation({
+				const mutation = controller.computeSubmissionMutation({
 					caseId: submitted.caseId,
 					/* The zone a datetime answer is stamped with. The device
 					 * stamps its own; in Preview the author's browser stands in
 					 * for it, the same substitution the case-data reads make. */
 					viewerTimeZone: viewerTimeZone(),
 				});
-				const mutation: SubmissionMutation =
-					computedMutation.kind === "registration" &&
-					submitted.parentCaseId !== undefined
-						? {
-								...computedMutation,
-								primary: {
-									...computedMutation.primary,
-									parentCaseId: submitted.parentCaseId,
-								},
-							}
-						: computedMutation;
 				if (mutation.formUuid !== submitted.formUuid) return "stale";
 				landedMutation = mutation;
 				/* The persona rides the WRITE, not just the reads. Its uuid is the

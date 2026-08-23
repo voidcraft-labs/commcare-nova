@@ -19,6 +19,12 @@ export interface AcceptedModulePlacementIssue {
 	};
 }
 
+export interface ModuleHandleBinding {
+	readonly handle: string;
+	readonly uuid: string;
+	readonly entityKind: string;
+}
+
 function realizationFor(brief: SliceExecutionBrief, compositionId: string) {
 	return brief.moduleRealizations.find(
 		(realization) => realization.compositionId === compositionId,
@@ -45,47 +51,37 @@ function semanticModuleUuids(
 	});
 }
 
-/** Resolve only an unambiguous module that matches the accepted semantic home. */
+function boundModuleUuid(
+	handles: readonly ModuleHandleBinding[],
+	handle: string,
+): string | null {
+	const binding = handles.find((entry) => entry.handle === handle);
+	return binding?.entityKind === "module" ? binding.uuid : null;
+}
+
+/** Resolve the exact durable module handle assigned to an accepted
+ * composition. Display text is never the identity, so equal-name/equal-host
+ * compositions remain distinct; finalization separately proves semantics. */
 export function realizedModuleUuid(
 	doc: BlueprintDoc,
 	brief: SliceExecutionBrief,
 	compositionId: string,
+	handles: readonly ModuleHandleBinding[],
 ): Uuid | null {
 	const realization = realizationFor(brief, compositionId);
 	if (realization === undefined) return null;
-	const candidates = semanticModuleUuids(doc, brief, compositionId).filter(
-		(moduleUuid) => {
-			const module = doc.modules[moduleUuid];
-			if (module === undefined) return false;
-			if (realization.parentModuleCompositionId === null) {
-				return module.parentModuleUuid === undefined;
-			}
-			const parentComposition = brief.moduleCompositions.find(
-				(entry) => entry.id === realization.parentModuleCompositionId,
-			);
-			const parentRealization = realizationFor(
-				brief,
-				realization.parentModuleCompositionId,
-			);
-			const parent =
-				module.parentModuleUuid === undefined
-					? undefined
-					: doc.modules[module.parentModuleUuid];
-			return (
-				parent !== undefined &&
-				parentComposition !== undefined &&
-				parent?.name === parentComposition.name &&
-				(parent.caseType ?? null) ===
-					(parentRealization?.hostRecord?.blueprintCaseType ?? null)
-			);
-		},
+	const moduleUuid = boundModuleUuid(
+		handles,
+		realization.blueprintModuleHandle,
 	);
-	return candidates.length === 1 ? (candidates[0] ?? null) : null;
+	if (moduleUuid === null) return null;
+	return doc.modules[moduleUuid]?.uuid ?? null;
 }
 
 export function acceptedModulePlacementIssues(
 	doc: BlueprintDoc,
 	brief: SliceExecutionBrief,
+	handles: readonly ModuleHandleBinding[],
 ): AcceptedModulePlacementIssue[] {
 	const issues: AcceptedModulePlacementIssue[] = [];
 	for (const realization of brief.moduleRealizations) {
@@ -94,16 +90,28 @@ export function acceptedModulePlacementIssues(
 			brief,
 			realization.compositionId,
 		);
-		/* Construction-group coverage and ordinary validation own an absent
-		 * module. This proof adds only the topology invariant once the accepted
-		 * semantic module exists, so it composes with those existing gates. */
-		if (semanticCandidates.length === 0) continue;
-		const moduleUuid =
-			semanticCandidates.length === 1 ? (semanticCandidates[0] ?? null) : null;
+		/* Construction-group coverage and ordinary validation own a wholly
+		 * absent module. Once a semantic candidate exists, however, the accepted
+		 * composition must resolve through its exact durable handle rather than a
+		 * name/host guess. */
+		const moduleUuid = realizedModuleUuid(
+			doc,
+			brief,
+			realization.compositionId,
+			handles,
+		);
+		if (semanticCandidates.length === 0 && moduleUuid === null) continue;
+		const semanticMatch =
+			moduleUuid !== null && semanticCandidates.includes(moduleUuid);
 		const expectedParentUuid =
 			realization.parentModuleCompositionId === null
 				? null
-				: realizedModuleUuid(doc, brief, realization.parentModuleCompositionId);
+				: realizedModuleUuid(
+						doc,
+						brief,
+						realization.parentModuleCompositionId,
+						handles,
+					);
 		const expectedAfterUuid =
 			realization.afterSiblingModuleCompositionId === null
 				? null
@@ -111,6 +119,7 @@ export function acceptedModulePlacementIssues(
 						doc,
 						brief,
 						realization.afterSiblingModuleCompositionId,
+						handles,
 					);
 		const module = moduleUuid === null ? undefined : doc.modules[moduleUuid];
 		const realizedParentUuid = module?.parentModuleUuid ?? null;
@@ -127,6 +136,7 @@ export function acceptedModulePlacementIssues(
 				expectedAfterUuid === null);
 		if (
 			moduleUuid !== null &&
+			semanticMatch &&
 			!unresolvedExpectedReference &&
 			realizedParentUuid === expectedParentUuid &&
 			realizedAfterUuid === expectedAfterUuid
@@ -137,9 +147,14 @@ export function acceptedModulePlacementIssues(
 			code: "ACCEPTED_MODULE_PLACEMENT_MISMATCH",
 			message:
 				moduleUuid === null
-					? `Accepted module composition ${realization.compositionId} does not resolve to exactly one module in its accepted menu.`
-					: `Module ${moduleUuid} is not in the accepted parent and sibling position. Move it to the exact menu placement in the execution brief.`,
-			location: { kind: "module", moduleUuid: moduleUuid ?? "" },
+					? `Accepted module composition ${realization.compositionId} does not resolve through its exact module handle ${realization.blueprintModuleHandle}.`
+					: !semanticMatch
+						? `Module ${moduleUuid} resolved through ${realization.blueprintModuleHandle}, but its name or record host does not match accepted composition ${realization.compositionId}.`
+						: `Module ${moduleUuid} is not in the accepted parent and sibling position. Move it to the exact menu placement in the execution brief.`,
+			location: {
+				kind: "module",
+				moduleUuid: moduleUuid ?? semanticCandidates[0] ?? "",
+			},
 			details: {
 				moduleCompositionId: realization.compositionId,
 				acceptedParentModuleCompositionId:

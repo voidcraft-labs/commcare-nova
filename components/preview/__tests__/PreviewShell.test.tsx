@@ -31,12 +31,17 @@ import { BlueprintDocProvider } from "@/lib/doc/provider";
 
 import type { SelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import type { Location } from "@/lib/routing/types";
-import type { PreviewCaseTarget } from "@/lib/session/types";
+import type {
+	PreviewCaseTarget,
+	PreviewMenuCaseSelection,
+} from "@/lib/session/types";
 
 const MODULE_UUID = testUuid("mod-1");
 const CHILD_MODULE_UUID = testUuid("mod-child");
+const PARENT_SELECT_MODULE_UUID = testUuid("mod-parent-select");
 const FORM_UUID = testUuid("form-1");
 const CHILD_FORM_UUID = testUuid("form-child");
+const PARENT_SELECT_FORM_UUID = testUuid("form-parent-select");
 
 // `useLocation` and `useEditMode` are the dispatch knobs; the rest of
 // the routing/session surface is forwarded from the real module.
@@ -50,6 +55,9 @@ const locationMock = vi.fn<() => Location>(() => ({
 const previewCaseTargetMock = vi.fn<() => PreviewCaseTarget | undefined>(
 	() => undefined,
 );
+let previewMenuCaseSelectionsMock: Readonly<
+	Record<string, PreviewMenuCaseSelection>
+> = {};
 const setPreviewingMock = vi.fn();
 const setPreviewPersonaUuidMock = vi.fn();
 const selectedIdentityStateMock = vi.fn<() => SelectedPreviewIdentityState>(
@@ -62,6 +70,8 @@ const selectedIdentityStateMock = vi.fn<() => SelectedPreviewIdentityState>(
 beforeEach(() => {
 	setPreviewingMock.mockReset();
 	setPreviewPersonaUuidMock.mockReset();
+	previewCaseTargetMock.mockReturnValue(undefined);
+	previewMenuCaseSelectionsMock = {};
 	selectedIdentityStateMock.mockReturnValue({
 		kind: "ready",
 		identity: null,
@@ -113,6 +123,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useAppId: () => "app-preview-shell-test",
 		useBuilderIsReady: () => true,
 		usePreviewCaseTarget: () => previewCaseTargetMock(),
+		usePreviewMenuCaseSelections: () => previewMenuCaseSelectionsMock,
 		useSetPreviewing: () => setPreviewingMock,
 		useSetPreviewPersonaUuid: () => setPreviewPersonaUuidMock,
 	};
@@ -166,7 +177,8 @@ import { PreviewShell } from "../PreviewShell";
  * Mounts under a BlueprintDocProvider so the workspace's
  * BlueprintDoc-backed selectors resolve.
  */
-function renderShell() {
+function renderShell(options: { hideStructuralParent?: boolean } = {}) {
+	const hideStructuralParent = options.hideStructuralParent ?? true;
 	return render(
 		<BlueprintDocProvider
 			appId="app-preview-shell-test"
@@ -174,21 +186,37 @@ function renderShell() {
 				appId: "app-preview-shell-test",
 				appName: "PreviewShell test app",
 				connectType: null,
-				caseTypes: [],
+				caseTypes: [
+					{ name: "patient", properties: [] },
+					{ name: "household", properties: [] },
+					{
+						name: "person",
+						parent_type: "household",
+						properties: [],
+					},
+				],
 				modules: {
 					[MODULE_UUID]: {
 						uuid: MODULE_UUID,
 						id: "patient_module",
 						name: "Patient module",
 						caseType: "patient",
-						displayCondition: { kind: "match-none" },
+						...(hideStructuralParent
+							? { displayCondition: { kind: "match-none" as const } }
+							: {}),
 					},
 					[CHILD_MODULE_UUID]: {
 						uuid: CHILD_MODULE_UUID,
 						id: "child_module",
 						name: "Child module",
 						parentModuleUuid: MODULE_UUID,
-						caseType: "patient",
+						caseType: "person",
+					},
+					[PARENT_SELECT_MODULE_UUID]: {
+						uuid: PARENT_SELECT_MODULE_UUID,
+						id: "household_module",
+						name: "Households",
+						caseType: "household",
 					},
 				},
 				forms: {
@@ -204,14 +232,29 @@ function renderShell() {
 						name: "Child follow-up",
 						type: "followup",
 					},
+					[PARENT_SELECT_FORM_UUID]: {
+						uuid: PARENT_SELECT_FORM_UUID,
+						id: "household_followup_form",
+						name: "Household follow-up",
+						type: "followup",
+					},
 				},
 				fields: {},
-				moduleOrder: [MODULE_UUID, CHILD_MODULE_UUID],
+				moduleOrder: [
+					MODULE_UUID,
+					CHILD_MODULE_UUID,
+					PARENT_SELECT_MODULE_UUID,
+				],
 				formOrder: {
 					[MODULE_UUID]: [FORM_UUID],
 					[CHILD_MODULE_UUID]: [CHILD_FORM_UUID],
+					[PARENT_SELECT_MODULE_UUID]: [PARENT_SELECT_FORM_UUID],
 				},
-				fieldOrder: { [FORM_UUID]: [], [CHILD_FORM_UUID]: [] },
+				fieldOrder: {
+					[FORM_UUID]: [],
+					[CHILD_FORM_UUID]: [],
+					[PARENT_SELECT_FORM_UUID]: [],
+				},
 			}}
 		>
 			<BuilderLocalizationProvider>
@@ -285,6 +328,47 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 			expect(isVisible(getByTestId("home-stub"))).toBe(true);
 		});
 	}
+
+	for (const location of [
+		{ kind: "cases" as const, moduleUuid: CHILD_MODULE_UUID },
+		{
+			kind: "form" as const,
+			moduleUuid: CHILD_MODULE_UUID,
+			formUuid: CHILD_FORM_UUID,
+		},
+	]) {
+		it(`admits a directly addressed child ${location.kind} through its module before parent selection`, () => {
+			editModeMock.mockReturnValue("preview");
+			locationMock.mockReturnValue(location);
+			const view = renderShell({ hideStructuralParent: false });
+
+			const moduleScreen = view.getByTestId("module-stub");
+			expect(isVisible(moduleScreen)).toBe(true);
+			expect(moduleScreen.getAttribute("data-module-uuid")).toBe(
+				CHILD_MODULE_UUID,
+			);
+			expect(view.queryByTestId("legacy-case-list-stub")).toBeNull();
+			expect(view.queryByTestId("form-stub")).toBeNull();
+		});
+	}
+
+	it("runs a directly addressed child case list after its case parent is selected", () => {
+		editModeMock.mockReturnValue("preview");
+		locationMock.mockReturnValue({
+			kind: "cases",
+			moduleUuid: CHILD_MODULE_UUID,
+		});
+		previewMenuCaseSelectionsMock = {
+			[PARENT_SELECT_MODULE_UUID]: {
+				caseType: "household",
+				caseId: "household-1",
+				caseName: "Household one",
+			},
+		};
+		const view = renderShell({ hideStructuralParent: false });
+
+		expect(isVisible(view.getByTestId("legacy-case-list-stub"))).toBe(true);
+	});
 
 	it("uses its real scroll surface as the single main landmark", () => {
 		editModeMock.mockReturnValue("edit");

@@ -25,7 +25,7 @@ import { fieldKindGuide } from "@/lib/agent/toolSchemaGenerator";
  *  a deterministically failed slice may rerun only after one of its recorded
  *  compiler inputs changes, so this version is also the deploy lever that
  *  reopens those slices. */
-export const EXECUTOR_PROMPT_VERSION = "build-executor-v14";
+export const EXECUTOR_PROMPT_VERSION = "build-executor-v15";
 
 const IDENTITY = `You are Nova's build executor — a compiler worker.
 
@@ -61,6 +61,7 @@ An entity you create privately has no UUID you can know in advance. Address it b
 - DECLARE a handle by putting it in the canonical identity slot of the call that creates the entity. This includes modules, forms, fields, options, columns, search inputs, case operations, worker properties, user types, personas, organization levels, location properties, automations, and every UUID-bearing nested automation item. It binds once, to that entity, for the whole accepted build plan.
 - REFERENCE it afterwards by passing the same \`{ "handle": ... }\` object anywhere that entity's uuid belongs — including inside typed expression and prose ASTs.
 - The canonical declaration slots for server-minted collections are \`userPropertyUuid\`, \`userTypeUuid\`, \`personaUuid\`, and \`locationPropertyUuid\`. Put \`{ "handle": "@name" }\` in that slot for every created item. The private workspace binds it before parsing the call, and later calls, model responses, process recovery, and later workflows import and use the same symbol.
+- Module handles are compiler-owned: every module realization in the brief carries one exact \`blueprintModuleHandle\`. When its action is \`create\`, declare that exact handle in \`createModule.moduleUuid\`; when it is \`reuse\`, reference that same handle. Never choose a different module handle, even when two accepted modules share a display name and record host.
 - A handle binds ONCE. Re-declaring one is rejected; referencing one you have not declared yet is rejected. Reference only handles you already created.
 - NEVER invent or copy a raw UUID for an authorable identity. Durable checkpoints and tool results project those identities back through handles.
 

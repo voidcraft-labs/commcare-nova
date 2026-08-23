@@ -1,5 +1,9 @@
 /** Exact, derived execution context for one workflow slice. */
 
+import {
+	type ChangeSetHandle,
+	changeSetHandleSchema,
+} from "@/lib/agent/change-set/schemas";
 import type {
 	BuildPlan,
 	BuildSlice,
@@ -76,6 +80,10 @@ export interface SliceExecutionBrief {
 	readonly formCompositions: readonly FormComposition[];
 	readonly moduleRealizations: readonly {
 		readonly compositionId: DesignId;
+		/** Exact private-workspace identity for this accepted composition. The
+		 * executor declares or references this handle so equal display names and
+		 * record hosts never become an identity heuristic. */
+		readonly blueprintModuleHandle: ChangeSetHandle;
 		readonly action: "create" | "reuse";
 		readonly parentModuleCompositionId: DesignId | null;
 		readonly afterSiblingModuleCompositionId: DesignId | null;
@@ -146,6 +154,17 @@ const RESERVED_BLUEPRINT_CASE_TYPE_KEYS = new Set([
 	"parent",
 	"user",
 ]);
+
+/** Lower a semantic module identity into the executor's existing durable
+ * handle vocabulary. Full DesignId bits keep the mapping injective without a
+ * new persisted identity kind or a display-name uniqueness rule. */
+export function blueprintModuleHandle(
+	compositionId: DesignId,
+): ChangeSetHandle {
+	return changeSetHandleSchema.parse(
+		`@module_${compositionId.replaceAll("-", "")}`,
+	);
+}
 
 /** A semantic display name is not a machine identifier. Lower the complete
  * accepted record catalog once, before any slice is derived, so every slice
@@ -556,6 +575,7 @@ export function deriveSliceExecutionBrief(args: {
 		);
 		return {
 			compositionId: composition.id,
+			blueprintModuleHandle: blueprintModuleHandle(composition.id),
 			action,
 			parentModuleCompositionId: composition.parentModuleCompositionId ?? null,
 			afterSiblingModuleCompositionId:

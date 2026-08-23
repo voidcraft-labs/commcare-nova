@@ -21,6 +21,7 @@ import {
 	ids,
 	makeBuildPlan,
 	makeContract,
+	makeNestedMenuContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
@@ -1070,8 +1071,29 @@ describe("accepted input requirement parity", () => {
 		});
 	}
 
+	function visitHandles(doc: BlueprintDoc, sliceBrief: SliceExecutionBrief) {
+		const moduleUuid = fixtureValue(doc.moduleOrder[0], "visit module");
+		const realization = fixtureValue(
+			sliceBrief.moduleRealizations[0],
+			"visit module realization",
+		);
+		return [
+			{
+				handle: realization.blueprintModuleHandle,
+				uuid: moduleUuid,
+				entityKind: "module",
+			},
+		];
+	}
+
 	it("rejects record-level requiredness that leaked onto an optional workflow input", () => {
-		const issues = acceptedInputRequirementIssues(visitDoc(true), visitBrief());
+		const doc = visitDoc(true);
+		const sliceBrief = visitBrief();
+		const issues = acceptedInputRequirementIssues(
+			doc,
+			sliceBrief,
+			visitHandles(doc, sliceBrief),
+		);
 		expect(issues).toHaveLength(1);
 		expect(issues[0]).toMatchObject({
 			code: "ACCEPTED_INPUT_REQUIREMENT_MISMATCH",
@@ -1085,25 +1107,123 @@ describe("accepted input requirement parity", () => {
 	});
 
 	it("requires the realized field to carry an accepted input requirement", () => {
+		const missingDoc = visitDoc(false);
+		const requiredBrief = visitBrief("Always during a visit");
 		const issues = acceptedInputRequirementIssues(
-			visitDoc(false),
-			visitBrief("Always during a visit"),
+			missingDoc,
+			requiredBrief,
+			visitHandles(missingDoc, requiredBrief),
 		);
 		expect(issues).toHaveLength(1);
 		expect(issues[0]?.details).toMatchObject({
 			acceptedRequiredWhen: "Always during a visit",
 			realizedRequired: false,
 		});
+		const realizedDoc = visitDoc(true);
 		expect(
 			acceptedInputRequirementIssues(
-				visitDoc(true),
-				visitBrief("Always during a visit"),
+				realizedDoc,
+				requiredBrief,
+				visitHandles(realizedDoc, requiredBrief),
 			),
 		).toEqual([]);
 	});
 });
 
 describe("accepted composition admission", () => {
+	it("uses the compiler-owned handle to distinguish equal module semantics", () => {
+		const contract = makeNestedMenuContract();
+		const parentComposition = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.modulePatients,
+			),
+			"parent module composition",
+		);
+		const childComposition = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		childComposition.name = parentComposition.name;
+		childComposition.parentModuleCompositionId = undefined;
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+		});
+		const slice = fixtureValue(
+			plan.slices.find((entry) => entry.workflowId === ids.taskVisit),
+			"second root slice",
+		);
+		const sliceBrief = deriveSliceExecutionBrief({
+			contract,
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+			plan,
+			sliceId: slice.id,
+		});
+		const parentRealization = fixtureValue(
+			sliceBrief.moduleRealizations.find(
+				(realization) => realization.compositionId === ids.modulePatients,
+			),
+			"parent realization",
+		);
+		const childRealization = fixtureValue(
+			sliceBrief.moduleRealizations.find(
+				(realization) => realization.compositionId === ids.moduleVisits,
+			),
+			"child realization",
+		);
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: parentComposition.name,
+					caseType: "patient",
+					caseListOnly: true,
+					forms: [],
+				},
+			],
+		});
+		const parentUuid = fixtureValue(doc.moduleOrder[0], "parent module");
+		const workspace = fakeWorkspace({ doc });
+		workspace.currentExecutionCheckpoint = () => ({
+			handles: [
+				{
+					handle: parentRealization.blueprintModuleHandle,
+					uuid: parentUuid,
+					entityKind: "module",
+				},
+			],
+		});
+		const input = {
+			name: childComposition.name,
+			case_type: "patient",
+			forms: [],
+		};
+		expect(
+			compositionAdmissionIssue(
+				"createModule",
+				{
+					...input,
+					moduleUuid: { handle: childRealization.blueprintModuleHandle },
+				},
+				sliceBrief,
+				workspace,
+			),
+		).toBeNull();
+		expect(
+			compositionAdmissionIssue(
+				"createModule",
+				{
+					...input,
+					moduleUuid: { handle: parentRealization.blueprintModuleHandle },
+				},
+				sliceBrief,
+				workspace,
+			),
+		).toContain("blueprintModuleHandle");
+	});
+
 	it("keeps a selected-record form on the accepted host module", () => {
 		const base = makeContract();
 		const contract = appDesignContractSchema.parse({
@@ -1151,11 +1271,17 @@ describe("accepted composition admission", () => {
 			doc.moduleOrder[1],
 			"referral module",
 		);
+		const acceptedModuleHandle = fixtureValue(
+			visitBrief.moduleRealizations.find(
+				(realization) => realization.compositionId === ids.modulePatients,
+			),
+			"accepted beneficiary module realization",
+		).blueprintModuleHandle;
 		const workspace = fakeWorkspace({ doc });
 		workspace.currentExecutionCheckpoint = () => ({
 			handles: [
 				{
-					handle: "@beneficiaries",
+					handle: acceptedModuleHandle,
 					uuid: beneficiaryModuleUuid,
 					entityKind: "module",
 				},
@@ -1182,7 +1308,7 @@ describe("accepted composition admission", () => {
 			compositionAdmissionIssue(
 				"createForm",
 				{
-					moduleUuid: { handle: "@beneficiaries" },
+					moduleUuid: { handle: acceptedModuleHandle },
 					name: "Record visit",
 					type: "followup",
 				},

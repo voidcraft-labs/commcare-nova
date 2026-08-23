@@ -25,15 +25,16 @@
  *     THEY ARE AFTER THE SUBMISSION, and any read of the closed form (a
  *     `/data/...` path or `#form/...`) throws.
  *   - **Which case the next form opens with** (`carriedCaseFor`): the
- *     target's `case_id` selection datum, matched exactly the way the wire
- *     matches it. A manual `case_id` datum is evaluated; otherwise the
- *     frame reads the source datum `matchFrameToSource` picked, and
+ *     target's projected own-case selection datum, matched exactly the way
+ *     the wire matches it. A manual datum under that projected id is
+ *     evaluated; otherwise the frame reads the source datum
+ *     `matchFrameToSource` picked, and
  *     `sourceSessionDatums` says what each source datum is worth once the
- *     submission has landed: `case_id` is the case the form loaded,
- *     `case_id_new_<type>_0` on a registration is the case it created, and
- *     a subcase datum is the child case of that type the submission
- *     created. A value the preview cannot name is blank, which is what the
- *     device's session holds for a datum nothing filled.
+ *     submission has landed: the projected own-case datum is the case the
+ *     form loaded, `case_id_new_<type>_0` on a registration is the case it
+ *     created, and a subcase datum is the child case of that type the
+ *     submission created. A value the preview cannot name is blank, which
+ *     is what the device's session holds for a datum nothing filled.
  */
 
 import {
@@ -44,6 +45,7 @@ import {
 	matchFrameToSource,
 	moduleCaseTypeForActions,
 	owningModuleOf,
+	selectedCaseDatumId,
 	targetFrameChildren,
 } from "@/lib/commcare/formLinkProjection";
 import {
@@ -63,14 +65,6 @@ import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunct
 import type { EvalContext } from "../xpath/types";
 import type { PreviewSearchSessionValues } from "./identity";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
-
-/**
- * The selection datum a Nova form entry carries. `deriveSessionDatums` emits
- * exactly one selection datum, under this id, for a case-loading form in a
- * module with a case type; the form's case block reads it back under the
- * same id.
- */
-const CASE_ID_DATUM = "case_id";
 
 /** The session-data path prefix of the entry's own datums. */
 const SESSION_DATA_PREFIX = "/session/data/";
@@ -246,6 +240,7 @@ export function sourceSessionDatums(
 	const form = doc.forms[formUuid];
 	if (moduleUuid === undefined || form === undefined) return new Map();
 	const moduleCaseType = moduleCaseTypeForActions(doc, moduleUuid);
+	const ownCaseDatumId = selectedCaseDatumId(doc, ctx, moduleUuid, formUuid);
 	const datums = new Map<string, SessionDatumValue>();
 	const bound = (): SessionDatumValue | undefined =>
 		submission.caseId === undefined
@@ -292,6 +287,7 @@ export function sourceSessionDatums(
 		const held = sourceDatumValue(datum, {
 			formType: form.type,
 			moduleCaseType,
+			ownCaseDatumId,
 			bound,
 			subcaseValue,
 		});
@@ -305,13 +301,14 @@ function sourceDatumValue(
 	source: {
 		readonly formType: string;
 		readonly moduleCaseType: string;
+		readonly ownCaseDatumId?: string;
 		readonly bound: () => SessionDatumValue | undefined;
 		readonly subcaseValue: (caseType: string) => SessionDatumValue | undefined;
 	},
 ): SessionDatumValue | undefined {
 	// The case the form loaded.
 	if (datum.requiresSelection) {
-		return datum.id === CASE_ID_DATUM ? source.bound() : undefined;
+		return datum.id === source.ownCaseDatumId ? source.bound() : undefined;
 	}
 	// A function datum with no case type (the grouped-tile companion) and
 	// the worker's own usercase datum name nothing the submission created.
@@ -354,19 +351,21 @@ export function carriedCaseFor(
 		);
 	}
 	const targetChildren = targetFrameChildren(doc, ctx, link.target);
-	const selects = targetChildren.some(
-		(child) =>
-			child.type === "datum" &&
-			child.datum.requiresSelection &&
-			child.datum.id === CASE_ID_DATUM,
+	const targetCaseDatumId = selectedCaseDatumId(
+		doc,
+		ctx,
+		link.target.moduleUuid,
+		link.target.formUuid,
 	);
-	if (!selects) return { kind: "none" };
+	if (targetCaseDatumId === undefined) return { kind: "none" };
 
 	if (link.datums !== undefined) {
 		/* The link names the target's datums itself. A selection datum it
 		 * leaves unnamed is what the validator refuses; on the wire it reads
 		 * the session's own value under that name, which is blank. */
-		const manual = link.datums.find((datum) => datum.name === CASE_ID_DATUM);
+		const manual = link.datums.find(
+			(datum) => datum.name === targetCaseDatumId,
+		);
 		return {
 			kind: "carried",
 			caseId: manual === undefined ? "" : evaluateLinkDatum(manual, input),
@@ -375,7 +374,7 @@ export function carriedCaseFor(
 
 	const sourceDatums = entryFrameDatums(doc, ctx, sourceModuleUuid, formUuid);
 	const matched = matchFrameToSource(targetChildren, sourceDatums).matched.find(
-		(entry) => entry.id === CASE_ID_DATUM,
+		(entry) => entry.id === targetCaseDatumId,
 	);
 	const held =
 		matched === undefined

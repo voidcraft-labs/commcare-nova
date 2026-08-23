@@ -1871,13 +1871,17 @@ export async function runSliceExecutor(
 							boundedSignal,
 						);
 						const stale = staleExternalReads(diagnostics);
+						const executionHandles =
+							workspace.currentExecutionCheckpoint().handles;
 						const requirementIssues = acceptedInputRequirementIssues(
 							workspace.currentSnapshot().doc,
 							brief,
+							executionHandles,
 						);
 						const placementIssues = acceptedModulePlacementIssues(
 							workspace.currentSnapshot().doc,
 							brief,
+							executionHandles,
 						);
 						const acceptedIssues = [...requirementIssues, ...placementIssues];
 						if (stale.length > 0) {
@@ -2222,6 +2226,15 @@ function resolveCheckpointIdentity(
 	);
 }
 
+function rawCheckpointHandle(value: unknown): string | null {
+	const object = rawObject(value);
+	return object !== null &&
+		Object.keys(object).length === 1 &&
+		typeof object.handle === "string"
+		? object.handle
+		: null;
+}
+
 /** Critical architecture admission derived from the accepted composition.
  * This is intentionally narrower than a second Blueprint validity gate: it
  * prevents invented module homes and wrong form host/mode choices while the
@@ -2236,6 +2249,7 @@ export function compositionAdmissionIssue(
 	const object = rawObject(input);
 	if (object === null) return null;
 	const snapshot = workspace.currentSnapshot().doc;
+	const executionHandles = workspace.currentExecutionCheckpoint().handles;
 	if (toolName === "generateSchema") {
 		const caseTypes = Array.isArray(object.caseTypes) ? object.caseTypes : [];
 		const expectedByKey = new Map(
@@ -2269,15 +2283,17 @@ export function compositionAdmissionIssue(
 		const candidates = brief.moduleRealizations.filter(
 			(realization) => realization.action === "create",
 		);
+		const declaredModuleHandle = rawCheckpointHandle(object.moduleUuid);
 		const realization = candidates.find(
 			(entry) =>
+				entry.blueprintModuleHandle === declaredModuleHandle &&
 				(entry.hostRecord?.blueprintCaseType ?? null) === caseType &&
 				brief.moduleCompositions.find(
 					(composition) => composition.id === entry.compositionId,
 				)?.name === name,
 		);
 		if (realization === undefined) {
-			return "This slice may create only the exact accepted module composition, with its accepted display name and record host. Reuse an earlier composed module when the brief says reuse; do not create a parallel record home.";
+			return "This slice may create only the exact accepted module composition, using its blueprintModuleHandle as moduleUuid together with its accepted display name and record host. Reuse an earlier composed module when the brief says reuse; do not create a parallel record home.";
 		}
 		const expectedParentUuid =
 			realization.parentModuleCompositionId === null
@@ -2286,6 +2302,7 @@ export function compositionAdmissionIssue(
 						snapshot,
 						brief,
 						realization.parentModuleCompositionId,
+						executionHandles,
 					);
 		const suppliedParentUuid =
 			object.parentModuleUuid === undefined
@@ -2328,16 +2345,15 @@ export function compositionAdmissionIssue(
 		const module =
 			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
 		if (module === undefined) return null;
-		const realization = brief.moduleRealizations.find((entry) => {
-			const composition = brief.moduleCompositions.find(
-				(candidate) => candidate.id === entry.compositionId,
-			);
-			return (
-				composition?.name === module.name &&
-				(entry.hostRecord?.blueprintCaseType ?? null) ===
-					(module.caseType ?? null)
-			);
-		});
+		const realization = brief.moduleRealizations.find(
+			(entry) =>
+				realizedModuleUuid(
+					snapshot,
+					brief,
+					entry.compositionId,
+					executionHandles,
+				) === moduleUuid,
+		);
 		if (realization === undefined) {
 			return "This slice may move only a module represented by its accepted module composition.";
 		}
@@ -2348,6 +2364,7 @@ export function compositionAdmissionIssue(
 						snapshot,
 						brief,
 						realization.parentModuleCompositionId,
+						executionHandles,
 					);
 		const expectedAfterUuid =
 			realization.afterSiblingModuleCompositionId === null
@@ -2356,6 +2373,7 @@ export function compositionAdmissionIssue(
 						snapshot,
 						brief,
 						realization.afterSiblingModuleCompositionId,
+						executionHandles,
 					);
 		const requestedParentUuid =
 			object.parentModuleUuid === undefined
@@ -2384,7 +2402,14 @@ export function compositionAdmissionIssue(
 			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
 		const expected = brief.formRealizations.find(
 			(entry) =>
-				entry.blueprintFormType === object.type && entry.name === object.name,
+				entry.blueprintFormType === object.type &&
+				entry.name === object.name &&
+				realizedModuleUuid(
+					snapshot,
+					brief,
+					entry.moduleCompositionId,
+					executionHandles,
+				) === moduleUuid,
 		);
 		const moduleComposition =
 			expected === undefined
@@ -2411,18 +2436,20 @@ export function compositionAdmissionIssue(
 
 	if (toolName === "updateModule" && object.case_type !== undefined) {
 		const moduleUuid = resolveCheckpointIdentity(object.moduleUuid, workspace);
-		const module =
-			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
-		const composition = brief.moduleCompositions.find(
-			(entry) => entry.name === module?.name,
+		const realization = brief.moduleRealizations.find(
+			(entry) =>
+				realizedModuleUuid(
+					snapshot,
+					brief,
+					entry.compositionId,
+					executionHandles,
+				) === moduleUuid,
 		);
-		const host = brief.moduleRealizations.find(
-			(entry) => entry.compositionId === composition?.id,
-		)?.hostRecord;
+		const host = realization?.hostRecord;
 		const requested =
 			typeof object.case_type === "string" ? object.case_type : null;
 		if (
-			composition === undefined ||
+			realization === undefined ||
 			requested !== (host?.blueprintCaseType ?? null)
 		) {
 			return "A module update may not move this accepted composition to a different record host.";

@@ -11,5 +11,7 @@ export function usePreviewMenuSource(): PreviewMenuSource {
 		modules: state.modules,
 		moduleOrder: state.moduleOrder,
 		caseTypes: state.caseTypes ?? EMPTY_CASE_TYPES,
+		forms: state.forms,
+		formOrder: state.formOrder,
 	}));
 }

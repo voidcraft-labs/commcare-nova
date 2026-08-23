@@ -1,4 +1,10 @@
-import type { CaseType, Module, Uuid } from "@/lib/domain";
+import {
+	CASE_FORM_TYPES,
+	type CaseType,
+	type Form,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	type ModuleHierarchySource,
 	moduleParent,
@@ -14,6 +20,8 @@ import type { PreviewLookupStatus } from "./engine/useLookupPreviewData";
 
 export interface PreviewMenuSource extends ModuleHierarchySource {
 	readonly caseTypes: readonly CaseType[];
+	readonly forms: Readonly<Record<string, Form>>;
+	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
 }
 
 /** The module tiles shown on one menu screen. `null` names Home. */
@@ -158,11 +166,21 @@ export function previewMenuCaseContext(
 			selectedByModuleUuid,
 		};
 	}
-	const caseParentModuleUuid = doc.moduleOrder.find(
-		(candidateUuid) =>
-			candidateUuid !== moduleUuid &&
-			doc.modules[candidateUuid]?.caseType === parentCaseType,
-	);
+	const caseParentModuleUuid = doc.moduleOrder.find((candidateUuid) => {
+		if (candidateUuid === moduleUuid) return false;
+		const candidate = doc.modules[candidateUuid];
+		if (candidate?.caseType !== parentCaseType) return false;
+		/* Match the case-activity gate used by the emitted parent-select
+		 * projection. A survey-only module may retain a case type for authoring,
+		 * but it has no case session and cannot act as a parent selector. */
+		return (
+			candidate.caseListOnly === true ||
+			(doc.formOrder[candidateUuid] ?? []).some((formUuid) => {
+				const form = doc.forms[formUuid];
+				return form !== undefined && CASE_FORM_TYPES.has(form.type);
+			})
+		);
+	});
 	if (!caseParentModuleUuid) {
 		return {
 			...emptyCaseContext(),

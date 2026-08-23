@@ -58,7 +58,6 @@ import {
 
 const APP_ID = "app-form-screen-test";
 const MODULE_UUID = testUuid("00000000-0000-0000-0000-000000000a01");
-const PARENT_MODULE_UUID = testUuid("00000000-0000-0000-0000-000000000a02");
 /* One UUID per FormType: the test suite mounts a different form
  * arm per case under one BlueprintDocProvider seed, and `formUuid` is
  * the URL discriminator the screen reads. Distinct UUIDs keep each
@@ -79,9 +78,6 @@ const CAPTURE_REQUIRED_FORM_UUID = testUuid(
 );
 const CASE_NAME_COLUMN_UUID = testUuid("00000000-0000-0000-0000-000000000b08");
 const FIELD_UUID = testUuid("00000000-0000-0000-0000-000000000c01");
-const PARENT_DEFAULT_FIELD_UUID = testUuid(
-	"00000000-0000-0000-0000-000000000c06",
-);
 const FIELD_REQUIRED_UUID = testUuid("00000000-0000-0000-0000-000000000c02");
 const FOLLOWUP_FIELD_UUID = testUuid("00000000-0000-0000-0000-000000000c03");
 const CLOSE_FIELD_UUID = testUuid("00000000-0000-0000-0000-000000000c04");
@@ -127,15 +123,6 @@ const navigateMock = {
 };
 const setPreviewCaseTargetMock = vi.fn();
 const setPreviewSelectedCaseMock = vi.fn();
-let previewMenuCaseSelectionsMock: Record<
-	string,
-	{
-		caseType: string;
-		caseId: string;
-		caseName: string;
-		caseProperties?: Readonly<Record<string, string>>;
-	}
-> = {};
 
 /* Mutable carrier the `useAppId` mock reads from. Most tests run
  *  against the default `APP_ID`; the `!appId` guard test overrides
@@ -195,7 +182,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "preview" as const,
 		usePreviewing: () => true,
 		useBuilderIsReady: () => true,
-		usePreviewMenuCaseSelections: () => previewMenuCaseSelectionsMock,
+		usePreviewMenuCaseSelections: () => ({}),
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
 		useSetPreviewSelectedCase: () => setPreviewSelectedCaseMock,
 	};
@@ -280,7 +267,6 @@ function renderFormScreen(opts: {
 	formUuid: typeof REG_FORM_UUID;
 	caseId?: string;
 	selectedUuid?: Uuid;
-	withParentCaseType?: boolean;
 }) {
 	currentLocation = {
 		kind: "form",
@@ -312,36 +298,12 @@ function renderFormScreen(opts: {
 				},
 				userPropertyOrder: [PERSONA_REGION_UUID],
 				caseTypes: [
-					...(opts.withParentCaseType
-						? [
-								{
-									name: "household",
-									properties: [
-										{
-											name: "region",
-											label: proseText("Region"),
-										},
-									],
-								},
-							]
-						: []),
 					{
 						name: CASE_TYPE,
 						properties: [],
-						...(opts.withParentCaseType ? { parent_type: "household" } : {}),
 					},
 				],
 				modules: {
-					...(opts.withParentCaseType
-						? {
-								[PARENT_MODULE_UUID]: {
-									uuid: PARENT_MODULE_UUID,
-									id: "household_module",
-									name: "Households",
-									caseType: "household",
-								},
-							}
-						: {}),
 					[MODULE_UUID]: {
 						uuid: MODULE_UUID,
 						id: "patient_module",
@@ -418,17 +380,6 @@ function renderFormScreen(opts: {
 						caseWrite: { caseType: CASE_TYPE, property: "case_name" },
 						default_value: xp("'Test case'"),
 					},
-					...(opts.withParentCaseType
-						? {
-								[PARENT_DEFAULT_FIELD_UUID]: {
-									uuid: PARENT_DEFAULT_FIELD_UUID,
-									id: "parent_region",
-									kind: "text" as const,
-									label: proseText("Parent region"),
-									default_value: xp("#household/region"),
-								},
-							}
-						: {}),
 					[FIELD_REQUIRED_UUID]: {
 						uuid: FIELD_REQUIRED_UUID,
 						id: "name",
@@ -516,12 +467,8 @@ function renderFormScreen(opts: {
 						required: xp("true()"),
 					},
 				},
-				moduleOrder: [
-					...(opts.withParentCaseType ? [PARENT_MODULE_UUID] : []),
-					MODULE_UUID,
-				],
+				moduleOrder: [MODULE_UUID],
 				formOrder: {
-					...(opts.withParentCaseType ? { [PARENT_MODULE_UUID]: [] } : {}),
 					[MODULE_UUID]: [
 						REG_FORM_UUID,
 						FOLLOWUP_FORM_UUID,
@@ -533,10 +480,7 @@ function renderFormScreen(opts: {
 					],
 				},
 				fieldOrder: {
-					[REG_FORM_UUID]: [
-						FIELD_UUID,
-						...(opts.withParentCaseType ? [PARENT_DEFAULT_FIELD_UUID] : []),
-					],
+					[REG_FORM_UUID]: [FIELD_UUID],
 					[FOLLOWUP_FORM_UUID]: [FOLLOWUP_FIELD_UUID],
 					[CLOSE_FORM_UUID]: [CLOSE_FIELD_UUID],
 					[SURVEY_FORM_UUID]: [SURVEY_FIELD_UUID],
@@ -688,7 +632,6 @@ beforeEach(async () => {
 	capturedSession = undefined;
 	capturedController = undefined;
 	updateCapturedPersonaValue = undefined;
-	previewMenuCaseSelectionsMock = {};
 	await __resetAttachmentCoordinatorForTests();
 	vi.unstubAllGlobals();
 	/* Default `loadCaseDataAction` to `missing` so followup screens
@@ -761,34 +704,6 @@ describe("FormScreen — destructive case-data replacement", () => {
 // ── Validate-pass: per-FormType action dispatch ─────────────────
 
 describe("FormScreen — registration submit", () => {
-	it("preloads the selected parent and carries its id into registration", async () => {
-		previewMenuCaseSelectionsMock = {
-			[PARENT_MODULE_UUID]: {
-				caseType: "household",
-				caseId: "household-1",
-				caseName: "North household",
-				caseProperties: { region: "North" },
-			},
-		};
-		vi.mocked(submitFormAction).mockResolvedValue({
-			kind: "registration",
-			caseId: "new-patient",
-			childCaseIds: [],
-		});
-
-		renderFormScreen({ formUuid: REG_FORM_UUID, withParentCaseType: true });
-		expect(await screen.findByDisplayValue("North")).toBeDefined();
-		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
-
-		await waitFor(() => {
-			expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(1);
-		});
-		expect(vi.mocked(submitFormAction).mock.calls[0]?.[0]).toMatchObject({
-			kind: "registration",
-			primary: { parentCaseId: "household-1" },
-		});
-	});
-
 	it("dispatches submitFormAction with a registration-shaped mutation", async () => {
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "registration",

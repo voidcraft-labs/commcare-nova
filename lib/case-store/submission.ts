@@ -45,13 +45,6 @@ export interface SubmissionCaseSeed {
 	readonly caseName?: string;
 	readonly externalId?: string;
 	readonly properties: JsonObject;
-	/** Selected parent value after the server has resolved the committed
-	 * registration contract. Ordinary registration children omit this because
-	 * the envelope supplies the newly generated primary id itself. */
-	readonly parentCaseId?: string;
-	/** Expected type of `parentCaseId`, derived from the committed CaseType.
-	 * The store folds it into the same tenant-safe existence check. */
-	readonly parentCaseType?: string;
 	/** Server-derived from the committed child case type. Present only when
 	 * this seed is linked to an ordinary form's parent case. */
 	readonly parentRelationship?: NonNullable<CaseType["relationship"]>;
@@ -63,10 +56,8 @@ export interface SubmissionCaseSeed {
  * (advanced effects precede the ordinary FormActions block in wire
  * document order, and the executor mirrors that).
  *
- *   - `registration` — insert the primary plus every child. A parent-aware
- *     primary carries the selected parent id plus server-derived expected
- *     type/relationship; children take the primary's generated id as
- *     `parent_case_id` and never carry their own.
+ *   - `registration` — insert the primary plus every child. Children take the
+ *     primary's generated id as `parent_case_id` and never carry their own.
  *   - `followup` / `close` — update the bound case, insert each child
  *     with its pre-bound `parentCaseId`; `close` stamps the lifecycle
  *     transition LAST, after every property write.

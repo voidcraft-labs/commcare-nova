@@ -62,13 +62,17 @@ import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
-import { previewModuleVisibility } from "@/lib/preview/menuProjection";
+import {
+	previewMenuCaseContext,
+	previewModuleVisibility,
+} from "@/lib/preview/menuProjection";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { AppSetupSection, Location } from "@/lib/routing/types";
 import {
 	useEditMode,
 	usePreviewCaseTarget,
+	usePreviewMenuCaseSelections,
 	useProjectScopeEpoch,
 	useSetPreviewing,
 	useSetPreviewPersonaUuid,
@@ -95,6 +99,7 @@ function locationToScreen(
 	modules: Readonly<Record<string, Module>>,
 	formOrder: Readonly<Record<Uuid, readonly Uuid[]>>,
 	moduleVisibility: ReadonlyMap<Uuid, NavigationItemVisibility>,
+	requiredCaseAdmissionModuleUuid?: Uuid,
 ): PreviewScreen {
 	if (loc.kind === "home") return { type: "home" };
 	if (loc.kind === "app-setup") {
@@ -129,6 +134,14 @@ function locationToScreen(
 		return moduleVisibility.get(parentUuid) === "shown"
 			? { type: "module", moduleUuid: parentUuid }
 			: { type: "home" };
+	}
+
+	/* A directly addressed running leaf must enter through its module before
+	 * it can mount when case ancestry still requires a parent selection.
+	 * ModuleScreen owns that selection chain and deliberately resolves it from
+	 * case types, independently of the structural menu parent above. */
+	if (requiredCaseAdmissionModuleUuid === loc.moduleUuid) {
+		return { type: "module", moduleUuid: loc.moduleUuid };
 	}
 
 	if (loc.kind === "module")
@@ -178,6 +191,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	const menuSource = usePreviewMenuSource();
 	const { modules } = menuSource;
 	const mode = useEditMode();
+	const previewCaseTarget = usePreviewCaseTarget();
+	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const identityState = useSelectedPreviewIdentityState();
 	const identity =
 		identityState.kind === "ready" ? identityState.identity : null;
@@ -192,6 +207,26 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			}),
 		[lookup, menuSource, mode, session],
 	);
+	const atCaseRecord = loc.kind === "cases" && loc.caseId !== undefined;
+	const directRunningModuleUuid =
+		(mode === "preview" || atCaseRecord) &&
+		loc.kind !== "home" &&
+		loc.kind !== "app-setup" &&
+		loc.kind !== "project-data" &&
+		loc.kind !== "module" &&
+		loc.kind !== "module-condition"
+			? loc.moduleUuid
+			: undefined;
+	const requiredCaseAdmissionModuleUuid = useMemo(() => {
+		if (directRunningModuleUuid === undefined) return undefined;
+		return previewMenuCaseContext(
+			menuSource,
+			directRunningModuleUuid,
+			menuCaseSelections,
+		).requiredParentCase
+			? directRunningModuleUuid
+			: undefined;
+	}, [directRunningModuleUuid, menuCaseSelections, menuSource]);
 
 	/* Default back handler: callers can override (e.g. for selection sync),
 	 * otherwise fall back to URL-driven `navigate.back()`. */
@@ -202,8 +237,6 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * case (running-app state, like the search inputs and filter, it never
 	 * goes in the URL). We graft its `caseId` onto the form screen below when
 	 * it names the form we're showing, so `FormScreen` preloads the case. */
-	const previewCaseTarget = usePreviewCaseTarget();
-
 	/* The screen AND "is this a condition-authoring URL" both derive from
 	 * the location, so they must travel together through the deferred
 	 * value. Splitting them would let one flip a render before the other:
@@ -217,6 +250,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			modules,
 			formOrder,
 			moduleVisibility,
+			requiredCaseAdmissionModuleUuid,
 		);
 		const atCondition =
 			loc.kind === "module-condition" || loc.kind === "form-condition";
@@ -254,6 +288,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 		formOrder,
 		moduleVisibility,
 		previewCaseTarget,
+		requiredCaseAdmissionModuleUuid,
 	]);
 	const zustandScreen: PreviewScreen = zustandView.screen;
 
@@ -269,7 +304,6 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	/* `/cases/{caseId}` is the running record deep link, not the Results
 	 * authoring tab. It must remain a record screen after a reload even though
 	 * preview mode itself is ephemeral session state. */
-	const atCaseRecord = loc.kind === "cases" && loc.caseId !== undefined;
 	const setPreviewing = useSetPreviewing();
 	useEffect(() => {
 		if (atCaseRecord && mode !== "preview") setPreviewing(true);

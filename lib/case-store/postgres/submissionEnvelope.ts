@@ -122,7 +122,6 @@ export interface SubmissionEnvelopeHost {
 				externalId?: string;
 				properties: JsonObject;
 				parentCaseId?: string;
-				parentCaseType?: string;
 				parentRelationship?: "child" | "extension";
 			};
 			caseId?: string;
@@ -1778,15 +1777,6 @@ async function applyOrdinaryAction(
 						? {}
 						: { externalId: ordinary.primary.externalId }),
 					properties: ordinary.primary.properties,
-					...(ordinary.primary.parentCaseId === undefined
-						? {}
-						: { parentCaseId: ordinary.primary.parentCaseId }),
-					...(ordinary.primary.parentCaseType === undefined
-						? {}
-						: { parentCaseType: ordinary.primary.parentCaseType }),
-					...(ordinary.primary.parentRelationship === undefined
-						? {}
-						: { parentRelationship: ordinary.primary.parentRelationship }),
 				},
 			});
 			const childCaseIds: string[] = [];

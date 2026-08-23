@@ -121,9 +121,12 @@ teaches the executor not to retry it unchanged, and the third stops locally as
 composition/validator repeats retain the bounded architect path.
 `finishWorkflow` is the only server-owned
 validation and commit request; there is no step-boundary auto-finalizer or
-eligibility marker. Its diagnostics include a deterministic parity check
-between each accepted workflow input's required-condition presence and the
-exact realized field ID, alongside the ordinary whole-document findings, so a
+eligibility marker. Module compositions lower their DesignId into one exact
+private `blueprintModuleHandle`; admission and finalization resolve that
+durable binding instead of treating a display name plus record host as
+identity, so valid equal-name modules remain distinct. Its diagnostics also
+include a deterministic parity check between each accepted workflow input's
+required-condition presence and the exact realized field ID, alongside the ordinary whole-document findings, so a
 record-catalog default cannot silently make an optional update question
 required. Wire-invalid, private-mutation-rejected, and
 validator-repair outcomes increment

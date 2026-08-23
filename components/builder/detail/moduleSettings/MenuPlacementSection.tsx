@@ -29,6 +29,7 @@ export function MenuPlacementSection({
 }) {
 	const id = useId();
 	const module = useModule(moduleUuid);
+	const parentModule = useModule(module?.parentModuleUuid);
 	const { rootModuleUuids, childModuleUuidsByRoot } = useModuleMenuHierarchy();
 	const { inline } = useBlueprintMutations();
 	const [error, setError] = useState<string | null>(null);
@@ -37,6 +38,8 @@ export function MenuPlacementSection({
 	const parentModuleUuid = module.parentModuleUuid ?? null;
 	const ownsChildren = (childModuleUuidsByRoot[moduleUuid]?.length ?? 0) > 0;
 	const value = parentModuleUuid ?? TOP_LEVEL;
+	const valueLabel =
+		parentModuleUuid === null ? "Top level" : (parentModule?.name ?? "Menu");
 	const choices = rootModuleUuids.filter((rootUuid) => rootUuid !== moduleUuid);
 
 	const moveTo = (nextValue: string | null) => {
@@ -64,7 +67,7 @@ export function MenuPlacementSection({
 					className="w-full"
 					aria-invalid={error !== null}
 				>
-					<SelectValue />
+					<SelectValue>{valueLabel}</SelectValue>
 				</SelectTrigger>
 				<SelectContent>
 					<SelectItem value={TOP_LEVEL}>Top level</SelectItem>

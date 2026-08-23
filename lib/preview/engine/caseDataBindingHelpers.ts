@@ -1165,13 +1165,6 @@ export async function resetSampleCases(
 export interface BuiltSubmissionOperations {
 	readonly program?: CaseOperationProgram;
 	readonly ordinaryCaseType?: string;
-	/** A registration primary's committed parent-case contract. The client
-	 * supplies only the selected id; type and relationship stay server-owned. */
-	readonly ordinaryRegistrationParent?: {
-		readonly childCaseType: string;
-		readonly parentCaseType: string;
-		readonly relationship: NonNullable<CaseType["relationship"]>;
-	};
 	/** Committed case-type relationship for each ordinary child destination.
 	 * The client mutation never asserts this wire/runtime fact. */
 	readonly ordinaryChildRelationships: ReadonlyMap<
@@ -1520,18 +1513,6 @@ export function buildCaseOperationProgramFromDoc(args: {
 		),
 	);
 	const ordinaryCaseType = owningModuleCaseType(doc, formUuid);
-	const ordinaryCaseTypeDefinition = ordinaryCaseType
-		? caseTypeSchemas.get(ordinaryCaseType)
-		: undefined;
-	const ordinaryRegistrationParent =
-		ordinaryCaseType !== undefined &&
-		ordinaryCaseTypeDefinition?.parent_type !== undefined
-			? {
-					childCaseType: ordinaryCaseType,
-					parentCaseType: ordinaryCaseTypeDefinition.parent_type,
-					relationship: ordinaryCaseTypeDefinition.relationship ?? "child",
-				}
-			: undefined;
 	const usercaseWriteProperties = new Set(
 		deriveCaseWriteInventory(
 			blueprint,
@@ -1546,9 +1527,6 @@ export function buildCaseOperationProgramFromDoc(args: {
 		ordinaryChildRelationships,
 		usercaseWriteProperties,
 		...(ordinaryCaseType === undefined ? {} : { ordinaryCaseType }),
-		...(ordinaryRegistrationParent === undefined
-			? {}
-			: { ordinaryRegistrationParent }),
 	};
 	const operations = orderedCaseOperations(form);
 	if (operations.length === 0) return ordinaryStructure;
@@ -1753,30 +1731,12 @@ export function submissionEnvelopeArgs(
 		return { ...child, parentRelationship };
 	};
 	switch (mutation.kind) {
-		case "registration": {
-			let primary: Extract<
-				ApplySubmissionArgs["ordinary"],
-				{ kind: "registration" }
-			>["primary"] = mutation.primary;
-			if (mutation.primary.parentCaseId !== undefined) {
-				const parent = built.ordinaryRegistrationParent;
-				if (parent === undefined) {
-					throw new CaptureSubmissionRejectedError(
-						"The submitted registration selected a parent case, but the committed case type no longer declares one. Reload the form and submit again.",
-					);
-				}
-				primary = {
-					...mutation.primary,
-					caseType: parent.childCaseType,
-					parentCaseType: parent.parentCaseType,
-					parentRelationship: parent.relationship,
-				};
-			}
+		case "registration":
 			return {
 				appId,
 				ordinary: {
 					kind: "registration",
-					primary,
+					primary: mutation.primary,
 					children: mutation.children.map(childSeed),
 				},
 				...operations,
@@ -1784,7 +1744,6 @@ export function submissionEnvelopeArgs(
 				...submissionReceipt,
 				...captureIntent,
 			};
-		}
 		case "followup":
 		case "close":
 			return {

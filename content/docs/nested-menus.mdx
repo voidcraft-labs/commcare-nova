@@ -46,6 +46,10 @@ A menu parent controls where a module appears. A case parent describes how two
 case types are related and which case someone selects first. Changing one does
 not change the other.
 
+Selecting a parent first narrows existing child cases for followup and close
+forms. A basic registration form creates its primary case without storing that
+selected parent as a case relationship.
+
 For example, **Households > Visits** can be a menu path even if both modules
 work with household cases. Or **Clients > Referrals** can be a menu path while
 the referral case type is a child of the client case type. Nova keeps the

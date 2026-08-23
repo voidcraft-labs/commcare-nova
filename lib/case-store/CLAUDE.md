@@ -59,11 +59,7 @@ lifecycle prefix.
 The committed-doc builder also projects each ordinary child's
 `CaseType.relationship` even when there are no advanced operations. The client
 cannot assert it, and the envelope persists the canonical `parent` edge as
-`child` or `extension` exactly like the XForm. A parent-aware registration
-primary is the same contract: the client names only the selected parent case
-id; the committed child CaseType supplies the expected parent type and
-relationship, and the store re-proves the id against that type inside the
-tenant-bound submission transaction before inserting the primary.
+`child` or `extension` exactly like the XForm.
 
 **The operation program is also the external-data compiler-context boundary.** Its optional `lookupTableSchemas` is the rows-free `tableId → columnId → dataType` projection from one Project-authorized definitions snapshot. Preview derives the exact table ids from canonical lookup-reference occurrences whose carrier UUID belongs to the built form's operations, using the same committed blueprint that produced the program; a carrier-free program performs no definition read. `evaluateBatch` threads this one map into every condition, value, runtime target, write guard, and link target, and the schema-healing wrapper retries `applySubmission` with the same envelope object and map. It also threads the committed organization-level hierarchy: a fixed-place owner evaluates to the same UUID stored in `app_locations` and emitted as the fixture `@id`, while a reverse owner hop walks the selected case owner's live ancestor branch to the admitted unique destination level. Never fetch definitions or organization shape from inside individual expression arms or substitute a fallback type: lookup governance keeps referenced table/column identities and types stable, organization admission makes reverse hops scalar, and `lookup_rows` plus `app_locations` remain current tenant-bound reads inside the submission transaction.
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	blueprintModuleHandle,
 	briefDigest,
 	deriveSliceExecutionBrief,
 	renderBriefMessage,
@@ -100,6 +101,7 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(registration.moduleRealizations).toEqual([
 			expect.objectContaining({
 				compositionId: ids.modulePatients,
+				blueprintModuleHandle: blueprintModuleHandle(ids.modulePatients),
 				action: "create",
 				hostRecord: {
 					id: ids.recPatient,
@@ -129,6 +131,7 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(visit.moduleRealizations).toEqual([
 			expect.objectContaining({
 				compositionId: ids.modulePatients,
+				blueprintModuleHandle: blueprintModuleHandle(ids.modulePatients),
 				action: "reuse",
 				hostRecord: {
 					id: ids.recPatient,
