@@ -11,9 +11,10 @@
 
 Add one HQ-compatible tier of menu nesting across the Blueprint, Builder,
 Preview, CommCare output, Solutions Architect, MCP, public docs, and companion
-plugin. Parent-case selection already exists and remains independent: menu
-parentage organizes the app, while case parentage selects related data at run
-time.
+plugin. Menu parentage organizes the app, while case parentage selects related
+data at run time. Nova already emits HQ `parent_select`; this unit makes the
+local `.ccz` and the nested-menu Preview session honor the parent-aware datum
+and navigation behavior that HQ derives around it.
 
 This unit does **not** add linked-form or shadow-form reuse. Every Form remains
 canonically owned by exactly one module. Authors can use separate modules,
@@ -36,15 +37,23 @@ whose import or navigation behavior it cannot own end to end.
 - A parent menu is still an ordinary module. `ModuleValidator.validate_with_raise`
   rejects one with neither Forms nor a case list; child menus do not make an
   otherwise-empty parent valid.
-- Parent-before-child order is the stable HQ representation:
+- Parent-before-child order is HQ's normalized authoring representation:
   `Application.move_child_modules_after_parents` groups each root immediately
-  before its children. Nova stores that same depth-first preorder rather than
-  maintaining a second order projection.
+  before its children. Import and Make New Version do not require that order at
+  runtime, but Nova deliberately stores the same depth-first preorder rather
+  than maintaining a second order projection.
 - `put_in_root` is a different, flattening feature. This unit never authors or
   emits it. It also never emits `ShadowModule` or a domain-facing shadow toggle.
-- Parent-case selection is not menu nesting. Nova continues deriving HQ
-  `parent_select` from the case-type `parent_type` graph; selecting a parent case
-  first neither creates nor depends on `parentModuleUuid`.
+- Parent-case selection is not menu nesting. Nova derives HQ `parent_select`
+  from the case-type `parent_type` graph; selecting a parent case first neither
+  creates nor depends on `parentModuleUuid`. Menu ancestry does, however, affect
+  the session datum names and return stack that carry those selected cases.
+- HQ's authorities for that adjustment are
+  `EntriesHelper.add_parent_datums`,
+  `WorkflowHelper.get_frame_children`,
+  `WorkflowHelper._frame_children_for_module`,
+  `WorkflowHelper._get_static_stack_frame`, and
+  `WorkflowHelper.prepend_parent_frame_children`.
 
 Before freezing emission, re-find these symbols in the current local HQ checkout
 and pin the exact current bytes. Source names are stable citations; line numbers
@@ -74,11 +83,12 @@ type Module = {
   preceding its parent, and duplicate or stray membership.
 - Existing module validity runs unchanged. A parent still needs its own native
   Form or valid case-list configuration, and a child obeys the same rule.
-- Display conditions remain authored once per module. A child's effective
-  visibility is its parent condition AND its own condition. False wins;
-  otherwise an unresolved operand leaves the result pending. Edit mode may
-  reveal hidden items, but direct navigation and Preview use the inherited
-  verdict.
+- Display conditions remain authored once per module. Preview and direct-route
+  admission derive a child's effective visibility as parent AND child: false
+  wins; otherwise an unresolved operand leaves the result pending. On ordinary
+  CommCare wire, the child `<menu>` retains only its own `module_filter`;
+  containment supplies the parent gate. Nova never applies HQ's unrelated
+  `put_in_root` filter-conjunction rule.
 
 No Blueprint migration, fold horizon, new entity kind, or Kysely migration is
 needed. Module JSON already carries optional domain fields. Assembly,
@@ -90,8 +100,12 @@ new-suffix replay must nevertheless receive explicit round-trip tests.
 All three editors use the same granular placement semantics:
 
 - `addModule` accepts optional `parentModuleUuid` and a sibling UUID anchor.
-- `moveModule` names the complete destination: module UUID, destination parent
-  UUID or `null`, and destination sibling anchor or `null` for first.
+- `moveModule` retains its historical `{ uuid, after }` shape and adds optional
+  `parentModuleUuid: Uuid | null`. Omission means reorder within the module's
+  current sibling group, preserving every historical row and ensuring a stale
+  narrow reorder cannot undo a peer's reparent. A present UUID reparents to that
+  root; present `null` makes the module top-level. `after` always names a sibling
+  in the effective destination, or `null` for first.
 - Moving a root moves its complete child block. Moving a child moves only that
   child. Reparenting and reordering are one candidate-state mutation, never an
   update followed by a temporarily invalid repair.
@@ -106,10 +120,16 @@ All three editors use the same granular placement semantics:
 Update mutation schema admission, target and sequence admission, reducer,
 reference index, dependent discovery, diff/inverse generation, undo, replay,
 autosave, collaboration reconciliation, and mutation-source tripwires together.
+`parentModuleUuid` is excluded from generic `updateModule` patches: placement is
+atomic with ordering or does not change. Diff evacuates surviving children before
+parent removal and removes children before parents.
 Race tests cover concurrent reparent/reorder, move versus parent deletion,
 parent deletion versus child creation, and a peer removing the named anchor.
 The winner is decided against the fresh locked document; no numeric-index or
 last-write snapshot replacement is introduced.
+Retained-history coverage folds an old flat baseline plus an old
+`{ kind: "moveModule", uuid, after }` suffix before applying a new reparent, so
+the no-migration claim is proved rather than inferred.
 
 This is a direct protocol cutover with one final mutation shape. Do not add a
 feature flag, compatibility mutation, receiver-version floor, or dual reader.
@@ -140,22 +160,33 @@ The app tree becomes a semantic nested list, not an ARIA tree widget:
 Routing remains identity-based. Forms still have exactly one owning module, so a
 Form route can derive its owner and menu ancestry without inventing occurrence
 identity or changing canonical Form ownership. Breadcrumbs show menu ancestry
-separately from any selected parent-case trail. Remote reparenting updates the
-breadcrumb and canonical URL without losing a still-valid Form/field/settings
-selection; remote deletion recovers to the parent, then Home if necessary.
+separately from the selected-case trail. Reparenting does not change the
+identity URL: it updates the breadcrumb without losing a still-valid
+Form/field/settings selection. Recovery retains the last valid topology long
+enough for a remotely deleted child to fall back to its surviving former parent;
+a deleted root falls back Home.
 Presence targets the actual module/Form/field identity and following a peer
 preserves their menu path.
 
 Running Preview uses one shared menu projection:
 
 - Home renders roots only.
-- A parent screen renders its native Forms/case-list entry plus child-menu tiles.
+- A parent screen renders its native Forms or an explicit **Cases** entry plus
+  child-menu tiles. A case-first or case-list-only parent no longer auto-enters
+  Results while that would make its children unreachable.
 - A child screen renders its own native content with a parent-aware breadcrumb.
 - Direct child navigation still evaluates the inherited parent condition.
 - Stable UUID screen keys prevent reorders from transferring retained state or
   scroll position to another module.
-- Parent-case selection, case preloads, case writes, and existing session datums
-  continue to derive from case types, not menu ancestry.
+- Preview carries menu-level selected-case state independently of a form launch.
+  Selecting a case for a case-list/case-first parent returns to its menu so child
+  tiles remain available. A same-type child may reuse that selection; a
+  different-type child follows the case-type `parent_select` chain before its
+  own case/Form. This completes the nested path without making menu parentage a
+  case relationship.
+- Root/child visibility, selected datum names, case preloads/writes, and return
+  frames consume one shared topology-aware session projection. Breadcrumbs
+  render menu ancestry and selected case context as separate facts.
 - Back/forward, refresh, Preview/Edit transitions, hidden-item reveal, and
   multiplayer recovery retain the correct menu destination.
 
@@ -173,18 +204,37 @@ keyboard-only placement and reordering, focus return, screen-reader names,
   shell contract.
 - Emit modules in the Blueprint's parent-before-contiguous-child preorder.
 - Preserve each module's own details, case-list/search configuration, Forms,
-  media, case type, and display condition. Menu ancestry does not change case
+  media, case type, and display condition. Menu ancestry does not create case
   ancestry or synthesize case configuration.
+- Build one root-aware entry-binding projection after module IDs and
+  `parent_select` chains are known. It aligns/reuses or renames selected datum
+  IDs exactly as HQ does, including a different-type child such as
+  `case_id_guppy` and same-type reuse of `case_id`.
+- Feed that selected datum into suite entries, XForm case/preload/write and
+  advanced-operation bindings, Form display conditions, hashtag expansion,
+  Form-link datum matching, and `module`/`previous`/module-target/form-target
+  stack frames. Local `.ccz` and HQ-regenerated output must select and mutate the
+  same case.
 - `.ccz`, manual HQ JSON, and direct upload consume the same expanded topology.
 - The export boundary rejects invalid topology identically before any carrier
   emits bytes.
 
-Tests pin the current HQ inline oracle named above and add exact focused fixtures
-for multiple roots, multiple siblings, parent and child display conditions,
-different and matching case types, existing derived `parent_select`, module
-reorder/reparent, and deletion refusal. HQ JSON parsing plus suite parsing prove
-parent identity and command reachability; the `.ccz` proof asserts resources and
-menus rather than merely checking that a `root` attribute appears.
+Tests pin the current HQ inline oracle named above plus:
+
+- `BasicModuleAsChildTest.test_child_module_parent_no_parent_select_different_case_type`
+- `BasicModuleAsChildTest.test_child_module_parent_no_parent_select_same_case_type`
+- `BasicModuleAsChildTest.test_form_display_condition`
+- `child-module-entry-datums-added-basic.xml`
+- `child-module-with-parent-select-entry-datums-added.xml`
+- `child-module-with-parent-select-and-case-list.xml`
+- `child-module-form-workflow-previous.xml`
+- `basic_submodule_xform.xml`
+- `child_module_adjusted_case_id_basic.xml`
+
+The matrix covers multiple roots/siblings, reparenting, existing Form links,
+`postSubmit: module`, and deletion refusal. HQ JSON/suite oracles prove
+parent/root reachability and cycles; `.ccz` proof asserts resources, menus,
+entries, XForm bindings, and stacks rather than merely checking for `root`.
 
 The final acceptance artifact is imported into current HQ and taken through Make
 New Version as a read-only/local test fixture workflow. It must preserve module
@@ -201,12 +251,16 @@ The capability is available from initial design through later edits:
   are reused, so no new design identity kind or database constraint is added.
 - BuildPlan coverage, construction groups, execution briefs, review,
   complexity, dependency closure, and finalization carry placement explicitly.
-  A child module is scheduled after its parent and any referenced case schema,
-  never patched into place after construction.
+  The parent composition owner is the same as or earlier than the child owner.
+  A same-slice parent brings its own valid Form/case-list surface; different
+  owners add the exact parent-owner prerequisite. The materialization root never
+  gains a prerequisite. Execution briefs carry the parent and preceding-sibling
+  closure in parent-first create/reuse order, so no empty parent is patched into
+  validity after construction.
 - `createModule`/`create_module` accept optional parent UUID placement.
-- `moveModule`/`move_module` accept the complete destination parent and sibling
-  anchor. Existing callers that reorder roots are updated to send explicit root
-  placement.
+- `moveModule`/`move_module` retain `after` and accept optional
+  `parentModuleUuid`. Omission is a concurrency-safe reorder in the current
+  menu; UUID/`null` explicitly reparents to a submenu/top-level destination.
 - `getModule`, `searchBlueprint`, `summarizeBlueprint`, tool receipts, and chat
   summaries expose parent/children and print the menu tree without confusing it
   with case parentage.
@@ -234,6 +288,10 @@ prompt-length policy:
   absent, and `MAX_RESULT_SIZE_CHARS`/large-result transport metadata.
 - Tests prove every mode ends with the marker and an intentionally large app
   still includes its complete summary. There is no replacement character cap.
+- A local plugin smoke retrieves that deliberately large prompt and proves the
+  terminal marker survives the real host path. A missing marker remains an
+  honest transport failure to fix; it never causes the authored prose cap or
+  summary fallback to return.
 
 ## Docs, tests, review, and delivery
 
@@ -245,16 +303,18 @@ Builder, routing/session, Preview, CommCare, agent/design/build, and MCP
 reuse as available.
 
 Implementation happens in tool-created worktrees from current `origin/main` for
-Nova and `nova-plugin`; main checkouts stay clean. Use mise-managed Node/npm and
-fresh `npm ci`. On the 16 GB development machine, run installs, Docker/database
-work, Vitest/leak sweeps, builds, and browsers serially.
+Nova and `nova-plugin`; main checkouts stay clean. Nova uses mise-managed
+Node/npm and fresh `npm ci`; the plugin has no Node package or `npm ci` step. On
+the 16 GB development machine, run installs, Docker/database work, Vitest/leak
+sweeps, builds, and browsers serially.
 
 Verification includes focused tests throughout, then:
 
 - `npm run test:changed`
 - `npm run typecheck`
 - `npm run lint`
-- formatting check
+- formatting through non-writing `npm run lint`; `npm run format` is used only
+  to apply a required formatting correction, followed by lint
 - scoped `npm run test:leaks -- <touched test paths>`; never the full unsharded
   leak sweep locally
 - production `npm run build`
@@ -284,5 +344,5 @@ Drive every required CI check green from its logs. Stop before merge unless the
 user separately authorizes it.
 
 **Observed:** an author groups related modules under one parent menu while the
-existing parent-case-first workflow continues selecting related records inside
-those modules.
+case-type-driven parent-case-first workflow continues selecting and carrying
+the correct related records through those menus.
