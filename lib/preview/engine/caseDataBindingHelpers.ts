@@ -565,6 +565,10 @@ async function countAuthoredCasePopulation(
 		readonly caseType: string;
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		readonly caseListConfig?: CaseListConfig;
+		readonly parentCase?: {
+			readonly caseType: string;
+			readonly caseId: string;
+		};
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly authoredExcludedOwnerIds?: readonly string[];
@@ -578,6 +582,7 @@ async function countAuthoredCasePopulation(
 		args.caseTypeSchemas,
 		args.authoredExcludedOwnerIds,
 		args.authoredExcludedOwnerIds,
+		args.parentCase,
 	);
 	return store.count({
 		...caseReadCore(args, authoredQuery.predicate),

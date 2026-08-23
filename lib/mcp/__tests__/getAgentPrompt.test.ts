@@ -40,11 +40,15 @@ import { proseText } from "@/lib/domain/prose";
 
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
+import {
+	AGENT_PROMPT_RESULT_BUDGET_CHARS,
+	type AgentPromptPage,
+} from "../promptDelivery";
 import { renderAgentPrompt } from "../prompts";
 import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import { registerGetAgentPrompt } from "../tools/getAgentPrompt";
 import type { ToolContext } from "../types";
-import { makeFakeServer } from "./fakeServer";
+import { type CapturedToolHandler, makeFakeServer } from "./fakeServer";
 
 /* Hoisted mocks — every dependency the tool touches has a vi.fn()
  * stand-in. The renderer wrap preserves the real implementation as
@@ -169,6 +173,44 @@ function loadedFor(doc: BlueprintDoc): LoadedApp {
 	};
 }
 
+/** Consume the same plain-text-or-paged result contract as a first-party MCP
+ * caller so prompt-content assertions remain independent of prompt growth. */
+async function readCompletePrompt(
+	handler: CapturedToolHandler,
+	args: {
+		readonly mode: "build" | "autonomous_build" | "edit";
+		app_id?: string;
+	},
+): Promise<string> {
+	const chunks: string[] = [];
+	let cursor: string | undefined;
+	do {
+		const out = (await handler(
+			{ ...args, ...(cursor === undefined ? {} : { cursor }) },
+			{},
+		)) as { content: Array<{ type: "text"; text: string }> };
+		const text = out.content[0]?.text ?? "";
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(text);
+		} catch {
+			return text;
+		}
+		if (
+			typeof parsed !== "object" ||
+			parsed === null ||
+			!("kind" in parsed) ||
+			parsed.kind !== "nova-agent-prompt-page"
+		) {
+			return text;
+		}
+		const page = parsed as AgentPromptPage;
+		chunks.push(page.prompt_chunk);
+		cursor = page.next_cursor;
+	} while (cursor !== undefined);
+	return chunks.join("");
+}
+
 beforeEach(() => {
 	vi.mocked(renderAgentPrompt).mockClear();
 	vi.mocked(loadAppBlueprint).mockReset();
@@ -205,11 +247,7 @@ describe("registerGetAgentPrompt — build modes", () => {
 			const { server, capture } = makeFakeServer();
 			registerGetAgentPrompt(server, toolCtx);
 
-			const out = (await capture()({ mode: combo.mode }, {})) as {
-				content: Array<{ type: "text"; text: string }>;
-			};
-
-			const text = out.content[0]?.text ?? "";
+			const text = await readCompletePrompt(capture(), { mode: combo.mode });
 			expect(text.length).toBeGreaterThan(0);
 			expect(text).toContain(combo.expectedPhrase);
 			expect(text).not.toContain(combo.forbiddenPhrase);
@@ -228,10 +266,9 @@ describe("registerGetAgentPrompt — build modes", () => {
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
 
-		const out = (await capture()({ mode: "autonomous_build" }, {})) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-		const text = out.content[0]?.text ?? "";
+		const text = await readCompletePrompt(capture(), {
+			mode: "autonomous_build",
+		});
 
 		expect(text).toContain("Publishing FYI");
 		expect(text).toContain("call get_app_hq_feature_flags exactly once");
@@ -318,7 +355,9 @@ describe("registerGetAgentPrompt — edit mode happy path", () => {
 			content: Array<{ type: "text"; text: string }>;
 		};
 		const firstText = first.content[0]?.text ?? "";
-		expect(firstText.length).toBeLessThanOrEqual(MAX_RESULT_SIZE_CHARS);
+		expect(firstText.length).toBeLessThanOrEqual(
+			AGENT_PROMPT_RESULT_BUDGET_CHARS,
+		);
 		const firstPage = JSON.parse(firstText) as {
 			kind: string;
 			chunk_end: number;

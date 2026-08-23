@@ -797,6 +797,71 @@ describe("readCases", () => {
 		},
 	);
 
+	it("counts authored matches inside the selected parent when Search is empty", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const blueprint = buildBlueprint([
+			PATIENT_CASE_TYPE,
+			{ ...VISIT_CASE_TYPE, relationship: "child" },
+		]);
+		await seedSchema(store, blueprint, "patient");
+		await seedSchema(store, blueprint, "visit");
+		for (const [caseId, name] of [
+			[ALICE_CASE_ID, "Alice"],
+			[BOB_CASE_ID, "Bob"],
+		] as const) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: "patient",
+					case_name: name,
+					status: "open",
+					properties: {},
+				},
+			});
+		}
+		await store.insert({
+			appId: APP_ID,
+			parentRelationship: "child",
+			row: {
+				case_id: VISIT_CASE_ID,
+				case_type: "visit",
+				case_name: "Bob visit",
+				status: "open",
+				parent_case_id: BOB_CASE_ID,
+				properties: {},
+			},
+		});
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			parentCase: { caseType: "patient", caseId: ALICE_CASE_ID },
+			caseListConfig: resolveCaseListConfig({
+				columns: [],
+				searchInputs: [
+					simpleSearchInputDef(
+						READCASES_PRIMARY_INPUT_UUID,
+						"name",
+						"Name",
+						"text",
+						"case_name",
+						{ mode: exactMode() },
+					),
+				],
+			}),
+			inputValues: new Map([["name", "Bob visit"]]),
+			page: { offset: 0, limit: 50 },
+		});
+
+		expect(result).toEqual({
+			kind: "empty",
+			constraintSource: "worker-search",
+			authoredMatchingCount: 0,
+		});
+	});
+
 	// The reveal beside Results is the ONLY consumer of the whole-tenant count
 	// behind `outsideRestoreCount`. It is a second `store.count` over the same
 	// predicate with the restriction lifted, so a path that draws nothing must

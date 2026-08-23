@@ -6,6 +6,21 @@ import { McpInvalidInputError, type McpToolSuccessResult } from "./errors";
 import { PROMPT_END_MARKER } from "./prompts";
 import { MAX_RESULT_SIZE_CHARS } from "./resultSize";
 
+/**
+ * Per-result transport budget for model-facing prompt delivery. This is not a
+ * cap on the prompt itself: longer prompts are delivered losslessly across as
+ * many snapshot-bound pages as they need. Keeping each result below the MCP
+ * host's 100k-character protocol ceiling leaves room for tokenization and
+ * host-added framing in clients whose independent model-input limit is tighter.
+ */
+export const AGENT_PROMPT_RESULT_BUDGET_CHARS = 75_000;
+
+if (AGENT_PROMPT_RESULT_BUDGET_CHARS >= MAX_RESULT_SIZE_CHARS) {
+	throw new Error(
+		"The agent-prompt result budget must stay below the MCP result ceiling.",
+	);
+}
+
 const promptCursorSchema = z
 	.object({
 		v: z.literal(1),
@@ -91,8 +106,8 @@ function serializePage(args: {
 
 /**
  * Return the complete prompt as the historical plain-text result when it fits.
- * Oversized prompts use exact JSON pages whose serialized text never crosses
- * the host's declared single-result ceiling. No prompt prose is removed.
+ * Larger prompts use exact JSON pages whose serialized text stays inside the
+ * conservative model-facing result budget. No prompt prose is removed.
  */
 export function deliverAgentPrompt(
 	prompt: string,
@@ -103,7 +118,10 @@ export function deliverAgentPrompt(
 			`Rendered agent prompt is missing terminal marker ${PROMPT_END_MARKER}.`,
 		);
 	}
-	if (cursor === undefined && prompt.length <= MAX_RESULT_SIZE_CHARS) {
+	if (
+		cursor === undefined &&
+		prompt.length <= AGENT_PROMPT_RESULT_BUDGET_CHARS
+	) {
 		return { content: [{ type: "text", text: prompt }] };
 	}
 
@@ -136,7 +154,7 @@ export function deliverAgentPrompt(
 		start,
 		end: prompt.length,
 	});
-	if (completeRemainder.length <= MAX_RESULT_SIZE_CHARS) {
+	if (completeRemainder.length <= AGENT_PROMPT_RESULT_BUDGET_CHARS) {
 		return { content: [{ type: "text", text: completeRemainder }] };
 	}
 
@@ -146,7 +164,7 @@ export function deliverAgentPrompt(
 	while (low <= high) {
 		const end = Math.floor((low + high) / 2);
 		const candidate = serializePage({ prompt, digest, start, end });
-		if (candidate.length <= MAX_RESULT_SIZE_CHARS) {
+		if (candidate.length <= AGENT_PROMPT_RESULT_BUDGET_CHARS) {
 			best = candidate;
 			low = end + 1;
 		} else {
@@ -155,7 +173,7 @@ export function deliverAgentPrompt(
 	}
 	if (best === undefined) {
 		throw new Error(
-			"The MCP result ceiling cannot hold the agent-prompt continuation envelope.",
+			"The conservative agent-prompt result budget cannot hold the continuation envelope.",
 		);
 	}
 	return { content: [{ type: "text", text: best }] };

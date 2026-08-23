@@ -19,10 +19,10 @@
  * `_meta` is the MCP spec's namespaced passthrough, so a host that
  * doesn't recognize this key ignores it — the intended degradation. The
  * key itself is Claude Code's, not part of the spec, which is why
- * nothing may depend on it silently: an oversized served prompt is split into
- * snapshot-bound continuation pages that each stay below this ceiling, and
- * the assembled prompt carries `PROMPT_END_MARKER` so a caller can prove
- * delivery instead of assuming it.
+ * nothing may depend on it silently: a large served prompt is split into
+ * snapshot-bound continuation pages that stay below a separate, conservative
+ * model-facing transport budget, and the assembled prompt carries
+ * `PROMPT_END_MARKER` so a caller can prove delivery instead of assuming it.
  *
  * **This is a ceiling, not a budget to spend.** Bounded tools, such as
  * `search_blueprint`, keep their own explicit completeness contract.

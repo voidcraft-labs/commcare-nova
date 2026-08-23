@@ -32,6 +32,20 @@ describe("displayConditionCopy", () => {
 		expect(withForms.locus[0]).not.toContain("case list");
 	});
 
+	it("places a child module condition on its parent menu", () => {
+		const copy = displayConditionCopy({
+			kind: "module",
+			moduleName: "Visits",
+			parentModuleName: "Mothers",
+			moduleIsBareCaseList: true,
+		});
+		expect(copy.lede).toContain("submenu inside “Mothers”");
+		expect(copy.locus.join(" ")).toContain("inside “Mothers”");
+		expect(copy.locus.join(" ")).not.toContain("home screen");
+		expect(copy.settingDescription).toContain("“Mothers”");
+		expect(copy.clearConsequence).toContain("in “Mothers”");
+	});
+
 	it("gives a case-first form the selected-case scope and names the case type", () => {
 		const copy = displayConditionCopy({
 			kind: "form",

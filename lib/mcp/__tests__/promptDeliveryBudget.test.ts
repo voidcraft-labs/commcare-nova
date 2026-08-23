@@ -10,7 +10,11 @@ import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
-import { type AgentPromptPage, deliverAgentPrompt } from "../promptDelivery";
+import {
+	AGENT_PROMPT_RESULT_BUDGET_CHARS,
+	type AgentPromptPage,
+	deliverAgentPrompt,
+} from "../promptDelivery";
 import { PROMPT_END_MARKER, renderAgentPrompt } from "../prompts";
 import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 
@@ -126,6 +130,18 @@ describe("served prompt delivery contract", () => {
 		expect(deliverAgentPrompt(rendered).content[0]?.text).toBe(rendered);
 	});
 
+	it("pages before the host ceiling when the model-facing budget requires it", () => {
+		const rendered = `${"x".repeat(AGENT_PROMPT_RESULT_BUDGET_CHARS + 1_000)}${PROMPT_END_MARKER}`;
+		expect(rendered.length).toBeLessThan(MAX_RESULT_SIZE_CHARS);
+
+		const text = deliverAgentPrompt(rendered).content[0]?.text ?? "";
+		expect(text.length).toBeLessThanOrEqual(AGENT_PROMPT_RESULT_BUDGET_CHARS);
+		const page = JSON.parse(text) as AgentPromptPage;
+		expect(page.kind).toBe("nova-agent-prompt-page");
+		expect(page.complete).toBe(false);
+		expect(page.next_cursor).toEqual(expect.any(String));
+	});
+
 	it("pages and reassembles the complete large blueprint summary losslessly", () => {
 		const rendered = renderAgentPrompt(true, fixtureOversizedDoc());
 		expect(rendered.length).toBeGreaterThan(MAX_RESULT_SIZE_CHARS);
@@ -137,7 +153,7 @@ describe("served prompt delivery contract", () => {
 		do {
 			const result = deliverAgentPrompt(rendered, cursor);
 			const text = result.content[0]?.text ?? "";
-			expect(text.length).toBeLessThanOrEqual(MAX_RESULT_SIZE_CHARS);
+			expect(text.length).toBeLessThanOrEqual(AGENT_PROMPT_RESULT_BUDGET_CHARS);
 			const page = JSON.parse(text) as AgentPromptPage;
 			expect(page.kind).toBe("nova-agent-prompt-page");
 			expect(page.chunk_start).toBe(expectedStart);

@@ -12,8 +12,9 @@ interface ModuleAppearanceSectionProps {
 }
 
 /**
- * The module's two distinct menu surfaces. Every module owns an app-home tile
- * (`module.icon` / `audioLabel`). A case-list-only module also owns the link
+ * The module's two distinct menu surfaces. Every module owns a menu tile
+ * (`module.icon` / `audioLabel`) on Home or inside its structural parent. A
+ * case-list-only module also owns the link
  * that opens its case list (`caseListConfig.icon` / `audioLabel`). Keeping both
  * here gives appearance one authoring home without collapsing the wire slots.
  * Each edit reconstructs the untouched sibling slot, and clears use explicit
@@ -23,6 +24,7 @@ export function ModuleAppearanceSection({
 	moduleUuid,
 }: ModuleAppearanceSectionProps) {
 	const module = useModule(moduleUuid);
+	const parentModule = useModule(module?.parentModuleUuid);
 	const { setModuleMedia, commitMany } = useBlueprintMutations();
 	if (!module) return null;
 	const uuid = asUuid(moduleUuid);
@@ -45,15 +47,17 @@ export function ModuleAppearanceSection({
 
 	return (
 		<div className="space-y-5">
-			<section aria-labelledby={`module-${moduleUuid}-home-tile-heading`}>
+			<section aria-labelledby={`module-${moduleUuid}-menu-tile-heading`}>
 				<h3
-					id={`module-${moduleUuid}-home-tile-heading`}
+					id={`module-${moduleUuid}-menu-tile-heading`}
 					className="text-sm font-medium text-nova-text-secondary"
 				>
-					App home tile
+					Menu tile
 				</h3>
 				<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
-					Shown on the app's main menu
+					{parentModule === undefined
+						? "Shown on the app's main menu"
+						: `Shown inside ${parentModule.name}`}
 				</p>
 				<div className="mt-3 space-y-2">
 					<div>
@@ -65,7 +69,7 @@ export function ModuleAppearanceSection({
 							kind="image"
 							iconLibrary="module"
 							slotKey={`module:${moduleUuid}:icon`}
-							ariaLabel="App home tile icon"
+							ariaLabel="Menu tile icon"
 							onChange={(icon) =>
 								setModuleMedia(uuid, {
 									icon: icon ?? null,
@@ -82,7 +86,7 @@ export function ModuleAppearanceSection({
 							value={module.audioLabel}
 							kind="audio"
 							slotKey={`module:${moduleUuid}:audioLabel`}
-							ariaLabel="App home tile spoken label"
+							ariaLabel="Menu tile spoken label"
 							onChange={(audioLabel) =>
 								setModuleMedia(uuid, {
 									icon: module.icon ?? null,

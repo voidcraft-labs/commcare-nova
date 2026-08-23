@@ -63,6 +63,7 @@ export function useDisplayConditionCarrier(
 	target: DisplayConditionTarget,
 ): ResolvedDisplayCondition | null {
 	const mod = useModule(target.moduleUuid);
+	const parentModule = useModule(mod?.parentModuleUuid);
 	const form = useForm(target.kind === "form" ? target.formUuid : undefined);
 	const forms = useOrderedForms(target.moduleUuid);
 	const caseTypes = useEffectiveCaseTypes();
@@ -74,6 +75,7 @@ export function useDisplayConditionCarrier(
 			return {
 				kind: "module",
 				moduleName: mod.name,
+				parentModuleName: parentModule?.name,
 				moduleIsBareCaseList: forms.length === 0,
 			};
 		}
@@ -89,7 +91,7 @@ export function useDisplayConditionCarrier(
 			caseType: mod.caseType,
 			formCount: forms.length,
 		};
-	}, [mod, form, forms, target.kind]);
+	}, [mod, parentModule, form, forms, target.kind]);
 
 	const targetKind = target.kind;
 	const moduleUuid = target.moduleUuid;

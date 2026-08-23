@@ -51,28 +51,17 @@ import { useBuilderLanguage } from "@/components/builder/localization/BuilderLoc
 import { ProjectDataWorkspace } from "@/components/builder/project-data/ProjectDataWorkspace";
 import { Button } from "@/components/shadcn/button";
 import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
-import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
-import type { Module } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
-import { moduleParent } from "@/lib/domain/moduleHierarchy";
-import type { NavigationItemVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
-import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
-import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
-import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
+import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
-import {
-	previewMenuCaseContext,
-	previewModuleVisibility,
-} from "@/lib/preview/menuProjection";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
-import type { AppSetupSection, Location } from "@/lib/routing/types";
+import type { AppSetupSection } from "@/lib/routing/types";
 import {
 	useEditMode,
 	usePreviewCaseTarget,
-	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
 	useProjectScopeEpoch,
 	useSetPreviewing,
@@ -90,93 +79,6 @@ interface PreviewShellProps {
 	onBack?: () => void;
 }
 
-/**
- * Translate a URL-derived `Location` into a UUID-based `PreviewScreen`. Falls
- * back to `{ type: "home" }` when a uuid can't be resolved; the stale
- * param will be scrubbed by LocationRecoveryEffect on the next tick.
- */
-function locationToScreen(
-	loc: Location,
-	moduleOrder: readonly Uuid[],
-	modules: Readonly<Record<string, Module>>,
-	formOrder: Readonly<Record<Uuid, readonly Uuid[]>>,
-	moduleVisibility: ReadonlyMap<Uuid, NavigationItemVisibility>,
-	requiredCaseAdmissionModuleUuid?: Uuid,
-): PreviewScreen {
-	if (loc.kind === "home") return { type: "home" };
-	if (loc.kind === "app-setup") {
-		return { type: "appSetup", section: loc.section };
-	}
-	if (loc.kind === "project-data") {
-		return { type: "projectData", tableId: loc.tableId };
-	}
-
-	if (!moduleOrder.includes(loc.moduleUuid)) return { type: "home" };
-
-	/* A display-condition URL runs the surface its condition governs. A root
-	 * module is offered on Home; a child is offered on its structural parent's
-	 * menu, so that is where its inherited condition is previewed. */
-	if (loc.kind === "module-condition") {
-		const parentUuid = moduleParent({ modules, moduleOrder }, loc.moduleUuid);
-		return parentUuid
-			? { type: "module", moduleUuid: parentUuid }
-			: { type: "home" };
-	}
-
-	/* Running routes cannot bypass a structural ancestor's menu condition.
-	 * A hidden child falls back to its visible parent menu; when the parent is
-	 * itself hidden or pending, Home is the nearest runnable screen. Edit mode
-	 * supplies an all-shown map so direct authoring routes remain reachable. */
-	const parentUuid = moduleParent({ modules, moduleOrder }, loc.moduleUuid);
-	if (
-		parentUuid !== undefined &&
-		parentUuid !== null &&
-		moduleVisibility.get(loc.moduleUuid) !== "shown"
-	) {
-		return moduleVisibility.get(parentUuid) === "shown"
-			? { type: "module", moduleUuid: parentUuid }
-			: { type: "home" };
-	}
-
-	/* A directly addressed running leaf must enter through its module before
-	 * it can mount when case ancestry still requires a parent selection.
-	 * ModuleScreen owns that selection chain and deliberately resolves it from
-	 * case types, independently of the structural menu parent above. */
-	if (requiredCaseAdmissionModuleUuid === loc.moduleUuid) {
-		return { type: "module", moduleUuid: loc.moduleUuid };
-	}
-
-	if (loc.kind === "module")
-		return { type: "module", moduleUuid: loc.moduleUuid };
-
-	if (loc.kind === "cases") {
-		return { type: "caseList", moduleUuid: loc.moduleUuid };
-	}
-
-	if (loc.kind === "search-config") {
-		return { type: "searchConfig", moduleUuid: loc.moduleUuid };
-	}
-
-	if (loc.kind === "detail-config") {
-		return { type: "detailConfig", moduleUuid: loc.moduleUuid };
-	}
-
-	if (loc.kind === "data-review") {
-		return { type: "dataReview", moduleUuid: loc.moduleUuid };
-	}
-
-	/* Form screen: verify the form belongs to the URL's module. */
-	const formIds = formOrder[loc.moduleUuid] ?? [];
-	if (!formIds.includes(loc.formUuid)) {
-		return { type: "module", moduleUuid: loc.moduleUuid };
-	}
-	return {
-		type: "form",
-		moduleUuid: loc.moduleUuid,
-		formUuid: loc.formUuid,
-	};
-}
-
 export function PreviewShell({ onBack }: PreviewShellProps) {
 	const { direction } = useBuilderLanguage();
 	/* ── Location → PreviewScreen adapter ─────────────────────────────
@@ -186,51 +88,13 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	const navigate = useNavigate();
 	const scopeEpoch = useProjectScopeEpoch();
 	const previousScopeEpochRef = useRef(scopeEpoch);
-	/* `useAppStructure` returns a shallow-stable `{moduleOrder, formOrder}`
-	 * pair so the location→screen adapter's `useMemo` below only invalidates
-	 * when one of the top-level order arrays actually changes reference. */
-	const { moduleOrder, formOrder } = useAppStructure();
-	const menuSource = usePreviewMenuSource();
-	const { modules } = menuSource;
 	const mode = useEditMode();
 	const previewCaseTarget = usePreviewCaseTarget();
-	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const previewParentCaseRequest = usePreviewParentCaseRequest();
 	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
 	const identityState = useSelectedPreviewIdentityState();
-	const identity =
-		identityState.kind === "ready" ? identityState.identity : null;
-	const session = useMemo(() => previewSessionValues(identity), [identity]);
-	const lookup = usePreviewLookupStatus();
-	const moduleVisibility = useMemo(
-		() =>
-			previewModuleVisibility(menuSource, {
-				authoring: mode === "edit",
-				session,
-				lookup,
-			}),
-		[lookup, menuSource, mode, session],
-	);
 	const atCaseRecord = loc.kind === "cases" && loc.caseId !== undefined;
-	const directRunningModuleUuid =
-		(mode === "preview" || atCaseRecord) &&
-		loc.kind !== "home" &&
-		loc.kind !== "app-setup" &&
-		loc.kind !== "project-data" &&
-		loc.kind !== "module" &&
-		loc.kind !== "module-condition"
-			? loc.moduleUuid
-			: undefined;
-	const requiredCaseAdmissionModuleUuid = useMemo(() => {
-		if (directRunningModuleUuid === undefined) return undefined;
-		return previewMenuCaseContext(
-			menuSource,
-			directRunningModuleUuid,
-			menuCaseSelections,
-		).requiredParentCase
-			? directRunningModuleUuid
-			: undefined;
-	}, [directRunningModuleUuid, menuCaseSelections, menuSource]);
+	const projectedScreen = usePreviewScreenForLocation(loc);
 
 	/* Every intermediate selector URL is replace-driven. Browser Back therefore
 	 * means "leave this selection flow", not "re-open the selector". Clear the
@@ -266,14 +130,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * `screen.type === "home"` with authoring already off, flashing the
 	 * running home screen on the way to the module screen. */
 	const zustandView = useMemo(() => {
-		const screen = locationToScreen(
-			loc,
-			moduleOrder,
-			modules,
-			formOrder,
-			moduleVisibility,
-			requiredCaseAdmissionModuleUuid,
-		);
+		const screen = projectedScreen;
 		const atCondition =
 			loc.kind === "module-condition" || loc.kind === "form-condition";
 		/* A form's case-operations URL maps onto its RUNNING form screen:
@@ -303,15 +160,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			};
 		}
 		return { screen, atCondition, atOperations, atLinks };
-	}, [
-		loc,
-		moduleOrder,
-		modules,
-		formOrder,
-		moduleVisibility,
-		previewCaseTarget,
-		requiredCaseAdmissionModuleUuid,
-	]);
+	}, [loc, previewCaseTarget, projectedScreen]);
 	const zustandScreen: PreviewScreen = zustandView.screen;
 
 	/* ── Concurrent screen transition ──────────────────────────────────

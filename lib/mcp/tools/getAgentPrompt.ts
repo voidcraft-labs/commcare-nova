@@ -33,12 +33,12 @@
  * the model handles reliably. `autonomous_edit` is intentionally not
  * representable — no skill needs it.
  *
- * **Plain text when it fits; lossless pages when it does not.** The common
- * path remains one plain MCP `text` content block. A prompt larger than the
- * host's declared single-result ceiling is returned as a snapshot-bound JSON
- * page; callers follow `next_cursor`, concatenate `prompt_chunk`, verify the
- * advertised length/digest, then check the terminal marker. No authored
- * guidance or app-summary prose is trimmed.
+ * **Plain text when it fits; lossless pages when it does not.** A prompt inside
+ * the transport budget remains one plain MCP `text` content block. One larger than the
+ * conservative model-facing single-result budget is returned as a
+ * snapshot-bound JSON page; callers follow `next_cursor`, concatenate
+ * `prompt_chunk`, verify the advertised length/digest, then check the terminal
+ * marker. No authored guidance or app-summary prose is trimmed.
  *
  * **No event-log write.** The bootstrap fetch is a pure read; event-log
  * rows for the run are written by the mutating tool calls that follow.
@@ -90,7 +90,7 @@ export function registerGetAgentPrompt(
 		"get_agent_prompt",
 		{
 			description:
-				"Return the current nova-architect operating instructions for the given mode. The common result is the complete plain-text prompt ending in `NOVA-PROMPT-END`. If the prompt exceeds one MCP result, the text block is a `nova-agent-prompt-page` JSON object: concatenate `prompt_chunk` in order by calling this tool with the same mode/app_id and each `next_cursor`; require one unchanged `prompt_sha256`, adjacent chunk offsets, final `chunk_end === prompt_length`, `complete: true`, and the `NOVA-PROMPT-END` ending before following it. Edit mode requires `app_id` and every continuation reloads it so a changed snapshot is refused instead of mixed.",
+				"Return the current nova-architect operating instructions for the given mode. A prompt that fits the conservative model-facing result budget arrives as complete plain text ending in `NOVA-PROMPT-END`. Otherwise the text block is a `nova-agent-prompt-page` JSON object: concatenate `prompt_chunk` in order by calling this tool with the same mode/app_id and each `next_cursor`; require one unchanged `prompt_sha256`, adjacent chunk offsets, final `chunk_end === prompt_length`, `complete: true`, and the `NOVA-PROMPT-END` ending before following it. Edit mode requires `app_id` and every continuation reloads it so a changed snapshot is refused instead of mixed.",
 			/* This tool returns a whole system prompt, an order of
 			 * magnitude past what a typical tool result carries, so it
 			 * declares its own size rather than inheriting a default

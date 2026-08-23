@@ -18,12 +18,21 @@ const state = vi.hoisted(() => ({
 			icon: "80000000-0000-4000-8000-000000000004",
 			audioLabel: "80000000-0000-4000-8000-000000000005",
 		},
+		parentModuleUuid: undefined as string | undefined,
+	},
+	parentModule: {
+		uuid: "80000000-0000-4000-8000-000000000008",
+		name: "Care",
 	},
 	setModuleMedia: vi.fn(),
 }));
 
 vi.mock("@/lib/doc/hooks/useEntity", () => ({
-	useModule: () => state.module,
+	useModule: (uuid: string | undefined) => {
+		if (uuid === state.module.uuid) return state.module;
+		if (uuid === state.parentModule.uuid) return state.parentModule;
+		return undefined;
+	},
 }));
 vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 	useBlueprintMutations: () => ({
@@ -47,7 +56,7 @@ vi.mock("@/components/builder/media/MediaSlot", () => ({
 			data-value={value}
 			onClick={() =>
 				onChange(
-					ariaLabel === "App home tile icon"
+					ariaLabel === "Menu tile icon"
 						? "80000000-0000-4000-8000-000000000006"
 						: ariaLabel === "Case list link icon"
 							? "80000000-0000-4000-8000-000000000007"
@@ -60,6 +69,7 @@ vi.mock("@/components/builder/media/MediaSlot", () => ({
 
 beforeEach(() => {
 	state.module.caseListOnly = true;
+	state.module.parentModuleUuid = undefined;
 	state.commitMany.mockReset();
 	state.setModuleMedia.mockReset();
 });
@@ -73,7 +83,7 @@ describe("ModuleAppearanceSection", () => {
 		);
 
 		expect(
-			screen.getByRole("heading", { level: 3, name: "App home tile" }),
+			screen.getByRole("heading", { level: 3, name: "Menu tile" }),
 		).toBeDefined();
 		expect(
 			screen.getByRole("heading", { level: 3, name: "Case list link" }),
@@ -85,7 +95,7 @@ describe("ModuleAppearanceSection", () => {
 		expect(screen.getAllByText("Spoken label")).toHaveLength(2);
 
 		const homeIcon = screen.getByRole("button", {
-			name: "App home tile icon",
+			name: "Menu tile icon",
 		});
 		const caseIcon = screen.getByRole("button", {
 			name: "Case list link icon",
@@ -127,7 +137,7 @@ describe("ModuleAppearanceSection", () => {
 		);
 
 		fireEvent.click(
-			screen.getByRole("button", { name: "App home tile spoken label" }),
+			screen.getByRole("button", { name: "Menu tile spoken label" }),
 		);
 		expect(state.setModuleMedia).toHaveBeenCalledWith(
 			"80000000-0000-4000-8000-000000000001",
@@ -161,10 +171,21 @@ describe("ModuleAppearanceSection", () => {
 		);
 
 		expect(
-			screen.getByRole("heading", { level: 3, name: "App home tile" }),
+			screen.getByRole("heading", { level: 3, name: "Menu tile" }),
 		).toBeDefined();
 		expect(
 			screen.queryByRole("heading", { level: 3, name: "Case list link" }),
 		).toBeNull();
+	});
+
+	it("names the parent menu for a child module tile", () => {
+		state.module.parentModuleUuid = state.parentModule.uuid;
+		render(
+			<ModuleAppearanceSection
+				moduleUuid={"80000000-0000-4000-8000-000000000001" as Uuid}
+			/>,
+		);
+
+		expect(screen.getByText("Shown inside Care")).toBeDefined();
 	});
 });
