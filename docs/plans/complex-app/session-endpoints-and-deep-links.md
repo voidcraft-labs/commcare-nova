@@ -2,7 +2,7 @@
 
 **PR:** `Session endpoints and shareable deep links`
 
-**Depends on:** [nested menus](nested-menus-and-linked-form-reuse.md).
+**Depends on:** [nested menus](nested-menus.md).
 · **Blocks:** nothing.
 
 A shareable link must resolve to a *released* build whose referenced tables and

@@ -2188,15 +2188,15 @@ unit that ships leaves no gap and nothing ever renumbers.
 
 
 
-### Nested menus and linked-form reuse
+### Nested menus
 
-[`complex-app/nested-menus-and-linked-form-reuse.md`](complex-app/nested-menus-and-linked-form-reuse.md)
+[`complex-app/nested-menus.md`](complex-app/nested-menus.md)
 · depends on nothing · blocks the session-endpoints unit
 
-One-tier menu nesting and native linked-form reuse. **The file holds** what
-`root_module_id` and `put_in_root` each emit, and why shadow modules are
-wire-level duplication rather than reference — which is what lets Nova emit the
-shape with no shadow authoring object and no domain toggle.
+One-tier nested menus across every editor and the running app. **The file holds**
+the distinction between menu and case parentage, the final domain/mutation shape,
+and the exact `root_module_id` wire proof. Form ownership remains exclusive and
+this unit does not add shadow or linked-form reuse.
 
 ### Session endpoints and deep links
 
@@ -2228,7 +2228,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [nested menus and linked-form reuse](complex-app/nested-menus-and-linked-form-reuse.md) | — |
+| [nested menus](complex-app/nested-menus.md) | — |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | nested menus |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | — |
 
