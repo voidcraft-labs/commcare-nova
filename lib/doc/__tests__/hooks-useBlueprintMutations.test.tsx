@@ -1042,6 +1042,42 @@ describe("useBlueprintMutations", () => {
 		expect(s?.modules[moduleUuid].name).toBe("Renamed Module");
 	});
 
+	it("creates and reorders submenus with stable sibling anchors", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+		let firstChild = "" as Uuid;
+		let secondChild = "" as Uuid;
+		act(() => {
+			const first = result.current.mutations.createSurveyModule({
+				name: "First child",
+				parentModuleUuid: MOD1,
+				after: null,
+			});
+			assert(first.ok);
+			firstChild = first.uuid;
+			const second = result.current.mutations.createSurveyModule({
+				name: "Second child",
+				parentModuleUuid: MOD1,
+				after: firstChild,
+			});
+			assert(second.ok);
+			secondChild = second.uuid;
+		});
+
+		act(() => {
+			result.current.mutations.moveModule(secondChild, { after: null });
+		});
+
+		const state = result.current.store?.getState();
+		expect(state?.moduleOrder.slice(0, 3)).toEqual([
+			MOD1,
+			secondChild,
+			firstChild,
+		]);
+		expect(state?.modules[secondChild].parentModuleUuid).toBe(MOD1);
+	});
+
 	// ── removeModule ──────────────────────────────────────────────────────
 
 	it("removeModule drops the module entity and its moduleOrder entry", () => {

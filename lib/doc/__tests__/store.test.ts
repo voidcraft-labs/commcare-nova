@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
@@ -259,6 +260,46 @@ describe("createBlueprintDocStore", () => {
 		expect(store.getState().canRedo).toBe(true);
 		store.getState().redo();
 		expect(store.getState().appName).toBe("After");
+	});
+
+	it("undoes and redoes a module reparent with exact preorder", () => {
+		const parentUuid = testUuid("undo-module-parent");
+		const childUuid = testUuid("undo-module-child");
+		const store = createBlueprintDocStore();
+		store.getState().load({
+			...makeEmptyDoc({ appName: "Menus" }),
+			modules: {
+				[parentUuid]: { uuid: parentUuid, id: "parent", name: "Parent" },
+				[childUuid]: { uuid: childUuid, id: "child", name: "Child" },
+			},
+			moduleOrder: [parentUuid, childUuid],
+			formOrder: { [parentUuid]: [], [childUuid]: [] },
+		});
+		store.getState().startTracking();
+		store.getState().applyMany([
+			{
+				kind: "moveModule",
+				uuid: childUuid,
+				parentModuleUuid: parentUuid,
+				after: null,
+			},
+		]);
+		expect(store.getState().modules[childUuid]?.parentModuleUuid).toBe(
+			parentUuid,
+		);
+		expect(store.getState().moduleOrder).toEqual([parentUuid, childUuid]);
+
+		store.getState().undo();
+		expect(
+			store.getState().modules[childUuid]?.parentModuleUuid,
+		).toBeUndefined();
+		expect(store.getState().moduleOrder).toEqual([parentUuid, childUuid]);
+
+		store.getState().redo();
+		expect(store.getState().modules[childUuid]?.parentModuleUuid).toBe(
+			parentUuid,
+		);
+		expect(store.getState().moduleOrder).toEqual([parentUuid, childUuid]);
 	});
 
 	it("applyMany() batches multiple mutations into ONE step", () => {

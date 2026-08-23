@@ -48,6 +48,10 @@ function menu(doc: BlueprintDoc): string[] {
 	return doc.moduleOrder.map((uuid) => doc.modules[uuid]?.name ?? "?");
 }
 
+function parentOf(doc: BlueprintDoc, name: string): Uuid | null {
+	return doc.modules[uuidOf(doc, name)]?.parentModuleUuid ?? null;
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -88,6 +92,82 @@ describe("moveModule", () => {
 			'Moved module "Reports" to the top of the menu.',
 		);
 		expect(result.result.after).toBeNull();
+	});
+
+	it("reparents under a top-level menu with an explicit parent", async () => {
+		const doc = makeDoc();
+		const h = makeToolWorkspaceHarness(doc);
+		const parent = uuidOf(doc, "Intake");
+		const child = uuidOf(doc, "Visits");
+		const result = await h.runTool(moveModuleTool, {
+			moduleUuid: child,
+			parentModuleUuid: parent,
+			after: null,
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(parentOf(h.currentDoc(), "Visits")).toBe(parent);
+		expect(result.mutations).toEqual([
+			{
+				kind: "moveModule",
+				uuid: child,
+				parentModuleUuid: parent,
+				after: null,
+			},
+		]);
+		expect(result.result.parentModuleUuid).toBe(parent);
+		expect(result.result.after).toBeNull();
+	});
+
+	it("omits parentage for a narrow reorder inside the current child menu", async () => {
+		const doc = makeDoc();
+		const h = makeToolWorkspaceHarness(doc);
+		const parent = uuidOf(doc, "Intake");
+		const visits = uuidOf(doc, "Visits");
+		const reports = uuidOf(doc, "Reports");
+		for (const [moduleUuid, after] of [
+			[visits, null],
+			[reports, visits],
+		] as const) {
+			const result = await h.runTool(moveModuleTool, {
+				moduleUuid,
+				parentModuleUuid: parent,
+				after,
+			});
+			if ("error" in result.result) throw new Error(result.result.error);
+		}
+
+		const result = await h.runTool(moveModuleTool, {
+			moduleUuid: reports,
+			after: null,
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(result.mutations).toEqual([
+			{ kind: "moveModule", uuid: reports, after: null },
+		]);
+		expect(result.result.parentModuleUuid).toBe(parent);
+		expect(result.result.after).toBeNull();
+		expect(menu(h.currentDoc())).toEqual(["Intake", "Reports", "Visits"]);
+	});
+
+	it("makes a child top-level when parentModuleUuid is null", async () => {
+		const doc = makeDoc();
+		const h = makeToolWorkspaceHarness(doc);
+		const parent = uuidOf(doc, "Intake");
+		const child = uuidOf(doc, "Visits");
+		const nested = await h.runTool(moveModuleTool, {
+			moduleUuid: child,
+			parentModuleUuid: parent,
+			after: null,
+		});
+		if ("error" in nested.result) throw new Error(nested.result.error);
+		const result = await h.runTool(moveModuleTool, {
+			moduleUuid: child,
+			parentModuleUuid: null,
+			after: parent,
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(parentOf(h.currentDoc(), "Visits")).toBeNull();
+		expect(result.result.parentModuleUuid).toBeNull();
 	});
 
 	it("refuses an anchor that is not a module in this app, naming the menu", async () => {

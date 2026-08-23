@@ -78,10 +78,7 @@ import {
 	useEffectiveCaseTypes,
 	useMaterializableCaseTypes,
 } from "@/lib/doc/hooks/useCaseTypes";
-import {
-	useOrderedForms,
-	useOrderedModules,
-} from "@/lib/doc/hooks/useModuleIds";
+import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
@@ -134,18 +131,29 @@ import {
 	useCaseData,
 	useCases,
 } from "@/lib/preview/hooks/useCaseDataBinding";
+import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import {
+	moduleHasChildren,
+	previewCaseDescendantModuleUuids,
+	previewMenuCaseContext,
+	previewMenuModuleUuids,
+} from "@/lib/preview/menuProjection";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
 	useAppId,
 	useCanEdit,
 	usePreviewCaseTarget,
+	usePreviewMenuCaseSelections,
+	usePreviewParentCaseRequest,
 	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
+	useSetPreviewMenuCaseSelection,
+	useSetPreviewParentCaseRequest,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 
@@ -167,7 +175,11 @@ interface CaseListScreenProps {
 export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const orderedModules = useOrderedModules();
+	const menuSource = usePreviewMenuSource();
+	const menuCaseSelections = usePreviewMenuCaseSelections();
+	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
+	const previewParentCaseRequest = usePreviewParentCaseRequest();
+	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
 	/* The MATERIALIZABLE case-type view: derived property types
 	 * included, implicit standard entries excluded. The same shape the
 	 * running-app query compiler and stored insert schema derive from,
@@ -189,7 +201,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		loc.kind === "search-config" ||
 		loc.kind === "detail-config"
 			? loc.moduleUuid
-			: orderedModules[screen.moduleIndex]?.uuid;
+			: screen.moduleUuid;
 	const routeCaseId = loc.kind === "cases" ? loc.caseId : undefined;
 
 	/* Where selecting a case leads: read from the running app's own
@@ -225,11 +237,28 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			? seeded
 			: undefined;
 	}, [previewCaseTarget?.formUuid, caseLoadingForms]);
+	const hasChildren = moduleUuid
+		? moduleHasChildren(menuSource, moduleUuid)
+		: false;
+	const selectsForParentRequest =
+		moduleUuid !== undefined &&
+		previewParentCaseRequest?.selectingModuleUuid === moduleUuid;
+	const selectsForMenu =
+		seededFormUuid === undefined && (hasChildren || selectsForParentRequest);
 	/** Whether selecting a case can continue at all. */
 	const canContinue =
-		seededFormUuid !== undefined || caseLoadingForms.length > 0;
+		selectsForMenu ||
+		seededFormUuid !== undefined ||
+		caseLoadingForms.length > 0;
 
 	const mod = useLocalizedModule(moduleUuid);
+	const menuCaseContext = useMemo(
+		() =>
+			moduleUuid
+				? previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections)
+				: undefined,
+		[menuCaseSelections, menuSource, moduleUuid],
+	);
 	const localizedValues = useLocalizedValues();
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
@@ -576,6 +605,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		// config so a property rename/retype reaches both together, and a
 		// fresh `caseTypes` reference re-fires the load on a schema edit.
 		caseTypes,
+		parentCase: menuCaseContext?.parentCase,
 		page: casePage,
 		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
 	});
@@ -985,6 +1015,41 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * case-first → the single case-loading form, or the form menu when there
 	 * are several. */
 	const proceedWithCase = (row: CaseRowWithCalculated) => {
+		if (selectsForMenu && moduleUuid && mod.caseType) {
+			setOpenCase(null);
+			setFormMenuCase(null);
+			setPreviewSelectedCase(undefined);
+			setPreviewCaseTarget(undefined);
+			setPreviewMenuCaseSelection(moduleUuid, {
+				caseType: mod.caseType,
+				caseId: row.case_id,
+				caseName: row.case_name || "Case",
+				caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
+			});
+			const staleSelectionModuleUuids = new Set([
+				...previewMenuModuleUuids(menuSource, moduleUuid),
+				...previewCaseDescendantModuleUuids(menuSource, mod.caseType),
+			]);
+			for (const staleModuleUuid of staleSelectionModuleUuids) {
+				setPreviewMenuCaseSelection(staleModuleUuid, undefined);
+			}
+			if (selectsForParentRequest && previewParentCaseRequest) {
+				const [nextModuleUuid, ...remainingModuleUuids] =
+					previewParentCaseRequest.returnModuleUuids;
+				setPreviewParentCaseRequest(
+					nextModuleUuid && remainingModuleUuids.length > 0
+						? {
+								selectingModuleUuid: nextModuleUuid,
+								returnModuleUuids: remainingModuleUuids,
+							}
+						: undefined,
+				);
+				navigate.openModule(nextModuleUuid ?? moduleUuid);
+			} else {
+				navigate.openModule(moduleUuid);
+			}
+			return;
+		}
 		const decided = decideCaseLoadingForms(row);
 		const seeded =
 			seededFormUuid === undefined

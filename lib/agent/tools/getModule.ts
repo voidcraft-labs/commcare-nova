@@ -42,6 +42,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
+	childModuleUuids,
 	isBuiltinIconRef,
 	orderedColumns,
 	parseBuiltinIconSlug,
@@ -89,6 +90,8 @@ export type GetModuleResult =
 	| {
 			uuid: Uuid;
 			name: string;
+			parent_module_uuid: Uuid | null;
+			child_module_uuids: Uuid[];
 			case_type: string | null;
 			icon: ModuleIconSlug | MediaAssetId | null;
 			audio_label: MediaAssetId | null;
@@ -104,7 +107,7 @@ export type GetModuleResult =
 
 export const getModuleTool = {
 	description:
-		"Get a module by stable UUID: metadata, menu media, case-list definitions plus the independent visible Results and Details UUID orders, case-search config, and a form summary.",
+		"Get a module by stable UUID: parent and ordered child menu UUIDs, metadata, menu media, case-list definitions plus the independent visible Results and Details UUID orders, case-search config, and a form summary.",
 	inputSchema: getModuleInputSchema,
 	async execute(
 		input: GetModuleInput,
@@ -137,6 +140,8 @@ export const getModuleTool = {
 			data: {
 				uuid: moduleUuid,
 				name: mod.name,
+				parent_module_uuid: mod.parentModuleUuid ?? null,
+				child_module_uuids: childModuleUuids(doc, moduleUuid),
 				case_type: mod.caseType ?? null,
 				icon: projectModuleIcon(mod.icon),
 				audio_label: mod.audioLabel ?? null,

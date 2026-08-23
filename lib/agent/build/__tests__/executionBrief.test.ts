@@ -8,9 +8,11 @@ import { buildExecutorTools } from "@/lib/agent/build/executorLoop";
 import {
 	cloneContract,
 	did,
+	fixtureValue,
 	ids,
 	makeBuildPlan,
 	makeContract,
+	makeNestedMenuContract,
 	makeThirteenWorkflowContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
@@ -181,6 +183,46 @@ describe("deriveSliceExecutionBrief", () => {
 					blueprintCaseType: "patient",
 				}),
 			]),
+		);
+	});
+
+	it("carries parent and sibling closure into a child menu brief", () => {
+		const contract = makeNestedMenuContract();
+		const childWorkflow = fixtureValue(
+			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
+			"child workflow",
+		);
+		childWorkflow.prerequisiteWorkflowIds = [];
+		childWorkflow.prerequisites = [];
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const slice = fixtureValue(
+			plan.slices.find((entry) => entry.workflowId === ids.taskVisit),
+			"child workflow slice",
+		);
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: slice.id,
+		});
+		expect(
+			brief.moduleRealizations.map((entry) => entry.compositionId),
+		).toEqual([ids.modulePatients, ids.moduleVisits]);
+		expect(brief.moduleRealizations[0]).toMatchObject({
+			action: "reuse",
+			parentModuleCompositionId: null,
+			afterSiblingModuleCompositionId: null,
+		});
+		expect(brief.moduleRealizations[1]).toMatchObject({
+			action: "create",
+			parentModuleCompositionId: ids.modulePatients,
+			afterSiblingModuleCompositionId: null,
+		});
+		expect(brief.prerequisiteWorkflows.map((workflow) => workflow.id)).toEqual([
+			ids.taskRegister,
+		]);
+		expect(renderBriefMessage(brief)).toContain(
+			`"parentModuleCompositionId":"${ids.modulePatients}"`,
 		);
 	});
 

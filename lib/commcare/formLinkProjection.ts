@@ -30,7 +30,8 @@
  *     `WorkflowHelper.get_frame_children` exactly — module command, the
  *     longest common prefix (by datum id) of every form entry's datum list
  *     in the target module, the form command, then the target form's
- *     remaining datums; a module target is the module command alone
+ *     remaining datums; a flat module target is the module command alone,
+ *     while a child-module target carries the root command path
  *     (`_frame_children_for_module(include_user_selections=False)`);
  *   - datum matching: HQ's `_get_datums_matched_to_source` /
  *     `_find_best_match` (first source datum in source order with the same
@@ -58,13 +59,15 @@
  * frames resolve reach the wire.
  */
 
-import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
+import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	deriveCaseWriteInventory,
 	type FormLink,
 	type FormLinkTarget,
+	moduleParent,
 	printXPath,
+	projectedModulePreorder,
 	type Uuid,
 	type XPathExpression,
 	xpathPrintContext,
@@ -78,8 +81,13 @@ import {
 	expandHashtagsForSessionStack,
 } from "./hashtags/formContext";
 import type { LookupWireNaming } from "./lookup/naming";
-import { deriveSessionDatums, type SessionDatum } from "./session";
+import {
+	deriveCaseSelectionDatum,
+	deriveSessionDatums,
+	type SessionDatum,
+} from "./session";
 import type { FormActions } from "./types";
+import { moduleTypeContext } from "./validator/rules/case-list/shared";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
 import { lowerXPathForJavaRosa } from "./xpath";
 
@@ -135,7 +143,7 @@ export interface FormLinkProjectionContext {
 	/** Entry datums by form, derived once per context: a form target's frame
 	 *  reads every form of its module, once per link, once per pass. The
 	 *  context is built over one immutable document, so the memo is sound. */
-	readonly entryDatums: Map<Uuid, readonly FrameDatum[]>;
+	readonly entryDatums: Map<Uuid, readonly SessionDatum[]>;
 }
 
 /**
@@ -167,7 +175,7 @@ export function formLinkProjectionContext(
 		readonly formActions?: (formUuid: Uuid) => FormActions;
 	} = {},
 ): FormLinkProjectionContext {
-	const moduleOrder = orderedModuleUuids(doc);
+	const moduleOrder = projectedModulePreorder(doc);
 	const formOrder: Record<string, readonly Uuid[]> = {};
 	const moduleOf = new Map<Uuid, Uuid>();
 	for (const moduleUuid of moduleOrder) {
@@ -254,6 +262,211 @@ function toFrameDatum(datum: SessionDatum): FrameDatum {
 	};
 }
 
+/** The module selected by HQ's `parent_select` convention for this module's
+ * case type. This is independent of menu nesting: it follows the case-type
+ * relationship and picks the first projected module of the parent type. */
+export function parentSelectModuleUuid(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): Uuid | undefined {
+	const caseType = doc.modules[moduleUuid]?.caseType;
+	const parentType = doc.caseTypes?.find(
+		(item) => item.name === caseType,
+	)?.parent_type;
+	if (!parentType) return undefined;
+	return ctx.moduleOrder.find(
+		(candidate) =>
+			candidate !== moduleUuid &&
+			moduleCaseTypeForActions(doc, candidate) === parentType,
+	);
+}
+
+function parentSelectChain(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): Uuid[] {
+	const reverse: Uuid[] = [];
+	const seen = new Set<Uuid>([moduleUuid]);
+	let current = moduleUuid;
+	while (true) {
+		const parent = parentSelectModuleUuid(doc, ctx, current);
+		if (parent === undefined || seen.has(parent)) break;
+		seen.add(parent);
+		reverse.push(parent);
+		current = parent;
+	}
+	return reverse.reverse();
+}
+
+function selectableDatums(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formType: BlueprintDoc["forms"][string]["type"],
+): SessionDatum[] {
+	const chain = parentSelectChain(doc, ctx, moduleUuid);
+	if (formType === "followup" || formType === "close") chain.push(moduleUuid);
+	if (chain.length === 0) return [];
+
+	const datums: SessionDatum[] = [];
+	for (const [index, selectedModuleUuid] of chain.entries()) {
+		const selectedModule = doc.modules[selectedModuleUuid];
+		if (selectedModule === undefined || !selectedModule.caseType) continue;
+		const remaining = chain.length - index - 1;
+		const id = remaining === 0 ? "case_id" : `${"parent_".repeat(remaining)}id`;
+		const parentSelection = datums.at(-1);
+		const moduleIndex = moduleIndexOf(ctx, selectedModuleUuid);
+		const datum = deriveCaseSelectionDatum({
+			id,
+			caseType: selectedModule.caseType,
+			moduleIndex,
+			caseListFilter: selectedModule.caseListConfig?.filter,
+			excludedOwnerIds: selectedModule.caseSearchConfig?.excludedOwnerIds,
+			relationContext: moduleTypeContext(selectedModule, doc),
+			lookupNaming: ctx.lookupNaming,
+			...(selectedModule.caseListConfig?.tile?.persistOnForms === true && {
+				persistentDetailId: `m${moduleIndex}_case_short`,
+			}),
+			...(selectedModuleUuid === moduleUuid &&
+			(selectedModule.caseListConfig?.columns ?? []).some(
+				(column) => column.visibleInDetail !== false,
+			)
+				? { detailConfirm: true }
+				: {}),
+			...(parentSelection !== undefined && {
+				parentDatumId: parentSelection.id,
+			}),
+		});
+		datum.parentSelection = parentSelection;
+		datums.push(datum);
+	}
+	return datums;
+}
+
+function refreshDatumReferences(datums: readonly SessionDatum[]): void {
+	for (const datum of datums) {
+		if (datum.renderNodeset !== undefined) {
+			datum.nodeset = datum.renderNodeset(datum.parentSelection?.id);
+		}
+		if (datum.renderFunction !== undefined) {
+			datum.function = datum.renderFunction(sessionDataRef);
+		}
+	}
+}
+
+/** Mirror HQ's `add_parent_datums`: child entries live in the root menu's
+ * session namespace, so collisions are renamed and same-case selections are
+ * aligned to the parent's datum identity. Parent computed datums are carried
+ * forward; unrelated parent selections are not. */
+function alignWithRootMenu(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	current: SessionDatum[],
+): SessionDatum[] {
+	const parentUuid = moduleParent(doc, moduleUuid);
+	if (parentUuid === undefined || parentUuid === null) return current;
+	const firstParentForm = ctx.formOrder[parentUuid]?.[0];
+	if (firstParentForm === undefined) return current;
+	const parentDatums = entrySessionDatums(
+		doc,
+		ctx,
+		parentUuid,
+		firstParentForm,
+	);
+	const parentIds = new Set(parentDatums.map((datum) => datum.id));
+	for (const datum of current) {
+		if (parentIds.has(datum.id)) {
+			datum.id = `${datum.id}_${datum.caseType ?? "child"}`;
+		}
+	}
+
+	const remaining = [...current];
+	const prefix: SessionDatum[] = [];
+	for (const parentDatum of parentDatums) {
+		if (parentDatum.nodeset === undefined) {
+			prefix.push({ ...parentDatum });
+			continue;
+		}
+		const matched = remaining[0];
+		if (
+			matched === undefined ||
+			matched.nodeset === undefined ||
+			matched.caseType !== parentDatum.caseType
+		) {
+			continue;
+		}
+		remaining.shift();
+		matched.id = parentDatum.id;
+		prefix.push(matched);
+	}
+	const aligned = [...prefix, ...remaining];
+	refreshDatumReferences(aligned);
+	return aligned;
+}
+
+/** Complete root-aware session datum projection for one form entry. */
+export function entrySessionDatums(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): readonly SessionDatum[] {
+	const held = ctx.entryDatums.get(formUuid);
+	if (held !== undefined) return held;
+	const form = doc.forms[formUuid];
+	const mod = doc.modules[moduleUuid];
+	if (form === undefined || mod === undefined) return [];
+	const caseType = moduleCaseTypeForActions(doc, moduleUuid);
+	const selectionDatums = selectableDatums(doc, ctx, moduleUuid, form.type);
+	const datums = deriveSessionDatums({
+		formType: form.type,
+		moduleIndex: moduleIndexOf(ctx, moduleUuid),
+		...(caseType !== "" && { caseType }),
+		caseSelectionDatums: selectionDatums,
+		actions: ctx.formActions(formUuid),
+		...(mod.caseListConfig?.tile?.grouping !== undefined && {
+			tileGrouping: mod.caseListConfig.tile.grouping,
+		}),
+	});
+	const aligned = alignWithRootMenu(doc, ctx, moduleUuid, datums);
+	ctx.entryDatums.set(formUuid, aligned);
+	return aligned;
+}
+
+/** Selected own-case datum id used by XForm and form-condition carriers. */
+export function selectedCaseDatumId(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): string | undefined {
+	const ownType = moduleCaseTypeForActions(doc, moduleUuid);
+	return [...entrySessionDatums(doc, ctx, moduleUuid, formUuid)]
+		.reverse()
+		.find((datum) => datum.nodeset !== undefined && datum.caseType === ownType)
+		?.id;
+}
+
+/** Root-aware datum list for a case-list-only browse entry. */
+export function caseListSessionDatums(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): readonly SessionDatum[] {
+	const datums = selectableDatums(doc, ctx, moduleUuid, "followup");
+	const ownType = moduleCaseTypeForActions(doc, moduleUuid);
+	const own = [...datums]
+		.reverse()
+		.find((datum) => datum.caseType === ownType && datum.nodeset !== undefined);
+	if (own !== undefined) {
+		own.detailConfirm = `m${moduleIndexOf(ctx, moduleUuid)}_case_long`;
+	}
+	return alignWithRootMenu(doc, ctx, moduleUuid, datums);
+}
+
 /**
  * The datum list of one form's entry, as HQ's `_get_entries_datums` reads it
  * back off the emitted `<session>`. Only ids, selection-ness, case types,
@@ -266,23 +479,7 @@ export function entryFrameDatums(
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): readonly FrameDatum[] {
-	const held = ctx.entryDatums.get(formUuid);
-	if (held !== undefined) return held;
-	const form = doc.forms[formUuid];
-	const mod = doc.modules[moduleUuid];
-	if (form === undefined || mod === undefined) return [];
-	const caseType = moduleCaseTypeForActions(doc, moduleUuid);
-	const datums = deriveSessionDatums({
-		formType: form.type,
-		moduleIndex: moduleIndexOf(ctx, moduleUuid),
-		...(caseType !== "" && { caseType }),
-		actions: ctx.formActions(formUuid),
-		...(mod.caseListConfig?.tile?.grouping !== undefined && {
-			tileGrouping: mod.caseListConfig.tile.grouping,
-		}),
-	}).map(toFrameDatum);
-	ctx.entryDatums.set(formUuid, datums);
-	return datums;
+	return entrySessionDatums(doc, ctx, moduleUuid, formUuid).map(toFrameDatum);
 }
 
 /** Longest common prefix of several datum lists, compared by id. */
@@ -309,13 +506,13 @@ export function targetFrameChildren(
 	ctx: FormLinkProjectionContext,
 	target: FormLinkTarget,
 ): FrameChild[] {
-	const moduleCommand = `m${moduleIndexOf(ctx, target.moduleUuid)}`;
-	if (target.type === "module") return [{ type: "command", id: moduleCommand }];
+	if (target.type === "module") {
+		return moduleFrameChildren(doc, ctx, target.moduleUuid);
+	}
 	return formFrameChildren(doc, ctx, target.moduleUuid, target.formUuid);
 }
 
-/** `get_frame_children(module, form)`: m, common datums, m-f, the rest. */
-export function formFrameChildren(
+function baseFormFrameChildren(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
@@ -338,6 +535,52 @@ export function formFrameChildren(
 		...common.map((datum) => ({ type: "datum" as const, datum })),
 		{ type: "command", id: `m${mIdx}-f${fIdx}` },
 		...remaining.map((datum) => ({ type: "datum" as const, datum })),
+	];
+}
+
+/** `_frame_children_for_module`: ancestors include their common user
+ * selections; the destination child contributes its command only. */
+export function moduleFrameChildren(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): FrameChild[] {
+	const parentUuid = moduleParent(doc, moduleUuid);
+	const ownCommand: FrameChild = {
+		type: "command",
+		id: `m${moduleIndexOf(ctx, moduleUuid)}`,
+	};
+	if (parentUuid === undefined || parentUuid === null) return [ownCommand];
+	const parentForms = ctx.formOrder[parentUuid] ?? [];
+	const parentCommon = commonPrefixById(
+		parentForms.map((uuid) => entryFrameDatums(doc, ctx, parentUuid, uuid)),
+	);
+	return [
+		...moduleFrameChildren(doc, ctx, parentUuid),
+		...parentCommon.map((datum) => ({ type: "datum" as const, datum })),
+		ownCommand,
+	];
+}
+
+/** `get_frame_children(module, form)` plus HQ's parent-frame prepend. */
+export function formFrameChildren(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): FrameChild[] {
+	const base = baseFormFrameChildren(doc, ctx, moduleUuid, formUuid);
+	const parentUuid = moduleParent(doc, moduleUuid);
+	if (parentUuid === undefined || parentUuid === null) return base;
+	const prefix = moduleFrameChildren(doc, ctx, moduleUuid).slice(0, -1);
+	const prefixedIds = new Set(
+		prefix.flatMap((child) => (child.type === "datum" ? [child.datum.id] : [])),
+	);
+	return [
+		...prefix,
+		...base.filter(
+			(child) => child.type === "command" || !prefixedIds.has(child.datum.id),
+		),
 	];
 }
 
@@ -551,7 +794,35 @@ export function previousFrameChildren(
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): MatchedChild[] {
-	const children = [...formFrameChildren(doc, ctx, moduleUuid, formUuid)];
+	const parentUuid = moduleParent(doc, moduleUuid);
+	let children: FrameChild[];
+	if (parentUuid === undefined || parentUuid === null) {
+		children = baseFormFrameChildren(doc, ctx, moduleUuid, formUuid);
+	} else {
+		const childForms = ctx.formOrder[moduleUuid] ?? [];
+		const rootForms = ctx.formOrder[parentUuid] ?? [];
+		const common = commonPrefixById([
+			...childForms.map((uuid) => entryFrameDatums(doc, ctx, moduleUuid, uuid)),
+			...rootForms.map((uuid) => entryFrameDatums(doc, ctx, parentUuid, uuid)),
+		]);
+		const remaining = entryFrameDatums(doc, ctx, moduleUuid, formUuid).slice(
+			common.length,
+		);
+		children = [
+			{ type: "command", id: `m${moduleIndexOf(ctx, parentUuid)}` },
+			{ type: "command", id: `m${moduleIndexOf(ctx, moduleUuid)}` },
+			...common.map((datum) => ({ type: "datum" as const, datum })),
+			{
+				type: "command",
+				id: `m${moduleIndexOf(ctx, moduleUuid)}-f${formIndexOf(
+					ctx,
+					moduleUuid,
+					formUuid,
+				)}`,
+			},
+			...remaining.map((datum) => ({ type: "datum" as const, datum })),
+		];
+	}
 	let last = children.pop();
 	while (
 		last !== undefined &&
@@ -570,6 +841,27 @@ export function previousFrameChildren(
 						value: sessionDataRef(child.datum.id),
 					}
 				: functionChild(child.datum),
+	);
+	return replaceSessionReferences(pending, new Set());
+}
+
+/** Parent-aware static `module` destination for post-submit workflows. */
+export function moduleDestinationFrameChildren(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): MatchedChild[] {
+	const pending: PendingChild[] = moduleFrameChildren(doc, ctx, moduleUuid).map(
+		(child) =>
+			child.type === "command"
+				? child
+				: child.datum.requiresSelection
+					? {
+							type: "datum",
+							id: child.datum.id,
+							value: sessionDataRef(child.datum.id),
+						}
+					: functionChild(child.datum),
 	);
 	return replaceSessionReferences(pending, new Set());
 }
@@ -809,12 +1101,12 @@ export function ownCaseSessionRef(
 	formType: FormLinkSourceType,
 	sourceDatums: readonly FrameDatum[],
 ): string | undefined {
-	const selected = sourceDatums.find(
-		(datum) => datum.requiresSelection && datum.id === "case_id",
-	);
+	const ownType = moduleCaseTypeForActions(doc, moduleUuid);
+	const selected = [...sourceDatums]
+		.reverse()
+		.find((datum) => datum.requiresSelection && datum.caseType === ownType);
 	if (selected !== undefined) return sessionDataRef(selected.id);
 	if (formType !== "registration") return undefined;
-	const ownType = moduleCaseTypeForActions(doc, moduleUuid);
 	const created = sourceDatums.find(
 		(datum) =>
 			!datum.requiresSelection &&

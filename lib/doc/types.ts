@@ -477,6 +477,7 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 	.omit({
 		id: true,
 		name: true,
+		parentModuleUuid: true,
 		caseListConfig: true,
 		caseSearchConfig: true,
 		icon: true,
@@ -763,6 +764,9 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("moveModule"),
 			uuid: uuidSchema,
+			/** Omission preserves the current sibling group, null makes this a
+			 * root, and a UUID reparents it under that root module. */
+			parentModuleUuid: uuidSchema.nullable().optional(),
 			/** The uuid this module now follows, or `null` for first. */
 			after: uuidSchema.nullable(),
 		}),

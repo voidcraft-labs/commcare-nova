@@ -300,6 +300,7 @@ export async function readCases(
 		caseType: string;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
+		parentCase?: { readonly caseType: string; readonly caseId: string };
 		inputValues?: SearchInputValues;
 		bindings?: TermBindings;
 		/** Rows-free lookup definition types for the compiler's
@@ -326,6 +327,7 @@ export async function readCases(
 		args.caseTypeSchemas,
 		args.excludedOwnerIds,
 		args.authoredExcludedOwnerIds,
+		args.parentCase,
 	);
 	const page = normalizeCaseListPage(args.page);
 	// Grouping is a property of a BOUNDED running-list read. An unpaged
@@ -621,10 +623,24 @@ function composeQueryPredicate(
 	caseTypeSchemas: ReadonlyMap<string, CaseType> | undefined,
 	excludedOwnerIds: readonly string[] | undefined,
 	authoredExcludedOwnerIds: readonly string[] | undefined = excludedOwnerIds,
+	parentCase?: { readonly caseType: string; readonly caseId: string },
 ): ComposedCaseQuery {
 	const clauses: Predicate[] = [];
 	let hasAuthoredConstraint = false;
 	let hasWorkerConstraint = false;
+	if (parentCase !== undefined) {
+		clauses.push(
+			eq(
+				prop(
+					caseType,
+					"case_id",
+					ancestorPath(relationStep("parent", parentCase.caseType)),
+				),
+				literal(parentCase.caseId),
+			),
+		);
+		hasAuthoredConstraint = true;
+	}
 	const knownInputUuids = new Set(
 		caseListConfig?.searchInputs.map((input) => input.uuid) ?? [],
 	);
@@ -1149,6 +1165,13 @@ export async function resetSampleCases(
 export interface BuiltSubmissionOperations {
 	readonly program?: CaseOperationProgram;
 	readonly ordinaryCaseType?: string;
+	/** A registration primary's committed parent-case contract. The client
+	 * supplies only the selected id; type and relationship stay server-owned. */
+	readonly ordinaryRegistrationParent?: {
+		readonly childCaseType: string;
+		readonly parentCaseType: string;
+		readonly relationship: NonNullable<CaseType["relationship"]>;
+	};
 	/** Committed case-type relationship for each ordinary child destination.
 	 * The client mutation never asserts this wire/runtime fact. */
 	readonly ordinaryChildRelationships: ReadonlyMap<
@@ -1497,6 +1520,18 @@ export function buildCaseOperationProgramFromDoc(args: {
 		),
 	);
 	const ordinaryCaseType = owningModuleCaseType(doc, formUuid);
+	const ordinaryCaseTypeDefinition = ordinaryCaseType
+		? caseTypeSchemas.get(ordinaryCaseType)
+		: undefined;
+	const ordinaryRegistrationParent =
+		ordinaryCaseType !== undefined &&
+		ordinaryCaseTypeDefinition?.parent_type !== undefined
+			? {
+					childCaseType: ordinaryCaseType,
+					parentCaseType: ordinaryCaseTypeDefinition.parent_type,
+					relationship: ordinaryCaseTypeDefinition.relationship ?? "child",
+				}
+			: undefined;
 	const usercaseWriteProperties = new Set(
 		deriveCaseWriteInventory(
 			blueprint,
@@ -1511,6 +1546,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 		ordinaryChildRelationships,
 		usercaseWriteProperties,
 		...(ordinaryCaseType === undefined ? {} : { ordinaryCaseType }),
+		...(ordinaryRegistrationParent === undefined
+			? {}
+			: { ordinaryRegistrationParent }),
 	};
 	const operations = orderedCaseOperations(form);
 	if (operations.length === 0) return ordinaryStructure;
@@ -1715,12 +1753,30 @@ export function submissionEnvelopeArgs(
 		return { ...child, parentRelationship };
 	};
 	switch (mutation.kind) {
-		case "registration":
+		case "registration": {
+			let primary: Extract<
+				ApplySubmissionArgs["ordinary"],
+				{ kind: "registration" }
+			>["primary"] = mutation.primary;
+			if (mutation.primary.parentCaseId !== undefined) {
+				const parent = built.ordinaryRegistrationParent;
+				if (parent === undefined) {
+					throw new CaptureSubmissionRejectedError(
+						"The submitted registration selected a parent case, but the committed case type no longer declares one. Reload the form and submit again.",
+					);
+				}
+				primary = {
+					...mutation.primary,
+					caseType: parent.childCaseType,
+					parentCaseType: parent.parentCaseType,
+					parentRelationship: parent.relationship,
+				};
+			}
 			return {
 				appId,
 				ordinary: {
 					kind: "registration",
-					primary: mutation.primary,
+					primary,
 					children: mutation.children.map(childSeed),
 				},
 				...operations,
@@ -1728,6 +1784,7 @@ export function submissionEnvelopeArgs(
 				...submissionReceipt,
 				...captureIntent,
 			};
+		}
 		case "followup":
 		case "close":
 			return {

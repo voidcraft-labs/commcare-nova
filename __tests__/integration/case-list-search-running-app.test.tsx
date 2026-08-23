@@ -446,7 +446,7 @@ function renderCaseListScreen(doc: BlueprintDoc) {
 					}}
 				>
 					<CaseListScreen
-						screen={{ type: "caseList", moduleIndex: 0, formIndex: 0 }}
+						screen={{ type: "caseList", moduleUuid: MODULE_UUID }}
 					/>
 				</BuilderSessionProvider>
 			</BuilderLocalizationProvider>
@@ -479,8 +479,8 @@ function renderFormScreen(doc: BlueprintDoc, formUuid: Uuid, caseId?: string) {
 						<FormScreen
 							screen={{
 								type: "form",
-								moduleIndex: 0,
-								formIndex: 0,
+								moduleUuid: MODULE_UUID,
+								formUuid,
 								caseId,
 							}}
 							onBack={() => {}}

@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
+import { planModuleChildDependentsOnRemove } from "@/lib/doc/moduleDependents";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	buildReferenceIndex,
@@ -165,6 +166,53 @@ function richDoc(): BlueprintDoc {
 }
 
 describe("buildReferenceIndex — identity-keyed edges", () => {
+	it("indexes menu parent identity and reports child removal dependents", () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Parent",
+					forms: [{ name: "Parent form", type: "survey" }],
+				},
+				{
+					name: "Child",
+					forms: [{ name: "Child form", type: "survey" }],
+				},
+			],
+		});
+		const [parentUuid, childUuid] = doc.moduleOrder;
+		const nested = apply(doc, [
+			{
+				kind: "moveModule",
+				uuid: childUuid,
+				parentModuleUuid: parentUuid,
+				after: null,
+			},
+		]);
+
+		expect(slotsFor(nested, entityTargetKey(parentUuid))).toMatchObject({
+			[childUuid]: { module_parent: true },
+		});
+		expect(planModuleChildDependentsOnRemove(nested, parentUuid)).toMatchObject(
+			{
+				kind: "blocked",
+				childUuids: [childUuid],
+			},
+		);
+
+		const promoted = apply(nested, [
+			{
+				kind: "moveModule",
+				uuid: childUuid,
+				parentModuleUuid: null,
+				after: parentUuid,
+			},
+		]);
+		expect(slotsFor(promoted, entityTargetKey(parentUuid))).toEqual({});
+		expect(planModuleChildDependentsOnRemove(promoted, parentUuid)).toEqual({
+			kind: "clear",
+		});
+	});
+
 	it("indexes every Blueprint carrier that names an organization identity", () => {
 		const region = testUuid("11111111-1111-4111-8111-111111111111");
 		const facility = testUuid("22222222-2222-4222-8222-222222222222");

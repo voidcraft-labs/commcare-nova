@@ -157,6 +157,34 @@ wire vocabulary never enters the domain. Form-type defaults when absent:
 followup/close → `previous`, registration/survey → `app_home`. The SA only sets
 `post_submit` when overriding the default.
 
+### Ordinary nested menus
+
+Nova authors one tier: a root module and ordinary child modules. The domain
+stores the parent UUID; `projectedModulePreorder` is the only wire order. HQ
+JSON lowers a child to `root_module_id=<root unique_id>` while leaving
+`put_in_root=false`; local suite XML lowers the same edge to
+`<menu root="m{root}" id="m{child}">`. A child's own `module_filter` /
+`<menu relevant>` remains its own condition. Never conjoin the parent's filter,
+and never project this as `ShadowModule` or `put_in_root`.
+
+`formLinkProjection.ts::entrySessionDatums` owns the entry namespace shared by
+the suite, XForm, form links, and post-submit frames. First it builds the
+parent-select chain from case-type relationships. Then, for a child menu, it
+mirrors HQ's `add_parent_datums` against the root module's first form datums:
+same-case selections at the same remaining position reuse the root id; an id
+collision for a different case type becomes `case_id_<case-type>`; computed
+root datums are carried; unrelated root selections are not. A parent-select
+child therefore commonly emits root
+`case_id` followed by child `case_id_<child-type>`, with the child nodeset's
+index predicate refreshed to reference the final root id. Case-list-only child
+entries use the same projection.
+
+The selected own-case id is not assumed to be `case_id`. It is threaded into
+form display conditions, executable hashtag expansion and Vellum metadata,
+ordinary update/preload case blocks, and authored advanced case operations.
+Every new case-reading carrier must consume this projection rather than add a
+fresh `session/data/case_id` constant.
+
 ### After-submit links (`form_links`)
 
 `Form.formLinks` is an ordered array of `{uuid, condition?, target, datums?}`;
@@ -196,9 +224,11 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   module command → longest common prefix (by datum id) of every FORM entry's
   datums in the target module → form command → the target form's remaining
   datums. A single-form module's whole datum list is that prefix, so its
-  selection datum is hoisted AHEAD of the form command. A module target is the
-  module command alone (`_frame_children_for_module(include_user_selections=
-  False)`), so the runtime prompts for the case there as usual. Auto-match
+  selection datum is hoisted AHEAD of the form command. For a child target HQ
+  prepends the root module frame and its common user selections; a module target
+  carries that root path plus the child command, while a form target carries the
+  root path plus the child's ordinary form frame with duplicate aligned datums
+  removed. A flat module target remains the module command alone. Auto-match
   (`datums` absent) mirrors `_find_best_match`: the FIRST source datum in
   source order with the same case type — same id keeps the id, a different id
   carries `session/data/<source id>`; function datums carry their function
@@ -222,7 +252,9 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   beside other forms, and `[m, case_id_new_x=uuid()]` for a single-registration
   module (HQ's `form_link_tdh_with_fallback_previous.xml` keeps
   `case_id_new_visit_0=uuid()`). `derivePostSubmitStack` routes `previous`
-  through the same projection, so the local suite matches HQ's build.
+  through the same projection, so the local suite matches HQ's build. A child
+  previous frame begins with root command then child command before its aligned
+  datums, matching HQ's `include_root_module=True` branch.
 - **Session scope.** Core evaluates link conditions and datum XPath after the
   XForm instance has closed, with a NULL main instance
   (`CommCareSession::getEvaluationContext`; `XPathPathExpr::evalRaw` throws on
@@ -288,8 +320,8 @@ Two more wire oracles follow the XForm oracle's shape — a faithful mirror of t
 
 `xform/caseBlocks.ts::addCaseBlocks` mirrors CCHQ's server-side post-process (`commcare-hq/.../app_manager/xform.py::XFormCaseBlock`) so local-CCZ emission produces forms JavaRosa can install. This is a true lockstep contract, not a partial mirror: CCHQ regenerates the uploaded app's XForm case blocks from the `FormActions` JSON, and Nova's local `.ccz` renders from that *same* `FormActions` (`hqForm.actions`) — so the two surfaces consume one input and can't diverge as long as `addCaseBlocks` consumes all of it. Every `<case>` element carries the cx2 namespace (`http://commcarehq.org/case/transaction/v2`) — without it CommCare's submission processor treats the element as inert data, not a case transaction. The three `<case>` attributes (`case_id` / `date_modified` / `user_id`) wire to:
 - **case-create**: `case_id` setvalues at `xforms-ready` from the per-entry session datum `case_id_new_<casetype>_0` (a `function="uuid()"` datum `session.ts::deriveSessionDatums` emits). `date_modified` / `user_id` calculate off the meta block at `/data/meta/timeEnd` / `/data/meta/userID` (the compiler injects the meta block on the same `.ccz` path, after the case block, so both resolve). The case-name source question's bind also gains `required="true()"` (merged onto the field's existing bind, not a duplicate) — CommCare forces it so a case can't be created nameless, mirroring `XFormCaseBlock.add_create_block`.
-- **case-update**: `case_id` calculates from the case-loading session datum `case_id`. Same meta-block bindings for the two timestamp attributes. Every per-property update bind also carries `relevant="count(<qPath>) > 0"` — the JavaRosa semantic when a field's `relevant` evaluates false is that the data node is absent, and an unguarded update would overwrite the existing case property with empty. The guard mirrors CCHQ's `XFormCaseBlock.add_case_updates`. Removing it silently destroys preserved case data on every conditionally-hidden field.
-- **case-preload**: one `<setvalue event="xforms-ready">` per `case_preload` entry, reading the loaded case's property from `casedb` (`instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/<prop>`). Mirrors `XForm.add_case_preloads`. Spliced in after `buildXForm`'s instance scan, so `addCaseBlocks` declares the `casedb` instance itself (idempotently — skipped when a field-level case reference (`#<type>/…`) already pulled it in), mirroring `add_case_preloads`'s `add_casedb()`. Preload is the structural source of a case-loading form's initial field values — the agent layer stamps no `default_value` for this (`lib/agent/contentProcessing.ts::applyDefaults`). Gotcha: the preload setvalue lands after the field's own `default_value` setvalue in document order, so the loaded case value wins at `xforms-ready`. This matches a CCHQ-uploaded app (CCHQ emits preload regardless of any authored default) — an explicit `default_value` on a case-loading form's case property does not change what the user sees.
+- **case-update**: `case_id` calculates from the projected own-case session datum (`case_id` for a flat form, potentially `case_id_<type>` for a child). Same meta-block bindings for the two timestamp attributes. Every per-property update bind also carries `relevant="count(<qPath>) > 0"` — the JavaRosa semantic when a field's `relevant` evaluates false is that the data node is absent, and an unguarded update would overwrite the existing case property with empty. The guard mirrors CCHQ's `XFormCaseBlock.add_case_updates`. Removing it silently destroys preserved case data on every conditionally-hidden field.
+- **case-preload**: one `<setvalue event="xforms-ready">` per `case_preload` entry, reading the loaded case's property from `casedb`, anchored by the same projected own-case session datum. Mirrors `XForm.add_case_preloads`. Spliced in after `buildXForm`'s instance scan, so `addCaseBlocks` declares the `casedb` instance itself (idempotently — skipped when a field-level case reference (`#<type>/…`) already pulled it in), mirroring `add_case_preloads`'s `add_casedb()`. Preload is the structural source of a case-loading form's initial field values — the agent layer stamps no `default_value` for this (`lib/agent/contentProcessing.ts::applyDefaults`). Gotcha: the preload setvalue lands after the field's own `default_value` setvalue in document order, so the loaded case value wins at `xforms-ready`. This matches a CCHQ-uploaded app (CCHQ emits preload regardless of any authored default) — an explicit `default_value` on a case-loading form's case property does not change what the user sees.
 - **subcases**: per-subcase session datum `case_id_new_<subcasetype>_<idx>` (index mirrors CCHQ's `Form.session_var_for_action` — starts at 1 when the form also opens a primary case). Repeat-context subcases use literal `uuid()` calculate instead (no session datum is emitted for them, matching CCHQ's `delay_case_id` branch). Owner-id binds to `/data/meta/userID` on EVERY subcase regardless of relationship: the basic module Nova uploads runs `autoset_owner_id_for_subcase` (`'owner_id' not in case_properties`, which is always true for Nova's subcases), so CCHQ's regenerated form carries the userID owner bind for child and extension subcases alike. (The unowned-`owner_id` sentinel is an advanced-module-only shape — `autoset_owner_id_for_advanced_action` — which Nova never emits; the `extension` relationship is carried solely on the `<index>`.) Each subcase's name question also gets `required="true()"` merged onto its bind, same as the primary case. A subcase **close-on-submit** branch exists (renders `<close>` + a `relevant` bind from the subcase's `close_condition`) but is dormant: no authoring surface sets an active subcase close today, so `buildFormActions` always emits a `never` condition there; the branch is exercised only by `__tests__/caseBlocks.test.ts`.
 
 - **capture URL node**: a capture field's `caseWrite` carries `mode`, and `"url"` emits a SIBLING node (`xform/captureUrlNode.ts`) holding `if(<capture> = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/', <capture>))`. The case update names THAT node, never the capture. This indirection is not stylistic: `xform.py::CaseBlock.add_case_updates` routes an update into an `<attachment>` block whenever its question path is an `<upload ref>` in the body (`::is_attachment`), consulting no toggle, and a stock domain then drops the block silently (`update_strategy.py::_apply_attachments_action` returns immediately without `MM_CASE_PROPERTIES`). The origin + project space arrive as an already-resolved `AttachmentUrlTarget` from the caller (`lib/deployment/attachmentTarget.ts`), because the emission boundary is one-way; with none, the node, the bind, and the case update are all withheld rather than written against a guess, and the caller says so through `lib/publish/exportAdvisories.ts`.
@@ -308,7 +340,7 @@ Location owners add two exact leaves to that vocabulary. `fixed-location` lowers
 
 A form can save an answer into the worker's own record, and the emission is gated exactly as HQ gates it. `deriveCaseWriteInventory`'s `usercase` bucket populates `usercase_update` (`usercase_preload` stays empty — `#user/<prop>` already compiles to the identical `casedb` join), which makes `util.py::actions_use_usercase` true, which is what turns on the `commcare_usercase` block in the XForm, the computed `usercase_id` datum, and the `<assertions>` entry child. HQ's `_add_usercase` has NO `<create>` arm, so neither does Nova. The datum rides `module_form` only (`EntriesHelper.get_extra_case_id_datums`), so Nova's case-list-only browse entry carries neither datum nor assertion. `<assertions>` sits between `<session>` and `<stack>`, pinned by the whole-suite `case-list-form-suite-usercase.xml`, and its locale id needs a matching app_strings entry or the suite dies at `NoLocalizedTextException` — Nova supplies its own message there rather than HQ's, because HQ's names a supervisor and an id an author never sees.
 
-Every expression sees one pre-submission snapshot. Form answers and earlier create ids bind explicitly; repeat-local identity paths start at `current()` so they remain anchored on the operation bind even while a nested relation predicate temporarily evaluates a `casedb` candidate. Root case-property reads anchor on `commcaresession/session/data/case_id` in `casedb`, including root relation predicates and counts, while related-case candidate properties remain candidate-relative. Those case-reading expression paths add `commcaresession` with `casedb`. A runtime expression target is lowered through `casedb/case[@case_id=(...) and @case_type='snapshot-type']/@case_id`, never emitted as an unchecked id. The shared order analysis keeps that immutable lookup type separate from the rolling semantic type, so A→B retype followed by a B operation on the exact same target still finds the pre-submission A row. Different ASTs can nevertheless resolve to one concrete id; the static gate therefore rejects a later differently-typed target/link after a potentially aliasing transition unless the ids are provably distinct. Repeated retype is restricted to an exact correlated generated create because duplicate repeat values otherwise make the second iteration consume the first iteration's result type. The authoritative submission envelope (`lib/case-store/postgres/submissionEnvelope.ts`) repeats this proof over expanded, server-resolved ids with `validateResolvedCaseOperationTypeSequence`. Dynamic link targets get the same selector plus a trailing empty-update guard block whose id is the operation case only when the typed link selector resolved to a different id. On absent/wrong type/self-link the blank guard id raises the clean transaction error before an empty index value could be mistaken for an unlink; on success the guard no-ops the case the operation already touches, never the linked case. Server-side preview separately reauthorizes Project/type facts; neither path trusts a client type descriptor.
+Every expression sees one pre-submission snapshot. Form answers and earlier create ids bind explicitly; repeat-local identity paths start at `current()` so they remain anchored on the operation bind even while a nested relation predicate temporarily evaluates a `casedb` candidate. Root case-property reads anchor on the projected own-case session datum in `casedb`, including root relation predicates and counts, while related-case candidate properties remain candidate-relative. Those case-reading expression paths add `commcaresession` with `casedb`. A runtime expression target is lowered through `casedb/case[@case_id=(...) and @case_type='snapshot-type']/@case_id`, never emitted as an unchecked id. The shared order analysis keeps that immutable lookup type separate from the rolling semantic type, so A→B retype followed by a B operation on the exact same target still finds the pre-submission A row. Different ASTs can nevertheless resolve to one concrete id; the static gate therefore rejects a later differently-typed target/link after a potentially aliasing transition unless the ids are provably distinct. Repeated retype is restricted to an exact correlated generated create because duplicate repeat values otherwise make the second iteration consume the first iteration's result type. The authoritative submission envelope (`lib/case-store/postgres/submissionEnvelope.ts`) repeats this proof over expanded, server-resolved ids with `validateResolvedCaseOperationTypeSequence`. Dynamic link targets get the same selector plus a trailing empty-update guard block whose id is the operation case only when the typed link selector resolved to a different id. On absent/wrong type/self-link the blank guard id raises the clean transaction error before an empty index value could be mistaken for an unlink; on success the guard no-ops the case the operation already touches, never the linked case. Server-side preview separately reauthorizes Project/type facts; neither path trusts a client type descriptor.
 
 Conditions become wrapper relevance and write conditions become child relevance. A consumer of an earlier conditional create automatically inherits that create's relevance (transitively): if the producer does not execute, no target/link/value may leak its preallocated UUID into an update-only block or dangling index. Conditional retypes participate in the same shared guard analysis: a later operation/link that requires the destination type inherits the transition condition, while a source-type consumer after the transition is rejected. The preview's operation-program fold (`lib/preview/engine/caseDataBindingHelpers.ts`) must use `caseOperationConditionalGuardUuids`, not treat an allocated id or declared retype as proof that the producer effect ran. The validator dry-runs these same emitters after type checking so a schema-valid but nonportable expression cannot reach compilation.
 
@@ -549,7 +581,7 @@ Module conditions emit to `<menu relevant>` and HQ `module_filter`; their
 secondary instances are child `<instance>` elements on that menu, requiring the
 fixed HQ build 2.54. Form conditions emit to the menu's `<command relevant>` and
 HQ `form_filter`; direct self properties structurally anchor through the
-selected `commcaresession/session/data/case_id` in local suite XML and through
+selected `commcaresession/session/data/<projected-own-case-id>` in local suite XML and through
 HQ's `#case` interpolation in JSON. The matching entry declares the condition's
 instances, including both `casedb` and `commcaresession` for a selected-case
 read. Emit raw comparisons: Core's absent node-set becomes `""` for string

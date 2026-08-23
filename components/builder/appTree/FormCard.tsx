@@ -38,8 +38,6 @@ import { useIsFormSelected, useNavigate } from "@/lib/routing/hooks";
 export const FormCard = memo(function FormCard({
 	formId,
 	moduleUuid,
-	moduleIndex,
-	formIndex,
 	onSelect,
 	delay,
 	collapsed,
@@ -50,12 +48,10 @@ export const FormCard = memo(function FormCard({
 }: {
 	formId: Uuid;
 	moduleUuid: Uuid;
-	moduleIndex: number;
-	formIndex: number;
 	onSelect: TreeSelectHandler;
 	delay: number;
-	collapsed: Set<string>;
-	toggle: (key: string) => void;
+	collapsed: Set<Uuid>;
+	toggle: (key: Uuid) => void;
 	searchResult: SearchResult | null;
 	connectType?: string;
 	locked?: boolean;
@@ -87,12 +83,11 @@ export const FormCard = memo(function FormCard({
 		return ok;
 	};
 
-	const collapseKey = `f${moduleIndex}_${formIndex}`;
-	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
+	const isCollapsed = searchResult?.forceExpand?.has(formId)
 		? false
-		: collapsed.has(collapseKey);
+		: collapsed.has(formId);
 	const hasFields = fieldUuids.length > 0;
-	const nameIndices = searchResult?.matchMap?.get(collapseKey);
+	const nameIndices = searchResult?.matchMap?.get(formId);
 
 	if (!form) return null;
 
@@ -123,10 +118,11 @@ export const FormCard = memo(function FormCard({
 			>
 				{hasFields ? (
 					<CollapseChevron
+						label={formName}
 						isCollapsed={isCollapsed}
 						onClick={(e) => {
 							e.stopPropagation();
-							toggle(collapseKey);
+							toggle(formId);
 						}}
 						hidden={locked}
 					/>
@@ -156,11 +152,9 @@ export const FormCard = memo(function FormCard({
 								/>
 							</div>
 						)}
-						{/* An authored name is content. The row's accessible name
-						 * already carries it whole, so this is the disclosure for
-						 * the one person truncation actually costs: someone
-						 * reading two forms whose names diverge past the clip. */}
-						<span className="text-sm font-medium truncate" title={formName}>
+						{/* An authored name is content. Let it wrap so keyboard and touch
+						 * users get the same complete distinction as assistive tech. */}
+						<span className="text-sm font-medium whitespace-normal break-words [overflow-wrap:anywhere]">
 							{nameIndices ? (
 								<HighlightedText text={formName} indices={nameIndices} />
 							) : (

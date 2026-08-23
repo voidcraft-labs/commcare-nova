@@ -7,13 +7,25 @@ import { AppTree } from "@/components/builder/appTree/AppTree";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 
 const session = vi.hoisted(() => ({ phase: "ready" }));
+const MODULE_UUID = "00000000-0000-4000-8000-000000000001";
 
 vi.mock("@/lib/session/hooks", () => ({
 	useBuilderPhase: () => session.phase,
 }));
 
 vi.mock("@/lib/doc/hooks/useModuleIds", () => ({
-	useModuleIds: () => ["00000000-0000-4000-8000-000000000001"],
+	useModuleMenuHierarchy: () => ({
+		rootModuleUuids: [MODULE_UUID],
+		childModuleUuidsByRoot: { [MODULE_UUID]: [] },
+	}),
+}));
+
+vi.mock("@/lib/doc/hooks/useEntity", () => ({
+	useModule: () => undefined,
+}));
+
+vi.mock("@/lib/routing/hooks", () => ({
+	useLocation: () => ({ kind: "home" }),
 }));
 
 vi.mock("@/lib/doc/hooks/useSearchFilter", () => ({
@@ -25,8 +37,10 @@ vi.mock("@/lib/doc/hooks/useSearchFilter", () => ({
 					formNameMatches: new Map(),
 					moduleNameMatches: new Map(),
 					visibleFieldUuids: new Set(),
-					visibleFormIds: new Set(),
-					visibleModuleIndices: new Set(),
+					matchMap: new Map(),
+					forceExpand: new Set(),
+					visibleFormUuids: new Set(),
+					visibleModuleUuids: new Set(),
 				}
 			: null,
 }));
@@ -36,7 +50,22 @@ vi.mock("@/components/builder/appTree/useAppTreeSelection", () => ({
 }));
 
 vi.mock("@/components/builder/appTree/ModuleCard", () => ({
-	ModuleCard: () => <div>Module row</div>,
+	ModuleCard: ({
+		moduleUuid,
+		onPlacementCommitted,
+	}: {
+		moduleUuid: string;
+		onPlacementCommitted: (uuid: string) => void;
+	}) => (
+		<li>
+			<button type="button" data-module-actions={moduleUuid}>
+				Module actions
+			</button>
+			<button type="button" onClick={() => onPlacementCommitted(moduleUuid)}>
+				Complete placement
+			</button>
+		</li>
+	),
 }));
 
 vi.mock("@/components/builder/appTree/insertion/AddModulePopover", () => ({
@@ -82,5 +111,13 @@ describe("AppTree search", () => {
 		render(<AppTree />);
 		const input = screen.getByRole("textbox", { name: "Find in app" });
 		expect((input as HTMLInputElement).disabled).toBe(true);
+	});
+
+	it("returns focus to the moved module's action after topology renders", () => {
+		render(<AppTree />);
+		fireEvent.click(screen.getByRole("button", { name: "Complete placement" }));
+		expect(document.activeElement).toBe(
+			screen.getByRole("button", { name: "Module actions" }),
+		);
 	});
 });

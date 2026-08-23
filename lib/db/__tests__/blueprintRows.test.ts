@@ -79,6 +79,49 @@ describe("blueprint entity-row round trip", () => {
 		expect(assembled).toEqual(toPersistableDoc(doc));
 	});
 
+	it("round-trips one-tier menu parentage in module data and preorder", () => {
+		const doc = emptyDoc("rt-app-nested-menu");
+		applyMutations(
+			doc,
+			surveyModuleMutations(doc, { name: "Parent" }).mutations,
+		);
+		applyMutations(
+			doc,
+			surveyModuleMutations(doc, { name: "Child" }).mutations,
+		);
+		const [parentUuid, childUuid] = doc.moduleOrder;
+		applyMutations(doc, [
+			{
+				kind: "moveModule",
+				uuid: childUuid,
+				parentModuleUuid: parentUuid,
+				after: null,
+			},
+		]);
+
+		const persistable = toPersistableDoc(doc);
+		const moduleRows = decomposeBlueprint(persistable).filter(
+			(row) => row.kind === "module",
+		);
+		expect(moduleRows.map((row) => row.uuid)).toEqual([parentUuid, childUuid]);
+		expect(moduleRows.every((row) => row.parent_uuid === null)).toBe(true);
+		expect(moduleRows[1]?.data).toMatchObject({ parentModuleUuid: parentUuid });
+		expect(roundTrip(doc)).toEqual(persistable);
+	});
+
+	it("refuses legacy row parentage for modules instead of splitting ownership", () => {
+		const doc = emptyDoc("rt-app-module-row-parent");
+		applyMutations(doc, surveyModuleMutations(doc, { name: "Root" }).mutations);
+		const persistable = toPersistableDoc(doc);
+		const moduleUuid = doc.moduleOrder[0];
+		const rows = decomposeBlueprint(persistable).map((row) =>
+			row.uuid === moduleUuid ? { ...row, parent_uuid: moduleUuid } : row,
+		);
+		expect(() =>
+			assembleBlueprint(doc.appId, blueprintScalars(persistable), rows),
+		).toThrow(/menu parentage belongs in module data/i);
+	});
+
 	it("round-trips the app-level localization overlay outside entity rows", () => {
 		const doc = emptyDoc("rt-app-localization");
 		doc.localization = {

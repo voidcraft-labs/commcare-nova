@@ -9,6 +9,7 @@ import {
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
 import type { Uuid } from "@/lib/doc/types";
+import { useCanEdit } from "@/lib/session/hooks";
 import { ModuleSettingsPanel } from "./ModuleSettingsPanel";
 
 /** Trigger prop shape: the module uuid, carried through to the panel. */
@@ -34,6 +35,11 @@ export function ModuleSettingsButton({
 	moduleUuid,
 }: ModuleSettingsButtonProps) {
 	const [open, setOpen] = useState(false);
+	const canEdit = useCanEdit();
+
+	// This trigger is mounted by more than one module surface. Keeping the
+	// capability gate at the trigger makes every viewer path inspect-only.
+	if (!canEdit) return null;
 
 	return (
 		<Popover open={open} onOpenChange={setOpen}>

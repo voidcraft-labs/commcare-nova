@@ -22,7 +22,6 @@
 
 import { useContext, useMemo } from "react";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
-import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	collectLocalizedTranslationUnits,
@@ -64,16 +63,16 @@ function findMatchIndices(
  * query so the row components can hit O(1) lookups during render.
  */
 export interface SearchResult {
-	/** Field-path → highlight ranges for matched labels / names. */
+	/** Entity UUID (or `${fieldUuid}__id`) → matched text ranges. */
 	matchMap: Map<string, MatchIndices>;
-	/** Collapse-keys that must stay expanded so matches are visible. */
-	forceExpand: Set<string>;
-	/** Module indices that either match themselves or contain a match. */
-	visibleModuleIndices: Set<number>;
+	/** Entity UUIDs that must stay expanded so matches are visible. */
+	forceExpand: Set<Uuid>;
+	/** Module UUIDs that either match themselves or contain a match. */
+	visibleModuleUuids: Set<Uuid>;
 	/** Form UUIDs that either match themselves or contain a match. */
-	visibleFormIds: Set<string>;
-	/** Field UUIDs whose label OR id matched the query. */
-	visibleFieldUuids: Set<string>;
+	visibleFormUuids: Set<Uuid>;
+	/** Fields that match or are ancestors of a matching field. */
+	visibleFieldUuids: Set<Uuid>;
 }
 
 /**
@@ -201,10 +200,10 @@ export function useSearchFilter(query: string): SearchResult | null {
 		if (!q) return null;
 
 		const matchMap = new Map<string, MatchIndices>();
-		const forceExpand = new Set<string>();
-		const visibleModuleIndices = new Set<number>();
-		const visibleFormIds = new Set<string>();
-		const visibleFieldUuids = new Set<string>();
+		const forceExpand = new Set<Uuid>();
+		const visibleModuleUuids = new Set<Uuid>();
+		const visibleFormUuids = new Set<Uuid>();
+		const visibleFieldUuids = new Set<Uuid>();
 		const printDoc: XPathPrintableDoc = {
 			fields,
 			forms,
@@ -213,18 +212,14 @@ export function useSearchFilter(query: string): SearchResult | null {
 			userProperties,
 		};
 
-		// Membership-array order, so `mIdx` / `fIdx` — the keys the row components
-		// (`AppTree` / `ModuleCard` / `FormCard`) look up as `m${idx}` /
-		// `f${mIdx}_${fIdx}` and `visibleModuleIndices` — align with rendered
-		// positions.
-		const sortedModules = [...moduleOrder];
-		for (let mIdx = 0; mIdx < sortedModules.length; mIdx++) {
-			const moduleId = sortedModules[mIdx];
+		// Every retained key is an authored identity. Reorder and reparent can
+		// change positions without transferring collapse/highlight state to a
+		// different entity.
+		for (const moduleId of moduleOrder) {
 			const mod = modules[moduleId];
 			if (!mod) continue;
 
 			/* Check module name */
-			const moduleKey = `m${mIdx}`;
 			const localizedModuleName = localizedValues.get(
 				makeTranslationUnitId("module", moduleId, "name"),
 			);
@@ -233,87 +228,94 @@ export function useSearchFilter(query: string): SearchResult | null {
 					? localizedModuleName
 					: mod.name;
 			const modIndices = findMatchIndices(moduleName, q);
-			if (modIndices) matchMap.set(moduleKey, modIndices);
+			if (modIndices) matchMap.set(moduleId, modIndices);
 
 			const formIds = [...(formOrder[moduleId] ?? [])];
 			let moduleHasMatch = !!modIndices;
 
-			for (let fIdx = 0; fIdx < formIds.length; fIdx++) {
-				const formId = formIds[fIdx];
+			for (const formId of formIds) {
 				const form = forms[formId];
 				if (!form) continue;
 
-				const formKey = `f${mIdx}_${fIdx}`;
 				const localizedFormName = localizedValues.get(
 					makeTranslationUnitId("form", formId, "name"),
 				);
 				const formName =
 					typeof localizedFormName === "string" ? localizedFormName : form.name;
 				const formIndices = findMatchIndices(formName, q);
-				if (formIndices) matchMap.set(formKey, formIndices);
+				if (formIndices) matchMap.set(formId, formIndices);
 
 				/* Check fields recursively */
 				let formHasMatch = !!formIndices;
-				const checkFields = (parentId: Uuid, parentPath?: FieldPath) => {
-					const uuids = fieldOrder[parentId] ?? [];
-					for (const uuid of uuids) {
-						const field = fields[uuid];
-						if (!field) continue;
-						const fieldPath = fpath(field.id, parentPath);
+				const checkField = (uuid: Uuid): boolean => {
+					const field = fields[uuid];
+					if (!field) return false;
 
-						// `label` is absent on the `hidden` kind and optional on
-						// `group` (empty/absent label = transparent group), so the
-						// `in` narrowing isn't enough — coerce `undefined` to "".
-						const localizedFieldLabel = localizedValues.get(
-							makeTranslationUnitId("field", field.uuid, "label"),
-						);
-						const fieldLabel =
-							"label" in field && field.label
-								? projectProseTemplate(
-										typeof localizedFieldLabel === "object" &&
-											localizedFieldLabel !== null
-											? localizedFieldLabel
-											: field.label,
-										printDoc,
-									).text
-								: "";
-						const labelIndices = findMatchIndices(fieldLabel, q);
-						const idIndices = findMatchIndices(field.id, q);
+					// `label` is absent on the `hidden` kind and optional on
+					// `group` (empty/absent label = transparent group), so the
+					// `in` narrowing isn't enough — coerce `undefined` to "".
+					const localizedFieldLabel = localizedValues.get(
+						makeTranslationUnitId("field", field.uuid, "label"),
+					);
+					const fieldLabel =
+						"label" in field && field.label
+							? projectProseTemplate(
+									typeof localizedFieldLabel === "object" &&
+										localizedFieldLabel !== null
+										? localizedFieldLabel
+										: field.label,
+									printDoc,
+								).text
+							: "";
+					const labelIndices = findMatchIndices(fieldLabel, q);
+					const idIndices = findMatchIndices(field.id, q);
+					if (labelIndices) matchMap.set(uuid, labelIndices);
+					if (idIndices) matchMap.set(`${uuid}__id`, idIndices);
 
-						if (labelIndices) matchMap.set(fieldPath, labelIndices);
-						if (idIndices) matchMap.set(`${fieldPath}__id`, idIndices);
-
-						if (labelIndices || idIndices) {
-							visibleFieldUuids.add(uuid);
-							formHasMatch = true;
-							/* Force-expand parent groups */
-							if (parentPath) forceExpand.add(parentPath);
-						}
-
-						/* Recurse into children */
-						checkFields(uuid, fieldPath);
+					let descendantHasMatch = false;
+					for (const childUuid of fieldOrder[uuid] ?? []) {
+						descendantHasMatch = checkField(childUuid) || descendantHasMatch;
 					}
+					const fieldHasMatch =
+						labelIndices !== undefined ||
+						idIndices !== undefined ||
+						descendantHasMatch;
+					if (fieldHasMatch) visibleFieldUuids.add(uuid);
+					if (descendantHasMatch) forceExpand.add(uuid);
+					return fieldHasMatch;
 				};
-				checkFields(formId);
+				for (const fieldUuid of fieldOrder[formId] ?? []) {
+					formHasMatch = checkField(fieldUuid) || formHasMatch;
+				}
 
 				if (formHasMatch) {
-					visibleFormIds.add(formId);
-					forceExpand.add(formKey);
+					visibleFormUuids.add(formId);
+					forceExpand.add(formId);
 					moduleHasMatch = true;
 				}
 			}
 
 			if (moduleHasMatch) {
-				visibleModuleIndices.add(mIdx);
-				forceExpand.add(moduleKey);
+				visibleModuleUuids.add(moduleId);
+				forceExpand.add(moduleId);
+			}
+		}
+
+		// A matching submenu is rendered inside its root module's list. Retain and
+		// expand that ancestor without treating menu parentage as case parentage.
+		for (const moduleUuid of [...visibleModuleUuids]) {
+			const parentModuleUuid = modules[moduleUuid]?.parentModuleUuid;
+			if (parentModuleUuid !== undefined) {
+				visibleModuleUuids.add(parentModuleUuid);
+				forceExpand.add(parentModuleUuid);
 			}
 		}
 
 		return {
 			matchMap,
 			forceExpand,
-			visibleModuleIndices,
-			visibleFormIds,
+			visibleModuleUuids,
+			visibleFormUuids,
 			visibleFieldUuids,
 		};
 	}, [

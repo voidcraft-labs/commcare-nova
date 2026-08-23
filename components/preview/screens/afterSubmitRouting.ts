@@ -74,6 +74,9 @@ export function afterSubmitRoute(args: {
 			landing: moduleLanding({
 				isCaseFirst: args.caseFirstModules.has(target.moduleUuid),
 				isBareCaseList: mod.caseListOnly === true,
+				hasChildren: Object.values(doc.modules).some(
+					(candidate) => candidate.parentModuleUuid === target.moduleUuid,
+				),
 			}),
 		};
 	}

@@ -640,15 +640,22 @@ export class PostgresCaseStore implements CaseStore {
 	/** Validate a relationship target after acquiring the shared lock. */
 	private async assertParentExists(
 		trx: Transaction<Database>,
-		args: { appId: string; parentCaseId: string },
+		args: {
+			appId: string;
+			parentCaseId: string;
+			parentCaseType?: string;
+		},
 	): Promise<void> {
-		const parent = await trx
+		let query = trx
 			.selectFrom("cases as parent")
 			.select("parent.case_id")
 			.where("parent.app_id", "=", args.appId)
 			.where("parent.case_id", "=", args.parentCaseId)
-			.where("parent.project_id", "=", this.requireProjectId())
-			.executeTakeFirst();
+			.where("parent.project_id", "=", this.requireProjectId());
+		if (args.parentCaseType !== undefined) {
+			query = query.where("parent.case_type", "=", args.parentCaseType);
+		}
+		const parent = await query.executeTakeFirst();
 		if (parent === undefined) throw new CaseNotFoundError(args.parentCaseId);
 	}
 
@@ -1421,6 +1428,7 @@ export class PostgresCaseStore implements CaseStore {
 			row: CaseInsert;
 			caseId?: string;
 			ownerId?: string;
+			parentCaseType?: string;
 			parentRelationship?: CaseIndicesTable["relationship"];
 		},
 	): Promise<string> {
@@ -1438,6 +1446,9 @@ export class PostgresCaseStore implements CaseStore {
 			await this.assertParentExists(trx, {
 				appId: args.appId,
 				parentCaseId: args.row.parent_case_id,
+				...(args.parentCaseType === undefined
+					? {}
+					: { parentCaseType: args.parentCaseType }),
 			});
 		}
 
@@ -1585,6 +1596,9 @@ export class PostgresCaseStore implements CaseStore {
 					...(a.seed.parentRelationship === undefined
 						? {}
 						: { parentRelationship: a.seed.parentRelationship }),
+					...(a.seed.parentCaseType === undefined
+						? {}
+						: { parentCaseType: a.seed.parentCaseType }),
 				}),
 			updateCase: (trx, a) => this.updateInTransaction(trx, a),
 			closeCase: (trx, a) => this.closeCaseInTransaction(trx, a),

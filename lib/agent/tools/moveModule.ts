@@ -1,5 +1,5 @@
 /**
- * SA tool: `moveModule` — reorder one module in the app's menu.
+ * SA tool: `moveModule` — reorder or reparent one module in the app's menu.
  *
  * Creation order is not navigation order: a build that lands modules in
  * dependency order (a child case type's viewer before the parent that
@@ -8,10 +8,10 @@
  * same one the builder's menu drag dispatches — so the module keeps its
  * uuid and every reference to it survives.
  *
- * Placement is an ANCHOR, never a position: `after` names the module this
- * one now follows, and `null` means first. A position is computed against
- * the sequence its author could see, so two people moving from one document
- * compute the same one; an anchor cannot be shifted by a peer's insert.
+ * Placement is an ANCHOR, never a position: `after` names a destination
+ * sibling and `null` means first. Omitting `parentModuleUuid` preserves the
+ * current parent for historical and concurrent narrow reorders; present null
+ * makes the module top-level, and a UUID reparents under that top-level menu.
  *
  * Exit branches:
  *
@@ -28,7 +28,13 @@
 
 import type { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
-import { type Uuid, uuidSchema } from "@/lib/domain";
+import {
+	childModuleUuids,
+	moduleParent,
+	moduleSiblingUuids,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
@@ -49,7 +55,13 @@ export const moveModuleInputSchema = moduleAddressSchema
 		after: uuidSchema
 			.nullable()
 			.describe(
-				"UUID of the module this one should now follow, or null to make it first in the menu.",
+				"UUID of the sibling this module should now follow, or null to make it first in its destination menu.",
+			),
+		parentModuleUuid: uuidSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Destination parent menu UUID. Omit to reorder inside the current menu, pass null to make the module top-level, or pass a top-level module UUID to move it into that menu.",
 			),
 	})
 	.strict();
@@ -60,6 +72,8 @@ export interface MoveModuleSuccess extends MutationSuccess {
 	/** The module this one follows on the COMMITTED order, or null when it
 	 *  is now first. */
 	readonly after: Uuid | null;
+	readonly parentModuleUuid: Uuid | null;
+	readonly childModuleUuids: readonly Uuid[];
 	readonly moduleOrder: readonly Uuid[];
 }
 
@@ -67,7 +81,7 @@ export type MoveModuleResult = MoveModuleSuccess | { readonly error: string };
 
 export const moveModuleTool = {
 	description:
-		"Move one module to a new place in the app's menu by stable UUID — same identity, every reference preserved. `after` names the module it should follow; null makes it first.",
+		"Reorder or reparent one module by stable UUID. `after` names a destination sibling or null for first. Omit parentModuleUuid to keep the current menu, pass null for top-level, or pass a top-level module UUID for a child placement.",
 	inputSchema: moveModuleInputSchema,
 	async execute(
 		input: MoveModuleInput,
@@ -89,6 +103,38 @@ export const moveModuleTool = {
 			const target = resolveModuleAddress(doc, input);
 			if (!target.ok) return fail(target.error);
 			const moved = target.module;
+			const currentParent = moduleParent(doc, target.moduleUuid);
+			if (currentParent === undefined) {
+				return fail(
+					`The current menu placement for "${moved.name}" could not be read. Re-read the app and try again.`,
+				);
+			}
+			const destinationParent =
+				input.parentModuleUuid === undefined
+					? currentParent
+					: input.parentModuleUuid;
+
+			if (destinationParent === target.moduleUuid) {
+				return fail(`"${moved.name}" can't contain itself.`);
+			}
+			if (destinationParent !== null) {
+				const parent = doc.modules[destinationParent];
+				if (parent === undefined) {
+					return fail(
+						`No module with UUID "${destinationParent}" is in this app, so it can't be the destination menu.`,
+					);
+				}
+				if (parent.parentModuleUuid !== undefined) {
+					return fail(
+						`"${parent.name}" is already inside another menu. Nova supports one submenu tier, so only a top-level module can contain "${moved.name}".`,
+					);
+				}
+				if (childModuleUuids(doc, target.moduleUuid).length > 0) {
+					return fail(
+						`"${moved.name}" contains child menus, so it must stay top-level. Move or remove its children first.`,
+					);
+				}
+			}
 
 			if (input.after !== null) {
 				if (input.after === target.moduleUuid) {
@@ -101,10 +147,22 @@ export const moveModuleTool = {
 						`No module with UUID "${input.after}" is in this app, so "${moved.name}" has nothing to follow. The menu is currently ${currentMenu()}. Pass one of those UUIDs, or null to make "${moved.name}" first.`,
 					);
 				}
+				if (!moduleSiblingUuids(doc, destinationParent).includes(input.after)) {
+					return fail(
+						`"${doc.modules[input.after]?.name ?? input.after}" is not a sibling in the destination menu. "after" must name a module with the same destination parent.`,
+					);
+				}
 			}
 
 			const mutations: Mutation[] = [
-				{ kind: "moveModule", uuid: target.moduleUuid, after: input.after },
+				{
+					kind: "moveModule",
+					uuid: target.moduleUuid,
+					after: input.after,
+					...(input.parentModuleUuid !== undefined && {
+						parentModuleUuid: input.parentModuleUuid,
+					}),
+				},
 			];
 			const commit = await guardedMutate(ctx, mutations, "modules");
 			if (!commit.ok) return fail(commit.error);
@@ -121,17 +179,38 @@ export const moveModuleTool = {
 					`The move of "${moved.name}" didn't land: a collaborator removed the module while it was in flight. Re-read the app and re-issue against its current menu.`,
 				);
 			}
-			const committedAfter = at === 0 ? null : (committedOrder[at - 1] ?? null);
-			const placement =
-				committedAfter === null
-					? "to the top of the menu"
-					: `after "${commit.newDoc.modules[committedAfter]?.name ?? committedAfter}"`;
+			const committedParent = moduleParent(commit.newDoc, target.moduleUuid);
+			if (committedParent === undefined) {
+				return fail(
+					`The move of "${moved.name}" didn't land: its committed menu placement could not be read. Re-read the app and try again.`,
+				);
+			}
+			const committedSiblings = moduleSiblingUuids(
+				commit.newDoc,
+				committedParent,
+			);
+			const siblingIndex = committedSiblings.indexOf(target.moduleUuid);
+			const committedAfter =
+				siblingIndex <= 0
+					? null
+					: (committedSiblings[siblingIndex - 1] ?? null);
+			let placement: string;
+			if (committedAfter === null) {
+				placement =
+					committedParent === null
+						? "to the top of the menu"
+						: `to the start of "${commit.newDoc.modules[committedParent]?.name ?? committedParent}"`;
+			} else {
+				placement = `after "${commit.newDoc.modules[committedAfter]?.name ?? committedAfter}"`;
+			}
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
 					message: `Moved module "${moved.name}" ${placement}.`,
 					after: committedAfter,
+					parentModuleUuid: committedParent,
+					childModuleUuids: childModuleUuids(commit.newDoc, target.moduleUuid),
 					moduleOrder: committedOrder,
 					summary: { subject: moved.name } satisfies ToolCallSummary,
 				},

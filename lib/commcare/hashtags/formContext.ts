@@ -67,6 +67,9 @@ export interface FormHashtagContext {
 	 * already emits. Empty when the form has no case type.
 	 */
 	readonly caseTypeDepths: ReadonlyMap<string, number>;
+	/** Session reference of the form's selected own case. Child root menus may
+	 * rename it from the flat `case_id` default. */
+	readonly currentCaseIdRef?: string;
 }
 
 /**
@@ -109,7 +112,7 @@ export function expandHashtagsInContext(
 		if (isRegistration && hops === 0 && propPath === "case_id") {
 			return "/data/case/@case_id";
 		}
-		return expandCaseToWire(hops, propPath);
+		return expandCaseToWire(hops, propPath, ctx.currentCaseIdRef);
 	});
 }
 
@@ -259,7 +262,7 @@ export function vellumShorthandInContext(
 		const prop = propSegments[0];
 		if (prop === "parent" || prop === "grandparent") return fail();
 		const editorRef = `${VELLUM_CASE_GENERATION_PREFIXES[0]}${prop}`;
-		refs.push([editorRef, expandCaseToWire(0, prop)]);
+		refs.push([editorRef, expandCaseToWire(0, prop, ctx.currentCaseIdRef)]);
 		return editorRef;
 	});
 

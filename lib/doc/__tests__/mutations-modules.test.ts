@@ -73,6 +73,30 @@ describe("addModule", () => {
 		});
 		expect(next.formOrder[M("A")]).toEqual([]);
 	});
+
+	it("places a child within its parent's contiguous sibling block", () => {
+		const start: BlueprintDoc = {
+			...emptyDoc(),
+			modules: {
+				[M("A")]: module_(M("A"), "A"),
+				[M("C")]: module_(M("C"), "C"),
+			},
+			moduleOrder: [M("A"), M("C")],
+			formOrder: { [M("A")]: [], [M("C")]: [] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "addModule",
+				module: {
+					...module_(M("B"), "B"),
+					parentModuleUuid: M("A"),
+				},
+				after: null,
+			});
+		});
+		expect(next.moduleOrder).toEqual([M("A"), M("B"), M("C")]);
+		expect(next.modules[M("B")]?.parentModuleUuid).toBe(M("A"));
+	});
 });
 
 describe("removeModule", () => {
@@ -107,6 +131,31 @@ describe("removeModule", () => {
 		expect(next.forms[F("1")]).toBeUndefined();
 		expect(next.fields[Q("x")]).toBeUndefined();
 		expect(next.fieldOrder[F("1")]).toBeUndefined();
+	});
+
+	it("refuses a parent removal until its child is removed first", () => {
+		const start: BlueprintDoc = {
+			...emptyDoc(),
+			modules: {
+				[M("A")]: module_(M("A"), "A"),
+				[M("B")]: {
+					...module_(M("B"), "B"),
+					parentModuleUuid: M("A"),
+				},
+			},
+			moduleOrder: [M("A"), M("B")],
+			formOrder: { [M("A")]: [], [M("B")]: [] },
+		};
+		const refused = produce(start, (d) => {
+			applyMutation(d, { kind: "removeModule", uuid: M("A") });
+		});
+		expect(refused.moduleOrder).toEqual(start.moduleOrder);
+
+		const removed = produce(start, (d) => {
+			applyMutation(d, { kind: "removeModule", uuid: M("B") });
+			applyMutation(d, { kind: "removeModule", uuid: M("A") });
+		});
+		expect(removed.moduleOrder).toEqual([]);
 	});
 });
 
@@ -151,6 +200,110 @@ describe("moveModule", () => {
 			applyMutation(d, { kind: "moveModule", uuid: M("missing"), after: null });
 		});
 		expect(next.moduleOrder).toEqual([]);
+	});
+
+	it("moves a root together with its complete child block", () => {
+		const start: BlueprintDoc = {
+			...emptyDoc(),
+			modules: {
+				[M("A")]: module_(M("A"), "A"),
+				[M("B")]: {
+					...module_(M("B"), "B"),
+					parentModuleUuid: M("A"),
+				},
+				[M("C")]: module_(M("C"), "C"),
+			},
+			moduleOrder: [M("A"), M("B"), M("C")],
+			formOrder: { [M("A")]: [], [M("B")]: [], [M("C")]: [] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "moveModule",
+				uuid: M("A"),
+				after: M("C"),
+			});
+		});
+		expect(next.moduleOrder).toEqual([M("C"), M("A"), M("B")]);
+	});
+
+	it("distinguishes preserved, root, and explicit-parent destinations", () => {
+		const start: BlueprintDoc = {
+			...emptyDoc(),
+			modules: {
+				[M("A")]: module_(M("A"), "A"),
+				[M("B")]: {
+					...module_(M("B"), "B"),
+					parentModuleUuid: M("A"),
+				},
+				[M("C")]: module_(M("C"), "C"),
+				[M("D")]: {
+					...module_(M("D"), "D"),
+					parentModuleUuid: M("C"),
+				},
+			},
+			moduleOrder: [M("A"), M("B"), M("C"), M("D")],
+			formOrder: {
+				[M("A")]: [],
+				[M("B")]: [],
+				[M("C")]: [],
+				[M("D")]: [],
+			},
+		};
+		const preserved = produce(start, (d) => {
+			applyMutation(d, { kind: "moveModule", uuid: M("B"), after: null });
+		});
+		expect(preserved.modules[M("B")]?.parentModuleUuid).toBe(M("A"));
+
+		const promoted = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "moveModule",
+				uuid: M("B"),
+				parentModuleUuid: null,
+				after: M("C"),
+			});
+		});
+		expect(promoted.modules[M("B")]?.parentModuleUuid).toBeUndefined();
+		expect(promoted.moduleOrder).toEqual([M("A"), M("C"), M("D"), M("B")]);
+
+		const reparented = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "moveModule",
+				uuid: M("B"),
+				parentModuleUuid: M("C"),
+				after: M("D"),
+			});
+		});
+		expect(reparented.modules[M("B")]?.parentModuleUuid).toBe(M("C"));
+		expect(reparented.moduleOrder).toEqual([M("A"), M("C"), M("D"), M("B")]);
+	});
+
+	it("does not let a stale narrow reorder undo a peer reparent", () => {
+		const start: BlueprintDoc = {
+			...emptyDoc(),
+			modules: {
+				[M("A")]: module_(M("A"), "A"),
+				[M("B")]: {
+					...module_(M("B"), "B"),
+					parentModuleUuid: M("A"),
+				},
+				[M("C")]: module_(M("C"), "C"),
+			},
+			moduleOrder: [M("A"), M("B"), M("C")],
+			formOrder: { [M("A")]: [], [M("B")]: [], [M("C")]: [] },
+		};
+		const merged = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "moveModule",
+				uuid: M("B"),
+				parentModuleUuid: M("C"),
+				after: null,
+			});
+			// This command was authored while B still belonged to A. Its absent
+			// parent intent must preserve B's fresh sibling group under C.
+			applyMutation(d, { kind: "moveModule", uuid: M("B"), after: null });
+		});
+		expect(merged.modules[M("B")]?.parentModuleUuid).toBe(M("C"));
+		expect(merged.moduleOrder).toEqual([M("A"), M("C"), M("B")]);
 	});
 });
 

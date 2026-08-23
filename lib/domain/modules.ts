@@ -2100,6 +2100,8 @@ export const moduleSchema = z
 		uuid: uuidSchema,
 		id: z.string(), // semantic id (snake_case display slug)
 		name: z.string(),
+		/** Optional parent menu. Omission is a top-level module. */
+		parentModuleUuid: uuidSchema.optional(),
 		caseType: z.string().optional(),
 		caseListOnly: z.boolean().optional(),
 		purpose: z.string().optional(),

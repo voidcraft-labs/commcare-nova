@@ -135,6 +135,7 @@ export function buildCaseOperations(
 	formUuid: Uuid,
 	moduleCaseType: string | undefined,
 	lookupNaming?: LookupWireNaming,
+	selectedCaseIdRef: string = SESSION_CASE_ID,
 ): CaseOperationsEmission | null {
 	const form = doc.forms[formUuid];
 	const operations = orderedCaseOperations(form);
@@ -203,8 +204,8 @@ export function buildCaseOperations(
 		): OnDeviceTermEmissionContext => ({
 			formFields: bindFieldPaths(fields, repeat, targetPath),
 			operationIds: bindOperationPaths(priorCreates, repeat, targetPath),
-			rootCaseId: SESSION_CASE_ID,
-			caseProperty: formCasePropertyResolver(moduleCaseType),
+			rootCaseId: selectedCaseIdRef,
+			caseProperty: formCasePropertyResolver(moduleCaseType, selectedCaseIdRef),
 			userPropertySlugs,
 			organizationLevels,
 			...(lookupNaming !== undefined && {
@@ -467,6 +468,7 @@ export function buildCaseOperations(
 							emitExpression,
 							instances,
 							linkSnapshotType,
+							selectedCaseIdRef,
 						),
 					}),
 				);
@@ -524,6 +526,7 @@ export function buildCaseOperations(
 						emitExpression,
 						instances,
 						linkSnapshotType,
+						selectedCaseIdRef,
 					);
 					const guardedOperationCaseId =
 						repeat === undefined
@@ -757,6 +760,7 @@ export function buildCaseOperations(
 						emitExpression,
 						instances,
 						operationSnapshotTypes?.target ?? operation.caseType,
+						selectedCaseIdRef,
 					),
 				}),
 			);
@@ -891,6 +895,7 @@ function emitTarget(
 	emitExpression: (expression: ValueExpression, targetPath: FormPath) => string,
 	instances: Set<RequiredInstance>,
 	expectedCaseType: string,
+	selectedCaseIdRef: string,
 ): string {
 	switch (target.kind) {
 		case "new":
@@ -899,7 +904,7 @@ function emitTarget(
 				: boundFieldPath(fields, target.idFrom, consumerRepeat, targetPath);
 		case "session":
 			instances.add("commcaresession");
-			return SESSION_CASE_ID;
+			return selectedCaseIdRef;
 		case "expression": {
 			const id = emitExpression(target.expr, targetPath);
 			instances.add("casedb");
@@ -981,6 +986,7 @@ function relativeXPath(from: FormPath, to: FormPath): string {
 
 function formCasePropertyResolver(
 	moduleCaseType: string | undefined,
+	selectedCaseIdRef: string,
 ): NonNullable<OnDeviceExpressionBindings["caseProperty"]> {
 	return (property, root, scope) => {
 		if (
@@ -992,16 +998,17 @@ function formCasePropertyResolver(
 			// current(); leave those terms on the normal relative emission path.
 			return undefined;
 		}
-		return emitAnchoredProperty(property, root);
+		return emitAnchoredProperty(property, root, selectedCaseIdRef);
 	};
 }
 
 function emitAnchoredProperty(
 	property: PropertyRef,
 	root: "casedb" | "results",
+	selectedCaseIdRef: string,
 ): string {
 	const leaf = emitCasePropertyWirePath(property.property);
-	const base = `instance('${root}')/${root}/case[@case_id=${SESSION_CASE_ID}]`;
+	const base = `instance('${root}')/${root}/case[@case_id=${selectedCaseIdRef}]`;
 	const via = property.via;
 	if (via === undefined || via.kind === "self") return `${base}/${leaf}`;
 	if (via.kind === "ancestor") {

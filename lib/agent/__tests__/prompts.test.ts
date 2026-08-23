@@ -116,6 +116,15 @@ describe("buildSolutionsArchitectPrompt", () => {
 		expect(sp).toContain("Removing a persona preserves");
 	});
 
+	it("teaches exact one-tier menu placement without conflating case parents", () => {
+		const sp = buildSolutionsArchitectPrompt();
+		expect(sp).toContain("Nova supports one child-menu tier");
+		expect(sp).toContain("`createModule.parentModuleUuid`");
+		expect(sp).toContain("`moveModule` always takes `after`");
+		expect(sp).toContain("separate from case `parent_type`");
+		expect(sp).toContain("does not author linked/shadow form reuse");
+	});
+
 	it("keeps automation match counts on Builder Preview instead of SA reads", () => {
 		const sp = buildSolutionsArchitectPrompt();
 		expect(sp).toContain("Matching case counts belong only to Builder Preview");

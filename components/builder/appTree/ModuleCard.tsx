@@ -16,7 +16,9 @@ import { AnimatePresence, motion } from "motion/react";
 import { memo } from "react";
 import { FormCard } from "@/components/builder/appTree/FormCard";
 import { AddFormMenu } from "@/components/builder/appTree/insertion/AddFormMenu";
+import { AddModulePopover } from "@/components/builder/appTree/insertion/AddModulePopover";
 import { interleaveInsertions } from "@/components/builder/appTree/insertion/interleaveInsertions";
+import { ModuleActions } from "@/components/builder/appTree/ModuleActions";
 import {
 	CollapseChevron,
 	HighlightedText,
@@ -51,24 +53,35 @@ export function moduleCaseTypeLabel(caseType: string): string {
 
 export const ModuleCard = memo(function ModuleCard({
 	moduleUuid,
-	moduleIndex,
 	onSelect,
 	collapsed,
 	toggle,
 	searchResult,
 	locked,
+	childModuleUuids = [],
+	isSubmenu = false,
+	rootModuleUuids,
+	childModuleUuidsByRoot,
+	siblingModuleUuids,
+	onPlacementCommitted,
 }: {
 	moduleUuid: Uuid;
-	moduleIndex: number;
 	onSelect: TreeSelectHandler;
-	collapsed: Set<string>;
-	toggle: (key: string) => void;
+	collapsed: Set<Uuid>;
+	toggle: (key: Uuid) => void;
 	searchResult: SearchResult | null;
 	locked?: boolean;
+	childModuleUuids?: readonly Uuid[];
+	isSubmenu?: boolean;
+	rootModuleUuids: readonly Uuid[];
+	childModuleUuidsByRoot: Readonly<Record<Uuid, readonly Uuid[]>>;
+	siblingModuleUuids: readonly Uuid[];
+	onPlacementCommitted: (moduleUuid: Uuid) => void;
 }) {
 	/** Subscribe to this module's entity from the doc store. Only re-renders
 	 *  when THIS module changes (Immer structural sharing on the entity ref). */
 	const mod = useModuleDoc(moduleUuid);
+	const parentModule = useModuleDoc(mod?.parentModuleUuid);
 	const localizedModuleName = useLocalizedText(
 		makeTranslationUnitId("module", moduleUuid, "name"),
 	);
@@ -93,15 +106,19 @@ export const ModuleCard = memo(function ModuleCard({
 	// whether the gate committed so the row can disarm on a refusal.
 	const handleDelete = () => {
 		const { ok } = removeModule(moduleUuid);
-		if (ok && isSelected) navigate.goHome();
+		if (ok && isSelected) {
+			if (parentModule === undefined) navigate.goHome();
+			else if (parentModule.caseListOnly)
+				navigate.openCaseList(parentModule.uuid);
+			else navigate.openModule(parentModule.uuid);
+		}
 		return ok;
 	};
 
-	const collapseKey = `m${moduleIndex}`;
-	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
+	const isCollapsed = searchResult?.forceExpand?.has(moduleUuid)
 		? false
-		: collapsed.has(collapseKey);
-	const nameIndices = searchResult?.matchMap?.get(collapseKey);
+		: collapsed.has(moduleUuid);
+	const nameIndices = searchResult?.matchMap?.get(moduleUuid);
 
 	if (!mod || !formIds) return null;
 	const moduleName = localizedModuleName ?? mod.name;
@@ -111,7 +128,7 @@ export const ModuleCard = memo(function ModuleCard({
 			initial={{ opacity: 0, y: 24 }}
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-			className={`transition-colors border-b border-nova-border last:border-b-0 ${isSelected ? "bg-nova-violet/[0.04]" : ""}`}
+			className={`transition-colors border-b border-nova-border last:border-b-0 ${isSubmenu ? "border-s border-nova-violet/20" : ""} ${isSelected ? "bg-nova-violet/[0.04]" : ""}`}
 		>
 			<TreeItemRow
 				label={moduleName}
@@ -123,7 +140,7 @@ export const ModuleCard = memo(function ModuleCard({
 				 * row: its icon and chevron lit on `group-hover` and the row surface
 				 * under them stayed flat, which reads as a dead row with restless
 				 * decorations rather than a row you can click. */
-				className={`group flex min-h-11 items-center justify-between gap-1.5 py-1.5 pr-3 pl-2 transition-colors ${locked ? "text-nova-text-secondary" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
+				className={`group flex min-h-11 items-center justify-between gap-1.5 py-1.5 pe-3 transition-colors ${isSubmenu ? "ps-4" : "ps-2"} ${locked ? "text-nova-text-secondary" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
 				// A `caseListOnly` module IS its case list (no forms anywhere in
 				// the app), so the module screen would be an empty form menu:
 				// open the case-list config instead. Selecting it still tints this
@@ -139,17 +156,16 @@ export const ModuleCard = memo(function ModuleCard({
 			>
 				<div className="flex items-center gap-2 min-w-0">
 					<CollapseChevron
+						label={moduleName}
 						isCollapsed={isCollapsed}
 						onClick={(e) => {
 							e.stopPropagation();
-							toggle(collapseKey);
+							toggle(moduleUuid);
 						}}
 						hidden={locked}
 					/>
-					{/* `shrink-0` on both arms: the tile is a fixed square, and the
-					 *  name beside it is the flexible part. Without it a long module
-					 *  name squeezes the tile into a sliver instead of ellipsing
-					 *  itself a few characters earlier. */}
+					{/* `shrink-0` keeps the tile a fixed square while an authored name
+					 * wraps beside it instead of squeezing the icon or disappearing. */}
 					{mod.icon ? (
 						// Module menu-tile icon, shown on the tree row too.
 						<ProjectMediaImage
@@ -168,7 +184,7 @@ export const ModuleCard = memo(function ModuleCard({
 						</div>
 					)}
 					<div className="min-w-0">
-						<h3 className="font-medium text-sm truncate" title={moduleName}>
+						<h3 className="text-sm font-medium whitespace-normal break-words [overflow-wrap:anywhere]">
 							{nameIndices ? (
 								<HighlightedText text={moduleName} indices={nameIndices} />
 							) : (
@@ -187,6 +203,18 @@ export const ModuleCard = memo(function ModuleCard({
 				 *  right edge whatever other meta (count, hover-delete) a row
 				 *  carries; the delete fades in just inboard of it. */}
 				<div className="flex items-center gap-1.5 shrink-0">
+					<ModuleActions
+						moduleUuid={moduleUuid}
+						moduleName={moduleName}
+						parentModuleUuid={mod.parentModuleUuid ?? null}
+						siblingModuleUuids={siblingModuleUuids}
+						rootModuleUuids={rootModuleUuids}
+						childModuleUuidsByRoot={childModuleUuidsByRoot}
+						hasChildren={childModuleUuids.length > 0}
+						searchActive={searchResult !== null}
+						locked={locked}
+						onPlacementCommitted={onPlacementCommitted}
+					/>
 					{!locked && (
 						<TreeRowDelete label="Delete module" onDelete={handleDelete} />
 					)}
@@ -222,13 +250,11 @@ export const ModuleCard = memo(function ModuleCard({
 									itemKey: (formId) => formId,
 									renderItem: (formId, fIdx) =>
 										searchResult &&
-										!searchResult.visibleFormIds.has(formId) ? null : (
+										!searchResult.visibleFormUuids.has(formId) ? null : (
 											<FormCard
 												key={formId}
 												formId={formId}
 												moduleUuid={moduleUuid}
-												moduleIndex={moduleIndex}
-												formIndex={fIdx}
 												onSelect={onSelect}
 												delay={fIdx * 0.08}
 												collapsed={collapsed}
@@ -251,6 +277,52 @@ export const ModuleCard = memo(function ModuleCard({
 							</AnimatePresence>
 						</ul>
 					</li>
+
+					{!isSubmenu && (
+						<li className="border-t border-nova-border">
+							<ul
+								className="m-0 list-none border-s border-nova-violet/20 p-0 ms-4"
+								aria-label={`${moduleName} submenus`}
+							>
+								<AnimatePresence mode="sync">
+									{interleaveInsertions(childModuleUuids, {
+										suppress: !!locked || !!searchResult,
+										itemKey: (childUuid) => childUuid,
+										renderItem: (childUuid) =>
+											searchResult &&
+											!searchResult.visibleModuleUuids.has(childUuid) ? null : (
+												<ModuleCard
+													key={childUuid}
+													moduleUuid={childUuid}
+													onSelect={onSelect}
+													collapsed={collapsed}
+													toggle={toggle}
+													searchResult={searchResult}
+													locked={locked}
+													isSubmenu
+													rootModuleUuids={rootModuleUuids}
+													childModuleUuidsByRoot={childModuleUuidsByRoot}
+													siblingModuleUuids={childModuleUuids}
+													onPlacementCommitted={onPlacementCommitted}
+												/>
+											),
+										renderInsertion: (atIndex, key) => (
+											<AddModulePopover
+												key={key}
+												parentModuleUuid={moduleUuid}
+												afterSiblingUuid={
+													atIndex === 0
+														? null
+														: (childModuleUuids[atIndex - 1] ?? null)
+												}
+												prominent={atIndex === childModuleUuids.length}
+											/>
+										),
+									})}
+								</AnimatePresence>
+							</ul>
+						</li>
+					)}
 				</ul>
 			)}
 		</motion.li>

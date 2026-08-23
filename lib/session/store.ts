@@ -49,6 +49,8 @@ import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import type {
 	PreviewCaseTarget,
+	PreviewMenuCaseSelection,
+	PreviewParentCaseRequest,
 	PreviewSelectedCase,
 	StagedUpload,
 } from "./types";
@@ -229,6 +231,14 @@ export interface BuilderSessionState {
 	 *  selection so the breadcrumb can name it on the list. Cleared with the
 	 *  selection and on every preview toggle. */
 	previewSelectedCase: PreviewSelectedCase | undefined;
+
+	/** Cases selected for module menus, keyed by module uuid. Unlike the
+	 * transient case-list detail selection, these survive navigation within a
+	 * Preview session so a parent menu can feed its forms and child menus. */
+	previewMenuCaseSelections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+
+	/** Pending case-type parent selection, independent of menu ancestry. */
+	previewParentCaseRequest: PreviewParentCaseRequest | undefined;
 
 	/** Which persona Preview runs as, by uuid — `undefined` means the
 	 *  signed-in member ("Preview as me"). Ephemeral like every other
@@ -611,6 +621,15 @@ export interface BuilderSessionState {
 	 *  shallow-equal. */
 	setPreviewSelectedCase: (selected: PreviewSelectedCase | undefined) => void;
 
+	/** Set or clear one module menu's selected case. */
+	setPreviewMenuCaseSelection: (
+		moduleUuid: string,
+		selected: PreviewMenuCaseSelection | undefined,
+	) => void;
+	setPreviewParentCaseRequest: (
+		request: PreviewParentCaseRequest | undefined,
+	) => void;
+
 	/** Set one sidebar's visibility. Preserves the other sidebar + all stash
 	 *  values. No-ops when the value is unchanged. */
 	setSidebarOpen: (kind: SidebarKind, open: boolean) => void;
@@ -748,6 +767,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				activeFieldId: undefined,
 				previewCaseTarget: undefined as PreviewCaseTarget | undefined,
 				previewSelectedCase: undefined as PreviewSelectedCase | undefined,
+				previewMenuCaseSelections: {} as Readonly<
+					Record<string, PreviewMenuCaseSelection>
+				>,
+				previewParentCaseRequest: undefined as
+					| PreviewParentCaseRequest
+					| undefined,
 				previewPersonaUuid: undefined as string | undefined,
 
 				/* Chrome */
@@ -939,6 +964,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 								? {
 										previewCaseTarget: undefined,
 										previewSelectedCase: undefined,
+										previewMenuCaseSelections: {},
+										previewParentCaseRequest: undefined,
 										previewPersonaUuid: undefined,
 									}
 								: {}),
@@ -1126,6 +1153,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							previewing: true,
 							previewCaseTarget: undefined,
 							previewSelectedCase: undefined,
+							previewMenuCaseSelections: {},
+							previewParentCaseRequest: undefined,
 							sidebars: {
 								chat: {
 									open: false,
@@ -1150,6 +1179,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewPersonaUuid: undefined,
 						previewCaseTarget: undefined,
 						previewSelectedCase: undefined,
+						previewMenuCaseSelections: {},
+						previewParentCaseRequest: undefined,
 						sidebars: {
 							chat: {
 								open: chatStashed ?? s.sidebars.chat.open,
@@ -1172,6 +1203,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewPersonaUuid: personaUuid,
 						previewCaseTarget: undefined,
 						previewSelectedCase: undefined,
+						previewMenuCaseSelections: {},
+						previewParentCaseRequest: undefined,
 					});
 				},
 
@@ -1204,6 +1237,53 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return;
 					}
 					set({ previewSelectedCase: selected });
+				},
+
+				setPreviewMenuCaseSelection(
+					moduleUuid: string,
+					selected: PreviewMenuCaseSelection | undefined,
+				) {
+					const selections = get().previewMenuCaseSelections;
+					const current = selections[moduleUuid];
+					if (
+						current?.caseType === selected?.caseType &&
+						current?.caseId === selected?.caseId &&
+						current?.caseName === selected?.caseName &&
+						stringRecordsEqual(
+							current?.caseProperties,
+							selected?.caseProperties,
+						)
+					) {
+						return;
+					}
+					if (selected === undefined) {
+						if (current === undefined) return;
+						const { [moduleUuid]: _removed, ...remaining } = selections;
+						set({ previewMenuCaseSelections: remaining });
+						return;
+					}
+					set({
+						previewMenuCaseSelections: {
+							...selections,
+							[moduleUuid]: selected,
+						},
+					});
+				},
+
+				setPreviewParentCaseRequest(
+					request: PreviewParentCaseRequest | undefined,
+				) {
+					const current = get().previewParentCaseRequest;
+					if (
+						current?.selectingModuleUuid === request?.selectingModuleUuid &&
+						stringArraysEqual(
+							current?.returnModuleUuids,
+							request?.returnModuleUuids,
+						)
+					) {
+						return;
+					}
+					set({ previewParentCaseRequest: request });
 				},
 
 				setSidebarOpen(kind: SidebarKind, open: boolean) {
@@ -1481,6 +1561,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						activeFieldId: undefined,
 						previewCaseTarget: undefined,
 						previewSelectedCase: undefined,
+						previewMenuCaseSelections: {},
+						previewParentCaseRequest: undefined,
 						previewPersonaUuid: undefined,
 
 						/* Chrome */
@@ -1517,5 +1599,31 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				enabled: process.env.NODE_ENV === "development",
 			},
 		),
+	);
+}
+
+function stringRecordsEqual(
+	left: Readonly<Record<string, string>> | undefined,
+	right: Readonly<Record<string, string>> | undefined,
+): boolean {
+	if (left === right) return true;
+	if (!left || !right) return false;
+	const leftKeys = Object.keys(left);
+	return (
+		leftKeys.length === Object.keys(right).length &&
+		leftKeys.every((key) => left[key] === right[key])
+	);
+}
+
+function stringArraysEqual(
+	left: readonly string[] | undefined,
+	right: readonly string[] | undefined,
+): boolean {
+	return (
+		left === right ||
+		(left !== undefined &&
+			right !== undefined &&
+			left.length === right.length &&
+			left.every((value, index) => value === right[index]))
 	);
 }

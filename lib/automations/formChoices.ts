@@ -23,6 +23,11 @@ export function automationFormChoices(
 	return doc.moduleOrder.flatMap((moduleUuid) => {
 		const module = ownRecordValue(doc.modules, moduleUuid);
 		if (module === undefined) return [];
+		const parent =
+			module.parentModuleUuid === undefined
+				? undefined
+				: ownRecordValue(doc.modules, module.parentModuleUuid);
+		const modulePath = parent ? `${parent.name} > ${module.name}` : module.name;
 		return (doc.formOrder[moduleUuid] ?? []).flatMap((formUuid) => {
 			const form = ownRecordValue(doc.forms, formUuid);
 			return form === undefined
@@ -30,7 +35,7 @@ export function automationFormChoices(
 				: [
 						{
 							uuid: form.uuid,
-							label: `${doc.appName} > ${module.name} > ${form.name}`,
+							label: `${doc.appName} > ${modulePath} > ${form.name}`,
 						},
 					];
 		});

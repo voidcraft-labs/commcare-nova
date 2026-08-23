@@ -129,6 +129,14 @@ describe("shared-tool authored identity registry", () => {
 		);
 		expect(new Set(exactPointers).size).toBe(exactPointers.length);
 		expect(AUTHORABLE_IDENTITY_POINTER_REGISTRY.length).toBeGreaterThan(400);
+		for (const tool of ["create_module", "move_module"]) {
+			expect(
+				AUTHORABLE_IDENTITY_POINTER_REGISTRY.find(
+					(pointer) =>
+						pointer.tool === tool && pointer.property === "parentModuleUuid",
+				),
+			).toMatchObject({ family: "module" });
+		}
 	});
 
 	it("pins the complete malformed/case/version/variant/nil/max matrix in the domain schemas", () => {

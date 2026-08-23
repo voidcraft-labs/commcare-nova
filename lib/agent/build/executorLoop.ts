@@ -59,6 +59,11 @@ import {
 	acceptedInputRequirementIssues,
 } from "./acceptedInputParity";
 import {
+	type AcceptedModulePlacementIssue,
+	acceptedModulePlacementIssues,
+	realizedModuleUuid,
+} from "./acceptedModulePlacement";
+import {
 	BLOCKER_RESOLUTION_ALLOWANCE,
 	type SliceAttemptBudgetClaimResult,
 	type SliceAttemptBudgetCounter,
@@ -792,7 +797,7 @@ function renderExecutorSliceFocus(
 		`Modules: ${brief.moduleRealizations
 			.map(
 				(module) =>
-					`${module.action} ${module.compositionId} (${module.role}, host ${module.hostRecord === null ? "none" : `${module.hostRecord.name} -> ${module.hostRecord.blueprintCaseType}`})`,
+					`${module.action} ${module.compositionId} (${module.role}, menu parent ${module.parentModuleCompositionId ?? "top-level"}, after ${module.afterSiblingModuleCompositionId ?? "first"}, record host ${module.hostRecord === null ? "none" : `${module.hostRecord.name} -> ${module.hostRecord.blueprintCaseType}`})`,
 			)
 			.join("; ")}.`,
 		`Forms: ${brief.formRealizations
@@ -1870,6 +1875,11 @@ export async function runSliceExecutor(
 							workspace.currentSnapshot().doc,
 							brief,
 						);
+						const placementIssues = acceptedModulePlacementIssues(
+							workspace.currentSnapshot().doc,
+							brief,
+						);
+						const acceptedIssues = [...requirementIssues, ...placementIssues];
 						if (stale.length > 0) {
 							await emitOutcome(
 								call,
@@ -1887,11 +1897,11 @@ export async function runSliceExecutor(
 								kind: "stop",
 								outcome: { kind: "read-set-stale", stale },
 							};
-						} else if (!diagnostics.canCommit || requirementIssues.length > 0) {
+						} else if (!diagnostics.canCommit || acceptedIssues.length > 0) {
 							const projected = projectDiagnostics(
 								diagnostics,
 								brief,
-								requirementIssues,
+								acceptedIssues,
 							);
 							const observed = await observeSemanticFailure({
 								signature: failureSignature({
@@ -1899,19 +1909,17 @@ export async function runSliceExecutor(
 									fingerprints: diagnostics.allFindings
 										.map(findingFingerprint)
 										.concat(
-											requirementIssues.map((issue) =>
-												canonicalJsonDigest(issue),
-											),
+											acceptedIssues.map((issue) => canonicalJsonDigest(issue)),
 										)
 										.sort(),
 									canCommit:
-										diagnostics.canCommit && requirementIssues.length === 0,
+										diagnostics.canCommit && acceptedIssues.length === 0,
 								}),
 								observations:
 									diagnostics.allFindings.length > 0 ||
-									requirementIssues.length > 0
+									acceptedIssues.length > 0
 										? [
-												...requirementIssues.map(
+												...acceptedIssues.map(
 													(issue) => `${issue.code}: ${issue.message}`,
 												),
 												...diagnostics.allFindings.map(
@@ -2271,6 +2279,25 @@ export function compositionAdmissionIssue(
 		if (realization === undefined) {
 			return "This slice may create only the exact accepted module composition, with its accepted display name and record host. Reuse an earlier composed module when the brief says reuse; do not create a parallel record home.";
 		}
+		const expectedParentUuid =
+			realization.parentModuleCompositionId === null
+				? null
+				: realizedModuleUuid(
+						snapshot,
+						brief,
+						realization.parentModuleCompositionId,
+					);
+		const suppliedParentUuid =
+			object.parentModuleUuid === undefined
+				? null
+				: resolveCheckpointIdentity(object.parentModuleUuid, workspace);
+		if (
+			(realization.parentModuleCompositionId !== null &&
+				expectedParentUuid === null) ||
+			suppliedParentUuid !== expectedParentUuid
+		) {
+			return "Create this module in the exact accepted parent menu. Omit parentModuleUuid only for a top-level composition; otherwise reference the parent module realization from the brief.";
+		}
 		if (toolName === "createModule") {
 			const forms = Array.isArray(object.forms) ? object.forms : [];
 			if (
@@ -2292,6 +2319,61 @@ export function compositionAdmissionIssue(
 					return "A form nested in this module does not match an accepted form name, mode, and module composition for this workflow slice.";
 				}
 			}
+		}
+		return null;
+	}
+
+	if (toolName === "moveModule") {
+		const moduleUuid = resolveCheckpointIdentity(object.moduleUuid, workspace);
+		const module =
+			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
+		if (module === undefined) return null;
+		const realization = brief.moduleRealizations.find((entry) => {
+			const composition = brief.moduleCompositions.find(
+				(candidate) => candidate.id === entry.compositionId,
+			);
+			return (
+				composition?.name === module.name &&
+				(entry.hostRecord?.blueprintCaseType ?? null) ===
+					(module.caseType ?? null)
+			);
+		});
+		if (realization === undefined) {
+			return "This slice may move only a module represented by its accepted module composition.";
+		}
+		const expectedParentUuid =
+			realization.parentModuleCompositionId === null
+				? null
+				: realizedModuleUuid(
+						snapshot,
+						brief,
+						realization.parentModuleCompositionId,
+					);
+		const expectedAfterUuid =
+			realization.afterSiblingModuleCompositionId === null
+				? null
+				: realizedModuleUuid(
+						snapshot,
+						brief,
+						realization.afterSiblingModuleCompositionId,
+					);
+		const requestedParentUuid =
+			object.parentModuleUuid === undefined
+				? (module.parentModuleUuid ?? null)
+				: resolveCheckpointIdentity(object.parentModuleUuid, workspace);
+		const requestedAfterUuid = resolveCheckpointIdentity(
+			object.after,
+			workspace,
+		);
+		if (
+			(realization.parentModuleCompositionId !== null &&
+				expectedParentUuid === null) ||
+			(realization.afterSiblingModuleCompositionId !== null &&
+				expectedAfterUuid === null) ||
+			requestedParentUuid !== expectedParentUuid ||
+			requestedAfterUuid !== expectedAfterUuid
+		) {
+			return "Move this module only to the exact accepted parent and preceding sibling in the execution brief. Omit parentModuleUuid only for an in-menu reorder; pass null to make it top-level.";
 		}
 		return null;
 	}
@@ -2382,7 +2464,10 @@ function terminalProtocolCode(error: unknown): string | null {
 function projectDiagnostics(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
 	brief: SliceExecutionBrief,
-	acceptedRequirementIssues: readonly AcceptedInputRequirementIssue[] = [],
+	acceptedRequirementIssues: readonly (
+		| AcceptedInputRequirementIssue
+		| AcceptedModulePlacementIssue
+	)[] = [],
 ): unknown {
 	const MAX_REPORTED_FINDINGS = 20;
 	const initialResultsRealizations = brief.moduleRealizations.filter(

@@ -46,6 +46,27 @@ const BASELINE = toPersistableDoc(
 	}),
 );
 const INVALID_BASELINE = { ...BASELINE, appName: "" };
+const MODULE_HISTORY_BASELINE = toPersistableDoc(
+	buildDoc({
+		appName: "Module history",
+		modules: ["One", "Two", "Three"].map((name) => ({
+			name,
+			forms: [
+				{
+					name: `${name} survey`,
+					type: "survey" as const,
+					fields: [
+						f({
+							kind: "text",
+							id: `${name.toLowerCase()}_question`,
+							label: proseText(`${name} question`),
+						}),
+					],
+				},
+			],
+		})),
+	}),
+);
 
 function row(seq: string, mutations: unknown) {
 	return {
@@ -214,6 +235,35 @@ describe("replayCanonicalAppChangeSuffix", () => {
 		expect(result.headSeq).toBe("5");
 		expect(result.batches).toBe(1);
 		expect(result.mutations).toBe(1);
+	});
+
+	it("replays a historical narrow move before an explicit reparent", () => {
+		const [one, , three] = MODULE_HISTORY_BASELINE.moduleOrder;
+		const result = replay({
+			baselineSnapshotText: JSON.stringify(MODULE_HISTORY_BASELINE),
+			expectedHeadSeq: "6",
+			suffix: [
+				// Historical rows have no parentModuleUuid. They remain a reorder in
+				// the module's current sibling group instead of being reinterpreted as
+				// an explicit promotion to the root.
+				row("5", [{ kind: "moveModule", uuid: three, after: null }]),
+				row("6", [
+					{
+						kind: "moveModule",
+						uuid: three,
+						parentModuleUuid: one,
+						after: null,
+					},
+				]),
+			],
+		});
+		expect(result.snapshot.modules[three]?.parentModuleUuid).toBe(one);
+		expect(result.snapshot.moduleOrder).toEqual([
+			one,
+			three,
+			MODULE_HISTORY_BASELINE.moduleOrder[1],
+		]);
+		expect(result.mutations).toBe(2);
 	});
 
 	it("admits the final safe sequence exactly and cannot advance past it", () => {

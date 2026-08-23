@@ -257,6 +257,11 @@ export function assembleBlueprint(
 				flatRowsBySlot.set(flatSlot, list);
 			}
 		} else if (row.kind === "module") {
+			if (row.parent_uuid !== null) {
+				throw new Error(
+					`Blueprint module ${row.uuid} has unexpected entity-row parent ${row.parent_uuid}; menu parentage belongs in module data.`,
+				);
+			}
 			modules = recordWithValue<unknown>(modules, row.uuid, row.data);
 			moduleRows.push(row);
 		} else if (row.kind === "form") {

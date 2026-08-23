@@ -734,6 +734,69 @@ describe("readCases", () => {
 		expect(ids).toEqual([ALICE_CASE_ID, BOB_CASE_ID].sort());
 	});
 
+	it.each(["child", "extension"] as const)(
+		"constrains a %s case list to the selected case-type parent",
+		async (relationship) => {
+			const store = makeStore(PROJECT_A, OWNER_A);
+			const visitCaseType = { ...VISIT_CASE_TYPE, relationship };
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE, visitCaseType]);
+			await seedSchema(store, blueprint, "patient");
+			await seedSchema(store, blueprint, "visit");
+			for (const [caseId, name] of [
+				[ALICE_CASE_ID, "Alice"],
+				[BOB_CASE_ID, "Bob"],
+			] as const) {
+				await store.insert({
+					appId: APP_ID,
+					row: {
+						case_id: caseId,
+						case_type: "patient",
+						case_name: name,
+						status: "open",
+						properties: {},
+					},
+				});
+			}
+			await store.insert({
+				appId: APP_ID,
+				parentRelationship: relationship,
+				row: {
+					case_id: VISIT_CASE_ID,
+					case_type: "visit",
+					case_name: "Alice visit",
+					status: "open",
+					parent_case_id: ALICE_CASE_ID,
+					properties: {},
+				},
+			});
+			const bobVisitId = "40000000-0000-0000-0000-000000000005";
+			await store.insert({
+				appId: APP_ID,
+				parentRelationship: relationship,
+				row: {
+					case_id: bobVisitId,
+					case_type: "visit",
+					case_name: "Bob visit",
+					status: "open",
+					parent_case_id: BOB_CASE_ID,
+					properties: {},
+				},
+			});
+
+			const result = await readCases(store, {
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
+				parentCase: { caseType: "patient", caseId: ALICE_CASE_ID },
+			});
+
+			expect(result.kind).toBe("rows");
+			if (result.kind !== "rows") return;
+			expect(result.rows.map((row) => row.case_id)).toEqual([VISIT_CASE_ID]);
+			expect(result.constraintSource).toBe("authored-rules");
+		},
+	);
+
 	// The reveal beside Results is the ONLY consumer of the whole-tenant count
 	// behind `outsideRestoreCount`. It is a second `store.count` over the same
 	// predicate with the restriction lifted, so a path that draws nothing must
@@ -3057,6 +3120,93 @@ describe("applySubmission — registration", () => {
 			ancestor_id: result.primaryCaseId,
 		});
 	});
+
+	it.each(["child", "extension"] as const)(
+		"links a parent-aware registration primary with the committed %s relationship",
+		async (relationship) => {
+			const store = makeStore(PROJECT_A, OWNER_A);
+			const visitCaseType: CaseType = {
+				...VISIT_CASE_TYPE,
+				relationship,
+			};
+			const blueprint = buildDoc({
+				appName: "Parent-aware registration",
+				caseTypes: [PATIENT_CASE_TYPE, visitCaseType],
+				modules: [
+					{
+						name: "Visits",
+						caseType: "visit",
+						forms: [
+							{
+								uuid: FINAL_FORM_UUID,
+								name: "Register visit",
+								type: "registration",
+								fields: [],
+							},
+						],
+					},
+				],
+			});
+			await seedSchema(store, blueprint, "patient");
+			await seedSchema(store, blueprint, "visit");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: ALICE_CASE_ID,
+					case_type: "patient",
+					case_name: "Alice",
+					status: "open",
+					properties: {},
+				},
+			});
+
+			const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
+				kind: "registration",
+				...FINAL_SUBMISSION_PROTOCOL,
+				primary: {
+					caseType: "visit",
+					caseName: "First visit",
+					properties: { notes: "checkup" },
+					parentCaseId: ALICE_CASE_ID,
+				},
+				children: [],
+			};
+			const projection = validateCaptureSubmissionProjection(mutation);
+			const identity = previewAsMe({ id: OWNER_A });
+			if (identity === null) throw new Error("expected preview identity");
+			const built = buildCaseOperationProgramFromDoc({
+				blueprint: pickBlueprintDoc(blueprint),
+				mutation,
+				projection,
+				identity,
+			});
+			expect(built.ordinaryRegistrationParent).toEqual({
+				childCaseType: "visit",
+				parentCaseType: "patient",
+				relationship,
+			});
+
+			const result = await store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, built),
+			);
+			const createdCaseId = result.primaryCaseId;
+			expect(createdCaseId).toBeDefined();
+			const edge = await sql<{
+				identifier: string;
+				relationship: string;
+				ancestor_id: string;
+			}>`
+				SELECT identifier, relationship, ancestor_id
+				FROM case_indices
+				WHERE case_id = ${createdCaseId ?? ""}
+			`.execute(dbHandle.db);
+			expect(edge.rows[0]).toEqual({
+				identifier: "parent",
+				relationship,
+				ancestor_id: ALICE_CASE_ID,
+			});
+		},
+	);
 
 	it("admits zero children and lands the primary alone", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);

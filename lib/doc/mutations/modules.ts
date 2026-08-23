@@ -10,9 +10,108 @@ import {
 	caseSearchConfigHasAuthoredSettings,
 	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
+	type Uuid,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { cascadeDeleteForm } from "./helpers";
+
+type ModuleParent = Uuid | null;
+
+function moduleParentOf(
+	draft: Draft<BlueprintDoc>,
+	uuid: Uuid,
+): ModuleParent | undefined {
+	const module = draft.modules[uuid];
+	if (module === undefined) return undefined;
+	return module.parentModuleUuid ?? null;
+}
+
+function moduleSiblings(
+	draft: Draft<BlueprintDoc>,
+	parentModuleUuid: ModuleParent,
+	excluding?: Uuid,
+): Uuid[] {
+	return draft.moduleOrder.filter(
+		(uuid) =>
+			uuid !== excluding && moduleParentOf(draft, uuid) === parentModuleUuid,
+	);
+}
+
+function moduleChildren(
+	draft: Draft<BlueprintDoc>,
+	parentModuleUuid: Uuid,
+): Uuid[] {
+	return moduleSiblings(draft, parentModuleUuid);
+}
+
+/**
+ * Compute one complete module placement without mutating the draft. Invalid
+ * replay input returns undefined so parentage and preorder remain unchanged.
+ */
+function placedModuleOrder(
+	draft: Draft<BlueprintDoc>,
+	uuid: Uuid,
+	destinationParent: ModuleParent,
+	after: Uuid | null | undefined,
+	moving: readonly Uuid[],
+): Uuid[] | undefined {
+	if (destinationParent !== null) {
+		if (destinationParent === uuid) return undefined;
+		if (moduleParentOf(draft, destinationParent) !== null) return undefined;
+		if (moving.length > 1) return undefined;
+	}
+
+	const destinationSiblings = moduleSiblings(draft, destinationParent, uuid);
+	if (
+		after !== undefined &&
+		after !== null &&
+		!destinationSiblings.includes(after)
+	) {
+		return undefined;
+	}
+
+	const movingSet = new Set(moving);
+	const without = draft.moduleOrder.filter((entry) => !movingSet.has(entry));
+	let insertionIndex: number;
+	if (destinationParent === null) {
+		if (after === undefined) insertionIndex = without.length;
+		else if (after === null) insertionIndex = 0;
+		else {
+			const anchorIndex = without.indexOf(after);
+			if (anchorIndex < 0) return undefined;
+			insertionIndex = anchorIndex + 1;
+			while (
+				insertionIndex < without.length &&
+				moduleParentOf(draft, without[insertionIndex] as Uuid) === after
+			) {
+				insertionIndex++;
+			}
+		}
+	} else {
+		const parentIndex = without.indexOf(destinationParent);
+		if (parentIndex < 0) return undefined;
+		if (after === null) insertionIndex = parentIndex + 1;
+		else if (after !== undefined) {
+			const anchorIndex = without.indexOf(after);
+			if (anchorIndex < 0) return undefined;
+			insertionIndex = anchorIndex + 1;
+		} else {
+			insertionIndex = parentIndex + 1;
+			while (
+				insertionIndex < without.length &&
+				moduleParentOf(draft, without[insertionIndex] as Uuid) ===
+					destinationParent
+			) {
+				insertionIndex++;
+			}
+		}
+	}
+	return [
+		...without.slice(0, insertionIndex),
+		...moving,
+		...without.slice(insertionIndex),
+	];
+}
 
 /**
  * Module mutations operate on the `modules`, `moduleOrder`, and `formOrder`
@@ -66,16 +165,27 @@ export function applyModuleMutation(
 	switch (mut.kind) {
 		case "addModule": {
 			const { uuid } = mut.module;
+			const destinationParent = mut.module.parentModuleUuid ?? null;
+			const nextOrder = placedModuleOrder(
+				draft,
+				uuid,
+				destinationParent,
+				mut.after,
+				[uuid],
+			);
+			if (nextOrder === undefined) return;
 			const module = structuredClone(mut.module);
 			draft.modules[uuid] = module;
 			draft.formOrder[uuid] = [];
-			// The membership array IS the sequence, so the add splices.
-			draft.moduleOrder = spliceAfter(draft.moduleOrder, uuid, mut.after);
+			draft.moduleOrder = nextOrder;
 			return;
 		}
 		case "removeModule": {
 			const { uuid } = mut;
 			if (draft.modules[uuid] === undefined) return;
+			// Child modules are independent authored entities. A parent cannot be
+			// removed until an earlier command has moved or removed each child.
+			if (moduleChildren(draft, uuid).length > 0) return;
 			// Cascade: delete each form and its field subtree before clearing the module.
 			for (const formUuid of [...(draft.formOrder[uuid] ?? [])]) {
 				cascadeDeleteForm(draft, formUuid);
@@ -90,9 +200,33 @@ export function applyModuleMutation(
 			// A move of a module a peer removed is a no-op — replay must not
 			// resurrect it. `spliceAfter` inserts unconditionally, which is right
 			// for an add and wrong for a move.
-			if (draft.modules[mut.uuid] === undefined) return;
-			// The membership array IS the sequence, so a move is a splice.
-			draft.moduleOrder = spliceAfter(draft.moduleOrder, mut.uuid, mut.after);
+			if (
+				draft.modules[mut.uuid] === undefined ||
+				!draft.moduleOrder.includes(mut.uuid)
+			) {
+				return;
+			}
+			const currentParent = moduleParentOf(draft, mut.uuid);
+			if (currentParent === undefined) return;
+			const destinationParent = Object.hasOwn(mut, "parentModuleUuid")
+				? (mut.parentModuleUuid ?? null)
+				: currentParent;
+			const moving =
+				currentParent === null
+					? [mut.uuid, ...moduleChildren(draft, mut.uuid)]
+					: [mut.uuid];
+			const nextOrder = placedModuleOrder(
+				draft,
+				mut.uuid,
+				destinationParent,
+				mut.after,
+				moving,
+			);
+			if (nextOrder === undefined) return;
+			const module = draft.modules[mut.uuid];
+			if (destinationParent === null) delete module.parentModuleUuid;
+			else module.parentModuleUuid = destinationParent;
+			draft.moduleOrder = nextOrder;
 			return;
 		}
 		case "renameModule": {

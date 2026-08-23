@@ -8,9 +8,11 @@ import {
 import {
 	cloneContract,
 	did,
+	fixtureValue,
 	ids,
 	makeBuildPlan,
 	makeContract,
+	makeNestedMenuContract,
 	makeThirteenWorkflowContract,
 } from "./fixtures";
 
@@ -31,6 +33,33 @@ describe("deterministic build planning", () => {
 		]);
 		expect(plan.slices[0]?.role).toBe("materialization-root");
 		expect(plan.slices[1]?.prerequisiteSliceIds).toEqual([plan.slices[0]?.id]);
+	});
+
+	it("adds the parent owner as the child module owner's prerequisite", () => {
+		const contract = makeNestedMenuContract();
+		const childWorkflow = fixtureValue(
+			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
+			"child workflow",
+		);
+		childWorkflow.prerequisiteWorkflowIds = [];
+		childWorkflow.prerequisites = [];
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const parentSlice = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === ids.taskRegister),
+			"parent owner slice",
+		);
+		const childSlice = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === ids.taskVisit),
+			"child owner slice",
+		);
+		expect(parentSlice.role).toBe("materialization-root");
+		expect(parentSlice.prerequisiteSliceIds).toEqual([]);
+		expect(childSlice.prerequisiteSliceIds).toContain(parentSlice.id);
+		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
 	});
 
 	it("is stable for the same accepted revision", () => {

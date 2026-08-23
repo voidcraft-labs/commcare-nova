@@ -81,7 +81,7 @@ describe("budgetForSlice", () => {
 		 * bump EXECUTOR_PROMPT_VERSION or every budget-exhausted slice stays
 		 * permanently closed under the old limits. The pins above break on any
 		 * retune; this pin makes that diff also name the version bump. */
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v13");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v14");
 	});
 
 	it("is pure for a derived slice", () => {

@@ -44,7 +44,6 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
-	"GAP_NESTED_MENUS",
 	"GAP_SESSION_ENDPOINTS_DEEP_LINKS",
 	"GAP_MULTI_SELECT_RELATED_CASES",
 ] as const;
@@ -178,14 +177,6 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"On-device date arithmetic can faithfully add fixed seconds through weeks to a date. Calendar-relative months or years, and date-add over a datetime, are rejected because JavaRosa cannot preserve their semantics; a design that requires true calendar milestones must resolve that requirement instead of lowering it to hand-built leap-year arithmetic or an unstated day approximation.",
 		sourceAnchor:
 			"lib/commcare/expression/onDeviceCompatibility.ts::onDeviceDateAddIssue",
-	},
-	GAP_NESTED_MENUS: {
-		code: "GAP_NESTED_MENUS",
-		statement:
-			"One-tier menu nesting and native linked-form reuse are a deliberate target gap; navigation is a flat module list until that unit ships.",
-		sourceAnchor:
-			"docs/plans/complex-app/nested-menus-and-linked-form-reuse.md",
-		gapUnitFile: "nested-menus-and-linked-form-reuse.md",
 	},
 	GAP_SESSION_ENDPOINTS_DEEP_LINKS: {
 		code: "GAP_SESSION_ENDPOINTS_DEEP_LINKS",

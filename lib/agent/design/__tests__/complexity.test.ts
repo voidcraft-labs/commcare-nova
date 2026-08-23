@@ -3,7 +3,13 @@ import {
 	computeDesignComplexity,
 	DESIGN_EFFORT_TIME_ESTIMATES,
 } from "@/lib/agent/design/complexity";
-import { cloneContract, did, fixtureValue, makeContract } from "./fixtures";
+import {
+	cloneContract,
+	did,
+	fixtureValue,
+	makeContract,
+	makeNestedMenuContract,
+} from "./fixtures";
 
 describe("computeDesignComplexity", () => {
 	it("is deterministic and records semantic shape", () => {
@@ -18,6 +24,14 @@ describe("computeDesignComplexity", () => {
 		const evidence = computeDesignComplexity(makeContract());
 		expect(["compact", "standard", "extended"]).toContain(evidence.depth);
 		expect(DESIGN_EFFORT_TIME_ESTIMATES[evidence.depth]).toMatch(/about/);
+	});
+
+	it("records one-tier menu complexity under algorithm version 2", () => {
+		const flat = computeDesignComplexity(makeContract());
+		const nested = computeDesignComplexity(makeNestedMenuContract());
+		expect(nested.algorithmVersion).toBe(2);
+		expect(nested.components.nestedMenuCount).toBe(1);
+		expect(nested.score).toBe(flat.score + 1);
 	});
 
 	it("moves a genuinely broader workflow shape to extended", () => {

@@ -152,6 +152,9 @@ export function useCases(args: {
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValues;
 	excludedOwnerIdsExpression?: ValueExpression;
+	/** A different-type parent selected by the containing menu. The server
+	 * constrains this child list through its canonical `parent` case index. */
+	parentCase?: { readonly caseType: string; readonly caseId: string };
 	caseTypes?: readonly CaseType[];
 	/** Optional bounded server window for a real Results surface. */
 	page?: { readonly offset: number; readonly limit: number };
@@ -180,6 +183,7 @@ export function useCases(args: {
 		caseListConfig,
 		inputValues,
 		excludedOwnerIdsExpression,
+		parentCase,
 		caseTypes,
 		page,
 		requestScopeKey = "",
@@ -204,7 +208,7 @@ export function useCases(args: {
 	 * beside the result so the render that precedes the refetch effect can never
 	 * project old rows through the new module's columns or row actions. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCase?.caseType ?? "no-parent"}\u0000${parentCase?.caseId ?? "no-parent"}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -212,6 +216,7 @@ export function useCases(args: {
 			caseListConfig,
 			inputValues,
 			excludedOwnerIdsExpression,
+			parentCase,
 			caseTypes,
 			caseDataRevision,
 		],
@@ -220,6 +225,7 @@ export function useCases(args: {
 			caseListConfig,
 			inputValues,
 			excludedOwnerIdsExpression,
+			parentCase,
 			caseTypes,
 			caseDataRevision,
 		],
@@ -252,6 +258,7 @@ export function useCases(args: {
 									? searchInputValuesToWire(inputValues)
 									: undefined,
 								excludedOwnerIdsExpression,
+								parentCase,
 								page:
 									pageOffset === undefined || pageLimit === undefined
 										? undefined

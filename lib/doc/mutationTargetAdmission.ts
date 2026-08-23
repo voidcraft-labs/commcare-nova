@@ -38,6 +38,16 @@ export function mutationTargetsInvalid(
 	if (mutationIdentityAdmissionIssue(doc, mutations) !== undefined) return true;
 	if (mutationSequenceAdmissionIssue(doc, mutations) !== undefined) return true;
 	const modules = new Set(Object.keys(doc.modules));
+	const moduleParents = new Map<string, string | null>();
+	const moduleChildren = new Map<string, Set<string>>();
+	for (const module of Object.values(doc.modules)) {
+		const parent = module.parentModuleUuid ?? null;
+		moduleParents.set(module.uuid, parent);
+		moduleChildren.set(module.uuid, new Set());
+	}
+	for (const [uuid, parent] of moduleParents) {
+		if (parent !== null) moduleChildren.get(parent)?.add(uuid);
+	}
 	const forms = new Set(Object.keys(doc.forms));
 	const fields = new Set(Object.keys(doc.fields));
 	const formOwners = new Map<string, string>();
@@ -290,6 +300,8 @@ export function mutationTargetsInvalid(
 			if (owner === moduleUuid) removeFormTree(formUuid);
 		}
 		modules.delete(moduleUuid);
+		moduleParents.delete(moduleUuid);
+		moduleChildren.delete(moduleUuid);
 		modulesWithConfig.delete(moduleUuid);
 		for (const [columnUuid, owner] of columnOwners) {
 			if (owner === moduleUuid) columnOwners.delete(columnUuid);
@@ -338,22 +350,42 @@ export function mutationTargetsInvalid(
 	for (const m of mutations) {
 		switch (m.kind) {
 			case "addModule":
-				modules.add(m.module.uuid);
-				// A module can be born WITH a case-list config (the scaffold's
-				// case-list viewer) — seed config presence so a same-batch
-				// `setCaseListMeta` on it resolves.
-				if (m.module.caseListConfig !== undefined) {
-					modulesWithConfig.add(m.module.uuid);
-					for (const column of m.module.caseListConfig.columns) {
-						columnOwners.set(column.uuid, m.module.uuid);
+				{
+					const parent = m.module.parentModuleUuid ?? null;
+					if (
+						parent === m.module.uuid ||
+						(parent !== null &&
+							(!modules.has(parent) || moduleParents.get(parent) !== null))
+					) {
+						return true;
 					}
-					for (const input of m.module.caseListConfig.searchInputs) {
-						searchInputOwners.set(input.uuid, m.module.uuid);
+					modules.add(m.module.uuid);
+					moduleParents.set(m.module.uuid, parent);
+					moduleChildren.set(m.module.uuid, new Set());
+					if (parent !== null) moduleChildren.get(parent)?.add(m.module.uuid);
+					// A module can be born WITH a case-list config (the scaffold's
+					// case-list viewer) — seed config presence so a same-batch
+					// `setCaseListMeta` on it resolves.
+					if (m.module.caseListConfig !== undefined) {
+						modulesWithConfig.add(m.module.uuid);
+						for (const column of m.module.caseListConfig.columns) {
+							columnOwners.set(column.uuid, m.module.uuid);
+						}
+						for (const input of m.module.caseListConfig.searchInputs) {
+							searchInputOwners.set(input.uuid, m.module.uuid);
+						}
 					}
 				}
 				break;
 			case "removeModule":
 				if (!modules.has(m.uuid)) return true;
+				if ((moduleChildren.get(m.uuid)?.size ?? 0) > 0) return true;
+				{
+					const parent = moduleParents.get(m.uuid);
+					if (parent !== undefined && parent !== null) {
+						moduleChildren.get(parent)?.delete(m.uuid);
+					}
+				}
 				removeModuleTree(m.uuid);
 				break;
 			case "updateModule":
@@ -374,7 +406,32 @@ export function mutationTargetsInvalid(
 					modulesWithConfig.add(m.uuid);
 				}
 				break;
-			case "moveModule":
+			case "moveModule": {
+				if (!modules.has(m.uuid)) return true;
+				const currentParent = moduleParents.get(m.uuid);
+				if (currentParent === undefined) return true;
+				const destinationParent = Object.hasOwn(m, "parentModuleUuid")
+					? (m.parentModuleUuid ?? null)
+					: currentParent;
+				if (
+					destinationParent === m.uuid ||
+					(destinationParent !== null &&
+						(!modules.has(destinationParent) ||
+							moduleParents.get(destinationParent) !== null)) ||
+					(destinationParent !== null &&
+						(moduleChildren.get(m.uuid)?.size ?? 0) > 0)
+				) {
+					return true;
+				}
+				if (currentParent !== null) {
+					moduleChildren.get(currentParent)?.delete(m.uuid);
+				}
+				if (destinationParent !== null) {
+					moduleChildren.get(destinationParent)?.add(m.uuid);
+				}
+				moduleParents.set(m.uuid, destinationParent);
+				break;
+			}
 			case "renameModule":
 			case "setModuleMedia":
 				if (!modules.has(m.uuid)) return true;

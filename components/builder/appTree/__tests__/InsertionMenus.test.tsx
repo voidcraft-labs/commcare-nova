@@ -85,7 +85,13 @@ beforeEach(() => {
 
 describe("structure insertion menus", () => {
 	it("uses the shared popover and menu-row module choices", async () => {
-		render(<AddModulePopover atIndex={1} prominent />);
+		render(
+			<AddModulePopover
+				parentModuleUuid={null}
+				afterSiblingUuid={"module-1" as Uuid}
+				prominent
+			/>,
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Add module" }));
 
 		const caseList = await screen.findByRole("button", { name: /Case list/ });
@@ -106,9 +112,26 @@ describe("structure insertion menus", () => {
 		fireEvent.click(await screen.findByRole("button", { name: "Client" }));
 		expect(mocks.createCaseListModule).toHaveBeenCalledWith({
 			caseType: "client",
-			index: 1,
+			after: "module-1",
 		});
 		expect(mocks.openCaseList).toHaveBeenCalledWith("module-2");
+	});
+
+	it("creates a submenu with stable parent and sibling identities", async () => {
+		render(
+			<AddModulePopover
+				parentModuleUuid={"module-1" as Uuid}
+				afterSiblingUuid={null}
+				prominent
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Add submenu" }));
+		fireEvent.click(await screen.findByRole("button", { name: /Survey/ }));
+		expect(mocks.createSurveyModule).toHaveBeenCalledWith({
+			parentModuleUuid: "module-1",
+			after: null,
+		});
+		expect(mocks.openModule).toHaveBeenCalledWith("module-3");
 	});
 
 	it("uses the shared dropdown and explains disabled form choices", async () => {

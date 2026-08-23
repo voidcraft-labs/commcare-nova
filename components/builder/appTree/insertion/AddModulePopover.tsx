@@ -25,6 +25,7 @@ import {
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import type { Uuid } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
@@ -36,14 +37,17 @@ import {
 } from "./TreeInsertionAffordance";
 
 interface AddModulePopoverProps {
-	/** Insertion index in `moduleOrder`. */
-	readonly atIndex: number;
+	/** Destination sibling group. `null` is the top-level root group. */
+	readonly parentModuleUuid: Uuid | null;
+	/** Stable sibling anchor in that group. `null` means first. */
+	readonly afterSiblingUuid: Uuid | null;
 	/** The final insertion point is the one persistent keyboard/AT action. */
 	readonly prominent?: boolean;
 }
 
 export function AddModulePopover({
-	atIndex,
+	parentModuleUuid,
+	afterSiblingUuid,
 	prominent = false,
 }: AddModulePopoverProps) {
 	const [open, setOpen] = useState(false);
@@ -55,6 +59,11 @@ export function AddModulePopover({
 	const { openModule, openCaseList } = useNavigate();
 	const { revealed, progress, ref } = useTreeInsertionZone(open);
 	const canEdit = useCanEdit();
+	const actionLabel = parentModuleUuid === null ? "Add module" : "Add submenu";
+	const placement = {
+		...(parentModuleUuid !== null && { parentModuleUuid }),
+		after: afterSiblingUuid,
+	};
 
 	// Reset transient state whenever the popover closes: by dismiss
 	// (Base UI calls `onOpenChange`) OR by a programmatic close after a
@@ -76,7 +85,7 @@ export function AddModulePopover({
 	};
 
 	const handleSurvey = () => {
-		const outcome = inline.createSurveyModule({ index: atIndex });
+		const outcome = inline.createSurveyModule(placement);
 		if (outcome.ok) {
 			openModule(outcome.uuid);
 			close();
@@ -86,7 +95,7 @@ export function AddModulePopover({
 	};
 
 	const handleCaseList = (caseType: string) => {
-		const outcome = inline.createCaseListModule({ caseType, index: atIndex });
+		const outcome = inline.createCaseListModule({ caseType, ...placement });
 		if (outcome.ok) {
 			// Born a `caseListOnly` viewer (no forms), so its home is the case
 			// list, not an empty form menu: land on the config directly.
@@ -112,12 +121,14 @@ export function AddModulePopover({
 					style={insertionTriggerStyle(revealed, prominent)}
 					tabIndex={prominent ? 0 : -1}
 					aria-hidden={prominent ? undefined : true}
-					aria-label="Add module"
+					aria-label={actionLabel}
 				>
 					<TreeInsertionLine
 						revealed={prominent || revealed}
 						progress={progress}
-						label={prominent ? "Add module" : "Module"}
+						label={
+							prominent ? actionLabel : parentModuleUuid ? "Submenu" : "Module"
+						}
 					/>
 				</PopoverTrigger>
 				<PopoverContent
@@ -126,7 +137,7 @@ export function AddModulePopover({
 					sideOffset={6}
 					className="w-64 gap-0 p-1.5"
 				>
-					<PopoverTitle className="sr-only">Add module</PopoverTitle>
+					<PopoverTitle className="sr-only">{actionLabel}</PopoverTitle>
 					<PopoverDescription className="sr-only">
 						Choose the kind of module to add
 					</PopoverDescription>

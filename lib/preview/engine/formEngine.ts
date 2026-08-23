@@ -2705,9 +2705,11 @@ export class FormEngine {
 				// row of the parent chain (the preview counterpart of the
 				// wire's `…/index/parent × depth …` casedb walk — depth is
 				// implicit in which row claimed the type name). On a
-				// registration form no case is loaded, the map is empty,
-				// and every case ref reads blank, matching the wire's
-				// narrowing (the new case isn't in casedb at form init).
+				// registration form ordinarily has no loaded case, so its
+				// map is empty and case refs read blank. A parent-select
+				// session may deliberately supply the selected parent under
+				// its case-type namespace; that mirrors the wire's menu datum
+				// and casedb lookup before the new child case exists.
 				const match = /^#([^/]+)\/(.+)$/.exec(ref);
 				if (match) {
 					const namespace = match[1];

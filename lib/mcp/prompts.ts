@@ -77,13 +77,8 @@ export type PromptMode = "build" | "autonomous_build" | "edit";
  * plugin's bootstrap checks before it builds anything.
  *
  * The prompt reaches its executor as an MCP *tool result*, and tool
- * results are size-capped by rules the server can't observe. When a
- * result overruns, the host replaces it with a short preview plus a
- * path to the full text on disk; the autonomous subagent's tool
- * allowlist is MCP tools only, so it cannot open that file and proceeds
- * on the preview. `MAX_DELIVERABLE_PROMPT_CHARS` keeps us clear of the
- * cap, but a cap we don't control can move, so the marker is what makes
- * a short delivery *loud*: the bootstrap refuses to build without it
+ * results can be size-capped by rules the server can't observe. The marker
+ * makes a short delivery loud: the bootstrap refuses to build without it
  * rather than silently running on a fraction of its instructions.
  *
  * Anything appended after this constant is invisible to that check, so
@@ -91,51 +86,6 @@ export type PromptMode = "build" | "autonomous_build" | "edit";
  * app-state block.
  */
 export const PROMPT_END_MARKER = "NOVA-PROMPT-END";
-
-/**
- * Char budget for a rendered prompt, enforced by
- * `lib/mcp/__tests__/promptDeliveryBudget.test.ts`.
- *
- * Two independent host limits sit above this number, and overrunning
- * either one strands the prompt in a file the autonomous subagent
- * cannot read:
- *
- *   - a per-tool-result char cap, which `get_agent_prompt` raises for
- *     itself (see `MAX_RESULT_SIZE_CHARS` in `tools/getAgentPrompt.ts`);
- *   - an MCP-wide token cap of roughly this magnitude in chars, which
- *     nothing server-side can raise.
- *
- * The second is the real ceiling, and it is denominated in TOKENS while
- * everything we can measure here is chars. The host applies a rough
- * 4-chars-per-token estimate only as a fast pre-check and then counts
- * for real, so the conversion has to be assumed pessimistically rather
- * than taken at 4: the blueprint summary is dense with identifiers,
- * paths, and punctuation, which tokenize worse than the prose around
- * it. This number is sized as though a char were a third of a token,
- * which leaves the budget deliberately short of what the cap would
- * probably allow.
- *
- * Being wrong in that direction costs a `get_app` round trip on the
- * largest apps. Being wrong in the other direction costs the whole
- * prompt, so the asymmetry decides the number.
- *
- * **This number is an estimate, and it is not a place to economize.** It
- * was 72,000 and the prompt reached 71,944 through ordinary growth, at
- * which point the next unit to add a paragraph failed CI in test shards
- * that give no hint the cause was prose. That is a tripwire, not a
- * budget, and the answer to it is never to write the guidance worse.
- * 75,000 keeps the same pessimistic char-to-token assumption and stays
- * three quarters of the per-result char cap Nova itself declares
- * (`resultSize.ts::MAX_RESULT_SIZE_CHARS`, 100,000).
- *
- * It does not buy much, and it is not meant to. The prompt cannot keep
- * growing by raising this: the durable fix is moving reference material
- * — the XPath function tables, the field-kind guide — behind a call the
- * agent makes when it needs them, so a section can be added without
- * every consumer paying for it. Raise this again only alongside that
- * work, or after measuring the real cap rather than estimating it.
- */
-export const MAX_DELIVERABLE_PROMPT_CHARS = 75_000;
 
 /**
  * Per-mode interaction-policy text appended to the system prompt. Both
@@ -212,15 +162,7 @@ export function renderAgentPrompt(
 		? INTERACTIVITY_INSTRUCTIONS.interactive
 		: INTERACTIVITY_INSTRUCTIONS.autonomous;
 	const tail = `\n\n${PROMPT_END_MARKER}`;
-	const appStateBlock = isEditableDoc(editDoc)
-		? appStateBlockFor(
-				editDoc,
-				MAX_DELIVERABLE_PROMPT_CHARS -
-					baseSystem.length -
-					interactivityBlock.length -
-					tail.length,
-			)
-		: "";
+	const appStateBlock = isEditableDoc(editDoc) ? appStateBlockFor(editDoc) : "";
 	/* `PROMPT_END_MARKER` is last by contract — it proves the executor
 	 * received the whole text, so anything after it would be outside
 	 * what the check covers. The app-state block precedes it for the
@@ -232,36 +174,10 @@ export function renderAgentPrompt(
 }
 
 /**
- * The edit-mode "Current app state" block, or a pointer to the tools
- * that read the same thing when the app is too large to inline.
- *
- * The summary is the one unbounded part of this prompt: it scales with
- * the app, and production apps already render past 70,000 chars — more
- * than the whole rest of the prompt. Inlining one of those would push
- * the result past the host's MCP token cap, which no server-side
- * declaration can lift, and the prompt would arrive as a preview of
- * itself. The caller would then be holding neither its instructions nor
- * the app.
- *
- * So a summary that doesn't fit is not truncated — half a structural
- * summary reads like a whole one, and an agent that believes it has
- * seen the app will confidently edit the part it can't see. It is
- * replaced by the instruction to go read the app through the tools that
- * return it in pieces. That costs a round trip on the largest apps and
- * keeps every other guarantee intact.
+ * The complete edit-mode "Current app state" block. The terminal marker
+ * remains the delivery proof for the whole rendered prompt.
  */
-function appStateBlockFor(doc: BlueprintDoc, budget: number): string {
+function appStateBlockFor(doc: BlueprintDoc): string {
 	const summary = summarizeBlueprint(doc);
-	const block = `\n\n---\n\n## Current app state\n\n${summary}`;
-	if (block.length <= budget) return block;
-	return `\n\n---\n\n## Current app state
-
-This app's structure is too large to include here, it would push these
-instructions past what one tool result can carry, and you would receive
-a fragment of them instead.
-
-Read it before you edit: \`get_app\` for the whole summary, \`get_module\`
-and \`get_form\` for one piece at a time, \`search_blueprint\` to find a
-field or property by name. Do not assume any part of this app's shape
-you have not read.`;
+	return `\n\n---\n\n## Current app state\n\n${summary}`;
 }

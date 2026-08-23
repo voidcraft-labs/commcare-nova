@@ -464,6 +464,10 @@ export type SubmissionMutation = SubmissionProtocol &
 					caseName?: string;
 					externalId?: string;
 					properties: JsonObject;
+					/** Value selected by Preview's parent-case flow. The server
+					 * derives the expected parent type and relationship from the
+					 * committed CaseType before the case store accepts this id. */
+					parentCaseId?: string;
 				};
 				children: ReadonlyArray<{
 					caseType: string;

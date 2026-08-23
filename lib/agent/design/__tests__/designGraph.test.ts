@@ -15,6 +15,7 @@ import {
 	fixtureValue,
 	ids,
 	makeContract,
+	makeNestedMenuContract,
 } from "./fixtures";
 
 function messages(value: unknown): string {
@@ -73,6 +74,62 @@ describe("lean Design Contract graph", () => {
 	it("accepts and round-trips a task-complete contract", () => {
 		const contract = makeContract();
 		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
+	});
+
+	it("accepts one-tier parent-first module composition", () => {
+		const contract = makeNestedMenuContract();
+		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
+		expect(constructionMessages(contract)).toBe("");
+	});
+
+	it("rejects a child menu that is ordered before its parent", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		contract.moduleCompositions.reverse();
+		expect(messages(contract)).toContain(
+			"A parent module composition must appear before its child",
+		);
+	});
+
+	it("rejects a second submenu tier", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		const child = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		contract.moduleCompositions.push({
+			...structuredClone(child),
+			id: did(881),
+			name: "Deep follow-up",
+			parentModuleCompositionId: child.id,
+		});
+		expect(messages(contract)).toContain("Nova supports one submenu tier");
+	});
+
+	it("requires a same-owner parent surface in the parent's birth slice", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		const parent = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.modulePatients,
+			),
+			"parent module composition",
+		);
+		const child = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		parent.listIds = [];
+		child.workflowIds = [ids.taskRegister];
+		for (const form of contract.formCompositions) {
+			form.moduleCompositionId =
+				form.workflowId === ids.taskRegister ? child.id : parent.id;
+		}
+		expect(messages(contract)).toContain(
+			"must also own the parent's form or case-list surface",
+		);
 	});
 
 	it("keeps manual localization open to every individual living language", () => {

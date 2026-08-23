@@ -296,7 +296,7 @@ describe("semantic design loop", () => {
 		const plan = await readLatestDesignBuildPlanForRevision(accepted.id);
 		expect(plan?.envelope.producer).toMatchObject({
 			provider: "nova",
-			modelId: "deterministic-build-planner-v1",
+			modelId: "deterministic-build-planner-v2",
 		});
 		expect(plan?.envelope.payload.slices).toHaveLength(2);
 	});

@@ -38,9 +38,13 @@ import type { Element } from "domhandler";
 import type { FormActions, HqApplication } from "@/lib/commcare";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import {
+	caseListSessionDatums,
+	entrySessionDatums,
 	formLinkProjectionContext,
+	moduleDestinationFrameChildren,
 	previousFrameChildren,
 	projectFormLinks,
+	selectedCaseDatumId,
 } from "@/lib/commcare/formLinkProjection";
 import { serializeLocaleFileValue } from "@/lib/commcare/localeFile";
 import { commCareLocalization } from "@/lib/commcare/localization";
@@ -76,13 +80,15 @@ import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
-import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
+import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	caseListColumnIsEmitted,
 	defaultPostSubmit,
 	effectiveCaseSearchConfig,
 	makeTranslationUnitId,
+	moduleParent,
+	projectedModulePreorder,
 	type TranslationUnitId,
 	type Uuid,
 	userPropertySlugsByUuid,
@@ -209,7 +215,7 @@ export function compileCcz(
 	// lockstep. `expandDoc` uses the same sequence, so the domain twin of
 	// `hqModules[mIdx]` is `sortedModuleUuids[mIdx]`; per-module forms align
 	// the same way.
-	const sortedModuleUuids = orderedModuleUuids(doc);
+	const sortedModuleUuids = projectedModulePreorder(doc);
 
 	// The after-submit link projection and each form's `previous` frame read
 	// every form's expanded actions. The expander already built them, so the
@@ -460,11 +466,18 @@ export function compileCcz(
 			const form = doc.forms[formUuid];
 			const formType = form.type;
 			const postSubmit = form.postSubmit ?? defaultPostSubmit(formType);
+			const ownCaseDatumId = selectedCaseDatumId(
+				doc,
+				linkContext,
+				moduleUuid,
+				formUuid,
+			);
 			const formRelevant = emitFormDisplayConditionForSuite(
 				form.displayCondition,
 				mod.caseType,
 				lookupNaming,
 				userPropertySlugs,
+				ownCaseDatumId,
 			);
 
 			const formName = form.name;
@@ -496,7 +509,14 @@ export function compileCcz(
 			// the assertion for a write the form never makes.
 			let xform = attachments[`${uniqueId}.xml`];
 			if (xform) {
-				xform = addCaseBlocks(xform, hqForm.actions, caseType || undefined);
+				xform = addCaseBlocks(
+					xform,
+					hqForm.actions,
+					caseType || undefined,
+					ownCaseDatumId === undefined
+						? undefined
+						: `instance('commcaresession')/session/data/${ownCaseDatumId}`,
+				);
 			}
 			if (xform) {
 				xform = addMetaBlock(xform);
@@ -556,6 +576,17 @@ export function compileCcz(
 					postSubmit === "previous"
 						? previousFrameChildren(doc, linkContext, moduleUuid, formUuid)
 						: [],
+				moduleFrame: moduleDestinationFrameChildren(
+					doc,
+					linkContext,
+					moduleUuid,
+				),
+				projectedSessionDatums: entrySessionDatums(
+					doc,
+					linkContext,
+					moduleUuid,
+					formUuid,
+				),
 				caseListFilter: mod.caseListConfig?.filter,
 				searchButtonDisplayCondition,
 				caseListColumnExpressions:
@@ -712,6 +743,7 @@ export function compileCcz(
 				moduleTypeContext(mod, doc),
 				lookupNaming,
 				persistentTileDetailId,
+				caseListSessionDatums(doc, linkContext, moduleUuid),
 			);
 			suiteEntries.push(buildEntryElement(caseListEntryDef, caseListNav.node));
 			menuCommands.push(el("command", { id: `m${mIdx}-case-list` }));
@@ -734,6 +766,14 @@ export function compileCcz(
 			el(
 				"menu",
 				{
+					...(moduleParent(doc, moduleUuid) !== null &&
+					moduleParent(doc, moduleUuid) !== undefined
+						? {
+								root: `m${sortedModuleUuids.indexOf(
+									moduleParent(doc, moduleUuid) as Uuid,
+								)}`,
+							}
+						: {}),
 					id: `m${mIdx}`,
 					...(moduleRelevant !== undefined && { relevant: moduleRelevant }),
 				},

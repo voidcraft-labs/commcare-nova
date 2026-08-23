@@ -128,6 +128,7 @@ export interface NewModuleInput {
 	uuid?: string;
 	id?: string;
 	name: string;
+	parentModuleUuid?: Uuid;
 	caseType?: string;
 	caseListOnly?: boolean;
 	purpose?: string;
@@ -151,6 +152,9 @@ export function addModuleMutations(input: NewModuleInput): Mutation[] {
 		// absent so round-tripping through the store stays consistent.
 		id: input.id ?? slugifyModuleId(input.name),
 		name: input.name,
+		...(input.parentModuleUuid !== undefined && {
+			parentModuleUuid: input.parentModuleUuid,
+		}),
 		...(input.caseType !== undefined && { caseType: input.caseType }),
 		...(input.caseListOnly !== undefined && {
 			caseListOnly: input.caseListOnly,

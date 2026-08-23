@@ -226,6 +226,7 @@ export async function loadCasesAction(args: {
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValuesWire;
 	excludedOwnerIdsExpression?: ValueExpression;
+	parentCase?: { readonly caseType: string; readonly caseId: string };
 	caseTypes?: readonly CaseType[];
 	/** Bounded Results window. Omitted by the current unpaged form-selection caller. */
 	page?: { offset: number; limit: number };
@@ -399,6 +400,7 @@ export async function loadCasesAction(args: {
 			caseType: args.caseType,
 			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
+			parentCase: args.parentCase,
 			inputValues,
 			bindings,
 			lookupTableSchemas,

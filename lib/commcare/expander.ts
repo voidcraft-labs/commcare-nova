@@ -44,12 +44,14 @@ import {
 	emitModuleDisplayCondition,
 } from "@/lib/commcare/suite/displayConditions";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
-import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
+import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	defaultPostSubmit,
 	makeTranslationUnitId,
+	moduleParent,
+	projectedModulePreorder,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -61,6 +63,7 @@ import {
 	moduleCaseTypeForActions,
 	type ProjectedFormLink,
 	projectFormLinks,
+	selectedCaseDatumId,
 } from "./formLinkProjection";
 import { projectCaseListForHq } from "./hqJson/caseList";
 import { buildXForm } from "./xform/builder";
@@ -167,7 +170,7 @@ export function expandDoc(
 	// sequences. Every index this expander assigns (`mIdx`, menu/command order,
 	// form-link target `m{i}-f{j}`) addresses those arrays; the compiler walks
 	// the same sequences in lockstep.
-	const sortedModuleUuids = orderedModuleUuids(doc);
+	const sortedModuleUuids = projectedModulePreorder(doc);
 	const sortedFormOrder: Record<string, Uuid[]> = {};
 	for (const moduleUuid of sortedModuleUuids) {
 		sortedFormOrder[moduleUuid] = orderedFormUuids(doc, moduleUuid);
@@ -178,7 +181,7 @@ export function expandDoc(
 		for (const ct of doc.caseTypes) {
 			if (!ct.parent_type) continue;
 			const parentIdx = sortedModuleUuids.findIndex(
-				(mUuid) => doc.modules[mUuid].caseType === ct.parent_type,
+				(mUuid) => moduleCaseTypeForActions(doc, mUuid) === ct.parent_type,
 			);
 			if (parentIdx !== -1) childCaseParents.set(ct.name, parentIdx);
 		}
@@ -252,6 +255,12 @@ export function expandDoc(
 			// lookup also enforces the connect-mode stash: per-form configs
 			// stashed across mode toggles never leak into a mode-off export.
 			const effectiveConnect = connectSlugs.get(formUuid);
+			const ownCaseDatumId = selectedCaseDatumId(
+				doc,
+				linkContext,
+				moduleUuid,
+				formUuid,
+			);
 
 			attachments[`${formUniqueId}.xml`] = buildXForm(doc, formUuid, {
 				xmlns,
@@ -259,6 +268,9 @@ export function expandDoc(
 				// reachable-case-type depth map matches the deep validator's accept
 				// map, which builds from `mod.caseType` directly.
 				...(mod.caseType && { moduleCaseType: mod.caseType }),
+				...(ownCaseDatumId !== undefined && {
+					selectedCaseIdRef: `instance('commcaresession')/session/data/${ownCaseDatumId}`,
+				}),
 				...(effectiveConnect && { connect: effectiveConnect }),
 				...(assets && { assets }),
 				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
@@ -349,6 +361,16 @@ export function expandDoc(
 			forms,
 			caseDetails,
 		);
+		const rootModuleUuid = moduleParent(doc, moduleUuid);
+		if (rootModuleUuid !== undefined && rootModuleUuid !== null) {
+			const rootModuleId = moduleUniqueIdOf.get(rootModuleUuid);
+			if (rootModuleId === undefined) {
+				throw new Error(
+					`Cannot emit child module ${moduleUuid}: root module ${rootModuleUuid} is missing`,
+				);
+			}
+			shell.root_module_id = rootModuleId;
+		}
 		shell.module_filter =
 			emitModuleDisplayCondition(
 				mod.displayCondition,

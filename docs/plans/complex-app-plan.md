@@ -2173,11 +2173,50 @@ page, the open page a session slot shared across the flip
 shows the same form as titled groups on one screen, and the docs say so
 (`content/docs/form-sections.mdx`).
 
+### One-tier nested menus
+
+A module may sit at the app's root or one level beneath another root module.
+`Module.parentModuleUuid` is the Nova-native parent reference, and
+`moduleOrder` is the one canonical depth-first preorder: each root is followed
+by its contiguous child block. Every module remains independently runnable
+with its own native Form or case list, and every Form still has exactly one
+owning module. Nova does not author linked forms, shadow modules, deeper menu
+trees, or HQ's unrelated `put_in_root` behavior. The domain gate enforces the
+one-tier topology; `lib/domain/CLAUDE.md` and `lib/doc/CLAUDE.md` own the
+topology, mutation, replay, and deletion contracts.
+
+Menu parentage organizes navigation; case-type parentage selects related data.
+The two may coincide, but neither implies the other. Preview keeps menu-scoped
+case selections separately from its menu tree, reuses a selected case only for
+a same-case-type child, and runs the existing parent-case-first flow for a
+different child case type. Home shows roots, a parent menu shows its own content
+plus child-menu tiles, and UUID-addressed screens, breadcrumbs, search, recovery,
+and Builder placement controls keep their identity through reorder or reparent.
+`components/builder/CLAUDE.md`, `lib/routing/CLAUDE.md`,
+`lib/session/CLAUDE.md`, and `lib/preview/CLAUDE.md` own those surfaces.
+
+Module placement is one historical-safe mutation contract. `moveModule` keeps
+its old `{ uuid, after }` form as a reorder within the current sibling group;
+an optional `parentModuleUuid` atomically reparents to a root, promotes to the
+top level with `null`, or leaves parentage unchanged when omitted. Anchors are
+siblings in the destination group, root moves carry the full child block, and
+a parent cannot be removed while children depend on it. The Builder, Solutions
+Architect, and MCP API all use that same contract.
+
+At the CommCare boundary, a child emits ordinary `root_module_id` HQ JSON and a
+suite `<menu root="…">`. One root-aware session projection supplies the exact
+selected-case datums to entries, XForms, display conditions, case operations,
+Form links, and navigation stacks, so local `.ccz` output and HQ regeneration
+run the same case workflow. Child conditions remain their own menu conditions;
+containment supplies the parent gate. `lib/commcare/CLAUDE.md` owns the lowering
+and its pinned HQ fixture provenance, and `content/docs/nested-menus.mdx` is the
+user-facing guide.
+
 ---
 
 ## What remains
 
-Three units, one file each. **Every entry below is a pointer, not a summary of
+Two units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -2185,23 +2224,10 @@ withholding so you can tell when you need it. Read that file, and
 
 Units are named, not numbered: the file's name is the unit's identity, so a
 unit that ships leaves no gap and nothing ever renumbers.
-
-
-
-### Nested menus
-
-[`complex-app/nested-menus.md`](complex-app/nested-menus.md)
-· depends on nothing · blocks the session-endpoints unit
-
-One-tier nested menus across every editor and the running app. **The file holds**
-the distinction between menu and case parentage, the final domain/mutation shape,
-and the exact `root_module_id` wire proof. Form ownership remains exclusive and
-this unit does not add shadow or linked-form reuse.
-
 ### Session endpoints and deep links
 
 [`complex-app/session-endpoints-and-deep-links.md`](complex-app/session-endpoints-and-deep-links.md)
-· depends on nested menus · blocks nothing
+· depends on nothing outstanding · blocks nothing
 
 Session endpoints and shareable deep links resolved against the selected HQ
 server. **The file holds** the emission shape and why it pushes rather than
@@ -2228,23 +2254,12 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [nested menus](complex-app/nested-menus.md) | — |
-| [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | nested menus |
+| [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | — |
 | [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | — |
 
-Two units have no outstanding prerequisites and can start in either order: nested
-menus, and multi-select. They are the independent entry points — every other
-unit descends from one of them.
-
-There is no critical path left. Push and provisioning was it, and with the
-drivers, the usercase, and the App setup workspace all shipped the remaining
-work is one short chain and one loose unit: nested menus → session endpoints
-runs on its own, and multi-select waits on nothing.
-
-Session endpoints and multi-select are leaves — nothing waits on them, so each
-can land whenever its own prerequisites are met. Multi-select is both an entry
-point and a leaf: nothing blocks it and nothing waits on it, which makes it the
-natural filler whenever another unit is blocked on something external.
+Both remaining units have no outstanding prerequisites and can start in either
+order. Nothing waits on either one, so each can land whenever its own contract
+is complete.
 
 ---
 

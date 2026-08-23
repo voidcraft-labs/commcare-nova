@@ -34,6 +34,7 @@ import type { Location } from "@/lib/routing/types";
 import type { PreviewCaseTarget } from "@/lib/session/types";
 
 const MODULE_UUID = testUuid("mod-1");
+const CHILD_MODULE_UUID = testUuid("mod-child");
 const FORM_UUID = testUuid("form-1");
 
 // `useLocation` and `useEditMode` are the dispatch knobs; the rest of
@@ -141,7 +142,11 @@ vi.mock("../screens/HomeScreen", () => ({
 	HomeScreen: () => <div data-testid="home-stub">HomeScreen</div>,
 }));
 vi.mock("../screens/ModuleScreen", () => ({
-	ModuleScreen: () => <div data-testid="module-stub">ModuleScreen</div>,
+	ModuleScreen: ({ screen }: { screen: { moduleUuid: string } }) => (
+		<div data-testid="module-stub" data-module-uuid={screen.moduleUuid}>
+			ModuleScreen
+		</div>
+	),
 }));
 vi.mock("../screens/FormScreen", () => ({
 	// Surface the screen's `caseId` so the case-datum injection is
@@ -176,6 +181,14 @@ function renderShell() {
 						name: "Patient module",
 						caseType: "patient",
 					},
+					[CHILD_MODULE_UUID]: {
+						uuid: CHILD_MODULE_UUID,
+						id: "child_module",
+						name: "Child module",
+						parentModuleUuid: MODULE_UUID,
+						caseType: "patient",
+						caseListOnly: true,
+					},
 				},
 				forms: {
 					[FORM_UUID]: {
@@ -186,8 +199,11 @@ function renderShell() {
 					},
 				},
 				fields: {},
-				moduleOrder: [MODULE_UUID],
-				formOrder: { [MODULE_UUID]: [FORM_UUID] },
+				moduleOrder: [MODULE_UUID, CHILD_MODULE_UUID],
+				formOrder: {
+					[MODULE_UUID]: [FORM_UUID],
+					[CHILD_MODULE_UUID]: [],
+				},
 				fieldOrder: { [FORM_UUID]: [] },
 			}}
 		>
@@ -234,6 +250,18 @@ const WORKSPACE_LOCATIONS: ReadonlyArray<{
 ];
 
 describe("PreviewShell — case-list workspace dispatch", () => {
+	it("previews a child module condition on its structural parent menu", () => {
+		editModeMock.mockReturnValue("preview");
+		locationMock.mockReturnValue({
+			kind: "module-condition",
+			moduleUuid: CHILD_MODULE_UUID,
+		});
+		const { getByTestId } = renderShell();
+		const moduleScreen = getByTestId("module-stub");
+		expect(isVisible(moduleScreen)).toBe(true);
+		expect(moduleScreen.getAttribute("data-module-uuid")).toBe(MODULE_UUID);
+	});
+
 	it("uses its real scroll surface as the single main landmark", () => {
 		editModeMock.mockReturnValue("edit");
 		locationMock.mockReturnValue({ kind: "cases", moduleUuid: MODULE_UUID });

@@ -487,7 +487,7 @@ export interface HqModule {
 	name: LocalizedString;
 	case_type: string;
 	put_in_root: boolean;
-	root_module_id: null;
+	root_module_id: string | null;
 	forms: HqForm[];
 	case_details: DetailPair;
 	case_list: {

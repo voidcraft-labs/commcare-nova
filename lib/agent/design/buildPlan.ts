@@ -383,6 +383,45 @@ function deriveOwnerByElement(
 	return ownerByElement;
 }
 
+function requiredPrerequisiteWorkflowIds(
+	contract: AppDesignContract,
+	orderedWorkflowIds: readonly string[],
+	ownerByElement: ReadonlyMap<string, string>,
+): Map<string, string[]> {
+	const required: Map<string, Set<string>> = new Map(
+		contract.workflows.map((workflow) => [
+			workflow.id,
+			new Set<string>(workflow.prerequisiteWorkflowIds),
+		]),
+	);
+	const moduleById = new Map(
+		contract.moduleCompositions.map((composition) => [
+			composition.id,
+			composition,
+		]),
+	);
+	for (const child of contract.moduleCompositions) {
+		if (child.parentModuleCompositionId === undefined) continue;
+		const parent = moduleById.get(child.parentModuleCompositionId);
+		const childOwner = ownerByElement.get(child.id);
+		const parentOwner =
+			parent === undefined ? undefined : ownerByElement.get(parent.id);
+		if (
+			childOwner !== undefined &&
+			parentOwner !== undefined &&
+			childOwner !== parentOwner
+		) {
+			required.get(childOwner)?.add(parentOwner);
+		}
+	}
+	return new Map(
+		[...required].map(([workflowId, ids]) => [
+			workflowId,
+			orderedWorkflowIds.filter((id) => ids.has(id)),
+		]),
+	);
+}
+
 function expectedElementKinds(
 	contract: AppDesignContract,
 ): Map<string, DesignElementRef["kind"]> {
@@ -477,6 +516,11 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 		const assigned = new Map<string, string>();
 		const orderedWorkflowIds = workflowOrder(contract);
 		const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
+		const requiredPrerequisites = requiredPrerequisiteWorkflowIds(
+			contract,
+			orderedWorkflowIds,
+			ownerByElement,
+		);
 		const kindsByElement = expectedElementKinds(contract);
 		const planWorkflowIds = new Set<string>(
 			plan.slices.map((slice) => slice.workflowId),
@@ -498,7 +542,31 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 					"A BuildPlan must contain exactly one slice for every included workflow and no extra slices.",
 			});
 		}
+		const workflowBySliceId = new Map(
+			plan.slices.map((entry) => [
+				entry.id as string,
+				entry.workflowId as string,
+			]),
+		);
 		plan.slices.forEach((slice, sliceIndex) => {
+			const actualPrerequisites = slice.prerequisiteSliceIds
+				.map((id) => workflowBySliceId.get(id as string))
+				.filter((id): id is string => id !== undefined);
+			const expectedPrerequisites =
+				requiredPrerequisites.get(slice.workflowId) ?? [];
+			if (
+				actualPrerequisites.length !== expectedPrerequisites.length ||
+				actualPrerequisites.some(
+					(id, index) => id !== expectedPrerequisites[index],
+				)
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["slices", sliceIndex, "prerequisiteSliceIds"],
+					message:
+						"Slice prerequisites must exactly include accepted workflow dependencies and any parent-module construction owner.",
+				});
+			}
 			if (!workflowIds.has(slice.workflowId))
 				ctx.addIssue({
 					code: "custom",
@@ -671,6 +739,11 @@ export function deriveBuildPlan(args: {
 	);
 	const initial = contract.charter.initialWorkflowId;
 	const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
+	const requiredPrerequisites = requiredPrerequisiteWorkflowIds(
+		contract,
+		orderedWorkflowIds,
+		ownerByElement,
+	);
 	const refsFor = (
 		workflowId: string,
 		kinds: DesignElementRef["kind"][],
@@ -920,7 +993,7 @@ export function deriveBuildPlan(args: {
 			workflowId: workflow.id,
 			name: workflow.name,
 			goal: workflow.goal,
-			prerequisiteSliceIds: workflow.prerequisiteWorkflowIds.map(
+			prerequisiteSliceIds: (requiredPrerequisites.get(workflow.id) ?? []).map(
 				(id) => sliceIdByWorkflow.get(id) as z.infer<typeof designIdSchema>,
 			),
 			constructionGroups: groupsFor(workflowId),

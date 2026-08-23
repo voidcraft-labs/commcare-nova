@@ -16,9 +16,13 @@ describe("reviewed-build presentation", () => {
 	});
 
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v13");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v14");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain("exact `requiredInitialResultsColumn`");
+		expect(EXECUTOR_SYSTEM).toContain("Nova supports one submenu tier");
+		expect(EXECUTOR_SYSTEM).toContain("`createModule.parentModuleUuid`");
+		expect(EXECUTOR_SYSTEM).toContain("`moveModule` always takes `after`");
+		expect(EXECUTOR_SYSTEM).toContain("never substitutes for a record's");
 		expect(EXECUTOR_SYSTEM).toContain("never belong in `addFields`");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"Use several native calls in one response when their inputs and identities are already known",

@@ -409,6 +409,9 @@ export interface BuildXFormOptions {
 	 * the depth map is then empty and only `#form/` and `#user/` resolve.
 	 */
 	moduleCaseType?: string;
+	/** Session reference of the selected own case. Nested child menus may use
+	 * an HQ-aligned id such as `case_id_guppy`. */
+	selectedCaseIdRef?: string;
 	/**
 	 * Resolved media assets for this emission run. When present, the
 	 * itext entries gain `<value form="image|audio|video">` siblings for
@@ -536,6 +539,9 @@ export function buildXForm(
 	const formCtx: FormHashtagContext = {
 		formType: form.type,
 		caseTypeDepths,
+		...(opts.selectedCaseIdRef !== undefined && {
+			currentCaseIdRef: opts.selectedCaseIdRef,
+		}),
 	};
 	const expand = (expr: string): string =>
 		lowerXPathForJavaRosa(expandHashtagsInContext(expr, formCtx));
@@ -711,6 +717,7 @@ export function buildXForm(
 		formUuid,
 		opts.moduleCaseType,
 		opts.lookupNaming,
+		opts.selectedCaseIdRef,
 	);
 	if (caseOperations !== null) {
 		attachCaseOperationData(dataEl, caseOperations.dataChildren);

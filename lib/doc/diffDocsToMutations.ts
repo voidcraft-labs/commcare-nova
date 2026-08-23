@@ -133,6 +133,8 @@ import {
 	hasOwnRecordKey,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
+	moduleParent,
+	moduleSiblingUuids,
 	ownRecordValue,
 	parseLanguageTag,
 } from "@/lib/domain";
@@ -362,6 +364,7 @@ const MODULE_PATCH_SKIP = new Set<string>([
 	"icon",
 	"audioLabel",
 	"name",
+	"parentModuleUuid",
 	"order",
 	"caseListConfig",
 	"caseSearchConfig",
@@ -477,6 +480,8 @@ export function diffDocsToMutations(
 	const appLevel: Mutation[] = [];
 	const removes: Mutation[] = [];
 	const adds: Mutation[] = [];
+	const rootModuleAdds: Mutation[] = [];
+	const childModuleAdds: Mutation[] = [];
 	const evacuations: Mutation[] = [];
 	const fieldStructure: Mutation[] = [];
 	const renames: Mutation[] = [];
@@ -541,7 +546,11 @@ export function diffDocsToMutations(
 	// owning module survives, and `removeField` for a field whose owning
 	// form AND every ancestor container survive — otherwise a parent
 	// remove already deletes it.
-	for (const uuid of moduleDelta.removed) {
+	for (const uuid of [...moduleDelta.removed].sort((left, right) => {
+		const leftIsChild = moduleParent(prev, left) !== null;
+		const rightIsChild = moduleParent(prev, right) !== null;
+		return Number(rightIsChild) - Number(leftIsChild);
+	})) {
 		removes.push({ kind: "removeModule", uuid });
 	}
 	for (const uuid of formDelta.removed) {
@@ -565,15 +574,45 @@ export function diffDocsToMutations(
 	// set deltas.
 	const addedModuleSet = new Set(moduleDelta.added);
 	const addedFormSet = new Set(formDelta.added);
-
-	for (const [at, uuid] of next.moduleOrder.entries()) {
-		if (!addedModuleSet.has(uuid)) continue;
-		adds.push(
-			addModuleMutation(
-				cloneEntity(ownRecordValue(next.modules, uuid) as Module),
-				at === 0 ? null : next.moduleOrder[at - 1],
+	const availableRoots = new Set(moduleSiblingUuids(prev, null));
+	const availableChildren = new Map<Uuid, Set<Uuid>>(
+		moduleSiblingUuids(next, null).map((rootUuid) => [
+			rootUuid,
+			new Set(
+				moduleSiblingUuids(prev, rootUuid).filter(
+					(uuid) => moduleParent(next, uuid) === rootUuid,
+				),
 			),
-		);
+		]),
+	);
+
+	for (const uuid of next.moduleOrder) {
+		if (!addedModuleSet.has(uuid)) continue;
+		const module = ownRecordValue(next.modules, uuid) as Module;
+		const parent = module.parentModuleUuid ?? null;
+		const siblings = moduleSiblingUuids(next, parent);
+		const at = siblings.indexOf(uuid);
+		if (parent === null) {
+			const after = siblings
+				.slice(0, at)
+				.toReversed()
+				.find((candidate) => availableRoots.has(candidate));
+			rootModuleAdds.push(
+				addModuleMutation(cloneEntity(module), after ?? null),
+			);
+			availableRoots.add(uuid);
+		} else {
+			const available = availableChildren.get(parent) ?? new Set<Uuid>();
+			const after = siblings
+				.slice(0, at)
+				.toReversed()
+				.find((candidate) => available.has(candidate));
+			childModuleAdds.push(
+				addModuleMutation(cloneEntity(module), after ?? null),
+			);
+			available.add(uuid);
+			availableChildren.set(parent, available);
+		}
 	}
 
 	// Forms: in each module's sequence order, each naming the form it follows.
@@ -743,15 +782,7 @@ export function diffDocsToMutations(
 		}
 	}
 
-	// (5) Module order — `moduleOrder` IS the sequence, so the reorder is
-	// whatever moves turn the previous array into the next one, measured against
-	// the sequence the `addModule`s have already landed in.
-	for (const move of sequenceMovesTo(
-		arrivalsProjected(prev.moduleOrder, next.moduleOrder),
-		next.moduleOrder,
-	)) {
-		orders.push({ kind: "moveModule", uuid: move.uuid, after: move.after });
-	}
+	const moduleStructure = reconcileModuleOrders(prev, next, moduleDelta);
 
 	// Form structural — cross-module moves (including forms evacuated out of
 	// removed modules) plus same-module sequence changes.
@@ -764,6 +795,7 @@ export function diffDocsToMutations(
 	// emitted after the removes.
 	evacuations.push(...formStructure.evacuations, ...fieldTree.evacuations);
 	fieldStructure.push(...formStructure.rest, ...fieldTree.rest);
+	orders.push(...moduleStructure.reorders);
 
 	// Phase order (see the function header):
 	//   app scalars → module/form adds → evacuations (survivors out of
@@ -773,6 +805,10 @@ export function diffDocsToMutations(
 	//   options/case-list meta) → module order → catalog.
 	const structural: Mutation[] = [
 		...appLevel,
+		...rootModuleAdds,
+		...moduleStructure.promotions,
+		...childModuleAdds,
+		...moduleStructure.reparenting,
 		...adds,
 		...evacuations,
 		...removes,
@@ -1075,6 +1111,89 @@ function fieldRemovedByAncestor(
 }
 
 // ── Order reconciliation per module / parent ─────────────────────────
+
+/**
+ * Reconcile one-tier menu parentage and sibling order. Parent changes lead the
+ * remove phase so a surviving child can leave a doomed parent and a root can
+ * shed its children before becoming a child. Pure sibling reorders run later.
+ */
+function reconcileModuleOrders(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+	moduleDelta: SetDelta,
+): {
+	promotions: Mutation[];
+	reparenting: Mutation[];
+	reorders: Mutation[];
+} {
+	const promotions: Mutation[] = [];
+	const reparenting: Mutation[] = [];
+	const reorders: Mutation[] = [];
+	const relocated = new Set<Uuid>();
+	const nextPosition = new Map(next.moduleOrder.map((uuid, at) => [uuid, at]));
+	const relocations: Array<{
+		uuid: Uuid;
+		from: Uuid | null;
+		to: Uuid | null;
+		after: Uuid | null;
+	}> = [];
+
+	for (const uuid of moduleDelta.common) {
+		const from = moduleParent(prev, uuid);
+		const to = moduleParent(next, uuid);
+		if (from === undefined || to === undefined || from === to) continue;
+		relocated.add(uuid);
+		const siblings = moduleSiblingUuids(next, to);
+		const at = siblings.indexOf(uuid);
+		relocations.push({
+			uuid,
+			from,
+			to,
+			after: at > 0 ? (siblings[at - 1] ?? null) : null,
+		});
+	}
+
+	// Promotions first, then child evacuations/reparents, then root demotions.
+	// Within a class, final preorder places every possible sibling anchor first.
+	const priority = (move: (typeof relocations)[number]): number =>
+		move.to === null ? 0 : move.from !== null ? 1 : 2;
+	relocations.sort(
+		(left, right) =>
+			priority(left) - priority(right) ||
+			(nextPosition.get(left.uuid) ?? 0) - (nextPosition.get(right.uuid) ?? 0),
+	);
+	for (const move of relocations) {
+		const mutation: Mutation = {
+			kind: "moveModule",
+			uuid: move.uuid,
+			parentModuleUuid: move.to,
+			after: move.after,
+		};
+		if (move.to === null) promotions.push(mutation);
+		else reparenting.push(mutation);
+	}
+
+	const groups: Array<Uuid | null> = [null, ...moduleSiblingUuids(next, null)];
+	const common = new Set(moduleDelta.common);
+	for (const parent of groups) {
+		const nextOrder = moduleSiblingUuids(next, parent);
+		const before = moduleSiblingUuids(prev, parent).filter(
+			(uuid) => !relocated.has(uuid),
+		);
+		for (const move of sequenceMovesTo(
+			arrivalsProjected(before, nextOrder),
+			nextOrder,
+		)) {
+			if (!common.has(move.uuid) || relocated.has(move.uuid)) continue;
+			reorders.push({
+				kind: "moveModule",
+				uuid: move.uuid,
+				after: move.after,
+			});
+		}
+	}
+	return { promotions, reparenting, reorders };
+}
 
 /**
  * Reconcile each module's forms to `next` — cross-module form moves +

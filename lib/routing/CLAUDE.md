@@ -31,6 +31,19 @@ what each editor may offer.
 
 All entity UUIDs are globally unique in the doc store, so a single UUID segment identifies the entity type by a lookup in the doc's module / form / field maps. Case-operation selection is also URL-owned: the form UUID fixes the operation list and the optional operation UUID fixes the opened detail canvas, so refresh, back/forward, and multiplayer presence retain the same authored change. After-submit links (`form-links`) carry their selected link the same way, and `recoverLocation` drops a link a peer removed while keeping the list open.
 
+Menu nesting is topology, not URL state. A child module, its case list, and its
+forms keep the same identity-only paths when that module is reordered or moved
+between root menus. Breadcrumbs derive the current parent menu from the doc and
+show it as a separate ancestor; they never treat the parent's case list as part
+of the child's case-loading trail. Presence therefore continues to follow the
+exact selected module, form, or field UUID rather than a positional menu path.
+
+`LocationRecoveryEffect` also retains the last valid module topology. If a
+remote edit deletes the module named by the unchanged current URL, recovery
+opens its former parent (the parent's case list when it is bare) or Home when no
+parent remains. Intentional navigation is not recovered through stale topology,
+and reparenting a live module leaves its URL and selection untouched.
+
 `{caseId}` is the one non-UUID segment: case ids are opaque text (`/`, `%`, `:`, spaces are legal), so `serializePath` percent-encodes the segment and `parsePathToLocation` decodes it — keep the pair symmetric. An undecodable segment (a raw `%` from a hand-typed URL) is taken verbatim and at worst reads as a missing case.
 
 The authoring URLs deliberately use the same nouns as the workspace tabs:

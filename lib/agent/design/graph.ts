@@ -19,6 +19,35 @@ function objectWithId(value: unknown): value is { readonly id: string } {
 	);
 }
 
+function constructionWorkflowOrder(contract: AppDesignContract): string[] {
+	const sourceOrder = new Map(
+		contract.workflows.map((workflow, index) => [workflow.id, index]),
+	);
+	const remaining = new Set(contract.workflows.map((workflow) => workflow.id));
+	const emitted: string[] = [];
+	while (remaining.size > 0) {
+		const ready = [...remaining]
+			.filter((id) =>
+				(
+					contract.workflows.find((workflow) => workflow.id === id)
+						?.prerequisiteWorkflowIds ?? []
+				).every((dependency) => !remaining.has(dependency)),
+			)
+			.sort((left, right) => {
+				if (left === contract.charter.initialWorkflowId) return -1;
+				if (right === contract.charter.initialWorkflowId) return 1;
+				return (sourceOrder.get(left) ?? 0) - (sourceOrder.get(right) ?? 0);
+			});
+		if (ready.length === 0)
+			return contract.workflows.map((workflow) => workflow.id);
+		for (const id of ready) {
+			remaining.delete(id);
+			emitted.push(id);
+		}
+	}
+	return emitted;
+}
+
 /**
  * The identity-only proof that is safe on an incomplete authoring workspace.
  * References and collection closure require the final contract, but two
@@ -217,6 +246,9 @@ export function validateDesignGraph(
 	const navigation = new Set(contract.navigation.map((value) => value.id));
 	const moduleCompositions = new Map(
 		contract.moduleCompositions.map((value) => [value.id, value]),
+	);
+	const moduleCompositionIndex = new Map(
+		contract.moduleCompositions.map((value, index) => [value.id, index]),
 	);
 	const requirements = new Set(
 		contract.externalRequirements.map((value) => value.id),
@@ -575,7 +607,134 @@ export function validateDesignGraph(
 		});
 	});
 
+	const workflowRank = new Map(
+		constructionWorkflowOrder(contract).map((id, index) => [id, index]),
+	);
+	const compositionOwner = (
+		composition: AppDesignContract["moduleCompositions"][number],
+	): string | undefined =>
+		[...composition.workflowIds].sort(
+			(left, right) =>
+				(workflowRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
+				(workflowRank.get(right) ?? Number.MAX_SAFE_INTEGER),
+		)[0];
+	const referencedAsParent = new Set(
+		contract.moduleCompositions.flatMap((composition) =>
+			composition.parentModuleCompositionId === undefined
+				? []
+				: [composition.parentModuleCompositionId],
+		),
+	);
+	const projectedCompositionOrder = contract.moduleCompositions
+		.filter(
+			(composition) => composition.parentModuleCompositionId === undefined,
+		)
+		.flatMap((parent) => [
+			parent.id,
+			...contract.moduleCompositions
+				.filter(
+					(composition) => composition.parentModuleCompositionId === parent.id,
+				)
+				.map((composition) => composition.id),
+		]);
+	if (
+		projectedCompositionOrder.length === contract.moduleCompositions.length &&
+		projectedCompositionOrder.some(
+			(id, index) => id !== contract.moduleCompositions[index]?.id,
+		)
+	) {
+		issue(
+			ctx,
+			["moduleCompositions"],
+			"Module compositions must use parent-first preorder with each parent's child menus contiguous.",
+		);
+	}
+
 	contract.moduleCompositions.forEach((composition, compositionIndex) => {
+		if (composition.parentModuleCompositionId !== undefined) {
+			const parentId = composition.parentModuleCompositionId;
+			const parent = moduleCompositions.get(parentId);
+			expect(
+				moduleCompositions,
+				parentId,
+				["moduleCompositions", compositionIndex, "parentModuleCompositionId"],
+				"parent module composition",
+			);
+			if (parentId === composition.id) {
+				issue(
+					ctx,
+					["moduleCompositions", compositionIndex, "parentModuleCompositionId"],
+					"A module composition cannot contain itself.",
+				);
+			}
+			if (parent?.parentModuleCompositionId !== undefined) {
+				issue(
+					ctx,
+					["moduleCompositions", compositionIndex, "parentModuleCompositionId"],
+					"Nova supports one submenu tier, so a child menu cannot contain another child.",
+				);
+			}
+			if (
+				(moduleCompositionIndex.get(parentId) ?? Number.MAX_SAFE_INTEGER) >=
+				compositionIndex
+			) {
+				issue(
+					ctx,
+					["moduleCompositions", compositionIndex, "parentModuleCompositionId"],
+					"A parent module composition must appear before its child.",
+				);
+			}
+			if (parent !== undefined) {
+				const parentOwner = compositionOwner(parent);
+				const childOwner = compositionOwner(composition);
+				if (
+					parentOwner !== undefined &&
+					childOwner !== undefined &&
+					(workflowRank.get(parentOwner) ?? Number.MAX_SAFE_INTEGER) >
+						(workflowRank.get(childOwner) ?? Number.MAX_SAFE_INTEGER)
+				) {
+					issue(
+						ctx,
+						[
+							"moduleCompositions",
+							compositionIndex,
+							"parentModuleCompositionId",
+						],
+						"The parent module's construction owner must be the same as or earlier than the child module's owner.",
+					);
+				}
+				if (parentOwner !== undefined && parentOwner === childOwner) {
+					const ownsParentSurface =
+						parent.listIds.length > 0 ||
+						contract.formCompositions.some(
+							(form) =>
+								form.moduleCompositionId === parent.id &&
+								form.workflowId === parentOwner,
+						);
+					if (!ownsParentSurface) {
+						issue(
+							ctx,
+							[
+								"moduleCompositions",
+								compositionIndex,
+								"parentModuleCompositionId",
+							],
+							"When a parent and child share a construction owner, that workflow must also own the parent's form or case-list surface so the parent can be created validly before the child.",
+						);
+					}
+				}
+			}
+		}
+		if (
+			composition.parentModuleCompositionId !== undefined &&
+			referencedAsParent.has(composition.id)
+		) {
+			issue(
+				ctx,
+				["moduleCompositions", compositionIndex, "parentModuleCompositionId"],
+				"A child menu cannot itself contain child menus.",
+			);
+		}
 		for (const [key, ids] of [
 			["workflowIds", composition.workflowIds],
 			["actorIds", composition.actorIds],

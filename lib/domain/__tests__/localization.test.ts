@@ -169,6 +169,25 @@ describe("translation unit inventory", () => {
 		]);
 	});
 
+	it("includes menu ancestry in submenu-owned translation paths", () => {
+		const { doc, option } = fixture();
+		const childUuid = doc.moduleOrder[0];
+		const parentUuid = testUuid("localization-parent-menu");
+		doc.modules[parentUuid] = {
+			uuid: parentUuid,
+			id: "care",
+			name: "Care",
+		};
+		doc.modules[childUuid].parentModuleUuid = parentUuid;
+		doc.moduleOrder.unshift(parentUuid);
+		doc.formOrder[parentUuid] = [];
+
+		expect(
+			collectTranslationUnits(doc).find((unit) => unit.id.includes(option))
+				?.breadcrumb,
+		).toEqual(["Clinic", "Care", "Patients", "Intake", "Status", "open"]);
+	});
+
 	it("gives repeated case-property values injective option-label units", () => {
 		const doc = buildDoc({
 			appName: "Clinic",

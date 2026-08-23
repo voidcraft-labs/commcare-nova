@@ -52,7 +52,10 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   executor resolves current UUIDs. The base reader remains compatible with
   already-persisted v1 artifacts. Worker-facing composition is part of the
   same contract: `moduleCompositions` chooses the minimal module/menu homes,
-  record hosts, queue/form roles, placements, ordering, and icon decisions;
+  optional one-tier parent menu, record hosts, queue/form roles, placements,
+  ordering, and icon decisions. Parents precede their contiguous child block,
+  a child cannot parent another composition, and its construction owner is the
+  same as or later than its parent's owner;
   `formCompositions` chooses exact workflow variants, modes, module homes,
   actors, ordered sections/items, Markdown labels/guidance/help, record
   summaries, and justified flat or duplicated forms. Historical v1 artifacts
@@ -118,7 +121,10 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   action timing (a `blocked` action is refused at admission until a durable
   receipt producer exists). A construction group cannot reference an
   external requirement as an element. Module composition is owned once by its
-  earliest workflow. A list placed in that module, and properties used only by
+  earliest workflow. A child module whose parent has a different owner gains
+  that exact owner workflow as a prerequisite; same-slice construction keeps
+  the parent first and requires that owner to carry the parent's own form or
+  case-list surface. A list placed in that module, and properties used only by
   that list, travel with the workflow that materializes the module; list
   selection remains usage context rather than a second construction owner.
   Each form composition, section, and item is owned by its workflow so exact
@@ -128,7 +134,8 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   workflow and its list/access/navigation context, a semantic checklist for
   each construction group, relevant constraints, and the exact slice tool
   profile. It also lowers relevant composition deterministically into exact
-  module create/reuse, host and role instructions plus form type, name, icon,
+  module create/reuse, host, parent/preceding-sibling placement, and role
+  instructions plus form type, name, icon,
   ordered layout, Markdown, summary, and duplication decisions. A grouped
   design layout (the schema's `sectioned` arm) lowers to the existing nested
   Blueprint `group` field plus handled
@@ -141,6 +148,9 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   case module also carries one exact `requiredInitialResultsColumn`, a visible
   plain `case_name` column derived from its host record. This compiler input
   makes the module's birth call valid without turning Results into form fields.
+  The executor admits module creation/moves only when their parent and sibling
+  placement matches this accepted realization, and `finishWorkflow` proves the
+  committed module identity, parent, and sibling order before sealing a slice.
 - `complexity.ts` deterministically assigns `compact`, `standard`, or
   `extended`. The class chooses process depth and conservative user-facing time
   estimates; it never changes Blueprint validity or authority.

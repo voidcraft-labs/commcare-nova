@@ -5,6 +5,7 @@ import { DisplayConditionSection } from "@/components/builder/conditions/Display
 import { Button } from "@/components/shadcn/button";
 import { PopoverTitle } from "@/components/shadcn/popover";
 import type { Uuid } from "@/lib/doc/types";
+import { MenuPlacementSection } from "./MenuPlacementSection";
 import { ModuleAppearanceSection } from "./ModuleAppearanceSection";
 import { ModuleCaseTypeSection } from "./ModuleCaseTypeSection";
 import { ModuleNameSection } from "./ModuleNameSection";
@@ -49,6 +50,7 @@ export function ModuleSettingsPanel({
 			{/* Content */}
 			<div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
 				<ModuleNameSection moduleUuid={moduleUuid} />
+				<MenuPlacementSection moduleUuid={moduleUuid} />
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
 				<DisplayConditionSection

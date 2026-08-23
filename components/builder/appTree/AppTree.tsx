@@ -19,32 +19,41 @@ import { Icon } from "@iconify/react/offline";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence } from "motion/react";
-import { useCallback, useDeferredValue, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useState } from "react";
 import { AddModulePopover } from "@/components/builder/appTree/insertion/AddModulePopover";
 import { interleaveInsertions } from "@/components/builder/appTree/insertion/interleaveInsertions";
 import { ModuleCard } from "@/components/builder/appTree/ModuleCard";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
-import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
+import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useModuleMenuHierarchy } from "@/lib/doc/hooks/useModuleIds";
 import { useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
+import type { Uuid } from "@/lib/domain";
+import { useLocation } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import { useBuilderPhase } from "@/lib/session/hooks";
 import { InsertionIntentProvider } from "@/lib/ui/hooks/useInsertionZone";
 
 export function AppTree() {
-	const moduleOrder = useModuleIds();
+	const { rootModuleUuids, childModuleUuidsByRoot } = useModuleMenuHierarchy();
 	const phase = useBuilderPhase();
+	const location = useLocation();
+	const selectedModuleUuid =
+		"moduleUuid" in location ? location.moduleUuid : undefined;
+	const selectedModule = useModule(selectedModuleUuid);
 
 	const locked =
 		phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed;
 
 	const handleSelect = useAppTreeSelection();
-	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+	const [collapsed, setCollapsed] = useState<Set<Uuid>>(new Set());
+	const [pendingFocusModuleUuid, setPendingFocusModuleUuid] =
+		useState<Uuid | null>(null);
 	const [searchQuery, setSearchQuery] = useState("");
 	const deferredQuery = useDeferredValue(searchQuery);
 
-	const toggle = useCallback((key: string) => {
+	const toggle = useCallback((key: Uuid) => {
 		setCollapsed((prev) => {
 			const next = new Set(prev);
 			if (next.has(key)) next.delete(key);
@@ -53,11 +62,36 @@ export function AppTree() {
 		});
 	}, []);
 
+	// Deep navigation, peer following, and remote reparenting should reveal the
+	// still-selected identity. This changes only the local disclosure set; the
+	// identity URL remains untouched.
+	useEffect(() => {
+		if (selectedModuleUuid === undefined) return;
+		setCollapsed((previous) => {
+			const next = new Set(previous);
+			next.delete(selectedModuleUuid);
+			if (selectedModule?.parentModuleUuid !== undefined) {
+				next.delete(selectedModule.parentModuleUuid);
+			}
+			return next.size === previous.size ? previous : next;
+		});
+	}, [selectedModule?.parentModuleUuid, selectedModuleUuid]);
+
+	useEffect(() => {
+		if (pendingFocusModuleUuid === null) return;
+		const trigger = document.querySelector<HTMLButtonElement>(
+			`[data-module-actions="${pendingFocusModuleUuid}"]`,
+		);
+		if (trigger === null) return;
+		trigger.focus();
+		setPendingFocusModuleUuid(null);
+	}, [pendingFocusModuleUuid]);
+
 	/* Search: compute match indices from entity maps.
 	 * Only fires when the deferred query or entities change. */
 	const searchResult = useSearchFilter(deferredQuery);
 
-	if (!moduleOrder || moduleOrder.length === 0) {
+	if (rootModuleUuids.length === 0) {
 		return (
 			<div className="h-full flex items-center justify-center text-nova-text-muted text-sm">
 				Building your app
@@ -114,7 +148,7 @@ export function AppTree() {
 
 				{/* Scrollable module cards */}
 				<div className="flex-1 overflow-auto">
-					{searchResult && searchResult.visibleModuleIndices.size === 0 ? (
+					{searchResult && searchResult.visibleModuleUuids.size === 0 ? (
 						<div className="flex items-center justify-center px-4 py-8 text-center text-sm text-nova-text-muted">
 							No matches in your app
 						</div>
@@ -124,28 +158,39 @@ export function AppTree() {
 								{/* Insertion points interleave between modules so new
 								 *  modules can be added at any position: hidden while
 								 *  a search filter is active or the app is locked. */}
-								{interleaveInsertions(moduleOrder, {
+								{interleaveInsertions(rootModuleUuids, {
 									suppress: locked || !!searchResult,
 									itemKey: (moduleId) => moduleId,
-									renderItem: (_moduleId, mIdx) =>
+									renderItem: (_moduleId) =>
 										searchResult &&
-										!searchResult.visibleModuleIndices.has(mIdx) ? null : (
+										!searchResult.visibleModuleUuids.has(_moduleId) ? null : (
 											<ModuleCard
 												key={_moduleId}
 												moduleUuid={_moduleId}
-												moduleIndex={mIdx}
 												onSelect={handleSelect}
 												collapsed={collapsed}
 												toggle={toggle}
 												searchResult={searchResult}
 												locked={locked}
+												childModuleUuids={
+													childModuleUuidsByRoot[_moduleId] ?? []
+												}
+												rootModuleUuids={rootModuleUuids}
+												childModuleUuidsByRoot={childModuleUuidsByRoot}
+												siblingModuleUuids={rootModuleUuids}
+												onPlacementCommitted={setPendingFocusModuleUuid}
 											/>
 										),
 									renderInsertion: (atIndex, key) => (
 										<AddModulePopover
 											key={key}
-											atIndex={atIndex}
-											prominent={atIndex === moduleOrder.length}
+											parentModuleUuid={null}
+											afterSiblingUuid={
+												atIndex === 0
+													? null
+													: (rootModuleUuids[atIndex - 1] ?? null)
+											}
+											prominent={atIndex === rootModuleUuids.length}
 										/>
 									),
 								})}

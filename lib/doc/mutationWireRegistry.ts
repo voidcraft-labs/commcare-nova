@@ -128,10 +128,15 @@ export interface MutationWireRegistryEntry {
 	readonly schemaKind: string;
 }
 
-export type MutationNullMeaning = "clear" | "stored-null" | "first-position";
+export type MutationNullMeaning =
+	| "clear"
+	| "stored-null"
+	| "first-position"
+	| "root-module";
 export type MutationNullOmissionMeaning =
 	| "no-intent"
 	| "append"
+	| "preserve-module-parent"
 	| "absent-value"
 	| "invalid";
 
@@ -612,6 +617,9 @@ function nullMeaning(
 	mutationLeaf: string,
 	jsonPointer: string,
 ): MutationNullMeaning {
+	if (kind === "moveModule" && jsonPointer === "/parentModuleUuid") {
+		return "root-module";
+	}
 	const finalToken = jsonPointer.split("/").at(-1);
 	if (
 		finalToken === "after" ||
@@ -682,6 +690,7 @@ function omissionMeaning(
 ): MutationNullOmissionMeaning {
 	if (!optional) return "invalid";
 	if (meaning === "first-position") return "append";
+	if (meaning === "root-module") return "preserve-module-parent";
 	if (
 		meaning === "stored-null" &&
 		kind === "addForm" &&

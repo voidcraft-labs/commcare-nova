@@ -23,13 +23,8 @@
  * `PROMPT_END_MARKER` so a caller can prove delivery instead of
  * assuming it.
  *
- * **This is a ceiling, not a budget to spend.** A second, MCP-wide
- * token cap sits above it that no server-side declaration can lift, so
- * a result that would need more than this is not made deliverable by
- * asking for more — it has to get smaller at its source. Two places do
- * that: `MAX_RESULTS` bounds `search_blueprint`, and
- * `MAX_DELIVERABLE_PROMPT_CHARS` bounds what the edit-mode prompt will
- * inline.
+ * **This is a ceiling, not a budget to spend.** Bounded tools, such as
+ * `search_blueprint`, keep their own explicit completeness contract.
  *
  * Tools whose result is a payload to be saved rather than read —
  * `compile_app`'s base64 archives — deliberately keep the default.

@@ -763,6 +763,11 @@ function extractModuleEdges(sink: EdgeSink, mod: Module): void {
 	const search = mod.caseSearchConfig;
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
+			case "module_parent":
+				if (mod.parentModuleUuid !== undefined) {
+					sink.edge(entityTargetKey(mod.parentModuleUuid), slot.slot);
+				}
+				break;
 			case "module_display_condition":
 				if (mod.displayCondition) {
 					predicateEdges(sink, slot.slot, mod.displayCondition);
@@ -1304,7 +1309,8 @@ export function planReferenceIndexMaintenance(
 			}
 			break;
 		case "moveModule":
-			// Order-only — no slot, declaration, or context changes.
+			// Reparenting changes the module_parent entity edge.
+			carriers.add(mut.uuid);
 			break;
 		case "renameModule":
 		case "setModuleMedia":

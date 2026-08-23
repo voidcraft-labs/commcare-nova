@@ -116,6 +116,38 @@ describe("previewCaseTargetBindsLocation", () => {
 });
 
 describe("previewBreadcrumbTrail — form screens", () => {
+	it("retains parent and child menu ancestry before the separate case trail", () => {
+		const parentUuid = testUuid("module-parent");
+		const loc = formLoc(followupUuid);
+		const trail = previewBreadcrumbTrail({
+			loc,
+			baseBreadcrumbs: [
+				home,
+				{
+					key: `m:${parentUuid}`,
+					label: "Care",
+					location: { kind: "cases", moduleUuid: parentUuid },
+				},
+				moduleCrumb,
+			],
+			moduleUuid,
+			moduleForms: forms,
+			previewCaseTarget: {
+				formUuid: followupUuid,
+				caseId: "c1",
+				caseName: "Yusuf Patel",
+			} as never,
+			previewSelectedCase: undefined,
+		});
+		expect(trail.map((crumb) => crumb.label)).toEqual([
+			"Home",
+			"Care",
+			"Households",
+			"Household Visit",
+			"Yusuf Patel",
+		]);
+	});
+
 	it("passes the base trail through at home (no module context)", () => {
 		const trail = previewBreadcrumbTrail({
 			loc: { kind: "home" },

@@ -110,7 +110,7 @@ export function previewBreadcrumbTrail(
 	if (!moduleUuid) return baseBreadcrumbs;
 
 	const homeAndModule = baseBreadcrumbs.filter(
-		(b) => b.location.kind === "home" || b.location.kind === "module",
+		(b) => b.location.kind === "home" || b.key.startsWith("m:"),
 	);
 
 	/* Preview runs the surface a configuration URL's condition governs, so

@@ -84,6 +84,8 @@ export interface MutationSequenceAdmissionIssue {
 
 interface SequenceState {
 	moduleOrder: string[];
+	moduleParent: Map<string, string | null>;
+	moduleSiblingOrder: Map<string, string[]>;
 	formOrder: Map<string, string[]>;
 	formOwner: Map<string, string>;
 	fieldOrder: Map<string, string[]>;
@@ -115,6 +117,17 @@ const automationKey = (uuid: string, collection: string): string =>
 	`${uuid}\0${collection}`;
 
 function stateFromDoc(doc: BlueprintDoc): SequenceState {
+	const moduleParent = new Map<string, string | null>();
+	const moduleSiblingOrder = new Map<string, string[]>();
+	const moduleGroupKey = (parent: string | null): string => parent ?? "";
+	for (const uuid of doc.moduleOrder) {
+		const parent = doc.modules[uuid]?.parentModuleUuid ?? null;
+		moduleParent.set(uuid, parent);
+		const key = moduleGroupKey(parent);
+		const siblings = moduleSiblingOrder.get(key) ?? [];
+		siblings.push(uuid);
+		moduleSiblingOrder.set(key, siblings);
+	}
 	const formOrder = new Map<string, string[]>();
 	const formOwner = new Map<string, string>();
 	for (const [moduleUuid, order] of Object.entries(doc.formOrder)) {
@@ -226,6 +239,8 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 
 	return {
 		moduleOrder: [...doc.moduleOrder],
+		moduleParent,
+		moduleSiblingOrder,
 		formOrder,
 		formOwner,
 		fieldOrder,
@@ -249,6 +264,55 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 		operationLinks,
 		formLinkOrder,
 	};
+}
+
+const moduleGroupKey = (parent: string | null): string => parent ?? "";
+
+function rebuildModuleOrder(state: SequenceState): void {
+	state.moduleOrder = (
+		state.moduleSiblingOrder.get(moduleGroupKey(null)) ?? []
+	).flatMap((root) => [
+		root,
+		...(state.moduleSiblingOrder.get(moduleGroupKey(root)) ?? []),
+	]);
+}
+
+function placeModule(
+	state: SequenceState,
+	member: string,
+	destinationParent: string | null,
+	after: string | null | undefined,
+	requireExisting = false,
+): boolean {
+	const currentParent = state.moduleParent.get(member);
+	if (requireExisting && currentParent === undefined) return false;
+	const destinationKey = moduleGroupKey(destinationParent);
+	const destination = [
+		...(state.moduleSiblingOrder.get(destinationKey) ?? []),
+	].filter((uuid) => uuid !== member);
+	if (after === member) return false;
+	let at: number;
+	if (after === undefined) at = destination.length;
+	else if (after === null) at = 0;
+	else {
+		const anchorIndex = destination.indexOf(after);
+		if (anchorIndex < 0) return false;
+		at = anchorIndex + 1;
+	}
+	if (currentParent !== undefined) {
+		const currentKey = moduleGroupKey(currentParent);
+		state.moduleSiblingOrder.set(
+			currentKey,
+			(state.moduleSiblingOrder.get(currentKey) ?? []).filter(
+				(uuid) => uuid !== member,
+			),
+		);
+	}
+	destination.splice(at, 0, member);
+	state.moduleSiblingOrder.set(destinationKey, destination);
+	state.moduleParent.set(member, destinationParent);
+	rebuildModuleOrder(state);
+	return true;
 }
 
 function place(
@@ -336,10 +400,28 @@ function removeFormTree(state: SequenceState, formUuid: string): void {
 }
 
 function removeModuleTree(state: SequenceState, moduleUuid: string): void {
+	if (
+		(state.moduleSiblingOrder.get(moduleGroupKey(moduleUuid))?.length ?? 0) > 0
+	) {
+		return;
+	}
 	for (const formUuid of [...(state.formOrder.get(moduleUuid) ?? [])]) {
 		removeFormTree(state, formUuid);
 	}
 	removeMember(state.moduleOrder, moduleUuid);
+	const parent = state.moduleParent.get(moduleUuid);
+	if (parent !== undefined) {
+		const key = moduleGroupKey(parent);
+		state.moduleSiblingOrder.set(
+			key,
+			(state.moduleSiblingOrder.get(key) ?? []).filter(
+				(uuid) => uuid !== moduleUuid,
+			),
+		);
+	}
+	state.moduleParent.delete(moduleUuid);
+	state.moduleSiblingOrder.delete(moduleGroupKey(moduleUuid));
+	rebuildModuleOrder(state);
 	state.formOrder.delete(moduleUuid);
 	state.columnListOrder.delete(moduleUuid);
 	state.columnDetailOrder.delete(moduleUuid);
@@ -379,7 +461,14 @@ export function mutationSequenceAdmissionIssue(
 	for (const [mutationIndex, mutation] of mutations.entries()) {
 		switch (mutation.kind) {
 			case "addModule":
-				if (!place(state.moduleOrder, mutation.module.uuid, mutation.after)) {
+				if (
+					!placeModule(
+						state,
+						mutation.module.uuid,
+						mutation.module.parentModuleUuid ?? null,
+						mutation.after,
+					)
+				) {
 					return issue(mutation, mutationIndex, "modules", mutation.after);
 				}
 				state.formOrder.set(mutation.module.uuid, []);
@@ -407,7 +496,17 @@ export function mutationSequenceAdmissionIssue(
 				removeModuleTree(state, mutation.uuid);
 				break;
 			case "moveModule":
-				if (!place(state.moduleOrder, mutation.uuid, mutation.after, true)) {
+				if (
+					!placeModule(
+						state,
+						mutation.uuid,
+						Object.hasOwn(mutation, "parentModuleUuid")
+							? (mutation.parentModuleUuid ?? null)
+							: (state.moduleParent.get(mutation.uuid) ?? null),
+						mutation.after,
+						true,
+					)
+				) {
 					return issue(mutation, mutationIndex, "modules", mutation.after);
 				}
 				break;

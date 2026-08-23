@@ -2,7 +2,9 @@
 
 **PR:** `Session endpoints and shareable deep links`
 
-**Depends on:** [nested menus](nested-menus.md).
+**Depends on:** nothing outstanding. The shipped
+[one-tier menu contract](../complex-app-plan.md#one-tier-nested-menus) is an
+input, not a remaining unit.
 · **Blocks:** nothing.
 
 A shareable link must resolve to a *released* build whose referenced tables and

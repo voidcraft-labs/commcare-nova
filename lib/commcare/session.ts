@@ -149,6 +149,11 @@ export interface SessionDatum {
 	 * string.
 	 */
 	renderFunction?: (sessionRef: (datumId: string) => string) => string;
+	/** Structural regeneration hook used when HQ-style root-menu alignment
+	 * renames a datum. Never rendered. */
+	renderNodeset?: (parentDatumId?: string) => string;
+	/** The immediately preceding selection in a parent-select chain. */
+	parentSelection?: SessionDatum;
 }
 
 /** A secondary instance required by a form entry. */
@@ -258,7 +263,7 @@ export interface EntryDefinition {
  * matches CCHQ's canonical builder at
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
  */
-function caseLoadingNodeset(
+export function caseLoadingNodeset(
 	caseType: string,
 	caseListFilter: Predicate | undefined,
 	excludedOwnerIds: ValueExpression | undefined,
@@ -276,6 +281,56 @@ function caseLoadingNodeset(
 		lookupNaming,
 	);
 	return `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}${ownerFragment}`;
+}
+
+/** Build one selectable case datum. Nested-menu projection uses this for
+ * every step in a parent-select chain, while the flat helper below keeps the
+ * historical single-`case_id` default. */
+export function deriveCaseSelectionDatum(args: {
+	readonly id: string;
+	readonly caseType: string;
+	readonly moduleIndex: number;
+	readonly caseListFilter?: Predicate;
+	readonly excludedOwnerIds?: ValueExpression;
+	readonly relationContext?: RelationEvaluationScopeContext;
+	readonly lookupNaming?: LookupWireNaming;
+	readonly persistentDetailId?: string;
+	readonly parentDatumId?: string;
+	readonly detailConfirm?: boolean;
+}): SessionDatum {
+	const base = caseLoadingNodeset(
+		args.caseType,
+		args.caseListFilter,
+		args.excludedOwnerIds,
+		args.relationContext,
+		args.lookupNaming,
+	);
+	const renderNodeset = (parentDatumId?: string): string => {
+		const parentFilter =
+			parentDatumId === undefined
+				? ""
+				: `[index/*[not(@relationship='extension')]=instance('commcaresession')/session/data/${parentDatumId}]`;
+		return `${base}${parentFilter}`;
+	};
+	return {
+		id: args.id,
+		instanceId: "casedb",
+		instanceSrc: "jr://instance/casedb",
+		...(args.parentDatumId !== undefined && {
+			instanceIds: ["commcaresession"],
+		}),
+		nodeset: renderNodeset(args.parentDatumId),
+		renderNodeset,
+		value: "./@case_id",
+		detailSelect: `m${args.moduleIndex}_case_short`,
+		...(args.detailConfirm === true && {
+			detailConfirm: `m${args.moduleIndex}_case_long`,
+		}),
+		...(args.persistentDetailId !== undefined && {
+			detailPersistent: args.persistentDetailId,
+		}),
+		caseType: args.caseType,
+	};
 }
 
 /**
@@ -459,6 +514,9 @@ export interface SessionDatumsInput {
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
 	readonly tileGrouping?: CaseTileGrouping;
+	/** Pre-projected selectable datums. Nested child menus use this to carry
+	 * their parent-select chain and root-menu datum alignment. */
+	readonly caseSelectionDatums?: readonly SessionDatum[];
 }
 
 export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
@@ -473,29 +531,28 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		lookupNaming,
 		persistentDetailId,
 		tileGrouping,
+		caseSelectionDatums,
 	} = args;
 	const datums: SessionDatum[] = [];
 
 	// (1) Case-loading datum for followup / close.
-	if (CASE_LOADING_FORM_TYPES.has(formType) && caseType) {
-		datums.push({
-			id: "case_id",
-			instanceId: "casedb",
-			instanceSrc: "jr://instance/casedb",
-			nodeset: caseLoadingNodeset(
-				caseType,
-				caseListFilter,
-				excludedOwnerIds,
-				relationContext,
-				lookupNaming,
-			),
-			value: "./@case_id",
-			detailSelect: `m${moduleIndex}_case_short`,
-			...(persistentDetailId !== undefined && {
-				detailPersistent: persistentDetailId,
-			}),
-			caseType,
-		});
+	if (caseSelectionDatums !== undefined) {
+		datums.push(...caseSelectionDatums);
+	} else if (CASE_LOADING_FORM_TYPES.has(formType) && caseType) {
+		datums.push(
+			...[
+				deriveCaseSelectionDatum({
+					id: "case_id",
+					caseType,
+					moduleIndex,
+					caseListFilter,
+					excludedOwnerIds,
+					relationContext,
+					lookupNaming,
+					persistentDetailId,
+				}),
+			],
+		);
 	}
 
 	// (0) The worker's own case, appended LAST, matching HQ: the datum list is
@@ -586,7 +643,11 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 	// makes that a second predicate arm rather than a reshape.
 	appendUsercaseDatum();
 
-	const caseSelectDatum = datums.find((datum) => datum.id === "case_id");
+	const caseSelectDatum = [...datums]
+		.reverse()
+		.find(
+			(datum) => datum.nodeset !== undefined && datum.caseType === caseType,
+		);
 	if (tileGrouping !== undefined && caseSelectDatum !== undefined) {
 		const renderFunction = (sessionRef: (datumId: string) => string): string =>
 			`join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = ${sessionRef(caseSelectDatum.id)}]/index/${tileGrouping.identifier}))`;
@@ -630,6 +691,9 @@ export function derivePostSubmitStack(
 	postSubmit: PostSubmitDestination,
 	moduleIndex: number,
 	previousFrame: readonly MatchedChild[],
+	moduleFrame: readonly MatchedChild[] = [
+		{ type: "command", id: `m${moduleIndex}` },
+	],
 ): StackOperation[] {
 	switch (postSubmit) {
 		case "app_home":
@@ -638,7 +702,7 @@ export function derivePostSubmitStack(
 			return [
 				{
 					op: "create",
-					children: [{ type: "command", value: `'m${moduleIndex}'` }],
+					children: moduleFrame.map(toStackChild),
 				},
 			];
 		case "previous":
@@ -670,6 +734,7 @@ export function deriveFormLinkStack(
 	fallback: PostSubmitDestination,
 	sourceModuleIndex: number,
 	previousFrame: readonly MatchedChild[],
+	moduleFrame?: readonly MatchedChild[],
 ): StackOperation[] {
 	const ops: StackOperation[] = projected.links.map((link) => ({
 		op: "create",
@@ -682,6 +747,7 @@ export function deriveFormLinkStack(
 			fallback,
 			sourceModuleIndex,
 			previousFrame,
+			moduleFrame,
 		)) {
 			ops.push({ ...op, ifClause: guard });
 		}
@@ -716,6 +782,10 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	 * frame: the caller that wants HQ's `previous_screen` bytes derives it.
 	 */
 	readonly previousFrame?: readonly MatchedChild[];
+	/** Parent-aware frame for the owning module. Flat modules omit it. */
+	readonly moduleFrame?: readonly MatchedChild[];
+	/** Fully projected session, including root-menu alignment. */
+	readonly projectedSessionDatums?: readonly SessionDatum[];
 	/**
 	 * The module's `caseSearchConfig.searchButtonDisplayCondition`. It lowers
 	 * to the `<action relevant>` attribute on the case-list detail's
@@ -754,6 +824,8 @@ export function deriveEntryDefinition(
 		postSubmit,
 		formLinks,
 		previousFrame = [],
+		moduleFrame,
+		projectedSessionDatums,
 		caseListFilter,
 		searchButtonDisplayCondition,
 		caseListColumnExpressions,
@@ -767,7 +839,10 @@ export function deriveEntryDefinition(
 	// Every datum field is already on `args`, so this forwards the whole
 	// object rather than re-listing ten arguments in order. That re-listing
 	// was the one place a positional slip could compile and still be wrong.
-	const datums = deriveSessionDatums(args);
+	const datums =
+		projectedSessionDatums === undefined
+			? deriveSessionDatums(args)
+			: [...projectedSessionDatums];
 	const instances: EntryInstance[] = [];
 	const seen = new Set<string>();
 
@@ -857,8 +932,29 @@ export function deriveEntryDefinition(
 	// pops the form frame and lands home.
 	const operations =
 		formLinks !== undefined
-			? deriveFormLinkStack(formLinks, postSubmit, moduleIndex, previousFrame)
-			: derivePostSubmitStack(postSubmit, moduleIndex, previousFrame);
+			? deriveFormLinkStack(
+					formLinks,
+					postSubmit,
+					moduleIndex,
+					previousFrame,
+					moduleFrame,
+				)
+			: derivePostSubmitStack(
+					postSubmit,
+					moduleIndex,
+					previousFrame,
+					moduleFrame,
+				);
+	for (const operation of operations) {
+		for (const child of operation.children) {
+			if (child.type !== "datum") continue;
+			for (const id of collectInstanceRefs(child.value)) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
+			}
+		}
+	}
 
 	return {
 		formXmlns,
@@ -929,40 +1025,44 @@ export function deriveCaseListEntryDefinition(
 	relationContext: RelationEvaluationScopeContext = {},
 	lookupNaming?: LookupWireNaming,
 	persistentDetailId?: string,
+	projectedDatums?: readonly SessionDatum[],
 ): EntryDefinition {
 	// The browse datum: loads a case from the list into both the list
 	// (detail-select) and detail (detail-confirm) screens. Shares the
 	// nodeset builder with the form entry's `case_id` datum so the two
 	// can't drift on the case-type / status / filter predicate order.
-	const datum: SessionDatum = {
-		id: "case_id",
-		instanceId: "casedb",
-		instanceSrc: "jr://instance/casedb",
-		nodeset: caseLoadingNodeset(
-			caseType,
-			caseListFilter,
-			excludedOwnerIds,
-			relationContext,
-			lookupNaming,
-		),
-		value: "./@case_id",
-		detailSelect: `m${moduleIndex}_case_short`,
-		...(hasDetailScreen && {
-			detailConfirm: `m${moduleIndex}_case_long`,
-		}),
-		...(persistentDetailId !== undefined && {
-			detailPersistent: persistentDetailId,
-		}),
-	};
+	const datums =
+		projectedDatums === undefined
+			? [
+					deriveCaseSelectionDatum({
+						id: "case_id",
+						caseType,
+						moduleIndex,
+						caseListFilter,
+						excludedOwnerIds,
+						relationContext,
+						lookupNaming,
+						persistentDetailId,
+						detailConfirm: hasDetailScreen,
+					}),
+				]
+			: [...projectedDatums];
 
 	// Seed `casedb` from the datum, then accumulate every body-reachable
 	// instance in the same order as the form entry (casedb → predicate
 	// instances → calc-column instances).
 	const instances: EntryInstance[] = [];
 	const seen = new Set<string>();
-	if (datum.instanceId !== undefined) {
-		seen.add(datum.instanceId);
-		instances.push({ id: datum.instanceId, src: datum.instanceSrc ?? "" });
+	for (const datum of datums) {
+		if (datum.instanceId !== undefined && !seen.has(datum.instanceId)) {
+			seen.add(datum.instanceId);
+			instances.push({ id: datum.instanceId, src: datum.instanceSrc ?? "" });
+		}
+		for (const id of datum.instanceIds ?? []) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
+		}
 	}
 	accumulateCaseLoadingInstances(
 		caseListFilter,
@@ -980,7 +1080,7 @@ export function deriveCaseListEntryDefinition(
 		commandId: `m${moduleIndex}-case-list`,
 		localeId: `case_lists.m${moduleIndex}`,
 		instances,
-		session: { datums: [datum] },
+		session: { datums },
 	};
 }
 

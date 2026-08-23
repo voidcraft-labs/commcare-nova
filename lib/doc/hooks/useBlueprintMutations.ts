@@ -397,6 +397,15 @@ export interface BlueprintMutations {
 		uuid: Uuid,
 		media: { icon: ModuleIconRef | null; audioLabel: MediaAssetId | null },
 	) => CommitOutcome;
+	/** Reorder inside the current sibling group or explicitly reparent in one
+	 * candidate-state mutation. `after` is a sibling in the effective group. */
+	moveModule: (
+		uuid: Uuid,
+		placement: {
+			readonly after: Uuid | null;
+			readonly parentModuleUuid?: Uuid | null;
+		},
+	) => CommitOutcome;
 	removeModule: (uuid: Uuid) => CommitOutcome;
 
 	// ── Compound creators (atomic, born-valid) ───────────────────────────
@@ -512,14 +521,16 @@ export interface BlueprintMutations {
 	createCaseListModule: (args: {
 		caseType: string;
 		name?: string;
-		index?: number;
+		parentModuleUuid?: Uuid;
+		after?: Uuid | null;
 	}) => AddCommitOutcome;
 	/** Create a survey/menu module (no case type) born with one survey form and
 	 *  a starter question — the smallest valid module, since CommCare rejects a
 	 *  menu with no forms and no case list. Returns the new module's uuid. */
 	createSurveyModule: (args?: {
 		name?: string;
-		index?: number;
+		parentModuleUuid?: Uuid;
+		after?: Uuid | null;
 	}) => AddCommitOutcome;
 	/**
 	 * Create a new form of `type` in a module, born with a default first
@@ -1356,6 +1367,16 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					);
 				},
 
+				moveModule(uuid, placement) {
+					if (!get().modules[uuid]) {
+						warnUnresolved("moveModule", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "moveModule", uuid, ...placement }]),
+					);
+				},
+
 				removeModule(uuid) {
 					const doc = get();
 					if (!doc.modules[uuid]) {
@@ -1697,11 +1718,12 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					return toOutcome(guardedApply(removePersonaMutations(uuid)));
 				},
 
-				createCaseListModule({ caseType, name, index }) {
+				createCaseListModule({ caseType, name, parentModuleUuid, after }) {
 					const { mutations, moduleUuid } = caseListModuleMutations(get(), {
 						caseType,
 						...(name !== undefined && { name }),
-						...(index !== undefined && { index }),
+						...(parentModuleUuid !== undefined && { parentModuleUuid }),
+						...(after !== undefined && { after }),
 					});
 					const applied = guardedApply(mutations);
 					if (!applied.ok) return applied;

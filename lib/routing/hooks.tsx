@@ -279,18 +279,31 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			? loc.formUuid
 			: undefined;
 
-	const moduleName = useModule(moduleUuid)?.name;
+	const module = useModule(moduleUuid);
+	const moduleName = module?.name;
+	const parentModuleUuid = module?.parentModuleUuid;
+	const parentModuleName = useModule(parentModuleUuid)?.name;
 	const formName = useForm(formUuid)?.name;
 	/* A bare case list (a `caseListOnly` module) has no module screen — it IS
 	 * its Results screen. Its module crumb points straight at Results, and the
 	 * intermediate "Results" crumb is dropped (below) so the trail doesn't
 	 * restate the same destination twice. */
 	const moduleIsBareCaseList = useIsBareCaseListModule(moduleUuid);
+	const parentModuleIsBareCaseList = useIsBareCaseListModule(parentModuleUuid);
 
 	return useMemo<BreadcrumbItem[]>(() => {
 		const items: BreadcrumbItem[] = [
 			{ key: "home", label: "Home", location: { kind: "home" } },
 		];
+		if (parentModuleUuid) {
+			items.push({
+				key: `m:${parentModuleUuid}`,
+				label: parentModuleName ?? "Menu",
+				location: parentModuleIsBareCaseList
+					? { kind: "cases", moduleUuid: parentModuleUuid }
+					: { kind: "module", moduleUuid: parentModuleUuid },
+			});
+		}
 		if (moduleUuid) {
 			items.push({
 				key: `m:${moduleUuid}`,
@@ -423,7 +436,17 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			});
 		}
 		return items;
-	}, [loc, moduleUuid, formUuid, moduleName, formName, moduleIsBareCaseList]);
+	}, [
+		loc,
+		moduleUuid,
+		formUuid,
+		moduleName,
+		parentModuleUuid,
+		parentModuleName,
+		formName,
+		moduleIsBareCaseList,
+		parentModuleIsBareCaseList,
+	]);
 }
 
 /**

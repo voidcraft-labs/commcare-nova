@@ -13,10 +13,12 @@ import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
 
 /** Collapsible-section chevron button used by module / form / group rows. */
 export function CollapseChevron({
+	label,
 	isCollapsed,
 	onClick,
 	hidden,
 }: {
+	label: string;
 	isCollapsed: boolean;
 	onClick: (e: React.MouseEvent) => void;
 	hidden?: boolean;
@@ -30,7 +32,7 @@ export function CollapseChevron({
 			type="button"
 			variant="ghost"
 			size="icon"
-			aria-label={isCollapsed ? "Expand section" : "Collapse section"}
+			aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${label}`}
 			aria-expanded={!isCollapsed}
 			className="shrink-0"
 			onClick={onClick}

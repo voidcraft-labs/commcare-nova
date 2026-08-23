@@ -61,8 +61,8 @@ export const FieldRow = memo(function FieldRow({
 	onSelect: TreeSelectHandler;
 	depth: number;
 	delay: number;
-	collapsed: Set<string>;
-	toggle: (key: string) => void;
+	collapsed: Set<Uuid>;
+	toggle: (key: Uuid) => void;
 	searchResult: SearchResult | null;
 	locked?: boolean;
 	parentPath?: FieldPath;
@@ -99,11 +99,9 @@ export const FieldRow = memo(function FieldRow({
 	const hasChildren = childUuids.length > 0;
 	const isCollapsed =
 		hasChildren &&
-		(searchResult?.forceExpand?.has(fieldPath)
-			? false
-			: collapsed.has(fieldPath));
-	const labelIndices = searchResult?.matchMap?.get(fieldPath);
-	const idIndices = searchResult?.matchMap?.get(`${fieldPath}__id`);
+		(searchResult?.forceExpand?.has(uuid) ? false : collapsed.has(uuid));
+	const labelIndices = searchResult?.matchMap?.get(uuid);
+	const idIndices = searchResult?.matchMap?.get(`${uuid}__id`);
 	// `label` is absent from `hidden` and optional on `group` (empty/absent
 	// label = transparent group). The `in` narrowing alone leaves `string |
 	// undefined`, so coerce `undefined` to "": the tree row still renders
@@ -157,10 +155,11 @@ export const FieldRow = memo(function FieldRow({
 			>
 				{hasChildren ? (
 					<CollapseChevron
+						label={displayText}
 						isCollapsed={!!isCollapsed}
 						onClick={(e) => {
 							e.stopPropagation();
-							toggle(fieldPath);
+							toggle(uuid);
 						}}
 						hidden={locked}
 					/>

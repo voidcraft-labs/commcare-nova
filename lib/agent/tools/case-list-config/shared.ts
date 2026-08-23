@@ -151,8 +151,7 @@ const intervalColumnInputArm = intervalColumnArm
 /* `linkText` is described here rather than left to the prompt: it is the
  * one column slot whose two CommCare limits decide whether an author
  * wants the kind at all, and a slot's own description travels with the
- * tool schema on every call instead of spending the served prompt's
- * budget (`lib/mcp/prompts.ts::MAX_DELIVERABLE_PROMPT_CHARS`). */
+ * tool schema on every call. */
 const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
 	...newColumnIdentity,
 	linkText: linkColumnArm.shape.linkText.describe(

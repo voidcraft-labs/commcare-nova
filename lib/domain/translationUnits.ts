@@ -250,6 +250,19 @@ function proseLabel(field: Field, doc: BlueprintDoc): string {
 	return projectProseTemplate(field.label, doc).text || field.id;
 }
 
+function moduleMenuBreadcrumb(
+	doc: BlueprintDoc,
+	module: Module,
+): readonly string[] {
+	const parent =
+		module.parentModuleUuid === undefined
+			? undefined
+			: doc.modules[module.parentModuleUuid];
+	return parent === undefined
+		? [doc.appName, module.name]
+		: [doc.appName, parent.name, module.name];
+}
+
 interface FormWalkContext {
 	readonly module: Module;
 	readonly formUuid: Uuid;
@@ -268,8 +281,7 @@ function fieldUnits(
 		if (field === undefined) continue;
 		const label = proseLabel(field, doc);
 		const breadcrumb = [
-			doc.appName,
-			context.module.name,
+			...moduleMenuBreadcrumb(doc, context.module),
 			context.formName,
 			...ancestorLabels,
 			label,
@@ -441,7 +453,11 @@ function addCasePropertyOptionUnits(
 					value: option.value,
 					occurrence,
 				},
-				breadcrumb: [doc.appName, module.name, property.name, option.value],
+				breadcrumb: [
+					...moduleMenuBreadcrumb(doc, module),
+					property.name,
+					option.value,
+				],
 				context: {
 					moduleName: module.name,
 					caseType: module.caseType,
@@ -474,6 +490,7 @@ export function collectTranslationUnits(
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
 		if (module === undefined) continue;
+		const moduleBreadcrumb = moduleMenuBreadcrumb(doc, module);
 		out.push(
 			unit({
 				id: makeTranslationUnitId("module", moduleUuid, "name"),
@@ -481,7 +498,7 @@ export function collectTranslationUnits(
 				role: "module-name",
 				source: module.name,
 				owner: { kind: "module", moduleUuid },
-				breadcrumb: [doc.appName, module.name],
+				breadcrumb: moduleBreadcrumb,
 				context: { moduleName: module.name },
 			}),
 		);
@@ -496,7 +513,7 @@ export function collectTranslationUnits(
 					role: "form-name",
 					source: form.name,
 					owner: { kind: "form", moduleUuid, formUuid },
-					breadcrumb: [doc.appName, module.name, form.name],
+					breadcrumb: [...moduleBreadcrumb, form.name],
 					context: { moduleName: module.name, formName: form.name },
 				}),
 			);
@@ -528,7 +545,7 @@ export function collectTranslationUnits(
 					role: "case-list-header",
 					source: column.header,
 					owner,
-					breadcrumb: [doc.appName, module.name, "Cases", column.header],
+					breadcrumb: [...moduleBreadcrumb, "Cases", column.header],
 					context,
 				}),
 			);
@@ -547,8 +564,7 @@ export function collectTranslationUnits(
 							source: mapping.label,
 							owner,
 							breadcrumb: [
-								doc.appName,
-								module.name,
+								...moduleBreadcrumb,
 								"Cases",
 								column.header,
 								mapping.value,
@@ -567,8 +583,7 @@ export function collectTranslationUnits(
 						source: column.text,
 						owner,
 						breadcrumb: [
-							doc.appName,
-							module.name,
+							...moduleBreadcrumb,
 							"Cases",
 							column.header,
 							"threshold text",
@@ -604,7 +619,7 @@ export function collectTranslationUnits(
 						moduleUuid,
 						searchInputUuid: input.uuid,
 					},
-					breadcrumb: [doc.appName, module.name, "Search", input.label],
+					breadcrumb: [...moduleBreadcrumb, "Search", input.label],
 					context: { moduleName: module.name },
 				}),
 			);
@@ -621,7 +636,7 @@ export function collectTranslationUnits(
 					role: "search-screen-title",
 					source: title,
 					owner: searchOwner,
-					breadcrumb: [doc.appName, module.name, "Search", "title"],
+					breadcrumb: [...moduleBreadcrumb, "Search", "title"],
 					context: { moduleName: module.name },
 				}),
 			);
@@ -633,7 +648,7 @@ export function collectTranslationUnits(
 						role: "search-screen-subtitle",
 						source: search.searchScreenSubtitle,
 						owner: searchOwner,
-						breadcrumb: [doc.appName, module.name, "Search", "subtitle"],
+						breadcrumb: [...moduleBreadcrumb, "Search", "subtitle"],
 						context: { moduleName: module.name },
 					}),
 				);
@@ -645,7 +660,7 @@ export function collectTranslationUnits(
 					role: "search-button-label",
 					source: search.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 					owner: searchOwner,
-					breadcrumb: [doc.appName, module.name, "Search", "button"],
+					breadcrumb: [...moduleBreadcrumb, "Search", "button"],
 					context: { moduleName: module.name },
 				}),
 			);

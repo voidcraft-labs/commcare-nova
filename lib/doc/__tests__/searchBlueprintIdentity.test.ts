@@ -66,7 +66,7 @@ function identityFixture(): BlueprintDoc {
 }
 
 describe("searchBlueprint identity projection", () => {
-	it("returns one exact, type-specific UUID address per result arm", () => {
+	it("returns one exact, type-specific UUID address and module topology", () => {
 		const results = searchBlueprint(identityFixture(), "Target");
 
 		expect(results).toHaveLength(7);
@@ -90,8 +90,18 @@ describe("searchBlueprint identity projection", () => {
 			return address;
 		});
 		expect(addresses).toEqual([
-			{ type: "module", moduleUuid: MODULE },
-			{ type: "module", moduleUuid: MODULE },
+			{
+				type: "module",
+				moduleUuid: MODULE,
+				parentModuleUuid: null,
+				childModuleUuids: [],
+			},
+			{
+				type: "module",
+				moduleUuid: MODULE,
+				parentModuleUuid: null,
+				childModuleUuids: [],
+			},
 			{ type: "case_list_column", moduleUuid: MODULE, columnUuid: COLUMN },
 			{ type: "search_input", moduleUuid: MODULE, searchInputUuid: INPUT },
 			{ type: "form", moduleUuid: MODULE, formUuid: FORM },

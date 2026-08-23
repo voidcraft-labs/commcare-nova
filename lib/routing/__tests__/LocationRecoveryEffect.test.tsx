@@ -107,6 +107,32 @@ function makeStore() {
 	return store;
 }
 
+function makeNestedStore() {
+	const rootUuid = testUuid("root-menu-0000-4000-8000-000000000001");
+	const childUuid = testUuid("child-menu-0000-4000-8000-000000000002");
+	const doc = buildDoc({
+		appId: "app-1",
+		appName: "T",
+		modules: [
+			{
+				uuid: rootUuid,
+				name: "Care",
+				forms: [{ name: "Intake", type: "survey" }],
+			},
+			{
+				uuid: childUuid,
+				name: "Visits",
+				forms: [{ name: "Follow up", type: "survey" }],
+			},
+		],
+	});
+	doc.modules[childUuid].parentModuleUuid = rootUuid;
+	const store = createBlueprintDocStore();
+	store.getState().load(doc);
+	store.getState().startTracking();
+	return { store, rootUuid, childUuid };
+}
+
 function renderEffect(store: ReturnType<typeof makeStore>) {
 	return render(
 		<BlueprintDocContext.Provider value={store}>
@@ -232,6 +258,30 @@ describe("LocationRecoveryEffect", () => {
 		 * mismatch and replaces with the home URL. */
 		await waitFor(() => {
 			expect(replaceStateSpy).toHaveBeenCalledWith(null, "", pathname);
+		});
+	});
+
+	it("recovers a remotely deleted submenu to its former parent", async () => {
+		const { store, rootUuid, childUuid } = makeNestedStore();
+		mockSegments.current = [childUuid];
+		const { rerender } = renderEffect(store);
+		expect(replaceStateSpy).not.toHaveBeenCalled();
+
+		act(() => {
+			store.getState().applyMany([{ kind: "removeModule", uuid: childUuid }]);
+		});
+		rerender(
+			<BlueprintDocContext.Provider value={store}>
+				<LocationRecoveryEffect />
+			</BlueprintDocContext.Provider>,
+		);
+
+		await waitFor(() => {
+			expect(replaceStateSpy).toHaveBeenCalledWith(
+				null,
+				"",
+				`${pathname}/${rootUuid}`,
+			);
 		});
 	});
 });

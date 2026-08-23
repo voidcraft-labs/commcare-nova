@@ -129,12 +129,13 @@ describe("useSearchFilter", () => {
 		const r = result.current;
 		expect(r).not.toBeNull();
 		if (!r) return;
-		expect(r.visibleModuleIndices.has(0)).toBe(true);
-		// Module match by its name "Patient Registration" — match-map key is `m0`.
-		expect(r.matchMap.get("m0")).toBeDefined();
+		const MOD = testUuid("module-aaaa-0000-0000-000000000000");
+		expect(r.visibleModuleUuids.has(MOD)).toBe(true);
+		// Matches are keyed by stable authored identity, never array position.
+		expect(r.matchMap.get(MOD)).toBeDefined();
 		// Module-name match alone should force-expand the module so its forms
 		// remain visible when the user drills in.
-		expect(r.forceExpand.has("m0")).toBe(true);
+		expect(r.forceExpand.has(MOD)).toBe(true);
 	});
 
 	it("matches a field label and force-expands its parent form", () => {
@@ -150,12 +151,63 @@ describe("useSearchFilter", () => {
 		const Q_AGE = testUuid("q-age-0000-0000-0000-000000000000");
 		expect(r.visibleFieldUuids.has(Q_AGE)).toBe(true);
 
-		// The form containing the match must be in visibleFormIds.
+		// The form containing the match must be visible.
 		const FORM = testUuid("form-bbbb-0000-0000-000000000000");
-		expect(r.visibleFormIds.has(FORM)).toBe(true);
+		expect(r.visibleFormUuids.has(FORM)).toBe(true);
 
-		// The form's collapse-key must be force-expanded so the match shows.
-		expect(r.forceExpand.has("f0_0")).toBe(true);
+		// The form's UUID must be force-expanded so the match shows.
+		expect(r.forceExpand.has(FORM)).toBe(true);
+	});
+
+	it("retains and expands a root ancestor when its submenu matches", () => {
+		const doc = buildFixture();
+		const rootUuid = doc.moduleOrder[0];
+		const childUuid = testUuid("module-child-0000-0000-000000000000");
+		doc.modules[childUuid] = {
+			uuid: childUuid,
+			id: "visits",
+			name: "Follow-up visits",
+			parentModuleUuid: rootUuid,
+		};
+		doc.moduleOrder.push(childUuid);
+		doc.formOrder[childUuid] = [];
+		const { result } = renderHook(() => useSearchFilter("follow-up"), {
+			wrapper: wrapWithDoc(doc),
+		});
+		const search = result.current;
+		expect(search?.visibleModuleUuids.has(childUuid)).toBe(true);
+		expect(search?.visibleModuleUuids.has(rootUuid)).toBe(true);
+		expect(search?.forceExpand.has(rootUuid)).toBe(true);
+	});
+
+	it("retains every field-group ancestor of a deep match", () => {
+		const doc = buildFixture();
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const groupUuid = testUuid("q-group-0000-0000-0000-000000000000");
+		const childUuid = testUuid("q-child-0000-0000-0000-000000000000");
+		doc.fields[groupUuid] = {
+			uuid: groupUuid,
+			id: "details",
+			kind: "group",
+			label: proseText("Details"),
+		};
+		doc.fields[childUuid] = {
+			uuid: childUuid,
+			id: "remote_note",
+			kind: "text",
+			label: proseText("Remote note"),
+		};
+		doc.fieldOrder[formUuid].push(groupUuid);
+		doc.fieldOrder[groupUuid] = [childUuid];
+		doc.fieldParent[groupUuid] = formUuid;
+		doc.fieldParent[childUuid] = groupUuid;
+		const { result } = renderHook(() => useSearchFilter("remote"), {
+			wrapper: wrapWithDoc(doc),
+		});
+		const search = result.current;
+		expect(search?.visibleFieldUuids.has(childUuid)).toBe(true);
+		expect(search?.visibleFieldUuids.has(groupUuid)).toBe(true);
+		expect(search?.forceExpand.has(groupUuid)).toBe(true);
 	});
 
 	it("matches and highlights the selected language's visible field label", () => {
@@ -168,7 +220,7 @@ describe("useSearchFilter", () => {
 		if (r === null) return;
 		const fieldUuid = testUuid("q-name-0000-0000-0000-000000000000");
 		expect(r.visibleFieldUuids.has(fieldUuid)).toBe(true);
-		expect(r.matchMap.get("patient_name")).toEqual([[0, 15]]);
+		expect(r.matchMap.get(fieldUuid)).toEqual([[0, 15]]);
 	});
 
 	it("records separate match indices for label vs id hits", () => {
@@ -184,14 +236,9 @@ describe("useSearchFilter", () => {
 
 		// Both the label and id matches should produce entries — the id entry
 		// is keyed with `__id` suffix so the row can render "(id)" separately.
-		const labelKeys = Array.from(r.matchMap.keys()).filter(
-			(k) => !k.endsWith("__id") && !k.startsWith("m") && !k.startsWith("f"),
-		);
-		const idKeys = Array.from(r.matchMap.keys()).filter((k) =>
-			k.endsWith("__id"),
-		);
-		expect(labelKeys.length).toBeGreaterThan(0);
-		expect(idKeys.length).toBeGreaterThan(0);
+		const fieldUuid = testUuid("q-name-0000-0000-0000-000000000000");
+		expect(r.matchMap.get(fieldUuid)).toBeDefined();
+		expect(r.matchMap.get(`${fieldUuid}__id`)).toBeDefined();
 	});
 
 	it("produces empty visibility sets when no entity matches", () => {
@@ -202,8 +249,8 @@ describe("useSearchFilter", () => {
 		const r = result.current;
 		expect(r).not.toBeNull();
 		if (!r) return;
-		expect(r.visibleModuleIndices.size).toBe(0);
-		expect(r.visibleFormIds.size).toBe(0);
+		expect(r.visibleModuleUuids.size).toBe(0);
+		expect(r.visibleFormUuids.size).toBe(0);
 		expect(r.visibleFieldUuids.size).toBe(0);
 	});
 

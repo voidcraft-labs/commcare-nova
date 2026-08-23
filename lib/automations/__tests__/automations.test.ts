@@ -116,6 +116,31 @@ describe("automation domain and projections", () => {
 		]);
 	});
 
+	it("includes a submenu's parent path without duplicating its form", () => {
+		const doc = buildDoc({
+			appName: "Care",
+			modules: [
+				{
+					uuid: "care-menu",
+					name: "Care menu",
+					forms: [{ name: "Overview", type: "survey" }],
+				},
+				{
+					uuid: "visits-menu",
+					name: "Visits",
+					forms: [{ name: "Follow up", type: "survey" }],
+				},
+			],
+		});
+		const parentUuid = doc.moduleOrder[0];
+		const childUuid = doc.moduleOrder[1];
+		doc.modules[childUuid].parentModuleUuid = parentUuid;
+		expect(automationFormChoices(doc).map((choice) => choice.label)).toEqual([
+			"Care > Care menu > Overview",
+			"Care > Care menu > Visits > Follow up",
+		]);
+	});
+
 	it("represents the canonical claim-cleanup rule with zero ordinary criteria", () => {
 		const rule = claimCleanup();
 		expect(rule.criteria).toEqual([]);

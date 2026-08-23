@@ -692,6 +692,9 @@ function collectModuleConfigReferences(
 
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
+			case "module_parent":
+				// Entity parentage is unrelated to the case-type catalog.
+				break;
 			case "module_display_condition": {
 				if (
 					mod.displayCondition &&

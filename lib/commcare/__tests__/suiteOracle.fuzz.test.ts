@@ -88,6 +88,13 @@ function prepareAndGuard(doc: BlueprintDoc): void {
 	}
 }
 
+function nestSecondModuleWhenAvailable(doc: BlueprintDoc): boolean {
+	const [root, child] = doc.moduleOrder;
+	if (root === undefined || child === undefined) return false;
+	doc.modules[child].parentModuleUuid = root;
+	return true;
+}
+
 /**
  * Extract `suite.xml`, the default-locale app_strings key→value map, and the
  * `commcare/<file>` wire-path set from a compiled `.ccz` buffer. The fuzzer
@@ -191,6 +198,7 @@ describe("suite emitter totality (property-based fuzz)", () => {
 		// (Deliberately NOT the broader `hasMedia`: logo + field-itext media
 		// lower elsewhere and wouldn't keep this check exercised.)
 		suiteMedia: 0,
+		nestedMenu: 0,
 	};
 
 	it("every schema-valid doc emits an oracle-clean suite.xml", {
@@ -198,6 +206,7 @@ describe("suite emitter totality (property-based fuzz)", () => {
 	}, () => {
 		fc.assert(
 			fc.property(suiteDocArbitrary, (doc) => {
+				if (nestSecondModuleWhenAvailable(doc)) census.nestedMenu += 1;
 				prepareAndGuard(doc);
 
 				// Census the doc shape before emitting.
@@ -267,6 +276,7 @@ describe("suite emitter totality (property-based fuzz)", () => {
 		// one to make a flaky run pass is the failure mode this guards against.
 		expect(census.total).toBeGreaterThan(0);
 		expect(census.multiModule / census.total).toBeGreaterThan(0.25);
+		expect(census.nestedMenu / census.total).toBeGreaterThan(0.25);
 		expect(census.caseSearch / census.total).toBeGreaterThan(0.25);
 		expect(census.childCase / census.total).toBeGreaterThan(0.15);
 		expect(census.sort / census.total).toBeGreaterThan(0.3);

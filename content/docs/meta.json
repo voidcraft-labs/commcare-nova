@@ -2,6 +2,7 @@
 	"title": "Docs",
 	"pages": [
 		"building-with-nova",
+		"nested-menus",
 		"languages",
 		"case-workspace",
 		"publishing",
