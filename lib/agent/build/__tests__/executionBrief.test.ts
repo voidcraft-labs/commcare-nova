@@ -316,6 +316,43 @@ describe("deriveSliceExecutionBrief", () => {
 		}
 	});
 
+	it("carries the materialized preceding sibling into a later root-module brief", () => {
+		const contract = makeThirteenWorkflowContract();
+		for (const workflow of contract.workflows) {
+			workflow.prerequisiteWorkflowIds = [];
+			workflow.prerequisites = [];
+		}
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const firstSlice = fixtureValue(plan.slices[0], "first module owner slice");
+		const secondSlice = fixtureValue(
+			plan.slices[1],
+			"second module owner slice",
+		);
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: secondSlice.id,
+		});
+
+		expect(secondSlice.prerequisiteSliceIds).toEqual([firstSlice.id]);
+		expect(brief.prerequisiteWorkflows.map((workflow) => workflow.id)).toEqual([
+			firstSlice.workflowId,
+		]);
+		expect(brief.moduleRealizations).toEqual([
+			expect.objectContaining({
+				compositionId: contract.moduleCompositions[0]?.id,
+				action: "reuse",
+				afterSiblingModuleCompositionId: null,
+			}),
+			expect.objectContaining({
+				compositionId: contract.moduleCompositions[1]?.id,
+				action: "create",
+				afterSiblingModuleCompositionId: contract.moduleCompositions[0]?.id,
+			}),
+		]);
+	});
+
 	it("includes the owning record for a property read from an earlier workflow", () => {
 		const contract = makeThirteenWorkflowContract();
 		const earlierProperty = contract.records[0]?.properties[0];

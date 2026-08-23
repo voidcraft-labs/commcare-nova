@@ -62,6 +62,28 @@ describe("deterministic build planning", () => {
 		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
 	});
 
+	it("adds the exact preceding sibling owner as a placement prerequisite", () => {
+		const contract = makeThirteenWorkflowContract();
+		for (const workflow of contract.workflows) {
+			workflow.prerequisiteWorkflowIds = [];
+			workflow.prerequisites = [];
+		}
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const first = fixtureValue(plan.slices[0], "first module owner slice");
+		const second = fixtureValue(plan.slices[1], "second module owner slice");
+		const third = fixtureValue(plan.slices[2], "third module owner slice");
+
+		expect(first.role).toBe("materialization-root");
+		expect(first.prerequisiteSliceIds).toEqual([]);
+		expect(second.prerequisiteSliceIds).toEqual([first.id]);
+		expect(third.prerequisiteSliceIds).toEqual([second.id]);
+		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
+	});
+
 	it("is stable for the same accepted revision", () => {
 		const first = makeBuildPlan();
 		const second = makeBuildPlan();
@@ -272,7 +294,7 @@ describe("deterministic build planning", () => {
 			(id) => id !== workflow.id,
 		);
 		const standaloneModuleId = did(880);
-		contract.moduleCompositions.push({
+		contract.moduleCompositions.unshift({
 			id: standaloneModuleId,
 			name: "Consent registration",
 			purpose: "Host conditional registration without selected record context.",

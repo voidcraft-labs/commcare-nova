@@ -44,7 +44,10 @@ import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { plainColumn } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
-import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
+import type {
+	CaseRowWithCalculated,
+	SubmissionResult,
+} from "@/lib/preview/engine/caseDataBindingTypes";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import type { Location } from "@/lib/routing/types";
@@ -53,6 +56,7 @@ import {
 	type BuilderSessionStoreApi,
 	useBuilderSessionApi,
 } from "@/lib/session/provider";
+import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 
 // ── Mocks ────────────────────────────────────────────────────────
 
@@ -97,6 +101,12 @@ const REQUIRED_SIGNATURE_UUID = testUuid(
 );
 const PERSONA_UUID = testUuid("00000000-0000-0000-0000-000000000d01");
 const PERSONA_REGION_UUID = testUuid("00000000-0000-0000-0000-000000000d02");
+const MENU_CASE_PARENT_MODULE_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000d03",
+);
+const MENU_CASE_PARENT_FORM_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000d04",
+);
 
 /* The currentLocation is mutated per-test (one shared `Location`
  *  carrier the `useLocation` mock reads from) so each test can pin
@@ -130,6 +140,9 @@ const setPreviewSelectedCaseMock = vi.fn();
  *  default so test ordering doesn't matter. */
 let currentAppId: string | undefined = APP_ID;
 let currentAuthUser: { id: string; name: string; email: string } | null = null;
+let previewMenuCaseSelectionsMock: Readonly<
+	Record<string, PreviewMenuCaseSelection>
+> = {};
 let capturedSession: BuilderSessionStoreApi | undefined;
 let capturedController: EngineController | undefined;
 let updateCapturedPersonaValue:
@@ -182,7 +195,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "preview" as const,
 		usePreviewing: () => true,
 		useBuilderIsReady: () => true,
-		usePreviewMenuCaseSelections: () => ({}),
+		usePreviewMenuCaseSelections: () => previewMenuCaseSelectionsMock,
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
 		useSetPreviewSelectedCase: () => setPreviewSelectedCaseMock,
 	};
@@ -231,6 +244,27 @@ import { FormScreen } from "../FormScreen";
 const CASE_TYPE = "patient";
 const FOLLOWUP_CASE_ID = "11111111-1111-1111-1111-111111111111";
 
+function formCaseRow(
+	caseId: string,
+	parentCaseId: string | null = null,
+): CaseRowWithCalculated {
+	return {
+		case_id: caseId,
+		case_type: CASE_TYPE,
+		case_name: `Case ${caseId}`,
+		app_id: APP_ID,
+		owner_id: "owner-test",
+		status: "open",
+		opened_on: null,
+		modified_on: null,
+		closed_on: null,
+		external_id: null,
+		parent_case_id: parentCaseId,
+		properties: {},
+		calculated: {},
+	};
+}
+
 const onBackMock = vi.fn();
 
 function deferred<T>() {
@@ -267,6 +301,7 @@ function renderFormScreen(opts: {
 	formUuid: typeof REG_FORM_UUID;
 	caseId?: string;
 	selectedUuid?: Uuid;
+	menuCaseRelationship?: "same-type" | "different-type";
 }) {
 	currentLocation = {
 		kind: "form",
@@ -300,8 +335,14 @@ function renderFormScreen(opts: {
 				caseTypes: [
 					{
 						name: CASE_TYPE,
+						...(opts.menuCaseRelationship === "different-type"
+							? { parent_type: "household" }
+							: {}),
 						properties: [],
 					},
+					...(opts.menuCaseRelationship === "different-type"
+						? [{ name: "household", properties: [] }]
+						: []),
 				],
 				modules: {
 					[MODULE_UUID]: {
@@ -309,6 +350,9 @@ function renderFormScreen(opts: {
 						id: "patient_module",
 						name: "Patients",
 						caseType: CASE_TYPE,
+						...(opts.menuCaseRelationship === "same-type"
+							? { parentModuleUuid: MENU_CASE_PARENT_MODULE_UUID }
+							: {}),
 						caseListConfig: {
 							columns: [
 								plainColumn(CASE_NAME_COLUMN_UUID, "case_name", "Case name"),
@@ -318,6 +362,19 @@ function renderFormScreen(opts: {
 							searchInputs: [],
 						},
 					},
+					...(opts.menuCaseRelationship !== undefined
+						? {
+								[MENU_CASE_PARENT_MODULE_UUID]: {
+									uuid: MENU_CASE_PARENT_MODULE_UUID,
+									id: "menu_case_parent",
+									name: "Parent cases",
+									caseType:
+										opts.menuCaseRelationship === "same-type"
+											? CASE_TYPE
+											: "household",
+								},
+							}
+						: {}),
 				},
 				forms: {
 					[REG_FORM_UUID]: {
@@ -366,6 +423,16 @@ function renderFormScreen(opts: {
 						name: "Required captures",
 						type: "survey",
 					},
+					...(opts.menuCaseRelationship !== undefined
+						? {
+								[MENU_CASE_PARENT_FORM_UUID]: {
+									uuid: MENU_CASE_PARENT_FORM_UUID,
+									id: "parent_followup",
+									name: "Parent follow-up",
+									type: "followup" as const,
+								},
+							}
+						: {}),
 				},
 				/* `FIELD_UUID`: non-required text bound to the standard
 				 *  `case_name` scalar. `FIELD_REQUIRED_UUID`: same shape with
@@ -467,8 +534,16 @@ function renderFormScreen(opts: {
 						required: xp("true()"),
 					},
 				},
-				moduleOrder: [MODULE_UUID],
+				moduleOrder: [
+					...(opts.menuCaseRelationship !== undefined
+						? [MENU_CASE_PARENT_MODULE_UUID]
+						: []),
+					MODULE_UUID,
+				],
 				formOrder: {
+					...(opts.menuCaseRelationship !== undefined
+						? { [MENU_CASE_PARENT_MODULE_UUID]: [MENU_CASE_PARENT_FORM_UUID] }
+						: {}),
 					[MODULE_UUID]: [
 						REG_FORM_UUID,
 						FOLLOWUP_FORM_UUID,
@@ -480,6 +555,9 @@ function renderFormScreen(opts: {
 					],
 				},
 				fieldOrder: {
+					...(opts.menuCaseRelationship !== undefined
+						? { [MENU_CASE_PARENT_FORM_UUID]: [] }
+						: {}),
 					[REG_FORM_UUID]: [FIELD_UUID],
 					[FOLLOWUP_FORM_UUID]: [FOLLOWUP_FIELD_UUID],
 					[CLOSE_FORM_UUID]: [CLOSE_FIELD_UUID],
@@ -629,6 +707,7 @@ beforeEach(async () => {
 		name: "Form Screen Tester",
 		email: "member@example.com",
 	};
+	previewMenuCaseSelectionsMock = {};
 	capturedSession = undefined;
 	capturedController = undefined;
 	updateCapturedPersonaValue = undefined;
@@ -1962,6 +2041,84 @@ describe("FormScreen — catch arm hides developer-jargon detail", () => {
 // ── Case-loading form empty state ──────────────────────────────
 
 describe("FormScreen — case-loading form previewed directly (no nav caseId)", () => {
+	it("binds the exact same-type case inherited from its parent menu", async () => {
+		const selectedCaseId = "selected-patient";
+		previewMenuCaseSelectionsMock = {
+			[MENU_CASE_PARENT_MODULE_UUID]: {
+				caseType: CASE_TYPE,
+				caseId: selectedCaseId,
+				caseName: "Selected patient",
+			},
+		};
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: formCaseRow(selectedCaseId),
+			ancestors: [],
+		});
+
+		renderFormScreen({
+			formUuid: CLOSE_FORM_UUID,
+			menuCaseRelationship: "same-type",
+		});
+
+		expect(
+			await screen.findByRole("button", { name: /^submit$/i }),
+		).toBeDefined();
+		expect(vi.mocked(loadCaseDataAction).mock.calls[0]?.slice(0, 3)).toEqual([
+			APP_ID,
+			CASE_TYPE,
+			selectedCaseId,
+		]);
+		expect(vi.mocked(loadCasesAction)).not.toHaveBeenCalled();
+	});
+
+	it("constrains a different-type child lookup to the independently selected case parent", async () => {
+		const parentCaseId = "selected-household";
+		const childCaseId = "selected-household-patient";
+		previewMenuCaseSelectionsMock = {
+			[MENU_CASE_PARENT_MODULE_UUID]: {
+				caseType: "household",
+				caseId: parentCaseId,
+				caseName: "Selected household",
+			},
+		};
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "authored-rules",
+			kind: "rows",
+			rows: [formCaseRow(childCaseId, parentCaseId)],
+		});
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: formCaseRow(childCaseId, parentCaseId),
+			ancestors: [],
+		});
+
+		renderFormScreen({
+			formUuid: CLOSE_FORM_UUID,
+			menuCaseRelationship: "different-type",
+		});
+
+		expect(
+			await screen.findByRole("button", { name: /^submit$/i }),
+		).toBeDefined();
+		expect(vi.mocked(loadCasesAction)).toHaveBeenCalledWith(
+			expect.objectContaining({
+				caseType: CASE_TYPE,
+				parentCase: expect.objectContaining({
+					caseType: "household",
+					caseId: parentCaseId,
+				}),
+			}),
+		);
+		await waitFor(() =>
+			expect(vi.mocked(loadCaseDataAction).mock.calls[0]?.slice(0, 3)).toEqual([
+				APP_ID,
+				CASE_TYPE,
+				childCaseId,
+			]),
+		);
+	});
+
 	it("auto-selects the first available case and renders the form — never blocks", async () => {
 		/* Close is a case-loading form. Previewed directly with no bound
 		 *  case, it must auto-bind the FIRST available case (so the form is

@@ -274,6 +274,47 @@ function registrationNestedDoc(): BlueprintDoc {
 	return doc;
 }
 
+function sameTypeFormlessRootDoc(): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Shared case menu",
+		caseTypes: [
+			{
+				name: "gold-fish",
+				properties: [{ name: "status", label: proseText("Status") }],
+			},
+		],
+		modules: [
+			{
+				name: "All fish",
+				caseType: "gold-fish",
+				caseListOnly: true,
+				caseListConfig: caseListConfig([{ field: "status", header: "Status" }]),
+				forms: [],
+			},
+			{
+				name: "Fish care",
+				caseType: "gold-fish",
+				caseListConfig: caseListConfig([{ field: "status", header: "Status" }]),
+				forms: [
+					{
+						name: "Fish visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "hidden",
+								id: "copied_status",
+								calculate: "#gold-fish/status",
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	nestSecondModule(doc);
+	return doc;
+}
+
 describe("ordinary nested-menu wire projection", () => {
 	it("emits root identity while preserving the child's own filter", () => {
 		const doc = followupNestedDoc();
@@ -313,6 +354,29 @@ describe("ordinary nested-menu wire projection", () => {
 			entrySessionDatums(doc, ctx, child, childForm).map((datum) => datum.id),
 		).toEqual(["case_id"]);
 		expect(selectedCaseDatumId(doc, ctx, child, childForm)).toBe("case_id");
+	});
+
+	it("emits a same-type child under a form-less case-list-only root", () => {
+		const doc = sameTypeFormlessRootDoc();
+		const { child, childForm } = nestSecondModule(doc);
+		if (childForm === undefined) throw new Error("missing child form");
+		const ctx = formLinkProjectionContext(doc);
+		expect(
+			entrySessionDatums(doc, ctx, child, childForm).map((datum) => datum.id),
+		).toEqual(["case_id"]);
+
+		const hq = expandDoc(doc);
+		expect(hq.modules[1].root_module_id).toBe(hq.modules[0].unique_id);
+		const suite = new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
+			"suite.xml",
+		);
+		expect(suite).toContain('<menu root="m0" id="m1">');
+		const entry = entryByCommand(suite, "m1-f0");
+		expect(
+			findAll((element) => element.name === "datum", entry.children).map(
+				(datum) => getAttributeValue(datum, "id"),
+			),
+		).toContain("case_id");
 	});
 
 	it("aligns against the root's first form, not a later mixed-type form", () => {

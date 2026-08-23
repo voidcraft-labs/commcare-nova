@@ -65,6 +65,7 @@ import {
 	carriedCaseFor,
 	evaluateFormLinks,
 	type PostSubmissionCaseData,
+	type SelectedCaseSessionValue,
 	sourceSessionDatums,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
@@ -324,6 +325,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
+	const menuCaseContext = useMemo(
+		() => previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections),
+		[menuCaseSelections, menuSource, moduleUuid],
+	);
 	const language = useBuilderLanguage();
 	const formNameUnitId = makeTranslationUnitId(
 		"form",
@@ -350,21 +355,24 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		mode === "preview" &&
 		form !== undefined &&
 		CASE_LOADING_FORM_TYPES.has(form.type) &&
-		caseId === undefined;
+		caseId === undefined &&
+		menuCaseContext.selectedCase === undefined;
 	const autoCases = useCases({
 		appId,
 		caseType: autoSelectCase ? mod?.caseType : undefined,
+		parentCase: autoSelectCase ? menuCaseContext.parentCase : undefined,
 		requestScopeKey: `${moduleUuid ?? ""}\u0000${formUuid ?? ""}\u0000${restoreScopeKey}`,
 	});
 	const autoRow =
 		autoSelectCase && autoCases.state.kind === "rows"
 			? autoCases.state.rows[0]
 			: undefined;
-	/** The case actually bound to this form: the nav-provided one, else the
-	 *  first auto-selected case. Threaded to both preload and submit so a
-	 *  directly-previewed case-loading form behaves exactly like one reached
-	 *  through the case list. */
-	const effectiveCaseId = caseId ?? autoRow?.case_id;
+	/** The case actually bound to this form: an explicit navigation target wins;
+	 *  otherwise the menu's exact own-type selection (including deliberate
+	 *  same-type structural inheritance) wins before the first auto-selected
+	 *  row. A different-type menu parent constrains that fallback query above. */
+	const effectiveCaseId =
+		caseId ?? menuCaseContext.selectedCase?.caseId ?? autoRow?.case_id;
 	const replacementRevision = useCaseDataReplacementRevision(
 		appId,
 		mod?.caseType,
@@ -906,11 +914,34 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							];
 				}),
 			};
+			/* Form-link evaluation consumes module-keyed CASE SESSION values, not
+			 * raw menu ancestry. The canonical menu projection resolves same-type
+			 * structural inheritance and case-type parent selection first; the wire
+			 * projection then maps those stable module identities to final datum ids. */
+			const selectedCases = new Map<Uuid, SelectedCaseSessionValue>();
+			for (const selectedModuleUuid of menuSource.moduleOrder) {
+				const selected = previewMenuCaseContext(
+					menuSource,
+					selectedModuleUuid,
+					menuCaseSelections,
+				).selectedCase;
+				if (selected === undefined) continue;
+				selectedCases.set(selectedModuleUuid, {
+					caseType: selected.caseType,
+					value: selected.caseId,
+					caseName: selected.caseName,
+				});
+			}
 			const input = {
 				doc,
 				session: previewSessionValues(previewIdentity),
 				usercase: previewIdentity?.usercase ?? {},
-				sessionDatums: sourceSessionDatums(doc, sourceFormUuid, submission),
+				sessionDatums: sourceSessionDatums(
+					doc,
+					sourceFormUuid,
+					submission,
+					selectedCases,
+				),
 				caseData,
 			};
 			const route = afterSubmitRoute({

@@ -73,8 +73,10 @@ import {
 	useEditMode,
 	usePreviewCaseTarget,
 	usePreviewMenuCaseSelections,
+	usePreviewParentCaseRequest,
 	useProjectScopeEpoch,
 	useSetPreviewing,
+	useSetPreviewParentCaseRequest,
 	useSetPreviewPersonaUuid,
 } from "@/lib/session/hooks";
 import { CaseListScreen } from "./screens/CaseListScreen";
@@ -193,6 +195,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	const mode = useEditMode();
 	const previewCaseTarget = usePreviewCaseTarget();
 	const menuCaseSelections = usePreviewMenuCaseSelections();
+	const previewParentCaseRequest = usePreviewParentCaseRequest();
+	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
 	const identityState = useSelectedPreviewIdentityState();
 	const identity =
 		identityState.kind === "ready" ? identityState.identity : null;
@@ -227,6 +231,24 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			? directRunningModuleUuid
 			: undefined;
 	}, [directRunningModuleUuid, menuCaseSelections, menuSource]);
+
+	/* Every intermediate selector URL is replace-driven. Browser Back therefore
+	 * means "leave this selection flow", not "re-open the selector". Clear the
+	 * ephemeral request on popstate, and also heal a request whose URL no longer
+	 * names its active selector (for example after a breadcrumb or tree jump). */
+	useEffect(() => {
+		if (previewParentCaseRequest === undefined) return;
+		const cancelOnBrowserHistory = () => setPreviewParentCaseRequest(undefined);
+		window.addEventListener("popstate", cancelOnBrowserHistory);
+		return () => window.removeEventListener("popstate", cancelOnBrowserHistory);
+	}, [previewParentCaseRequest, setPreviewParentCaseRequest]);
+	useEffect(() => {
+		if (previewParentCaseRequest === undefined) return;
+		const atActiveSelector =
+			(loc.kind === "module" || loc.kind === "cases") &&
+			loc.moduleUuid === previewParentCaseRequest.selectingModuleUuid;
+		if (!atActiveSelector) setPreviewParentCaseRequest(undefined);
+	}, [loc, previewParentCaseRequest, setPreviewParentCaseRequest]);
 
 	/* Default back handler: callers can override (e.g. for selection sync),
 	 * otherwise fall back to URL-driven `navigate.back()`. */

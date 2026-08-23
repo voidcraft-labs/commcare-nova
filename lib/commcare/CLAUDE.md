@@ -167,6 +167,12 @@ JSON lowers a child to `root_module_id=<root unique_id>` while leaving
 `<menu relevant>` remains its own condition. Never conjoin the parent's filter,
 and never project this as `ShadowModule` or `put_in_root`.
 
+HQ's `add_parent_datums` aligns a child entry against the root module's first
+form. A form-less `caseListOnly` root therefore admits only same-case-type
+children: they reuse the one `case_id` and need no alignment. A different-type
+child is rejected by `NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM` at the commit
+gate; it needs a form-bearing root so HQ can keep the two selections distinct.
+
 `formLinkProjection.ts::entrySessionDatums` owns the entry namespace shared by
 the suite, XForm, form links, and post-submit frames. First it builds the
 parent-select chain from case-type relationships. Then, for a child menu, it
@@ -184,6 +190,12 @@ form display conditions, executable hashtag expansion and Vellum metadata,
 ordinary update/preload case blocks, and authored advanced case operations.
 Every new case-reading carrier must consume this projection rather than add a
 fresh `session/data/case_id` constant.
+
+`entrySelectionDatumSources` is the non-wire provenance twin of that list: it
+maps every final selected datum id back to the module whose menu/session case
+supplies it. Preview uses those stable module UUIDs after its own menu/session
+resolver has separated structural same-type inheritance from case ancestry;
+form-link evaluation never guesses either relationship from a case type or id.
 
 ### After-submit links (`form_links`)
 

@@ -41,6 +41,7 @@ import { proseText } from "@/lib/domain/prose";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
 import { renderAgentPrompt } from "../prompts";
+import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import { registerGetAgentPrompt } from "../tools/getAgentPrompt";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -299,6 +300,50 @@ describe("registerGetAgentPrompt — edit mode happy path", () => {
 		/* The single-load invariant — the tool issues exactly one
 		 * blueprint read per call. */
 		expect(loadAppBlueprint).toHaveBeenCalledTimes(1);
+	});
+
+	it("reloads the app and continues a snapshot-bound oversized prompt", async () => {
+		const doc = fixturePopulatedDoc();
+		const oversized = `full guidance\n${"x".repeat(MAX_RESULT_SIZE_CHARS + 1_000)}\nNOVA-PROMPT-END`;
+		vi.mocked(loadAppBlueprint)
+			.mockResolvedValueOnce(loadedFor(doc))
+			.mockResolvedValueOnce(loadedFor(doc));
+		vi.mocked(renderAgentPrompt)
+			.mockImplementationOnce(() => oversized)
+			.mockImplementationOnce(() => oversized);
+
+		const { server, capture } = makeFakeServer();
+		registerGetAgentPrompt(server, toolCtx);
+		const first = (await capture()({ mode: "edit", app_id: "a-edit" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+		const firstText = first.content[0]?.text ?? "";
+		expect(firstText.length).toBeLessThanOrEqual(MAX_RESULT_SIZE_CHARS);
+		const firstPage = JSON.parse(firstText) as {
+			kind: string;
+			chunk_end: number;
+			next_cursor?: string;
+		};
+		expect(firstPage.kind).toBe("nova-agent-prompt-page");
+		expect(firstPage.next_cursor).toEqual(expect.any(String));
+
+		const second = (await capture()(
+			{
+				mode: "edit",
+				app_id: "a-edit",
+				cursor: firstPage.next_cursor,
+			},
+			{},
+		)) as { content: Array<{ type: "text"; text: string }> };
+		const secondPage = JSON.parse(second.content[0]?.text ?? "") as {
+			chunk_start: number;
+			complete: boolean;
+			prompt_chunk: string;
+		};
+		expect(secondPage.chunk_start).toBe(firstPage.chunk_end);
+		expect(secondPage.complete).toBe(true);
+		expect(secondPage.prompt_chunk.endsWith("NOVA-PROMPT-END")).toBe(true);
+		expect(loadAppBlueprint).toHaveBeenCalledTimes(2);
 	});
 });
 

@@ -1279,7 +1279,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						stringArraysEqual(
 							current?.returnModuleUuids,
 							request?.returnModuleUuids,
-						)
+						) &&
+						locationsEqual(current?.resumeLocation, request?.resumeLocation) &&
+						locationsEqual(current?.cancelLocation, request?.cancelLocation)
 					) {
 						return;
 					}
@@ -1626,4 +1628,60 @@ function stringArraysEqual(
 			left.length === right.length &&
 			left.every((value, index) => value === right[index]))
 	);
+}
+
+function locationsEqual(
+	left: PreviewParentCaseRequest["resumeLocation"],
+	right: PreviewParentCaseRequest["resumeLocation"],
+): boolean {
+	if (left === right) return true;
+	if (!left || !right || left.kind !== right.kind) return false;
+	switch (left.kind) {
+		case "home":
+			return true;
+		case "app-setup":
+			return right.kind === left.kind && left.section === right.section;
+		case "project-data":
+			return right.kind === left.kind && left.tableId === right.tableId;
+		case "module":
+			return right.kind === left.kind && left.moduleUuid === right.moduleUuid;
+		case "cases":
+			return (
+				right.kind === left.kind &&
+				left.moduleUuid === right.moduleUuid &&
+				left.caseId === right.caseId
+			);
+		case "search-config":
+		case "detail-config":
+		case "data-review":
+		case "module-condition":
+			return right.kind === left.kind && left.moduleUuid === right.moduleUuid;
+		case "form-condition":
+			return (
+				right.kind === left.kind &&
+				left.moduleUuid === right.moduleUuid &&
+				left.formUuid === right.formUuid
+			);
+		case "form-operations":
+			return (
+				right.kind === left.kind &&
+				left.moduleUuid === right.moduleUuid &&
+				left.formUuid === right.formUuid &&
+				left.operationUuid === right.operationUuid
+			);
+		case "form-links":
+			return (
+				right.kind === left.kind &&
+				left.moduleUuid === right.moduleUuid &&
+				left.formUuid === right.formUuid &&
+				left.linkUuid === right.linkUuid
+			);
+		case "form":
+			return (
+				right.kind === left.kind &&
+				left.moduleUuid === right.moduleUuid &&
+				left.formUuid === right.formUuid &&
+				left.selectedUuid === right.selectedUuid
+			);
+	}
 }

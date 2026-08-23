@@ -13,6 +13,7 @@
 
 import type { Uuid } from "@/lib/doc/types";
 import type { MediaKind } from "@/lib/domain/multimedia";
+import type { Location } from "@/lib/routing/types";
 
 // ── Interaction primitives ───────────────────────────────────────────────
 
@@ -83,6 +84,11 @@ export interface PreviewParentCaseRequest {
 	selectingModuleUuid: Uuid;
 	/** Immediate next selector(s), ending with the originally requested module. */
 	returnModuleUuids: readonly Uuid[];
+	/** Exact running leaf that initiated the chain. Absent for an ordinary
+	 * menu-to-module parent selection. */
+	resumeLocation?: Location;
+	/** Safe running-menu destination when the worker cancels the selector. */
+	cancelLocation?: Location;
 }
 
 // ── Staged media uploads ─────────────────────────────────────────────────

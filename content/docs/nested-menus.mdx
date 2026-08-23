@@ -25,6 +25,10 @@ Every module still needs its own working content. A parent needs at least one
 form or a valid case list, and a child follows the same rule. Child menus do not
 turn an otherwise empty parent into a complete workflow.
 
+A parent with only a case list can group child modules that use the same case
+type. To group a child with a different case type, make the parent form-bearing
+and give it a form so CommCare can keep both case selections distinct.
+
 Nova will not remove a parent while it still has children. Move or remove those
 children first, then remove the parent.
 

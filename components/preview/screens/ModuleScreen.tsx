@@ -29,7 +29,8 @@ import {
 	useOrderedForms,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import { makeTranslationUnitId } from "@/lib/domain";
+import type { Uuid } from "@/lib/doc/types";
+import { makeTranslationUnitId, moduleParent } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
@@ -43,7 +44,8 @@ import {
 	previewMenuModuleUuids,
 	previewModuleVisibility,
 } from "@/lib/preview/menuProjection";
-import { useNavigate } from "@/lib/routing/hooks";
+import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import type { Location } from "@/lib/routing/types";
 import {
 	useBuilderIsReady,
 	useEditMode,
@@ -60,7 +62,28 @@ interface ModuleScreenProps {
 	screen: Extract<PreviewScreen, { type: "module" }>;
 }
 
+/** A configuration URL runs its owning Form/Results surface in Preview, so
+ * it is as resumable as the canonical running URL. Module and module-condition
+ * locations are already menu checkpoints and need no leaf restoration. */
+export function previewParentCaseResumeLocation(
+	loc: Location,
+	moduleUuid: Uuid,
+): Location | undefined {
+	if (
+		loc.kind === "home" ||
+		loc.kind === "app-setup" ||
+		loc.kind === "project-data" ||
+		loc.kind === "module" ||
+		loc.kind === "module-condition" ||
+		loc.moduleUuid !== moduleUuid
+	) {
+		return undefined;
+	}
+	return loc;
+}
+
 export function ModuleScreen({ screen }: ModuleScreenProps) {
+	const loc = useLocation();
 	const navigate = useNavigate();
 	const projectProse = useProseProjection();
 	const { inline } = useBlueprintMutations();
@@ -194,22 +217,36 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		if (!moduleUuid) return;
 		if (mode !== "edit" && requiredParentCase) {
 			setPreviewCaseTarget(undefined);
-			const onward =
+			const continuingRequest =
 				previewParentCaseRequest?.selectingModuleUuid === moduleUuid
-					? previewParentCaseRequest.returnModuleUuids
-					: [];
+					? previewParentCaseRequest
+					: undefined;
+			const onward = continuingRequest?.returnModuleUuids ?? [];
+			const structuralParentUuid = moduleParent(menuSource, moduleUuid);
+			const resumeLocation =
+				continuingRequest?.resumeLocation ??
+				previewParentCaseResumeLocation(loc, moduleUuid);
 			setPreviewParentCaseRequest({
 				selectingModuleUuid: requiredParentCase.moduleUuid,
 				returnModuleUuids: [moduleUuid, ...onward],
+				...(resumeLocation !== undefined && { resumeLocation }),
+				cancelLocation:
+					continuingRequest?.cancelLocation ??
+					(structuralParentUuid
+						? { kind: "module", moduleUuid: structuralParentUuid }
+						: { kind: "home" }),
 			});
-			navigate.openModule(requiredParentCase.moduleUuid);
+			navigate.replace({
+				kind: "module",
+				moduleUuid: requiredParentCase.moduleUuid,
+			});
 			return;
 		}
 		if (
 			mode !== "edit" &&
 			previewParentCaseRequest?.selectingModuleUuid === moduleUuid
 		) {
-			navigate.openCaseList(moduleUuid);
+			navigate.replace({ kind: "cases", moduleUuid });
 			return;
 		}
 		if (landing.kind === "replace-with-case-list") {
@@ -219,6 +256,8 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		}
 	}, [
 		landing.kind,
+		loc,
+		menuSource,
 		mode,
 		moduleUuid,
 		navigate,
@@ -438,6 +477,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 											selectingModuleUuid:
 												childCase.requiredParentCase.moduleUuid,
 											returnModuleUuids: [child.uuid],
+											cancelLocation: { kind: "module", moduleUuid },
 										});
 										navigate.openModule(
 											childCase.requiredParentCase.moduleUuid,

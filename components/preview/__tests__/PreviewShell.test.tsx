@@ -23,7 +23,7 @@
 // therefore assert visibility via the Activity's `<div>` parent
 // inline style rather than presence/absence in the DOM.
 
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
@@ -34,6 +34,7 @@ import type { Location } from "@/lib/routing/types";
 import type {
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
+	PreviewParentCaseRequest,
 } from "@/lib/session/types";
 
 const MODULE_UUID = testUuid("mod-1");
@@ -58,6 +59,8 @@ const previewCaseTargetMock = vi.fn<() => PreviewCaseTarget | undefined>(
 let previewMenuCaseSelectionsMock: Readonly<
 	Record<string, PreviewMenuCaseSelection>
 > = {};
+let previewParentCaseRequestMock: PreviewParentCaseRequest | undefined;
+const setPreviewParentCaseRequestMock = vi.fn();
 const setPreviewingMock = vi.fn();
 const setPreviewPersonaUuidMock = vi.fn();
 const selectedIdentityStateMock = vi.fn<() => SelectedPreviewIdentityState>(
@@ -72,6 +75,8 @@ beforeEach(() => {
 	setPreviewPersonaUuidMock.mockReset();
 	previewCaseTargetMock.mockReturnValue(undefined);
 	previewMenuCaseSelectionsMock = {};
+	previewParentCaseRequestMock = undefined;
+	setPreviewParentCaseRequestMock.mockReset();
 	selectedIdentityStateMock.mockReturnValue({
 		kind: "ready",
 		identity: null,
@@ -124,7 +129,9 @@ vi.mock("@/lib/session/hooks", async () => {
 		useBuilderIsReady: () => true,
 		usePreviewCaseTarget: () => previewCaseTargetMock(),
 		usePreviewMenuCaseSelections: () => previewMenuCaseSelectionsMock,
+		usePreviewParentCaseRequest: () => previewParentCaseRequestMock,
 		useSetPreviewing: () => setPreviewingMock,
+		useSetPreviewParentCaseRequest: () => setPreviewParentCaseRequestMock,
 		useSetPreviewPersonaUuid: () => setPreviewPersonaUuidMock,
 	};
 });
@@ -464,6 +471,42 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 		const legacy = getByTestId("legacy-case-list-stub");
 		expect(isVisible(legacy)).toBe(true);
 		expect(isVisible(workspace)).toBe(false);
+	});
+});
+
+describe("PreviewShell — parent-case request lifecycle", () => {
+	it("clears a stale selector request after navigation leaves its active module", async () => {
+		editModeMock.mockReturnValue("preview");
+		locationMock.mockReturnValue({ kind: "home" });
+		previewParentCaseRequestMock = {
+			selectingModuleUuid: MODULE_UUID,
+			returnModuleUuids: [CHILD_MODULE_UUID],
+			resumeLocation: {
+				kind: "form",
+				moduleUuid: CHILD_MODULE_UUID,
+				formUuid: CHILD_FORM_UUID,
+			},
+		};
+
+		renderShell({ hideStructuralParent: false });
+
+		await waitFor(() =>
+			expect(setPreviewParentCaseRequestMock).toHaveBeenCalledWith(undefined),
+		);
+	});
+
+	it("clears the selector request when browser Back leaves the replace-driven flow", () => {
+		editModeMock.mockReturnValue("preview");
+		locationMock.mockReturnValue({ kind: "cases", moduleUuid: MODULE_UUID });
+		previewParentCaseRequestMock = {
+			selectingModuleUuid: MODULE_UUID,
+			returnModuleUuids: [CHILD_MODULE_UUID],
+		};
+		renderShell({ hideStructuralParent: false });
+
+		act(() => window.dispatchEvent(new PopStateEvent("popstate")));
+
+		expect(setPreviewParentCaseRequestMock).toHaveBeenCalledWith(undefined);
 	});
 });
 

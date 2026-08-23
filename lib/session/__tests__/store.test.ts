@@ -259,6 +259,12 @@ describe("BuilderSession store", () => {
 		const request = {
 			selectingModuleUuid: testUuid("case-parent-module"),
 			returnModuleUuids: [testUuid("nested-child-module")],
+			resumeLocation: {
+				kind: "form" as const,
+				moduleUuid: testUuid("nested-child-module"),
+				formUuid: testUuid("requested-form"),
+			},
+			cancelLocation: { kind: "home" as const },
 		};
 		store.getState().setPreviewParentCaseRequest(request);
 		expect(store.getState().previewParentCaseRequest).toEqual(request);
@@ -267,6 +273,15 @@ describe("BuilderSession store", () => {
 		const prev = store.getState();
 		store.getState().setPreviewParentCaseRequest({ ...request });
 		expect(store.getState()).toBe(prev);
+
+		store.getState().setPreviewParentCaseRequest({
+			...request,
+			resumeLocation: {
+				...request.resumeLocation,
+				selectedUuid: testUuid("requested-field"),
+			},
+		});
+		expect(store.getState()).not.toBe(prev);
 	});
 
 	it("setPreviewing clears all case state on both transitions", () => {

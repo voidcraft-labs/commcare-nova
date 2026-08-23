@@ -31,14 +31,17 @@
  *     `matchFrameToSource` picked, and
  *     `sourceSessionDatums` says what each source datum is worth once the
  *     submission has landed: the projected own-case datum is the case the
- *     form loaded, `case_id_new_<type>_0` on a registration is the case it
- *     created, and a subcase datum is the child case of that type the
- *     submission created. A value the preview cannot name is blank, which
- *     is what the device's session holds for a datum nothing filled.
+ *     form loaded, projected ancestor/inherited selections come from the
+ *     resolved menu/session case map, `case_id_new_<type>_0` on a
+ *     registration is the case it created, and a subcase datum is the child
+ *     case of that type the submission created. A value the preview cannot
+ *     name is blank, which is what the device's session holds for a datum
+ *     nothing filled.
  */
 
 import {
 	entryFrameDatums,
+	entrySelectionDatumSources,
 	type FrameDatum,
 	formLinkIsConditional,
 	formLinkProjectionContext,
@@ -83,6 +86,14 @@ export interface SessionDatumValue {
 	 *  knows, so the next form's breadcrumb can name it. */
 	readonly caseName?: string;
 }
+
+/** A case selection already resolved in Preview's menu/session model, keyed
+ * by the module whose projected entry datum consumes it. */
+export interface SelectedCaseSessionValue extends SessionDatumValue {
+	readonly caseType: string;
+}
+
+export type SelectedCaseSession = ReadonlyMap<Uuid, SelectedCaseSessionValue>;
 
 /** What the source form's submission produced, in the preview's terms. */
 export interface CarriedSubmission {
@@ -228,12 +239,14 @@ export function evaluateLinkDatum(
  * A datum the preview cannot value is absent from the map (its session read
  * is an absent node, its carried value blank): the worker's usercase datum,
  * the grouped-tile companion, and a subcase whose created case it cannot
- * name (see `subcaseValue`).
+ * name (see `subcaseValue`). Selected ancestors are supplied explicitly by
+ * stable module UUID after Preview has resolved its menu/session context.
  */
 export function sourceSessionDatums(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	submission: CarriedSubmission,
+	selectedCases: SelectedCaseSession = new Map(),
 ): ReadonlyMap<string, SessionDatumValue> {
 	const ctx = formLinkProjectionContext(doc);
 	const moduleUuid = owningModuleOf(ctx, formUuid);
@@ -241,6 +254,12 @@ export function sourceSessionDatums(
 	if (moduleUuid === undefined || form === undefined) return new Map();
 	const moduleCaseType = moduleCaseTypeForActions(doc, moduleUuid);
 	const ownCaseDatumId = selectedCaseDatumId(doc, ctx, moduleUuid, formUuid);
+	const selectionSources = new Map(
+		entrySelectionDatumSources(doc, ctx, moduleUuid, formUuid).map((source) => [
+			source.id,
+			source,
+		]),
+	);
 	const datums = new Map<string, SessionDatumValue>();
 	const bound = (): SessionDatumValue | undefined =>
 		submission.caseId === undefined
@@ -289,6 +308,20 @@ export function sourceSessionDatums(
 			moduleCaseType,
 			ownCaseDatumId,
 			bound,
+			selectedCase: (datumId, caseType) => {
+				const source = selectionSources.get(datumId);
+				if (source === undefined || source.caseType !== caseType)
+					return undefined;
+				const selected = selectedCases.get(source.moduleUuid);
+				return selected?.caseType !== caseType
+					? undefined
+					: {
+							value: selected.value,
+							...(selected.caseName !== undefined && {
+								caseName: selected.caseName,
+							}),
+						};
+			},
 			subcaseValue,
 		});
 		if (held !== undefined) datums.set(datum.id, held);
@@ -303,12 +336,19 @@ function sourceDatumValue(
 		readonly moduleCaseType: string;
 		readonly ownCaseDatumId?: string;
 		readonly bound: () => SessionDatumValue | undefined;
+		readonly selectedCase: (
+			datumId: string,
+			caseType: string,
+		) => SessionDatumValue | undefined;
 		readonly subcaseValue: (caseType: string) => SessionDatumValue | undefined;
 	},
 ): SessionDatumValue | undefined {
 	// The case the form loaded.
 	if (datum.requiresSelection) {
-		return datum.id === source.ownCaseDatumId ? source.bound() : undefined;
+		if (datum.id === source.ownCaseDatumId) return source.bound();
+		return datum.caseType === undefined
+			? undefined
+			: source.selectedCase(datum.id, datum.caseType);
 	}
 	// A function datum with no case type (the grouped-tile companion) and
 	// the worker's own usercase datum name nothing the submission created.

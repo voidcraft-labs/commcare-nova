@@ -3,13 +3,16 @@
  * marker the plugin checks, and edit mode carries the complete app summary.
  */
 
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
+import { type AgentPromptPage, deliverAgentPrompt } from "../promptDelivery";
 import { PROMPT_END_MARKER, renderAgentPrompt } from "../prompts";
+import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 
 /**
  * A populated blueprint, so edit mode takes its real branch and inlines
@@ -73,7 +76,7 @@ function fixtureOversizedDoc(): BlueprintDoc {
 	if (!baseMod) throw new Error("fixture lost its module record");
 
 	/* Large enough to exercise the former fallback boundary. */
-	for (let i = 0; i < 400; i++) {
+	for (let i = 0; i < 1_200; i++) {
 		const uuid = testUuid(
 			`44444444-4444-4444-4444-${String(i).padStart(12, "0")}`,
 		);
@@ -120,18 +123,62 @@ describe("served prompt delivery contract", () => {
 		expect(rendered).toContain("## Current app state");
 		expect(rendered).toContain("Vaccine Tracker");
 		expect(rendered).not.toContain("too large to include here");
+		expect(deliverAgentPrompt(rendered).content[0]?.text).toBe(rendered);
 	});
 
-	it("edit mode inlines the complete large blueprint summary", () => {
+	it("pages and reassembles the complete large blueprint summary losslessly", () => {
 		const rendered = renderAgentPrompt(true, fixtureOversizedDoc());
+		expect(rendered.length).toBeGreaterThan(MAX_RESULT_SIZE_CHARS);
 
-		expect(rendered).toContain(
+		const chunks: string[] = [];
+		let cursor: string | undefined;
+		let expectedStart = 0;
+		let expectedDigest: string | undefined;
+		do {
+			const result = deliverAgentPrompt(rendered, cursor);
+			const text = result.content[0]?.text ?? "";
+			expect(text.length).toBeLessThanOrEqual(MAX_RESULT_SIZE_CHARS);
+			const page = JSON.parse(text) as AgentPromptPage;
+			expect(page.kind).toBe("nova-agent-prompt-page");
+			expect(page.chunk_start).toBe(expectedStart);
+			expect(page.chunk_end).toBe(page.chunk_start + page.prompt_chunk.length);
+			expect(page.prompt_length).toBe(rendered.length);
+			expectedDigest ??= page.prompt_sha256;
+			expect(page.prompt_sha256).toBe(expectedDigest);
+			chunks.push(page.prompt_chunk);
+			cursor = page.next_cursor;
+			expectedStart = page.chunk_end;
+			if (page.complete) expect(cursor).toBeUndefined();
+			else expect(cursor).toEqual(expect.any(String));
+		} while (cursor !== undefined);
+
+		const assembled = chunks.join("");
+		expect(assembled).toBe(rendered);
+		expect(expectedDigest).toBe(
+			createHash("sha256").update(assembled, "utf8").digest("hex"),
+		);
+
+		expect(assembled).toContain(
 			"Patients 0 — a module name long enough to carry real weight",
 		);
-		expect(rendered).toContain(
-			"Patients 399 — a module name long enough to carry real weight",
+		expect(assembled).toContain(
+			"Patients 1199 — a module name long enough to carry real weight",
 		);
-		expect(rendered).not.toContain("too large to include here");
-		expect(rendered.endsWith(PROMPT_END_MARKER)).toBe(true);
+		expect(assembled).not.toContain("too large to include here");
+		expect(assembled.endsWith(PROMPT_END_MARKER)).toBe(true);
+	});
+
+	it("refuses to continue after the prompt snapshot changes", () => {
+		const rendered = renderAgentPrompt(true, fixtureOversizedDoc());
+		const firstText = deliverAgentPrompt(rendered).content[0]?.text ?? "";
+		const firstPage = JSON.parse(firstText) as AgentPromptPage;
+		expect(firstPage.next_cursor).toEqual(expect.any(String));
+
+		expect(() =>
+			deliverAgentPrompt(
+				rendered.replace("Vaccine Tracker", "Changed Tracker"),
+				firstPage.next_cursor,
+			),
+		).toThrow("changed during get_agent_prompt pagination");
 	});
 });

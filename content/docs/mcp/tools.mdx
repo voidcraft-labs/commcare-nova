@@ -9,7 +9,9 @@ These are the tools the Commcare Nova MCP server exposes. You don't call them di
 
 `get_agent_prompt` returns the same instructions Commcare Nova's own web builder follows when it builds apps. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the text it returns. You don't have to do this, your agent can drive the tools however it wants, but starting from the instructions Commcare Nova already tunes for these tools is the fastest path to good results.
 
-It's a long result, a whole system prompt. Some agent frameworks cap how much of a tool result they pass through and quietly hand your agent a truncated copy, which reads as a normal short prompt and produces apps that are valid but conventionally off. So the text always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing, rather than building on a fragment.
+It's a long result, a whole system prompt. Most prompts arrive as one plain-text result. If the complete prompt is too large for one result, `get_agent_prompt` instead returns a `nova-agent-prompt-page` JSON object. Have your agent save its `prompt_chunk`, call the tool again with the same `mode` and `app_id` plus `next_cursor`, and repeat until `complete` is true. Each page must have the same `prompt_sha256`, each `chunk_start` must equal the preceding `chunk_end`, and the final `chunk_end` must equal `prompt_length`. The agent can then concatenate the chunks in order and follow the assembled prompt. If the app changes while those pages are being fetched, Commcare Nova refuses to mix the snapshots and asks the agent to restart without a cursor.
+
+The complete assembled prompt always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing. Pagination keeps all guidance and the complete app summary; it does not shorten either one to fit.
 
 ## Stable identities and structured content
 

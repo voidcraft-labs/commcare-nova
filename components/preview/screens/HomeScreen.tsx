@@ -193,6 +193,7 @@ export function HomeScreen() {
 										selectingModuleUuid:
 											menuCaseContext.requiredParentCase.moduleUuid,
 										returnModuleUuids: [mod.uuid],
+										cancelLocation: { kind: "home" },
 									});
 									navigate.openModule(
 										menuCaseContext.requiredParentCase.moduleUuid,

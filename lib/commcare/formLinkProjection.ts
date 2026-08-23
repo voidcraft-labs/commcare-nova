@@ -144,6 +144,9 @@ export interface FormLinkProjectionContext {
 	 *  reads every form of its module, once per link, once per pass. The
 	 *  context is built over one immutable document, so the memo is sound. */
 	readonly entryDatums: Map<Uuid, readonly SessionDatum[]>;
+	/** The module whose menu selection supplies each selectable datum. Kept
+	 * out of `SessionDatum` because it is projection provenance, never wire. */
+	readonly selectionSourceModules: WeakMap<SessionDatum, Uuid>;
 }
 
 /**
@@ -207,6 +210,7 @@ export function formLinkProjectionContext(
 		formActions,
 		...(opts.lookupNaming !== undefined && { lookupNaming: opts.lookupNaming }),
 		entryDatums: new Map(),
+		selectionSourceModules: new WeakMap(),
 	};
 }
 
@@ -340,6 +344,7 @@ function selectableDatums(
 			}),
 		});
 		datum.parentSelection = parentSelection;
+		ctx.selectionSourceModules.set(datum, selectedModuleUuid);
 		datums.push(datum);
 	}
 	return datums;
@@ -483,6 +488,36 @@ export function entryFrameDatums(
 	formUuid: Uuid,
 ): readonly FrameDatum[] {
 	return entrySessionDatums(doc, ctx, moduleUuid, formUuid).map(toFrameDatum);
+}
+
+/** The runtime menu selection that supplies each projected case-selection
+ * datum. Datum ids may be renamed or aligned with a root menu; module UUID is
+ * the stable bridge to Preview's already-resolved menu/session selections. */
+export interface EntrySelectionDatumSource {
+	readonly id: string;
+	readonly caseType: string;
+	readonly moduleUuid: Uuid;
+}
+
+export function entrySelectionDatumSources(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): readonly EntrySelectionDatumSource[] {
+	return entrySessionDatums(doc, ctx, moduleUuid, formUuid).flatMap((datum) => {
+		if (datum.nodeset === undefined || datum.caseType === undefined) return [];
+		const sourceModuleUuid = ctx.selectionSourceModules.get(datum);
+		return sourceModuleUuid === undefined
+			? []
+			: [
+					{
+						id: datum.id,
+						caseType: datum.caseType,
+						moduleUuid: sourceModuleUuid,
+					},
+				];
+	});
 }
 
 /** Longest common prefix of several datum lists, compared by id. */

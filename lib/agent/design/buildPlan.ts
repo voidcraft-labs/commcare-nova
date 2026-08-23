@@ -400,19 +400,45 @@ function requiredPrerequisiteWorkflowIds(
 			composition,
 		]),
 	);
-	for (const child of contract.moduleCompositions) {
-		if (child.parentModuleCompositionId === undefined) continue;
-		const parent = moduleById.get(child.parentModuleCompositionId);
-		const childOwner = ownerByElement.get(child.id);
-		const parentOwner =
-			parent === undefined ? undefined : ownerByElement.get(parent.id);
+	const addPlacementOwner = (
+		compositionId: string,
+		anchorId: string | undefined,
+	): void => {
+		if (anchorId === undefined) return;
+		const owner = ownerByElement.get(compositionId);
+		const anchorOwner = ownerByElement.get(anchorId);
 		if (
-			childOwner !== undefined &&
-			parentOwner !== undefined &&
-			childOwner !== parentOwner
+			owner !== undefined &&
+			anchorOwner !== undefined &&
+			owner !== anchorOwner
 		) {
-			required.get(childOwner)?.add(parentOwner);
+			required.get(owner)?.add(anchorOwner);
 		}
+	};
+	for (const [
+		compositionIndex,
+		composition,
+	] of contract.moduleCompositions.entries()) {
+		const parent =
+			composition.parentModuleCompositionId === undefined
+				? undefined
+				: moduleById.get(composition.parentModuleCompositionId);
+		addPlacementOwner(composition.id, parent?.id);
+
+		/* `createModule.after` names the exact preceding sibling, so source order
+		 * alone is insufficient: the scheduler needs the sibling owner's durable
+		 * slice dependency before this slice may run. Graph validation has already
+		 * proved that owner is not later, preventing a new cycle or a root that
+		 * depends on a later slice. */
+		const precedingSibling = contract.moduleCompositions
+			.slice(0, compositionIndex)
+			.filter(
+				(candidate) =>
+					candidate.parentModuleCompositionId ===
+					composition.parentModuleCompositionId,
+			)
+			.pop();
+		addPlacementOwner(composition.id, precedingSibling?.id);
 	}
 	return new Map(
 		[...required].map(([workflowId, ids]) => [
@@ -564,7 +590,7 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 					code: "custom",
 					path: ["slices", sliceIndex, "prerequisiteSliceIds"],
 					message:
-						"Slice prerequisites must exactly include accepted workflow dependencies and any parent-module construction owner.",
+						"Slice prerequisites must exactly include accepted workflow dependencies and every distinct parent or preceding-sibling module construction owner.",
 				});
 			}
 			if (!workflowIds.has(slice.workflowId))

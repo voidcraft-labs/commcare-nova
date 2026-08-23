@@ -651,6 +651,36 @@ export function validateDesignGraph(
 	}
 
 	contract.moduleCompositions.forEach((composition, compositionIndex) => {
+		/* Every module is created at its exact accepted sibling position. Its
+		 * immediate predecessor therefore has to be owned by this slice or by an
+		 * earlier slice. A later-owned predecessor would make the earlier owner —
+		 * including the dependency-free materialization root — wait for a module
+		 * that cannot exist yet. Reject that ordering in the accepted design rather
+		 * than discovering an impossible `after` anchor during execution. */
+		const precedingSibling = contract.moduleCompositions
+			.slice(0, compositionIndex)
+			.filter(
+				(candidate) =>
+					candidate.parentModuleCompositionId ===
+					composition.parentModuleCompositionId,
+			)
+			.pop();
+		if (precedingSibling !== undefined) {
+			const precedingOwner = compositionOwner(precedingSibling);
+			const owner = compositionOwner(composition);
+			if (
+				precedingOwner !== undefined &&
+				owner !== undefined &&
+				(workflowRank.get(precedingOwner) ?? Number.MAX_SAFE_INTEGER) >
+					(workflowRank.get(owner) ?? Number.MAX_SAFE_INTEGER)
+			) {
+				issue(
+					ctx,
+					["moduleCompositions", compositionIndex, "workflowIds"],
+					"A module composition's construction owner must be the same as or later than its preceding sibling's owner so the exact after-sibling anchor exists before this module is built.",
+				);
+			}
+		}
 		if (composition.parentModuleCompositionId !== undefined) {
 			const parentId = composition.parentModuleCompositionId;
 			const parent = moduleCompositions.get(parentId);

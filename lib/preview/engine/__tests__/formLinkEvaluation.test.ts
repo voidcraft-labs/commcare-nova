@@ -401,6 +401,44 @@ describe("sourceSessionDatums", () => {
 });
 
 describe("carriedCaseFor", () => {
+	it("carries the selected ancestor from a child source into an ancestor form", () => {
+		const doc = nestedPatientDoc();
+		const sessionDatums = sourceSessionDatums(
+			doc,
+			VISIT,
+			{
+				caseId: "p1",
+				caseName: "Ada",
+				childCases: [],
+			},
+			new Map([
+				[
+					HOUSEHOLDS,
+					{
+						caseType: "household",
+						value: "h1",
+						caseName: "Smith household",
+					},
+				],
+			]),
+		);
+		expect([...sessionDatums]).toEqual([
+			["case_id", { value: "h1", caseName: "Smith household" }],
+			["case_id_patient", { value: "p1", caseName: "Ada" }],
+		]);
+		const ancestorTarget: FormLink = {
+			uuid: testUuid("nested-ancestor-link"),
+			target: { type: "form", moduleUuid: HOUSEHOLDS, formUuid: UPDATE },
+		};
+		expect(
+			carriedCaseFor(inputFor(doc, { sessionDatums }), VISIT, ancestorTarget),
+		).toEqual({
+			kind: "carried",
+			caseId: "h1",
+			caseName: "Smith household",
+		});
+	});
+
 	it("carries a nested target through its renamed selected-case datum", () => {
 		const doc = nestedPatientDoc();
 		const sessionDatums = sourceSessionDatums(doc, VISIT, {

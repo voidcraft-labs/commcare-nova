@@ -124,6 +124,43 @@ function noFormsOrCaseList(
 	];
 }
 
+/** HQ's child-module `add_parent_datums` aligns a child entry against the
+ * root module's first form. A form-less case-list-only root has no such entry,
+ * so a different child case type cannot receive its distinct datum identity.
+ * Same-type children need no second identity and remain representable. */
+function nestedMenuCrossTypeRootRequiresForm(
+	mod: Module,
+	moduleUuid: Uuid,
+	doc: BlueprintDoc,
+): ValidationError[] {
+	const parentUuid = mod.parentModuleUuid;
+	if (parentUuid === undefined || parentUuid === null) return [];
+	const parent = doc.modules[parentUuid];
+	if (
+		parent === undefined ||
+		parent.caseListOnly !== true ||
+		(doc.formOrder[parentUuid] ?? []).length > 0 ||
+		!parent.caseType ||
+		!mod.caseType ||
+		parent.caseType === mod.caseType
+	) {
+		return [];
+	}
+	return [
+		validationError(
+			"NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM",
+			"module",
+			`Module "${mod.name}" cannot be a submenu under case-list-only module "${parent.name}" because they use different case types ("${mod.caseType}" and "${parent.caseType}"). CommCare needs a form in the top-level module to keep both case selections distinct. Turn "${parent.name}" into a form-bearing module and add a form, make both modules use the same case type, or make "${mod.name}" top-level.`,
+			{ moduleUuid, moduleName: mod.name },
+			{
+				parentModuleUuid: parentUuid,
+				parentCaseType: parent.caseType,
+				childCaseType: mod.caseType,
+			},
+		),
+	];
+}
+
 function invalidCaseTypeFormat(
 	mod: Module,
 	moduleUuid: Uuid,
@@ -202,6 +239,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	caseListOnlyHasForms,
 	caseListOnlyNoCaseType,
 	noFormsOrCaseList,
+	nestedMenuCrossTypeRootRequiresForm,
 	invalidCaseTypeFormat,
 	caseTypeTooLong,
 	missingCaseListColumns,

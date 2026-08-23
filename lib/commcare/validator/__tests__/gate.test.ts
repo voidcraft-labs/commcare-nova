@@ -67,6 +67,59 @@ function minDoc(): BlueprintDoc {
 	});
 }
 
+/** Two valid top-level modules; tests reparent the second under a form-less
+ * case-list-only root so the gate sees the topology change atomically. */
+function caseListRootDoc(childCaseType: "household" | "visit"): BlueprintDoc {
+	return buildDoc({
+		appName: "Nested case list",
+		caseTypes: [
+			{
+				name: "household",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+			...(childCaseType === "household"
+				? []
+				: [
+						{
+							name: "visit",
+							properties: [{ name: "case_name", label: proseText("Name") }],
+						},
+					]),
+		],
+		modules: [
+			{
+				name: "Households",
+				caseType: "household",
+				caseListOnly: true,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [],
+			},
+			{
+				name: "Visits",
+				caseType: childCaseType,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "notes",
+								label: proseText("Notes"),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
 function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
 	return produce(doc, (draft) => {
 		applyMutations(draft, mutations);
@@ -210,8 +263,8 @@ describe("classification table", () => {
 		expect(byClass.get("environment")).toHaveLength(12);
 		expect(byClass.get("oracle")).toHaveLength(106);
 		expect(byClass.get("shape")).toHaveLength(6);
-		expect(byClass.get("soundness")).toHaveLength(175);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(305);
+		expect(byClass.get("soundness")).toHaveLength(176);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(306);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {
@@ -230,6 +283,51 @@ describe("classification table", () => {
 // ── evaluateCommit ─────────────────────────────────────────────────
 
 describe("evaluateCommit", () => {
+	it("rejects a different-case child under a form-less case-list root", () => {
+		const doc = caseListRootDoc("visit");
+		const [rootUuid, childUuid] = doc.moduleOrder;
+		if (rootUuid === undefined || childUuid === undefined) {
+			throw new Error("missing nested-menu gate fixture modules");
+		}
+		const verdict = gateCommit(doc, [
+			{
+				kind: "moveModule",
+				uuid: childUuid,
+				parentModuleUuid: rootUuid,
+				after: null,
+			},
+		]);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.findings).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code: "NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM",
+						location: expect.objectContaining({ moduleUuid: childUuid }),
+					}),
+				]),
+			);
+		}
+	});
+
+	it("accepts a same-case child under a form-less case-list root", () => {
+		const doc = caseListRootDoc("household");
+		const [rootUuid, childUuid] = doc.moduleOrder;
+		if (rootUuid === undefined || childUuid === undefined) {
+			throw new Error("missing nested-menu gate fixture modules");
+		}
+		expect(
+			gateCommit(doc, [
+				{
+					kind: "moveModule",
+					uuid: childUuid,
+					parentModuleUuid: rootUuid,
+					after: null,
+				},
+			]),
+		).toMatchObject({ ok: true });
+	});
+
 	it("a new EMPTY_FORM (completeness) is rejected — an entity lands complete or not at all", () => {
 		const doc = minDoc();
 		const verdict = gateCommit(doc, [

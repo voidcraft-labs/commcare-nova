@@ -55,7 +55,9 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   optional one-tier parent menu, record hosts, queue/form roles, placements,
   ordering, and icon decisions. Parents precede their contiguous child block,
   a child cannot parent another composition, and its construction owner is the
-  same as or later than its parent's owner;
+  same as or later than its parent's owner. Sibling construction-owner ranks
+  are nondecreasing in accepted sibling order, so no exact `after` anchor is
+  owned by a later slice;
   `formCompositions` chooses exact workflow variants, modes, module homes,
   actors, ordered sections/items, Markdown labels/guidance/help, record
   summaries, and justified flat or duplicated forms. Historical v1 artifacts
@@ -121,8 +123,9 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   action timing (a `blocked` action is refused at admission until a durable
   receipt producer exists). A construction group cannot reference an
   external requirement as an element. Module composition is owned once by its
-  earliest workflow. A child module whose parent has a different owner gains
-  that exact owner workflow as a prerequisite; same-slice construction keeps
+  earliest workflow. A module whose parent or exact preceding sibling has a
+  different owner gains that exact owner workflow as a prerequisite;
+  same-slice construction keeps
   the parent first and requires that owner to carry the parent's own form or
   case-list surface. A list placed in that module, and properties used only by
   that list, travel with the workflow that materializes the module; list

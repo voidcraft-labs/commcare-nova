@@ -166,6 +166,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_LIST_ONLY_HAS_FORMS: "soundness",
 	CASE_LIST_ONLY_NO_CASE_TYPE: "soundness",
 	NO_FORMS_OR_CASE_LIST: "soundness",
+	NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM: "soundness",
 	INVALID_CASE_TYPE_FORMAT: "soundness",
 	CASE_TYPE_TOO_LONG: "soundness",
 	MISSING_CASE_LIST_COLUMNS: "completeness",

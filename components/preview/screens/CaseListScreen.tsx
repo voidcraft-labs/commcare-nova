@@ -259,6 +259,20 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				: undefined,
 		[menuCaseSelections, menuSource, moduleUuid],
 	);
+	const cancelParentCaseSelection = useCallback(() => {
+		if (!selectsForParentRequest || !previewParentCaseRequest) return;
+		setPreviewParentCaseRequest(undefined);
+		setPreviewCaseTarget(undefined);
+		navigate.replace(
+			previewParentCaseRequest.cancelLocation ?? { kind: "home" },
+		);
+	}, [
+		navigate,
+		previewParentCaseRequest,
+		selectsForParentRequest,
+		setPreviewCaseTarget,
+		setPreviewParentCaseRequest,
+	]);
 	const localizedValues = useLocalizedValues();
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
@@ -781,10 +795,28 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const routeCase = useMemo<CaseRowWithCalculated | null>(() => {
 		if (!routeCaseId || routeCaseReplaced) return null;
 		const projected = loadedRows.find((row) => row.case_id === routeCaseId);
-		if (projected) return projected;
+		if (
+			projected &&
+			routeCaseMatchesParent(projected, menuCaseContext?.parentCase)
+		)
+			return projected;
 		if (routeCaseState.kind !== "row") return null;
-		return routeCaseState.row;
-	}, [routeCaseId, routeCaseReplaced, loadedRows, routeCaseState]);
+		return routeCaseMatchesParent(
+			routeCaseState.row,
+			menuCaseContext?.parentCase,
+		)
+			? routeCaseState.row
+			: null;
+	}, [
+		routeCaseId,
+		routeCaseReplaced,
+		loadedRows,
+		routeCaseState,
+		menuCaseContext?.parentCase,
+	]);
+	const routeCaseHasWrongParent =
+		routeCaseState.kind === "row" &&
+		!routeCaseMatchesParent(routeCaseState.row, menuCaseContext?.parentCase);
 	/* A deep-linked case first owns a loading/error fallback pane. If its Back
 	 * action had focus when the automatic case read succeeds, transfer that
 	 * ownership to the equivalent Back action in Details instead of letting the
@@ -1041,10 +1073,31 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						? {
 								selectingModuleUuid: nextModuleUuid,
 								returnModuleUuids: remainingModuleUuids,
+								...(previewParentCaseRequest.resumeLocation !== undefined && {
+									resumeLocation: previewParentCaseRequest.resumeLocation,
+								}),
+								...(previewParentCaseRequest.cancelLocation !== undefined && {
+									cancelLocation: previewParentCaseRequest.cancelLocation,
+								}),
 							}
 						: undefined,
 				);
-				navigate.openModule(nextModuleUuid ?? moduleUuid);
+				if (
+					nextModuleUuid &&
+					remainingModuleUuids.length === 0 &&
+					previewParentCaseRequest.resumeLocation !== undefined
+				) {
+					navigate.replace(previewParentCaseRequest.resumeLocation);
+				} else if (nextModuleUuid && remainingModuleUuids.length > 0) {
+					navigate.replace({
+						kind: "module",
+						moduleUuid: nextModuleUuid,
+					});
+				} else if (nextModuleUuid) {
+					navigate.openModule(nextModuleUuid);
+				} else {
+					navigate.openModule(moduleUuid);
+				}
 			} else {
 				navigate.openModule(moduleUuid);
 			}
@@ -1260,7 +1313,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					<Icon icon={tablerChevronLeft} width="15" height="15" />
 					Back to results
 				</Button>
-				{routeCaseState.kind === "missing" ? (
+				{routeCaseState.kind === "missing" || routeCaseHasWrongParent ? (
 					<CaseListEmptyNotice
 						headingLevel={1}
 						title="This case is no longer available"
@@ -1540,6 +1593,17 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		routeCaseId !== undefined;
 	return (
 		<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">
+			{selectsForParentRequest && (
+				<Button
+					type="button"
+					variant="ghost"
+					onClick={cancelParentCaseSelection}
+					className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+				>
+					<Icon icon={tablerChevronLeft} width="15" height="15" />
+					Back
+				</Button>
+			)}
 			<div
 				ref={surfaceRef}
 				className={`flex gap-5 ${split ? "flex-row items-start" : "flex-col"}`}
@@ -1557,6 +1621,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			</div>
 		</ContentFrame>
 	);
+}
+
+function routeCaseMatchesParent(
+	row: CaseRowWithCalculated,
+	parentCase:
+		| { readonly caseType: string; readonly caseId: string }
+		| undefined,
+): boolean {
+	return parentCase === undefined || row.parent_case_id === parentCase.caseId;
 }
 
 // ── Results body ──────────────────────────────────────────────────

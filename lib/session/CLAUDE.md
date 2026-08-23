@@ -22,12 +22,18 @@ The running menu keeps three distinct case facts, and they must not collapse:
 
 `previewParentCaseRequest` is a separate selector plus ordered return chain, so
 multi-level case ancestry can visit each required selector before the original
-module. Its selecting module is derived from case-type `parent_type`, not from structural
+module. A direct running leaf also records its exact `resumeLocation` (including
+the Form UUID, selected field, or Results case UUID) and a safe
+`cancelLocation`; every intermediate selector preserves both. Its selecting
+module is derived from case-type `parent_type`, not from structural
 `parentModuleUuid`; this keeps menu ancestry and case ancestry independent when
 a nested child belongs under one menu but its case parent is selected through
-another module. All four facts clear on Preview mode or persona changes and on
-a confirmed Project boundary. They are session-only and never enter the URL,
-document, undo history, or persisted app state.
+another module. Explicit cancel, browser Back, and navigation away clear the
+request so an abandoned selector cannot redirect a later visit. All four facts
+clear on Preview mode or persona changes and on a confirmed Project boundary.
+They are session-only and never enter the document, undo history, or persisted
+app state; the locations are navigation return intents, not durable routing
+state.
 
 ## Connect UI state is not Connect document ownership
 

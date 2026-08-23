@@ -66,6 +66,7 @@ import { proseText } from "@/lib/domain/prose";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import type { Location } from "@/lib/routing/types";
+import type { PreviewParentCaseRequest } from "@/lib/session/types";
 
 // ── Mocks ────────────────────────────────────────────────────────
 
@@ -83,6 +84,10 @@ const UNRELATED_PARENT_MODULE_UUID = testUuid(
 const INTERMEDIATE_PARENT_MODULE_UUID = testUuid(
 	"00000000-0000-0000-0000-000000000a06",
 );
+const CASE_PARENT_MODULE_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000a07",
+);
+const CASE_PARENT_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000a08");
 const SELECTED_CASE_ID = "11111111-1111-1111-1111-111111111111";
 
 /** Mocked `useSetPreviewCaseTarget`: asserts the selected case datum is
@@ -93,12 +98,7 @@ const setPreviewMenuCaseSelectionMock = vi.fn();
 const setPreviewParentCaseRequestMock = vi.fn();
 const signInMock = vi.fn(() => Promise.resolve());
 let canEditMock = true;
-let previewParentCaseRequestMock:
-	| {
-			selectingModuleUuid: Uuid;
-			returnModuleUuids: readonly Uuid[];
-	  }
-	| undefined;
+let previewParentCaseRequestMock: PreviewParentCaseRequest | undefined;
 let previewMenuCaseSelectionsMock: Record<
 	string,
 	{
@@ -292,6 +292,8 @@ function renderCaseListScreen(opts: {
 	/** Add a differently nested child whose case type descends from this
 	 * module's case type, proving case selection invalidation is not structural. */
 	includeUnrelatedCaseDescendant?: boolean;
+	/** Give the fixture patient type a separately rooted household case parent. */
+	includeIndependentCaseParent?: boolean;
 }) {
 	const includeCaseLoadingForm = opts.includeCaseLoadingForm !== false;
 	const extraForms = opts.secondCaseLoadingForm
@@ -315,6 +317,9 @@ function renderCaseListScreen(opts: {
 				caseTypes: [
 					{
 						name: "patient",
+						...(opts.includeIndependentCaseParent
+							? { parent_type: "household" }
+							: {}),
 						properties: opts.caseProperties
 							? [...opts.caseProperties]
 							: [
@@ -339,6 +344,9 @@ function renderCaseListScreen(opts: {
 									properties: [],
 								},
 							]
+						: []),
+					...(opts.includeIndependentCaseParent
+						? [{ name: "household", properties: [] }]
 						: []),
 				],
 				modules: opts.omitModule
@@ -408,6 +416,16 @@ function renderCaseListScreen(opts: {
 										},
 									}
 								: {}),
+							...(opts.includeIndependentCaseParent
+								? {
+										[CASE_PARENT_MODULE_UUID]: {
+											uuid: CASE_PARENT_MODULE_UUID,
+											id: "household_module",
+											name: "Households",
+											caseType: "household",
+										},
+									}
+								: {}),
 						},
 				forms: opts.omitModule
 					? {}
@@ -429,6 +447,16 @@ function renderCaseListScreen(opts: {
 									}
 								: {}),
 							...extraForms,
+							...(opts.includeIndependentCaseParent
+								? {
+										[CASE_PARENT_FORM_UUID]: {
+											uuid: CASE_PARENT_FORM_UUID,
+											id: "household_followup",
+											name: "Household follow-up",
+											type: "followup" as const,
+										},
+									}
+								: {}),
 						},
 				fields: {},
 				moduleOrder: opts.omitModule
@@ -437,6 +465,9 @@ function renderCaseListScreen(opts: {
 							MODULE_UUID,
 							...(opts.includeUnrelatedCaseDescendant
 								? [UNRELATED_PARENT_MODULE_UUID, CHILD_MODULE_UUID]
+								: []),
+							...(opts.includeIndependentCaseParent
+								? [CASE_PARENT_MODULE_UUID]
 								: []),
 						],
 				formOrder: opts.omitModule
@@ -453,6 +484,9 @@ function renderCaseListScreen(opts: {
 										[CHILD_MODULE_UUID]: [],
 									}
 								: {}),
+							...(opts.includeIndependentCaseParent
+								? { [CASE_PARENT_MODULE_UUID]: [CASE_PARENT_FORM_UUID] }
+								: {}),
 						},
 				fieldOrder: opts.omitModule
 					? {}
@@ -460,6 +494,9 @@ function renderCaseListScreen(opts: {
 							[FORM_UUID]: [],
 							...(includeCaseLoadingForm ? { [FOLLOWUP_FORM_UUID]: [] } : {}),
 							...(opts.secondCaseLoadingForm ? { [CLOSE_FORM_UUID]: [] } : {}),
+							...(opts.includeIndependentCaseParent
+								? { [CASE_PARENT_FORM_UUID]: [] }
+								: {}),
 						},
 			}}
 		>
@@ -2803,6 +2840,53 @@ describe("CaseListScreen — detail confirm step", () => {
 		});
 	});
 
+	it("rejects a direct Results record that belongs to a different selected parent", async () => {
+		currentLocation = {
+			kind: "cases",
+			moduleUuid: MODULE_UUID,
+			caseId: SELECTED_CASE_ID,
+		};
+		previewMenuCaseSelectionsMock = {
+			[CASE_PARENT_MODULE_UUID]: {
+				caseType: "household",
+				caseId: "selected-household",
+				caseName: "Selected household",
+			},
+		};
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "authored-rules",
+			kind: "empty",
+		});
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: {
+				...makeRow(SELECTED_CASE_ID, { case_name: "Wrong household" }),
+				parent_case_id: "different-household",
+			},
+			ancestors: [],
+		});
+		renderCaseListScreen({
+			includeIndependentCaseParent: true,
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
+		});
+
+		expect(
+			await screen.findByRole("heading", {
+				name: "This case is no longer available",
+			}),
+		).toBeDefined();
+		expect(screen.queryByText("Wrong household")).toBeNull();
+		expect(vi.mocked(loadCasesAction)).toHaveBeenCalledWith(
+			expect.objectContaining({
+				caseType: "patient",
+				parentCase: expect.objectContaining({
+					caseType: "household",
+					caseId: "selected-household",
+				}),
+			}),
+		);
+	});
+
 	it("keeps an off-page deep link's calculated Details value projected after case-data reload", async () => {
 		currentLocation = {
 			kind: "cases",
@@ -3084,9 +3168,17 @@ describe("CaseListScreen — detail confirm step", () => {
 
 describe("CaseListScreen — post-selection form menu", () => {
 	it("advances an ordered multi-level case-parent selector chain", async () => {
+		const resumeLocation: Location = {
+			kind: "form",
+			moduleUuid: CHILD_MODULE_UUID,
+			formUuid: FOLLOWUP_FORM_UUID,
+		};
+		const cancelLocation: Location = { kind: "home" };
 		previewParentCaseRequestMock = {
 			selectingModuleUuid: MODULE_UUID,
 			returnModuleUuids: [INTERMEDIATE_PARENT_MODULE_UUID, CHILD_MODULE_UUID],
+			resumeLocation,
+			cancelLocation,
 		};
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			constraintSource: "unconstrained",
@@ -3106,10 +3198,82 @@ describe("CaseListScreen — post-selection form menu", () => {
 		expect(setPreviewParentCaseRequestMock).toHaveBeenCalledWith({
 			selectingModuleUuid: INTERMEDIATE_PARENT_MODULE_UUID,
 			returnModuleUuids: [CHILD_MODULE_UUID],
+			resumeLocation,
+			cancelLocation,
 		});
-		expect(navigateMock.openModule).toHaveBeenCalledWith(
-			INTERMEDIATE_PARENT_MODULE_UUID,
-		);
+		expect(navigateMock.replace).toHaveBeenCalledWith({
+			kind: "module",
+			moduleUuid: INTERMEDIATE_PARENT_MODULE_UUID,
+		});
+	});
+
+	it.each([
+		{
+			name: "Form",
+			resumeLocation: {
+				kind: "form" as const,
+				moduleUuid: CHILD_MODULE_UUID,
+				formUuid: FOLLOWUP_FORM_UUID,
+			},
+		},
+		{
+			name: "Results record",
+			resumeLocation: {
+				kind: "cases" as const,
+				moduleUuid: CHILD_MODULE_UUID,
+				caseId: "requested-child-case",
+			},
+		},
+	])(
+		"resumes the exact requested $name leaf after parent selection",
+		async ({ resumeLocation }) => {
+			previewParentCaseRequestMock = {
+				selectingModuleUuid: MODULE_UUID,
+				returnModuleUuids: [CHILD_MODULE_UUID],
+				resumeLocation,
+				cancelLocation: { kind: "home" },
+			};
+			vi.mocked(loadCasesAction).mockResolvedValue({
+				constraintSource: "unconstrained",
+				kind: "rows",
+				rows: [makeRow(SELECTED_CASE_ID, { case_name: "Alice" })],
+			});
+			renderCaseListScreen({
+				columns: [
+					plainColumn(COL_NAME_UUID, "case_name", "Name", {
+						visibleInDetail: false,
+					}),
+				],
+			});
+
+			fireEvent.click(await screen.findByRole("button", { name: /Alice/ }));
+
+			expect(setPreviewParentCaseRequestMock).toHaveBeenCalledWith(undefined);
+			expect(navigateMock.replace).toHaveBeenCalledWith(resumeLocation);
+			expect(navigateMock.openModule).not.toHaveBeenCalled();
+		},
+	);
+
+	it("cancels parent selection to its safe origin and clears transient case state", async () => {
+		const cancelLocation: Location = {
+			kind: "module",
+			moduleUuid: UNRELATED_PARENT_MODULE_UUID,
+		};
+		previewParentCaseRequestMock = {
+			selectingModuleUuid: MODULE_UUID,
+			returnModuleUuids: [CHILD_MODULE_UUID],
+			cancelLocation,
+		};
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
+		});
+		await screen.findByRole("heading", { name: "No cases yet" });
+
+		fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+		expect(setPreviewParentCaseRequestMock).toHaveBeenCalledWith(undefined);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith(undefined);
+		expect(navigateMock.replace).toHaveBeenCalledWith(cancelLocation);
 	});
 
 	it("returns a case-parent selection to the independently nested target module", async () => {

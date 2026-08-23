@@ -16,6 +16,7 @@ import {
 	ids,
 	makeContract,
 	makeNestedMenuContract,
+	makeThirteenWorkflowContract,
 } from "./fixtures";
 
 function messages(value: unknown): string {
@@ -80,6 +81,20 @@ describe("lean Design Contract graph", () => {
 		const contract = makeNestedMenuContract();
 		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
 		expect(constructionMessages(contract)).toBe("");
+	});
+
+	it("rejects a materialization-root module placed after a later-owned sibling", () => {
+		const contract = cloneContract(makeThirteenWorkflowContract());
+		const first = fixtureValue(contract.moduleCompositions[0], "first module");
+		const second = fixtureValue(
+			contract.moduleCompositions[1],
+			"second module",
+		);
+		contract.moduleCompositions.splice(0, 2, second, first);
+
+		expect(messages(contract)).toContain(
+			"construction owner must be the same as or later than its preceding sibling's owner",
+		);
 	});
 
 	it("rejects a child menu that is ordered before its parent", () => {
@@ -413,7 +428,7 @@ describe("lean Design Contract graph", () => {
 			"shared module composition",
 		);
 		sharedModule.workflowIds = [ids.taskVisit];
-		contract.moduleCompositions.push({
+		contract.moduleCompositions.unshift({
 			id: did(780),
 			name: "Standalone survey",
 			purpose: "Host the form-only survey without a record context.",
