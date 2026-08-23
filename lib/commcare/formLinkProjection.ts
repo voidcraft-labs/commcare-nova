@@ -461,7 +461,10 @@ export function caseListSessionDatums(
 	const own = [...datums]
 		.reverse()
 		.find((datum) => datum.caseType === ownType && datum.nodeset !== undefined);
-	if (own !== undefined) {
+	const hasDetailScreen = (
+		doc.modules[moduleUuid]?.caseListConfig?.columns ?? []
+	).some((column) => column.visibleInDetail !== false);
+	if (own !== undefined && hasDetailScreen) {
 		own.detailConfirm = `m${moduleIndexOf(ctx, moduleUuid)}_case_long`;
 	}
 	return alignWithRootMenu(doc, ctx, moduleUuid, datums);

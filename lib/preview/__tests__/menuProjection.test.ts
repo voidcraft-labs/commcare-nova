@@ -99,6 +99,31 @@ describe("Preview menu projection", () => {
 		});
 	});
 
+	it("keeps case-parent context after the child itself is selected", () => {
+		const parent = {
+			caseType: "household",
+			caseId: "h1",
+			caseName: "Household one",
+		};
+		const child = {
+			caseType: "person",
+			caseId: "p1",
+			caseName: "Person one",
+		};
+		expect(
+			previewMenuCaseContext(source("person"), CHILD, {
+				[ROOT]: parent,
+				[CHILD]: child,
+			}),
+		).toEqual({
+			selectedCase: child,
+			selectedByModuleUuid: CHILD,
+			parentCase: parent,
+			parentModuleUuid: ROOT,
+			requiredParentCase: undefined,
+		});
+	});
+
 	it("finds case parentage independently of the structural menu parent", () => {
 		const base = source("person");
 		const doc = {

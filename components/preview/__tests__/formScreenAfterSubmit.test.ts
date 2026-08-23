@@ -86,6 +86,18 @@ describe("afterSubmitRoute", () => {
 		).toEqual({ kind: "module", moduleUuid: CARE, landing: "case-list" });
 	});
 
+	it("enters a case-first module with a retained case on its form menu", () => {
+		expect(
+			afterSubmitRoute({
+				choice: fired({ type: "module", moduleUuid: CARE }),
+				doc,
+				caseFirstModules,
+				hasSelectedCase: (moduleUuid) => moduleUuid === CARE,
+				carriedCase: neverCarries,
+			}),
+		).toEqual({ kind: "module", moduleUuid: CARE, landing: "form-menu" });
+	});
+
 	it("enters a bare case list on its case list", () => {
 		expect(
 			afterSubmitRoute({

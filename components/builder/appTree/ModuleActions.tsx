@@ -35,7 +35,10 @@ export interface ModuleActionsProps {
 	readonly hasChildren: boolean;
 	readonly searchActive: boolean;
 	readonly locked?: boolean;
-	readonly onPlacementCommitted: (moduleUuid: Uuid) => void;
+	readonly onPlacementCommitted: (
+		moduleUuid: Uuid,
+		destinationParentModuleUuid?: Uuid | null,
+	) => void;
 }
 
 /** Complete keyboard/touch placement surface. Drag-and-drop is deliberately
@@ -71,7 +74,8 @@ export function ModuleActions({
 		readonly parentModuleUuid?: Uuid | null;
 	}) => {
 		const outcome = moveModule(moduleUuid, placement);
-		if (outcome.ok) onPlacementCommitted(moduleUuid);
+		if (outcome.ok)
+			onPlacementCommitted(moduleUuid, placement.parentModuleUuid);
 	};
 
 	return (

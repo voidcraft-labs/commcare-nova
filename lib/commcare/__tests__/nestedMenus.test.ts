@@ -1,4 +1,7 @@
 import AdmZip from "adm-zip";
+import { type Element, isTag } from "domhandler";
+import { findAll, getAttributeValue, getChildren } from "domutils";
+import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -13,9 +16,61 @@ import {
 	projectFormLinks,
 	selectedCaseDatumId,
 } from "@/lib/commcare/formLinkProjection";
+import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	eq,
+	literal,
+	matchAll,
+	prop,
+	tableLookup,
+} from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import type { LookupRevision } from "@/lib/lookup/types";
+
+const REGIONS = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
+const REGION_NAME = "018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
+const lookupNaming = lookupWireNaming([
+	{
+		id: REGIONS,
+		name: "Regions",
+		tag: "regions",
+		definitionRevision: "1" as LookupRevision,
+		columns: [
+			{
+				id: REGION_NAME,
+				wireName: "name",
+				label: "Name",
+				dataType: "text",
+			},
+		],
+	},
+]);
+const lookupFixtures = buildLookupFixtures(
+	lookupNaming,
+	new Map([[REGIONS, []]]),
+);
+
+function directChildren(element: Element, name: string): Element[] {
+	return getChildren(element).filter(
+		(child): child is Element => isTag(child) && child.name === name,
+	);
+}
+
+function entryByCommand(suite: string, commandId: string): Element {
+	const entry = findAll(
+		(element) =>
+			element.name === "entry" &&
+			directChildren(element, "command").some(
+				(command) => getAttributeValue(command, "id") === commandId,
+			),
+		parseDocument(suite, { xmlMode: true }).children,
+	)[0];
+	if (entry === undefined) throw new Error(`missing entry ${commandId}`);
+	return entry;
+}
 
 /** Copied from CommCare HQ at 6a1c4ba8a93e0c4446e7cfa1a27e6aee63c9563e:
  * `tests/data/suite/child-module-entry-datums-added-basic.xml` and
@@ -291,6 +346,40 @@ describe("ordinary nested-menu wire projection", () => {
 		});
 	});
 
+	it("carries ancestor lookup dependencies into the child CCZ entry", () => {
+		const doc = followupNestedDoc({ parentSelect: true });
+		const { root, child, childForm } = nestSecondModule(doc);
+		if (childForm === undefined) throw new Error("missing child form");
+		const parentConfig = doc.modules[root].caseListConfig;
+		if (parentConfig === undefined) throw new Error("missing parent case list");
+		parentConfig.filter = eq(
+			tableLookup(REGIONS, REGION_NAME, matchAll()),
+			literal("North"),
+		);
+
+		const ctx = formLinkProjectionContext(doc, { lookupNaming });
+		const parentDatum = entrySessionDatums(doc, ctx, child, childForm).find(
+			(datum) => datum.caseType === "gold-fish",
+		);
+		expect(parentDatum?.instanceIds).toContain("item-list:regions");
+
+		const hq = expandDoc(doc, { lookupNaming });
+		const suite = new AdmZip(
+			compileCcz(hq, doc.appName, doc, {
+				lookup: { naming: lookupNaming, fixtures: lookupFixtures },
+			}),
+		).readAsText("suite.xml");
+		const entry = entryByCommand(suite, "m1-f0");
+		expect(
+			directChildren(entry, "instance").some(
+				(instance) =>
+					getAttributeValue(instance, "id") === "item-list:regions" &&
+					getAttributeValue(instance, "src") ===
+						"jr://fixture/item-list:regions",
+			),
+		).toBe(true);
+	});
+
 	it("projects root-aware datums for a case-list-only child", () => {
 		const doc = followupNestedDoc({ parentSelect: true, caseListOnly: true });
 		const hq = expandDoc(doc);
@@ -301,6 +390,26 @@ describe("ordinary nested-menu wire projection", () => {
 		expect(suite).toContain('id="m1-case-list"');
 		expect(suite).toContain('id="case_id_guppy"');
 		expect(suite).toContain('detail-confirm="m1_case_long"');
+	});
+
+	it("omits detail-confirm for a nested case list with no Details fields", () => {
+		const doc = followupNestedDoc({ parentSelect: true, caseListOnly: true });
+		const child = doc.moduleOrder[1];
+		const config = doc.modules[child].caseListConfig;
+		if (config === undefined) throw new Error("missing child case list");
+		for (const column of config.columns) column.visibleInDetail = false;
+		const hq = expandDoc(doc);
+		const suite = new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
+			"suite.xml",
+		);
+		const entry = entryByCommand(suite, "m1-case-list");
+		const datums = findAll(
+			(element) => element.name === "datum",
+			entry.children,
+		);
+		expect(
+			datums.some((datum) => getAttributeValue(datum, "detail-confirm")),
+		).toBe(false);
 	});
 });
 

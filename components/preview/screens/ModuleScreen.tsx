@@ -31,20 +31,17 @@ import {
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { makeTranslationUnitId } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
-import {
-	formDisplayVisibility,
-	moduleDisplayVisibility,
-} from "@/lib/preview/engine/displayConditionEvaluation";
+import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
-	inheritedModuleVisibility,
 	moduleHasChildren,
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
+	previewModuleVisibility,
 } from "@/lib/preview/menuProjection";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
@@ -156,25 +153,11 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		[forms, formVisibility, projectProse, localizedValues],
 	);
 	const moduleVisibility = useMemo(() => {
-		const own = new Map(
-			menuSource.moduleOrder.map((uuid) => {
-				const candidate = menuSource.modules[uuid];
-				return [
-					uuid,
-					mode === "edit" || !candidate
-						? ("shown" as const)
-						: moduleDisplayVisibility({
-								condition: candidate.displayCondition,
-								session,
-								...(candidate.caseType
-									? { currentCaseType: candidate.caseType }
-									: {}),
-								lookup,
-							}),
-				] as const;
-			}),
-		);
-		return inheritedModuleVisibility(menuSource, own);
+		return previewModuleVisibility(menuSource, {
+			authoring: mode === "edit",
+			session,
+			lookup,
+		});
 	}, [lookup, menuSource, mode, session]);
 	const hiddenChildren = useMemo(
 		() =>

@@ -26,16 +26,15 @@ import {
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { makeTranslationUnitId } from "@/lib/domain";
-import { moduleDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
-	inheritedModuleVisibility,
 	moduleHasChildren,
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
+	previewModuleVisibility,
 } from "@/lib/preview/menuProjection";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
@@ -91,26 +90,12 @@ export function HomeScreen() {
 	 * shows everything. Hidden modules stay reachable through the reveal
 	 * affordance below: ghosted, with each condition's summary. */
 	const moduleVisibility = useMemo(() => {
-		const own = new Map(
-			orderedModules.map(
-				(mod) =>
-					[
-						mod.uuid,
-						mode === "edit"
-							? ("shown" as const)
-							: moduleDisplayVisibility({
-									condition: mod.displayCondition,
-									session,
-									...(mod.caseType !== undefined && {
-										currentCaseType: mod.caseType,
-									}),
-									lookup,
-								}),
-					] as const,
-			),
-		);
-		return inheritedModuleVisibility(menuSource, own);
-	}, [orderedModules, mode, session, lookup, menuSource]);
+		return previewModuleVisibility(menuSource, {
+			authoring: mode === "edit",
+			session,
+			lookup,
+		});
+	}, [mode, session, lookup, menuSource]);
 	const hiddenModules = useMemo(
 		() =>
 			modules

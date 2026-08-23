@@ -48,8 +48,10 @@ export function AppTree() {
 
 	const handleSelect = useAppTreeSelection();
 	const [collapsed, setCollapsed] = useState<Set<Uuid>>(new Set());
-	const [pendingFocusModuleUuid, setPendingFocusModuleUuid] =
-		useState<Uuid | null>(null);
+	const [pendingFocus, setPendingFocus] = useState<{
+		readonly moduleUuid: Uuid;
+		readonly fallbackModuleUuid?: Uuid;
+	} | null>(null);
 	const [searchQuery, setSearchQuery] = useState("");
 	const deferredQuery = useDeferredValue(searchQuery);
 
@@ -78,14 +80,40 @@ export function AppTree() {
 	}, [selectedModule?.parentModuleUuid, selectedModuleUuid]);
 
 	useEffect(() => {
-		if (pendingFocusModuleUuid === null) return;
+		if (pendingFocus === null) return;
 		const trigger = document.querySelector<HTMLButtonElement>(
-			`[data-module-actions="${pendingFocusModuleUuid}"]`,
+			`[data-module-actions="${pendingFocus.moduleUuid}"]`,
 		);
-		if (trigger === null) return;
-		trigger.focus();
-		setPendingFocusModuleUuid(null);
-	}, [pendingFocusModuleUuid]);
+		const fallback = pendingFocus.fallbackModuleUuid
+			? document.querySelector<HTMLButtonElement>(
+					`[data-module-actions="${pendingFocus.fallbackModuleUuid}"]`,
+				)
+			: null;
+		const focusTarget = trigger ?? fallback;
+		if (focusTarget === null) return;
+		focusTarget.focus();
+		setPendingFocus(null);
+	}, [pendingFocus]);
+
+	const handlePlacementCommitted = useCallback(
+		(moduleUuid: Uuid, destinationParentModuleUuid?: Uuid | null) => {
+			if (destinationParentModuleUuid) {
+				setCollapsed((previous) => {
+					if (!previous.has(destinationParentModuleUuid)) return previous;
+					const next = new Set(previous);
+					next.delete(destinationParentModuleUuid);
+					return next;
+				});
+			}
+			setPendingFocus({
+				moduleUuid,
+				...(destinationParentModuleUuid
+					? { fallbackModuleUuid: destinationParentModuleUuid }
+					: {}),
+			});
+		},
+		[],
+	);
 
 	/* Search: compute match indices from entity maps.
 	 * Only fires when the deferred query or entities change. */
@@ -178,7 +206,7 @@ export function AppTree() {
 												rootModuleUuids={rootModuleUuids}
 												childModuleUuidsByRoot={childModuleUuidsByRoot}
 												siblingModuleUuids={rootModuleUuids}
-												onPlacementCommitted={setPendingFocusModuleUuid}
+												onPlacementCommitted={handlePlacementCommitted}
 											/>
 										),
 									renderInsertion: (atIndex, key) => (

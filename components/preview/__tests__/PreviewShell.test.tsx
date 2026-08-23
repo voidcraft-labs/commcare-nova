@@ -36,6 +36,7 @@ import type { PreviewCaseTarget } from "@/lib/session/types";
 const MODULE_UUID = testUuid("mod-1");
 const CHILD_MODULE_UUID = testUuid("mod-child");
 const FORM_UUID = testUuid("form-1");
+const CHILD_FORM_UUID = testUuid("form-child");
 
 // `useLocation` and `useEditMode` are the dispatch knobs; the rest of
 // the routing/session surface is forwarded from the real module.
@@ -180,6 +181,7 @@ function renderShell() {
 						id: "patient_module",
 						name: "Patient module",
 						caseType: "patient",
+						displayCondition: { kind: "match-none" },
 					},
 					[CHILD_MODULE_UUID]: {
 						uuid: CHILD_MODULE_UUID,
@@ -187,7 +189,6 @@ function renderShell() {
 						name: "Child module",
 						parentModuleUuid: MODULE_UUID,
 						caseType: "patient",
-						caseListOnly: true,
 					},
 				},
 				forms: {
@@ -197,14 +198,20 @@ function renderShell() {
 						name: "Follow-up",
 						type: "followup",
 					},
+					[CHILD_FORM_UUID]: {
+						uuid: CHILD_FORM_UUID,
+						id: "child_followup_form",
+						name: "Child follow-up",
+						type: "followup",
+					},
 				},
 				fields: {},
 				moduleOrder: [MODULE_UUID, CHILD_MODULE_UUID],
 				formOrder: {
 					[MODULE_UUID]: [FORM_UUID],
-					[CHILD_MODULE_UUID]: [],
+					[CHILD_MODULE_UUID]: [CHILD_FORM_UUID],
 				},
-				fieldOrder: { [FORM_UUID]: [] },
+				fieldOrder: { [FORM_UUID]: [], [CHILD_FORM_UUID]: [] },
 			}}
 		>
 			<BuilderLocalizationProvider>
@@ -261,6 +268,23 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 		expect(isVisible(moduleScreen)).toBe(true);
 		expect(moduleScreen.getAttribute("data-module-uuid")).toBe(MODULE_UUID);
 	});
+
+	for (const location of [
+		{ kind: "module" as const, moduleUuid: CHILD_MODULE_UUID },
+		{ kind: "cases" as const, moduleUuid: CHILD_MODULE_UUID },
+		{
+			kind: "form" as const,
+			moduleUuid: CHILD_MODULE_UUID,
+			formUuid: CHILD_FORM_UUID,
+		},
+	]) {
+		it(`does not run a directly addressed ${location.kind} under a hidden parent`, () => {
+			editModeMock.mockReturnValue("preview");
+			locationMock.mockReturnValue(location);
+			const { getByTestId } = renderShell();
+			expect(isVisible(getByTestId("home-stub"))).toBe(true);
+		});
+	}
 
 	it("uses its real scroll surface as the single main landmark", () => {
 		editModeMock.mockReturnValue("edit");

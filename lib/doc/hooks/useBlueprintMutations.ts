@@ -58,6 +58,7 @@ import type { FormSectionPlan } from "@/lib/doc/formSectionMutations";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
+import { planModuleChildDependentsOnRemove } from "@/lib/doc/moduleDependents";
 import {
 	type ModuleAuthoringPatch,
 	modulePatchMutations,
@@ -1382,6 +1383,14 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					if (!doc.modules[uuid]) {
 						warnUnresolved("removeModule", { uuid });
 						return NOOP_REJECTION;
+					}
+					const childDependents = planModuleChildDependentsOnRemove(doc, uuid);
+					if (childDependents.kind === "blocked") {
+						if (announce) notifyRejectedCommit([childDependents.userMessage]);
+						return {
+							ok: false,
+							messages: [childDependents.userMessage],
+						};
 					}
 					/* When this module is the last owner of its case-type record,
 					 * the same batch retires the record — or the removal rejects

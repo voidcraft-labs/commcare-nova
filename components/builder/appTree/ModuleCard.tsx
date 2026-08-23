@@ -76,7 +76,10 @@ export const ModuleCard = memo(function ModuleCard({
 	rootModuleUuids: readonly Uuid[];
 	childModuleUuidsByRoot: Readonly<Record<Uuid, readonly Uuid[]>>;
 	siblingModuleUuids: readonly Uuid[];
-	onPlacementCommitted: (moduleUuid: Uuid) => void;
+	onPlacementCommitted: (
+		moduleUuid: Uuid,
+		destinationParentModuleUuid?: Uuid | null,
+	) => void;
 }) {
 	/** Subscribe to this module's entity from the doc store. Only re-renders
 	 *  when THIS module changes (Immer structural sharing on the entity ref). */

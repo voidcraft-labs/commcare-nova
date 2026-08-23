@@ -298,6 +298,28 @@ export function deriveCaseSelectionDatum(args: {
 	readonly parentDatumId?: string;
 	readonly detailConfirm?: boolean;
 }): SessionDatum {
+	const secondaryInstances = new Set<string>();
+	if (args.caseListFilter !== undefined) {
+		const unanswered = substituteUnansweredSearchInputsInPredicate(
+			args.caseListFilter,
+		);
+		for (const id of collectPredicateInstances(unanswered, args.lookupNaming)) {
+			if (id !== "casedb") secondaryInstances.add(id);
+		}
+	}
+	if (args.excludedOwnerIds !== undefined) {
+		const unanswered = substituteUnansweredSearchInputsInExpression(
+			args.excludedOwnerIds,
+		);
+		for (const id of collectExpressionInstances(
+			unanswered,
+			args.lookupNaming,
+		)) {
+			if (id !== "casedb") secondaryInstances.add(id);
+		}
+	}
+	if (args.parentDatumId !== undefined)
+		secondaryInstances.add("commcaresession");
 	const base = caseLoadingNodeset(
 		args.caseType,
 		args.caseListFilter,
@@ -316,8 +338,8 @@ export function deriveCaseSelectionDatum(args: {
 		id: args.id,
 		instanceId: "casedb",
 		instanceSrc: "jr://instance/casedb",
-		...(args.parentDatumId !== undefined && {
-			instanceIds: ["commcaresession"],
+		...(secondaryInstances.size > 0 && {
+			instanceIds: [...secondaryInstances],
 		}),
 		nodeset: renderNodeset(args.parentDatumId),
 		renderNodeset,

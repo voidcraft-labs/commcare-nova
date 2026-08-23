@@ -49,7 +49,7 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import type { Automation, FieldKind } from "@/lib/domain";
+import type { Automation, CommitOutcome, FieldKind } from "@/lib/domain";
 import { printProseTemplate, proseText } from "@/lib/domain/prose";
 import { toastStore } from "@/lib/ui/toastStore";
 
@@ -1076,6 +1076,36 @@ describe("useBlueprintMutations", () => {
 			firstChild,
 		]);
 		expect(state?.modules[secondChild].parentModuleUuid).toBe(MOD1);
+	});
+
+	it("names child menus before refusing parent removal", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+		let childUuid = "" as Uuid;
+		act(() => {
+			const child = result.current.mutations.createSurveyModule({
+				name: "Follow-up menu",
+				parentModuleUuid: MOD1,
+				after: null,
+			});
+			assert(child.ok);
+			childUuid = child.uuid;
+		});
+
+		let outcome: CommitOutcome | undefined;
+		act(() => {
+			outcome = result.current.mutations.removeModule(MOD1);
+		});
+
+		expect(outcome?.ok).toBe(false);
+		if (outcome === undefined || outcome.ok) {
+			throw new Error("parent removal unexpectedly committed");
+		}
+		expect(outcome.messages.join(" ")).toContain('"Follow-up menu"');
+		expect(outcome.messages.join(" ")).toContain("Move or remove");
+		expect(result.current.store?.getState().modules[childUuid]).toBeDefined();
+		expect(result.current.store?.getState().modules[MOD1]).toBeDefined();
 	});
 
 	// ── removeModule ──────────────────────────────────────────────────────

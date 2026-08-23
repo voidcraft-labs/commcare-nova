@@ -61,6 +61,33 @@ function record(name: string, parentType?: string) {
 }
 
 describe("removeModule", () => {
+	it("names child menus and the repair before refusing parent removal", async () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Care",
+					forms: [{ name: "Care home", type: "survey" }],
+				},
+				{
+					name: "Visits",
+					forms: [{ name: "Visit", type: "survey" }],
+				},
+			],
+		});
+		const [parentUuid, childUuid] = doc.moduleOrder;
+		doc.modules[childUuid].parentModuleUuid = parentUuid;
+		const h = makeToolWorkspaceHarness(doc);
+
+		const out = await h.runTool(removeModuleTool, { moduleUuid: parentUuid });
+
+		expect(h.currentDoc()).toBe(doc);
+		expect(h.recordMutations).not.toHaveBeenCalled();
+		expect(out.result).toMatchObject({
+			error: expect.stringContaining('"Visits"'),
+		});
+		expect((out.result as { error: string }).error).toContain("Move or remove");
+	});
+
 	it("rejects removing the ONLY module — the batch would re-introduce NO_MODULES", async () => {
 		const doc = buildDoc({
 			appName: "Clinic",

@@ -21,9 +21,10 @@
  * message. The SA sees the target-already-gone state explicitly and
  * keeps moving rather than assuming the removal just happened.
  *
- * Four exit branches:
+ * Five exit branches:
  *
  *   - Missing UUID → no mutations, "does not exist, no change" message.
+ *   - Child menus remain → `{ error }` naming them and the move/remove repair.
  *   - Retirement blocked → `{ error }` naming the references.
  *   - After-submit links from other modules' forms point into it →
  *     `{ error }` naming each link and the repair
@@ -35,6 +36,7 @@
 import type { z } from "zod";
 import { planCaseTypeRetirementOnRemove } from "@/lib/doc/caseTypeRetirement";
 import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
+import { planModuleChildDependentsOnRemove } from "@/lib/doc/moduleDependents";
 import type { Mutation } from "@/lib/doc/types";
 import { removeModuleMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -90,6 +92,18 @@ export const removeModuleTool = {
 			// summary references the real module even after cascade
 			// deletion removes it from `modules`.
 			const name = module.name;
+
+			const childDependents = planModuleChildDependentsOnRemove(
+				doc,
+				moduleUuid,
+			);
+			if (childDependents.kind === "blocked") {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: childDependents.message },
+				};
+			}
 
 			/* Case-type retirement: when this module is the last owner of its
 			 * case-type record, retire the record in the same batch — or fail

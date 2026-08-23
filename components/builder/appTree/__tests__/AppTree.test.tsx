@@ -55,7 +55,7 @@ vi.mock("@/components/builder/appTree/ModuleCard", () => ({
 		onPlacementCommitted,
 	}: {
 		moduleUuid: string;
-		onPlacementCommitted: (uuid: string) => void;
+		onPlacementCommitted: (uuid: string, parentUuid?: string | null) => void;
 	}) => (
 		<li>
 			<button type="button" data-module-actions={moduleUuid}>
@@ -63,6 +63,17 @@ vi.mock("@/components/builder/appTree/ModuleCard", () => ({
 			</button>
 			<button type="button" onClick={() => onPlacementCommitted(moduleUuid)}>
 				Complete placement
+			</button>
+			<button
+				type="button"
+				onClick={() =>
+					onPlacementCommitted(
+						"00000000-0000-4000-8000-000000000099",
+						moduleUuid,
+					)
+				}
+			>
+				Complete hidden placement
 			</button>
 		</li>
 	),
@@ -116,6 +127,16 @@ describe("AppTree search", () => {
 	it("returns focus to the moved module's action after topology renders", () => {
 		render(<AppTree />);
 		fireEvent.click(screen.getByRole("button", { name: "Complete placement" }));
+		expect(document.activeElement).toBe(
+			screen.getByRole("button", { name: "Module actions" }),
+		);
+	});
+
+	it("falls back to the destination menu when a moved row is not mounted", () => {
+		render(<AppTree />);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Complete hidden placement" }),
+		);
 		expect(document.activeElement).toBe(
 			screen.getByRole("button", { name: "Module actions" }),
 		);

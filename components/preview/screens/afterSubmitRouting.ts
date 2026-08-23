@@ -50,6 +50,8 @@ export function afterSubmitRoute(args: {
 	readonly doc: Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
 	/** Modules whose every form loads a case (`useCaseFirstModuleUuids`). */
 	readonly caseFirstModules: ReadonlySet<Uuid>;
+	/** Whether the running menu session already retains a case for the target. */
+	readonly hasSelectedCase?: (moduleUuid: Uuid) => boolean;
 	/** Resolves the case a FORM target opens with; called only for a target
 	 *  the document holds. */
 	readonly carriedCase: (link: FormLink) => CarriedCase;
@@ -74,6 +76,7 @@ export function afterSubmitRoute(args: {
 			landing: moduleLanding({
 				isCaseFirst: args.caseFirstModules.has(target.moduleUuid),
 				isBareCaseList: mod.caseListOnly === true,
+				hasSelectedCase: args.hasSelectedCase?.(target.moduleUuid) ?? false,
 				hasChildren: Object.values(doc.modules).some(
 					(candidate) => candidate.parentModuleUuid === target.moduleUuid,
 				),

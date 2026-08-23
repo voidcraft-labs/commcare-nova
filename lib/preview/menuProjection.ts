@@ -5,7 +5,12 @@ import {
 	moduleSiblingUuids,
 } from "@/lib/domain/moduleHierarchy";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
-import type { NavigationItemVisibility } from "./engine/displayConditionEvaluation";
+import {
+	moduleDisplayVisibility,
+	type NavigationItemVisibility,
+} from "./engine/displayConditionEvaluation";
+import type { PreviewSearchSessionValues } from "./engine/identity";
+import type { PreviewLookupStatus } from "./engine/useLookupPreviewData";
 
 export interface PreviewMenuSource extends ModuleHierarchySource {
 	readonly caseTypes: readonly CaseType[];
@@ -54,6 +59,38 @@ export function inheritedModuleVisibility(
 	return result;
 }
 
+/** The one running-menu visibility projection used by tiles and direct-route
+ * admission. Edit mode keeps authoring surfaces reachable; Preview evaluates
+ * each module once and then applies structural ancestry. */
+export function previewModuleVisibility(
+	doc: PreviewMenuSource,
+	args: {
+		readonly authoring: boolean;
+		readonly session: PreviewSearchSessionValues;
+		readonly lookup: PreviewLookupStatus;
+	},
+): ReadonlyMap<Uuid, NavigationItemVisibility> {
+	const own = new Map(
+		doc.moduleOrder.map((uuid) => {
+			const mod = doc.modules[uuid];
+			return [
+				uuid,
+				args.authoring || mod === undefined
+					? ("shown" as const)
+					: moduleDisplayVisibility({
+							condition: mod.displayCondition,
+							session: args.session,
+							...(mod.caseType !== undefined && {
+								currentCaseType: mod.caseType,
+							}),
+							lookup: args.lookup,
+						}),
+			] as const;
+		}),
+	);
+	return inheritedModuleVisibility(doc, own);
+}
+
 export interface PreviewMenuCaseContext {
 	/** Case bound to this module menu. May be inherited from its structural
 	 * parent when both menus use the same case type. */
@@ -84,16 +121,6 @@ export function previewMenuCaseContext(
 	if (!mod) return emptyCaseContext();
 
 	const direct = matchingSelection(selections[moduleUuid], mod.caseType);
-	if (direct) {
-		return {
-			selectedCase: direct,
-			selectedByModuleUuid: moduleUuid,
-			parentCase: undefined,
-			parentModuleUuid: undefined,
-			requiredParentCase: undefined,
-		};
-	}
-
 	const structuralParentUuid = moduleParent(doc, moduleUuid);
 	const structuralParentSelection =
 		structuralParentUuid === undefined || structuralParentUuid === null
@@ -102,28 +129,47 @@ export function previewMenuCaseContext(
 					selections[structuralParentUuid],
 					doc.modules[structuralParentUuid]?.caseType,
 				);
-	if (structuralParentSelection?.caseType === mod.caseType) {
+	const inherited =
+		structuralParentSelection?.caseType === mod.caseType
+			? structuralParentSelection
+			: undefined;
+	const selectedCase = direct ?? inherited;
+	const selectedByModuleUuid = direct
+		? moduleUuid
+		: inherited
+			? (structuralParentUuid ?? undefined)
+			: undefined;
+
+	if (!mod.caseType) {
 		return {
-			selectedCase: structuralParentSelection,
-			selectedByModuleUuid: structuralParentUuid ?? undefined,
-			parentCase: undefined,
-			parentModuleUuid: undefined,
-			requiredParentCase: undefined,
+			...emptyCaseContext(),
+			selectedCase,
+			selectedByModuleUuid,
 		};
 	}
-
-	if (!mod.caseType) return emptyCaseContext();
 	const childCaseType = doc.caseTypes.find(
 		(type) => type.name === mod.caseType,
 	);
 	const parentCaseType = childCaseType?.parent_type;
-	if (!parentCaseType) return emptyCaseContext();
+	if (!parentCaseType) {
+		return {
+			...emptyCaseContext(),
+			selectedCase,
+			selectedByModuleUuid,
+		};
+	}
 	const caseParentModuleUuid = doc.moduleOrder.find(
 		(candidateUuid) =>
 			candidateUuid !== moduleUuid &&
 			doc.modules[candidateUuid]?.caseType === parentCaseType,
 	);
-	if (!caseParentModuleUuid) return emptyCaseContext();
+	if (!caseParentModuleUuid) {
+		return {
+			...emptyCaseContext(),
+			selectedCase,
+			selectedByModuleUuid,
+		};
+	}
 	const caseParentSelection = matchingSelection(
 		selections[caseParentModuleUuid],
 		parentCaseType,
@@ -131,6 +177,8 @@ export function previewMenuCaseContext(
 	if (!caseParentSelection) {
 		return {
 			...emptyCaseContext(),
+			selectedCase,
+			selectedByModuleUuid,
 			requiredParentCase: {
 				caseType: parentCaseType,
 				moduleUuid: caseParentModuleUuid,
@@ -138,8 +186,8 @@ export function previewMenuCaseContext(
 		};
 	}
 	return {
-		selectedCase: undefined,
-		selectedByModuleUuid: undefined,
+		selectedCase,
+		selectedByModuleUuid,
 		parentCase: caseParentSelection,
 		parentModuleUuid: caseParentModuleUuid,
 		requiredParentCase: undefined,

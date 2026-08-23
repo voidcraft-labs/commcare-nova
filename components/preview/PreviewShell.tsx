@@ -56,9 +56,13 @@ import type { Uuid } from "@/lib/doc/types";
 import type { Module } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { moduleParent } from "@/lib/domain/moduleHierarchy";
+import type { NavigationItemVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
+import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
+import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { previewModuleVisibility } from "@/lib/preview/menuProjection";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { AppSetupSection, Location } from "@/lib/routing/types";
@@ -90,6 +94,7 @@ function locationToScreen(
 	moduleOrder: readonly Uuid[],
 	modules: Readonly<Record<string, Module>>,
 	formOrder: Readonly<Record<Uuid, readonly Uuid[]>>,
+	moduleVisibility: ReadonlyMap<Uuid, NavigationItemVisibility>,
 ): PreviewScreen {
 	if (loc.kind === "home") return { type: "home" };
 	if (loc.kind === "app-setup") {
@@ -100,6 +105,31 @@ function locationToScreen(
 	}
 
 	if (!moduleOrder.includes(loc.moduleUuid)) return { type: "home" };
+
+	/* A display-condition URL runs the surface its condition governs. A root
+	 * module is offered on Home; a child is offered on its structural parent's
+	 * menu, so that is where its inherited condition is previewed. */
+	if (loc.kind === "module-condition") {
+		const parentUuid = moduleParent({ modules, moduleOrder }, loc.moduleUuid);
+		return parentUuid
+			? { type: "module", moduleUuid: parentUuid }
+			: { type: "home" };
+	}
+
+	/* Running routes cannot bypass a structural ancestor's menu condition.
+	 * A hidden child falls back to its visible parent menu; when the parent is
+	 * itself hidden or pending, Home is the nearest runnable screen. Edit mode
+	 * supplies an all-shown map so direct authoring routes remain reachable. */
+	const parentUuid = moduleParent({ modules, moduleOrder }, loc.moduleUuid);
+	if (
+		parentUuid !== undefined &&
+		parentUuid !== null &&
+		moduleVisibility.get(loc.moduleUuid) !== "shown"
+	) {
+		return moduleVisibility.get(parentUuid) === "shown"
+			? { type: "module", moduleUuid: parentUuid }
+			: { type: "home" };
+	}
 
 	if (loc.kind === "module")
 		return { type: "module", moduleUuid: loc.moduleUuid };
@@ -118,16 +148,6 @@ function locationToScreen(
 
 	if (loc.kind === "data-review") {
 		return { type: "dataReview", moduleUuid: loc.moduleUuid };
-	}
-
-	/* A display-condition URL runs the surface its condition governs. A root
-	 * module is offered on Home; a child is offered on its structural parent's
-	 * menu, so that is where its inherited condition is previewed. */
-	if (loc.kind === "module-condition") {
-		const parentUuid = moduleParent({ modules, moduleOrder }, loc.moduleUuid);
-		return parentUuid
-			? { type: "module", moduleUuid: parentUuid }
-			: { type: "home" };
 	}
 
 	/* Form screen: verify the form belongs to the URL's module. */
@@ -155,7 +175,23 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * pair so the location→screen adapter's `useMemo` below only invalidates
 	 * when one of the top-level order arrays actually changes reference. */
 	const { moduleOrder, formOrder } = useAppStructure();
-	const { modules } = usePreviewMenuSource();
+	const menuSource = usePreviewMenuSource();
+	const { modules } = menuSource;
+	const mode = useEditMode();
+	const identityState = useSelectedPreviewIdentityState();
+	const identity =
+		identityState.kind === "ready" ? identityState.identity : null;
+	const session = useMemo(() => previewSessionValues(identity), [identity]);
+	const lookup = usePreviewLookupStatus();
+	const moduleVisibility = useMemo(
+		() =>
+			previewModuleVisibility(menuSource, {
+				authoring: mode === "edit",
+				session,
+				lookup,
+			}),
+		[lookup, menuSource, mode, session],
+	);
 
 	/* Default back handler: callers can override (e.g. for selection sync),
 	 * otherwise fall back to URL-driven `navigate.back()`. */
@@ -175,7 +211,13 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * `screen.type === "home"` with authoring already off, flashing the
 	 * running home screen on the way to the module screen. */
 	const zustandView = useMemo(() => {
-		const screen = locationToScreen(loc, moduleOrder, modules, formOrder);
+		const screen = locationToScreen(
+			loc,
+			moduleOrder,
+			modules,
+			formOrder,
+			moduleVisibility,
+		);
 		const atCondition =
 			loc.kind === "module-condition" || loc.kind === "form-condition";
 		/* A form's case-operations URL maps onto its RUNNING form screen:
@@ -205,7 +247,14 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			};
 		}
 		return { screen, atCondition, atOperations, atLinks };
-	}, [loc, moduleOrder, modules, formOrder, previewCaseTarget]);
+	}, [
+		loc,
+		moduleOrder,
+		modules,
+		formOrder,
+		moduleVisibility,
+		previewCaseTarget,
+	]);
 	const zustandScreen: PreviewScreen = zustandView.screen;
 
 	/* ── Concurrent screen transition ──────────────────────────────────
@@ -216,8 +265,6 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	const view = useDeferredValue(zustandView);
 	const screen = view.screen;
 
-	const mode = useEditMode();
-	const identityState = useSelectedPreviewIdentityState();
 	const setPreviewPersonaUuid = useSetPreviewPersonaUuid();
 	/* `/cases/{caseId}` is the running record deep link, not the Results
 	 * authoring tab. It must remain a record screen after a reload even though

@@ -944,6 +944,12 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				}),
 				doc,
 				caseFirstModules,
+				hasSelectedCase: (targetModuleUuid) =>
+					previewMenuCaseContext(
+						menuSource,
+						targetModuleUuid,
+						menuCaseSelections,
+					).selectedCase !== undefined,
 				carriedCase: (link) => carriedCaseFor(input, sourceFormUuid, link),
 			});
 			switch (route.kind) {
