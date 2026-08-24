@@ -21,6 +21,7 @@
 
 import type { Uuid } from "@/lib/doc/types";
 import { CASE_LOADING_FORM_TYPES, type FormType } from "@/lib/domain";
+import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { Location } from "@/lib/routing/types";
 import type {
 	PreviewCaseTarget,
@@ -87,6 +88,10 @@ export interface PreviewTrailInput {
 	previewCaseTarget: PreviewCaseTarget | undefined;
 	/** The case open in the running-app case list's detail/confirm. */
 	previewSelectedCase: PreviewSelectedCase | undefined;
+	/** The screen the preview projection actually admitted. When a condition,
+	 * hidden child, or direct case-dependent leaf falls back to another screen,
+	 * the trail must follow that rendered screen instead of the requested URL. */
+	renderedScreen?: PreviewScreen;
 }
 
 /**
@@ -105,20 +110,32 @@ export function previewBreadcrumbTrail(
 		moduleForms,
 		previewCaseTarget,
 		previewSelectedCase,
+		renderedScreen,
 	} = input;
+
+	if (renderedScreen?.type === "home") {
+		return baseBreadcrumbs.filter((crumb) => crumb.location.kind === "home");
+	}
+	if (renderedScreen?.type === "module") {
+		const targetKey = `m:${renderedScreen.moduleUuid}`;
+		const targetIndex = baseBreadcrumbs.findIndex(
+			(crumb) => crumb.key === targetKey,
+		);
+		if (targetIndex >= 0) return baseBreadcrumbs.slice(0, targetIndex + 1);
+	}
 
 	if (!moduleUuid) return baseBreadcrumbs;
 
 	const homeAndModule = baseBreadcrumbs.filter(
-		(b) => b.location.kind === "home" || b.location.kind === "module",
+		(b) => b.location.kind === "home" || b.key.startsWith("m:"),
 	);
 
 	/* Preview runs the surface a configuration URL's condition governs, so
-	 * the trail is that surface's. A module's condition is decided on the
-	 * home screen, so its trail is just Home; a form's condition reads as
-	 * the form. The "When it appears" crumb belongs to authoring only. */
+	 * the trail is that surface's. A root module's condition is decided on
+	 * Home; a child's is decided on its parent menu; a form's condition reads
+	 * as the form. The "When it appears" crumb belongs to authoring only. */
 	if (loc.kind === "module-condition") {
-		return homeAndModule.filter((crumb) => crumb.location.kind === "home");
+		return homeAndModule.slice(0, -1);
 	}
 	if (
 		loc.kind === "form-condition" ||

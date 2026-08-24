@@ -46,6 +46,23 @@ describe("moduleScreenLanding", () => {
 		});
 	});
 
+	it("keeps parent and already-selected case-first modules on their menus", () => {
+		expect(
+			moduleScreenLanding({
+				...CASE_FIRST,
+				mode: "preview",
+				hasChildren: true,
+			}),
+		).toEqual({ kind: "form-menu" });
+		expect(
+			moduleScreenLanding({
+				...CASE_FIRST,
+				mode: "preview",
+				hasSelectedCase: true,
+			}),
+		).toEqual({ kind: "form-menu" });
+	});
+
 	it("replaces history for a bare case list in either mode", () => {
 		// A formless module's URL must never become a back-button stop.
 		for (const mode of ["edit", "preview"] as const) {

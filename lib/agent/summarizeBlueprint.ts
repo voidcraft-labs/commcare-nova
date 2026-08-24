@@ -10,7 +10,6 @@ import {
 	countFieldsUnder,
 	orderedFieldUuids,
 	orderedFormUuids,
-	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
 import { unwrittenProperties } from "@/lib/doc/unwrittenProperties";
 import type {
@@ -23,9 +22,11 @@ import type {
 } from "@/lib/domain";
 import {
 	assignedLocationUuids,
+	childModuleUuids,
 	fieldCaseWrite,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
+	moduleSiblingUuids,
 	orderedColumns,
 	orderedLocationProperties,
 	orderedOrganizationLevels,
@@ -303,21 +304,36 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 	return `    case_search: ${displaySummary} ${advancedSummary}`;
 }
 
-/** Summarize a module: name, case type, forms. */
-function summarizeModule(doc: BlueprintDoc, moduleUuid: Uuid): string {
+function indentBlock(block: string, indent: string): string {
+	return block
+		.split("\n")
+		.map((line) => `${indent}${line}`)
+		.join("\n");
+}
+
+/** Summarize a module: menu placement, name, case type, forms. */
+function summarizeModule(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	indent = "",
+): string {
 	const mod = doc.modules[moduleUuid];
-	if (!mod) return `- Missing module [uuid ${moduleUuid}]`;
+	if (!mod) return `${indent}- Missing module [uuid ${moduleUuid}]`;
 	const caseInfo = mod.caseType ? ` (case_type: ${mod.caseType})` : "";
 	const listOnly = mod.caseListOnly ? " [case list only]" : "";
-	const header = `- Module "${mod.name}" [uuid ${moduleUuid}]${caseInfo}${listOnly}`;
+	const parentInfo =
+		mod.parentModuleUuid === undefined
+			? " [top-level menu]"
+			: ` [child menu of uuid ${mod.parentModuleUuid}]`;
+	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${listOnly}`;
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
-	if (caseList) sections.push(caseList);
+	if (caseList) sections.push(indentBlock(caseList, indent));
 	const caseSearch = summarizeCaseSearch(mod);
-	if (caseSearch) sections.push(caseSearch);
+	if (caseSearch) sections.push(indentBlock(caseSearch, indent));
 	const formUuids = orderedFormUuids(doc, moduleUuid);
 	const forms = formUuids.map((fUuid) => summarizeForm(doc, fUuid)).join("\n");
-	if (forms) sections.push(forms);
+	if (forms) sections.push(indentBlock(forms, indent));
 	return sections.join("\n");
 }
 
@@ -426,9 +442,13 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 
 	lines.push("");
 	lines.push("**Structure:**");
-	// Display order controls only the line order; every address is a uuid.
-	for (const moduleUuid of orderedModuleUuids(doc)) {
+	// The authored preorder is rendered as the one-tier menu tree. Every
+	// machine address remains a UUID; indentation is presentation only.
+	for (const moduleUuid of moduleSiblingUuids(doc, null)) {
 		lines.push(summarizeModule(doc, moduleUuid));
+		for (const childUuid of childModuleUuids(doc, moduleUuid)) {
+			lines.push(summarizeModule(doc, childUuid, "  "));
+		}
 	}
 
 	// Ambient knowledge, not a finding: properties the app reads but no

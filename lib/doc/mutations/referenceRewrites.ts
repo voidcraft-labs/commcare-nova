@@ -283,6 +283,9 @@ export function rewriteModuleCaseRefs(
 	let astRefsRewritten = 0;
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
+			case "module_parent":
+				// Entity parentage is unaffected by case-property renames.
+				break;
 			case "module_display_condition": {
 				const condition = mod.displayCondition;
 				if (condition !== undefined) {

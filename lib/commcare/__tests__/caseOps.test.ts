@@ -49,6 +49,7 @@ function emit(
 	fields: Parameters<typeof f>[0][] = [
 		f({ uuid: NAME, kind: "text", id: "name", label: proseText("Name") }),
 	],
+	selectedCaseIdRef?: string,
 ): string {
 	const doc = buildDoc({
 		caseTypes: [
@@ -75,6 +76,7 @@ function emit(
 	return buildXForm(doc, formUuid, {
 		xmlns: XMLNS,
 		moduleCaseType: "patient",
+		...(selectedCaseIdRef !== undefined && { selectedCaseIdRef }),
 	});
 }
 
@@ -91,6 +93,29 @@ function createOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 }
 
 describe("case-operation XForm emission", () => {
+	it("anchors session targets and root properties on a renamed child datum", () => {
+		const selected = "instance('commcaresession')/session/data/case_id_child";
+		const xml = emit(
+			[
+				{
+					uuid: UPDATE,
+					id: "update_child",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					writes: [
+						{ property: "nickname", value: term(prop("patient", "source_id")) },
+					],
+				},
+			],
+			undefined,
+			selected,
+		);
+		const decoded = xml.replaceAll("&apos;", "'");
+		expect(decoded).toContain(`calculate="${selected}"`);
+		expect(decoded).toContain(`[@case_id=${selected}]/source_id`);
+	});
+
 	it("pins name/owner normalization and bounds across domain and XPath", () => {
 		const calculation = caseScalarTextValueCalculation("/data/name");
 		expect(calculation).toBe(

@@ -14,10 +14,13 @@ import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageCo
 import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/doc/types";
 import {
+	childModuleUuids,
 	type Form,
 	type FormType,
 	isCaseFirstModule,
 	type Module,
+	moduleIsBareCaseListDestination,
+	moduleSiblingUuids,
 	projectLocalizedForm,
 	projectLocalizedModule,
 	resolveAppLanguage,
@@ -46,6 +49,43 @@ function sameEntitySequence<T>(
  * is unchanged. */
 export function useModuleIds(): Uuid[] {
 	return useBlueprintDocEq((s) => [...s.moduleOrder], sameSequenceByIdentity);
+}
+
+export interface ModuleMenuHierarchy {
+	readonly rootModuleUuids: readonly Uuid[];
+	readonly childModuleUuidsByRoot: Readonly<Record<Uuid, readonly Uuid[]>>;
+}
+
+function sameModuleMenuHierarchy(
+	left: ModuleMenuHierarchy,
+	right: ModuleMenuHierarchy,
+): boolean {
+	if (!sameSequenceByIdentity(left.rootModuleUuids, right.rootModuleUuids)) {
+		return false;
+	}
+	return left.rootModuleUuids.every((rootUuid) =>
+		sameSequenceByIdentity(
+			left.childModuleUuidsByRoot[rootUuid] ?? [],
+			right.childModuleUuidsByRoot[rootUuid] ?? [],
+		),
+	);
+}
+
+/** Root groups and their one allowed child tier, derived from the canonical
+ * domain hierarchy projection and stable across unrelated document edits. */
+export function useModuleMenuHierarchy(): ModuleMenuHierarchy {
+	return useBlueprintDocEq((doc) => {
+		const rootModuleUuids = moduleSiblingUuids(doc, null);
+		return {
+			rootModuleUuids,
+			childModuleUuidsByRoot: Object.fromEntries(
+				rootModuleUuids.map((rootUuid) => [
+					rootUuid,
+					childModuleUuids(doc, rootUuid),
+				]),
+			) as Record<Uuid, readonly Uuid[]>,
+		};
+	}, sameModuleMenuHierarchy);
 }
 
 /** Modules in display sequence. Stable while their selected-language
@@ -119,18 +159,18 @@ export function useIsCaseFirstModule(moduleUuid: Uuid | undefined): boolean {
 
 /**
  * Whether a module is a bare case list — CommCare's "case list menu item": a
- * `caseListOnly` viewer with a case type and no forms. Such a module has no
- * form menu in any mode, so it lands on its case list everywhere (tree row,
- * home tile, breadcrumb, module-URL redirect). `caseListOnly` is the
- * gate-maintained truth — it holds iff the module has a case type and zero
- * forms — so a one-flag read suffices. `undefined` uuid → false. Sibling to
+ * `caseListOnly` viewer with a case type, no forms, and no child menus. Such a
+ * module has no menu screen in any mode, so it lands on its case list
+ * everywhere (tree row, home tile, breadcrumb, module-URL redirect). A
+ * case-list-only module that owns children instead lands on its module screen
+ * so those destinations remain reachable. `undefined` uuid → false. Sibling to
  * `useIsCaseFirstModule`; both answer "does entering this module land on the
  * case list rather than a form menu?" (case-first only in the running app;
  * a bare case list in every mode).
  */
 export function useIsBareCaseListModule(moduleUuid: Uuid | undefined): boolean {
-	return useBlueprintDoc((s) =>
-		moduleUuid ? s.modules[moduleUuid]?.caseListOnly === true : false,
+	return useBlueprintDoc((doc) =>
+		moduleUuid ? moduleIsBareCaseListDestination(doc, moduleUuid) : false,
 	);
 }
 

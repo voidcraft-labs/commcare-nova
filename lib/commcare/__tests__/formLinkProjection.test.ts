@@ -398,6 +398,25 @@ describe("datum matching", () => {
 		});
 	});
 
+	it("skips root-module placeholder datums when choosing an automatic source", () => {
+		const match = matchFrameToSource(target, [
+			{
+				...datum("case_id_new_frog_0", false, "frog", "uuid()"),
+				fromParentModule: true,
+			},
+			datum("case_id_new_frog_1", false, "frog", "uuid()"),
+		]);
+		expect(match.unmatched).toEqual([]);
+		expect(match.matched).toEqual([
+			{ id: "case_id", sourceId: "case_id_new_frog_1" },
+		]);
+		expect(match.children[2]).toEqual({
+			type: "datum",
+			id: "case_id",
+			value: sessionDataRef("case_id_new_frog_1"),
+		});
+	});
+
 	it("reports a selection datum nothing in the source satisfies", () => {
 		// A type-less source datum never matches, and a different type
 		// never matches: Core would open the target with an empty case id.
@@ -738,6 +757,16 @@ describe("totality predicates", () => {
 				],
 			}),
 		).toBe(false);
+		expect(
+			formLinkExpressionProjectable(doc, {
+				parts: [
+					{
+						kind: "user-property-ref",
+						userPropertyUuid: testUuid("missing-user-property"),
+					},
+				],
+			}),
+		).toBe(false);
 	});
 
 	it("formLinksProjectable covers conditions and datum expressions", () => {
@@ -775,5 +804,31 @@ describe("totality predicates", () => {
 		if (nameField === undefined) throw new Error("fixture missing writer");
 		delete (nameField as { caseWrite?: unknown }).caseWrite;
 		expect(formLinkActionsBuildable(broken, REGISTER, links)).toBe(false);
+	});
+
+	it("formLinkActionsBuildable closes over a child module's structural-root forms", () => {
+		const doc = frogDoc();
+		const care = doc.modules[CARE];
+		const visit = doc.forms[VISIT];
+		if (care === undefined || visit === undefined) throw new Error("fixture");
+		care.parentModuleUuid = INTAKE;
+		const links = [
+			{
+				uuid: testUuid("lnk-child-self"),
+				target: { type: "module" as const, moduleUuid: CARE },
+			},
+		];
+		expect(formLinkActionsBuildable(doc, VISIT, links)).toBe(true);
+
+		const broken = structuredClone(doc);
+		const rootNameWriter = Object.values(broken.fields).find(
+			(field) =>
+				field.id === "case_name" &&
+				(broken.fieldOrder[REGISTER] ?? []).includes(field.uuid),
+		);
+		if (rootNameWriter === undefined) throw new Error("fixture missing writer");
+		delete (rootNameWriter as { caseWrite?: unknown }).caseWrite;
+
+		expect(formLinkActionsBuildable(broken, VISIT, links)).toBe(false);
 	});
 });

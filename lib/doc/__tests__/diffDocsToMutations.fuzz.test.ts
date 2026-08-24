@@ -37,7 +37,7 @@
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import {
@@ -50,8 +50,10 @@ import {
 	orderedFormUuids,
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
+import { mutationSequenceAdmissionIssue } from "@/lib/doc/mutationSequenceAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
+import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
@@ -1190,6 +1192,434 @@ describe("diffDocsToMutations — explicit cases", () => {
 		expect(diff.filter((m) => m.kind === "removeModule").length).toBe(1);
 		expect(diff.some((m) => m.kind === "removeForm")).toBe(false);
 		expect(diff.some((m) => m.kind === "removeField")).toBe(false);
+		assertRoundTrip(prev, next);
+	});
+
+	it("evacuates a retained child before removing its parent", () => {
+		const roots = richDoc();
+		const [parentUuid, childUuid] = roots.moduleOrder;
+		const prev = produce(roots, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: childUuid,
+					parentModuleUuid: parentUuid,
+					after: null,
+				},
+			]);
+		});
+		const next = produce(prev, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: childUuid,
+					parentModuleUuid: null,
+					after: parentUuid,
+				},
+				{ kind: "removeModule", uuid: parentUuid },
+			]);
+		});
+		const diff = diffDocsToMutations(prev, next);
+		const evacuation = diff.findIndex(
+			(mutation) =>
+				mutation.kind === "moveModule" && mutation.uuid === childUuid,
+		);
+		const removal = diff.findIndex(
+			(mutation) =>
+				mutation.kind === "removeModule" && mutation.uuid === parentUuid,
+		);
+		expect(evacuation).toBeGreaterThanOrEqual(0);
+		expect(removal).toBeGreaterThan(evacuation);
+		if (evacuation >= 0) {
+			expect(diff[evacuation]).toMatchObject({ parentModuleUuid: null });
+		}
+		assertRoundTrip(prev, next);
+	});
+
+	it("promotes an existing parent before adding its new child", () => {
+		const roots = richDoc();
+		const [firstRoot, promotedParent] = roots.moduleOrder;
+		const prev = produce(roots, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: promotedParent,
+					parentModuleUuid: firstRoot,
+					after: null,
+				},
+			]);
+		});
+		const newborn = testUuid("diff-new-child-of-promoted-parent");
+		const next = produce(prev, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: promotedParent,
+					parentModuleUuid: null,
+					after: firstRoot,
+				},
+				{
+					kind: "addModule",
+					module: {
+						uuid: newborn,
+						id: "newborn",
+						name: "Newborn",
+						parentModuleUuid: promotedParent,
+					},
+					after: null,
+				},
+			]);
+		});
+		const diff = diffDocsToMutations(prev, next);
+		expect(diff.map((mutation) => mutation.kind)).toEqual(
+			expect.arrayContaining(["moveModule", "addModule"]),
+		);
+		expect(
+			diff.findIndex(
+				(mutation) =>
+					mutation.kind === "moveModule" && mutation.uuid === promotedParent,
+			),
+		).toBeLessThan(
+			diff.findIndex(
+				(mutation) =>
+					mutation.kind === "addModule" && mutation.module.uuid === newborn,
+			),
+		);
+		assertRoundTrip(prev, next);
+	});
+
+	it("adds a new root before reparenting an existing module under it", () => {
+		const prev = richDoc();
+		const existing = prev.moduleOrder[0];
+		const newRoot = testUuid("diff-new-root-parent");
+		const next = produce(prev, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "addModule",
+					module: { uuid: newRoot, id: "new_root", name: "New root" },
+					after: null,
+				},
+				{
+					kind: "moveModule",
+					uuid: existing,
+					parentModuleUuid: newRoot,
+					after: null,
+				},
+			]);
+		});
+		const diff = diffDocsToMutations(prev, next);
+		expect(
+			diff.findIndex(
+				(mutation) =>
+					mutation.kind === "addModule" && mutation.module.uuid === newRoot,
+			),
+		).toBeLessThan(
+			diff.findIndex(
+				(mutation) =>
+					mutation.kind === "moveModule" && mutation.uuid === existing,
+			),
+		);
+		assertRoundTrip(prev, next);
+	});
+
+	it("lands a relocating sibling before a move that names it as final anchor", () => {
+		const base = buildDoc({
+			appName: "Relocation dependencies",
+			modules: ["A", "B", "C", "X"].map((name) => ({
+				name,
+				forms: [
+					{
+						name: `${name} form`,
+						type: "survey" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: `${name.toLowerCase()}_question`,
+								label: proseText(`${name} question`),
+							}),
+						],
+					},
+				],
+			})),
+		});
+		const [parentA, siblingB, parentC, movingX] = base.moduleOrder;
+		const prev = produce(base, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: movingX,
+					parentModuleUuid: parentC,
+					after: null,
+				},
+			]);
+		});
+		const next = produce(prev, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: siblingB,
+					parentModuleUuid: parentA,
+					after: null,
+				},
+				{
+					kind: "moveModule",
+					uuid: movingX,
+					parentModuleUuid: parentA,
+					after: siblingB,
+				},
+			]);
+		});
+
+		const diff = diffDocsToMutations(prev, next);
+		const relocations = diff.filter(
+			(mutation): mutation is Extract<Mutation, { kind: "moveModule" }> =>
+				mutation.kind === "moveModule" &&
+				Object.hasOwn(mutation, "parentModuleUuid"),
+		);
+		expect(relocations.map((mutation) => mutation.uuid)).toEqual([
+			siblingB,
+			movingX,
+		]);
+		expect(relocations[1]).toMatchObject({ after: siblingB });
+		expect(mutationSequenceAdmissionIssue(prev, diff)).toBeUndefined();
+		expect(mutationTargetsInvalid(prev, diff)).toBe(false);
+		assertRoundTrip(prev, next);
+	});
+
+	it("evacuates a child before demoting its root when their final anchors cycle", () => {
+		const base = buildDoc({
+			appName: "Root demotion dependencies",
+			modules: ["A", "B", "C"].map((name) => ({
+				name,
+				forms: [
+					{
+						name: `${name} form`,
+						type: "survey" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: `${name.toLowerCase()}_question`,
+								label: proseText(`${name} question`),
+							}),
+						],
+					},
+				],
+			})),
+		});
+		const [demotedRoot, oldChild, newParent] = base.moduleOrder;
+		const prev = produce(base, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: oldChild,
+					parentModuleUuid: demotedRoot,
+					after: null,
+				},
+			]);
+		});
+		const next = produce(prev, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: oldChild,
+					parentModuleUuid: newParent,
+					after: null,
+				},
+				{
+					kind: "moveModule",
+					uuid: demotedRoot,
+					parentModuleUuid: newParent,
+					after: null,
+				},
+			]);
+		});
+
+		const diff = diffDocsToMutations(prev, next);
+		const relocations = diff.filter(
+			(mutation): mutation is Extract<Mutation, { kind: "moveModule" }> =>
+				mutation.kind === "moveModule" &&
+				Object.hasOwn(mutation, "parentModuleUuid"),
+		);
+		expect(relocations).toMatchObject([
+			{ uuid: oldChild, parentModuleUuid: newParent, after: null },
+			{ uuid: demotedRoot, parentModuleUuid: newParent, after: null },
+		]);
+		expect(mutationSequenceAdmissionIssue(prev, diff)).toBeUndefined();
+		expect(mutationTargetsInvalid(prev, diff)).toBe(false);
+		assertRoundTrip(prev, next);
+	});
+
+	it("removes all old children before demoting their surviving root", () => {
+		const base = buildDoc({
+			appName: "Demotion after removals",
+			modules: ["A", "B", "C", "D"].map((name) => ({
+				name,
+				forms: [
+					{
+						name: `${name} form`,
+						type: "survey" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: `${name.toLowerCase()}_question`,
+								label: proseText(`${name} question`),
+							}),
+						],
+					},
+				],
+			})),
+		});
+		const [demotedRoot, childB, childC, newParent] = base.moduleOrder;
+		const prev = produce(base, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: childB,
+					parentModuleUuid: demotedRoot,
+					after: null,
+				},
+				{
+					kind: "moveModule",
+					uuid: childC,
+					parentModuleUuid: demotedRoot,
+					after: childB,
+				},
+			]);
+		});
+		const next = produce(prev, (draft) => {
+			applyMutations(draft, [
+				{ kind: "removeModule", uuid: childB },
+				{ kind: "removeModule", uuid: childC },
+				{
+					kind: "moveModule",
+					uuid: demotedRoot,
+					parentModuleUuid: newParent,
+					after: null,
+				},
+			]);
+		});
+
+		const diff = diffDocsToMutations(prev, next);
+		const demotionAt = diff.findIndex(
+			(mutation) =>
+				mutation.kind === "moveModule" && mutation.uuid === demotedRoot,
+		);
+		for (const childUuid of [childB, childC]) {
+			expect(
+				diff.findIndex(
+					(mutation) =>
+						mutation.kind === "removeModule" && mutation.uuid === childUuid,
+				),
+			).toBeLessThan(demotionAt);
+		}
+		expect(mutationSequenceAdmissionIssue(prev, diff)).toBeUndefined();
+		expect(mutationTargetsInvalid(prev, diff)).toBe(false);
+		assertRoundTrip(prev, next);
+	});
+
+	it("removes and relocates mixed old children before demoting their root", () => {
+		const base = buildDoc({
+			appName: "Mixed demotion dependencies",
+			modules: ["A", "B", "C", "D"].map((name) => ({
+				name,
+				forms: [
+					{
+						name: `${name} form`,
+						type: "survey" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: `${name.toLowerCase()}_question`,
+								label: proseText(`${name} question`),
+							}),
+						],
+					},
+				],
+			})),
+		});
+		const [demotedRoot, removedChild, relocatedChild, newParent] =
+			base.moduleOrder;
+		const prev = produce(base, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: removedChild,
+					parentModuleUuid: demotedRoot,
+					after: null,
+				},
+				{
+					kind: "moveModule",
+					uuid: relocatedChild,
+					parentModuleUuid: demotedRoot,
+					after: removedChild,
+				},
+			]);
+		});
+		const next = produce(prev, (draft) => {
+			applyMutations(draft, [
+				{ kind: "removeModule", uuid: removedChild },
+				{
+					kind: "moveModule",
+					uuid: relocatedChild,
+					parentModuleUuid: newParent,
+					after: null,
+				},
+				{
+					kind: "moveModule",
+					uuid: demotedRoot,
+					parentModuleUuid: newParent,
+					after: relocatedChild,
+				},
+			]);
+		});
+
+		const diff = diffDocsToMutations(prev, next);
+		const removeAt = diff.findIndex(
+			(mutation) =>
+				mutation.kind === "removeModule" && mutation.uuid === removedChild,
+		);
+		const relocateAt = diff.findIndex(
+			(mutation) =>
+				mutation.kind === "moveModule" && mutation.uuid === relocatedChild,
+		);
+		const demotionAt = diff.findIndex(
+			(mutation) =>
+				mutation.kind === "moveModule" && mutation.uuid === demotedRoot,
+		);
+		expect(removeAt).toBeLessThan(demotionAt);
+		expect(relocateAt).toBeLessThan(demotionAt);
+		expect(mutationSequenceAdmissionIssue(prev, diff)).toBeUndefined();
+		expect(mutationTargetsInvalid(prev, diff)).toBe(false);
+		assertRoundTrip(prev, next);
+	});
+
+	it("removes children before their parent", () => {
+		const roots = richDoc();
+		const [parentUuid, childUuid] = roots.moduleOrder;
+		const prev = produce(roots, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "moveModule",
+					uuid: childUuid,
+					parentModuleUuid: parentUuid,
+					after: null,
+				},
+			]);
+		});
+		const next = produce(prev, (draft) => {
+			applyMutations(draft, [
+				{ kind: "removeModule", uuid: childUuid },
+				{ kind: "removeModule", uuid: parentUuid },
+			]);
+		});
+		const removals = diffDocsToMutations(prev, next).filter(
+			(mutation): mutation is Extract<Mutation, { kind: "removeModule" }> =>
+				mutation.kind === "removeModule",
+		);
+		expect(removals.map((mutation) => mutation.uuid)).toEqual([
+			childUuid,
+			parentUuid,
+		]);
 		assertRoundTrip(prev, next);
 	});
 

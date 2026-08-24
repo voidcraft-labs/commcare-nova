@@ -24,9 +24,13 @@ export type ModuleLanding = "case-list" | "form-menu";
 export function moduleLanding(args: {
 	readonly isCaseFirst: boolean;
 	readonly isBareCaseList: boolean;
+	readonly hasChildren?: boolean;
+	readonly hasSelectedCase?: boolean;
 }): ModuleLanding {
 	const landing = moduleScreenLanding({
 		hasModule: true,
+		hasChildren: args.hasChildren,
+		hasSelectedCase: args.hasSelectedCase,
 		isBareCaseList: args.isBareCaseList,
 		isCaseFirst: args.isCaseFirst,
 		mode: "preview",

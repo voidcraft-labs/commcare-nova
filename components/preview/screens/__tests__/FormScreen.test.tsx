@@ -44,7 +44,10 @@ import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { plainColumn } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
-import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
+import type {
+	CaseRowWithCalculated,
+	SubmissionResult,
+} from "@/lib/preview/engine/caseDataBindingTypes";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import type { Location } from "@/lib/routing/types";
@@ -53,6 +56,7 @@ import {
 	type BuilderSessionStoreApi,
 	useBuilderSessionApi,
 } from "@/lib/session/provider";
+import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 
 // ── Mocks ────────────────────────────────────────────────────────
 
@@ -97,6 +101,22 @@ const REQUIRED_SIGNATURE_UUID = testUuid(
 );
 const PERSONA_UUID = testUuid("00000000-0000-0000-0000-000000000d01");
 const PERSONA_REGION_UUID = testUuid("00000000-0000-0000-0000-000000000d02");
+const MENU_CASE_PARENT_MODULE_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000d03",
+);
+const MENU_CASE_PARENT_FORM_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000d04",
+);
+const NESTED_TARGET_MODULE_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000d05",
+);
+const NESTED_TARGET_FORM_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000d06",
+);
+const NESTED_CHILD_FIELD_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000d07",
+);
+const NESTED_LINK_UUID = testUuid("00000000-0000-0000-0000-000000000d08");
 
 /* The currentLocation is mutated per-test (one shared `Location`
  *  carrier the `useLocation` mock reads from) so each test can pin
@@ -122,6 +142,7 @@ const navigateMock = {
 	up: vi.fn(),
 };
 const setPreviewCaseTargetMock = vi.fn();
+const setPreviewMenuCaseSelectionMock = vi.fn();
 const setPreviewSelectedCaseMock = vi.fn();
 
 /* Mutable carrier the `useAppId` mock reads from. Most tests run
@@ -130,6 +151,9 @@ const setPreviewSelectedCaseMock = vi.fn();
  *  default so test ordering doesn't matter. */
 let currentAppId: string | undefined = APP_ID;
 let currentAuthUser: { id: string; name: string; email: string } | null = null;
+let previewMenuCaseSelectionsMock: Readonly<
+	Record<string, PreviewMenuCaseSelection>
+> = {};
 let capturedSession: BuilderSessionStoreApi | undefined;
 let capturedController: EngineController | undefined;
 let updateCapturedPersonaValue:
@@ -182,7 +206,9 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "preview" as const,
 		usePreviewing: () => true,
 		useBuilderIsReady: () => true,
+		usePreviewMenuCaseSelections: () => previewMenuCaseSelectionsMock,
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
+		useSetPreviewMenuCaseSelection: () => setPreviewMenuCaseSelectionMock,
 		useSetPreviewSelectedCase: () => setPreviewSelectedCaseMock,
 	};
 });
@@ -230,6 +256,27 @@ import { FormScreen } from "../FormScreen";
 const CASE_TYPE = "patient";
 const FOLLOWUP_CASE_ID = "11111111-1111-1111-1111-111111111111";
 
+function formCaseRow(
+	caseId: string,
+	parentCaseId: string | null = null,
+): CaseRowWithCalculated {
+	return {
+		case_id: caseId,
+		case_type: CASE_TYPE,
+		case_name: `Case ${caseId}`,
+		app_id: APP_ID,
+		owner_id: "owner-test",
+		status: "open",
+		opened_on: null,
+		modified_on: null,
+		closed_on: null,
+		external_id: null,
+		parent_case_id: parentCaseId,
+		properties: {},
+		calculated: {},
+	};
+}
+
 const onBackMock = vi.fn();
 
 function deferred<T>() {
@@ -266,6 +313,8 @@ function renderFormScreen(opts: {
 	formUuid: typeof REG_FORM_UUID;
 	caseId?: string;
 	selectedUuid?: Uuid;
+	menuCaseRelationship?: "same-type" | "different-type";
+	nestedAfterSubmit?: "automatic" | "manual";
 }) {
 	currentLocation = {
 		kind: "form",
@@ -299,8 +348,23 @@ function renderFormScreen(opts: {
 				caseTypes: [
 					{
 						name: CASE_TYPE,
+						...(opts.menuCaseRelationship === "different-type"
+							? { parent_type: "household" }
+							: {}),
 						properties: [],
 					},
+					...(opts.menuCaseRelationship === "different-type"
+						? [{ name: "household", properties: [] }]
+						: []),
+					...(opts.nestedAfterSubmit !== undefined
+						? [
+								{
+									name: "encounter",
+									parent_type: CASE_TYPE,
+									properties: [],
+								},
+							]
+						: []),
 				],
 				modules: {
 					[MODULE_UUID]: {
@@ -308,6 +372,9 @@ function renderFormScreen(opts: {
 						id: "patient_module",
 						name: "Patients",
 						caseType: CASE_TYPE,
+						...(opts.menuCaseRelationship === "same-type"
+							? { parentModuleUuid: MENU_CASE_PARENT_MODULE_UUID }
+							: {}),
 						caseListConfig: {
 							columns: [
 								plainColumn(CASE_NAME_COLUMN_UUID, "case_name", "Case name"),
@@ -317,6 +384,30 @@ function renderFormScreen(opts: {
 							searchInputs: [],
 						},
 					},
+					...(opts.menuCaseRelationship !== undefined
+						? {
+								[MENU_CASE_PARENT_MODULE_UUID]: {
+									uuid: MENU_CASE_PARENT_MODULE_UUID,
+									id: "menu_case_parent",
+									name: "Parent cases",
+									caseType:
+										opts.menuCaseRelationship === "same-type"
+											? CASE_TYPE
+											: "household",
+								},
+							}
+						: {}),
+					...(opts.nestedAfterSubmit !== undefined
+						? {
+								[NESTED_TARGET_MODULE_UUID]: {
+									uuid: NESTED_TARGET_MODULE_UUID,
+									id: "encounter_module",
+									name: "Encounters",
+									caseType: "encounter",
+									parentModuleUuid: MODULE_UUID,
+								},
+							}
+						: {}),
 				},
 				forms: {
 					[REG_FORM_UUID]: {
@@ -324,6 +415,20 @@ function renderFormScreen(opts: {
 						id: "registration_form",
 						name: "Registration",
 						type: "registration",
+						...(opts.nestedAfterSubmit === "automatic"
+							? {
+									formLinks: [
+										{
+											uuid: NESTED_LINK_UUID,
+											target: {
+												type: "form" as const,
+												moduleUuid: NESTED_TARGET_MODULE_UUID,
+												formUuid: NESTED_TARGET_FORM_UUID,
+											},
+										},
+									],
+								}
+							: {}),
 					},
 					[FOLLOWUP_FORM_UUID]: {
 						uuid: FOLLOWUP_FORM_UUID,
@@ -342,6 +447,24 @@ function renderFormScreen(opts: {
 						id: "survey_form",
 						name: "Survey",
 						type: "survey",
+						...(opts.nestedAfterSubmit === "manual"
+							? {
+									formLinks: [
+										{
+											uuid: NESTED_LINK_UUID,
+											target: {
+												type: "form" as const,
+												moduleUuid: NESTED_TARGET_MODULE_UUID,
+												formUuid: NESTED_TARGET_FORM_UUID,
+											},
+											datums: [
+												{ name: "parent_id", xpath: xp("'manual-patient'") },
+												{ name: "case_id", xpath: xp("''") },
+											],
+										},
+									],
+								}
+							: {}),
 					},
 					[REQUIRED_FORM_UUID]: {
 						uuid: REQUIRED_FORM_UUID,
@@ -365,6 +488,26 @@ function renderFormScreen(opts: {
 						name: "Required captures",
 						type: "survey",
 					},
+					...(opts.menuCaseRelationship !== undefined
+						? {
+								[MENU_CASE_PARENT_FORM_UUID]: {
+									uuid: MENU_CASE_PARENT_FORM_UUID,
+									id: "parent_followup",
+									name: "Parent follow-up",
+									type: "followup" as const,
+								},
+							}
+						: {}),
+					...(opts.nestedAfterSubmit !== undefined
+						? {
+								[NESTED_TARGET_FORM_UUID]: {
+									uuid: NESTED_TARGET_FORM_UUID,
+									id: "encounter_followup",
+									name: "Encounter follow-up",
+									type: "followup" as const,
+								},
+							}
+						: {}),
 				},
 				/* `FIELD_UUID`: non-required text bound to the standard
 				 *  `case_name` scalar. `FIELD_REQUIRED_UUID`: same shape with
@@ -387,6 +530,21 @@ function renderFormScreen(opts: {
 						caseWrite: { caseType: CASE_TYPE, property: "case_name" },
 						required: xp("true()"),
 					},
+					...(opts.nestedAfterSubmit === "automatic"
+						? {
+								[NESTED_CHILD_FIELD_UUID]: {
+									uuid: NESTED_CHILD_FIELD_UUID,
+									id: "encounter_name",
+									kind: "text" as const,
+									label: proseText("Encounter name"),
+									caseWrite: {
+										caseType: "encounter",
+										property: "case_name",
+									},
+									default_value: xp("'Created encounter'"),
+								},
+							}
+						: {}),
 					[FOLLOWUP_FIELD_UUID]: {
 						uuid: FOLLOWUP_FIELD_UUID,
 						id: "followup_note",
@@ -466,8 +624,19 @@ function renderFormScreen(opts: {
 						required: xp("true()"),
 					},
 				},
-				moduleOrder: [MODULE_UUID],
+				moduleOrder: [
+					...(opts.menuCaseRelationship !== undefined
+						? [MENU_CASE_PARENT_MODULE_UUID]
+						: []),
+					MODULE_UUID,
+					...(opts.nestedAfterSubmit !== undefined
+						? [NESTED_TARGET_MODULE_UUID]
+						: []),
+				],
 				formOrder: {
+					...(opts.menuCaseRelationship !== undefined
+						? { [MENU_CASE_PARENT_MODULE_UUID]: [MENU_CASE_PARENT_FORM_UUID] }
+						: {}),
 					[MODULE_UUID]: [
 						REG_FORM_UUID,
 						FOLLOWUP_FORM_UUID,
@@ -477,9 +646,20 @@ function renderFormScreen(opts: {
 						STRUCTURE_FORM_UUID,
 						CAPTURE_REQUIRED_FORM_UUID,
 					],
+					...(opts.nestedAfterSubmit !== undefined
+						? { [NESTED_TARGET_MODULE_UUID]: [NESTED_TARGET_FORM_UUID] }
+						: {}),
 				},
 				fieldOrder: {
-					[REG_FORM_UUID]: [FIELD_UUID],
+					...(opts.menuCaseRelationship !== undefined
+						? { [MENU_CASE_PARENT_FORM_UUID]: [] }
+						: {}),
+					[REG_FORM_UUID]: [
+						FIELD_UUID,
+						...(opts.nestedAfterSubmit === "automatic"
+							? [NESTED_CHILD_FIELD_UUID]
+							: []),
+					],
 					[FOLLOWUP_FORM_UUID]: [FOLLOWUP_FIELD_UUID],
 					[CLOSE_FORM_UUID]: [CLOSE_FIELD_UUID],
 					[SURVEY_FORM_UUID]: [SURVEY_FIELD_UUID],
@@ -492,6 +672,9 @@ function renderFormScreen(opts: {
 					[GROUP_ONE_UUID]: [GROUP_ONE_PHOTO_UUID],
 					[GROUP_TWO_UUID]: [GROUP_TWO_PHOTO_UUID, GROUP_TWO_SIGNATURE_UUID],
 					[REPEAT_UUID]: [REPEAT_PHOTO_UUID],
+					...(opts.nestedAfterSubmit !== undefined
+						? { [NESTED_TARGET_FORM_UUID]: [] }
+						: {}),
 				},
 			}}
 		>
@@ -510,8 +693,8 @@ function renderFormScreen(opts: {
 						<FormScreen
 							screen={{
 								type: "form",
-								moduleIndex: 0,
-								formIndex: 0,
+								moduleUuid: MODULE_UUID,
+								formUuid: opts.formUuid,
 								caseId: opts.caseId,
 							}}
 							onBack={onBackMock}
@@ -617,8 +800,10 @@ beforeEach(async () => {
 	onBackMock.mockClear();
 	navigateMock.goHome.mockClear();
 	navigateMock.openModule.mockClear();
+	navigateMock.openForm.mockClear();
 	navigateMock.replace.mockClear();
 	setPreviewCaseTargetMock.mockClear();
+	setPreviewMenuCaseSelectionMock.mockClear();
 	setPreviewSelectedCaseMock.mockClear();
 	/* Reset the appId carrier so the `!appId` guard test's per-run
 	 *  override doesn't leak into sibling tests. */
@@ -628,6 +813,7 @@ beforeEach(async () => {
 		name: "Form Screen Tester",
 		email: "member@example.com",
 	};
+	previewMenuCaseSelectionsMock = {};
 	capturedSession = undefined;
 	capturedController = undefined;
 	updateCapturedPersonaValue = undefined;
@@ -874,6 +1060,147 @@ describe("FormScreen — survey submit", () => {
 		/* Survey's default post-submit destination is `app_home`. */
 		await waitFor(() => {
 			expect(navigateMock.goHome).toHaveBeenCalledTimes(1);
+		});
+	});
+});
+
+describe("FormScreen — nested after-submit case session", () => {
+	it("applies automatically matched created parent and child cases before opening the target form", async () => {
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "registration",
+			caseId: "new-patient",
+			childCaseIds: ["new-encounter"],
+		});
+		vi.mocked(loadCaseDataAction)
+			.mockResolvedValueOnce({
+				kind: "row",
+				row: {
+					...formCaseRow("new-patient"),
+					case_name: "Created patient",
+				},
+				ancestors: [],
+			})
+			.mockResolvedValueOnce({
+				kind: "row",
+				row: {
+					...formCaseRow("new-encounter", "new-patient"),
+					case_type: "encounter",
+					case_name: "Created encounter",
+					properties: { outcome: "complete" },
+				},
+				ancestors: [
+					{
+						...formCaseRow("new-patient"),
+						case_name: "Created patient",
+					},
+				],
+			});
+		renderFormScreen({
+			formUuid: REG_FORM_UUID,
+			nestedAfterSubmit: "automatic",
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() =>
+			expect(navigateMock.openForm).toHaveBeenCalledWith(
+				NESTED_TARGET_MODULE_UUID,
+				NESTED_TARGET_FORM_UUID,
+			),
+		);
+		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
+			MODULE_UUID,
+			expect.objectContaining({
+				caseType: CASE_TYPE,
+				caseId: "new-patient",
+				caseName: "Created patient",
+				caseProperties: expect.objectContaining({
+					case_id: "new-patient",
+					case_name: "Created patient",
+				}),
+			}),
+		);
+		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
+			NESTED_TARGET_MODULE_UUID,
+			expect.objectContaining({
+				caseType: "encounter",
+				caseId: "new-encounter",
+				caseName: "Created encounter",
+				caseProperties: expect.objectContaining({
+					case_id: "new-encounter",
+					case_name: "Created encounter",
+					outcome: "complete",
+				}),
+			}),
+		);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: NESTED_TARGET_FORM_UUID,
+			caseId: "new-encounter",
+			caseName: "Created encounter",
+		});
+		const lastSelectionOrder = Math.max(
+			...setPreviewMenuCaseSelectionMock.mock.invocationCallOrder,
+		);
+		expect(lastSelectionOrder).toBeLessThan(
+			navigateMock.openForm.mock.invocationCallOrder[0] ?? 0,
+		);
+	});
+
+	it("applies a manual parent datum, installs a blank child datum, and keeps the form's blank target", async () => {
+		previewMenuCaseSelectionsMock = {
+			[NESTED_TARGET_MODULE_UUID]: {
+				caseType: "encounter",
+				caseId: "stale-encounter",
+				caseName: "Stale encounter",
+			},
+		};
+		vi.mocked(submitFormAction).mockResolvedValue({ kind: "survey" });
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: {
+				...formCaseRow("manual-patient"),
+				case_name: "Manual patient",
+				properties: { risk: "high" },
+			},
+			ancestors: [],
+		});
+		renderFormScreen({
+			formUuid: SURVEY_FORM_UUID,
+			nestedAfterSubmit: "manual",
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() =>
+			expect(navigateMock.openForm).toHaveBeenCalledWith(
+				NESTED_TARGET_MODULE_UUID,
+				NESTED_TARGET_FORM_UUID,
+			),
+		);
+		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
+			MODULE_UUID,
+			expect.objectContaining({
+				caseType: CASE_TYPE,
+				caseId: "manual-patient",
+				caseName: "Manual patient",
+				caseProperties: expect.objectContaining({
+					case_id: "manual-patient",
+					case_name: "Manual patient",
+					risk: "high",
+				}),
+			}),
+		);
+		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
+			NESTED_TARGET_MODULE_UUID,
+			{
+				caseType: "encounter",
+				caseId: "",
+				caseName: "Case",
+			},
+		);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: NESTED_TARGET_FORM_UUID,
+			caseId: "",
 		});
 	});
 });
@@ -1961,6 +2288,84 @@ describe("FormScreen — catch arm hides developer-jargon detail", () => {
 // ── Case-loading form empty state ──────────────────────────────
 
 describe("FormScreen — case-loading form previewed directly (no nav caseId)", () => {
+	it("binds the exact same-type case inherited from its parent menu", async () => {
+		const selectedCaseId = "selected-patient";
+		previewMenuCaseSelectionsMock = {
+			[MENU_CASE_PARENT_MODULE_UUID]: {
+				caseType: CASE_TYPE,
+				caseId: selectedCaseId,
+				caseName: "Selected patient",
+			},
+		};
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: formCaseRow(selectedCaseId),
+			ancestors: [],
+		});
+
+		renderFormScreen({
+			formUuid: CLOSE_FORM_UUID,
+			menuCaseRelationship: "same-type",
+		});
+
+		expect(
+			await screen.findByRole("button", { name: /^submit$/i }),
+		).toBeDefined();
+		expect(vi.mocked(loadCaseDataAction).mock.calls[0]?.slice(0, 3)).toEqual([
+			APP_ID,
+			CASE_TYPE,
+			selectedCaseId,
+		]);
+		expect(vi.mocked(loadCasesAction)).not.toHaveBeenCalled();
+	});
+
+	it("constrains a different-type child lookup to the independently selected case parent", async () => {
+		const parentCaseId = "selected-household";
+		const childCaseId = "selected-household-patient";
+		previewMenuCaseSelectionsMock = {
+			[MENU_CASE_PARENT_MODULE_UUID]: {
+				caseType: "household",
+				caseId: parentCaseId,
+				caseName: "Selected household",
+			},
+		};
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "authored-rules",
+			kind: "rows",
+			rows: [formCaseRow(childCaseId, parentCaseId)],
+		});
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: formCaseRow(childCaseId, parentCaseId),
+			ancestors: [],
+		});
+
+		renderFormScreen({
+			formUuid: CLOSE_FORM_UUID,
+			menuCaseRelationship: "different-type",
+		});
+
+		expect(
+			await screen.findByRole("button", { name: /^submit$/i }),
+		).toBeDefined();
+		expect(vi.mocked(loadCasesAction)).toHaveBeenCalledWith(
+			expect.objectContaining({
+				caseType: CASE_TYPE,
+				parentCase: expect.objectContaining({
+					caseType: "household",
+					caseId: parentCaseId,
+				}),
+			}),
+		);
+		await waitFor(() =>
+			expect(vi.mocked(loadCaseDataAction).mock.calls[0]?.slice(0, 3)).toEqual([
+				APP_ID,
+				CASE_TYPE,
+				childCaseId,
+			]),
+		);
+	});
+
 	it("auto-selects the first available case and renders the form — never blocks", async () => {
 		/* Close is a case-loading form. Previewed directly with no bound
 		 *  case, it must auto-bind the FIRST available case (so the form is

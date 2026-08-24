@@ -294,6 +294,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 	// type and must read sensibly for a delete (not just "add a form").
 	NO_FORMS_OR_CASE_LIST: (e) =>
 		`${q(modName(e))} needs at least one form. Add a form, or, if you're removing its last one, delete the whole module instead.`,
+	NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM: (e) =>
+		`${q(modName(e))} uses a different case type from its parent, and that parent only shows Results. Add a form to the parent, use the same case type, or make this module top-level.`,
 	INVALID_CASE_TYPE_FORMAT: (e) =>
 		`${q(modName(e))}'s case type ${q(det(e, "caseType", ""))} isn't a valid name. Start it with a letter and stick to letters, numbers, underscores, and hyphens.`,
 	CASE_TYPE_TOO_LONG: (e) =>

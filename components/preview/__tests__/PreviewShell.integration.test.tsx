@@ -29,6 +29,7 @@ import type { Location } from "@/lib/routing/types";
 
 const MODULE_UUID = testUuid("mod-1");
 const setPreviewingMock = vi.fn();
+const setPreviewParentCaseRequestMock = vi.fn();
 
 // Mutable location state so the test can flip between module and
 // cases URLs without remounting the provider. `useLocation` is
@@ -85,7 +86,10 @@ vi.mock("@/lib/session/hooks", async () => {
 		useBuilderIsReady: () => true,
 		useSetPreviewing: () => setPreviewingMock,
 		usePreviewCaseTarget: () => undefined,
+		usePreviewMenuCaseSelections: () => ({}),
+		usePreviewParentCaseRequest: () => undefined,
 		useSetPreviewCaseTarget: () => vi.fn(),
+		useSetPreviewParentCaseRequest: () => setPreviewParentCaseRequestMock,
 		useSetPreviewPersonaUuid: () => vi.fn(),
 	};
 });

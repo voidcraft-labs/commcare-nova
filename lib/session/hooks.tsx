@@ -50,6 +50,8 @@ import type {
 	GenerationError,
 	GenerationStage,
 	PreviewCaseTarget,
+	PreviewMenuCaseSelection,
+	PreviewParentCaseRequest,
 	PreviewSelectedCase,
 	StagedUpload,
 } from "./types";
@@ -94,6 +96,43 @@ export function useSetPreviewSelectedCase(): (
 	selected: PreviewSelectedCase | undefined,
 ) => void {
 	return useBuilderSession((s) => s.setPreviewSelectedCase);
+}
+
+/** A module menu's directly selected case, if it has one. */
+export function usePreviewMenuCaseSelection(
+	moduleUuid: string | undefined,
+): PreviewMenuCaseSelection | undefined {
+	return useBuilderSession((s) =>
+		moduleUuid ? s.previewMenuCaseSelections[moduleUuid] : undefined,
+	);
+}
+
+/** All module-menu case selections. Used by the pure hierarchy projection
+ * that resolves same-type inheritance and different-type parent filters. */
+export function usePreviewMenuCaseSelections(): Readonly<
+	Record<string, PreviewMenuCaseSelection>
+> {
+	return useBuilderSession((s) => s.previewMenuCaseSelections);
+}
+
+/** Set or clear the selected case owned by one module menu. */
+export function useSetPreviewMenuCaseSelection(): (
+	moduleUuid: string,
+	selected: PreviewMenuCaseSelection | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewMenuCaseSelection);
+}
+
+export function usePreviewParentCaseRequest():
+	| PreviewParentCaseRequest
+	| undefined {
+	return useBuilderSession((s) => s.previewParentCaseRequest);
+}
+
+export function useSetPreviewParentCaseRequest(): (
+	request: PreviewParentCaseRequest | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewParentCaseRequest);
 }
 
 /** Which persona Preview runs as, by uuid. `undefined` = the signed-in

@@ -31,6 +31,19 @@ what each editor may offer.
 
 All entity UUIDs are globally unique in the doc store, so a single UUID segment identifies the entity type by a lookup in the doc's module / form / field maps. Case-operation selection is also URL-owned: the form UUID fixes the operation list and the optional operation UUID fixes the opened detail canvas, so refresh, back/forward, and multiplayer presence retain the same authored change. After-submit links (`form-links`) carry their selected link the same way, and `recoverLocation` drops a link a peer removed while keeping the list open.
 
+Menu nesting is topology, not URL state. A child module, its case list, and its
+forms keep the same identity-only paths when that module is reordered or moved
+between root menus. Breadcrumbs derive the current parent menu from the doc and
+show it as a separate ancestor; they never treat the parent's case list as part
+of the child's case-loading trail. Presence therefore continues to follow the
+exact selected module, form, or field UUID rather than a positional menu path.
+
+`LocationRecoveryEffect` also retains the last valid module topology. If a
+remote edit deletes the module named by the unchanged current URL, recovery
+opens its former parent (the parent's case list when it is bare) or Home when no
+parent remains. Intentional navigation is not recovered through stale topology,
+and reparenting a live module leaves its URL and selection untouched.
+
 `{caseId}` is the one non-UUID segment: case ids are opaque text (`/`, `%`, `:`, spaces are legal), so `serializePath` percent-encodes the segment and `parsePathToLocation` decodes it — keep the pair symmetric. An undecodable segment (a raw `%` from a hand-typed URL) is taken verbatim and at worst reads as a missing case.
 
 The authoring URLs deliberately use the same nouns as the workspace tabs:
@@ -55,6 +68,6 @@ shared field link and back/forward history must reopen in the same locale.
 
 `useBreadcrumbs` derives the edit-mode trail from the URL + doc names. In preview the trail follows the RUNNING APP instead (a Results URL is a case-loading form's selection step, so its crumb names that FORM, not "Results"), and that rewrite lives in the pure `previewBreadcrumbs.ts` — kept pure + unit-tested precisely because the breadcrumb and the preview engine both read the same ephemeral `previewCaseTarget` and once drifted.
 
-For a `caseListOnly` module (a bare case list with no forms) the module IS its Results screen, so its trail collapses: the module crumb points at `{kind:"cases"}` and the redundant trailing "Results" crumb is dropped. The same identity drives `recoverLocation` (`location.ts`): a Search / Results / Details location whose module has no case type (e.g. the type was cleared, which also drops the `caseListOnly` flag) degrades to `{kind:"module"}` rather than stranding the user on a blank workspace.
+For a `caseListOnly` module that has neither forms nor child menus, the module IS its Results screen, so its trail collapses: the module crumb points at `{kind:"cases"}` and the redundant trailing "Results" crumb is dropped. A `caseListOnly` module with children instead points at `{kind:"module"}` so its menu remains reachable, with Results as a separate destination. The same identity drives `recoverLocation` (`location.ts`): a Search / Results / Details location whose module has no case type (e.g. the type was cleared, which also drops the `caseListOnly` flag) degrades to `{kind:"module"}` rather than stranding the user on a blank workspace.
 
 **`previewCaseTargetBindsLocation(loc, target)` is the one predicate both consumers gate on** — `PreviewShell` grafts the bound `caseId` onto the form with it, the breadcrumb names the bound case with it. Anything that reads `previewCaseTarget` to decide "is this form's case the active one?" MUST go through it, or the loaded case and the displayed case can drift again (the original bug: a follow-up's case named on a register form that never loaded it). A case-loading form's crumb carries `reselectCaseFor`, so clicking it re-opens the case list rather than re-navigating to the form you're already on.

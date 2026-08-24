@@ -582,6 +582,12 @@ export const FORM_REFERENCE_SLOTS = [
 export const MODULE_REFERENCE_SLOTS = [
 	{
 		entity: "module",
+		slot: "module_parent",
+		path: "parentModuleUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
 		slot: "module_display_condition",
 		path: "displayCondition",
 		kind: "predicate-ast",

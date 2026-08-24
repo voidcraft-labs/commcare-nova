@@ -2,6 +2,10 @@
  * exact realized form fields in a private build candidate. */
 
 import type { BlueprintDoc } from "@/lib/domain";
+import {
+	type ModuleHandleBinding,
+	realizedModuleUuid,
+} from "./acceptedModulePlacement";
 import type { SliceExecutionBrief } from "./executionBrief";
 
 export interface AcceptedInputRequirementIssue {
@@ -48,26 +52,20 @@ function formFieldUuids(doc: BlueprintDoc, formUuid: string): string[] {
 export function acceptedInputRequirementIssues(
 	doc: BlueprintDoc,
 	brief: SliceExecutionBrief,
+	handles: readonly ModuleHandleBinding[],
 ): AcceptedInputRequirementIssue[] {
 	const issues: AcceptedInputRequirementIssue[] = [];
 	const inputsByHandle = new Map(
 		brief.workflow.inputs.map((input) => [input.handle, input]),
 	);
 	for (const realization of brief.formRealizations) {
-		const moduleComposition = brief.moduleCompositions.find(
-			(composition) => composition.id === realization.moduleCompositionId,
+		const moduleUuid = realizedModuleUuid(
+			doc,
+			brief,
+			realization.moduleCompositionId,
+			handles,
 		);
-		const host = brief.moduleRealizations.find(
-			(module) => module.compositionId === realization.moduleCompositionId,
-		)?.hostRecord;
-		if (moduleComposition === undefined) continue;
-		const moduleUuids = doc.moduleOrder.filter((moduleUuid) => {
-			const module = doc.modules[moduleUuid];
-			return (
-				module?.name === moduleComposition.name &&
-				(module.caseType ?? null) === (host?.blueprintCaseType ?? null)
-			);
-		});
+		const moduleUuids = moduleUuid === null ? [] : [moduleUuid];
 		const formUuids = moduleUuids.flatMap((moduleUuid) =>
 			(doc.formOrder[moduleUuid] ?? []).filter((formUuid) => {
 				const form = doc.forms[formUuid];

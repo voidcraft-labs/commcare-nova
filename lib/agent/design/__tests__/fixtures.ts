@@ -59,6 +59,7 @@ export const ids = {
 	accessSupervisor: did(100),
 	navMain: did(110),
 	modulePatients: did(170),
+	moduleVisits: did(180),
 	formRegister: did(171),
 	formVisit: did(172),
 	sectionRegisterIdentity: did(173),
@@ -457,6 +458,40 @@ export function parseContract(contract: AppDesignContract): AppDesignContract {
 
 export function cloneContract(contract: AppDesignContract): AppDesignContract {
 	return structuredClone(contract);
+}
+
+/** One-tier menu fixture: the registration/list home is built first and a
+ * later workflow owns a child menu containing its follow-up form. */
+export function makeNestedMenuContract(): AppDesignContract {
+	const contract = cloneContract(makeContract());
+	const parent = fixtureValue(
+		contract.moduleCompositions[0],
+		"patient module composition",
+	);
+	contract.moduleCompositions.push({
+		id: ids.moduleVisits,
+		name: "Patient visits",
+		purpose: "Keep follow-up actions together inside the patient menu.",
+		parentModuleCompositionId: parent.id,
+		role: "form-host",
+		workflowIds: [ids.taskVisit],
+		hostRecordId: ids.recPatient,
+		actorIds: [ids.actorChw],
+		navigationIds: [],
+		listIds: [],
+		orderRationale: "Registration and selection precede follow-up work.",
+		icon: { kind: "builtin", slug: "default" },
+		roleSeparationRationale:
+			"The child menu groups the follow-up form without duplicating the patient queue.",
+	});
+	const visitForm = fixtureValue(
+		contract.formCompositions.find(
+			(composition) => composition.id === ids.formVisit,
+		),
+		"visit form composition",
+	);
+	visitForm.moduleCompositionId = ids.moduleVisits;
+	return appDesignContractSchema.parse(contract);
 }
 
 /** Large deterministic fixture: thirteen included workflows, each with

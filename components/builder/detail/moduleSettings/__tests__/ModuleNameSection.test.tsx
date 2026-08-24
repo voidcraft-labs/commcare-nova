@@ -5,6 +5,7 @@ import { ModuleNameSection } from "@/components/builder/detail/moduleSettings/Mo
 import type { Uuid } from "@/lib/doc/types";
 
 const state = vi.hoisted(() => ({
+	isBareCaseList: true,
 	module: {
 		uuid: "module-1" as Uuid,
 		name: "Patients",
@@ -17,6 +18,10 @@ vi.mock("@/lib/doc/hooks/useEntity", () => ({
 	useModule: () => state.module,
 }));
 
+vi.mock("@/lib/doc/hooks/useModuleIds", () => ({
+	useIsBareCaseListModule: () => state.isBareCaseList,
+}));
+
 vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 	useBlueprintMutations: () => ({
 		inline: { updateModule: state.updateModule },
@@ -26,6 +31,7 @@ vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 afterEach(() => {
 	cleanup();
 	state.updateModule.mockClear();
+	state.isBareCaseList = true;
 	state.module.caseListOnly = true;
 });
 
@@ -48,7 +54,15 @@ describe("ModuleNameSection", () => {
 	});
 
 	it("does not duplicate the name setting for a module with its own screen", () => {
-		state.module.caseListOnly = false;
+		state.isBareCaseList = false;
+		render(<ModuleNameSection moduleUuid={state.module.uuid} />);
+
+		expect(screen.queryByRole("textbox", { name: "Module name" })).toBeNull();
+	});
+
+	it("treats a case-list-only parent with children as a module screen", () => {
+		state.module.caseListOnly = true;
+		state.isBareCaseList = false;
 		render(<ModuleNameSection moduleUuid={state.module.uuid} />);
 
 		expect(screen.queryByRole("textbox", { name: "Module name" })).toBeNull();

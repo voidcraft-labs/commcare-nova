@@ -461,6 +461,98 @@ describe("mutation sequence admission", () => {
 		expect(mutationTargetsInvalid(fx.doc, mutations)).toBe(false);
 	});
 
+	it("interprets module anchors within the selected sibling group", () => {
+		const fx = fixture();
+		fx.doc.modules[fx.moduleTwo].parentModuleUuid = fx.moduleOne;
+
+		const historicalMove: Mutation = {
+			kind: "moveModule",
+			uuid: fx.moduleTwo,
+			after: null,
+		};
+		expect(
+			mutationSequenceAdmissionIssue(fx.doc, [historicalMove]),
+		).toBeUndefined();
+		expect(mutationTargetsInvalid(fx.doc, [historicalMove])).toBe(false);
+
+		const crossGroupAnchor: Mutation = {
+			kind: "moveModule",
+			uuid: fx.moduleTwo,
+			after: fx.moduleOne,
+		};
+		expect(
+			mutationSequenceAdmissionIssue(fx.doc, [crossGroupAnchor]),
+		).toMatchObject({ anchor: fx.moduleOne });
+	});
+
+	it("refuses nested parents and parent removal races in batch order", () => {
+		const fx = fixture();
+		fx.doc.modules[fx.moduleTwo].parentModuleUuid = fx.moduleOne;
+		const grandchild = testUuid("nested-grandchild-module");
+		const newborn = testUuid("racing-newborn-child-module");
+
+		expect(
+			mutationTargetsInvalid(fx.doc, [
+				{
+					kind: "addModule",
+					module: {
+						uuid: grandchild,
+						id: "grandchild",
+						name: "Grandchild",
+						parentModuleUuid: fx.moduleTwo,
+					},
+				},
+			]),
+		).toBe(true);
+		expect(
+			mutationTargetsInvalid(fx.doc, [
+				{ kind: "removeModule", uuid: fx.moduleOne },
+			]),
+		).toBe(true);
+		expect(
+			mutationTargetsInvalid(fx.doc, [
+				{ kind: "removeModule", uuid: fx.moduleTwo },
+				{
+					kind: "addModule",
+					module: {
+						uuid: newborn,
+						id: "newborn",
+						name: "Newborn",
+						parentModuleUuid: fx.moduleOne,
+					},
+				},
+				{ kind: "removeModule", uuid: fx.moduleOne },
+			]),
+		).toBe(true);
+		expect(
+			mutationTargetsInvalid(fx.doc, [
+				{ kind: "removeModule", uuid: fx.moduleTwo },
+				{
+					kind: "addModule",
+					module: {
+						uuid: newborn,
+						id: "newborn",
+						name: "Newborn",
+						parentModuleUuid: fx.moduleOne,
+					},
+				},
+				{ kind: "removeModule", uuid: newborn },
+				{ kind: "removeModule", uuid: fx.moduleOne },
+			]),
+		).toBe(false);
+		expect(
+			mutationTargetsInvalid(fx.doc, [
+				{
+					kind: "moveModule",
+					uuid: fx.moduleTwo,
+					parentModuleUuid: null,
+					after: fx.moduleOne,
+				},
+				{ kind: "removeModule", uuid: fx.moduleOne },
+			]),
+		).toBe(false);
+	});
+
 	it("keeps operation birth as the one explicit append-only sequence arm", () => {
 		const fx = fixture();
 		const operation = caseOperationSchema.parse({

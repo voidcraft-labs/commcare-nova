@@ -272,6 +272,18 @@ describe("renderSourcePackage containment", () => {
 		);
 	});
 
+	it("teaches and reviews one-tier menu composition", () => {
+		expect(DESIGN_AGENT_SYSTEM).toContain("optional parent menu");
+		expect(DESIGN_AGENT_SYSTEM).toContain("one submenu tier");
+		expect(DESIGN_AGENT_SYSTEM).toContain("linked or shadow form reuse");
+		expect(DESIGN_REVIEWER_SYSTEM).toContain(
+			"each child has a top-level parent",
+		);
+		expect(DESIGN_REVIEWER_SYSTEM).toContain(
+			"menu ancestry is never mistaken for record parentage",
+		);
+	});
+
 	it("teaches native selected-record editing without forcing sparse replacement", () => {
 		const constraints = renderPlatformConstraintsSection();
 		for (const text of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {

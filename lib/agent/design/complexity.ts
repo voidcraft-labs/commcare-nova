@@ -28,7 +28,7 @@ export interface DesignComplexityEvidence {
 	score: number;
 	components: Record<string, number | boolean>;
 	depth: DesignDepth;
-	algorithmVersion: 1;
+	algorithmVersion: 1 | 2;
 }
 
 /**
@@ -68,6 +68,9 @@ export function computeDesignComplexity(
 	const sensitivePropertyCount = contract.records
 		.flatMap((record) => record.properties)
 		.filter((property) => property.sensitivity !== "ordinary").length;
+	const nestedMenuCount = contract.moduleCompositions.filter(
+		(composition) => composition.parentModuleCompositionId !== undefined,
+	).length;
 
 	const components: Record<string, number | boolean> = {
 		recordCount,
@@ -81,6 +84,7 @@ export function computeDesignComplexity(
 		hasLocationScope,
 		externalReferenceCount,
 		sensitivePropertyCount,
+		nestedMenuCount,
 	};
 
 	let score = 0;
@@ -97,8 +101,9 @@ export function computeDesignComplexity(
 	if (hasLocationScope) score += 1;
 	if (externalReferenceCount > 0) score += 1;
 	if (sensitivePropertyCount > 0) score += 1;
+	if (nestedMenuCount > 0) score += 1;
 
 	const depth: DesignDepth =
 		score <= 2 ? "compact" : score <= 6 ? "standard" : "extended";
-	return { score, components, depth, algorithmVersion: 1 };
+	return { score, components, depth, algorithmVersion: 2 };
 }

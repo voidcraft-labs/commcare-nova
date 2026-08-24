@@ -234,6 +234,15 @@ describe("userFacingError — delete-aware phrasing", () => {
 		expect(line).toMatch(/removing its last one/i);
 	});
 
+	it("offers every valid repair for a cross-type submenu under bare Results", () => {
+		const line = userFacingError(
+			richFinding("NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM"),
+		);
+		expect(line).toMatch(/add a form to the parent/i);
+		expect(line).toMatch(/use the same case type/i);
+		expect(line).toMatch(/make this module top-level/i);
+	});
+
 	it("MISSING_CASE_LIST_COLUMNS explains how to replace the last result", () => {
 		const line = userFacingError(richFinding("MISSING_CASE_LIST_COLUMNS"));
 		expect(line).toMatch(/needs at least one result field/i);

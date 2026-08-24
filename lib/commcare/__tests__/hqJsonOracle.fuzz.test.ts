@@ -84,6 +84,13 @@ function prepareAndGuard(doc: BlueprintDoc): void {
 	}
 }
 
+function nestSecondModuleWhenAvailable(doc: BlueprintDoc): boolean {
+	const [root, child] = doc.moduleOrder;
+	if (root === undefined || child === undefined) return false;
+	doc.modules[child].parentModuleUuid = root;
+	return true;
+}
+
 /**
  * Whether any module's expanded forms carry an active (non-`never`) case action.
  * An active action is what makes the condition / update_mode checks meaningful —
@@ -130,6 +137,7 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 		// logo_refs shape checks; floored below so a generator drift can't
 		// silently skip them.
 		mediaBearing: 0,
+		nestedMenu: 0,
 	};
 
 	it("every schema-valid doc expands to an oracle-clean HqApplication", {
@@ -137,6 +145,7 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 	}, () => {
 		fc.assert(
 			fc.property(suiteDocArbitrary, (doc) => {
+				if (nestSecondModuleWhenAvailable(doc)) census.nestedMenu += 1;
 				prepareAndGuard(doc);
 
 				// Census the doc shape before emitting.
@@ -180,6 +189,7 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 		// Multi-module exercises the per-module doc_type + detail-display checks
 		// across more than the trivial one-module shape.
 		expect(census.multiModule / census.total).toBeGreaterThan(0.25);
+		expect(census.nestedMenu / census.total).toBeGreaterThan(0.25);
 		// Active case actions drive the condition + update_mode enum checks; child
 		// cases drive the subcase-relationship check. Both must be common.
 		expect(census.activeCaseAction / census.total).toBeGreaterThan(0.6);

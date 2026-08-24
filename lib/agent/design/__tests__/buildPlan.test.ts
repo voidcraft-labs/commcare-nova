@@ -8,9 +8,11 @@ import {
 import {
 	cloneContract,
 	did,
+	fixtureValue,
 	ids,
 	makeBuildPlan,
 	makeContract,
+	makeNestedMenuContract,
 	makeThirteenWorkflowContract,
 } from "./fixtures";
 
@@ -31,6 +33,163 @@ describe("deterministic build planning", () => {
 		]);
 		expect(plan.slices[0]?.role).toBe("materialization-root");
 		expect(plan.slices[1]?.prerequisiteSliceIds).toEqual([plan.slices[0]?.id]);
+	});
+
+	it("adds the parent owner as the child module owner's prerequisite", () => {
+		const contract = makeNestedMenuContract();
+		const childWorkflow = fixtureValue(
+			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
+			"child workflow",
+		);
+		childWorkflow.prerequisiteWorkflowIds = [];
+		childWorkflow.prerequisites = [];
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const parentSlice = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === ids.taskRegister),
+			"parent owner slice",
+		);
+		const childSlice = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === ids.taskVisit),
+			"child owner slice",
+		);
+		expect(parentSlice.role).toBe("materialization-root");
+		expect(parentSlice.prerequisiteSliceIds).toEqual([]);
+		expect(childSlice.prerequisiteSliceIds).toContain(parentSlice.id);
+		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
+	});
+
+	it("adds a different-record parent's first form owner as a prerequisite", () => {
+		const contract = cloneContract(makeThirteenWorkflowContract());
+		for (const workflow of contract.workflows) {
+			workflow.prerequisiteWorkflowIds = [];
+			workflow.prerequisites = [];
+		}
+		const parent = fixtureValue(
+			contract.moduleCompositions[0],
+			"parent module",
+		);
+		const displaced = fixtureValue(
+			contract.moduleCompositions[1],
+			"displaced root module",
+		);
+		const child = fixtureValue(contract.moduleCompositions[2], "child module");
+		const parentOwner = fixtureValue(contract.workflows[0], "parent owner");
+		const parentFormOwner = fixtureValue(
+			contract.workflows[1],
+			"parent form owner",
+		);
+		const childOwner = fixtureValue(contract.workflows[2], "child owner");
+		const parentOwnerForm = fixtureValue(
+			contract.formCompositions[0],
+			"parent owner form",
+		);
+		const parentForm = fixtureValue(
+			contract.formCompositions[1],
+			"later parent form",
+		);
+		parent.workflowIds = [parentOwner.id, parentFormOwner.id];
+		parentForm.moduleCompositionId = parent.id;
+		parentOwnerForm.moduleCompositionId = displaced.id;
+		displaced.workflowIds = [parentOwner.id, parentFormOwner.id];
+		child.parentModuleCompositionId = parent.id;
+		contract.moduleCompositions.splice(0, 3, parent, child, displaced);
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const childSlice = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === childOwner.id),
+			"child slice",
+		);
+		const prerequisites = childSlice.prerequisiteSliceIds.map(
+			(id) => plan.slices.find((slice) => slice.id === id)?.workflowId,
+		);
+		expect(prerequisites).toEqual(
+			expect.arrayContaining([parentOwner.id, parentFormOwner.id]),
+		);
+	});
+
+	it("schedules a child viewer before a parent-menu form creates its cases", () => {
+		const contract = cloneContract(makeThirteenWorkflowContract());
+		for (const workflow of contract.workflows) {
+			workflow.prerequisiteWorkflowIds = [];
+			workflow.prerequisites = [];
+		}
+		const parent = fixtureValue(
+			contract.moduleCompositions[0],
+			"parent module",
+		);
+		const child = fixtureValue(contract.moduleCompositions[1], "child module");
+		const parentOwner = fixtureValue(contract.workflows[0], "parent owner");
+		const childOwner = fixtureValue(contract.workflows[1], "child owner");
+		const writer = fixtureValue(contract.workflows[2], "parent form writer");
+		const writerForm = fixtureValue(
+			contract.formCompositions[2],
+			"parent form writer composition",
+		);
+		const childRecord = fixtureValue(
+			contract.records.find((record) => record.id === child.hostRecordId),
+			"child record",
+		);
+		const childProperty = fixtureValue(
+			childRecord.properties[0],
+			"child property",
+		);
+		const writerEffect = fixtureValue(
+			writer.recordEffects[0],
+			"writer create effect",
+		);
+		const writerWrite = fixtureValue(writerEffect.writes[0], "writer value");
+		parent.workflowIds = [parentOwner.id, writer.id];
+		child.parentModuleCompositionId = parent.id;
+		writerForm.moduleCompositionId = parent.id;
+		writerEffect.recordId = fixtureValue(
+			child.hostRecordId,
+			"child host record",
+		);
+		writerWrite.propertyId = childProperty.id;
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const writerSlice = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === writer.id),
+			"writer slice",
+		);
+		const prerequisites = writerSlice.prerequisiteSliceIds.map(
+			(id) => plan.slices.find((slice) => slice.id === id)?.workflowId,
+		);
+		expect(prerequisites).toContain(childOwner.id);
+	});
+
+	it("adds the exact preceding sibling owner as a placement prerequisite", () => {
+		const contract = makeThirteenWorkflowContract();
+		for (const workflow of contract.workflows) {
+			workflow.prerequisiteWorkflowIds = [];
+			workflow.prerequisites = [];
+		}
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const first = fixtureValue(plan.slices[0], "first module owner slice");
+		const second = fixtureValue(plan.slices[1], "second module owner slice");
+		const third = fixtureValue(plan.slices[2], "third module owner slice");
+
+		expect(first.role).toBe("materialization-root");
+		expect(first.prerequisiteSliceIds).toEqual([]);
+		expect(second.prerequisiteSliceIds).toEqual([first.id]);
+		expect(third.prerequisiteSliceIds).toEqual([second.id]);
+		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
 	});
 
 	it("is stable for the same accepted revision", () => {
@@ -243,7 +402,7 @@ describe("deterministic build planning", () => {
 			(id) => id !== workflow.id,
 		);
 		const standaloneModuleId = did(880);
-		contract.moduleCompositions.push({
+		contract.moduleCompositions.unshift({
 			id: standaloneModuleId,
 			name: "Consent registration",
 			purpose: "Host conditional registration without selected record context.",

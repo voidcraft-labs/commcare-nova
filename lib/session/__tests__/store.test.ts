@@ -231,7 +231,60 @@ describe("BuilderSession store", () => {
 		expect(store.getState()).toBe(prev);
 	});
 
-	it("setPreviewing clears the case target AND selected case on both transitions", () => {
+	it("keeps module-menu case selections separate and uuid-keyed", () => {
+		const store = createBuilderSessionStore();
+		const moduleUuid = testUuid("module-1");
+		const selected = {
+			caseType: "household",
+			caseId: "case-1",
+			caseName: "Ana's household",
+		};
+
+		store.getState().setPreviewMenuCaseSelection(moduleUuid, selected);
+		expect(store.getState().previewMenuCaseSelections[moduleUuid]).toEqual(
+			selected,
+		);
+		expect(store.getState().previewCaseTarget).toBeUndefined();
+
+		const prev = store.getState();
+		store.getState().setPreviewMenuCaseSelection(moduleUuid, { ...selected });
+		expect(store.getState()).toBe(prev);
+
+		store.getState().setPreviewMenuCaseSelection(moduleUuid, undefined);
+		expect(store.getState().previewMenuCaseSelections).toEqual({});
+	});
+
+	it("tracks a case-parent selection return independently of menu selections", () => {
+		const store = createBuilderSessionStore();
+		const request = {
+			selectingModuleUuid: testUuid("case-parent-module"),
+			returnModuleUuids: [testUuid("nested-child-module")],
+			resumeLocation: {
+				kind: "form" as const,
+				moduleUuid: testUuid("nested-child-module"),
+				formUuid: testUuid("requested-form"),
+			},
+			cancelLocation: { kind: "home" as const },
+		};
+		store.getState().setPreviewParentCaseRequest(request);
+		expect(store.getState().previewParentCaseRequest).toEqual(request);
+		expect(store.getState().previewMenuCaseSelections).toEqual({});
+
+		const prev = store.getState();
+		store.getState().setPreviewParentCaseRequest({ ...request });
+		expect(store.getState()).toBe(prev);
+
+		store.getState().setPreviewParentCaseRequest({
+			...request,
+			resumeLocation: {
+				...request.resumeLocation,
+				selectedUuid: testUuid("requested-field"),
+			},
+		});
+		expect(store.getState()).not.toBe(prev);
+	});
+
+	it("setPreviewing clears all case state on both transitions", () => {
 		const store = createBuilderSessionStore();
 		const formUuid = testUuid("form-1");
 
@@ -242,9 +295,15 @@ describe("BuilderSession store", () => {
 		store
 			.getState()
 			.setPreviewSelectedCase({ caseId: "case-1", caseName: "Ana" });
+		store.getState().setPreviewMenuCaseSelection(testUuid("module-1"), {
+			caseType: "household",
+			caseId: "case-1",
+			caseName: "Ana",
+		});
 		store.getState().setPreviewing(true);
 		expect(store.getState().previewCaseTarget).toBeUndefined();
 		expect(store.getState().previewSelectedCase).toBeUndefined();
+		expect(store.getState().previewMenuCaseSelections).toEqual({});
 
 		/* Leaving preview clears the in-session selection — it's running-app
 		 * state with no meaning outside preview. */

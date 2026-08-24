@@ -35,6 +35,7 @@ import {
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
+import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	type PreviewBreadcrumbItem,
@@ -105,6 +106,7 @@ export function BreadcrumbStrip() {
 	 * setup's section strip): on handsets the breadcrumb drops the
 	 * redundant leaf and collapses its ancestors into one path menu. */
 	const previewing = usePreviewing();
+	const renderedPreviewScreen = usePreviewScreenForLocation(loc);
 	const compactWorkspaceBreadcrumb =
 		handsetLayout &&
 		!previewing &&
@@ -158,6 +160,7 @@ export function BreadcrumbStrip() {
 			moduleForms,
 			previewCaseTarget,
 			previewSelectedCase,
+			renderedScreen: renderedPreviewScreen,
 		});
 	}, [
 		previewing,
@@ -167,6 +170,7 @@ export function BreadcrumbStrip() {
 		moduleForms,
 		previewCaseTarget,
 		previewSelectedCase,
+		renderedPreviewScreen,
 	]);
 
 	/* Breadcrumb click handlers, memoized on navigation structure so

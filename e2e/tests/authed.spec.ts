@@ -3337,6 +3337,23 @@ test.describe("authenticated builder", () => {
 			});
 			await expect(archivedModule).toBeVisible();
 			await archivedModule.click();
+			// Archived referrals are child cases of Patients. Opening that module
+			// therefore runs the existing parent-first selector before showing its
+			// direct children. Pick the patient this submission linked, then continue
+			// into the originally requested Results screen.
+			await expect(
+				page.getByRole("heading", {
+					name: CASE_CHANGES_SEED.moduleName,
+					level: 1,
+				}),
+			).toBeVisible();
+			await page
+				.getByRole("button", { name: /^View details for Smoke patient/ })
+				.click();
+			await expect(
+				page.getByRole("heading", { name: "Smoke patient", level: 1 }),
+			).toBeVisible();
+			await page.getByRole("button", { name: "Continue", exact: true }).click();
 			await expect(
 				page.getByRole("heading", {
 					name: CASE_CHANGES_SEED.archivedModuleName,

@@ -34,13 +34,18 @@ export type ModuleScreenLanding =
  */
 export function moduleScreenLanding(args: {
 	readonly hasModule: boolean;
+	readonly hasChildren?: boolean;
+	readonly hasSelectedCase?: boolean;
 	readonly isBareCaseList: boolean;
 	readonly isCaseFirst: boolean;
 	readonly mode: "edit" | "preview";
 }): ModuleScreenLanding {
 	if (!args.hasModule) return { kind: "form-menu" };
+	/* A parent module is a real menu even when its own case workflow would
+	 * normally hoist selection. It must remain available to show child tiles. */
+	if (args.hasChildren) return { kind: "form-menu" };
 	if (args.isBareCaseList) return { kind: "replace-with-case-list" };
-	if (args.mode !== "edit" && args.isCaseFirst)
+	if (args.mode !== "edit" && args.isCaseFirst && !args.hasSelectedCase)
 		return { kind: "open-case-list" };
 	return { kind: "form-menu" };
 }

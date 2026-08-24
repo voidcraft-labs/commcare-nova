@@ -27,6 +27,7 @@ import {
 	evaluateLinkDatum,
 	type FormLinkEvaluationInput,
 	formLinkEvalContext,
+	projectTargetCaseSelections,
 	sourceSessionDatums,
 } from "../formLinkEvaluation";
 import type { PreviewSearchSessionValues } from "../identity";
@@ -198,6 +199,16 @@ function inputFor(
 	};
 }
 
+function nestedPatientDoc(): ReturnType<typeof buildDoc> {
+	const doc = buildDoc(spec());
+	doc.modules[PATIENTS].parentModuleUuid = HOUSEHOLDS;
+	// HQ aligns a child entry against the root module's first form. Put a
+	// case-loading form first so the patient's ordinary `case_id` collides
+	// with the root selection and becomes `case_id_patient`.
+	doc.formOrder[HOUSEHOLDS] = [UPDATE, REGISTER, CLOSE];
+	return doc;
+}
+
 function linksOf(doc: ReturnType<typeof buildDoc>, formUuid: string) {
 	const links = doc.forms[testUuid(formUuid)]?.formLinks;
 	if (links === undefined) throw new Error(`${formUuid} has no links`);
@@ -329,6 +340,18 @@ describe("formLinkEvalContext", () => {
 });
 
 describe("sourceSessionDatums", () => {
+	it("values a child menu's renamed own-case datum", () => {
+		const doc = nestedPatientDoc();
+		const datums = sourceSessionDatums(doc, VISIT, {
+			caseId: "p1",
+			caseName: "Ada",
+			childCases: [],
+		});
+		expect([...datums]).toEqual([
+			["case_id_patient", { value: "p1", caseName: "Ada" }],
+		]);
+	});
+
 	it("values a follow-up's case_id with the case it loaded", () => {
 		const doc = buildDoc(spec());
 		const datums = sourceSessionDatums(doc, UPDATE, {
@@ -379,6 +402,73 @@ describe("sourceSessionDatums", () => {
 });
 
 describe("carriedCaseFor", () => {
+	it("carries the selected ancestor from a child source into an ancestor form", () => {
+		const doc = nestedPatientDoc();
+		const sessionDatums = sourceSessionDatums(
+			doc,
+			VISIT,
+			{
+				caseId: "p1",
+				caseName: "Ada",
+				childCases: [],
+			},
+			new Map([
+				[
+					HOUSEHOLDS,
+					{
+						caseType: "household",
+						value: "h1",
+						caseName: "Smith household",
+					},
+				],
+			]),
+		);
+		expect([...sessionDatums]).toEqual([
+			["case_id", { value: "h1", caseName: "Smith household" }],
+			["case_id_patient", { value: "p1", caseName: "Ada" }],
+		]);
+		const ancestorTarget: FormLink = {
+			uuid: testUuid("nested-ancestor-link"),
+			target: { type: "form", moduleUuid: HOUSEHOLDS, formUuid: UPDATE },
+		};
+		expect(
+			carriedCaseFor(inputFor(doc, { sessionDatums }), VISIT, ancestorTarget),
+		).toEqual({
+			kind: "carried",
+			caseId: "h1",
+			caseName: "Smith household",
+		});
+	});
+
+	it("carries a nested target through its renamed selected-case datum", () => {
+		const doc = nestedPatientDoc();
+		const sessionDatums = sourceSessionDatums(doc, VISIT, {
+			caseId: "p1",
+			caseName: "Ada",
+			childCases: [],
+		});
+		const automatic: FormLink = {
+			uuid: testUuid("nested-auto-link"),
+			target: { type: "form", moduleUuid: PATIENTS, formUuid: VISIT },
+		};
+		const input = inputFor(doc, { sessionDatums });
+		expect(carriedCaseFor(input, VISIT, automatic)).toEqual({
+			kind: "carried",
+			caseId: "p1",
+			caseName: "Ada",
+		});
+
+		const manual: FormLink = {
+			...automatic,
+			uuid: testUuid("nested-manual-link"),
+			datums: [{ name: "case_id_patient", xpath: xp("'p-manual'") }],
+		};
+		expect(carriedCaseFor(input, VISIT, manual)).toEqual({
+			kind: "carried",
+			caseId: "p-manual",
+		});
+	});
+
 	it("carries nothing into a module target", () => {
 		const doc = buildDoc(spec());
 		expect(
@@ -495,5 +585,90 @@ describe("carriedCaseFor", () => {
 				input,
 			),
 		).toBe("p1");
+	});
+});
+
+describe("projectTargetCaseSelections", () => {
+	it("projects the ancestor selection carried by a nested module target", () => {
+		const doc = nestedPatientDoc();
+		/* A module target carries the structural parent's common selection
+		 * prefix. Keep only the two household case-loading entries so that
+		 * `case_id` is common, while the survey remains the link source. */
+		doc.formOrder[HOUSEHOLDS] = [UPDATE, CLOSE];
+		const link: FormLink = {
+			uuid: testUuid("nested-module-manual-link"),
+			target: { type: "module", moduleUuid: PATIENTS },
+			datums: [{ name: "case_id", xpath: xp("'h-manual'") }],
+		};
+
+		expect(projectTargetCaseSelections(inputFor(doc), FEEDBACK, link)).toEqual([
+			{
+				datumId: "case_id",
+				moduleUuid: HOUSEHOLDS,
+				caseType: "household",
+				caseId: "h-manual",
+			},
+		]);
+	});
+
+	it("maps every automatic nested target selection to its owning module", () => {
+		const doc = nestedPatientDoc();
+		const submission = {
+			caseId: "h9",
+			caseName: "Smiths",
+			childCases: [{ caseType: "patient", caseId: "p1", caseName: "Pat" }],
+		};
+		const input = inputFor(doc, {
+			sessionDatums: sourceSessionDatums(doc, REGISTER, submission),
+		});
+		const link: FormLink = {
+			uuid: testUuid("nested-created-cases-link"),
+			target: { type: "form", moduleUuid: PATIENTS, formUuid: VISIT },
+		};
+
+		expect(projectTargetCaseSelections(input, REGISTER, link)).toEqual([
+			{
+				datumId: "case_id",
+				moduleUuid: HOUSEHOLDS,
+				caseType: "household",
+				caseId: "h9",
+				caseName: "Smiths",
+			},
+			{
+				datumId: "case_id_patient",
+				moduleUuid: PATIENTS,
+				caseType: "patient",
+				caseId: "p1",
+				caseName: "Pat",
+			},
+		]);
+	});
+
+	it("maps every manual nested target datum, including its parent", () => {
+		const doc = nestedPatientDoc();
+		const input = inputFor(doc);
+		const link: FormLink = {
+			uuid: testUuid("nested-manual-cases-link"),
+			target: { type: "form", moduleUuid: PATIENTS, formUuid: VISIT },
+			datums: [
+				{ name: "case_id", xpath: xp("'h-manual'") },
+				{ name: "case_id_patient", xpath: xp("'p-manual'") },
+			],
+		};
+
+		expect(projectTargetCaseSelections(input, FEEDBACK, link)).toEqual([
+			{
+				datumId: "case_id",
+				moduleUuid: HOUSEHOLDS,
+				caseType: "household",
+				caseId: "h-manual",
+			},
+			{
+				datumId: "case_id_patient",
+				moduleUuid: PATIENTS,
+				caseType: "patient",
+				caseId: "p-manual",
+			},
+		]);
 	});
 });

@@ -15,6 +15,8 @@ import {
 	fixtureValue,
 	ids,
 	makeContract,
+	makeNestedMenuContract,
+	makeThirteenWorkflowContract,
 } from "./fixtures";
 
 function messages(value: unknown): string {
@@ -73,6 +75,156 @@ describe("lean Design Contract graph", () => {
 	it("accepts and round-trips a task-complete contract", () => {
 		const contract = makeContract();
 		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
+	});
+
+	it("accepts one-tier parent-first module composition", () => {
+		const contract = makeNestedMenuContract();
+		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
+		expect(constructionMessages(contract)).toBe("");
+	});
+
+	it("rejects a materialization-root module placed after a later-owned sibling", () => {
+		const contract = cloneContract(makeThirteenWorkflowContract());
+		const first = fixtureValue(contract.moduleCompositions[0], "first module");
+		const second = fixtureValue(
+			contract.moduleCompositions[1],
+			"second module",
+		);
+		contract.moduleCompositions.splice(0, 2, second, first);
+
+		expect(messages(contract)).toContain(
+			"construction owner must be the same as or later than its preceding sibling's owner",
+		);
+	});
+
+	it("rejects a child menu that is ordered before its parent", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		contract.moduleCompositions.reverse();
+		expect(messages(contract)).toContain(
+			"A parent module composition must appear before its child",
+		);
+	});
+
+	it("rejects a second submenu tier", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		const child = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		contract.moduleCompositions.push({
+			...structuredClone(child),
+			id: did(881),
+			name: "Deep follow-up",
+			parentModuleCompositionId: child.id,
+		});
+		expect(messages(contract)).toContain("Nova supports one submenu tier");
+	});
+
+	it("rejects a different-record child beneath a queue-only parent", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		const parent = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.modulePatients,
+			),
+			"parent module composition",
+		);
+		const child = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		parent.role = "queue-only";
+		child.hostRecordId = ids.recVisit;
+
+		expect(messages(contract)).toContain(
+			"A child menu beneath a queue-only parent must host the same record",
+		);
+	});
+
+	it("requires every module owner to own the module's initial surface", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		const parent = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.modulePatients,
+			),
+			"parent module composition",
+		);
+		const child = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		parent.listIds = [];
+		child.workflowIds = [ids.taskRegister];
+		for (const form of contract.formCompositions) {
+			form.moduleCompositionId =
+				form.workflowId === ids.taskRegister ? child.id : parent.id;
+		}
+		expect(messages(contract)).toContain(
+			"construction owner must also own its initial form or case-list surface",
+		);
+	});
+
+	it("rejects a different-record child built before the parent's first form", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		const parent = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.modulePatients,
+			),
+			"parent module composition",
+		);
+		const child = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		child.workflowIds = [ids.taskRegister];
+		child.hostRecordId = ids.recVisit;
+		for (const form of contract.formCompositions) {
+			form.moduleCompositionId =
+				form.workflowId === ids.taskRegister ? child.id : parent.id;
+		}
+
+		expect(messages(contract)).toContain(
+			"must be owned by the same workflow as or a later workflow than the parent menu's first form",
+		);
+	});
+
+	it("rejects a child viewer built after a parent-menu form creates its cases", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		const child = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		child.hostRecordId = ids.recVisit;
+		const parentWriter = fixtureValue(
+			contract.workflows.find((workflow) => workflow.id === ids.taskRegister),
+			"parent writer workflow",
+		);
+		const visitCreate = fixtureValue(
+			contract.workflows
+				.find((workflow) => workflow.id === ids.taskVisit)
+				?.recordEffects.find(
+					(effect) =>
+						effect.kind === "create" && effect.recordId === ids.recVisit,
+				),
+			"visit create effect",
+		);
+		parentWriter.recordEffects.push({
+			...structuredClone(visitCreate),
+			handle: "create_visit_from_registration",
+		});
+
+		expect(messages(contract)).toContain(
+			"must be owned by the same workflow as or an earlier workflow than the first such form",
+		);
 	});
 
 	it("keeps manual localization open to every individual living language", () => {
@@ -356,7 +508,7 @@ describe("lean Design Contract graph", () => {
 			"shared module composition",
 		);
 		sharedModule.workflowIds = [ids.taskVisit];
-		contract.moduleCompositions.push({
+		contract.moduleCompositions.unshift({
 			id: did(780),
 			name: "Standalone survey",
 			purpose: "Host the form-only survey without a record context.",

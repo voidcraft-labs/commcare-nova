@@ -190,6 +190,51 @@ describe("useBreadcrumbs", () => {
 		]);
 	});
 
+	it("uses a case-list-only parent with children as the child form's menu crumb", () => {
+		const nestedDoc = buildDoc({
+			appId: "nested",
+			appName: "Nested",
+			modules: [
+				{
+					uuid: "parent-menu",
+					name: "Care",
+					caseType: "client",
+					caseListOnly: true,
+				},
+				{
+					uuid: "child-menu",
+					name: "Visits",
+					forms: [{ uuid: "child-form", name: "Follow up", type: "survey" }],
+				},
+			],
+		});
+		const parentUuid = nestedDoc.moduleOrder[0];
+		const childUuid = nestedDoc.moduleOrder[1];
+		const childFormUuid = nestedDoc.formOrder[childUuid][0];
+		nestedDoc.modules[childUuid].parentModuleUuid = parentUuid;
+		const nestedStore = createBlueprintDocStore();
+		nestedStore.getState().load(nestedDoc);
+		mockSegments.current = [childFormUuid];
+
+		const { result } = renderHook(() => useBreadcrumbs(), {
+			wrapper: ({ children }: { children: ReactNode }) => (
+				<BlueprintDocContext.Provider value={nestedStore}>
+					{children}
+				</BlueprintDocContext.Provider>
+			),
+		});
+		expect(result.current.map((crumb) => crumb.label)).toEqual([
+			"Home",
+			"Care",
+			"Visits",
+			"Follow up",
+		]);
+		expect(result.current[1]?.location).toEqual({
+			kind: "module",
+			moduleUuid: parentUuid,
+		});
+	});
+
 	it("at a form's after-submit links, shows [Home, Module, Form, After submit]", () => {
 		mockSegments.current = [formUuid, "links"];
 		const { result } = renderHook(() => useBreadcrumbs(), {

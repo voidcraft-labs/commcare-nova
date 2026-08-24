@@ -523,6 +523,7 @@ export const moduleCompositionSchema = z
 		id: designIdSchema,
 		name: z.string().min(1).max(160),
 		purpose: z.string().min(1).max(1_000),
+		parentModuleCompositionId: designIdSchema.optional(),
 		role: z.enum(["form-host", "queue-only", "form-and-queue"]),
 		workflowIds: z.array(designIdSchema).min(1).max(32),
 		hostRecordId: designIdSchema.optional(),

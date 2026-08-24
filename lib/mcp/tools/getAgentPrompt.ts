@@ -33,10 +33,12 @@
  * the model handles reliably. `autonomous_edit` is intentionally not
  * representable — no skill needs it.
  *
- * **Plain text, not JSON.** The handler emits the rendered system
- * prompt as a plain MCP `text` content block. The plugin's bootstrap
- * subagent reads that text verbatim as its operating instructions — no
- * JSON wrapper, no parse step on the hot path.
+ * **Plain text when it fits; lossless pages when it does not.** A prompt inside
+ * the transport budget remains one plain MCP `text` content block. One larger than the
+ * conservative model-facing single-result budget is returned as a
+ * snapshot-bound JSON page; callers follow `next_cursor`, concatenate
+ * `prompt_chunk`, verify the advertised length/digest, then check the terminal
+ * marker. No authored guidance or app-summary prose is trimmed.
  *
  * **No event-log write.** The bootstrap fetch is a pure read; event-log
  * rows for the run are written by the mutating tool calls that follow.
@@ -51,12 +53,13 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
+import { deliverAgentPrompt } from "../promptDelivery";
 import { type PromptMode, renderAgentPrompt } from "../prompts";
 import { LARGE_RESULT_META } from "../resultSize";
 import type { ToolContext } from "../types";
 
 /**
- * Register the two-argument `get_agent_prompt` tool on an `McpServer`.
+ * Register the mode/app/cursor `get_agent_prompt` tool on an `McpServer`.
  *
  * Inputs:
  *   - `mode` is the single decision discriminator. It picks the prompt
@@ -70,6 +73,9 @@ import type { ToolContext } from "../types";
  *     `mode` is the authoritative discriminator). The conditional is a
  *     cross-field rule the wire schema doesn't express, so the handler
  *     enforces it via a typed `McpInvalidInputError` throw at the top.
+ *   - `cursor` is absent on the first call and repeats the opaque
+ *     `next_cursor` from an oversized response. Every page re-renders (and in
+ *     edit mode reloads) the prompt; its digest refuses mixed snapshots.
  *
  * `ctx.userId` rides every error envelope so cross-tenant audit logging
  * (in `toMcpErrorResult`'s `McpAccessError` branch) stays uniform across
@@ -84,7 +90,7 @@ export function registerGetAgentPrompt(
 		"get_agent_prompt",
 		{
 			description:
-				"Return the current nova-architect operating instructions for the given mode. The plugin's bootstrap subagent / skills call this as their first tool use and follow the returned text as their full system prompt for the rest of the run. Edit mode requires `app_id` so the inlined blueprint summary mirrors the web flow's edit-mode prompt at boot. The returned text ends with the line `NOVA-PROMPT-END`; if yours does not, you received a partial prompt. Stop and report that rather than acting on it.",
+				"Return the current nova-architect operating instructions for the given mode. A prompt that fits the conservative model-facing result budget arrives as complete plain text ending in `NOVA-PROMPT-END`. Otherwise the text block is a `nova-agent-prompt-page` JSON object: `offset_unit` is `unicode-code-points`, so `chunk_start`, `chunk_end`, and `prompt_length` count Unicode code points and chunks never split a surrogate pair. Concatenate `prompt_chunk` in order by calling this tool with the same mode/app_id and each `next_cursor`; require one unchanged `prompt_sha256`, adjacent chunk offsets, final `chunk_end === prompt_length`, `complete: true`, and the `NOVA-PROMPT-END` ending before following it. Edit mode requires `app_id` and every continuation reloads it so a changed snapshot is refused instead of mixed.",
 			/* This tool returns a whole system prompt, an order of
 			 * magnitude past what a typical tool result carries, so it
 			 * declares its own size rather than inheriting a default
@@ -113,6 +119,13 @@ export function registerGetAgentPrompt(
 					.optional()
 					.describe(
 						"Required when `mode === 'edit'`, the app id whose blueprint summary should be inlined into the returned text. The user must own this app. Ignored for `build` and `autonomous_build` (no app to read from).",
+					),
+				cursor: z
+					.string()
+					.max(512)
+					.optional()
+					.describe(
+						"Opaque continuation cursor from an oversized `nova-agent-prompt-page`. Repeat the same mode and app_id. Omit on the first call or when restarting after a changed-snapshot refusal.",
 					),
 			}),
 		},
@@ -151,18 +164,14 @@ export function registerGetAgentPrompt(
 					 * inlined blueprint summary. */
 					const loaded = await loadAppBlueprint(args.app_id, ctx.userId);
 					const systemPrompt = renderAgentPrompt(interactive, loaded.doc);
-					return {
-						content: [{ type: "text", text: systemPrompt }],
-					};
+					return deliverAgentPrompt(systemPrompt, args.cursor);
 				}
 
 				/* Build modes (`build` and `autonomous_build`): `app_id` is
 				 * intentionally ignored even when supplied (sharp-edge —
 				 * skill convenience, `mode` is the authoritative flag). */
 				const systemPrompt = renderAgentPrompt(interactive);
-				return {
-					content: [{ type: "text", text: systemPrompt }],
-				};
+				return deliverAgentPrompt(systemPrompt, args.cursor);
 			} catch (err) {
 				return toMcpErrorResult(err, {
 					appId,

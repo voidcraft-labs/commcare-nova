@@ -187,6 +187,7 @@ interface EntryScope {
 interface MenuScope {
 	readonly element: Element;
 	readonly id: string | undefined;
+	readonly root: string | undefined;
 	readonly commandIds: readonly string[];
 	readonly declaredInstances: ReadonlySet<string>;
 }
@@ -1145,6 +1146,41 @@ function checkMenuCommands(
 	return errors;
 }
 
+/** Every rooted menu must lead to a real, distinct root menu. Core uses this
+ * relation to surface child menus; a dangling or cyclic root makes the child
+ * unreachable even though all of its commands resolve. */
+function checkMenuRoots(
+	model: SuiteModel,
+	loc: ValidationLocation,
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const byId = new Map(
+		model.menuScopes.flatMap((menu) =>
+			menu.id === undefined ? [] : ([[menu.id, menu]] as const),
+		),
+	);
+	for (const menu of model.menuScopes) {
+		if (menu.root === undefined) continue;
+		const root = byId.get(menu.root);
+		if (
+			menu.id === undefined ||
+			root === undefined ||
+			root === menu ||
+			root.root !== undefined
+		) {
+			errors.push(
+				validationError(
+					"SUITE_MENU_ROOT_UNRESOLVED",
+					"app",
+					`Menu "${menu.id ?? "(unnamed)"}" declares root="${menu.root}", but that must name a distinct top-level menu in this suite. Otherwise the child menu is unreachable. This is a bug in the suite generator.`,
+					{ ...loc, moduleName: menu.id },
+				),
+			);
+		}
+	}
+	return errors;
+}
+
 // ── Category 2 — detail-select / detail-confirm resolution (C2-2/3) ─
 
 /**
@@ -1974,6 +2010,7 @@ export function validateSuite(
 	).map((menu) => ({
 		element: menu,
 		id: getAttributeValue(menu, "id"),
+		root: getAttributeValue(menu, "root"),
 		commandIds: getChildren(menu).flatMap((child) => {
 			if (!isTag(child) || child.name !== "command") return [];
 			const id = getAttributeValue(child, "id");
@@ -2034,6 +2071,7 @@ export function validateSuite(
 		// Category 2 — parse-clean, runtime-fatal.
 		...checkIdUniqueness(model, loc),
 		...checkMenuCommands(model, loc),
+		...checkMenuRoots(model, loc),
 		...checkDetailReferences(model, loc),
 		...checkInstanceResolution(model, loc),
 		...checkFixtures(model, loc),

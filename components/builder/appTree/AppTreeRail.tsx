@@ -34,7 +34,11 @@ import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResour
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
-import { useFormIds, useModuleIds } from "@/lib/doc/hooks/useModuleIds";
+import {
+	useFormIds,
+	useIsBareCaseListModule,
+	useModuleMenuHierarchy,
+} from "@/lib/doc/hooks/useModuleIds";
 import { makeTranslationUnitId, type Uuid } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
@@ -48,6 +52,17 @@ import { selectableIconCls } from "@/lib/styles";
 
 /** How far the reachable-content fade reaches in from each scroll edge. */
 const SCROLL_FADE = "24px";
+
+export function moduleRailPath(
+	moduleName: string,
+	parentName?: string,
+): string {
+	return parentName ? `${parentName} › ${moduleName}` : moduleName;
+}
+
+export function formRailPath(modulePath: string, formName: string): string {
+	return `${modulePath} › ${formName}`;
+}
 
 /** The mask that replaces the removed scrollbar. It is drawn on the
  *  scrollport, not the content, so the softened band stays at the visible
@@ -91,7 +106,7 @@ function useScrollEdges() {
 }
 
 export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
-	const moduleIds = useModuleIds();
+	const { rootModuleUuids, childModuleUuidsByRoot } = useModuleMenuHierarchy();
 	const { edges, bindScroller } = useScrollEdges();
 	const mask = edgeFadeMask(edges.top, edges.bottom);
 	return (
@@ -119,8 +134,12 @@ export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 				style={mask ? { WebkitMaskImage: mask, maskImage: mask } : undefined}
 			>
 				<div className="flex flex-col items-center gap-1 py-2">
-					{moduleIds.map((moduleUuid) => (
-						<RailModuleGroup key={moduleUuid} moduleUuid={moduleUuid} />
+					{rootModuleUuids.map((moduleUuid) => (
+						<RailRootGroup
+							key={moduleUuid}
+							moduleUuid={moduleUuid}
+							childModuleUuids={childModuleUuidsByRoot[moduleUuid] ?? []}
+						/>
 					))}
 				</div>
 			</div>
@@ -164,10 +183,40 @@ function ProjectDataRailButton() {
 	);
 }
 
-const RailModuleGroup = memo(function RailModuleGroup({
+const RailRootGroup = memo(function RailRootGroup({
 	moduleUuid,
+	childModuleUuids,
 }: {
 	moduleUuid: Uuid;
+	childModuleUuids: readonly Uuid[];
+}) {
+	const module = useModule(moduleUuid);
+	const localizedModuleName = useLocalizedText(
+		makeTranslationUnitId("module", moduleUuid, "name"),
+	);
+	if (module === undefined) return null;
+	const moduleName = localizedModuleName ?? module.name;
+	return (
+		<>
+			<div className="w-7 h-px bg-nova-border my-1" aria-hidden="true" />
+			<RailModuleGroup moduleUuid={moduleUuid} />
+			{childModuleUuids.map((childUuid) => (
+				<RailModuleGroup
+					key={childUuid}
+					moduleUuid={childUuid}
+					parentPath={moduleName}
+				/>
+			))}
+		</>
+	);
+});
+
+const RailModuleGroup = memo(function RailModuleGroup({
+	moduleUuid,
+	parentPath,
+}: {
+	moduleUuid: Uuid;
+	parentPath?: string;
 }) {
 	const mod = useModule(moduleUuid);
 	const localizedModuleName = useLocalizedText(
@@ -177,6 +226,7 @@ const RailModuleGroup = memo(function RailModuleGroup({
 	const onSelect = useAppTreeSelection();
 	const loc = useLocation();
 	const isCaseListSelected = useIsCaseListSelected(moduleUuid);
+	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
 	/* Exact-module selection (not the descendant-inclusive predicate):
 	 * the rail highlights the precise destination, so a form screen
 	 * lights its form icon, not the parent module's. */
@@ -184,14 +234,20 @@ const RailModuleGroup = memo(function RailModuleGroup({
 
 	if (!mod) return null;
 	const moduleName = localizedModuleName ?? mod.name;
+	const modulePath = moduleRailPath(moduleName, parentPath);
 
 	return (
 		<>
-			<div className="w-7 h-px bg-nova-border my-1" aria-hidden="true" />
 			<RailButton
-				label={moduleName}
+				label={modulePath}
 				active={isModuleScreen}
-				onClick={() => onSelect({ kind: "module", moduleUuid })}
+				onClick={() =>
+					onSelect(
+						isBareCaseList
+							? { kind: "cases", moduleUuid }
+							: { kind: "module", moduleUuid },
+					)
+				}
 			>
 				{mod.icon ? (
 					<ProjectMediaImage
@@ -205,7 +261,7 @@ const RailModuleGroup = memo(function RailModuleGroup({
 			</RailButton>
 			{mod.caseType && (
 				<RailButton
-					label={`${moduleName}, case list and search`}
+					label={`${modulePath}, case list and search`}
 					active={isCaseListSelected}
 					onClick={() => onSelect({ kind: "cases", moduleUuid })}
 				>
@@ -217,6 +273,7 @@ const RailModuleGroup = memo(function RailModuleGroup({
 					key={formUuid}
 					moduleUuid={moduleUuid}
 					formUuid={formUuid}
+					modulePath={modulePath}
 				/>
 			))}
 		</>
@@ -226,9 +283,11 @@ const RailModuleGroup = memo(function RailModuleGroup({
 function RailFormButton({
 	moduleUuid,
 	formUuid,
+	modulePath,
 }: {
 	moduleUuid: Uuid;
 	formUuid: Uuid;
+	modulePath: string;
 }) {
 	const form = useForm(formUuid);
 	const localizedFormName = useLocalizedText(
@@ -240,7 +299,7 @@ function RailFormButton({
 	const formName = localizedFormName ?? form.name;
 	return (
 		<RailButton
-			label={formName}
+			label={formRailPath(modulePath, formName)}
 			active={isSelected}
 			onClick={() => onSelect({ kind: "form", moduleUuid, formUuid })}
 		>

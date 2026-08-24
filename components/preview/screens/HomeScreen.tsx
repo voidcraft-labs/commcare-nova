@@ -26,12 +26,23 @@ import {
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { makeTranslationUnitId } from "@/lib/domain";
-import { moduleDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
+import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import {
+	moduleHasChildren,
+	previewMenuCaseContext,
+	previewMenuModuleUuids,
+	previewModuleVisibility,
+} from "@/lib/preview/menuProjection";
 import { useNavigate } from "@/lib/routing/hooks";
-import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
+import {
+	useBuilderIsReady,
+	useEditMode,
+	usePreviewMenuCaseSelections,
+	useSetPreviewParentCaseRequest,
+} from "@/lib/session/hooks";
 import { moduleLanding, openModuleLanding } from "./moduleLanding";
 
 export function HomeScreen() {
@@ -54,7 +65,14 @@ export function HomeScreen() {
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const hasData = useDocHasData();
-	const modules = useOrderedModules();
+	const orderedModules = useOrderedModules();
+	const menuSource = usePreviewMenuSource();
+	const menuCaseSelections = usePreviewMenuCaseSelections();
+	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
+	const modules = useMemo(() => {
+		const roots = new Set(previewMenuModuleUuids(menuSource, null));
+		return orderedModules.filter((mod) => roots.has(mod.uuid));
+	}, [menuSource, orderedModules]);
 	/* Case-first modules (every form case-loading) land on the case list,
 	 * not a form menu: the running app hoists the shared case selection. */
 	const caseFirstModules = useCaseFirstModuleUuids();
@@ -71,25 +89,13 @@ export function HomeScreen() {
 	 * (`<menu relevant>`); edit mode ("authoring surfaces never hide")
 	 * shows everything. Hidden modules stay reachable through the reveal
 	 * affordance below: ghosted, with each condition's summary. */
-	const moduleVisibility = useMemo(
-		() =>
-			new Map(
-				modules.map((mod) => [
-					mod.uuid,
-					mode === "edit"
-						? ("shown" as const)
-						: moduleDisplayVisibility({
-								condition: mod.displayCondition,
-								session,
-								...(mod.caseType !== undefined && {
-									currentCaseType: mod.caseType,
-								}),
-								lookup,
-							}),
-				]),
-			),
-		[modules, mode, session, lookup],
-	);
+	const moduleVisibility = useMemo(() => {
+		return previewModuleVisibility(menuSource, {
+			authoring: mode === "edit",
+			session,
+			lookup,
+		});
+	}, [mode, session, lookup, menuSource]);
 	const hiddenModules = useMemo(
 		() =>
 			modules
@@ -165,6 +171,12 @@ export function HomeScreen() {
 						);
 					}
 					const formCount = formOrder[mod.uuid]?.length ?? 0;
+					const hasChildren = moduleHasChildren(menuSource, mod.uuid);
+					const menuCaseContext = previewMenuCaseContext(
+						menuSource,
+						mod.uuid,
+						menuCaseSelections,
+					);
 					return (
 						<motion.button
 							key={mod.uuid}
@@ -175,7 +187,19 @@ export function HomeScreen() {
 								duration: 0.3,
 								ease: [0.16, 1, 0.3, 1],
 							}}
-							onClick={() =>
+							onClick={() => {
+								if (menuCaseContext.requiredParentCase) {
+									setPreviewParentCaseRequest({
+										selectingModuleUuid:
+											menuCaseContext.requiredParentCase.moduleUuid,
+										returnModuleUuids: [mod.uuid],
+										cancelLocation: { kind: "home" },
+									});
+									navigate.openModule(
+										menuCaseContext.requiredParentCase.moduleUuid,
+									);
+									return;
+								}
 								/* Case-first modules land on the case list (the running
 								 * app hoists the shared case selection); a caseListOnly
 								 * module has no form menu at all, so it too opens straight
@@ -187,9 +211,11 @@ export function HomeScreen() {
 									moduleLanding({
 										isCaseFirst: caseFirstModules.has(mod.uuid),
 										isBareCaseList: mod.caseListOnly === true,
+										hasChildren,
+										hasSelectedCase: menuCaseContext.selectedCase !== undefined,
 									}),
-								)
-							}
+								);
+							}}
 							className="nova-focusable w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
 						>
 							{mod.icon ? (

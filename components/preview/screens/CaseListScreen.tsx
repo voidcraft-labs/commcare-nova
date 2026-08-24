@@ -78,10 +78,7 @@ import {
 	useEffectiveCaseTypes,
 	useMaterializableCaseTypes,
 } from "@/lib/doc/hooks/useCaseTypes";
-import {
-	useOrderedForms,
-	useOrderedModules,
-} from "@/lib/doc/hooks/useModuleIds";
+import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
@@ -134,18 +131,29 @@ import {
 	useCaseData,
 	useCases,
 } from "@/lib/preview/hooks/useCaseDataBinding";
+import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import {
+	moduleHasChildren,
+	previewCaseDescendantModuleUuids,
+	previewMenuCaseContext,
+	previewMenuModuleUuids,
+} from "@/lib/preview/menuProjection";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
 	useAppId,
 	useCanEdit,
 	usePreviewCaseTarget,
+	usePreviewMenuCaseSelections,
+	usePreviewParentCaseRequest,
 	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
+	useSetPreviewMenuCaseSelection,
+	useSetPreviewParentCaseRequest,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 
@@ -167,7 +175,11 @@ interface CaseListScreenProps {
 export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const orderedModules = useOrderedModules();
+	const menuSource = usePreviewMenuSource();
+	const menuCaseSelections = usePreviewMenuCaseSelections();
+	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
+	const previewParentCaseRequest = usePreviewParentCaseRequest();
+	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
 	/* The MATERIALIZABLE case-type view: derived property types
 	 * included, implicit standard entries excluded. The same shape the
 	 * running-app query compiler and stored insert schema derive from,
@@ -189,7 +201,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		loc.kind === "search-config" ||
 		loc.kind === "detail-config"
 			? loc.moduleUuid
-			: orderedModules[screen.moduleIndex]?.uuid;
+			: screen.moduleUuid;
 	const routeCaseId = loc.kind === "cases" ? loc.caseId : undefined;
 
 	/* Where selecting a case leads: read from the running app's own
@@ -225,11 +237,42 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			? seeded
 			: undefined;
 	}, [previewCaseTarget?.formUuid, caseLoadingForms]);
+	const hasChildren = moduleUuid
+		? moduleHasChildren(menuSource, moduleUuid)
+		: false;
+	const selectsForParentRequest =
+		moduleUuid !== undefined &&
+		previewParentCaseRequest?.selectingModuleUuid === moduleUuid;
+	const selectsForMenu =
+		selectsForParentRequest || (seededFormUuid === undefined && hasChildren);
 	/** Whether selecting a case can continue at all. */
 	const canContinue =
-		seededFormUuid !== undefined || caseLoadingForms.length > 0;
+		selectsForMenu ||
+		seededFormUuid !== undefined ||
+		caseLoadingForms.length > 0;
 
 	const mod = useLocalizedModule(moduleUuid);
+	const menuCaseContext = useMemo(
+		() =>
+			moduleUuid
+				? previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections)
+				: undefined,
+		[menuCaseSelections, menuSource, moduleUuid],
+	);
+	const cancelParentCaseSelection = useCallback(() => {
+		if (!selectsForParentRequest || !previewParentCaseRequest) return;
+		setPreviewParentCaseRequest(undefined);
+		setPreviewCaseTarget(undefined);
+		navigate.replace(
+			previewParentCaseRequest.cancelLocation ?? { kind: "home" },
+		);
+	}, [
+		navigate,
+		previewParentCaseRequest,
+		selectsForParentRequest,
+		setPreviewCaseTarget,
+		setPreviewParentCaseRequest,
+	]);
 	const localizedValues = useLocalizedValues();
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
@@ -576,14 +619,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		// config so a property rename/retype reaches both together, and a
 		// fresh `caseTypes` reference re-fires the load on a schema edit.
 		caseTypes,
+		parentCase: menuCaseContext?.parentCase,
 		page: casePage,
 		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
 	});
-	/* The Results query can be empty because there is no data OR because the
-	 * authored/search conditions exclude an existing population. Keep those
-	 * states distinct: only the first should invite an author to create sample
-	 * cases. The count deliberately bypasses every module-level condition and
-	 * only runs when a constrained empty result needs that distinction. */
+	/* The Results query can be empty because there is no reachable data OR
+	 * because the authored/search conditions exclude an existing population.
+	 * Keep those states distinct: only the first should invite an author to
+	 * create cases. The count bypasses every module-level condition but retains
+	 * the selected-parent population scope, so another parent's children cannot
+	 * make this list blame Cases available. */
 	const authoredMatchingCount =
 		state.kind === "empty" ? state.authoredMatchingCount : undefined;
 	/* Cases the same query matches that this worker's device would not hold.
@@ -620,6 +665,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		useCaseCount({
 			appId: needsUnfilteredCount ? appId : undefined,
 			caseType: needsUnfilteredCount ? caseType?.name : undefined,
+			parentCaseId: menuCaseContext?.parentCase?.caseId,
 		});
 	/* A record deep link must not depend on the row surviving the authored
 	 * Results filter or current 50-row page. Load it directly by identity while
@@ -629,6 +675,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		appId,
 		caseType: caseType?.name,
 		caseId: routeCaseId,
+		parentCaseId: menuCaseContext?.parentCase?.caseId,
 		ancestorDepth: 0,
 		caseListConfig: config,
 		caseTypes,
@@ -751,6 +798,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const routeCase = useMemo<CaseRowWithCalculated | null>(() => {
 		if (!routeCaseId || routeCaseReplaced) return null;
 		const projected = loadedRows.find((row) => row.case_id === routeCaseId);
+		/* Results already came from the exact selected-parent population. The
+		 * identity read below carries the same server-side case-index constraint,
+		 * so neither path guesses membership from denormalized parent_case_id. */
 		if (projected) return projected;
 		if (routeCaseState.kind !== "row") return null;
 		return routeCaseState.row;
@@ -985,6 +1035,62 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * case-first → the single case-loading form, or the form menu when there
 	 * are several. */
 	const proceedWithCase = (row: CaseRowWithCalculated) => {
+		if (selectsForMenu && moduleUuid && mod.caseType) {
+			setOpenCase(null);
+			setFormMenuCase(null);
+			setPreviewSelectedCase(undefined);
+			setPreviewCaseTarget(undefined);
+			setPreviewMenuCaseSelection(moduleUuid, {
+				caseType: mod.caseType,
+				caseId: row.case_id,
+				caseName: row.case_name || "Case",
+				caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
+			});
+			const staleSelectionModuleUuids = new Set([
+				...previewMenuModuleUuids(menuSource, moduleUuid),
+				...previewCaseDescendantModuleUuids(menuSource, mod.caseType),
+			]);
+			for (const staleModuleUuid of staleSelectionModuleUuids) {
+				setPreviewMenuCaseSelection(staleModuleUuid, undefined);
+			}
+			if (selectsForParentRequest && previewParentCaseRequest) {
+				const [nextModuleUuid, ...remainingModuleUuids] =
+					previewParentCaseRequest.returnModuleUuids;
+				setPreviewParentCaseRequest(
+					nextModuleUuid && remainingModuleUuids.length > 0
+						? {
+								selectingModuleUuid: nextModuleUuid,
+								returnModuleUuids: remainingModuleUuids,
+								...(previewParentCaseRequest.resumeLocation !== undefined && {
+									resumeLocation: previewParentCaseRequest.resumeLocation,
+								}),
+								...(previewParentCaseRequest.cancelLocation !== undefined && {
+									cancelLocation: previewParentCaseRequest.cancelLocation,
+								}),
+							}
+						: undefined,
+				);
+				if (
+					nextModuleUuid &&
+					remainingModuleUuids.length === 0 &&
+					previewParentCaseRequest.resumeLocation !== undefined
+				) {
+					navigate.replace(previewParentCaseRequest.resumeLocation);
+				} else if (nextModuleUuid && remainingModuleUuids.length > 0) {
+					navigate.replace({
+						kind: "module",
+						moduleUuid: nextModuleUuid,
+					});
+				} else if (nextModuleUuid) {
+					navigate.openModule(nextModuleUuid);
+				} else {
+					navigate.openModule(moduleUuid);
+				}
+			} else {
+				navigate.openModule(moduleUuid);
+			}
+			return;
+		}
 		const decided = decideCaseLoadingForms(row);
 		const seeded =
 			seededFormUuid === undefined
@@ -1420,6 +1526,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				caseProperties={caseType.properties}
 				columnDisplayContext={columnDisplayContext}
 				emptyResultContext={queryConstraintSource}
+				parentScoped={menuCaseContext?.parentCase !== undefined}
 				canEdit={canEdit}
 				searchErrorShown={hasSearchInputs && searchActionIsRelevant}
 				rowAction={rowAction}
@@ -1475,6 +1582,17 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		routeCaseId !== undefined;
 	return (
 		<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">
+			{selectsForParentRequest && (
+				<Button
+					type="button"
+					variant="ghost"
+					onClick={cancelParentCaseSelection}
+					className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+				>
+					<Icon icon={tablerChevronLeft} width="15" height="15" />
+					Back
+				</Button>
+			)}
 			<div
 				ref={surfaceRef}
 				className={`flex gap-5 ${split ? "flex-row items-start" : "flex-col"}`}
@@ -1537,6 +1655,7 @@ function ResultsBody({
 	caseProperties,
 	columnDisplayContext,
 	emptyResultContext,
+	parentScoped,
 	canEdit,
 	searchErrorShown,
 	rowAction,
@@ -1568,6 +1687,8 @@ function ResultsBody({
 	readonly columnDisplayContext: ColumnDisplayContext;
 	/** Why an empty server result may differ from a truly empty case type. */
 	readonly emptyResultContext: CaseQueryConstraintContext;
+	/** The reachable population is limited to one selected parent's direct cases. */
+	readonly parentScoped: boolean;
 	readonly canEdit: boolean;
 	readonly searchErrorShown: boolean;
 	readonly rowAction: "detail" | "form" | "none";
@@ -1651,7 +1772,7 @@ function ResultsBody({
 		// exist without waiting for the sibling count. The restore arm above is
 		// what keeps that inference honest once a device scope narrows it.
 		if (emptyResultContext === "unconstrained") {
-			return <NoCaseDataNotice canEdit={canEdit} />;
+			return <NoCaseDataNotice canEdit={canEdit} parentScoped={parentScoped} />;
 		}
 		if (
 			emptyResultContext === "worker-search" &&
@@ -1678,7 +1799,7 @@ function ResultsBody({
 			return <CaseCountFailureNotice onRetry={onRetryCount} />;
 		}
 		if (unfilteredCountState.count === 0) {
-			return <NoCaseDataNotice canEdit={canEdit} />;
+			return <NoCaseDataNotice canEdit={canEdit} parentScoped={parentScoped} />;
 		}
 		if (emptyResultContext === "worker-search") {
 			return authoredMatchingCount === 0 ? (
@@ -1697,7 +1818,7 @@ function ResultsBody({
 		if (emptyResultContext === "authored-rules") {
 			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
 		}
-		return <NoCaseDataNotice canEdit={canEdit} />;
+		return <NoCaseDataNotice canEdit={canEdit} parentScoped={parentScoped} />;
 	}
 
 	if (rows.length === 0) {
@@ -1815,8 +1936,26 @@ function CaseListEmptyNotice({
 	);
 }
 
-/** The complete case type is empty, not merely this Results query. */
-function NoCaseDataNotice({ canEdit }: { readonly canEdit: boolean }) {
+/** The complete reachable population is empty, not merely this Results query. */
+function NoCaseDataNotice({
+	canEdit,
+	parentScoped,
+}: {
+	readonly canEdit: boolean;
+	readonly parentScoped: boolean;
+}) {
+	if (parentScoped) {
+		return (
+			<CaseListEmptyNotice
+				title="No related cases yet"
+				description={
+					canEdit
+						? "Choose a different parent, or create a related case for this one"
+						: "Choose a different parent with related cases"
+				}
+			/>
+		);
+	}
 	return (
 		<CaseListEmptyNotice
 			title="No cases yet"

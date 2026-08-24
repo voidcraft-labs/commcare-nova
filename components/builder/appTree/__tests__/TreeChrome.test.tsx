@@ -4,9 +4,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
+	formRailPath,
+	moduleRailPath,
+} from "@/components/builder/appTree/AppTreeRail";
+import {
 	INSERTION_TRIGGER_CLS,
 	insertionTriggerStyle,
 } from "@/components/builder/appTree/insertion/TreeInsertionAffordance";
+import { ModuleActions } from "@/components/builder/appTree/ModuleActions";
 import { moduleCaseTypeLabel } from "@/components/builder/appTree/ModuleCard";
 import {
 	CollapseChevron,
@@ -14,8 +19,18 @@ import {
 } from "@/components/builder/appTree/shared";
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 
+const access = vi.hoisted(() => ({ canEdit: true }));
+
 vi.mock("@/lib/session/hooks", () => ({
-	useCanEdit: () => true,
+	useCanEdit: () => access.canEdit,
+}));
+
+vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
+	useBlueprintMutations: () => ({ moveModule: vi.fn() }),
+}));
+
+vi.mock("@/lib/doc/hooks/useEntity", () => ({
+	useModule: () => ({ name: "Care" }),
 }));
 
 vi.mock("@/components/shadcn/tooltip", () => ({
@@ -23,11 +38,24 @@ vi.mock("@/components/shadcn/tooltip", () => ({
 }));
 
 describe("structure tree controls", () => {
+	const moduleUuid = "00000000-0000-4000-8000-000000000001" as never;
+	const actionProps = {
+		moduleUuid,
+		moduleName: "Visits",
+		parentModuleUuid: null,
+		siblingModuleUuids: [moduleUuid],
+		rootModuleUuids: [moduleUuid],
+		childModuleUuidsByRoot: { [moduleUuid]: [] },
+		hasChildren: false,
+		searchActive: false,
+		onPlacementCommitted: vi.fn(),
+	};
+
 	it("gives the collapse action a full touch target", () => {
 		const onClick = vi.fn();
-		render(<CollapseChevron isCollapsed onClick={onClick} />);
+		render(<CollapseChevron label="Intake" isCollapsed onClick={onClick} />);
 
-		const collapse = screen.getByRole("button", { name: "Expand section" });
+		const collapse = screen.getByRole("button", { name: "Expand Intake" });
 		expect(collapse.getAttribute("data-slot")).toBe("button");
 		expect(collapse.className).toContain("size-11");
 
@@ -70,6 +98,33 @@ describe("structure tree controls", () => {
 		);
 		expect(moduleCaseTypeLabel("patient_case")).toBe("Patient cases");
 		expect(moduleCaseTypeLabel("Cases")).toBe("Cases");
+	});
+
+	it("disambiguates collapsed destinations with their menu path", () => {
+		expect(moduleRailPath("Visits", "Care")).toBe("Care › Visits");
+		expect(formRailPath("Care › Visits", "Intake")).toBe(
+			"Care › Visits › Intake",
+		);
+	});
+
+	it("keeps module actions at the 44px floor and hides them from viewers and locked states", () => {
+		const { rerender } = render(<ModuleActions {...actionProps} />);
+		const trigger = screen.getByRole("button", {
+			name: "Module actions for Visits",
+		});
+		expect(trigger.className).toContain("size-11");
+
+		access.canEdit = false;
+		rerender(<ModuleActions {...actionProps} />);
+		expect(
+			screen.queryByRole("button", { name: "Module actions for Visits" }),
+		).toBeNull();
+
+		access.canEdit = true;
+		rerender(<ModuleActions {...actionProps} locked />);
+		expect(
+			screen.queryByRole("button", { name: "Module actions for Visits" }),
+		).toBeNull();
 	});
 
 	it("uses full-size shared actions and preserves focus for two-step delete", async () => {

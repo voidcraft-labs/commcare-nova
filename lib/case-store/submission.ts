@@ -56,9 +56,8 @@ export interface SubmissionCaseSeed {
  * (advanced effects precede the ordinary FormActions block in wire
  * document order, and the executor mirrors that).
  *
- *   - `registration` — insert the primary plus every child (children
- *     take the primary's generated id as `parent_case_id`; they never
- *     carry their own).
+ *   - `registration` — insert the primary plus every child. Children take the
+ *     primary's generated id as `parent_case_id` and never carry their own.
  *   - `followup` / `close` — update the bound case, insert each child
  *     with its pre-bound `parentCaseId`; `close` stamps the lifecycle
  *     transition LAST, after every property write.

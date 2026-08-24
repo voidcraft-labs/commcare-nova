@@ -46,7 +46,7 @@ export const designComplexityEvidenceSchema = z
 		score: z.number().int().nonnegative(),
 		components: z.record(z.string(), z.union([z.number(), z.boolean()])),
 		depth: z.enum(["compact", "standard", "extended"]),
-		algorithmVersion: z.literal(1),
+		algorithmVersion: z.union([z.literal(1), z.literal(2)]),
 	})
 	.strict();
 

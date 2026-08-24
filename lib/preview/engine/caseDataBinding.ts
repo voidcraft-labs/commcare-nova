@@ -226,6 +226,7 @@ export async function loadCasesAction(args: {
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValuesWire;
 	excludedOwnerIdsExpression?: ValueExpression;
+	parentCase?: { readonly caseType: string; readonly caseId: string };
 	caseTypes?: readonly CaseType[];
 	/** Bounded Results window. Omitted by the current unpaged form-selection caller. */
 	page?: { offset: number; limit: number };
@@ -399,6 +400,7 @@ export async function loadCasesAction(args: {
 			caseType: args.caseType,
 			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
+			parentCase: args.parentCase,
 			inputValues,
 			bindings,
 			lookupTableSchemas,
@@ -437,13 +439,18 @@ export async function loadCasesAction(args: {
 }
 
 /**
- * Count every row for one case type, with no authored filter applied. The
- * builder's case-data manager uses this as its source of truth so an empty
- * filtered Results screen can never be mistaken for an empty case store.
+ * Count the reachable base population for one case type, with no authored
+ * filter applied. The builder's case-data manager leaves `parentCaseId`
+ * undefined and uses the app-wide count as its source of truth. A nested
+ * running Results probe supplies the selected parent so an empty child list is
+ * compared with that exact direct non-extension child population, never with
+ * children belonging to a different parent.
  */
 export async function loadCaseCountAction(args: {
 	appId: string;
 	caseType: string;
+	/** Exact selected-parent scope for a nested running Results probe. */
+	parentCaseId?: string;
 	/** The builder's Case data manager passes true — it reports the
 	 * full stored population it governs (replace-all deletes held rows
 	 * too), with the held count named separately beside it. The
@@ -459,6 +466,7 @@ export async function loadCaseCountAction(args: {
 		const count = await store.count({
 			appId: args.appId,
 			caseType: args.caseType,
+			parentCaseId: args.parentCaseId,
 			includeHeld: args.includeHeld === true,
 		});
 		return { kind: "count", count };
@@ -655,6 +663,9 @@ export async function loadCaseDataAction(
 	 * narrow, and Project membership is what authorizes the read either way.
 	 */
 	deviceScoped?: boolean,
+	/** Selected nested-menu parent. When present, the identity read must belong
+	 * to its exact direct non-extension case-index population. */
+	parentCaseId?: string,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -682,6 +693,7 @@ export async function loadCaseDataAction(
 			caseType,
 			caseId,
 			ancestorDepth,
+			parentCaseId,
 			caseListConfig,
 			includeHeld,
 			lookupTableSchemas,

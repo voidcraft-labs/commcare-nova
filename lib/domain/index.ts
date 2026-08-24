@@ -34,6 +34,7 @@ export * from "./localization";
 export * from "./localizedBlueprintProjection";
 export * from "./lookupCarriers";
 export * from "./lookupIds";
+export * from "./moduleHierarchy";
 export * from "./modules";
 export * from "./multimedia";
 export * from "./organization";

@@ -382,6 +382,25 @@ describe("admitMutationBatch", () => {
 		});
 	});
 
+	it("requires hierarchy changes to use moveModule", () => {
+		const error = canonicalityError(() =>
+			admitMutationBatch([
+				{
+					kind: "updateModule",
+					uuid: testUuid("module-parent-patch-target"),
+					patch: {
+						parentModuleUuid: testUuid("module-parent-patch-value"),
+					},
+				},
+			]),
+		);
+		expect(error.details).toEqual({
+			mutationIndex: 0,
+			pointer: "/0/patch",
+			reason: "schema-strip",
+		});
+	});
+
 	it("selects the first schema issue by numeric mutation index", () => {
 		const value = Array.from({ length: 11 }, (_unused, index) => ({
 			kind: "setAppName",

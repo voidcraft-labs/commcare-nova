@@ -11,16 +11,14 @@
 
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
+	childModuleUuids,
 	expressionInspectionSource,
 	expressionSurfaceReads,
 	fieldCaseWrite,
 	isContainer,
+	projectedModulePreorder,
 } from "@/lib/domain";
-import {
-	orderedFieldUuids,
-	orderedFormUuids,
-	orderedModuleUuids,
-} from "./fieldWalk";
+import { orderedFieldUuids, orderedFormUuids } from "./fieldWalk";
 
 interface SearchMatch {
 	/** Which property matched (e.g. 'label', 'caseWrite', 'id', 'name'). */
@@ -41,7 +39,12 @@ interface SearchMatch {
  * named for what it addresses, never a position that a peer's reorder moves.
  */
 export type SearchResult =
-	| (SearchMatch & { type: "module"; moduleUuid: Uuid })
+	| (SearchMatch & {
+			type: "module";
+			moduleUuid: Uuid;
+			parentModuleUuid: Uuid | null;
+			childModuleUuids: Uuid[];
+	  })
 	| (SearchMatch & { type: "form"; moduleUuid: Uuid; formUuid: Uuid })
 	| (SearchMatch & {
 			type: "field";
@@ -75,28 +78,33 @@ export function searchBlueprint(
 	const q = query.toLowerCase();
 
 	// Display order controls only result ordering. Stable UUIDs identify hits.
-	const moduleUuids = orderedModuleUuids(doc);
+	const moduleUuids = projectedModulePreorder(doc);
 	for (let mIdx = 0; mIdx < moduleUuids.length; mIdx++) {
 		const moduleUuid = moduleUuids[mIdx];
 		const mod = doc.modules[moduleUuid];
 		if (!mod) continue;
+		const menuPath = moduleMenuPath(doc, moduleUuid);
 
 		if (mod.name.toLowerCase().includes(q)) {
 			results.push({
 				type: "module",
 				moduleUuid,
+				parentModuleUuid: mod.parentModuleUuid ?? null,
+				childModuleUuids: childModuleUuids(doc, moduleUuid),
 				field: "name",
 				value: mod.name,
-				context: `Module "${mod.name}"`,
+				context: `Menu ${menuPath}`,
 			});
 		}
 		if (mod.caseType?.toLowerCase().includes(q)) {
 			results.push({
 				type: "module",
 				moduleUuid,
+				parentModuleUuid: mod.parentModuleUuid ?? null,
+				childModuleUuids: childModuleUuids(doc, moduleUuid),
 				field: "case_type",
 				value: mod.caseType,
-				context: `Module "${mod.name}" case_type`,
+				context: `Menu ${menuPath} case_type`,
 			});
 		}
 
@@ -123,7 +131,7 @@ export function searchBlueprint(
 					columnUuid: col.uuid,
 					field: "column",
 					value,
-					context: `Module "${mod.name}" column "${col.header}"`,
+					context: `Menu ${menuPath} > column "${col.header}"`,
 				});
 			}
 		}
@@ -143,7 +151,7 @@ export function searchBlueprint(
 					searchInputUuid: input.uuid,
 					field: "search_input",
 					value,
-					context: `Module "${mod.name}" search input "${input.label}"`,
+					context: `Menu ${menuPath} > search input "${input.label}"`,
 				});
 			}
 		}
@@ -160,14 +168,34 @@ export function searchBlueprint(
 					formUuid,
 					field: "name",
 					value: form.name,
-					context: `Form "${form.name}" (${form.type})`,
+					context: `Menu ${menuPath} > Form "${form.name}" (${form.type})`,
 				});
 			}
-			searchFields(doc, formUuid, q, moduleUuid, formUuid, results);
+			searchFields(
+				doc,
+				formUuid,
+				q,
+				moduleUuid,
+				formUuid,
+				`Menu ${menuPath} > Form "${form.name}"`,
+				results,
+			);
 		}
 	}
 
 	return results;
+}
+
+function moduleMenuPath(doc: BlueprintDoc, moduleUuid: Uuid): string {
+	const module = doc.modules[moduleUuid];
+	if (module === undefined) return `"${moduleUuid}"`;
+	const parent =
+		module.parentModuleUuid === undefined
+			? undefined
+			: doc.modules[module.parentModuleUuid];
+	return parent === undefined
+		? `"${module.name}"`
+		: `"${parent.name}" > "${module.name}"`;
 }
 
 /** Recursive field-tree search used by `searchBlueprint`. Walks in visual
@@ -178,6 +206,7 @@ function searchFields(
 	query: string,
 	moduleUuid: Uuid,
 	formUuid: Uuid,
+	formContext: string,
 	results: SearchResult[],
 ): void {
 	// Visual (display) sequence, so the surfaced result list matches form
@@ -261,12 +290,20 @@ function searchFields(
 				fieldUuid,
 				field: match.field,
 				value: match.value,
-				context: `Field "${field.id}" (${field.kind}${caseTag})`,
+				context: `${formContext} > Field "${field.id}" (${field.kind}${caseTag})`,
 			});
 		}
 
 		if (isContainer(field)) {
-			searchFields(doc, fieldUuid, query, moduleUuid, formUuid, results);
+			searchFields(
+				doc,
+				fieldUuid,
+				query,
+				moduleUuid,
+				formUuid,
+				formContext,
+				results,
+			);
 		}
 	}
 }

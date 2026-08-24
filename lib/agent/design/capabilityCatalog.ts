@@ -100,6 +100,7 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
 			"creating or choosing Projects or CommCare HQ project spaces",
 			"recording, synthesizing, validating, or uploading audio or other media",
 			"promising runtime or deployment resources that do not already exist",
+			"placing one canonical form in several menus through linked or shadow form reuse; use separate modules, filtered lists, and deliberate workflow composition instead",
 		],
 		localization: {
 			manualAuthoring: "individual-living-languages" as const,

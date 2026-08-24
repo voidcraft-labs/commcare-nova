@@ -192,6 +192,7 @@ function caseReadCore(
 	args: {
 		readonly appId: string;
 		readonly caseType: string;
+		readonly parentCase?: { readonly caseId: string };
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
@@ -202,6 +203,7 @@ function caseReadCore(
 	return {
 		appId: args.appId,
 		caseType: args.caseType,
+		parentCaseId: args.parentCase?.caseId,
 		caseTypeSchemas: args.caseTypeSchemas,
 		bindings: args.bindings,
 		lookupTableSchemas: args.lookupTableSchemas,
@@ -300,6 +302,7 @@ export async function readCases(
 		caseType: string;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
+		parentCase?: { readonly caseType: string; readonly caseId: string };
 		inputValues?: SearchInputValues;
 		bindings?: TermBindings;
 		/** Rows-free lookup definition types for the compiler's
@@ -326,6 +329,7 @@ export async function readCases(
 		args.caseTypeSchemas,
 		args.excludedOwnerIds,
 		args.authoredExcludedOwnerIds,
+		args.parentCase,
 	);
 	const page = normalizeCaseListPage(args.page);
 	// Grouping is a property of a BOUNDED running-list read. An unpaged
@@ -563,6 +567,10 @@ async function countAuthoredCasePopulation(
 		readonly caseType: string;
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		readonly caseListConfig?: CaseListConfig;
+		readonly parentCase?: {
+			readonly caseType: string;
+			readonly caseId: string;
+		};
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly authoredExcludedOwnerIds?: readonly string[];
@@ -576,6 +584,7 @@ async function countAuthoredCasePopulation(
 		args.caseTypeSchemas,
 		args.authoredExcludedOwnerIds,
 		args.authoredExcludedOwnerIds,
+		args.parentCase,
 	);
 	return store.count({
 		...caseReadCore(args, authoredQuery.predicate),
@@ -621,10 +630,14 @@ function composeQueryPredicate(
 	caseTypeSchemas: ReadonlyMap<string, CaseType> | undefined,
 	excludedOwnerIds: readonly string[] | undefined,
 	authoredExcludedOwnerIds: readonly string[] | undefined = excludedOwnerIds,
+	parentCase?: { readonly caseType: string; readonly caseId: string },
 ): ComposedCaseQuery {
 	const clauses: Predicate[] = [];
 	let hasAuthoredConstraint = false;
 	let hasWorkerConstraint = false;
+	if (parentCase !== undefined) {
+		hasAuthoredConstraint = true;
+	}
 	const knownInputUuids = new Set(
 		caseListConfig?.searchInputs.map((input) => input.uuid) ?? [],
 	);
@@ -960,6 +973,9 @@ export async function readCaseData(
 		caseType: string;
 		caseId: string;
 		ancestorDepth: number;
+		/** Restrict this identity read to the selected nested-menu parent's
+		 * exact direct non-extension case-index population. */
+		parentCaseId?: string;
 		caseListConfig?: CaseListConfig;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		bindings?: TermBindings;
@@ -985,6 +1001,7 @@ export async function readCaseData(
 			args,
 			eq(prop(args.caseType, "case_id"), literal(args.caseId)),
 		),
+		parentCaseId: args.parentCaseId,
 		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 		limit: 1,
 		includeHeld: args.includeHeld,

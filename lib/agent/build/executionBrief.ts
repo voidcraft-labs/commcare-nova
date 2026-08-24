@@ -1,5 +1,9 @@
 /** Exact, derived execution context for one workflow slice. */
 
+import {
+	type ChangeSetHandle,
+	changeSetHandleSchema,
+} from "@/lib/agent/change-set/schemas";
 import type {
 	BuildPlan,
 	BuildSlice,
@@ -76,7 +80,13 @@ export interface SliceExecutionBrief {
 	readonly formCompositions: readonly FormComposition[];
 	readonly moduleRealizations: readonly {
 		readonly compositionId: DesignId;
+		/** Exact private-workspace identity for this accepted composition. The
+		 * executor declares or references this handle so equal display names and
+		 * record hosts never become an identity heuristic. */
+		readonly blueprintModuleHandle: ChangeSetHandle;
 		readonly action: "create" | "reuse";
+		readonly parentModuleCompositionId: DesignId | null;
+		readonly afterSiblingModuleCompositionId: DesignId | null;
 		readonly hostRecord: {
 			readonly id: DesignId;
 			readonly name: string;
@@ -144,6 +154,17 @@ const RESERVED_BLUEPRINT_CASE_TYPE_KEYS = new Set([
 	"parent",
 	"user",
 ]);
+
+/** Lower a semantic module identity into the executor's existing durable
+ * handle vocabulary. Full DesignId bits keep the mapping injective without a
+ * new persisted identity kind or a display-name uniqueness rule. */
+export function blueprintModuleHandle(
+	compositionId: DesignId,
+): ChangeSetHandle {
+	return changeSetHandleSchema.parse(
+		`@module_${compositionId.replaceAll("-", "")}`,
+	);
+}
 
 /** A semantic display name is not a machine identifier. Lower the complete
  * accepted record catalog once, before any slice is derived, so every slice
@@ -281,7 +302,6 @@ const CONSTRAINT_AREAS: Readonly<
 	CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES: ["forms"],
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: ["navigation", "users", "case-list"],
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: ["forms", "case-operations"],
-	GAP_NESTED_MENUS: ["navigation"],
 	GAP_SESSION_ENDPOINTS_DEEP_LINKS: ["navigation"],
 	GAP_MULTI_SELECT_RELATED_CASES: ["case-list", "forms"],
 };
@@ -325,7 +345,7 @@ function checklistRequirement(
 		);
 		return composition === undefined
 			? `Realize module composition ${id}.`
-			: `Realize ${composition.role} module ${composition.name} with its accepted host, placement, order, and icon decision.`;
+			: `Realize ${composition.role} module ${composition.name} with its accepted host, ${composition.parentModuleCompositionId === undefined ? "top-level menu placement" : `parent menu ${composition.parentModuleCompositionId}`}, order, and icon decision.`;
 	}
 	if (kind === "form-composition") {
 		const composition = contract.formCompositions.find(
@@ -474,6 +494,60 @@ export function deriveSliceExecutionBrief(args: {
 			),
 		),
 	]);
+	/* A child cannot be realized from its row alone: construction needs its
+	 * parent and preceding sibling as exact create/reuse anchors. Close that
+	 * one-tier placement context before filtering the immutable contract order. */
+	const placementClosure = [...relevantModuleCompositionIds];
+	for (
+		let closureIndex = 0;
+		closureIndex < placementClosure.length;
+		closureIndex++
+	) {
+		const compositionId = placementClosure[closureIndex];
+		if (compositionId === undefined) continue;
+		const composition = args.contract.moduleCompositions.find(
+			(entry) => entry.id === compositionId,
+		);
+		if (composition?.parentModuleCompositionId !== undefined) {
+			if (
+				!relevantModuleCompositionIds.has(composition.parentModuleCompositionId)
+			) {
+				relevantModuleCompositionIds.add(composition.parentModuleCompositionId);
+				placementClosure.push(composition.parentModuleCompositionId);
+			}
+		}
+		if (composition !== undefined) {
+			const siblings = args.contract.moduleCompositions.filter(
+				(entry) =>
+					entry.parentModuleCompositionId ===
+					composition.parentModuleCompositionId,
+			);
+			const siblingIndex = siblings.findIndex(
+				(entry) => entry.id === composition.id,
+			);
+			if (siblingIndex > 0) {
+				const preceding = siblings[siblingIndex - 1];
+				if (preceding !== undefined) {
+					if (!relevantModuleCompositionIds.has(preceding.id)) {
+						relevantModuleCompositionIds.add(preceding.id);
+						placementClosure.push(preceding.id);
+					}
+					if (preceding.parentModuleCompositionId !== undefined) {
+						if (
+							!relevantModuleCompositionIds.has(
+								preceding.parentModuleCompositionId,
+							)
+						) {
+							relevantModuleCompositionIds.add(
+								preceding.parentModuleCompositionId,
+							);
+							placementClosure.push(preceding.parentModuleCompositionId);
+						}
+					}
+				}
+			}
+		}
+	}
 	const moduleCompositions = args.contract.moduleCompositions.filter(
 		(composition) => relevantModuleCompositionIds.has(composition.id),
 	);
@@ -491,9 +565,21 @@ export function deriveSliceExecutionBrief(args: {
 		const action = ownedModuleCompositionIds.has(composition.id)
 			? ("create" as const)
 			: ("reuse" as const);
+		const siblings = args.contract.moduleCompositions.filter(
+			(entry) =>
+				entry.parentModuleCompositionId ===
+				composition.parentModuleCompositionId,
+		);
+		const siblingIndex = siblings.findIndex(
+			(entry) => entry.id === composition.id,
+		);
 		return {
 			compositionId: composition.id,
+			blueprintModuleHandle: blueprintModuleHandle(composition.id),
 			action,
+			parentModuleCompositionId: composition.parentModuleCompositionId ?? null,
+			afterSiblingModuleCompositionId:
+				siblingIndex <= 0 ? null : (siblings[siblingIndex - 1]?.id ?? null),
 			hostRecord:
 				hostRecord === undefined
 					? null
@@ -537,7 +623,12 @@ export function deriveSliceExecutionBrief(args: {
 		}),
 	}));
 	const requirementIds = new Set(workflow.externalRequirementIds);
-	const prerequisiteIds = new Set(workflow.prerequisiteWorkflowIds);
+	const prerequisiteSliceIds = new Set(executableSlice.prerequisiteSliceIds);
+	const prerequisiteIds = new Set(
+		args.plan.slices
+			.filter((entry) => prerequisiteSliceIds.has(entry.id))
+			.map((entry) => entry.workflowId),
+	);
 	const catalog = buildCapabilityCatalog();
 	const toolProfile = deriveExecutorToolProfile(executableSlice);
 	const areaSet = new Set(toolProfile.blueprintAreas);

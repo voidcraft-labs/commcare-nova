@@ -7,8 +7,9 @@ import type { Uuid } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 
-const SELECTED_CASE =
-	"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]";
+function selectedCase(selectedCaseDatumId = "case_id"): string {
+	return `instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/${selectedCaseDatumId}]`;
+}
 
 /** Module relevancy runs before case selection, so ordinary on-device terms
  * emit directly; validation has already excluded every case-row term. */
@@ -48,6 +49,7 @@ export function emitFormDisplayConditionForSuite(
 	currentCaseType?: string,
 	lookupNaming?: LookupWireNaming,
 	userPropertySlugs?: ReadonlyMap<Uuid, string>,
+	selectedCaseDatumId?: string,
 ): string | undefined {
 	const effective = effectiveDisplayConditionForEmission(condition);
 	if (effective === undefined) return undefined;
@@ -61,7 +63,7 @@ export function emitFormDisplayConditionForSuite(
 		undefined,
 		{
 			emitSelfProperty: (property) =>
-				`${SELECTED_CASE}/${emitCasePropertyWirePath(property.property)}`,
+				`${selectedCase(selectedCaseDatumId)}/${emitCasePropertyWirePath(property.property)}`,
 			...(lookupNaming !== undefined && {
 				lookup: { naming: lookupNaming, instanceScope: "suite" },
 			}),

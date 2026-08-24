@@ -149,6 +149,43 @@ function moduleOf(app: HqApplication): HqModule {
 // ── Clean baseline ─────────────────────────────────────────────────
 
 describe("HQ-JSON oracle — clean baseline", () => {
+	it("accepts resolved root-module and parent-select identities", () => {
+		const app = baselineApp();
+		const root = app.modules[0];
+		const child = moduleShell(
+			"child-module",
+			{ en: "Child" },
+			"visit",
+			[],
+			detailPair([]),
+		);
+		child.root_module_id = root.unique_id;
+		child.parent_select = {
+			active: true,
+			relationship: "parent",
+			module_id: root.unique_id,
+		};
+		app.modules.push(child);
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
+	it("flags unresolved root-module and parent-select identities", () => {
+		const app = baselineApp();
+		const module = moduleOf(app);
+		module.root_module_id = "missing-root";
+		module.parent_select = {
+			active: true,
+			relationship: "parent",
+			module_id: "missing-parent",
+		};
+		expect(codes(validateHqJson(app))).toEqual(
+			expect.arrayContaining([
+				"HQJSON_BAD_ROOT_MODULE_ID",
+				"HQJSON_BAD_PARENT_SELECT_MODULE_ID",
+			]),
+		);
+	});
+
 	it("accepts independently ordered short and long column arrays with list-indexed calculated sort", () => {
 		const name = plainColumn(
 			testUuid("00000000-0000-4000-8000-000000000091"),

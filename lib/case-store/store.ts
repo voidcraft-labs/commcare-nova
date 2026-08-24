@@ -215,6 +215,14 @@ export interface RestoreScope {
 export interface QueryArgs {
 	appId: string;
 	caseType: string;
+	/**
+	 * Restrict a nested-menu read to cases directly linked to this selected
+	 * parent through any non-extension case index. This is runtime selection
+	 * state, not authored predicate data: CommCare emits
+	 * `index/*[not(@relationship='extension')] = <selected case>` without
+	 * naming one index identifier, and Preview must use that exact population.
+	 */
+	parentCaseId?: string;
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 	/**
 	 * Rows-free lookup definitions (table id → column id → data type)
@@ -333,6 +341,8 @@ export type CountArgs =
 			appId: string;
 			caseType: string;
 			ownerId?: never;
+			/** Same selected-parent population contract as `QueryArgs.parentCaseId`. */
+			parentCaseId?: string;
 			caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 			/** Same contract as `QueryArgs.lookupTableSchemas`. */
 			lookupTableSchemas?: LookupTableSchemas;
@@ -410,6 +420,7 @@ export type CountArgs =
 			appId: string;
 			ownerId: string;
 			caseType?: never;
+			parentCaseId?: never;
 			automationCriteria?: never;
 			caseTypeSchemas?: never;
 			lookupTableSchemas?: never;
@@ -442,6 +453,7 @@ export type CountArgs =
 			caseType: string;
 			missingIndexIdentifier: string;
 			ownerId?: never;
+			parentCaseId?: never;
 			automationCriteria?: never;
 			caseTypeSchemas?: never;
 			lookupTableSchemas?: never;

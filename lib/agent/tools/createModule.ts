@@ -24,6 +24,9 @@
  * Follow-up case-list refinement (sort, filter, search inputs) still
  * goes through the case-list-config tools once the module exists; this
  * tool's `case_list_columns` exists so the module can BE BORN complete.
+ * Optional `parentModuleUuid` creates the module in an existing top-level
+ * menu. Nova supports one child-menu tier, and the document gate proves
+ * parentage, preorder, and content validity atomically.
  *
  * New forms are auxiliary on a Connect app. After their final UUIDs exist,
  * `configureConnect` can replace the complete participant set atomically;
@@ -46,6 +49,7 @@
 import { z } from "zod";
 import {
 	asUuid,
+	childModuleUuids,
 	FORM_TYPES,
 	findAuthoredBlueprintIdentity,
 	POST_SUBMIT_DESTINATIONS,
@@ -126,6 +130,11 @@ export const createModuleInputSchema = z
 			.describe(
 				"Stable UUID for the new module. Omit when nothing in the call references it.",
 			),
+		parentModuleUuid: uuidSchema
+			.optional()
+			.describe(
+				"Stable UUID of the top-level module that should contain this module. Omit to create a top-level module.",
+			),
 		name: z.string().min(1).describe("Module display name"),
 		case_type: z
 			.string()
@@ -194,6 +203,9 @@ export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
 export type CreateModuleResult =
 	| (MutationSuccess & {
 			moduleUuid: string;
+			parentModuleUuid: string | null;
+			childModuleUuids: string[];
+			moduleOrder: string[];
 			forms: Array<{
 				uuid: string;
 				name: string;
@@ -205,7 +217,7 @@ export type CreateModuleResult =
 
 export const createModuleTool = {
 	description:
-		"Add a new module to the app, together with its forms (each with fields) and case-list columns, in one call — a case-managing module lands complete or not at all. Refine the case list afterward (sort, filter, search inputs) via the case-list-config tools.",
+		"Add a new top-level or one-tier child module together with its forms (each with fields) and case-list columns in one call. Omit parentModuleUuid for top-level, or name an existing top-level parent. A case-managing module lands complete or not at all.",
 	inputSchema: createModuleInputSchema,
 	async execute(
 		input: CreateModuleInput,
@@ -214,6 +226,7 @@ export const createModuleTool = {
 		const doc = ctx.snapshot.doc;
 		const {
 			moduleUuid: requestedModuleUuid,
+			parentModuleUuid,
 			name,
 			case_type,
 			purpose,
@@ -265,6 +278,7 @@ export const createModuleTool = {
 				...addModuleMutations({
 					uuid: moduleUuid,
 					name,
+					...(parentModuleUuid !== undefined && { parentModuleUuid }),
 					...(case_type && { caseType: case_type }),
 					...(case_list_only && { caseListOnly: case_list_only }),
 					...(purpose != null && { purpose }),
@@ -440,6 +454,10 @@ export const createModuleTool = {
 				result: {
 					message: `Successfully created module "${name}" (UUID ${moduleUuid})${case_type ? ` (case type: ${case_type})` : ""}${structureNote}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.`,
 					moduleUuid,
+					parentModuleUuid:
+						newDoc.modules[moduleUuid]?.parentModuleUuid ?? null,
+					childModuleUuids: childModuleUuids(newDoc, moduleUuid),
+					moduleOrder: [...newDoc.moduleOrder],
 					forms: createdForms,
 					columns: columns.map((column) => ({ uuid: column.uuid })),
 					summary: { subject: name } satisfies ToolCallSummary,

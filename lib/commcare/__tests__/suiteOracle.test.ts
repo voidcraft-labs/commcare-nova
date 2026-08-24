@@ -68,6 +68,33 @@ describe("suite oracle — clean baseline", () => {
 	});
 });
 
+describe("suite oracle — rooted menus", () => {
+	it("accepts a child whose root resolves to a top-level menu", () => {
+		const rooted = CLEAN_SUITE.replace(
+			"</suite>",
+			'<menu root="m0" id="m1"><text><locale id="modules.m0"/></text></menu>\n</suite>',
+		);
+		expect(validateSuite(rooted, BASE_LOCALES)).toEqual([]);
+	});
+
+	it("flags dangling and nested root targets as unreachable", () => {
+		const dangling = CLEAN_SUITE.replace(
+			"</suite>",
+			'<menu root="missing" id="m1"/>\n</suite>',
+		);
+		expect(codes(validateSuite(dangling, BASE_LOCALES))).toContain(
+			"SUITE_MENU_ROOT_UNRESOLVED",
+		);
+		const nested = CLEAN_SUITE.replace(
+			"</suite>",
+			'<menu root="m0" id="m1"/><menu root="m1" id="m2"/>\n</suite>',
+		);
+		expect(codes(validateSuite(nested, BASE_LOCALES))).toContain(
+			"SUITE_MENU_ROOT_UNRESOLVED",
+		);
+	});
+});
+
 // ── Strict XML / root gates ────────────────────────────────────────
 
 describe("suite oracle — structural gates", () => {

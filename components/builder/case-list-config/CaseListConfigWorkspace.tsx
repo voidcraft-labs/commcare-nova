@@ -73,6 +73,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
@@ -383,6 +384,7 @@ function useController(
 	const tab = stickyTabRef.current;
 
 	const mod = useModule(moduleUuid);
+	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
 	/* The EFFECTIVE view: the same property admission set + types the
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
@@ -1534,7 +1536,7 @@ function useController(
 		moduleUuid,
 		tab,
 		announcement: workspaceAnnouncement,
-		isBareCaseList: mod?.caseListOnly ?? false,
+		isBareCaseList,
 		inspector,
 		onClose: closeSelectionAndRestoreFocus,
 		config,

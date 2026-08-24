@@ -7,6 +7,7 @@ import { proseText } from "../prose";
 
 const MODULE = testUuid("topology-module");
 const MODULE_2 = testUuid("topology-module-2");
+const MODULE_3 = testUuid("topology-module-3");
 const FORM = testUuid("topology-form");
 const FORM_2 = testUuid("topology-form-2");
 const FIELD = testUuid("topology-field");
@@ -87,6 +88,70 @@ describe("closed blueprint topology", () => {
 	it("accepts the exact empty and runnable shapes", () => {
 		expect(blueprintDocSchema.safeParse(emptyDoc()).success).toBe(true);
 		expect(blueprintDocSchema.safeParse(oneFormDoc()).success).toBe(true);
+	});
+
+	it("accepts one-tier modules in contiguous depth-first preorder", () => {
+		const doc = emptyDoc();
+		doc.modules = {
+			[MODULE]: module(MODULE),
+			[MODULE_2]: {
+				...module(MODULE_2),
+				parentModuleUuid: MODULE,
+			},
+			[MODULE_3]: module(MODULE_3),
+		};
+		doc.moduleOrder = [MODULE, MODULE_2, MODULE_3];
+		doc.formOrder = { [MODULE]: [], [MODULE_2]: [], [MODULE_3]: [] };
+		expect(blueprintDocSchema.safeParse(doc).success).toBe(true);
+	});
+
+	it("rejects missing, nested, and noncontiguous module parents", () => {
+		const missing = emptyDoc();
+		missing.modules = {
+			[MODULE]: { ...module(MODULE), parentModuleUuid: UNKNOWN },
+		};
+		missing.moduleOrder = [MODULE];
+		missing.formOrder = { [MODULE]: [] };
+		expect(messages(missing)).toContain(
+			`Module ${MODULE} names missing parent module ${UNKNOWN}.`,
+		);
+
+		const nested = emptyDoc();
+		nested.modules = {
+			[MODULE]: module(MODULE),
+			[MODULE_2]: {
+				...module(MODULE_2),
+				parentModuleUuid: MODULE,
+			},
+			[MODULE_3]: {
+				...module(MODULE_3),
+				parentModuleUuid: MODULE_2,
+			},
+		};
+		nested.moduleOrder = [MODULE, MODULE_2, MODULE_3];
+		nested.formOrder = { [MODULE]: [], [MODULE_2]: [], [MODULE_3]: [] };
+		expect(messages(nested)).toContain(
+			`Module ${MODULE_3} cannot be nested under child module ${MODULE_2}.`,
+		);
+
+		const noncontiguous = emptyDoc();
+		noncontiguous.modules = {
+			[MODULE]: module(MODULE),
+			[MODULE_2]: {
+				...module(MODULE_2),
+				parentModuleUuid: MODULE,
+			},
+			[MODULE_3]: module(MODULE_3),
+		};
+		noncontiguous.moduleOrder = [MODULE, MODULE_3, MODULE_2];
+		noncontiguous.formOrder = {
+			[MODULE]: [],
+			[MODULE_2]: [],
+			[MODULE_3]: [],
+		};
+		expect(messages(noncontiguous)).toContain(
+			"moduleOrder must keep every root immediately before its contiguous child modules.",
+		);
 	});
 
 	it("requires strict UUID record keys", () => {

@@ -59,6 +59,11 @@ import {
 	acceptedInputRequirementIssues,
 } from "./acceptedInputParity";
 import {
+	type AcceptedModulePlacementIssue,
+	acceptedModulePlacementIssues,
+	realizedModuleUuid,
+} from "./acceptedModulePlacement";
+import {
 	BLOCKER_RESOLUTION_ALLOWANCE,
 	type SliceAttemptBudgetClaimResult,
 	type SliceAttemptBudgetCounter,
@@ -792,7 +797,7 @@ function renderExecutorSliceFocus(
 		`Modules: ${brief.moduleRealizations
 			.map(
 				(module) =>
-					`${module.action} ${module.compositionId} (${module.role}, host ${module.hostRecord === null ? "none" : `${module.hostRecord.name} -> ${module.hostRecord.blueprintCaseType}`})`,
+					`${module.action} ${module.compositionId} (${module.role}, menu parent ${module.parentModuleCompositionId ?? "top-level"}, after ${module.afterSiblingModuleCompositionId ?? "first"}, record host ${module.hostRecord === null ? "none" : `${module.hostRecord.name} -> ${module.hostRecord.blueprintCaseType}`})`,
 			)
 			.join("; ")}.`,
 		`Forms: ${brief.formRealizations
@@ -1866,10 +1871,19 @@ export async function runSliceExecutor(
 							boundedSignal,
 						);
 						const stale = staleExternalReads(diagnostics);
+						const executionHandles =
+							workspace.currentExecutionCheckpoint().handles;
 						const requirementIssues = acceptedInputRequirementIssues(
 							workspace.currentSnapshot().doc,
 							brief,
+							executionHandles,
 						);
+						const placementIssues = acceptedModulePlacementIssues(
+							workspace.currentSnapshot().doc,
+							brief,
+							executionHandles,
+						);
+						const acceptedIssues = [...requirementIssues, ...placementIssues];
 						if (stale.length > 0) {
 							await emitOutcome(
 								call,
@@ -1887,11 +1901,11 @@ export async function runSliceExecutor(
 								kind: "stop",
 								outcome: { kind: "read-set-stale", stale },
 							};
-						} else if (!diagnostics.canCommit || requirementIssues.length > 0) {
+						} else if (!diagnostics.canCommit || acceptedIssues.length > 0) {
 							const projected = projectDiagnostics(
 								diagnostics,
 								brief,
-								requirementIssues,
+								acceptedIssues,
 							);
 							const observed = await observeSemanticFailure({
 								signature: failureSignature({
@@ -1899,19 +1913,17 @@ export async function runSliceExecutor(
 									fingerprints: diagnostics.allFindings
 										.map(findingFingerprint)
 										.concat(
-											requirementIssues.map((issue) =>
-												canonicalJsonDigest(issue),
-											),
+											acceptedIssues.map((issue) => canonicalJsonDigest(issue)),
 										)
 										.sort(),
 									canCommit:
-										diagnostics.canCommit && requirementIssues.length === 0,
+										diagnostics.canCommit && acceptedIssues.length === 0,
 								}),
 								observations:
 									diagnostics.allFindings.length > 0 ||
-									requirementIssues.length > 0
+									acceptedIssues.length > 0
 										? [
-												...requirementIssues.map(
+												...acceptedIssues.map(
 													(issue) => `${issue.code}: ${issue.message}`,
 												),
 												...diagnostics.allFindings.map(
@@ -2214,6 +2226,15 @@ function resolveCheckpointIdentity(
 	);
 }
 
+function rawCheckpointHandle(value: unknown): string | null {
+	const object = rawObject(value);
+	return object !== null &&
+		Object.keys(object).length === 1 &&
+		typeof object.handle === "string"
+		? object.handle
+		: null;
+}
+
 /** Critical architecture admission derived from the accepted composition.
  * This is intentionally narrower than a second Blueprint validity gate: it
  * prevents invented module homes and wrong form host/mode choices while the
@@ -2228,6 +2249,7 @@ export function compositionAdmissionIssue(
 	const object = rawObject(input);
 	if (object === null) return null;
 	const snapshot = workspace.currentSnapshot().doc;
+	const executionHandles = workspace.currentExecutionCheckpoint().handles;
 	if (toolName === "generateSchema") {
 		const caseTypes = Array.isArray(object.caseTypes) ? object.caseTypes : [];
 		const expectedByKey = new Map(
@@ -2261,15 +2283,42 @@ export function compositionAdmissionIssue(
 		const candidates = brief.moduleRealizations.filter(
 			(realization) => realization.action === "create",
 		);
+		const declaredModuleHandle = rawCheckpointHandle(object.moduleUuid);
 		const realization = candidates.find(
 			(entry) =>
+				entry.blueprintModuleHandle === declaredModuleHandle &&
 				(entry.hostRecord?.blueprintCaseType ?? null) === caseType &&
 				brief.moduleCompositions.find(
 					(composition) => composition.id === entry.compositionId,
 				)?.name === name,
 		);
 		if (realization === undefined) {
-			return "This slice may create only the exact accepted module composition, with its accepted display name and record host. Reuse an earlier composed module when the brief says reuse; do not create a parallel record home.";
+			return "This slice may create only the exact accepted module composition, using its blueprintModuleHandle as moduleUuid together with its accepted display name and record host. Reuse an earlier composed module when the brief says reuse; do not create a parallel record home.";
+		}
+		const expectedParentUuid =
+			realization.parentModuleCompositionId === null
+				? null
+				: realizedModuleUuid(
+						snapshot,
+						brief,
+						realization.parentModuleCompositionId,
+						executionHandles,
+					);
+		const suppliedParentUuid =
+			object.parentModuleUuid === undefined
+				? null
+				: resolveCheckpointIdentity(object.parentModuleUuid, workspace);
+		const bootstrappingUnresolvedParent =
+			realization.parentModuleCompositionId !== null &&
+			expectedParentUuid === null &&
+			suppliedParentUuid === null;
+		if (
+			!bootstrappingUnresolvedParent &&
+			((realization.parentModuleCompositionId !== null &&
+				expectedParentUuid === null) ||
+				suppliedParentUuid !== expectedParentUuid)
+		) {
+			return "Create this module in the exact accepted parent menu. Omit parentModuleUuid only for a top-level composition; otherwise reference the parent module realization from the brief.";
 		}
 		if (toolName === "createModule") {
 			const forms = Array.isArray(object.forms) ? object.forms : [];
@@ -2296,13 +2345,76 @@ export function compositionAdmissionIssue(
 		return null;
 	}
 
+	if (toolName === "moveModule") {
+		const moduleUuid = resolveCheckpointIdentity(object.moduleUuid, workspace);
+		const module =
+			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
+		if (module === undefined) return null;
+		const realization = brief.moduleRealizations.find(
+			(entry) =>
+				realizedModuleUuid(
+					snapshot,
+					brief,
+					entry.compositionId,
+					executionHandles,
+				) === moduleUuid,
+		);
+		if (realization === undefined) {
+			return "This slice may move only a module represented by its accepted module composition.";
+		}
+		const expectedParentUuid =
+			realization.parentModuleCompositionId === null
+				? null
+				: realizedModuleUuid(
+						snapshot,
+						brief,
+						realization.parentModuleCompositionId,
+						executionHandles,
+					);
+		const expectedAfterUuid =
+			realization.afterSiblingModuleCompositionId === null
+				? null
+				: realizedModuleUuid(
+						snapshot,
+						brief,
+						realization.afterSiblingModuleCompositionId,
+						executionHandles,
+					);
+		const requestedParentUuid =
+			object.parentModuleUuid === undefined
+				? (module.parentModuleUuid ?? null)
+				: resolveCheckpointIdentity(object.parentModuleUuid, workspace);
+		const requestedAfterUuid = resolveCheckpointIdentity(
+			object.after,
+			workspace,
+		);
+		if (
+			(realization.parentModuleCompositionId !== null &&
+				expectedParentUuid === null) ||
+			(realization.afterSiblingModuleCompositionId !== null &&
+				expectedAfterUuid === null) ||
+			requestedParentUuid !== expectedParentUuid ||
+			requestedAfterUuid !== expectedAfterUuid
+		) {
+			return "Move this module only to the exact accepted parent and preceding sibling in the execution brief. Omit parentModuleUuid only for an in-menu reorder; pass null to make it top-level.";
+		}
+		return null;
+	}
+
 	if (toolName === "createForm") {
 		const moduleUuid = resolveCheckpointIdentity(object.moduleUuid, workspace);
 		const module =
 			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
 		const expected = brief.formRealizations.find(
 			(entry) =>
-				entry.blueprintFormType === object.type && entry.name === object.name,
+				entry.blueprintFormType === object.type &&
+				entry.name === object.name &&
+				realizedModuleUuid(
+					snapshot,
+					brief,
+					entry.moduleCompositionId,
+					executionHandles,
+				) === moduleUuid,
 		);
 		const moduleComposition =
 			expected === undefined
@@ -2329,18 +2441,20 @@ export function compositionAdmissionIssue(
 
 	if (toolName === "updateModule" && object.case_type !== undefined) {
 		const moduleUuid = resolveCheckpointIdentity(object.moduleUuid, workspace);
-		const module =
-			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
-		const composition = brief.moduleCompositions.find(
-			(entry) => entry.name === module?.name,
+		const realization = brief.moduleRealizations.find(
+			(entry) =>
+				realizedModuleUuid(
+					snapshot,
+					brief,
+					entry.compositionId,
+					executionHandles,
+				) === moduleUuid,
 		);
-		const host = brief.moduleRealizations.find(
-			(entry) => entry.compositionId === composition?.id,
-		)?.hostRecord;
+		const host = realization?.hostRecord;
 		const requested =
 			typeof object.case_type === "string" ? object.case_type : null;
 		if (
-			composition === undefined ||
+			realization === undefined ||
 			requested !== (host?.blueprintCaseType ?? null)
 		) {
 			return "A module update may not move this accepted composition to a different record host.";
@@ -2382,7 +2496,10 @@ function terminalProtocolCode(error: unknown): string | null {
 function projectDiagnostics(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
 	brief: SliceExecutionBrief,
-	acceptedRequirementIssues: readonly AcceptedInputRequirementIssue[] = [],
+	acceptedRequirementIssues: readonly (
+		| AcceptedInputRequirementIssue
+		| AcceptedModulePlacementIssue
+	)[] = [],
 ): unknown {
 	const MAX_REPORTED_FINDINGS = 20;
 	const initialResultsRealizations = brief.moduleRealizations.filter(

@@ -17,6 +17,7 @@ import {
 } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
+import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -383,6 +384,115 @@ function deriveOwnerByElement(
 	return ownerByElement;
 }
 
+function requiredPrerequisiteWorkflowIds(
+	contract: AppDesignContract,
+	orderedWorkflowIds: readonly string[],
+	ownerByElement: ReadonlyMap<string, string>,
+): Map<string, string[]> {
+	const required: Map<string, Set<string>> = new Map(
+		contract.workflows.map((workflow) => [
+			workflow.id,
+			new Set<string>(workflow.prerequisiteWorkflowIds),
+		]),
+	);
+	const moduleById = new Map(
+		contract.moduleCompositions.map((composition) => [
+			composition.id,
+			composition,
+		]),
+	);
+	const workflowRank = new Map(
+		orderedWorkflowIds.map((workflowId, index) => [workflowId, index]),
+	);
+	const addPlacementOwner = (
+		compositionId: string,
+		anchorId: string | undefined,
+	): void => {
+		if (anchorId === undefined) return;
+		const owner = ownerByElement.get(compositionId);
+		const anchorOwner = ownerByElement.get(anchorId);
+		if (
+			owner !== undefined &&
+			anchorOwner !== undefined &&
+			owner !== anchorOwner
+		) {
+			required.get(owner)?.add(anchorOwner);
+		}
+	};
+	for (const [
+		compositionIndex,
+		composition,
+	] of contract.moduleCompositions.entries()) {
+		const parent =
+			composition.parentModuleCompositionId === undefined
+				? undefined
+				: moduleById.get(composition.parentModuleCompositionId);
+		addPlacementOwner(composition.id, parent?.id);
+		/* A different-record child consumes a case selection created by the
+		 * parent menu's first form. A form-and-queue parent can be born earlier
+		 * from its list alone, so depending only on the parent module owner would
+		 * let the child run before that form exists. Graph admission proves this
+		 * form owner is not later than the child owner. */
+		if (
+			parent !== undefined &&
+			composition.hostRecordId !== undefined &&
+			parent.hostRecordId !== composition.hostRecordId
+		) {
+			const parentFormOwner = contract.formCompositions
+				.filter((form) => form.moduleCompositionId === parent.id)
+				.map((form) => form.workflowId)
+				.sort(
+					(left, right) =>
+						(workflowRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
+						(workflowRank.get(right) ?? Number.MAX_SAFE_INTEGER),
+				)[0];
+			const childOwner = ownerByElement.get(composition.id);
+			if (
+				parentFormOwner !== undefined &&
+				childOwner !== undefined &&
+				parentFormOwner !== childOwner
+			) {
+				required.get(childOwner)?.add(parentFormOwner);
+			}
+			/* The Blueprint validator requires a viewer module before any form
+			 * creates that case type. When the writer lives in this parent menu,
+			 * schedule the child viewer's owner first. If one workflow owns both,
+			 * the executor uses the bounded top-level bootstrap and reparents the
+			 * child before finalizing the slice. */
+			for (const writerWorkflowId of parentFormChildWriterWorkflowIds(
+				contract,
+				parent.id,
+				composition.hostRecordId,
+			)) {
+				if (childOwner !== undefined && writerWorkflowId !== childOwner) {
+					required.get(writerWorkflowId)?.add(childOwner);
+				}
+			}
+		}
+
+		/* `createModule.after` names the exact preceding sibling, so source order
+		 * alone is insufficient: the scheduler needs the sibling owner's durable
+		 * slice dependency before this slice may run. Graph validation has already
+		 * proved that owner is not later, preventing a new cycle or a root that
+		 * depends on a later slice. */
+		const precedingSibling = contract.moduleCompositions
+			.slice(0, compositionIndex)
+			.filter(
+				(candidate) =>
+					candidate.parentModuleCompositionId ===
+					composition.parentModuleCompositionId,
+			)
+			.pop();
+		addPlacementOwner(composition.id, precedingSibling?.id);
+	}
+	return new Map(
+		[...required].map(([workflowId, ids]) => [
+			workflowId,
+			orderedWorkflowIds.filter((id) => ids.has(id)),
+		]),
+	);
+}
+
 function expectedElementKinds(
 	contract: AppDesignContract,
 ): Map<string, DesignElementRef["kind"]> {
@@ -477,6 +587,11 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 		const assigned = new Map<string, string>();
 		const orderedWorkflowIds = workflowOrder(contract);
 		const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
+		const requiredPrerequisites = requiredPrerequisiteWorkflowIds(
+			contract,
+			orderedWorkflowIds,
+			ownerByElement,
+		);
 		const kindsByElement = expectedElementKinds(contract);
 		const planWorkflowIds = new Set<string>(
 			plan.slices.map((slice) => slice.workflowId),
@@ -498,7 +613,31 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 					"A BuildPlan must contain exactly one slice for every included workflow and no extra slices.",
 			});
 		}
+		const workflowBySliceId = new Map(
+			plan.slices.map((entry) => [
+				entry.id as string,
+				entry.workflowId as string,
+			]),
+		);
 		plan.slices.forEach((slice, sliceIndex) => {
+			const actualPrerequisites = slice.prerequisiteSliceIds
+				.map((id) => workflowBySliceId.get(id as string))
+				.filter((id): id is string => id !== undefined);
+			const expectedPrerequisites =
+				requiredPrerequisites.get(slice.workflowId) ?? [];
+			if (
+				actualPrerequisites.length !== expectedPrerequisites.length ||
+				actualPrerequisites.some(
+					(id, index) => id !== expectedPrerequisites[index],
+				)
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["slices", sliceIndex, "prerequisiteSliceIds"],
+					message:
+						"Slice prerequisites must exactly include accepted workflow dependencies, every distinct parent or preceding-sibling module construction owner, the first form owner for a different-record parent menu, and every child viewer required before a parent-menu form creates that child record.",
+				});
+			}
 			if (!workflowIds.has(slice.workflowId))
 				ctx.addIssue({
 					code: "custom",
@@ -671,6 +810,11 @@ export function deriveBuildPlan(args: {
 	);
 	const initial = contract.charter.initialWorkflowId;
 	const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
+	const requiredPrerequisites = requiredPrerequisiteWorkflowIds(
+		contract,
+		orderedWorkflowIds,
+		ownerByElement,
+	);
 	const refsFor = (
 		workflowId: string,
 		kinds: DesignElementRef["kind"][],
@@ -920,7 +1064,7 @@ export function deriveBuildPlan(args: {
 			workflowId: workflow.id,
 			name: workflow.name,
 			goal: workflow.goal,
-			prerequisiteSliceIds: workflow.prerequisiteWorkflowIds.map(
+			prerequisiteSliceIds: (requiredPrerequisites.get(workflow.id) ?? []).map(
 				(id) => sliceIdByWorkflow.get(id) as z.infer<typeof designIdSchema>,
 			),
 			constructionGroups: groupsFor(workflowId),

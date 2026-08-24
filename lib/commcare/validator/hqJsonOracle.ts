@@ -388,6 +388,7 @@ function checkSubcase(
  */
 interface HqIdentityTable {
 	readonly moduleIds: ReadonlySet<string>;
+	readonly modulesById: ReadonlyMap<string, HqModule>;
 	readonly formIds: ReadonlySet<string>;
 	/** Each module's form unique ids: HQ resolves a link's `form_id` INSIDE
 	 *  `form_module_id` (`get_module_by_unique_id(...).get_form_by_unique_id`),
@@ -834,6 +835,38 @@ function checkModule(
 		);
 	}
 
+	if (module.root_module_id !== null) {
+		const root = ids.modulesById.get(module.root_module_id);
+		if (root === undefined || root === module || root.root_module_id !== null) {
+			errors.push(
+				validationError(
+					"HQJSON_BAD_ROOT_MODULE_ID",
+					"module",
+					`Module "${moduleName}" declares root_module_id="${module.root_module_id}", but it must resolve to a distinct root module in the same app. This is a bug in the app generator.`,
+					loc,
+				),
+			);
+		}
+	}
+
+	const parentSelectId = module.parent_select.module_id;
+	if (
+		module.parent_select.active
+			? parentSelectId === null ||
+				!ids.moduleIds.has(parentSelectId) ||
+				parentSelectId === module.unique_id
+			: parentSelectId !== null
+	) {
+		errors.push(
+			validationError(
+				"HQJSON_BAD_PARENT_SELECT_MODULE_ID",
+				"module",
+				`Module "${moduleName}" has an inconsistent parent_select module_id. An active selector must name a distinct module in this app; an inactive selector must name none. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+
 	checkDetail(module.case_details.short, moduleName, errors);
 	checkDetail(module.case_details.long, moduleName, errors);
 
@@ -921,6 +954,9 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 
 	const ids: HqIdentityTable = {
 		moduleIds: new Set(hqApp.modules.map((module) => module.unique_id)),
+		modulesById: new Map(
+			hqApp.modules.map((module) => [module.unique_id, module]),
+		),
 		formIds: new Set(
 			hqApp.modules.flatMap((module) =>
 				module.forms.map((form) => form.unique_id),

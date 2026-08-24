@@ -1,0 +1,76 @@
+---
+title: Organize an app with submenus
+description: Group related modules under one menu while keeping each workflow complete and easy to find.
+---
+
+A submenu gives an app one extra level of navigation. A top-level module can
+hold its own forms or case list and also open related child modules. App home
+stays short, while the child workflows remain separate and easy to name.
+
+Nova supports one submenu level. A child cannot contain another child, and a
+top-level module that already has children cannot move under another module.
+This is the same menu shape CommCare HQ can author and maintain.
+
+## Add or move a submenu
+
+Use the app tree to add a submenu under an eligible top-level module. To move an
+existing module, open its actions or **Menu placement** in module settings, then
+choose a top-level destination. **Make top-level** returns a child to app home.
+
+Moving a module keeps the module, its forms, and its links intact. Its address
+does not change, so an open form or settings screen stays selected while the
+breadcrumb updates to show the new path.
+
+Every module still needs its own working content. A parent needs at least one
+form or a valid case list, and a child follows the same rule. Child menus do not
+turn an otherwise empty parent into a complete workflow.
+
+A parent with only a case list can group child modules that use the same case
+type. To group a child with a different case type, make the parent form-bearing
+and give it a form so CommCare can keep both case selections distinct.
+
+Nova will not remove a parent while it still has children. Move or remove those
+children first, then remove the parent.
+
+## What people see in Preview
+
+App home shows top-level modules only. Opening a parent shows its own forms or a
+**Cases** entry alongside its child menus. Opening a child keeps the complete
+menu path in the breadcrumb.
+
+If the parent starts by choosing a case, Preview returns to the parent menu
+after that choice so its child menus remain available. A child that works with
+the same case type can keep using the selected case. A child with a different
+case type follows the app's parent-case relationship before opening its own
+workflow.
+
+## Menu parents and case parents are different
+
+A menu parent controls where a module appears. A case parent describes how two
+case types are related and which case someone selects first. Changing one does
+not change the other.
+
+Selecting a parent first narrows existing child cases for followup and close
+forms. A basic registration form creates its primary case without storing that
+selected parent as a case relationship.
+
+For example, **Households > Visits** can be a menu path even if both modules
+work with household cases. Or **Clients > Referrals** can be a menu path while
+the referral case type is a child of the client case type. Nova keeps the
+navigation path and the case relationship separate, then carries the right
+selected cases when the workflow opens.
+
+## Conditions and repeated views
+
+A child is available only when its parent and the child itself are available.
+Give each module the condition that belongs to it. Nova combines the path while
+someone navigates, without copying the parent's condition into the child.
+
+A form belongs to one module. Nova does not place one form under several menus.
+When several modules should show the same case data in different ways, use
+case-list filters and focused module design. When two workflows truly differ,
+give each one its own form so its purpose stays clear.
+
+After-submit links can still open another module or form. Those links choose
+where to go after a form closes; they do not change the app's menu structure.
+See [After submit](./form-links.mdx) for that workflow.

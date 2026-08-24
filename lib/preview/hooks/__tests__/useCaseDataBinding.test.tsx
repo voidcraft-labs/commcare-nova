@@ -690,6 +690,35 @@ describe("useCaseCount request identity", () => {
 			expect(hook.result.current.state).toEqual({ kind: "count", count: 2 }),
 		);
 	});
+
+	it("refetches and forwards the exact selected-parent population", async () => {
+		vi.mocked(loadCaseCountAction).mockResolvedValue({
+			kind: "count",
+			count: 0,
+		});
+		let parentCaseId = "household-a";
+		const hook = renderHook(() =>
+			useCaseCount({ appId: APP_ID, caseType: "visit", parentCaseId }),
+		);
+
+		await waitFor(() => expect(loadCaseCountAction).toHaveBeenCalledTimes(1));
+		expect(loadCaseCountAction).toHaveBeenLastCalledWith({
+			appId: APP_ID,
+			caseType: "visit",
+			includeHeld: false,
+			parentCaseId: "household-a",
+		});
+
+		parentCaseId = "household-b";
+		hook.rerender();
+		await waitFor(() => expect(loadCaseCountAction).toHaveBeenCalledTimes(2));
+		expect(loadCaseCountAction).toHaveBeenLastCalledWith({
+			appId: APP_ID,
+			caseType: "visit",
+			includeHeld: false,
+			parentCaseId: "household-b",
+		});
+	});
 });
 
 describe("case-data invalidation", () => {

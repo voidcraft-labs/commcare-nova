@@ -15,7 +15,7 @@ range, never a bare `z.number()`.
 
 ## BlueprintDoc — normalized, with derived state stripped at the boundary
 
-An app is UUID-keyed records (`modules` / `forms` / `fields`) plus membership arrays (`moduleOrder` / `formOrder` / `fieldOrder`) — not a nested tree.
+An app is UUID-keyed records (`modules` / `forms` / `fields`) plus membership arrays (`moduleOrder` / `formOrder` / `fieldOrder`) — not a nested object tree. A child menu remains an ordinary module record and names its parent by UUID.
 
 Sequence is plain array position. Position belongs to the collection, so entities and nested members carry no parallel `order` key. Every stored ENTITY has a required UUID (modules, forms, fields, user properties, user types, personas, organization levels, location properties, and automations, plus case-list columns, Search inputs, case operations, inline select options, and every addressable automation child); nested members that are not entities, such as case-operation writes and links, catalog properties and their options, and ID/image mapping rows, are identified by position and their own keys instead. Hydration restores only derived indexes/prototypes and never invents identity or repairs sequence.
 
@@ -238,6 +238,16 @@ Each field kind is one file under `fields/`, and the union (`fieldSchema`) discr
 ## Forms and modules
 
 **Four form types** (`forms.ts`): `registration` creates a case, `followup` updates one, `close` loads + closes (a superset of followup), `survey` touches no case. Use the centralized sets — `CASE_FORM_TYPES`, `CASE_LOADING_FORM_TYPES` (`{followup, close}`) — never ad-hoc string comparisons. `isCaseFirstModule` mirrors `commcare-core`'s `getDataNeededByAllEntries` exactly (a module lands on its case list only when every form is case-loading); `defaultPostSubmit` is the form-type-aware navigation default.
+
+**Menus are one tier deep.** `Module.parentModuleUuid` is absent for a root
+menu or names another root module; a child cannot itself be a parent. The
+relationship is UUID-backed identity, not a copied name or a second ownership
+tree. `moduleOrder` remains the one persisted module sequence and is canonical
+preorder: each root is immediately followed by its complete ordered child
+block. `moduleHierarchy.ts` is the shared projection for parent, siblings,
+children, root blocks, and preorder. The blueprint validator rejects a missing
+or non-root parent and any order that is not that projection, so every consumer
+can read the same flat sequence without repairing it.
 
 Modules and forms each carry an optional typed `displayCondition: Predicate`.
 The schema records the expression; the CommCare validator owns the narrower

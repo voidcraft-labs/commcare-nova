@@ -202,6 +202,7 @@ function buildCaseBlocks(
 	actions: FormActions,
 	caseType: string | undefined,
 	attachmentPaths: () => ReadonlySet<string>,
+	selectedCaseIdRef: string,
 ): CaseBlocksEmission | null {
 	const openCase = actions.open_case;
 	const updateCase = actions.update_case;
@@ -363,7 +364,7 @@ function buildCaseBlocks(
 		binds.push(
 			el("bind", {
 				nodeset: primaryCasePath.attr("case_id").toXPath(),
-				calculate: "instance('commcaresession')/session/data/case_id",
+				calculate: selectedCaseIdRef,
 			}),
 		);
 	}
@@ -520,7 +521,7 @@ function buildCaseBlocks(
 				el("setvalue", {
 					ref: validateXFormPath(questionPath),
 					event: "xforms-ready",
-					value: `instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/${validatePropertyName(
+					value: `instance('casedb')/casedb/case[@case_id=${selectedCaseIdRef}]/${validatePropertyName(
 						formActionsPropertyToWire(caseProperty),
 					)}`,
 				}),
@@ -1038,6 +1039,7 @@ export function addCaseBlocks(
 	xform: string,
 	actions: FormActions,
 	caseType: string | undefined,
+	selectedCaseIdRef = "instance('commcaresession')/session/data/case_id",
 ): string {
 	/* The upload-ref scan needs the parsed document, and the early return
 	 * below is documented as skipping the parse entirely, so both parse
@@ -1051,6 +1053,7 @@ export function addCaseBlocks(
 		actions,
 		caseType,
 		() => (uploadRefs ??= attachmentQuestionPaths(parsedXForm())),
+		selectedCaseIdRef,
 	);
 	if (emission === null) return xform;
 

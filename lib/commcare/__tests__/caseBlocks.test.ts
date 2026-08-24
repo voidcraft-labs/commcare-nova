@@ -68,6 +68,25 @@ function subcase(overrides: Partial<OpenSubCaseAction>): OpenSubCaseAction {
 }
 
 describe("addCaseBlocks — case preload", () => {
+	it("anchors update and preload blocks on a renamed child datum", () => {
+		const actions = emptyFormActions();
+		actions.update_case.condition = alwaysCondition();
+		actions.update_case.update = {
+			weight: { question_path: "/data/weight", update_mode: "always" },
+		};
+		actions.case_preload.condition = alwaysCondition();
+		actions.case_preload.preload = { "/data/weight": "weight" };
+		const selected = "instance('commcaresession')/session/data/case_id_child";
+
+		const out = deApos(
+			addCaseBlocks(hostXForm(["weight"]), actions, "patient", selected),
+		);
+		expect(out).toContain(
+			`nodeset="/data/case/@case_id" calculate="${selected}"`,
+		);
+		expect(out).toContain(`case[@case_id=${selected}]/weight`);
+	});
+
 	it("emits a casedb-read setvalue per preloaded property", () => {
 		const actions = emptyFormActions();
 		actions.update_case.condition = alwaysCondition();

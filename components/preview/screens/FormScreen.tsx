@@ -65,6 +65,8 @@ import {
 	carriedCaseFor,
 	evaluateFormLinks,
 	type PostSubmissionCaseData,
+	projectTargetCaseSelections,
+	type SelectedCaseSessionValue,
 	sourceSessionDatums,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
@@ -76,8 +78,10 @@ import {
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
+import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { previewMenuCaseContext } from "@/lib/preview/menuProjection";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
@@ -85,10 +89,12 @@ import {
 	useBuilderIsReady,
 	useCanEdit,
 	useEditMode,
+	usePreviewMenuCaseSelections,
 	usePreviewPersonaUuid,
 	useProjectId,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
+	useSetPreviewMenuCaseSelection,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
@@ -110,7 +116,11 @@ import {
 import { SectionPage } from "../form/sections/SectionPage";
 import { SectionStepper } from "../form/sections/SectionPagerControls";
 import { useSectionPaging } from "../form/sections/useSectionPaging";
-import { afterSubmitRoute } from "./afterSubmitRouting";
+import {
+	afterSubmitRoute,
+	previewMenuSelectionsAfterTargetCases,
+	previewTargetHasSelectedCase,
+} from "./afterSubmitRouting";
 import {
 	FORM_PRIMARY_ACTION_CLS,
 	FORM_QUIET_ACTION_CLS,
@@ -257,7 +267,8 @@ interface SubmissionContextSnapshot {
 }
 
 interface FormScreenProps {
-	/** Passed from PreviewShell so the subtree stays valid while Activity hides it. Only `caseId` is consumed here. */
+	/** Stable identity passed by PreviewShell so an Activity-retained form never
+	 * starts reading a newer route's module, form, or selected case. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
 	/** BuilderLayout's back handler: also the fallback post-submit destination for `previous` forms. */
 	onBack: () => void;
@@ -285,6 +296,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
 	const personaUuid = usePreviewPersonaUuid();
+	const menuSource = usePreviewMenuSource();
+	const menuCaseSelections = usePreviewMenuCaseSelections();
 	// The worker's restore is derived from their assignment and the place tree,
 	// neither of which is an argument to these reads. See `useRestoreScopeKey`.
 	const restoreScopeKey = useRestoreScopeKey(personaUuid);
@@ -309,12 +322,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		loc.kind === "form-condition" ||
 		loc.kind === "form-operations" ||
 		loc.kind === "form-links";
-	const formUuid = atForm ? loc.formUuid : undefined;
-	const moduleUuid = atForm ? loc.moduleUuid : undefined;
-	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
+	const formUuid = screen.formUuid;
+	const moduleUuid = screen.moduleUuid;
+	const routeMatchesScreen =
+		atForm && loc.formUuid === formUuid && loc.moduleUuid === moduleUuid;
+	const selectedUuid =
+		loc.kind === "form" && routeMatchesScreen ? loc.selectedUuid : undefined;
 
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
+	const menuCaseContext = useMemo(
+		() => previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections),
+		[menuCaseSelections, menuSource, moduleUuid],
+	);
 	const language = useBuilderLanguage();
 	const formNameUnitId = makeTranslationUnitId(
 		"form",
@@ -341,21 +361,24 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		mode === "preview" &&
 		form !== undefined &&
 		CASE_LOADING_FORM_TYPES.has(form.type) &&
-		caseId === undefined;
+		caseId === undefined &&
+		menuCaseContext.selectedCase === undefined;
 	const autoCases = useCases({
 		appId,
 		caseType: autoSelectCase ? mod?.caseType : undefined,
+		parentCase: autoSelectCase ? menuCaseContext.parentCase : undefined,
 		requestScopeKey: `${moduleUuid ?? ""}\u0000${formUuid ?? ""}\u0000${restoreScopeKey}`,
 	});
 	const autoRow =
 		autoSelectCase && autoCases.state.kind === "rows"
 			? autoCases.state.rows[0]
 			: undefined;
-	/** The case actually bound to this form: the nav-provided one, else the
-	 *  first auto-selected case. Threaded to both preload and submit so a
-	 *  directly-previewed case-loading form behaves exactly like one reached
-	 *  through the case list. */
-	const effectiveCaseId = caseId ?? autoRow?.case_id;
+	/** The case actually bound to this form: an explicit navigation target wins;
+	 *  otherwise the menu's exact own-type selection (including deliberate
+	 *  same-type structural inheritance) wins before the first auto-selected
+	 *  row. A different-type menu parent constrains that fallback query above. */
+	const effectiveCaseId =
+		caseId ?? menuCaseContext.selectedCase?.caseId ?? autoRow?.case_id;
 	const replacementRevision = useCaseDataReplacementRevision(
 		appId,
 		mod?.caseType,
@@ -626,6 +649,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const clearRunning = clearTargetEntryKey !== undefined;
 	const submissionAttemptRef = useRef(0);
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
+	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
 	/* Read imperatively once a submission has landed: the after-submit links
 	 * project against the document as it is THEN, and a module target lands
@@ -897,11 +921,34 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							];
 				}),
 			};
+			/* Form-link evaluation consumes module-keyed CASE SESSION values, not
+			 * raw menu ancestry. The canonical menu projection resolves same-type
+			 * structural inheritance and case-type parent selection first; the wire
+			 * projection then maps those stable module identities to final datum ids. */
+			const selectedCases = new Map<Uuid, SelectedCaseSessionValue>();
+			for (const selectedModuleUuid of menuSource.moduleOrder) {
+				const selected = previewMenuCaseContext(
+					menuSource,
+					selectedModuleUuid,
+					menuCaseSelections,
+				).selectedCase;
+				if (selected === undefined) continue;
+				selectedCases.set(selectedModuleUuid, {
+					caseType: selected.caseType,
+					value: selected.caseId,
+					caseName: selected.caseName,
+				});
+			}
 			const input = {
 				doc,
 				session: previewSessionValues(previewIdentity),
 				usercase: previewIdentity?.usercase ?? {},
-				sessionDatums: sourceSessionDatums(doc, sourceFormUuid, submission),
+				sessionDatums: sourceSessionDatums(
+					doc,
+					sourceFormUuid,
+					submission,
+					selectedCases,
+				),
 				caseData,
 			};
 			const route = afterSubmitRoute({
@@ -912,18 +959,105 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				}),
 				doc,
 				caseFirstModules,
+				hasSelectedCase: (targetModuleUuid, projectedSelections) => {
+					return previewTargetHasSelectedCase({
+						menuSource,
+						current: menuCaseSelections,
+						targetModuleUuid,
+						projected: projectedSelections,
+					});
+				},
 				carriedCase: (link) => carriedCaseFor(input, sourceFormUuid, link),
+				caseSelections: (link) =>
+					projectTargetCaseSelections(input, sourceFormUuid, link),
 			});
+			let targetCaseData = caseData;
+			if (route.kind === "module" || route.kind === "form") {
+				const hydratedCases = new Set<string>();
+				for (const [caseType, properties] of targetCaseData) {
+					const caseId = properties.get("case_id");
+					if (caseId !== undefined && caseId !== "") {
+						hydratedCases.add(`${caseType}\0${caseId}`);
+					}
+				}
+				for (const selection of route.caseSelections) {
+					if (selection.caseId === "") continue;
+					const selectionKey = `${selection.caseType}\0${selection.caseId}`;
+					if (hydratedCases.has(selectionKey)) continue;
+					const chain = reachableCaseTypes(selection.caseType, caseTypes);
+					const read = await loadCaseDataAction(
+						submitted.appId,
+						selection.caseType,
+						selection.caseId,
+						Math.max(0, chain.length - 1),
+						undefined,
+						undefined,
+						viewerTimeZone(),
+						undefined,
+						submitted.personaUuid,
+						false,
+					);
+					if (!isCurrent()) {
+						settleAttempt({ kind: "idle" });
+						return;
+					}
+					if (read.kind !== "row") {
+						failAfterSave(
+							"Your answers were saved, but the next case could not be read to open the next screen. Reload the app and try again.",
+							new Error(
+								`after-submit target read of ${selection.caseType} case ${selection.caseId} answered ${read.kind}`,
+							),
+						);
+						return;
+					}
+					const loaded = caseRowsToFormPreloads(
+						read.row,
+						read.ancestors,
+						chain,
+					);
+					targetCaseData = new Map([...targetCaseData, ...loaded]);
+					for (const [loadedCaseType, properties] of loaded) {
+						const loadedCaseId = properties.get("case_id");
+						if (loadedCaseId !== undefined && loadedCaseId !== "") {
+							hydratedCases.add(`${loadedCaseType}\0${loadedCaseId}`);
+						}
+					}
+				}
+			}
+			const applyCaseSelections = (): void => {
+				if (route.kind !== "module" && route.kind !== "form") return;
+				const nextSelections = previewMenuSelectionsAfterTargetCases(
+					menuSource,
+					menuCaseSelections,
+					route.caseSelections,
+					targetCaseData,
+				);
+				for (const selectedModuleUuid of menuSource.moduleOrder) {
+					const current = menuCaseSelections[selectedModuleUuid];
+					const next = nextSelections[selectedModuleUuid];
+					if (
+						current?.caseType === next?.caseType &&
+						current?.caseId === next?.caseId &&
+						current?.caseName === next?.caseName &&
+						current?.caseProperties === next?.caseProperties
+					) {
+						continue;
+					}
+					setPreviewMenuCaseSelection(selectedModuleUuid, next);
+				}
+			};
 			switch (route.kind) {
 				case "post-submit":
 					settleAttempt({ kind: "idle" });
 					dispatchPostSubmit(route.destination, submitted.moduleUuid);
 					return;
 				case "module":
+					applyCaseSelections();
 					settleAttempt({ kind: "idle" });
 					openModuleLanding(navigate, route.moduleUuid, route.landing);
 					return;
 				case "form":
+					applyCaseSelections();
 					/* The target's case binding is rewritten BEFORE the push, so
 					 * the form mounts already bound (or already bound to nothing)
 					 * rather than auto-selecting a case for one render. */

@@ -12,6 +12,29 @@ Same as `lib/doc`: the store is private. Consumers go through the named hooks in
 - **Write from outside React.** Stream handlers and route handlers toggle run lifecycle via the store without threading through context.
 - **Disjoint responsibilities.** Mutations to the blueprint and mutations to UI state are visibly different call sites, so reviewers can reason about each independently.
 
+## Preview navigation is ephemeral and identity-based
+
+The running menu keeps three distinct case facts, and they must not collapse:
+
+- `previewCaseTarget` means one exact Form is opening with one case.
+- `previewSelectedCase` mirrors the record currently open on Results for the breadcrumb/detail step.
+- `previewMenuCaseSelections` is keyed by module UUID and binds a case to that menu. It survives ordinary in-Preview navigation so a parent menu can keep its Forms and child tiles available; a same-type child may reuse it without turning the Form target into shared state.
+
+`previewParentCaseRequest` is a separate selector plus ordered return chain, so
+multi-level case ancestry can visit each required selector before the original
+module. A direct running leaf also records its exact `resumeLocation` (including
+the Form UUID, selected field, or Results case UUID) and a safe
+`cancelLocation`; every intermediate selector preserves both. Its selecting
+module is derived from case-type `parent_type`, not from structural
+`parentModuleUuid`; this keeps menu ancestry and case ancestry independent when
+a nested child belongs under one menu but its case parent is selected through
+another module. Explicit cancel, browser Back, and navigation away clear the
+request so an abandoned selector cannot redirect a later visit. All four facts
+clear on Preview mode or persona changes and on a confirmed Project boundary.
+They are session-only and never enter the document, undo history, or persisted
+app state; the locations are navigation return intents, not durable routing
+state.
+
 ## Connect UI state is not Connect document ownership
 
 The store owns only the form-settings convenience state: mode-specific draft

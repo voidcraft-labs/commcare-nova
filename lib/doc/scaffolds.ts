@@ -38,23 +38,12 @@ import {
 } from "@/lib/domain";
 import { addModuleMutation } from "./addModuleMutation";
 import type { CaseTypeRetirement } from "./caseTypeRetirement";
-import { orderedFormUuids, orderedModuleUuids } from "./fieldWalk";
+import { orderedFormUuids } from "./fieldWalk";
 import {
 	type ModuleAuthoringPatch,
 	modulePatchMutations,
 } from "./modulePatchMutations";
 import type { Mutation } from "./types";
-
-/** The module a new one inserted at `index` (default append) should follow —
- *  `null` when it goes first. */
-export function moduleAfterAtIndex(
-	doc: BlueprintDoc,
-	index: number | undefined,
-): Uuid | null {
-	const sequence = orderedModuleUuids(doc);
-	const at = index ?? sequence.length;
-	return at > 0 ? (sequence[Math.min(at, sequence.length) - 1] ?? null) : null;
-}
 
 /** The form a new one inserted at `index` (default append) should follow within
  *  its module — `null` when it goes first. */
@@ -171,8 +160,10 @@ export interface CaseListModuleScaffold {
 	caseType: string;
 	/** Display name; defaults to the humanized case type. */
 	name?: string;
-	/** Insertion index in `moduleOrder`; appends when omitted. */
-	index?: number;
+	/** Optional parent menu. Omission creates a top-level module. */
+	parentModuleUuid?: Uuid;
+	/** Sibling predecessor; null is first and omission appends. */
+	after?: Uuid | null;
 }
 
 /** Declare `caseType` in the catalog (empty properties) when it's new — a no-op
@@ -272,7 +263,7 @@ export function caseTypeCatalogMutations(
  */
 export function caseListModuleMutations(
 	doc: BlueprintDoc,
-	{ caseType, name, index }: CaseListModuleScaffold,
+	{ caseType, name, parentModuleUuid, after }: CaseListModuleScaffold,
 ): { mutations: Mutation[]; moduleUuid: Uuid } {
 	const moduleUuid = asUuid(crypto.randomUUID());
 	const moduleName = name ?? humanizeId(caseType);
@@ -280,6 +271,7 @@ export function caseListModuleMutations(
 		uuid: moduleUuid,
 		id: uniqueSlug(moduleName, "module", existingModuleIds(doc)),
 		name: moduleName,
+		...(parentModuleUuid !== undefined && { parentModuleUuid }),
 		caseType,
 		caseListOnly: true,
 		caseListConfig: caseListConfigWithName(),
@@ -287,7 +279,7 @@ export function caseListModuleMutations(
 	return {
 		mutations: [
 			...declareCaseTypeMutations(doc, caseType),
-			addModuleMutation(module, anchorForIndex(doc.moduleOrder, index)),
+			addModuleMutation(module, after),
 		],
 		moduleUuid,
 	};
@@ -308,7 +300,15 @@ export function caseListModuleMutations(
  */
 export function surveyModuleMutations(
 	doc: BlueprintDoc,
-	{ name, index }: { name?: string; index?: number } = {},
+	{
+		name,
+		parentModuleUuid,
+		after,
+	}: {
+		name?: string;
+		parentModuleUuid?: Uuid;
+		after?: Uuid | null;
+	} = {},
 ): {
 	mutations: Mutation[];
 	moduleUuid: Uuid;
@@ -321,6 +321,7 @@ export function surveyModuleMutations(
 		uuid: moduleUuid,
 		id: uniqueSlug(moduleName, "module", existingModuleIds(doc)),
 		name: moduleName,
+		...(parentModuleUuid !== undefined && { parentModuleUuid }),
 	};
 	const formUuid = asUuid(crypto.randomUUID());
 	const formName = formTypeLabels.survey;
@@ -333,7 +334,7 @@ export function surveyModuleMutations(
 	const field: TextField = defaultQuestion();
 	return {
 		mutations: [
-			addModuleMutation(module, anchorForIndex(doc.moduleOrder, index)),
+			addModuleMutation(module, after),
 			{ kind: "addForm", moduleUuid, form },
 			{ kind: "addField", parentUuid: formUuid, field },
 		],

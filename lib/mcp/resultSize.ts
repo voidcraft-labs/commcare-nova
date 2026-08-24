@@ -19,17 +19,13 @@
  * `_meta` is the MCP spec's namespaced passthrough, so a host that
  * doesn't recognize this key ignores it — the intended degradation. The
  * key itself is Claude Code's, not part of the spec, which is why
- * nothing may depend on it silently: the served prompt also carries
- * `PROMPT_END_MARKER` so a caller can prove delivery instead of
- * assuming it.
+ * nothing may depend on it silently: a large served prompt is split into
+ * snapshot-bound continuation pages that stay below a separate, conservative
+ * model-facing transport budget, and the assembled prompt carries
+ * `PROMPT_END_MARKER` so a caller can prove delivery instead of assuming it.
  *
- * **This is a ceiling, not a budget to spend.** A second, MCP-wide
- * token cap sits above it that no server-side declaration can lift, so
- * a result that would need more than this is not made deliverable by
- * asking for more — it has to get smaller at its source. Two places do
- * that: `MAX_RESULTS` bounds `search_blueprint`, and
- * `MAX_DELIVERABLE_PROMPT_CHARS` bounds what the edit-mode prompt will
- * inline.
+ * **This is a ceiling, not a budget to spend.** Bounded tools, such as
+ * `search_blueprint`, keep their own explicit completeness contract.
  *
  * Tools whose result is a payload to be saved rather than read —
  * `compile_app`'s base64 archives — deliberately keep the default.

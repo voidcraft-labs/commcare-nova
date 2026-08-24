@@ -6,9 +6,10 @@
 // condition takes effect, and that answer changes with the module's
 // shape.
 //
-// CommCare checks a module's condition on the home screen and a form's
-// condition wherever the worker chooses that form, and those are two
-// different screens depending on the module:
+// CommCare checks a root module's condition on Home, a child module's
+// condition on its parent menu, and a form's condition wherever the worker
+// chooses that form. Those are different screens depending on placement and
+// module shape:
 //
 //   - every form opens an existing case (case-first): the worker picks a
 //     case first, so the form condition is checked afterwards, against
@@ -27,6 +28,9 @@ export type DisplayConditionCarrier =
 	| {
 			readonly kind: "module";
 			readonly moduleName: string;
+			/** Present for the one supported child tier. Its condition is checked
+			 * on this parent menu rather than on Home. */
+			readonly parentModuleName?: string;
 			/** A module with no forms is its case list, so it has no home tile
 			 *  of its own to describe differently: the copy still holds. */
 			readonly moduleIsBareCaseList: boolean;
@@ -102,11 +106,20 @@ export function displayConditionCopy(
 ): DisplayConditionCopy {
 	if (carrier.kind === "module") {
 		const name = quoted(carrier.moduleName);
+		const parentName =
+			carrier.parentModuleName === undefined
+				? undefined
+				: quoted(carrier.parentModuleName);
 		return {
 			title: `When ${name} appears`,
-			lede: `${name} is one of the modules on the app's home screen. A condition keeps it off that screen unless the condition matches.`,
+			lede:
+				parentName === undefined
+					? `${name} is one of the modules on the app's home screen. A condition keeps it off that screen unless the condition matches.`
+					: `${name} is a submenu inside ${parentName}. A condition keeps it out of that menu unless the condition matches.`,
 			locus: [
-				`CommCare checks this on the home screen, before anyone opens a module${carrier.moduleIsBareCaseList ? " or sees a case list" : ""}.`,
+				parentName === undefined
+					? `CommCare checks this on the home screen, before anyone opens a module${carrier.moduleIsBareCaseList ? " or sees a case list" : ""}.`
+					: `CommCare checks this inside ${parentName}, before anyone opens ${name}${carrier.moduleIsBareCaseList ? " or sees its case list" : ""}.`,
 			],
 			scopeNote: NO_CASE_SCOPE_NOTE,
 			sectionTitle: `Show ${name} when`,
@@ -115,10 +128,15 @@ export function displayConditionCopy(
 			alwaysSummary: `${name} always appears`,
 			settingTitle: "When this module appears",
 			settingDescription:
-				"Keep this module off the home screen unless a condition matches",
+				parentName === undefined
+					? "Keep this module off the home screen unless a condition matches"
+					: `Keep this module out of ${parentName} unless a condition matches`,
 			clearLabel: "Always show",
 			clearTitle: "Always show this module?",
-			clearConsequence: `The condition will be removed and ${name} will appear on the home screen for everyone. You can undo this change.`,
+			clearConsequence:
+				parentName === undefined
+					? `The condition will be removed and ${name} will appear on the home screen for everyone. You can undo this change.`
+					: `The condition will be removed and ${name} will appear in ${parentName} for everyone. You can undo this change.`,
 			/* A bare case list has no module screen: it IS its case list:
 			 * so Back lands there and must say so. */
 			backLabel: carrier.moduleIsBareCaseList

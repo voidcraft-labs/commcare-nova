@@ -49,7 +49,7 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import type { Automation, FieldKind } from "@/lib/domain";
+import type { Automation, CommitOutcome, FieldKind } from "@/lib/domain";
 import { printProseTemplate, proseText } from "@/lib/domain/prose";
 import { toastStore } from "@/lib/ui/toastStore";
 
@@ -1040,6 +1040,72 @@ describe("useBlueprintMutations", () => {
 		const s = result.current.store?.getState();
 		const moduleUuid = s?.moduleOrder[0] ?? ("" as Uuid);
 		expect(s?.modules[moduleUuid].name).toBe("Renamed Module");
+	});
+
+	it("creates and reorders submenus with stable sibling anchors", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+		let firstChild = "" as Uuid;
+		let secondChild = "" as Uuid;
+		act(() => {
+			const first = result.current.mutations.createSurveyModule({
+				name: "First child",
+				parentModuleUuid: MOD1,
+				after: null,
+			});
+			assert(first.ok);
+			firstChild = first.uuid;
+			const second = result.current.mutations.createSurveyModule({
+				name: "Second child",
+				parentModuleUuid: MOD1,
+				after: firstChild,
+			});
+			assert(second.ok);
+			secondChild = second.uuid;
+		});
+
+		act(() => {
+			result.current.mutations.moveModule(secondChild, { after: null });
+		});
+
+		const state = result.current.store?.getState();
+		expect(state?.moduleOrder.slice(0, 3)).toEqual([
+			MOD1,
+			secondChild,
+			firstChild,
+		]);
+		expect(state?.modules[secondChild].parentModuleUuid).toBe(MOD1);
+	});
+
+	it("names child menus before refusing parent removal", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+		let childUuid = "" as Uuid;
+		act(() => {
+			const child = result.current.mutations.createSurveyModule({
+				name: "Follow-up menu",
+				parentModuleUuid: MOD1,
+				after: null,
+			});
+			assert(child.ok);
+			childUuid = child.uuid;
+		});
+
+		let outcome: CommitOutcome | undefined;
+		act(() => {
+			outcome = result.current.mutations.removeModule(MOD1);
+		});
+
+		expect(outcome?.ok).toBe(false);
+		if (outcome === undefined || outcome.ok) {
+			throw new Error("parent removal unexpectedly committed");
+		}
+		expect(outcome.messages.join(" ")).toContain('"Follow-up menu"');
+		expect(outcome.messages.join(" ")).toContain("Move or remove");
+		expect(result.current.store?.getState().modules[childUuid]).toBeDefined();
+		expect(result.current.store?.getState().modules[MOD1]).toBeDefined();
 	});
 
 	// ── removeModule ──────────────────────────────────────────────────────

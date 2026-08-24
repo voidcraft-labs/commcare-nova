@@ -7,7 +7,12 @@ import type { Module } from "@/lib/domain";
 
 export type ModuleAuthoringPatch = Omit<
 	Partial<Omit<Module, "uuid">>,
-	"id" | "icon" | "audioLabel" | "caseListConfig" | "caseSearchConfig"
+	| "id"
+	| "parentModuleUuid"
+	| "icon"
+	| "audioLabel"
+	| "caseListConfig"
+	| "caseSearchConfig"
 > & {
 	caseListConfig?: Module["caseListConfig"] | null;
 	caseSearchConfig?: Module["caseSearchConfig"] | null;

@@ -25,15 +25,16 @@
  *
  *   1. App-level scalars (`setAppName` / `setConnectType` / `setAppLogo`).
  *      No entity side effects, so they can lead.
- *   2. Module + form ADDS — parent before child. Added entities are landed
- *      before the removes so an evacuation (next step) can move a survivor
- *      into a freshly-added module/form.
+ *   2. Module + form ADDS and module relocations — parents and final sibling
+ *      anchors before dependents. Added entities land before removes so an
+ *      evacuation can move a survivor into a freshly-added module/form.
  *   3. EVACUATIONS — moves of surviving forms/fields OUT of a parent that
- *      is about to be removed. `removeModule` / `removeForm` / `removeField`
- *      cascade their subtrees, so a survivor still inside a doomed parent
- *      would be deleted by the cascade; it must move out first.
- *   4. Removes — TOP survivors only. A child whose parent is also removed
- *      gets no explicit remove; the parent's cascade took it.
+ *      is about to be removed, then removal/relocation of every old child
+ *      before its surviving root is demoted. Cascades and the one-tier reducer
+ *      make these intermediate dependencies real even though only the final
+ *      candidate must pass the commit gate.
+ *   4. Remaining removes — TOP survivors only. A child whose parent is also
+ *      removed gets no explicit remove; the parent's cascade took it.
  *   5. Field structural REST — field adds (parent-before-child), cross-parent
  *      moves, and same-parent reorders, plus cross-module form moves +
  *      same-module reorders. A move preserves the field's id.
@@ -133,6 +134,8 @@ import {
 	hasOwnRecordKey,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
+	moduleParent,
+	moduleSiblingUuids,
 	ownRecordValue,
 	parseLanguageTag,
 } from "@/lib/domain";
@@ -362,6 +365,7 @@ const MODULE_PATCH_SKIP = new Set<string>([
 	"icon",
 	"audioLabel",
 	"name",
+	"parentModuleUuid",
 	"order",
 	"caseListConfig",
 	"caseSearchConfig",
@@ -477,6 +481,9 @@ export function diffDocsToMutations(
 	const appLevel: Mutation[] = [];
 	const removes: Mutation[] = [];
 	const adds: Mutation[] = [];
+	const rootModuleAdds: Mutation[] = [];
+	const childModuleAdds: Mutation[] = [];
+	const preDemotionModuleRemoves: Mutation[] = [];
 	const evacuations: Mutation[] = [];
 	const fieldStructure: Mutation[] = [];
 	const renames: Mutation[] = [];
@@ -517,6 +524,12 @@ export function diffDocsToMutations(
 	);
 
 	const removedModuleSet = new Set(moduleDelta.removed);
+	const demotedRootSet = new Set(
+		moduleDelta.common.filter(
+			(uuid) =>
+				moduleParent(prev, uuid) === null && moduleParent(next, uuid) !== null,
+		),
+	);
 
 	// Child → parent reverse indexes, built once and threaded to the
 	// ancestor / evacuation helpers (the inputs are persistable snapshots
@@ -541,8 +554,22 @@ export function diffDocsToMutations(
 	// owning module survives, and `removeField` for a field whose owning
 	// form AND every ancestor container survive — otherwise a parent
 	// remove already deletes it.
-	for (const uuid of moduleDelta.removed) {
-		removes.push({ kind: "removeModule", uuid });
+	for (const uuid of [...moduleDelta.removed].sort((left, right) => {
+		const leftIsChild = moduleParent(prev, left) !== null;
+		const rightIsChild = moduleParent(prev, right) !== null;
+		return Number(rightIsChild) - Number(leftIsChild);
+	})) {
+		const mutation: Mutation = { kind: "removeModule", uuid };
+		const previousParent = moduleParent(prev, uuid);
+		if (
+			previousParent !== undefined &&
+			previousParent !== null &&
+			demotedRootSet.has(previousParent)
+		) {
+			preDemotionModuleRemoves.push(mutation);
+		} else {
+			removes.push(mutation);
+		}
 	}
 	for (const uuid of formDelta.removed) {
 		const owningModule = ownerModuleOfForm(prev, uuid);
@@ -565,15 +592,45 @@ export function diffDocsToMutations(
 	// set deltas.
 	const addedModuleSet = new Set(moduleDelta.added);
 	const addedFormSet = new Set(formDelta.added);
-
-	for (const [at, uuid] of next.moduleOrder.entries()) {
-		if (!addedModuleSet.has(uuid)) continue;
-		adds.push(
-			addModuleMutation(
-				cloneEntity(ownRecordValue(next.modules, uuid) as Module),
-				at === 0 ? null : next.moduleOrder[at - 1],
+	const availableRoots = new Set(moduleSiblingUuids(prev, null));
+	const availableChildren = new Map<Uuid, Set<Uuid>>(
+		moduleSiblingUuids(next, null).map((rootUuid) => [
+			rootUuid,
+			new Set(
+				moduleSiblingUuids(prev, rootUuid).filter(
+					(uuid) => moduleParent(next, uuid) === rootUuid,
+				),
 			),
-		);
+		]),
+	);
+
+	for (const uuid of next.moduleOrder) {
+		if (!addedModuleSet.has(uuid)) continue;
+		const module = ownRecordValue(next.modules, uuid) as Module;
+		const parent = module.parentModuleUuid ?? null;
+		const siblings = moduleSiblingUuids(next, parent);
+		const at = siblings.indexOf(uuid);
+		if (parent === null) {
+			const after = siblings
+				.slice(0, at)
+				.toReversed()
+				.find((candidate) => availableRoots.has(candidate));
+			rootModuleAdds.push(
+				addModuleMutation(cloneEntity(module), after ?? null),
+			);
+			availableRoots.add(uuid);
+		} else {
+			const available = availableChildren.get(parent) ?? new Set<Uuid>();
+			const after = siblings
+				.slice(0, at)
+				.toReversed()
+				.find((candidate) => available.has(candidate));
+			childModuleAdds.push(
+				addModuleMutation(cloneEntity(module), after ?? null),
+			);
+			available.add(uuid);
+			availableChildren.set(parent, available);
+		}
 	}
 
 	// Forms: in each module's sequence order, each naming the form it follows.
@@ -743,15 +800,7 @@ export function diffDocsToMutations(
 		}
 	}
 
-	// (5) Module order — `moduleOrder` IS the sequence, so the reorder is
-	// whatever moves turn the previous array into the next one, measured against
-	// the sequence the `addModule`s have already landed in.
-	for (const move of sequenceMovesTo(
-		arrivalsProjected(prev.moduleOrder, next.moduleOrder),
-		next.moduleOrder,
-	)) {
-		orders.push({ kind: "moveModule", uuid: move.uuid, after: move.after });
-	}
+	const moduleStructure = reconcileModuleOrders(prev, next, moduleDelta);
 
 	// Form structural — cross-module moves (including forms evacuated out of
 	// removed modules) plus same-module sequence changes.
@@ -764,17 +813,25 @@ export function diffDocsToMutations(
 	// emitted after the removes.
 	evacuations.push(...formStructure.evacuations, ...fieldTree.evacuations);
 	fieldStructure.push(...formStructure.rest, ...fieldTree.rest);
+	orders.push(...moduleStructure.reorders);
 
-	// Phase order (see the function header):
-	//   app scalars → module/form adds → evacuations (survivors out of
-	//   removed parents) → removes → field/form structural (rest: adds,
-	//   moves, reorders) → module/form renames → converts → field updates
-	//   (incl. id) → media → granular collections (columns/search-inputs/
-	//   options/case-list meta) → module order → catalog.
+	// Phase order (see the function header): app scalars → root births and
+	// promotions → child births and form births → form/field evacuations →
+	// removed children that block a surviving root's demotion → remaining
+	// module relocations → ordinary removes → field/form structural rest →
+	// content/media/collections → module order → catalog. Evacuations lead an
+	// early child removal because that removed module may still own a surviving
+	// form; the child removal leads reparenting because the reducer refuses to
+	// demote a root while any child remains.
 	const structural: Mutation[] = [
 		...appLevel,
+		...rootModuleAdds,
+		...moduleStructure.promotions,
+		...childModuleAdds,
 		...adds,
 		...evacuations,
+		...preDemotionModuleRemoves,
+		...moduleStructure.reparenting,
 		...removes,
 		...fieldStructure,
 		...renames,
@@ -1075,6 +1132,178 @@ function fieldRemovedByAncestor(
 }
 
 // ── Order reconciliation per module / parent ─────────────────────────
+
+interface ModuleRelocation {
+	readonly uuid: Uuid;
+	readonly from: Uuid | null;
+	readonly to: Uuid | null;
+	readonly after: Uuid | null;
+}
+
+/**
+ * A relocation's final sibling anchor must land first. Class priority remains
+ * the stable tie-breaker for independent moves, but cannot override that real
+ * dependency (for example, a child reparent may follow a root demotion into
+ * the same parent group).
+ */
+function orderModuleRelocations(
+	prev: BlueprintDoc,
+	relocations: readonly ModuleRelocation[],
+	nextPosition: ReadonlyMap<Uuid, number>,
+): ModuleRelocation[] {
+	const byUuid = new Map(relocations.map((move) => [move.uuid, move]));
+	const dependencies = new Map<Uuid, Set<Uuid>>(
+		relocations.map((move) => [move.uuid, new Set<Uuid>()]),
+	);
+	for (const move of relocations) {
+		if (move.after !== null) {
+			const anchorMove = byUuid.get(move.after);
+			if (anchorMove !== undefined) {
+				if (anchorMove.to !== move.to) {
+					throw new Error(
+						`Module relocation ${move.uuid} follows ${move.after}, but they do not land in the same sibling group.`,
+					);
+				}
+				dependencies.get(move.uuid)?.add(anchorMove.uuid);
+			}
+		}
+		// A root cannot become a child while it still owns a child module. Every
+		// surviving child that leaves it must land before the demotion.
+		if (move.from === null && move.to !== null) {
+			for (const childUuid of moduleSiblingUuids(prev, move.uuid)) {
+				const childMove = byUuid.get(childUuid);
+				if (childMove !== undefined && childMove.to !== move.uuid) {
+					dependencies.get(move.uuid)?.add(childUuid);
+				}
+			}
+		}
+	}
+
+	const priority = (move: ModuleRelocation): number =>
+		move.to === null ? 0 : move.from !== null ? 1 : 2;
+	const remaining = new Map(byUuid);
+	const ordered: ModuleRelocation[] = [];
+	while (remaining.size > 0) {
+		const ready = [...remaining.values()]
+			.filter((move) =>
+				[...(dependencies.get(move.uuid) ?? [])].every(
+					(dependency) => !remaining.has(dependency),
+				),
+			)
+			.sort(
+				(left, right) =>
+					priority(left) - priority(right) ||
+					(nextPosition.get(left.uuid) ?? 0) -
+						(nextPosition.get(right.uuid) ?? 0) ||
+					left.uuid.localeCompare(right.uuid),
+			);
+		const next = ready[0];
+		if (next === undefined) {
+			// One valid endpoint has an apparent cycle: a root A must wait for its
+			// old child B to leave, while B's final position is immediately after A
+			// in their new sibling group. Evacuate B after A's own predecessor; when
+			// A lands at that same anchor it is inserted immediately before B, so the
+			// final order is reached without a non-final persisted endpoint.
+			let relaxed = false;
+			for (const demotion of remaining.values()) {
+				if (demotion.from !== null || demotion.to === null) continue;
+				const successor = [...remaining.values()].find(
+					(move) =>
+						move.after === demotion.uuid &&
+						dependencies.get(demotion.uuid)?.has(move.uuid) === true,
+				);
+				if (successor === undefined) continue;
+				dependencies.get(successor.uuid)?.delete(demotion.uuid);
+				if (demotion.after !== null && remaining.has(demotion.after)) {
+					dependencies.get(successor.uuid)?.add(demotion.after);
+				}
+				remaining.set(successor.uuid, {
+					...successor,
+					after: demotion.after,
+				});
+				relaxed = true;
+				break;
+			}
+			if (relaxed) continue;
+			const blocked = [...remaining.keys()].toSorted().join(", ");
+			throw new Error(
+				`Cyclic module relocation dependencies prevent a replayable diff: ${blocked}.`,
+			);
+		}
+		ordered.push(next);
+		remaining.delete(next.uuid);
+	}
+	return ordered;
+}
+
+/**
+ * Reconcile one-tier menu parentage and sibling order. Parent changes lead the
+ * remove phase so a surviving child can leave a doomed parent and a root can
+ * shed its children before becoming a child. Pure sibling reorders run later.
+ */
+function reconcileModuleOrders(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+	moduleDelta: SetDelta,
+): {
+	promotions: Mutation[];
+	reparenting: Mutation[];
+	reorders: Mutation[];
+} {
+	const promotions: Mutation[] = [];
+	const reparenting: Mutation[] = [];
+	const reorders: Mutation[] = [];
+	const relocated = new Set<Uuid>();
+	const nextPosition = new Map(next.moduleOrder.map((uuid, at) => [uuid, at]));
+	const relocations: ModuleRelocation[] = [];
+
+	for (const uuid of moduleDelta.common) {
+		const from = moduleParent(prev, uuid);
+		const to = moduleParent(next, uuid);
+		if (from === undefined || to === undefined || from === to) continue;
+		relocated.add(uuid);
+		const siblings = moduleSiblingUuids(next, to);
+		const at = siblings.indexOf(uuid);
+		relocations.push({
+			uuid,
+			from,
+			to,
+			after: at > 0 ? (siblings[at - 1] ?? null) : null,
+		});
+	}
+
+	for (const move of orderModuleRelocations(prev, relocations, nextPosition)) {
+		const mutation: Mutation = {
+			kind: "moveModule",
+			uuid: move.uuid,
+			parentModuleUuid: move.to,
+			after: move.after,
+		};
+		if (move.to === null) promotions.push(mutation);
+		else reparenting.push(mutation);
+	}
+
+	const groups: Array<Uuid | null> = [null, ...moduleSiblingUuids(next, null)];
+	const common = new Set(moduleDelta.common);
+	for (const parent of groups) {
+		const nextOrder = moduleSiblingUuids(next, parent);
+		const before = moduleSiblingUuids(prev, parent).filter(
+			(uuid) => !relocated.has(uuid),
+		);
+		for (const move of sequenceMovesTo(
+			arrivalsProjected(before, nextOrder),
+			nextOrder,
+		)) {
+			if (!common.has(move.uuid) || relocated.has(move.uuid)) continue;
+			reorders.push({
+				kind: "moveModule",
+				uuid: move.uuid,
+				after: move.after,
+			});
+		}
+	}
+	return { promotions, reparenting, reorders };
+}
 
 /**
  * Reconcile each module's forms to `next` — cross-module form moves +

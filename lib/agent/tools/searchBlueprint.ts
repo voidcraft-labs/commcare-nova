@@ -67,7 +67,7 @@ export interface SearchBlueprintResult {
 
 export const searchBlueprintTool = {
 	description:
-		"Search the blueprint for fields, forms, modules, or case properties matching a query.",
+		"Search the blueprint for fields, forms, modules, or case properties matching a query. Results carry stable UUIDs and parent-aware menu paths; module matches include parent and ordered child UUIDs.",
 	inputSchema: searchBlueprintInputSchema,
 	async execute(
 		input: SearchBlueprintInput,

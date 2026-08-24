@@ -6,7 +6,8 @@
  * with a ~2,000-char preview plus a path to the rest on disk — and the
  * plugin's autonomous subagent is allowlisted to Nova's MCP tools and
  * nothing else, so for it a capped result is a lost one. `_meta`, read
- * at `tools/list`, is what raises that cap.
+ * at `tools/list`, declares that ceiling; oversized agent prompts page
+ * beneath it rather than relying on a host spill file.
  *
  * Asserting it at the registration boundary is not enough, and the
  * difference is the whole reason this file exists. A test that checks
@@ -73,6 +74,7 @@ let tools: Array<{
 	name: string;
 	description?: string;
 	_meta?: Record<string, unknown>;
+	inputSchema?: { properties?: Record<string, unknown> };
 }>;
 
 beforeAll(async () => {
@@ -119,7 +121,7 @@ describe("result-size declarations over the wire", () => {
 		}
 	});
 
-	it("tells a caller the served prompt carries a delivery marker", () => {
+	it("publishes the prompt marker and continuation protocol", () => {
 		/* The `_meta` key is undocumented and host-specific, so the
 		 * marker is the backstop for the day a host stops honoring it.
 		 * That backstop only works if callers know to look, and for an
@@ -127,6 +129,11 @@ describe("result-size declarations over the wire", () => {
 		 * that says so. */
 		const tool = tools.find((t) => t.name === "get_agent_prompt");
 		expect(tool?.description ?? "").toContain("NOVA-PROMPT-END");
+		expect(tool?.description ?? "").toContain("nova-agent-prompt-page");
+		expect(tool?.description ?? "").toContain("next_cursor");
+		expect(tool?.description ?? "").toContain("prompt_sha256");
+		expect(tool?.description ?? "").toContain("unicode-code-points");
+		expect(tool?.inputSchema?.properties).toHaveProperty("cursor");
 	});
 
 	it("registers the read-only app feature-flag inspection tool", () => {

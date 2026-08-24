@@ -1,3 +1,4 @@
+import type { Uuid } from "@/lib/domain";
 import type { AppSetupSection } from "@/lib/routing/types";
 
 /** One rendered choice of a lookup-backed select, in authored row order.
@@ -109,24 +110,22 @@ export type PreviewScreen =
 	 *  entity at all — Project-shared lookup tables are not app content. An
 	 *  absent `tableId` is the table list. */
 	| { type: "projectData"; tableId?: string }
-	| { type: "module"; moduleIndex: number }
-	| { type: "caseList"; moduleIndex: number; formIndex: number }
+	| { type: "module"; moduleUuid: Uuid }
+	| { type: "caseList"; moduleUuid: Uuid }
 	/** Per-module case-search / case-detail authoring surfaces.
 	 *  Siblings to `caseList` — the three URL-addressed tabs of the
-	 *  case-list workspace, same module-anchored shape. The integer
-	 *  index round-trips through PreviewShell's `locationToScreen`
-	 *  adapter just like every other screen kind. */
-	| { type: "searchConfig"; moduleIndex: number }
-	| { type: "detailConfig"; moduleIndex: number }
+	 *  case-list workspace, with the same stable module identity. */
+	| { type: "searchConfig"; moduleUuid: Uuid }
+	| { type: "detailConfig"; moduleUuid: Uuid }
 	/** The data review screen — a builder workspace sibling
 	 *  of the config kinds above (edit-mode only; preview shows the
 	 *  running case list for its URL, like the config kinds do). */
-	| { type: "dataReview"; moduleIndex: number }
+	| { type: "dataReview"; moduleUuid: Uuid }
 	/** The App setup workspace — app administration, so it names no module
 	 *  and has no running-app counterpart. Edit mode only: Preview leaves
 	 *  it for the app home, because there is nothing here to run. */
 	| { type: "appSetup"; section: AppSetupSection }
-	| { type: "form"; moduleIndex: number; formIndex: number; caseId?: string };
+	| { type: "form"; moduleUuid: Uuid; formUuid: Uuid; caseId?: string };
 
 /** Returns the immediate parent screen in the hierarchy, or undefined if already at home. */
 export function getParentScreen(
@@ -141,7 +140,7 @@ export function getParentScreen(
 		case "detailConfig":
 		case "dataReview":
 		case "form":
-			return { type: "module", moduleIndex: screen.moduleIndex };
+			return { type: "module", moduleUuid: screen.moduleUuid };
 		default:
 			return undefined;
 	}
@@ -153,28 +152,28 @@ export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
 	if (a.type === "projectData" && b.type === "projectData")
 		return a.tableId === b.tableId;
 	if (a.type === "module" && b.type === "module")
-		return a.moduleIndex === b.moduleIndex;
+		return a.moduleUuid === b.moduleUuid;
 	if (a.type === "caseList" && b.type === "caseList")
-		return a.moduleIndex === b.moduleIndex && a.formIndex === b.formIndex;
+		return a.moduleUuid === b.moduleUuid;
 	if (a.type === "searchConfig" && b.type === "searchConfig")
-		return a.moduleIndex === b.moduleIndex;
+		return a.moduleUuid === b.moduleUuid;
 	if (a.type === "detailConfig" && b.type === "detailConfig")
-		return a.moduleIndex === b.moduleIndex;
+		return a.moduleUuid === b.moduleUuid;
 	if (a.type === "dataReview" && b.type === "dataReview")
-		return a.moduleIndex === b.moduleIndex;
+		return a.moduleUuid === b.moduleUuid;
 	if (a.type === "appSetup" && b.type === "appSetup")
 		return a.section === b.section;
 	if (a.type === "form" && b.type === "form")
 		return (
-			a.moduleIndex === b.moduleIndex &&
-			a.formIndex === b.formIndex &&
+			a.moduleUuid === b.moduleUuid &&
+			a.formUuid === b.formUuid &&
 			a.caseId === b.caseId
 		);
 	return false;
 }
 
 /** Stable string key for a PreviewScreen, suitable as a React key.
- *  Encodes the screen's type and hierarchy indices so two screens at
+ *  Encodes the screen's type and stable entity identities so two screens at
  *  different navigation depths never collide, even if their labels match. */
 export function screenKey(screen: PreviewScreen): string {
 	switch (screen.type) {
@@ -183,18 +182,18 @@ export function screenKey(screen: PreviewScreen): string {
 		case "projectData":
 			return `projectData-${screen.tableId ?? "list"}`;
 		case "module":
-			return `module-${screen.moduleIndex}`;
+			return `module-${screen.moduleUuid}`;
 		case "caseList":
-			return `caseList-${screen.moduleIndex}-${screen.formIndex}`;
+			return `caseList-${screen.moduleUuid}`;
 		case "searchConfig":
-			return `searchConfig-${screen.moduleIndex}`;
+			return `searchConfig-${screen.moduleUuid}`;
 		case "detailConfig":
-			return `detailConfig-${screen.moduleIndex}`;
+			return `detailConfig-${screen.moduleUuid}`;
 		case "dataReview":
-			return `dataReview-${screen.moduleIndex}`;
+			return `dataReview-${screen.moduleUuid}`;
 		case "appSetup":
 			return `appSetup-${screen.section}`;
 		case "form":
-			return `form-${screen.moduleIndex}-${screen.formIndex}`;
+			return `form-${screen.moduleUuid}-${screen.formUuid}`;
 	}
 }

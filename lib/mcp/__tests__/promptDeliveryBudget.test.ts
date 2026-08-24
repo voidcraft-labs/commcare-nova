@@ -1,39 +1,9 @@
 /**
- * Delivery contract for the served agent prompt.
- *
- * `get_agent_prompt` hands its caller a whole system prompt through a
- * channel built for ordinary tool results. Hosts cap how large a single
- * result may be and, past the cap, swap it for a short preview plus a
- * path to the full text on disk. The plugin's autonomous subagent is
- * allowlisted to MCP tools only — no filesystem — so for it a persisted
- * result is a lost one: it reads the preview and builds anyway.
- *
- * That failure is invisible from the server. Nothing in a request tells
- * us how much of the response survived, and the app still compiles,
- * because the *what* comes from the caller's task and the *how* is
- * partly recoverable from the tool schemas. The prompt crossed the cap
- * once already and the resulting builds looked fine — structurally
- * valid, conventionally wrong — for eleven days.
- *
- * So the invariant is asserted here, where it is observable:
- *
- *   1. **Every mode stays inside the budget.** This is the whole guard.
- *      `MAX_RESULT_SIZE_CHARS` lifts the per-result cap for this tool,
- *      but an MCP-wide token cap sits above it that nothing server-side
- *      can raise, so the prompt must stay small enough to clear both.
- *      The test fails when a prompt edit pushes it over — at authoring
- *      time, rather than silently in someone's build.
- *   2. **Every mode ends with the marker.** The plugin's bootstrap
- *      refuses to build without it, so a prompt that stops emitting it
- *      strands every caller.
- *
- * Edit mode is measured separately and matters most: its blueprint
- * summary scales with the app, and it is appended last, so it is both
- * the largest contributor and the first thing a short delivery drops.
- * The fixtures here are small, so what edit mode is really asserting is
- * that the *fixed* part leaves usable room for the variable part.
+ * Delivery contract for the served agent prompt. Every mode ends with a
+ * marker the plugin checks, and edit mode carries the complete app summary.
  */
 
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
@@ -41,10 +11,12 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 import {
-	MAX_DELIVERABLE_PROMPT_CHARS,
-	PROMPT_END_MARKER,
-	renderAgentPrompt,
-} from "../prompts";
+	AGENT_PROMPT_RESULT_BUDGET_CHARS,
+	type AgentPromptPage,
+	deliverAgentPrompt,
+} from "../promptDelivery";
+import { PROMPT_END_MARKER, renderAgentPrompt } from "../prompts";
+import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 
 /**
  * A populated blueprint, so edit mode takes its real branch and inlines
@@ -93,11 +65,9 @@ function fixturePopulatedDoc(): BlueprintDoc {
 }
 
 /**
- * An app large enough that its summary cannot be inlined — the shape
- * production's biggest apps have. Built by repeating the fixture's
- * module rather than by hand, so it stays honest if `summarizeBlueprint`
- * changes what it emits per module: the test wants "too big to fit",
- * not a specific byte count.
+ * A large app whose first and last module names prove the summary was not
+ * replaced by a fallback. Built by repeating the fixture's module so it
+ * remains representative when `summarizeBlueprint` changes.
  */
 function fixtureOversizedDoc(): BlueprintDoc {
 	const base = fixturePopulatedDoc();
@@ -109,10 +79,8 @@ function fixtureOversizedDoc(): BlueprintDoc {
 	const baseMod = base.modules[baseModUuid];
 	if (!baseMod) throw new Error("fixture lost its module record");
 
-	/* Enough modules to clear the budget with the base prompt already
-	 * past 51,000 chars, with margin so the test doesn't sit on the
-	 * boundary it is asserting about. */
-	for (let i = 0; i < 400; i++) {
+	/* Large enough to exercise the former fallback boundary. */
+	for (let i = 0; i < 1_200; i++) {
 		const uuid = testUuid(
 			`44444444-4444-4444-4444-${String(i).padStart(12, "0")}`,
 		);
@@ -141,19 +109,21 @@ const MODES: ReadonlyArray<{ mode: string; render: () => string }> = [
 	},
 ];
 
-describe("served prompt delivery budget", () => {
-	it.each(MODES)("$mode stays within the delivery budget", ({ render }) => {
-		const rendered = render();
-		/* Reported rather than left to a bare boolean: when this fails,
-		 * the first thing anyone needs is how far over it went and how
-		 * much room there was, so the message carries both. */
-		const overBy = rendered.length - MAX_DELIVERABLE_PROMPT_CHARS;
-		expect(
-			overBy,
-			`The rendered prompt is ${rendered.length} chars, ${overBy} over the ${MAX_DELIVERABLE_PROMPT_CHARS}-char delivery budget. Past the budget the host stops sending the prompt and sends a short preview plus a file path instead, and the autonomous subagent cannot open files — it would build from a fraction of its instructions without reporting anything wrong. Cut prompt content, or move reference material to where it is fetched on demand.`,
-		).toBeLessThanOrEqual(0);
-	});
+function hasUnpairedSurrogate(value: string): boolean {
+	for (let index = 0; index < value.length; index++) {
+		const codeUnit = value.charCodeAt(index);
+		if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+			const next = value.charCodeAt(index + 1);
+			if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+			index += 1;
+		} else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+			return true;
+		}
+	}
+	return false;
+}
 
+describe("served prompt delivery contract", () => {
 	it.each(MODES)("$mode ends with the delivery marker", ({ render }) => {
 		const rendered = render();
 		expect(
@@ -171,27 +141,118 @@ describe("served prompt delivery budget", () => {
 		expect(rendered).toContain("## Current app state");
 		expect(rendered).toContain("Vaccine Tracker");
 		expect(rendered).not.toContain("too large to include here");
+		expect(deliverAgentPrompt(rendered).content[0]?.text).toBe(rendered);
 	});
 
-	it("edit mode points at the read tools instead of inlining an app that will not fit", () => {
-		/* An app whose summary would overrun the budget must not be
-		 * inlined and must not be cut down: half a structural summary
-		 * reads exactly like a whole one, and an agent that believes it
-		 * has seen the app will edit the part it cannot see.
-		 *
-		 * The fixture is inflated with enough modules to blow the budget
-		 * on its own, which is what production's largest apps do — the
-		 * biggest renders 73,534 chars of summary against a base prompt
-		 * already past 51,000. */
-		const rendered = renderAgentPrompt(true, fixtureOversizedDoc());
+	it("pages before the host ceiling when the model-facing budget requires it", () => {
+		const rendered = `${"x".repeat(AGENT_PROMPT_RESULT_BUDGET_CHARS + 1_000)}${PROMPT_END_MARKER}`;
+		expect(rendered.length).toBeLessThan(MAX_RESULT_SIZE_CHARS);
 
-		expect(rendered).toContain("too large to include here");
-		/* The remedy has to name the tools, or the agent is told what it
-		 * cannot do without being told what it can. */
-		expect(rendered).toContain("get_app");
-		/* Still deliverable and still provable — the fallback is not
-		 * allowed to trade one delivery failure for another. */
-		expect(rendered.length).toBeLessThanOrEqual(MAX_DELIVERABLE_PROMPT_CHARS);
-		expect(rendered.endsWith(PROMPT_END_MARKER)).toBe(true);
+		const text = deliverAgentPrompt(rendered).content[0]?.text ?? "";
+		expect(text.length).toBeLessThanOrEqual(AGENT_PROMPT_RESULT_BUDGET_CHARS);
+		const page = JSON.parse(text) as AgentPromptPage;
+		expect(page.kind).toBe("nova-agent-prompt-page");
+		expect(page.offset_unit).toBe("unicode-code-points");
+		expect(page.complete).toBe(false);
+		expect(page.next_cursor).toEqual(expect.any(String));
+	});
+
+	it("pages and reassembles the complete large blueprint summary losslessly", () => {
+		const rendered = renderAgentPrompt(true, fixtureOversizedDoc());
+		expect(rendered.length).toBeGreaterThan(MAX_RESULT_SIZE_CHARS);
+
+		const chunks: string[] = [];
+		let cursor: string | undefined;
+		let expectedStart = 0;
+		let expectedDigest: string | undefined;
+		do {
+			const result = deliverAgentPrompt(rendered, cursor);
+			const text = result.content[0]?.text ?? "";
+			expect(text.length).toBeLessThanOrEqual(AGENT_PROMPT_RESULT_BUDGET_CHARS);
+			const page = JSON.parse(text) as AgentPromptPage;
+			expect(page.kind).toBe("nova-agent-prompt-page");
+			expect(page.offset_unit).toBe("unicode-code-points");
+			expect(page.chunk_start).toBe(expectedStart);
+			expect(page.chunk_end).toBe(
+				page.chunk_start + Array.from(page.prompt_chunk).length,
+			);
+			expect(page.prompt_length).toBe(Array.from(rendered).length);
+			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(
+				AGENT_PROMPT_RESULT_BUDGET_CHARS,
+			);
+			expectedDigest ??= page.prompt_sha256;
+			expect(page.prompt_sha256).toBe(expectedDigest);
+			chunks.push(page.prompt_chunk);
+			cursor = page.next_cursor;
+			expectedStart = page.chunk_end;
+			if (page.complete) expect(cursor).toBeUndefined();
+			else expect(cursor).toEqual(expect.any(String));
+		} while (cursor !== undefined);
+
+		const assembled = chunks.join("");
+		expect(assembled).toBe(rendered);
+		expect(expectedDigest).toBe(
+			createHash("sha256").update(assembled, "utf8").digest("hex"),
+		);
+
+		expect(assembled).toContain(
+			"Patients 0 — a module name long enough to carry real weight",
+		);
+		expect(assembled).toContain(
+			"Patients 1199 — a module name long enough to carry real weight",
+		);
+		expect(assembled).not.toContain("too large to include here");
+		expect(assembled.endsWith(PROMPT_END_MARKER)).toBe(true);
+	});
+
+	it("uses code-point offsets and never splits astral characters", () => {
+		/* This prompt fits the JS UTF-16 budget but not the same conservative
+		 * UTF-8 budget. Paging must therefore happen, and every boundary lands
+		 * between complete U+1F489 scalar values rather than between surrogates. */
+		const rendered = `${"💉".repeat(
+			Math.floor(AGENT_PROMPT_RESULT_BUDGET_CHARS / 4) + 1_000,
+		)}${PROMPT_END_MARKER}`;
+		expect(rendered.length).toBeLessThan(AGENT_PROMPT_RESULT_BUDGET_CHARS);
+		expect(Buffer.byteLength(rendered, "utf8")).toBeGreaterThan(
+			AGENT_PROMPT_RESULT_BUDGET_CHARS,
+		);
+
+		const chunks: string[] = [];
+		let cursor: string | undefined;
+		let expectedStart = 0;
+		do {
+			const text = deliverAgentPrompt(rendered, cursor).content[0]?.text ?? "";
+			const page = JSON.parse(text) as AgentPromptPage;
+			expect(page.offset_unit).toBe("unicode-code-points");
+			expect(page.chunk_start).toBe(expectedStart);
+			expect(page.chunk_end - page.chunk_start).toBe(
+				Array.from(page.prompt_chunk).length,
+			);
+			expect(hasUnpairedSurrogate(page.prompt_chunk)).toBe(false);
+			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(
+				AGENT_PROMPT_RESULT_BUDGET_CHARS,
+			);
+			if (!page.complete) expect(page.prompt_chunk.endsWith("💉")).toBe(true);
+			chunks.push(page.prompt_chunk);
+			expectedStart = page.chunk_end;
+			cursor = page.next_cursor;
+		} while (cursor !== undefined);
+
+		expect(expectedStart).toBe(Array.from(rendered).length);
+		expect(chunks.join("")).toBe(rendered);
+	});
+
+	it("refuses to continue after the prompt snapshot changes", () => {
+		const rendered = renderAgentPrompt(true, fixtureOversizedDoc());
+		const firstText = deliverAgentPrompt(rendered).content[0]?.text ?? "";
+		const firstPage = JSON.parse(firstText) as AgentPromptPage;
+		expect(firstPage.next_cursor).toEqual(expect.any(String));
+
+		expect(() =>
+			deliverAgentPrompt(
+				rendered.replace("Vaccine Tracker", "Changed Tracker"),
+				firstPage.next_cursor,
+			),
+		).toThrow("changed during get_agent_prompt pagination");
 	});
 });

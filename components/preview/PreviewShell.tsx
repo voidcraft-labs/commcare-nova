@@ -17,16 +17,14 @@
  *
  * ## Location→PreviewScreen adapter
  *
- * The interact-mode preview pipeline (case data flow, form engine) still
- * uses `PreviewScreen` with integer indices. Rather than push uuid-or-index
- * knowledge into the preview engine, we translate `Location` → `PreviewScreen`
- * at this boundary. The adapter reads `moduleOrder` / `formOrder` from the
- * doc store and resolves uuid → index.
+ * The interact-mode preview pipeline uses stable blueprint UUIDs. This
+ * boundary validates URL identities against the document before turning a
+ * `Location` into a `PreviewScreen`.
  *
  * ## Screen identity ownership
  *
  * PreviewShell owns the "last screen of each type" state via refs. Each
- * screen component receives its coordinates (moduleIndex / formIndex /
+ * screen component receives its coordinates (moduleUuid / formUuid /
  * caseId) as props rather than reading the global screen.
  *
  * This matches Activity's semantics: when Activity hides FormScreen, the
@@ -53,19 +51,21 @@ import { useBuilderLanguage } from "@/components/builder/localization/BuilderLoc
 import { ProjectDataWorkspace } from "@/components/builder/project-data/ProjectDataWorkspace";
 import { Button } from "@/components/shadcn/button";
 import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
-import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
+import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
-import type { AppSetupSection, Location } from "@/lib/routing/types";
+import type { AppSetupSection } from "@/lib/routing/types";
 import {
 	useEditMode,
 	usePreviewCaseTarget,
+	usePreviewParentCaseRequest,
 	useProjectScopeEpoch,
 	useSetPreviewing,
+	useSetPreviewParentCaseRequest,
 	useSetPreviewPersonaUuid,
 } from "@/lib/session/hooks";
 import { CaseListScreen } from "./screens/CaseListScreen";
@@ -79,61 +79,6 @@ interface PreviewShellProps {
 	onBack?: () => void;
 }
 
-/**
- * Translate a URL-derived `Location` into the legacy `PreviewScreen` shape
- * (integer indices) that the interact-mode preview pipeline expects. Falls
- * back to `{ type: "home" }` when a uuid can't be resolved, the stale
- * param will be scrubbed by LocationRecoveryEffect on the next tick.
- */
-function locationToScreen(
-	loc: Location,
-	moduleOrder: readonly Uuid[],
-	formOrder: Readonly<Record<Uuid, readonly Uuid[]>>,
-): PreviewScreen {
-	if (loc.kind === "home") return { type: "home" };
-	if (loc.kind === "app-setup") {
-		return { type: "appSetup", section: loc.section };
-	}
-	if (loc.kind === "project-data") {
-		return { type: "projectData", tableId: loc.tableId };
-	}
-
-	const moduleIndex = moduleOrder.indexOf(loc.moduleUuid);
-	if (moduleIndex < 0) return { type: "home" };
-
-	if (loc.kind === "module") return { type: "module", moduleIndex };
-
-	if (loc.kind === "cases") {
-		return { type: "caseList", moduleIndex, formIndex: 0 };
-	}
-
-	if (loc.kind === "search-config") {
-		return { type: "searchConfig", moduleIndex };
-	}
-
-	if (loc.kind === "detail-config") {
-		return { type: "detailConfig", moduleIndex };
-	}
-
-	if (loc.kind === "data-review") {
-		return { type: "dataReview", moduleIndex };
-	}
-
-	/* A display-condition URL runs the surface its condition governs. A
-	 * module's condition decides whether its menu is on the HOME screen,
-	 * so home is what Preview runs: entering the module would route
-	 * straight past the one screen the condition decides (and a
-	 * case-first module's own screen redirects to its case list, which
-	 * would also rewrite this URL out from under the author). */
-	if (loc.kind === "module-condition") return { type: "home" };
-
-	/* Form screen: resolve formUuid to index within the module's form list. */
-	const formIds = formOrder[loc.moduleUuid] ?? [];
-	const formIndex = formIds.indexOf(loc.formUuid);
-	if (formIndex < 0) return { type: "module", moduleIndex };
-	return { type: "form", moduleIndex, formIndex };
-}
-
 export function PreviewShell({ onBack }: PreviewShellProps) {
 	const { direction } = useBuilderLanguage();
 	/* ── Location → PreviewScreen adapter ─────────────────────────────
@@ -143,10 +88,31 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	const navigate = useNavigate();
 	const scopeEpoch = useProjectScopeEpoch();
 	const previousScopeEpochRef = useRef(scopeEpoch);
-	/* `useAppStructure` returns a shallow-stable `{moduleOrder, formOrder}`
-	 * pair so the location→screen adapter's `useMemo` below only invalidates
-	 * when one of the top-level order arrays actually changes reference. */
-	const { moduleOrder, formOrder } = useAppStructure();
+	const mode = useEditMode();
+	const previewCaseTarget = usePreviewCaseTarget();
+	const previewParentCaseRequest = usePreviewParentCaseRequest();
+	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
+	const identityState = useSelectedPreviewIdentityState();
+	const atCaseRecord = loc.kind === "cases" && loc.caseId !== undefined;
+	const projectedScreen = usePreviewScreenForLocation(loc);
+
+	/* Every intermediate selector URL is replace-driven. Browser Back therefore
+	 * means "leave this selection flow", not "re-open the selector". Clear the
+	 * ephemeral request on popstate, and also heal a request whose URL no longer
+	 * names its active selector (for example after a breadcrumb or tree jump). */
+	useEffect(() => {
+		if (previewParentCaseRequest === undefined) return;
+		const cancelOnBrowserHistory = () => setPreviewParentCaseRequest(undefined);
+		window.addEventListener("popstate", cancelOnBrowserHistory);
+		return () => window.removeEventListener("popstate", cancelOnBrowserHistory);
+	}, [previewParentCaseRequest, setPreviewParentCaseRequest]);
+	useEffect(() => {
+		if (previewParentCaseRequest === undefined) return;
+		const atActiveSelector =
+			(loc.kind === "module" || loc.kind === "cases") &&
+			loc.moduleUuid === previewParentCaseRequest.selectingModuleUuid;
+		if (!atActiveSelector) setPreviewParentCaseRequest(undefined);
+	}, [loc, previewParentCaseRequest, setPreviewParentCaseRequest]);
 
 	/* Default back handler: callers can override (e.g. for selection sync),
 	 * otherwise fall back to URL-driven `navigate.back()`. */
@@ -157,8 +123,6 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * case (running-app state, like the search inputs and filter, it never
 	 * goes in the URL). We graft its `caseId` onto the form screen below when
 	 * it names the form we're showing, so `FormScreen` preloads the case. */
-	const previewCaseTarget = usePreviewCaseTarget();
-
 	/* The screen AND "is this a condition-authoring URL" both derive from
 	 * the location, so they must travel together through the deferred
 	 * value. Splitting them would let one flip a render before the other:
@@ -166,7 +130,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * `screen.type === "home"` with authoring already off, flashing the
 	 * running home screen on the way to the module screen. */
 	const zustandView = useMemo(() => {
-		const screen = locationToScreen(loc, moduleOrder, formOrder);
+		const screen = projectedScreen;
 		const atCondition =
 			loc.kind === "module-condition" || loc.kind === "form-condition";
 		/* A form's case-operations URL maps onto its RUNNING form screen:
@@ -196,7 +160,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			};
 		}
 		return { screen, atCondition, atOperations, atLinks };
-	}, [loc, moduleOrder, formOrder, previewCaseTarget]);
+	}, [loc, previewCaseTarget, projectedScreen]);
 	const zustandScreen: PreviewScreen = zustandView.screen;
 
 	/* ── Concurrent screen transition ──────────────────────────────────
@@ -207,13 +171,10 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	const view = useDeferredValue(zustandView);
 	const screen = view.screen;
 
-	const mode = useEditMode();
-	const identityState = useSelectedPreviewIdentityState();
 	const setPreviewPersonaUuid = useSetPreviewPersonaUuid();
 	/* `/cases/{caseId}` is the running record deep link, not the Results
 	 * authoring tab. It must remain a record screen after a reload even though
 	 * preview mode itself is ephemeral session state. */
-	const atCaseRecord = loc.kind === "cases" && loc.caseId !== undefined;
 	const setPreviewing = useSetPreviewing();
 	useEffect(() => {
 		if (atCaseRecord && mode !== "preview") setPreviewing(true);
@@ -252,7 +213,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 *  three case-list workspace URLs (`results` / `search` / `details`).
 	 *  Tracked separately from `caseListScreenRef`
 	 *  because the workspace mounts on the URL location (uuid-shaped)
-	 *  while the legacy `CaseListScreen` mounts on the integer-indexed
+	 *  while the running `CaseListScreen` mounts on the UUID-based
 	 *  `PreviewScreen` shape. The ref stays populated once any
 	 *  case-list URL has been visited, so the workspace's Activity
 	 *  boundary survives subsequent navigation away and back. */
@@ -275,7 +236,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	}
 	/** The data review screen's identity: uuid-shaped like the
 	 *  workspace ref above, for the same reason (a builder surface
-	 *  mounted off the URL, not the integer-indexed preview shape). */
+	 *  mounted off the URL, independently of the PreviewScreen shape). */
 	const dataReviewRef = useRef<{ moduleUuid: Uuid }>(undefined);
 	if (loc.kind === "data-review") {
 		dataReviewRef.current = { moduleUuid: loc.moduleUuid };
@@ -378,11 +339,10 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			/* In preview mode these case-workspace URLs render the same
 			 * running-app `CaseListScreen` (the composed search +
 			 * list experience), so the sibling kinds synthesize the
-			 * integer-indexed caseList identity. */
+			 * UUID-based caseList identity. */
 			caseListScreenRef.current = {
 				type: "caseList",
-				moduleIndex: zustandScreen.moduleIndex,
-				formIndex: 0,
+				moduleUuid: zustandScreen.moduleUuid,
 			};
 			break;
 		case "appSetup":
@@ -400,7 +360,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * the scroll position when leaving a screen and restore it on return
 	 * so navigating back to a scrolled form doesn't land at the top.
 	 *
-	 * Keyed by `screenKey()` (encodes type + indices) rather than just
+	 * Keyed by `screenKey()` (encodes type + UUIDs) rather than just
 	 * `screen.type`: otherwise navigating Form A → Module → Form B would
 	 * incorrectly restore Form A's scroll position for Form B. */
 	const scrollPositions = useRef(new Map<string, number>());
@@ -505,7 +465,10 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 					>
 						<PortaledContentDirectionProvider direction={direction}>
 							<div dir={direction} className="contents">
-								<ModuleScreen screen={moduleScreenRef.current} />
+								<ModuleScreen
+									key={screenKey(moduleScreenRef.current)}
+									screen={moduleScreenRef.current}
+								/>
 							</div>
 						</PortaledContentDirectionProvider>
 					</Activity>
@@ -605,7 +568,10 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 					>
 						<PortaledContentDirectionProvider direction={direction}>
 							<div dir={direction} className="contents">
-								<CaseListScreen screen={caseListScreenRef.current} />
+								<CaseListScreen
+									key={screenKey(caseListScreenRef.current)}
+									screen={caseListScreenRef.current}
+								/>
 							</div>
 						</PortaledContentDirectionProvider>
 					</Activity>
@@ -622,6 +588,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						<PortaledContentDirectionProvider direction={direction}>
 							<div dir={direction} className="contents">
 								<FormScreen
+									key={screenKey(formScreenRef.current)}
 									screen={formScreenRef.current}
 									onBack={handleBack}
 								/>

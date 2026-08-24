@@ -9,7 +9,9 @@ These are the tools the Commcare Nova MCP server exposes. You don't call them di
 
 `get_agent_prompt` returns the same instructions Commcare Nova's own web builder follows when it builds apps. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the text it returns. You don't have to do this, your agent can drive the tools however it wants, but starting from the instructions Commcare Nova already tunes for these tools is the fastest path to good results.
 
-It's a long result, a whole system prompt. Some agent frameworks cap how much of a tool result they pass through and quietly hand your agent a truncated copy, which reads as a normal short prompt and produces apps that are valid but conventionally off. So the text always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing, rather than building on a fragment.
+It's a long result, a whole system prompt. A prompt that fits the model-facing result budget arrives as plain text. A larger prompt instead arrives as a `nova-agent-prompt-page` JSON object. Have your agent save its `prompt_chunk`, call the tool again with the same `mode` and `app_id` plus `next_cursor`, and repeat until `complete` is true. `offset_unit` is `unicode-code-points`: `chunk_start`, `chunk_end`, and `prompt_length` count Unicode code points, not UTF-16 code units or UTF-8 bytes, and a chunk never splits a surrogate pair. Each page must have the same `prompt_sha256`, each `chunk_start` must equal the preceding `chunk_end`, and the final `chunk_end` must equal `prompt_length`. The agent can then concatenate the chunks in order and follow the assembled prompt. If the app changes while those pages are being fetched, CommCare Nova refuses to mix the snapshots and asks the agent to restart without a cursor.
+
+The complete assembled prompt always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing. Pagination keeps all guidance and the complete app summary; it does not shorten either one to fit.
 
 ## Stable identities and structured content
 
@@ -219,9 +221,11 @@ the design uses custom worker information, `add_user_properties` declares it
 next, before `generate_schema`, modules, forms, conditions, or calculations can
 refer to it. `generate_schema` then commits the data model, and each
 `create_module` call lands one complete module, every call checked as it
-lands. After a Connect build's forms exist, `configure_connect` sets the mode
-and complete UUID-addressed participant set in one call. Roles and personas can
-follow the app structure; the referenced worker information cannot.
+lands. Commcare Nova supports one submenu tier: create a top-level parent first,
+then pass its UUID as the child's `parentModuleUuid`. After a Connect build's
+forms exist, `configure_connect` sets the mode and complete UUID-addressed
+participant set in one call. Roles and personas can follow the app structure;
+the referenced worker information cannot.
 
 | Tool | What it does |
 |---|---|
@@ -533,13 +537,23 @@ its time of day.
 
 ## Working on modules
 
+Modules may be top-level or may sit one level inside a top-level parent. This
+menu relationship controls navigation only. It is separate from a case type's
+`parent_type` data relationship, so neither implies the other. A child cannot
+contain another child, and a parent with children stays top-level until those
+children move or are removed.
+
+Every form has one canonical module. Commcare Nova does not author linked or
+shadow copies of one form under several menus. When you need several views of
+the same cases, use case-list filters and design the menu structure deliberately.
+
 | Tool | What it does |
 |---|---|
-| `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Its case type must already be recorded on the app (`generate_schema`). A module lands complete or not at all. It returns every created UUID; predeclare only identities referenced inside the call. Refine the case list afterward via the case-list tools below. |
+| `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Omit `parentModuleUuid` for top-level, or pass an existing top-level parent's UUID for a child. Its case type must already be recorded on the app (`generate_schema`). A module lands complete or not at all. It returns every created UUID; predeclare only identities referenced inside the call. Refine the case list afterward via the case-list tools below. |
 | `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs), set the case type before adding registration, follow-up, or close forms to a module created without one. |
-| `remove_module` | Delete a module by `moduleUuid`. |
-| `move_module` | Reorder a module in the app's menu, addressed by `moduleUuid`. `after` names the module it should follow, `null` puts it first; the module keeps its identity and every reference to it. |
-| `get_module` | Read one module by `moduleUuid`, including form and field UUIDs, the structured case-list config, its display condition, and each menu tile's current icon and audio label. |
+| `remove_module` | Delete a module by `moduleUuid`. A parent must have no child modules before it can be removed. |
+| `move_module` | Reorder or reparent a module without changing its identity. `after` is always required and names a sibling in the destination menu, or is `null` for first. Omit `parentModuleUuid` to reorder within the current menu, pass `null` to make the module top-level, or pass a top-level module UUID to place it inside that menu. |
+| `get_module` | Read one module by `moduleUuid`, including its `parent_module_uuid`, ordered `child_module_uuids`, form and field UUIDs, structured case-list config, display condition, and current icon and audio label. |
 
 ## Working on the case list
 

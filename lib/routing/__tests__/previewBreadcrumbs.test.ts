@@ -116,6 +116,84 @@ describe("previewCaseTargetBindsLocation", () => {
 });
 
 describe("previewBreadcrumbTrail — form screens", () => {
+	it("uses the parent menu trail when a child condition renders there", () => {
+		const parentUuid = testUuid("module-parent");
+		const childCondition: Location = {
+			kind: "module-condition",
+			moduleUuid,
+		};
+		const trail = previewBreadcrumbTrail({
+			loc: childCondition,
+			baseBreadcrumbs: [
+				home,
+				{
+					key: `m:${parentUuid}`,
+					label: "Care",
+					location: { kind: "module", moduleUuid: parentUuid },
+				},
+				moduleCrumb,
+				{
+					key: "module-condition",
+					label: "When it appears",
+					location: childCondition,
+				},
+			],
+			moduleUuid,
+			moduleForms: forms,
+			previewCaseTarget: undefined,
+			previewSelectedCase: undefined,
+			renderedScreen: { type: "module", moduleUuid: parentUuid },
+		});
+
+		expect(trail.map((crumb) => crumb.label)).toEqual(["Home", "Care"]);
+	});
+
+	it("uses Home when a hidden child route cannot run", () => {
+		const trail = previewBreadcrumbTrail({
+			loc: { kind: "form", moduleUuid, formUuid: followupUuid },
+			baseBreadcrumbs: [home, moduleCrumb],
+			moduleUuid,
+			moduleForms: forms,
+			previewCaseTarget: undefined,
+			previewSelectedCase: undefined,
+			renderedScreen: { type: "home" },
+		});
+
+		expect(trail).toEqual([home]);
+	});
+
+	it("retains parent and child menu ancestry before the separate case trail", () => {
+		const parentUuid = testUuid("module-parent");
+		const loc = formLoc(followupUuid);
+		const trail = previewBreadcrumbTrail({
+			loc,
+			baseBreadcrumbs: [
+				home,
+				{
+					key: `m:${parentUuid}`,
+					label: "Care",
+					location: { kind: "cases", moduleUuid: parentUuid },
+				},
+				moduleCrumb,
+			],
+			moduleUuid,
+			moduleForms: forms,
+			previewCaseTarget: {
+				formUuid: followupUuid,
+				caseId: "c1",
+				caseName: "Yusuf Patel",
+			} as never,
+			previewSelectedCase: undefined,
+		});
+		expect(trail.map((crumb) => crumb.label)).toEqual([
+			"Home",
+			"Care",
+			"Households",
+			"Household Visit",
+			"Yusuf Patel",
+		]);
+	});
+
 	it("passes the base trail through at home (no module context)", () => {
 		const trail = previewBreadcrumbTrail({
 			loc: { kind: "home" },

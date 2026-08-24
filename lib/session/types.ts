@@ -13,6 +13,7 @@
 
 import type { Uuid } from "@/lib/doc/types";
 import type { MediaKind } from "@/lib/domain/multimedia";
+import type { Location } from "@/lib/routing/types";
 
 // ── Interaction primitives ───────────────────────────────────────────────
 
@@ -56,6 +57,38 @@ export interface PreviewCaseTarget {
 export interface PreviewSelectedCase {
 	caseId: string;
 	caseName: string;
+}
+
+/**
+ * A case selected for one module menu. This is the Preview equivalent of a
+ * menu-scoped case datum: it makes that menu's case-loading forms runnable
+ * and may be inherited by a child menu that works with the same case type.
+ *
+ * It is deliberately separate from `PreviewCaseTarget`. Selecting a case for
+ * a parent menu does not imply that any particular form should open. The map
+ * that stores these values is keyed by module uuid, so reorder and rename do
+ * not change the selection's owner.
+ */
+export interface PreviewMenuCaseSelection {
+	caseType: string;
+	caseId: string;
+	caseName: string;
+	/** Flattened selected-row values for case-scoped form visibility. */
+	caseProperties?: Readonly<Record<string, string>>;
+}
+
+/** A case-type parent selection that must happen before a target module can
+ * continue. The selecting module comes from case ancestry, independently of
+ * the target module's structural menu parent. */
+export interface PreviewParentCaseRequest {
+	selectingModuleUuid: Uuid;
+	/** Immediate next selector(s), ending with the originally requested module. */
+	returnModuleUuids: readonly Uuid[];
+	/** Exact running leaf that initiated the chain. Absent for an ordinary
+	 * menu-to-module parent selection. */
+	resumeLocation?: Location;
+	/** Safe running-menu destination when the worker cancels the selector. */
+	cancelLocation?: Location;
 }
 
 // ── Staged media uploads ─────────────────────────────────────────────────

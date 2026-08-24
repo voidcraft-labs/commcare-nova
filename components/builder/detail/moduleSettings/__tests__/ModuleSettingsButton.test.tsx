@@ -4,6 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import type { Uuid } from "@/lib/doc/types";
 
+const access = vi.hoisted(() => ({ canEdit: true }));
+
+vi.mock("@/lib/session/hooks", () => ({
+	useCanEdit: () => access.canEdit,
+}));
+
 vi.mock(
 	"@/components/builder/detail/moduleSettings/ModuleCaseTypeSection",
 	() => ({ ModuleCaseTypeSection: () => <div>Case type section</div> }),
@@ -15,6 +21,10 @@ vi.mock(
 vi.mock("@/components/builder/detail/moduleSettings/ModuleNameSection", () => ({
 	ModuleNameSection: () => <div>Name section</div>,
 }));
+vi.mock(
+	"@/components/builder/detail/moduleSettings/MenuPlacementSection",
+	() => ({ MenuPlacementSection: () => <div>Menu placement section</div> }),
+);
 vi.mock("@/components/builder/conditions/DisplayConditionSection", () => ({
 	DisplayConditionSection: () => <div>Display condition section</div>,
 }));
@@ -25,7 +35,10 @@ class ResizeObserverStub {
 	disconnect() {}
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	access.canEdit = true;
+});
 
 describe("ModuleSettingsButton", () => {
 	it("opens a viewport-aware shadcn panel with comfortable header controls", async () => {
@@ -61,5 +74,13 @@ describe("ModuleSettingsButton", () => {
 				document.querySelector('[data-slot="popover-content"]'),
 			).toBeNull(),
 		);
+	});
+
+	it("does not expose module settings to a viewer", () => {
+		access.canEdit = false;
+		render(<ModuleSettingsButton moduleUuid={"module-1" as Uuid} />);
+		expect(
+			screen.queryByRole("button", { name: "Module settings" }),
+		).toBeNull();
 	});
 });

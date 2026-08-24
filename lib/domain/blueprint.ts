@@ -18,6 +18,7 @@ import {
 import { fieldSchema, isContainer } from "./fields";
 import { formSchema } from "./forms";
 import { appLocalizationSchema } from "./localization";
+import { projectedModulePreorder } from "./moduleHierarchy";
 import { isOwnerOnlyCaseSearchConfig, moduleSchema } from "./modules";
 import { mediaAssetIdSchema } from "./multimedia";
 import {
@@ -443,6 +444,47 @@ export function blueprintTopologyIssues(
 	};
 
 	exactSequence("modules", doc.modules, "moduleOrder", doc.moduleOrder);
+
+	for (const moduleUuid of doc.moduleOrder) {
+		const module = doc.modules[moduleUuid];
+		if (module === undefined || module.parentModuleUuid === undefined) continue;
+		const parentUuid = module.parentModuleUuid;
+		const parent = doc.modules[parentUuid];
+		if (parent === undefined) {
+			topologyIssue(
+				issues,
+				["modules", moduleUuid, "parentModuleUuid"],
+				`Module ${moduleUuid} names missing parent module ${parentUuid}.`,
+			);
+			continue;
+		}
+		if (parentUuid === moduleUuid) {
+			topologyIssue(
+				issues,
+				["modules", moduleUuid, "parentModuleUuid"],
+				`Module ${moduleUuid} cannot be its own parent.`,
+			);
+		}
+		if (parent.parentModuleUuid !== undefined) {
+			topologyIssue(
+				issues,
+				["modules", moduleUuid, "parentModuleUuid"],
+				`Module ${moduleUuid} cannot be nested under child module ${parentUuid}.`,
+			);
+		}
+	}
+
+	const projectedPreorder = projectedModulePreorder(doc);
+	if (
+		projectedPreorder.length !== doc.moduleOrder.length ||
+		projectedPreorder.some((uuid, index) => doc.moduleOrder[index] !== uuid)
+	) {
+		topologyIssue(
+			issues,
+			["moduleOrder"],
+			"moduleOrder must keep every root immediately before its contiguous child modules.",
+		);
+	}
 
 	const expectedFormParents = new Set(Object.keys(doc.modules));
 	for (const parentUuid of Object.keys(doc.formOrder)) {

@@ -99,7 +99,7 @@ export function planEnvelope(args: {
 		promptVersion: DESIGN_PROMPT_VERSIONS.planner,
 		producer: {
 			provider: "nova",
-			modelId: "deterministic-build-planner-v1",
+			modelId: "deterministic-build-planner-v2",
 			finishReason: null,
 		},
 		createdAt: new Date().toISOString(),
