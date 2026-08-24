@@ -80,10 +80,14 @@ function placedModuleOrder(
 			const anchorIndex = without.indexOf(after);
 			if (anchorIndex < 0) return undefined;
 			insertionIndex = anchorIndex + 1;
-			while (
-				insertionIndex < without.length &&
-				moduleParentOf(draft, without[insertionIndex] as Uuid) === after
-			) {
+			while (insertionIndex < without.length) {
+				const candidate = without[insertionIndex];
+				if (
+					candidate === undefined ||
+					moduleParentOf(draft, candidate) !== after
+				) {
+					break;
+				}
 				insertionIndex++;
 			}
 		}
@@ -97,11 +101,14 @@ function placedModuleOrder(
 			insertionIndex = anchorIndex + 1;
 		} else {
 			insertionIndex = parentIndex + 1;
-			while (
-				insertionIndex < without.length &&
-				moduleParentOf(draft, without[insertionIndex] as Uuid) ===
-					destinationParent
-			) {
+			while (insertionIndex < without.length) {
+				const candidate = without[insertionIndex];
+				if (
+					candidate === undefined ||
+					moduleParentOf(draft, candidate) !== destinationParent
+				) {
+					break;
+				}
 				insertionIndex++;
 			}
 		}

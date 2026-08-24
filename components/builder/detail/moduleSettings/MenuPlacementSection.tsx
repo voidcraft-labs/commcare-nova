@@ -18,7 +18,7 @@ import {
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useModuleMenuHierarchy } from "@/lib/doc/hooks/useModuleIds";
-import type { Uuid } from "@/lib/domain";
+import { type Uuid, uuidSchema } from "@/lib/domain";
 
 const TOP_LEVEL = "__top_level__";
 
@@ -44,7 +44,17 @@ export function MenuPlacementSection({
 
 	const moveTo = (nextValue: string | null) => {
 		if (nextValue === null || nextValue === value) return;
-		const nextParent = nextValue === TOP_LEVEL ? null : (nextValue as Uuid);
+		let nextParent: Uuid | null;
+		if (nextValue === TOP_LEVEL) {
+			nextParent = null;
+		} else {
+			const parsedParent = uuidSchema.safeParse(nextValue);
+			if (!parsedParent.success) {
+				setError("That menu is no longer available. Choose another one.");
+				return;
+			}
+			nextParent = parsedParent.data;
+		}
 		const outcome = inline.moveModule(
 			moduleUuid,
 			placementAtEnd(
