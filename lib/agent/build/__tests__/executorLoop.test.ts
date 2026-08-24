@@ -1131,6 +1131,51 @@ describe("accepted input requirement parity", () => {
 });
 
 describe("accepted composition admission", () => {
+	it("allows a child viewer to bootstrap top-level until its parent exists", () => {
+		const contract = makeNestedMenuContract();
+		const childComposition = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+		});
+		const slice = fixtureValue(
+			plan.slices.find((entry) => entry.workflowId === ids.taskVisit),
+			"child slice",
+		);
+		const sliceBrief = deriveSliceExecutionBrief({
+			contract,
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+			plan,
+			sliceId: slice.id,
+		});
+		const childRealization = fixtureValue(
+			sliceBrief.moduleRealizations.find(
+				(realization) => realization.compositionId === ids.moduleVisits,
+			),
+			"child realization",
+		);
+		const workspace = fakeWorkspace();
+
+		expect(
+			compositionAdmissionIssue(
+				"createModule",
+				{
+					moduleUuid: { handle: childRealization.blueprintModuleHandle },
+					name: childComposition.name,
+					case_type: childRealization.hostRecord?.blueprintCaseType,
+					forms: [],
+				},
+				sliceBrief,
+				workspace,
+			),
+		).toBeNull();
+	});
+
 	it("uses the compiler-owned handle to distinguish equal module semantics", () => {
 		const contract = makeNestedMenuContract();
 		const parentComposition = fixtureValue(

@@ -801,6 +801,19 @@ export class PostgresCaseStore implements CaseStore {
 				),
 			);
 		}
+		const parentCaseId = args.parentCaseId;
+		if (parentCaseId !== undefined) {
+			qb = qb.where(({ exists, selectFrom }) =>
+				exists(
+					selectFrom("case_indices as selected_parent")
+						.select("selected_parent.case_id")
+						.whereRef("selected_parent.case_id", "=", "c.case_id")
+						.where("selected_parent.ancestor_id", "=", parentCaseId)
+						.where("selected_parent.depth", "=", 1)
+						.where("selected_parent.relationship", "!=", "extension"),
+				),
+			);
+		}
 
 		// Project each calculated column under its prefixed alias.
 		for (const column of calculated) {
@@ -1195,6 +1208,19 @@ export class PostgresCaseStore implements CaseStore {
 							.whereRef("held.case_id", "=", "c.case_id")
 							.where("held.dismissed_at", "is", null),
 					),
+				),
+			);
+		}
+		const parentCaseId = args.parentCaseId;
+		if (parentCaseId !== undefined) {
+			qb = qb.where(({ exists, selectFrom }) =>
+				exists(
+					selectFrom("case_indices as selected_parent")
+						.select("selected_parent.case_id")
+						.whereRef("selected_parent.case_id", "=", "c.case_id")
+						.where("selected_parent.ancestor_id", "=", parentCaseId)
+						.where("selected_parent.depth", "=", 1)
+						.where("selected_parent.relationship", "!=", "extension"),
 				),
 			);
 		}

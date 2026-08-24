@@ -734,68 +734,125 @@ describe("readCases", () => {
 		expect(ids).toEqual([ALICE_CASE_ID, BOB_CASE_ID].sort());
 	});
 
-	it.each(["child", "extension"] as const)(
-		"constrains a %s case list to the selected case-type parent",
-		async (relationship) => {
-			const store = makeStore(PROJECT_A, OWNER_A);
-			const visitCaseType = { ...VISIT_CASE_TYPE, relationship };
-			const blueprint = buildBlueprint([PATIENT_CASE_TYPE, visitCaseType]);
-			await seedSchema(store, blueprint, "patient");
-			await seedSchema(store, blueprint, "visit");
-			for (const [caseId, name] of [
-				[ALICE_CASE_ID, "Alice"],
-				[BOB_CASE_ID, "Bob"],
-			] as const) {
-				await store.insert({
-					appId: APP_ID,
-					row: {
-						case_id: caseId,
-						case_type: "patient",
-						case_name: name,
-						status: "open",
-						properties: {},
-					},
-				});
-			}
+	it("constrains an ordinary child case list to the selected case-type parent", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const relationship = "child" as const;
+		const visitCaseType = { ...VISIT_CASE_TYPE, relationship };
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE, visitCaseType]);
+		await seedSchema(store, blueprint, "patient");
+		await seedSchema(store, blueprint, "visit");
+		for (const [caseId, name] of [
+			[ALICE_CASE_ID, "Alice"],
+			[BOB_CASE_ID, "Bob"],
+		] as const) {
 			await store.insert({
 				appId: APP_ID,
-				parentRelationship: relationship,
 				row: {
-					case_id: VISIT_CASE_ID,
-					case_type: "visit",
-					case_name: "Alice visit",
+					case_id: caseId,
+					case_type: "patient",
+					case_name: name,
 					status: "open",
-					parent_case_id: ALICE_CASE_ID,
 					properties: {},
 				},
 			});
-			const bobVisitId = "40000000-0000-0000-0000-000000000005";
-			await store.insert({
-				appId: APP_ID,
-				parentRelationship: relationship,
-				row: {
-					case_id: bobVisitId,
-					case_type: "visit",
-					case_name: "Bob visit",
-					status: "open",
-					parent_case_id: BOB_CASE_ID,
-					properties: {},
-				},
-			});
+		}
+		await store.insert({
+			appId: APP_ID,
+			parentRelationship: relationship,
+			row: {
+				case_id: VISIT_CASE_ID,
+				case_type: "visit",
+				case_name: "Alice visit",
+				status: "open",
+				parent_case_id: ALICE_CASE_ID,
+				properties: {},
+			},
+		});
+		const bobVisitId = "40000000-0000-0000-0000-000000000005";
+		await store.insert({
+			appId: APP_ID,
+			parentRelationship: relationship,
+			row: {
+				case_id: bobVisitId,
+				case_type: "visit",
+				case_name: "Bob visit",
+				status: "open",
+				parent_case_id: BOB_CASE_ID,
+				properties: {},
+			},
+		});
 
-			const result = await readCases(store, {
-				appId: APP_ID,
-				caseType: "visit",
-				caseTypeSchemas: buildCaseTypeMap(blueprint),
-				parentCase: { caseType: "patient", caseId: ALICE_CASE_ID },
-			});
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			parentCase: { caseType: "patient", caseId: ALICE_CASE_ID },
+		});
 
-			expect(result.kind).toBe("rows");
-			if (result.kind !== "rows") return;
-			expect(result.rows.map((row) => row.case_id)).toEqual([VISIT_CASE_ID]);
-			expect(result.constraintSource).toBe("authored-rules");
-		},
-	);
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows.map((row) => row.case_id)).toEqual([VISIT_CASE_ID]);
+		expect(result.constraintSource).toBe("authored-rules");
+	});
+
+	it("excludes extension links from selected-parent submenu rows and counts", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const blueprint = buildBlueprint([
+			PATIENT_CASE_TYPE,
+			{ ...VISIT_CASE_TYPE, relationship: "child" },
+		]);
+		await seedSchema(store, blueprint, "patient");
+		await seedSchema(store, blueprint, "visit");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: {},
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			parentRelationship: "child",
+			row: {
+				case_id: VISIT_CASE_ID,
+				case_type: "visit",
+				case_name: "Alice child visit",
+				status: "open",
+				parent_case_id: ALICE_CASE_ID,
+				properties: {},
+			},
+		});
+		const extensionCaseId = "40000000-0000-0000-0000-000000000006";
+		await store.insert({
+			appId: APP_ID,
+			parentRelationship: "extension",
+			row: {
+				case_id: extensionCaseId,
+				case_type: "visit",
+				case_name: "Alice host extension",
+				status: "open",
+				parent_case_id: ALICE_CASE_ID,
+				properties: {},
+			},
+		});
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			parentCase: { caseType: "patient", caseId: ALICE_CASE_ID },
+			page: { offset: 0, limit: 50 },
+		});
+
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows.map((row) => row.case_id)).toEqual([VISIT_CASE_ID]);
+		expect(result.totalCount).toBe(1);
+		expect(result.constraintSource).toBe("authored-rules");
+	});
 
 	it("counts authored matches inside the selected parent when Search is empty", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);

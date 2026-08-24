@@ -2,6 +2,7 @@
 
 import type { z } from "zod";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
+import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 
 type Path = Array<string | number>;
 
@@ -760,6 +761,7 @@ export function validateDesignGraph(
 				}
 				if (
 					parent.role !== "queue-only" &&
+					composition.hostRecordId !== undefined &&
 					parent.hostRecordId !== composition.hostRecordId &&
 					childOwner !== undefined
 				) {
@@ -780,6 +782,26 @@ export function validateDesignGraph(
 							ctx,
 							["moduleCompositions", compositionIndex, "hostRecordId"],
 							"A different-record child menu must be owned by the same workflow as or a later workflow than the parent menu's first form, so the parent case selection exists before the child is built.",
+						);
+					}
+					const firstChildWriter = parentFormChildWriterWorkflowIds(
+						contract,
+						parent.id,
+						composition.hostRecordId,
+					).sort(
+						(left, right) =>
+							(workflowRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
+							(workflowRank.get(right) ?? Number.MAX_SAFE_INTEGER),
+					)[0];
+					if (
+						firstChildWriter !== undefined &&
+						(workflowRank.get(childOwner) ?? Number.MAX_SAFE_INTEGER) >
+							(workflowRank.get(firstChildWriter) ?? Number.MAX_SAFE_INTEGER)
+					) {
+						issue(
+							ctx,
+							["moduleCompositions", compositionIndex, "hostRecordId"],
+							"A child menu that displays cases created by a parent-menu form must be owned by the same workflow as or an earlier workflow than the first such form, so its required viewer exists before that form is built.",
 						);
 					}
 				}

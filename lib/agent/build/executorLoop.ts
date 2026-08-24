@@ -2308,10 +2308,15 @@ export function compositionAdmissionIssue(
 			object.parentModuleUuid === undefined
 				? null
 				: resolveCheckpointIdentity(object.parentModuleUuid, workspace);
+		const bootstrappingUnresolvedParent =
+			realization.parentModuleCompositionId !== null &&
+			expectedParentUuid === null &&
+			suppliedParentUuid === null;
 		if (
-			(realization.parentModuleCompositionId !== null &&
+			!bootstrappingUnresolvedParent &&
+			((realization.parentModuleCompositionId !== null &&
 				expectedParentUuid === null) ||
-			suppliedParentUuid !== expectedParentUuid
+				suppliedParentUuid !== expectedParentUuid)
 		) {
 			return "Create this module in the exact accepted parent menu. Omit parentModuleUuid only for a top-level composition; otherwise reference the parent module realization from the brief.";
 		}

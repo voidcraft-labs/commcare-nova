@@ -17,6 +17,7 @@ import {
 } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
+import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -434,6 +435,7 @@ function requiredPrerequisiteWorkflowIds(
 		 * form owner is not later than the child owner. */
 		if (
 			parent !== undefined &&
+			composition.hostRecordId !== undefined &&
 			parent.hostRecordId !== composition.hostRecordId
 		) {
 			const parentFormOwner = contract.formCompositions
@@ -451,6 +453,20 @@ function requiredPrerequisiteWorkflowIds(
 				parentFormOwner !== childOwner
 			) {
 				required.get(childOwner)?.add(parentFormOwner);
+			}
+			/* The Blueprint validator requires a viewer module before any form
+			 * creates that case type. When the writer lives in this parent menu,
+			 * schedule the child viewer's owner first. If one workflow owns both,
+			 * the executor uses the bounded top-level bootstrap and reparents the
+			 * child before finalizing the slice. */
+			for (const writerWorkflowId of parentFormChildWriterWorkflowIds(
+				contract,
+				parent.id,
+				composition.hostRecordId,
+			)) {
+				if (childOwner !== undefined && writerWorkflowId !== childOwner) {
+					required.get(writerWorkflowId)?.add(childOwner);
+				}
 			}
 		}
 
@@ -619,7 +635,7 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 					code: "custom",
 					path: ["slices", sliceIndex, "prerequisiteSliceIds"],
 					message:
-						"Slice prerequisites must exactly include accepted workflow dependencies, every distinct parent or preceding-sibling module construction owner, and the first form owner for a different-record parent menu.",
+						"Slice prerequisites must exactly include accepted workflow dependencies, every distinct parent or preceding-sibling module construction owner, the first form owner for a different-record parent menu, and every child viewer required before a parent-menu form creates that child record.",
 				});
 			}
 			if (!workflowIds.has(slice.workflowId))

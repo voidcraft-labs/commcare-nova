@@ -192,6 +192,7 @@ function caseReadCore(
 	args: {
 		readonly appId: string;
 		readonly caseType: string;
+		readonly parentCase?: { readonly caseId: string };
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
@@ -202,6 +203,7 @@ function caseReadCore(
 	return {
 		appId: args.appId,
 		caseType: args.caseType,
+		parentCaseId: args.parentCase?.caseId,
 		caseTypeSchemas: args.caseTypeSchemas,
 		bindings: args.bindings,
 		lookupTableSchemas: args.lookupTableSchemas,
@@ -634,16 +636,6 @@ function composeQueryPredicate(
 	let hasAuthoredConstraint = false;
 	let hasWorkerConstraint = false;
 	if (parentCase !== undefined) {
-		clauses.push(
-			eq(
-				prop(
-					caseType,
-					"case_id",
-					ancestorPath(relationStep("parent", parentCase.caseType)),
-				),
-				literal(parentCase.caseId),
-			),
-		);
 		hasAuthoredConstraint = true;
 	}
 	const knownInputUuids = new Set(
