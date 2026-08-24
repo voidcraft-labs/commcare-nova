@@ -242,10 +242,14 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   root path plus the child's ordinary form frame with duplicate aligned datums
   removed. A flat module target remains the module command alone. Auto-match
   (`datums` absent) mirrors `_find_best_match`: the FIRST source datum in
-  source order with the same case type — same id keeps the id, a different id
-  carries `session/data/<source id>`; function datums carry their function
-  (`uuid()`). Manual datums (`min(1)`, unique names) land on the target datums
-  they name; a name the target never reads is `FORM_LINK_DATUM_UNUSED` (HQ's
+  source order with the same case type, excluding a child entry's root-copied
+  placeholders (`WorkflowDatumMeta.from_parent_module`) — same id keeps the
+  id, a different id carries `session/data/<source id>`; function datums carry
+  their function (`uuid()`). Root-computed datums still emit on the child entry,
+  but their weak provenance survives into `FrameDatum` so they cannot masquerade
+  as a case created or selected by the child source form. Manual datums
+  (`min(1)`, unique names) land on the target datums they name; a name the target
+  never reads is `FORM_LINK_DATUM_UNUSED` (HQ's
   `_get_datums_matched_to_manual_values` iterates TARGET datums and drops it).
 - **No runtime prompt on an unmatched datum.** HQ yields one as a self-named
   session ref (`<datum id="case_id"

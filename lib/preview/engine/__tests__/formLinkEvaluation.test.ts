@@ -27,6 +27,7 @@ import {
 	evaluateLinkDatum,
 	type FormLinkEvaluationInput,
 	formLinkEvalContext,
+	projectTargetCaseSelections,
 	sourceSessionDatums,
 } from "../formLinkEvaluation";
 import type { PreviewSearchSessionValues } from "../identity";
@@ -584,5 +585,90 @@ describe("carriedCaseFor", () => {
 				input,
 			),
 		).toBe("p1");
+	});
+});
+
+describe("projectTargetCaseSelections", () => {
+	it("projects the ancestor selection carried by a nested module target", () => {
+		const doc = nestedPatientDoc();
+		/* A module target carries the structural parent's common selection
+		 * prefix. Keep only the two household case-loading entries so that
+		 * `case_id` is common, while the survey remains the link source. */
+		doc.formOrder[HOUSEHOLDS] = [UPDATE, CLOSE];
+		const link: FormLink = {
+			uuid: testUuid("nested-module-manual-link"),
+			target: { type: "module", moduleUuid: PATIENTS },
+			datums: [{ name: "case_id", xpath: xp("'h-manual'") }],
+		};
+
+		expect(projectTargetCaseSelections(inputFor(doc), FEEDBACK, link)).toEqual([
+			{
+				datumId: "case_id",
+				moduleUuid: HOUSEHOLDS,
+				caseType: "household",
+				caseId: "h-manual",
+			},
+		]);
+	});
+
+	it("maps every automatic nested target selection to its owning module", () => {
+		const doc = nestedPatientDoc();
+		const submission = {
+			caseId: "h9",
+			caseName: "Smiths",
+			childCases: [{ caseType: "patient", caseId: "p1", caseName: "Pat" }],
+		};
+		const input = inputFor(doc, {
+			sessionDatums: sourceSessionDatums(doc, REGISTER, submission),
+		});
+		const link: FormLink = {
+			uuid: testUuid("nested-created-cases-link"),
+			target: { type: "form", moduleUuid: PATIENTS, formUuid: VISIT },
+		};
+
+		expect(projectTargetCaseSelections(input, REGISTER, link)).toEqual([
+			{
+				datumId: "case_id",
+				moduleUuid: HOUSEHOLDS,
+				caseType: "household",
+				caseId: "h9",
+				caseName: "Smiths",
+			},
+			{
+				datumId: "case_id_patient",
+				moduleUuid: PATIENTS,
+				caseType: "patient",
+				caseId: "p1",
+				caseName: "Pat",
+			},
+		]);
+	});
+
+	it("maps every manual nested target datum, including its parent", () => {
+		const doc = nestedPatientDoc();
+		const input = inputFor(doc);
+		const link: FormLink = {
+			uuid: testUuid("nested-manual-cases-link"),
+			target: { type: "form", moduleUuid: PATIENTS, formUuid: VISIT },
+			datums: [
+				{ name: "case_id", xpath: xp("'h-manual'") },
+				{ name: "case_id_patient", xpath: xp("'p-manual'") },
+			],
+		};
+
+		expect(projectTargetCaseSelections(input, FEEDBACK, link)).toEqual([
+			{
+				datumId: "case_id",
+				moduleUuid: HOUSEHOLDS,
+				caseType: "household",
+				caseId: "h-manual",
+			},
+			{
+				datumId: "case_id_patient",
+				moduleUuid: PATIENTS,
+				caseType: "patient",
+				caseId: "p-manual",
+			},
+		]);
 	});
 });

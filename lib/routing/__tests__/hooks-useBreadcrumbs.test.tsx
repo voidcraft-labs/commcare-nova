@@ -190,7 +190,7 @@ describe("useBreadcrumbs", () => {
 		]);
 	});
 
-	it("keeps menu ancestry separate and ahead of the child form", () => {
+	it("uses a case-list-only parent with children as the child form's menu crumb", () => {
 		const nestedDoc = buildDoc({
 			appId: "nested",
 			appName: "Nested",
@@ -198,7 +198,8 @@ describe("useBreadcrumbs", () => {
 				{
 					uuid: "parent-menu",
 					name: "Care",
-					forms: [{ uuid: "parent-form", name: "Intake", type: "survey" }],
+					caseType: "client",
+					caseListOnly: true,
 				},
 				{
 					uuid: "child-menu",

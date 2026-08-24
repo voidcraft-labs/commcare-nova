@@ -65,6 +65,7 @@ import {
 	carriedCaseFor,
 	evaluateFormLinks,
 	type PostSubmissionCaseData,
+	projectTargetCaseSelections,
 	type SelectedCaseSessionValue,
 	sourceSessionDatums,
 } from "@/lib/preview/engine/formLinkEvaluation";
@@ -93,6 +94,7 @@ import {
 	useProjectId,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
+	useSetPreviewMenuCaseSelection,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
@@ -114,7 +116,11 @@ import {
 import { SectionPage } from "../form/sections/SectionPage";
 import { SectionStepper } from "../form/sections/SectionPagerControls";
 import { useSectionPaging } from "../form/sections/useSectionPaging";
-import { afterSubmitRoute } from "./afterSubmitRouting";
+import {
+	afterSubmitRoute,
+	previewMenuSelectionsAfterTargetCases,
+	previewTargetHasSelectedCase,
+} from "./afterSubmitRouting";
 import {
 	FORM_PRIMARY_ACTION_CLS,
 	FORM_QUIET_ACTION_CLS,
@@ -643,6 +649,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const clearRunning = clearTargetEntryKey !== undefined;
 	const submissionAttemptRef = useRef(0);
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
+	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
 	/* Read imperatively once a submission has landed: the after-submit links
 	 * project against the document as it is THEN, and a module target lands
@@ -952,24 +959,51 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				}),
 				doc,
 				caseFirstModules,
-				hasSelectedCase: (targetModuleUuid) =>
-					previewMenuCaseContext(
+				hasSelectedCase: (targetModuleUuid, projectedSelections) => {
+					return previewTargetHasSelectedCase({
 						menuSource,
+						current: menuCaseSelections,
 						targetModuleUuid,
-						menuCaseSelections,
-					).selectedCase !== undefined,
+						projected: projectedSelections,
+					});
+				},
 				carriedCase: (link) => carriedCaseFor(input, sourceFormUuid, link),
+				caseSelections: (link) =>
+					projectTargetCaseSelections(input, sourceFormUuid, link),
 			});
+			const applyCaseSelections = (): void => {
+				if (route.kind !== "module" && route.kind !== "form") return;
+				const nextSelections = previewMenuSelectionsAfterTargetCases(
+					menuSource,
+					menuCaseSelections,
+					route.caseSelections,
+				);
+				for (const selectedModuleUuid of menuSource.moduleOrder) {
+					const current = menuCaseSelections[selectedModuleUuid];
+					const next = nextSelections[selectedModuleUuid];
+					if (
+						current?.caseType === next?.caseType &&
+						current?.caseId === next?.caseId &&
+						current?.caseName === next?.caseName &&
+						current?.caseProperties === next?.caseProperties
+					) {
+						continue;
+					}
+					setPreviewMenuCaseSelection(selectedModuleUuid, next);
+				}
+			};
 			switch (route.kind) {
 				case "post-submit":
 					settleAttempt({ kind: "idle" });
 					dispatchPostSubmit(route.destination, submitted.moduleUuid);
 					return;
 				case "module":
+					applyCaseSelections();
 					settleAttempt({ kind: "idle" });
 					openModuleLanding(navigate, route.moduleUuid, route.landing);
 					return;
 				case "form":
+					applyCaseSelections();
 					/* The target's case binding is rewritten BEFORE the push, so
 					 * the form mounts already bound (or already bound to nothing)
 					 * rather than auto-selecting a case for one render. */

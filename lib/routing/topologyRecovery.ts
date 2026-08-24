@@ -1,4 +1,8 @@
-import type { Module, Uuid } from "@/lib/domain";
+import {
+	type Module,
+	moduleIsBareCaseListDestination,
+	type Uuid,
+} from "@/lib/domain";
 import { serializePath } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 
@@ -38,7 +42,10 @@ export function formerParentRecovery(
 	if (formerParentUuid === undefined) return { kind: "home" };
 	const formerParent = currentModules[formerParentUuid];
 	if (formerParent === undefined) return { kind: "home" };
-	return formerParent.caseListOnly
+	return moduleIsBareCaseListDestination(
+		{ modules: currentModules },
+		formerParentUuid,
+	)
 		? { kind: "cases", moduleUuid: formerParentUuid }
 		: { kind: "module", moduleUuid: formerParentUuid };
 }

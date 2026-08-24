@@ -25,8 +25,8 @@ const promptCursorSchema = z
 	.object({
 		v: z.literal(1),
 		prompt_sha256: z.string().regex(/^[a-f0-9]{64}$/),
-		offset: z.number().int().nonnegative(),
-		prompt_length: z.number().int().positive(),
+		offset_code_points: z.number().int().nonnegative(),
+		prompt_length_code_points: z.number().int().positive(),
 	})
 	.strict();
 
@@ -36,6 +36,7 @@ export interface AgentPromptPage {
 	readonly kind: "nova-agent-prompt-page";
 	readonly protocol_version: 1;
 	readonly instruction: string;
+	readonly offset_unit: "unicode-code-points";
 	readonly prompt_chunk: string;
 	readonly chunk_start: number;
 	readonly chunk_end: number;
@@ -47,6 +48,19 @@ export interface AgentPromptPage {
 
 function promptDigest(prompt: string): string {
 	return createHash("sha256").update(prompt, "utf8").digest("hex");
+}
+
+/**
+ * The host ceiling is named in characters, while MCP transports encode text
+ * as UTF-8. Requiring both the JavaScript UTF-16 length and the UTF-8 byte
+ * length to fit keeps each page conservative for hosts implemented in either
+ * unit without discarding prompt content.
+ */
+function fitsResultBudget(serialized: string): boolean {
+	return (
+		serialized.length <= AGENT_PROMPT_RESULT_BUDGET_CHARS &&
+		Buffer.byteLength(serialized, "utf8") <= AGENT_PROMPT_RESULT_BUDGET_CHARS
+	);
 }
 
 function encodeCursor(cursor: PromptCursor): string {
@@ -66,37 +80,38 @@ function decodeCursor(cursor: string): PromptCursor {
 }
 
 function pageBody(args: {
-	readonly prompt: string;
+	readonly promptCodePoints: readonly string[];
 	readonly digest: string;
 	readonly start: number;
 	readonly end: number;
 }): AgentPromptPage {
-	const complete = args.end === args.prompt.length;
+	const complete = args.end === args.promptCodePoints.length;
 	return {
 		kind: "nova-agent-prompt-page",
 		protocol_version: 1,
+		offset_unit: "unicode-code-points",
 		instruction: complete
 			? "Concatenate every prompt_chunk in order. Require one unchanged prompt_sha256, adjacent chunk offsets, chunk_end equal to prompt_length, and an assembled prompt ending in NOVA-PROMPT-END before following it."
 			: "Save prompt_chunk, then call get_agent_prompt again with the same mode and app_id plus next_cursor. Require the same prompt_sha256 and adjacent chunk offsets; do not follow a partial prompt.",
-		prompt_chunk: args.prompt.slice(args.start, args.end),
+		prompt_chunk: args.promptCodePoints.slice(args.start, args.end).join(""),
 		chunk_start: args.start,
 		chunk_end: args.end,
-		prompt_length: args.prompt.length,
+		prompt_length: args.promptCodePoints.length,
 		prompt_sha256: args.digest,
 		complete,
 		...(!complete && {
 			next_cursor: encodeCursor({
 				v: 1,
 				prompt_sha256: args.digest,
-				offset: args.end,
-				prompt_length: args.prompt.length,
+				offset_code_points: args.end,
+				prompt_length_code_points: args.promptCodePoints.length,
 			}),
 		}),
 	};
 }
 
 function serializePage(args: {
-	readonly prompt: string;
+	readonly promptCodePoints: readonly string[];
 	readonly digest: string;
 	readonly start: number;
 	readonly end: number;
@@ -118,53 +133,58 @@ export function deliverAgentPrompt(
 			`Rendered agent prompt is missing terminal marker ${PROMPT_END_MARKER}.`,
 		);
 	}
-	if (
-		cursor === undefined &&
-		prompt.length <= AGENT_PROMPT_RESULT_BUDGET_CHARS
-	) {
+	if (cursor === undefined && fitsResultBudget(prompt)) {
 		return { content: [{ type: "text", text: prompt }] };
 	}
 
 	const digest = promptDigest(prompt);
+	/* `Array.from` iterates Unicode code points, never UTF-16 code units. Every
+	 * slice boundary below therefore lands between complete scalar values, and
+	 * offsets mean the same thing to JavaScript, Python, Rust, or any other
+	 * Unicode-capable MCP consumer. */
+	const promptCodePoints = Array.from(prompt);
 	let start = 0;
 	if (cursor !== undefined) {
 		const decoded = decodeCursor(cursor);
 		if (
 			decoded.prompt_sha256 !== digest ||
-			decoded.prompt_length !== prompt.length
+			decoded.prompt_length_code_points !== promptCodePoints.length
 		) {
 			throw new McpInvalidInputError(
 				"The app or served prompt changed during get_agent_prompt pagination. Restart without cursor so pages cannot be mixed across snapshots.",
 			);
 		}
-		if (decoded.offset <= 0 || decoded.offset >= prompt.length) {
+		if (
+			decoded.offset_code_points <= 0 ||
+			decoded.offset_code_points >= promptCodePoints.length
+		) {
 			throw new McpInvalidInputError(
 				"The get_agent_prompt cursor has an invalid offset. Restart without cursor.",
 			);
 		}
-		start = decoded.offset;
+		start = decoded.offset_code_points;
 	}
 
 	/* Try the complete remainder first. Omitting next_cursor makes the final
 	 * envelope slightly smaller, so treating it separately also keeps the
 	 * binary-search predicate monotonic for non-final pages. */
 	const completeRemainder = serializePage({
-		prompt,
+		promptCodePoints,
 		digest,
 		start,
-		end: prompt.length,
+		end: promptCodePoints.length,
 	});
-	if (completeRemainder.length <= AGENT_PROMPT_RESULT_BUDGET_CHARS) {
+	if (fitsResultBudget(completeRemainder)) {
 		return { content: [{ type: "text", text: completeRemainder }] };
 	}
 
 	let low = start + 1;
-	let high = prompt.length - 1;
+	let high = promptCodePoints.length - 1;
 	let best: string | undefined;
 	while (low <= high) {
 		const end = Math.floor((low + high) / 2);
-		const candidate = serializePage({ prompt, digest, start, end });
-		if (candidate.length <= AGENT_PROMPT_RESULT_BUDGET_CHARS) {
+		const candidate = serializePage({ promptCodePoints, digest, start, end });
+		if (fitsResultBudget(candidate)) {
 			best = candidate;
 			low = end + 1;
 		} else {

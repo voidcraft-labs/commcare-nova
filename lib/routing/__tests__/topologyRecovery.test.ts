@@ -44,6 +44,32 @@ describe("formerParentRecovery", () => {
 		).toEqual({ kind: "cases", moduleUuid: PARENT });
 	});
 
+	it("recovers to the menu when a case-list-only parent still has a child", () => {
+		const parent = module(PARENT, "Care", { caseListOnly: true });
+		const deleted = module(CHILD, "Visits", { parentModuleUuid: PARENT });
+		const survivingChildUuid = testUuid("surviving-child");
+		const survivingChild = module(survivingChildUuid, "Referrals", {
+			parentModuleUuid: PARENT,
+		});
+		expect(
+			formerParentRecovery(
+				[CHILD],
+				{
+					location: { kind: "module", moduleUuid: CHILD },
+					modules: {
+						[PARENT]: parent,
+						[CHILD]: deleted,
+						[survivingChildUuid]: survivingChild,
+					},
+				},
+				{
+					[PARENT]: parent,
+					[survivingChildUuid]: survivingChild,
+				},
+			),
+		).toEqual({ kind: "module", moduleUuid: PARENT });
+	});
+
 	it("recovers a deleted root to Home", () => {
 		const root = module(PARENT, "Care");
 		expect(

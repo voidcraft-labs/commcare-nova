@@ -36,6 +36,7 @@ import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import {
 	useFormIds,
+	useIsBareCaseListModule,
 	useModuleMenuHierarchy,
 } from "@/lib/doc/hooks/useModuleIds";
 import { makeTranslationUnitId, type Uuid } from "@/lib/domain";
@@ -225,6 +226,7 @@ const RailModuleGroup = memo(function RailModuleGroup({
 	const onSelect = useAppTreeSelection();
 	const loc = useLocation();
 	const isCaseListSelected = useIsCaseListSelected(moduleUuid);
+	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
 	/* Exact-module selection (not the descendant-inclusive predicate):
 	 * the rail highlights the precise destination, so a form screen
 	 * lights its form icon, not the parent module's. */
@@ -241,7 +243,7 @@ const RailModuleGroup = memo(function RailModuleGroup({
 				active={isModuleScreen}
 				onClick={() =>
 					onSelect(
-						mod.caseListOnly
+						isBareCaseList
 							? { kind: "cases", moduleUuid }
 							: { kind: "module", moduleUuid },
 					)

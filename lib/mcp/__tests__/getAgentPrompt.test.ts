@@ -360,10 +360,12 @@ describe("registerGetAgentPrompt — edit mode happy path", () => {
 		);
 		const firstPage = JSON.parse(firstText) as {
 			kind: string;
+			offset_unit: string;
 			chunk_end: number;
 			next_cursor?: string;
 		};
 		expect(firstPage.kind).toBe("nova-agent-prompt-page");
+		expect(firstPage.offset_unit).toBe("unicode-code-points");
 		expect(firstPage.next_cursor).toEqual(expect.any(String));
 
 		const second = (await capture()(

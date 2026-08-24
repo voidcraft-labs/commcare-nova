@@ -250,10 +250,13 @@ the design-pipeline cutover: only a `complete` app is edit-shaped; a
 The MCP edit prompt always inlines the complete shared blueprint summary and
 ends with `NOVA-PROMPT-END`. There is no authored prompt-character budget or
 large-app fallback. `lib/mcp/resultSize.ts` still advertises the per-result
-host transport ceiling. Prompts that cross it use snapshot-bound
+host transport ceiling. Prompts that cross the conservative model-facing
+result budget use snapshot-bound
 `nova-agent-prompt-page` continuation results: the caller concatenates exact
-chunks, verifies one snapshot digest plus adjacent offsets and final length,
-and then checks the terminal marker.
+chunks, verifies one snapshot digest plus adjacent Unicode-code-point offsets
+and final length, and then checks the terminal marker. Page boundaries never
+split a surrogate pair, and serialized pages fit both the character and UTF-8
+byte interpretations of that budget.
 Prompts that fit retain the historical plain-text result.
 
 ## Provider options shape

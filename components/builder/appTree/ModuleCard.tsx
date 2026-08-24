@@ -32,7 +32,10 @@ import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
-import { useFormIds } from "@/lib/doc/hooks/useModuleIds";
+import {
+	useFormIds,
+	useIsBareCaseListModule,
+} from "@/lib/doc/hooks/useModuleIds";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
 import { humanizeId, makeTranslationUnitId, type Uuid } from "@/lib/domain";
 import {
@@ -100,6 +103,8 @@ export const ModuleCard = memo(function ModuleCard({
 	 *  Only this module + the previously selected re-render on change. */
 	const isSelected = useIsModuleSelected(moduleUuid);
 	const isCaseListSelected = useIsCaseListSelected(moduleUuid);
+	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
+	const parentIsBareCaseList = useIsBareCaseListModule(mod?.parentModuleUuid);
 
 	const { removeModule } = useBlueprintMutations();
 	const navigate = useNavigate();
@@ -111,8 +116,7 @@ export const ModuleCard = memo(function ModuleCard({
 		const { ok } = removeModule(moduleUuid);
 		if (ok && isSelected) {
 			if (parentModule === undefined) navigate.goHome();
-			else if (parentModule.caseListOnly)
-				navigate.openCaseList(parentModule.uuid);
+			else if (parentIsBareCaseList) navigate.openCaseList(parentModule.uuid);
 			else navigate.openModule(parentModule.uuid);
 		}
 		return ok;
@@ -144,14 +148,12 @@ export const ModuleCard = memo(function ModuleCard({
 				 * under them stayed flat, which reads as a dead row with restless
 				 * decorations rather than a row you can click. */
 				className={`group flex min-h-11 items-center justify-between gap-1.5 py-1.5 pe-3 transition-colors ${isSubmenu ? "ps-4" : "ps-2"} ${locked ? "text-nova-text-secondary" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
-				// A `caseListOnly` module IS its case list (no forms anywhere in
-				// the app), so the module screen would be an empty form menu:
-				// open the case-list config instead. Selecting it still tints this
-				// row (useIsModuleSelected covers `cases`) AND borders the Case
-				// List & Search node below, so the two read as one unit.
+				// A childless `caseListOnly` module IS its case list. Once it owns
+				// child menus, this row must open the module screen that exposes
+				// them; its separate Cases row still opens Results.
 				onClick={() =>
 					onSelect(
-						mod.caseListOnly
+						isBareCaseList
 							? { kind: "cases", moduleUuid }
 							: { kind: "module", moduleUuid },
 					)

@@ -90,7 +90,7 @@ export function registerGetAgentPrompt(
 		"get_agent_prompt",
 		{
 			description:
-				"Return the current nova-architect operating instructions for the given mode. A prompt that fits the conservative model-facing result budget arrives as complete plain text ending in `NOVA-PROMPT-END`. Otherwise the text block is a `nova-agent-prompt-page` JSON object: concatenate `prompt_chunk` in order by calling this tool with the same mode/app_id and each `next_cursor`; require one unchanged `prompt_sha256`, adjacent chunk offsets, final `chunk_end === prompt_length`, `complete: true`, and the `NOVA-PROMPT-END` ending before following it. Edit mode requires `app_id` and every continuation reloads it so a changed snapshot is refused instead of mixed.",
+				"Return the current nova-architect operating instructions for the given mode. A prompt that fits the conservative model-facing result budget arrives as complete plain text ending in `NOVA-PROMPT-END`. Otherwise the text block is a `nova-agent-prompt-page` JSON object: `offset_unit` is `unicode-code-points`, so `chunk_start`, `chunk_end`, and `prompt_length` count Unicode code points and chunks never split a surrogate pair. Concatenate `prompt_chunk` in order by calling this tool with the same mode/app_id and each `next_cursor`; require one unchanged `prompt_sha256`, adjacent chunk offsets, final `chunk_end === prompt_length`, `complete: true`, and the `NOVA-PROMPT-END` ending before following it. Edit mode requires `app_id` and every continuation reloads it so a changed snapshot is refused instead of mixed.",
 			/* This tool returns a whole system prompt, an order of
 			 * magnitude past what a typical tool result carries, so it
 			 * declares its own size rather than inheriting a default

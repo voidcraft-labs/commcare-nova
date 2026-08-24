@@ -132,6 +132,7 @@ describe("result-size declarations over the wire", () => {
 		expect(tool?.description ?? "").toContain("nova-agent-prompt-page");
 		expect(tool?.description ?? "").toContain("next_cursor");
 		expect(tool?.description ?? "").toContain("prompt_sha256");
+		expect(tool?.description ?? "").toContain("unicode-code-points");
 		expect(tool?.inputSchema?.properties).toHaveProperty("cursor");
 	});
 

@@ -398,6 +398,25 @@ describe("datum matching", () => {
 		});
 	});
 
+	it("skips root-module placeholder datums when choosing an automatic source", () => {
+		const match = matchFrameToSource(target, [
+			{
+				...datum("case_id_new_frog_0", false, "frog", "uuid()"),
+				fromParentModule: true,
+			},
+			datum("case_id_new_frog_1", false, "frog", "uuid()"),
+		]);
+		expect(match.unmatched).toEqual([]);
+		expect(match.matched).toEqual([
+			{ id: "case_id", sourceId: "case_id_new_frog_1" },
+		]);
+		expect(match.children[2]).toEqual({
+			type: "datum",
+			id: "case_id",
+			value: sessionDataRef("case_id_new_frog_1"),
+		});
+	});
+
 	it("reports a selection datum nothing in the source satisfies", () => {
 		// A type-less source datum never matches, and a different type
 		// never matches: Core would open the target with an empty case id.

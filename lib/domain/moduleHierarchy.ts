@@ -9,6 +9,20 @@ export interface ModuleHierarchySource {
 
 export type ModuleParent = Uuid | null;
 
+/** A case-list-only module is a direct Results destination only while it has
+ * no child menus. Once it owns children, its module screen is the menu that
+ * exposes those destinations and Results remains a separate entry within it. */
+export function moduleIsBareCaseListDestination(
+	doc: Pick<ModuleHierarchySource, "modules">,
+	uuid: Uuid,
+): boolean {
+	const module = doc.modules[uuid];
+	if (module?.caseListOnly !== true) return false;
+	return !Object.values(doc.modules).some(
+		(candidate) => candidate.parentModuleUuid === uuid,
+	);
+}
+
 /** Nova stores roots by omission; callers use `null` as the derived root group. */
 export function moduleParent(
 	doc: ModuleHierarchySource,

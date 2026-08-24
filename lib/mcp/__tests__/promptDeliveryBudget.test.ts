@@ -109,6 +109,20 @@ const MODES: ReadonlyArray<{ mode: string; render: () => string }> = [
 	},
 ];
 
+function hasUnpairedSurrogate(value: string): boolean {
+	for (let index = 0; index < value.length; index++) {
+		const codeUnit = value.charCodeAt(index);
+		if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+			const next = value.charCodeAt(index + 1);
+			if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+			index += 1;
+		} else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+			return true;
+		}
+	}
+	return false;
+}
+
 describe("served prompt delivery contract", () => {
 	it.each(MODES)("$mode ends with the delivery marker", ({ render }) => {
 		const rendered = render();
@@ -138,6 +152,7 @@ describe("served prompt delivery contract", () => {
 		expect(text.length).toBeLessThanOrEqual(AGENT_PROMPT_RESULT_BUDGET_CHARS);
 		const page = JSON.parse(text) as AgentPromptPage;
 		expect(page.kind).toBe("nova-agent-prompt-page");
+		expect(page.offset_unit).toBe("unicode-code-points");
 		expect(page.complete).toBe(false);
 		expect(page.next_cursor).toEqual(expect.any(String));
 	});
@@ -156,9 +171,15 @@ describe("served prompt delivery contract", () => {
 			expect(text.length).toBeLessThanOrEqual(AGENT_PROMPT_RESULT_BUDGET_CHARS);
 			const page = JSON.parse(text) as AgentPromptPage;
 			expect(page.kind).toBe("nova-agent-prompt-page");
+			expect(page.offset_unit).toBe("unicode-code-points");
 			expect(page.chunk_start).toBe(expectedStart);
-			expect(page.chunk_end).toBe(page.chunk_start + page.prompt_chunk.length);
-			expect(page.prompt_length).toBe(rendered.length);
+			expect(page.chunk_end).toBe(
+				page.chunk_start + Array.from(page.prompt_chunk).length,
+			);
+			expect(page.prompt_length).toBe(Array.from(rendered).length);
+			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(
+				AGENT_PROMPT_RESULT_BUDGET_CHARS,
+			);
 			expectedDigest ??= page.prompt_sha256;
 			expect(page.prompt_sha256).toBe(expectedDigest);
 			chunks.push(page.prompt_chunk);
@@ -182,6 +203,43 @@ describe("served prompt delivery contract", () => {
 		);
 		expect(assembled).not.toContain("too large to include here");
 		expect(assembled.endsWith(PROMPT_END_MARKER)).toBe(true);
+	});
+
+	it("uses code-point offsets and never splits astral characters", () => {
+		/* This prompt fits the JS UTF-16 budget but not the same conservative
+		 * UTF-8 budget. Paging must therefore happen, and every boundary lands
+		 * between complete U+1F489 scalar values rather than between surrogates. */
+		const rendered = `${"💉".repeat(
+			Math.floor(AGENT_PROMPT_RESULT_BUDGET_CHARS / 4) + 1_000,
+		)}${PROMPT_END_MARKER}`;
+		expect(rendered.length).toBeLessThan(AGENT_PROMPT_RESULT_BUDGET_CHARS);
+		expect(Buffer.byteLength(rendered, "utf8")).toBeGreaterThan(
+			AGENT_PROMPT_RESULT_BUDGET_CHARS,
+		);
+
+		const chunks: string[] = [];
+		let cursor: string | undefined;
+		let expectedStart = 0;
+		do {
+			const text = deliverAgentPrompt(rendered, cursor).content[0]?.text ?? "";
+			const page = JSON.parse(text) as AgentPromptPage;
+			expect(page.offset_unit).toBe("unicode-code-points");
+			expect(page.chunk_start).toBe(expectedStart);
+			expect(page.chunk_end - page.chunk_start).toBe(
+				Array.from(page.prompt_chunk).length,
+			);
+			expect(hasUnpairedSurrogate(page.prompt_chunk)).toBe(false);
+			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(
+				AGENT_PROMPT_RESULT_BUDGET_CHARS,
+			);
+			if (!page.complete) expect(page.prompt_chunk.endsWith("💉")).toBe(true);
+			chunks.push(page.prompt_chunk);
+			expectedStart = page.chunk_end;
+			cursor = page.next_cursor;
+		} while (cursor !== undefined);
+
+		expect(expectedStart).toBe(Array.from(rendered).length);
+		expect(chunks.join("")).toBe(rendered);
 	});
 
 	it("refuses to continue after the prompt snapshot changes", () => {

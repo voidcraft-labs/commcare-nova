@@ -8,6 +8,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
+	entryFrameDatums,
 	entrySessionDatums,
 	formFrameChildren,
 	formLinkProjectionContext,
@@ -15,6 +16,7 @@ import {
 	previousFrameChildren,
 	projectFormLinks,
 	selectedCaseDatumId,
+	sessionDataRef,
 } from "@/lib/commcare/formLinkProjection";
 import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
@@ -315,6 +317,101 @@ function sameTypeFormlessRootDoc(): BlueprintDoc {
 	return doc;
 }
 
+function rootRegistrationPlaceholderDoc(): {
+	readonly doc: BlueprintDoc;
+	readonly root: Uuid;
+	readonly child: Uuid;
+	readonly sourceForm: Uuid;
+} {
+	const root = testUuid("mod-placeholder-root");
+	const child = testUuid("mod-placeholder-child");
+	const rootFollowup = testUuid("frm-placeholder-target");
+	const sourceForm = testUuid("frm-placeholder-source");
+	const doc = buildDoc({
+		appName: "Placeholder matching",
+		caseTypes: [
+			{
+				name: "frog",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+			{
+				name: "visit",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+		modules: [
+			{
+				uuid: "mod-placeholder-root",
+				name: "Frogs",
+				caseType: "frog",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Register frog",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "frog_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "frog", property: "case_name" },
+							}),
+						],
+					},
+					{
+						uuid: "frm-placeholder-target",
+						name: "Frog visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "hidden",
+								id: "frog_copy",
+								calculate: "#frog/case_name",
+							}),
+						],
+					},
+				],
+			},
+			{
+				uuid: "mod-placeholder-child",
+				name: "Visits",
+				caseType: "visit",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "frm-placeholder-source",
+						name: "Visit update",
+						type: "followup",
+						formLinks: [
+							{
+								uuid: "lnk-placeholder-target",
+								target: {
+									type: "form",
+									moduleUuid: root,
+									formUuid: rootFollowup,
+								},
+							},
+						],
+						fields: [
+							f({
+								kind: "hidden",
+								id: "visit_copy",
+								calculate: "#visit/case_name",
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[child].parentModuleUuid = root;
+	return { doc, root, child, sourceForm };
+}
+
 describe("ordinary nested-menu wire projection", () => {
 	it("emits root identity while preserving the child's own filter", () => {
 		const doc = followupNestedDoc();
@@ -478,6 +575,28 @@ describe("ordinary nested-menu wire projection", () => {
 });
 
 describe("nested-menu navigation frames", () => {
+	it("does not auto-match a root registration placeholder from a child source", () => {
+		const { doc, child, sourceForm } = rootRegistrationPlaceholderDoc();
+		const ctx = formLinkProjectionContext(doc);
+		const sourceDatums = entryFrameDatums(doc, ctx, child, sourceForm);
+		expect(sourceDatums[0]).toMatchObject({
+			id: "case_id_new_frog_0",
+			caseType: "frog",
+			function: "uuid()",
+			fromParentModule: true,
+		});
+
+		const projected = projectFormLinks(doc, ctx, sourceForm);
+		expect(projected?.links[0]?.unmatched.map((datum) => datum.id)).toEqual([
+			"case_id",
+		]);
+		expect(projected?.links[0]?.children.at(-1)).toEqual({
+			type: "datum",
+			id: "case_id",
+			value: sessionDataRef("case_id"),
+		});
+	});
+
 	it("matches the pinned HQ child-entry and previous-frame fixture values", () => {
 		const doc = followupNestedDoc({
 			parentSelect: true,

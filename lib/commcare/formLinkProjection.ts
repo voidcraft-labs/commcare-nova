@@ -103,8 +103,15 @@ export interface FrameDatum {
 	readonly requiresSelection: boolean;
 	/** The case type the datum selects or creates; absent when it has none. */
 	readonly caseType?: string;
+	/** Stable Preview bridge for a selectable datum after root alignment and
+	 * frame-prefix projection. This is internal provenance, never suite wire. */
+	readonly selectionSourceModuleUuid?: Uuid;
 	/** The XPath a function datum evaluates (`uuid()`). */
 	readonly function?: string;
+	/** HQ `WorkflowDatumMeta.from_parent_module`: this datum was copied from
+	 * the root module only as a child-entry placeholder. It is emitted in the
+	 * entry but cannot automatically satisfy an after-submit target. */
+	readonly fromParentModule?: true;
 	/**
 	 * Re-renders `function` with every `instance('commcaresession')/session/data/<id>`
 	 * it reads supplied by the caller — how the grouped-tile companion datum
@@ -147,6 +154,9 @@ export interface FormLinkProjectionContext {
 	/** The module whose menu selection supplies each selectable datum. Kept
 	 * out of `SessionDatum` because it is projection provenance, never wire. */
 	readonly selectionSourceModules: WeakMap<SessionDatum, Uuid>;
+	/** Root-computed datums copied into a child entry by `add_parent_datums`.
+	 * Weak provenance keeps the session wire object unchanged. */
+	readonly fromParentModuleDatums: WeakSet<SessionDatum>;
 }
 
 /**
@@ -211,6 +221,7 @@ export function formLinkProjectionContext(
 		...(opts.lookupNaming !== undefined && { lookupNaming: opts.lookupNaming }),
 		entryDatums: new Map(),
 		selectionSourceModules: new WeakMap(),
+		fromParentModuleDatums: new WeakSet(),
 	};
 }
 
@@ -254,12 +265,23 @@ export function owningModuleOf(
 
 // ── Frame datums and children ────────────────────────────────────────────
 
-function toFrameDatum(datum: SessionDatum): FrameDatum {
+function toFrameDatum(
+	datum: SessionDatum,
+	ctx: Pick<
+		FormLinkProjectionContext,
+		"selectionSourceModules" | "fromParentModuleDatums"
+	>,
+): FrameDatum {
+	const selectionSourceModuleUuid = ctx.selectionSourceModules.get(datum);
 	return {
 		id: datum.id,
 		requiresSelection: datum.nodeset !== undefined,
 		...(datum.caseType !== undefined && { caseType: datum.caseType }),
+		...(selectionSourceModuleUuid !== undefined && {
+			selectionSourceModuleUuid,
+		}),
 		...(datum.function !== undefined && { function: datum.function }),
+		...(ctx.fromParentModuleDatums.has(datum) && { fromParentModule: true }),
 		...(datum.renderFunction !== undefined && {
 			renderFunction: datum.renderFunction,
 		}),
@@ -392,7 +414,9 @@ function alignWithRootMenu(
 	const prefix: SessionDatum[] = [];
 	for (const parentDatum of parentDatums) {
 		if (parentDatum.nodeset === undefined) {
-			prefix.push({ ...parentDatum });
+			const inherited = { ...parentDatum };
+			ctx.fromParentModuleDatums.add(inherited);
+			prefix.push(inherited);
 			continue;
 		}
 		const matched = remaining[0];
@@ -487,7 +511,9 @@ export function entryFrameDatums(
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): readonly FrameDatum[] {
-	return entrySessionDatums(doc, ctx, moduleUuid, formUuid).map(toFrameDatum);
+	return entrySessionDatums(doc, ctx, moduleUuid, formUuid).map((datum) =>
+		toFrameDatum(datum, ctx),
+	);
 }
 
 /** The runtime menu selection that supplies each projected case-selection
@@ -659,16 +685,17 @@ function functionChild(datum: FrameDatum): PendingChild {
 }
 
 /**
- * HQ's `_find_best_match`: the first source datum, in source order, whose
- * case type equals the target's. Same id keeps the target's id; a different
- * id means the frame reads the SOURCE's session value under the target's
- * id. Sources with no case type never match.
+ * HQ's `_find_best_match`: the first non-parent-placeholder source datum, in
+ * source order, whose case type equals the target's. Same id keeps the target's
+ * id; a different id means the frame reads the SOURCE's session value under
+ * the target's id. Sources with no case type never match.
  */
 function findBestMatch(
 	target: FrameDatum,
 	sources: readonly FrameDatum[],
 ): { readonly sourceId: string } | undefined {
 	for (const source of sources) {
+		if (source.fromParentModule === true) continue;
 		if (source.caseType === undefined) continue;
 		if (source.caseType !== target.caseType) continue;
 		return { sourceId: source.id === target.id ? target.id : source.id };
