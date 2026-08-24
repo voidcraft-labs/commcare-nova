@@ -1071,14 +1071,30 @@ describe("FormScreen — nested after-submit case session", () => {
 			caseId: "new-patient",
 			childCaseIds: ["new-encounter"],
 		});
-		vi.mocked(loadCaseDataAction).mockResolvedValue({
-			kind: "row",
-			row: {
-				...formCaseRow("new-patient"),
-				case_name: "Created patient",
-			},
-			ancestors: [],
-		});
+		vi.mocked(loadCaseDataAction)
+			.mockResolvedValueOnce({
+				kind: "row",
+				row: {
+					...formCaseRow("new-patient"),
+					case_name: "Created patient",
+				},
+				ancestors: [],
+			})
+			.mockResolvedValueOnce({
+				kind: "row",
+				row: {
+					...formCaseRow("new-encounter", "new-patient"),
+					case_type: "encounter",
+					case_name: "Created encounter",
+					properties: { outcome: "complete" },
+				},
+				ancestors: [
+					{
+						...formCaseRow("new-patient"),
+						case_name: "Created patient",
+					},
+				],
+			});
 		renderFormScreen({
 			formUuid: REG_FORM_UUID,
 			nestedAfterSubmit: "automatic",
@@ -1106,11 +1122,16 @@ describe("FormScreen — nested after-submit case session", () => {
 		);
 		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
 			NESTED_TARGET_MODULE_UUID,
-			{
+			expect.objectContaining({
 				caseType: "encounter",
 				caseId: "new-encounter",
 				caseName: "Created encounter",
-			},
+				caseProperties: expect.objectContaining({
+					case_id: "new-encounter",
+					case_name: "Created encounter",
+					outcome: "complete",
+				}),
+			}),
 		);
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: NESTED_TARGET_FORM_UUID,
@@ -1134,6 +1155,15 @@ describe("FormScreen — nested after-submit case session", () => {
 			},
 		};
 		vi.mocked(submitFormAction).mockResolvedValue({ kind: "survey" });
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: {
+				...formCaseRow("manual-patient"),
+				case_name: "Manual patient",
+				properties: { risk: "high" },
+			},
+			ancestors: [],
+		});
 		renderFormScreen({
 			formUuid: SURVEY_FORM_UUID,
 			nestedAfterSubmit: "manual",
@@ -1147,11 +1177,19 @@ describe("FormScreen — nested after-submit case session", () => {
 				NESTED_TARGET_FORM_UUID,
 			),
 		);
-		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(MODULE_UUID, {
-			caseType: CASE_TYPE,
-			caseId: "manual-patient",
-			caseName: "Case",
-		});
+		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
+			MODULE_UUID,
+			expect.objectContaining({
+				caseType: CASE_TYPE,
+				caseId: "manual-patient",
+				caseName: "Manual patient",
+				caseProperties: expect.objectContaining({
+					case_id: "manual-patient",
+					case_name: "Manual patient",
+					risk: "high",
+				}),
+			}),
+		);
 		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
 			NESTED_TARGET_MODULE_UUID,
 			{

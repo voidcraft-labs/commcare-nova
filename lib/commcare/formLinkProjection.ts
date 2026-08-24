@@ -68,6 +68,7 @@ import {
 	moduleParent,
 	printXPath,
 	projectedModulePreorder,
+	projectXPath,
 	type Uuid,
 	type XPathExpression,
 	xpathPrintContext,
@@ -1041,14 +1042,13 @@ export function formLinkExpressionProjectable(
 	) {
 		return false;
 	}
+	const projection = projectXPath(expression, xpathPrintContext(doc));
+	if (!projection.ok) return false;
 	let projectable = true;
-	rewriteHashtags(
-		printXPath(expression, xpathPrintContext(doc)),
-		(typeName) => {
-			if (typeName === "form" || typeName === "case") projectable = false;
-			return undefined;
-		},
-	);
+	rewriteHashtags(projection.text, (typeName) => {
+		if (typeName === "form" || typeName === "case") projectable = false;
+		return undefined;
+	});
 	return projectable;
 }
 

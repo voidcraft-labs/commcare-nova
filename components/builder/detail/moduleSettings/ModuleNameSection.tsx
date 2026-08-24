@@ -6,6 +6,7 @@ import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Input } from "@/components/shadcn/input";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 import { useRejectionShake } from "@/lib/ui/hooks/useShake";
@@ -22,6 +23,7 @@ export function ModuleNameSection({
 	readonly moduleUuid: Uuid;
 }) {
 	const module = useModule(moduleUuid);
+	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
 	const { inline } = useBlueprintMutations();
 	const fieldId = useId();
 	const saveName = useCallback(
@@ -46,7 +48,7 @@ export function ModuleNameSection({
 	});
 	const shakeProps = useRejectionShake(rejectionNonce);
 
-	if (!module?.caseListOnly) return null;
+	if (!isBareCaseList) return null;
 	const rejectionId = `${fieldId}-rejection`;
 
 	return (

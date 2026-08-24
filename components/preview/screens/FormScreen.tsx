@@ -971,13 +971,66 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				caseSelections: (link) =>
 					projectTargetCaseSelections(input, sourceFormUuid, link),
 			});
+			let targetCaseData = caseData;
+			if (route.kind === "module" || route.kind === "form") {
+				const hydratedCases = new Set<string>();
+				for (const [caseType, properties] of targetCaseData) {
+					const caseId = properties.get("case_id");
+					if (caseId !== undefined && caseId !== "") {
+						hydratedCases.add(`${caseType}\0${caseId}`);
+					}
+				}
+				for (const selection of route.caseSelections) {
+					if (selection.caseId === "") continue;
+					const selectionKey = `${selection.caseType}\0${selection.caseId}`;
+					if (hydratedCases.has(selectionKey)) continue;
+					const chain = reachableCaseTypes(selection.caseType, caseTypes);
+					const read = await loadCaseDataAction(
+						submitted.appId,
+						selection.caseType,
+						selection.caseId,
+						Math.max(0, chain.length - 1),
+						undefined,
+						undefined,
+						viewerTimeZone(),
+						undefined,
+						submitted.personaUuid,
+						false,
+					);
+					if (!isCurrent()) {
+						settleAttempt({ kind: "idle" });
+						return;
+					}
+					if (read.kind !== "row") {
+						failAfterSave(
+							"Your answers were saved, but the next case could not be read to open the next screen. Reload the app and try again.",
+							new Error(
+								`after-submit target read of ${selection.caseType} case ${selection.caseId} answered ${read.kind}`,
+							),
+						);
+						return;
+					}
+					const loaded = caseRowsToFormPreloads(
+						read.row,
+						read.ancestors,
+						chain,
+					);
+					targetCaseData = new Map([...targetCaseData, ...loaded]);
+					for (const [loadedCaseType, properties] of loaded) {
+						const loadedCaseId = properties.get("case_id");
+						if (loadedCaseId !== undefined && loadedCaseId !== "") {
+							hydratedCases.add(`${loadedCaseType}\0${loadedCaseId}`);
+						}
+					}
+				}
+			}
 			const applyCaseSelections = (): void => {
 				if (route.kind !== "module" && route.kind !== "form") return;
 				const nextSelections = previewMenuSelectionsAfterTargetCases(
 					menuSource,
 					menuCaseSelections,
 					route.caseSelections,
-					caseData,
+					targetCaseData,
 				);
 				for (const selectedModuleUuid of menuSource.moduleOrder) {
 					const current = menuCaseSelections[selectedModuleUuid];

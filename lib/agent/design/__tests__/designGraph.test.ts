@@ -144,7 +144,7 @@ describe("lean Design Contract graph", () => {
 		);
 	});
 
-	it("requires a same-owner parent surface in the parent's birth slice", () => {
+	it("requires every module owner to own the module's initial surface", () => {
 		const contract = cloneContract(makeNestedMenuContract());
 		const parent = fixtureValue(
 			contract.moduleCompositions.find(
@@ -165,7 +165,33 @@ describe("lean Design Contract graph", () => {
 				form.workflowId === ids.taskRegister ? child.id : parent.id;
 		}
 		expect(messages(contract)).toContain(
-			"must also own the parent's form or case-list surface",
+			"construction owner must also own its initial form or case-list surface",
+		);
+	});
+
+	it("rejects a different-record child built before the parent's first form", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		const parent = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.modulePatients,
+			),
+			"parent module composition",
+		);
+		const child = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		child.workflowIds = [ids.taskRegister];
+		child.hostRecordId = ids.recVisit;
+		for (const form of contract.formCompositions) {
+			form.moduleCompositionId =
+				form.workflowId === ids.taskRegister ? child.id : parent.id;
+		}
+
+		expect(messages(contract)).toContain(
+			"must be owned by the same workflow as or a later workflow than the parent menu's first form",
 		);
 	});
 

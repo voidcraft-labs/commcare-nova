@@ -651,6 +651,21 @@ export function validateDesignGraph(
 	}
 
 	contract.moduleCompositions.forEach((composition, compositionIndex) => {
+		const owner = compositionOwner(composition);
+		const ownerOwnsInitialSurface =
+			composition.listIds.length > 0 ||
+			contract.formCompositions.some(
+				(form) =>
+					form.moduleCompositionId === composition.id &&
+					form.workflowId === owner,
+			);
+		if (owner !== undefined && !ownerOwnsInitialSurface) {
+			issue(
+				ctx,
+				["moduleCompositions", compositionIndex, "workflowIds"],
+				"A module composition's construction owner must also own its initial form or case-list surface so the module can be created validly in that workflow slice.",
+			);
+		}
 		/* Every module is created at its exact accepted sibling position. Its
 		 * immediate predecessor therefore has to be owned by this slice or by an
 		 * earlier slice. A later-owned predecessor would make the earlier owner —
@@ -743,23 +758,28 @@ export function validateDesignGraph(
 						"The parent module's construction owner must be the same as or earlier than the child module's owner.",
 					);
 				}
-				if (parentOwner !== undefined && parentOwner === childOwner) {
-					const ownsParentSurface =
-						parent.listIds.length > 0 ||
-						contract.formCompositions.some(
-							(form) =>
-								form.moduleCompositionId === parent.id &&
-								form.workflowId === parentOwner,
-						);
-					if (!ownsParentSurface) {
+				if (
+					parent.role !== "queue-only" &&
+					parent.hostRecordId !== composition.hostRecordId &&
+					childOwner !== undefined
+				) {
+					const parentFormOwner = contract.formCompositions
+						.filter((form) => form.moduleCompositionId === parent.id)
+						.map((form) => form.workflowId)
+						.sort(
+							(left, right) =>
+								(workflowRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
+								(workflowRank.get(right) ?? Number.MAX_SAFE_INTEGER),
+						)[0];
+					if (
+						parentFormOwner !== undefined &&
+						(workflowRank.get(parentFormOwner) ?? Number.MAX_SAFE_INTEGER) >
+							(workflowRank.get(childOwner) ?? Number.MAX_SAFE_INTEGER)
+					) {
 						issue(
 							ctx,
-							[
-								"moduleCompositions",
-								compositionIndex,
-								"parentModuleCompositionId",
-							],
-							"When a parent and child share a construction owner, that workflow must also own the parent's form or case-list surface so the parent can be created validly before the child.",
+							["moduleCompositions", compositionIndex, "hostRecordId"],
+							"A different-record child menu must be owned by the same workflow as or a later workflow than the parent menu's first form, so the parent case selection exists before the child is built.",
 						);
 					}
 				}

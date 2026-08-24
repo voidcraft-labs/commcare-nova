@@ -62,6 +62,59 @@ describe("deterministic build planning", () => {
 		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
 	});
 
+	it("adds a different-record parent's first form owner as a prerequisite", () => {
+		const contract = cloneContract(makeThirteenWorkflowContract());
+		for (const workflow of contract.workflows) {
+			workflow.prerequisiteWorkflowIds = [];
+			workflow.prerequisites = [];
+		}
+		const parent = fixtureValue(
+			contract.moduleCompositions[0],
+			"parent module",
+		);
+		const displaced = fixtureValue(
+			contract.moduleCompositions[1],
+			"displaced root module",
+		);
+		const child = fixtureValue(contract.moduleCompositions[2], "child module");
+		const parentOwner = fixtureValue(contract.workflows[0], "parent owner");
+		const parentFormOwner = fixtureValue(
+			contract.workflows[1],
+			"parent form owner",
+		);
+		const childOwner = fixtureValue(contract.workflows[2], "child owner");
+		const parentOwnerForm = fixtureValue(
+			contract.formCompositions[0],
+			"parent owner form",
+		);
+		const parentForm = fixtureValue(
+			contract.formCompositions[1],
+			"later parent form",
+		);
+		parent.workflowIds = [parentOwner.id, parentFormOwner.id];
+		parentForm.moduleCompositionId = parent.id;
+		parentOwnerForm.moduleCompositionId = displaced.id;
+		displaced.workflowIds = [parentOwner.id, parentFormOwner.id];
+		child.parentModuleCompositionId = parent.id;
+		contract.moduleCompositions.splice(0, 3, parent, child, displaced);
+
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const childSlice = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === childOwner.id),
+			"child slice",
+		);
+		const prerequisites = childSlice.prerequisiteSliceIds.map(
+			(id) => plan.slices.find((slice) => slice.id === id)?.workflowId,
+		);
+		expect(prerequisites).toEqual(
+			expect.arrayContaining([parentOwner.id, parentFormOwner.id]),
+		);
+	});
+
 	it("adds the exact preceding sibling owner as a placement prerequisite", () => {
 		const contract = makeThirteenWorkflowContract();
 		for (const workflow of contract.workflows) {

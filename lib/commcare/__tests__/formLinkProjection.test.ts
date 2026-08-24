@@ -757,6 +757,16 @@ describe("totality predicates", () => {
 				],
 			}),
 		).toBe(false);
+		expect(
+			formLinkExpressionProjectable(doc, {
+				parts: [
+					{
+						kind: "user-property-ref",
+						userPropertyUuid: testUuid("missing-user-property"),
+					},
+				],
+			}),
+		).toBe(false);
 	});
 
 	it("formLinksProjectable covers conditions and datum expressions", () => {

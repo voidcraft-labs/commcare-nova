@@ -400,6 +400,9 @@ function requiredPrerequisiteWorkflowIds(
 			composition,
 		]),
 	);
+	const workflowRank = new Map(
+		orderedWorkflowIds.map((workflowId, index) => [workflowId, index]),
+	);
 	const addPlacementOwner = (
 		compositionId: string,
 		anchorId: string | undefined,
@@ -424,6 +427,32 @@ function requiredPrerequisiteWorkflowIds(
 				? undefined
 				: moduleById.get(composition.parentModuleCompositionId);
 		addPlacementOwner(composition.id, parent?.id);
+		/* A different-record child consumes a case selection created by the
+		 * parent menu's first form. A form-and-queue parent can be born earlier
+		 * from its list alone, so depending only on the parent module owner would
+		 * let the child run before that form exists. Graph admission proves this
+		 * form owner is not later than the child owner. */
+		if (
+			parent !== undefined &&
+			parent.hostRecordId !== composition.hostRecordId
+		) {
+			const parentFormOwner = contract.formCompositions
+				.filter((form) => form.moduleCompositionId === parent.id)
+				.map((form) => form.workflowId)
+				.sort(
+					(left, right) =>
+						(workflowRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
+						(workflowRank.get(right) ?? Number.MAX_SAFE_INTEGER),
+				)[0];
+			const childOwner = ownerByElement.get(composition.id);
+			if (
+				parentFormOwner !== undefined &&
+				childOwner !== undefined &&
+				parentFormOwner !== childOwner
+			) {
+				required.get(childOwner)?.add(parentFormOwner);
+			}
+		}
 
 		/* `createModule.after` names the exact preceding sibling, so source order
 		 * alone is insufficient: the scheduler needs the sibling owner's durable
@@ -590,7 +619,7 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 					code: "custom",
 					path: ["slices", sliceIndex, "prerequisiteSliceIds"],
 					message:
-						"Slice prerequisites must exactly include accepted workflow dependencies and every distinct parent or preceding-sibling module construction owner.",
+						"Slice prerequisites must exactly include accepted workflow dependencies, every distinct parent or preceding-sibling module construction owner, and the first form owner for a different-record parent menu.",
 				});
 			}
 			if (!workflowIds.has(slice.workflowId))
