@@ -2154,6 +2154,82 @@ describe("readCaseData", () => {
 		expect(result.ancestors).toEqual([]);
 	});
 
+	it("constrains an identity read through any direct non-extension index", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const blueprint = buildBlueprint([
+			PATIENT_CASE_TYPE,
+			{ ...VISIT_CASE_TYPE, relationship: "child" },
+		]);
+		await seedSchema(store, blueprint, "patient");
+		await seedSchema(store, blueprint, "visit");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: {},
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			parentRelationship: "child",
+			row: {
+				case_id: VISIT_CASE_ID,
+				case_type: "visit",
+				case_name: "Custom-index visit",
+				status: "open",
+				parent_case_id: ALICE_CASE_ID,
+				properties: {},
+			},
+		});
+		const extensionCaseId = "40000000-0000-0000-0000-000000000006";
+		await store.insert({
+			appId: APP_ID,
+			parentRelationship: "extension",
+			row: {
+				case_id: extensionCaseId,
+				case_type: "visit",
+				case_name: "Hosted visit",
+				status: "open",
+				parent_case_id: ALICE_CASE_ID,
+				properties: {},
+			},
+		});
+		/* Imported CommCare data may use a non-`parent` identifier. Keep the
+		 * direct case index authoritative even when the compatibility column does
+		 * not describe that edge. */
+		await sql`
+			UPDATE case_indices
+			SET identifier = 'guardian'
+			WHERE case_id = ${VISIT_CASE_ID}
+		`.execute(dbHandle.db);
+		await sql`
+			UPDATE cases
+			SET parent_case_id = NULL
+			WHERE case_id = ${VISIT_CASE_ID}
+		`.execute(dbHandle.db);
+
+		const customIndex = await readCaseData(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseId: VISIT_CASE_ID,
+			parentCaseId: ALICE_CASE_ID,
+			ancestorDepth: 0,
+		});
+		expect(customIndex.kind).toBe("row");
+
+		const extension = await readCaseData(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseId: extensionCaseId,
+			parentCaseId: ALICE_CASE_ID,
+			ancestorDepth: 0,
+		});
+		expect(extension).toEqual({ kind: "missing" });
+	});
+
 	it("projects calculated display values for an identity-loaded Details row", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);

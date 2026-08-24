@@ -506,6 +506,9 @@ export function useCaseData(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
 	caseId: string | undefined;
+	/** Selected nested-menu parent whose direct non-extension case-index
+	 * population contains this row. */
+	parentCaseId?: string;
 	/** Parent hops the form's refs can address —
 	 *  `reachableCaseTypes(...).length - 1`. Bounds the server-side
 	 *  ancestor walk. */
@@ -534,6 +537,7 @@ export function useCaseData(args: {
 		appId,
 		caseType,
 		caseId,
+		parentCaseId,
 		ancestorDepth,
 		caseListConfig,
 		caseTypes,
@@ -556,7 +560,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseId ?? ""}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -601,6 +605,7 @@ export function useCaseData(args: {
 								includeHeld,
 								personaUuid,
 								deviceScoped,
+								parentCaseId,
 							),
 						}),
 					},

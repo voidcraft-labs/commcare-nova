@@ -90,17 +90,15 @@ export function acceptedModulePlacementIssues(
 			brief,
 			realization.compositionId,
 		);
-		/* Construction-group coverage and ordinary validation own a wholly
-		 * absent module. Once a semantic candidate exists, however, the accepted
-		 * composition must resolve through its exact durable handle rather than a
-		 * name/host guess. */
+		/* Every accepted composition must resolve through its exact durable
+		 * handle. Construction-group coverage cannot substitute for this check:
+		 * an executor may materialize other mutations while omitting this module. */
 		const moduleUuid = realizedModuleUuid(
 			doc,
 			brief,
 			realization.compositionId,
 			handles,
 		);
-		if (semanticCandidates.length === 0 && moduleUuid === null) continue;
 		const semanticMatch =
 			moduleUuid !== null && semanticCandidates.includes(moduleUuid);
 		const expectedParentUuid =

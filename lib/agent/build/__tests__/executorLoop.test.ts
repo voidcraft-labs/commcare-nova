@@ -95,6 +95,51 @@ interface FakeWorkspace extends ExecutorWorkspace {
 	inspectCalls: number;
 }
 
+function acceptedWorkspaceFixture(): {
+	readonly doc: BlueprintDoc;
+	readonly handles: ReturnType<
+		ExecutorWorkspace["currentExecutionCheckpoint"]
+	>["handles"];
+} {
+	const sliceBrief = brief();
+	const realization = fixtureValue(
+		sliceBrief.moduleRealizations[0],
+		"accepted module realization",
+	);
+	const composition = fixtureValue(
+		sliceBrief.moduleCompositions.find(
+			(entry) => entry.id === realization.compositionId,
+		),
+		"accepted module composition",
+	);
+	const caseType = realization.hostRecord?.blueprintCaseType;
+	const doc = buildDoc({
+		appName: sliceBrief.charter.appName,
+		...(caseType === undefined
+			? {}
+			: { caseTypes: [{ name: caseType, properties: [] }] }),
+		modules: [
+			{
+				name: composition.name,
+				...(caseType === undefined ? {} : { caseType }),
+				caseListOnly: true,
+				forms: [],
+			},
+		],
+	});
+	const moduleUuid = fixtureValue(doc.moduleOrder[0], "accepted module");
+	return {
+		doc,
+		handles: [
+			{
+				handle: realization.blueprintModuleHandle,
+				uuid: moduleUuid,
+				entityKind: "module",
+			},
+		],
+	};
+}
+
 function fakeWorkspace(options?: {
 	readonly doc?: BlueprintDoc;
 	readonly inspect?: () => Promise<ChangeSetDiagnostics>;
@@ -104,7 +149,10 @@ function fakeWorkspace(options?: {
 	const dispatched: DispatchCall[] = [];
 	const dispatchOrder: string[] = [];
 	let revision = 0;
-	const doc = options?.doc ?? emptyBlueprintDoc("app-executor-test");
+	const accepted =
+		options?.doc === undefined ? acceptedWorkspaceFixture() : null;
+	const doc =
+		options?.doc ?? fixtureValue(accepted?.doc, "accepted workspace document");
 	const workspace: FakeWorkspace = {
 		dispatched,
 		dispatchOrder,
@@ -118,7 +166,7 @@ function fakeWorkspace(options?: {
 			};
 		},
 		currentExecutionCheckpoint() {
-			return { handles: [] };
+			return { handles: accepted?.handles ?? [] };
 		},
 		async stageDispatch(args) {
 			const call = {
@@ -1159,7 +1207,9 @@ describe("accepted composition admission", () => {
 			),
 			"child realization",
 		);
-		const workspace = fakeWorkspace();
+		const workspace = fakeWorkspace({
+			doc: emptyBlueprintDoc("app-executor-test"),
+		});
 
 		expect(
 			compositionAdmissionIssue(

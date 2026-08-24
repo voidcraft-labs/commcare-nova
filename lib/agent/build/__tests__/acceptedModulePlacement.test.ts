@@ -125,4 +125,24 @@ describe("accepted module placement", () => {
 			}),
 		]);
 	});
+
+	it("reports an accepted child composition that was never materialized", () => {
+		const { brief, childUuid, doc, handles } = fixture();
+		delete doc.modules[childUuid];
+		doc.moduleOrder = doc.moduleOrder.filter((uuid) => uuid !== childUuid);
+		const survivingHandles = handles.filter(
+			(binding) => binding.uuid !== childUuid,
+		);
+
+		expect(acceptedModulePlacementIssues(doc, brief, survivingHandles)).toEqual(
+			[
+				expect.objectContaining({
+					code: "ACCEPTED_MODULE_PLACEMENT_MISMATCH",
+					details: expect.objectContaining({
+						moduleCompositionId: ids.moduleVisits,
+					}),
+				}),
+			],
+		);
+	});
 });

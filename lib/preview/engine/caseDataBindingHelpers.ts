@@ -973,6 +973,9 @@ export async function readCaseData(
 		caseType: string;
 		caseId: string;
 		ancestorDepth: number;
+		/** Restrict this identity read to the selected nested-menu parent's
+		 * exact direct non-extension case-index population. */
+		parentCaseId?: string;
 		caseListConfig?: CaseListConfig;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		bindings?: TermBindings;
@@ -998,6 +1001,7 @@ export async function readCaseData(
 			args,
 			eq(prop(args.caseType, "case_id"), literal(args.caseId)),
 		),
+		parentCaseId: args.parentCaseId,
 		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 		limit: 1,
 		includeHeld: args.includeHeld,

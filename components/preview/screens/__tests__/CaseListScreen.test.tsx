@@ -2840,7 +2840,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		});
 	});
 
-	it("rejects a direct Results record that belongs to a different selected parent", async () => {
+	it("constrains a direct Results record to the selected parent's case-index population", async () => {
 		currentLocation = {
 			kind: "cases",
 			moduleUuid: MODULE_UUID,
@@ -2857,14 +2857,7 @@ describe("CaseListScreen — detail confirm step", () => {
 			constraintSource: "authored-rules",
 			kind: "empty",
 		});
-		vi.mocked(loadCaseDataAction).mockResolvedValue({
-			kind: "row",
-			row: {
-				...makeRow(SELECTED_CASE_ID, { case_name: "Wrong household" }),
-				parent_case_id: "different-household",
-			},
-			ancestors: [],
-		});
+		vi.mocked(loadCaseDataAction).mockResolvedValue({ kind: "missing" });
 		renderCaseListScreen({
 			includeIndependentCaseParent: true,
 			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
@@ -2875,7 +2868,6 @@ describe("CaseListScreen — detail confirm step", () => {
 				name: "This case is no longer available",
 			}),
 		).toBeDefined();
-		expect(screen.queryByText("Wrong household")).toBeNull();
 		expect(vi.mocked(loadCasesAction)).toHaveBeenCalledWith(
 			expect.objectContaining({
 				caseType: "patient",
@@ -2884,6 +2876,10 @@ describe("CaseListScreen — detail confirm step", () => {
 					caseId: "selected-household",
 				}),
 			}),
+		);
+		expect(vi.mocked(loadCaseDataAction).mock.calls[0]?.[9]).toBe(true);
+		expect(vi.mocked(loadCaseDataAction).mock.calls[0]?.[10]).toBe(
+			"selected-household",
 		);
 	});
 

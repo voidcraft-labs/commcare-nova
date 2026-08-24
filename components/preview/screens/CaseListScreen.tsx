@@ -673,6 +673,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		appId,
 		caseType: caseType?.name,
 		caseId: routeCaseId,
+		parentCaseId: menuCaseContext?.parentCase?.caseId,
 		ancestorDepth: 0,
 		caseListConfig: config,
 		caseTypes,
@@ -795,28 +796,13 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const routeCase = useMemo<CaseRowWithCalculated | null>(() => {
 		if (!routeCaseId || routeCaseReplaced) return null;
 		const projected = loadedRows.find((row) => row.case_id === routeCaseId);
-		if (
-			projected &&
-			routeCaseMatchesParent(projected, menuCaseContext?.parentCase)
-		)
-			return projected;
+		/* Results already came from the exact selected-parent population. The
+		 * identity read below carries the same server-side case-index constraint,
+		 * so neither path guesses membership from denormalized parent_case_id. */
+		if (projected) return projected;
 		if (routeCaseState.kind !== "row") return null;
-		return routeCaseMatchesParent(
-			routeCaseState.row,
-			menuCaseContext?.parentCase,
-		)
-			? routeCaseState.row
-			: null;
-	}, [
-		routeCaseId,
-		routeCaseReplaced,
-		loadedRows,
-		routeCaseState,
-		menuCaseContext?.parentCase,
-	]);
-	const routeCaseHasWrongParent =
-		routeCaseState.kind === "row" &&
-		!routeCaseMatchesParent(routeCaseState.row, menuCaseContext?.parentCase);
+		return routeCaseState.row;
+	}, [routeCaseId, routeCaseReplaced, loadedRows, routeCaseState]);
 	/* A deep-linked case first owns a loading/error fallback pane. If its Back
 	 * action had focus when the automatic case read succeeds, transfer that
 	 * ownership to the equivalent Back action in Details instead of letting the
@@ -1313,7 +1299,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					<Icon icon={tablerChevronLeft} width="15" height="15" />
 					Back to results
 				</Button>
-				{routeCaseState.kind === "missing" || routeCaseHasWrongParent ? (
+				{routeCaseState.kind === "missing" ? (
 					<CaseListEmptyNotice
 						headingLevel={1}
 						title="This case is no longer available"
@@ -1621,15 +1607,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			</div>
 		</ContentFrame>
 	);
-}
-
-function routeCaseMatchesParent(
-	row: CaseRowWithCalculated,
-	parentCase:
-		| { readonly caseType: string; readonly caseId: string }
-		| undefined,
-): boolean {
-	return parentCase === undefined || row.parent_case_id === parentCase.caseId;
 }
 
 // ── Results body ──────────────────────────────────────────────────

@@ -657,6 +657,9 @@ export async function loadCaseDataAction(
 	 * narrow, and Project membership is what authorizes the read either way.
 	 */
 	deviceScoped?: boolean,
+	/** Selected nested-menu parent. When present, the identity read must belong
+	 * to its exact direct non-extension case-index population. */
+	parentCaseId?: string,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -684,6 +687,7 @@ export async function loadCaseDataAction(
 			caseType,
 			caseId,
 			ancestorDepth,
+			parentCaseId,
 			caseListConfig,
 			includeHeld,
 			lookupTableSchemas,
