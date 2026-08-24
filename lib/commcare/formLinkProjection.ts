@@ -1071,8 +1071,9 @@ export function formLinksProjectable(
  * Whether the projection of `formUuid`'s links is DEFINED: every module it
  * reads sits in the module sequence with a well-formed case type, and
  * `buildFormActions` is defined for every form it reads — the source form,
- * and every form of every target module (a form target's frame carries the
- * module's common-prefix datums, which read every form in it). The wire
+ * every form of every target module (a form target's frame carries the
+ * module's common-prefix datums, which read every form in it), and every
+ * structural ancestor form whose datums a child entry inherits. The wire
  * builder fails closed on a module outside the sequence, a case type that
  * is not an identifier, a form whose case writes the admission refuses, or a
  * field id that is not an XML name — each a finding of its own
@@ -1092,13 +1093,24 @@ export function formLinkActionsBuildable(
 		);
 	const sourceModule = moduleOf(formUuid);
 	if (sourceModule === undefined) return false;
-	const modules = new Set<Uuid>([sourceModule]);
+	const modules = new Set<Uuid>();
 	const forms = new Set<Uuid>([formUuid]);
-	for (const link of links) {
-		modules.add(link.target.moduleUuid);
-		for (const uuid of doc.formOrder[link.target.moduleUuid] ?? []) {
-			forms.add(uuid);
+	const addModuleAndForms = (moduleUuid: Uuid): void => {
+		modules.add(moduleUuid);
+		for (const uuid of doc.formOrder[moduleUuid] ?? []) forms.add(uuid);
+	};
+	const addStructuralChain = (moduleUuid: Uuid): void => {
+		const seen = new Set<Uuid>();
+		let current: Uuid | null | undefined = moduleUuid;
+		while (current !== undefined && current !== null && !seen.has(current)) {
+			seen.add(current);
+			addModuleAndForms(current);
+			current = moduleParent(doc, current);
 		}
+	};
+	addStructuralChain(sourceModule);
+	for (const link of links) {
+		addStructuralChain(link.target.moduleUuid);
 	}
 	// `deriveSessionDatums` and the case-loading nodeset validate every case
 	// type they print (`identifierValidation.ts::validateCaseType`), and the

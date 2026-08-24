@@ -715,6 +715,16 @@ export function validateDesignGraph(
 				);
 			}
 			if (parent !== undefined) {
+				if (
+					parent.role === "queue-only" &&
+					parent.hostRecordId !== composition.hostRecordId
+				) {
+					issue(
+						ctx,
+						["moduleCompositions", compositionIndex, "hostRecordId"],
+						"A child menu beneath a queue-only parent must host the same record. A different-record child needs a form-hosting parent so the two case selections can be represented.",
+					);
+				}
 				const parentOwner = compositionOwner(parent);
 				const childOwner = compositionOwner(composition);
 				if (

@@ -795,4 +795,30 @@ describe("totality predicates", () => {
 		delete (nameField as { caseWrite?: unknown }).caseWrite;
 		expect(formLinkActionsBuildable(broken, REGISTER, links)).toBe(false);
 	});
+
+	it("formLinkActionsBuildable closes over a child module's structural-root forms", () => {
+		const doc = frogDoc();
+		const care = doc.modules[CARE];
+		const visit = doc.forms[VISIT];
+		if (care === undefined || visit === undefined) throw new Error("fixture");
+		care.parentModuleUuid = INTAKE;
+		const links = [
+			{
+				uuid: testUuid("lnk-child-self"),
+				target: { type: "module" as const, moduleUuid: CARE },
+			},
+		];
+		expect(formLinkActionsBuildable(doc, VISIT, links)).toBe(true);
+
+		const broken = structuredClone(doc);
+		const rootNameWriter = Object.values(broken.fields).find(
+			(field) =>
+				field.id === "case_name" &&
+				(broken.fieldOrder[REGISTER] ?? []).includes(field.uuid),
+		);
+		if (rootNameWriter === undefined) throw new Error("fixture missing writer");
+		delete (rootNameWriter as { caseWrite?: unknown }).caseWrite;
+
+		expect(formLinkActionsBuildable(broken, VISIT, links)).toBe(false);
+	});
 });

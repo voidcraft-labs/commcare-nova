@@ -122,6 +122,28 @@ describe("lean Design Contract graph", () => {
 		expect(messages(contract)).toContain("Nova supports one submenu tier");
 	});
 
+	it("rejects a different-record child beneath a queue-only parent", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		const parent = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.modulePatients,
+			),
+			"parent module composition",
+		);
+		const child = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"child module composition",
+		);
+		parent.role = "queue-only";
+		child.hostRecordId = ids.recVisit;
+
+		expect(messages(contract)).toContain(
+			"A child menu beneath a queue-only parent must host the same record",
+		);
+	});
+
 	it("requires a same-owner parent surface in the parent's birth slice", () => {
 		const contract = cloneContract(makeNestedMenuContract());
 		const parent = fixtureValue(

@@ -375,7 +375,7 @@ describe("prospective after-submit menu selections", () => {
 		expect(next[SAME_TYPE_CHILD]).toBeUndefined();
 	});
 
-	it("clears a blank owning selection and its stale same-type child", () => {
+	it("keeps a defined blank owning datum and clears its stale same-type child", () => {
 		const menuSource = sameTypeNestedDoc();
 		const current = {
 			[SAME_TYPE_ROOT]: {
@@ -403,7 +403,11 @@ describe("prospective after-submit menu selections", () => {
 			current,
 			projected,
 		);
-		expect(next[SAME_TYPE_ROOT]).toBeUndefined();
+		expect(next[SAME_TYPE_ROOT]).toEqual({
+			caseType: "patient",
+			caseId: "",
+			caseName: "Case",
+		});
 		expect(next[SAME_TYPE_CHILD]).toBeUndefined();
 		expect(
 			previewTargetHasSelectedCase({
@@ -412,7 +416,44 @@ describe("prospective after-submit menu selections", () => {
 				targetModuleUuid: SAME_TYPE_CHILD,
 				projected,
 			}),
-		).toBe(false);
+		).toBe(true);
+	});
+
+	it("hydrates a link-carried selection from the exact post-submit case", () => {
+		const menuSource = sameTypeNestedDoc();
+		const next = previewMenuSelectionsAfterTargetCases(
+			menuSource,
+			{},
+			[
+				{
+					datumId: "case_id",
+					moduleUuid: SAME_TYPE_ROOT,
+					caseType: "patient",
+					caseId: "p-new",
+				},
+			],
+			new Map([
+				[
+					"patient",
+					new Map([
+						["case_id", "p-new"],
+						["case_name", "New patient"],
+						["risk", "high"],
+					]),
+				],
+			]),
+		);
+
+		expect(next[SAME_TYPE_ROOT]).toEqual({
+			caseType: "patient",
+			caseId: "p-new",
+			caseName: "New patient",
+			caseProperties: {
+				case_id: "p-new",
+				case_name: "New patient",
+				risk: "high",
+			},
+		});
 	});
 });
 

@@ -16,6 +16,7 @@ import type {
 import type {
 	AfterSubmitChoice,
 	CarriedCase,
+	PostSubmissionCaseData,
 	TargetCaseSelection,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import {
@@ -62,7 +63,8 @@ export function afterSubmitRoute(args: {
 	readonly caseFirstModules: ReadonlySet<Uuid>;
 	/** Whether the target has a usable case after applying this frame's
 	 * projected selections to the running menu session. This admits same-type
-	 * structural inheritance while keeping a defined-but-blank datum false. */
+	 * structural inheritance and distinguishes an installed blank datum from
+	 * an absent datum, matching the device session stack. */
 	readonly hasSelectedCase?: (
 		moduleUuid: Uuid,
 		caseSelections: readonly TargetCaseSelection[],
@@ -126,11 +128,13 @@ export function afterSubmitRoute(args: {
  * the current snapshot. Root-to-leaf target order is significant: changing a
  * parent first invalidates stale structural/case descendants, and a later
  * matched child selection then installs the exact replacement. A blank datum
- * clears its owning module rather than becoming a truthy selected-case shell. */
+ * remains installed: Core considers a defined blank datum satisfied and does
+ * not prompt for it, while the empty id still prevents case-backed work. */
 export function previewMenuSelectionsAfterTargetCases(
 	menuSource: PreviewMenuSource,
 	current: Readonly<Record<string, PreviewMenuCaseSelection>>,
 	projected: readonly TargetCaseSelection[],
+	caseData?: PostSubmissionCaseData,
 ): Readonly<Record<string, PreviewMenuCaseSelection>> {
 	const next: Record<string, PreviewMenuCaseSelection> = { ...current };
 	for (const selected of projected) {
@@ -141,21 +145,30 @@ export function previewMenuSelectionsAfterTargetCases(
 		for (const staleModuleUuid of staleModuleUuids) {
 			delete next[staleModuleUuid];
 		}
-		if (selected.caseId === "") {
-			delete next[selected.moduleUuid];
-		} else {
-			const retained = next[selected.moduleUuid];
-			next[selected.moduleUuid] = {
-				caseType: selected.caseType,
-				caseId: selected.caseId,
-				caseName: selected.caseName ?? retained?.caseName ?? "Case",
-				...(retained?.caseType === selected.caseType &&
-				retained.caseId === selected.caseId &&
-				retained.caseProperties !== undefined
+		const retained = next[selected.moduleUuid];
+		const retainedMatches =
+			retained?.caseType === selected.caseType &&
+			retained.caseId === selected.caseId;
+		const readBackProperties = caseData?.get(selected.caseType);
+		const hydratedProperties =
+			selected.caseId !== "" &&
+			readBackProperties?.get("case_id") === selected.caseId
+				? Object.fromEntries(readBackProperties)
+				: undefined;
+		next[selected.moduleUuid] = {
+			caseType: selected.caseType,
+			caseId: selected.caseId,
+			caseName:
+				selected.caseName ??
+				hydratedProperties?.case_name ??
+				(retainedMatches ? retained.caseName : undefined) ??
+				"Case",
+			...(hydratedProperties !== undefined
+				? { caseProperties: hydratedProperties }
+				: retainedMatches && retained.caseProperties !== undefined
 					? { caseProperties: retained.caseProperties }
 					: {}),
-			};
-		}
+		};
 	}
 	return next;
 }
@@ -177,5 +190,5 @@ export function previewTargetHasSelectedCase(args: {
 			args.projected,
 		),
 	).selectedCase;
-	return selected !== undefined && selected.caseId !== "";
+	return selected !== undefined;
 }

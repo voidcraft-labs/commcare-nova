@@ -1092,11 +1092,18 @@ describe("FormScreen — nested after-submit case session", () => {
 				NESTED_TARGET_FORM_UUID,
 			),
 		);
-		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(MODULE_UUID, {
-			caseType: CASE_TYPE,
-			caseId: "new-patient",
-			caseName: "Created patient",
-		});
+		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
+			MODULE_UUID,
+			expect.objectContaining({
+				caseType: CASE_TYPE,
+				caseId: "new-patient",
+				caseName: "Created patient",
+				caseProperties: expect.objectContaining({
+					case_id: "new-patient",
+					case_name: "Created patient",
+				}),
+			}),
+		);
 		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
 			NESTED_TARGET_MODULE_UUID,
 			{
@@ -1118,7 +1125,7 @@ describe("FormScreen — nested after-submit case session", () => {
 		);
 	});
 
-	it("applies a manual parent datum, clears a blank child selection, and keeps the form's blank target", async () => {
+	it("applies a manual parent datum, installs a blank child datum, and keeps the form's blank target", async () => {
 		previewMenuCaseSelectionsMock = {
 			[NESTED_TARGET_MODULE_UUID]: {
 				caseType: "encounter",
@@ -1147,7 +1154,11 @@ describe("FormScreen — nested after-submit case session", () => {
 		});
 		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
 			NESTED_TARGET_MODULE_UUID,
-			undefined,
+			{
+				caseType: "encounter",
+				caseId: "",
+				caseName: "Case",
+			},
 		);
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: NESTED_TARGET_FORM_UUID,

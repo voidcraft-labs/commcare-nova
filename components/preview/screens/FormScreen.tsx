@@ -977,6 +977,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					menuSource,
 					menuCaseSelections,
 					route.caseSelections,
+					caseData,
 				);
 				for (const selectedModuleUuid of menuSource.moduleOrder) {
 					const current = menuCaseSelections[selectedModuleUuid];
