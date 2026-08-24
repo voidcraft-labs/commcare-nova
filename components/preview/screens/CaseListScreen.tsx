@@ -623,11 +623,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		page: casePage,
 		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
 	});
-	/* The Results query can be empty because there is no data OR because the
-	 * authored/search conditions exclude an existing population. Keep those
-	 * states distinct: only the first should invite an author to create sample
-	 * cases. The count deliberately bypasses every module-level condition and
-	 * only runs when a constrained empty result needs that distinction. */
+	/* The Results query can be empty because there is no reachable data OR
+	 * because the authored/search conditions exclude an existing population.
+	 * Keep those states distinct: only the first should invite an author to
+	 * create cases. The count bypasses every module-level condition but retains
+	 * the selected-parent population scope, so another parent's children cannot
+	 * make this list blame Cases available. */
 	const authoredMatchingCount =
 		state.kind === "empty" ? state.authoredMatchingCount : undefined;
 	/* Cases the same query matches that this worker's device would not hold.
@@ -664,6 +665,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		useCaseCount({
 			appId: needsUnfilteredCount ? appId : undefined,
 			caseType: needsUnfilteredCount ? caseType?.name : undefined,
+			parentCaseId: menuCaseContext?.parentCase?.caseId,
 		});
 	/* A record deep link must not depend on the row surviving the authored
 	 * Results filter or current 50-row page. Load it directly by identity while
@@ -1930,7 +1932,7 @@ function CaseListEmptyNotice({
 	);
 }
 
-/** The complete case type is empty, not merely this Results query. */
+/** The complete reachable population is empty, not merely this Results query. */
 function NoCaseDataNotice({ canEdit }: { readonly canEdit: boolean }) {
 	return (
 		<CaseListEmptyNotice

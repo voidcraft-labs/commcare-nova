@@ -304,10 +304,11 @@ export function useCases(args: {
 }
 
 /**
- * Subscribe to the complete, unfiltered population size for one case type.
+ * Subscribe to the reachable, unfiltered population size for one case type.
  * Unlike a Results query, this count never carries the module's authored
- * filter, so the case-data manager can safely distinguish "no cases exist"
- * from "no cases match this view."
+ * filter. The optional selected parent is runtime population scope, not an
+ * authored filter: it keeps a nested Results probe aligned with the exact
+ * direct non-extension children the paired row query can reach.
  */
 /**
  * The shared per-`(appId, caseType)` keyed-resource scaffolding under
@@ -431,6 +432,8 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 export function useCaseCount(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
+	/** Exact selected-parent scope for a nested running Results probe. */
+	parentCaseId?: string;
 	/** The builder's Case data manager passes true — the full stored
 	 * population it governs; the running app's probes leave it unset. */
 	includeHeld?: boolean;
@@ -440,16 +443,23 @@ export function useCaseCount(args: {
 	reload: () => Promise<void>;
 } {
 	const includeHeld = args.includeHeld === true;
+	const parentCaseId = args.parentCaseId;
 	return usePerCaseTypeResource<LoadCaseCountResult>({
 		appId: args.appId,
 		caseType: args.caseType,
-		fetcher: (ids) => loadCaseCountAction({ ...ids, includeHeld }),
+		fetcher: (ids) =>
+			loadCaseCountAction({ ...ids, includeHeld, parentCaseId }),
 		// The variant is part of the dedupe identity — the manager's
 		// population count (held included) and the running list's
 		// empty-state probe (held excluded) may mount concurrently and
 		// must never share one in-flight result.
 		settledKind: "count",
-		variant: includeHeld ? "held-included" : undefined,
+		variant:
+			parentCaseId === undefined
+				? includeHeld
+					? "held-included"
+					: undefined
+				: `selected-parent:${parentCaseId}\u0000held:${includeHeld}`,
 		errorMessage: "Failed to count cases.",
 	});
 }

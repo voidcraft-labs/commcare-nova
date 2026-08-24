@@ -5933,6 +5933,32 @@ describe("loadCaseCountAction", () => {
 		expect(stubStore.count).toHaveBeenCalledWith({
 			appId: APP_ID,
 			caseType: "patient",
+			parentCaseId: undefined,
+			includeHeld: false,
+		});
+	});
+
+	it("retains the selected-parent population on a nested Results probe", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const store = actionStore({ count: vi.fn().mockResolvedValueOnce(0) });
+		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+
+		const { loadCaseCountAction } = await import("../caseDataBinding");
+		const result = await loadCaseCountAction({
+			appId: APP_ID,
+			caseType: "visit",
+			parentCaseId: ALICE_CASE_ID,
+		});
+
+		expect(result).toEqual({ kind: "count", count: 0 });
+		expect(store.count).toHaveBeenCalledWith({
+			appId: APP_ID,
+			caseType: "visit",
+			parentCaseId: ALICE_CASE_ID,
 			includeHeld: false,
 		});
 	});

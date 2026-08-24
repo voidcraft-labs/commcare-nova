@@ -957,6 +957,40 @@ describe("CaseListScreen — empty case type", () => {
 		expect(screen.queryByText("No cases are available")).toBeNull();
 	});
 
+	it("checks the selected parent's child population before blaming availability settings", async () => {
+		previewMenuCaseSelectionsMock = {
+			[CASE_PARENT_MODULE_UUID]: {
+				caseType: "household",
+				caseId: "selected-household",
+				caseName: "Selected household",
+			},
+		};
+		vi.mocked(loadCaseCountAction).mockResolvedValue({
+			kind: "count",
+			count: 0,
+		});
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "empty",
+			constraintSource: "authored-rules",
+		});
+		renderCaseListScreen({
+			includeIndependentCaseParent: true,
+			columns: [plainColumn(COL_NAME_UUID, "case_name", "Name")],
+			filter: eq(prop("patient", "case_name"), literal("Nobody")),
+		});
+
+		expect(await screen.findByText("No cases yet")).toBeDefined();
+		expect(
+			screen.queryByText("Your availability settings hide every case"),
+		).toBeNull();
+		expect(loadCaseCountAction).toHaveBeenCalledWith({
+			appId: APP_ID,
+			caseType: "patient",
+			includeHeld: false,
+			parentCaseId: "selected-household",
+		});
+	});
+
 	it("waits for the unfiltered count before explaining a constrained empty result", async () => {
 		let resolveCount:
 			| ((value: Awaited<ReturnType<typeof loadCaseCountAction>>) => void)
