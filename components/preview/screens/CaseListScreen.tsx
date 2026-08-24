@@ -244,7 +244,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		moduleUuid !== undefined &&
 		previewParentCaseRequest?.selectingModuleUuid === moduleUuid;
 	const selectsForMenu =
-		seededFormUuid === undefined && (hasChildren || selectsForParentRequest);
+		selectsForParentRequest || (seededFormUuid === undefined && hasChildren);
 	/** Whether selecting a case can continue at all. */
 	const canContinue =
 		selectsForMenu ||
@@ -1526,6 +1526,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				caseProperties={caseType.properties}
 				columnDisplayContext={columnDisplayContext}
 				emptyResultContext={queryConstraintSource}
+				parentScoped={menuCaseContext?.parentCase !== undefined}
 				canEdit={canEdit}
 				searchErrorShown={hasSearchInputs && searchActionIsRelevant}
 				rowAction={rowAction}
@@ -1654,6 +1655,7 @@ function ResultsBody({
 	caseProperties,
 	columnDisplayContext,
 	emptyResultContext,
+	parentScoped,
 	canEdit,
 	searchErrorShown,
 	rowAction,
@@ -1685,6 +1687,8 @@ function ResultsBody({
 	readonly columnDisplayContext: ColumnDisplayContext;
 	/** Why an empty server result may differ from a truly empty case type. */
 	readonly emptyResultContext: CaseQueryConstraintContext;
+	/** The reachable population is limited to one selected parent's direct cases. */
+	readonly parentScoped: boolean;
 	readonly canEdit: boolean;
 	readonly searchErrorShown: boolean;
 	readonly rowAction: "detail" | "form" | "none";
@@ -1768,7 +1772,7 @@ function ResultsBody({
 		// exist without waiting for the sibling count. The restore arm above is
 		// what keeps that inference honest once a device scope narrows it.
 		if (emptyResultContext === "unconstrained") {
-			return <NoCaseDataNotice canEdit={canEdit} />;
+			return <NoCaseDataNotice canEdit={canEdit} parentScoped={parentScoped} />;
 		}
 		if (
 			emptyResultContext === "worker-search" &&
@@ -1795,7 +1799,7 @@ function ResultsBody({
 			return <CaseCountFailureNotice onRetry={onRetryCount} />;
 		}
 		if (unfilteredCountState.count === 0) {
-			return <NoCaseDataNotice canEdit={canEdit} />;
+			return <NoCaseDataNotice canEdit={canEdit} parentScoped={parentScoped} />;
 		}
 		if (emptyResultContext === "worker-search") {
 			return authoredMatchingCount === 0 ? (
@@ -1814,7 +1818,7 @@ function ResultsBody({
 		if (emptyResultContext === "authored-rules") {
 			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
 		}
-		return <NoCaseDataNotice canEdit={canEdit} />;
+		return <NoCaseDataNotice canEdit={canEdit} parentScoped={parentScoped} />;
 	}
 
 	if (rows.length === 0) {
@@ -1933,7 +1937,25 @@ function CaseListEmptyNotice({
 }
 
 /** The complete reachable population is empty, not merely this Results query. */
-function NoCaseDataNotice({ canEdit }: { readonly canEdit: boolean }) {
+function NoCaseDataNotice({
+	canEdit,
+	parentScoped,
+}: {
+	readonly canEdit: boolean;
+	readonly parentScoped: boolean;
+}) {
+	if (parentScoped) {
+		return (
+			<CaseListEmptyNotice
+				title="No related cases yet"
+				description={
+					canEdit
+						? "Choose a different parent, or create a related case for this one"
+						: "Choose a different parent with related cases"
+				}
+			/>
+		);
+	}
 	return (
 		<CaseListEmptyNotice
 			title="No cases yet"

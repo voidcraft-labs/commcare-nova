@@ -66,7 +66,10 @@ import { proseText } from "@/lib/domain/prose";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import type { Location } from "@/lib/routing/types";
-import type { PreviewParentCaseRequest } from "@/lib/session/types";
+import type {
+	PreviewCaseTarget,
+	PreviewParentCaseRequest,
+} from "@/lib/session/types";
 
 // ── Mocks ────────────────────────────────────────────────────────
 
@@ -98,6 +101,7 @@ const setPreviewMenuCaseSelectionMock = vi.fn();
 const setPreviewParentCaseRequestMock = vi.fn();
 const signInMock = vi.fn(() => Promise.resolve());
 let canEditMock = true;
+let previewCaseTargetMock: PreviewCaseTarget | undefined;
 let previewParentCaseRequestMock: PreviewParentCaseRequest | undefined;
 let previewMenuCaseSelectionsMock: Record<
 	string,
@@ -149,7 +153,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "preview" as const,
 		useBuilderIsReady: () => true,
 		useCanEdit: () => canEditMock,
-		usePreviewCaseTarget: () => undefined,
+		usePreviewCaseTarget: () => previewCaseTargetMock,
 		usePreviewMenuCaseSelections: () => previewMenuCaseSelectionsMock,
 		usePreviewParentCaseRequest: () => previewParentCaseRequestMock,
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
@@ -528,6 +532,7 @@ function caseResultRowFor(action: HTMLElement): HTMLElement {
 beforeEach(() => {
 	capturedDocStore = undefined;
 	canEditMock = true;
+	previewCaseTargetMock = undefined;
 	previewParentCaseRequestMock = undefined;
 	previewMenuCaseSelectionsMock = {};
 	currentLocation = { kind: "cases", moduleUuid: MODULE_UUID };
@@ -979,7 +984,16 @@ describe("CaseListScreen — empty case type", () => {
 			filter: eq(prop("patient", "case_name"), literal("Nobody")),
 		});
 
-		expect(await screen.findByText("No cases yet")).toBeDefined();
+		expect(await screen.findByText("No related cases yet")).toBeDefined();
+		expect(
+			screen.getByText(
+				"Choose a different parent, or create a related case for this one",
+			),
+		).toBeDefined();
+		expect(screen.queryByText("No cases yet")).toBeNull();
+		expect(
+			screen.queryByText("Create a case or add sample cases in Case data"),
+		).toBeNull();
 		expect(
 			screen.queryByText("Your availability settings hide every case"),
 		).toBeNull();
@@ -3197,6 +3211,34 @@ describe("CaseListScreen — detail confirm step", () => {
 // ── Form menu (case-first, multiple case-loading forms) ───────────
 
 describe("CaseListScreen — post-selection form menu", () => {
+	it("prioritizes an active parent selector over a retained form target", async () => {
+		previewCaseTargetMock = { formUuid: FOLLOWUP_FORM_UUID };
+		previewParentCaseRequestMock = {
+			selectingModuleUuid: MODULE_UUID,
+			returnModuleUuids: [CHILD_MODULE_UUID],
+			cancelLocation: { kind: "home" },
+		};
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "rows",
+			rows: [makeRow(SELECTED_CASE_ID, { case_name: "Alice" })],
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
+					visibleInDetail: false,
+				}),
+			],
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: /Alice/ }));
+
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith(undefined);
+		expect(setPreviewParentCaseRequestMock).toHaveBeenCalledWith(undefined);
+		expect(navigateMock.openModule).toHaveBeenCalledWith(CHILD_MODULE_UUID);
+		expect(navigateMock.openForm).not.toHaveBeenCalled();
+	});
+
 	it("advances an ordered multi-level case-parent selector chain", async () => {
 		const resumeLocation: Location = {
 			kind: "form",
