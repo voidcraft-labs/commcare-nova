@@ -540,6 +540,11 @@ describe("durable deployment policy", () => {
 			"NOVA_UPLOAD_CORS_ORIGINS=https://commcare.app",
 		);
 		expect(provisioning).toContain("roles/cloudscheduler.admin");
+		expect(provisioning).toContain("novaDeploymentIngressMaintenance");
+		expect(provisioning).toContain(
+			"compute.backendServices.get,compute.backendServices.update,compute.globalOperations.get,compute.regionNetworkEndpointGroups.get,compute.regionNetworkEndpointGroups.use",
+		);
+		expect(provisioning).not.toContain("roles/compute.loadBalancerAdmin");
 		expect(provisioning).toContain(
 			"storage.buckets.get,storage.buckets.update",
 		);
