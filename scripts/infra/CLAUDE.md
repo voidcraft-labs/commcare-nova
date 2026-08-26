@@ -18,9 +18,12 @@ inspection and execution.
 `provision-deployment-identities.sh` is plan-only unless passed `--apply`. It
 reconciles these permanent identities:
 
-- `nova-build` builds, pushes, configures Jobs, and deploys the service. It can
-  act as the Job/runtime identities but never connects to Postgres. It reads
-  only the build-time secrets used by `cloudbuild.yaml`.
+- `nova-build` builds, pushes, configures Jobs, and deploys the service. Its
+  narrow deployment-ingress custom role can read/update backend services and
+  use the regional serverless NEG so an admission cutover can detach and
+  restore Nova's public backend; it has no broad Compute role. It can act as
+  the Job/runtime identities but never connects to Postgres. It reads only the
+  build-time secrets used by `cloudbuild.yaml`.
 - `nova-migrate` connects as the migration database owner and runs the Kysely,
   Better Auth, and Nova auth migrations plus privilege convergence. It also
   owns the separately configured one-off case-type-retirement and

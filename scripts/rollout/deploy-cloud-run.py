@@ -174,6 +174,12 @@ def assert_scaling(
     actual = scaling_prestate(service)
     if actual != expected_prestate:
         fail(f"Cloud Run scaling mode changed from {expected_prestate} to {actual}.")
+    # Cloud Run's v2 service representation omits the automatic min/max fields
+    # while the service is in manual scaling mode. The deployment still proves
+    # those retained bounds after it switches the service back to AUTOMATIC;
+    # they cannot be observed during the maintenance-owned manual-zero phase.
+    if actual == "manual-zero":
+        return
     scaling = service.get("scaling") or {}
     if (
         expected_min is not None
@@ -1293,6 +1299,24 @@ def _policy_self_test() -> None:
             {"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 0}}
         )
         == "manual-zero"
+    )
+    assert_scaling(
+        {"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 0}},
+        "manual-zero",
+        expected_min=1,
+        expected_max=4,
+    )
+    assert_scaling(
+        {
+            "scaling": {
+                "scalingMode": "AUTOMATIC",
+                "minInstanceCount": 1,
+                "maxInstanceCount": 4,
+            }
+        },
+        "automatic",
+        expected_min=1,
+        expected_max=4,
     )
     _expect_policy_failure(
         lambda: scaling_prestate(

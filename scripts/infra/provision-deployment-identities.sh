@@ -14,6 +14,7 @@ REPOSITORY="cloud-run-source-deploy"
 MEDIA_BUCKET="nova-multimedia-prod"
 MEDIA_POLICY_ROLE_ID="novaMediaBucketPolicy"
 CAPTURE_STORAGE_ROLE_ID="novaCaptureObjectMaintenance"
+DEPLOYMENT_INGRESS_ROLE_ID="novaDeploymentIngressMaintenance"
 
 BUILD_ACCOUNT="nova-build@${PROJECT}.iam.gserviceaccount.com"
 MIGRATION_ACCOUNT="nova-migrate@${PROJECT}.iam.gserviceaccount.com"
@@ -146,6 +147,14 @@ for role in \
 	roles/serviceusage.serviceUsageConsumer; do
 	bind_project_role "$BUILD_ACCOUNT" "$role"
 done
+ensure_custom_role \
+	"$DEPLOYMENT_INGRESS_ROLE_ID" \
+	"Nova deployment ingress maintenance" \
+	"Exact authority to detach and restore Nova's regional serverless NEG during an admission cutover." \
+	"compute.backendServices.get,compute.backendServices.update,compute.globalOperations.get,compute.regionNetworkEndpointGroups.get,compute.regionNetworkEndpointGroups.use"
+bind_project_role \
+	"$BUILD_ACCOUNT" \
+	"projects/${PROJECT}/roles/${DEPLOYMENT_INGRESS_ROLE_ID}"
 run gcloud artifacts repositories add-iam-policy-binding "$REPOSITORY" \
 	--project="$PROJECT" \
 	--location="$REGION" \
