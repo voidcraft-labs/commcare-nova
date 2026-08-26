@@ -13,7 +13,10 @@ submits `jobs:run` with the Job `etag`. It proves the resulting immutable
 Execution snapshots the effective override args under the same image,
 authority, and execution shape, and that every task succeeded. This generation
 fence prevents overlapping builds from changing a shared Job between its
-inspection and execution.
+inspection and execution. The execution POST is sent exactly once. Read-only
+Job, operation, and Execution GETs retry bounded transient HTTP or transport
+failures without resubmitting the Job; authentication and contract failures are
+terminal.
 
 `provision-deployment-identities.sh` is plan-only unless passed `--apply`. It
 reconciles these permanent identities:
