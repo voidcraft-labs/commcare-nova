@@ -1,11 +1,12 @@
 package org.commcare.nova.xpath;
 
+import org.commcare.nova.xpath.openjdkmath.FdLibmPow;
 import org.commcare.nova.xpath.openjdkregex.Matcher;
 import org.commcare.nova.xpath.openjdkregex.Pattern;
 import org.teavm.jso.JSExport;
 
-/** The only Java-to-browser bridge. Matching remains inside the pinned
- * OpenJDK 17 Pattern and Matcher implementation. */
+/** The only Java-to-browser bridge. Compatibility operations remain inside
+ * their pinned OpenJDK 17 implementations. */
 public final class JavaPatternRuntime {
     private JavaPatternRuntime() {
     }
@@ -19,5 +20,10 @@ public final class JavaPatternRuntime {
     public static String replaceAllLiteral(String input, String pattern, String replacement) {
         return Pattern.compile(pattern).matcher(input)
                 .replaceAll(Matcher.quoteReplacement(replacement));
+    }
+
+    @JSExport
+    public static double pow(double base, double exponent) {
+        return FdLibmPow.compute(base, exponent);
     }
 }

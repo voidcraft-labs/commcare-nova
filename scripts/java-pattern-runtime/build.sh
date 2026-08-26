@@ -27,10 +27,10 @@ docker run --rm \
   > "$generated_dir/javaPatternNames.generated.ts"
 
 runtime_artifact="$repo_root/lib/preview/xpath/vendor/javaPatternRuntime.generated.js"
-runtime_banner='/*! OpenJDK 17 Pattern derivative (GPLv2 + Classpath Exception) compiled with TeaVM (Apache-2.0). Complete corresponding source: /third-party/java-pattern-runtime-source.tar.gz */'
+runtime_banner='/*! OpenJDK 17 Pattern and fdlibm derivative (GPLv2 + Classpath Exception) compiled with TeaVM (Apache-2.0). Complete corresponding source: /third-party/java-pattern-runtime-source.tar.gz */'
 {
 	printf '%s\n' "$runtime_banner"
-	awk 'NR == 1 && $0 == "/*! OpenJDK 17 Pattern derivative (GPLv2 + Classpath Exception) compiled with TeaVM (Apache-2.0). Complete corresponding source: /third-party/java-pattern-runtime-source.tar.gz */" { next } { print }' \
+	awk 'NR == 1 && ($0 == "/*! OpenJDK 17 Pattern derivative (GPLv2 + Classpath Exception) compiled with TeaVM (Apache-2.0). Complete corresponding source: /third-party/java-pattern-runtime-source.tar.gz */" || $0 == "/*! OpenJDK 17 Pattern and fdlibm derivative (GPLv2 + Classpath Exception) compiled with TeaVM (Apache-2.0). Complete corresponding source: /third-party/java-pattern-runtime-source.tar.gz */") { next } { print }' \
 		"$generated_dir/teavm/js/javaPatternRuntime.generated.js"
 } > "$runtime_artifact"
 cp \

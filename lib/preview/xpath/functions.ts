@@ -2,6 +2,7 @@ import { FUNCTION_REGISTRY } from "@/lib/commcare/validator/functionRegistry";
 import { JAVAROSA_PATH_INITIALIZERS } from "@/lib/commcare/xpath/functionCapabilities";
 import { toBoolean, toDate, toDouble, toNumber, xpathToString } from "./coerce";
 import { formatCommCareDate } from "./dateFormatting";
+import { javaRosaPow } from "./javaPatternRuntime";
 import { javaRosaFormatDateForCalendar } from "./javaRosaAlternateCalendar";
 import {
 	javaRosaClosestPointOnPolygon,
@@ -223,7 +224,9 @@ register("cond", () => {
 register("ceiling", (args) => Math.ceil(toDouble(args[0] ?? "")));
 register("floor", (args) => Math.floor(toDouble(args[0] ?? "")));
 register("abs", (args) => Math.abs(toDouble(args[0] ?? "")));
-register("pow", (args) => toDouble(args[0] ?? 0) ** toDouble(args[1] ?? 0));
+register("pow", (args) =>
+	javaRosaPow(toDouble(args[0] ?? 0), toDouble(args[1] ?? 0)),
+);
 register("min", (args) => Math.min(...args.map((arg) => toNumber(arg))));
 register("max", (args) => Math.max(...args.map((arg) => toNumber(arg))));
 

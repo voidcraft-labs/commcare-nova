@@ -3,7 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const EXPECTED_RUNTIME_SHA256 =
-	"5511bf0684cf102ed7bae4e5723b3791a494ed33327efc7c0f52f7dbef03c3af";
+	"5d9f10c5c90c129c53fa497e7a5b98b235ee1fd599b30a270021031eb33bfac3";
 const EXPECTED_NAMES_SHA256 =
 	"89541422e4cfce6efd42b470ea76ff03734c330e4c92301223ca555811eb4691";
 
@@ -25,6 +25,12 @@ const openJdkSourceDirectory = fileURLToPath(
 		import.meta.url,
 	),
 );
+const openJdkMathSourceDirectory = fileURLToPath(
+	new URL(
+		"./src/main/java/org/commcare/nova/xpath/openjdkmath/",
+		import.meta.url,
+	),
+);
 const doubleStringSourcePath = fileURLToPath(
 	new URL("../../lib/preview/xpath/openJdk17DoubleString.ts", import.meta.url),
 );
@@ -33,15 +39,16 @@ const [source, namesSource, doubleStringSource] = await Promise.all([
 	readFile(namesArtifact, "utf8"),
 	readFile(doubleStringSourcePath, "utf8"),
 ]);
-for (const filename of await readdir(openJdkSourceDirectory)) {
-	if (!filename.endsWith(".java")) continue;
-	const javaSource = await readFile(
-		`${openJdkSourceDirectory}/${filename}`,
-		"utf8",
-	);
-	if (!javaSource.includes("Copyright (c)")) continue;
-	if (!/Modified by Dimagi, Inc\. on \d{4}-\d{2}-\d{2}/.test(javaSource)) {
-		throw new Error(`OpenJDK modification notice is missing from ${filename}.`);
+for (const directory of [openJdkSourceDirectory, openJdkMathSourceDirectory]) {
+	for (const filename of await readdir(directory)) {
+		if (!filename.endsWith(".java")) continue;
+		const javaSource = await readFile(`${directory}/${filename}`, "utf8");
+		if (!javaSource.includes("Copyright (c)")) continue;
+		if (!/Modified by Dimagi, Inc\. on \d{4}-\d{2}-\d{2}/.test(javaSource)) {
+			throw new Error(
+				`OpenJDK modification notice is missing from ${filename}.`,
+			);
+		}
 	}
 }
 if (
@@ -54,17 +61,19 @@ if (
 		source + namesSource + doubleStringSource,
 	)
 ) {
-	throw new Error("Java Pattern runtime violates Nova's CSP boundary.");
+	throw new Error("Java compatibility runtime violates Nova's CSP boundary.");
 }
 if (
-	!/export\{[^}]*\bas find\b[^}]*\bas replaceAllLiteral\b[^}]*\}/.test(source)
+	!["find", "pow", "replaceAllLiteral"].every((name) =>
+		new RegExp(`\\bas ${name}\\b`).test(source),
+	)
 ) {
-	throw new Error("Java Pattern runtime exports are missing.");
+	throw new Error("Java compatibility runtime exports are missing.");
 }
 const bytes = Buffer.byteLength(source);
 if (bytes > 275_000) {
 	throw new Error(
-		`Java Pattern runtime exceeds the 275 KB source cap: ${bytes}`,
+		`Java compatibility runtime exceeds the 275 KB source cap: ${bytes}`,
 	);
 }
 if (!/export function openJdk17CodePointOf\(/.test(namesSource)) {
@@ -79,7 +88,7 @@ if (namesBytes > 500_000) {
 const digest = createHash("sha256").update(source).digest("hex");
 if (digest !== EXPECTED_RUNTIME_SHA256) {
 	throw new Error(
-		`Java Pattern runtime is not the reviewed reproducible artifact: ${digest}`,
+		`Java compatibility runtime is not the reviewed reproducible artifact: ${digest}`,
 	);
 }
 const namesDigest = createHash("sha256").update(namesSource).digest("hex");

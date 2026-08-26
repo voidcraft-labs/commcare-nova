@@ -1,14 +1,17 @@
-# OpenJDK 17 Pattern browser runtime
+# OpenJDK 17 browser compatibility runtime
 
 This directory reproducibly compiles the regex implementation used by
-Formplayer into a static ES module. The source is OpenJDK 17 `Pattern`,
-`Matcher`, and their supporting classes from tag `jdk-17.0.20+8`, peeled commit
+Formplayer and the portable fdlibm power implementation satisfying JavaRosa's
+`Math.pow` contract into a static ES module. The source is OpenJDK 17
+`Pattern`, `Matcher`, `FdLibm.Pow`, and their required support from tag
+`jdk-17.0.20+8`, peeled commit
 `8cbbca61432426a3441aa08838d930ef954ea1ba`. TeaVM 0.15.0 performs the Java to
 JavaScript compilation. The result is JavaScript, not WebAssembly.
 
-The runtime exposes only the operations CommCare Core invokes:
+The runtime exposes the operations CommCare Core invokes:
 `Pattern.compile(pattern).matcher(input).find()` and `replaceAll` after
-`Matcher.quoteReplacement`. User-authored patterns execute inside Nova's
+`Matcher.quoteReplacement`, plus the OpenJDK 17 fdlibm implementation behind
+JavaRosa's `Math.pow`. User-authored patterns execute inside Nova's
 bounded XPath worker. The finite set of patterns Nova generates itself may use
 the same engine synchronously.
 

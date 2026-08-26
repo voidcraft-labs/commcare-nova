@@ -23,7 +23,11 @@ Nova makes these bounded portability changes:
   `lib/preview/xpath/openJdk17DoubleString.ts`, replacing its private
   `FDBigInteger` storage with exact JavaScript BigInt arithmetic while retaining
   the JDK 17 digit-generation, stopping, rounding, and formatting rules.
+- Extracts `FdLibm.Pow` and its double-bit helpers into
+  `openjdkmath/FdLibmPow.java`, retaining the OpenJDK 17 computation while
+  exposing it beside the regex operations. This avoids TeaVM's ordinary
+  lowering of `Math.pow` to architecture-dependent JavaScript `Math.pow`.
 
-The Pattern parser, matcher graph, backtracking behavior, flags, groups,
+The fdlibm computation and the Pattern parser, matcher graph, backtracking behavior, flags, groups,
 replacement behavior, grapheme rules, and the operations exposed to Nova are
 otherwise the OpenJDK 17 implementation.

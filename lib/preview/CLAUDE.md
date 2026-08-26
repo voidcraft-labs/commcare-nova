@@ -25,6 +25,13 @@ backtracking Java Pattern call cannot consume an ordinary cancel message, so
 settling its host Promise must never clear the only CPU bound while leaving the
 worker alive.
 
+`pow()` uses OpenJDK 17's portable fdlibm computation from that same generated
+runtime. Java permits `Math.pow` implementations within one ulp, while TeaVM
+normally lowers it to JavaScript `Math.pow`; V8 has produced adjacent doubles
+across architectures. The explicit fdlibm path gives Preview one reproducible
+result within JavaRosa's contract before OpenJDK 17 number-to-text formatting
+sees it.
+
 The provider owns that worker runtime through a re-armable `resume` / `suspend`
 lifecycle. Effect cleanup terminates every worker and timer, but it never uses
 the one-way terminal `dispose`: React Strict Mode replays cleanup and setup on

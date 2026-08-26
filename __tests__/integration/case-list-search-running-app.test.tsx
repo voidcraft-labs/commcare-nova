@@ -970,9 +970,15 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 		const submit = await readySubmitButton();
 		fireEvent.click(submit);
 
-		await waitFor(() => {
-			expect(vi.mocked(submitFormAction)).toHaveBeenCalled();
-		});
+		// The submission now validates and hashes the exact reconciled blueprint
+		// before dispatch. Leak instrumentation can take longer than Testing
+		// Library's one-second default without changing the UI readiness contract.
+		await waitFor(
+			() => {
+				expect(vi.mocked(submitFormAction)).toHaveBeenCalled();
+			},
+			{ timeout: 5_000 },
+		);
 
 		// The envelope's close arm stamps `closed_on = now()` via the
 		// store's close core; the test asserts the timestamp landed on
