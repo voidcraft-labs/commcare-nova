@@ -28,6 +28,16 @@ import {
 	assertAndProjectCaseWriteInventory,
 	type ProjectedCaseWriteInventory,
 } from "@/lib/commcare/caseWriteAdmission";
+import {
+	caseTypeDepthMap,
+	expandHashtagsInContext,
+} from "@/lib/commcare/hashtags/formContext";
+import {
+	type XFormDataRootRuntimeAttributes,
+	xformDataRootRuntimeAttributes,
+} from "@/lib/commcare/xform/dataRootAttributes";
+import { isPathExpression } from "@/lib/commcare/xform/pathExpression";
+import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import type {
 	BlueprintDoc,
 	CaseProperty,
@@ -37,6 +47,7 @@ import type {
 	Field,
 	Form,
 	FormType,
+	LanguageTag,
 	LookupOptionsSource,
 	Uuid,
 } from "@/lib/domain";
@@ -63,9 +74,23 @@ import {
 	compilerBugMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate/errors";
+import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
 import { toBoolean, xpathToString } from "../xpath/coerce";
-import { evaluate } from "../xpath/evaluator";
-import type { EvalContext } from "../xpath/types";
+import { evaluate, evaluateRuntime } from "../xpath/evaluator";
+import { javaRosaSplitOnSpaces } from "../xpath/javaString";
+import {
+	isXPathNodeSet,
+	unpackXPathRuntimeValue,
+	type XPathInstance,
+} from "../xpath/runtimeValues";
+import type { EvalContext, XPathValue } from "../xpath/types";
+import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import {
+	serializeXPathWorkerHashtagValue,
+	serializeXPathWorkerValue,
+	snapshotXPathWorkerInstance,
+	xpathWorkerHashtagReferences,
+} from "../xpath/workerRuntime";
 import type {
 	SubmissionAnswerEntry,
 	SubmissionAttachmentReference,
@@ -84,7 +109,7 @@ import {
 	remapInstancePath,
 	stripIndices,
 } from "./instancePaths";
-import { resolveLabel } from "./labelRefs";
+import { resolveLabel, resolveLabelAsync } from "./labelRefs";
 import {
 	evaluateLookupChoices,
 	lookupOptionsSourceCovered,
@@ -99,7 +124,83 @@ import {
 	lookupChoicesEqual,
 	stringRecordsEqual,
 } from "./types";
+import {
+	type CaseDatabaseSnapshot,
+	previewHashtagNodeSet,
+	secondaryXPathInstances,
+	xpathNodeAtPath,
+} from "./xpathInstances";
 
+const JAVA_INT_MIN = BigInt("-2147483648");
+const JAVA_INT_MAX = BigInt("2147483647");
+
+function javaIntegerLexical(
+	lexical: string,
+	invalidMessage: string,
+	rangeMessage: string,
+): number {
+	const normalized = normalizeJavaIntegerLexical(lexical);
+	if (normalized === undefined) throw new Error(invalidMessage);
+	let integer: bigint;
+	try {
+		integer = BigInt(normalized);
+	} catch {
+		throw new Error(invalidMessage);
+	}
+	if (integer < JAVA_INT_MIN || integer > JAVA_INT_MAX) {
+		throw new Error(rangeMessage);
+	}
+	return Number(integer);
+}
+
+/** Materialize the count through the same carrier JavaRosa receives. A direct
+ * node is cast by `IntegerData.cast`, which accepts blank as zero at the repeat
+ * boundary and otherwise requires an exact base-10 int lexical value. A
+ * non-path expression is first stored by `SetValueAction` in Nova's generated
+ * `xsd:int` node: blank/NaN becomes null, doubles use Java's narrowing int
+ * conversion, booleans round-trip through `BooleanData`'s `1`/`0` lexical,
+ * and strings retain `IntegerData.cast`'s exact lexical validation. */
+function materializedRepeatCount(
+	directReference: boolean,
+	value: XPathValue,
+): number {
+	if (directReference) {
+		const lexical = xpathToString(value);
+		if (lexical === "") return 0;
+		return Math.max(
+			0,
+			javaIntegerLexical(
+				lexical,
+				"A direct repeat count must contain an exact base-10 integer.",
+				"A direct repeat count is outside Java's integer range.",
+			),
+		);
+	}
+
+	if (typeof value === "number") {
+		if (Number.isNaN(value)) return 0;
+		const narrowed =
+			value >= Number(JAVA_INT_MAX)
+				? Number(JAVA_INT_MAX)
+				: value <= Number(JAVA_INT_MIN)
+					? Number(JAVA_INT_MIN)
+					: Math.trunc(value);
+		return Math.max(0, narrowed);
+	}
+	if (typeof value === "boolean") return value ? 1 : 0;
+	if (typeof value === "string") {
+		if (value === "") return 0;
+		return Math.max(
+			0,
+			javaIntegerLexical(
+				value,
+				"A hoisted repeat count must contain an exact base-10 integer when it evaluates to text.",
+				"A hoisted repeat count is outside Java's integer range.",
+			),
+		);
+	}
+	throw new Error("A date cannot be stored in an integer repeat count.");
+}
 export type AttachmentPathDisposition = "active" | "dormant" | "removed";
 export interface InvalidFieldTarget {
 	readonly fieldUuid: Uuid;
@@ -150,6 +251,8 @@ export type CaseDataByType = Map<string, Map<string, string>>;
  * normalized doc slice, not pre-walked trees.
  */
 export interface FormEngineInput {
+	/** Active form language, used by locale-sensitive JavaRosa functions. */
+	language?: LanguageTag;
 	/** The form entity (no nested fields). */
 	form: Form;
 	/** The form's uuid — used as the root key into `fieldOrder`. */
@@ -171,6 +274,56 @@ export interface FormEngineInput {
 	 * as undeclared to admission.
 	 */
 	userProperties?: BlueprintDoc["userProperties"];
+}
+
+export type FormEngineAsyncResultMode = "scalar" | "nodeset-values-or-scalar";
+
+/** The controller-owned browser runtime seam. FormEngine owns evaluation
+ * order and immutable snapshots; the controller owns entry/revision fences. */
+export interface FormEngineAsyncEvaluator {
+	(
+		source: string,
+		path: string,
+		resultMode?: "scalar",
+		stateOverrides?: Readonly<EngineStoreState>,
+	): Promise<XPathValue>;
+	(
+		source: string,
+		path: string,
+		resultMode: "nodeset-values-or-scalar",
+		stateOverrides?: Readonly<EngineStoreState>,
+	): Promise<
+		| XPathValue
+		| { readonly kind: "nodeset-values"; readonly values: readonly string[] }
+	>;
+}
+
+export interface FormEngineRuntimeOptions {
+	/** Construct only the immutable form world. `initializeAsync` performs the
+	 * structural/default/cascade stages before the controller publishes it. */
+	readonly stagedAsync?: boolean;
+}
+
+export interface FormEngineWorkerWorld {
+	readonly key: string;
+	initialized: boolean;
+	values: Map<string, string>;
+	relevance: Map<string, boolean>;
+	repeatCounts: Map<string, number>;
+}
+
+function isAsyncNodesetValues(
+	value:
+		| XPathValue
+		| { readonly kind: "nodeset-values"; readonly values: readonly string[] },
+): value is {
+	readonly kind: "nodeset-values";
+	readonly values: readonly string[];
+} {
+	return (
+		"kind" in Object(value) &&
+		(value as { kind?: string }).kind === "nodeset-values"
+	);
 }
 
 /** The print surface for the engine's input slice: its one form plus
@@ -295,6 +448,7 @@ export class FormEngine {
 	 *  from an ancestor's row as if it were the bound case. */
 	private caseDataOwnType: string | undefined;
 	private formType: FormType;
+	private formRootAttributes: XFormDataRootRuntimeAttributes;
 	/** One Project lookup fixture snapshot captured for the engine's
 	 *  LIFETIME — lookup-backed choices stay stable within a form
 	 *  session (the wire's install/upgrade fixture semantic); the next
@@ -302,6 +456,15 @@ export class FormEngine {
 	 *  `null` when the caller supplied none — evaluating a lookup
 	 *  carrier then throws the validation-bypass invariant. */
 	private lookupData: PreviewLookupData | null;
+	/** Immutable secondary-instance world captured with this engine. */
+	private secondaryInstances: ReadonlyMap<string, XPathInstance>;
+	/** Secondary instances never change during one form entry. Serialize them
+	 * once, then initialize each revision-scoped worker world with that frozen
+	 * projection instead of recursively cloning the whole case/lookup database
+	 * for every expression. */
+	private readonly secondaryWorkerSnapshots: ReturnType<
+		typeof snapshotXPathWorkerInstance
+	>[];
 	/** uuid → generic path cache for lookup-filter `formFields` bindings,
 	 *  keyed by tree identity so every tree rebuild refreshes it lazily. */
 	private fieldPathsCache: ReadonlyMap<Uuid, string> = new Map();
@@ -312,6 +475,8 @@ export class FormEngine {
 		this.instance.getRepeatCount(repeatPath);
 	/** Render-only identities that survive positional compaction. */
 	private repeatInstanceKeys = new Map<string, string[]>();
+	private readonly asyncRuntime: boolean;
+	private readonly presentationLanguage: LanguageTag | undefined;
 
 	constructor(
 		input: FormEngineInput,
@@ -319,6 +484,8 @@ export class FormEngine {
 		caseData?: CaseDataByType,
 		previewIdentity?: ResolvedPreviewIdentity | null,
 		lookupData?: PreviewLookupData | null,
+		caseDatabase?: CaseDatabaseSnapshot | null,
+		runtimeOptions: FormEngineRuntimeOptions = {},
 	) {
 		this.store = createStore<EngineStoreState>(() => ({}));
 		this.lookupData = lookupData ?? null;
@@ -326,13 +493,26 @@ export class FormEngine {
 		this.moduleCaseType = moduleCaseType;
 		this.caseDataOwnType = moduleCaseType;
 		this.formType = input.form.type;
+		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
 		this.caseData = caseData ?? new Map();
+		this.secondaryInstances = secondaryXPathInstances({
+			identity: this.previewIdentity,
+			lookupData: this.lookupData,
+			caseDatabase: caseDatabase ?? null,
+			caseTypes: input.caseTypes,
+		});
+		this.secondaryWorkerSnapshots = [...this.secondaryInstances.values()].map(
+			snapshotXPathWorkerInstance,
+		);
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
+		this.asyncRuntime = runtimeOptions.stagedAsync === true;
+		this.presentationLanguage = input.language;
 
-		this.instance = new DataInstance();
+		this.instance = new DataInstance(this.formRootAttributes);
 		this.instance.initFromFields(this.tree);
+		this.dag = new TriggerDag();
 
 		if (
 			CASE_LOADING_FORM_TYPES.has(input.form.type) &&
@@ -340,8 +520,13 @@ export class FormEngine {
 		) {
 			this.preloadCaseData(this.tree);
 		}
+		if (this.asyncRuntime) return;
 
-		this.dag = new TriggerDag();
+		/* JavaRosa materializes count/query-bound repeats once while the form
+		 * initializes. Their cardinality is structural input to both the DAG and
+		 * state walk, so establish it before either materializes paths. */
+		this.initializeBoundRepeats(this.tree);
+
 		this.dag.build(this.tree, this.printDoc);
 
 		/* Build initial states, apply defaults, and evaluate all expressions.
@@ -354,6 +539,234 @@ export class FormEngine {
 	}
 
 	// ── Public API ───────────────────────────────────────────────────
+
+	/** Structured-clone projection for one evaluation. Only parsed hashtag
+	 * tokens are copied into the request world. */
+	workerInstances(
+		source: string,
+		path: string,
+		world?: FormEngineWorkerWorld,
+		stateOverrides?: Readonly<EngineStoreState>,
+	): XPathWorkerInstances {
+		const context = this.createEvalContext(path, stateOverrides);
+		const address = (node: EvalContext["contextNode"]) =>
+			node === undefined
+				? undefined
+				: { instanceId: node.instanceId, path: node.path };
+		const currentValues = new Map(this.instance.xpathValueEntries());
+		const currentRelevance = this.effectiveRelevanceByPath(stateOverrides);
+		const currentRepeatCounts = new Map(
+			this.instance.xpathRepeatCountEntries(),
+		);
+		const topologyChanged =
+			world !== undefined &&
+			(world.values.size !== currentValues.size ||
+				[...currentValues.keys()].some((key) => !world.values.has(key)) ||
+				world.relevance.size !== currentRelevance.size ||
+				[...currentRelevance.keys()].some((key) => !world.relevance.has(key)) ||
+				world.repeatCounts.size !== currentRepeatCounts.size ||
+				[...currentRepeatCounts].some(
+					([key, count]) => world.repeatCounts.get(key) !== count,
+				));
+		const initializeWorld =
+			world !== undefined && (!world.initialized || topologyChanged);
+		const changedValues =
+			world === undefined || initializeWorld
+				? []
+				: [...currentValues].flatMap(([valuePath, value]) =>
+						world.values.get(valuePath) === value
+							? []
+							: [
+									{
+										path: valuePath,
+										value: serializeXPathWorkerValue(
+											(context.mainInstance === undefined
+												? undefined
+												: xpathNodeAtPath(
+														context.mainInstance,
+														valuePath,
+													)?.value()) ?? value,
+										),
+									},
+								],
+					);
+		const changedRelevance =
+			world === undefined || initializeWorld
+				? []
+				: [...currentRelevance].flatMap(([relevancePath, relevant]) =>
+						world.relevance.get(relevancePath) === relevant
+							? []
+							: [{ path: relevancePath, relevant }],
+					);
+		if (world !== undefined) {
+			world.initialized = true;
+			world.values = currentValues;
+			world.relevance = currentRelevance;
+			world.repeatCounts = currentRepeatCounts;
+		}
+		return {
+			...(world === undefined ? {} : { worldKey: world.key, initializeWorld }),
+			...(context.locale === undefined ? {} : { locale: context.locale }),
+			...(context.mainInstance === undefined ||
+			(world !== undefined && !initializeWorld)
+				? {}
+				: { main: snapshotXPathWorkerInstance(context.mainInstance) }),
+			...(world !== undefined && !initializeWorld
+				? {}
+				: { secondary: this.secondaryWorkerSnapshots }),
+			...(changedValues.length === 0 ? {} : { pathValues: changedValues }),
+			...(changedRelevance.length === 0
+				? {}
+				: { pathRelevance: changedRelevance }),
+			hashtagValues: xpathWorkerHashtagReferences(source).map((reference) =>
+				serializeXPathWorkerHashtagValue(
+					reference,
+					context.resolveHashtagValue?.(reference) ??
+						context.resolveHashtag(reference),
+				),
+			),
+			contextPath: context.contextPath,
+			position: context.position,
+			contextNode: address(context.contextNode),
+			originalContextNode: address(context.originalContextNode),
+		};
+	}
+
+	createWorkerWorld(key: string): FormEngineWorkerWorld {
+		return {
+			key,
+			initialized: false,
+			values: new Map(),
+			relevance: new Map(),
+			repeatCounts: new Map(),
+		};
+	}
+
+	/** Lookup fixture revision captured by this form entry. */
+	lookupDataSnapshot(): PreviewLookupData | null {
+		return this.lookupData;
+	}
+
+	/** Complete staged activation in JavaRosa order: bound topology, states,
+	 * one-time defaults, then the DAG's topological cascade. */
+	async initializeAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		if (!this.asyncRuntime) {
+			throw new Error("Async initialization requires a staged FormEngine.");
+		}
+		await this.initializeBoundRepeatsAsync(this.tree, evaluateAsync);
+		this.dag = new TriggerDag();
+		this.dag.build(this.tree, this.printDoc);
+		const states: EngineStoreState = {};
+		this.initStatesInto(states, this.tree);
+		await this.applyDefaultsIntoAsync(states, this.tree, evaluateAsync);
+		this.store.setState(states, true);
+		await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
+	}
+
+	async setValueAsync(
+		path: string,
+		value: string,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		this.setValue(path, value);
+		await this.settleValueChangesAsync([path], evaluateAsync);
+	}
+
+	/** Reconcile every raw value staged since the previous worker revision in
+	 * one topological pass. A newer browser event can retire an older revision,
+	 * so the controller retains all staged paths until this pass succeeds. */
+	async settleValueChangesAsync(
+		paths: readonly string[],
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		await this.evaluatePathsIntoAsync(
+			this.dag.getAffectedMany(paths, this.repeatCounts),
+			evaluateAsync,
+		);
+		const updates: EngineStoreState = {};
+		for (const path of paths) {
+			const current = updates[path] ?? this.store.getState()[path];
+			if (current === undefined) continue;
+			await this.evaluateValidationAndCollectAsync(
+				path,
+				current,
+				updates,
+				evaluateAsync,
+			);
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+	}
+
+	async touchAsync(
+		path: string,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		const current = this.store.getState()[path];
+		if (!current || current.touched) return;
+		const touched = { ...current, touched: true };
+		const updates: EngineStoreState = { [path]: touched };
+		await this.validateAndCollectAsync(path, touched, updates, evaluateAsync);
+		this.store.setState(updates);
+	}
+
+	async validateAllAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<boolean> {
+		return this.validateWhereAsync(() => true, evaluateAsync);
+	}
+
+	async validateSectionAsync(
+		sectionUuid: Uuid,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<boolean> {
+		const section = this.tree.find((node) => node.field.uuid === sectionUuid);
+		if (section === undefined || section.field.kind !== "section") return true;
+		const root = `/data/${section.field.id}`;
+		return this.validateWhereAsync(
+			(path) =>
+				path === root ||
+				path.startsWith(`${root}/`) ||
+				path.startsWith(`${root}[`),
+			evaluateAsync,
+		);
+	}
+
+	async settleAsync(evaluateAsync: FormEngineAsyncEvaluator): Promise<void> {
+		await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
+	}
+
+	async addRepeatAsync(
+		repeatPath: string,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<number> {
+		const index = this.addRepeat(repeatPath);
+		const prefix = `${repeatPath}[${index}]/`;
+		const updates: EngineStoreState = {};
+		for (const [path, state] of Object.entries(this.store.getState())) {
+			if (!path.startsWith(prefix) || state === DEFAULT_ENGINE_STATE) continue;
+			const field = this.findField(path);
+			if (field === undefined) continue;
+			const value = await this.computeDefaultAsync(field, path, evaluateAsync);
+			if (value !== undefined) {
+				this.instance.set(path, value);
+				updates[path] = { ...state, value };
+			}
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+		await this.settleAsync(evaluateAsync);
+		return index;
+	}
+
+	async removeRepeatAsync(
+		repeatPath: string,
+		index: number,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		this.removeRepeat(repeatPath, index);
+		await this.settleAsync(evaluateAsync);
+	}
 
 	/** Set a value and trigger recalculation cascade. Only changed paths
 	 *  are written to the store — Zustand's shallow merge keeps unchanged
@@ -558,6 +971,7 @@ export class FormEngine {
 	 *  flow (form load, new repeat instance, incremental add, default
 	 *  edit) shares. */
 	private computeDefault(field: Field, path: string): string | undefined {
+		if (this.asyncRuntime) return undefined;
 		const defaultValue = expressionSource(
 			field,
 			"default_value",
@@ -675,6 +1089,55 @@ export class FormEngine {
 				current--;
 			}
 		}
+	}
+
+	/** Worker-backed repeat restoration for an existing entry. Restore the full
+	 * topology first, then apply each newly materialized leaf's one-time default
+	 * before evaluating the rebuilt graph. Calling the synchronous helper in an
+	 * async engine cannot do this: its main-thread default and cascade paths are
+	 * deliberately disabled. */
+	async restoreRepeatCountSnapshotAsync(
+		snapshot: ReadonlyMap<string, number>,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		if (!this.asyncRuntime) {
+			this.restoreRepeatCountSnapshot(snapshot);
+			return;
+		}
+		const paths = [...snapshot.keys()].sort((a, b) => {
+			const depth = (path: string) => path.split("/").length;
+			return depth(a) - depth(b) || a.localeCompare(b);
+		});
+		const addedLeafPaths: string[] = [];
+		for (const path of paths) {
+			const target = snapshot.get(path) ?? 1;
+			let current = this.getRepeatCount(path);
+			while (current < target) {
+				const index = this.addRepeat(path);
+				const prefix = `${path}[${index}]/`;
+				for (const [valuePath] of this.instance.entries()) {
+					if (valuePath.startsWith(prefix)) addedLeafPaths.push(valuePath);
+				}
+				current += 1;
+			}
+			while (current > Math.max(target, 1)) {
+				this.removeRepeat(path, current - 1);
+				current -= 1;
+			}
+		}
+
+		const updates: EngineStoreState = {};
+		for (const path of addedLeafPaths) {
+			const field = this.findField(path);
+			const state = this.store.getState()[path];
+			if (field === undefined || state === undefined) continue;
+			const value = await this.computeDefaultAsync(field, path, evaluateAsync);
+			if (value === undefined) continue;
+			this.instance.set(path, value);
+			updates[path] = { ...state, value };
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+		await this.settleAsync(evaluateAsync);
 	}
 
 	restoreRepeatInstanceKeySnapshot(
@@ -977,6 +1440,23 @@ export class FormEngine {
 		};
 		walk(this.tree, "/data", true);
 		return visible;
+	}
+
+	/** Effective main-instance relevance keyed by every runtime field path.
+	 * `stateOverrides` is the not-yet-committed prefix of an in-flight DAG
+	 * cascade, so later expressions in the same worker revision observe a
+	 * container that an earlier expression just hid or showed. */
+	private effectiveRelevanceByPath(
+		stateOverrides?: Readonly<EngineStoreState>,
+	): Map<string, boolean> {
+		const states =
+			stateOverrides === undefined
+				? this.store.getState()
+				: { ...this.store.getState(), ...stateOverrides };
+		const visible = this.effectivelyVisiblePaths(states);
+		return new Map(
+			Object.keys(states).map((path) => [path, visible.has(path)] as const),
+		);
 	}
 
 	/**
@@ -1660,6 +2140,8 @@ export class FormEngine {
 	 * and states are still valid.
 	 */
 	rebuildDag(input: FormEngineInput): void {
+		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
+		this.instance.setRootAttributes(this.formRootAttributes);
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
@@ -2027,6 +2509,33 @@ export class FormEngine {
 		}
 	}
 
+	/** Worker-backed counterpart of `reevaluateDefault`. Live authoring still
+	 * applies a changed or newly introduced default to every untouched concrete
+	 * slot; evaluating it on the main thread would bypass the mandatory worker
+	 * for regex, crypto, sleep, and every other admitted expensive function. The
+	 * controller follows this with one full worker settle in the same revision,
+	 * so dependent calculations and validation observe all applied defaults. */
+	async reevaluateDefaultAsync(
+		path: string,
+		field: Field,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		const updates: EngineStoreState = {};
+		for (const concrete of this.materializePaths(path)) {
+			const current = this.store.getState()[concrete];
+			if (current?.touched) continue;
+			const value = await this.computeDefaultAsync(
+				field,
+				concrete,
+				evaluateAsync,
+			);
+			if (value === undefined) continue;
+			this.instance.set(concrete, value);
+			if (current !== undefined) updates[concrete] = { ...current, value };
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+	}
+
 	/**
 	 * Update case data context and re-evaluate affected fields.
 	 * Used when form type or module case type changes. Only re-evaluates
@@ -2037,6 +2546,8 @@ export class FormEngine {
 		caseData: CaseDataByType,
 		moduleCaseType?: string,
 	): void {
+		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
+		this.instance.setRootAttributes(this.formRootAttributes);
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
@@ -2113,12 +2624,13 @@ export class FormEngine {
 		this.moduleCaseType = moduleCaseType;
 		this.caseDataOwnType = moduleCaseType;
 		this.formType = input.form.type;
+		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
 		this.caseData = caseData ?? new Map();
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
 
-		this.instance = new DataInstance();
+		this.instance = new DataInstance(this.formRootAttributes);
 		this.instance.initFromFields(this.tree);
 
 		if (
@@ -2127,6 +2639,7 @@ export class FormEngine {
 		) {
 			this.preloadCaseData(this.tree);
 		}
+		this.initializeBoundRepeats(this.tree);
 
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.printDoc);
@@ -2169,12 +2682,13 @@ export class FormEngine {
 	/** Full reset — reinitialize all values, defaults, and expressions. */
 	reset(): void {
 		this.repeatInstanceKeys.clear();
-		this.instance = new DataInstance();
+		this.instance = new DataInstance(this.formRootAttributes);
 		this.instance.initFromFields(this.tree);
 
 		if (isCaseLoadingFormType(this.formType) && this.caseData.size > 0) {
 			this.preloadCaseData(this.tree);
 		}
+		this.initializeBoundRepeats(this.tree);
 
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
@@ -2273,18 +2787,207 @@ export class FormEngine {
 
 	// ── Private: expression evaluation ───────────────────────────────
 
+	private async evaluateAndCollectAsync(
+		path: string,
+		updates: EngineStoreState,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		const current = updates[path] ?? this.store.getState()[path];
+		if (!current) return;
+		const expressions = this.dag.getExpressions(path);
+		if (expressions.length === 0) return;
+
+		let changed = false;
+		let visible = current.visible;
+		let required = current.required;
+		let value = current.value;
+		let resolvedLabel = current.resolvedLabel;
+		let resolvedHint = current.resolvedHint;
+		let resolvedHelp = current.resolvedHelp;
+		let resolvedOptionLabels = current.resolvedOptionLabels;
+		let choices = current.choices;
+		let hasValidation = false;
+
+		for (const { type, expr } of expressions) {
+			switch (type) {
+				case "calculate": {
+					const next = xpathToString(await evaluateAsync(expr, path));
+					this.instance.set(path, next);
+					if (next !== value) {
+						value = next;
+						changed = true;
+					}
+					break;
+				}
+				case "relevant": {
+					const next = toBoolean(await evaluateAsync(expr, path));
+					if (next !== visible) {
+						visible = next;
+						changed = true;
+					}
+					break;
+				}
+				case "required": {
+					const next = toBoolean(await evaluateAsync(expr, path));
+					if (next !== required) {
+						required = next;
+						changed = true;
+					}
+					break;
+				}
+				case "validation":
+					hasValidation = true;
+					break;
+				case "output": {
+					const field = this.findField(path);
+					if (field === undefined) break;
+					const resolve = async (source: string) =>
+						xpathToString(await evaluateAsync(source, path));
+					const nextLabel = await resolveLabelAsync(
+						fieldProseTemplate(field, "label"),
+						this.printDoc,
+						resolve,
+					);
+					const nextHint = await resolveLabelAsync(
+						fieldProseTemplate(field, "hint"),
+						this.printDoc,
+						resolve,
+					);
+					const nextHelp = await resolveLabelAsync(
+						fieldProseTemplate(field, "help"),
+						this.printDoc,
+						resolve,
+					);
+					let nextOptions: Record<string, string> | undefined;
+					if (
+						(field.kind === "single_select" || field.kind === "multi_select") &&
+						field.optionsSource.kind === "inline"
+					) {
+						const entries: Array<readonly [string, string]> = [];
+						for (const option of field.optionsSource.options) {
+							const label = await resolveLabelAsync(
+								option.label,
+								this.printDoc,
+								resolve,
+							);
+							if (label !== undefined) entries.push([option.uuid, label]);
+						}
+						if (entries.length > 0) nextOptions = Object.fromEntries(entries);
+					}
+					if (
+						nextLabel !== resolvedLabel ||
+						nextHint !== resolvedHint ||
+						nextHelp !== resolvedHelp ||
+						!stringRecordsEqual(nextOptions, resolvedOptionLabels)
+					) {
+						resolvedLabel = nextLabel;
+						resolvedHint = nextHint;
+						resolvedHelp = nextHelp;
+						resolvedOptionLabels = nextOptions;
+						changed = true;
+					}
+					break;
+				}
+				case "choices": {
+					const field = this.findField(path);
+					if (
+						field === undefined ||
+						(field.kind !== "single_select" && field.kind !== "multi_select") ||
+						field.optionsSource.kind !== "lookup"
+					) {
+						break;
+					}
+					const next = this.computeLookupChoices(
+						field.optionsSource,
+						this.createEvalContext(path, updates),
+					);
+					if (next === undefined) break;
+					if (!lookupChoicesEqual(next, choices)) {
+						choices = next;
+						changed = true;
+					}
+					const retained = retainSelection(field.kind, value, next);
+					if (retained !== value) {
+						this.instance.set(path, retained);
+						value = retained;
+						changed = true;
+					}
+					break;
+				}
+			}
+			if (changed) {
+				updates[path] = {
+					...current,
+					visible,
+					required,
+					value,
+					resolvedLabel,
+					resolvedHint,
+					resolvedHelp,
+					resolvedOptionLabels,
+					choices,
+				};
+			}
+		}
+
+		if (changed) {
+			updates[path] = {
+				...current,
+				visible,
+				required,
+				value,
+				resolvedLabel,
+				resolvedHint,
+				resolvedHelp,
+				resolvedOptionLabels,
+				choices,
+			};
+		}
+		if (hasValidation) {
+			await this.evaluateValidationAndCollectAsync(
+				path,
+				updates[path] ?? current,
+				updates,
+				evaluateAsync,
+			);
+		}
+	}
+
+	private async evaluatePathsIntoAsync(
+		paths: readonly string[],
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		const updates: EngineStoreState = {};
+		const evaluateWithUpdates = ((
+			source: string,
+			path: string,
+			resultMode: FormEngineAsyncResultMode = "scalar",
+		) =>
+			evaluateAsync(
+				source,
+				path,
+				resultMode as "nodeset-values-or-scalar",
+				updates,
+			)) as FormEngineAsyncEvaluator;
+		for (const path of paths) {
+			await this.evaluateAndCollectAsync(path, updates, evaluateWithUpdates);
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+	}
+
 	/** Evaluate an expression for a path and add it to `updates` only if the
 	 *  result differs from the current store state. This is the mechanism that
 	 *  makes Zustand's selector-based subscriptions surgical: unchanged paths
 	 *  keep their old reference, so their subscribers skip re-rendering. */
 	private evaluateAndCollect(path: string, updates: EngineStoreState): void {
+		if (this.asyncRuntime) return;
 		const current = updates[path] ?? this.store.getState()[path];
 		if (!current) return;
 
 		const expressions = this.dag.getExpressions(path);
 		if (expressions.length === 0) return;
 
-		const ctx = this.createEvalContext(path);
+		const ctx = this.createEvalContext(path, updates);
 		let changed = false;
 		let visible = current.visible;
 		let required = current.required;
@@ -2416,6 +3119,19 @@ export class FormEngine {
 					break;
 				}
 			}
+			if (changed) {
+				updates[path] = {
+					...current,
+					visible,
+					required,
+					value,
+					resolvedLabel,
+					resolvedHint,
+					resolvedHelp,
+					resolvedOptionLabels,
+					choices,
+				};
+			}
 		}
 
 		if (changed) {
@@ -2456,6 +3172,89 @@ export class FormEngine {
 
 	// ── Private: validation ──────────────────────────────────────────
 
+	private async validateWhereAsync(
+		include: (path: string) => boolean,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<boolean> {
+		let valid = true;
+		const updates: EngineStoreState = {};
+		const currentState = this.store.getState();
+		const effectivelyVisible = this.effectivelyVisiblePaths(currentState);
+		for (const [path, state] of Object.entries(currentState)) {
+			if (state === DEFAULT_ENGINE_STATE) continue;
+			if (!include(path) || !effectivelyVisible.has(path)) continue;
+			const touched = state.touched ? state : { ...state, touched: true };
+			if (touched !== state) updates[path] = touched;
+			await this.validateAndCollectAsync(
+				path,
+				updates[path] ?? touched,
+				updates,
+				evaluateAsync,
+			);
+			if (!(updates[path] ?? touched).valid) valid = false;
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+		return valid;
+	}
+
+	private async validateAndCollectAsync(
+		path: string,
+		state: FieldState,
+		updates: EngineStoreState,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		if (state.required && !state.value) {
+			if (state.valid || state.errorMessage !== "This field is required") {
+				updates[path] = {
+					...state,
+					valid: false,
+					errorMessage: "This field is required",
+				};
+			}
+			return;
+		}
+		await this.evaluateValidationAndCollectAsync(
+			path,
+			state,
+			updates,
+			evaluateAsync,
+		);
+	}
+
+	private async evaluateValidationAndCollectAsync(
+		path: string,
+		state: FieldState,
+		updates: EngineStoreState,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		const shapeError = this.temporalShapeError(path, state.value);
+		if (shapeError !== undefined) {
+			if (state.valid || state.errorMessage !== shapeError) {
+				updates[path] = { ...state, valid: false, errorMessage: shapeError };
+			}
+			return;
+		}
+		const validationExpr = this.dag
+			.getExpressions(path)
+			.find((expression) => expression.type === "validation");
+		if (!validationExpr || !state.value) {
+			if (!state.valid || state.errorMessage !== undefined) {
+				updates[path] = { ...state, valid: true, errorMessage: undefined };
+			}
+			return;
+		}
+		const valid = toBoolean(await evaluateAsync(validationExpr.expr, path));
+		const field = this.findField(path);
+		const errorMessage = valid
+			? undefined
+			: ((field
+					? expressionSource(field, "validate_msg", this.printDoc)
+					: undefined) ?? "Invalid value");
+		if (valid !== state.valid || errorMessage !== state.errorMessage) {
+			updates[path] = { ...state, valid, errorMessage };
+		}
+	}
+
 	private validateAndCollect(
 		path: string,
 		state: FieldState,
@@ -2479,6 +3278,7 @@ export class FormEngine {
 		state: FieldState,
 		updates: EngineStoreState,
 	): void {
+		if (this.asyncRuntime) return;
 		const shapeError = this.temporalShapeError(path, state.value);
 		if (shapeError !== undefined) {
 			if (state.valid || state.errorMessage !== shapeError) {
@@ -2610,10 +3410,25 @@ export class FormEngine {
 			const path = `${prefix}/${f.id}`;
 
 			if (isContainer(f)) {
-				states[path] = this.initialContainerState(path, f.kind);
+				states[path] =
+					f.kind === "repeat"
+						? {
+								...this.initialContainerState(path, f.kind),
+								repeatCount: this.instance.getRepeatCount(path),
+							}
+						: this.initialContainerState(path, f.kind);
 				if (node.children) {
-					const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
-					this.initStatesInto(states, node.children, childPrefix);
+					if (f.kind === "repeat") {
+						for (
+							let index = 0;
+							index < this.instance.getRepeatCount(path);
+							index += 1
+						) {
+							this.initStatesInto(states, node.children, `${path}[${index}]`);
+						}
+					} else {
+						this.initStatesInto(states, node.children, path);
+					}
 				}
 			} else {
 				states[path] = {
@@ -2624,6 +3439,57 @@ export class FormEngine {
 					valid: true,
 					touched: false,
 				};
+			}
+		}
+	}
+
+	private async computeDefaultAsync(
+		field: Field,
+		path: string,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<string | undefined> {
+		const source = expressionSource(field, "default_value", this.printDoc);
+		if (!source) return undefined;
+		const value = xpathToString(await evaluateAsync(source, path));
+		return value && value !== "false" ? value : undefined;
+	}
+
+	private async applyDefaultsIntoAsync(
+		states: EngineStoreState,
+		tree: readonly FieldTreeNode[],
+		evaluateAsync: FormEngineAsyncEvaluator,
+		prefix = "/data",
+	): Promise<void> {
+		for (const node of tree) {
+			const field = node.field;
+			const path = `${prefix}/${field.id}`;
+			const value = await this.computeDefaultAsync(field, path, evaluateAsync);
+			if (value !== undefined) {
+				this.instance.set(path, value);
+				const state = states[path];
+				if (state) states[path] = { ...state, value };
+			}
+			if (!node.children) continue;
+			if (field.kind === "repeat") {
+				for (
+					let index = 0;
+					index < this.instance.getRepeatCount(path);
+					index += 1
+				) {
+					await this.applyDefaultsIntoAsync(
+						states,
+						node.children,
+						evaluateAsync,
+						`${path}[${index}]`,
+					);
+				}
+			} else {
+				await this.applyDefaultsIntoAsync(
+					states,
+					node.children,
+					evaluateAsync,
+					path,
+				);
 			}
 		}
 	}
@@ -2646,23 +3512,27 @@ export class FormEngine {
 				}
 			}
 			if (node.children) {
-				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
-				this.applyDefaultsInto(states, node.children, childPrefix);
+				if (f.kind === "repeat") {
+					for (
+						let index = 0;
+						index < this.instance.getRepeatCount(path);
+						index += 1
+					) {
+						this.applyDefaultsInto(states, node.children, `${path}[${index}]`);
+					}
+				} else {
+					this.applyDefaultsInto(states, node.children, path);
+				}
 			}
 		}
 	}
 
 	// ── Private: XPath evaluation context ────────────────────────────
 
-	private createEvalContext(path: string): EvalContext {
-		let position = 1;
-		// The DEEPEST instance segment carries the evaluating node's own
-		// position — for `/data/a[1]/b[0]/c`, position() is b's index.
-		const repeatMatch = path.match(/\[(\d+)\][^[]*$/);
-		if (repeatMatch) {
-			position = Number.parseInt(repeatMatch[1], 10) + 1;
-		}
-
+	private createEvalContext(
+		path: string,
+		stateOverrides?: Readonly<EngineStoreState>,
+	): EvalContext {
 		/* References print index-free (`#form/orders/name`), but repeat
 		 * children live at indexed paths — bind each read onto the
 		 * evaluating node's own instance, CommCare's relative-reference
@@ -2670,9 +3540,25 @@ export class FormEngine {
 		const read = (p: string): string | undefined =>
 			this.instance.get(rebaseOntoContext(p, path));
 		const session = previewSessionValues(this.previewIdentity);
+		const relevance = this.effectiveRelevanceByPath(stateOverrides);
+		const mainInstance = this.instance.asXPathInstance((candidatePath) =>
+			relevance.has(candidatePath)
+				? (relevance.get(candidatePath) ?? false)
+				: true,
+		);
+		const contextNode = xpathNodeAtPath(mainInstance, path);
 
-		return {
+		const context: EvalContext = {
+			...(this.presentationLanguage === undefined
+				? {}
+				: { locale: this.presentationLanguage }),
 			getValue: read,
+			mainInstance,
+			...(contextNode === undefined
+				? {}
+				: { contextNode, originalContextNode: contextNode }),
+			resolveXPathInstance: (instanceId) =>
+				this.secondaryInstances.get(instanceId),
 			resolveInstance: (instanceId, instancePath) =>
 				instanceId === "commcaresession"
 					? {
@@ -2723,8 +3609,152 @@ export class FormEngine {
 				return "";
 			},
 			contextPath: path,
-			position,
+			// Predicate evaluation supplies its own 1-based context position.
+			// Everywhere else JavaRosa position() reads the context reference's
+			// zero-based final multiplicity through contextNode.
+			position: undefined,
 		};
+		context.resolveHashtagValue = (ref) =>
+			previewHashtagNodeSet(ref, {
+				casedb: this.secondaryInstances.get("casedb"),
+				caseData: this.caseData,
+				userId: this.previewIdentity?.session.context.userid,
+			}) ?? context.resolveHashtag(ref);
+		return context;
+	}
+
+	/** Reproduce the emitter's `jr:count` carrier decision against fully
+	 * projected JavaRosa text. Classifying raw Nova hashtag text would miss a
+	 * path-shaped reference once the hashtag appears inside a longer location
+	 * path or predicate. */
+	private isDirectRepeatCountReference(source: string): boolean {
+		const expanded = expandHashtagsInContext(source, {
+			formType: this.formType,
+			caseTypeDepths: caseTypeDepthMap(
+				this.moduleCaseType,
+				this.caseWriteDoc.caseTypes ?? [],
+			),
+		});
+		return isPathExpression(lowerXPathForJavaRosa(expanded));
+	}
+
+	private async initializeBoundRepeatsAsync(
+		tree: readonly FieldTreeNode[],
+		evaluateAsync: FormEngineAsyncEvaluator,
+		prefix = "/data",
+	): Promise<void> {
+		for (const node of tree) {
+			const field = node.field;
+			const path = `${prefix}/${field.id}`;
+			if (field.kind === "repeat") {
+				if (field.repeat_mode === "count_bound") {
+					const source =
+						expressionSource(field, "repeat_count", this.printDoc) ?? "0";
+					const count = materializedRepeatCount(
+						this.isDirectRepeatCountReference(source),
+						await evaluateAsync(source, path),
+					);
+					this.instance.setRepeatCount(path, count);
+				} else if (field.repeat_mode === "query_bound") {
+					const source =
+						expressionSource(field, "ids_query", this.printDoc) ?? "";
+					const result = await evaluateAsync(
+						source,
+						path,
+						"nodeset-values-or-scalar",
+					);
+					const ids = isAsyncNodesetValues(result)
+						? result.values
+						: javaRosaSplitOnSpaces(xpathToString(result));
+					this.materializeQueryBoundRepeat(path, ids);
+				}
+				if (node.children) {
+					for (
+						let index = 0;
+						index < this.instance.getRepeatCount(path);
+						index += 1
+					) {
+						await this.initializeBoundRepeatsAsync(
+							node.children,
+							evaluateAsync,
+							`${path}[${index}]`,
+						);
+					}
+				}
+				continue;
+			}
+			if (node.children) {
+				await this.initializeBoundRepeatsAsync(
+					node.children,
+					evaluateAsync,
+					path,
+				);
+			}
+		}
+	}
+
+	/** One-time repeat materialization. Query-bound ids preserve the selected
+	 * nodes' lexical values; the legacy scalar arm accepts the same whitespace-
+	 * token list the emitted model-iteration setup stores in `@ids`. */
+	private initializeBoundRepeats(
+		tree: readonly FieldTreeNode[],
+		prefix = "/data",
+	): void {
+		if (this.asyncRuntime) return;
+		for (const node of tree) {
+			const field = node.field;
+			const path = `${prefix}/${field.id}`;
+			if (field.kind === "repeat") {
+				if (field.repeat_mode === "count_bound") {
+					const source =
+						expressionSource(field, "repeat_count", this.printDoc) ?? "0";
+					const evaluated = evaluate(source, this.createEvalContext(path));
+					const count = materializedRepeatCount(
+						this.isDirectRepeatCountReference(source),
+						evaluated,
+					);
+					this.instance.setRepeatCount(path, count);
+				} else if (field.repeat_mode === "query_bound") {
+					const evaluated = evaluateRuntime(
+						expressionSource(field, "ids_query", this.printDoc) ?? "",
+						this.createEvalContext(path),
+					);
+					const ids = isXPathNodeSet(evaluated)
+						? evaluated.nodes.map((selected) => xpathToString(selected.value()))
+						: javaRosaSplitOnSpaces(
+								xpathToString(unpackXPathRuntimeValue(evaluated)),
+							);
+					this.materializeQueryBoundRepeat(path, ids);
+				}
+				if (node.children) {
+					for (
+						let index = 0;
+						index < this.instance.getRepeatCount(path);
+						index += 1
+					) {
+						this.initializeBoundRepeats(node.children, `${path}[${index}]`);
+					}
+				}
+				continue;
+			}
+			if (node.children) this.initializeBoundRepeats(node.children, path);
+		}
+	}
+
+	/** Materialize Preview's flattened repeat occurrence with the attributes
+	 * JavaRosa sets on the emitted query-bound `<item>`. The model-iteration
+	 * index is zero-based because `selected-at()` is zero-based. */
+	private materializeQueryBoundRepeat(
+		path: string,
+		ids: readonly string[],
+	): void {
+		this.instance.setRepeatCount(path, ids.length);
+		ids.forEach((id, index) => {
+			this.instance.setElementAttributes(`${path}[${index}]`, {
+				id,
+				index: String(index),
+			});
+		});
 	}
 
 	// ── Private: lookup-carrier evaluation ───────────────────────────

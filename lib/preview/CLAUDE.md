@@ -1,6 +1,105 @@
 # Web Preview Engine
 
-Client-side form preview running entirely from the in-memory blueprint — no XForm parsing, no server calls. Three subsystems: XPath evaluator, form engine, preview UI. Preview's function table is an explicit implementation contract, not an alias for JavaRosa's table: an unsupported function throws visibly instead of silently evaluating as blank. `instance('commcaresession')/...` is the only modeled secondary-instance root, and each evaluation context must provide an explicit resolver for it; other namespaces such as `casedb` fail loudly instead of being misread as main-form paths. `current()` is rejected until Preview can preserve its captured-context semantics. Nodeset-only functions (`count`, `sum`) are rejected until the evaluator has a real nodeset value rather than a scalar approximation; `concat`, `join`, `min`, and `max` retain their scalar forms but reject the exact signatures Core overloads for nodesets. Java-regex-backed `regex` / `replace` are also rejected: JavaScript's regex language is not a faithful subset or superset of Java `Pattern`. Contexts evaluating Nova-generated wire may opt into `generatedJavaRosaFunctions.ts`, which recognizes only the fixed patterns Nova itself emits and returns unsupported for every other pattern; this does not expand the raw-XPath Preview contract.
+Client-side form preview running entirely from the in-memory blueprint, with no
+XForm parsing and no server-side evaluator. Three subsystems own it: the XPath
+evaluator, form engine, and preview UI. **Preview is part of valid by
+construction.** Every XPath function, signature, path initializer, and instance
+namespace Nova admits for a surface must execute faithfully in that surface's
+Preview context and must emit faithfully to the owning CommCare runtime. The
+capability tables keep independent runtime evidence, but they do not authorize
+an authorable Preview subset. Adding an authorable capability therefore adds
+its Preview implementation and its CommCare proof in the same change.
+
+`regex()` and `replace()` target Formplayer's OpenJDK 17 `Pattern` contract,
+which is the one stable CommCare host runtime. TeaVM compiles the pinned
+OpenJDK sources to static JavaScript under `xpath/vendor/`; this is not native
+JavaScript `RegExp` and not WebAssembly. User-authored patterns run only in the
+bounded XPath worker because Java backtracking can be expensive. The JDK 17
+character-name table for `\N{name}` is a separate lazy chunk. The finite,
+reviewed patterns Nova generates itself may use the synchronous allowlist in
+`generatedJavaRosaFunctions.ts`. The host timeout is a CPU watchdog, not a wall
+clock limit on JavaRosa semantics: a worker `sleep()` pauses it while its
+worker-owned timer is pending and resumes a fresh watchdog window afterward.
+Cancellation terminates the worker generation out of band: a synchronously
+backtracking Java Pattern call cannot consume an ordinary cancel message, so
+settling its host Promise must never clear the only CPU bound while leaving the
+worker alive.
+
+The provider owns that worker runtime through a re-armable `resume` / `suspend`
+lifecycle. Effect cleanup terminates every worker and timer, but it never uses
+the one-way terminal `dispose`: React Strict Mode replays cleanup and setup on
+the same state-created controller in development, so the second setup must be
+able to open a fresh generation.
+
+The device-casedb readiness gate is committed in a layout effect. Descendant
+form activation runs in passive effects, so the gate still arrives first, but
+an interrupted or discarded render can never mutate the long-lived controller
+with a snapshot or loading/error posture React did not commit.
+
+An unsupported evaluation reached from a persisted document is an internal
+invariant violation, never an ordinary historical-app state or a user repair
+flow. Defensive containment must keep the Builder navigable, report the defect
+through internal diagnostics, and avoid inventing a plausible result. That
+backstop does not relax mutation admission, migration, or runtime parity: Nova
+must continue supporting the stored expression or migrate it faithfully before
+the old capability can be removed.
+
+Each controller revision owns one worker evaluation world. Its first request
+copies the main structure plus the engine-lifetime secondary snapshots; later
+expressions reuse that world and carry only changed main-instance scalar
+values and their expression-local context. A topology change reinitializes the
+world. Repeat cardinality participates explicitly in that topology signature;
+a zero-row bound repeat retains one dormant template subtree whose value keys
+alone cannot distinguish it from a live row. Never restore recursive
+per-expression instance snapshots: a form with many expressions over a large
+casedb/fixture set must not clone that entire world once per expression.
+
+Case-type and `#user/` hashtags cross that worker boundary as addresses into
+the frozen casedb snapshot, not as pre-coerced strings. They remain nodesets
+until the evaluator applies JavaRosa coercion, so `count()`, `boolean()`, and
+other node-aware functions observe the same identity and cardinality as the
+expanded wire selector. A scalar fallback exists only when Preview has no
+structural usercase projection at all.
+
+The casedb projection separates schema from cardinality. Dynamic property and
+index names remain valid through template metadata, but an absent property or
+index identifier is an empty nodeset and `count(...)` is zero; Preview never
+materializes a blank synthetic element. Property text follows the declared
+case-property type before it enters XPath, including Java `Double.toString`
+lexical output for decimals (`0` is `0.0`). Index `@case_type` comes from the
+type captured on the stored edge, not the target case's current type.
+The device snapshot carries the stored schema's property types for every row
+case type, including a type retired from the current blueprint. Stored types
+win property by property while a blueprint retype awaits schema healing;
+active materializable declarations fill properties absent from the stored
+catalog. This prevents existing decimal/date JSON from silently changing XPath
+text during either window.
+
+The casedb load signal is structural too: any admitted `#<case-type>/*` or
+`#user/*` carrier needs the same device snapshot as an explicit
+`instance('casedb')` reference. Query-bound repeats preserve each selected
+node's lexical value across the worker boundary and seed it as the flattened
+Preview row's `@id` (plus the zero-based model-iteration `@index`) before child
+calculations run. Keeping only nodeset cardinality breaks the canonical
+`current()/../@id` expression even though the repeat appears to have the right
+number of rows. A scalar ids result follows Core's `DataUtil.splitOnSpaces`
+exactly: only U+0020 runs separate ids, a leading empty id survives, and
+trailing empty ids do not.
+
+The structural world includes nodes the emitted form supplies even when Nova
+has no value for them. The main `/data` root exposes the same `uiVersion`,
+`version`, and slugged `name` attributes as the XForm. The
+`commcaresession/session/context` template uses the complete Core namespace,
+including `drift`, `window_width`, and `applanguage`; an unavailable value is
+an absent node, not an unknown path.
+
+Raw answer writes commit synchronously and remain in `pendingValuePaths` until
+some current revision settles their cascade. Every successor revision first
+reconciles those paths, so blur, validation, repeat changes, and submit cannot
+retire an answer calculation and then observe stale state. User-controlled
+repeat add/remove revisions are atomic within an entry: later browser events
+queue behind topology mutation, defaults/cascade, and compaction publication.
+Navigation may still retire the whole entry and discard its engine.
 
 Running navigation preserves the requested leaf across parent-case selection.
 A direct Form or Results record that needs one or more case parents first visits
@@ -98,7 +197,16 @@ multi-select as token arrays). The Server Action validates and normalizes
 that final protocol before program, capture-intent, or effect derivation; the
 retired name-only projection is rejected. Its authorization transaction locks
 the app, proves fresh Project membership, and reads any durable receipt before
-loading blueprint topology. The SERVER builds
+loading blueprint topology. Before the request, Preview flushes the reconciler's
+human-save barrier and hashes the exact persistable submit-time blueprint over
+canonical JSON. The action compares that digest with its locked committed app
+before deriving a new submission program; a save or collaborator race returns
+the typed `blueprint-changed` refusal. Every newly accepted receipt persists
+that exact blueprint digest with its transaction result. An exact retry still
+replays its saved effects after later edits, but it returns routeable success
+only when the receipt digest matches the client's rendering revision;
+historical or mismatched receipts report that the answers were saved and ask
+for a reload instead of evaluating today's after-submit topology. The SERVER builds
 the case-operation program from the COMMITTED doc
 (`buildSubmissionOperationProgram`: the shared `lib/doc/caseOperationOrder.ts`
 analyses + `buildCaseTypeMap` + the
@@ -340,7 +448,7 @@ A sectioned form (root sections only, `lib/doc/formSectionVerdicts.ts`) previews
 
 Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one FieldState per live instance, while everything AUTHORED about them is index-free — `printXPath` emits `#form/orders/name`, the dependency extractor emits `/data/orders/name`. Three mechanisms bridge the two shapes (`instancePaths.ts` holds the conversions):
 
-- **Evaluation binds to the instance.** `createEvalContext` rebases every read — `#form/` hashtags and absolute `/data/` paths — onto the evaluating node's own repeat instance by longest-common-repeat-prefix (`rebaseOntoContext`), CommCare's relative-reference semantic. A reference from OUTSIDE a repeat to a child inside one is not rebased and reads blank — the wire's nodeset semantics (sum over instances, indexed predicates) are not modeled.
+- **Evaluation binds to the instance.** `createEvalContext` rebases scalar reads — `#form/` hashtags and absolute `/data/` paths — onto the evaluating node's own repeat instance by longest-common-repeat-prefix (`rebaseOntoContext`), CommCare's relative-reference semantic. A reference from OUTSIDE a repeat to children inside it materializes the complete nodeset for node-aware functions, predicates, and Core-compatible scalar coercion; it must never collapse to one guessed value or blank merely because Preview is evaluating it.
 - **The TriggerDag topology is index-free; queries materialize.** Nodes and edges are keyed by generic paths, and `getAffected` / `getAllPaths` fan each generic node out over the live instance counts (a `RepeatCountResolver` the engine supplies). Repeat add/remove therefore needs NO DAG bookkeeping; both cardinality changes re-evaluate EVERY instance (`position()` and renumbered sibling reads can shift on removal) plus outside dependents, and `addRepeat` runs defaults-then-evaluate for the new instance, the same order as form load.
 - **Authoring cycle proof is a strict superset of runtime triggers.**
   `TriggerDag.reportCycles` temporarily adds two kinds of authoring-only
@@ -373,6 +481,7 @@ Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one Fie
   no loop (`addSettleFreeEdges`), so a loop through one of them drops that
   edge and never a calculate or relevance edge.
 - **Instance counts are explicit.** `DataInstance` tracks cardinality in its own map, keyed by concrete repeat path — never derived from which value keys happen to exist (a repeat with only structural children still counts 1). `set` auto-extends counts from indexed path segments so restore/rename flows stay consistent. A new instance seeds the AUTHORED template shape — nested repeats restart at one instance, matching what the deployed form's `jr:template` produces — not `[0]`'s live shape.
+- **Count-bound repeats follow the emitted carrier.** A count expression that projects directly to a `jr:count` path is read from that node through JavaRosa's `IntegerData.cast`: blank means zero, while every nonblank value must be an exact base-10 Java `int` lexical value (`2.0` and `2.5` are errors, not two rows). A non-path expression is different because the emitter first seeds it into Nova's generated `xsd:int` node; Preview retains that node's numeric coercion before materializing the count. Both synchronous and worker initialization use this same split.
 - **The runtime store is dual-keyed.** Every field keeps its uuid key (edit-mode rows); every path with an `[N]` segment ALSO gets a path key — the interactive renderer subscribes via `useEngineStateAt(uuid, path)` and writes through `controller.setValueAt(path, …)` / `touchAt(path)`, so two instances of one field hold independent value/visibility/validity. Uuid-keyed flows (`onValueChange`) address the `[0]` template only.
 - **Doc mutations land on every live instance.** The controller's incremental handlers (field added / removed / retyped / expression edited during live preview) route through the engine's instance-aware ops. Authored topology is reconciled once per committed batch from complete pre/post path maps, so two independent renames or a cross-parent subtree move cannot observe a half-updated map. `materializePaths` expands the uuid map's `[0]` template path over the live counts, and `renamePaths` moves all values/states in one call (materialize-before-move, since renaming or moving a repeat container relocates the count its descendants materialize through). A repeat→group conversion keeps only instance 0; the other instances' values are dropped with their states unplugged.
 
@@ -579,8 +688,8 @@ Running Results reads at most 50 cases per page. The action clamps every caller 
 
 A form's `formLinks` run in the running app the way they run on a device, through the ONE projection the wire reads (`lib/commcare/formLinkProjection.ts`): which link fires and which case the next form opens with are never re-derived preview-side. `engine/formLinkEvaluation.ts` is the rule, `components/preview/screens/afterSubmitRouting.ts` is the routing table, and `FormScreen`'s `dispatchAfterSubmit` performs the effect once the submission has landed; a form with no links takes its `postSubmit` destination exactly as before.
 
-- **First true wins, evaluated as Nova text after the write.** Each condition prints through `printXPath` (an unresolved reference throws: the commit gate refuses those, so reaching one is a bypass) and the preview evaluator decides it in the entry's post-form scope: `instance('commcaresession')/session/context|user/...` from the identity, `/session/data/<id>` from the source entry's own datums, `#user/<prop>` from the usercase, `#<type>/<prop>` from the case rows AS THEY ARE AFTER THE SUBMISSION, and any read of the closed form (`/data/...`, `#form/...`) throws. A case-loading source reads its case back once, post-write, and that read is a TENANT read (`loadCaseDataAction(..., deviceScoped: false)`): the device keeps every case it loaded until its next sync, a just-closed one included, while the restore scope (`lib/case-store/sql/compileRestoreScope.ts`) holds only what a synced device would, which a closed root case is not. A registration source reads the case it CREATED back the same way: the device processes the form's case block into its local casedb as the form closes, so the new case is readable by the time the link runs, and the session-scope accept set (`caseRefAcceptMap(index, formType, "session")`) admits its properties. A survey reads nothing. The write is announced to the other running surfaces (`invalidateCaseData`) only once the route is decided: announcing before the read would reload the bound case under the form, and a close form's now-closed case would resolve missing and abandon the route as stale.
-- **The carried case is the wire's match, valued from the complete case session.** `carriedCaseFor` asks `selectedCaseDatumId` for the target's projected own-case selection datum (`case_id` when flat, potentially `case_id_<type>` after root-menu alignment), evaluates a manual datum under that exact id when the link names its datums, and otherwise reads the source datum `matchFrameToSource` picked. `sourceSessionDatums` is the one mapping from source datum ids to values: the projected own-case datum is the case the form loaded; every projected ancestor/inherited selection reads the module-keyed case session that `FormScreen` already resolved through `previewMenuCaseContext`; a registration's `case_id_new_<module type>_0` is the case it created; and a subcase datum is the child case of its type the submission created. `projectTargetCaseSelections` values EVERY matched selection datum in the target frame; the exact `FrameDatum` already carries its stable source-module UUID through root alignment and frame-prefix projection, so Preview never reconstructs ownership from menu shape or display names. `FormScreen` applies that root-to-leaf projection before navigating, so manual parent datums and automatically matched created cases establish the same nested menu session the device frame establishes. Parent changes clear stale descendants before later target selections replace them; a defined blank datum stays installed so Core and Preview both skip a picker, while its empty id still binds no case. A nonblank selection is hydrated from the exact matching post-submit read-back row before a module menu evaluates case-property conditions. Module landing is decided from that prospective session, including same-type structural inheritance, not from the pre-submit menu snapshot. The created-child mapping is exact because the case store inserts `mutation.children` in order and answers `childCaseIds` in that same order (`submissionEnvelope.ts::applyOrdinaryAction`), and a non-repeat child bucket is one per case type (`caseWriteInventory.ts::childBucketKey`); when the form ALSO has a repeat bucket of that type the children cannot be told apart, so the datum stays unvalued rather than guessed. A manual XPath reads the same map, so `instance('commcaresession')/session/data/case_id_new_patient_1` names the created child.
+- **First true wins, evaluated as Nova text after the write.** Each condition prints through `printXPath` (an unresolved reference throws: the commit gate refuses those, so reaching one is a bypass) and the preview evaluator decides it in the entry's post-form scope: `instance('commcaresession')/session/context|user/...` from the identity, `/session/data/<id>` from the source entry's own datums, `#user/<prop>` from the committed usercase row, `#<type>/<prop>` from the case rows AS THEY ARE AFTER THE SUBMISSION, and any read of the closed form (`/data/...`, `#form/...`) throws. Any app with an after-submit link and a case-bearing module loads the complete entry-time device casedb even when no expression names `instance('casedb')`: a link can carry an unchanged existing case or ancestor, while the transaction patch contains only affected rows. `applySubmission` reads every affected row and direct index edge before its transaction commits and persists that exact patch in the durable receipt. Preview applies the patch to the device casedb captured when the entry opened, then derives source and target case preloads from that one world. There is no post-commit case read: it could observe a later writer, and a fresh restore can omit a just-closed case the device still retains locally until sync. Registration-created cases, advanced-operation targets, and the worker usercase all enter through the same patch. A survey with no case or usercase effects contributes an empty patch. A direct linked form carries both its case preload and this patched casedb across navigation so its first render cannot replace a just-closed case with a newer restore. The write is announced to the other running surfaces (`invalidateCaseData`) only once the route is decided: announcing earlier could reload or clear the source binding before routing finishes.
+- **The carried case is the wire's match, valued from the complete case session.** `carriedCaseFor` asks `selectedCaseDatumId` for the target's projected own-case selection datum (`case_id` when flat, potentially `case_id_<type>` after root-menu alignment), evaluates a manual datum under that exact id when the link names its datums, and otherwise reads the source datum `matchFrameToSource` picked. `sourceSessionDatums` is the one mapping from source datum ids to values: the projected own-case datum is the case the form loaded; every projected ancestor/inherited selection reads the module-keyed case session that `FormScreen` already resolved through `previewMenuCaseContext`; a registration's `case_id_new_<module type>_0` is the case it created; and a subcase datum is the child case of its type the submission created. `projectTargetCaseSelections` values EVERY matched selection datum in the target frame; the exact `FrameDatum` already carries its stable source-module UUID through root alignment and frame-prefix projection, so Preview never reconstructs ownership from menu shape or display names. `FormScreen` applies that root-to-leaf projection before navigating, so manual parent datums and automatically matched created cases establish the same nested menu session the device frame establishes. Parent changes clear stale descendants before later target selections replace them; a defined blank datum stays installed so Core and Preview both skip a picker, while its empty id still binds no case. A nonblank selection is hydrated from the exact matching row in the transaction-captured post-submit patch before a module menu evaluates case-property conditions. Module landing is decided from that prospective session, including same-type structural inheritance, not from the pre-submit menu snapshot. The created-child mapping is exact because the case store inserts `mutation.children` in order and answers `childCaseIds` in that same order (`submissionEnvelope.ts::applyOrdinaryAction`), and a non-repeat child bucket is one per case type (`caseWriteInventory.ts::childBucketKey`); when the form ALSO has a repeat bucket of that type the children cannot be told apart, so the datum stays unvalued rather than guessed. A manual XPath reads the same map, so `instance('commcaresession')/session/data/case_id_new_patient_1` names the created child.
 - **A blank carried value binds nothing, visibly.** `previewCaseTarget.caseId === ""` is a case the navigation bound, to nothing; `FormScreen` opens the form without auto-selecting a case, loads nothing, disables Submit, and says the link carried no case. Absent `caseId` keeps meaning "direct preview, auto-select the first case".
 - **Running menus use one UUID/topology projection.** `menuProjection.ts` consumes `lib/domain/moduleHierarchy.ts`: Home renders root modules only, while a parent module renders its native Forms (or an explicit **Cases** entry) plus its child-module tiles. `PreviewScreen` carries module/Form UUIDs, and retained component + scroll keys come from those UUIDs, so reorder cannot transfer state to a sibling. Module conditions combine through ancestry with `hidden` winning over `pending`; a child condition previews on its structural parent menu rather than Home.
 - **A module target lands where the home screen lands it.** `moduleLanding.ts` reads the module-URL rule (`moduleScreenNavigation.ts`) from the outside: a module with children always lands on its menu so those children remain reachable; a terminal case-first or bare-case-list module opens Results unless its menu already has a selected case. Home tiles and after-submit module targets use the same rule.

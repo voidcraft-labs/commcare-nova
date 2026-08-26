@@ -19,6 +19,20 @@ destinations occupied. The caller owns the transaction so authorization,
 Blueprint sequence, lookup verdict, and counts share one request; the result
 is explanatory and never substitutes for rename Phase A's locked recheck.
 
+`CaseStore.readDeviceCaseDatabase` is the running Preview's complete casedb
+read. It applies the bound worker's restore closure across every retained case
+type, including types no longer present in the active Blueprint, and returns
+the visible rows plus their direct parent/custom index edges under one
+repeatable-read transaction. It never accepts a caller-supplied case-id list;
+both endpoints of every edge are re-fenced by app and bound Project in SQL.
+Each edge persists `target_case_type`, matching Core's
+`CaseIndex.mTargetCaseType`: the type is captured when the relationship is
+written and never re-derived from the target row on read, so a later target
+retype does not alter casedb `@case_type` metadata. The
+`20260825000000_case_index_target_type` migration backfills historical edges
+from their target rows, refuses dangling edges it cannot backfill, and makes
+the column required for every future writer.
+
 **The case-type map is the MATERIALIZABLE view.** `buildCaseTypeMap` builds from `lib/domain/effectiveCaseTypes.ts::materializableCaseTypes` — writer-DERIVED property types included, whether the writer is a field or a typed case operation (the compiler's casts stay in lockstep with the type checker), and implicit standard entries excluded. A standard entry explicitly declared in the catalog remains for its authoring metadata and order, but both storage projections filter every `CASE_SCALAR_PROPERTY_NAMES` member: `caseTypeToJsonSchema` never emits it into the closed JSONB schema, and `computeDesiredIndexSet` never emits a JSONB expression index for it. Standard-name references resolve through `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY` — the exact Nova name→column map (`case_name`→`case_name`, `date_opened`→`opened_on`, `last_modified`→`modified_on`, `external_id`→`external_id`, plus `status`/`owner_id`/`case_id`/`case_type`) — consumed by `compileTerm`, the predicate `is-blank` arm (timestamp columns collapse it to plain `IS NULL`), and the preview display seam (`caseRowDisplayValue`), so a standard name every checker admits also queries, filters, and displays from its first-class column. No live alternate-name projection exists.
 
 **Runtime operation targets are resolved facts, never client descriptors.** `caseOperationTargetRequestSchema` accepts only `{ caseId }`. The envelope executor (`postgres/submissionEnvelope.ts`) loads the row through the tenant-bound pre-submission snapshot and then calls `validateCaseOperationTargetDescriptor(request, resolved, expected)` with server-owned `{ caseId, caseType, projectId }` plus the expected `{ projectId, snapshotCaseType }` from `caseOperationExpressionSnapshotTypes`. That snapshot type is intentionally distinct from the operation's rolling semantic type after an earlier retype. Parse failure, absence, id mismatch, and foreign tenancy intentionally collapse to `not-found-or-out-of-scope`; a type mismatch is reported only after Project authorization succeeds. The seam itself stays pure; its live callers are the executor's expression-target arms.
@@ -36,6 +50,19 @@ different form/digest rejects. The receipt is completed in the same transaction
 as the ordinary and advanced effects. A case failure therefore rolls back the
 uncompleted claim and every case write; two concurrent first requests serialize,
 and only one can allocate generated case identities.
+
+The accepted result also carries the exact post-effect device patch: every
+affected ordinary case, child, executed operation target, and worker usercase,
+plus their direct index edges, is read inside that same transaction before the
+receipt completes. The JSONB receipt owns that patch, and replay rehydrates its
+timestamps to the live `CaseRow` types. The patch also carries the stored
+property-type map for every returned row case type, so a Preview casedb can
+preserve typed lexical semantics after a type leaves the active blueprint.
+The result stores the exact committed-blueprint digest used to derive its
+program and routing topology; callers may replay effects across later app
+edits, but must not choose a next screen from a different digest. Callers must not reconstruct accepted
+state with a later `readCaseDatabasePatch`; that would mix the submission with
+a later writer and can drop a just-closed case from a fresh device restore.
 
 When the server also supplies a capture intent, it first runs the DB-first
 pre-acceptance durability seam in `submissionAttachments.ts`: under the entry

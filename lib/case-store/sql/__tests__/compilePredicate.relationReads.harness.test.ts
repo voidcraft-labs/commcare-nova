@@ -131,6 +131,7 @@ async function seedHouseholdWithTwoChildren(
 			{
 				case_id: NONMATCHING_CHILD_ID,
 				ancestor_id: HOUSEHOLD_ID,
+				target_case_type: "test",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -138,6 +139,7 @@ async function seedHouseholdWithTwoChildren(
 			{
 				case_id: MATCHING_CHILD_ID,
 				ancestor_id: HOUSEHOLD_ID,
+				target_case_type: "test",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -215,6 +217,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: NONMATCHING_CHILD_ID,
 					ancestor_id: HOUSEHOLD_ID,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -222,6 +225,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: MATCHING_CHILD_ID,
 					ancestor_id: HOUSEHOLD_ID,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -421,6 +425,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: NONMATCHING_CHILD_ID,
 					ancestor_id: HOUSEHOLD_ID,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -428,6 +433,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: MATCHING_CHILD_ID,
 					ancestor_id: HOUSEHOLD_ID,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -504,6 +510,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: NONMATCHING_CHILD_ID,
 					ancestor_id: HOUSEHOLD_ID,
+					target_case_type: "test",
 					identifier: "primary",
 					relationship: "child",
 					depth: 1,
@@ -511,6 +518,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: MATCHING_CHILD_ID,
 					ancestor_id: HOUSEHOLD_ID,
+					target_case_type: "test",
 					identifier: "secondary",
 					relationship: "child",
 					depth: 1,
@@ -561,6 +569,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: HOUSEHOLD_ID,
 					ancestor_id: NONMATCHING_ANCESTOR_ID,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -568,6 +577,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: MATCHING_CHILD_ID,
 					ancestor_id: HOUSEHOLD_ID,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,

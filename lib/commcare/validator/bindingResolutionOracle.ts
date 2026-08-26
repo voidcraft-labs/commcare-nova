@@ -62,6 +62,7 @@ import type { SyntaxNode } from "@lezer/common";
 import { isTag } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
 import { parser } from "@/lib/commcare/xpath";
+import { COMMCARE_SESSION_CONTEXT_FIELDS } from "../sessionContext";
 import {
 	type ValidationError,
 	type ValidationLocation,
@@ -83,15 +84,9 @@ import { buildXFormDataModel, type XFormDataModel } from "./xformDataModel";
  * them. The context set is the closed surface that's always available
  * and whose membership errors are catchable structurally.
  */
-const SESSION_CONTEXT_FIELDS: ReadonlySet<string> = new Set([
-	"deviceid",
-	"appversion",
-	"username",
-	"userid",
-	"drift",
-	"window_width",
-	"applanguage",
-]);
+const SESSION_CONTEXT_FIELDS: ReadonlySet<string> = new Set(
+	COMMCARE_SESSION_CONTEXT_FIELDS,
+);
 
 /**
  * The `jr://file/` prefix every CommCare media reference carries inside an

@@ -51,11 +51,13 @@ import {
 	selectedCaseDatumId,
 	targetFrameChildren,
 } from "@/lib/commcare/formLinkProjection";
+import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
 import {
 	type BlueprintDoc,
 	deriveCaseWriteInventory,
 	type FormLink,
 	type FormLinkDatum,
+	materializableCaseTypes,
 	type PostSubmitDestination,
 	printXPath,
 	type Uuid,
@@ -65,12 +67,23 @@ import {
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
-import type { EvalContext } from "../xpath/types";
+import type { EvalContext, XPathValue } from "../xpath/types";
+import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import {
+	serializeXPathWorkerHashtagValue,
+	snapshotXPathWorkerInstance,
+	xpathWorkerHashtagReferences,
+} from "../xpath/workerRuntime";
 import type { PreviewSearchSessionValues } from "./identity";
-import { sessionInstancePathValue } from "./searchExpressionEvaluation";
-
-/** The session-data path prefix of the entry's own datums. */
-const SESSION_DATA_PREFIX = "/session/data/";
+import type { PreviewLookupData } from "./lookupEvaluation";
+import { xpathReferencesInstance } from "./xpathInstanceReferences";
+import {
+	type CaseDatabaseSnapshot,
+	caseDatabaseXPathInstance,
+	commcareSessionXPathInstance,
+	lookupXPathInstances,
+	previewHashtagNodeSet,
+} from "./xpathInstances";
 
 /** Case rows after the submission, case-type name → property map. */
 export type PostSubmissionCaseData = ReadonlyMap<
@@ -122,6 +135,33 @@ export interface FormLinkEvaluationInput {
 	/** The source entry's own datums, from `sourceSessionDatums`. */
 	readonly sessionDatums: ReadonlyMap<string, SessionDatumValue>;
 	readonly caseData: PostSubmissionCaseData;
+	/** The entry-captured device snapshot with the committed submission patch
+	 * applied. A fresh restore is not equivalent: it can omit a case the local
+	 * device just closed or reassigned and still retains until sync. */
+	readonly caseDatabase?: CaseDatabaseSnapshot;
+	readonly lookupData?: PreviewLookupData | null;
+}
+
+export type FormLinkAsyncEvaluator = (
+	source: string,
+	instances: XPathWorkerInstances,
+) => Promise<XPathValue>;
+
+/** One post-submit session world. Secondary instances are snapshotted once;
+ * every condition and manual target datum then runs against that same worker
+ * world and revision, exactly like one JavaRosa form-link dispatch. */
+export interface FormLinkWorkerWorld {
+	readonly key: string;
+	initialized: boolean;
+	readonly secondary: XPathWorkerInstances["secondary"];
+}
+
+export function formLinksRequireCaseDatabase(doc: BlueprintDoc): boolean {
+	return authoredXPathCarriers(doc).some(
+		(carrier) =>
+			carrier.profile === "preview-session" &&
+			xpathReferencesInstance(carrier.source, "casedb"),
+	);
 }
 
 export type AfterSubmitChoice =
@@ -161,30 +201,37 @@ export interface TargetCaseSelection {
 export function formLinkEvalContext(
 	input: FormLinkEvaluationInput,
 ): EvalContext {
+	const secondaryInstances = new Map([
+		[
+			"commcaresession",
+			commcareSessionXPathInstance(
+				input.session,
+				Object.fromEntries(
+					[...input.sessionDatums].map(([name, datum]) => [name, datum.value]),
+				),
+			),
+		],
+		[
+			"casedb",
+			caseDatabaseXPathInstance(
+				input.caseDatabase ?? null,
+				materializableCaseTypes(input.doc),
+			),
+		],
+		...lookupXPathInstances(input.lookupData ?? null, {
+			includeFixtureAliases: true,
+		}),
+	] as const);
 	const closedFormRead = (what: string): never => {
 		throw new Error(
 			`A form link cannot read ${what}: the form has already closed when its links are checked. A link can read session values, #user properties, and case properties, not the form's answers.`,
 		);
 	};
-	return {
+	const context: EvalContext = {
 		contextPath: "",
 		position: 1,
 		getValue: (path) => closedFormRead(`"${path}"`),
-		resolveInstance: (instanceId, path) => {
-			if (instanceId !== "commcaresession") return { kind: "unsupported" };
-			if (path.startsWith(SESSION_DATA_PREFIX)) {
-				const held = input.sessionDatums.get(
-					path.slice(SESSION_DATA_PREFIX.length),
-				);
-				return held === undefined
-					? { kind: "supported" }
-					: { kind: "supported", value: held.value };
-			}
-			return {
-				kind: "supported",
-				value: sessionInstancePathValue(path, input.session),
-			};
-		},
+		resolveXPathInstance: (instanceId) => secondaryInstances.get(instanceId),
 		resolveHashtag: (ref) => {
 			if (ref.startsWith("#form/")) return closedFormRead(`"${ref}"`);
 			if (ref.startsWith("#user/")) {
@@ -201,6 +248,72 @@ export function formLinkEvalContext(
 			return input.caseData.get(namespace)?.get(match[2] ?? "") ?? "";
 		},
 		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
+	};
+	context.resolveHashtagValue = (ref) =>
+		previewHashtagNodeSet(ref, {
+			casedb: secondaryInstances.get("casedb"),
+			caseData: input.caseData,
+			userId: input.session.context.userid,
+		}) ?? context.resolveHashtag(ref);
+	return context;
+}
+
+export function formLinkWorkerInstances(
+	input: FormLinkEvaluationInput,
+	source: string,
+	world?: FormLinkWorkerWorld,
+): XPathWorkerInstances {
+	const context = formLinkEvalContext(input);
+	const initializeWorld = world !== undefined && !world.initialized;
+	if (world !== undefined) world.initialized = true;
+	return {
+		...(world === undefined
+			? { secondary: snapshotFormLinkSecondaryInstances(input) }
+			: {
+					worldKey: world.key,
+					initializeWorld,
+					...(initializeWorld ? { secondary: world.secondary } : {}),
+				}),
+		hashtagValues: xpathWorkerHashtagReferences(source).map((reference) =>
+			serializeXPathWorkerHashtagValue(
+				reference,
+				context.resolveHashtagValue?.(reference) ??
+					context.resolveHashtag(reference),
+			),
+		),
+		contextPath: "",
+		position: 1,
+	};
+}
+
+function snapshotFormLinkSecondaryInstances(
+	input: FormLinkEvaluationInput,
+): NonNullable<XPathWorkerInstances["secondary"]> {
+	return [
+		commcareSessionXPathInstance(
+			input.session,
+			Object.fromEntries(
+				[...input.sessionDatums].map(([name, datum]) => [name, datum.value]),
+			),
+		),
+		caseDatabaseXPathInstance(
+			input.caseDatabase ?? null,
+			materializableCaseTypes(input.doc),
+		),
+		...lookupXPathInstances(input.lookupData ?? null, {
+			includeFixtureAliases: true,
+		}).values(),
+	].map(snapshotXPathWorkerInstance);
+}
+
+export function createFormLinkWorkerWorld(
+	input: FormLinkEvaluationInput,
+	key: string,
+): FormLinkWorkerWorld {
+	return {
+		key,
+		initialized: false,
+		secondary: snapshotFormLinkSecondaryInstances(input),
 	};
 }
 
@@ -229,6 +342,30 @@ export function evaluateFormLinks(args: {
 	return { kind: "fallback", destination: args.fallback };
 }
 
+export async function evaluateFormLinksAsync(args: {
+	readonly links: readonly FormLink[];
+	readonly fallback: PostSubmitDestination;
+	readonly input: FormLinkEvaluationInput;
+	readonly evaluate: FormLinkAsyncEvaluator;
+	readonly world?: FormLinkWorkerWorld;
+}): Promise<AfterSubmitChoice> {
+	const printCtx = xpathPrintContext(args.input.doc);
+	const print = (expression: XPathExpression): string =>
+		printXPath(expression, printCtx).trim();
+	for (const [index, link] of args.links.entries()) {
+		if (!formLinkIsConditional(link, print) || link.condition === undefined) {
+			return { kind: "link", link, index };
+		}
+		const source = print(link.condition);
+		const result = await args.evaluate(
+			source,
+			formLinkWorkerInstances(args.input, source, args.world),
+		);
+		if (toBoolean(result)) return { kind: "link", link, index };
+	}
+	return { kind: "fallback", destination: args.fallback };
+}
+
 /** The string value of a manual datum's XPath in the entry's session scope. */
 export function evaluateLinkDatum(
 	datum: FormLinkDatum,
@@ -240,6 +377,20 @@ export function evaluateLinkDatum(
 			formLinkEvalContext(input),
 		),
 	);
+}
+
+export async function evaluateLinkDatumAsync(
+	datum: FormLinkDatum,
+	input: FormLinkEvaluationInput,
+	evaluateAsync: FormLinkAsyncEvaluator,
+	world?: FormLinkWorkerWorld,
+): Promise<string> {
+	const source = printXPath(datum.xpath, xpathPrintContext(input.doc));
+	const value = await evaluateAsync(
+		source,
+		formLinkWorkerInstances(input, source, world),
+	);
+	return xpathToString(value);
 }
 
 /**
@@ -393,6 +544,18 @@ export function carriedCaseFor(
 	formUuid: Uuid,
 	link: FormLink,
 ): CarriedCase {
+	return carriedCaseFromSelections(
+		input,
+		link,
+		projectTargetCaseSelections(input, formUuid, link),
+	);
+}
+
+export function carriedCaseFromSelections(
+	input: FormLinkEvaluationInput,
+	link: FormLink,
+	selections: readonly TargetCaseSelection[],
+): CarriedCase {
 	if (link.target.type !== "form") return { kind: "none" };
 	const { doc } = input;
 	const ctx = formLinkProjectionContext(doc);
@@ -403,7 +566,7 @@ export function carriedCaseFor(
 		link.target.formUuid,
 	);
 	if (targetCaseDatumId === undefined) return { kind: "none" };
-	const selected = projectTargetCaseSelections(input, formUuid, link).find(
+	const selected = selections.find(
 		(selection) => selection.datumId === targetCaseDatumId,
 	);
 	return selected === undefined
@@ -489,4 +652,89 @@ export function projectTargetCaseSelections(
 			},
 		];
 	});
+}
+
+export async function projectTargetCaseSelectionsAsync(
+	input: FormLinkEvaluationInput,
+	formUuid: Uuid,
+	link: FormLink,
+	evaluateAsync: FormLinkAsyncEvaluator,
+	world?: FormLinkWorkerWorld,
+): Promise<readonly TargetCaseSelection[]> {
+	const { doc } = input;
+	const ctx = formLinkProjectionContext(doc);
+	const sourceModuleUuid = owningModuleOf(ctx, formUuid);
+	if (sourceModuleUuid === undefined) {
+		throw new Error("Cannot follow a form link whose source has no module.");
+	}
+	const targetChildren = targetFrameChildren(doc, ctx, link.target);
+	const targetSelections = targetChildren.flatMap((child) =>
+		child.type === "datum" &&
+		child.datum.requiresSelection &&
+		child.datum.caseType !== undefined &&
+		child.datum.selectionSourceModuleUuid !== undefined
+			? [child.datum]
+			: [],
+	);
+	const automaticMatches =
+		link.datums === undefined
+			? new Map(
+					matchFrameToSource(
+						targetChildren,
+						entryFrameDatums(doc, ctx, sourceModuleUuid, formUuid),
+					).matched.map((match) => [match.id, match.sourceId]),
+				)
+			: undefined;
+	const projected: TargetCaseSelection[] = [];
+	for (const datum of targetSelections) {
+		const moduleUuid = datum.selectionSourceModuleUuid;
+		if (moduleUuid === undefined || datum.caseType === undefined) continue;
+		let held: SessionDatumValue | undefined;
+		if (link.datums !== undefined) {
+			const manual = link.datums.find(
+				(candidate) => candidate.name === datum.id,
+			);
+			const value =
+				manual === undefined
+					? ""
+					: await evaluateLinkDatumAsync(manual, input, evaluateAsync, world);
+			const knownName = [...input.sessionDatums.values()].find(
+				(candidate) =>
+					candidate.value === value && candidate.caseName !== undefined,
+			)?.caseName;
+			held = {
+				value,
+				...(knownName !== undefined && { caseName: knownName }),
+			};
+		} else {
+			const sourceId = automaticMatches?.get(datum.id);
+			if (sourceId === undefined) continue;
+			held = input.sessionDatums.get(sourceId) ?? { value: "" };
+		}
+		projected.push({
+			datumId: datum.id,
+			moduleUuid,
+			caseType: datum.caseType,
+			caseId: held.value,
+			...(held.caseName !== undefined && { caseName: held.caseName }),
+		});
+	}
+	return projected;
+}
+
+export async function carriedCaseForAsync(
+	input: FormLinkEvaluationInput,
+	formUuid: Uuid,
+	link: FormLink,
+	evaluateAsync: FormLinkAsyncEvaluator,
+	world?: FormLinkWorkerWorld,
+): Promise<CarriedCase> {
+	const selections = await projectTargetCaseSelectionsAsync(
+		input,
+		formUuid,
+		link,
+		evaluateAsync,
+		world,
+	);
+	return carriedCaseFromSelections(input, link, selections);
 }

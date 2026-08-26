@@ -124,6 +124,7 @@ import type {
 	CaseUpdateArgs,
 	ConversionImpact,
 	CountArgs,
+	DeviceCaseDatabase,
 	GenerateSampleDataArgs,
 	GroupedQueryArgs,
 	GroupedQueryResult,
@@ -638,18 +639,19 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/** Validate a relationship target after acquiring the shared lock. */
-	private async assertParentExists(
+	private async requireParentCaseType(
 		trx: Transaction<Database>,
 		args: { appId: string; parentCaseId: string },
-	): Promise<void> {
+	): Promise<string> {
 		const parent = await trx
 			.selectFrom("cases as parent")
-			.select("parent.case_id")
+			.select("parent.case_type")
 			.where("parent.app_id", "=", args.appId)
 			.where("parent.case_id", "=", args.parentCaseId)
 			.where("parent.project_id", "=", this.requireProjectId())
 			.executeTakeFirst();
 		if (parent === undefined) throw new CaseNotFoundError(args.parentCaseId);
+		return parent.case_type;
 	}
 
 	/**
@@ -881,6 +883,187 @@ export class PostgresCaseStore implements CaseStore {
 		>;
 
 		return rows.map((row) => this.shapeCaseRow(row, calcAliases));
+	}
+
+	async readDeviceCaseDatabase(args: {
+		readonly appId: string;
+		readonly restoreScope: RestoreScope;
+	}): Promise<DeviceCaseDatabase> {
+		const projectId = this.requireProjectId();
+		return this.db
+			.transaction()
+			.setIsolationLevel("repeatable read")
+			.execute(async (trx): Promise<DeviceCaseDatabase> => {
+				const rowRestore = buildRestoreScope(trx, {
+					appId: args.appId,
+					projectId,
+					ownerIds: args.restoreScope.ownerIds,
+				});
+				let rowQuery = rowRestore.creator
+					.selectFrom("cases as c")
+					.selectAll("c")
+					.where("c.app_id", "=", args.appId)
+					.where("c.project_id", "=", projectId)
+					.where(({ not, exists, selectFrom }) =>
+						not(
+							exists(
+								selectFrom("parked_case_values as held")
+									.select("held.id")
+									.whereRef("held.case_id", "=", "c.case_id")
+									.where("held.dismissed_at", "is", null),
+							),
+						),
+					);
+				rowQuery = rowRestore.restrict(rowQuery, "c");
+				const storedRows = await rowQuery
+					.orderBy("c.opened_on", "asc")
+					.orderBy("c.case_id", "asc")
+					.execute();
+				const rows = storedRows.map(
+					({ project_id: _projectId, ...row }) => row,
+				);
+
+				const indexRestore = buildRestoreScope(trx, {
+					appId: args.appId,
+					projectId,
+					ownerIds: args.restoreScope.ownerIds,
+				});
+				let indexQuery = indexRestore.creator
+					.selectFrom("case_indices as ci")
+					.innerJoin("cases as source", "source.case_id", "ci.case_id")
+					.innerJoin("cases as ancestor", "ancestor.case_id", "ci.ancestor_id")
+					.select([
+						"ci.case_id",
+						"ci.ancestor_id",
+						"ci.identifier",
+						"ci.relationship",
+						"ci.depth",
+						"ci.target_case_type",
+					])
+					.where("ci.depth", "=", 1)
+					.where("source.app_id", "=", args.appId)
+					.where("source.project_id", "=", projectId)
+					.where("ancestor.app_id", "=", args.appId)
+					.where("ancestor.project_id", "=", projectId)
+					.where(({ not, exists, selectFrom }) =>
+						not(
+							exists(
+								selectFrom("parked_case_values as held")
+									.select("held.id")
+									.whereRef("held.case_id", "=", "source.case_id")
+									.where("held.dismissed_at", "is", null),
+							),
+						),
+					);
+				indexQuery = indexRestore.restrict(indexQuery, "source");
+				const indices = await indexQuery
+					.orderBy("ci.case_id", "asc")
+					.orderBy("ci.identifier", "asc")
+					.orderBy("ci.ancestor_id", "asc")
+					.execute();
+				const propertyTypes = await this.readCaseDatabasePropertyTypes(
+					trx,
+					args.appId,
+					rows.map((row) => row.case_type),
+				);
+				return { rows, indices, propertyTypes };
+			});
+	}
+
+	async readCaseDatabasePatch(args: {
+		readonly appId: string;
+		readonly caseIds: readonly string[];
+	}): Promise<DeviceCaseDatabase> {
+		const projectId = this.requireProjectId();
+		const caseIds = [...new Set(args.caseIds)];
+		if (caseIds.length === 0)
+			return { rows: [], indices: [], propertyTypes: {} };
+		return this.db
+			.transaction()
+			.setIsolationLevel("repeatable read")
+			.execute((trx) =>
+				this.readCaseDatabasePatchInTransaction(trx, {
+					appId: args.appId,
+					projectId,
+					caseIds,
+				}),
+			);
+	}
+
+	private async readCaseDatabasePatchInTransaction(
+		trx: Transaction<Database>,
+		args: {
+			readonly appId: string;
+			readonly projectId: string;
+			readonly caseIds: readonly string[];
+		},
+	): Promise<DeviceCaseDatabase> {
+		const caseIds = [...new Set(args.caseIds)];
+		if (caseIds.length === 0)
+			return { rows: [], indices: [], propertyTypes: {} };
+		const storedRows = await trx
+			.selectFrom("cases as c")
+			.selectAll("c")
+			.where("c.app_id", "=", args.appId)
+			.where("c.project_id", "=", args.projectId)
+			.where("c.case_id", "in", caseIds)
+			.orderBy("c.opened_on", "asc")
+			.orderBy("c.case_id", "asc")
+			.execute();
+		const rows = storedRows.map(({ project_id: _projectId, ...row }) => row);
+		const indices = await trx
+			.selectFrom("case_indices as ci")
+			.innerJoin("cases as source", "source.case_id", "ci.case_id")
+			.innerJoin("cases as ancestor", "ancestor.case_id", "ci.ancestor_id")
+			.select([
+				"ci.case_id",
+				"ci.ancestor_id",
+				"ci.identifier",
+				"ci.relationship",
+				"ci.depth",
+				"ci.target_case_type",
+			])
+			.where("ci.depth", "=", 1)
+			.where("ci.case_id", "in", caseIds)
+			.where("source.app_id", "=", args.appId)
+			.where("source.project_id", "=", args.projectId)
+			.where("ancestor.app_id", "=", args.appId)
+			.where("ancestor.project_id", "=", args.projectId)
+			.orderBy("ci.case_id", "asc")
+			.orderBy("ci.identifier", "asc")
+			.orderBy("ci.ancestor_id", "asc")
+			.execute();
+		const propertyTypes = await this.readCaseDatabasePropertyTypes(
+			trx,
+			args.appId,
+			rows.map((row) => row.case_type),
+		);
+		return { rows, indices, propertyTypes };
+	}
+
+	private async readCaseDatabasePropertyTypes(
+		trx: Transaction<Database>,
+		appId: string,
+		caseTypes: readonly string[],
+	): Promise<Record<string, Readonly<Record<string, CasePropertyDataType>>>> {
+		const names = [...new Set(caseTypes)].sort();
+		if (names.length === 0) return {};
+		const schemaRows = await trx
+			.selectFrom("case_type_schemas")
+			.select(["case_type", "schema"])
+			.where("app_id", "=", appId)
+			.where("case_type", "in", names)
+			.execute();
+		const propertyTypes: Record<
+			string,
+			Readonly<Record<string, CasePropertyDataType>>
+		> = {};
+		for (const row of schemaRows) {
+			propertyTypes[row.case_type] = Object.fromEntries(
+				decodeStoredCaseSchema(appId, row.case_type, row.schema).dataTypes,
+			);
+		}
+		return propertyTypes;
 	}
 
 	/**
@@ -1457,11 +1640,12 @@ export class PostgresCaseStore implements CaseStore {
 			properties: propertiesObject,
 			executor: trx,
 		});
+		let parentTargetType: string | undefined;
 		if (
 			args.row.parent_case_id !== null &&
 			args.row.parent_case_id !== undefined
 		) {
-			await this.assertParentExists(trx, {
+			parentTargetType = await this.requireParentCaseType(trx, {
 				appId: args.appId,
 				parentCaseId: args.row.parent_case_id,
 			});
@@ -1513,11 +1697,17 @@ export class PostgresCaseStore implements CaseStore {
 			args.row.parent_case_id !== null &&
 			args.row.parent_case_id !== undefined
 		) {
+			if (parentTargetType === undefined) {
+				throw new Error(
+					"Parent case type was not captured before edge insert.",
+				);
+			}
 			await trx
 				.insertInto("case_indices")
 				.values({
 					case_id: caseId,
 					ancestor_id: args.row.parent_case_id,
+					target_case_type: parentTargetType,
 					identifier: "parent",
 					relationship: args.parentRelationship ?? "child",
 					depth: 1,
@@ -1559,11 +1749,32 @@ export class PostgresCaseStore implements CaseStore {
 			if (replay !== undefined) return replay;
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
-			const result = await executeSubmissionEnvelope(
+			const effects = await executeSubmissionEnvelope(
 				trx,
 				this.submissionEnvelopeHost(),
 				args,
 			);
+			const affectedCaseIds = [
+				...(effects.primaryCaseId === undefined ? [] : [effects.primaryCaseId]),
+				...effects.childCaseIds,
+				...effects.operations.flatMap((operation) =>
+					operation.executed ? [operation.caseId] : [],
+				),
+				...(args.usercase === undefined ? [] : [this.requireOwnerId()]),
+			];
+			const caseDatabasePatch = await this.readCaseDatabasePatchInTransaction(
+				trx,
+				{
+					appId: args.appId,
+					projectId: this.requireProjectId(),
+					caseIds: affectedCaseIds,
+				},
+			);
+			const result: SubmissionEnvelopeResult = {
+				...effects,
+				blueprintDigest: args.submissionReceipt.blueprintDigest,
+				caseDatabasePatch,
+			};
 			await completeSubmissionReceipt(trx, {
 				appId: args.appId,
 				projectId: this.requireProjectId(),
@@ -1733,6 +1944,30 @@ export class PostgresCaseStore implements CaseStore {
 		// functional rather than structural.
 		await trx.insertInto("cases").values(insertRows).execute();
 
+		const parentIds = [
+			...new Set(
+				args.rows.flatMap((row) =>
+					row.parent_case_id === null || row.parent_case_id === undefined
+						? []
+						: [row.parent_case_id],
+				),
+			),
+		];
+		const parentTypes = new Map<string, string>();
+		if (parentIds.length > 0) {
+			for (const parent of await trx
+				.selectFrom("cases as parent")
+				.select(["parent.case_id", "parent.case_type"])
+				.where("parent.app_id", "=", args.appId)
+				.where("parent.project_id", "=", this.requireProjectId())
+				.where("parent.case_id", "in", parentIds)
+				.execute()) {
+				parentTypes.set(parent.case_id, parent.case_type);
+			}
+			const missing = parentIds.find((id) => !parentTypes.has(id));
+			if (missing !== undefined) throw new CaseNotFoundError(missing);
+		}
+
 		const indexRows: Insertable<CaseIndicesTable>[] = [];
 		for (let i = 0; i < args.rows.length; i++) {
 			const row = args.rows[i];
@@ -1743,9 +1978,14 @@ export class PostgresCaseStore implements CaseStore {
 			if (row.parent_case_id === null || row.parent_case_id === undefined) {
 				continue;
 			}
+			const targetCaseType = parentTypes.get(row.parent_case_id);
+			if (targetCaseType === undefined) {
+				throw new CaseNotFoundError(row.parent_case_id);
+			}
 			indexRows.push({
 				case_id: caseId,
 				ancestor_id: row.parent_case_id,
+				target_case_type: targetCaseType,
 				identifier: "parent",
 				relationship: args.parentRelationship ?? "child",
 				depth: 1,
@@ -1814,11 +2054,12 @@ export class PostgresCaseStore implements CaseStore {
 		if (existing === undefined || existing.case_type !== discovered.case_type) {
 			throw new CaseNotFoundError(args.caseId);
 		}
+		let parentTargetType: string | undefined;
 		if (
 			args.patch.parent_case_id !== undefined &&
 			args.patch.parent_case_id !== null
 		) {
-			await this.assertParentExists(trx, {
+			parentTargetType = await this.requireParentCaseType(trx, {
 				appId: args.appId,
 				parentCaseId: args.patch.parent_case_id,
 			});
@@ -1888,9 +2129,15 @@ export class PostgresCaseStore implements CaseStore {
 					"A non-null parent_case_id update requires parentRelationship.",
 				);
 			}
+			if (parentTargetType === undefined) {
+				throw new Error(
+					"Parent case type was not captured before edge replacement.",
+				);
+			}
 			await this.rebuildParentEdge(trx, {
 				caseId: args.caseId,
 				newParent: args.patch.parent_case_id,
+				targetCaseType: parentTargetType,
 				relationship: args.parentRelationship,
 			});
 		}
@@ -4440,6 +4687,7 @@ export class PostgresCaseStore implements CaseStore {
 			| {
 					readonly caseId: string;
 					readonly newParent: string;
+					readonly targetCaseType: string;
 					readonly relationship: CaseIndicesTable["relationship"];
 			  }
 			| {
@@ -4456,6 +4704,7 @@ export class PostgresCaseStore implements CaseStore {
 			const edge: Insertable<CaseIndicesTable> = {
 				case_id: args.caseId,
 				ancestor_id: args.newParent,
+				target_case_type: args.targetCaseType,
 				identifier: "parent",
 				relationship: args.relationship,
 				depth: 1,

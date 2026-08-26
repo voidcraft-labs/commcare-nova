@@ -341,6 +341,7 @@ describe("schemaHealingCaseStore — the whole submission envelope is one healed
 				entryKey: mutation.entryKey,
 				formUuid: testUuid(mutation.formUuid),
 				expectedAppMutationSeq: 0,
+				blueprintDigest: "0".repeat(64),
 				requestDigest: "schema-heal-submission",
 			},
 		});

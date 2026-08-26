@@ -11,6 +11,8 @@ import {
 	translationUnitUsesLocaleFile,
 } from "@/lib/commcare/localeFile";
 import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
+import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
+import { analyzeXPathCompatibility } from "@/lib/commcare/xpath/compatibility";
 import {
 	authoredBlueprintIdentities,
 	type BlueprintAuthoredIdentityKind,
@@ -50,6 +52,39 @@ function closedBlueprintTopology(doc: BlueprintDoc): ValidationError[] {
 			{ path: issue.path.join(".") },
 		),
 	);
+}
+
+/** Catalog constraints are persisted XPath carriers but are not copied onto
+ * form fields. Gate their wire-runtime compatibility at app scope so they can
+ * never become dormant invalid state that fails when later materialized. */
+function catalogXPathCompatible(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const carrier of authoredXPathCarriers(doc)) {
+		if (carrier.profile !== "wire-catalog") continue;
+		for (const finding of analyzeXPathCompatibility(
+			carrier.source,
+			carrier.profile,
+		)) {
+			const slotLabel = carrier.slot.endsWith("required")
+				? "required condition"
+				: "validation condition";
+			errors.push(
+				validationError(
+					"CASE_PROPERTY_XPATH_INCOMPATIBLE",
+					"app",
+					`A case-property catalog ${slotLabel} uses XPath that CommCare cannot run. ${finding.detail}`,
+					{},
+					{
+						path: carrier.path,
+						profile: carrier.profile,
+						findingCode: finding.code,
+						owner: finding.owner,
+					},
+				),
+			);
+		}
+	}
+	return errors;
 }
 
 /**
@@ -660,6 +695,7 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 
 export const APP_RULES = [
 	closedBlueprintTopology,
+	catalogXPathCompatible,
 	globallyUniqueEntityUuids,
 	catalogOptionValuesValid,
 	canonicalCasePropertyDefaults,

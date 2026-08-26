@@ -1,14 +1,29 @@
 import type { SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/commcare/xpath";
 import {
-	PREVIEW_INSTANCE_IDS,
-	PREVIEW_PATH_INITIALIZERS,
+	JAVAROSA_PATH_INITIALIZERS,
 	pathInitializerStringArgument,
-	previewFunctionSignatureSupported,
 } from "@/lib/commcare/xpath/functionCapabilities";
-import { compareEqual, compareRelational, toBoolean, toNumber } from "./coerce";
+import { toBoolean, toNumber } from "./coerce";
 import { invokeFunction } from "./functions";
+import {
+	applyXPathBinaryOperation,
+	isXPathBinaryOperation,
+	missingXPathBinaryOperand,
+} from "./operatorSemantics";
+import {
+	isXPathNodeSet,
+	unpackXPathRuntimeValue,
+	type XPathNode,
+	XPathNodeSet,
+	type XPathRuntimeValue,
+} from "./runtimeValues";
+import { selectCondArgument } from "./scalarJavaRosaFunctions";
 import type { EvalContext, XPathValue } from "./types";
+
+/** Path initializers the structural evaluator executes. */
+export const PREVIEW_EXECUTABLE_PATH_INITIALIZERS: ReadonlySet<string> =
+	new Set(["current", "instance"]);
 
 // Pre-resolve all node types from the parser — zero string comparisons at runtime
 // Child and Descendant appear twice in the grammar (rootStep vs expr), so use many().
@@ -33,6 +48,8 @@ const T = (() => {
 		SelfStep: one("SelfStep"),
 		ParentStep: one("ParentStep"),
 		NameTest: one("NameTest"),
+		AttrSpecified: one("AttrSpecified"),
+		AxisSpecified: one("AxisSpecified"),
 		Invoke: one("Invoke"),
 		FunctionName: one("FunctionName"),
 		ArgumentList: one("ArgumentList"),
@@ -64,9 +81,19 @@ const T = (() => {
 
 /**
  * Evaluate an XPath expression string and return a value.
- * Returns '' on parse error or empty expression (matches CommCare behavior).
+ * Empty source is the XPath blank value. A parse error is unreachable after
+ * the commit gate and therefore fails closed so the Preview containment
+ * boundary can report the product invariant violation.
  */
 export function evaluate(expr: string, context: EvalContext): XPathValue {
+	return unpackXPathRuntimeValue(evaluateRuntime(expr, context));
+}
+
+/** Evaluate without prematurely collapsing nodesets or provisional sequences. */
+export function evaluateRuntime(
+	expr: string,
+	context: EvalContext,
+): XPathRuntimeValue {
 	const trimmed = expr.trim();
 	if (!trimmed) return "";
 
@@ -79,7 +106,9 @@ export function evaluate(expr: string, context: EvalContext): XPathValue {
 			if (n.type === T.Error) hasError = true;
 		},
 	});
-	if (hasError) return "";
+	if (hasError) {
+		throw new Error("Preview received XPath that did not pass admission.");
+	}
 
 	return evalNode(tree.topNode, trimmed, context);
 }
@@ -89,7 +118,7 @@ function evalNode(
 	node: SyntaxNode,
 	source: string,
 	ctx: EvalContext,
-): XPathValue {
+): XPathRuntimeValue {
 	const type = node.type;
 
 	// ── XPath root — evaluate its single child expression ──
@@ -120,21 +149,38 @@ function evalNode(
 	// ── Hashtag references (#<case-type>/prop, #form/id, #user/prop) ──
 	if (type === T.HashtagRef) {
 		const text = source.slice(node.from, node.to);
+		// The main-instance projection owns #form even when the context also
+		// installs the structural resolver used by case and user hashtags. Taking
+		// that hook first collapses repeat children to its scalar fallback before
+		// nodeset-aware functions can observe their cardinality.
+		if (text.startsWith("#form/") && ctx.mainInstance) {
+			return selectFormSegments(
+				ctx.mainInstance.root(),
+				["data", ...text.slice("#form/".length).split("/")],
+				ctx.contextNode,
+			);
+		}
+		if (ctx.resolveHashtagValue) return ctx.resolveHashtagValue(text);
 		return ctx.resolveHashtag(text);
 	}
 
 	// ── Variable references ($var) ──
 	if (type === T.VariableReference) {
-		return ""; // Variables not supported in preview
+		throw new Error("Preview received an unbound XPath variable.");
 	}
 
 	// ── Self step (.) ──
 	if (type === T.SelfStep) {
+		if (ctx.contextNode) return new XPathNodeSet([ctx.contextNode]);
 		return ctx.getValue(ctx.contextPath) ?? "";
 	}
 
 	// ── Parent step (..) ──
 	if (type === T.ParentStep) {
+		if (ctx.contextNode) {
+			const parent = ctx.contextNode.parent();
+			return new XPathNodeSet(parent ? [parent] : []);
+		}
 		const parentPath = ctx.contextPath.replace(/\/[^/]+$/, "");
 		return ctx.getValue(parentPath) ?? "";
 	}
@@ -142,6 +188,9 @@ function evalNode(
 	// ── NameTest (bare name like 'data' or 'question_id') ──
 	if (type === T.NameTest) {
 		const name = source.slice(node.from, node.to);
+		if (ctx.contextNode) {
+			return selectChildren(new XPathNodeSet([ctx.contextNode]), name);
+		}
 		// Try as a path relative to context
 		const path = `${ctx.contextPath}/${name}`;
 		return ctx.getValue(path) ?? "";
@@ -149,11 +198,29 @@ function evalNode(
 
 	// ── Root path (bare /) ──
 	if (type === T.RootPath) {
+		if (ctx.mainInstance) return new XPathNodeSet([ctx.mainInstance.root()]);
+		return "";
+	}
+
+	if (type === T.AttrSpecified || type === T.AxisSpecified) {
+		if (ctx.contextNode) {
+			return applyStructuralStep(
+				new XPathNodeSet([ctx.contextNode]),
+				node,
+				source,
+			);
+		}
 		return "";
 	}
 
 	// ── Path expressions (Child: expr/step, Descendant: expr//step) ──
 	if (T.Children.has(type) || T.Descendants.has(type)) {
+		if (T.Descendants.has(type) && hasStructuralContext(ctx)) {
+			throw new Error("Unsupported XPath descendant axis in JavaRosa: //");
+		}
+		if (hasStructuralContext(ctx)) {
+			return evalStructuralPath(node, source, ctx);
+		}
 		const reference = buildPath(node, source);
 		if (reference?.instanceId !== undefined) {
 			const resolution = ctx.resolveInstance?.(
@@ -180,98 +247,14 @@ function evalNode(
 		return operand ? -toNumber(evalNode(operand, source, ctx)) : 0;
 	}
 
-	// ── Binary arithmetic ──
-	if (type === T.AddExpr) {
+	// ── Binary arithmetic and comparison ──
+	if (isXPathBinaryOperation(type.name)) {
 		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return NaN;
-		return (
-			toNumber(evalNode(left, source, ctx)) +
-			toNumber(evalNode(right, source, ctx))
-		);
-	}
-	if (type === T.SubtractExpr) {
-		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return NaN;
-		return (
-			toNumber(evalNode(left, source, ctx)) -
-			toNumber(evalNode(right, source, ctx))
-		);
-	}
-	if (type === T.MultiplyExpr) {
-		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return NaN;
-		return (
-			toNumber(evalNode(left, source, ctx)) *
-			toNumber(evalNode(right, source, ctx))
-		);
-	}
-	if (type === T.DivideExpr) {
-		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return NaN;
-		const divisor = toNumber(evalNode(right, source, ctx));
-		if (divisor === 0) return NaN;
-		return toNumber(evalNode(left, source, ctx)) / divisor;
-	}
-	if (type === T.ModulusExpr) {
-		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return NaN;
-		return (
-			toNumber(evalNode(left, source, ctx)) %
-			toNumber(evalNode(right, source, ctx))
-		);
-	}
-
-	// ── Comparison ──
-	if (type === T.EqualsExpr) {
-		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return false;
-		return compareEqual(
+		if (!left || !right) return missingXPathBinaryOperand(type.name);
+		return applyXPathBinaryOperation(
+			type.name,
 			evalNode(left, source, ctx),
 			evalNode(right, source, ctx),
-		);
-	}
-	if (type === T.NotEqualsExpr) {
-		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return false;
-		return !compareEqual(
-			evalNode(left, source, ctx),
-			evalNode(right, source, ctx),
-		);
-	}
-	if (type === T.LessThanExpr) {
-		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return false;
-		return compareRelational(
-			evalNode(left, source, ctx),
-			evalNode(right, source, ctx),
-			"<",
-		);
-	}
-	if (type === T.LessEqualExpr) {
-		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return false;
-		return compareRelational(
-			evalNode(left, source, ctx),
-			evalNode(right, source, ctx),
-			"<=",
-		);
-	}
-	if (type === T.GreaterThanExpr) {
-		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return false;
-		return compareRelational(
-			evalNode(left, source, ctx),
-			evalNode(right, source, ctx),
-			">",
-		);
-	}
-	if (type === T.GreaterEqualExpr) {
-		const [left, right] = getBinaryOperands(node);
-		if (!left || !right) return false;
-		return compareRelational(
-			evalNode(left, source, ctx),
-			evalNode(right, source, ctx),
-			">=",
 		);
 	}
 
@@ -295,9 +278,7 @@ function evalNode(
 
 	// ── Union ──
 	if (type === T.UnionExpr) {
-		// Union of nodesets — not meaningful for scalar preview, evaluate left
-		const [left] = getBinaryOperands(node);
-		return left ? evalNode(left, source, ctx) : "";
+		throw new Error("Unsupported XPath nodeset union operation in JavaRosa.");
 	}
 
 	// ── Function invocation ──
@@ -307,11 +288,12 @@ function evalNode(
 
 	// ── Filtered (predicate) — expr[pred] ──
 	if (type === T.Filtered) {
-		// In preview, predicates are simplified — evaluate the base
-		// expression, which is the first EXPRESSION child: a parenthesized
-		// base (`(x)[1]`) splices its `(` token flat ahead of it.
-		const [base] = getBinaryOperands(node);
-		return base ? evalNode(base, source, ctx) : "";
+		if (hasStructuralContext(ctx)) {
+			return evalStructuralFilter(node, source, ctx);
+		}
+		throw new Error(
+			"Preview cannot evaluate a filtered XPath without structural context.",
+		);
 	}
 
 	// ── Parenthesized expression ──
@@ -331,12 +313,18 @@ function evalNode(
 		return "";
 	}
 
-	// ── Fallback: try to evaluate the first child ──
-	if (first) {
-		return evalNode(first, source, ctx);
-	}
+	throw new Error("Preview reached unsupported admitted XPath syntax.");
+}
 
-	return "";
+/** Internal syntax-node entrypoint used by the async companion. The async
+ * evaluator delegates every subtree without an async call here, so ordinary
+ * XPath semantics continue to have one implementation. */
+export function evaluateSyntaxNode(
+	node: SyntaxNode,
+	source: string,
+	context: EvalContext,
+): XPathRuntimeValue {
+	return evalNode(node, source, context);
 }
 
 /** Evaluate a function invocation node. */
@@ -344,7 +332,7 @@ function evalInvoke(
 	node: SyntaxNode,
 	source: string,
 	ctx: EvalContext,
-): XPathValue {
+): XPathRuntimeValue {
 	let fnName = "";
 	let argNodes: SyntaxNode[] = [];
 
@@ -356,6 +344,31 @@ function evalInvoke(
 			argNodes = argumentNodes(child);
 		}
 		child = child.nextSibling;
+	}
+
+	if (fnName === "current") {
+		if (argNodes.length !== 0) {
+			throw new Error("current() requires zero arguments.");
+		}
+		const original = ctx.originalContextNode ?? ctx.contextNode;
+		if (!original) {
+			throw new Error("current() has no original XPath context node.");
+		}
+		return new XPathNodeSet([original]);
+	}
+
+	if (fnName === "instance" && ctx.resolveXPathInstance) {
+		const instanceId = pathInitializerStringArgument(node, source);
+		if (instanceId === undefined) {
+			throw new Error("instance() requires one string-literal instance id.");
+		}
+		const instance = ctx.resolveXPathInstance(instanceId);
+		if (!instance) {
+			throw new Error(
+				`Unsupported XPath instance in Preview: instance('${instanceId}')`,
+			);
+		}
+		return new XPathNodeSet([instance.root()]);
 	}
 
 	// JavaRosa evaluates only the selected branch of these functions. Preserve
@@ -370,11 +383,27 @@ function evalInvoke(
 			: argNodes[2];
 		return selected ? evalNode(selected, source, ctx) : "";
 	}
+	if (fnName === "cond") {
+		const selectedIndex = selectCondArgument(argNodes.length, (index) => {
+			const predicate = argNodes[index];
+			return predicate ? evalNode(predicate, source, ctx) : false;
+		});
+		const selected = argNodes[selectedIndex];
+		return selected ? evalNode(selected, source, ctx) : "";
+	}
 	if (fnName === "coalesce") {
+		// Pinned Core's coalesce() is unusual: XPathFuncExpr first evaluates every
+		// argument eagerly, then XpathCoalesceFunc evaluates candidate arms again
+		// while selecting the first nonblank scalar. Preserve both passes because
+		// failures and volatile functions make that order observable.
+		for (const arg of argNodes) evalNode(arg, source, ctx);
 		for (const arg of argNodes.slice(0, -1)) {
-			const value = evalNode(arg, source, ctx);
-			if (value !== "" && !(typeof value === "number" && Number.isNaN(value))) {
-				return value;
+			const scalar = unpackXPathRuntimeValue(evalNode(arg, source, ctx));
+			if (
+				scalar !== "" &&
+				!(typeof scalar === "number" && Number.isNaN(scalar))
+			) {
+				return scalar;
 			}
 		}
 		const fallback = argNodes.at(-1);
@@ -384,25 +413,39 @@ function evalInvoke(
 	// Preview can preserve the context form of position(), but its scalar path
 	// model cannot represent JavaRosa's optional nodeset argument.
 	if (fnName === "position") {
-		if (argNodes.length > 0) {
-			throw new Error(
-				"Unsupported XPath function signature in Preview: position(nodeset)",
-			);
+		if (argNodes.length > 1) {
+			throw new Error("position() accepts zero or one argument.");
 		}
-		return ctx.position;
-	}
-
-	if (!previewFunctionSignatureSupported(node, source, fnName)) {
-		throw new Error(
-			`Unsupported XPath function signature in Preview: ${fnName}(nodeset)`,
-		);
+		if (argNodes.length === 1) {
+			if (!ctx.mainInstance && !ctx.contextNode) {
+				throw new Error(
+					"Unsupported XPath function signature in Preview: position(nodeset)",
+				);
+			}
+			const selected = evalNode(argNodes[0], source, ctx);
+			if (!isXPathNodeSet(selected)) {
+				throw new Error("position(reference) requires a nodeset.");
+			}
+			const first = selected.nodes[0];
+			if (!first)
+				throw new Error("Unable to evaluate position() on an empty reference.");
+			return first.multiplicity;
+		}
+		return ctx.position ?? ctx.contextNode?.multiplicity ?? 0;
 	}
 
 	const args = argNodes.map((arg) => evalNode(arg, source, ctx));
 
-	const invocation = invokeFunction(fnName, args);
+	/* Built-ins such as count() consume nodesets structurally. Try them before
+	 * projecting arguments onto the scalar-only generated-function boundary;
+	 * otherwise an unrelated generated dispatcher would eagerly unpack a
+	 * multi-node argument before count() can observe it. */
+	const invocation = invokeFunction(fnName, args, { locale: ctx.locale });
 	if (invocation.kind === "handled") return invocation.value;
-	const generatedInvocation = ctx.invokeGeneratedFunction?.(fnName, args);
+	const generatedInvocation = ctx.invokeGeneratedFunction?.(
+		fnName,
+		args.map(unpackXPathRuntimeValue),
+	);
 	if (generatedInvocation?.kind === "handled") {
 		return generatedInvocation.value;
 	}
@@ -423,6 +466,342 @@ function argumentNodes(argumentList: SyntaxNode): SyntaxNode[] {
 		arg = arg.nextSibling;
 	}
 	return args;
+}
+
+function evalStructuralPath(
+	node: SyntaxNode,
+	source: string,
+	ctx: EvalContext,
+): XPathNodeSet {
+	if (T.Descendants.has(node.type)) {
+		throw new Error("Unsupported XPath descendant axis in JavaRosa: //");
+	}
+	const expressions = directExpressionChildren(node);
+	const beginsAtRoot = node.firstChild?.type === T.Slash;
+	let base: XPathRuntimeValue;
+	let step: SyntaxNode | undefined;
+	if (beginsAtRoot) {
+		if (!ctx.mainInstance) {
+			throw new Error("Absolute XPath path has no main instance.");
+		}
+		base = new XPathNodeSet([ctx.mainInstance.root()]);
+		step = expressions[0];
+	} else {
+		const baseNode = expressions[0];
+		step = expressions[1];
+		base = baseNode ? evalNode(baseNode, source, ctx) : new XPathNodeSet([]);
+	}
+	if (!isXPathNodeSet(base)) {
+		throw new Error("XPath path root did not evaluate to a nodeset.");
+	}
+	const selected = step ? applyStructuralStep(base, step, source) : base;
+	return contextualizeAbsolutePathSelection(node, source, ctx, selected);
+}
+
+/**
+ * JavaRosa contextualizes an unbound same-instance absolute reference against
+ * the evaluating node. As the recursive path walk reaches a repeat shared by
+ * the expression and its context, bind that step to the context's concrete
+ * multiplicity. A predicate or explicit position on THIS step already binds
+ * that level, so Core does not overwrite it and neither do we; an earlier
+ * predicate must not suppress contextualization of a deeper unbound repeat.
+ *
+ * Exported for the async companion, which owns the same path walk whenever a
+ * descendant invocation yields in the browser worker.
+ */
+export function contextualizeAbsolutePathSelection(
+	node: SyntaxNode,
+	source: string,
+	context: EvalContext,
+	selection: XPathNodeSet,
+): XPathNodeSet {
+	const expression = source.slice(node.from, node.to).trimStart();
+	if (!expression.startsWith("/") || node.parent?.type === T.Filtered) {
+		return selection;
+	}
+	const contextNode = context.contextNode;
+	if (contextNode === undefined || selection.candidates.length < 2) {
+		return selection;
+	}
+
+	const contextSegments = indexedPathSegments(contextNode.path);
+	const first = selection.candidates[0];
+	if (first === undefined) return selection;
+	const selectedSegments = indexedPathSegments(first.path);
+	if (
+		selectedSegments.length === 0 ||
+		selectedSegments.length > contextSegments.length ||
+		!selectedSegments.every(
+			(segment, index) => segment.name === contextSegments[index]?.name,
+		)
+	) {
+		return selection;
+	}
+
+	const concreteContextPath = `/${contextSegments
+		.slice(0, selectedSegments.length)
+		.map(({ name, multiplicity }) =>
+			multiplicity === undefined ? name : `${name}[${multiplicity}]`,
+		)
+		.join("/")}`;
+	const bound = selection.candidates.filter(
+		(candidate) => candidate.path === concreteContextPath,
+	);
+	return bound.length === 0
+		? selection
+		: new XPathNodeSet(bound, selection.validPath, bound);
+}
+
+export function applyStructuralStep(
+	base: XPathNodeSet,
+	step: SyntaxNode,
+	source: string,
+): XPathNodeSet {
+	if (step.type === T.NameTest) {
+		return selectChildren(base, source.slice(step.from, step.to));
+	}
+	if (step.type === T.SelfStep) return base;
+	if (step.type === T.ParentStep) {
+		return selectParents(base);
+	}
+	if (step.type === T.AttrSpecified) {
+		const name = step.getChild(T.NameTest.id);
+		return selectAttributes(
+			base,
+			name ? source.slice(name.from, name.to) : "*",
+		);
+	}
+	if (step.type === T.AxisSpecified) {
+		const separator = source.slice(step.from, step.to).indexOf("::");
+		const axis = source.slice(step.from, step.from + separator).trim();
+		const nameNode = step.getChild(T.NameTest.id);
+		const name = nameNode ? source.slice(nameNode.from, nameNode.to) : "*";
+		switch (axis) {
+			case "child":
+				return selectChildren(base, name);
+			case "attribute":
+				return selectAttributes(base, name);
+			case "self":
+				return selectNamedNodes(base, name);
+			case "parent":
+				return selectNamedNodes(selectParents(base), name);
+			default:
+				throw new Error(`Unsupported XPath axis in JavaRosa: ${axis}::`);
+		}
+	}
+	throw new Error(
+		`Unsupported XPath path step: ${source.slice(step.from, step.to)}`,
+	);
+}
+
+function selectNamedNodes(base: XPathNodeSet, name: string): XPathNodeSet {
+	if (name === "*") return base;
+	return new XPathNodeSet(
+		base.candidates.filter((node) => node.name === name),
+		base.validPath,
+		base.schemaNodes.filter((node) => node.name === name),
+	);
+}
+
+function selectParents(base: XPathNodeSet): XPathNodeSet {
+	const uniqueParents = (nodes: readonly XPathNode[]) => {
+		const parents: XPathNode[] = [];
+		const seen = new Set<string>();
+		for (const node of nodes) {
+			const parent = node.parent();
+			if (!parent) continue;
+			const key = `${parent.instanceId ?? "main"}:${parent.path}`;
+			if (!seen.has(key)) {
+				seen.add(key);
+				parents.push(parent);
+			}
+		}
+		return parents;
+	};
+	return new XPathNodeSet(
+		uniqueParents(base.candidates),
+		base.validPath,
+		uniqueParents(base.schemaNodes),
+	);
+}
+
+function selectChildren(base: XPathNodeSet, name: string): XPathNodeSet {
+	const nodes = base.candidates.flatMap((node) => [...node.children(name)]);
+	const schemaNodes = base.schemaNodes.flatMap((node) => [
+		...(node.templateChildren?.(name) ?? node.children(name)),
+	]);
+	const templateExists = base.schemaNodes.some((node) =>
+		node.hasChildTemplate(name),
+	);
+	return new XPathNodeSet(nodes, base.validPath && templateExists, schemaNodes);
+}
+
+function selectAttributes(base: XPathNodeSet, name: string): XPathNodeSet {
+	const nodes = base.candidates.flatMap((node) => [...node.attributes(name)]);
+	const schemaNodes = base.schemaNodes.flatMap((node) => [
+		...(node.templateAttributes?.(name) ?? node.attributes(name)),
+	]);
+	const templateExists = base.schemaNodes.some((node) =>
+		node.hasAttributeTemplate(name),
+	);
+	return new XPathNodeSet(nodes, base.validPath && templateExists, schemaNodes);
+}
+
+/**
+ * Resolve a canonical #form path while preserving every repeat multiplicity
+ * already fixed by the evaluating node. JavaRosa's references are index-free
+ * in the model, but a calculation inside `/data/items[1]` reads the sibling
+ * fields from `items[1]`, not every `items` occurrence in the instance.
+ */
+function selectFormSegments(
+	root: XPathNode,
+	segments: readonly string[],
+	contextNode: XPathNode | undefined,
+): XPathNodeSet {
+	const contextualSegments = contextNode
+		? indexedPathSegments(contextNode.path)
+		: [];
+	let selected = new XPathNodeSet([root]);
+	for (let index = 0; index < segments.length; index += 1) {
+		const segment = segments[index] ?? "";
+		selected = selectChildren(selected, segment);
+		const contextual = contextualSegments[index];
+		if (
+			contextual?.name === segment &&
+			contextual.multiplicity !== undefined &&
+			segments
+				.slice(0, index + 1)
+				.every(
+					(name, segmentIndex) =>
+						contextualSegments[segmentIndex]?.name === name,
+				)
+		) {
+			selected = new XPathNodeSet(
+				selected.candidates.filter(
+					(node) => node.multiplicity === contextual.multiplicity,
+				),
+				selected.validPath,
+				selected.schemaNodes,
+			);
+		}
+	}
+	return selected;
+}
+
+function indexedPathSegments(
+	path: string,
+): readonly { name: string; multiplicity?: number }[] {
+	return path
+		.split("/")
+		.filter(Boolean)
+		.map((segment) => {
+			const match = /^([^[]+)(?:\[(\d+)\])?$/.exec(segment);
+			if (!match) return { name: segment };
+			const name = match[1] ?? segment;
+			return match[2] === undefined
+				? { name }
+				: { name, multiplicity: Number.parseInt(match[2], 10) };
+		});
+}
+
+function hasStructuralContext(ctx: EvalContext): boolean {
+	return (
+		ctx.mainInstance !== undefined ||
+		ctx.contextNode !== undefined ||
+		ctx.resolveXPathInstance !== undefined
+	);
+}
+
+function evalStructuralFilter(
+	node: SyntaxNode,
+	source: string,
+	ctx: EvalContext,
+): XPathNodeSet {
+	const expressions = directExpressionChildren(node);
+	const baseNode = expressions[0];
+	const predicate = expressions[1];
+	if (!baseNode || !predicate) return new XPathNodeSet([]);
+	const base = evalNode(baseNode, source, ctx);
+	if (!isXPathNodeSet(base)) {
+		throw new Error(
+			"Unsupported standalone XPath filter expression in JavaRosa.",
+		);
+	}
+	const selected: XPathNode[] = [];
+	for (let index = 0; index < base.candidates.length; index += 1) {
+		const candidate = base.candidates[index];
+		if (!candidate) continue;
+		const value = evalNode(
+			predicate,
+			source,
+			xpathPredicateContext(ctx, candidate, index),
+		);
+		if (xpathPredicateMatches(value, index)) selected.push(candidate);
+	}
+	return new XPathNodeSet(selected, base.validPath, base.schemaNodes);
+}
+
+export function directExpressionChildren(node: SyntaxNode): SyntaxNode[] {
+	const expressions: SyntaxNode[] = [];
+	let child = node.firstChild;
+	while (child) {
+		if (
+			child.type === T.NumberLiteral ||
+			child.type === T.StringLiteral ||
+			child.type === T.HashtagRef ||
+			child.type === T.VariableReference ||
+			child.type === T.NameTest ||
+			child.type === T.SelfStep ||
+			child.type === T.ParentStep ||
+			child.type === T.RootPath ||
+			child.type === T.Invoke ||
+			child.type === T.Filtered ||
+			child.type === T.AttrSpecified ||
+			child.type === T.AxisSpecified ||
+			T.Children.has(child.type) ||
+			T.Descendants.has(child.type) ||
+			child.firstChild !== null
+		) {
+			expressions.push(child);
+		}
+		child = child.nextSibling;
+	}
+	return expressions;
+}
+
+export function xpathPredicateContext(
+	context: EvalContext,
+	candidate: XPathNode,
+	zeroBasedIndex: number,
+): EvalContext {
+	return {
+		...context,
+		contextNode: candidate,
+		contextPath: candidate.path,
+		position: zeroBasedIndex + 1,
+		originalContextNode:
+			context.originalContextNode ?? context.contextNode ?? candidate,
+	};
+}
+
+export function xpathPredicateMatches(
+	value: XPathRuntimeValue,
+	zeroBasedIndex: number,
+): boolean {
+	const scalar = unpackXPathRuntimeValue(value);
+	return typeof scalar === "boolean"
+		? scalar
+		: typeof scalar === "number"
+			? javaIntValue(scalar) === zeroBasedIndex + 1
+			: false;
+}
+
+/** Java's Double.intValue() narrowing used by numeric predicates. */
+function javaIntValue(value: number): number {
+	if (Number.isNaN(value)) return 0;
+	if (value >= 2_147_483_647) return 2_147_483_647;
+	if (value <= -2_147_483_648) return -2_147_483_648;
+	return Math.trunc(value);
 }
 
 /**
@@ -463,13 +842,18 @@ function collectSegments(
 			const name = nameNode
 				? source.slice(nameNode.from, nameNode.to)
 				: "unknown";
-			if (!PREVIEW_PATH_INITIALIZERS.has(name)) {
+			if (!JAVAROSA_PATH_INITIALIZERS.has(name)) {
+				throw new Error(
+					`Unsupported XPath path initializer in Preview: ${name}()`,
+				);
+			}
+			if (name !== "instance") {
 				throw new Error(
 					`Unsupported XPath path initializer in Preview: ${name}()`,
 				);
 			}
 			const instanceId = pathInitializerStringArgument(child, source);
-			if (instanceId === undefined || !PREVIEW_INSTANCE_IDS.has(instanceId)) {
+			if (instanceId === undefined) {
 				throw new Error(
 					`Unsupported XPath instance in Preview: instance('${instanceId ?? "?"}')`,
 				);
@@ -485,7 +869,7 @@ function collectSegments(
 }
 
 /** Get left and right operands of a binary expression (skipping operator tokens). */
-function getBinaryOperands(
+export function getBinaryOperands(
 	node: SyntaxNode,
 ): [SyntaxNode | null, SyntaxNode | null] {
 	const children: SyntaxNode[] = [];

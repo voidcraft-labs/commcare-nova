@@ -5,7 +5,12 @@ import { describe, expect, test } from "vitest";
 
 const cloudBuild = readFileSync("cloudbuild.yaml", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
+const packageScripts = JSON.parse(packageJson).scripts as Record<
+	string,
+	string
+>;
 const dockerfile = readFileSync("Dockerfile", "utf8");
+const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
 const nextConfig = readFileSync("next.config.ts", "utf8");
 const sentryClientConfig = readFileSync("instrumentation-client.ts", "utf8");
 const sentryServerConfig = readFileSync("sentry.server.config.ts", "utf8");
@@ -21,6 +26,14 @@ const cloudSqlProvisioning = readFileSync(
 );
 const prodDb = readFileSync("scripts/lib/prodDb.ts", "utf8");
 const migrateEntrypoint = readFileSync("scripts/migrate.ts", "utf8");
+const xpathCarrierVerifier = readFileSync(
+	"scripts/lib/xpathCarrierCompatibilityRepair.ts",
+	"utf8",
+);
+const xpathCarrierScanner = readFileSync(
+	"scripts/scan-xpath-carrier-compatibility.ts",
+	"utf8",
+);
 const auditEntrypoint = readFileSync(
 	"scripts/audit-canonical-identity-foundation.ts",
 	"utf8",
@@ -54,6 +67,51 @@ function stepOffset(id: string): number {
 }
 
 describe("durable deployment policy", () => {
+	test("the XPath admission cutover includes restorable tombstones", () => {
+		expect(xpathCarrierVerifier).toContain('select(["id", "mutation_seq"])');
+		expect(xpathCarrierVerifier).not.toContain(
+			'.where("deleted_at", "is", null)',
+		);
+		expect(xpathCarrierScanner).not.toContain(
+			'.where("deleted_at", "is", null)',
+		);
+		expect(xpathCarrierVerifier).toContain("Stability is proved per app");
+		expect(xpathCarrierVerifier).not.toContain("sameAppVersions");
+	});
+
+	test("verifies the reviewed Java Pattern runtime before every production build", () => {
+		expect(packageScripts["verify:java-pattern-runtime"]).toBe(
+			"node scripts/java-pattern-runtime/verify.mjs",
+		);
+		expect(packageScripts.prebuild).toBe("npm run verify:java-pattern-runtime");
+		expect(packageScripts.build).toContain("next build");
+		expect(dockerfile).toContain("RUN npm run build");
+		expect(ciWorkflow).toContain("run: npm run build");
+		expect(dockerignore).toContain("!scripts/java-pattern-runtime/**");
+		expect(dockerfile).toContain(
+			"public/third-party/java-pattern-runtime-source.tar.gz",
+		);
+		expect(dockerfile).toContain("scripts/java-pattern-runtime");
+		expect(dockerfile).toContain("lib/preview/xpath/openJdk17DoubleString.ts");
+		expect(dockerfile).toContain(
+			"lib/preview/xpath/vendor/javaPatternRuntime.generated.js",
+		);
+		expect(readFileSync("proxy.ts", "utf8")).toContain("third-party/");
+		expect(
+			readFileSync(
+				"lib/preview/xpath/vendor/javaPatternRuntime.generated.js",
+				"utf8",
+			),
+		).toMatch(/^\/\*! OpenJDK 17 Pattern derivative/);
+		expect(
+			execFileSync("node", ["scripts/java-pattern-runtime/verify.mjs"], {
+				encoding: "utf8",
+			}),
+		).toMatch(
+			/^java-pattern-runtime sha256=[a-f0-9]{64} bytes=\d+ names_sha256=[a-f0-9]{64} names_bytes=\d+\n$/,
+		);
+	});
+
 	test("uses one blocking migration and one direct service deployment", () => {
 		expect(stepOffset("runtime-capabilities")).toBeLessThan(
 			stepOffset("build"),
@@ -66,10 +124,21 @@ describe("durable deployment policy", () => {
 		expect(stepOffset("deployment-prestate")).toBeLessThan(
 			stepOffset("media-policy"),
 		);
-		expect(stepOffset("media-policy")).toBeLessThan(stepOffset("migrate"));
+		expect(stepOffset("media-policy")).toBeLessThan(
+			stepOffset("configure-migrate"),
+		);
+		expect(stepOffset("configure-migrate")).toBeLessThan(
+			stepOffset("xpath-admission-cutover"),
+		);
+		expect(stepOffset("xpath-admission-cutover")).toBeLessThan(
+			stepOffset("migrate"),
+		);
 		expect(stepOffset("migrate")).toBeLessThan(stepOffset("capture-cleanup"));
 		expect(stepOffset("capture-cleanup")).toBeLessThan(stepOffset("deploy"));
 		expect(stepOffset("deploy")).toBeLessThan(
+			stepOffset("xpath-admission-cutover-complete"),
+		);
+		expect(stepOffset("xpath-admission-cutover-complete")).toBeLessThan(
 			stepOffset("legacy-preplan-repair-job"),
 		);
 		expect(stepOffset("legacy-preplan-repair-job")).toBeLessThan(
@@ -92,8 +161,8 @@ describe("durable deployment policy", () => {
 		expect(dockerfile).not.toContain("capacity-preflight.cjs");
 		expect(cloudBuild).toContain("python3 scripts/rollout/deploy-cloud-run.py");
 		const migrateStep = cloudBuild.slice(
-			stepOffset("migrate"),
-			stepOffset("capture-cleanup"),
+			stepOffset("configure-migrate"),
+			stepOffset("xpath-admission-cutover"),
 		);
 		expect(migrateStep).toContain("--max-retries=0");
 		expect(migrateStep).not.toContain("--max-retries=1");
@@ -113,7 +182,7 @@ describe("durable deployment policy", () => {
 		).toContain("Runtime capability manifest and build wiring are valid");
 		expect(cloudBuild).not.toContain("app:$COMMIT_SHA");
 		expect(cloudBuild.match(/app:\$BUILD_ID/g)).toHaveLength(3);
-		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(10);
+		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(11);
 		expect(cloudBuild).toContain("--resolve-image");
 		expect(cloudBuild).toContain("--output=/workspace/image.env");
 		expect(cloudBuild).toContain('--build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID"');
@@ -183,11 +252,44 @@ describe("durable deployment policy", () => {
 		expect(deployPolicy).toContain("NOVA_DEPLOY_PRESTATE=");
 		expect(deployPolicy).toContain("NOVA_DEPLOY_CANDIDATE=");
 		expect(deployPolicy).toContain("NOVA_DEPLOY_RESULT=");
+		expect(deployPolicy).toContain("NOVA_MAINTENANCE_ENTERED=");
+		expect(deployPolicy).toContain("_attach_ingress(args)");
+		expect(deployPolicy).toContain("_resume_cleanup(args)");
+		const deploymentPrestate = cloudBuild.slice(
+			stepOffset("deployment-prestate"),
+			stepOffset("media-policy"),
+		);
+		expect(deploymentPrestate).toContain("automatic|manual-zero");
+		expect(deploymentPrestate).not.toContain("scheduler");
+		const maintenanceRetryBranch = deployPolicy.slice(
+			deployPolicy.indexOf('if prestate == "manual-zero":'),
+			deployPolicy.indexOf('elif prestate == "automatic":'),
+		);
+		expect(maintenanceRetryBranch).toContain(
+			'_recover_maintenance(args, api, "manual-zero")',
+		);
+		expect(maintenanceRetryBranch).not.toContain(
+			"_assert_maintenance_posture(args, api)",
+		);
+		const cutoverStep = cloudBuild.slice(
+			stepOffset("xpath-admission-cutover"),
+			stepOffset("migrate"),
+		);
+		expect(cutoverStep).toContain("--enter-maintenance");
+		expect(cutoverStep).toContain("nova-xpath-carrier-gate");
 		const deployStep = cloudBuild.slice(
 			stepOffset("deploy"),
-			stepOffset("verify"),
+			stepOffset("xpath-admission-cutover-complete"),
 		);
 		expect(deployStep).not.toMatch(/^\s+--scaling=/m);
+		expect(deployStep).not.toContain("nova-xpath-carrier-gate");
+		const completionStep = cloudBuild.slice(
+			stepOffset("xpath-admission-cutover-complete"),
+			stepOffset("legacy-preplan-repair-job"),
+		);
+		expect(completionStep).toContain(
+			"--update-labels=nova-xpath-carrier-gate=v1",
+		);
 		expect(cloudBuild).not.toContain("--no-deploy-health-check");
 		expect(cloudBuild).not.toMatch(/^\s*status=/m);
 	});

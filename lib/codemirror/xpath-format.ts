@@ -25,8 +25,6 @@ const T = (() => {
 		if (!found) throw new Error(`Unknown node type: ${name}`);
 		return found;
 	};
-	const many = (name: string) => new Set(all.filter((t) => t.name === name));
-
 	return {
 		// Composite
 		ArgumentList: one("ArgumentList"),
@@ -62,8 +60,10 @@ const T = (() => {
 		Eq: one("="),
 		Neq: one("!="),
 		Error: one("⚠"),
-		// Multi-instance (Keyword appears once per binary expr type that uses it)
-		Keywords: many("Keyword"),
+		AndOp: one("AndOp"),
+		OrOp: one("OrOp"),
+		DivOp: one("DivOp"),
+		ModOp: one("ModOp"),
 	};
 })();
 
@@ -95,7 +95,10 @@ const OPERATORS = new Set<NodeType>([
 	T.Lte,
 	T.Eq,
 	T.Neq,
-	...T.Keywords,
+	T.AndOp,
+	T.OrOp,
+	T.DivOp,
+	T.ModOp,
 ]);
 
 // --------------- Phase 1: Format ---------------
@@ -257,11 +260,7 @@ function prettyPrint(node: FormatNode, depth: number): FormatNode {
 			// Replace the Space before the keyword with NewLine + Tabs
 			if (child.type === Layout.Space) {
 				const next = children[i + 1];
-				if (
-					next &&
-					typeof next.type !== "number" &&
-					T.Keywords.has(next.type)
-				) {
+				if (next && (next.type === T.AndOp || next.type === T.OrOp)) {
 					insertIndent(result, depth);
 					continue;
 				}

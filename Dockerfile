@@ -92,6 +92,19 @@ ENV NOVA_BUILD_ID="${NOVA_BUILD_ID}" \
 
 RUN npm run build
 
+# Publish one directly downloadable corresponding-source archive for the
+# OpenJDK-derived browser runtime. Preserve repo-root-relative paths so the
+# included build + verification entrypoints work when the archive is extracted
+# over a Nova checkout. The public matcher exemption makes this compliance
+# artifact reachable without an authenticated application session.
+RUN mkdir -p public/third-party && \
+    tar -czf public/third-party/java-pattern-runtime-source.tar.gz \
+      scripts/java-pattern-runtime \
+      lib/preview/xpath/openJdk17DoubleString.ts \
+      lib/preview/xpath/vendor/javaPatternRuntime.generated.js \
+      lib/preview/xpath/vendor/javaPatternRuntime.generated.d.ts \
+      lib/preview/xpath/vendor/javaPatternNames.generated.ts
+
 # Bundle the standalone migration entrypoint. The Next standalone runner stage
 # carries no full node_modules, so esbuild inlines the migrator's deps (kysely,
 # pg, the Cloud SQL connector) into one self-contained CJS file the

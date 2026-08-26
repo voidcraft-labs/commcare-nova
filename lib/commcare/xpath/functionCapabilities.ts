@@ -127,56 +127,6 @@ export const JAVAROSA_CONTEXT_FUNCTIONS: ReadonlySet<string> = new Set([
 	"here",
 ]);
 
-/** Functions Nova Preview currently implements rather than approximates. */
-export const PREVIEW_NATIVE_FUNCTIONS: ReadonlySet<string> = new Set([
-	"abs",
-	"boolean",
-	"ceiling",
-	"coalesce",
-	"concat",
-	"contains",
-	"count-selected",
-	"date",
-	"double",
-	"false",
-	"floor",
-	"format-date",
-	"if",
-	"int",
-	"join",
-	"max",
-	"min",
-	"normalize-space",
-	"not",
-	"now",
-	"number",
-	"position",
-	"pow",
-	"round",
-	"selected",
-	"selected-at",
-	"starts-with",
-	"string",
-	"string-length",
-	"substr",
-	"today",
-	"translate",
-	"true",
-	"uuid",
-]);
-
-/** Path roots the scalar Preview evaluator resolves faithfully. */
-export const PREVIEW_PATH_INITIALIZERS: ReadonlySet<string> = new Set([
-	"instance",
-]);
-
-/** Secondary-instance namespaces with an explicit Preview resolver contract.
- * Individual EvalContexts must still opt in and provide the bytes; this set
- * only says the evaluator knows the namespace's shape. */
-export const PREVIEW_INSTANCE_IDS: ReadonlySet<string> = new Set([
-	"commcaresession",
-]);
-
 /** CCHQ functions allowed in a CSQL value position. */
 export const CSQL_VALUE_FUNCTIONS: ReadonlySet<string> = new Set([
 	"date",
@@ -243,10 +193,9 @@ export function assertCsqlQueryFunction(name: string): void {
 export interface XPathFunctionCallCapability {
 	readonly name: string;
 	readonly from: number;
+	readonly argumentCount: number;
 	readonly javaRosa: JavaRosaFunctionCapability;
-	readonly preview: "native" | "path-initializer" | "unsupported";
 	readonly validPathInitializer: boolean;
-	readonly validPreviewSignature: boolean;
 }
 
 /**
@@ -273,106 +222,37 @@ export function inspectXPathFunctionCalls(
 			const nameNode = cursor.node.getChild(nameType.id);
 			if (nameNode === null) return;
 			const name = source.slice(nameNode.from, nameNode.to);
+			if (isJavaRosaAxisNodeTest(cursor.node, source, name)) return;
+			const args = cursor.node.getChild("ArgumentList");
+			const argumentCount =
+				args === null ? 0 : argumentExpressions(args).length;
 			const javaRosa = javaRosaFunctionCapability(name);
-			const instanceId =
-				name === "instance"
-					? pathInitializerStringArgument(cursor.node, source)
-					: undefined;
 			const validPathInitializer =
 				javaRosa !== "path-initializer" ||
 				(isPathInitializer(cursor.node) &&
 					hasValidPathInitializerArguments(cursor.node, name));
-			const validPreviewSignature = previewFunctionSignatureSupported(
-				cursor.node,
-				source,
-				name,
-			);
 			calls.push({
 				name,
 				from: nameNode.from,
+				argumentCount,
 				javaRosa,
-				preview: PREVIEW_NATIVE_FUNCTIONS.has(name)
-					? "native"
-					: PREVIEW_PATH_INITIALIZERS.has(name) &&
-							instanceId !== undefined &&
-							PREVIEW_INSTANCE_IDS.has(instanceId)
-						? "path-initializer"
-						: "unsupported",
 				validPathInitializer,
-				validPreviewSignature,
 			});
 		},
 	});
 	return calls;
 }
 
-/** Whether Preview can preserve this exact function signature. Core overloads
- * a small set of otherwise-scalar functions when a selected argument is a
- * nodeset; Preview must reject that arm until its evaluator carries nodesets. */
-export function previewFunctionSignatureSupported(
+function isJavaRosaAxisNodeTest(
 	node: SyntaxNode,
 	source: string,
 	name: string,
 ): boolean {
-	const args = node.getChild("ArgumentList");
-	const expressions = args === null ? [] : argumentExpressions(args);
-	if (name === "position") return expressions.length === 0;
-	const nodesetArgument =
-		name === "concat" && expressions.length === 1
-			? expressions[0]
-			: name === "join" && expressions.length === 2
-				? expressions[1]
-				: (name === "min" || name === "max") && expressions.length === 1
-					? expressions[0]
-					: undefined;
-	return (
-		nodesetArgument === undefined ||
-		!expressionMayEvaluateToNodeset(nodesetArgument, source)
-	);
-}
-
-function expressionMayEvaluateToNodeset(
-	node: SyntaxNode,
-	source: string,
-): boolean {
-	if (
-		node.type.name === "HashtagRef" ||
-		node.type.name === "RootPath" ||
-		node.type.name === "SelfStep" ||
-		node.type.name === "ParentStep" ||
-		node.type.name === "NameTest" ||
-		node.type.name === "Filtered" ||
-		node.type.name === "UnionExpr" ||
-		node.type.name === "Child" ||
-		node.type.name === "Descendant"
-	) {
-		return true;
-	}
-	let first = node.firstChild;
-	if (first?.type.name === "(") {
-		do first = first.nextSibling;
-		while (first?.type.name === "(");
-		return first !== null && expressionMayEvaluateToNodeset(first, source);
-	}
-	if (node.type.name !== "Invoke") return false;
-	const nameNode = node.getChild("FunctionName");
-	if (nameNode === null) return false;
-	const name = source.slice(nameNode.from, nameNode.to);
-	if (JAVAROSA_PATH_INITIALIZERS.has(name)) return true;
-	const args = node.getChild("ArgumentList");
-	if (args === null) return false;
-	const expressions = argumentExpressions(args);
-	if (name === "if") {
-		return expressions
-			.slice(1)
-			.some((arg) => expressionMayEvaluateToNodeset(arg, source));
-	}
-	if (name === "coalesce") {
-		return expressions.some((arg) =>
-			expressionMayEvaluateToNodeset(arg, source),
-		);
-	}
-	return false;
+	if (name !== "node" || node.parent?.name !== "AxisSpecified") return false;
+	const axis = node.parent.getChild("AxisName");
+	if (axis === null) return false;
+	const axisName = source.slice(axis.from, axis.to);
+	return axisName === "self" || axisName === "parent";
 }
 
 /** Read the one literal argument from a path initializer, without evaluating

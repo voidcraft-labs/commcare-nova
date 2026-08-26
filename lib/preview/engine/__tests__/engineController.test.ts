@@ -24,6 +24,7 @@ import {
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { proseText } from "@/lib/domain/prose";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
+import { FormEngine } from "../formEngine";
 import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
@@ -93,6 +94,122 @@ function createLoadedStore(doc: PersistableDoc = makeDoc()) {
 
 describe("EngineController", () => {
 	describe("activateForm", () => {
+		it("waits for a required case database and resumes the requested form", () => {
+			const ctrl = new EngineController();
+			ctrl.setDocStore(createLoadedStore());
+			ctrl.setCaseDatabaseState({ required: true, status: "loading" });
+
+			ctrl.activateForm(FORM_UUID);
+			expect(ctrl.formUuid).toBeUndefined();
+			expect(ctrl.entryKey).toBeUndefined();
+			expect(ctrl.entryStore.getState().caseDatabaseWait).toEqual({
+				formUuid: FORM_UUID,
+				status: "loading",
+			});
+			expect(ctrl.validateAll()).toBe(false);
+			const ready = {
+				required: true as const,
+				status: "ready" as const,
+				snapshot: { rows: [], indices: [] },
+			};
+			ctrl.setCaseDatabaseState(ready);
+
+			expect(ctrl.formUuid).toBe(FORM_UUID);
+			expect(ctrl.entryKey).toBeDefined();
+			expect(ctrl.entryStore.getState().caseDatabaseWait).toBeUndefined();
+		});
+
+		it("contains an impossible runtime activation fault and can open a valid form afterward", () => {
+			const invalidStore = createLoadedStore(
+				makeDoc(
+					{
+						[Q1_UUID]: {
+							uuid: Q1_UUID,
+							id: "name",
+							kind: "text",
+							label: proseText("Name"),
+							default_value: xp("definitely-not-a-function()"),
+						},
+					},
+					{ [FORM_UUID]: [Q1_UUID] },
+				),
+			);
+			const ctrl = new EngineController();
+			const report = vi.fn();
+			ctrl.setFaultReporter(report);
+			ctrl.setDocStore(invalidStore);
+
+			expect(() => ctrl.activateForm(FORM_UUID)).not.toThrow();
+			expect(ctrl.entryStore.getState()).toMatchObject({
+				entryKey: undefined,
+				formUuid: undefined,
+				fault: { formUuid: FORM_UUID, operation: "activate" },
+			});
+			expect(ctrl.store.getState()).toEqual({});
+			expect(report).toHaveBeenCalledTimes(1);
+
+			ctrl.setDocStore(createLoadedStore());
+			ctrl.activateForm(FORM_UUID);
+			expect(ctrl.entryStore.getState().fault).toBeUndefined();
+			expect(ctrl.formUuid).toBe(FORM_UUID);
+			expect(Object.keys(ctrl.store.getState())).toHaveLength(2);
+		});
+
+		it("retires the active engine when live evaluation violates an invariant", () => {
+			const ctrl = new EngineController();
+			const report = vi.fn();
+			ctrl.setFaultReporter(report);
+			ctrl.setDocStore(createLoadedStore());
+			ctrl.activateForm(FORM_UUID);
+			const setValue = vi
+				.spyOn(FormEngine.prototype, "setValue")
+				.mockImplementationOnce(() => {
+					throw new Error("private answer must not reach UI state");
+				});
+
+			expect(() => ctrl.onValueChange(Q1_UUID, "secret")).not.toThrow();
+			expect(ctrl.entryStore.getState()).toMatchObject({
+				entryKey: undefined,
+				formUuid: undefined,
+				fault: { formUuid: FORM_UUID, operation: "value-change" },
+			});
+			expect(ctrl.validateAll()).toBe(false);
+			expect(() => ctrl.computeSubmissionMutation({})).toThrow(
+				"Preview could not run this form.",
+			);
+			expect(report).toHaveBeenCalledTimes(1);
+			setValue.mockRestore();
+		});
+
+		it("keeps a failing telemetry seam inside the containment boundary", () => {
+			const ctrl = new EngineController();
+			ctrl.setFaultReporter(() => {
+				throw new Error("telemetry unavailable");
+			});
+			ctrl.setDocStore(
+				createLoadedStore(
+					makeDoc(
+						{
+							[Q1_UUID]: {
+								uuid: Q1_UUID,
+								id: "name",
+								kind: "text",
+								label: proseText("Name"),
+								default_value: xp("definitely-not-a-function()"),
+							},
+						},
+						{ [FORM_UUID]: [Q1_UUID] },
+					),
+				),
+			);
+
+			expect(() => ctrl.activateForm(FORM_UUID)).not.toThrow();
+			expect(ctrl.entryStore.getState().fault).toEqual({
+				formUuid: FORM_UUID,
+				operation: "activate",
+			});
+		});
+
 		it("initializes runtime state for every field in the form", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();

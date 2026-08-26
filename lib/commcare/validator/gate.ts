@@ -127,6 +127,8 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	// as an XPath literal (`field = 'value'`) and the device as a select
 	// value it refuses; the wire cannot carry it.
 	CASE_PROPERTY_OPTION_VALUE_INVALID: "soundness",
+	CASE_PROPERTY_XPATH_INCOMPATIBLE: "soundness",
+	XPATH_INSTANCE_UNAVAILABLE: "soundness",
 	AUTOMATION_INVALID: "soundness",
 	TRANSLATION_UNIT_UNKNOWN: "soundness",
 	TRANSLATION_VALUE_KIND_MISMATCH: "soundness",
@@ -449,6 +451,17 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	LOOKUP_TAG_RESERVED_BY_HQ: "environment",
 	// ── XPath deep validation ────────────────────────────────────────
 	XPATH_SYNTAX: "soundness",
+	XPATH_UNBOUND_VARIABLE: "soundness",
+	XPATH_UNSUPPORTED_UNION: "soundness",
+	XPATH_UNSUPPORTED_DESCENDANT: "soundness",
+	XPATH_UNSUPPORTED_FILTER: "soundness",
+	XPATH_UNSUPPORTED_AXIS: "soundness",
+	XPATH_UNSUPPORTED_NODE_TEST: "soundness",
+	XPATH_UNSUPPORTED_PATH: "soundness",
+	XPATH_CARRIER_CONTEXT_UNAVAILABLE: "soundness",
+	XPATH_FUNCTION_UNAVAILABLE: "soundness",
+	XPATH_FUNCTION_SIGNATURE_UNAVAILABLE: "soundness",
+	XPATH_FUNCTION_CONTEXT_UNAVAILABLE: "soundness",
 	UNKNOWN_FUNCTION: "soundness",
 	WRONG_ARITY: "soundness",
 	INVALID_REF: "soundness",

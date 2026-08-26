@@ -105,8 +105,8 @@ async function addEdge(args: {
 	relationship: "child" | "extension";
 }): Promise<void> {
 	await h.pool.query(
-		`INSERT INTO case_indices (case_id, ancestor_id, identifier, relationship, depth)
-		 VALUES ($1, $2, $3, $4, 1)`,
+		`INSERT INTO case_indices (case_id, ancestor_id, target_case_type, identifier, relationship, depth)
+		 VALUES ($1, $2, 'test', $3, $4, 1)`,
 		[args.caseId, args.ancestorId, args.identifier, args.relationship],
 	);
 }

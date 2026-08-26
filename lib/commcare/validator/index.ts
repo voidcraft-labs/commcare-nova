@@ -606,6 +606,8 @@ export function validateBlueprintDeep(
 						validPaths,
 						caseTypeProps,
 						isRegistrationForm,
+						"form",
+						"wire-form",
 					)) {
 						errors.push({
 							...loc,

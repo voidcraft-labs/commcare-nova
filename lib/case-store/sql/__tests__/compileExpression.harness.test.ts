@@ -1064,6 +1064,7 @@ describe("compileExpression — round-trip — count arm", () => {
 			.values({
 				case_id: PATIENT_CASE_ID,
 				ancestor_id: HOUSEHOLD_CASE_ID,
+				target_case_type: "test",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -1157,6 +1158,7 @@ describe("compileExpression — round-trip — count arm", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: HOUSEHOLD_CASE_ID,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1164,6 +1166,7 @@ describe("compileExpression — round-trip — count arm", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: SECOND_HOUSEHOLD_CASE_ID,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1229,6 +1232,7 @@ describe("compileExpression — round-trip — relational term arm", () => {
 			.values({
 				case_id: PATIENT_CASE_ID,
 				ancestor_id: HOUSEHOLD_CASE_ID,
+				target_case_type: "test",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -1273,6 +1277,7 @@ describe("compileExpression — round-trip — relational term arm", () => {
 			.values({
 				case_id: PATIENT_CASE_ID,
 				ancestor_id: GUARDIAN_CASE_ID,
+				target_case_type: "test",
 				identifier: "guardian_link",
 				relationship: "child",
 				depth: 1,

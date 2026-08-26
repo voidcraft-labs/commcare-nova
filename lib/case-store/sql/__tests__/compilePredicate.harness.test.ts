@@ -1765,6 +1765,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: HOUSEHOLD_BIG,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1772,6 +1773,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_2_CASE_ID,
 					ancestor_id: HOUSEHOLD_SMALL,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1837,6 +1839,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: HOUSEHOLD_BIG,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1844,6 +1847,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_2_CASE_ID,
 					ancestor_id: HOUSEHOLD_SMALL,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1952,6 +1956,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: HOUSEHOLD_NORTH,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1959,6 +1964,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_2_CASE_ID,
 					ancestor_id: HOUSEHOLD_SOUTH,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1966,6 +1972,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: HOUSEHOLD_NORTH,
 					ancestor_id: VILLAGE_NORTH,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1973,6 +1980,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: HOUSEHOLD_SOUTH,
 					ancestor_id: VILLAGE_SOUTH,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -2070,6 +2078,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: HOUSEHOLD_NORTH,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -2077,6 +2086,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: PATIENT_2_CASE_ID,
 					ancestor_id: HOUSEHOLD_SOUTH,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -2084,6 +2094,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: HOUSEHOLD_NORTH,
 					ancestor_id: VILLAGE_NORTH,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -2091,6 +2102,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 				{
 					case_id: HOUSEHOLD_SOUTH,
 					ancestor_id: VILLAGE_SOUTH,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,

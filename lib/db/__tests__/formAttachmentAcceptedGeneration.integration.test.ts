@@ -241,6 +241,7 @@ describe("accepted capture generation storage race", () => {
 				entryKey: intent.entryKey,
 				formUuid: intent.formUuid,
 				expectedAppMutationSeq: intent.expectedAppMutationSeq,
+				blueprintDigest: "0".repeat(64),
 				requestDigest: intent.requestDigest,
 			},
 			captureIntent: intent,

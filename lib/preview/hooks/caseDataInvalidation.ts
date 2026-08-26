@@ -53,6 +53,20 @@ export function useCaseDataRevision(
 	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
+/** One dependency value for a device casedb snapshot spanning every effective
+ * case type. The ordered type list comes from the live blueprint; an update to
+ * any partition advances the combined value without maintaining a second
+ * invalidation channel. */
+export function useCaseDatabaseRevision(
+	appId: string | undefined,
+	caseTypes: readonly string[],
+): string {
+	const keys = caseTypes.map((caseType) => revisionKey(appId, caseType));
+	const getSnapshot = () =>
+		keys.map((key) => (key === "" ? 0 : (revisions.get(key) ?? 0))).join(",");
+	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
 /**
  * A narrower revision for destructive replacement. Unlike an ordinary update,
  * replacing a population invalidates every case identity the running app may

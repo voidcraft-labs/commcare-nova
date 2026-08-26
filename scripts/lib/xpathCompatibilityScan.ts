@@ -1,65 +1,103 @@
 import {
+	type AuthoredXPathCarrier,
+	authoredXPathCarriers,
+	type XPathCarrierProfile,
+	xpathCarrierAllowedInstanceIds,
+} from "@/lib/commcare/xpath/carriers";
+import {
+	analyzeXPathCompatibility,
+	analyzeXPathInstanceCompatibility,
+	type XPathCompatibilityFinding,
+} from "@/lib/commcare/xpath/compatibility";
+import {
 	inspectXPathFunctionCalls,
 	type XPathFunctionCallCapability,
 } from "@/lib/commcare/xpath/functionCapabilities";
-import {
-	type BlueprintDoc,
-	CONNECT_XPATH_SLOT_IDS,
-	expressionSurfaceReads,
-	formExpressionSource,
-	printXPath,
-	xpathPrintContext,
-} from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 
-export interface XPathCarrierOccurrence {
-	readonly path: string;
-	readonly source: string;
+export interface XPathCarrierOccurrence extends AuthoredXPathCarrier {
 	readonly calls: readonly XPathFunctionCallCapability[];
+	readonly findings: readonly XPathCompatibilityFinding[];
 }
 
-/** Every persisted raw-XPath carrier in a hydrated blueprint. */
+export interface XPathCompatibilityAggregate {
+	readonly profile: XPathCarrierProfile;
+	readonly code: XPathCompatibilityFinding["code"];
+	readonly severity: XPathCompatibilityFinding["severity"];
+	readonly count: number;
+}
+
+export interface XPathCompatibilityScanSummary {
+	readonly expressions: number;
+	readonly functionCalls: number;
+	readonly javaRosaLoweredCalls: number;
+	readonly errorFindings: number;
+	readonly findings: readonly XPathCompatibilityAggregate[];
+}
+
+/** Every persisted XPath carrier in a hydrated blueprint. */
 export function scanBlueprintXPathCarriers(
 	doc: BlueprintDoc,
 ): XPathCarrierOccurrence[] {
-	const occurrences: XPathCarrierOccurrence[] = [];
-	const add = (path: string, source: string | undefined) => {
-		if (source === undefined || source.trim().length === 0) return;
-		occurrences.push({
-			path,
-			source,
-			calls: inspectXPathFunctionCalls(source),
-		});
+	return authoredXPathCarriers(doc).map((carrier) => ({
+		...carrier,
+		calls: inspectXPathFunctionCalls(carrier.source),
+		findings: [
+			...analyzeXPathCompatibility(carrier.source, carrier.profile),
+			...analyzeXPathInstanceCompatibility(
+				carrier.source,
+				carrier.profile,
+				xpathCarrierAllowedInstanceIds(carrier.profile),
+			),
+		],
+	}));
+}
+
+/** Aggregate diagnostics without retaining app ids, carrier paths, or source. */
+export function summarizeXPathCompatibility(
+	occurrences: readonly XPathCarrierOccurrence[],
+): XPathCompatibilityScanSummary {
+	const aggregate = new Map<string, XPathCompatibilityAggregate>();
+	let functionCalls = 0;
+	let javaRosaLoweredCalls = 0;
+	let errorFindings = 0;
+
+	for (const occurrence of occurrences) {
+		functionCalls += occurrence.calls.length;
+		javaRosaLoweredCalls += occurrence.calls.filter(
+			(call) => call.javaRosa === "lowered",
+		).length;
+		for (const finding of occurrence.findings) {
+			if (finding.severity === "error") errorFindings += 1;
+			const key = `${occurrence.profile}\u0000${finding.severity}\u0000${finding.code}`;
+			const previous = aggregate.get(key);
+			aggregate.set(key, {
+				profile: occurrence.profile,
+				code: finding.code,
+				severity: finding.severity,
+				count: (previous?.count ?? 0) + 1,
+			});
+		}
+	}
+
+	return {
+		expressions: occurrences.length,
+		functionCalls,
+		javaRosaLoweredCalls,
+		errorFindings,
+		findings: [...aggregate.values()].sort(
+			(a, b) =>
+				a.profile.localeCompare(b.profile) ||
+				a.severity.localeCompare(b.severity) ||
+				a.code.localeCompare(b.code),
+		),
 	};
+}
 
-	for (const [fieldUuid, field] of Object.entries(doc.fields)) {
-		for (const read of expressionSurfaceReads(field, "xpath", doc)) {
-			add(`fields.${fieldUuid}.${read.slot}`, read.text);
-		}
-	}
-
-	const printContext = xpathPrintContext(doc);
-	for (const [formUuid, form] of Object.entries(doc.forms)) {
-		for (const slot of CONNECT_XPATH_SLOT_IDS) {
-			add(
-				`forms.${formUuid}.connect.${slot}`,
-				formExpressionSource(form, slot, doc),
-			);
-		}
-		for (const [linkIndex, link] of (form.formLinks ?? []).entries()) {
-			if (link.condition !== undefined) {
-				add(
-					`forms.${formUuid}.formLinks[${linkIndex}].condition`,
-					printXPath(link.condition, printContext),
-				);
-			}
-			for (const [datumIndex, datum] of (link.datums ?? []).entries()) {
-				add(
-					`forms.${formUuid}.formLinks[${linkIndex}].datums[${datumIndex}].xpath`,
-					printXPath(datum.xpath, printContext),
-				);
-			}
-		}
-	}
-
-	return occurrences;
+/** Fleet scans fail closed on either incompatibility or unreadable state. */
+export function xpathCompatibilityScanShouldFail(
+	summary: Pick<XPathCompatibilityScanSummary, "errorFindings">,
+	unreadableApps: number,
+): boolean {
+	return summary.errorFindings > 0 || unreadableApps > 0;
 }

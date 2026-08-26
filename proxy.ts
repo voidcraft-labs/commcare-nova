@@ -456,7 +456,7 @@ export function proxy(request: NextRequest): NextResponse {
 }
 
 export const config = {
-	/* `_next/static`, `_next/image`, `favicon.ico`, and `nova-icons` (the
+	/* `_next/static`, `_next/image`, `favicon.ico`, `nova-icons` (the
 	 * shipped built-in menu-tile icon set under `public/nova-icons/`) are
 	 * static assets that need none of the three concerns above (no hostname
 	 * allowlist check, no CSP, no auth) — exclude them from the matcher to
@@ -465,9 +465,14 @@ export const config = {
 	 * host, the off-allowlist guard 404s it (localhost's unknown-host branch
 	 * skips the allowlist, masking the prod 404). They're non-sensitive
 	 * (MIT Tabler-derived glyphs), so serving them unauthenticated +
-	 * CDN-cacheable like the other static assets is correct. `/api` is
+	 * CDN-cacheable like the other static assets is correct. `third-party`
+	 * contains the public corresponding-source archive advertised by the
+	 * OpenJDK-derived Java Pattern bundle; keeping it outside the auth proxy is
+	 * part of making that license material actually retrievable. `/api` is
 	 * intentionally NOT excluded so that the MCP host can intercept
 	 * `/api/mcp` in step 1; the API short-circuit in step 2 handles the
 	 * matched main-host API requests. */
-	matcher: ["/((?!_next/static|_next/image|favicon.ico|nova-icons/).*)"],
+	matcher: [
+		"/((?!_next/static|_next/image|favicon.ico|nova-icons/|third-party/).*)",
+	],
 };

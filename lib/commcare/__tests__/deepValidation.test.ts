@@ -1024,24 +1024,28 @@ describe("TriggerDag.reportCycles", () => {
 			expect(new TriggerDag().reportCycles(tree, doc)).toEqual([]);
 		});
 
-		it("leaves the runtime DAG without the cascade edge", () => {
-			// The engine derives a descendant's effective visibility from its
-			// ancestors at read time, so a group's relevance change must not
-			// fan out to every descendant's expressions. A group reading its
-			// own child therefore builds without breaking any edge.
+		it("includes the relevance cascade in the runtime DAG", () => {
+			// Effective visibility changes the nodeset selected below a container
+			// even when no descendant scalar changes. Runtime therefore re-runs a
+			// descendant expression when the valid-by-construction container changes
+			// relevance.
 			const { tree, doc } = treeFromFields([
+				f({ kind: "int", id: "age", label: proseText("Age") }),
 				f({
 					kind: "group",
-					id: "g",
-					label: proseText("G"),
-					relevant: "/data/g/a = 'x'",
-					children: [f({ kind: "text", id: "a", label: proseText("A") })],
+					id: "adult",
+					label: proseText("Adult"),
+					relevant: "/data/age >= 18",
+					children: [
+						f({ kind: "hidden", id: "marker", calculate: "'visible'" }),
+					],
 				}),
 			]);
 			const dag = new TriggerDag();
 			dag.build(tree, doc);
-			expect(dag.getAffected("/data/g", () => 1)).toEqual([]);
-			expect(dag.getAffected("/data/g/a", () => 1)).toEqual(["/data/g"]);
+			expect(dag.getAffected("/data/adult", () => 1)).toEqual([
+				"/data/adult/marker",
+			]);
 		});
 	});
 

@@ -18,8 +18,6 @@
   or @left
 }
 
-Keyword<w> { @specialize<localName, w> }
-
 // --- Path expressions ---
 
 rootStep {
@@ -63,8 +61,8 @@ expr {
   | UnionExpr { expr !union "|" expr }
   | UnaryNegativeExpr { "-" !unary expr }
   | MultiplyExpr { expr !multiplicative "*" expr }
-  | DivideExpr { expr !multiplicative Keyword<"div"> expr }
-  | ModulusExpr { expr !multiplicative Keyword<"mod"> expr }
+  | DivideExpr { expr !multiplicative DivOp expr }
+  | ModulusExpr { expr !multiplicative ModOp expr }
   | AddExpr { expr !additive "+" expr }
   | SubtractExpr { expr !additive "-" expr }
   | GreaterThanExpr { expr !relational ">" expr }
@@ -73,8 +71,8 @@ expr {
   | LessEqualExpr { expr !relational "<=" expr }
   | NotEqualsExpr { expr !equality "!=" expr }
   | EqualsExpr { expr !equality "=" expr }
-  | AndExpr { expr !and Keyword<"and"> expr }
-  | OrExpr { expr !or Keyword<"or"> expr }
+  | AndExpr { expr !and AndOp expr }
+  | OrExpr { expr !or OrOp expr }
 }
 
 // CommCare hashtag references: #form/field, #case/property, #user/property
@@ -99,6 +97,7 @@ expr {
 // rules), and a wider token here made this matcher claim a longer ref
 // than the regex layers could find.
 @external tokens hashtagGuard from "./hashtagGuard" { noGapIdent, noGapSlash }
+@external tokens coreOperatorTokens from "./coreOperatorTokens" { AndOp, OrOp, DivOp, ModOp }
 
 HashtagRef { "#" noGapIdent HashtagType { hashtagName } (!hashtag noGapSlash "/" noGapIdent HashtagSegment { hashtagName })+ }
 
@@ -120,7 +119,7 @@ name {
 }
 
 @tokens {
-  whitespace { $[ \r\n\t]+ }
+  whitespace { $[ \r\n\t\f]+ }
 
   identStart {
     @asciiLetter | "_"
@@ -129,7 +128,7 @@ name {
   }
 
   identChar {
-    identStart | "-" | @digit | $[\u00B7\u0300-\u036F\u203F-\u2040]
+    identStart | "-" | "." | @digit | $[\u00B7\u0300-\u036F\u203F-\u2040]
   }
 
   localName {

@@ -207,7 +207,9 @@ export function RepeatField({
 					) {
 						return;
 					}
-					controller.removeRepeat(field.uuid, index, path);
+					controller
+						.removeRepeatAsync(field.uuid, index, path)
+						.catch(() => undefined);
 				},
 			});
 		},
@@ -389,7 +391,7 @@ export function RepeatField({
 							>
 								<button
 									type="button"
-									onClick={() => controller.addRepeat(field.uuid, path)}
+									onClick={() => controller.addRepeatAsync(field.uuid, path)}
 									aria-labelledby={[
 										addActionId,
 										accessibleContext,

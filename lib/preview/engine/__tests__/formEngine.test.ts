@@ -24,10 +24,19 @@ import type {
 } from "@/lib/domain";
 import { USERCASE_CASE_TYPE } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import {
+	createInProcessXPathWorkerFactory,
+	XPathRuntime,
+} from "../../xpath/workerClient";
+import {
+	deserializeXPathWorkerValue,
+	evaluateXPathWorkerRequest,
+} from "../../xpath/workerRuntime";
 
 import {
 	type CaseDataByType,
 	FormEngine,
+	type FormEngineAsyncEvaluator,
 	type FormEngineInput,
 } from "../formEngine";
 import { previewAsMe } from "../identity";
@@ -59,6 +68,9 @@ interface DField {
 	validate_msg?: ProseTemplate;
 	caseWrite?: CaseWrite;
 	optionsSource?: SelectOptionsSource;
+	repeat_mode?: "user_controlled" | "count_bound" | "query_bound";
+	repeat_count?: XPathExpression;
+	data_source?: { ids_query: XPathExpression };
 	children?: DField[];
 }
 
@@ -139,7 +151,102 @@ function dTree(
 	return { form, formUuid, fields: fieldMap, fieldOrder, caseTypes };
 }
 
+/** Build the real in-process worker seam for one staged engine initialization.
+ * The returned runtime remains caller-owned so rejection tests can dispose it
+ * in `finally` and stay clean under async-leak detection. */
+function fixedWorldEvaluator(engine: FormEngine, worldKey: string) {
+	const runtime = new XPathRuntime({
+		workerFactory: createInProcessXPathWorkerFactory(),
+	});
+	const world = engine.createWorkerWorld(worldKey);
+	const evaluateAsync = (async (
+		source: string,
+		path: string,
+		resultMode: "scalar" | "nodeset-values-or-scalar" = "scalar",
+		stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
+	) => {
+		const result = await runtime.request({
+			entryKey: ENTRY_KEY,
+			revision: 0,
+			profile: "form",
+			source,
+			resultMode,
+			instances: engine.workerInstances(source, path, world, stateOverrides),
+		});
+		if (!result.ok) throw new Error(result.error.code);
+		if (result.nodesetValues !== undefined) {
+			return {
+				kind: "nodeset-values" as const,
+				values: result.nodesetValues,
+			};
+		}
+		return deserializeXPathWorkerValue(result.value);
+	}) as FormEngineAsyncEvaluator;
+	return { evaluateAsync, runtime };
+}
+
 describe("FormEngine", () => {
+	it("runs an input's async downstream cascade once and in DAG order", async () => {
+		const key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+		const normalized = "sleep(0, replace(/data/source, '[^a-z]', ''))";
+		const roundTrip = `decrypt-string(encrypt-string(/data/normalized, '${key}', 'AES'), '${key}', 'AES')`;
+		const engine = new FormEngine(
+			dTree([
+				{ id: "source", kind: "text" },
+				{ id: "normalized", kind: "hidden", calculate: xp(normalized) },
+				{ id: "round_trip", kind: "hidden", calculate: xp(roundTrip) },
+			]),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ stagedAsync: true },
+		);
+		const calls: string[] = [];
+		const runtime = new XPathRuntime({
+			workerFactory: createInProcessXPathWorkerFactory(
+				async (request, tools) => {
+					calls.push(request.source);
+					return evaluateXPathWorkerRequest(request, tools);
+				},
+			),
+		});
+		let revision = 0;
+		const evaluateAsync = (async (
+			source: string,
+			path: string,
+			resultMode: "scalar" | "nodeset-values-or-scalar" = "scalar",
+		) => {
+			const result = await runtime.request({
+				entryKey: ENTRY_KEY,
+				revision,
+				profile: "form",
+				source,
+				resultMode,
+				instances: engine.workerInstances(source, path),
+			});
+			if (!result.ok) throw new Error(result.error.code);
+			if (result.nodesetValues !== undefined) {
+				return {
+					kind: "nodeset-values" as const,
+					values: result.nodesetValues,
+				};
+			}
+			return deserializeXPathWorkerValue(result.value);
+		}) as FormEngineAsyncEvaluator;
+
+		await engine.initializeAsync(evaluateAsync);
+		calls.length = 0;
+		revision += 1;
+		await engine.setValueAsync("/data/source", "a1b2c", evaluateAsync);
+
+		expect(engine.getState("/data/normalized").value).toBe("abc");
+		expect(engine.getState("/data/round_trip").value).toBe("abc");
+		expect(calls).toEqual([normalized, roundTrip]);
+		runtime.dispose();
+	});
+
 	it("initializes with field states", () => {
 		const input = dTree([
 			{ id: "name", kind: "text", label: proseText("Name") },
@@ -163,6 +270,102 @@ describe("FormEngine", () => {
 	});
 
 	describe("relevant (visibility)", () => {
+		it("cascades container relevance into descendant nodeset readers", () => {
+			const engine = new FormEngine(
+				dTree([
+					{ id: "gate", kind: "text" },
+					{
+						id: "section",
+						kind: "group",
+						relevant: xp("/data/gate = 'yes'"),
+						children: [{ id: "note", kind: "text" }],
+					},
+					{
+						id: "visible_notes",
+						kind: "hidden",
+						calculate: xp("count(/data/section/note)"),
+					},
+				]),
+			);
+
+			expect(engine.getState("/data/section/note").visible).toBe(true);
+			expect(engine.getState("/data/visible_notes").value).toBe("0");
+			engine.setValue("/data/gate", "yes");
+			expect(engine.getState("/data/visible_notes").value).toBe("1");
+			engine.setValue("/data/gate", "no");
+			expect(engine.getState("/data/visible_notes").value).toBe("0");
+		});
+
+		it("updates cached worker relevance inside one async cascade", async () => {
+			const engine = new FormEngine(
+				dTree([
+					{ id: "gate", kind: "text" },
+					{
+						id: "section",
+						kind: "group",
+						relevant: xp("/data/gate = 'yes'"),
+						children: [{ id: "note", kind: "text" }],
+					},
+					{
+						id: "visible_notes",
+						kind: "hidden",
+						calculate: xp("count(/data/section/note)"),
+					},
+				]),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync: true },
+			);
+			const runtime = new XPathRuntime({
+				workerFactory: createInProcessXPathWorkerFactory(),
+			});
+			let revision = 0;
+			let world = engine.createWorkerWorld(`relevance-${revision}`);
+			const evaluateAsync = (async (
+				source: string,
+				path: string,
+				resultMode: "scalar" | "nodeset-values-or-scalar" = "scalar",
+				stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
+			) => {
+				const result = await runtime.request({
+					entryKey: ENTRY_KEY,
+					revision,
+					profile: "form",
+					source,
+					resultMode,
+					instances: engine.workerInstances(
+						source,
+						path,
+						world,
+						stateOverrides,
+					),
+				});
+				if (!result.ok) throw new Error(result.error.code);
+				if (result.nodesetValues !== undefined) {
+					return {
+						kind: "nodeset-values" as const,
+						values: result.nodesetValues,
+					};
+				}
+				return deserializeXPathWorkerValue(result.value);
+			}) as FormEngineAsyncEvaluator;
+
+			await engine.initializeAsync(evaluateAsync);
+			expect(engine.getState("/data/visible_notes").value).toBe("0");
+			revision += 1;
+			world = engine.createWorkerWorld(`relevance-${revision}`);
+			await engine.setValueAsync("/data/gate", "yes", evaluateAsync);
+			expect(engine.getState("/data/visible_notes").value).toBe("1");
+			revision += 1;
+			world = engine.createWorkerWorld(`relevance-${revision}`);
+			await engine.setValueAsync("/data/gate", "no", evaluateAsync);
+			expect(engine.getState("/data/visible_notes").value).toBe("0");
+			runtime.dispose();
+		});
+
 		it("hides fields when relevant evaluates to false", () => {
 			const input = dTree([
 				{
@@ -2998,6 +3201,578 @@ describe("FormEngine", () => {
 	// seeds N instances, replay, etc.) can't silently drift one without
 	// the other and produce wrong child-case counts.
 	describe("repeat-count invariant", () => {
+		it("materializes a count-bound repeat once during initialization", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: xp("3"),
+					children: [{ id: "name", kind: "text" }],
+				},
+			]);
+			const engine = new FormEngine(input);
+
+			expect(engine.getRepeatCount("/data/members")).toBe(3);
+			expect(engine.getState("/data/members").repeatCount).toBe(3);
+			expect(engine.getState("/data/members[2]/name").path).toBe(
+				"/data/members[2]/name",
+			);
+		});
+
+		it.each(["2.0", "2.5"])(
+			"rejects direct repeat-count path value %s through IntegerData lexical casting",
+			(lexical) => {
+				const input = dTree(
+					[
+						{
+							id: "desired_count",
+							kind: "text",
+							caseWrite: {
+								caseType: "patient",
+								property: "desired_count",
+							},
+						},
+						{
+							id: "members",
+							kind: "repeat",
+							repeat_mode: "count_bound",
+							repeat_count: formXp("#form/desired_count"),
+							children: [],
+						},
+					],
+					"followup",
+					[
+						{
+							name: "patient",
+							properties: [
+								{
+									name: "desired_count",
+									label: proseText("Desired count"),
+								},
+							],
+						},
+					],
+				);
+
+				expect(
+					() =>
+						new FormEngine(
+							input,
+							"patient",
+							caseDataFor("patient", [["desired_count", lexical]]),
+						),
+				).toThrow(/exact base-10 integer/);
+			},
+		);
+
+		it("accepts Java BMP decimal digits in a direct repeat count", async () => {
+			const input = dTree(
+				[
+					{
+						id: "desired_count",
+						kind: "text",
+						caseWrite: {
+							caseType: "patient",
+							property: "desired_count",
+						},
+					},
+					{
+						id: "members",
+						kind: "repeat",
+						repeat_mode: "count_bound",
+						repeat_count: formXp("#form/desired_count"),
+						children: [],
+					},
+				],
+				"followup",
+				[
+					{
+						name: "patient",
+						properties: [
+							{
+								name: "desired_count",
+								label: proseText("Desired count"),
+							},
+						],
+					},
+				],
+			);
+			const caseData = caseDataFor("patient", [["desired_count", "٣"]]);
+			const syncEngine = new FormEngine(input, "patient", caseData);
+			expect(syncEngine.getRepeatCount("/data/members")).toBe(3);
+
+			const asyncEngine = new FormEngine(
+				input,
+				"patient",
+				caseData,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync: true },
+			);
+			const { evaluateAsync, runtime } = fixedWorldEvaluator(
+				asyncEngine,
+				"unicode-direct-repeat-count",
+			);
+			try {
+				await asyncEngine.initializeAsync(evaluateAsync);
+				expect(asyncEngine.getRepeatCount("/data/members")).toBe(3);
+			} finally {
+				runtime.dispose();
+			}
+		});
+
+		it("applies the same direct repeat-count lexical cast across the worker boundary", async () => {
+			const input = dTree(
+				[
+					{
+						id: "desired_count",
+						kind: "text",
+						caseWrite: {
+							caseType: "patient",
+							property: "desired_count",
+						},
+					},
+					{
+						id: "members",
+						kind: "repeat",
+						repeat_mode: "count_bound",
+						repeat_count: formXp("#form/desired_count"),
+						children: [],
+					},
+				],
+				"followup",
+				[
+					{
+						name: "patient",
+						properties: [
+							{
+								name: "desired_count",
+								label: proseText("Desired count"),
+							},
+						],
+					},
+				],
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				caseDataFor("patient", [["desired_count", "2.5"]]),
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync: true },
+			);
+			const { evaluateAsync, runtime } = fixedWorldEvaluator(
+				engine,
+				"direct-repeat-count-cast",
+			);
+
+			try {
+				await expect(engine.initializeAsync(evaluateAsync)).rejects.toThrow(
+					/exact base-10 integer/,
+				);
+			} finally {
+				runtime.dispose();
+			}
+		});
+
+		it("retains xsd:int coercion for a hoisted non-path repeat count", async () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: xp("2.5"),
+					children: [],
+				},
+			]);
+			const syncEngine = new FormEngine(input);
+			expect(syncEngine.getRepeatCount("/data/members")).toBe(2);
+
+			const asyncEngine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync: true },
+			);
+			const { evaluateAsync, runtime } = fixedWorldEvaluator(
+				asyncEngine,
+				"hoisted-repeat-count-cast",
+			);
+
+			try {
+				await asyncEngine.initializeAsync(evaluateAsync);
+				expect(asyncEngine.getRepeatCount("/data/members")).toBe(2);
+			} finally {
+				runtime.dispose();
+			}
+		});
+
+		it.each([
+			["number('')", 0],
+			["true()", 1],
+			["false()", 0],
+			["'٣'", 3],
+		] as const)(
+			"matches SetValueAction xsd:int coercion for hoisted %s",
+			async (source, expected) => {
+				const input = dTree([
+					{
+						id: "members",
+						kind: "repeat",
+						repeat_mode: "count_bound",
+						repeat_count: xp(source),
+						children: [],
+					},
+				]);
+				const syncEngine = new FormEngine(input);
+				expect(syncEngine.getRepeatCount("/data/members")).toBe(expected);
+
+				const asyncEngine = new FormEngine(
+					input,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync: true },
+				);
+				const { evaluateAsync, runtime } = fixedWorldEvaluator(
+					asyncEngine,
+					`hoisted-repeat-count-${expected}`,
+				);
+				try {
+					await asyncEngine.initializeAsync(evaluateAsync);
+					expect(asyncEngine.getRepeatCount("/data/members")).toBe(expected);
+				} finally {
+					runtime.dispose();
+				}
+			},
+		);
+
+		it("rejects a non-integer string stored through a hoisted xsd:int node", async () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: xp("'2.5'"),
+					children: [],
+				},
+			]);
+			expect(() => new FormEngine(input)).toThrow(/exact base-10 integer/);
+
+			const asyncEngine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync: true },
+			);
+			const { evaluateAsync, runtime } = fixedWorldEvaluator(
+				asyncEngine,
+				"hoisted-repeat-count-string-rejection",
+			);
+			try {
+				await expect(
+					asyncEngine.initializeAsync(evaluateAsync),
+				).rejects.toThrow(/exact base-10 integer/);
+			} finally {
+				runtime.dispose();
+			}
+		});
+
+		it("uses DataUtil space splitting for scalar query-bound repeat ids", async () => {
+			const input = dTree([
+				{
+					id: "leading",
+					kind: "repeat",
+					repeat_mode: "query_bound",
+					data_source: { ids_query: xp("' alpha'") },
+					children: [],
+				},
+				{
+					id: "tabbed",
+					kind: "repeat",
+					repeat_mode: "query_bound",
+					data_source: { ids_query: xp("'alpha\tbeta'") },
+					children: [],
+				},
+			]);
+			const syncEngine = new FormEngine(input);
+			expect(syncEngine.getRepeatCount("/data/leading")).toBe(2);
+			expect(syncEngine.getRepeatCount("/data/tabbed")).toBe(1);
+
+			const asyncEngine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync: true },
+			);
+			const runtime = new XPathRuntime({
+				workerFactory: createInProcessXPathWorkerFactory(),
+			});
+			const world = asyncEngine.createWorkerWorld("scalar-query-bound-ids");
+			const evaluateAsync = (async (
+				source: string,
+				path: string,
+				resultMode: "scalar" | "nodeset-values-or-scalar" = "scalar",
+				stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
+			) => {
+				const result = await runtime.request({
+					entryKey: ENTRY_KEY,
+					revision: 0,
+					profile: "form",
+					source,
+					resultMode,
+					instances: asyncEngine.workerInstances(
+						source,
+						path,
+						world,
+						stateOverrides,
+					),
+				});
+				if (!result.ok) throw new Error(result.error.code);
+				if (result.nodesetValues !== undefined) {
+					return {
+						kind: "nodeset-values" as const,
+						values: result.nodesetValues,
+					};
+				}
+				return deserializeXPathWorkerValue(result.value);
+			}) as FormEngineAsyncEvaluator;
+
+			await asyncEngine.initializeAsync(evaluateAsync);
+			expect(asyncEngine.getRepeatCount("/data/leading")).toBe(2);
+			expect(asyncEngine.getRepeatCount("/data/tabbed")).toBe(1);
+			runtime.dispose();
+		});
+
+		it("reinitializes the worker world when a bound repeat materializes zero rows", async () => {
+			const engine = new FormEngine(
+				dTree([
+					{
+						id: "members",
+						kind: "repeat",
+						repeat_mode: "count_bound",
+						repeat_count: xp("0"),
+						children: [{ id: "name", kind: "text" }],
+					},
+					{
+						id: "observed_count",
+						kind: "text",
+						default_value: xp("count(/data/members)"),
+					},
+				]),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync: true },
+			);
+			const runtime = new XPathRuntime({
+				workerFactory: createInProcessXPathWorkerFactory(),
+			});
+			const world = engine.createWorkerWorld("zero-bound-repeat");
+			const evaluateAsync = (async (
+				source: string,
+				path: string,
+				resultMode: "scalar" | "nodeset-values-or-scalar" = "scalar",
+				stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
+			) => {
+				const result = await runtime.request({
+					entryKey: ENTRY_KEY,
+					revision: 0,
+					profile: "form",
+					source,
+					resultMode,
+					instances: engine.workerInstances(
+						source,
+						path,
+						world,
+						stateOverrides,
+					),
+				});
+				if (!result.ok) throw new Error(result.error.code);
+				if (result.nodesetValues !== undefined) {
+					return {
+						kind: "nodeset-values" as const,
+						values: result.nodesetValues,
+					};
+				}
+				return deserializeXPathWorkerValue(result.value);
+			}) as FormEngineAsyncEvaluator;
+
+			await engine.initializeAsync(evaluateAsync);
+
+			expect(engine.getRepeatCount("/data/members")).toBe(0);
+			expect(engine.getState("/data/observed_count").value).toBe("0");
+			runtime.dispose();
+		});
+
+		it("materializes a query-bound repeat from the device-scoped casedb nodeset", () => {
+			const input = dTree([
+				{
+					id: "patients",
+					kind: "repeat",
+					repeat_mode: "query_bound",
+					data_source: {
+						ids_query: xp(
+							"instance('casedb')/casedb/case[@case_type='patient']/@case_id",
+						),
+					},
+					children: [
+						{ id: "note", kind: "text" },
+						{
+							id: "selected_id",
+							kind: "hidden",
+							calculate: xp("current()/../@id"),
+						},
+						{
+							id: "selected_index",
+							kind: "hidden",
+							calculate: xp("current()/../@index"),
+						},
+					],
+				},
+			]);
+			const caseRow = (caseId: string) => ({
+				case_id: caseId,
+				app_id: "app-1",
+				case_type: "patient",
+				owner_id: "worker-1",
+				status: "open",
+				opened_on: null,
+				modified_on: null,
+				closed_on: null,
+				case_name: caseId,
+				external_id: null,
+				parent_case_id: null,
+				properties: {},
+			});
+			const engine = new FormEngine(input, undefined, undefined, null, null, {
+				rows: [caseRow("patient-1"), caseRow("patient-2")],
+				indices: [],
+			});
+
+			expect(engine.getRepeatCount("/data/patients")).toBe(2);
+			expect(engine.getState("/data/patients").repeatCount).toBe(2);
+			expect(engine.getState("/data/patients[1]/note").path).toBe(
+				"/data/patients[1]/note",
+			);
+			expect(engine.getState("/data/patients[0]/selected_id").value).toBe(
+				"patient-1",
+			);
+			expect(engine.getState("/data/patients[1]/selected_id").value).toBe(
+				"patient-2",
+			);
+			expect(engine.getState("/data/patients[0]/selected_index").value).toBe(
+				"0",
+			);
+			expect(engine.getState("/data/patients[1]/selected_index").value).toBe(
+				"1",
+			);
+		});
+
+		it("preserves query-bound ids through the async worker boundary", async () => {
+			const input = dTree([
+				{
+					id: "patients",
+					kind: "repeat",
+					repeat_mode: "query_bound",
+					data_source: {
+						ids_query: xp(
+							"instance('casedb')/casedb/case[@case_type='patient']/@case_id",
+						),
+					},
+					children: [
+						{
+							id: "selected_id",
+							kind: "hidden",
+							calculate: xp("current()/../@id"),
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				null,
+				null,
+				{
+					rows: [
+						{
+							case_id: "patient-1",
+							app_id: "app-1",
+							case_type: "patient",
+							owner_id: "worker-1",
+							status: "open",
+							opened_on: null,
+							modified_on: null,
+							closed_on: null,
+							case_name: "Patient",
+							external_id: null,
+							parent_case_id: null,
+							properties: {},
+						},
+					],
+					indices: [],
+				},
+				{ stagedAsync: true },
+			);
+			const runtime = new XPathRuntime({
+				workerFactory: createInProcessXPathWorkerFactory(),
+			});
+			const world = engine.createWorkerWorld("query-bound-ids");
+			const evaluateAsync = (async (
+				source: string,
+				path: string,
+				resultMode: "scalar" | "nodeset-values-or-scalar" = "scalar",
+				stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
+			) => {
+				const result = await runtime.request({
+					entryKey: ENTRY_KEY,
+					revision: 0,
+					profile: "form",
+					source,
+					resultMode,
+					instances: engine.workerInstances(
+						source,
+						path,
+						world,
+						stateOverrides,
+					),
+				});
+				if (!result.ok) throw new Error(result.error.code);
+				if (result.nodesetValues !== undefined) {
+					return {
+						kind: "nodeset-values" as const,
+						values: result.nodesetValues,
+					};
+				}
+				return deserializeXPathWorkerValue(result.value);
+			}) as FormEngineAsyncEvaluator;
+
+			await engine.initializeAsync(evaluateAsync);
+
+			expect(engine.getState("/data/patients[0]/selected_id").value).toBe(
+				"patient-1",
+			);
+			runtime.dispose();
+		});
+
 		it("matches FieldState.repeatCount with DataInstance.getRepeatCount on init", () => {
 			const input = dTree([
 				{
@@ -3311,11 +4086,11 @@ describe("FormEngine", () => {
 			engine.addRepeat("/data/orders");
 
 			engine.setValue("/data/prefix", "RX");
-			expect(engine.getState("/data/orders[0]/tag").value).toBe("RX-1");
-			expect(engine.getState("/data/orders[1]/tag").value).toBe("RX-2");
+			expect(engine.getState("/data/orders[0]/tag").value).toBe("RX-0");
+			expect(engine.getState("/data/orders[1]/tag").value).toBe("RX-0");
 		});
 
-		it("position()-dependent calcs recompute when an instance is removed", () => {
+		it("position() on calculated repeat children stays at final-node zero", () => {
 			const input = dTree([
 				{
 					id: "orders",
@@ -3328,11 +4103,11 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
-			expect(engine.getState("/data/orders[2]/idx").value).toBe("3");
+			expect(engine.getState("/data/orders[2]/idx").value).toBe("0");
 
 			engine.removeRepeat("/data/orders", 0);
-			expect(engine.getState("/data/orders[0]/idx").value).toBe("1");
-			expect(engine.getState("/data/orders[1]/idx").value).toBe("2");
+			expect(engine.getState("/data/orders[0]/idx").value).toBe("0");
+			expect(engine.getState("/data/orders[1]/idx").value).toBe("0");
 		});
 
 		it("default_value applies to a new instance against its own context", () => {
@@ -3351,10 +4126,10 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
-			expect(engine.getState("/data/orders[0]/stamp").value).toBe("entry-1");
+			expect(engine.getState("/data/orders[0]/stamp").value).toBe("entry-0");
 
 			engine.addRepeat("/data/orders");
-			expect(engine.getState("/data/orders[1]/stamp").value).toBe("entry-2");
+			expect(engine.getState("/data/orders[1]/stamp").value).toBe("entry-0");
 		});
 
 		it("group visibility inside a repeat is per-instance", () => {
@@ -3448,7 +4223,7 @@ describe("FormEngine", () => {
 			expect(engine.getRepeatCount("/data/households[0]/members")).toBe(3);
 		});
 
-		it("removeRepeat re-evaluates surviving instances whose position() shifted", () => {
+		it("position() on repeat children uses the final node multiplicity", () => {
 			const input = dTree([
 				{
 					id: "orders",
@@ -3458,21 +4233,21 @@ describe("FormEngine", () => {
 							id: "final_note",
 							kind: "text",
 							label: proseText("Note"),
-							relevant: xp("position() = 2"),
+							relevant: xp("position() = 0"),
 						},
 					],
 				},
 			]);
 			const engine = new FormEngine(input);
-			expect(engine.getState("/data/orders[0]/final_note").visible).toBe(false);
+			expect(engine.getState("/data/orders[0]/final_note").visible).toBe(true);
 
 			engine.addRepeat("/data/orders");
 			expect(engine.getState("/data/orders[1]/final_note").visible).toBe(true);
 			engine.addRepeat("/data/orders");
-			expect(engine.getState("/data/orders[2]/final_note").visible).toBe(false);
+			expect(engine.getState("/data/orders[2]/final_note").visible).toBe(true);
 
 			engine.removeRepeat("/data/orders", 0);
-			expect(engine.getState("/data/orders[0]/final_note").visible).toBe(false);
+			expect(engine.getState("/data/orders[0]/final_note").visible).toBe(true);
 			expect(engine.getState("/data/orders[1]/final_note").visible).toBe(true);
 		});
 

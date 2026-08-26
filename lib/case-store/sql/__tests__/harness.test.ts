@@ -147,6 +147,7 @@ describe("case-store harness — schema", () => {
 			new Set([
 				"case_id",
 				"ancestor_id",
+				"target_case_type",
 				"identifier",
 				"relationship",
 				"depth",

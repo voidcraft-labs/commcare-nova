@@ -19,7 +19,12 @@
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { CaseOperation, CaseType, OrganizationLevel } from "@/lib/domain";
+import {
+	type CaseOperation,
+	type CaseType,
+	type OrganizationLevel,
+	USERCASE_CASE_TYPE,
+} from "@/lib/domain";
 import {
 	actingUser,
 	eq,
@@ -157,6 +162,7 @@ function receiptFor(args: TestSubmissionArgs): SubmissionReceiptClaim {
 			entryKey: args.captureIntent.entryKey,
 			formUuid: args.captureIntent.formUuid,
 			expectedAppMutationSeq: args.captureIntent.expectedAppMutationSeq,
+			blueprintDigest: "0".repeat(64),
 			requestDigest: args.captureIntent.requestDigest,
 		};
 	}
@@ -165,6 +171,7 @@ function receiptFor(args: TestSubmissionArgs): SubmissionReceiptClaim {
 		entryKey: `submission-envelope-entry-${receiptSequence}`,
 		formUuid: args.operations?.formUuid ?? FORM_UUID,
 		expectedAppMutationSeq: 0,
+		blueprintDigest: "0".repeat(64),
 		requestDigest: `submission-envelope-request-${receiptSequence}`,
 	};
 }
@@ -2186,6 +2193,80 @@ describe("combined submission", () => {
 	});
 });
 
+describe("transaction-captured case database patch", () => {
+	it("includes the worker usercase and replays its accepted state after a later write", async () => {
+		const store = makeStore();
+		const usercaseType: CaseType = {
+			name: USERCASE_CASE_TYPE,
+			properties: [
+				{ name: "role", label: proseText("Role"), data_type: "text" },
+			],
+		};
+		const usercaseBlueprint = buildSimpleBlueprint([usercaseType], APP_ID);
+		const roleUuid = testUuid("usercase-role-property");
+		usercaseBlueprint.userProperties = {
+			[roleUuid]: {
+				uuid: roleUuid,
+				slug: "role",
+				label: "Role",
+			},
+		};
+		usercaseBlueprint.userPropertyOrder = [roleUuid];
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: USERCASE_CASE_TYPE,
+			caseTypeSchemas: buildCaseTypeMap(usercaseBlueprint),
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ACTOR,
+				case_type: USERCASE_CASE_TYPE,
+				case_name: "Worker one",
+				properties: JSON.stringify({ role: "nurse" }),
+			},
+		});
+		const receipt: SubmissionReceiptClaim = {
+			entryKey: "usercase-patch-entry",
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
+			requestDigest: "usercase-patch-request",
+		};
+		const args = {
+			appId: APP_ID,
+			ordinary: { kind: "none" } as const,
+			usercase: { properties: { role: "supervisor" } },
+			submissionReceipt: receipt,
+		};
+
+		const first = await store.applySubmission(args);
+		expect(first.caseDatabasePatch?.rows).toHaveLength(1);
+		expect(first.caseDatabasePatch?.rows[0]).toMatchObject({
+			case_id: ACTOR,
+			case_type: USERCASE_CASE_TYPE,
+			properties: { role: "supervisor" },
+		});
+		expect(first.caseDatabasePatch?.indices).toEqual([]);
+
+		await store.update({
+			appId: APP_ID,
+			caseId: ACTOR,
+			patch: { properties: JSON.stringify({ role: "director" }) },
+		});
+		const replay = await store.applySubmission(args);
+		expect(replay).toEqual(first);
+		expect(replay.caseDatabasePatch?.rows[0]?.properties).toEqual({
+			role: "supervisor",
+		});
+		const current = await store.query({
+			appId: APP_ID,
+			caseType: USERCASE_CASE_TYPE,
+		});
+		expect(current[0]?.properties).toEqual({ role: "director" });
+	});
+});
+
 // ---------------------------------------------------------------
 // Durable submission receipts
 // ---------------------------------------------------------------
@@ -2198,6 +2279,7 @@ describe("durable text-only submission receipt", () => {
 			entryKey: "text-registration-entry",
 			formUuid: FORM_UUID,
 			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
 			requestDigest: "text-registration-request",
 		};
 		const first = await submit(store, {
@@ -2254,7 +2336,7 @@ describe("durable text-only submission receipt", () => {
 		expect(stored.rows).toEqual([
 			{
 				app_mutation_seq: "0",
-				result: first,
+				result: JSON.parse(JSON.stringify(first)),
 			},
 		]);
 
@@ -2288,6 +2370,7 @@ describe("durable text-only submission receipt", () => {
 			entryKey: "text-advanced-create-entry",
 			formUuid: FORM_UUID,
 			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
 			requestDigest: "text-advanced-create-request",
 		};
 		const args: TestSubmissionArgs = {
@@ -2333,6 +2416,7 @@ describe("durable text-only submission receipt", () => {
 			entryKey: "text-rollback-entry",
 			formUuid: FORM_UUID,
 			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
 			requestDigest: "text-rollback-request",
 		};
 		await expect(
@@ -2466,6 +2550,7 @@ describe("atomic form-capture intent", () => {
 				entryKey: capture.intent.entryKey,
 				formUuid: capture.intent.formUuid,
 				expectedAppMutationSeq: capture.intent.expectedAppMutationSeq,
+				blueprintDigest: "0".repeat(64),
 				requestDigest: capture.intent.requestDigest,
 			},
 			captureIntent: capture.intent,
@@ -2506,7 +2591,7 @@ describe("atomic form-capture intent", () => {
 		expect(intents.rows).toHaveLength(1);
 		expect(intents.rows[0]).toMatchObject({
 			count: "1",
-			result: first,
+			result: JSON.parse(JSON.stringify(first)),
 		});
 
 		await expect(

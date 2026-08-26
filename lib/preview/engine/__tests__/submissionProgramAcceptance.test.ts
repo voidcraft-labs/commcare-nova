@@ -274,6 +274,7 @@ async function submit(
 					projection,
 				}),
 				expectedAppMutationSeq: 0,
+				blueprintDigest: "0".repeat(64),
 			},
 		}),
 	);

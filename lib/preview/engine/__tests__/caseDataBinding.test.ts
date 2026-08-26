@@ -52,6 +52,7 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 // tables — package-private, so the test reaches in via the
 // internal subpath rather than the curated public barrel.
 import type { Database } from "@/lib/case-store/sql/database";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	advancedSearchInputDef,
 	type BlueprintDoc,
@@ -100,9 +101,11 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
+	caseDatabaseToFormPreloads,
 	caseRowDisplayValue,
 	caseRowsToFormPreloads,
 	caseRowToFormPreload,
@@ -117,6 +120,7 @@ import {
 	buildSubmissionReceiptIdentity,
 	submissionEnvelopeArgs as projectSubmissionEnvelopeArgs,
 	readCaseData,
+	readCaseDatabaseSnapshot,
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
@@ -158,6 +162,28 @@ function appCaseQueryArg<T extends { readonly caseType: string }>(mock: {
 		.map((call) => call[0])
 		.find((arg) => arg.caseType !== USERCASE_CASE_TYPE);
 }
+
+describe("readCaseDatabaseSnapshot", () => {
+	it("delegates one all-case-type read with the exact restore scope", async () => {
+		const snapshot = { rows: [], indices: [] };
+		const readDeviceCaseDatabase = vi.fn<CaseStore["readDeviceCaseDatabase"]>(
+			async () => snapshot,
+		);
+		const store = { readDeviceCaseDatabase } as unknown as CaseStore;
+		const restoreScope = { ownerIds: ["worker-1", "place-1"] } as const;
+
+		await expect(
+			readCaseDatabaseSnapshot(store, {
+				appId: "app-1",
+				restoreScope,
+			}),
+		).resolves.toBe(snapshot);
+		expect(readDeviceCaseDatabase).toHaveBeenCalledWith({
+			appId: "app-1",
+			restoreScope,
+		});
+	});
+});
 
 // ---------------------------------------------------------------
 // Module mocks for the `submitFormAction` Server Action tests
@@ -393,6 +419,7 @@ function submissionEnvelopeArgs(
 				entryKey: mutation.entryKey,
 				formUuid: testUuid(mutation.formUuid),
 				expectedAppMutationSeq: 0,
+				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 				requestDigest: `case-data-binding-request-${submissionEnvelopeReceiptSequence}`,
 			} as const),
 	});
@@ -418,13 +445,20 @@ function finalSubmissionDoc() {
 	});
 }
 
+const FINAL_BLUEPRINT_DIGEST = canonicalJsonDigest(
+	toPersistableDoc(finalSubmissionDoc()),
+);
+
 const ALICE_CASE_ID = "40000000-0000-0000-0000-000000000001";
 const BOB_CASE_ID = "40000000-0000-0000-0000-000000000002";
+const EMPTY_CASE_DATABASE_PATCH = { rows: [], indices: [] } as const;
 
 /** Actor-action stub with every CaseStore method present and no database work. */
 function actionStore(overrides: Partial<CaseStore> = {}): CaseStore {
 	return {
 		query: appCaseQuery(),
+		readDeviceCaseDatabase: vi.fn(async () => ({ rows: [], indices: [] })),
+		readCaseDatabasePatch: vi.fn(async () => ({ rows: [], indices: [] })),
 		queryGrouped: vi.fn(),
 		count: vi.fn(),
 		insert: vi.fn(),
@@ -2504,6 +2538,8 @@ describe("readCaseData", () => {
 		let calls = 0;
 		const flaky: CaseStore = {
 			query: (a) => store.query(a),
+			readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
+			readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
 			queryGrouped: (a) => store.queryGrouped(a),
 			count: (a) => store.count(a),
 			insert: (a) => store.insert(a),
@@ -2848,6 +2884,47 @@ describe("caseRowsToFormPreloads", () => {
 		);
 		expect(byType.get("person")?.get("nickname")).toBe("child");
 		expect(byType.size).toBe(1);
+	});
+
+	it("reconstructs the positional parent chain from one captured device database", () => {
+		const patient = {
+			...buildSyntheticRow({ risk: "high" }),
+			case_id: "patient-1",
+			case_type: "patient",
+		};
+		const household = {
+			...buildSyntheticRow({ district: "north" }),
+			case_id: "household-1",
+			case_type: "household",
+		};
+		const result = caseDatabaseToFormPreloads(
+			{
+				rows: [patient, household],
+				indices: [
+					{
+						case_id: "patient-1",
+						ancestor_id: "household-1",
+						identifier: "parent",
+						depth: 1,
+					},
+				],
+			},
+			"patient-1",
+			[
+				{ name: "patient", depth: 0 },
+				{ name: "household", depth: 1 },
+			],
+		);
+
+		expect(result?.get("patient")?.get("risk")).toBe("high");
+		expect(result?.get("household")?.get("district")).toBe("north");
+		expect(
+			caseDatabaseToFormPreloads(
+				{ rows: [household], indices: [] },
+				"patient-1",
+				[{ name: "patient", depth: 0 }],
+			),
+		).toBeUndefined();
 	});
 });
 
@@ -3795,6 +3872,7 @@ describe("submissionEnvelopeArgs", () => {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
 				expectedAppMutationSeq: 0,
+				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 				requestDigest: expect.stringMatching(/^case-data-binding-request-/),
 			},
 			ordinary: {
@@ -3829,6 +3907,7 @@ describe("submissionEnvelopeArgs", () => {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
 				expectedAppMutationSeq: 0,
+				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 				requestDigest: expect.stringMatching(/^case-data-binding-request-/),
 			},
 			ordinary: {
@@ -3864,6 +3943,7 @@ describe("submissionEnvelopeArgs", () => {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
 				expectedAppMutationSeq: 0,
+				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 				requestDigest: expect.stringMatching(/^case-data-binding-request-/),
 			},
 			ordinary: {
@@ -3890,6 +3970,7 @@ describe("submissionEnvelopeArgs", () => {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
 				expectedAppMutationSeq: 0,
+				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 				requestDigest: expect.stringMatching(/^case-data-binding-request-/),
 			},
 			ordinary: { kind: "none" },
@@ -4023,6 +4104,7 @@ describe("submitFormAction", () => {
 		const result = await submitFormAction(
 			{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
 			"app-anything",
+			FINAL_BLUEPRINT_DIGEST,
 		);
 		expect(result).toEqual({ kind: "unauthenticated" });
 	});
@@ -4064,7 +4146,11 @@ describe("submitFormAction", () => {
 		const { submitFormAction } = await import("../caseDataBinding");
 
 		await expect(
-			submitFormAction(payload as unknown as SubmissionMutation, APP_ID),
+			submitFormAction(
+				payload as unknown as SubmissionMutation,
+				APP_ID,
+				FINAL_BLUEPRINT_DIGEST,
+			),
 		).resolves.toMatchObject({
 			kind: "error",
 			message: expect.stringContaining("requires a valid form identity"),
@@ -4087,7 +4173,11 @@ describe("submitFormAction", () => {
 		};
 
 		await expect(
-			submitFormAction(oldPayload as unknown as SubmissionMutation, APP_ID),
+			submitFormAction(
+				oldPayload as unknown as SubmissionMutation,
+				APP_ID,
+				FINAL_BLUEPRINT_DIGEST,
+			),
 		).resolves.toEqual({
 			kind: "error",
 			message: "The retired attachmentNames submission field is not accepted.",
@@ -4110,11 +4200,17 @@ describe("submitFormAction", () => {
 		// recheck a receipt that could have committed between the action
 		// snapshot and this transaction.
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
-			applySubmission: vi.fn(),
+			applySubmission: vi.fn().mockResolvedValue({
+				childCaseIds: [],
+				operations: [],
+				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
+				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+			}),
 			update: vi.fn(),
 			close: vi.fn(),
 			traverse: vi.fn(),
@@ -4134,8 +4230,12 @@ describe("submitFormAction", () => {
 		const result = await submitFormAction(
 			{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
 			APP_ID,
+			FINAL_BLUEPRINT_DIGEST,
 		);
-		expect(result).toEqual({ kind: "survey" });
+		expect(result).toEqual({
+			kind: "survey",
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+		});
 		expect(vi.mocked(withProjectContext)).toHaveBeenCalledOnce();
 		expect(loadAuthorizedFormSubmissionSnapshotMock).toHaveBeenCalledWith({
 			appId: APP_ID,
@@ -4149,12 +4249,38 @@ describe("submitFormAction", () => {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
 				expectedAppMutationSeq: 1,
+				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 				requestDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
 			},
 		});
 		for (const [name, method] of Object.entries(stubStore)) {
-			if (name !== "applySubmission") expect(method).not.toHaveBeenCalled();
+			if (name !== "applySubmission" && name !== "readCaseDatabasePatch") {
+				expect(method).not.toHaveBeenCalled();
+			}
 		}
+	});
+
+	it("refuses a new submission when the committed blueprint differs from the client revision", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await expect(
+			submitFormAction(
+				{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
+				APP_ID,
+				"0".repeat(64),
+			),
+		).resolves.toEqual({
+			kind: "blueprint-changed",
+			message:
+				"This app changed before the form could submit. Wait for it to finish saving, then try again.",
+		});
+		expect(withProjectContext).not.toHaveBeenCalled();
+		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
 	});
 
 	it("translates a CaseNotFoundError thrown by the envelope to the case-not-found arm", async () => {
@@ -4167,6 +4293,7 @@ describe("submitFormAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -4199,6 +4326,7 @@ describe("submitFormAction", () => {
 				children: [],
 			},
 			APP_ID,
+			FINAL_BLUEPRINT_DIGEST,
 		);
 		expect(result).toEqual({
 			kind: "case-not-found",
@@ -4217,15 +4345,18 @@ describe("submitFormAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
-			applySubmission: vi.fn().mockResolvedValueOnce({
+			applySubmission: vi.fn().mockImplementationOnce(async (args) => ({
 				primaryCaseId: ALICE_CASE_ID,
 				childCaseIds: [VISIT_CASE_ID],
 				operations: [],
-			}),
+				blueprintDigest: args.submissionReceipt.blueprintDigest,
+				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+			})),
 			update: vi.fn(),
 			close: vi.fn(),
 			traverse: vi.fn(),
@@ -4257,35 +4388,40 @@ describe("submitFormAction", () => {
 				},
 			],
 		};
+		const committedBlueprint = buildDoc({
+			appName: "Case-bearing action",
+			caseTypes: [PATIENT_CASE_TYPE, VISIT_CASE_TYPE],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: FINAL_FORM_UUID,
+							name: "Register patient",
+							type: "registration",
+							fields: [],
+						},
+					],
+				},
+			],
+		});
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: buildDoc({
-					appName: "Case-bearing action",
-					caseTypes: [PATIENT_CASE_TYPE, VISIT_CASE_TYPE],
-					modules: [
-						{
-							name: "Patients",
-							caseType: "patient",
-							forms: [
-								{
-									uuid: FINAL_FORM_UUID,
-									name: "Register patient",
-									type: "registration",
-									fields: [],
-								},
-							],
-						},
-					],
-				}),
+				blueprint: committedBlueprint,
 				mutation_seq: 1,
 				project_id: PROJECT_A,
 			},
 		});
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		const result = await submitFormAction(mutation, APP_ID);
+		const result = await submitFormAction(
+			mutation,
+			APP_ID,
+			canonicalJsonDigest(toPersistableDoc(committedBlueprint)),
+		);
 
 		// The store saw exactly the pure projection of the mutation.
 		expect(stubStore.applySubmission).toHaveBeenCalledWith({
@@ -4294,6 +4430,9 @@ describe("submitFormAction", () => {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
 				expectedAppMutationSeq: 1,
+				blueprintDigest: canonicalJsonDigest(
+					toPersistableDoc(committedBlueprint),
+				),
 				requestDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
 			},
 		});
@@ -4302,6 +4441,7 @@ describe("submitFormAction", () => {
 			kind: "registration",
 			caseId: ALICE_CASE_ID,
 			childCaseIds: [VISIT_CASE_ID],
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 		});
 	});
 
@@ -4341,6 +4481,7 @@ describe("submitFormAction", () => {
 		});
 
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -4349,6 +4490,7 @@ describe("submitFormAction", () => {
 				primaryCaseId: ALICE_CASE_ID,
 				childCaseIds: [],
 				operations: [],
+				blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
 			}),
 			update: vi.fn(),
 			close: vi.fn(),
@@ -4377,7 +4519,13 @@ describe("submitFormAction", () => {
 		};
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		await submitFormAction(mutation, APP_ID, undefined, PERSONA);
+		await submitFormAction(
+			mutation,
+			APP_ID,
+			canonicalJsonDigest(toPersistableDoc(doc)),
+			undefined,
+			PERSONA,
+		);
 
 		// The store's WORKER is the persona — the third argument is the
 		// `owner_id` every inserted row carries.
@@ -4404,6 +4552,7 @@ describe("submitFormAction", () => {
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -4412,6 +4561,7 @@ describe("submitFormAction", () => {
 				primaryCaseId: ALICE_CASE_ID,
 				childCaseIds: [],
 				operations: [],
+				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 			}),
 			update: vi.fn(),
 			close: vi.fn(),
@@ -4441,6 +4591,7 @@ describe("submitFormAction", () => {
 				children: [],
 			},
 			APP_ID,
+			FINAL_BLUEPRINT_DIGEST,
 		);
 
 		expect(vi.mocked(withProjectContext)).toHaveBeenCalledWith(
@@ -4480,6 +4631,7 @@ describe("submitFormAction", () => {
 				children: [],
 			},
 			APP_ID,
+			FINAL_BLUEPRINT_DIGEST,
 			undefined,
 			"removed-persona",
 		);
@@ -4589,6 +4741,8 @@ describe("submitFormAction", () => {
 	): CaseStore {
 		return {
 			query: appCaseQuery(),
+			readDeviceCaseDatabase: vi.fn(async () => ({ rows: [], indices: [] })),
+			readCaseDatabasePatch: vi.fn(async () => ({ rows: [], indices: [] })),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
 			insert: vi.fn(),
@@ -4624,6 +4778,7 @@ describe("submitFormAction", () => {
 			submitFormAction(
 				{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
 				APP_ID,
+				FINAL_BLUEPRINT_DIGEST,
 			),
 		).resolves.toEqual({ kind: "error", message: "App not found." });
 		expect(withProjectContext).not.toHaveBeenCalled();
@@ -4655,6 +4810,9 @@ describe("submitFormAction", () => {
 			submitFormAction(
 				{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
 				APP_ID,
+				canonicalJsonDigest(
+					toPersistableDoc(buildDoc({ appName: "Submitted form deleted" })),
+				),
 			),
 		).resolves.toMatchObject({
 			kind: "error",
@@ -4696,6 +4854,7 @@ describe("submitFormAction", () => {
 					attachmentRefs: [],
 				},
 				APP_ID,
+				canonicalJsonDigest(toPersistableDoc(doc)),
 			),
 		).resolves.toMatchObject({
 			kind: "error",
@@ -4725,6 +4884,8 @@ describe("submitFormAction", () => {
 		const applySubmission = vi.fn().mockResolvedValueOnce({
 			childCaseIds: [],
 			operations: [{ operationUuid: "op", iteration: 0, executed: true }],
+			blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 		});
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
@@ -4743,10 +4904,14 @@ describe("submitFormAction", () => {
 				},
 			},
 			APP_ID,
+			canonicalJsonDigest(toPersistableDoc(doc)),
 		);
 		// The survey arm returns WITHOUT the primaryCaseId invariant —
 		// an operations-bearing survey has no primary case.
-		expect(result).toEqual({ kind: "survey" });
+		expect(result).toEqual({
+			kind: "survey",
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+		});
 		// The envelope carried the server-built program over ordinary "none".
 		const envelope = applySubmission.mock.calls[0]?.[0];
 		expect(envelope.ordinary).toEqual({ kind: "none" });
@@ -4803,6 +4968,8 @@ describe("submitFormAction", () => {
 		const applySubmission = vi.fn().mockResolvedValueOnce({
 			childCaseIds: [],
 			operations: [],
+			blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 		});
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
@@ -4822,8 +4989,12 @@ describe("submitFormAction", () => {
 					},
 				},
 				APP_ID,
+				canonicalJsonDigest(toPersistableDoc(doc)),
 			),
-		).toEqual({ kind: "survey" });
+		).toEqual({
+			kind: "survey",
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+		});
 
 		// Exactly the tables the program's own operations reference, read once
 		// under the same Project scope the membership gate resolved.
@@ -4892,7 +5063,12 @@ describe("submitFormAction", () => {
 		const applySubmission = vi
 			.fn()
 			.mockRejectedValueOnce(new SchemaNotSyncedError(APP_ID, "patient"))
-			.mockResolvedValueOnce({ childCaseIds: [], operations: [] });
+			.mockResolvedValueOnce({
+				childCaseIds: [],
+				operations: [],
+				blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
+				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+			});
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
 		);
@@ -4911,8 +5087,12 @@ describe("submitFormAction", () => {
 					},
 				},
 				APP_ID,
+				canonicalJsonDigest(toPersistableDoc(doc)),
 			),
-		).toEqual({ kind: "survey" });
+		).toEqual({
+			kind: "survey",
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+		});
 
 		// The heal retries the WHOLE envelope, so the compiler context the
 		// second attempt runs against must be the same object, not a second
@@ -4975,6 +5155,8 @@ describe("submitFormAction", () => {
 		const applySubmission = vi.fn().mockResolvedValueOnce({
 			childCaseIds: [],
 			operations: [],
+			blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 		});
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
@@ -4994,9 +5176,16 @@ describe("submitFormAction", () => {
 			],
 		};
 		const { submitFormAction } = await import("../caseDataBinding");
-		const result = await submitFormAction(mutation, APP_ID);
+		const result = await submitFormAction(
+			mutation,
+			APP_ID,
+			canonicalJsonDigest(toPersistableDoc(doc)),
+		);
 
-		expect(result).toEqual({ kind: "survey" });
+		expect(result).toEqual({
+			kind: "survey",
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+		});
 		expect(applySubmission).toHaveBeenCalledOnce();
 		const envelope = applySubmission.mock.calls[0]?.[0];
 		expect(envelope.ordinary).toEqual({ kind: "none" });
@@ -5080,15 +5269,20 @@ describe("submitFormAction", () => {
 					primaryCaseId: ALICE_CASE_ID,
 					childCaseIds: [VISIT_CASE_ID],
 					operations: [],
+					blueprintDigest: FINAL_BLUEPRINT_DIGEST,
+					caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 				},
 			},
 		});
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		await expect(submitFormAction(mutation, APP_ID)).resolves.toEqual({
+		await expect(
+			submitFormAction(mutation, APP_ID, FINAL_BLUEPRINT_DIGEST),
+		).resolves.toEqual({
 			kind: "registration",
 			caseId: ALICE_CASE_ID,
 			childCaseIds: [VISIT_CASE_ID],
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 		});
 		expect(loadAuthorizedFormSubmissionSnapshotMock).toHaveBeenCalledWith({
 			appId: APP_ID,
@@ -5099,6 +5293,59 @@ describe("submitFormAction", () => {
 		expect(applySubmission).not.toHaveBeenCalled();
 		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
 	});
+
+	it.each([
+		["a historical receipt without a revision", undefined],
+		["a receipt from a different revision", "0".repeat(64)],
+	])(
+		"keeps saved answers but refuses to route %s through the current topology",
+		async (_label, receiptBlueprintDigest) => {
+			const { getSession } = await import("@/lib/auth-utils");
+			vi.mocked(getSession).mockResolvedValueOnce({
+				user: { id: OWNER_A },
+			} as unknown as Awaited<ReturnType<typeof getSession>>);
+			const mutation: SubmissionMutation = {
+				kind: "survey",
+				...FINAL_SUBMISSION_PROTOCOL,
+			};
+			const replayIdentity = previewAsMe({ id: OWNER_A });
+			if (replayIdentity === null) {
+				throw new Error("Expected replay identity.");
+			}
+			const receipt = buildSubmissionReceiptIdentity({
+				appId: APP_ID,
+				identity: replayIdentity,
+				mutation,
+				projection: validateCaptureSubmissionProjection(mutation),
+			});
+			loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
+				kind: "replay",
+				projectId: PROJECT_A,
+				receipt: {
+					formUuid: mutation.formUuid,
+					requestDigest: receipt.requestDigest,
+					result: {
+						childCaseIds: [],
+						operations: [],
+						...(receiptBlueprintDigest === undefined
+							? {}
+							: { blueprintDigest: receiptBlueprintDigest }),
+					},
+				},
+			});
+
+			const { submitFormAction } = await import("../caseDataBinding");
+			await expect(
+				submitFormAction(mutation, APP_ID, FINAL_BLUEPRINT_DIGEST),
+			).resolves.toEqual({
+				kind: "blueprint-changed",
+				message:
+					"Your answers were saved, but this app changed before the next screen could be chosen. Reload the app to continue.",
+			});
+			expect(loadAppMock).not.toHaveBeenCalled();
+			expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
+		},
+	);
 
 	it("rejects changed answers against a receipt before loading current topology", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
@@ -5127,7 +5374,9 @@ describe("submitFormAction", () => {
 		});
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		await expect(submitFormAction(mutation, APP_ID)).resolves.toEqual({
+		await expect(
+			submitFormAction(mutation, APP_ID, FINAL_BLUEPRINT_DIGEST),
+		).resolves.toEqual({
 			kind: "error",
 			message:
 				"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
@@ -5147,11 +5396,14 @@ describe("submitFormAction", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
 		);
+		const committedBlueprint = buildDoc({
+			appName: "Form deleted before acceptance",
+		});
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: buildDoc({ appName: "Form deleted before acceptance" }),
+				blueprint: committedBlueprint,
 				mutation_seq: 18,
 				project_id: PROJECT_A,
 			},
@@ -5177,7 +5429,13 @@ describe("submitFormAction", () => {
 		};
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		await expect(submitFormAction(mutation, APP_ID)).resolves.toMatchObject({
+		await expect(
+			submitFormAction(
+				mutation,
+				APP_ID,
+				canonicalJsonDigest(toPersistableDoc(committedBlueprint)),
+			),
+		).resolves.toMatchObject({
 			kind: "error",
 			message: expect.stringContaining("no longer exists"),
 		});
@@ -5240,6 +5498,7 @@ describe("submitFormAction", () => {
 		const first = await buildSubmissionOperationProgram({
 			appId: APP_ID,
 			committedApp: firstApp,
+			blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 			identity,
 			lookupScope: LOOKUP_SCOPE,
 			mutation,
@@ -5249,6 +5508,7 @@ describe("submitFormAction", () => {
 		const retry = await buildSubmissionOperationProgram({
 			appId: APP_ID,
 			committedApp: retryApp,
+			blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 			identity,
 			lookupScope: LOOKUP_SCOPE,
 			mutation,
@@ -5498,6 +5758,7 @@ describe("loadCasesAction", () => {
 			calculated: {},
 		}));
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(legacyRows),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -5549,6 +5810,7 @@ describe("loadCasesAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery([
 				{ ...buildSyntheticRow({ name: "Alice" }), calculated: {} },
 			]),
@@ -5640,6 +5902,7 @@ describe("loadCasesAction", () => {
 			},
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery([]),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -5688,6 +5951,7 @@ describe("loadCasesAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery([]),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -5735,6 +5999,7 @@ describe("loadCasesAction", () => {
 			},
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery([]),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -5810,6 +6075,7 @@ describe("loadCasesAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -5898,6 +6164,7 @@ describe("loadCaseCountAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(37),
@@ -6072,6 +6339,7 @@ describe("resetSampleCasesAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -6163,6 +6431,7 @@ describe("resetSampleCasesAction", () => {
 			{ path: "/age", message: "must be integer" },
 		];
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -6217,6 +6486,7 @@ describe("resetSampleCasesAction", () => {
 		loadAppMock.mockResolvedValueOnce({ owner: OWNER_A, blueprint });
 		materializeMock.mockResolvedValueOnce(undefined);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery(),
 			queryGrouped: vi.fn(),
 			count: vi.fn(),
@@ -6262,6 +6532,7 @@ describe("loadCaseDataAction session projection", () => {
 			user: { id: OWNER_A, name: "Owner A", email: "owner-a@example.org" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery([
 				{
 					...buildSyntheticRow({ name: "Alice" }),
@@ -6841,6 +7112,7 @@ describe("loadFilterPreviewAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
+			...actionStore(),
 			query: appCaseQuery([]),
 			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(0),

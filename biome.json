@@ -13,6 +13,11 @@
 			"!!**/__fixtures__/*.snapshot.json",
 			"!!config/commcare-classic-languages.json",
 			"!!lib/case-store/migrations/20260728000000_canonical_identity_foundation/*.generated.mjs",
+			"!!lib/preview/xpath/vendor/javaPatternNames.generated.ts",
+			"!!lib/preview/xpath/vendor/javaPatternRuntime.generated.js",
+			"!!scripts/java-pattern-runtime/.gradle",
+			"!!scripts/java-pattern-runtime/.gradle-user",
+			"!!scripts/java-pattern-runtime/build",
 			"!!e2e/.auth",
 			"!!e2e/test-results",
 			"!!e2e/playwright-report"

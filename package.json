@@ -31,6 +31,8 @@
 		"db:dev": "docker compose up -d --wait && NOVA_DB_LOCAL_URL=postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable npm run db:migrate",
 		"db:migrate": "NOVA_DB_WORKLOAD=migration tsx --conditions=react-server scripts/migrate.ts",
 		"db:dev:down": "docker compose down",
+		"verify:java-pattern-runtime": "node scripts/java-pattern-runtime/verify.mjs",
+		"prebuild": "npm run verify:java-pattern-runtime",
 		"build": "NEXT_TELEMETRY_DISABLED=1 next build && tsc --noEmit",
 		"start": "node scripts/start-standalone.mjs",
 		"lint": "biome check --error-on-warnings",

@@ -17,6 +17,13 @@
 // Type inference (typeInfer.ts) and individual transpiler passes
 // (passes/) are implementation details — not exported.
 
+export {
+	analyzeXPathCompatibility,
+	analyzeXPathInstanceCompatibility,
+	type XPathCompatibilityCode,
+	type XPathCompatibilityFinding,
+	type XPathCompatibilityOwner,
+} from "./compatibility";
 export { detectUnquotedStringLiteral } from "./detectUnquotedStringLiteral";
 export {
 	parseXPathExpression,

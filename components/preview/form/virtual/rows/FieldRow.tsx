@@ -219,8 +219,8 @@ export const FieldRow = memo(function FieldRow({
 				<FieldRenderer
 					field={q}
 					state={displayState}
-					onChange={(value) => controller.onValueChange(uuid, value)}
-					onBlur={() => controller.onTouch(uuid)}
+					onChange={(value) => controller.onValueChangeAsync(uuid, value)}
+					onBlur={() => controller.onTouchAsync(uuid)}
 				/>
 			</div>
 		);

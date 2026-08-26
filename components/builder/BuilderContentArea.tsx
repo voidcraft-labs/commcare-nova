@@ -77,7 +77,7 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import type { DesignSessionSeed } from "@/lib/generation/designProgressWire";
-import { useNavigate } from "@/lib/routing/hooks";
+import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useBuilderIsReady,
@@ -183,6 +183,8 @@ export function BuilderContentArea({
 	/* Back navigation for PreviewShell: reads directly from URL hooks
 	 * instead of being threaded as a prop from BuilderLayout. */
 	const navigate = useNavigate();
+	const location = useLocation();
+	const canvasErrorResetKey = JSON.stringify(location);
 
 	/* Layout visibility: these only change on deliberate user interactions
 	 * (sidebar toggle, preview toggle), not on every keystroke or message. */
@@ -488,7 +490,7 @@ export function BuilderContentArea({
 							 *  trail collapses instead of reaching the centered Preview
 							 *  toggle. */}
 							{isReady && hasData && <BreadcrumbStrip />}
-							<ErrorBoundary>
+							<ErrorBoundary resetKey={canvasErrorResetKey}>
 								{isReady && hasData ? (
 									<div className="flex-1 min-h-0">
 										<PreviewShell onBack={() => navigate.back()} />

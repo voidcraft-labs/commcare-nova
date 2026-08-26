@@ -69,8 +69,8 @@ export interface SectionPaging {
 	readonly canGoBack: boolean;
 	readonly isLast: boolean;
 	readonly goBack: () => void;
-	readonly goNext: () => void;
-	readonly goTo: (uuid: Uuid) => void;
+	readonly goNext: () => Promise<void>;
+	readonly goTo: (uuid: Uuid) => Promise<void>;
 	/** Turn to a page without validating anything (submit routing). */
 	readonly showPage: (uuid: Uuid) => void;
 	/** Turn to the first visible page without validating (Clear form). */
@@ -167,8 +167,8 @@ export function useSectionPaging({
 
 	/** Validate one page; on failure refuse, turn to it if needed, reveal. */
 	const pagePasses = useCallback(
-		(page: SectionPage): boolean => {
-			if (controller.validateSection(page.uuid)) return true;
+		async (page: SectionPage): Promise<boolean> => {
+			if (await controller.validateSectionAsync(page.uuid)) return true;
 			const target = controller.firstInvalidFieldTarget({
 				withinSection: page.uuid,
 			});
@@ -180,11 +180,11 @@ export function useSectionPaging({
 		[controller, current?.uuid, refuse, revealInvalid, showPage],
 	);
 
-	const goNext = useCallback(() => {
+	const goNext = useCallback(async () => {
 		if (current === undefined) return;
 		const next = pages[index + 1];
 		if (next === undefined) return;
-		if (!pagePasses(current)) return;
+		if (!(await pagePasses(current))) return;
 		turnTo(next);
 	}, [current, pages, index, pagePasses, turnTo]);
 
@@ -196,12 +196,12 @@ export function useSectionPaging({
 	}, [current, pages, index, turnTo]);
 
 	const goTo = useCallback(
-		(uuid: Uuid) => {
+		async (uuid: Uuid) => {
 			if (current === undefined || uuid === current.uuid) return;
 			const target = pages.find((page) => page.uuid === uuid);
 			if (target === undefined) return;
 			for (const page of pagesToValidate(pages, current.uuid, uuid)) {
-				if (!pagePasses(page)) return;
+				if (!(await pagePasses(page))) return;
 			}
 			turnTo(target);
 		},

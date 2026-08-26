@@ -268,6 +268,8 @@ export type CaseIndexRelationship = "child" | "extension";
 export interface CaseIndicesTable {
 	case_id: string;
 	ancestor_id: string;
+	/** Target type captured when the edge was written, as on Core's CaseIndex. */
+	target_case_type: string;
 	/** `parent`, `host`, or any custom identifier the blueprint defines. */
 	identifier: string;
 	relationship: CaseIndexRelationship;

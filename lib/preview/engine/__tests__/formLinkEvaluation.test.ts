@@ -19,18 +19,31 @@ import {
 	f,
 	xp,
 } from "@/lib/__tests__/docHelpers";
-import type { FormLink } from "@/lib/domain";
+import type { FormLink, LookupColumnId, LookupTableId } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import type {
+	LookupFixtureRow,
+	LookupTableDefinition,
+} from "@/lib/lookup/types";
+import { evaluate } from "../../xpath/evaluator";
+import {
+	createInProcessXPathWorkerFactory,
+	XPathRuntime,
+} from "../../xpath/workerClient";
 import {
 	carriedCaseFor,
 	evaluateFormLinks,
+	evaluateFormLinksAsync,
 	evaluateLinkDatum,
+	evaluateLinkDatumAsync,
 	type FormLinkEvaluationInput,
 	formLinkEvalContext,
+	formLinkWorkerInstances,
 	projectTargetCaseSelections,
 	sourceSessionDatums,
 } from "../formLinkEvaluation";
 import type { PreviewSearchSessionValues } from "../identity";
+import { previewLookupData } from "../lookupEvaluation";
 
 const HOUSEHOLDS = testUuid("mod-households");
 const PATIENTS = testUuid("mod-patients");
@@ -227,6 +240,54 @@ function linkNamed(
 	return link;
 }
 
+describe("form-link worker instances", () => {
+	it("resolves both the suite fixture id and XForm tag for a declared lookup", async () => {
+		const tableId = "018f0000-0000-7000-8000-000000000001" as LookupTableId;
+		const columnId = "018f0000-0000-7000-8000-0000000000c1" as LookupColumnId;
+		const definition: LookupTableDefinition = {
+			id: tableId,
+			name: "Clinics",
+			tag: "clinics",
+			definitionRevision: "1" as LookupTableDefinition["definitionRevision"],
+			columns: [
+				{ id: columnId, wireName: "code", label: "Code", dataType: "text" },
+			],
+		};
+		const row: LookupFixtureRow = {
+			id: "018f0000-0000-7000-8000-0000000000r1" as LookupFixtureRow["id"],
+			values: { [columnId]: "north" },
+		};
+		const lookupData = previewLookupData({
+			projectRevision: "1",
+			definitions: [definition],
+			rowsByTable: new Map([[tableId, [row]]]),
+		});
+		const naming = lookupData.naming.tables[0];
+		if (naming === undefined) throw new Error("Expected lookup naming");
+		const input = inputFor(buildDoc(spec()), {
+			lookupData,
+			caseDatabase: { rows: [], indices: [] },
+		});
+		const runtime = new XPathRuntime({
+			workerFactory: createInProcessXPathWorkerFactory(),
+		});
+		for (const instanceId of [naming.xformInstanceId, naming.fixtureId]) {
+			const source = `instance('${instanceId}')/${naming.listElementName}/${naming.rowElementName}/${naming.columns[0]?.wireName}`;
+			expect(evaluate(source, formLinkEvalContext(input))).toBe("north");
+			await expect(
+				runtime.request({
+					entryKey: "entry",
+					revision: 1,
+					profile: "form-link",
+					source,
+					instances: formLinkWorkerInstances(input, source),
+				}),
+			).resolves.toMatchObject({ ok: true, value: "north" });
+		}
+		runtime.dispose();
+	});
+});
+
 describe("evaluateFormLinks", () => {
 	it("follows the first link whose condition holds", () => {
 		const doc = buildDoc(spec());
@@ -293,6 +354,33 @@ describe("evaluateFormLinks", () => {
 		});
 		expect(choice).toMatchObject({ kind: "link", index: 0 });
 	});
+
+	it("propagates an async condition failure instead of selecting fallback", async () => {
+		const doc = buildDoc(spec());
+		await expect(
+			evaluateFormLinksAsync({
+				links: linksOf(doc, "frm-update"),
+				fallback: "module",
+				input: inputFor(doc),
+				evaluate: async () => {
+					throw new Error("worker failed");
+				},
+			}),
+		).rejects.toThrow("worker failed");
+	});
+
+	it("propagates an async manual-datum failure instead of returning blank", async () => {
+		const doc = buildDoc(spec());
+		await expect(
+			evaluateLinkDatumAsync(
+				{ name: "case_id", xpath: xp("'patient-1'") },
+				inputFor(doc),
+				async () => {
+					throw new Error("worker failed");
+				},
+			),
+		).rejects.toThrow("worker failed");
+	});
 });
 
 describe("formLinkEvalContext", () => {
@@ -304,18 +392,41 @@ describe("formLinkEvalContext", () => {
 			}),
 		);
 		expect(
-			ctx.resolveInstance?.("commcaresession", "/session/context/username"),
-		).toEqual({ kind: "supported", value: "ada" });
+			evaluate("instance('commcaresession')/session/context/username", ctx),
+		).toBe("ada");
 		expect(
-			ctx.resolveInstance?.("commcaresession", "/session/data/case_id"),
-		).toEqual({ kind: "supported", value: "h1" });
+			evaluate("instance('commcaresession')/session/data/case_id", ctx),
+		).toBe("h1");
 		// A datum nothing filled is an absent node, not an error.
 		expect(
-			ctx.resolveInstance?.("commcaresession", "/session/data/usercase_id"),
-		).toEqual({ kind: "supported" });
-		expect(ctx.resolveInstance?.("casedb", "/casedb/case")).toEqual({
-			kind: "unsupported",
+			evaluate("instance('commcaresession')/session/data/usercase_id", ctx),
+		).toBe("");
+		expect(ctx.resolveXPathInstance?.("casedb")).toBeDefined();
+	});
+
+	it("supports structural session predicates and functions after close", () => {
+		const doc = buildDoc(spec());
+		const input = inputFor(doc, {
+			sessionDatums: new Map([
+				["case_id", { value: "h1" }],
+				["patient_id", { value: "p1" }],
+			]),
 		});
+		const [link] = linksOf(doc, "frm-update");
+		if (link === undefined) throw new Error("fixture has no link");
+		const choice = evaluateFormLinks({
+			links: [
+				{
+					...link,
+					condition: xp(
+						"count(instance('commcaresession')/session/data/*[starts-with(., 'p')]) = 1",
+					),
+				},
+			],
+			fallback: "module",
+			input,
+		});
+		expect(choice).toMatchObject({ kind: "link", index: 0 });
 	});
 
 	it("refuses to read the closed form", () => {
@@ -585,6 +696,27 @@ describe("carriedCaseFor", () => {
 				input,
 			),
 		).toBe("p1");
+	});
+
+	it("lets a manual datum aggregate structurally selected session data", () => {
+		const doc = buildDoc(spec());
+		const input = inputFor(doc, {
+			sessionDatums: new Map([
+				["case_id", { value: "h9" }],
+				["patient_id", { value: "p1" }],
+			]),
+		});
+		expect(
+			evaluateLinkDatum(
+				{
+					name: "summary",
+					xpath: xp(
+						"concat(instance('commcaresession')/session/data/case_id, '-', count(instance('commcaresession')/session/data/*))",
+					),
+				},
+				input,
+			),
+		).toBe("h9-2");
 	});
 });
 

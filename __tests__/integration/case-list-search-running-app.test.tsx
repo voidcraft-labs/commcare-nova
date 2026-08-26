@@ -595,6 +595,7 @@ beforeEach(async () => {
 						entryKey: mutation.entryKey,
 						formUuid: asUuid(mutation.formUuid),
 						expectedAppMutationSeq: 0,
+						blueprintDigest: "0".repeat(64),
 						requestDigest: "case-list-running-app-submission",
 					},
 				}),

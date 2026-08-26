@@ -1,4 +1,9 @@
-import type { XPathValue } from "./types";
+import { openJdk17DoubleToString } from "./openJdk17DoubleString";
+import {
+	isXPathNodeSet,
+	unpackXPathRuntimeValue,
+	type XPathRuntimeValue,
+} from "./runtimeValues";
 import { isXPathDate, XPathDate } from "./types";
 
 /**
@@ -17,26 +22,20 @@ import { isXPathDate, XPathDate } from "./types";
  * the ISO string: without it the comparison reads `NaN <= <days>` and
  * every authored date validation fails on every value the user enters.
  *
- * One deliberate extension past the string-for-string mirror: a gate-
- * rejected string still gets a date-parse attempt, so full ISO
- * DATETIMES ("…T21:31:18Z") coerce to their day-number. On-device those
- * values are never strings — casedb hands JavaRosa a typed date the
- * Date arm converts — so "what the device computes" is the datetime's
- * day-number, and preview (where every value IS a string, including the
- * `date_opened`/`last_modified` preloads) must reach the same result.
- * A non-date gate-rejected string ("banana") still fails the parse and
- * lands on NaN, preserving the gate's spec-side rejections.
+ * Casedb timestamps are projected as first-class `XPathDate` values, just as
+ * Core exposes `DateData`. Extending string coercion to compensate for a
+ * wrongly typed projection would make authored datetime string literals
+ * behave differently in Preview and on-device.
  */
-export function toNumber(v: XPathValue): number {
+
+export function toNumber(input: XPathRuntimeValue): number {
+	const v = unpackXPathRuntimeValue(input);
 	if (typeof v === "number") return v;
 	if (typeof v === "boolean") return v ? 1 : 0;
 	if (isXPathDate(v)) return v.days;
 	const trimmed = (v as string).trim();
 	if (trimmed === "") return NaN;
-	if (/[^0-9.-]/.test(trimmed)) {
-		const date = XPathDate.parse(trimmed);
-		return date !== null ? date.days : NaN;
-	}
+	if (/[^0-9.-]/.test(trimmed)) return NaN;
 	const parsed = Number(trimmed);
 	if (!Number.isNaN(parsed)) return parsed;
 	const date = XPathDate.parse(trimmed);
@@ -49,23 +48,35 @@ export function toNumber(v: XPathValue): number {
  * XPathDate emits Core's local ISO date (`YYYY-MM-DD`); even `now()` loses its
  * time component under `FunctionUtils.toString(Date)`.
  */
-export function xpathToString(v: XPathValue): string {
+
+export function xpathToString(input: XPathRuntimeValue): string {
+	const v = unpackXPathRuntimeValue(input);
 	if (typeof v === "string") return v;
 	if (typeof v === "boolean") return v ? "true" : "false";
 	if (isXPathDate(v)) return v.toISOString();
 	/* number */
 	if (Number.isNaN(v)) return "NaN";
-	if (Number.isInteger(v)) return String(v);
-	return String(v);
+	if (Math.abs(v) < 1.0e-12) return "0";
+	if (!Number.isFinite(v)) return v < 0 ? "-Infinity" : "Infinity";
+	if (
+		v >= -2_147_483_648 &&
+		v <= 2_147_483_647 &&
+		Math.abs(v - Math.trunc(v)) < 1.0e-12
+	) {
+		return String(Math.trunc(v));
+	}
+	return openJdk17DoubleToString(v);
 }
 
-/** CommCare's `FunctionUtils.toDouble` differs from ordinary XPath numeric
- * coercion only for Date values: it preserves the local time-of-day as a
- * fractional day instead of rounding to the local calendar day. */
-export function toDouble(v: XPathValue): number {
-	if (!isXPathDate(v)) return toNumber(v);
-	const instant = v.toJSDate();
-	if (v.time === null) return v.days;
+/** CommCare's `FunctionUtils.toDouble` preserves fractional days only when its
+ * DIRECT argument is a Date. A path remains an XPathNodeset at this boundary;
+ * Core sends that wrapper through `toNumeric()`, which unpacks the singleton
+ * and applies whole-day Date coercion. */
+
+export function toDouble(input: XPathRuntimeValue): number {
+	if (isXPathNodeSet(input) || !isXPathDate(input)) return toNumber(input);
+	const instant = input.toJSDate();
+	if (input.time === null) return input.days;
 	const epoch = new Date(1970, 0, 1);
 	const timezoneDriftMs =
 		(instant.getTimezoneOffset() - epoch.getTimezoneOffset()) * 60_000;
@@ -77,7 +88,9 @@ export function toDouble(v: XPathValue): number {
  *
  * Dates are always truthy (matches CommCare core).
  */
-export function toBoolean(v: XPathValue): boolean {
+
+export function toBoolean(input: XPathRuntimeValue): boolean {
+	const v = unpackXPathRuntimeValue(input);
 	if (typeof v === "boolean") return v;
 	if (typeof v === "number") return Math.abs(v) > 1.0e-12 && !Number.isNaN(v);
 	if (isXPathDate(v)) return true;
@@ -93,10 +106,14 @@ export function toBoolean(v: XPathValue): boolean {
  *
  * Returns null if the value can't be interpreted as a date.
  */
-export function toDate(v: XPathValue): XPathDate | null {
+
+export function toDate(input: XPathRuntimeValue): XPathDate | null {
+	const v = unpackXPathRuntimeValue(input);
 	if (isXPathDate(v)) return v;
 	if (typeof v === "number") {
-		if (Number.isNaN(v)) return null;
+		if (!Number.isFinite(v) || v > 2_147_483_647 || v < -2_147_483_648) {
+			return null;
+		}
 		return XPathDate.fromDays(v);
 	}
 	if (typeof v === "string") return XPathDate.parse(v);
@@ -110,11 +127,17 @@ export function toDate(v: XPathValue): XPathDate | null {
  * If either operand is number → compare as numbers.
  * Otherwise compare as strings.
  */
-export function compareEqual(a: XPathValue, b: XPathValue): boolean {
+
+export function compareEqual(
+	aInput: XPathRuntimeValue,
+	bInput: XPathRuntimeValue,
+): boolean {
+	const a = unpackXPathRuntimeValue(aInput);
+	const b = unpackXPathRuntimeValue(bInput);
 	if (typeof a === "boolean" || typeof b === "boolean")
 		return toBoolean(a) === toBoolean(b);
 	if (typeof a === "number" || typeof b === "number")
-		return toNumber(a) === toNumber(b);
+		return Math.abs(toNumber(a) - toNumber(b)) < 1.0e-12;
 	return xpathToString(a) === xpathToString(b);
 }
 
@@ -123,8 +146,8 @@ export function compareEqual(a: XPathValue, b: XPathValue): boolean {
  * Compares as numbers.
  */
 export function compareRelational(
-	a: XPathValue,
-	b: XPathValue,
+	a: XPathRuntimeValue,
+	b: XPathRuntimeValue,
 	op: "<" | "<=" | ">" | ">=",
 ): boolean {
 	const na = toNumber(a);

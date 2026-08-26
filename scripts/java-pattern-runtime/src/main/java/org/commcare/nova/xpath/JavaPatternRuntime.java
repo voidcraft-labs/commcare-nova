@@ -1,0 +1,23 @@
+package org.commcare.nova.xpath;
+
+import org.commcare.nova.xpath.openjdkregex.Matcher;
+import org.commcare.nova.xpath.openjdkregex.Pattern;
+import org.teavm.jso.JSExport;
+
+/** The only Java-to-browser bridge. Matching remains inside the pinned
+ * OpenJDK 17 Pattern and Matcher implementation. */
+public final class JavaPatternRuntime {
+    private JavaPatternRuntime() {
+    }
+
+    @JSExport
+    public static boolean find(String input, String pattern) {
+        return Pattern.compile(pattern).matcher(input).find();
+    }
+
+    @JSExport
+    public static String replaceAllLiteral(String input, String pattern, String replacement) {
+        return Pattern.compile(pattern).matcher(input)
+                .replaceAll(Matcher.quoteReplacement(replacement));
+    }
+}

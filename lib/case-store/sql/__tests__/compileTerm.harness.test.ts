@@ -569,6 +569,7 @@ describe("compileTerm — round-trip — prop (non-self via)", () => {
 			.values({
 				case_id: PATIENT_CASE_ID,
 				ancestor_id: HOUSEHOLD_CASE_ID,
+				target_case_type: "test",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,

@@ -163,6 +163,32 @@ const USER_MESSAGE_BY_CODE: Partial<
 			? `${q(ct)} is a reserved word, so it can't be a case type. Try something more specific, like ${q(`${ct}_record`)}.`
 			: 'That case type uses a reserved word. Try something more specific, like adding "_record".';
 	},
+	CASE_PROPERTY_XPATH_INCOMPATIBLE: () =>
+		"A case property rule uses logic the running app can't evaluate. Edit or remove that rule.",
+	XPATH_INSTANCE_UNAVAILABLE: () =>
+		"A formula reads Project data that isn't available here. Choose an available table or remove that reference.",
+	XPATH_UNBOUND_VARIABLE: () =>
+		"A formula reads a variable that isn't available here. Replace it with a field, case, worker, or Project data reference.",
+	XPATH_UNSUPPORTED_UNION: () =>
+		"A formula combines field sets in a way the running app can't evaluate. Rewrite it as one path or a supported condition.",
+	XPATH_UNSUPPORTED_DESCENDANT: () =>
+		"A formula searches through every nested level, which the running app can't evaluate. Name the full path instead.",
+	XPATH_UNSUPPORTED_FILTER: () =>
+		"A formula filters a calculated result in a way the running app can't evaluate. Move the condition onto a field path.",
+	XPATH_UNSUPPORTED_AXIS: () =>
+		"A formula follows a relationship the running app can't evaluate. Rewrite it with a direct field path.",
+	XPATH_UNSUPPORTED_NODE_TEST: () =>
+		"A formula selects fields in a way the running app can't evaluate. Rewrite it with a named field path.",
+	XPATH_UNSUPPORTED_PATH: () =>
+		"A formula uses a path the running app can't evaluate. Rewrite it with a direct field or data path.",
+	XPATH_CARRIER_CONTEXT_UNAVAILABLE: () =>
+		"An after-submit formula reads the form after it has closed. Save the value to a case property or read session data instead.",
+	XPATH_FUNCTION_UNAVAILABLE: () =>
+		"A formula calls a function that isn't available here. Choose a supported function or rewrite the formula.",
+	XPATH_FUNCTION_SIGNATURE_UNAVAILABLE: () =>
+		"A function in a formula has inputs the running app can't evaluate together. Adjust those inputs or rewrite the formula.",
+	XPATH_FUNCTION_CONTEXT_UNAVAILABLE: () =>
+		"A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.",
 	MISSING_CHILD_CASE_MODULE: (e) => {
 		const ct = det(e, "caseType", "");
 		return ct

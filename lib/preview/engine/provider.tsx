@@ -37,11 +37,41 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { reportClientError } from "@/lib/clientErrorReporter";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
-import { EngineController } from "./engineController";
+import { createBrowserXPathRuntime } from "../xpath/browserWorkerClient";
+import {
+	createInProcessXPathWorkerFactory,
+	XPathRuntime,
+} from "../xpath/workerClient";
+import { EngineController, type EngineRuntimeFault } from "./engineController";
+
+/** Preserve useful originating frames without retaining an exception message
+ * that may contain authored paths, labels, answers, or other user data. */
+function sanitizedEngineFaultError(
+	fault: EngineRuntimeFault,
+	thrown: unknown,
+): Error {
+	const error = new Error(
+		`Preview runtime invariant failed during ${fault.operation}.`,
+	);
+	if (thrown instanceof Error && thrown.stack !== undefined) {
+		/* V8 prefixes the stack with the complete Error message, including any
+		 * embedded newlines. Remove that exact prefix before retaining frames so
+		 * a message containing a fake `at ...` line can never cross the boundary. */
+		const rawHeader = `${thrown.name}: ${thrown.message}`;
+		if (thrown.stack.startsWith(rawHeader)) {
+			const frames = thrown.stack.slice(rawHeader.length);
+			if (/^\n\s+at\s/.test(frames)) {
+				error.stack = `${error.name}: ${error.message}${frames}`;
+			}
+		}
+	}
+	return error;
+}
 
 // ── Context ─────────────────────────────────────────────────────────────
 
@@ -84,7 +114,33 @@ export function BuilderFormEngineProvider({
 	});
 
 	const [controller] = useState(() => {
-		const c = new EngineController();
+		const runtime =
+			typeof Worker === "undefined"
+				? new XPathRuntime({
+						workerFactory: createInProcessXPathWorkerFactory(),
+						requestTimeoutMilliseconds: 30_000,
+					})
+				: createBrowserXPathRuntime({ requestTimeoutMilliseconds: 30_000 });
+		const c = new EngineController(runtime);
+		c.setFaultReporter((fault, thrown) => {
+			const safeError = sanitizedEngineFaultError(fault, thrown);
+			reportClientError(
+				{
+					message: safeError.message,
+					stack: safeError.stack,
+					source: "manual",
+					/* The fixed category + operation group this invariant without
+					 * forwarding any route, app, tenant, case, or user identity. */
+					url: typeof window === "undefined" ? "" : window.location.origin,
+					diagnostics: {
+						component: "preview-engine",
+						operation: fault.operation,
+						failureKind: "runtime-invariant",
+					},
+				},
+				safeError,
+			);
+		});
 		if (docStore) c.setDocStore(docStore);
 		c.setPresentationLanguage(presentationLanguage);
 		c.setPreviewIdentityBlocked(identityState.kind === "persona-unavailable");
@@ -107,6 +163,15 @@ export function BuilderFormEngineProvider({
 			controller.setDocStore(null);
 		};
 	}, [controller, docStore]);
+	/* React Strict Mode replays effect setup-cleanup-setup against the SAME
+	 * state-created controller. Keep cleanup leak-safe but re-armable: terminate
+	 * workers and subscriptions on every cleanup, then reopen the runtime when
+	 * the owner effect mounts again. `dispose()` remains the terminal API for
+	 * non-React owners that can prove the controller will never be reused. */
+	useEffect(() => {
+		controller.resume();
+		return () => controller.suspend();
+	}, [controller]);
 
 	/* Keep the identity in sync with later session changes — the cold
 	 * session resolving after mount, a sign-out broadcast from another

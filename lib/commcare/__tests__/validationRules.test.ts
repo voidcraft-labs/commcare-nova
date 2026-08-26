@@ -1374,16 +1374,12 @@ describe("form_links validation", () => {
 
 // ── Not-yet-modeled feature rejection ───────────────────────────────
 
-describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
+describe("XPATH_INSTANCE_UNAVAILABLE", () => {
 	/**
 	 * Nova's wire layer only declares `<instance>` elements for the
-	 * closed set the InstanceTracker / suite accumulator know about
-	 * (casedb, commcaresession, and a few remote-request-side ids).
-	 * Any `instance('<id>')` reference outside that set in a field's
-	 * XPath surface would compile to a form whose `<instance>` block is
-	 * missing the matching declaration, surfaced on device as "A part
-	 * of your application is invalid." The validator rejects this at
-	 * authoring time so the user sees the error in the editor.
+	 * Raw XPath admits only stable structural instance ids. Lookup tables are
+	 * represented by typed UUID-bearing carriers; admitting their mutable wire
+	 * names here would let a rename strand otherwise undiscoverable raw text.
 	 */
 
 	function surveyWithFieldCalculate(expr: string): BlueprintDoc {
@@ -1398,12 +1394,9 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 			surveyWithFieldCalculate("instance('item-list:countries')/list/item/id"),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		const fixture = errors.find(
-			(e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED",
-		);
+		const fixture = errors.find((e) => e.code === "XPATH_INSTANCE_UNAVAILABLE");
 		expect(fixture).toBeDefined();
-		expect(fixture?.message).toContain("item-list:countries");
-		expect(fixture?.message).toContain("data table lookup");
+		expect(fixture?.message).not.toContain("item-list:countries");
 	});
 
 	it("rejects instance('commcare:reports') in a calculate", () => {
@@ -1411,7 +1404,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 			surveyWithFieldCalculate("instance('commcare:reports')/foo"),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
+		expect(errors.some((e) => e.code === "XPATH_INSTANCE_UNAVAILABLE")).toBe(
 			true,
 		);
 	});
@@ -1421,7 +1414,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 			surveyWithFieldCalculate("instance('commcare-reports:abc')/x"),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
+		expect(errors.some((e) => e.code === "XPATH_INSTANCE_UNAVAILABLE")).toBe(
 			true,
 		);
 	});
@@ -1438,7 +1431,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 			]);
 			expect(
 				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-					(e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED",
+					(e) => e.code === "XPATH_INSTANCE_UNAVAILABLE",
 				),
 			).toBe(true);
 		});
@@ -1451,7 +1444,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 			),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
+		expect(errors.some((e) => e.code === "XPATH_INSTANCE_UNAVAILABLE")).toBe(
 			false,
 		);
 	});
@@ -1463,7 +1456,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 			),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
+		expect(errors.some((e) => e.code === "XPATH_INSTANCE_UNAVAILABLE")).toBe(
 			false,
 		);
 	});
@@ -1473,7 +1466,7 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 			surveyDoc([f({ kind: "text", id: "q1", label: proseText("Q") })]),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
+		expect(errors.some((e) => e.code === "XPATH_INSTANCE_UNAVAILABLE")).toBe(
 			false,
 		);
 	});

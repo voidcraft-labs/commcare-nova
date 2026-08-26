@@ -148,6 +148,7 @@ import {
 	type SearchInputValues,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
+import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 /**
  * Default row count for `populateSampleCasesAction`. 30 rows is
@@ -1021,6 +1022,29 @@ export async function readCaseData(
 }
 
 /**
+ * Read the complete casedb population the selected worker's device would
+ * receive. `restoreScope` is mandatory: this helper is exclusively a running
+ * app projection and must never degrade to the Project-wide authoring view.
+ *
+ * This does not partition through the active Blueprint catalog: a device
+ * restore may retain rows of retired case types, and casedb contains the whole
+ * restore. The tenant-bound store applies the SQL restore closure across all
+ * types and returns rows plus direct indices from one repeatable-read snapshot.
+ */
+export async function readCaseDatabaseSnapshot(
+	store: CaseStore,
+	args: {
+		readonly appId: string;
+		readonly restoreScope: RestoreScope;
+	},
+): Promise<CaseDatabaseSnapshot> {
+	return store.readDeviceCaseDatabase({
+		appId: args.appId,
+		restoreScope: args.restoreScope,
+	});
+}
+
+/**
  * Hard ceiling on the ancestor walk's hop count. `ancestorDepth`
  * arrives from the client (the form's reachable-chain depth), so the
  * clamp bounds the per-hop SELECTs a crafted request could demand.
@@ -1292,6 +1316,7 @@ export function buildSubmissionReceiptIdentity(args: {
 export async function buildSubmissionOperationProgram(args: {
 	readonly appId: string;
 	readonly committedApp: Pick<AppDoc, "blueprint" | "mutation_seq">;
+	readonly blueprintDigest: string;
 	readonly identity: ResolvedPreviewIdentity;
 	readonly lookupScope: LookupScope;
 	readonly mutation: SubmissionMutation;
@@ -1359,6 +1384,7 @@ export async function buildSubmissionOperationProgram(args: {
 			submissionReceipt: {
 				...receiptIdentity,
 				expectedAppMutationSeq: app.mutation_seq,
+				blueprintDigest: args.blueprintDigest,
 			},
 		};
 	}
@@ -1375,6 +1401,7 @@ export async function buildSubmissionOperationProgram(args: {
 		submissionReceipt: {
 			...receiptIdentity,
 			expectedAppMutationSeq: app.mutation_seq,
+			blueprintDigest: args.blueprintDigest,
 		},
 		captureIntent: {
 			...captureIntentWithoutDigest,
@@ -2356,6 +2383,11 @@ export function schemaHealingCaseStore(
 		withSchemaHeal(args, run);
 	return {
 		query: (a) => heal(() => store.query(a)),
+		// Un-healed: this raw restore read does not consult a case-type schema,
+		// compile typed properties, or write. It therefore cannot raise the
+		// missing/stale-schema signals the wrapper remedies.
+		readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
+		readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
 		queryGrouped: (a) => heal(() => store.queryGrouped(a)),
 		count: (a) => heal(() => store.count(a)),
 		insert: (a) => heal(() => store.insert(a)),

@@ -110,9 +110,10 @@ steps:
       - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID
       - --output=/workspace/image.env
 
-  # Fail closed on the maintenance cleanup posture before the first Job can
-  # mutate storage or Postgres. The capture-cleanup step repeats this check
-  # immediately before it updates the scheduler-facing Job.
+  # Resolve the service scaling posture before configuring deployment Jobs.
+  # Manual zero can be a partially recovered admission cutover, so do not
+  # require its other maintenance axes here: xpath-admission-cutover owns their
+  # full convergence once the exact-image session-fence Job is configured.
   - id: deployment-prestate
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
@@ -125,20 +126,13 @@ steps:
           --project="$PROJECT_ID" \
           --region=us-central1 \
           --service=commcare-nova)"
-        if [[ "$${service_prestate}" == manual-zero ]]; then
-          scheduler_state="$$(gcloud scheduler jobs describe \
-            commcare-nova-capture-cleanup \
-            --location=us-central1 \
-            --project="$PROJECT_ID" \
-            --format='value(state)')"
-          if [[ "$${scheduler_state}" != PAUSED ]]; then
-            echo "Maintenance requires a pre-existing PAUSED cleanup scheduler." >&2
+        case "$${service_prestate}" in
+          automatic|manual-zero) ;;
+          *)
+            echo "Unknown service scaling prestate $${service_prestate}." >&2
             exit 1
-          fi
-        elif [[ "$${service_prestate}" != automatic ]]; then
-          echo "Unknown service scaling prestate $${service_prestate}." >&2
-          exit 1
-        fi
+            ;;
+        esac
 
   # The complete media-bucket retention policy and signed-upload CORS are
   # release prerequisites, not a manual runbook. This create-or-update Job
@@ -181,7 +175,7 @@ steps:
   # identity + network: the IAM service account and Direct VPC Egress (private-IP
   # Cloud SQL). The etag-bound v2 execution helper fails the build on any
   # generation/image mismatch or non-zero task result.
-  - id: migrate
+  - id: configure-migrate
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
     args:
@@ -201,6 +195,49 @@ steps:
           --memory=8Gi --cpu=4 \
           --max-retries=0 \
           --task-timeout=3000
+  # The v1 XPath carrier gate is an admission cutover, not only a database
+  # scan. On its first deployment, drain the old revision and every independent
+  # case writer BEFORE the migration verifies the fleet, then keep ingress
+  # detached until the exact candidate is Ready. The label makes this a
+  # one-time cutover and is written only after deployment
+  # reaches terminal success; a failed deployment remains in recoverable
+  # manual-zero maintenance and a retry reuses and re-verifies that posture.
+  - id: xpath-admission-cutover
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        source /workspace/image.env
+        deployed_gate="$$(gcloud run services describe commcare-nova \
+          --region=us-central1 \
+          --project="$PROJECT_ID" \
+          --format=json \
+          | python3 -c 'import json, sys; print(json.load(sys.stdin).get("metadata", {}).get("labels", {}).get("nova-xpath-carrier-gate", ""))')"
+        if [[ "$${deployed_gate}" != v1 ]]; then
+          python3 scripts/rollout/deploy-cloud-run.py \
+            --enter-maintenance \
+            --project="$PROJECT_ID" \
+            --region=us-central1 \
+            --service=commcare-nova \
+            --image="$${NOVA_IMMUTABLE_IMAGE}" \
+            --expected-min=1 \
+            --expected-max=4 \
+            --maintenance-backend-service=nova-backend \
+            --maintenance-neg=nova-neg \
+            --maintenance-cleanup-scheduler=commcare-nova-capture-cleanup \
+            --maintenance-session-fence-job=commcare-nova-migrate
+        fi
+
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        source /workspace/image.env
         python3 scripts/rollout/deploy-cloud-run.py \
           --execute-job \
           --project="$PROJECT_ID" \
@@ -420,6 +457,24 @@ steps:
           --no-cpu-throttling \
           --update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest \
           --startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24
+
+  # Record the one-time admission cutover only after deploy-cloud-run has
+  # reached its terminal state: exact candidate Ready and owning all traffic,
+  # automatic scaling restored, ingress attached, and cleanup resumed. If this
+  # metadata write fails, the next build safely repeats the maintenance entry
+  # and migration instead of trusting a partially deployed candidate.
+  - id: xpath-admission-cutover-complete
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update
+      - commcare-nova
+      - --region=us-central1
+      - --project=$PROJECT_ID
+      - --update-labels=nova-xpath-carrier-gate=v1
+      - --quiet
 
   # Configure, but DO NOT execute, the one-off repair for valid apps created by
   # the former pre-plan build flow. The Job is pinned to the image that now owns

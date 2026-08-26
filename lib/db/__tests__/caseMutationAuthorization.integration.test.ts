@@ -80,6 +80,7 @@ describe("case mutation authorization", () => {
 			entryKey: crypto.randomUUID(),
 			formUuid: testUuid(crypto.randomUUID()),
 			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
 			requestDigest: "authorized-text-registration",
 		};
 		const first = await store().applySubmission({
@@ -125,6 +126,7 @@ describe("case mutation authorization", () => {
 					entryKey: crypto.randomUUID(),
 					formUuid: receipt.formUuid,
 					expectedAppMutationSeq: 0,
+					blueprintDigest: "0".repeat(64),
 					requestDigest: "stale-new-text-registration",
 				},
 				ordinary: {
@@ -158,7 +160,7 @@ describe("case mutation authorization", () => {
 		expect(receipts).toEqual([
 			{
 				entry_key: receipt.entryKey,
-				result: first,
+				result: JSON.parse(JSON.stringify(first)),
 			},
 		]);
 	});

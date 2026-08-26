@@ -1215,13 +1215,15 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				setPreviewCaseTarget(target: PreviewCaseTarget | undefined) {
 					const current = get().previewCaseTarget;
-					/* Shallow no-op guard — the three fields fully describe the
-					 * target, so equal formUuid + caseId + caseName means nothing
-					 * changed. */
+					/* Shallow no-op guard. The post-submit snapshots are immutable
+					 * references, so reference equality means the carried device world
+					 * is unchanged too. */
 					if (
 						current?.formUuid === target?.formUuid &&
 						current?.caseId === target?.caseId &&
-						current?.caseName === target?.caseName
+						current?.caseName === target?.caseName &&
+						current?.caseData === target?.caseData &&
+						current?.caseDatabase === target?.caseDatabase
 					) {
 						return;
 					}

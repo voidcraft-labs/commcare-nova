@@ -84,7 +84,9 @@ import {
 	type FieldLocation,
 } from "@/lib/commcare/xform/caseOps";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
+import { xformDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { collectInstanceRefs } from "@/lib/commcare/xform/instanceRefs";
 import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
@@ -192,7 +194,10 @@ class InstanceTracker {
 	 * reference is a per-type ref would emit a casedb lookup with no instance
 	 * declaration, an invalid form JavaRosa rejects at install.
 	 */
-	constructor(private caseTypeNames: ReadonlySet<string>) {}
+	constructor(
+		private caseTypeNames: ReadonlySet<string>,
+		private lookupNaming: LookupWireNaming | undefined,
+	) {}
 
 	require(id: InstanceId): void {
 		this.ids.add(id);
@@ -206,15 +211,31 @@ class InstanceTracker {
 
 	/** Scan a pre-expansion XPath expression for instance references. */
 	scanXPath(expr: string): void {
-		if (
-			expr.includes("#user/") ||
-			expr.includes("instance('casedb')") ||
-			this.referencesCaseType(expr)
-		) {
+		if (expr.includes("#user/") || this.referencesCaseType(expr)) {
 			this.require("casedb");
 		}
-		if (expr.includes("instance('commcaresession')")) {
-			this.require("commcaresession");
+
+		for (const id of collectInstanceRefs(expr)) {
+			if (id === "casedb" || id === "commcaresession") {
+				this.require(id);
+				continue;
+			}
+
+			const table = this.lookupNaming?.tables.find(
+				(candidate) => candidate.xformInstanceId === id,
+			);
+			if (table !== undefined) {
+				this.requireFixture(id, lookupFixtureSrc(table.fixtureId));
+				continue;
+			}
+
+			// Deep validation admits only structural instances and lookup tags from
+			// the exact definitions snapshot used for this emission. Keep this
+			// boundary fail-closed too, so a caller cannot bypass the commit gate and
+			// produce an XForm with a runtime-missing secondary instance.
+			throw new Error(
+				"XForm XPath references an undeclared secondary instance. Validation must reject it before emission.",
+			);
 		}
 	}
 
@@ -472,7 +493,7 @@ export function buildXForm(
 	);
 	const caseTypeNames: ReadonlySet<string> = new Set(caseTypeDepths.keys());
 
-	const instances = new InstanceTracker(caseTypeNames);
+	const instances = new InstanceTracker(caseTypeNames, opts.lookupNaming);
 	const lookupSelects = deriveLookupSelectKit(doc, formUuid, opts.lookupNaming);
 	const dataElements: Element[] = [];
 	const binds: Element[] = [];
@@ -687,9 +708,7 @@ export function buildXForm(
 	dataElements.push(...connectParts.dataElements);
 	binds.push(...connectParts.binds);
 
-	// Form name lowered to a slug for the `<data name>` attribute — the same
-	// normalization the prior emitter applied.
-	const dataName = form.name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+	const dataRootRuntimeAttributes = xformDataRootRuntimeAttributes(form.name);
 
 	// Assemble the model: primary instance (the data tree), then the
 	// accumulated secondary instances, binds, setvalues, and the itext block.
@@ -701,9 +720,7 @@ export function buildXForm(
 		{
 			xmlns: opts.xmlns,
 			"xmlns:jrm": "http://dev.commcarehq.org/jr/xforms",
-			uiVersion: "1",
-			version: "1",
-			name: dataName,
+			...dataRootRuntimeAttributes,
 		},
 		dataElements,
 	);

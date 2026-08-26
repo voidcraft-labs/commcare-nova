@@ -172,6 +172,7 @@ async function seedCaseIndex(
 		.values({
 			case_id: seed.case_id,
 			ancestor_id: seed.ancestor_id,
+			target_case_type: "test",
 			identifier: seed.identifier,
 			relationship: seed.relationship ?? "child",
 			depth: seed.depth ?? 1,
