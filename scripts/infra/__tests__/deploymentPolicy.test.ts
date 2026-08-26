@@ -249,6 +249,8 @@ describe("durable deployment policy", () => {
 		expect(deployPolicy).toContain("_run_all_recovery_actions");
 		expect(deployPolicy).toContain("attempted_recovery_actions =");
 		expect(deployPolicy).toContain('"--scaling=auto"');
+		expect(deployPolicy).toContain('f"--min={args.expected_min}"');
+		expect(deployPolicy).toContain('f"--max={args.expected_max}"');
 		expect(deployPolicy).toContain("NOVA_DEPLOY_PRESTATE=");
 		expect(deployPolicy).toContain("NOVA_DEPLOY_CANDIDATE=");
 		expect(deployPolicy).toContain("NOVA_DEPLOY_RESULT=");

@@ -1147,6 +1147,22 @@ def _resume_cleanup(args: argparse.Namespace) -> None:
         fail("Maintenance exit did not resume capture cleanup.")
 
 
+def _automatic_scaling_update_command(args: argparse.Namespace) -> list[str]:
+    return [
+        "gcloud",
+        "run",
+        "services",
+        "update",
+        args.service,
+        f"--region={args.region}",
+        f"--project={args.project}",
+        "--scaling=auto",
+        f"--min={args.expected_min}",
+        f"--max={args.expected_max}",
+        "--quiet",
+    ]
+
+
 def _recover_maintenance(
     args: argparse.Namespace,
     api: CloudRunApi,
@@ -1318,6 +1334,35 @@ def _policy_self_test() -> None:
         expected_min=1,
         expected_max=4,
     )
+    _expect_policy_failure(
+        lambda: assert_scaling(
+            {"scaling": {"scalingMode": "AUTOMATIC"}},
+            "automatic",
+            expected_min=1,
+            expected_max=4,
+        ),
+        "automatic scaling without exact bounds",
+    )
+    automatic_args = argparse.Namespace(
+        service="s",
+        region="r",
+        project="p",
+        expected_min=1,
+        expected_max=4,
+    )
+    assert _automatic_scaling_update_command(automatic_args) == [
+        "gcloud",
+        "run",
+        "services",
+        "update",
+        "s",
+        "--region=r",
+        "--project=p",
+        "--scaling=auto",
+        "--min=1",
+        "--max=4",
+        "--quiet",
+    ]
     _expect_policy_failure(
         lambda: scaling_prestate(
             {"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 1}}
@@ -1825,19 +1870,7 @@ def _deploy_mode(args: argparse.Namespace) -> None:
             )
         )
 
-        _run(
-            [
-                "gcloud",
-                "run",
-                "services",
-                "update",
-                args.service,
-                f"--region={args.region}",
-                f"--project={args.project}",
-                "--scaling=auto",
-                "--quiet",
-            ]
-        )
+        _run(_automatic_scaling_update_command(args))
 
         def automatic_without_revision() -> dict[str, Any]:
             service = api.service()
