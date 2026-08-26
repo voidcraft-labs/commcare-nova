@@ -387,12 +387,14 @@ steps:
   # maintenance cutover's manual-zero state. `gcloud run deploy` deliberately
   # receives no `--scaling` flag, then the policy proves the exact immutable
   # candidate is Ready at 100% with no tags before a separate scaling-only
-  # `--scaling=auto` update. That last update must create no revision.
+  # `--scaling=auto --min=1 --max=4` update. That last update must create no
+  # revision. The bounds must be repeated: `--scaling=auto` alone resets the
+  # service-level range to Cloud Run's defaults instead of restoring 1..4.
   #
   # Both service-level and revision-level min/max bounds are pinned. Manual
   # scaling ignores them while the maintenance candidate passes its deployment
-  # health check; returning to automatic scaling restores the exact 1..4
-  # service range without a second revision.
+  # health check; returning to automatic scaling explicitly restores the exact
+  # 1..4 service range without a second revision.
   #
   # `--no-cpu-throttling` (CPU always allocated) is REQUIRED, not tuning: the
   # Cloud SQL connector refreshes its short-lived ephemeral mTLS certificate on
