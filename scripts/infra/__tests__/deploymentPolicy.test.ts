@@ -79,7 +79,7 @@ describe("durable deployment policy", () => {
 		expect(xpathCarrierVerifier).not.toContain("sameAppVersions");
 	});
 
-	test("verifies the reviewed Java Pattern runtime before every production build", () => {
+	test("verifies the reviewed Java compatibility runtime before every production build", () => {
 		expect(packageScripts["verify:java-pattern-runtime"]).toBe(
 			"node scripts/java-pattern-runtime/verify.mjs",
 		);
@@ -102,7 +102,7 @@ describe("durable deployment policy", () => {
 				"lib/preview/xpath/vendor/javaPatternRuntime.generated.js",
 				"utf8",
 			),
-		).toMatch(/^\/\*! OpenJDK 17 Pattern derivative/);
+		).toMatch(/^\/\*! OpenJDK 17 Pattern and fdlibm derivative/);
 		expect(
 			execFileSync("node", ["scripts/java-pattern-runtime/verify.mjs"], {
 				encoding: "utf8",

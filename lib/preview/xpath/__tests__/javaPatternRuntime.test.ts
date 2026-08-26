@@ -5,7 +5,7 @@ import {
 	javaRosaReplace,
 } from "../javaPatternRuntime";
 
-describe("Java Pattern runtime", () => {
+describe("Java compatibility runtime", () => {
 	it("pins OpenJDK 17 fdlibm power results instead of host JavaScript math", () => {
 		expect(javaRosaPow(10, 23)).toBe(1e23);
 		expect(javaRosaPow(2, -1074)).toBe(Number.MIN_VALUE);
