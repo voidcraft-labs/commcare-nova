@@ -1033,6 +1033,27 @@ def _detach_ingress(args: argparse.Namespace) -> None:
     )
 
 
+def _attach_ingress(args: argparse.Namespace) -> None:
+    if _ingress_attached(args):
+        return
+    _run(
+        [
+            "gcloud",
+            "compute",
+            "backend-services",
+            "add-backend",
+            args.maintenance_backend_service,
+            "--global",
+            f"--network-endpoint-group={args.maintenance_neg}",
+            f"--network-endpoint-group-region={args.region}",
+            f"--project={args.project}",
+            "--quiet",
+        ]
+    )
+    if not _ingress_attached(args):
+        fail("Maintenance exit did not restore the public serverless NEG.")
+
+
 def _restore_manual_zero(args: argparse.Namespace, api: CloudRunApi) -> None:
     before_service = api.service()
     before_revisions = revision_names(api.revisions())
@@ -1096,6 +1117,28 @@ def _pause_cleanup(args: argparse.Namespace) -> None:
     )
     if _scheduler_state(args) != "PAUSED":
         fail("Capture-cleanup recovery did not restore PAUSED.")
+
+
+def _resume_cleanup(args: argparse.Namespace) -> None:
+    state = _scheduler_state(args)
+    if state == "ENABLED":
+        return
+    if state != "PAUSED":
+        fail(f"Cannot resume cleanup from scheduler state {state!r}.")
+    _run(
+        [
+            "gcloud",
+            "scheduler",
+            "jobs",
+            "resume",
+            args.maintenance_cleanup_scheduler,
+            f"--location={args.region}",
+            f"--project={args.project}",
+            "--quiet",
+        ]
+    )
+    if _scheduler_state(args) != "ENABLED":
+        fail("Maintenance exit did not resume capture cleanup.")
 
 
 def _recover_maintenance(
@@ -1175,6 +1218,22 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         parser.add_argument("--output", required=True)
         values = parser.parse_args(argv)
         values.mode = "resolve-image"
+        return values
+    if argv[:1] == ["--enter-maintenance"]:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--enter-maintenance", action="store_true")
+        parser.add_argument("--project", required=True)
+        parser.add_argument("--region", required=True)
+        parser.add_argument("--service", required=True)
+        parser.add_argument("--image", required=True)
+        parser.add_argument("--expected-min", type=int, required=True)
+        parser.add_argument("--expected-max", type=int, required=True)
+        parser.add_argument("--maintenance-backend-service", required=True)
+        parser.add_argument("--maintenance-neg", required=True)
+        parser.add_argument("--maintenance-cleanup-scheduler", required=True)
+        parser.add_argument("--maintenance-session-fence-job", required=True)
+        values = parser.parse_args(argv)
+        values.mode = "enter-maintenance"
         return values
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
@@ -1575,6 +1634,63 @@ def _execute_job_mode(args: argparse.Namespace) -> None:
     )
 
 
+def _enter_maintenance_mode(args: argparse.Namespace) -> None:
+    for label in (
+        "project",
+        "region",
+        "service",
+        "maintenance_backend_service",
+        "maintenance_neg",
+        "maintenance_cleanup_scheduler",
+        "maintenance_session_fence_job",
+    ):
+        value = getattr(args, label)
+        if not RESOURCE_PART_RE.fullmatch(value):
+            fail(f"Invalid maintenance {label.replace('_', '-')}: {value!r}.")
+    if args.expected_min < 0 or args.expected_max < args.expected_min:
+        fail("Expected Cloud Run min/max scaling bounds are invalid.")
+    _immutable_image(args.image)
+    api = CloudRunApi(args.project, args.region, args.service)
+    prestate = scaling_prestate(api.service())
+    if prestate == "manual-zero":
+        # A retry can arrive after any recovery action failed. Manual-zero
+        # proves only the scaling axis, so re-converge every maintenance axis
+        # (including the exact-image session fence) before the fleet verifier
+        # is allowed to proceed. The recovery runner attempts every action even
+        # when an earlier one fails, leaving a later retry able to converge.
+        _recover_maintenance(args, api, "manual-zero")
+    elif prestate == "automatic":
+        try:
+            # Stop independent writers first, remove public admission, then
+            # drain instances and terminate any database sessions that survived
+            # the scale transition. A failure converges to the same fail-closed
+            # maintenance posture as a failed candidate deployment.
+            _pause_cleanup(args)
+            _detach_ingress(args)
+            _restore_manual_zero(args, api)
+            _terminate_runtime_sessions(args)
+            _assert_maintenance_posture(args, api)
+        except BaseException as original_error:
+            try:
+                _recover_maintenance(args, api, "manual-zero")
+            except BaseException as recovery_error:
+                raise BaseExceptionGroup(
+                    "Maintenance entry and fail-closed recovery both failed.",
+                    [original_error, recovery_error],
+                ) from original_error
+            raise
+    else:
+        fail(f"Cannot enter maintenance from scaling state {prestate!r}.")
+    print(
+        "NOVA_MAINTENANCE_ENTERED="
+        + json.dumps(
+            {"image": args.image, "prestate": prestate},
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+
+
 def _deploy_mode(args: argparse.Namespace) -> None:
     for label in (
         "project",
@@ -1732,6 +1848,10 @@ def _deploy_mode(args: argparse.Namespace) -> None:
                 fail(
                     "Automatic scaling changed the maintenance ingress or cleanup posture."
                 )
+            _attach_ingress(args)
+            phase = "ingress-attached"
+            _resume_cleanup(args)
+            phase = "cleanup-enabled"
         success = True
         phase = TERMINAL_PHASE
         print(
@@ -1777,6 +1897,9 @@ def main(argv: Sequence[str]) -> None:
         return
     if args.mode == "execute-job":
         _execute_job_mode(args)
+        return
+    if args.mode == "enter-maintenance":
+        _enter_maintenance_mode(args)
         return
     if args.mode == "resolve-image":
         _resolve_mode(args)

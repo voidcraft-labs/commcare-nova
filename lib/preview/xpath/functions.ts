@@ -1,18 +1,40 @@
-import { PREVIEW_NATIVE_FUNCTIONS } from "@/lib/commcare/xpath/functionCapabilities";
+import { FUNCTION_REGISTRY } from "@/lib/commcare/validator/functionRegistry";
+import { JAVAROSA_PATH_INITIALIZERS } from "@/lib/commcare/xpath/functionCapabilities";
 import { toBoolean, toDate, toDouble, toNumber, xpathToString } from "./coerce";
 import { formatCommCareDate } from "./dateFormatting";
-import type { XPathFunctionInvocation, XPathValue } from "./types";
+import { javaRosaPow } from "./javaPatternRuntime";
+import { javaRosaFormatDateForCalendar } from "./javaRosaAlternateCalendar";
+import {
+	javaRosaClosestPointOnPolygon,
+	javaRosaDistance,
+	javaRosaIsPointInsidePolygon,
+} from "./javaRosaGeo";
+import { javaRosaSplitOnSpaces } from "./javaString";
+import { nodeSetJavaRosaFunctions } from "./nodeSetJavaRosaFunctions";
+import {
+	unpackXPathRuntimeValue,
+	type XPathRuntimeValue,
+} from "./runtimeValues";
+import { scalarJavaRosaFunctions } from "./scalarJavaRosaFunctions";
+import type { XPathFunctionInvocation } from "./types";
 import { isXPathDate, XPathDate } from "./types";
 
-type XPathFn = (args: XPathValue[]) => XPathValue;
+export interface XPathFunctionContext {
+	readonly locale?: string;
+}
+
+type XPathFn = (
+	args: XPathRuntimeValue[],
+	context?: XPathFunctionContext,
+) => XPathRuntimeValue;
 
 /** Registry of supported XPath/CommCare functions. */
 const registry = new Map<string, XPathFn>();
 
 function register(name: string, fn: XPathFn) {
-	if (!PREVIEW_NATIVE_FUNCTIONS.has(name)) {
+	if (!FUNCTION_REGISTRY.has(name) || JAVAROSA_PATH_INITIALIZERS.has(name)) {
 		throw new Error(
-			`Preview registered ${name}(), but the XPath carrier contract does not classify it as implemented.`,
+			`Preview registered ${name}(), but the authored XPath contract does not admit it as an ordinary function.`,
 		);
 	}
 	registry.set(name, fn);
@@ -32,14 +54,19 @@ export function registeredPreviewFunctions(): ReadonlySet<string> {
  */
 export function invokeFunction(
 	name: string,
-	args: XPathValue[],
+	args: XPathRuntimeValue[],
+	context?: XPathFunctionContext,
 ): XPathFunctionInvocation {
+	/* User-authored Java Pattern calls belong to the async worker. The sync
+	 * evaluator gets one further chance through its generated-pattern seam,
+	 * which accepts only Nova's finite, reviewed machine output. */
+	if (name === "regex" || name === "replace") return { kind: "unsupported" };
 	if (!registry.has(name)) return { kind: "unsupported" };
 
 	const fn = registry.get(name);
 	if (typeof fn !== "function") return { kind: "unsupported" };
 
-	return { kind: "handled", value: fn(args) };
+	return { kind: "handled", value: fn(args, context) };
 }
 
 // ── Boolean / Logic ──────────────────────────────────────────────────
@@ -134,18 +161,13 @@ register("join", (args) => {
 // ── CommCare selected() — multi-select check ────────────────────────
 
 register("selected", (args) => {
-	const value = xpathToString(args[0] ?? "");
-	const option = xpathToString(args[1] ?? "").trim();
+	const value = requireJavaString(args[0] ?? "", "selected", 1);
+	const option = requireJavaString(args[1] ?? "", "selected", 2).trim();
 	return ` ${value} `.includes(` ${option} `);
 });
 register("count-selected", (args) => {
-	const value = xpathToString(args[0] ?? "");
-	if (value === "") return 0;
-	const entries = value.split(/ +/);
-	while (entries.length > 0 && entries[entries.length - 1] === "") {
-		entries.pop();
-	}
-	return entries.length;
+	const value = requireJavaString(args[0] ?? "", "count-selected", 1);
+	return javaRosaSplitOnSpaces(value).length;
 });
 register("selected-at", (args) => {
 	// Mirrors commcare-core `XPathSelectedAtFunc.selectedAt`: the selection
@@ -154,12 +176,9 @@ register("selected-at", (args) => {
 	// out-of-range index THROWS — the device errors the evaluating screen
 	// rather than rendering an empty string, and Preview must fail the same
 	// way instead of green-lighting an expression that crashes the real app.
-	const selection = xpathToString(args[0] ?? "");
+	const selection = requireJavaString(args[0] ?? "", "selected-at", 1);
 	const index = javaIntValue(toNumber(args[1] ?? 0));
-	const entries = selection === "" ? [] : selection.split(/ +/);
-	while (entries.length > 0 && entries[entries.length - 1] === "") {
-		entries.pop();
-	}
+	const entries = javaRosaSplitOnSpaces(selection);
 	if (index < 0 || entries.length <= index) {
 		throw new Error(
 			`Attempting to select element ${index} of a list with only ${entries.length} elements.`,
@@ -167,6 +186,18 @@ register("selected-at", (args) => {
 	}
 	return entries[index];
 });
+
+function requireJavaString(
+	value: XPathRuntimeValue,
+	name: string,
+	position: number,
+): string {
+	const unpacked = unpackXPathRuntimeValue(value);
+	if (typeof unpacked !== "string") {
+		throw new Error(`${name}() argument #${position} must be a string.`);
+	}
+	return unpacked;
+}
 
 // ── Coalesce ────────────────────────────────────────────────────────
 
@@ -178,12 +209,24 @@ register("coalesce", (args) => {
 	return "";
 });
 
+// `cond()` is evaluated lazily by evaluator.ts before ordinary eager
+// dispatch reaches this table. Register the specialized implementation name
+// here so the executable inventory still proves every admitted function has
+// an owning runtime path.
+register("cond", () => {
+	throw new Error(
+		"cond() must be evaluated through the lazy XPath dispatcher.",
+	);
+});
+
 // ── Math ────────────────────────────────────────────────────────────
 
 register("ceiling", (args) => Math.ceil(toDouble(args[0] ?? "")));
 register("floor", (args) => Math.floor(toDouble(args[0] ?? "")));
 register("abs", (args) => Math.abs(toDouble(args[0] ?? "")));
-register("pow", (args) => toDouble(args[0] ?? 0) ** toDouble(args[1] ?? 0));
+register("pow", (args) =>
+	javaRosaPow(toDouble(args[0] ?? 0), toDouble(args[1] ?? 0)),
+);
 register("min", (args) => Math.min(...args.map((arg) => toNumber(arg))));
 register("max", (args) => Math.max(...args.map((arg) => toNumber(arg))));
 
@@ -256,6 +299,80 @@ register("uuid", (args) => {
 	}
 	return value.toUpperCase();
 });
+
+// Direct JavaRosa ports live in a separate, independently differential-tested
+// table. Registering them here makes this module the one executable function
+// surface the evaluator and the admission parity test inspect. Entries such as
+// uuid() deliberately replace their historical implementation.
+for (const [name, implementation] of scalarJavaRosaFunctions) {
+	register(name, (args) => implementation(args));
+}
+
+// These entries replace the scalar fallbacks above when JavaRosa overloads a
+// function for nodesets or sequences. The dispatcher receives the uncollapsed
+// runtime value, so it can preserve Core's overload selection exactly.
+for (const [name, implementation] of nodeSetJavaRosaFunctions) {
+	register(name, (args) => implementation(args));
+}
+
+register("distance", (args) =>
+	javaRosaDistance(xpathToString(args[0] ?? ""), xpathToString(args[1] ?? "")),
+);
+register("is-point-inside-polygon", (args) =>
+	javaRosaIsPointInsidePolygon(
+		xpathToString(args[0] ?? ""),
+		xpathToString(args[1] ?? ""),
+	),
+);
+register("closest-point-on-polygon", (args) =>
+	javaRosaClosestPointOnPolygon(
+		xpathToString(args[0] ?? ""),
+		xpathToString(args[1] ?? ""),
+	),
+);
+register("format-date-for-calendar", (args, context) => {
+	const raw = unpackXPathRuntimeValue(args[0] ?? "");
+	const date = toDate(raw);
+	if (!date) {
+		if (raw === "" || (typeof raw === "number" && Number.isNaN(raw))) return "";
+		throw new Error(
+			"The XPath format-date-for-calendar() value is invalid in Preview.",
+		);
+	}
+	// Core compares the evaluated argument directly with its two String
+	// constants. In particular, a path remains an XPathNodeset here and must not
+	// be made to work by Preview-only scalar coercion; authors can call string()
+	// explicitly when the calendar comes from a field.
+	const calendar = args[1] ?? "";
+	if (typeof calendar !== "string") {
+		throw new Error(`Unsupported calendar type: ${xpathToString(calendar)}`);
+	}
+	return args.length > 2
+		? javaRosaFormatDateForCalendar(
+				date,
+				calendar,
+				xpathToString(args[2] ?? ""),
+				context?.locale,
+			)
+		: javaRosaFormatDateForCalendar(date, calendar, undefined, context?.locale);
+});
+
+// These functions execute in the bounded XPath worker. Keeping them in the
+// ordinary registry makes the admission/execution parity invariant explicit,
+// while refusing a main-thread fallback prevents catastrophic backtracking
+// from freezing the builder.
+for (const name of ["regex", "replace"] as const) {
+	register(name, () => {
+		throw new Error(
+			`Unsupported XPath function in Preview: ${name}() requires the XPath worker.`,
+		);
+	});
+}
+
+/** Exact ordinary-function implementation set used by the parity invariant. */
+export const PREVIEW_EXECUTABLE_FUNCTIONS: ReadonlySet<string> = new Set(
+	registry.keys(),
+);
 
 /** Java's final `Double.intValue()` narrowing after FunctionUtils.toInt(). */
 function javaIntValue(value: number): number {

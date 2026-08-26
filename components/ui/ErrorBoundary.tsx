@@ -4,6 +4,10 @@ import { reportClientError } from "@/lib/clientErrorReporter";
 
 interface ErrorBoundaryProps {
 	fallback?: React.ReactNode;
+	/** Changing this value retires a caught child-tree failure. Use a stable
+	 * screen/location identity so navigation can recover without reloading the
+	 * whole app. */
+	resetKey?: string;
 	children: React.ReactNode;
 }
 
@@ -40,6 +44,12 @@ export class ErrorBoundary extends React.Component<
 			},
 			error,
 		);
+	}
+
+	componentDidUpdate(previous: ErrorBoundaryProps) {
+		if (this.state.hasError && previous.resetKey !== this.props.resetKey) {
+			this.setState({ hasError: false, error: undefined });
+		}
 	}
 
 	render() {

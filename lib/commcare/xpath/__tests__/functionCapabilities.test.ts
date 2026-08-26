@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { registeredPreviewFunctions } from "@/lib/preview/xpath/functions";
 import { FUNCTION_REGISTRY } from "../../validator/functionRegistry";
 import {
 	assertCsqlQueryFunction,
@@ -12,9 +11,6 @@ import {
 	JAVAROSA_NATIVE_FUNCTIONS,
 	JAVAROSA_PATH_INITIALIZERS,
 	javaRosaFunctionCapability,
-	PREVIEW_INSTANCE_IDS,
-	PREVIEW_NATIVE_FUNCTIONS,
-	PREVIEW_PATH_INITIALIZERS,
 } from "../functionCapabilities";
 
 describe("XPath carrier capability contract", () => {
@@ -40,25 +36,12 @@ describe("XPath carrier capability contract", () => {
 		expect([...JAVAROSA_CONTEXT_FUNCTIONS]).toEqual(["here"]);
 	});
 
-	it("keeps Preview's declared support equal to its actual registrations", () => {
-		expect([...registeredPreviewFunctions()].sort()).toEqual(
-			[...PREVIEW_NATIVE_FUNCTIONS].sort(),
-		);
-		expect([...PREVIEW_PATH_INITIALIZERS]).toEqual(["instance"]);
-		expect([...PREVIEW_INSTANCE_IDS]).toEqual(["commcaresession"]);
-		expect(PREVIEW_NATIVE_FUNCTIONS.has("count")).toBe(false);
-		expect(PREVIEW_NATIVE_FUNCTIONS.has("sum")).toBe(false);
-		for (const name of ["concat", "join", "min", "max"]) {
-			expect(PREVIEW_NATIVE_FUNCTIONS.has(name), name).toBe(true);
-		}
-		for (const name of ["regex", "replace"]) {
-			expect(PREVIEW_NATIVE_FUNCTIONS.has(name), name).toBe(false);
-		}
+	it("classifies ordinary functions and path intrinsics without a Preview subset", () => {
 		expect(inspectXPathFunctionCalls("concat('a', 'b')")).toMatchObject([
-			{ name: "concat", preview: "native", validPreviewSignature: true },
+			{ name: "concat", javaRosa: "native", argumentCount: 2 },
 		]);
 		expect(inspectXPathFunctionCalls("concat(/data/items)")).toMatchObject([
-			{ name: "concat", preview: "native", validPreviewSignature: false },
+			{ name: "concat", javaRosa: "native", argumentCount: 1 },
 		]);
 		expect(
 			inspectXPathFunctionCalls(
@@ -68,7 +51,6 @@ describe("XPath carrier capability contract", () => {
 			{
 				name: "instance",
 				javaRosa: "path-initializer",
-				preview: "path-initializer",
 				validPathInitializer: true,
 			},
 		]);
@@ -78,7 +60,6 @@ describe("XPath carrier capability contract", () => {
 			{
 				name: "instance",
 				javaRosa: "path-initializer",
-				preview: "unsupported",
 				validPathInitializer: true,
 			},
 		]);
@@ -86,7 +67,6 @@ describe("XPath carrier capability contract", () => {
 			{
 				name: "current",
 				javaRosa: "path-initializer",
-				preview: "unsupported",
 				validPathInitializer: true,
 			},
 		]);

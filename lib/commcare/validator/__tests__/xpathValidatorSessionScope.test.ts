@@ -87,6 +87,37 @@ describe("validateXPath under session scope", () => {
 		expect(errors[0]?.code).toBe("INVALID_CASE_REF");
 	});
 
+	it.each([
+		".",
+		"..",
+		"@status",
+		"child::answer",
+		"self::node()",
+		"parent::node()",
+		"current()",
+		"current()/answer",
+		"position()",
+	])("refuses a main-context-dependent session shape: %s", (source) => {
+		expect(
+			validateXPath(source, new Set(), accept, false, "session").some(
+				(error) => error.code === "XPATH_CARRIER_CONTEXT_UNAVAILABLE",
+			),
+		).toBe(true);
+	});
+
+	it.each([
+		"instance('casedb')/casedb/case/@case_id",
+		"position(instance('casedb')/casedb/case)",
+		"instance('casedb')/casedb/case[position() = 1 and @status = 'open']",
+	])(
+		"accepts a session shape whose context is explicitly supplied: %s",
+		(source) => {
+			expect(
+				validateXPath(source, new Set(), accept, false, "session"),
+			).toEqual([]);
+		},
+	);
+
 	it("leaves form scope exactly as it was", () => {
 		const valid = new Set(["/data/note"]);
 		expect(validateXPath("#form/note = 'yes'", valid, accept)).toEqual([]);

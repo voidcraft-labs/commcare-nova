@@ -13,6 +13,8 @@
 
 import type { Uuid } from "@/lib/doc/types";
 import type { MediaKind } from "@/lib/domain/multimedia";
+import type { CaseDataByType } from "@/lib/preview/engine/formEngine";
+import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import type { Location } from "@/lib/routing/types";
 
 // ── Interaction primitives ───────────────────────────────────────────────
@@ -45,6 +47,11 @@ export interface PreviewCaseTarget {
 	formUuid: Uuid;
 	caseId?: string;
 	caseName?: string;
+	/** Post-submit local-device world carried by a direct form link. A fresh
+	 * restore may omit a case the device just closed, but the linked form still
+	 * opens against the case and casedb state the submitting entry committed. */
+	caseData?: CaseDataByType;
+	caseDatabase?: CaseDatabaseSnapshot;
 }
 
 /**

@@ -111,12 +111,26 @@ describe("TextEditor — onChange no-op gate", () => {
 		// `.focus()` dispatches the event outside act and trips the
 		// "update … was not wrapped in act(...)" warning.
 		fireEvent.focus(input);
+		// ProseMirror follows focus with a zero-delay selection sync. Let that
+		// committed editor work finish before changing and blurring the value.
+		// The 20 ms window also drains its populated-content DOM-observer sync.
+		await act(async () => {
+			await new Promise<void>((resolve) => window.setTimeout(resolve, 25));
+		});
 		input.textContent = "";
 		fireEvent.input(input, { inputType: "deleteContentBackward" });
 		await act(async () => {
 			await Promise.resolve();
 		});
 		fireEvent.blur(input);
+		// Tiptap completes `commands.blur()` on its next animation frame.
+		// Await that owned work inside act so the test cannot leave Happy DOM's
+		// requestAnimationFrame setImmediate behind for the leak detector.
+		await act(async () => {
+			await new Promise<void>((resolve) =>
+				requestAnimationFrame(() => resolve()),
+			);
+		});
 
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange.mock.calls[0]?.[0]).toBeUndefined();

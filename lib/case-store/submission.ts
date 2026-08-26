@@ -32,6 +32,7 @@ import type {
 import type { Predicate } from "@/lib/domain/predicate";
 import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { JsonObject } from "./sql/database";
+import type { DeviceCaseDatabase } from "./store";
 
 /**
  * One case row the ordinary form action creates. `caseName` stays
@@ -110,6 +111,9 @@ export interface SubmissionReceiptIdentity {
  */
 export interface SubmissionReceiptClaim extends SubmissionReceiptIdentity {
 	readonly expectedAppMutationSeq: number;
+	/** Digest of the exact committed Blueprint whose after-submit topology the
+	 * client may evaluate when this receipt is returned or replayed. */
+	readonly blueprintDigest: string;
 }
 
 /**
@@ -290,6 +294,15 @@ export interface SubmissionEnvelopeResult {
 	/** Ordinary children's generated ids in input order. */
 	readonly childCaseIds: ReadonlyArray<string>;
 	readonly operations: ReadonlyArray<OperationEffectRecord>;
+	/** Submission-time topology identity. Optional only for historical receipts
+	 * written before routing revision replay was fenced. */
+	readonly blueprintDigest?: string;
+	/** Exact affected rows and direct index edges read after every envelope
+	 * effect but before the transaction commits. It is persisted in the durable
+	 * receipt so an exact replay observes the submission's own post-write device
+	 * state rather than whatever a later writer changed the rows to. Historical
+	 * receipts predate this slot, so the parser keeps it optional. */
+	readonly caseDatabasePatch?: DeviceCaseDatabase;
 }
 
 /** Parse the JSONB representation stored on an accepted receipt. Keeping this
@@ -305,15 +318,90 @@ export function parseSubmissionEnvelopeResult(
 		parsed === null ||
 		!Array.isArray((parsed as { childCaseIds?: unknown }).childCaseIds) ||
 		!Array.isArray((parsed as { operations?: unknown }).operations) ||
+		("caseDatabasePatch" in parsed &&
+			((parsed as { caseDatabasePatch?: unknown }).caseDatabasePatch === null ||
+				typeof (parsed as { caseDatabasePatch?: unknown }).caseDatabasePatch !==
+					"object" ||
+				!Array.isArray(
+					(
+						parsed as {
+							caseDatabasePatch?: { rows?: unknown };
+						}
+					).caseDatabasePatch?.rows,
+				) ||
+				!Array.isArray(
+					(
+						parsed as {
+							caseDatabasePatch?: { indices?: unknown };
+						}
+					).caseDatabasePatch?.indices,
+				) ||
+				hasInvalidCaseDatabasePropertyTypes(
+					(parsed as { caseDatabasePatch?: unknown }).caseDatabasePatch,
+				))) ||
 		("primaryCaseId" in parsed &&
 			(parsed as { primaryCaseId?: unknown }).primaryCaseId !== undefined &&
-			typeof (parsed as { primaryCaseId?: unknown }).primaryCaseId !== "string")
+			typeof (parsed as { primaryCaseId?: unknown }).primaryCaseId !==
+				"string") ||
+		("blueprintDigest" in parsed &&
+			(typeof (parsed as { blueprintDigest?: unknown }).blueprintDigest !==
+				"string" ||
+				!/^[a-f0-9]{64}$/.test(
+					(parsed as { blueprintDigest: string }).blueprintDigest,
+				)))
 	) {
 		throw new Error(
 			"A committed form submission replay row contains an invalid result.",
 		);
 	}
-	return parsed as SubmissionEnvelopeResult;
+	const result = parsed as SubmissionEnvelopeResult;
+	if (result.caseDatabasePatch === undefined) {
+		return result;
+	}
+	return {
+		...result,
+		caseDatabasePatch: {
+			...result.caseDatabasePatch,
+			rows: result.caseDatabasePatch.rows.map((row) => ({
+				...row,
+				opened_on: receiptTimestamp(row.opened_on),
+				modified_on: receiptTimestamp(row.modified_on),
+				closed_on: receiptTimestamp(row.closed_on),
+			})),
+		},
+	};
+}
+
+function hasInvalidCaseDatabasePropertyTypes(patch: unknown): boolean {
+	if (typeof patch !== "object" || patch === null) return false;
+	if (!("propertyTypes" in patch)) return false;
+	const propertyTypes = (patch as { propertyTypes?: unknown }).propertyTypes;
+	return (
+		typeof propertyTypes !== "object" ||
+		propertyTypes === null ||
+		Array.isArray(propertyTypes)
+	);
+}
+
+/** JSONB returns timestamps as strings, while every live CaseStore path uses
+ * `Date`. Rehydrate the persisted transaction snapshot so a durable replay is
+ * observably identical to the first accepted submission. */
+function receiptTimestamp(value: unknown): Date | null {
+	if (value === null) {
+		return null;
+	}
+	if (value instanceof Date && !Number.isNaN(value.getTime())) {
+		return value;
+	}
+	if (typeof value === "string") {
+		const parsed = new Date(value);
+		if (!Number.isNaN(parsed.getTime())) {
+			return parsed;
+		}
+	}
+	throw new Error(
+		"A committed form submission replay row contains an invalid timestamp.",
+	);
 }
 
 export type SubmissionReceiptVerdict =

@@ -9,13 +9,23 @@
 
 import { javaRosaFunctionCapability } from "@/lib/commcare/xpath/functionCapabilities";
 
-/** XPath 1.0 types + 'any' for unknowable/polymorphic contexts. */
-export type XPathType = "string" | "number" | "boolean" | "nodeset" | "any";
+/** JavaRosa runtime types plus 'any' for polymorphic contexts. */
+export type XPathType =
+	| "string"
+	| "number"
+	| "boolean"
+	| "nodeset"
+	| "sequence"
+	| "any";
 
 export interface FunctionSpec {
 	minArgs: number;
 	maxArgs: number;
 	returnType: XPathType;
+	/** Core evaluates lazy functions branch-by-branch rather than eagerly. */
+	evaluation?: "eager" | "lazy";
+	/** Core marks the expression volatile for dependency/reevaluation purposes. */
+	volatile?: boolean;
 	/** Positional parameter types. Omit for variadic or all-any functions. */
 	paramTypes?: XPathType[];
 	/** Optional custom arity validation. Return error string or undefined. */
@@ -62,8 +72,8 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	["pi", num(0, 0)],
 
 	// ── Date/Time (dates are numbers internally — days since epoch) ──
-	["today", num(0, 0)],
-	["now", num(0, 0)],
+	["today", { ...num(0, 0), volatile: true }],
+	["now", { ...num(0, 0), volatile: true }],
 	["date", num(1, 1)], // string → date-as-number
 	["format-date", str(2, 2, ["number", "string"])],
 	["format-date-for-calendar", str(2, 3, ["number", "string"])],
@@ -130,16 +140,24 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	["join", str(1, -1)],
 	["join-chunked", str(3, -1)],
 	["coalesce", any(1, -1)],
-	["depend", any(1, -1)],
+	["depend", { ...any(1, -1), volatile: true }],
 	["min", num(1, -1)],
 	["max", num(1, -1)],
 
 	// ── Conditionals (polymorphic return) ─────────────────────────────
-	["if", { ...any(3, 3, ["boolean"]), returnType: "any" }],
+	[
+		"if",
+		{
+			...any(3, 3, ["boolean"]),
+			returnType: "any",
+			evaluation: "lazy",
+		},
+	],
 	[
 		"cond",
 		{
 			...any(3, -1),
+			evaluation: "lazy",
 			validate: (n) =>
 				n % 2 !== 1
 					? "cond() requires an odd number of arguments (test1, val1, ..., default)"
@@ -148,8 +166,8 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	],
 
 	// ── Volatile ──────────────────────────────────────────────────────
-	["random", num(0, 0)],
-	["uuid", str(0, 1)],
+	["random", { ...num(0, 0), volatile: true }],
+	["uuid", { ...str(0, 1), volatile: true }],
 
 	// ── Geo ───────────────────────────────────────────────────────────
 	["distance", num(2, 2, ["string", "string"])],
@@ -159,8 +177,9 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	// ── Sort / Collection ─────────────────────────────────────────────
 	["sort", str(1, 2)],
 	["sort-by", str(2, 3)],
-	["distinct-values", str(1, 1)],
-	["index-of", num(2, 2, ["string", "string"])],
+	["distinct-values", { minArgs: 1, maxArgs: 1, returnType: "sequence" }],
+	// Core returns a zero-based number when found and the empty string otherwise.
+	["index-of", any(2, 2)],
 
 	// ── Checklist ─────────────────────────────────────────────────────
 	["checklist", bool(2, -1)],
@@ -200,7 +219,7 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	["decrypt-string", str(3, 3, ["string", "string", "string"])],
 	["json-property", str(2, 2, ["string", "string"])],
 	["id-compress", str(5, 5)],
-	["sleep", any(2, 2, ["number", "number"])],
+	["sleep", { ...any(2, 2, ["number", "any"]), volatile: true }],
 ]);
 
 for (const name of FUNCTION_REGISTRY.keys()) {

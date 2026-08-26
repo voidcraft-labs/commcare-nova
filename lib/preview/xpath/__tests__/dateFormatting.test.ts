@@ -30,7 +30,9 @@ describe("formatCommCareDate", () => {
 			),
 		).toEqual({
 			kind: "formatted",
-			text: "2026 26 07 7 July Jul 14 14 18 18 05 06 007 Tuesday Tue 2 Z % 2026",
+			// DateUtils truncates 1000 * the parsed fractional double, so the
+			// binary representation of .007 produces 6 milliseconds in Core.
+			text: "2026 26 07 7 July Jul 14 14 18 18 05 06 006 Tuesday Tue 2 Z % 2026",
 		});
 	});
 
@@ -66,6 +68,52 @@ describe("formatCommCareDate", () => {
 
 	it("rejects a normalized-but-invalid calendar date", () => {
 		expect(XPathDate.parse("2026-02-31")).toBeNull();
+		expect(XPathDate.parse("2024-02-30T12:00")).toBeNull();
+	});
+
+	it("matches DateUtils' explicit whitespace and time grammar", () => {
+		expect(XPathDate.parse(" 2024-02-29")).toBeNull();
+		expect(XPathDate.parse("2024-02-29 ")).toBeNull();
+		expect(XPathDate.parse("2024-02-29T01:02")).not.toBeNull();
+		expect(
+			formatCommCareDate(
+				requireDate("2024-02-29T01:02:03.4567"),
+				"%H:%M:%S.%3",
+			),
+		).toEqual({ kind: "formatted", text: "01:02:03.456" });
+		// parseRawTime consumes the numeric seconds prefix, as pinned Core does.
+		expect(
+			formatCommCareDate(
+				requireDate("2024-02-29T01:02:03.5tail"),
+				"%H:%M:%S.%3",
+			),
+		).toEqual({ kind: "formatted", text: "01:02:03.500" });
+	});
+
+	it("applies offsets to the clock but retains the authored date fields", () => {
+		process.env.TZ = "America/Los_Angeles";
+		try {
+			const utc = requireDate("2024-01-01T01:30Z");
+			expect(utc.toISOString()).toBe("2024-01-01");
+			expect(formatCommCareDate(utc, "%Y-%m-%d %H:%M")).toEqual({
+				kind: "formatted",
+				text: "2024-01-01 17:30",
+			});
+
+			const positive = requireDate("2024-01-01T01:30+02:00");
+			expect(formatCommCareDate(positive, "%Y-%m-%d %H:%M")).toEqual({
+				kind: "formatted",
+				text: "2024-01-01 15:30",
+			});
+
+			const negative = requireDate("2024-01-01T23:30-02:00");
+			expect(formatCommCareDate(negative, "%Y-%m-%d %H:%M")).toEqual({
+				kind: "formatted",
+				text: "2024-01-01 17:30",
+			});
+		} finally {
+			process.env.TZ = "UTC";
+		}
 	});
 
 	it("accepts years 0001-0099 like JavaRosa's DateFields.check()", () => {

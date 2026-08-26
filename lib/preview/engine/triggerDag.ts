@@ -125,6 +125,12 @@ export class TriggerDag {
 		this.settleFreeEdges = [];
 		this.fieldPaths = collectFieldPaths(tree, prefix);
 		this.collectExpressions(tree, prefix);
+		/* JavaRosa's show/hide trigger cascades to every descendant. These
+		 * runtime edges make a calculation or condition that reads the hidden
+		 * subtree run again when the container changes relevance, even though no
+		 * descendant scalar value changed. The commit gate has already rejected
+		 * any cycle this cascade would close. */
+		this.collectRelevanceCascadeDependencies(tree, prefix, new Map());
 		this.detectAndBreakCycles();
 		this.addSettleFreeEdges();
 		this.sortedPaths = this.topologicalSort();
@@ -435,7 +441,7 @@ export class TriggerDag {
 	}
 
 	/**
-	 * Add the authoring-time-only edges JavaRosa draws from a container's
+	 * Add the edges JavaRosa draws from a container's
 	 * relevance to everything inside it. This runs exclusively while
 	 * `reportCycles` has swapped in its temporary maps.
 	 *
@@ -456,10 +462,10 @@ export class TriggerDag {
 	 * path from a descendant back to the container's condition is a loop. A
 	 * `section` has no `relevant` slot and never cascades.
 	 *
-	 * These are NOT runtime edges: `build` / `rebuild` leave them out because
-	 * the engine derives a descendant's effective visibility from its
-	 * ancestors at read time and re-evaluates nothing on the container's
-	 * account.
+	 * Runtime uses the same cascade because effective visibility changes the
+	 * nodeset a descendant path selects even when every descendant scalar is
+	 * unchanged. `reportCycles` additionally records which of these edges
+	 * closed a loop so the authoring finding can explain the containment.
 	 */
 	private collectRelevanceCascadeDependencies(
 		tree: readonly FieldTreeNode[],
@@ -513,10 +519,10 @@ export class TriggerDag {
 	 * Report all cycles without modifying the runtime graph. Builds a
 	 * temporary topology holding exactly the edges the device orders: the
 	 * triggerable edges (relevant / required / calculate, plus the
-	 * lookup-choice filter edges) and the two authoring-only kinds (field
-	 * defaults and the relevance cascade from a container to its
-	 * descendants), and NOT the constraint or label edges the runtime keeps
-	 * for re-evaluation (see `registerExpressions`). Restores the instance
+	 * lookup-choice filter edges), the authoring-only field-default edges, and
+	 * the relevance cascade that runtime also uses from a container to its
+	 * descendants. It excludes the constraint or label edges the runtime keeps
+	 * only for re-evaluation (see `registerExpressions`). Restores the instance
 	 * maps before walking that snapshot. Returns one `CycleReport` per loop.
 	 */
 	reportCycles(

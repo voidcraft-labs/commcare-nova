@@ -35,6 +35,7 @@ const ACTOR_ID = "capture-intent-unit-actor";
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 const FORM_UUID = testUuid("22222222-2222-4222-8222-222222222222");
 const FIELD_UUID = testUuid("33333333-3333-4333-8333-333333333333");
+const BLUEPRINT_DIGEST = "0".repeat(64);
 
 const IDENTITY: ResolvedPreviewIdentity = {
 	actorUserId: ACTOR_ID,
@@ -156,6 +157,7 @@ describe("capture submission intent", () => {
 		const built = await buildSubmissionOperationProgram({
 			appId: APP_ID,
 			committedApp,
+			blueprintDigest: BLUEPRINT_DIGEST,
 			identity: IDENTITY,
 			lookupScope: LOOKUP_SCOPE,
 			mutation,
@@ -181,6 +183,7 @@ describe("capture submission intent", () => {
 			entryKey: ENTRY_KEY,
 			formUuid: FORM_UUID,
 			expectedAppMutationSeq: 17,
+			blueprintDigest: BLUEPRINT_DIGEST,
 			requestDigest: built.captureIntent?.requestDigest,
 		});
 	});
@@ -195,6 +198,7 @@ describe("capture submission intent", () => {
 		const built = await buildSubmissionOperationProgram({
 			appId: APP_ID,
 			committedApp,
+			blueprintDigest: BLUEPRINT_DIGEST,
 			identity: IDENTITY,
 			lookupScope: LOOKUP_SCOPE,
 			mutation,
@@ -275,6 +279,7 @@ describe("capture submission intent", () => {
 			buildSubmissionOperationProgram({
 				appId: APP_ID,
 				committedApp,
+				blueprintDigest: BLUEPRINT_DIGEST,
 				identity: IDENTITY,
 				lookupScope: LOOKUP_SCOPE,
 				mutation,
@@ -304,6 +309,7 @@ describe("capture submission intent", () => {
 		const built = await buildSubmissionOperationProgram({
 			appId: APP_ID,
 			committedApp,
+			blueprintDigest: BLUEPRINT_DIGEST,
 			identity: IDENTITY,
 			lookupScope: LOOKUP_SCOPE,
 			mutation,
@@ -339,6 +345,7 @@ describe("capture submission intent", () => {
 			buildSubmissionOperationProgram({
 				appId: APP_ID,
 				committedApp,
+				blueprintDigest: BLUEPRINT_DIGEST,
 				identity: IDENTITY,
 				lookupScope: LOOKUP_SCOPE,
 				mutation,
@@ -368,6 +375,7 @@ describe("capture submission intent", () => {
 		const built = await buildSubmissionOperationProgram({
 			appId: APP_ID,
 			committedApp,
+			blueprintDigest: BLUEPRINT_DIGEST,
 			identity: IDENTITY,
 			lookupScope: LOOKUP_SCOPE,
 			mutation,

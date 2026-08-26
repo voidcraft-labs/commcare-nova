@@ -1719,6 +1719,7 @@ async function applyLinkEffect(
 			.values({
 				case_id: caseId,
 				ancestor_id: link.targetCaseId,
+				target_case_type: link.targetType,
 				identifier: link.identifier,
 				relationship: link.relationship,
 				depth: 1,

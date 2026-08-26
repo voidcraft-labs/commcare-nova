@@ -19,11 +19,13 @@ import type { Uuid } from "@/lib/doc/types";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import type { CaseDataByType } from "@/lib/preview/engine/formEngine";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
+import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import { useAccessPhase, useAppId, useProjectId } from "@/lib/session/hooks";
 
 export function useFormEngine(
 	formUuid: Uuid | undefined,
 	caseData?: CaseDataByType,
+	caseDatabase?: CaseDatabaseSnapshot,
 ): EngineController {
 	const controller = useBuilderFormEngine();
 	const accessPhase = useAccessPhase();
@@ -36,13 +38,19 @@ export function useFormEngine(
 	 * its entry key, answers, and attachment coordinator state throughout that
 	 * window. The app/provider and preview-identity lifecycles own their own
 	 * terminal boundaries. */
-	// biome-ignore lint/correctness/useExhaustiveDependencies: caseData cold arrivals rebuild the same entry in the authorized effect below
+	// biome-ignore lint/correctness/useExhaustiveDependencies: caseData cold arrivals rebuild the same entry in the authorized effect below; caseDatabase is an explicit navigation snapshot captured only for the initial activation
 	useEffect(() => {
 		if (!formUuid) {
 			controller.deactivate();
 			return;
 		}
-		controller.activateForm(formUuid, caseData);
+		if (controller.entryStore.getState().fault?.formUuid === formUuid) return;
+		const activation = controller.activateFormAsync(
+			formUuid,
+			caseData,
+			caseDatabase,
+		);
+		activation.catch(() => undefined);
 		return () => controller.deactivate();
 	}, [controller, formUuid]);
 
@@ -66,13 +74,26 @@ export function useFormEngine(
 		if (!formUuid || accessPhase !== "authorized") {
 			return;
 		}
+		if (controller.entryStore.getState().fault?.formUuid === formUuid) return;
 		if (controller.formUuid !== formUuid) {
-			controller.activateForm(formUuid, caseData);
+			controller
+				.activateFormAsync(formUuid, caseData, caseDatabase)
+				.catch(() => undefined);
 			return;
 		}
 		if (caseData === undefined) return;
-		controller.rebuildActiveForm(formUuid, caseData);
-	}, [controller, formUuid, caseData, accessPhase, appId, projectId]);
+		controller
+			.rebuildActiveFormAsync(formUuid, caseData)
+			.catch(() => undefined);
+	}, [
+		controller,
+		formUuid,
+		caseData,
+		caseDatabase,
+		accessPhase,
+		appId,
+		projectId,
+	]);
 
 	return controller;
 }

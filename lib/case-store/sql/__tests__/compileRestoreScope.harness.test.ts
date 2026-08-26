@@ -58,6 +58,7 @@ async function seedFixture(
 		...(fixture.subcases ?? []).map(([sub, ref], i) => ({
 			case_id: sub,
 			ancestor_id: ref,
+			target_case_type: "test",
 			identifier: `child_${i}`,
 			relationship: "child" as const,
 			depth: 1,
@@ -65,6 +66,7 @@ async function seedFixture(
 		...(fixture.extensions ?? []).map(([sub, ref], i) => ({
 			case_id: sub,
 			ancestor_id: ref,
+			target_case_type: "test",
 			identifier: `extension_${i}`,
 			relationship: "extension" as const,
 			depth: 1,
@@ -174,6 +176,7 @@ function edge(
 	return {
 		case_id: caseId,
 		ancestor_id: ancestorId,
+		target_case_type: "test",
 		identifier: `${relationship}_${ancestorId}`,
 		relationship,
 		depth,
@@ -249,6 +252,7 @@ test("only depth-1 edges are walked", async ({ db }) => {
 			{
 				case_id: "child",
 				ancestor_id: "grandparent",
+				target_case_type: "test",
 				identifier: "child_transitive",
 				relationship: "child" as const,
 				depth: 2,
@@ -275,6 +279,7 @@ test("a depth-2 extension edge does not make a case an extension case", async ({
 			{
 				case_id: "a",
 				ancestor_id: "b",
+				target_case_type: "test",
 				identifier: "extension_transitive",
 				relationship: "extension" as const,
 				depth: 2,

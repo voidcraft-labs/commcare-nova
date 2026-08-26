@@ -438,12 +438,12 @@ const InteractiveField = memo(function InteractiveField({
 						state.resolvedLabel ??
 						(field.label ? projectProse(field.label) : undefined)
 					}
-					onChange={(value) => controller.setValueAt(path, value)}
-					onBlur={() => controller.touchAt(path)}
+					onChange={(value) => controller.setValueAtAsync(path, value)}
+					onBlur={() => controller.touchAtAsync(path)}
 					onChangeAt={(targetPath, value) =>
-						controller.setValueAt(targetPath, value)
+						controller.setValueAtAsync(targetPath, value)
 					}
-					onBlurAt={(targetPath) => controller.touchAt(targetPath)}
+					onBlurAt={(targetPath) => controller.touchAtAsync(targetPath)}
 				/>
 			</div>
 		);

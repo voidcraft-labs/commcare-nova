@@ -142,12 +142,12 @@ beforeEach(async () => {
 	);
 	await h.pool.query(
 		`INSERT INTO case_indices
-		 (case_id, identifier, relationship, ancestor_id, depth)
+		 (case_id, identifier, relationship, ancestor_id, target_case_type, depth)
 		 VALUES
-		 ('01890f45-0000-7000-8000-000000000102', 'parent', 'child', $1, 1),
-		 ('01890f45-0000-7000-8000-000000000103', 'parent', 'child', $1, 1),
-		 ('01890f45-0000-7000-8000-000000000104', 'parent', 'child', $1, 1),
-		 ('01890f45-0000-7000-8000-000000000107', 'host', 'extension', $1, 1)`,
+		 ('01890f45-0000-7000-8000-000000000102', 'parent', 'child', $1, 'household', 1),
+		 ('01890f45-0000-7000-8000-000000000103', 'parent', 'child', $1, 'household', 1),
+		 ('01890f45-0000-7000-8000-000000000104', 'parent', 'child', $1, 'household', 1),
+		 ('01890f45-0000-7000-8000-000000000107', 'host', 'extension', $1, 'household', 1)`,
 		[PARENT_ID],
 	);
 });
@@ -188,11 +188,11 @@ async function insertExtensionFixtures(): Promise<void> {
 	);
 	await h.pool.query(
 		`INSERT INTO case_indices
-		 (case_id, identifier, relationship, ancestor_id, depth)
+		 (case_id, identifier, relationship, ancestor_id, target_case_type, depth)
 		 VALUES
-		 ($1, 'parent', 'extension', $2, 1),
-		 ($3, 'facility_host', 'extension', $4, 1),
-		 ($5, 'parent', 'extension', $2, 1)`,
+		 ($1, 'parent', 'extension', $2, 'household', 1),
+		 ($3, 'facility_host', 'extension', $4, 'household', 1),
+		 ($5, 'parent', 'extension', $2, 'household', 1)`,
 		[
 			CANONICAL_EXTENSION_ID,
 			PARENT_ID,
@@ -206,8 +206,8 @@ async function insertExtensionFixtures(): Promise<void> {
 async function retainSecondaryExtension(): Promise<void> {
 	await h.pool.query(
 		`INSERT INTO case_indices
-		 (case_id, identifier, relationship, ancestor_id, depth)
-		 VALUES ($1, 'aaa_custom_host', 'extension', $2, 1)`,
+		 (case_id, identifier, relationship, ancestor_id, target_case_type, depth)
+		 VALUES ($1, 'aaa_custom_host', 'extension', $2, 'household', 1)`,
 		[MULTI_EXTENSION_ID, CUSTOM_HOST_ID],
 	);
 }
@@ -321,10 +321,10 @@ describe("automation criteria SQL", () => {
 		// an existence oracle for another tenant.
 		await h.pool.query(
 			`INSERT INTO case_indices
-			 (case_id, identifier, relationship, ancestor_id, depth)
+			 (case_id, identifier, relationship, ancestor_id, target_case_type, depth)
 			 VALUES
-			 ('01890f45-0000-7000-8000-000000000105', 'first', 'extension', $1, 1),
-			 ('01890f45-0000-7000-8000-000000000105', 'second', 'extension', $2, 1)`,
+			 ('01890f45-0000-7000-8000-000000000105', 'first', 'extension', $1, 'household', 1),
+			 ('01890f45-0000-7000-8000-000000000105', 'second', 'extension', $2, 'household', 1)`,
 			[PARENT_ID, CUSTOM_HOST_ID],
 		);
 		await expect(count("host")).resolves.toBe(3);
@@ -898,8 +898,8 @@ describe("automation criteria SQL", () => {
 		);
 		await h.pool.query(
 			`INSERT INTO case_indices
-			 (case_id, identifier, relationship, ancestor_id, depth)
-			 VALUES ($1, 'host', 'child', $2, 1)`,
+			 (case_id, identifier, relationship, ancestor_id, target_case_type, depth)
+			 VALUES ($1, 'host', 'child', $2, 'household', 1)`,
 			[CHILD_IDENTIFIER_HOST_ID, CUSTOM_HOST_ID],
 		);
 

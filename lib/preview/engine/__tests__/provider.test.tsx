@@ -14,7 +14,7 @@
  */
 
 import { act, render, renderHook, waitFor } from "@testing-library/react";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, StrictMode, useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BlueprintDocContext } from "@/lib/doc/provider";
@@ -195,6 +195,36 @@ describe("BuilderFormEngineProvider", () => {
 		expect(Object.keys(runtime).length).toBeGreaterThan(0);
 	});
 
+	it("re-arms the XPath runtime after Strict Mode effect replay", async () => {
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(DOC);
+		docStore.getState().startTracking();
+
+		const Wrapper = ({ children }: { children: ReactNode }) => (
+			<StrictMode>
+				<BuilderSessionProvider>
+					<BlueprintDocContext value={docStore}>
+						<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
+					</BlueprintDocContext>
+				</BuilderSessionProvider>
+			</StrictMode>
+		);
+		const { result } = renderHook(() => useFormEngine(FORM_UUID), {
+			wrapper: Wrapper,
+		});
+
+		await waitFor(() => expect(result.current.entryKey).toBeDefined());
+		await act(async () => {
+			await expect(
+				result.current.onValueChangeAsync(FIELD_UUID, "strict replay value"),
+			).resolves.toBe(true);
+		});
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe(
+			"strict replay value",
+		);
+		expect(result.current.entryStore.getState().fault).toBeUndefined();
+	});
+
 	it("binds a warm preview identity before child effects run", () => {
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(DOC);
@@ -275,8 +305,9 @@ describe("BuilderFormEngineProvider", () => {
 		const { result } = renderHook(() => useFormEngine(FORM_UUID), {
 			wrapper: Wrapper,
 		});
-		act(() => {
-			result.current.onValueChange(FIELD_UUID, "source value");
+		await waitFor(() => expect(result.current.entryKey).toBeDefined());
+		await act(async () => {
+			await result.current.onValueChangeAsync(FIELD_UUID, "source value");
 		});
 		const sourceEntryKey = result.current.entryKey;
 		expect(sourceEntryKey).toBeDefined();

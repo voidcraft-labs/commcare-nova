@@ -52,12 +52,13 @@ describe("XPath evaluator", () => {
 			expect(evaluate("true() and (false())", makeCtx())).toBe(false);
 		});
 
-		it("negates a parenthesized operand and filters a parenthesized base", () => {
+		it("negates a parenthesized operand and fails closed on an inadmissible filter", () => {
 			expect(evaluate("-(2)", makeCtx())).toBe(-2);
 			expect(evaluate("-(1 + 2)", makeCtx())).toBe(-3);
 			expect(evaluate("-2", makeCtx())).toBe(-2);
-			expect(evaluate("(5)[1]", makeCtx())).toBe(5);
-			expect(evaluate("(5)[1] + 1", makeCtx())).toBe(6);
+			expect(() => evaluate("(5)[1]", makeCtx())).toThrow(
+				"without structural context",
+			);
 		});
 	});
 
@@ -121,8 +122,10 @@ describe("XPath evaluator", () => {
 			expect(evaluate("2 + 3 * 4", makeCtx())).toBe(14);
 		});
 
-		it("division by zero returns NaN", () => {
-			expect(evaluate("1 div 0", makeCtx())).toBeNaN();
+		it("uses Java double division by zero", () => {
+			expect(evaluate("1 div 0", makeCtx())).toBe(Number.POSITIVE_INFINITY);
+			expect(evaluate("-1 div 0", makeCtx())).toBe(Number.NEGATIVE_INFINITY);
+			expect(evaluate("0 div 0", makeCtx())).toBeNaN();
 		});
 	});
 
@@ -154,14 +157,13 @@ describe("XPath evaluator", () => {
 			expect(evaluate('today() >= "2000-05-01"', makeCtx())).toBe(true);
 		});
 
-		it("ISO datetime strings compare (the date_opened/last_modified preload shape)", () => {
-			// The standard-property preloads carry full timestamps; on-device
-			// these are typed dates, so preview must reach the same
-			// day-number instead of NaN-failing at the character gate.
+		it("does not reinterpret authored datetime strings as typed dates", () => {
+			// Core's string gate rejects the `T`, `:` and timezone characters.
+			// Casedb timestamps reach the evaluator as XPathDate instead.
+			expect(
+				evaluate('number("2000-05-01T21:31:18.377Z")', makeCtx()),
+			).toBeNaN();
 			expect(evaluate('"2000-05-01T21:31:18.377Z" <= today()', makeCtx())).toBe(
-				true,
-			);
-			expect(evaluate('"2099-01-01T00:00:00Z" <= today()', makeCtx())).toBe(
 				false,
 			);
 		});
@@ -260,12 +262,14 @@ describe("XPath evaluator", () => {
 		});
 
 		it("evaluates only the selected if() branch", () => {
-			expect(evaluate("if(false(), upper-case('x'), 'ok')", makeCtx())).toBe(
-				"ok",
-			);
+			expect(
+				evaluate("if(false(), unsupported-function('x'), 'ok')", makeCtx()),
+			).toBe("ok");
 			expect(() =>
-				evaluate("if(true(), upper-case('x'), 'ok')", makeCtx()),
-			).toThrow("Unsupported XPath function in Preview: upper-case()");
+				evaluate("if(true(), unsupported-function('x'), 'ok')", makeCtx()),
+			).toThrow(
+				"Unsupported XPath function in Preview: unsupported-function()",
+			);
 		});
 
 		it("not()", () => {
@@ -289,6 +293,9 @@ describe("XPath evaluator", () => {
 			expect(evaluate('selected(/data/symptoms, "fever")', ctx)).toBe(true);
 			expect(evaluate('selected(/data/symptoms, " fever ")', ctx)).toBe(true);
 			expect(evaluate('selected(/data/symptoms, "headache")', ctx)).toBe(false);
+			expect(() => evaluate("selected(1, '1')", ctx)).toThrow(
+				"must be a string",
+			);
 		});
 
 		it("count-selected()", () => {
@@ -296,6 +303,27 @@ describe("XPath evaluator", () => {
 			expect(evaluate("count-selected(/data/items)", ctx)).toBe(2);
 			const three = makeCtx({ "/data/items": "a b c" });
 			expect(evaluate("count-selected(/data/items)", three)).toBe(3);
+			expect(() => evaluate("count-selected(1)", ctx)).toThrow(
+				"must be a string",
+			);
+		});
+
+		it("uses the active form locale for alternate-calendar month names", () => {
+			expect(
+				evaluate("format-date-for-calendar('2017-07-15', 'ethiopian')", {
+					...makeCtx(),
+					locale: "amh",
+				}),
+			).toBe("8 ሐምሌ 2009");
+		});
+
+		it("preserves JavaRosa's malformed-date failure for alternate calendars", () => {
+			expect(
+				evaluate("format-date-for-calendar('', 'nepali')", makeCtx()),
+			).toBe("");
+			expect(() =>
+				evaluate("format-date-for-calendar('not-a-date', 'nepali')", makeCtx()),
+			).toThrow("format-date-for-calendar() value is invalid");
 		});
 
 		it("selected-at() returns the Nth token and throws out of range like JavaRosa", () => {
@@ -308,6 +336,9 @@ describe("XPath evaluator", () => {
 				/select element 3 of a list with only 3 elements/,
 			);
 			expect(() => evaluate("selected-at(/data/items, -1)", ctx)).toThrow();
+			expect(() => evaluate("selected-at(1, 0)", ctx)).toThrow(
+				"must be a string",
+			);
 			expect(evaluate("selected-at(/data/items, number('bad'))", ctx)).toBe(
 				"a",
 			);
@@ -335,11 +366,20 @@ describe("XPath evaluator", () => {
 				"fallback",
 			);
 			expect(evaluate('coalesce("first", "second")', makeCtx())).toBe("first");
-			expect(evaluate("coalesce('ok', upper-case('x'))", makeCtx())).toBe("ok");
+			expect(() =>
+				evaluate("coalesce('ok', unsupported-function('x'))", makeCtx()),
+			).toThrow(
+				"Unsupported XPath function in Preview: unsupported-function()",
+			);
+			expect(() =>
+				evaluate("coalesce('ok', selected(1, '1'))", makeCtx()),
+			).toThrow("must be a string");
 			expect(evaluate("coalesce(number('bad'))", makeCtx())).toBeNaN();
 			expect(() =>
-				evaluate("coalesce('', upper-case('x'))", makeCtx()),
-			).toThrow("Unsupported XPath function in Preview: upper-case()");
+				evaluate("coalesce('', unsupported-function('x'))", makeCtx()),
+			).toThrow(
+				"Unsupported XPath function in Preview: unsupported-function()",
+			);
 		});
 
 		it("starts-with()", () => {
@@ -368,21 +408,10 @@ describe("XPath evaluator", () => {
 			expect(evaluate("max(2, 1)", makeCtx())).toBe(2);
 		});
 
-		it("rejects nodeset signatures instead of scalarizing them", () => {
+		it("does not scalarize nodeset signatures in a legacy scalar context", () => {
 			for (const expression of ["count(/data/items)", "sum(/data/items)"]) {
 				expect(() => evaluate(expression, makeCtx())).toThrow(
-					"Unsupported XPath function in Preview",
-				);
-			}
-			for (const expression of [
-				"concat(/data/items)",
-				"concat(if(true(), /data/items, ''))",
-				"join(',', /data/items)",
-				"min(/data/items)",
-				"max(#form/items)",
-			]) {
-				expect(() => evaluate(expression, makeCtx())).toThrow(
-					"Unsupported XPath function signature in Preview",
+					"requires a nodeset argument",
 				);
 			}
 			expect(
@@ -450,6 +479,17 @@ describe("XPath evaluator", () => {
 			expect(evaluate("boolean(0.0000000000011)", makeCtx())).toBe(true);
 		});
 
+		it("uses Core's numeric equality epsilon and Java number text", () => {
+			expect(evaluate("1 = 1.0000000000001", makeCtx())).toBe(true);
+			expect(evaluate("1 = 1.0000000000011", makeCtx())).toBe(false);
+			expect(evaluate("string(0.0000000000001)", makeCtx())).toBe("0");
+			expect(evaluate("string(10000000)", makeCtx())).toBe("10000000");
+			expect(evaluate("string(10000000000)", makeCtx())).toBe("1.0E10");
+			expect(evaluate("string(pow(10, 23))", makeCtx())).toBe(
+				"9.999999999999999E22",
+			);
+		});
+
 		it("fails loudly for unknown or prototype method names", () => {
 			for (const name of ["unknownFunction", "valueOf", "hasOwnProperty"]) {
 				expect(() => evaluate(`${name}()`, makeCtx())).toThrow(
@@ -507,6 +547,27 @@ describe("XPath evaluator", () => {
 			const result = evaluate("date(0)", makeCtx());
 			expect(isXPathDate(result)).toBe(true);
 			expect(xpathToString(result)).toBe("1970-01-01");
+		});
+
+		it("parses the BMP decimal digits accepted by Java date components", () => {
+			expect(xpathToString(evaluate("date('٢٠٢٦-٠٨-٢٥')", makeCtx()))).toBe(
+				"2026-08-25",
+			);
+			expect(
+				isXPathDate(evaluate("date('٢٠٢٦-٠٨-٢٥T١٢:٣٤+٠٢:٣٠')", makeCtx())),
+			).toBe(true);
+		});
+
+		it("rejects Core's out-of-range numeric date inputs", () => {
+			expect(() => evaluate("date(1 div 0)", makeCtx())).toThrow(
+				"date() value is invalid",
+			);
+			expect(() => evaluate("date(2147483648)", makeCtx())).toThrow(
+				"date() value is invalid",
+			);
+			expect(() => evaluate("date(-2147483649)", makeCtx())).toThrow(
+				"date() value is invalid",
+			);
 		});
 
 		it("date comparison works via numeric coercion", () => {
@@ -610,8 +671,10 @@ describe("XPath evaluator", () => {
 	});
 
 	describe("error handling", () => {
-		it("returns empty string on parse error", () => {
-			expect(evaluate("[[invalid", makeCtx())).toBe("");
+		it("fails closed for parse errors that bypassed admission", () => {
+			expect(() => evaluate("[[invalid", makeCtx())).toThrow(
+				"did not pass admission",
+			);
 		});
 	});
 });

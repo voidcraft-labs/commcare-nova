@@ -110,6 +110,7 @@ describe("case parent relationship scan-then-migrate", () => {
 				[CLEAN_ID, REPAIRABLE_ID, UNKNOWN_ID, TOUCHED_ID].map((caseId) => ({
 					case_id: caseId,
 					ancestor_id: PARENT_ID,
+					target_case_type: "test",
 					identifier: "parent",
 					relationship: caseId === CLEAN_ID ? "extension" : "child",
 					depth: 1,
@@ -203,6 +204,7 @@ describe("case parent relationship scan-then-migrate", () => {
 			.values({
 				case_id: REPAIRABLE_ID,
 				ancestor_id: PARENT_ID,
+				target_case_type: "test",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -262,6 +264,7 @@ describe("case parent relationship scan-then-migrate", () => {
 			.values({
 				case_id: historicalCatalogId,
 				ancestor_id: PARENT_ID,
+				target_case_type: "test",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -360,6 +363,7 @@ describe("case parent relationship scan-then-migrate", () => {
 			.values({
 				case_id: candidateId,
 				ancestor_id: PARENT_ID,
+				target_case_type: "test",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,

@@ -10,10 +10,16 @@ import { getAppDb } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
-import { scanBlueprintXPathCarriers } from "./lib/xpathCompatibilityScan";
+import {
+	scanBlueprintXPathCarriers,
+	summarizeXPathCompatibility,
+	type XPathCompatibilityAggregate,
+	xpathCompatibilityScanShouldFail,
+} from "./lib/xpathCompatibilityScan";
 
 interface Options {
 	app?: string;
+	debugDetails?: boolean;
 	prod?: boolean;
 }
 
@@ -24,9 +30,18 @@ program
 		"Read stored XPath calls and classify them for JavaRosa and Nova Preview; never writes.",
 	)
 	.option("--app <appId>", "scope the scan to one app")
+	.option(
+		"--debug-details",
+		"show carrier addresses and diagnostics (requires --app)",
+	)
 	.option("--prod", "scan production through the read-only operator identity");
 program.parse();
 const options = program.opts<Options>();
+if (options.debugDetails === true && options.app === undefined) {
+	throw new Error(
+		"--debug-details requires --app so private detail stays bounded.",
+	);
+}
 if (options.prod === true) targetProdDb();
 
 async function main(): Promise<void> {
@@ -35,63 +50,70 @@ async function main(): Promise<void> {
 	if (options.app !== undefined) query = query.where("id", "=", options.app);
 	const rows = await query.execute();
 	if (options.app !== undefined && rows.length === 0) {
-		throw new Error(`App ${options.app} not found.`);
+		throw new Error("No app matched --app.");
 	}
 
 	let expressions = 0;
-	let calls = 0;
+	let functionCalls = 0;
 	let javaRosaLowered = 0;
-	let javaRosaUnsafe = 0;
-	let previewUnsupported = 0;
+	let errorFindings = 0;
 	let failedApps = 0;
+	const aggregates = new Map<string, XPathCompatibilityAggregate>();
 	for (const { id } of rows) {
-		let loadFailed = false;
-		const app = await loadSchemaAdmittedAppForInspection(id).catch(
-			(error: unknown) => {
-				failedApps += 1;
-				loadFailed = true;
-				console.error(
-					`${id}: could not assemble stored blueprint: ${error instanceof Error ? error.message : String(error)}`,
-				);
-				return null;
-			},
-		);
-		if (app === null) {
-			if (!loadFailed) {
-				failedApps += 1;
-				console.error(`${id}: app disappeared while the scan was reading it`);
+		try {
+			const app = await loadSchemaAdmittedAppForInspection(id);
+			if (app === null)
+				throw new Error("App disappeared while the scan read it.");
+			const occurrences = scanBlueprintXPathCarriers(
+				hydratePersistedBlueprint(app.blueprint),
+			);
+			const summary = summarizeXPathCompatibility(occurrences);
+			expressions += summary.expressions;
+			functionCalls += summary.functionCalls;
+			javaRosaLowered += summary.javaRosaLoweredCalls;
+			errorFindings += summary.errorFindings;
+			for (const finding of summary.findings) {
+				const key = `${finding.profile}\u0000${finding.severity}\u0000${finding.code}`;
+				const previous = aggregates.get(key);
+				aggregates.set(key, {
+					...finding,
+					count: (previous?.count ?? 0) + finding.count,
+				});
 			}
-			continue;
-		}
-		const doc = hydratePersistedBlueprint(app.blueprint);
-		for (const occurrence of scanBlueprintXPathCarriers(doc)) {
-			expressions += 1;
-			for (const call of occurrence.calls) {
-				calls += 1;
-				if (call.javaRosa === "lowered") javaRosaLowered += 1;
-				const unsafe =
-					call.javaRosa === "unsupported" ||
-					call.javaRosa === "context-handler" ||
-					!call.validPathInitializer;
-				const previewUnsafe =
-					call.preview === "unsupported" ||
-					!call.validPreviewSignature ||
-					(call.preview === "path-initializer" && !call.validPathInitializer);
-				if (unsafe) javaRosaUnsafe += 1;
-				if (previewUnsafe) previewUnsupported += 1;
-				if (unsafe || call.javaRosa === "lowered" || previewUnsafe) {
-					console.log(
-						`${id}\t${occurrence.path}\t${call.name}()\tJavaRosa=${unsafe ? "UNSAFE" : call.javaRosa.toUpperCase()}\tPreview=${call.validPreviewSignature ? call.preview : "unsupported-signature"}`,
-					);
+
+			if (options.debugDetails === true) {
+				for (const occurrence of occurrences) {
+					for (const finding of occurrence.findings) {
+						console.log(
+							`${id}\t${occurrence.path}\t${occurrence.profile}\t${finding.code}\t${finding.detail}`,
+						);
+					}
 				}
+			}
+		} catch {
+			failedApps += 1;
+			if (options.debugDetails === true) {
+				console.error(`${id}: could not inspect stored blueprint.`);
 			}
 		}
 	}
 
+	for (const finding of [...aggregates.values()].sort(
+		(a, b) =>
+			a.profile.localeCompare(b.profile) ||
+			a.severity.localeCompare(b.severity) ||
+			a.code.localeCompare(b.code),
+	)) {
+		console.log(
+			`${finding.profile}\t${finding.code}\t${finding.severity}\t${finding.count}`,
+		);
+	}
 	console.log(
-		`Scanned ${rows.length} app(s), ${expressions} expression(s), ${calls} function call(s): ${javaRosaLowered} JavaRosa-lowered, ${javaRosaUnsafe} JavaRosa-unsafe, ${previewUnsupported} Preview-unsupported, ${failedApps} unreadable app(s).`,
+		`Scanned ${rows.length} app(s), ${expressions} expression(s), ${functionCalls} function call(s): ${javaRosaLowered} JavaRosa-lowered, ${errorFindings} compatibility error(s), ${failedApps} unreadable app(s).`,
 	);
-	if (javaRosaUnsafe > 0 || failedApps > 0) process.exitCode = 1;
+	if (xpathCompatibilityScanShouldFail({ errorFindings }, failedApps)) {
+		process.exitCode = 1;
+	}
 }
 
 runMain(async () => {

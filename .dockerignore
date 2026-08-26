@@ -18,6 +18,10 @@ scripts
 !scripts/
 scripts/*
 !scripts/migrate.ts
+!scripts/java-pattern-runtime/
+!scripts/java-pattern-runtime/**
+scripts/java-pattern-runtime/.gradle/
+scripts/java-pattern-runtime/build/
 !scripts/cleanup-form-attachments.ts
 !scripts/audit-canonical-identity-foundation.ts
 !scripts/infra/

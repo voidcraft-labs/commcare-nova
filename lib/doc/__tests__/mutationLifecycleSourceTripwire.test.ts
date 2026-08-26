@@ -94,9 +94,6 @@ const SOURCE_CLASSIFICATION = {
 	// submits its semantic batch through appendSyntheticBatch, whose canonical
 	// commit kernel re-admits the target document before writing anything.
 	"scripts/lib/caseStatusFilterRepair.ts": "admits-proposal",
-	// The finite XPath-carrier cutover follows the same named-system repair
-	// path for the two scan-proven historical here() defaults.
-	"scripts/lib/xpathCarrierCompatibilityRepair.ts": "admits-proposal",
 	// The choice-value grammar repair: the one path that can fix an app the
 	// allowance-free gate has locked (a refused option value on two fields, or
 	// on a catalog property no editor writes). Same named-system repair shape
@@ -139,7 +136,6 @@ const MUTATION_LIFECYCLE_FAMILIES = [
 		[
 			"scripts/repair-canonical-identity-foundation.ts",
 			"scripts/lib/caseStatusFilterRepair.ts",
-			"scripts/lib/xpathCarrierCompatibilityRepair.ts",
 			"scripts/lib/selectOptionValueRepair.ts",
 			"lib/db/apps.ts",
 		],

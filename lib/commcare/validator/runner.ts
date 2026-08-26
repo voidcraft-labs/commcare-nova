@@ -20,6 +20,11 @@
  * MODULE_RULES.
  */
 
+import {
+	authoredXPathCarriers,
+	xpathCarrierAllowedInstanceIds,
+} from "@/lib/commcare/xpath/carriers";
+import { analyzeXPathInstanceCompatibility } from "@/lib/commcare/xpath/compatibility";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
 	type LookupReferenceExtractorRegistry,
@@ -107,6 +112,8 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"EMPTY_APP_NAME",
 	"RESERVED_CASE_TYPE_NAME",
 	"CASE_PROPERTY_OPTION_VALUE_INVALID",
+	"CASE_PROPERTY_XPATH_INCOMPATIBLE",
+	"XPATH_INSTANCE_UNAVAILABLE",
 	"MISSING_CHILD_CASE_MODULE",
 	"FORM_LINK_CIRCULAR",
 	"CONNECT_ID_DUPLICATE",
@@ -205,6 +212,7 @@ export function runValidation(
 	for (const rule of APP_RULES) {
 		errors.push(...rule(doc));
 	}
+	errors.push(...validateXPathCarrierInstances(doc));
 
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
@@ -258,6 +266,34 @@ export function runValidation(
 
 	errors.push(...runDeepValidation(doc, scope));
 
+	return errors;
+}
+
+/** Raw XPath may name Core's stable structural instances. Lookup expressions
+ * remain typed because their wire names are mutable projections, not identity. */
+function validateXPathCarrierInstances(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const carrier of authoredXPathCarriers(doc)) {
+		for (const finding of analyzeXPathInstanceCompatibility(
+			carrier.source,
+			carrier.profile,
+			xpathCarrierAllowedInstanceIds(carrier.profile),
+		)) {
+			errors.push(
+				validationError(
+					"XPATH_INSTANCE_UNAVAILABLE",
+					"app",
+					`An authored XPath carrier references a secondary instance that this app does not declare. ${finding.detail}`,
+					{},
+					{
+						path: carrier.path,
+						slot: carrier.slot,
+						profile: carrier.profile,
+					},
+				),
+			);
+		}
+	}
 	return errors;
 }
 
@@ -518,6 +554,23 @@ function humanizeXPathError(error: XPathError, where: string): string {
 	switch (error.code) {
 		case "XPATH_SYNTAX":
 			return `${where} has a syntax error: ${error.message}. Check for unbalanced parentheses, missing operators, or stray characters.`;
+
+		case "XPATH_UNBOUND_VARIABLE":
+		case "XPATH_UNSUPPORTED_UNION":
+		case "XPATH_UNSUPPORTED_DESCENDANT":
+		case "XPATH_UNSUPPORTED_FILTER":
+		case "XPATH_UNSUPPORTED_AXIS":
+		case "XPATH_UNSUPPORTED_NODE_TEST":
+		case "XPATH_UNSUPPORTED_PATH":
+			return `${where} uses XPath that CommCare cannot run: ${error.message}`;
+
+		case "XPATH_CARRIER_CONTEXT_UNAVAILABLE":
+			return `${where} depends on an XPath context that isn't available after the form closes: ${error.message}`;
+
+		case "XPATH_FUNCTION_UNAVAILABLE":
+		case "XPATH_FUNCTION_SIGNATURE_UNAVAILABLE":
+		case "XPATH_FUNCTION_CONTEXT_UNAVAILABLE":
+			return `${where} uses XPath that Nova Preview cannot run faithfully: ${error.message}`;
 
 		case "UNKNOWN_FUNCTION":
 			return `${where} calls a function that isn't a recognized CommCare function: ${error.message}. Function names are case-sensitive. Check for a typo or the wrong case.`;

@@ -17,7 +17,7 @@ import {
 	RESERVED_XFORM_NODE_PREFIX,
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
-import { detectUnquotedStringLiteral, parser } from "@/lib/commcare/xpath";
+import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
 import {
 	expressionInspectionSource,
@@ -501,162 +501,6 @@ function reservedFieldIdPrefix(
 	];
 }
 
-/**
- * The closed set of `instance('<id>')` ids Nova's XForm-level emitter
- * declares as `<model><instance>` elements. A field's XPath surface
- * (`relevant` / `validate` / `calculate` / `default_value` /
- * `required`) is evaluated by JavaRosa against the FORM's instance
- * declarations only — any reference outside this set has no matching
- * `<instance>` on the wire and resolves to nothing at form-init,
- * surfaced on device as "A part of your application is invalid."
- *
- * Source: `lib/commcare/xform/builder.ts::InstanceTracker::toElements`
- * is the single emitter of `<model><instance>` for XForms; it emits
- * `casedb` and/or `commcaresession` and nothing else. Suite-XML-side
- * instances (`results`, `results:inline`, `search-input:results` —
- * declared per-`<remote-request>` block on the suite) are
- * deliberately EXCLUDED from this allowlist: they are not visible to
- * a form's XPath, so referencing them from a field surface is exactly
- * the false-negative this rule must catch.
- *
- * If Nova adds support for a new fixture (lookup tables, saved
- * reports, etc.), the `InstanceTracker` gains a corresponding
- * `<instance>` emission and this set extends in lockstep.
- */
-const MODELED_INSTANCE_IDS: ReadonlySet<string> = new Set([
-	"casedb",
-	"commcaresession",
-]);
-
-/** Pre-resolved Lezer node types for the `instance(...)` scan. */
-const INSTANCE_NODE_TYPES = (() => {
-	const all = parser.nodeSet.types;
-	const one = (name: string) => {
-		const found = all.find((t) => t.name === name);
-		if (!found) throw new Error(`Missing parser node type: ${name}`);
-		return found;
-	};
-	return {
-		Invoke: one("Invoke"),
-		FunctionName: one("FunctionName"),
-		ArgumentList: one("ArgumentList"),
-		StringLiteral: one("StringLiteral"),
-	};
-})();
-
-/**
- * Strip surrounding quotes from an XPath string literal and collapse
- * the doubled-quote escape (XPath 1.0 has no backslash escape; the only
- * way to embed the same quote is to double it).
- */
-function unquoteXPathStringLiteral(literal: string): string {
-	if (literal.length < 2) return literal;
-	const quote = literal[0];
-	const inner = literal.slice(1, -1);
-	return inner.split(`${quote}${quote}`).join(quote);
-}
-
-/**
- * Walk `expr` (an XPath expression) and return every `instance('<id>')`
- * id whose `<id>` is NOT in `MODELED_INSTANCE_IDS`. Each return value
- * is the raw quoted id text the user authored, suitable for quoting
- * back to them in an error message.
- */
-function findUnmodeledInstanceIds(expr: string): string[] {
-	if (!expr) return [];
-	const out: string[] = [];
-	const tree = parser.parse(expr);
-	tree.iterate({
-		enter(node) {
-			if (node.type !== INSTANCE_NODE_TYPES.Invoke) return;
-			const fnName = node.node.firstChild;
-			if (!fnName) return;
-			if (fnName.type !== INSTANCE_NODE_TYPES.FunctionName) return;
-			if (expr.slice(fnName.from, fnName.to) !== "instance") return;
-			const argList = fnName.nextSibling;
-			if (!argList || argList.type !== INSTANCE_NODE_TYPES.ArgumentList) return;
-			for (
-				let child = argList.firstChild;
-				child !== null;
-				child = child.nextSibling
-			) {
-				if (child.type !== INSTANCE_NODE_TYPES.StringLiteral) continue;
-				const id = unquoteXPathStringLiteral(expr.slice(child.from, child.to));
-				if (!MODELED_INSTANCE_IDS.has(id)) {
-					out.push(id);
-				}
-				break;
-			}
-		},
-	});
-	return out;
-}
-
-/**
- * Reject fields whose XPath surfaces reference an `instance('<id>')`
- * that Nova doesn't model. The wire layer only declares `<instance>`
- * elements for the closed set in `MODELED_INSTANCE_IDS` — a reference
- * to anything else (`item-list:foo`, `commcare:reports`,
- * `commcare-reports:bar`, custom fixtures) compiles to a form whose
- * `instance('...')` call resolves to nothing at form-init, surfaced on
- * device as "A part of your application is invalid."
- *
- * Raw fixture XPath is never the authoring contract. Project data tables are
- * available through structured table-lookup expressions on the surfaces that
- * support them; saved reports / UCR reports remain unsupported.
- */
-function fixtureReferenceNotModeled(
-	field: Field,
-	ctx: FieldContext,
-): ValidationError[] {
-	const errors: ValidationError[] = [];
-
-	/** Emit one error per offending instance id on a single XPath surface. */
-	const flag = (surfaceDescription: string, expr: string | undefined) => {
-		if (!expr) return;
-		for (const id of findUnmodeledInstanceIds(expr)) {
-			errors.push(
-				validationError(
-					"FIXTURE_REFERENCE_NOT_MODELED",
-					"field",
-					`Field "${field.id}" in "${ctx.formName}" references the fixture instance "${id}" in its ${surfaceDescription}. Raw instance(...) XPath is not an authorable fixture reference, so the emitted form would have no <instance> declaration for "${id}" and would fail at form-init with "A part of your application is invalid." Use a structured Project data table lookup on a surface that offers data-table values. Nova also supports casedb (case data via "#<case type>/...") and commcaresession (user/session data via "#user/..." or direct refs). Saved reports and UCR reports aren't supported.`,
-					{
-						moduleUuid: ctx.moduleUuid,
-						moduleName: ctx.moduleName,
-						formUuid: ctx.formUuid,
-						formName: ctx.formName,
-						fieldUuid: field.uuid,
-						fieldId: field.id,
-					},
-					{ fixtureId: id },
-				),
-			);
-		}
-	};
-
-	for (const key of XPATH_FIELDS) {
-		flag(FIELD_DESCRIPTIONS[key], readXPath(field, key, ctx));
-	}
-
-	// Repeat-cardinality XPath surfaces — both flow through the wire-emit
-	// hashtag expander and accumulate instance refs the same way the
-	// expression surfaces above do. Without screening them here, an
-	// `instance('item-list:foo')` in `repeat_count` or
-	// `data_source.ids_query` would slip past the authoring gate and
-	// produce a form whose `<instance>` block lacks the matching
-	// declaration, surfaced on device as "A part of your application is
-	// invalid."
-	if (field.kind === "repeat") {
-		if (field.repeat_mode === "count_bound") {
-			flag("repeat count expression", readXPath(field, "repeat_count", ctx));
-		} else if (field.repeat_mode === "query_bound") {
-			flag("repeat ids-query expression", readXPath(field, "ids_query", ctx));
-		}
-	}
-
-	return errors;
-}
-
 const FIELD_RULES = [
 	selectNoOptions,
 	selectTooFewOptions,
@@ -669,7 +513,6 @@ const FIELD_RULES = [
 	reservedFieldIdPrefix,
 	validationOnNonInputType,
 	emptyRepeatXPath,
-	fixtureReferenceNotModeled,
 ];
 
 /**

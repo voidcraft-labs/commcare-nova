@@ -31,8 +31,8 @@
 import { ExternalTokenizer } from "@lezer/lr";
 import { noGapIdent, noGapSlash } from "./parser.terms";
 
-/** The grammar's skip set: tab, newline, carriage return, space. */
-const SKIP_CHARS = new Set([9, 10, 13, 32]);
+/** The grammar's skip set: tab, newline, form feed, carriage return, space. */
+const SKIP_CHARS = new Set([9, 10, 12, 13, 32]);
 
 /** ASCII identifier start: `[A-Za-z_]` — the shared segment charset. */
 function isIdentStart(ch: number): boolean {

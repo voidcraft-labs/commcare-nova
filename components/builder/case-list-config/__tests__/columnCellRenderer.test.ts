@@ -88,14 +88,14 @@ describe("case-list Preview cell formatting", () => {
 			});
 		});
 
-		it("keeps date-only values on their authored day and timestamps local", () => {
+		it("keeps date-only and explicitly zoned values on JavaRosa's date axis", () => {
 			expect(formatDateForPreview("2026-07-14", "%Y-%m-%d")).toEqual({
 				kind: "value",
 				text: "2026-07-14",
 			});
 			expect(
 				formatDateForPreview("2026-07-14T01:30:00.000Z", "%Y-%m-%d %H:%M"),
-			).toEqual({ kind: "value", text: "2026-07-13 18:30" });
+			).toEqual({ kind: "value", text: "2026-07-14 18:30" });
 		});
 
 		it("uses an explained raw-value fallback for invalid case data", () => {
@@ -246,7 +246,7 @@ describe("case-list Preview cell formatting", () => {
 			).toEqual({ kind: "value", text: "0" });
 		});
 
-		it("truncates a datetime value in the worker's local zone, like device date()", () => {
+		it("retains JavaRosa's authored date when an explicit zone crosses midnight", () => {
 			const column = intervalColumn(
 				COLUMN_UUID,
 				"last_visit",
@@ -257,10 +257,10 @@ describe("case-list Preview cell formatting", () => {
 				"Overdue",
 			);
 			// 03:00 UTC on July 19 is 20:00 on July 18 in America/Los_Angeles.
-			// Device `date(@last_visit)` truncates in the device-local zone
-			// (commcare-core `DateUtils.roundDate`), so the visit and `today`
-			// share one local day and the interval is 0: reading the
-			// instant's UTC day instead would render -1.
+			// DateUtils.parseDateTime converts the clock into the device zone but
+			// deliberately copies it back onto the authored Y-M-D. Device
+			// `date(@last_visit)` therefore remains July 19 while local today is
+			// July 18, producing -1.
 			const localEvening = new Date("2026-07-19T04:00:00.000Z");
 			expect(
 				formatIntervalForPreview(
@@ -268,7 +268,7 @@ describe("case-list Preview cell formatting", () => {
 					column,
 					localEvening,
 				),
-			).toEqual({ kind: "value", text: "0" });
+			).toEqual({ kind: "value", text: "-1" });
 		});
 
 		it("does not invent an interval for invalid stored data", () => {

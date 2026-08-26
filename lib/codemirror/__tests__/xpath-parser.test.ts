@@ -107,16 +107,16 @@ describe("CommCare XPath Parser", () => {
 	});
 
 	// --------------- Context-sensitive edge cases ---------------
-	// These require a stateful lexer (like Jison's 3-state VAL/OP context)
-	// to distinguish keyword from identifier when no whitespace is present.
-	// Not supported — CommCare expressions always use spaces around operators.
-	describe("context-sensitive (unsupported)", () => {
-		it.each(["3mod4", "3 mod6", "4andfunc()"])(
-			"does not cleanly parse %s",
-			(expr) => {
-				expect(parsesClean(expr)).toBe(false);
-			},
-		);
+	// JavaRosa switches from value to operator mode after a complete expression,
+	// so word operators remain recognizable without separating whitespace.
+	describe("context-sensitive operators", () => {
+		it.each(["3mod4", "3 mod6", "4andfunc()"])("cleanly parses %s", (expr) => {
+			expect(parsesClean(expr)).toBe(true);
+		});
+	});
+
+	it("accepts JavaRosa NCName dots and form-feed whitespace", () => {
+		expect(parsesClean("foo.bar = 1\f+\f0")).toBe(true);
 	});
 
 	// --------------- Operator associativity ---------------

@@ -139,6 +139,7 @@ vi.mock("@/lib/doc/hooks/useDocHasData", () => ({
 }));
 
 vi.mock("@/lib/routing/hooks", () => ({
+	useLocation: () => ({ kind: "app-home" }),
 	useNavigate: () => ({ back: vi.fn() }),
 }));
 

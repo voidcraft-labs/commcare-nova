@@ -44,6 +44,9 @@ const livingIndividualCodes = unpackCodes(
 );
 const rtlDefaultLanguages = unpackCodes(RTL_DEFAULT_LANGUAGE_CODES_PACKED);
 const rtlScriptSet: ReadonlySet<string> = new Set(RTL_SCRIPTS);
+const iso6391BySet3 = new Map(
+	Object.entries(ISO_639_1_TO_SET3).map(([set1, set3]) => [set3, set1]),
+);
 
 const nonLivingTypeByCode = new Map<string, string>();
 for (
@@ -212,6 +215,11 @@ export function macrolanguageName(code: string): string | undefined {
 /** An individual member's macrolanguage, for the Classic wire-widening path. */
 export function classicWideningTarget(language: string): string | undefined {
 	return MACROLANGUAGE_OF_MEMBER[language];
+}
+
+/** The ISO 639-1 spelling Android uses for a Set 3 resource locale. */
+export function iso6391CodeForSet3(language: string): string | undefined {
+	return iso6391BySet3.get(language);
 }
 
 function toIdentity(

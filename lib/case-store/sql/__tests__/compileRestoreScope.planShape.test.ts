@@ -76,13 +76,13 @@ async function seedTenant(): Promise<void> {
 		[APP, PROJECT],
 	);
 	await pool.query(
-		`INSERT INTO case_indices (case_id, ancestor_id, identifier, relationship, depth)
-		 SELECT 'p'||i, 'h'||(1 + (i % ${HOUSEHOLDS})), 'parent', 'child', 1
+		`INSERT INTO case_indices (case_id, ancestor_id, target_case_type, identifier, relationship, depth)
+		 SELECT 'p'||i, 'h'||(1 + (i % ${HOUSEHOLDS})), 'household', 'parent', 'child', 1
 		 FROM generate_series(1, ${CASES - HOUSEHOLDS}) i`,
 	);
 	await pool.query(
-		`INSERT INTO case_indices (case_id, ancestor_id, identifier, relationship, depth)
-		 SELECT 'p'||i, 'p'||(i - 1), 'host', 'extension', 1
+		`INSERT INTO case_indices (case_id, ancestor_id, target_case_type, identifier, relationship, depth)
+		 SELECT 'p'||i, 'p'||(i - 1), 'patient', 'host', 'extension', 1
 		 FROM generate_series(2, ${CASES - HOUSEHOLDS}) i WHERE i % 8 = 0`,
 	);
 	await pool.query("ANALYZE cases");

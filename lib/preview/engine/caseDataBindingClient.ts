@@ -46,6 +46,7 @@ import { RESERVED_SCALAR_COLUMN_BY_PROPERTY } from "@/lib/case-store/sql/dataTyp
 import type { BlueprintDoc } from "@/lib/domain";
 import { pickByKeys } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import type {
 	CaseRow,
 	JsonValue,
@@ -102,6 +103,29 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
 		...(picked as Omit<BlueprintDoc, "fieldParent">),
 		fieldParent: state.fieldParent,
 	};
+}
+
+/** Browser-side identity of the exact persistable blueprint a submission was
+ * evaluated against. The server hashes its committed document with the same
+ * canonical JSON bytes before it derives operations, so a save or collaborator
+ * race is refused instead of mixing client routing with a newer server program. */
+export async function blueprintRevisionDigest(
+	doc: BlueprintDoc,
+): Promise<string> {
+	const { fieldParent: _fieldParent, ...persistable } = pickBlueprintDoc(doc);
+	const subtle = globalThis.crypto?.subtle;
+	if (subtle === undefined) {
+		throw new Error(
+			"WebCrypto is unavailable for the blueprint revision fence.",
+		);
+	}
+	const digest = await subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(canonicalJsonText(persistable)),
+	);
+	return Array.from(new Uint8Array(digest))
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
 }
 
 /**
@@ -174,6 +198,48 @@ export function caseRowsToFormPreloads(
 		}
 	}
 	return byType;
+}
+
+/** Resolve one case and its `index/parent` chain from a captured device
+ * database, then apply the same positional case-type projection as the normal
+ * server row loader. This is the post-submit path: it must consume the exact
+ * entry snapshot plus the transaction-returned patch, never a newer database
+ * read that could disagree with structural `casedb`. */
+export function caseDatabaseToFormPreloads(
+	snapshot: {
+		readonly rows: readonly CaseRow[];
+		readonly indices: readonly {
+			readonly case_id: string;
+			readonly ancestor_id: string;
+			readonly identifier: string;
+			readonly depth: number;
+		}[];
+	},
+	caseId: string,
+	reachable: ReadonlyArray<{ name: string; depth: number }>,
+): Map<string, Map<string, string>> | undefined {
+	const rowsById = new Map(snapshot.rows.map((row) => [row.case_id, row]));
+	const primary = rowsById.get(caseId);
+	if (primary === undefined) return undefined;
+	const ancestors: CaseRow[] = [];
+	const seen = new Set([caseId]);
+	let currentId = caseId;
+	const maxDepth = Math.max(0, ...reachable.map(({ depth }) => depth));
+	for (let depth = 0; depth < maxDepth; depth += 1) {
+		const parentId = snapshot.indices.find(
+			(index) =>
+				index.case_id === currentId &&
+				index.identifier === "parent" &&
+				index.depth === 1,
+		)?.ancestor_id;
+		if (parentId === undefined || seen.has(parentId)) break;
+		const parent = rowsById.get(parentId);
+		if (parent === undefined) break;
+		ancestors.push(parent);
+		seen.add(parentId);
+		currentId = parentId;
+	}
+	return caseRowsToFormPreloads(primary, ancestors, reachable);
 }
 
 /**

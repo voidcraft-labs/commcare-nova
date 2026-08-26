@@ -60,6 +60,7 @@ import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/predicate/types";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
 	mapFilterPreviewError,
@@ -76,6 +77,7 @@ import {
 	loadLookupTableSchemas,
 	PERSONA_UNAVAILABLE_MESSAGE,
 	readCaseData,
+	readCaseDatabaseSnapshot,
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
@@ -121,6 +123,7 @@ import {
 	searchInputRuntimeGlobalError,
 	searchInputSubmissionErrors,
 } from "./searchInputValidation";
+import type { LoadCaseDatabaseSnapshotResult } from "./xpathInstances";
 
 // Errors thrown by the case-store layer are caught and mapped to
 // the `{ kind: "error" }` arm so an unhandled throw never tears
@@ -723,6 +726,43 @@ export async function loadCaseDataAction(
 	}
 }
 
+/** Load the selected worker's complete device casedb. The client supplies only
+ * an app id plus optional persona selector; authorization, committed topology,
+ * actor/owner separation, and restore-scope expansion are all server-owned. */
+export async function loadCaseDatabaseSnapshotAction(
+	appId: string,
+	personaUuid?: string,
+): Promise<LoadCaseDatabaseSnapshotResult> {
+	try {
+		const context = await resolveAuthorizedPreviewContext({
+			appId,
+			personaUuid,
+			required: "view",
+			loadBlueprint: true,
+		});
+		if (context.kind !== "ready") return context;
+		return {
+			kind: "data",
+			snapshot: await readCaseDatabaseSnapshot(context.store, {
+				appId,
+				restoreScope: context.restoreScope,
+			}),
+		};
+	} catch (err) {
+		if (err instanceof AppAccessError) {
+			return { kind: "error", message: "App not found." };
+		}
+		reportUnexpectedActionError("loadCaseDatabaseSnapshot", err, { appId });
+		return {
+			kind: "error",
+			message:
+				err instanceof Error
+					? err.message
+					: "Failed to load the Preview case database.",
+		};
+	}
+}
+
 export async function populateSampleCasesAction(
 	appId: string,
 	caseType: CaseType,
@@ -1150,6 +1190,7 @@ export async function loadFilterPreviewAction(args: {
 export async function submitFormAction(
 	mutation: SubmissionMutation,
 	appId: string,
+	expectedBlueprintDigest: string,
 	viewerTimeZone?: string,
 	/** Which persona Preview is running as, if any. This one matters most:
 	 *  the resolved identity's `ownerId` is stamped on every case the
@@ -1162,6 +1203,13 @@ export async function submitFormAction(
 		 * normalized projection below so missing/stale clients cannot bypass
 		 * receipt, capture-intent, or committed-operation derivation. */
 		const projection = validateCaptureSubmissionProjection(mutation);
+		if (!/^[a-f0-9]{64}$/.test(expectedBlueprintDigest)) {
+			return {
+				kind: "blueprint-changed",
+				message:
+					"This app changed before the form could submit. Wait for it to finish saving, then try again.",
+			};
+		}
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
 		const authorized = await loadAuthorizedFormSubmissionSnapshot({
@@ -1201,12 +1249,27 @@ export async function submitFormAction(
 					authorized.receipt,
 				);
 				if (verdict.kind === "replay") {
-					return submissionResultFromEnvelope(mutation, verdict.result);
+					return submissionResultFromEnvelope(
+						mutation,
+						verdict.result,
+						expectedBlueprintDigest,
+					);
 				}
 			}
 			throw new CaptureSubmissionRejectedError(
 				"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
 			);
+		}
+		if (
+			canonicalJsonDigest(
+				toPersistableDoc(authorized.app.blueprint as BlueprintDoc),
+			) !== expectedBlueprintDigest
+		) {
+			return {
+				kind: "blueprint-changed",
+				message:
+					"This app changed before the form could submit. Wait for it to finish saving, then try again.",
+			};
 		}
 		/* Same project space the rest of Preview resolves, so a submission's
 		 * conditions read `commcare_project` exactly as the form engine did
@@ -1258,6 +1321,7 @@ export async function submitFormAction(
 		const built = await buildSubmissionOperationProgram({
 			appId,
 			committedApp: authorized.app,
+			blueprintDigest: expectedBlueprintDigest,
 			identity,
 			lookupScope: scope,
 			mutation,
@@ -1279,7 +1343,11 @@ export async function submitFormAction(
 			submissionEnvelopeArgs(mutation, appId, built),
 		);
 
-		return submissionResultFromEnvelope(mutation, result);
+		return submissionResultFromEnvelope(
+			mutation,
+			result,
+			expectedBlueprintDigest,
+		);
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
@@ -1300,8 +1368,26 @@ export async function submitFormAction(
 function submissionResultFromEnvelope(
 	mutation: SubmissionMutation,
 	result: Awaited<ReturnType<CaseStore["applySubmission"]>>,
+	expectedBlueprintDigest: string,
 ): SubmissionResult {
-	if (mutation.kind === "survey") return { kind: "survey" };
+	if (result.blueprintDigest !== expectedBlueprintDigest) {
+		return {
+			kind: "blueprint-changed",
+			message:
+				"Your answers were saved, but this app changed before the next screen could be chosen. Reload the app to continue.",
+		};
+	}
+	/* New receipts always carry this exact in-transaction patch. Historical
+	 * receipts do not: keep their replay deterministic with an empty patch
+	 * rather than reading today's rows and pretending they were submission-time
+	 * state. */
+	const caseDatabasePatch = result.caseDatabasePatch;
+	if (mutation.kind === "survey") {
+		return {
+			kind: "survey",
+			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
+		};
+	}
 	if (result.primaryCaseId === undefined) {
 		throw new Error(
 			unhandledKindMessage({
@@ -1316,5 +1402,6 @@ function submissionResultFromEnvelope(
 		kind: mutation.kind,
 		caseId: result.primaryCaseId,
 		childCaseIds: result.childCaseIds,
+		...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
 	};
 }

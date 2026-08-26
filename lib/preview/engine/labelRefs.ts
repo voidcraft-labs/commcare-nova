@@ -46,3 +46,23 @@ export function resolveLabel(
 	if (!template) return undefined;
 	return resolveProseTemplate(template, doc, evaluator);
 }
+
+/** Async counterpart used by the browser XPath boundary. Text remains literal
+ * while each typed reference is projected and evaluated in document order. */
+export async function resolveLabelAsync(
+	template: ProseTemplate | undefined,
+	doc: XPathPrintableDoc,
+	evaluator: (expr: string) => Promise<string>,
+): Promise<string | undefined> {
+	if (!template?.parts.some((part) => part.kind !== "text")) {
+		return undefined;
+	}
+	let resolved = "";
+	for (const part of template.parts) {
+		resolved +=
+			part.kind === "text"
+				? part.text
+				: await evaluator(printProseTemplate({ parts: [part] }, doc));
+	}
+	return resolved;
+}

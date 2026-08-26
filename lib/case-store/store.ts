@@ -43,6 +43,7 @@ import type {
 import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { TermBindings } from "./sql/compileTerm";
 import type {
+	CaseIndicesTable,
 	CasesTable,
 	Database,
 	JsonObject,
@@ -77,6 +78,21 @@ export type CalculatedColumn = Extract<Column, { kind: "calculated" }>;
  * case-owner (the future location-access axis), a real row field.
  */
 export type CaseRow = Omit<Selectable<CasesTable>, "project_id">;
+
+/** One direct case-index edge whose source and ancestor both belong to the
+ * bound app and Project. The target type is persisted on the edge because
+ * CommCare keeps the original CaseIndex type even if the target is retyped. */
+export type CaseIndexRow = Selectable<CaseIndicesTable>;
+
+export interface DeviceCaseDatabase {
+	readonly rows: readonly CaseRow[];
+	readonly indices: readonly CaseIndexRow[];
+	/** Exact retained stored-schema types for every projected case type. Optional
+	 * only because durable submission receipts written before this slot exist. */
+	readonly propertyTypes?: Readonly<
+		Record<string, Readonly<Record<string, CasePropertyDataType>>>
+	>;
+}
 
 /**
  * The shape an `insert` accepts. `case_id` is optional (omitting
@@ -971,6 +987,23 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
  * authorizes, and the worker stamped as each new row's `owner_id`.
  */
 export interface CaseStore extends SchemaCaseStore {
+	/** Read the complete bound worker restore without partitioning through the
+	 * active Blueprint catalog. The restore closure and tenant predicates live
+	 * in SQL; callers cannot supply case ids or approximate its population. */
+	readDeviceCaseDatabase(args: {
+		readonly appId: string;
+		readonly restoreScope: RestoreScope;
+	}): Promise<DeviceCaseDatabase>;
+
+	/** Read the exact tenant-bound rows and outgoing direct indices named by a
+	 * committed submission. Preview merges this patch into the device snapshot
+	 * captured at form entry, because a local device retains a case it just
+	 * closed or reassigned until sync even when a fresh restore would omit it. */
+	readCaseDatabasePatch(args: {
+		readonly appId: string;
+		readonly caseIds: readonly string[];
+	}): Promise<DeviceCaseDatabase>;
+
 	/**
 	 * Predicate-driven SELECT with optional inline calculated-column
 	 * projection. Default ordering (when `sort` is absent) is

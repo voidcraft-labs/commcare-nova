@@ -84,9 +84,10 @@ separate from parent-case relationships.
 ## XPath that will run in CommCare
 
 Nova checks formulas against the functions CommCare's device runtime actually
-implements. A function being part of XPath 1.0 or XPath 2.0 is not enough by
-itself. Functions that CommCare does not provide are refused while you edit,
-before they can cause a runtime error for a worker.
+implements and the same formulas run in Preview. A function being part of
+XPath 1.0 or XPath 2.0 is not enough by itself. Functions that CommCare does
+not provide are refused while you edit, before they can cause a runtime error
+for a worker.
 
 Nova can also accept a small extension when it has an exact, tested translation
 to the device runtime. For example, you may write `normalize-space(...)` in the
@@ -94,9 +95,16 @@ visual XPath editor; Nova exports an equivalent expression made from CommCare's
 native functions. CommCare HQ case-search formulas are checked separately
 because their server-side function list is different from the device's.
 
-Preview never treats an unknown function as an empty answer. If a historical
-formula uses something Preview cannot faithfully run, Preview reports that
-boundary instead of showing a result that may disagree with the installed app.
+Nova never saves a formula that its owning Preview surface cannot faithfully
+run. Existing apps keep that guarantee when support changes: Nova continues to
+run their formulas or migrates them without changing their meaning. A defensive
+Preview error is treated as a Nova bug and contained so the rest of the Builder
+stays available; it is not an expected state the author needs to repair.
+
+Lookup-table formulas use Nova's table and column references, which keep their
+identity when a table tag changes. Raw XPath can use the stable `casedb` and
+`commcaresession` instances, but it cannot name a lookup table by its mutable
+wire tag.
 
 A form's [After submit](/docs/form-links) links decide where the app goes once
 the form is submitted, and their conditions run after the form has closed.

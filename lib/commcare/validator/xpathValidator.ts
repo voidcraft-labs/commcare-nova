@@ -11,6 +11,8 @@
 
 import type { NodeType, SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/commcare/xpath";
+import type { XPathCarrierProfile } from "@/lib/commcare/xpath/carriers";
+import { analyzeXPathCompatibility } from "@/lib/commcare/xpath/compatibility";
 import { javaRosaFunctionCapability } from "@/lib/commcare/xpath/functionCapabilities";
 import { extractPathRefs } from "@/lib/preview/xpath/dependencies";
 import {
@@ -44,6 +46,19 @@ export type XPathScope = "form" | "session";
 export const SESSION_FORM_READ_MESSAGE =
 	"This runs after the form has closed, so it can't read the form's answers. Save the answer to a case property and read that instead.";
 
+type ExecutableLanguageFindingCode =
+	| "XPATH_UNBOUND_VARIABLE"
+	| "XPATH_UNSUPPORTED_UNION"
+	| "XPATH_UNSUPPORTED_DESCENDANT"
+	| "XPATH_UNSUPPORTED_FILTER"
+	| "XPATH_UNSUPPORTED_AXIS"
+	| "XPATH_UNSUPPORTED_NODE_TEST"
+	| "XPATH_UNSUPPORTED_PATH"
+	| "XPATH_CARRIER_CONTEXT_UNAVAILABLE"
+	| "XPATH_FUNCTION_UNAVAILABLE"
+	| "XPATH_FUNCTION_SIGNATURE_UNAVAILABLE"
+	| "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
+
 /** What a session-scoped slot says about a bare relative reference. */
 function sessionRelativeReadMessage(name: string): string {
 	return `"${name}" has nothing to read here: this runs after the form has closed, with no form to look inside. Use #<case type>/<property> for a case value, or #user/<property> for worker information.`;
@@ -52,6 +67,7 @@ function sessionRelativeReadMessage(name: string): string {
 export interface XPathError {
 	code:
 		| "XPATH_SYNTAX"
+		| ExecutableLanguageFindingCode
 		| "UNKNOWN_FUNCTION"
 		| "WRONG_ARITY"
 		| "INVALID_REF"
@@ -138,6 +154,9 @@ export function validateXPath(
 	caseTypeProps?: Map<string, Set<string>>,
 	isRegistrationForm = false,
 	scope: XPathScope = "form",
+	profile: XPathCarrierProfile = scope === "session"
+		? "preview-session"
+		: "preview-form",
 ): XPathError[] {
 	if (!expr) return [];
 
@@ -167,6 +186,7 @@ export function validateXPath(
 
 			// Phase 2a: Function call validation
 			if (node.type === T.Invoke) {
+				if (isJavaRosaAxisNodeTest(node.node, expr)) return;
 				validateFunctionCall(node.node, expr, errors);
 				return;
 			}
@@ -217,6 +237,33 @@ export function validateXPath(
 			}
 		},
 	});
+
+	const compatibilityFindings = analyzeXPathCompatibility(expr, profile);
+	const javaRosaFunctionFailurePositions = new Set(
+		compatibilityFindings
+			.filter(
+				(finding) =>
+					finding.owner === "java-rosa" &&
+					isFunctionCompatibilityFinding(finding.code),
+			)
+			.map((finding) => finding.position),
+	);
+	for (const finding of compatibilityFindings) {
+		if (
+			finding.code === "XPATH_PARSE_ERROR" ||
+			!isExecutableLanguageFinding(finding.code) ||
+			(isFunctionCompatibilityFinding(finding.code) &&
+				(finding.owner !== "preview" ||
+					javaRosaFunctionFailurePositions.has(finding.position)))
+		) {
+			continue;
+		}
+		errors.push({
+			code: finding.code,
+			message: finding.detail,
+			position: finding.position,
+		});
+	}
 
 	// Phase 2c: Path reference validation (/data/... refs must exist). Under
 	// session scope there is no form to read: every `/data/...` path is the
@@ -305,7 +352,66 @@ export function validateXPath(
 		errors.push({ ...err, position: err.position });
 	}
 
+	if (session) {
+		const invalidRefPositions = new Set(
+			errors
+				.filter((error) => error.code === "INVALID_REF")
+				.map((error) => error.position),
+		);
+		return errors.filter(
+			(error) =>
+				!(
+					error.code === "XPATH_CARRIER_CONTEXT_UNAVAILABLE" &&
+					invalidRefPositions.has(error.position)
+				),
+		);
+	}
 	return errors;
+}
+
+/** Function compatibility has its own richer validator pass below. Keep the
+ * source-only analyzer's structural admission findings from duplicating it. */
+function isExecutableLanguageFinding(
+	code: string,
+): code is ExecutableLanguageFindingCode {
+	return (
+		code === "XPATH_UNBOUND_VARIABLE" ||
+		code === "XPATH_UNSUPPORTED_UNION" ||
+		code === "XPATH_UNSUPPORTED_DESCENDANT" ||
+		code === "XPATH_UNSUPPORTED_FILTER" ||
+		code === "XPATH_UNSUPPORTED_AXIS" ||
+		code === "XPATH_UNSUPPORTED_NODE_TEST" ||
+		code === "XPATH_UNSUPPORTED_PATH" ||
+		code === "XPATH_CARRIER_CONTEXT_UNAVAILABLE" ||
+		isFunctionCompatibilityFinding(code)
+	);
+}
+
+function isFunctionCompatibilityFinding(
+	code: string,
+): code is
+	| "XPATH_FUNCTION_UNAVAILABLE"
+	| "XPATH_FUNCTION_SIGNATURE_UNAVAILABLE"
+	| "XPATH_FUNCTION_CONTEXT_UNAVAILABLE" {
+	return (
+		code === "XPATH_FUNCTION_UNAVAILABLE" ||
+		code === "XPATH_FUNCTION_SIGNATURE_UNAVAILABLE" ||
+		code === "XPATH_FUNCTION_CONTEXT_UNAVAILABLE"
+	);
+}
+
+/** `node()` is a node test, not a function call, on JavaRosa's executable
+ * self and parent axes. The CST retains the shared Invoke shape so the
+ * function validator must classify that parent context explicitly. */
+function isJavaRosaAxisNodeTest(node: SyntaxNode, source: string): boolean {
+	const parent = node.parent;
+	if (parent?.name !== "AxisSpecified") return false;
+	const name = node.getChild("FunctionName");
+	if (!name || source.slice(name.from, name.to) !== "node") return false;
+	const axis = parent.getChild("AxisName");
+	if (!axis) return false;
+	const axisName = source.slice(axis.from, axis.to);
+	return axisName === "self" || axisName === "parent";
 }
 
 /** The trailing segment of a `/data/a/b/c` path (`c`). */

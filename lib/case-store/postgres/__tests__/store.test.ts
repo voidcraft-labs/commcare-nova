@@ -190,6 +190,7 @@ runStoreContract({
 
 const APP_ID = "app-index-ddl";
 const OWNER_A = "owner-a";
+const OWNER_B = "owner-b";
 
 /**
  * Probe `pg_indexes` for every per-property expression index on the
@@ -254,6 +255,154 @@ function makeStore(
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
 }
+
+describe("PostgresCaseStore.readDeviceCaseDatabase", () => {
+	it("returns every direct parent and custom edge with ancestor metadata", async () => {
+		const store = makeStore(OWNER_A);
+		const caseTypes: CaseType[] = [
+			{ name: "household", properties: [] },
+			{ name: "host", properties: [] },
+			{
+				name: "patient",
+				properties: [
+					{
+						name: "score",
+						label: proseText("Score"),
+						data_type: "decimal",
+					},
+				],
+			},
+		];
+		const caseTypeSchemas = buildCaseTypeMap(
+			buildSimpleBlueprint(caseTypes, APP_ID),
+		);
+		for (const caseType of caseTypes) {
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: caseType.name,
+				caseTypeSchemas,
+			});
+		}
+		for (const [caseId, caseType] of [
+			["household-1", "household"],
+			["host-1", "host"],
+		] as const) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: caseType,
+					case_name: caseId,
+					properties: {},
+				},
+			});
+		}
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: "patient-1",
+				case_type: "patient",
+				case_name: "Patient",
+				parent_case_id: "household-1",
+				properties: {},
+			},
+			parentRelationship: "child",
+		});
+		await (dbHandle.db as unknown as Kysely<Database>)
+			.insertInto("case_indices")
+			.values({
+				case_id: "patient-1",
+				ancestor_id: "host-1",
+				target_case_type: "host",
+				identifier: "host_case",
+				relationship: "extension",
+				depth: 1,
+			})
+			.execute();
+		// Core's CaseIndex keeps the type captured on the edge. A later target
+		// retype must not rewrite what casedb exposes on @case_type.
+		await (dbHandle.db as unknown as Kysely<Database>)
+			.updateTable("cases")
+			.set({ case_type: "renamed-host" })
+			.where("case_id", "=", "host-1")
+			.execute();
+
+		const snapshot = await store.readDeviceCaseDatabase({
+			appId: APP_ID,
+			restoreScope: { ownerIds: [OWNER_A] },
+		});
+		expect(snapshot.rows.map((row) => row.case_id).sort()).toEqual([
+			"host-1",
+			"household-1",
+			"patient-1",
+		]);
+		expect(snapshot.indices).toEqual([
+			{
+				case_id: "patient-1",
+				ancestor_id: "host-1",
+				identifier: "host_case",
+				relationship: "extension",
+				depth: 1,
+				target_case_type: "host",
+			},
+			{
+				case_id: "patient-1",
+				ancestor_id: "household-1",
+				identifier: "parent",
+				relationship: "child",
+				depth: 1,
+				target_case_type: "household",
+			},
+		]);
+		expect(snapshot.propertyTypes).toEqual({
+			household: {},
+			patient: { score: "decimal" },
+		});
+	});
+
+	it("reads a committed closed or reassigned row that a fresh restore omits", async () => {
+		const store = makeStore(OWNER_A);
+		const patient: CaseType = { name: "patient", properties: [] };
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: patient.name,
+			caseTypeSchemas: buildSchemaMap(patient),
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: "landed-case",
+				case_type: "patient",
+				case_name: "Landed case",
+				properties: {},
+			},
+		});
+		await (dbHandle.db as unknown as Kysely<Database>)
+			.updateTable("cases")
+			.set({ owner_id: OWNER_B, status: "closed", closed_on: new Date() })
+			.where("app_id", "=", APP_ID)
+			.where("project_id", "=", OWNER_A)
+			.where("case_id", "=", "landed-case")
+			.execute();
+
+		const restore = await store.readDeviceCaseDatabase({
+			appId: APP_ID,
+			restoreScope: { ownerIds: [OWNER_A] },
+		});
+		expect(restore.rows).toEqual([]);
+		const patch = await store.readCaseDatabasePatch({
+			appId: APP_ID,
+			caseIds: ["landed-case"],
+		});
+		expect(patch.rows).toHaveLength(1);
+		expect(patch.rows[0]).toMatchObject({
+			case_id: "landed-case",
+			owner_id: OWNER_B,
+			status: "closed",
+			properties: {},
+		});
+	});
+});
 
 describe("PostgresCaseStore — standalone schema authorization fence", () => {
 	it("runs before apply, drop, and parked-value restore work in each transaction", async () => {
@@ -2315,6 +2464,7 @@ describe("PostgresCaseStore — creation stamps", () => {
 				entryKey: "store-creation-stamp-entry",
 				formUuid: testUuid("66666666-6666-4666-8666-666666666666"),
 				expectedAppMutationSeq: 0,
+				blueprintDigest: "0".repeat(64),
 				requestDigest: "store-creation-stamp-request",
 			},
 			ordinary: {

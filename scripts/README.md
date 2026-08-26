@@ -87,35 +87,48 @@ Every LLM call logs token counts and a cost estimate to stderr. Each phase that 
 The XPath carrier scanner is read-only. It loads schema-admitted historical
 snapshots even when the current absolute commit gate rejects them, then uses the
 shared Lezer CST inspection and capability tables to report every proven
-JavaRosa lowering, device-unsafe call, and Preview-unsupported call.
+JavaRosa lowering and every device or Preview parity violation. The fleet and
+`--app` forms include deleted-but-restorable apps because restoring one must not
+bypass the same admission cutover.
 
 ```bash
 # Local database, or one app only.
 npx tsx --conditions=react-server scripts/scan-xpath-carrier-compatibility.ts
 npx tsx --conditions=react-server scripts/scan-xpath-carrier-compatibility.ts --app <appId>
 
+# Private carrier addresses and diagnostics, bounded to one requested app.
+npx tsx --conditions=react-server scripts/scan-xpath-carrier-compatibility.ts --app <appId> --debug-details
+
 # Production through the read-only operator identity.
 npx tsx --conditions=react-server scripts/scan-xpath-carrier-compatibility.ts --prod
 ```
 
-The command exits nonzero when it finds a device-unsafe function or an unreadable
-app. A safe lowering such as `normalize-space()` is reported and counted but is
-not an error. There is intentionally no generic writer: a migration is valid
-only after each unsafe function has a reviewed replacement.
+The command exits nonzero when it finds a device-unsafe call, a call that its
+owning Preview context cannot execute faithfully, or an unreadable app. A safe
+lowering such as `normalize-space()` is reported and counted but is not an
+error. There is intentionally no generic writer: a migration is valid only
+after each incompatible expression has a reviewed, meaning-preserving
+replacement. Ordinarily the fix is runtime support, not stored-data mutation.
+Default output is aggregated by carrier profile and finding code. It contains no
+app ids, carrier addresses, or authored expression text. `--debug-details`
+requires `--app`; it reveals that app's id and carrier addresses, but still does
+not print authored expression text.
 
-The production inventory found exactly two legacy geopoint defaults containing
-`here()`. Core cannot evaluate that menu/detail-only function in an XForm, so
-the finite repair clears those defaults and leaves ordinary GPS capture in
-place. It is dry-run by default and has no direct production flag:
+The deploy migration performs its own current-app verification rather than
+embedding app or field identities in source. It is deliberately read-only: an
+incompatibility needs runtime support or a separately reviewed faithful
+migration, never deletion of authored semantics. Any finding or unreadable app
+fails the deploy with source-free aggregate counts:
 
 ```bash
 npx tsx --conditions=react-server scripts/migrate-xpath-carrier-compatibility.ts
-npx tsx --conditions=react-server scripts/migrate-xpath-carrier-compatibility.ts --app <reviewedAppId>
+npx tsx --conditions=react-server scripts/migrate-xpath-carrier-compatibility.ts --app <appId>
 ```
 
-The immutable production migration Job invokes the same idempotent repair
-before traffic shifts to the new revision. Any source drift that still contains
-`here()` blocks the Job instead of being rewritten broadly.
+The immutable production migration Job invokes the same verification before
+traffic shifts to the new revision. It retries if app or lookup generations
+change during the scan, and fails closed if a stable current snapshot cannot be
+obtained.
 
 ## Search-input UUID migration
 

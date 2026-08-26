@@ -145,6 +145,7 @@ function submissionReceipt() {
 		entryKey: `store-contract-entry-${submissionReceiptSequence}`,
 		formUuid: testUuid("66666666-6666-4666-8666-666666666666"),
 		expectedAppMutationSeq: 0,
+		blueprintDigest: "0".repeat(64),
 		requestDigest: `store-contract-request-${submissionReceiptSequence}`,
 	};
 }

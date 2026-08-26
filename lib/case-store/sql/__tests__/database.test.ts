@@ -323,6 +323,7 @@ describe("Database.case_indices", () => {
 			db.insertInto("case_indices").values({
 				case_id: "child-uuid",
 				ancestor_id: "parent-uuid",
+				target_case_type: "parent",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -333,6 +334,7 @@ describe("Database.case_indices", () => {
 		expect(compiled.parameters).toEqual([
 			"child-uuid",
 			"parent-uuid",
+			"parent",
 			"parent",
 			"child",
 			1,
@@ -363,6 +365,7 @@ describe("Database.case_indices", () => {
 		const _typecheck: SelectedRow = {
 			case_id: "child-uuid",
 			ancestor_id: "parent-uuid",
+			target_case_type: "parent",
 			identifier: "parent",
 			relationship: "child",
 			depth: 1,

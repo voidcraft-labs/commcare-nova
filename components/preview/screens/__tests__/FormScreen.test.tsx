@@ -37,13 +37,21 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { xp } from "@/lib/__tests__/docHelpers";
+import { reportClientError } from "@/lib/clientErrorReporter";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
+import { USERCASE_CASE_TYPE } from "@/lib/domain";
 import { plainColumn } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import {
+	blueprintRevisionDigest,
+	pickBlueprintDoc,
+} from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CaseRowWithCalculated,
 	SubmissionResult,
@@ -144,18 +152,24 @@ const navigateMock = {
 const setPreviewCaseTargetMock = vi.fn();
 const setPreviewMenuCaseSelectionMock = vi.fn();
 const setPreviewSelectedCaseMock = vi.fn();
+const setPreviewingMock = vi.fn();
 
 /* Mutable carrier the `useAppId` mock reads from. Most tests run
  *  against the default `APP_ID`; the `!appId` guard test overrides
  *  to `undefined` for a single run. `beforeEach` resets to the
  *  default so test ordering doesn't matter. */
 let currentAppId: string | undefined = APP_ID;
+let currentEditMode: "edit" | "preview" = "preview";
 let currentAuthUser: { id: string; name: string; email: string } | null = null;
 let previewMenuCaseSelectionsMock: Readonly<
 	Record<string, PreviewMenuCaseSelection>
 > = {};
 let capturedSession: BuilderSessionStoreApi | undefined;
 let capturedController: EngineController | undefined;
+let capturedDocApi: ReturnType<typeof useBlueprintDocApi> | undefined;
+let updateCapturedField:
+	| ReturnType<typeof useBlueprintMutations>["inline"]["updateField"]
+	| undefined;
 let updateCapturedPersonaValue:
 	| ReturnType<typeof useBlueprintMutations>["inline"]["updatePersonaValue"]
 	| undefined;
@@ -177,6 +191,10 @@ vi.mock("@/lib/auth/hooks/useAuth", () => ({
 		signIn: () => {},
 		signOut: () => {},
 	}),
+}));
+
+vi.mock("@/lib/clientErrorReporter", () => ({
+	reportClientError: vi.fn(),
 }));
 
 vi.mock("@/lib/routing/hooks", async () => {
@@ -203,13 +221,14 @@ vi.mock("@/lib/session/hooks", async () => {
 		 *  `usePreviewing` is mocked alongside because `TextEditable`
 		 *  reads it directly (not through `useEditMode`); `true` is the
 		 *  underlying source `useEditMode("preview")` derives from. */
-		useEditMode: () => "preview" as const,
-		usePreviewing: () => true,
+		useEditMode: () => currentEditMode,
+		usePreviewing: () => currentEditMode === "preview",
 		useBuilderIsReady: () => true,
 		usePreviewMenuCaseSelections: () => previewMenuCaseSelectionsMock,
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
 		useSetPreviewMenuCaseSelection: () => setPreviewMenuCaseSelectionMock,
 		useSetPreviewSelectedCase: () => setPreviewSelectedCaseMock,
+		useSetPreviewing: () => setPreviewingMock,
 	};
 });
 
@@ -220,12 +239,14 @@ vi.mock("@/lib/session/hooks", async () => {
 vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 	loadCasesAction: vi.fn(),
 	loadCaseDataAction: vi.fn(),
+	loadCaseDatabaseSnapshotAction: vi.fn(),
 	submitFormAction: vi.fn(),
 	loadFilterPreviewAction: vi.fn(),
 }));
 
 import {
 	loadCaseDataAction,
+	loadCaseDatabaseSnapshotAction,
 	loadCasesAction,
 	submitFormAction,
 } from "@/lib/preview/engine/caseDataBinding";
@@ -290,14 +311,22 @@ function deferred<T>() {
 function CaptureRuntimeHandles() {
 	capturedSession = useBuilderSessionApi();
 	capturedController = useBuilderFormEngine();
+	capturedDocApi = useBlueprintDocApi();
 	const mutations = useBlueprintMutations().inline;
+	updateCapturedField = mutations.updateField;
 	updateCapturedPersonaValue = mutations.updatePersonaValue;
 	return null;
 }
 
 function CaseDataRevisionProbe() {
 	const revision = useCaseDataRevision(APP_ID, CASE_TYPE);
-	return <div data-testid="case-data-revision">{revision}</div>;
+	const usercaseRevision = useCaseDataRevision(APP_ID, USERCASE_CASE_TYPE);
+	return (
+		<>
+			<div data-testid="case-data-revision">{revision}</div>
+			<div data-testid="usercase-data-revision">{usercaseRevision}</div>
+		</>
+	);
 }
 
 /* Mount FormScreen against a BlueprintDocProvider that carries every
@@ -315,6 +344,11 @@ function renderFormScreen(opts: {
 	selectedUuid?: Uuid;
 	menuCaseRelationship?: "same-type" | "different-type";
 	nestedAfterSubmit?: "automatic" | "manual";
+	caselessAfterSubmit?: boolean;
+	postSubmitCaseDatabase?: boolean;
+	usercaseAfterSubmit?: boolean;
+	closeAfterSubmit?: boolean;
+	runtimeFault?: boolean;
 }) {
 	currentLocation = {
 		kind: "form",
@@ -441,12 +475,56 @@ function renderFormScreen(opts: {
 						id: "close_form",
 						name: "Close",
 						type: "close",
+						...(opts.closeAfterSubmit === true
+							? {
+									formLinks: [
+										{
+											uuid: NESTED_LINK_UUID,
+											target: {
+												type: "form" as const,
+												moduleUuid: MODULE_UUID,
+												formUuid: FOLLOWUP_FORM_UUID,
+											},
+										},
+									],
+								}
+							: {}),
 					},
 					[SURVEY_FORM_UUID]: {
 						uuid: SURVEY_FORM_UUID,
 						id: "survey_form",
 						name: "Survey",
 						type: "survey",
+						...(opts.postSubmitCaseDatabase === true
+							? {
+									formLinks: [
+										{
+											uuid: NESTED_LINK_UUID,
+											condition: xp(
+												"count(instance('casedb')/casedb/case[@case_id = 'just-submitted']) = 1",
+											),
+											target: {
+												type: "module" as const,
+												moduleUuid: MODULE_UUID,
+											},
+										},
+									],
+								}
+							: {}),
+						...(opts.usercaseAfterSubmit === true
+							? {
+									formLinks: [
+										{
+											uuid: NESTED_LINK_UUID,
+											condition: xp("#user/region = 'new-region'"),
+											target: {
+												type: "module" as const,
+												moduleUuid: MODULE_UUID,
+											},
+										},
+									],
+								}
+							: {}),
 						...(opts.nestedAfterSubmit === "manual"
 							? {
 									formLinks: [
@@ -461,6 +539,20 @@ function renderFormScreen(opts: {
 												{ name: "parent_id", xpath: xp("'manual-patient'") },
 												{ name: "case_id", xpath: xp("''") },
 											],
+										},
+									],
+								}
+							: {}),
+						...(opts.caselessAfterSubmit === true
+							? {
+									formLinks: [
+										{
+											uuid: NESTED_LINK_UUID,
+											target: {
+												type: "form" as const,
+												moduleUuid: MODULE_UUID,
+												formUuid: REQUIRED_FORM_UUID,
+											},
 										},
 									],
 								}
@@ -520,7 +612,9 @@ function renderFormScreen(opts: {
 						kind: "text",
 						label: proseText("Name"),
 						caseWrite: { caseType: CASE_TYPE, property: "case_name" },
-						default_value: xp("'Test case'"),
+						default_value: opts.runtimeFault
+							? xp("definitely-not-a-function()")
+							: xp("'Test case'"),
 					},
 					[FIELD_REQUIRED_UUID]: {
 						uuid: FIELD_REQUIRED_UUID,
@@ -678,30 +772,32 @@ function renderFormScreen(opts: {
 				},
 			}}
 		>
-			<BuilderLocalizationProvider>
-				<BuilderSessionProvider
-					init={{
-						appId: currentAppId,
-						projectId: "project-form-screen-test",
-						role: "editor",
-						canEdit: true,
-					}}
-				>
-					<BuilderFormEngineProvider>
-						<CaptureRuntimeHandles />
-						<CaseDataRevisionProbe />
-						<FormScreen
-							screen={{
-								type: "form",
-								moduleUuid: MODULE_UUID,
-								formUuid: opts.formUuid,
-								caseId: opts.caseId,
-							}}
-							onBack={onBackMock}
-						/>
-					</BuilderFormEngineProvider>
-				</BuilderSessionProvider>
-			</BuilderLocalizationProvider>
+			<EditGuardProvider>
+				<BuilderLocalizationProvider>
+					<BuilderSessionProvider
+						init={{
+							appId: currentAppId,
+							projectId: "project-form-screen-test",
+							role: "editor",
+							canEdit: true,
+						}}
+					>
+						<BuilderFormEngineProvider>
+							<CaptureRuntimeHandles />
+							<CaseDataRevisionProbe />
+							<FormScreen
+								screen={{
+									type: "form",
+									moduleUuid: MODULE_UUID,
+									formUuid: opts.formUuid,
+									caseId: opts.caseId,
+								}}
+								onBack={onBackMock}
+							/>
+						</BuilderFormEngineProvider>
+					</BuilderSessionProvider>
+				</BuilderLocalizationProvider>
+			</EditGuardProvider>
 		</BlueprintDocProvider>,
 	);
 }
@@ -805,9 +901,12 @@ beforeEach(async () => {
 	setPreviewCaseTargetMock.mockClear();
 	setPreviewMenuCaseSelectionMock.mockClear();
 	setPreviewSelectedCaseMock.mockClear();
+	setPreviewingMock.mockClear();
+	vi.mocked(reportClientError).mockClear();
 	/* Reset the appId carrier so the `!appId` guard test's per-run
 	 *  override doesn't leak into sibling tests. */
 	currentAppId = APP_ID;
+	currentEditMode = "preview";
 	currentAuthUser = {
 		id: "member-form-screen-test",
 		name: "Form Screen Tester",
@@ -816,6 +915,8 @@ beforeEach(async () => {
 	previewMenuCaseSelectionsMock = {};
 	capturedSession = undefined;
 	capturedController = undefined;
+	capturedDocApi = undefined;
+	updateCapturedField = undefined;
 	updateCapturedPersonaValue = undefined;
 	await __resetAttachmentCoordinatorForTests();
 	vi.unstubAllGlobals();
@@ -838,6 +939,61 @@ beforeEach(async () => {
 afterEach(async () => {
 	await __resetAttachmentCoordinatorForTests();
 	vi.unstubAllGlobals();
+});
+
+describe("FormScreen — runtime invariant containment", () => {
+	it("blocks a form whose required case database failed to load", async () => {
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+		await waitFor(() =>
+			expect(capturedController?.formUuid).toBe(REG_FORM_UUID),
+		);
+
+		act(() => {
+			capturedController?.setCaseDatabaseState({
+				required: true,
+				status: "error",
+			});
+		});
+
+		expect(await screen.findByText("Case data couldn't load")).toBeDefined();
+		expect(screen.queryByRole("button", { name: /^submit$/i })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Return to Edit" }));
+		expect(setPreviewingMock).toHaveBeenCalledWith(false);
+	});
+
+	it("keeps the Edit authoring surface available with an internal notice", async () => {
+		currentEditMode = "edit";
+		renderFormScreen({ formUuid: REG_FORM_UUID, runtimeFault: true });
+
+		expect(
+			await screen.findByText(/Nova couldn't prepare this form/),
+		).toBeDefined();
+		expect(
+			(screen.getByLabelText("Form name") as HTMLInputElement).readOnly,
+		).toBe(false);
+		expect(screen.queryByText("This form couldn't open")).toBeNull();
+	});
+
+	it("blocks only the running form and offers a return to Edit", async () => {
+		renderFormScreen({ formUuid: REG_FORM_UUID, runtimeFault: true });
+
+		expect(await screen.findByText("This form couldn't open")).toBeDefined();
+		expect(screen.queryByRole("button", { name: /^submit$/i })).toBeNull();
+		expect(vi.mocked(reportClientError)).toHaveBeenCalledTimes(1);
+		const report = vi.mocked(reportClientError).mock.calls[0];
+		expect(report?.[0]).toMatchObject({
+			message: "Preview runtime invariant failed during activate.",
+			diagnostics: {
+				component: "preview-engine",
+				operation: "activate",
+				failureKind: "runtime-invariant",
+			},
+		});
+		expect(report?.[0].diagnostics).not.toHaveProperty("appId");
+		expect(JSON.stringify(report)).not.toContain("definitely-not-a-function");
+		fireEvent.click(screen.getByRole("button", { name: "Return to Edit" }));
+		expect(setPreviewingMock).toHaveBeenCalledWith(false);
+	});
 });
 
 describe("FormScreen — destructive case-data replacement", () => {
@@ -1062,43 +1218,225 @@ describe("FormScreen — survey submit", () => {
 			expect(navigateMock.goHome).toHaveBeenCalledTimes(1);
 		});
 	});
+
+	it("patches the captured device casedb before evaluating a form link", async () => {
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "survey",
+			caseDatabasePatch: {
+				rows: [formCaseRow("just-submitted")],
+				indices: [],
+			},
+		});
+		renderFormScreen({
+			formUuid: SURVEY_FORM_UUID,
+			postSubmitCaseDatabase: true,
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() =>
+			expect(navigateMock.openModule).toHaveBeenCalledWith(MODULE_UUID),
+		);
+		expect(loadCaseDatabaseSnapshotAction).not.toHaveBeenCalled();
+		expect(submitFormAction).toHaveBeenCalledTimes(1);
+		expect(
+			vi.mocked(submitFormAction).mock.invocationCallOrder[0],
+		).toBeLessThan(navigateMock.openModule.mock.invocationCallOrder[0] ?? 0);
+		expect(navigateMock.goHome).not.toHaveBeenCalled();
+	});
+
+	it("carries the patched casedb into a direct case-less form", async () => {
+		const writtenRow = formCaseRow("just-written");
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "survey",
+			caseDatabasePatch: { rows: [writtenRow], indices: [] },
+		});
+		renderFormScreen({
+			formUuid: SURVEY_FORM_UUID,
+			caselessAfterSubmit: true,
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() =>
+			expect(navigateMock.openForm).toHaveBeenCalledWith(
+				MODULE_UUID,
+				REQUIRED_FORM_UUID,
+			),
+		);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: REQUIRED_FORM_UUID,
+			caseDatabase: { rows: [writtenRow], indices: [] },
+		});
+	});
+
+	it("replaces an existing casedb row in place before direct routing", async () => {
+		const first = formCaseRow("first-case");
+		const second = formCaseRow("second-case");
+		const updatedFirst = {
+			...first,
+			case_name: "Updated first case",
+			modified_on: new Date("2026-08-25T12:00:00.000Z"),
+		};
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "survey",
+			caseDatabasePatch: { rows: [updatedFirst], indices: [] },
+		});
+		renderFormScreen({
+			formUuid: SURVEY_FORM_UUID,
+			caselessAfterSubmit: true,
+		});
+		await waitFor(() =>
+			expect(capturedController?.formUuid).toBe(SURVEY_FORM_UUID),
+		);
+		await act(async () => {
+			capturedController?.setCaseDatabaseState({
+				required: true,
+				status: "ready",
+				snapshot: { rows: [first, second], indices: [] },
+			});
+			await capturedController?.awaitSettled();
+		});
+		await waitFor(() =>
+			expect(capturedController?.previewCaseDatabaseSnapshot.rows).toEqual([
+				first,
+				second,
+			]),
+		);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() =>
+			expect(navigateMock.openForm).toHaveBeenCalledWith(
+				MODULE_UUID,
+				REQUIRED_FORM_UUID,
+			),
+		);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: REQUIRED_FORM_UUID,
+			caseDatabase: { rows: [updatedFirst, second], indices: [] },
+		});
+	});
+
+	it("evaluates a form link against the committed usercase and invalidates it", async () => {
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "survey",
+			caseDatabasePatch: {
+				rows: [
+					{
+						...formCaseRow("member-form-screen-test"),
+						case_type: USERCASE_CASE_TYPE,
+						case_name: "Form Screen Tester",
+						properties: { region: "new-region" },
+					},
+				],
+				indices: [],
+			},
+		});
+		renderFormScreen({
+			formUuid: SURVEY_FORM_UUID,
+			usercaseAfterSubmit: true,
+		});
+		const mountedRevision = Number(
+			screen.getByTestId("usercase-data-revision").textContent,
+		);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() =>
+			expect(navigateMock.openModule).toHaveBeenCalledWith(MODULE_UUID),
+		);
+		expect(
+			Number(screen.getByTestId("usercase-data-revision").textContent),
+		).toBe(mountedRevision + 1);
+		expect(loadCaseDatabaseSnapshotAction).not.toHaveBeenCalled();
+	});
 });
 
 describe("FormScreen — nested after-submit case session", () => {
+	it("reports only bounded metadata when post-submit XPath fails", async () => {
+		const privateDetail = "private-authored-value-and-stack";
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "survey",
+			caseDatabasePatch: { rows: [], indices: [] },
+		});
+		renderFormScreen({
+			formUuid: SURVEY_FORM_UUID,
+			nestedAfterSubmit: "manual",
+		});
+		await waitFor(() =>
+			expect(capturedController?.formUuid).toBe(SURVEY_FORM_UUID),
+		);
+		if (capturedController === undefined) {
+			throw new Error("Expected a form controller");
+		}
+		vi.spyOn(capturedController, "evaluateFormLinkXPaths").mockRejectedValue(
+			new Error(privateDetail),
+		);
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		expect(
+			await screen.findByText(
+				"Your answers were saved, but the next screen could not be chosen. Reload the app and try again.",
+			),
+		).toBeDefined();
+		expect(vi.mocked(reportClientError)).toHaveBeenCalledTimes(1);
+		const reported = vi.mocked(reportClientError).mock.calls[0];
+		expect(reported).toEqual([
+			expect.objectContaining({
+				message: "Preview after-submit routing failed.",
+				url: "",
+				diagnostics: {
+					component: "preview-form-link",
+					operation: "after-submit-route",
+					failureKind: "evaluation-failed",
+				},
+			}),
+		]);
+		const serialized = JSON.stringify(reported);
+		expect(serialized).not.toContain(privateDetail);
+		expect(serialized).not.toContain(SURVEY_FORM_UUID);
+		expect(serialized).not.toContain(APP_ID);
+		expect(serialized).not.toContain("manual-patient");
+	});
+
 	it("applies automatically matched created parent and child cases before opening the target form", async () => {
+		const patient = {
+			...formCaseRow("new-patient"),
+			case_name: "Created patient",
+		};
+		const encounter = {
+			...formCaseRow("new-encounter", "new-patient"),
+			case_type: "encounter",
+			case_name: "Created encounter",
+			properties: { outcome: "complete" },
+		};
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "registration",
 			caseId: "new-patient",
 			childCaseIds: ["new-encounter"],
-		});
-		vi.mocked(loadCaseDataAction)
-			.mockResolvedValueOnce({
-				kind: "row",
-				row: {
-					...formCaseRow("new-patient"),
-					case_name: "Created patient",
-				},
-				ancestors: [],
-			})
-			.mockResolvedValueOnce({
-				kind: "row",
-				row: {
-					...formCaseRow("new-encounter", "new-patient"),
-					case_type: "encounter",
-					case_name: "Created encounter",
-					properties: { outcome: "complete" },
-				},
-				ancestors: [
+			caseDatabasePatch: {
+				rows: [patient, encounter],
+				indices: [
 					{
-						...formCaseRow("new-patient"),
-						case_name: "Created patient",
+						case_id: "new-encounter",
+						ancestor_id: "new-patient",
+						identifier: "parent",
+						relationship: "child",
+						depth: 1,
+						target_case_type: CASE_TYPE,
 					},
 				],
-			});
+			},
+		});
 		renderFormScreen({
 			formUuid: REG_FORM_UUID,
 			nestedAfterSubmit: "automatic",
 		});
+		const initialRevision = Number(
+			screen.getByTestId("case-data-revision").textContent,
+		);
 
 		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
 
@@ -1107,6 +1445,9 @@ describe("FormScreen — nested after-submit case session", () => {
 				NESTED_TARGET_MODULE_UUID,
 				NESTED_TARGET_FORM_UUID,
 			),
+		);
+		expect(Number(screen.getByTestId("case-data-revision").textContent)).toBe(
+			initialRevision + 1,
 		);
 		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
 			MODULE_UUID,
@@ -1137,7 +1478,18 @@ describe("FormScreen — nested after-submit case session", () => {
 			formUuid: NESTED_TARGET_FORM_UUID,
 			caseId: "new-encounter",
 			caseName: "Created encounter",
+			caseData: expect.any(Map),
+			caseDatabase: {
+				rows: [patient, encounter],
+				indices: [
+					expect.objectContaining({
+						case_id: "new-encounter",
+						ancestor_id: "new-patient",
+					}),
+				],
+			},
 		});
+		expect(vi.mocked(loadCaseDataAction)).not.toHaveBeenCalled();
 		const lastSelectionOrder = Math.max(
 			...setPreviewMenuCaseSelectionMock.mock.invocationCallOrder,
 		);
@@ -1154,15 +1506,17 @@ describe("FormScreen — nested after-submit case session", () => {
 				caseName: "Stale encounter",
 			},
 		};
-		vi.mocked(submitFormAction).mockResolvedValue({ kind: "survey" });
-		vi.mocked(loadCaseDataAction).mockResolvedValue({
-			kind: "row",
-			row: {
-				...formCaseRow("manual-patient"),
-				case_name: "Manual patient",
-				properties: { risk: "high" },
+		const manualPatient = {
+			...formCaseRow("manual-patient"),
+			case_name: "Manual patient",
+			properties: { risk: "high" },
+		};
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "survey",
+			caseDatabasePatch: {
+				rows: [manualPatient],
+				indices: [],
 			},
-			ancestors: [],
 		});
 		renderFormScreen({
 			formUuid: SURVEY_FORM_UUID,
@@ -1201,7 +1555,58 @@ describe("FormScreen — nested after-submit case session", () => {
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: NESTED_TARGET_FORM_UUID,
 			caseId: "",
+			caseDatabase: { rows: [manualPatient], indices: [] },
 		});
+		expect(vi.mocked(loadCaseDataAction)).not.toHaveBeenCalled();
+	});
+
+	it("carries a just-closed case when a fresh restore omits it", async () => {
+		const openRow = {
+			...formCaseRow(FOLLOWUP_CASE_ID),
+			case_name: "Existing case",
+		};
+		const closedRow = {
+			...openRow,
+			status: "closed",
+			closed_on: new Date("2026-08-25T12:00:00.000Z"),
+		};
+		vi.mocked(loadCaseDataAction)
+			.mockResolvedValueOnce({
+				kind: "row",
+				row: openRow,
+				ancestors: [],
+			})
+			.mockResolvedValueOnce({ kind: "missing" });
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "close",
+			caseId: FOLLOWUP_CASE_ID,
+			childCaseIds: [],
+			caseDatabasePatch: { rows: [closedRow], indices: [] },
+		});
+		renderFormScreen({
+			formUuid: CLOSE_FORM_UUID,
+			caseId: FOLLOWUP_CASE_ID,
+			closeAfterSubmit: true,
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() =>
+			expect(navigateMock.openForm).toHaveBeenCalledWith(
+				MODULE_UUID,
+				FOLLOWUP_FORM_UUID,
+			),
+		);
+		expect(loadCaseDataAction).toHaveBeenCalledTimes(2);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				formUuid: FOLLOWUP_FORM_UUID,
+				caseId: FOLLOWUP_CASE_ID,
+				caseName: "Existing case",
+				caseData: expect.any(Map),
+				caseDatabase: { rows: [closedRow], indices: [] },
+			}),
+		);
 	});
 });
 
@@ -1592,6 +1997,9 @@ describe("FormScreen — pending UX", () => {
 		 *  reset against the still-running submission. */
 		const clear = screen.getByRole("button", { name: /clear form/i });
 		expect((clear as HTMLButtonElement).disabled).toBe(true);
+		await waitFor(() =>
+			expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(1),
+		);
 
 		/* Settle the action with the registration success arm so the screen
 		 *  leaves the `running` state and dispatches its post-submit
@@ -1659,6 +2067,106 @@ describe("FormScreen — pending UX", () => {
 			expect(mutation.primary.caseName).toBe("before submit");
 			expect(mutation.primary.properties).toEqual({});
 		}
+	});
+
+	it("pairs a post-barrier blueprint edit with the mutation's final digest", async () => {
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "survey",
+			caseDatabasePatch: { rows: [], indices: [] },
+		});
+		renderFormScreen({ formUuid: SURVEY_FORM_UUID });
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const entryKey = capturedController?.entryKey;
+		if (!entryKey || capturedDocApi === undefined) {
+			throw new Error("Expected an active form entry and document store");
+		}
+		const initialDigest = await blueprintRevisionDigest(
+			pickBlueprintDoc(capturedDocApi.getState()),
+		);
+		const blockerStarted = deferred<void>();
+		const releaseBlocker = deferred<void>();
+		const blocker = runAttachmentTask({
+			entryKey,
+			slotKey: "/data/slow-photo",
+			task: async () => {
+				blockerStarted.resolve();
+				await releaseBlocker.promise;
+			},
+		});
+		await blockerStarted.promise;
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		await screen.findByRole("button", { name: /^submitting$/i });
+
+		await act(async () => {
+			updateCapturedField?.(SURVEY_FIELD_UUID, "text", {
+				label: proseText("Edited while the attachment settled"),
+			});
+			await capturedController?.awaitSettled(entryKey);
+		});
+		const finalDigest = await blueprintRevisionDigest(
+			pickBlueprintDoc(capturedDocApi.getState()),
+		);
+		expect(finalDigest).not.toBe(initialDigest);
+
+		await act(async () => {
+			releaseBlocker.resolve();
+			await blocker;
+		});
+		await waitFor(() =>
+			expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(1),
+		);
+		expect(vi.mocked(submitFormAction).mock.calls[0]?.[2]).toBe(finalDigest);
+		await waitFor(() => expect(navigateMock.goHome).toHaveBeenCalledTimes(1));
+	});
+
+	it("refuses a blueprint publication that lands after mutation capture", async () => {
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "survey",
+			caseDatabasePatch: { rows: [], indices: [] },
+		});
+		renderFormScreen({ formUuid: SURVEY_FORM_UUID });
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const controller = capturedController;
+		const updateField = updateCapturedField;
+		if (controller === undefined || updateField === undefined) {
+			throw new Error("Expected an active controller and document mutation.");
+		}
+		const entryKey = controller.entryKey;
+		if (entryKey === undefined)
+			throw new Error("Expected an active form entry.");
+
+		const mutationCaptured = deferred<void>();
+		const releaseMutation = deferred<void>();
+		const compute = controller.computeSubmissionMutationAsync.bind(controller);
+		const computeSpy = vi
+			.spyOn(controller, "computeSubmissionMutationAsync")
+			.mockImplementation(async (args, entryKey) => {
+				const snapshot = await compute(args, entryKey);
+				mutationCaptured.resolve();
+				await releaseMutation.promise;
+				return snapshot;
+			});
+
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		await screen.findByRole("button", { name: /^submitting$/i });
+		await mutationCaptured.promise;
+		await act(async () => {
+			updateField(SURVEY_FIELD_UUID, "text", {
+				label: proseText("Published after mutation capture"),
+			});
+			releaseMutation.resolve();
+			await controller.awaitSettled(entryKey);
+		});
+
+		await waitFor(() =>
+			expect(
+				(screen.getByRole("button", { name: /^submit$/i }) as HTMLButtonElement)
+					.disabled,
+			).toBe(false),
+		);
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+		expect(navigateMock.goHome).not.toHaveBeenCalled();
+		computeSpy.mockRestore();
 	});
 
 	it("does not cross-submit queued answers after persona and form navigation rotate the entry", async () => {
@@ -2554,8 +3062,14 @@ describe("FormScreen — Clear form clears stale server error", () => {
 
 		const clear = screen.getByRole("button", { name: /clear form/i });
 		fireEvent.click(clear);
+		await waitFor(() =>
+			expect(capturedController?.entryKey).not.toBe(previousEntryKey),
+		);
 		const freshEntryKey = capturedController?.entryKey;
-		fireEvent.click(screen.getByRole("button", { name: /clear form/i }), {
+		const freshClear = await screen.findByRole("button", {
+			name: /clear form/i,
+		});
+		fireEvent.click(freshClear, {
 			detail: 2,
 		});
 
@@ -2567,16 +3081,13 @@ describe("FormScreen — Clear form clears stale server error", () => {
 			`[data-field-uuid="${FIELD_UUID}"] input`,
 		) as HTMLInputElement;
 		expect(freshInput).not.toBe(oldInput);
-		expect(freshInput.value).toBe("Test case");
+		await waitFor(() => expect(freshInput.value).toBe("Test case"));
 		fireEvent.change(freshInput, { target: { value: "New answer" } });
-		expect(freshInput.value).toBe("New answer");
+		await waitFor(() => expect(freshInput.value).toBe("New answer"));
 		expect(capturedController?.entryKey).toBe(freshEntryKey);
 
 		cleanup.resolve({ ok: false, status: 500 });
-		await act(async () => {
-			await Promise.resolve();
-		});
-		expect(freshInput.value).toBe("New answer");
+		await waitFor(() => expect(freshInput.value).toBe("New answer"));
 		expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
 	});
 
@@ -2600,10 +3111,24 @@ describe("FormScreen — Clear form clears stale server error", () => {
 		expect(firstMutation?.entryKey).toEqual(expect.any(String));
 
 		fireEvent.click(screen.getByRole("button", { name: /clear form/i }));
-		const freshInput = document.querySelector(
-			`[data-field-uuid="${FIELD_UUID}"] input`,
-		) as HTMLInputElement;
+		await waitFor(() =>
+			expect(capturedController?.entryKey).not.toBe(firstMutation?.entryKey),
+		);
+		const freshEntryKey = capturedController?.entryKey;
+		await act(async () => {
+			expect(await capturedController?.awaitSettled(freshEntryKey)).toBe(true);
+		});
+		const freshInput = await waitFor(() => {
+			const candidate = document.querySelector(
+				`[data-field-uuid="${FIELD_UUID}"] input`,
+			) as HTMLInputElement;
+			expect(candidate).not.toBe(input);
+			expect(candidate.isConnected).toBe(true);
+			expect(candidate.value).toBe("Test case");
+			return candidate;
+		});
 		fireEvent.change(freshInput, { target: { value: "Second answer" } });
+		await waitFor(() => expect(freshInput.value).toBe("Second answer"));
 		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
 		await waitFor(() =>
 			expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(2),

@@ -19,6 +19,7 @@
 import type {
 	CalculatedValue,
 	CaseGroup,
+	CaseIndexRow,
 	CasePropertyFailure,
 	CaseRow,
 	CaseRowWithCalculated,
@@ -523,12 +524,54 @@ export type SubmissionResult =
 			kind: "registration";
 			caseId: string;
 			childCaseIds: ReadonlyArray<string>;
+			caseDatabasePatch?: {
+				readonly rows: readonly CaseRow[];
+				readonly indices: readonly CaseIndexRow[];
+				readonly propertyTypes?: Readonly<
+					Record<string, Readonly<Record<string, CasePropertyDataType>>>
+				>;
+			};
 	  }
-	| { kind: "followup"; caseId: string; childCaseIds: ReadonlyArray<string> }
-	| { kind: "close"; caseId: string; childCaseIds: ReadonlyArray<string> }
-	| { kind: "survey" }
+	| {
+			kind: "followup";
+			caseId: string;
+			childCaseIds: ReadonlyArray<string>;
+			caseDatabasePatch?: {
+				readonly rows: readonly CaseRow[];
+				readonly indices: readonly CaseIndexRow[];
+				readonly propertyTypes?: Readonly<
+					Record<string, Readonly<Record<string, CasePropertyDataType>>>
+				>;
+			};
+	  }
+	| {
+			kind: "close";
+			caseId: string;
+			childCaseIds: ReadonlyArray<string>;
+			caseDatabasePatch?: {
+				readonly rows: readonly CaseRow[];
+				readonly indices: readonly CaseIndexRow[];
+				readonly propertyTypes?: Readonly<
+					Record<string, Readonly<Record<string, CasePropertyDataType>>>
+				>;
+			};
+	  }
+	| {
+			kind: "survey";
+			caseDatabasePatch?: {
+				readonly rows: readonly CaseRow[];
+				readonly indices: readonly CaseIndexRow[];
+				readonly propertyTypes?: Readonly<
+					Record<string, Readonly<Record<string, CasePropertyDataType>>>
+				>;
+			};
+	  }
 	| PreviewPersonaUnavailableResult
 	| { kind: "unauthenticated" }
+	| {
+			kind: "blueprint-changed";
+			message: string;
+	  }
 	| { kind: "case-not-found"; caseId: string }
 	| {
 			kind: "case-properties-validation";

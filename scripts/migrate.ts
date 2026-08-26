@@ -46,7 +46,7 @@ import {
 	listRepairCandidateAppIds,
 	runSelectOptionValueRepair,
 } from "@/scripts/lib/selectOptionValueRepair";
-import { runXPathCarrierCompatibilityRepair } from "@/scripts/lib/xpathCarrierCompatibilityRepair";
+import { runXPathCarrierCompatibilityVerification } from "@/scripts/lib/xpathCarrierCompatibilityRepair";
 
 async function main(): Promise<void> {
 	const args = process.argv.slice(2);
@@ -133,14 +133,16 @@ async function main(): Promise<void> {
 	);
 
 	// The XForm XPath carrier gate deliberately has no compatibility reader.
-	// Clear the two exact legacy here() geopoint defaults found by the production
-	// scan before the new runtime revision begins loading apps through that gate.
-	const xpathCarrierRepair = await runXPathCarrierCompatibilityRepair();
+	// Verify current apps against the absolute XPath carrier gate before the new
+	// runtime begins loading them. This seam is deliberately read-only: an
+	// incompatible expression requires runtime support or a faithful migration.
+	const xpathCarrierVerification =
+		await runXPathCarrierCompatibilityVerification();
 	console.log(
 		JSON.stringify({
 			severity: "INFO",
-			message: "[migrate] XPath carrier compatibility converged",
-			...xpathCarrierRepair,
+			message: "[migrate] XPath carrier compatibility verified",
+			...xpathCarrierVerification,
 		}),
 	);
 

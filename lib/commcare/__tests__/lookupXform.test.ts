@@ -91,6 +91,83 @@ function selectForm(
 }
 
 describe("buildXForm — lookup-backed select itemset", () => {
+	it("declares a lookup fixture referenced only by an authored XPath", () => {
+		const expression =
+			"instance('regions')/regions_list/regions[value = 'north'][1]/label";
+		const doc = buildDoc({
+			appName: "Lookup expression",
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "region_label",
+									calculate: expression,
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+		const xml = buildXForm(doc, firstFormUuid(doc), {
+			xmlns: XMLNS,
+			lookupNaming: naming,
+		});
+		const fixtureInstances = allNamed(xml, "instance").filter(
+			(instance) => getAttributeValue(instance, "id") === "regions",
+		);
+		expect(fixtureInstances).toHaveLength(1);
+		expect(getAttributeValue(fixtureInstances[0], "src")).toBe(
+			"jr://fixture/item-list:regions",
+		);
+		const [bind] = allNamed(xml, "bind").filter(
+			(candidate) =>
+				getAttributeValue(candidate, "nodeset") === "/data/region_label",
+		);
+		expect(getAttributeValue(bind, "calculate")).toBe(expression);
+		expect(validateXForm(xml, "Visit", "Survey")).toEqual([]);
+	});
+
+	it("fails closed when an authored XPath bypasses validation with an unknown instance", () => {
+		const doc = buildDoc({
+			appName: "Unknown lookup expression",
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "value",
+									calculate: "instance('missing')/items/item[1]/value",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+		expect(() =>
+			buildXForm(doc, firstFormUuid(doc), {
+				xmlns: XMLNS,
+				lookupNaming: naming,
+			}),
+		).toThrow(
+			"XForm XPath references an undeclared secondary instance. Validation must reject it before emission.",
+		);
+	});
+
 	it("emits exactly one filterless itemset and no inline items", () => {
 		const { xml } = selectForm("single_select", {
 			kind: "lookup",

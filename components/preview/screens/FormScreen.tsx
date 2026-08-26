@@ -24,6 +24,7 @@ import {
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { PersistentCaseTile } from "@/components/preview/shared/PersistentCaseTile";
 import { reportClientError } from "@/lib/clientErrorReporter";
+import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
@@ -33,25 +34,29 @@ import {
 } from "@/lib/doc/hooks/useEntity";
 import { useFormIsSectioned } from "@/lib/doc/hooks/useFormSections";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
-import { useCaseFirstModuleUuids } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import {
+	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
+	type CaseType,
 	defaultPostSubmit,
 	type FormLink,
 	type FormType,
+	isCaseFirstModule,
 	makeTranslationUnitId,
+	materializableCaseTypes as materializableCaseTypesFromDoc,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
+	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
+import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
 import {
-	loadCaseDataAction,
-	submitFormAction,
-} from "@/lib/preview/engine/caseDataBinding";
-import {
+	blueprintRevisionDigest,
+	caseDatabaseToFormPreloads,
 	caseRowsToFormPreloads,
+	caseRowToFormPreload,
 	pickBlueprintDoc,
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
@@ -62,15 +67,17 @@ import type {
 import type { InvalidFieldTarget } from "@/lib/preview/engine/formEngine";
 import {
 	type CarriedSubmission,
-	carriedCaseFor,
-	evaluateFormLinks,
+	carriedCaseFromSelections,
+	createFormLinkWorkerWorld,
+	evaluateFormLinksAsync,
 	type PostSubmissionCaseData,
-	projectTargetCaseSelections,
+	projectTargetCaseSelectionsAsync,
 	type SelectedCaseSessionValue,
 	sourceSessionDatums,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import {
 	invalidateCaseData,
 	useCaseDataReplacementRevision,
@@ -89,11 +96,13 @@ import {
 	useBuilderIsReady,
 	useCanEdit,
 	useEditMode,
+	usePreviewCaseTarget,
 	usePreviewMenuCaseSelections,
 	usePreviewPersonaUuid,
 	useProjectId,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
+	useSetPreviewing,
 	useSetPreviewMenuCaseSelection,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
@@ -155,6 +164,8 @@ function describeSubmitError(result: SubmissionFailure): string {
 		case "unauthenticated":
 			return "Sign in to submit this form.";
 		case "persona-unavailable":
+			return result.message;
+		case "blueprint-changed":
 			return result.message;
 		case "case-not-found":
 			return "The case you were editing no longer exists. Refresh and try again.";
@@ -262,8 +273,18 @@ interface SubmissionContextSnapshot {
 	/** The module's case type: the type of the case the submission loaded,
 	 *  which the after-submit read asks for again once the write has landed. */
 	readonly moduleCaseType: string | undefined;
-	/** The form's after-submit links as they were when Submit was pressed. */
+	/** The form's after-submit links from the revision paired with the write. */
 	readonly links: readonly FormLink[] | undefined;
+}
+
+interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
+	/** One immutable authoring revision. Links, printing, datum projection, and
+	 * target routing must never mix it with a collaborator's later edit. */
+	readonly doc: BlueprintDoc;
+	/** The exact device casedb captured when this form entry opened. */
+	readonly caseDatabase: CaseDatabaseSnapshot;
+	/** The materializable catalog from the same submit-time revision. */
+	readonly caseTypes: readonly CaseType[];
 }
 
 interface FormScreenProps {
@@ -291,11 +312,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const { inline } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
+	const setPreviewing = useSetPreviewing();
 	const appId = useAppId();
 	const projectId = useProjectId();
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
 	const personaUuid = usePreviewPersonaUuid();
+	const previewCaseTarget = usePreviewCaseTarget();
 	const menuSource = usePreviewMenuSource();
 	const menuCaseSelections = usePreviewMenuCaseSelections();
 	// The worker's restore is derived from their assignment and the place tree,
@@ -303,6 +326,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const restoreScopeKey = useRestoreScopeKey(personaUuid);
 	const previewIdentity = useSelectedPreviewIdentity();
 	const session = useBuilderSessionApi();
+	const collab = useReconcilerContext();
 	/* A viewer may preview the running app but not WRITE case data (submit a
 	 * form, generate sample cases): those server actions are edit-gated, so
 	 * disable their controls rather than let a viewer hit a server error.
@@ -379,6 +403,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 *  row. A different-type menu parent constrains that fallback query above. */
 	const effectiveCaseId =
 		caseId ?? menuCaseContext.selectedCase?.caseId ?? autoRow?.case_id;
+	const carriedCaseData =
+		previewCaseTarget?.formUuid === formUuid &&
+		previewCaseTarget.caseId === effectiveCaseId
+			? previewCaseTarget.caseData
+			: undefined;
+	const carriedCaseDatabase =
+		previewCaseTarget?.formUuid === formUuid &&
+		previewCaseTarget.caseId === effectiveCaseId
+			? previewCaseTarget.caseDatabase
+			: undefined;
 	const replacementRevision = useCaseDataReplacementRevision(
 		appId,
 		mod?.caseType,
@@ -459,6 +493,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 *  the same shape as the nav path's load settling). Every other arm
 	 *  leaves the form rendering against defaults. */
 	const caseData = useMemo(() => {
+		if (carriedCaseData !== undefined) return carriedCaseData;
 		if (settledCase)
 			return caseRowsToFormPreloads(
 				settledCase.row,
@@ -467,12 +502,18 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			);
 		if (autoRow) return caseRowsToFormPreloads(autoRow, [], reachableChain);
 		return undefined;
-	}, [settledCase, autoRow, reachableChain]);
+	}, [carriedCaseData, settledCase, autoRow, reachableChain]);
 
 	const editable = isReady;
 
-	const controller = useFormEngine(formUuid, caseData);
+	const controller = useFormEngine(formUuid, caseData, carriedCaseDatabase);
 	const engineEntry = useEngineEntry();
+	const runtimeFault =
+		engineEntry.fault?.formUuid === formUuid ? engineEntry.fault : undefined;
+	const caseDatabaseWait =
+		engineEntry.caseDatabaseWait?.formUuid === formUuid
+			? engineEntry.caseDatabaseWait
+			: undefined;
 	const entryKey =
 		engineEntry.formUuid === formUuid ? engineEntry.entryKey : undefined;
 	let attachmentEntryReady = false;
@@ -651,11 +692,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
-	/* Read imperatively once a submission has landed: the after-submit links
-	 * project against the document as it is THEN, and a module target lands
-	 * where the home screen would send it. */
+	/* Capture imperatively at the final write boundary. Post-write routing keeps
+	 * that revision even if a collaborator edits while the action is in flight. */
 	const docApi = useBlueprintDocApi();
-	const caseFirstModules = useCaseFirstModuleUuids();
 	const submissionIdentityKey = JSON.stringify([
 		scopeEpoch,
 		appId,
@@ -718,6 +757,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		CASE_LOADING_FORM_TYPES.has(form.type);
 	const caseBindingReady =
 		!needsBoundCase ||
+		carriedCaseData !== undefined ||
 		(effectiveCaseId !== undefined &&
 			!caseBindingReplaced &&
 			caseDataState.kind === "row" &&
@@ -769,15 +809,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * exactly as before. A form WITH links runs them the way the device does
 	 * (`lib/preview/engine/formLinkEvaluation.ts`): a link condition is
 	 * evaluated after the form has closed, against the case rows AS THEY ARE
-	 * NOW, so a case-loading source reads its case back once, post-write.
-	 * That read is a tenant read rather than a device-scoped one: the device
-	 * keeps every case it loaded until its next sync, a just-closed one
-	 * included, while the restore scope holds only what a synced device would
-	 * have, which a closed root case is not. A registration source reads the
-	 * case it CREATED back the same way: the device processes the form's
-	 * case block into its local casedb as the form closes, so the new case
-	 * is readable by the time the link runs (which is why the session-scope
-	 * accept set admits its properties). A survey reads nothing.
+	 * NOW. Typed case hashtags and `#user` read from the exact rows returned by
+	 * the submission transaction. The structural casedb starts from the exact
+	 * device snapshot captured at form entry and applies that committed row/index
+	 * patch. A fresh
+	 * restore is not the same thing: it can omit a case the device just closed
+	 * or reassigned but still retains locally until sync. Registration-created
+	 * cases and operation effects enter through the same patch; an effect-free
+	 * survey contributes none.
 	 *
 	 * The write is announced to the rest of the running app (`announceWrite`)
 	 * only once the route no longer depends on this form's case binding:
@@ -790,7 +829,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * again.
 	 */
 	const dispatchAfterSubmit = async (args: {
-		readonly submitted: SubmissionContextSnapshot & {
+		readonly submitted: SubmittedContextSnapshot & {
 			readonly appId: string;
 			readonly destination: PostSubmitDestination;
 		};
@@ -820,26 +859,89 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			return;
 		}
 		const sourceFormUuid = submitted.formUuid;
-		const failAfterSave = (message: string, detail: unknown): void => {
+		const sourceEntryKey = submitted.entryKey;
+		const failAfterSave = (message: string, failureCode: string): void => {
 			announceWrite();
-			/* The browser funnel, not `lib/logger`: this runs client-side, and
-			 * the reporter is what carries a caught browser error to Cloud
-			 * Logging and Sentry. */
-			reportClientError(
-				{
-					message: `[preview] Could not route an after-submit link from form ${sourceFormUuid}: ${
-						detail instanceof Error ? detail.message : String(detail)
-					}`,
-					...(detail instanceof Error && detail.stack !== undefined
-						? { stack: detail.stack }
-						: {}),
-					source: "manual",
-					url: typeof window === "undefined" ? "" : window.location.href,
+			/* The route may have handled authored XPath and private case/session
+			 * data. Emit only a bounded operation code: never attach the caught
+			 * error, stack, route URL, form identity, expression, or data value. */
+			reportClientError({
+				message: "Preview after-submit routing failed.",
+				source: "manual",
+				url: "",
+				diagnostics: {
+					component: "preview-form-link",
+					operation: "after-submit-route",
+					failureKind: failureCode,
 				},
-				detail,
-			);
+			});
 			settleAttempt({ kind: "error", message });
 		};
+		if (sourceEntryKey === undefined) {
+			failAfterSave(
+				"Your answers were saved, but the next screen could not be chosen. Reload the app and try again.",
+				"missing-entry-scope",
+			);
+			return;
+		}
+
+		const caseDatabasePatch = result.caseDatabasePatch;
+		if (caseDatabasePatch === undefined) {
+			failAfterSave(
+				"Your answers were saved, but the next screen could not be chosen from the saved case state. Reload the app and try again.",
+				"missing-submission-snapshot",
+			);
+			return;
+		}
+		const affectedCaseIds = new Set(
+			caseDatabasePatch.rows.map((row) => row.case_id),
+		);
+		const patchedRowsByCaseId = new Map(
+			caseDatabasePatch.rows.map((row) => [row.case_id, row] as const),
+		);
+		const existingCaseIds = new Set(
+			submitted.caseDatabase.rows.map((row) => row.case_id),
+		);
+		const hasPropertyTypes =
+			submitted.caseDatabase.propertyTypes !== undefined ||
+			caseDatabasePatch.propertyTypes !== undefined;
+		const refreshedCaseDatabase: CaseDatabaseSnapshot = {
+			rows: [
+				...submitted.caseDatabase.rows.map(
+					(row) => patchedRowsByCaseId.get(row.case_id) ?? row,
+				),
+				...caseDatabasePatch.rows.filter(
+					(row) => !existingCaseIds.has(row.case_id),
+				),
+			],
+			indices: [
+				...submitted.caseDatabase.indices.filter(
+					(index) => !affectedCaseIds.has(index.case_id),
+				),
+				...caseDatabasePatch.indices,
+			],
+			...(hasPropertyTypes
+				? {
+						propertyTypes: {
+							...(submitted.caseDatabase.propertyTypes ?? {}),
+							...(caseDatabasePatch.propertyTypes ?? {}),
+						},
+					}
+				: {}),
+		};
+		const committedUsercase = caseDatabasePatch.rows.find(
+			(row) =>
+				row.case_type === USERCASE_CASE_TYPE &&
+				(previewIdentity?.ownerId === undefined ||
+					row.case_id === previewIdentity.ownerId),
+		);
+		const postSubmissionUsercase =
+			committedUsercase === undefined
+				? (previewIdentity?.usercase ?? {})
+				: {
+						...(previewIdentity?.usercase ?? {}),
+						...Object.fromEntries(caseRowToFormPreload(committedUsercase)),
+					};
 
 		let caseData: PostSubmissionCaseData = new Map();
 		let boundCaseName: string | undefined;
@@ -848,48 +950,49 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			if (caseType === undefined) {
 				failAfterSave(
 					"Your answers were saved, but the case could not be read back to choose the next screen. Reload the app and try again.",
-					new Error(
-						`a ${result.kind} form submitted case ${result.caseId} with no module case type to read it back under`,
-					),
+					"missing-case-type",
 				);
 				return;
 			}
-			const chain = reachableCaseTypes(caseType, caseTypes);
-			const read = await loadCaseDataAction(
-				submitted.appId,
-				caseType,
+			const chain = reachableCaseTypes(caseType, submitted.caseTypes);
+			const readBack = caseDatabaseToFormPreloads(
+				refreshedCaseDatabase,
 				result.caseId,
-				Math.max(0, chain.length - 1),
-				undefined,
-				undefined,
-				viewerTimeZone(),
-				undefined,
-				submitted.personaUuid,
-				false,
+				chain,
 			);
-			if (!isCurrent()) {
-				announceWrite();
-				settleAttempt({ kind: "idle" });
-				return;
-			}
-			if (read.kind !== "row") {
+			if (readBack === undefined) {
 				failAfterSave(
-					"Your answers were saved, but the case could not be read back to choose the next screen. Reload the app and try again.",
-					new Error(
-						`post-submission read of case ${result.caseId} answered ${read.kind}`,
-					),
+					"Your answers were saved, but the saved case was not available to choose the next screen. Reload the app and try again.",
+					"source-case-unavailable",
 				);
 				return;
 			}
-			caseData = caseRowsToFormPreloads(read.row, read.ancestors, chain);
-			boundCaseName = read.row.case_name;
+			caseData = readBack;
+			boundCaseName = readBack.get(caseType)?.get("case_name");
 		}
-		/* The route is decided synchronously from here, so the form's own case
-		 * binding can no longer change it. */
-		announceWrite();
-
 		try {
-			const doc = pickBlueprintDoc(docApi.getState());
+			const doc = submitted.doc;
+			const routeMenuSource = {
+				modules: doc.modules,
+				moduleOrder: doc.moduleOrder,
+				caseTypes: doc.caseTypes ?? [],
+				forms: doc.forms,
+				formOrder: doc.formOrder,
+			};
+			const caseFirstModules = new Set(
+				doc.moduleOrder.filter((moduleUuid) => {
+					const formTypes = (doc.formOrder[moduleUuid] ?? []).flatMap(
+						(formUuid) => {
+							const type = doc.forms[formUuid]?.type;
+							return type === undefined ? [] : [type];
+						},
+					);
+					return isCaseFirstModule(
+						formTypes,
+						doc.modules[moduleUuid]?.caseType !== undefined,
+					);
+				}),
+			);
 			const childCaseIds = result.kind === "survey" ? [] : result.childCaseIds;
 			const children =
 				mutation !== undefined && "children" in mutation
@@ -926,9 +1029,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			 * structural inheritance and case-type parent selection first; the wire
 			 * projection then maps those stable module identities to final datum ids. */
 			const selectedCases = new Map<Uuid, SelectedCaseSessionValue>();
-			for (const selectedModuleUuid of menuSource.moduleOrder) {
+			for (const selectedModuleUuid of routeMenuSource.moduleOrder) {
 				const selected = previewMenuCaseContext(
-					menuSource,
+					routeMenuSource,
 					selectedModuleUuid,
 					menuCaseSelections,
 				).selectedCase;
@@ -942,7 +1045,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			const input = {
 				doc,
 				session: previewSessionValues(previewIdentity),
-				usercase: previewIdentity?.usercase ?? {},
+				usercase: postSubmissionUsercase,
 				sessionDatums: sourceSessionDatums(
 					doc,
 					sourceFormUuid,
@@ -950,28 +1053,60 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					selectedCases,
 				),
 				caseData,
+				caseDatabase: refreshedCaseDatabase,
+				lookupData: controller.previewLookupDataSnapshot,
 			};
+			const { choice, projectedSelections } =
+				await controller.evaluateFormLinkXPaths(
+					sourceEntryKey,
+					async (evaluateLink) => {
+						const world = createFormLinkWorkerWorld(
+							input,
+							`form-link-${crypto.randomUUID()}`,
+						);
+						const choice = await evaluateFormLinksAsync({
+							links,
+							fallback: submitted.destination,
+							input,
+							evaluate: evaluateLink,
+							world,
+						});
+						const projectedSelections =
+							choice.kind === "link"
+								? await projectTargetCaseSelectionsAsync(
+										input,
+										sourceFormUuid,
+										choice.link,
+										evaluateLink,
+										world,
+									)
+								: [];
+						return { choice, projectedSelections };
+					},
+				);
+			if (!isCurrent()) {
+				announceWrite();
+				settleAttempt({ kind: "idle" });
+				return;
+			}
 			const route = afterSubmitRoute({
-				choice: evaluateFormLinks({
-					links,
-					fallback: submitted.destination,
-					input,
-				}),
+				choice,
 				doc,
 				caseFirstModules,
 				hasSelectedCase: (targetModuleUuid, projectedSelections) => {
 					return previewTargetHasSelectedCase({
-						menuSource,
+						menuSource: routeMenuSource,
 						current: menuCaseSelections,
 						targetModuleUuid,
 						projected: projectedSelections,
 					});
 				},
-				carriedCase: (link) => carriedCaseFor(input, sourceFormUuid, link),
-				caseSelections: (link) =>
-					projectTargetCaseSelections(input, sourceFormUuid, link),
+				carriedCase: (link) =>
+					carriedCaseFromSelections(input, link, projectedSelections),
+				caseSelections: () => projectedSelections,
 			});
 			let targetCaseData = caseData;
+			let targetFormCaseData: ReturnType<typeof caseDatabaseToFormPreloads>;
 			if (route.kind === "module" || route.kind === "form") {
 				const hydratedCases = new Set<string>();
 				for (const [caseType, properties] of targetCaseData) {
@@ -984,37 +1119,22 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					if (selection.caseId === "") continue;
 					const selectionKey = `${selection.caseType}\0${selection.caseId}`;
 					if (hydratedCases.has(selectionKey)) continue;
-					const chain = reachableCaseTypes(selection.caseType, caseTypes);
-					const read = await loadCaseDataAction(
-						submitted.appId,
+					const chain = reachableCaseTypes(
 						selection.caseType,
-						selection.caseId,
-						Math.max(0, chain.length - 1),
-						undefined,
-						undefined,
-						viewerTimeZone(),
-						undefined,
-						submitted.personaUuid,
-						false,
+						submitted.caseTypes,
 					);
-					if (!isCurrent()) {
-						settleAttempt({ kind: "idle" });
-						return;
-					}
-					if (read.kind !== "row") {
+					const loaded = caseDatabaseToFormPreloads(
+						refreshedCaseDatabase,
+						selection.caseId,
+						chain,
+					);
+					if (loaded === undefined) {
 						failAfterSave(
-							"Your answers were saved, but the next case could not be read to open the next screen. Reload the app and try again.",
-							new Error(
-								`after-submit target read of ${selection.caseType} case ${selection.caseId} answered ${read.kind}`,
-							),
+							"Your answers were saved, but the next case was not in the saved device state. Reload the app and try again.",
+							"target-case-unavailable",
 						);
 						return;
 					}
-					const loaded = caseRowsToFormPreloads(
-						read.row,
-						read.ancestors,
-						chain,
-					);
 					targetCaseData = new Map([...targetCaseData, ...loaded]);
 					for (const [loadedCaseType, properties] of loaded) {
 						const loadedCaseId = properties.get("case_id");
@@ -1023,16 +1143,44 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						}
 					}
 				}
+				targetFormCaseData =
+					route.kind === "form" &&
+					route.carried.kind === "carried" &&
+					route.carried.caseId !== ""
+						? caseDatabaseToFormPreloads(
+								refreshedCaseDatabase,
+								route.carried.caseId,
+								reachableCaseTypes(
+									doc.modules[route.moduleUuid]?.caseType,
+									submitted.caseTypes,
+								),
+							)
+						: undefined;
+				if (
+					route.kind === "form" &&
+					route.carried.kind === "carried" &&
+					route.carried.caseId !== "" &&
+					targetFormCaseData === undefined
+				) {
+					failAfterSave(
+						"Your answers were saved, but the linked form's case was not in the saved device state. Reload the app and try again.",
+						"carried-case-unavailable",
+					);
+					return;
+				}
 			}
+			/* Target hydration no longer depends on the source form or its case
+			 * binding. Invalidation may now rebuild/clear that source safely. */
+			announceWrite();
 			const applyCaseSelections = (): void => {
 				if (route.kind !== "module" && route.kind !== "form") return;
 				const nextSelections = previewMenuSelectionsAfterTargetCases(
-					menuSource,
+					routeMenuSource,
 					menuCaseSelections,
 					route.caseSelections,
 					targetCaseData,
 				);
-				for (const selectedModuleUuid of menuSource.moduleOrder) {
+				for (const selectedModuleUuid of routeMenuSource.moduleOrder) {
 					const current = menuCaseSelections[selectedModuleUuid];
 					const next = nextSelections[selectedModuleUuid];
 					if (
@@ -1062,24 +1210,28 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					 * the form mounts already bound (or already bound to nothing)
 					 * rather than auto-selecting a case for one render. */
 					setPreviewSelectedCase(undefined);
-					setPreviewCaseTarget(
-						route.carried.kind === "carried"
+					setPreviewCaseTarget({
+						formUuid: route.formUuid,
+						...(route.carried.kind === "carried"
 							? {
-									formUuid: route.formUuid,
 									caseId: route.carried.caseId,
 									...(route.carried.caseName !== undefined && {
 										caseName: route.carried.caseName,
 									}),
+									...(targetFormCaseData === undefined
+										? {}
+										: { caseData: targetFormCaseData }),
 								}
-							: undefined,
-					);
+							: {}),
+						caseDatabase: refreshedCaseDatabase,
+					});
 					settleAttempt({ kind: "idle" });
 					navigate.openForm(route.moduleUuid, route.formUuid);
 					return;
 				case "unresolvable":
 					failAfterSave(
 						"Your answers were saved, but the next screen could not be found. Reload the app and try again.",
-						new Error(route.reason),
+						"route-unresolvable",
 					);
 					return;
 				default: {
@@ -1094,10 +1246,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					);
 				}
 			}
-		} catch (error) {
+		} catch {
 			failAfterSave(
 				"Your answers were saved, but the next screen could not be chosen. Reload the app and try again.",
-				error,
+				"evaluation-failed",
 			);
 		}
 	};
@@ -1211,7 +1363,69 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			start.appId !== appId
 		)
 			return;
-		const submitted = { ...submissionContextRef.current };
+		const submittedBase = { ...submissionContextRef.current };
+		/* A submission program is derived from the committed blueprint, while
+		 * answers and after-submit routing come from this tab's document. Flush
+		 * local edits first; the digest fence below then refuses any collaborator
+		 * or save race that lands between this snapshot and the server lock. */
+		const saveOutcome = await collab?.reconciler.waitForHumanSaveBarrier();
+		if (saveOutcome !== undefined && saveOutcome.kind !== "saved") {
+			setSubmitStatus({
+				kind: "error",
+				message:
+					"This app couldn't finish saving. Reload it before submitting the form.",
+			});
+			return;
+		}
+		const afterSave = session.getState();
+		if (
+			afterSave.accessPhase !== "authorized" ||
+			!afterSave.canEdit ||
+			afterSave.appId !== appId ||
+			afterSave.scopeEpoch !== start.scopeEpoch
+		) {
+			return;
+		}
+		const afterSaveContext = submissionContextRef.current;
+		if (
+			afterSaveContext.scopeEpoch !== submittedBase.scopeEpoch ||
+			afterSaveContext.appId !== submittedBase.appId ||
+			afterSaveContext.formUuid !== submittedBase.formUuid ||
+			afterSaveContext.moduleUuid !== submittedBase.moduleUuid ||
+			afterSaveContext.entryKey !== submittedBase.entryKey ||
+			afterSaveContext.personaUuid !== submittedBase.personaUuid ||
+			afterSaveContext.caseId !== submittedBase.caseId
+		) {
+			return;
+		}
+		const submittedSnapshot = (doc: BlueprintDoc): SubmittedContextSnapshot => {
+			const submittedForm =
+				submittedBase.formUuid === undefined
+					? undefined
+					: doc.forms[submittedBase.formUuid];
+			return {
+				...submittedBase,
+				formType: submittedForm?.type,
+				destination:
+					submittedForm === undefined
+						? undefined
+						: (submittedForm.postSubmit ??
+							defaultPostSubmit(submittedForm.type)),
+				moduleCaseType:
+					submittedBase.moduleUuid === undefined
+						? undefined
+						: doc.modules[submittedBase.moduleUuid]?.caseType,
+				links: submittedForm?.formLinks,
+				doc,
+				caseDatabase: controller.previewCaseDatabaseSnapshot,
+				caseTypes: materializableCaseTypesFromDoc(doc),
+			};
+		};
+		let submittedDocState = docApi.getState();
+		let submissionRevisionFinal = false;
+		let submitted = submittedSnapshot(
+			structuredClone(pickBlueprintDoc(submittedDocState)),
+		);
 		if (
 			submitted.scopeEpoch !== start.scopeEpoch ||
 			submitted.formUuid === undefined ||
@@ -1244,6 +1458,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				latest.formType === submitted.formType &&
 				latest.destination === submitted.destination &&
 				latest.moduleCaseType === submitted.moduleCaseType &&
+				(!submissionRevisionFinal || docApi.getState() === submittedDocState) &&
 				controller.entryKey === submitted.entryKey &&
 				controller.formUuid === submitted.formUuid &&
 				/* Leaving the screen while a read is in flight means the person
@@ -1298,19 +1513,50 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		let landedMutation: SubmissionMutation | undefined;
 		try {
 			const submitStableAnswers = async (): Promise<
-				SubmissionResult | "invalid" | "stale"
+				SubmissionResult | "invalid" | "save-failed" | "stale"
 			> => {
 				if (!isCurrent()) return "stale";
-				const valid = controller.validateAll();
+				const valid = await controller.validateAllAsync();
 				if (!valid) return "invalid";
-				const mutation = controller.computeSubmissionMutation({
-					caseId: submitted.caseId,
-					/* The zone a datetime answer is stamped with. The device
-					 * stamps its own; in Preview the author's browser stands in
-					 * for it, the same substitution the case-data reads make. */
-					viewerTimeZone: viewerTimeZone(),
-				});
-				if (mutation.formUuid !== submitted.formUuid) return "stale";
+				const submission = await controller.computeSubmissionMutationAsync(
+					{
+						caseId: submitted.caseId,
+						/* The zone a datetime answer is stamped with. The device
+						 * stamps its own; in Preview the author's browser stands in
+						 * for it, the same substitution the case-data reads make. */
+						viewerTimeZone: viewerTimeZone(),
+					},
+					submittedEntryKey,
+				);
+				if (submission === undefined) return "stale";
+				const { mutation, documentState: finalDocState } = submission;
+				/* The controller returns the exact Zustand state its reconciled engine
+				 * consumed while constructing this mutation. Do not recapture here: a
+				 * queued collaborator publication can run between promise resolution and
+				 * this continuation. Require that paired revision through the save barrier,
+				 * digest, and action dispatch. A retained FormScreen may be hidden while an
+				 * author edits elsewhere, so route identity alone cannot fence this
+				 * boundary. */
+				if (docApi.getState() !== finalDocState) return "stale";
+				const finalDoc = structuredClone(pickBlueprintDoc(finalDocState));
+				const finalSubmitted = submittedSnapshot(finalDoc);
+				if (mutation.formUuid !== finalSubmitted.formUuid) return "stale";
+				if (finalSubmitted.destination === undefined) return "stale";
+				const finalSaveOutcome =
+					await collab?.reconciler.waitForHumanSaveBarrier();
+				if (
+					finalSaveOutcome !== undefined &&
+					finalSaveOutcome.kind !== "saved"
+				) {
+					return "save-failed";
+				}
+				if (docApi.getState() !== finalDocState) return "stale";
+				const finalBlueprintDigest = await blueprintRevisionDigest(finalDoc);
+				if (docApi.getState() !== finalDocState) return "stale";
+				submittedDocState = finalDocState;
+				submitted = finalSubmitted;
+				submissionRevisionFinal = true;
+				if (!isCurrent()) return "stale";
 				landedMutation = mutation;
 				/* The persona rides the WRITE, not just the reads. Its uuid is the
 				 * `owner_id` stamped on every case this submission creates, so
@@ -1319,6 +1565,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				return await submitFormAction(
 					mutation,
 					submittedAppId,
+					finalBlueprintDigest,
 					viewerTimeZone(),
 					submitted.personaUuid,
 				);
@@ -1332,11 +1579,38 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				},
 			);
 			if (!isCurrent()) {
+				if (
+					result !== "stale" &&
+					result !== "invalid" &&
+					result !== "save-failed" &&
+					(result.kind === "registration" ||
+						result.kind === "followup" ||
+						result.kind === "close" ||
+						(result.kind === "survey" &&
+							(result.caseDatabasePatch?.rows.length ?? 0) > 0))
+				) {
+					for (const caseType of new Set([
+						...submitted.caseTypes.map(({ name }) => name),
+						...(result.caseDatabasePatch?.rows.map(
+							({ case_type }) => case_type,
+						) ?? []),
+					])) {
+						invalidateCaseData(submittedAppId, caseType);
+					}
+				}
 				settleAttempt({ kind: "idle" });
 				return;
 			}
 			if (result === "stale") {
 				settleAttempt({ kind: "idle" });
+				return;
+			}
+			if (result === "save-failed") {
+				settleAttempt({
+					kind: "error",
+					message:
+						"This app couldn't finish saving. Reload it before submitting the form.",
+				});
 				return;
 			}
 			if (result === "invalid") {
@@ -1370,15 +1644,24 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					isCurrent,
 					settleAttempt,
 					announceWrite: () => {
-						if (result.kind === "survey") return;
+						if (
+							result.kind === "survey" &&
+							(result.caseDatabasePatch?.rows.length ?? 0) === 0
+						)
+							return;
 						/* A case-bearing submission may update the primary case plus
 						 * operation-created or related cases. Announce the settled
 						 * write against the live materializable catalog before
 						 * leaving the form so Results, Details, bound forms, and the
 						 * Case data count all converge from the same shared revision
 						 * signal. */
-						for (const caseType of caseTypes) {
-							invalidateCaseData(submittedAppId, caseType.name);
+						for (const caseType of new Set([
+							...submitted.caseTypes.map(({ name }) => name),
+							...(result.caseDatabasePatch?.rows.map(
+								({ case_type }) => case_type,
+							) ?? []),
+						])) {
+							invalidateCaseData(submittedAppId, caseType);
 						}
 					},
 				});
@@ -1439,7 +1722,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * fresh idempotency scope, and reset the submit lifecycle. Staged-row
 	 * cleanup is best effort and cannot later wipe answers entered here. */
 	const handleClear = useCallback(
-		(event: ReactMouseEvent<HTMLButtonElement>): void => {
+		async (event: ReactMouseEvent<HTMLButtonElement>): Promise<void> => {
 			const authority = session.getState();
 			if (
 				authority.accessPhase !== "authorized" ||
@@ -1456,7 +1739,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			setValidationAnnouncement(undefined);
 			showFirstPage();
 			if (entryKey === undefined) {
-				controller.reset();
+				await controller.resetAsync();
 				setClearRevision((revision) => revision + 1);
 				clearInFlightRef.current = false;
 				return;
@@ -1464,8 +1747,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			if (appId !== undefined) {
 				retireAttachmentEntry({ appId, entryKey });
 			}
-			const nextEntryKey = controller.restartActiveEntry();
-			setClearRevision((revision) => revision + 1);
+			const nextEntryKey = await controller.restartActiveEntryAsync();
 			if (nextEntryKey === undefined) {
 				clearInFlightRef.current = false;
 				return;
@@ -1475,7 +1757,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		[appId, controller, entryKey, session, showFirstPage, submitStatus.kind],
 	);
 
-	const formFrozen = submitStatus.kind === "running" || clearRunning;
+	const formFrozen =
+		submitStatus.kind === "running" ||
+		clearRunning ||
+		(engineEntry.formUuid === formUuid && engineEntry.topologySettling);
 	const blockFrozenInteraction = useCallback(
 		(event: SyntheticEvent): void => {
 			if (!formFrozen) return;
@@ -1487,8 +1772,77 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	if (!form || !formUuid || !moduleUuid) return null;
 
+	/* A fault here means Nova admitted a document its own runtime could not
+	 * execute. It is an internal invariant breach, never an editable invalid
+	 * draft. Keep the Builder available in Edit, but do not render or submit a
+	 * running form against guessed/blank semantics. */
+	if (mode === "preview" && runtimeFault !== undefined) {
+		return (
+			<div className="flex h-full items-center justify-center px-6 py-10">
+				<div
+					role="alert"
+					className="flex max-w-md flex-col items-start gap-4 rounded-2xl border border-pv-input-border bg-pv-surface p-6 shadow-sm"
+				>
+					<div className="space-y-2">
+						<h2 className="text-lg font-semibold text-nova-text">
+							This form couldn't open
+						</h2>
+						<p className="text-sm leading-relaxed text-nova-text-secondary">
+							Nova hit an internal problem while preparing this form. Return to
+							Edit to keep working.
+						</p>
+					</div>
+					<button
+						type="button"
+						onClick={() => setPreviewing(false)}
+						className={FORM_PRIMARY_ACTION_CLS}
+					>
+						Return to Edit
+					</button>
+				</div>
+			</div>
+		);
+	}
+
+	if (mode === "preview" && caseDatabaseWait !== undefined) {
+		const loadFailed = caseDatabaseWait.status === "error";
+		return (
+			<div className="flex h-full items-center justify-center px-6 py-10">
+				<div
+					role="status"
+					className="flex max-w-md flex-col items-start gap-4 rounded-2xl border border-pv-input-border bg-pv-surface p-6 shadow-sm"
+				>
+					<div className="space-y-2">
+						<h2 className="text-lg font-semibold text-nova-text">
+							{loadFailed ? "Case data couldn't load" : "Preparing case data"}
+						</h2>
+						<p className="text-sm leading-relaxed text-nova-text-secondary">
+							{loadFailed
+								? "Return to Edit to keep working, then try Preview again."
+								: "This form will open when its case data is ready."}
+						</p>
+					</div>
+					{loadFailed ? (
+						<button
+							type="button"
+							onClick={() => setPreviewing(false)}
+							className={FORM_PRIMARY_ACTION_CLS}
+						>
+							Return to Edit
+						</button>
+					) : null}
+				</div>
+			</div>
+		);
+	}
+
 	/** A NAV-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure, the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. The guard is scoped to the nav-provided `caseId`: on the auto-select path the form is already usable off the auto-row's bridge preload, and a failed by-id load only means the OPTIONAL ancestor enrichment didn't arrive, blanking a working form for that would be a downgrade. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically. */
-	if (mode === "preview" && CASE_LOADING_FORM_TYPES.has(form.type) && caseId) {
+	if (
+		mode === "preview" &&
+		CASE_LOADING_FORM_TYPES.has(form.type) &&
+		caseId &&
+		carriedCaseData === undefined
+	) {
 		if (caseDataState.kind === "persona-unavailable") {
 			return (
 				<div className="flex h-full flex-col items-center justify-center gap-4 px-6">
@@ -1591,6 +1945,25 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					)}
 				</div>
 			</div>
+			{runtimeFault !== undefined ? (
+				<div
+					role="alert"
+					className="mx-6 mt-4 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-sm leading-relaxed text-nova-text-secondary"
+				>
+					Nova couldn't prepare this form. This is an internal error. You can
+					keep editing or open another form.
+				</div>
+			) : null}
+			{caseDatabaseWait !== undefined ? (
+				<div
+					role="status"
+					className="mx-6 mt-4 rounded-lg border border-pv-input-border bg-pv-surface px-3 py-2 text-sm leading-relaxed text-nova-text-secondary"
+				>
+					{caseDatabaseWait.status === "error"
+						? "Case data couldn't load. You can keep editing and try Preview again."
+						: "Nova is preparing the case data this form uses. You can keep editing."}
+				</div>
+			) : null}
 
 			{/* Unified `pt-4` for flipbook parity: edit-mode `insertion(0)` row + live-mode `pt-6` both land the first field at Y = 40px so toggling modes never shifts reading position. Bottom symmetric via `insertion(N+1)` in edit / last field's `mb-6` in live. */}
 			<div

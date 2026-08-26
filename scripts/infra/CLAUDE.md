@@ -125,6 +125,18 @@ fence, pauses cleanup, and re-verifies the complete maintenance posture. Every
 recovery action is attempted even if an earlier action fails; errors are
 aggregated without replacing the original deployment failure.
 
+An admission rule that an old serving revision does not enforce uses the
+one-time labelled maintenance cutover in `cloudbuild.yaml`. The immutable
+migration Job is configured first; if the service lacks that gate's version
+label, deployment policy pauses cleanup, detaches ingress, scales the old
+revision to zero, and terminates its runtime database sessions before the
+fleet verifier runs. Candidate deployment retains manual zero until the exact
+new revision owns traffic, then restores automatic scaling, ingress, and the
+cleanup scheduler. Only that terminal success writes the version label. A
+failed deployment stays in the verified maintenance posture for a safe retry,
+and a failed label write repeats the cutover safely; the completed label
+prevents downtime on later ordinary deploys.
+
 The Cloud Build trigger switch is safe only after its service account has all
 listed grants. A custom trigger identity overrides any `serviceAccount` field
 inside `cloudbuild.yaml`; the checked-in provisioning script is the source of

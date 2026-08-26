@@ -70,6 +70,7 @@ import * as designLocalization from "./20260815010000_design_localization";
 import * as deploymentResourcePush from "./20260818010000_deployment_resource_push";
 import * as deploymentLocationResources from "./20260819000000_deployment_location_resources";
 import * as deploymentWorkerResources from "./20260820000000_deployment_worker_resources";
+import * as caseIndexTargetType from "./20260825000000_case_index_target_type";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -137,6 +138,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260818010000_deployment_resource_push": deploymentResourcePush,
 	"20260819000000_deployment_location_resources": deploymentLocationResources,
 	"20260820000000_deployment_worker_resources": deploymentWorkerResources,
+	"20260825000000_case_index_target_type": caseIndexTargetType,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {
