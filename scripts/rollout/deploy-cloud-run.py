@@ -35,6 +35,7 @@ IMAGE_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 RESOURCE_PART_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 APP_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 SERVICE_READY_STATE = "CONDITION_SUCCEEDED"
+RETRYABLE_HTTP_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 MAINTENANCE_RECOVERY_ACTIONS = (
     "detach-ingress",
     "manual-zero",
@@ -547,13 +548,27 @@ def _run_api_request(
             value = json.load(response)
     except urllib.error.HTTPError as error:
         response_body = error.read().decode("utf-8", errors="replace")
-        raise TerminalDeploymentPolicyError(
+        error_type = _api_request_error_type(method, error.code)
+        raise error_type(
             f"Cloud Run Admin API {method} {path} failed with HTTP "
             f"{error.code}: {response_body}"
+        ) from error
+    except (urllib.error.URLError, TimeoutError) as error:
+        error_type = _api_request_error_type(method, None)
+        raise error_type(
+            f"Cloud Run Admin API {method} {path} failed before a response: {error}"
         ) from error
     if not isinstance(value, dict):
         fail(f"Cloud Run Admin API {method} {path} returned non-object JSON.")
     return value
+
+
+def _api_request_error_type(
+    method: str, status: int | None
+) -> type[DeploymentPolicyError]:
+    if method == "GET" and (status is None or status in RETRYABLE_HTTP_STATUSES):
+        return DeploymentPolicyError
+    return TerminalDeploymentPolicyError
 
 
 def _job_contract(expected_name: str) -> JobTemplateContract:
@@ -806,7 +821,11 @@ def _execute_job_exact(
 
     job_name = f"projects/{project}/locations/{region}/jobs/{job}"
     token = _access_token()
-    job_resource = _run_api_request(token, "GET", job_name)
+    job_resource = _wait_for(
+        f"ready immutable Job contract for {job}",
+        lambda: _run_api_request(token, "GET", job_name),
+        timeout_seconds=min(wait_seconds, 120),
+    )
     etag = _exact_ready_job_etag(job_resource, job_name, expected_image)
     effective_args = _effective_execution_args(job_name, execution_args)
     request_body: dict[str, Any] = {"etag": etag}
@@ -1486,6 +1505,12 @@ def _policy_self_test() -> None:
         lambda: _forbid_deploy_policy_overrides(["--scaling=auto"]),
         "deploy-time scaling override",
     )
+    assert _api_request_error_type("GET", 503) is DeploymentPolicyError
+    assert _api_request_error_type("GET", 429) is DeploymentPolicyError
+    assert _api_request_error_type("GET", None) is DeploymentPolicyError
+    assert _api_request_error_type("GET", 403) is TerminalDeploymentPolicyError
+    assert _api_request_error_type("POST", 503) is TerminalDeploymentPolicyError
+    assert _api_request_error_type("POST", None) is TerminalDeploymentPolicyError
     repository, digest = _immutable_image(
         "us-central1-docker.pkg.dev/p/r/i@" + "sha256:" + "a" * 64
     )

@@ -248,6 +248,9 @@ describe("durable deployment policy", () => {
 		expect(deployPolicy).toContain('"etag": etag');
 		expect(deployPolicy).toContain("_run_all_recovery_actions");
 		expect(deployPolicy).toContain("attempted_recovery_actions =");
+		expect(deployPolicy).toContain("RETRYABLE_HTTP_STATUSES");
+		expect(deployPolicy).toContain('method == "GET"');
+		expect(deployPolicy).toContain('f"ready immutable Job contract for {job}"');
 		expect(deployPolicy).toContain('"--scaling=auto"');
 		expect(deployPolicy).toContain('f"--min={args.expected_min}"');
 		expect(deployPolicy).toContain('f"--max={args.expected_max}"');
