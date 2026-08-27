@@ -67,14 +67,16 @@ export default defineConfig({
 		// inside a worktree (root = `.claude/worktrees/foo/`) the same
 		// test's root-relative path is `lib/...` — no `.claude/worktrees`
 		// segment, no match, no surprise filtering.
-		// `e2e/tests/**` are Playwright specs (`*.spec.ts`), not Vitest tests —
-		// they import `@playwright/test` and would throw under Vitest, so exclude
-		// them. The `e2e/lib/**` helpers stay in (Vitest runs tests there — e.g.
+		// `e2e/tests/**` and the separate `e2e/react-profile/**` harness are
+		// Playwright specs (`*.spec.ts`), not Vitest tests. They import
+		// `@playwright/test` and would throw under Vitest, so exclude them. The
+		// `e2e/lib/**` helpers stay in (Vitest runs tests there, for example
 		// e2e/lib/caseWorkspaceSeed.test.ts covers its sibling seed module).
 		exclude: [
 			...vitestConfigDefaults.exclude,
 			"**/.claude/worktrees/**",
 			"e2e/tests/**",
+			"e2e/react-profile/**",
 			// Under the async-leak gate ONLY, skip three suites that drive AI SDK
 			// code whose internals pipe web streams. Node's web-streams
 			// `pipeThrough`/`pipeTo` machinery leaves internal promises pending

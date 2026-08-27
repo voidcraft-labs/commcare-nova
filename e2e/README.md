@@ -99,6 +99,30 @@ jq '.caseWorkspace' e2e/.auth/seed.json
 As with the multiplayer manual harness, an unchanged production build can be reused
 with `SMOKE_REUSE_BUILD=1 npm run case:manual`.
 
+## Profile React rendering without manual browser work
+
+The local profiling harness records React commits in component terms while a
+headed Playwright browser drives a deterministic Builder interaction:
+
+```bash
+npm run profile:react
+npm run profile:react -- --grep "case search"  # select another profiling spec
+```
+
+It creates and recreates its own `nova_react_profile` database, uses the same
+forged local session and no-LLM seed as smoke, starts a hardened DevTools daemon
+on a random authenticated loopback port, starts Next in development mode, runs
+the selected spec under `e2e/react-profile/`, exports React DevTools version-5
+JSON, runs `scripts/analyze-react-profile.py`, and tears down the browser,
+server, daemon, and private state. The raw JSON and text summary land under the
+gitignored `react-profiles/` directory.
+
+The dependency is intentionally not configured with its upstream `init`
+command. Nova's Next 16 integration injects the hook before hydration only for
+this explicit development process; normal development and production builds do
+not include the bridge. See the repo-local `nova-react-profiling` skill before
+adding scenarios or comparing profiles.
+
 ## See multiplayer in action (tiled windows, live)
 
 Both modes ride the same hermetic stack and seed as the smoke suite — no real GCP,

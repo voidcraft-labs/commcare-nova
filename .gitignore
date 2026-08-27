@@ -26,9 +26,15 @@
 # Anchored to the root so nested conventional dot-dirs like `app/.well-known/`
 # work without special casing.
 /.*/
-# ...except .github/ — that's project config (CI workflows, Dependabot), not
-# editor cruft, so it must be tracked.
+# ...except .github/ and this repository-owned profiling skill. Other `.agents`
+# content can be local plugin/skill cache state and remains ignored.
 !/.github/
+!/.agents/
+/.agents/*
+!/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/nova-react-profiling/
+!/.agents/skills/nova-react-profiling/**
 
 # debug
 npm-debug.log*
@@ -66,3 +72,4 @@ next-env.d.ts
 /playwright/.cache/
 /test-results/
 /playwright-report/
+/react-profiles/
