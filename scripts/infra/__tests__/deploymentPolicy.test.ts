@@ -112,6 +112,15 @@ describe("durable deployment policy", () => {
 		);
 	});
 
+	test("ships the reviewed React profiler hardener into the Docker builder", () => {
+		const hardenerCommand = "RUN node scripts/harden-agent-react-devtools.mjs";
+		expect(dockerignore).toContain("!scripts/harden-agent-react-devtools.mjs");
+		expect(dockerfile).toContain(hardenerCommand);
+		expect(dockerfile.indexOf(hardenerCommand)).toBeLessThan(
+			dockerfile.indexOf("RUN npm run build"),
+		);
+	});
+
 	test("uses one blocking migration and one direct service deployment", () => {
 		expect(stepOffset("runtime-capabilities")).toBeLessThan(
 			stepOffset("build"),
