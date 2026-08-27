@@ -94,6 +94,8 @@ interface CaseWriteChoiceGroup {
 	readonly items: readonly CaseWriteChoice[];
 }
 
+const AVAILABLE_CHOICE: CaseWriteChoiceVerdict = { ok: true };
+
 function destinationId(caseType: string, property: string): string {
 	return JSON.stringify([caseType, property]);
 }
@@ -240,7 +242,17 @@ export function CaseWriteEditor<F extends Field>(
 			}),
 		[effectiveCaseTypes, writableTypeNames],
 	);
-	const clearVerdict = choiceVerdict(null);
+	/* The closed trigger only projects the current destination. Running the
+	 * complete mutation gate for every possible destination while the chooser
+	 * is hidden makes unrelated navigation and Preview startup scale with the
+	 * case catalog. Exact disabled reasons are still computed when the author
+	 * opens the chooser, before any row can be selected. */
+	const visibleChoiceVerdict = useCallback(
+		(caseWrite: AuthoredCaseWrite | null) =>
+			open ? choiceVerdict(caseWrite) : AVAILABLE_CHOICE,
+		[choiceVerdict, open],
+	);
+	const clearVerdict = visibleChoiceVerdict(null);
 	const choices = useMemo<readonly CaseWriteChoice[]>(() => {
 		const result: CaseWriteChoice[] = [
 			{
@@ -263,7 +275,7 @@ export function CaseWriteEditor<F extends Field>(
 						caseType,
 						property,
 						caseWrite,
-						choiceVerdict(caseWrite),
+						visibleChoiceVerdict(caseWrite),
 						projectProse,
 					),
 				);
@@ -279,7 +291,7 @@ export function CaseWriteEditor<F extends Field>(
 				caseType: USERCASE_CASE_TYPE,
 				property: property.slug,
 			};
-			const verdict = choiceVerdict(caseWrite);
+			const verdict = visibleChoiceVerdict(caseWrite);
 			result.push({
 				id: destinationId(USERCASE_CASE_TYPE, property.slug),
 				group: "The worker's own record",
@@ -306,12 +318,12 @@ export function CaseWriteEditor<F extends Field>(
 		}
 		return result;
 	}, [
-		choiceVerdict,
 		clearVerdict,
 		destinationFor,
 		projectProse,
 		workerProperties,
 		writableTypes,
+		visibleChoiceVerdict,
 	]);
 	const groups = useMemo<readonly CaseWriteChoiceGroup[]>(() => {
 		const order: string[] = [];
