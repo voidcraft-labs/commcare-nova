@@ -7,14 +7,14 @@ structured analysis of render commits, component durations, re-render
 causes, and wasted renders.
 
 Usage:
-    python3 scripts/analyze-profile.py <file.json>                    # Summary of all commits
-    python3 scripts/analyze-profile.py <file.json> --frame 47         # Detail for frame 47 (1-indexed)
-    python3 scripts/analyze-profile.py <file.json> --frame 47 --ancestors BuilderSubheader
+    python3 scripts/analyze-react-profile.py <file.json>                    # Summary of all commits
+    python3 scripts/analyze-react-profile.py <file.json> --frame 47         # Detail for frame 47 (1-indexed)
+    python3 scripts/analyze-react-profile.py <file.json> --frame 47 --ancestors BuilderSubheader
                                                                        # Ancestor chain for a component in that frame
-    python3 scripts/analyze-profile.py <file.json> --component UploadToHqDialog
+    python3 scripts/analyze-react-profile.py <file.json> --component UploadToHqDialog
                                                                        # All frames where this component rendered
-    python3 scripts/analyze-profile.py <file.json> --wasted           # Components with 100% wasted renders
-    python3 scripts/analyze-profile.py <file.json> --top 30           # Top 30 most expensive components (cumulative)
+    python3 scripts/analyze-react-profile.py <file.json> --wasted           # Components with 100% wasted renders
+    python3 scripts/analyze-react-profile.py <file.json> --top 30           # Top 30 most expensive components (cumulative)
 """
 
 import json

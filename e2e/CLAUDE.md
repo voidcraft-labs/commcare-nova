@@ -45,6 +45,13 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   instance.
 - **No new RTL/jsdom tests.** UI logic is tested as `f(state)` in Vitest; real UI
   behavior is tested here in Playwright. Don't add `@testing-library/react` DOM tests.
+- **React profiling is a separate development harness.** `npm run profile:react`
+  uses `e2e/react-profile/`, a dedicated `nova_react_profile` database, the same
+  no-LLM seed, one headed Chromium page, and an authenticated loopback-only
+  React DevTools daemon. It deliberately does NOT reuse this suite's production
+  web server: React's component profiler hook must install before development
+  React initializes. Never add the profiler to the smoke config, run the
+  upstream package initializer, or leave its daemon alive after the browser.
 - **The cross-Project move journey needs only a destination.** `seed.ts` mints a
   second Project the seeded user OWNS (`Smoke Destination`, at a fixed slug so a
   re-run replaces it instead of piling up) — owning both ends is what satisfies
@@ -94,8 +101,10 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **Selectors are roles / aria-labels / text** (the app has almost no `data-testid`) —
   e.g. `getByRole("button", { name: "Sign in with Google" })`. If you add a
   `data-testid`, prefer it for the gate.
-- **Specs live in `e2e/tests/**` only** — Vitest excludes that dir; everything else
-  under `e2e/` (helpers, `seed.ts`) is plain TS and importable by Vitest.
+- **Acceptance specs live in `e2e/tests/**`; profiler specs live in
+  `e2e/react-profile/**`.** Vitest excludes both Playwright-only directories;
+  everything else under `e2e/` (helpers, `seed.ts`) is plain TS and importable
+  by Vitest.
 - **Case-workspace visual QA has one canonical fixture.** `e2e/lib/caseWorkspaceSeed.ts`
   owns a fixed-entity-id patient Search / Results / Details blueprint plus eight stable
   displayed rows. `seed.ts` installs it through `appendSyntheticBatch`, materializes

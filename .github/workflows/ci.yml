@@ -257,8 +257,9 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
-      # `npm ci` above runs the `postinstall: fumadocs-mdx` step, which
-      # materializes the gitignored `.source/` that `next build` imports.
+      # `npm ci` above runs Nova's exact-hash profiler hardener, then
+      # `fumadocs-mdx`, which materializes the gitignored `.source/` that
+      # `next build` imports.
       - name: Build
         run: npm run build
 

@@ -12,7 +12,10 @@
  */
 import type { Metadata } from "next";
 import { JetBrains_Mono, Outfit, Plus_Jakarta_Sans } from "next/font/google";
+import { readReactProfilerConfig } from "@/config/reactProfiler";
 import "./globals.css";
+
+const reactProfiler = readReactProfilerConfig();
 
 const display = Outfit({
 	subsets: ["latin"],
@@ -36,6 +39,18 @@ export const metadata: Metadata = {
 		template: "%s · commcare nova",
 	},
 	description: "Build CommCare apps from natural language",
+	/* The hardened bridge reads these before hydration. They exist only in an
+	 * explicitly profiled development process; production metadata never carries
+	 * the ephemeral token or a WebSocket destination. */
+	...(reactProfiler.enabled
+		? {
+				other: {
+					"agent-react-devtools-host": reactProfiler.bridgeHost,
+					"agent-react-devtools-port": reactProfiler.bridgePort,
+					"agent-react-devtools-token": reactProfiler.token,
+				},
+			}
+		: {}),
 };
 
 export default function RootLayout({

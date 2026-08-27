@@ -90,6 +90,11 @@ ARG NOVA_BUILD_ID
 ENV NOVA_BUILD_ID="${NOVA_BUILD_ID}" \
     NEXT_PUBLIC_NOVA_BUILD_ID="${NOVA_BUILD_ID}"
 
+# The dependency stage intentionally suppresses third-party lifecycle scripts.
+# Run Nova's own exact-hash transformer here so the reviewed profiler artifact
+# is verified and hardened even in the image build before Next resolves it.
+RUN node scripts/harden-agent-react-devtools.mjs
+
 RUN npm run build
 
 # Publish one directly downloadable corresponding-source archive for the

@@ -2,8 +2,10 @@ import { fileURLToPath } from "node:url";
 import { withSentryConfig } from "@sentry/nextjs";
 import { createMDX } from "fumadocs-mdx/next";
 import type { NextConfig } from "next";
+import { readReactProfilerConfig } from "./config/reactProfiler";
 
 const withMDX = createMDX();
+const reactProfiler = readReactProfilerConfig();
 /* Anchor tracing to THIS checkout, not a parent directory Next infers from
  * another lockfile. In a local worktree this is that worktree's root; in the
  * Docker builder it is `/app`. Keeping the root explicit also keeps the
@@ -11,6 +13,15 @@ const withMDX = createMDX();
 const buildRoot = fileURLToPath(new URL(".", import.meta.url));
 
 const nextConfig: NextConfig = {
+	/* React DevTools must install its hook before React initializes. The audited
+	 * package's generated App Router wrapper runs too late, so the local harness
+	 * opts into Next's pre-hydration injection point instead. Build-time omission
+	 * is the production boundary: normal development and every production build
+	 * contain no profiler bridge or react-devtools-core client chunk. */
+	instrumentationClientInject: reactProfiler.enabled
+		? ["./react-profile-client.ts"]
+		: [],
+
 	/* Standalone output for containerized deployments (Cloud Run, Docker). */
 	/* Produces a self-contained build with only necessary node_modules. */
 	output: "standalone",

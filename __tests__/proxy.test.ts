@@ -565,6 +565,45 @@ describe("proxy: dev-mode internal-page bypasses on unknown hosts", () => {
 	});
 });
 
+describe("proxy: local React profiler CSP", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it("admits only the ephemeral loopback bridge in an opted-in dev process", () => {
+		vi.stubEnv("NODE_ENV", "development");
+		vi.stubEnv("NOVA_REACT_PROFILE", "1");
+		vi.stubEnv("NOVA_REACT_PROFILE_PORT", "49152");
+		vi.stubEnv("NOVA_REACT_PROFILE_TOKEN", "a".repeat(43));
+		vi.stubEnv("NOVA_REACT_PROFILE_ORIGIN", "http://127.0.0.1:3100");
+
+		const csp = proxy(req("localhost:3100", "/")).headers.get(
+			"content-security-policy",
+		);
+		expect(csp).not.toBeNull();
+		expect(directives(csp ?? "").get("connect-src")).toContain(
+			"ws://127.0.0.1:49152",
+		);
+	});
+
+	it("never admits the bridge in production", () => {
+		vi.stubEnv("NODE_ENV", "production");
+		vi.stubEnv("NOVA_REACT_PROFILE", "1");
+		vi.stubEnv("NOVA_REACT_PROFILE_PORT", "49152");
+		vi.stubEnv("NOVA_REACT_PROFILE_TOKEN", "a".repeat(43));
+		vi.stubEnv("NOVA_REACT_PROFILE_ORIGIN", "http://127.0.0.1:3100");
+		vi.stubEnv("NOVA_ALLOW_LOCALHOST_HOSTS", "1");
+
+		const csp = proxy(req("localhost:3100", "/")).headers.get(
+			"content-security-policy",
+		);
+		expect(csp).not.toBeNull();
+		expect(directives(csp ?? "").get("connect-src")).not.toContain(
+			"ws://127.0.0.1:49152",
+		);
+	});
+});
+
 describe("proxy: dev-mode internal-page bypasses do NOT fire in production", () => {
 	beforeEach(() => {
 		vi.stubEnv("NODE_ENV", "production");

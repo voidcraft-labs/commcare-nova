@@ -37,6 +37,7 @@
 import { isValidIP, normalizeIP } from "@better-auth/core/utils/ip";
 import { getSessionCookie } from "better-auth/cookies";
 import { type NextRequest, NextResponse } from "next/server";
+import { readReactProfilerConfig } from "@/config/reactProfiler";
 import {
 	classifyHost,
 	HOSTNAMES,
@@ -185,6 +186,7 @@ function buildCsp(
 	isDev: boolean,
 	allowGoogleMaps: boolean,
 ): { csp: string; nonce: string } {
+	const reactProfiler = readReactProfilerConfig();
 	/* 16 raw random bytes encoded as base64. `randomUUID()` would yield
 	 * an ASCII string with structurally fixed dashes and version nibbles —
 	 * base64-encoding that wastes entropy the CSP nonce relies on to
@@ -210,6 +212,9 @@ function buildCsp(
 	const gConnect = allowGoogleMaps ? ` ${gmapsHosts}` : "";
 	const gFont = allowGoogleMaps ? " https://fonts.gstatic.com" : "";
 	const gStyle = allowGoogleMaps ? " https://fonts.googleapis.com" : "";
+	const profilerConnect = reactProfiler.enabled
+		? ` ${reactProfiler.webSocketSource}`
+		: "";
 
 	const csp = [
 		"default-src 'self'",
@@ -228,7 +233,7 @@ function buildCsp(
 		 * same-origin `/api/media/upload/dev-put` route, so it only matters in
 		 * prod. The Google hosts (main-host pages) carry the Maps tile,
 		 * Places, and Geocoding XHRs. */
-		`connect-src 'self' https://storage.googleapis.com${gConnect}`,
+		`connect-src 'self' https://storage.googleapis.com${gConnect}${profilerConnect}`,
 		/* Google Maps embeds a few same-purpose iframes (main-host pages). */
 		...(allowGoogleMaps ? ["frame-src https://*.google.com"] : []),
 		"object-src 'none'",

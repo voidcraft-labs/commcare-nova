@@ -52,6 +52,7 @@ npm run build / lint / format / test
 npm run test:changed # tests whose import graph reaches your diff vs origin/main — the fast local loop
 npm run test:leaks   # async-leak detector; pass file paths to scope it (CI runs the full sweep sharded 8×; unsharded it takes 30+ min)
 npm run test:smoke   # Playwright UI smoke (local Postgres + seeded session) — see e2e/CLAUDE.md
+npm run profile:react # private, seeded React DevTools + Playwright profiling harness
 npm run mp:watch     # watch the multiplayer suite live (2-user halves, then a 4-user quadrant storm); mp:manual = drive all four users yourself
 npm run typecheck    # tsc --noEmit (fumadocs .source comes from the postinstall)
 npm run db:migrate               # apply case-store migrations (Kysely Migrator) against NOVA_DB_LOCAL_URL
@@ -61,6 +62,8 @@ npm run test:schema              # verify SA tool-input schemas are API-accepted
 `npm run test:schema` is the one command here that **spends money**: it sends every generated tool schema to the provider and treats a non-erroring response as the pass, so it costs one live request per registered schema. Ask before running it. It carries `--conditions=react-server` because the MCP tool surface reaches `server-only`, whose bare `default` export throws under plain Node; the condition resolves it to the package's own no-op `empty.js`, which is exactly what a server-side script should get. Invoking `tsx` without it dies at import before reaching any API call — a crash that looks like a broken schema and is not.
 
 `npm run dev` needs Docker (it boots the local Postgres); the app reaches it via `NOVA_DB_LOCAL_URL` in `.env` (an explicit opt-in — prod uses the Cloud SQL connector). **Local sign-in is one URL: `GET http://localhost:3000/api/dev/login`** — it mints a real session and sets the cookie (dev-only route; signs you in as `agent@dimagi.com`, and `?as=<slug>` auto-creates an `agent-<slug>@dimagi.com` sibling — dimagi-domained, so invitable in sharing flows; `?next=` to deep-link), so agents, curl, Playwright, and browsers log in by visiting it; never hand-script a session cookie. `scripts/` also has read-only inspectors and a `recover-app` writer (⚠️); run any with `--help`. The inspectors take `--prod` to read production Cloud SQL over its public IP as your gcloud IAM identity (`scripts/lib/prodDb.ts`).
+
+React profiling uses the repo-local `nova-react-profiling` skill and `npm run profile:react`. Never run `agent-react-devtools init` / `uninit` or start its daemon directly: Nova exact-pins the audited release, hash-checks and hardens its runtime at postinstall, injects it before hydration only in the explicitly profiled development process, and excludes it from normal dev and production builds. The harness owns a random authenticated loopback port, private state directory, headed Playwright browser, seeded no-LLM Builder fixture, profile export, parser run, and teardown.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

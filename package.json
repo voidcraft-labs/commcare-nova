@@ -25,7 +25,7 @@
 		"ssh2": false
 	},
 	"scripts": {
-		"postinstall": "fumadocs-mdx",
+		"postinstall": "node scripts/harden-agent-react-devtools.mjs && fumadocs-mdx",
 		"predev": "node scripts/check-node.mjs",
 		"dev": "npm run db:dev && NEXT_TELEMETRY_DISABLED=1 next dev",
 		"db:dev": "docker compose up -d --wait && NOVA_DB_LOCAL_URL=postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable npm run db:migrate",
@@ -48,6 +48,7 @@
 		"test:smoke": "bash scripts/smoke.sh",
 		"test:smoke:headed": "bash scripts/smoke.sh --headed",
 		"test:smoke:url": "playwright test --project=public",
+		"profile:react": "bash scripts/react-profile.sh",
 		"case:manual": "PORT=3100 SMOKE_BASE_URL=http://localhost:3100 BETTER_AUTH_URL=http://localhost:3100 CASE_WORKSPACE_MANUAL=1 bash scripts/smoke.sh --project=case-workspace-manual --headed",
 		"mp:watch": "MP_TILE=1 MP_SLOWMO=${MP_SLOWMO:-3000} bash scripts/smoke.sh --project=multiplayer --headed",
 		"mp:manual": "MP_MANUAL=1 bash scripts/smoke.sh --project=mp-manual --headed"
@@ -152,6 +153,7 @@
 		"@types/react": "19.2.18",
 		"@types/react-dom": "19.2.4",
 		"@typescript/native-preview": "^7.0.0-dev.20260707.2",
+		"agent-react-devtools": "0.4.0",
 		"class-variance-authority": "^0.7.1",
 		"dotenv": "^17.3.1",
 		"esbuild": "^0.28.2",
@@ -160,7 +162,7 @@
 		"happy-dom": "^20.11.2",
 		"lefthook": "^2.1.10",
 		"pg": "^8.23.0",
-		"react-scan": "^0.5.3",
+		"react-devtools-core": "6.1.5",
 		"tailwindcss": "^4",
 		"tsx": "^4.23.12",
 		"typescript": "7.0.2",
