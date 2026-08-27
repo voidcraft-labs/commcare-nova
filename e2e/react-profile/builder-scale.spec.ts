@@ -57,8 +57,7 @@ async function expectAnimationsSettled(page: Page) {
 									Number.isFinite(
 										animation.effect?.getComputedTiming().endTime ?? Infinity,
 									) &&
-									(animation.playState === "running" ||
-										animation.playState === "pending"),
+									(animation.playState === "running" || animation.pending),
 							).length,
 				),
 			{ timeout: 15_000 },
@@ -88,6 +87,29 @@ test("profiles a cross-form hidden-field selection in a large Builder", async ({
 	await expect(
 		page.locator(`[data-field-inspector="${seed.targetFieldUuid}"]`),
 	).toBeVisible();
+	const stopped = profilerCommand(["profile", "stop"]);
+	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
+	profilerCommand(["profile", "export", outputPath()]);
+});
+
+test("profiles a same-form hidden-field selection in a large Builder", async ({
+	page,
+}) => {
+	const seed = fixture();
+	await page.goto(seed.targetRoute);
+	const target = page.getByRole("button", {
+		name: "profile_hidden_3_0",
+		exact: true,
+	});
+	await expect(target).toBeVisible({ timeout: 30_000 });
+	await expectAnimationsSettled(page);
+
+	profilerCommand(["wait", "--connected", "--timeout=30"]);
+	profilerCommand(["profile", "start", "large same-form hidden selection"]);
+	await target.click();
+	await expect(target).toHaveAttribute("aria-current", "page");
+	await expect(page).not.toHaveURL(new RegExp(`${seed.targetFieldUuid}$`));
+	await expect(page.locator("[data-field-inspector]")).toBeVisible();
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
 	profilerCommand(["profile", "export", outputPath()]);
