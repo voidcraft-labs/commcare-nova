@@ -51,6 +51,7 @@ import {
 import {
 	pushBuilderHistory,
 	useBuilderPathSegments,
+	useIsBuilderFieldPathSelected,
 } from "@/lib/routing/useClientPath";
 import { useClearFocusHint } from "@/lib/session/hooks";
 
@@ -236,8 +237,7 @@ export function useIsFormSelected(uuid: Uuid): boolean {
  * on a selection change.
  */
 export function useIsFieldSelected(uuid: Uuid): boolean {
-	const loc = useLocation();
-	return loc.kind === "form" && loc.selectedUuid === uuid;
+	return useIsBuilderFieldPathSelected(uuid);
 }
 
 /** A single entry in the breadcrumb trail rendered by BuilderSubheader. */
