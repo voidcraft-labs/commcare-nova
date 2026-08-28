@@ -127,7 +127,7 @@ export function BuilderFormEngineProvider({
 					diagnostics: {
 						component: "preview-engine",
 						operation: fault.operation,
-						failureKind: "runtime-invariant",
+						failureKind: fault.failureKind ?? "runtime-invariant",
 					},
 				},
 				safeError,

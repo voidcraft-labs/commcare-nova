@@ -3,6 +3,7 @@ import {
 	XPATH_WORKER_PROTOCOL_VERSION,
 	type XPathRuntimeError,
 	type XPathRuntimeErrorCode,
+	type XPathRuntimeFailureReason,
 	type XPathRuntimeRequest,
 	type XPathRuntimeResult,
 	type XPathWorkerEvaluateRequest,
@@ -65,9 +66,11 @@ interface PendingRequest {
 function failure(
 	request: Pick<XPathRuntimeRequest, "entryKey" | "revision" | "profile">,
 	code: XPathRuntimeErrorCode,
+	reason?: XPathRuntimeFailureReason,
 ): XPathRuntimeResult {
 	const error: XPathRuntimeError = {
 		code,
+		...(reason === undefined ? {} : { reason }),
 		operation: "evaluate",
 		entryKey: request.entryKey,
 		revision: request.revision,
@@ -305,7 +308,7 @@ export class XPathRuntime {
 							? {}
 							: { nodesetValues: response.nodesetValues }),
 					}
-				: failure(pending.request, response.error.code),
+				: failure(pending.request, response.error.code, response.error.reason),
 		);
 	};
 

@@ -569,4 +569,21 @@ describe("XPath worker runtime", () => {
 		expect(exposed).not.toContain("case-id");
 		runtime.dispose();
 	});
+
+	it("reports only a bounded phase and category for evaluator failures", async () => {
+		const runtime = new XPathRuntime({
+			workerFactory: createInProcessXPathWorkerFactory(),
+		});
+
+		await expect(
+			runtime.request(request({ source: "/data/not_in_the_instance" })),
+		).resolves.toMatchObject({
+			ok: false,
+			error: {
+				code: "evaluation-failed",
+				reason: { phase: "evaluation", kind: "invalid-path" },
+			},
+		});
+		runtime.dispose();
+	});
 });

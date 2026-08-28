@@ -167,9 +167,28 @@ export type XPathRuntimeErrorCode =
 	| "timeout"
 	| "worker-failed";
 
+/** Bounded worker-side failure metadata. This deliberately describes only
+ * which runtime boundary failed and the broad exception category; it never
+ * carries XPath source, instance paths, case data, or authored values. */
+export interface XPathRuntimeFailureReason {
+	readonly phase: "world" | "projection" | "evaluation";
+	readonly kind:
+		| "admission"
+		| "dom-exception"
+		| "invalid-path"
+		| "nodeset-cardinality"
+		| "range-error"
+		| "runtime-error"
+		| "type-error"
+		| "unsupported"
+		| "world-unavailable"
+		| "unknown";
+}
+
 /** Safe to surface to internal diagnostics. It never includes evaluation data. */
 export interface XPathRuntimeError {
 	readonly code: XPathRuntimeErrorCode;
+	readonly reason?: XPathRuntimeFailureReason;
 	readonly operation: "evaluate";
 	readonly entryKey: string;
 	readonly revision: number;

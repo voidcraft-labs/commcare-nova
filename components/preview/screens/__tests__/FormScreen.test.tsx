@@ -986,7 +986,7 @@ describe("FormScreen — runtime invariant containment", () => {
 			diagnostics: {
 				component: "preview-engine",
 				operation: "activate",
-				failureKind: "runtime-invariant",
+				failureKind: "xpath:evaluation-failed:evaluation:unsupported",
 			},
 		});
 		expect(report?.[0].diagnostics).not.toHaveProperty("appId");

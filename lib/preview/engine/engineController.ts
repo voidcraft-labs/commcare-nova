@@ -65,7 +65,10 @@ import type { ProseTemplate } from "@/lib/domain/prose";
 import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
-import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import type {
+	XPathRuntimeError,
+	XPathWorkerInstances,
+} from "../xpath/workerProtocol";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
@@ -149,12 +152,30 @@ export type EngineFaultOperation =
 export interface EngineRuntimeFault {
 	readonly formUuid: Uuid;
 	readonly operation: EngineFaultOperation;
+	/** Finite worker metadata only; never XPath source, paths, or values. */
+	readonly failureKind?: string;
 }
 
 export type EngineFaultReporter = (
 	fault: EngineRuntimeFault,
 	error: unknown,
 ) => void;
+
+class PreviewXPathRuntimeError extends Error {
+	readonly failureKind: string;
+
+	constructor(failure: XPathRuntimeError) {
+		const reason = failure.reason;
+		const failureKind = [
+			"xpath",
+			failure.code,
+			...(reason === undefined ? [] : [reason.phase, reason.kind]),
+		].join(":");
+		super(`The XPath runtime failed (${failureKind}).`);
+		this.name = "PreviewXPathRuntimeError";
+		this.failureKind = failureKind;
+	}
+}
 
 export interface RepeatCompactionEvent {
 	readonly entryKey: string;
@@ -731,7 +752,13 @@ export class EngineController {
 		if (this.runtimeFault !== undefined) return;
 		this.requestedActivation = undefined;
 		this.clearActiveForm();
-		const fault = { formUuid, operation } as const;
+		const fault = {
+			formUuid,
+			operation,
+			...(error instanceof PreviewXPathRuntimeError
+				? { failureKind: error.failureKind }
+				: {}),
+		} as const;
 		this.runtimeFault = fault;
 		this.publishEntryState();
 		try {
@@ -807,9 +834,7 @@ export class EngineController {
 				throw new Error("The XPath evaluation revision was retired.");
 			}
 			if (!result.ok) {
-				throw new Error(
-					`The XPath worker refused evaluation (${result.error.code}).`,
-				);
+				throw new PreviewXPathRuntimeError(result.error);
 			}
 			if (
 				resultMode === "nodeset-values-or-scalar" &&
@@ -2233,13 +2258,13 @@ export class EngineController {
 						generation !== this.lifecycleGeneration ||
 						this.currentEntryKey !== expectedEntryKey ||
 						revision !== this.runtimeRevision ||
-						result === undefined ||
-						!result.ok
+						result === undefined
 					) {
 						throw new Error(
 							"The after-submit XPath evaluation did not complete.",
 						);
 					}
+					if (!result.ok) throw new PreviewXPathRuntimeError(result.error);
 					return deserializeXPathWorkerValue(result.value);
 				};
 				return { completed: true, value: await run(evaluate) };
