@@ -58,7 +58,7 @@
 		"@ai-sdk/openai": "^4.0.41",
 		"@ai-sdk/react": "4.0.68",
 		"@ai-sdk/workflow": "1.0.65",
-		"@atlaskit/pragmatic-drag-and-drop": "^2.0.2",
+		"@atlaskit/pragmatic-drag-and-drop": "^3.0.0",
 		"@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.0.0",
 		"@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.0.0",
 		"@better-auth/api-key": "1.6.29",
