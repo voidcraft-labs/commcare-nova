@@ -346,7 +346,10 @@ export function isDocDataKey(key: string, value: unknown): boolean {
  * `materializableCaseTypes` or by Preview's case-write inventory. Every known
  * no-op family is explicit so a new mutation discriminator fails compilation
  * here instead of silently under-invalidating the runtime projection. */
-function affectsCaseWriteProjection(mutation: Mutation): boolean {
+function affectsCaseWriteProjection(
+	current: Pick<BlueprintDoc, "fields">,
+	mutation: Mutation,
+): boolean {
 	switch (mutation.kind) {
 		case "declareCaseType":
 		case "retireCaseType":
@@ -371,6 +374,7 @@ function affectsCaseWriteProjection(mutation: Mutation): boolean {
 			return (
 				Object.hasOwn(mutation.patch, "caseWrite") ||
 				(mutation.targetKind === "hidden" &&
+					fieldCaseWrite(current.fields[mutation.uuid]) !== undefined &&
 					(Object.hasOwn(mutation.patch, "calculate") ||
 						Object.hasOwn(mutation.patch, "default_value")))
 			);
@@ -444,9 +448,12 @@ function affectsCaseWriteProjection(mutation: Mutation): boolean {
 }
 
 function batchAffectsCaseWriteProjection(
+	current: Pick<BlueprintDoc, "fields">,
 	mutations: AdmittedMutationBatch,
 ): boolean {
-	return mutations.some(affectsCaseWriteProjection);
+	return mutations.some((mutation) =>
+		affectsCaseWriteProjection(current, mutation),
+	);
 }
 
 /**
@@ -744,8 +751,10 @@ export function createBlueprintDocStore() {
 						const admitted = admitMutationBatch(muts);
 						const before = store.getState();
 						const queued = queueForPersistence(admitted);
-						const caseWriteProjectionChanged =
-							batchAffectsCaseWriteProjection(admitted);
+						const caseWriteProjectionChanged = batchAffectsCaseWriteProjection(
+							before,
+							admitted,
+						);
 						let results: MutationResult[] = [];
 						set((draft) => {
 							if (queued) draft.commandQueueRevision += 1;
@@ -797,7 +806,7 @@ export function createBlueprintDocStore() {
 						const queued = queueForPersistence(commands);
 						const caseWriteProjectionChanged =
 							commands.length === 0 ||
-							batchAffectsCaseWriteProjection(commands);
+							batchAffectsCaseWriteProjection(before, commands);
 						if (Object.isFrozen(next)) {
 							/* `prepareMutationCandidate` already produced and froze this
 							 * exact document with Immer. Publish it directly: wrapping the

@@ -269,6 +269,30 @@ describe("case-write projection watermark", () => {
 		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 2);
 	});
 
+	it("ignores hidden expressions on a field that does not write case data", () => {
+		const { doc, fieldUuid } = makeCaseWriteDoc();
+		doc.fields[fieldUuid] = {
+			uuid: testUuid(fieldUuid),
+			kind: "hidden",
+			id: "answer",
+		};
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		store.getState().startTracking();
+		const baseline = store.getState().caseWriteProjectionRevision;
+
+		store.getState().applyMany([
+			{
+				kind: "updateField",
+				uuid: testUuid(fieldUuid),
+				targetKind: "hidden",
+				patch: { calculate: { parts: [{ kind: "text", text: "today()" }] } },
+			},
+		]);
+
+		expect(store.getState().caseWriteProjectionRevision).toBe(baseline);
+	});
+
 	it("advances for a whole-document reseed with no mutation proof", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc());
