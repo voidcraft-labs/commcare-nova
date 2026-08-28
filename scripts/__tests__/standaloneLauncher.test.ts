@@ -102,6 +102,12 @@ describe("standalone production launcher", () => {
 			server: path.join(ROOT, ".next", "standalone", "server.js"),
 			publicSource: path.join(ROOT, "public"),
 			publicDestination: path.join(ROOT, ".next", "standalone", "public"),
+			xpathWorkerSource: path.join(
+				ROOT,
+				"public",
+				"xpath-worker",
+				"xpath-worker.js",
+			),
 			staticSource: path.join(ROOT, ".next", "static"),
 			staticDestination: path.join(
 				ROOT,
@@ -153,6 +159,7 @@ describe("standalone production launcher", () => {
 	it.each([
 		["standalone server", "Run `npm run build` first."],
 		["public assets", "Restore the repository's `public` directory."],
+		["built XPath worker", "Run `npm run build:xpath-worker` first."],
 		["built static assets", "Run `npm run build` first."],
 		[
 			"sharp runtime assets",

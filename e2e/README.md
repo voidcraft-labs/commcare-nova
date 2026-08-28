@@ -66,9 +66,10 @@ npx playwright show-report e2e/playwright-report
 ```
 
 `scripts/smoke.sh` boots local Postgres (compose) + migrations, seeds, then runs
-Playwright, which builds and starts Next's generated standalone server through
-`scripts/start-standalone.mjs`. The launcher fails if the production build is
-missing, places `public` and `.next/static` under `.next/standalone`, and overlays
+Playwright, which builds the isolated XPath worker and starts Next's generated
+standalone server through `scripts/start-standalone.mjs`. The launcher fails if the
+production build or worker is missing, places `public` and `.next/static` under
+`.next/standalone`, and overlays
 sharp's `node_modules/@img` runtime exactly like Docker before running `server.js`.
 It uses a throwaway `BETTER_AUTH_SECRET` and dummy OAuth creds — never production
 secrets.
