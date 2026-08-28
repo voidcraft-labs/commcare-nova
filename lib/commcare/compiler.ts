@@ -56,7 +56,7 @@ import { buildNavMenuNode } from "@/lib/commcare/multimedia/navMenuMedia";
 import {
 	collectPredicateInstances,
 	instanceSourceFor,
-} from "@/lib/commcare/predicate";
+} from "@/lib/commcare/predicate/instances";
 import {
 	buildEntryElement,
 	deriveCaseListEntryDefinition,

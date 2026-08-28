@@ -12,9 +12,10 @@
 //     Activity so its internal state (scroll, fetched rows) survives.
 //   - Preview mode at any of the three → CaseListScreen is the
 //     visible surface (search and detail are facets of the same case
-//     list, so the running preview is always the assembled artifact);
-//     the workspace is mounted but hidden so its selection + scroll
-//     survive the round-trip.
+//     list, so the running preview is always the assembled artifact).
+//     A workspace visited in edit mode stays mounted and hidden so its
+//     selection + scroll survive the round-trip; a direct preview load does
+//     not download or mount an authoring surface it has never shown.
 //
 // Activity in React 19 renders both `mode="visible"` and
 // `mode="hidden"` subtrees into the DOM: the `display: none` is
@@ -307,14 +308,14 @@ const WORKSPACE_LOCATIONS: ReadonlyArray<{
 ];
 
 describe("PreviewShell — case-list workspace dispatch", () => {
-	it("previews a child module condition on its structural parent menu", () => {
+	it("previews a child module condition on its structural parent menu", async () => {
 		editModeMock.mockReturnValue("preview");
 		locationMock.mockReturnValue({
 			kind: "module-condition",
 			moduleUuid: CHILD_MODULE_UUID,
 		});
-		const { getByTestId } = renderShell();
-		const moduleScreen = getByTestId("module-stub");
+		const { findByTestId } = renderShell();
+		const moduleScreen = await findByTestId("module-stub");
 		expect(isVisible(moduleScreen)).toBe(true);
 		expect(moduleScreen.getAttribute("data-module-uuid")).toBe(MODULE_UUID);
 	});
@@ -344,12 +345,12 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 			formUuid: CHILD_FORM_UUID,
 		},
 	]) {
-		it(`admits a directly addressed child ${location.kind} through its module before parent selection`, () => {
+		it(`admits a directly addressed child ${location.kind} through its module before parent selection`, async () => {
 			editModeMock.mockReturnValue("preview");
 			locationMock.mockReturnValue(location);
 			const view = renderShell({ hideStructuralParent: false });
 
-			const moduleScreen = view.getByTestId("module-stub");
+			const moduleScreen = await view.findByTestId("module-stub");
 			expect(isVisible(moduleScreen)).toBe(true);
 			expect(moduleScreen.getAttribute("data-module-uuid")).toBe(
 				CHILD_MODULE_UUID,
@@ -359,7 +360,7 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 		});
 	}
 
-	it("runs a directly addressed child case list after its case parent is selected", () => {
+	it("runs a directly addressed child case list after its case parent is selected", async () => {
 		editModeMock.mockReturnValue("preview");
 		locationMock.mockReturnValue({
 			kind: "cases",
@@ -374,7 +375,9 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 		};
 		const view = renderShell({ hideStructuralParent: false });
 
-		expect(isVisible(view.getByTestId("legacy-case-list-stub"))).toBe(true);
+		expect(isVisible(await view.findByTestId("legacy-case-list-stub"))).toBe(
+			true,
+		);
 	});
 
 	it("uses its real scroll surface as the single main landmark", () => {
@@ -397,12 +400,12 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 			expect(isVisible(getByTestId("legacy-case-list-stub"))).toBe(false);
 		});
 
-		it(`preview mode at ${location.kind} → CaseListScreen visible; workspace hidden`, () => {
+		it(`preview mode at ${location.kind} → CaseListScreen visible without mounting an unvisited workspace`, () => {
 			editModeMock.mockReturnValue("preview");
 			locationMock.mockReturnValue(location);
-			const { getByTestId } = renderShell();
+			const { getByTestId, queryByTestId } = renderShell();
 			expect(isVisible(getByTestId("legacy-case-list-stub"))).toBe(true);
-			expect(isVisible(getByTestId("workspace-stub"))).toBe(false);
+			expect(queryByTestId("workspace-stub")).toBeNull();
 		});
 	}
 
@@ -413,9 +416,9 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 			moduleUuid: MODULE_UUID,
 			caseId: "case-deep-link",
 		});
-		const { getByTestId } = renderShell();
+		const { getByTestId, queryByTestId } = renderShell();
 		expect(isVisible(getByTestId("legacy-case-list-stub"))).toBe(true);
-		expect(isVisible(getByTestId("workspace-stub"))).toBe(false);
+		expect(queryByTestId("workspace-stub")).toBeNull();
 		expect(setPreviewingMock).toHaveBeenCalledWith(true);
 	});
 
@@ -517,36 +520,40 @@ describe("PreviewShell — preview case-datum injection", () => {
 		formUuid: FORM_UUID,
 	};
 
-	it("grafts the selected caseId onto the form screen when the target names this form", () => {
+	it("grafts the selected caseId onto the form screen when the target names this form", async () => {
 		editModeMock.mockReturnValue("preview");
 		locationMock.mockReturnValue(FORM_LOCATION);
 		previewCaseTargetMock.mockReturnValue({
 			formUuid: FORM_UUID,
 			caseId: "case-xyz",
 		});
-		const { getByTestId } = renderShell();
-		expect(getByTestId("form-stub").getAttribute("data-case-id")).toBe(
+		const { findByTestId } = renderShell();
+		expect((await findByTestId("form-stub")).getAttribute("data-case-id")).toBe(
 			"case-xyz",
 		);
 	});
 
-	it("leaves the form caseless when the target names a different form", () => {
+	it("leaves the form caseless when the target names a different form", async () => {
 		editModeMock.mockReturnValue("preview");
 		locationMock.mockReturnValue(FORM_LOCATION);
 		previewCaseTargetMock.mockReturnValue({
 			formUuid: testUuid("some-other-form"),
 			caseId: "case-xyz",
 		});
-		const { getByTestId } = renderShell();
-		expect(getByTestId("form-stub").getAttribute("data-case-id")).toBe("");
+		const { findByTestId } = renderShell();
+		expect((await findByTestId("form-stub")).getAttribute("data-case-id")).toBe(
+			"",
+		);
 	});
 
-	it("leaves the form caseless when there is no target", () => {
+	it("leaves the form caseless when there is no target", async () => {
 		editModeMock.mockReturnValue("preview");
 		locationMock.mockReturnValue(FORM_LOCATION);
 		previewCaseTargetMock.mockReturnValue(undefined);
-		const { getByTestId } = renderShell();
-		expect(getByTestId("form-stub").getAttribute("data-case-id")).toBe("");
+		const { findByTestId } = renderShell();
+		expect((await findByTestId("form-stub")).getAttribute("data-case-id")).toBe(
+			"",
+		);
 	});
 });
 

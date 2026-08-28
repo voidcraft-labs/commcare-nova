@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-	javaRosaPow,
-	javaRosaRegex,
-	javaRosaReplace,
-} from "../javaPatternRuntime";
+import { javaRosaPow } from "../javaMathRuntime";
+import { javaRosaRegex, javaRosaReplace } from "../javaPatternRuntime";
 
 describe("Java compatibility runtime", () => {
 	it("pins OpenJDK 17 fdlibm power results instead of host JavaScript math", () => {

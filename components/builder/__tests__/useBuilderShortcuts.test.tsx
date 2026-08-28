@@ -73,7 +73,7 @@ vi.mock("@/lib/routing/builderActions", () => ({
 }));
 
 vi.mock("@/lib/routing/hooks", () => ({
-	useLocation: () => state.location,
+	readBuilderLocation: () => state.location,
 	useSelect: () => state.select,
 }));
 

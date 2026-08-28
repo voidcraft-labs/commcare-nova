@@ -26,13 +26,13 @@
  */
 import {
 	CASE_TYPE_REGEX,
-	isReservedXFormNodeName,
 	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_CASE_TYPE_LENGTH,
 	RESERVED_XFORM_NODE_PREFIX,
 	XML_ELEMENT_NAME_REGEX,
-} from "@/lib/commcare";
+} from "@/lib/commcare/constants";
+import { isReservedXFormNodeName } from "@/lib/commcare/identifierValidation";
 import { RESERVED_CASE_TYPE_NAMES } from "@/lib/commcare/validator/reservedNamespaces";
 import {
 	authoredCasePropertyNameSchema,

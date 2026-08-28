@@ -84,13 +84,13 @@ import {
 	type XPathInstance,
 } from "../xpath/runtimeValues";
 import type { EvalContext, XPathValue } from "../xpath/types";
-import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import {
 	serializeXPathWorkerHashtagValue,
 	serializeXPathWorkerValue,
 	snapshotXPathWorkerInstance,
 	xpathWorkerHashtagReferences,
-} from "../xpath/workerRuntime";
+} from "../xpath/workerProjection";
+import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import type {
 	SubmissionAnswerEntry,
 	SubmissionAttachmentReference,

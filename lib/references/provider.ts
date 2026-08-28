@@ -118,6 +118,7 @@ export class ReferenceProvider {
 	 *  would thrash. Caching the whole context (not just `byPath`) keeps the
 	 *  sidebar from re-walking the form tree once per chip. */
 	private caches = new Map<string, FormCacheEntry>();
+	private invalidationListeners = new Set<() => void>();
 
 	/**
 	 * @param getContextForForm Resolve the lint context for a given form uuid.
@@ -133,6 +134,20 @@ export class ReferenceProvider {
 	/** Clear all cached form scopes. Call when the blueprint mutates. */
 	invalidate(): void {
 		this.caches.clear();
+		for (const listener of this.invalidationListeners) listener();
+	}
+
+	/**
+	 * Subscribe to cache invalidation without subscribing a component to the
+	 * whole blueprint. React projection hooks use this to compare the one
+	 * rendered string they care about after a mutation, so an unrelated field
+	 * edit does not re-render every reference-capable label in the Builder.
+	 */
+	subscribeInvalidation(listener: () => void): () => void {
+		this.invalidationListeners.add(listener);
+		return () => {
+			this.invalidationListeners.delete(listener);
+		};
 	}
 
 	/**

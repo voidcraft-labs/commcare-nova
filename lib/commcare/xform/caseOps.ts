@@ -14,14 +14,14 @@ import type { Element } from "domhandler";
 import { findOne } from "domutils";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { el } from "@/lib/commcare/elementBuilders";
-import { emitOnDeviceExpression } from "@/lib/commcare/expression";
+import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import {
 	collectExpressionInstances,
 	collectPredicateInstances,
-	emitCaseListFilter,
 	instanceSourceFor,
-} from "@/lib/commcare/predicate";
+} from "@/lib/commcare/predicate/instances";
 import { ROOT_ON_DEVICE_CASE_ANCHOR } from "@/lib/commcare/predicate/relationPresenceEmitter";
 import { quoteLiteral } from "@/lib/commcare/predicate/stringQuoting";
 import type {

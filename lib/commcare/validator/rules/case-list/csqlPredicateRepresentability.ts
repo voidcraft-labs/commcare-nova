@@ -31,7 +31,7 @@
 import {
 	type CsqlRepresentabilityIssue,
 	checkCsqlRepresentability,
-} from "@/lib/commcare/predicate";
+} from "@/lib/commcare/predicate/csqlRepresentability";
 import {
 	type BlueprintDoc,
 	effectiveCaseSearchConfig,

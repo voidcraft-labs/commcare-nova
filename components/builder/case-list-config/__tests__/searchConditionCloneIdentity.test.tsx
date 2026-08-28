@@ -32,9 +32,12 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import {
 	CaseListWorkspaceCanvas,
+	CaseListWorkspaceControllerBridge,
+} from "../CaseListConfigWorkspace";
+import {
 	CaseListWorkspaceProvider,
 	useCaseListWorkspace,
-} from "../CaseListConfigWorkspace";
+} from "../CaseListWorkspaceProvider";
 
 // The surfaces here spell authored prose against the document; every production
 // mount sits inside the builder's provider. Wrapping at `render` reproduces it
@@ -117,6 +120,8 @@ vi.mock("@/lib/routing/hooks", () => ({
 		kind: "search-config",
 		moduleUuid: harness.moduleUuid,
 	}),
+	useLocationKind: () => "search-config",
+	useSelectedModuleUuid: () => harness.moduleUuid,
 }));
 vi.mock("@/lib/session/hooks", () => ({
 	useAppId: () => "app-1",
@@ -244,7 +249,9 @@ function CaseListConfigWorkspace({
 }) {
 	harness.moduleUuid = moduleUuid;
 	return (
-		<CaseListWorkspaceProvider>
+		<CaseListWorkspaceProvider
+			controllerComponent={CaseListWorkspaceControllerBridge}
+		>
 			<CaseListWorkspaceCanvas />
 			<HarnessInspector />
 		</CaseListWorkspaceProvider>

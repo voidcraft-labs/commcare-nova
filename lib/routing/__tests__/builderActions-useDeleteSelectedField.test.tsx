@@ -4,7 +4,7 @@
  * Positive-path coverage for `useDeleteSelectedField`.
  *
  * The hook:
- *   1. Resolves the selected uuid from `useLocation()`.
+ *   1. Resolves the selected uuid from the current URL at action time.
  *   2. Computes the neighbor via `flattenFieldRefs` on the live doc
  *      (skipping hidden fields).
  *   3. Dispatches `removeField` through the doc store.
@@ -35,6 +35,7 @@ vi.mock("@/lib/routing/useClientPath", async () => {
 			if (replace) window.history.replaceState(null, "", url);
 			else window.history.pushState(null, "", url);
 		},
+		getBuilderPathSegmentsSnapshot: () => mockSegments.current,
 		useBuilderPathSegments: () => mockSegments.current,
 	};
 });

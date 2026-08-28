@@ -59,6 +59,34 @@ const BuilderLocalizationContext = createContext<BuilderLanguageState | null>(
 	null,
 );
 
+/* Zustand publishes immutable document snapshots. Field rows and form/module
+ * chrome ask for separate localized projections of the same snapshot, so
+ * share its app-wide translation inventory instead of rebuilding it once per
+ * selector. The WeakMap naturally discards every superseded snapshot. */
+const builderTranslationUnitsByDoc = new WeakMap<
+	Parameters<typeof translationUnitsById>[0],
+	ReturnType<typeof translationUnitsById>
+>();
+
+function builderTranslationUnits(
+	doc: Parameters<typeof translationUnitsById>[0],
+): ReturnType<typeof translationUnitsById> {
+	const cached = builderTranslationUnitsByDoc.get(doc);
+	if (cached !== undefined) return cached;
+	const units = translationUnitsById(doc);
+	builderTranslationUnitsByDoc.set(doc, units);
+	return units;
+}
+
+function builderTranslationUnitsForProjection(
+	doc: Parameters<typeof translationUnitsById>[0],
+	language: LanguageTag,
+): ReturnType<typeof translationUnitsById> | undefined {
+	return language === effectiveAppLocalization(doc.localization).sourceLanguage
+		? undefined
+		: builderTranslationUnits(doc);
+}
+
 export function BuilderLocalizationProvider({
 	children,
 }: {
@@ -133,7 +161,7 @@ export function useLocalizedTranslationUnit(
 ): LocalizedTranslationUnit | undefined {
 	const { language } = useBuilderLanguage();
 	return useBlueprintDocEq((doc) => {
-		const unit = translationUnitsById(doc).get(unitId);
+		const unit = builderTranslationUnits(doc).get(unitId);
 		return unit === undefined
 			? undefined
 			: localizeTranslationUnit(
@@ -200,17 +228,17 @@ function sameModule(
 /** Selected-language module chrome, case-list labels, and Search copy. */
 export function useLocalizedModule(uuid: Uuid | undefined): Module | undefined {
 	const { language } = useBuilderLanguage();
-	return useBlueprintDocEq(
-		(doc) =>
-			uuid === undefined
-				? undefined
-				: projectLocalizedModule(
-						doc,
-						resolveAppLanguage(doc.localization, language),
-						uuid,
-					),
-		sameModule,
-	);
+	return useBlueprintDocEq((doc) => {
+		const snapshotLanguage = resolveAppLanguage(doc.localization, language);
+		return uuid === undefined
+			? undefined
+			: projectLocalizedModule(
+					doc,
+					snapshotLanguage,
+					uuid,
+					builderTranslationUnitsForProjection(doc, snapshotLanguage),
+				);
+	}, sameModule);
 }
 
 /**
@@ -220,15 +248,15 @@ export function useLocalizedModule(uuid: Uuid | undefined): Module | undefined {
  */
 export function useLocalizedField(uuid: Uuid): Field | undefined {
 	const { language } = useBuilderLanguage();
-	return useBlueprintDocEq(
-		(doc) =>
-			projectLocalizedField(
-				doc,
-				resolveAppLanguage(doc.localization, language),
-				uuid,
-			),
-		sameField,
-	);
+	return useBlueprintDocEq((doc) => {
+		const snapshotLanguage = resolveAppLanguage(doc.localization, language);
+		return projectLocalizedField(
+			doc,
+			snapshotLanguage,
+			uuid,
+			builderTranslationUnitsForProjection(doc, snapshotLanguage),
+		);
+	}, sameField);
 }
 
 export interface TranslationUnitEditor {

@@ -15,11 +15,23 @@ dependencies {
 }
 
 teavm.js {
-    mainClass = "org.commcare.nova.xpath.JavaPatternRuntime"
+    val runtime = providers.gradleProperty("runtime").orElse("pattern").get()
+    require(runtime == "pattern" || runtime == "math") {
+        "runtime must be exactly 'pattern' or 'math'"
+    }
+    mainClass = if (runtime == "math") {
+        "org.commcare.nova.xpath.JavaMathRuntime"
+    } else {
+        "org.commcare.nova.xpath.JavaPatternRuntime"
+    }
     moduleType = JSModuleType.ES2015
     optimization = OptimizationLevel.BALANCED
     obfuscated = true
     debugInformation = false
     sourceMap = false
-    targetFileName = "javaPatternRuntime.generated.js"
+    targetFileName = if (runtime == "math") {
+        "javaMathRuntime.generated.js"
+    } else {
+        "javaPatternRuntime.generated.js"
+    }
 }

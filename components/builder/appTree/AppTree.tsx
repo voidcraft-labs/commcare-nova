@@ -24,13 +24,23 @@ import { AddModulePopover } from "@/components/builder/appTree/insertion/AddModu
 import { interleaveInsertions } from "@/components/builder/appTree/insertion/interleaveInsertions";
 import { ModuleCard } from "@/components/builder/appTree/ModuleCard";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
+import {
+	loadFieldInspectorBody,
+	loadXPathEditor,
+} from "@/components/builder/inspector/lazyInspectorBodies";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
+import { useAncestors } from "@/lib/doc/hooks/useAncestors";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useModuleMenuHierarchy } from "@/lib/doc/hooks/useModuleIds";
+import { useLargeFormInitialCollapsedUuids } from "@/lib/doc/hooks/useOrderedFields";
 import { useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import type { Uuid } from "@/lib/domain";
-import { useLocation } from "@/lib/routing/hooks";
+import {
+	useSelectedFieldUuid,
+	useSelectedFormUuid,
+	useSelectedModuleUuid,
+} from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import { useBuilderPhase } from "@/lib/session/hooks";
 import { InsertionIntentProvider } from "@/lib/ui/hooks/useInsertionZone";
@@ -38,22 +48,62 @@ import { InsertionIntentProvider } from "@/lib/ui/hooks/useInsertionZone";
 export function AppTree() {
 	const { rootModuleUuids, childModuleUuidsByRoot } = useModuleMenuHierarchy();
 	const phase = useBuilderPhase();
-	const location = useLocation();
-	const selectedModuleUuid =
-		"moduleUuid" in location ? location.moduleUuid : undefined;
+	const selectedModuleUuid = useSelectedModuleUuid();
+	const selectedFormUuid = useSelectedFormUuid();
+	const selectedFieldUuid = useSelectedFieldUuid();
+	const selectedFieldAncestors = useAncestors(selectedFieldUuid);
 	const selectedModule = useModule(selectedModuleUuid);
+	const initiallyCollapsedUuids = useLargeFormInitialCollapsedUuids();
 
 	const locked =
 		phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed;
 
 	const handleSelect = useAppTreeSelection();
-	const [collapsed, setCollapsed] = useState<Set<Uuid>>(new Set());
+	const [collapsed, setCollapsed] = useState<Set<Uuid>>(() => {
+		const initiallyCollapsed = new Set(initiallyCollapsedUuids);
+		/* Deep links should render their selected form expanded on the first
+		 * commit. Waiting for the reveal effect would create a second, avoidable
+		 * render of that form's rows immediately after hydration. */
+		if (selectedFormUuid !== undefined) {
+			initiallyCollapsed.delete(selectedFormUuid);
+		}
+		for (const ancestorUuid of selectedFieldAncestors) {
+			initiallyCollapsed.delete(ancestorUuid);
+		}
+		return initiallyCollapsed;
+	});
 	const [pendingFocus, setPendingFocus] = useState<{
 		readonly moduleUuid: Uuid;
 		readonly fallbackModuleUuid?: Uuid;
 	} | null>(null);
 	const [searchQuery, setSearchQuery] = useState("");
 	const deferredQuery = useDeferredValue(searchQuery);
+
+	/* A loaded form is very likely to be inspected. Resolve the inspector body
+	 * during the browser's next idle period so a later selection can commit its
+	 * controls with the urgent URL update, while the Builder home and first paint
+	 * stay free of editor code. Expansion and hover retain stronger intent
+	 * prefetches for browsers that never report idle. */
+	useEffect(() => {
+		if (selectedFormUuid === undefined) return;
+		/* A field URL is stronger intent than a form URL: the inspector is part of
+		 * the requested screen, and XPath is the common heavyweight control in its
+		 * schema. Start both independent chunks together instead of discovering the
+		 * editor only after the inspector module has rendered. */
+		if (selectedFieldUuid !== undefined) {
+			void Promise.all([loadFieldInspectorBody(), loadXPathEditor()]);
+			return;
+		}
+		let cancelled = false;
+		const preload = () => {
+			if (!cancelled) void loadFieldInspectorBody();
+		};
+		const idleId = window.requestIdleCallback(preload, { timeout: 1_500 });
+		return () => {
+			cancelled = true;
+			window.cancelIdleCallback(idleId);
+		};
+	}, [selectedFieldUuid, selectedFormUuid]);
 
 	const toggle = useCallback((key: Uuid) => {
 		setCollapsed((prev) => {
@@ -78,6 +128,21 @@ export function AppTree() {
 			return next.size === previous.size ? previous : next;
 		});
 	}, [selectedModule?.parentModuleUuid, selectedModuleUuid]);
+
+	/* A deep link must reveal the selected form and its ancestor path even when
+	 * the rest of a large form starts summarized. Once opened, keep that path
+	 * expanded for the session so returning through the tree is instant. */
+	useEffect(() => {
+		if (selectedFormUuid === undefined) return;
+		setCollapsed((previous) => {
+			const next = new Set(previous);
+			next.delete(selectedFormUuid);
+			for (const ancestorUuid of selectedFieldAncestors) {
+				next.delete(ancestorUuid);
+			}
+			return next.size === previous.size ? previous : next;
+		});
+	}, [selectedFieldAncestors, selectedFormUuid]);
 
 	useEffect(() => {
 		if (pendingFocus === null) return;

@@ -16,6 +16,10 @@ const sentryClientConfig = readFileSync("instrumentation-client.ts", "utf8");
 const sentryServerConfig = readFileSync("sentry.server.config.ts", "utf8");
 const sentryEdgeConfig = readFileSync("sentry.edge.config.ts", "utf8");
 const dockerignore = readFileSync(".dockerignore", "utf8");
+const browserXPathWorker = readFileSync(
+	"lib/preview/xpath/browserWorkerClient.ts",
+	"utf8",
+);
 const provisioning = readFileSync(
 	"scripts/infra/provision-deployment-identities.sh",
 	"utf8",
@@ -79,11 +83,16 @@ describe("durable deployment policy", () => {
 		expect(xpathCarrierVerifier).not.toContain("sameAppVersions");
 	});
 
-	test("verifies the reviewed Java compatibility runtime before every production build", () => {
+	test("verifies and isolates the Java compatibility runtime before every production build", () => {
 		expect(packageScripts["verify:java-pattern-runtime"]).toBe(
 			"node scripts/java-pattern-runtime/verify.mjs",
 		);
-		expect(packageScripts.prebuild).toBe("npm run verify:java-pattern-runtime");
+		expect(packageScripts["build:xpath-worker"]).toBe(
+			"node scripts/build-xpath-worker.mjs",
+		);
+		expect(packageScripts.prebuild).toBe(
+			"npm run verify:java-pattern-runtime && npm run build:xpath-worker",
+		);
 		expect(packageScripts.build).toContain("next build");
 		expect(dockerfile).toContain("RUN npm run build");
 		expect(ciWorkflow).toContain("run: npm run build");
@@ -96,19 +105,33 @@ describe("durable deployment policy", () => {
 		expect(dockerfile).toContain(
 			"lib/preview/xpath/vendor/javaPatternRuntime.generated.js",
 		);
+		expect(dockerfile).toContain(
+			"lib/preview/xpath/vendor/javaMathRuntime.generated.js",
+		);
 		expect(readFileSync("proxy.ts", "utf8")).toContain("third-party/");
+		expect(readFileSync("proxy.ts", "utf8")).toContain("xpath-worker/");
+		expect(browserXPathWorker).toContain(
+			'new Worker("/xpath-worker/xpath-worker.js", { type: "module" })',
+		);
+		expect(browserXPathWorker).not.toContain("new Worker(new URL(");
 		expect(
 			readFileSync(
 				"lib/preview/xpath/vendor/javaPatternRuntime.generated.js",
 				"utf8",
 			),
-		).toMatch(/^\/\*! OpenJDK 17 Pattern and fdlibm derivative/);
+		).toMatch(/^\/\*! OpenJDK 17 Pattern derivative/);
+		expect(
+			readFileSync(
+				"lib/preview/xpath/vendor/javaMathRuntime.generated.js",
+				"utf8",
+			),
+		).toMatch(/^\/\*! OpenJDK 17 fdlibm derivative/);
 		expect(
 			execFileSync("node", ["scripts/java-pattern-runtime/verify.mjs"], {
 				encoding: "utf8",
 			}),
 		).toMatch(
-			/^java-pattern-runtime sha256=[a-f0-9]{64} bytes=\d+ names_sha256=[a-f0-9]{64} names_bytes=\d+\n$/,
+			/^java-pattern-runtime pattern_sha256=[a-f0-9]{64} pattern_bytes=\d+ math_sha256=[a-f0-9]{64} math_bytes=\d+ names_sha256=[a-f0-9]{64} names_bytes=\d+\n$/,
 		);
 	});
 

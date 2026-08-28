@@ -35,6 +35,21 @@ export function mutationTargetsInvalid(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 ): boolean {
+	/* A scalar field edit cannot create, remove, move, or claim an authored
+	 * identity. It also cannot alter a sequence. The general admission path
+	 * below materializes every live collection in the document so it can
+	 * simulate structural batches; doing that for each keystroke made an
+	 * ordinary inspector edit O(document size). Keep inline-option replacement
+	 * on the general path because it does replace authored option identities. */
+	if (
+		mutations.length === 1 &&
+		mutations[0]?.kind === "updateField" &&
+		!("optionsSource" in mutations[0].patch)
+	) {
+		const mutation = mutations[0];
+		const field = doc.fields[mutation.uuid];
+		return field === undefined || field.kind !== mutation.targetKind;
+	}
 	if (mutationIdentityAdmissionIssue(doc, mutations) !== undefined) return true;
 	if (mutationSequenceAdmissionIssue(doc, mutations) !== undefined) return true;
 	const modules = new Set(Object.keys(doc.modules));

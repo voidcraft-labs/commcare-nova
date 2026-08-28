@@ -93,6 +93,53 @@ function evaluateRequest(worker: ControlledWorker) {
 }
 
 describe("XPath worker client", () => {
+	it("reuses a settled worker for the next revision of the same entry", async () => {
+		const controlled = controlledFactory();
+		const runtime = new XPathRuntime({ workerFactory: controlled.factory });
+		const first = runtime.request(request());
+		const worker = controlled.workers[0];
+		if (!worker) throw new Error("Expected worker");
+		const firstRequest = evaluateRequest(worker);
+		worker.respond({
+			protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+			operation: "evaluate",
+			requestId: firstRequest.requestId,
+			entryKey: firstRequest.entryKey,
+			revision: firstRequest.revision,
+			profile: firstRequest.profile,
+			ok: true,
+			value: 2,
+		});
+		await expect(first).resolves.toMatchObject({ ok: true, value: 2 });
+
+		const second = runtime.request(request({ revision: 2 }));
+		expect(controlled.workers).toHaveLength(1);
+		expect(worker.terminated).toBe(false);
+		const secondRequest = worker.requests.find(
+			(candidate) =>
+				candidate.operation === "evaluate" && candidate.revision === 2,
+		);
+		if (secondRequest?.operation !== "evaluate") {
+			throw new Error("Expected second-revision request");
+		}
+		worker.respond({
+			protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+			operation: "evaluate",
+			requestId: secondRequest.requestId,
+			entryKey: secondRequest.entryKey,
+			revision: secondRequest.revision,
+			profile: secondRequest.profile,
+			ok: true,
+			value: 3,
+		});
+		await expect(second).resolves.toMatchObject({
+			ok: true,
+			revision: 2,
+			value: 3,
+		});
+		runtime.dispose();
+	});
+
 	it("retires the prior worker when the revision changes", async () => {
 		const controlled = controlledFactory();
 		const runtime = new XPathRuntime({ workerFactory: controlled.factory });

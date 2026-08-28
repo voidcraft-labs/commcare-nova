@@ -63,8 +63,8 @@ import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
+import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
-import { deserializeXPathWorkerValue } from "../xpath/workerRuntime";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
@@ -106,6 +106,9 @@ export interface EngineEntryState {
 	readonly entryKey: string | undefined;
 	readonly formUuid: Uuid | undefined;
 	readonly revision: number;
+	/** True only after the active engine has finished its initial worker pass,
+	 * published runtime state, and installed its document subscriptions. */
+	readonly ready: boolean;
 	/** True while the current entry/revision is still evaluating in its worker. */
 	readonly settling: boolean;
 	/** True while a repeat add/remove owns an indivisible topology revision.
@@ -419,6 +422,90 @@ function classifyChange(
 	return "none";
 }
 
+/**
+ * True only when a publication can change the active form's UUID-to-path
+ * projection. Most Builder writes replace one field entity while preserving
+ * its identity, kind, and every active adjacency-list reference; those writes
+ * cannot move an answer and should not rebuild two complete field trees just
+ * to rediscover that fact.
+ */
+function activeFormTopologyChanged(
+	current: BlueprintDocState,
+	previous: BlueprintDocState,
+	formUuid: Uuid,
+	trackedUuids: ReadonlySet<string>,
+): boolean {
+	if (current.fieldOrder[formUuid] !== previous.fieldOrder[formUuid]) {
+		return true;
+	}
+	for (const uuid of trackedUuids) {
+		if (current.fieldOrder[uuid] !== previous.fieldOrder[uuid]) return true;
+		const currentField = current.fields[uuid];
+		const previousField = previous.fields[uuid];
+		if (currentField === previousField) continue;
+		if (
+			currentField === undefined ||
+			previousField === undefined ||
+			currentField.id !== previousField.id ||
+			currentField.kind !== previousField.kind
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * The worker consumes only the active form projection. Case-write targets,
+ * plain authored copy, and other Builder-only field metadata are intentionally
+ * absent from that runtime contract. Keep the check conservative around every
+ * shared input, then use the same per-field classifier as the synchronous
+ * subscriptions for the one part that can change independently.
+ */
+function activeFormRuntimeChanged(
+	current: BlueprintDocState,
+	previous: BlueprintDocState,
+	formUuid: Uuid,
+	trackedUuids: ReadonlySet<string>,
+	presentationLanguage: LanguageTag | null,
+): boolean {
+	if (
+		activeFormTopologyChanged(current, previous, formUuid, trackedUuids) ||
+		current.forms[formUuid] !== previous.forms[formUuid] ||
+		current.caseTypes !== previous.caseTypes ||
+		current.userProperties !== previous.userProperties ||
+		(presentationLanguage !== null &&
+			current.localization !== previous.localization)
+	) {
+		return true;
+	}
+
+	const currentModuleUuid = findModuleForForm(current, formUuid);
+	const previousModuleUuid = findModuleForForm(previous, formUuid);
+	if (
+		currentModuleUuid !== previousModuleUuid ||
+		(currentModuleUuid !== undefined &&
+			current.modules[currentModuleUuid]?.caseType !==
+				previous.modules[currentModuleUuid]?.caseType)
+	) {
+		return true;
+	}
+
+	for (const uuid of trackedUuids) {
+		const currentField = current.fields[uuid];
+		const previousField = previous.fields[uuid];
+		if (currentField === previousField) continue;
+		if (
+			currentField === undefined ||
+			previousField === undefined ||
+			classifyChange(currentField as Field, previousField as Field) !== "none"
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
 // ── EngineController ────────────────────────────────────────────────────
 
 export class EngineController {
@@ -552,6 +639,7 @@ export class EngineController {
 	 * live document edit. UUID identity survives same-batch path changes; a
 	 * retired revision leaves the entry queued for its successor. */
 	private pendingDefaultFieldUuids = new Set<Uuid>();
+	private entryReady = false;
 	private settling = false;
 
 	constructor(xpathRuntime?: XPathRuntime) {
@@ -561,6 +649,7 @@ export class EngineController {
 			entryKey: undefined,
 			formUuid: undefined,
 			revision: 0,
+			ready: false,
 			settling: false,
 			topologySettling: false,
 			fault: undefined,
@@ -597,6 +686,7 @@ export class EngineController {
 		if (
 			current.entryKey === this.currentEntryKey &&
 			current.formUuid === this.activeFormUuid &&
+			current.ready === this.entryReady &&
 			current.settling === this.settling &&
 			current.topologySettling === this.atomicRevisionsPending > 0 &&
 			current.fault === this.runtimeFault &&
@@ -610,6 +700,7 @@ export class EngineController {
 				entryKey: this.currentEntryKey,
 				formUuid: this.activeFormUuid,
 				revision: current.revision + 1,
+				ready: this.entryReady,
 				settling: this.settling,
 				topologySettling: this.atomicRevisionsPending > 0,
 				fault: this.runtimeFault,
@@ -1303,6 +1394,7 @@ export class EngineController {
 						docStore.getState() === state
 					) {
 						this.reconciledDocumentState = state;
+						this.entryReady = true;
 					}
 					return true;
 				},
@@ -1449,11 +1541,13 @@ export class EngineController {
 		this.setupLocalizationSubscription();
 		this.setupAsyncReconciliationSubscription(formUuid);
 		this.reconciledDocumentState = s;
+		this.entryReady = true;
 		this.publishEntryState();
 	}
 
 	private clearActiveForm(): void {
 		this.retireRuntimeScope();
+		this.entryReady = false;
 		this.pendingValuePaths.clear();
 		this.pendingDefaultFieldUuids.clear();
 		for (const unsub of this.unsubscribers) unsub();
@@ -1606,6 +1700,7 @@ export class EngineController {
 			this.setValueAt(path, value);
 			return this.engine !== undefined;
 		}
+		if (!this.entryReady) return false;
 		/* Concrete repeat paths are positional. Never queue one across an
 		 * indivisible add/remove: compaction may make the same text address a
 		 * different instance. FormScreen also makes controls inert for this
@@ -2178,6 +2273,16 @@ export class EngineController {
 		const unsub = store.subscribe((current, previous) => {
 			const engine = this.engine;
 			if (!engine) return;
+			if (
+				!activeFormTopologyChanged(
+					current,
+					previous,
+					formUuid,
+					this.trackedUuids,
+				)
+			) {
+				return;
+			}
 			this.contain("document-update", formUuid, undefined, () => {
 				const previousInput = buildEngineInput(
 					previous,
@@ -2522,13 +2627,24 @@ export class EngineController {
 	private setupAsyncReconciliationSubscription(formUuid: Uuid): void {
 		if (!this.docStore) return;
 		const store = this.docStore;
-		const unsub = store.subscribe(() => {
+		const unsub = store.subscribe((documentState, previousDocumentState) => {
 			const engine = this.engine;
 			const entryKey = this.currentEntryKey;
 			if (engine === undefined || entryKey === undefined) return;
-			const documentState = store.getState();
 			if (this.xpathRuntime === undefined) {
 				this.reconciledDocumentState = documentState;
+				return;
+			}
+			if (
+				!activeFormRuntimeChanged(
+					documentState,
+					previousDocumentState,
+					formUuid,
+					this.trackedUuids,
+					this.presentationLanguage,
+				)
+			) {
+				this.queueRuntimeNeutralDocumentState(documentState, engine, entryKey);
 				return;
 			}
 			this.runAsyncRevision(
@@ -2576,6 +2692,36 @@ export class EngineController {
 			);
 		});
 		this.unsubscribers.push(unsub);
+	}
+
+	/**
+	 * Preserve the submission's exact document revision after a Builder-only
+	 * edit without creating, aborting, or settling a worker world. Queue behind
+	 * existing work so a preceding runtime-relevant publication cannot finish
+	 * later and overwrite this newer, already-compatible document snapshot.
+	 */
+	private queueRuntimeNeutralDocumentState(
+		documentState: BlueprintDocState,
+		engine: FormEngine,
+		entryKey: string,
+	): void {
+		const generation = this.lifecycleGeneration;
+		const previous = this.pendingWork.catch(() => undefined);
+		const task = previous.then(() => {
+			if (
+				generation === this.lifecycleGeneration &&
+				engine === this.engine &&
+				entryKey === this.currentEntryKey &&
+				this.docStore?.getState() === documentState &&
+				!this.settling
+			) {
+				this.reconciledDocumentState = documentState;
+			}
+		});
+		this.pendingWork = task.then(
+			() => undefined,
+			() => undefined,
+		);
 	}
 
 	// ── Targeted change handlers ─────────────────────────────────────

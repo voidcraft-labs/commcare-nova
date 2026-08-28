@@ -34,23 +34,14 @@
  * while hidden.
  */
 "use client";
+import dynamic from "next/dynamic";
 import { Activity, useDeferredValue, useEffect, useMemo, useRef } from "react";
-import { AppSetupWorkspace } from "@/components/builder/app-setup/AppSetupWorkspace";
-import {
-	CaseListWorkspaceCanvas,
-	type CaseListWorkspaceTab,
-} from "@/components/builder/case-list-config/CaseListConfigWorkspace";
-import { CaseOperationDetailCanvas } from "@/components/builder/case-operations/CaseOperationDetailCanvas";
-import { CaseOperationsCanvas } from "@/components/builder/case-operations/CaseOperationsCanvas";
-import { DisplayConditionCanvas } from "@/components/builder/conditions/DisplayConditionCanvas";
+import type { CaseListWorkspaceTab } from "@/components/builder/case-list-config/CaseListWorkspaceProvider";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
-import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
-import { FormLinkDetailCanvas } from "@/components/builder/form-links/FormLinkDetailCanvas";
-import { FormLinksCanvas } from "@/components/builder/form-links/FormLinksCanvas";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
-import { ProjectDataWorkspace } from "@/components/builder/project-data/ProjectDataWorkspace";
 import { Button } from "@/components/shadcn/button";
 import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
+import { Spinner } from "@/components/shadcn/spinner";
 import type { Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
@@ -68,18 +59,104 @@ import {
 	useSetPreviewParentCaseRequest,
 	useSetPreviewPersonaUuid,
 } from "@/lib/session/hooks";
-import { CaseListScreen } from "./screens/CaseListScreen";
-import { FormScreen } from "./screens/FormScreen";
 import { HomeScreen } from "./screens/HomeScreen";
-import { ModuleScreen } from "./screens/ModuleScreen";
 
-interface PreviewShellProps {
-	/** Back handler override: used by BuilderLayout to sync selection on back navigation.
-	 *  Also used by FormScreen for post-submit navigation. */
-	onBack?: () => void;
+function BuilderSurfaceLoading() {
+	return (
+		<div
+			className="flex min-h-48 items-center justify-center text-nova-text-muted"
+			role="status"
+			aria-label="Opening this workspace"
+		>
+			<Spinner className="size-5" />
+		</div>
+	);
 }
 
-export function PreviewShell({ onBack }: PreviewShellProps) {
+const FormScreen = dynamic(
+	() => import("./screens/FormScreen").then((module) => module.FormScreen),
+	{ loading: BuilderSurfaceLoading },
+);
+const ModuleScreen = dynamic(
+	() => import("./screens/ModuleScreen").then((module) => module.ModuleScreen),
+	{ loading: BuilderSurfaceLoading },
+);
+
+/* These screens are mutually exclusive route destinations. Keeping them out
+ * of the Builder's initial graph lets the common home/module/form shell become
+ * interactive before uncommon configuration and running-case-list code is
+ * fetched and parsed. Once visited, the Activity boundary below retains each
+ * loaded surface exactly as before. */
+const AppSetupWorkspace = dynamic(
+	() =>
+		import("@/components/builder/app-setup/AppSetupWorkspace").then(
+			(module) => module.AppSetupWorkspace,
+		),
+	{ loading: BuilderSurfaceLoading },
+);
+const CaseOperationDetailCanvas = dynamic(
+	() =>
+		import(
+			"@/components/builder/case-operations/CaseOperationDetailCanvas"
+		).then((module) => module.CaseOperationDetailCanvas),
+	{ loading: BuilderSurfaceLoading },
+);
+const CaseOperationsCanvas = dynamic(
+	() =>
+		import("@/components/builder/case-operations/CaseOperationsCanvas").then(
+			(module) => module.CaseOperationsCanvas,
+		),
+	{ loading: BuilderSurfaceLoading },
+);
+const DisplayConditionCanvas = dynamic(
+	() =>
+		import("@/components/builder/conditions/DisplayConditionCanvas").then(
+			(module) => module.DisplayConditionCanvas,
+		),
+	{ loading: BuilderSurfaceLoading },
+);
+const DataReviewScreen = dynamic(
+	() =>
+		import("@/components/builder/data-review/DataReviewScreen").then(
+			(module) => module.DataReviewScreen,
+		),
+	{ loading: BuilderSurfaceLoading },
+);
+const FormLinkDetailCanvas = dynamic(
+	() =>
+		import("@/components/builder/form-links/FormLinkDetailCanvas").then(
+			(module) => module.FormLinkDetailCanvas,
+		),
+	{ loading: BuilderSurfaceLoading },
+);
+const FormLinksCanvas = dynamic(
+	() =>
+		import("@/components/builder/form-links/FormLinksCanvas").then(
+			(module) => module.FormLinksCanvas,
+		),
+	{ loading: BuilderSurfaceLoading },
+);
+const ProjectDataWorkspace = dynamic(
+	() =>
+		import("@/components/builder/project-data/ProjectDataWorkspace").then(
+			(module) => module.ProjectDataWorkspace,
+		),
+	{ loading: BuilderSurfaceLoading },
+);
+const CaseListWorkspaceCanvas = dynamic(
+	() =>
+		import(
+			"@/components/builder/case-list-config/CaseListConfigWorkspace"
+		).then((module) => module.CaseListWorkspaceCanvas),
+	{ loading: BuilderSurfaceLoading },
+);
+const CaseListScreen = dynamic(
+	() =>
+		import("./screens/CaseListScreen").then((module) => module.CaseListScreen),
+	{ loading: BuilderSurfaceLoading },
+);
+
+export function PreviewShell() {
 	const { direction } = useBuilderLanguage();
 	/* ── Location → PreviewScreen adapter ─────────────────────────────
 	 * Read the URL location and translate to the legacy index-based screen
@@ -114,9 +191,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 		if (!atActiveSelector) setPreviewParentCaseRequest(undefined);
 	}, [loc, previewParentCaseRequest, setPreviewParentCaseRequest]);
 
-	/* Default back handler: callers can override (e.g. for selection sync),
-	 * otherwise fall back to URL-driven `navigate.back()`. */
-	const handleBack = onBack ?? (() => navigate.back());
+	const handleBack = navigate.back;
 
 	/* The case the running-app case list passed into a case-loading form.
 	 * The URL tracks which form; this ephemeral target carries the selected
@@ -212,47 +287,48 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	/** The most-recent moduleUuid + tab that landed on any of the
 	 *  three case-list workspace URLs (`results` / `search` / `details`).
 	 *  Tracked separately from `caseListScreenRef`
-	 *  because the workspace mounts on the URL location (uuid-shaped)
+	 *  because the workspace mounts on an edit-mode URL location (uuid-shaped)
 	 *  while the running `CaseListScreen` mounts on the UUID-based
-	 *  `PreviewScreen` shape. The ref stays populated once any
-	 *  case-list URL has been visited, so the workspace's Activity
+	 *  `PreviewScreen` shape. The ref stays populated once any case-list
+	 *  authoring screen has been visited, so the workspace's Activity
 	 *  boundary survives subsequent navigation away and back. */
 	const caseListWorkspaceRef = useRef<{
 		moduleUuid: Uuid;
 		tab: CaseListWorkspaceTab;
 	}>(undefined);
-	if (loc.kind === "cases") {
+	if (loc.kind === "cases" && mode === "edit" && !atCaseRecord) {
 		caseListWorkspaceRef.current = { moduleUuid: loc.moduleUuid, tab: "list" };
-	} else if (loc.kind === "search-config") {
+	} else if (loc.kind === "search-config" && mode === "edit") {
 		caseListWorkspaceRef.current = {
 			moduleUuid: loc.moduleUuid,
 			tab: "search",
 		};
-	} else if (loc.kind === "detail-config") {
+	} else if (loc.kind === "detail-config" && mode === "edit") {
 		caseListWorkspaceRef.current = {
 			moduleUuid: loc.moduleUuid,
 			tab: "detail",
 		};
 	}
-	/** The data review screen's identity: uuid-shaped like the
-	 *  workspace ref above, for the same reason (a builder surface
-	 *  mounted off the URL, independently of the PreviewScreen shape). */
+	/** The data review screen's identity: uuid-shaped like the workspace ref
+	 * above, for the same reason. Builder-only refs are first populated while
+	 * editing so a direct Preview load never fetches hidden authoring code. */
 	const dataReviewRef = useRef<{ moduleUuid: Uuid }>(undefined);
-	if (loc.kind === "data-review") {
+	if (loc.kind === "data-review" && mode === "edit") {
 		dataReviewRef.current = { moduleUuid: loc.moduleUuid };
 	}
 	/** The display-condition editor's identity. Also uuid-shaped, and
-	 *  gated on `loc` rather than the deferred `screen` for the same
+	 *  gated on the immediate edit-mode `loc` rather than the deferred `screen`
+	 *  for the same
 	 *  reason `atCaseRecord` is: the condition URLs map onto the RUNNING
 	 *  module/form screens, so the URL is what distinguishes "authoring
 	 *  the condition" from "running the thing it governs". */
 	const displayConditionRef = useRef<DisplayConditionTarget>(undefined);
-	if (loc.kind === "module-condition") {
+	if (loc.kind === "module-condition" && mode === "edit") {
 		displayConditionRef.current = {
 			kind: "module",
 			moduleUuid: loc.moduleUuid,
 		};
-	} else if (loc.kind === "form-condition") {
+	} else if (loc.kind === "form-condition" && mode === "edit") {
 		displayConditionRef.current = {
 			kind: "form",
 			moduleUuid: loc.moduleUuid,
@@ -263,7 +339,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 *  blueprint entity. Same visited-ref shape as the two refs above so the
 	 *  boundary survives navigating away and back. */
 	const appSetupRef = useRef<{ section: AppSetupSection }>(undefined);
-	if (loc.kind === "app-setup") {
+	if (loc.kind === "app-setup" && mode === "edit") {
 		appSetupRef.current = { section: loc.section };
 	}
 	/** The Project data workspace's identity: uuid-free for a stronger
@@ -271,7 +347,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 *  Same visited-ref shape, so the boundary survives navigating away and
 	 *  back with the open table intact. */
 	const projectDataRef = useRef<{ tableId?: LookupTableId }>(undefined);
-	if (loc.kind === "project-data") {
+	if (loc.kind === "project-data" && mode === "edit") {
 		projectDataRef.current = { tableId: loc.tableId };
 	}
 	/** The case-operations screen's identity: the form, plus which change
@@ -284,7 +360,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 		formUuid: Uuid;
 		operationUuid: Uuid | undefined;
 	}>(undefined);
-	if (loc.kind === "form-operations") {
+	if (loc.kind === "form-operations" && mode === "edit") {
 		caseOperationsRef.current = {
 			moduleUuid: loc.moduleUuid,
 			formUuid: loc.formUuid,
@@ -298,7 +374,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 		formUuid: Uuid;
 		linkUuid: Uuid | undefined;
 	}>(undefined);
-	if (loc.kind === "form-links") {
+	if (loc.kind === "form-links" && mode === "edit") {
 		formLinksRef.current = {
 			moduleUuid: loc.moduleUuid,
 			formUuid: loc.formUuid,

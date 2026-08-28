@@ -19,7 +19,7 @@ import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { CreateTableDialog } from "./CreateTableDialog";
 import { ProjectDataFailure, ProjectDataLoading } from "./ProjectDataReadState";
-import { useProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
+import { useProjectDataWorkspace } from "./ProjectDataWorkspaceLazyProvider";
 import {
 	formatLookupBytes,
 	formatLookupCount,

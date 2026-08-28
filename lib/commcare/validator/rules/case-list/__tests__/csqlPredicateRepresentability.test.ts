@@ -9,7 +9,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { emitCsql } from "@/lib/commcare/predicate";
+import { emitCsql } from "@/lib/commcare/predicate/csqlEmitter";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { advancedSearchInputDef, plainColumn } from "@/lib/domain";

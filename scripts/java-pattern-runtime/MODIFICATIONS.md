@@ -25,8 +25,10 @@ Nova makes these bounded portability changes:
   the JDK 17 digit-generation, stopping, rounding, and formatting rules.
 - Extracts `FdLibm.Pow` and its double-bit helpers into
   `openjdkmath/FdLibmPow.java`, retaining the OpenJDK 17 computation while
-  exposing it beside the regex operations. This avoids TeaVM's ordinary
-  lowering of `Math.pow` to architecture-dependent JavaScript `Math.pow`.
+  exposing it through a separate small TeaVM entry point from the regex
+  operations. This avoids both TeaVM's ordinary lowering of `Math.pow` to
+  architecture-dependent JavaScript `Math.pow` and loading the complete
+  Pattern engine for ordinary synchronous XPath arithmetic.
 
 The fdlibm computation and the Pattern parser, matcher graph, backtracking behavior, flags, groups,
 replacement behavior, grapheme rules, and the operations exposed to Nova are

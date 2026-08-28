@@ -2,7 +2,7 @@
 
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { emitCaseListFilter } from "@/lib/commcare/predicate";
+import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import type { Uuid } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";

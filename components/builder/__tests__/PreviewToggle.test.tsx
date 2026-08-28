@@ -20,8 +20,12 @@ vi.mock("@/lib/session/hooks", () => ({
 }));
 
 vi.mock("@/lib/routing/hooks", () => ({
-	useLocation: () => mocks.location,
+	readBuilderLocation: () => mocks.location,
 	useNavigate: () => ({ replace: mocks.replace }),
+}));
+
+vi.mock("@/lib/doc/hooks/useBlueprintDoc", () => ({
+	useBlueprintDocApi: () => ({ getState: () => ({}) }),
 }));
 
 import { PreviewToggle } from "../PreviewToggle";

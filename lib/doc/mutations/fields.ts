@@ -1,4 +1,4 @@
-import type { Draft } from "immer";
+import { type Draft, isDraft, original } from "immer";
 import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -81,6 +81,7 @@ export function applyFieldMutation(
 		case "updateField": {
 			const field = draft.fields[mut.uuid];
 			if (!field) return;
+			const previousField = isDraft(field) ? (original(field) ?? field) : field;
 			// Identity + kind guard. `mut.targetKind` is the kind the caller
 			// constructed the patch against. If the field's actual kind has
 			// drifted (e.g. a `convertField` ran between mutation construction
@@ -130,17 +131,36 @@ export function applyFieldMutation(
 				);
 				return;
 			}
+			// Zod returns a deep clone. Restore every unpatched slot from the
+			// already-valid previous field so Immer's structural-sharing contract
+			// remains precise: an update to caseWrite must not make calculate,
+			// label, options, or any other untouched nested value look edited to
+			// per-field subscribers. Destination-mode filtering above still wins:
+			// keys that disappeared from the parsed result are never restored.
+			const nextField = result.data as Field;
+			const nextRecord = nextField as unknown as Record<string, unknown>;
+			const previousRecord = previousField as unknown as Record<
+				string,
+				unknown
+			>;
+			const patchedKeys = new Set(Object.keys(mut.patch));
+			for (const key of Object.keys(nextRecord)) {
+				if (!patchedKeys.has(key) && Object.hasOwn(previousRecord, key)) {
+					nextRecord[key] = previousRecord[key];
+				}
+			}
+
 			// Install only after the complete prospective field has passed its
 			// strict schema. UUID-backed field references need no rewrite: their
 			// text projection immediately resolves through this field's new id.
 			// `applyMutations` has already applied the batch's complete
 			// simultaneous case-property relation to every batch-start carrier;
 			// this scalar install must never launch a second sequential cascade.
-			draft.fields[mut.uuid] = result.data;
+			draft.fields[mut.uuid] = nextField;
 
 			// Every landed non-empty writer pair is registered. Clears and
 			// retargets deliberately never prune the old catalog entry.
-			ensureCatalogProperty(draft as unknown as BlueprintDoc, result.data);
+			ensureCatalogProperty(draft as unknown as BlueprintDoc, nextField);
 			return;
 		}
 		case "removeField": {

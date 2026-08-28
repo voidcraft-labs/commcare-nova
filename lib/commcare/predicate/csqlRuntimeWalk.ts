@@ -20,7 +20,7 @@ import {
 	walkExpressionNodes,
 	walkExpressionPredicateNodes,
 } from "@/lib/domain/predicate";
-import { isNativeCsqlValueExpression } from "../expression/csqlEmitter";
+import { isNativeCsqlValueExpression } from "../expression/csqlCapabilities";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 
 export interface CsqlOnDeviceNodeVisitor {

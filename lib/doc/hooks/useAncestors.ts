@@ -26,11 +26,12 @@ import { useBlueprintDoc } from "./useBlueprintDoc";
  * Walks `fieldParent` from `fieldUuid` upward, returning the chain from
  * immediate parent to the containing form. Does not include the field itself.
  */
-export function useAncestors(fieldUuid: Uuid): Uuid[] {
+export function useAncestors(fieldUuid: Uuid | undefined): Uuid[] {
 	const parentIndex = useBlueprintDoc((s) => s.fieldParent);
 	return useMemo(() => {
 		const chain: Uuid[] = [];
-		let current: Uuid | null = parentIndex[fieldUuid] ?? null;
+		let current: Uuid | null =
+			fieldUuid === undefined ? null : (parentIndex[fieldUuid] ?? null);
 		while (current) {
 			chain.push(current);
 			current = parentIndex[current] ?? null;

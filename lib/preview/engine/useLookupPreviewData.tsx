@@ -15,10 +15,12 @@
 
 import {
 	createContext,
+	memo,
 	type ReactNode,
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
@@ -164,6 +166,41 @@ const PreviewLookupDataContext = createContext<PreviewLookupStatus>({
 	kind: "idle",
 });
 
+function samePreviewLookupStatus(
+	left: PreviewLookupStatus,
+	right: PreviewLookupStatus,
+): boolean {
+	if (left === right) return true;
+	if (left.kind !== right.kind) return false;
+	return (
+		left.kind === "data" &&
+		right.kind === "data" &&
+		left.data.projectRevision === right.data.projectRevision
+	);
+}
+
+const PreviewLookupDataBoundary = memo(function PreviewLookupDataBoundary({
+	status,
+	children,
+}: {
+	readonly status: PreviewLookupStatus;
+	readonly children: ReactNode;
+}) {
+	return (
+		<>
+			<span
+				hidden
+				aria-hidden="true"
+				data-builder-resource="lookup-preview"
+				data-state={status.kind}
+			/>
+			<PreviewLookupDataContext value={status}>
+				{children}
+			</PreviewLookupDataContext>
+		</>
+	);
+});
+
 /**
  * Owns the ONE builder-session lookup fetch: installs the snapshot on
  * the engine controller (the distribution point every form activation
@@ -177,15 +214,20 @@ export function PreviewLookupDataProvider({
 	children: ReactNode;
 }) {
 	const controller = useEngineController();
-	const status = useLookupPreviewDataResource();
+	const calculatedStatus = useLookupPreviewDataResource();
+	const stableStatusRef = useRef(calculatedStatus);
+	if (!samePreviewLookupStatus(stableStatusRef.current, calculatedStatus)) {
+		stableStatusRef.current = calculatedStatus;
+	}
+	const status = stableStatusRef.current;
 	const data = status.kind === "data" ? status.data : null;
 	useEffect(() => {
 		controller.setLookupData(data);
 	}, [controller, data]);
 	return (
-		<PreviewLookupDataContext value={status}>
+		<PreviewLookupDataBoundary status={status}>
 			{children}
-		</PreviewLookupDataContext>
+		</PreviewLookupDataBoundary>
 	);
 }
 

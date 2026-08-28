@@ -61,11 +61,11 @@ import {
 } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
+import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import {
 	collectPredicateInstances,
-	emitCaseListFilter,
 	instanceSourceFor,
-} from "@/lib/commcare/predicate";
+} from "@/lib/commcare/predicate/instances";
 import {
 	UPLOAD_APPEARANCE_BY_CAPTURE_KIND,
 	UPLOAD_MEDIATYPE_BY_CAPTURE_KIND,

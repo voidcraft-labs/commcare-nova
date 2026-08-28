@@ -26,10 +26,8 @@ import type {
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import { evaluate } from "../../xpath/evaluator";
-import {
-	createInProcessXPathWorkerFactory,
-	XPathRuntime,
-} from "../../xpath/workerClient";
+import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
+import { XPathRuntime } from "../../xpath/workerClient";
 import {
 	carriedCaseFor,
 	evaluateFormLinks,

@@ -54,6 +54,18 @@ export function projectBuilderLanguageMutations(
 				"The selected worker language no longer belongs to this app. Choose another language and try again.",
 		};
 	}
+	/* A case destination is structural app data, never worker-facing text. This
+	 * is the hottest scalar Builder path and collecting every translation unit
+	 * in a large app cannot affect its projection. Keep the test exact so any
+	 * additional patch key still takes the complete localization path below. */
+	if (
+		mutations.length === 1 &&
+		mutations[0]?.kind === "updateField" &&
+		Object.keys(mutations[0].patch).length === 1 &&
+		Object.hasOwn(mutations[0].patch, "caseWrite")
+	) {
+		return { ok: true, mutations: [...mutations] };
+	}
 
 	const units = translationUnitsById(doc);
 	const targetWrites = new Map<TranslationUnitId, TranslationEntry | null>();

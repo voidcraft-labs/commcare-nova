@@ -3,10 +3,12 @@ import {
 	caseDatabaseXPathInstance,
 	previewHashtagNodeSet,
 } from "../../engine/xpathInstances";
+import { createInProcessXPathWorkerFactory } from "../inProcessWorkerClient";
+import { XPathRuntime } from "../workerClient";
 import {
-	createInProcessXPathWorkerFactory,
-	XPathRuntime,
-} from "../workerClient";
+	serializeXPathWorkerHashtagValue,
+	snapshotXPathWorkerInstance,
+} from "../workerProjection";
 import type {
 	XPathRuntimeRequest,
 	XPathWorkerInstanceSnapshot,
@@ -14,8 +16,6 @@ import type {
 } from "../workerProtocol";
 import {
 	asyncXPathWorkerFunctions,
-	serializeXPathWorkerHashtagValue,
-	snapshotXPathWorkerInstance,
 	xpathRequiresAsyncWorker,
 } from "../workerRuntime";
 

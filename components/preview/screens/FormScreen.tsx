@@ -516,6 +516,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			: undefined;
 	const entryKey =
 		engineEntry.formUuid === formUuid ? engineEntry.entryKey : undefined;
+	const engineReady =
+		engineEntry.formUuid === formUuid &&
+		engineEntry.ready &&
+		entryKey !== undefined;
+	const engineInitializing = mode === "preview" && !engineReady;
 	let attachmentEntryReady = false;
 	if (entryKey !== undefined) {
 		setAttachmentEntryAuthority({
@@ -1757,10 +1762,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		[appId, controller, entryKey, session, showFirstPage, submitStatus.kind],
 	);
 
+	const repeatTopologySettling =
+		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
 	const formFrozen =
 		submitStatus.kind === "running" ||
 		clearRunning ||
-		(engineEntry.formUuid === formUuid && engineEntry.topologySettling);
+		engineInitializing ||
+		repeatTopologySettling;
 	const blockFrozenInteraction = useCallback(
 		(event: SyntheticEvent): void => {
 			if (!formFrozen) return;
@@ -1969,6 +1977,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			<div
 				ref={formBodyRef}
 				className="flex-1 pt-4"
+				data-preview-engine-state={
+					mode === "preview" ? (engineReady ? "ready" : "loading") : "edit"
+				}
+				data-preview-engine-ready={engineReady ? "true" : "false"}
 				aria-busy={formFrozen}
 				inert={formFrozen ? true : undefined}
 				onBeforeInputCapture={blockFrozenInteraction}
@@ -1984,7 +1996,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					className="contents"
 				>
 					{hasFields ? (
-						/* Clear form intentionally remounts uncontrolled browser controls.
+						engineInitializing ? (
+							<div
+								role="status"
+								className="flex items-center justify-center gap-2 py-12 text-sm text-nova-text-muted"
+							>
+								<Icon
+									icon={tablerLoader2}
+									width="18"
+									className="animate-spin"
+								/>
+								This form is getting ready.
+							</div>
+						) : /* Clear form intentionally remounts uncontrolled browser controls.
 						 * A transient access refresh only suspends authority: keeping this
 						 * fieldset mounted preserves focus, File inputs, signature ink,
 						 * and other browser-owned drafts for the same app/form/worker. A
@@ -2015,6 +2039,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					)}
 					{mode === "preview" &&
 					appId !== undefined &&
+					engineReady &&
 					entryKey !== undefined ? (
 						<AttachmentInvariantRecoveryPanel
 							appId={appId}
@@ -2131,11 +2156,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							{validationAnnouncement.message}
 						</p>
 					) : null}
-					{formFrozen ? (
+					{formFrozen && !engineInitializing ? (
 						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
 							{clearRunning
 								? "A fresh form entry is ready."
-								: "Answers are locked while this submission finishes."}
+								: repeatTopologySettling
+									? "Answers are paused while this repeat updates."
+									: "Answers are locked while this submission finishes."}
 						</p>
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's

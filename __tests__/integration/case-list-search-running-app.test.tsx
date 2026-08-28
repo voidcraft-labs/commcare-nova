@@ -761,18 +761,19 @@ describe("FormScreen registration submit — write-through to case list", () => 
 		// `EditableTitle` renders a readonly `<input>` for the form's
 		// name; the user-editable fields are the rest. Filter to the
 		// non-readonly textboxes.
-		const allTextboxes = await screen.findAllByRole("textbox");
-		const editable = allTextboxes.filter(
-			(el) => !(el as HTMLInputElement).readOnly,
-		);
 		// Two text fields: `case_name`, `name`. The int field `age`
 		// renders as a separate `<input type="number">` not picked up
 		// by `getByRole("textbox")` (number inputs have role
 		// `spinbutton`); handle it separately below. `status` is the
 		// reserved scalar column the case-store hardcodes to `"open"`
 		// on every registration insert; the form has no field for it.
-		const caseNameInput = editable[0] as HTMLInputElement;
-		const fullNameInput = editable[1] as HTMLInputElement;
+		const [caseNameInput, fullNameInput] = await waitFor(() => {
+			const editable = screen
+				.getAllByRole("textbox")
+				.filter((element) => !(element as HTMLInputElement).readOnly);
+			expect(editable).toHaveLength(2);
+			return editable as [HTMLInputElement, HTMLInputElement];
+		});
 
 		fireEvent.change(caseNameInput, { target: { value: "Dana" } });
 		fireEvent.change(fullNameInput, { target: { value: "Dana" } });

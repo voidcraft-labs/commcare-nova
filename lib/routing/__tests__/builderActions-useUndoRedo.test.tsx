@@ -24,6 +24,7 @@ import { proseText } from "@/lib/domain/prose";
 const mockSegments = { current: [] as string[] };
 vi.mock("@/lib/routing/useClientPath", () => ({
 	useBuilderPathSegments: () => mockSegments.current,
+	getBuilderPathSegmentsSnapshot: () => mockSegments.current,
 	notifyPathChange: vi.fn(),
 }));
 

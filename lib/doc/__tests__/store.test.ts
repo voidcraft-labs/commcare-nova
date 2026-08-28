@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { blueprintDocSchema } from "@/lib/domain";
+import { blueprintDocSchema, fieldCaseWrite } from "@/lib/domain";
 import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
 import { proseText } from "@/lib/domain/prose";
 
@@ -46,6 +47,56 @@ function makeCatalogDoc(): BlueprintDoc {
 				})),
 			},
 		],
+	};
+}
+
+function makeCaseWriteDoc(): { doc: BlueprintDoc; fieldUuid: string } {
+	const moduleUuid = testUuid("case-write-module");
+	const formUuid = testUuid("case-write-form");
+	const fieldUuid = testUuid("case-write-field");
+	return {
+		fieldUuid,
+		doc: {
+			...makeEmptyDoc({ appName: "Case writes" }),
+			caseTypes: [
+				{
+					name: "patient",
+					properties: ["old_value", "new_value"].map((name) => ({
+						name,
+						label: proseText(name),
+					})),
+				},
+			],
+			modules: {
+				[moduleUuid]: {
+					uuid: moduleUuid,
+					id: "patients",
+					name: "Patients",
+					caseType: "patient",
+				},
+			},
+			forms: {
+				[formUuid]: {
+					uuid: formUuid,
+					id: "visit",
+					name: "Visit",
+					type: "followup",
+				},
+			},
+			fields: {
+				[fieldUuid]: {
+					uuid: fieldUuid,
+					kind: "text",
+					id: "answer",
+					label: proseText("Answer"),
+					caseWrite: { caseType: "patient", property: "old_value" },
+				},
+			},
+			moduleOrder: [moduleUuid],
+			formOrder: { [moduleUuid]: [formUuid] },
+			fieldOrder: { [formUuid]: [fieldUuid] },
+			fieldParent: { [fieldUuid]: formUuid },
+		},
 	};
 }
 
@@ -105,6 +156,37 @@ describe("the command queue is current when the write is announced", () => {
 					);
 			}),
 		).toBe(1);
+	});
+
+	it("publishes a frozen validated candidate directly without losing store actions", () => {
+		const { doc, fieldUuid } = makeCaseWriteDoc();
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		store.getState().startTracking();
+		const mutations = admitMutationBatch([
+			{
+				kind: "updateField",
+				uuid: testUuid(fieldUuid),
+				targetKind: "text",
+				patch: { label: proseText("Updated answer") },
+			},
+		]);
+		const prepared = prepareMutationCandidate(store.getState(), mutations);
+		expect(prepared.nextDoc).toBeDefined();
+		if (prepared.nextDoc === undefined) throw new Error("Expected candidate");
+		expect(Object.isFrozen(prepared.nextDoc)).toBe(true);
+
+		store.getState().commitDoc(prepared.nextDoc, mutations);
+
+		expect(store.getState().fields).toBe(prepared.nextDoc.fields);
+		expect(typeof store.getState().applyMany).toBe("function");
+		expect(store.getState().peekCommandBatches()).toEqual([mutations]);
+		expect(store.getState().canUndo).toBe(true);
+		store.getState().undo();
+		expect(store.getState().fields[fieldUuid]).toMatchObject({
+			kind: "text",
+			label: proseText("Answer"),
+		});
 	});
 
 	it("rename then undo wakes the queue although the optimistic Blueprint returns byte-identical", () => {
@@ -260,6 +342,72 @@ describe("createBlueprintDocStore", () => {
 		expect(store.getState().canRedo).toBe(true);
 		store.getState().redo();
 		expect(store.getState().appName).toBe("After");
+	});
+
+	it("undoes and redoes an existing case destination with the scalar inverse", () => {
+		const { doc, fieldUuid } = makeCaseWriteDoc();
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		store.getState().startTracking();
+		const forward = admitMutationBatch([
+			{
+				kind: "updateField",
+				uuid: testUuid(fieldUuid),
+				targetKind: "text",
+				patch: {
+					caseWrite: { caseType: "patient", property: "new_value" },
+				},
+			},
+		]);
+
+		store.getState().applyMany(forward);
+		expect(fieldCaseWrite(store.getState().fields[fieldUuid])).toEqual({
+			caseType: "patient",
+			property: "new_value",
+		});
+		store.getState().undo();
+		expect(fieldCaseWrite(store.getState().fields[fieldUuid])).toEqual({
+			caseType: "patient",
+			property: "old_value",
+		});
+		store.getState().redo();
+		expect(fieldCaseWrite(store.getState().fields[fieldUuid])).toEqual({
+			caseType: "patient",
+			property: "new_value",
+		});
+	});
+
+	it("uses the complete inverse when a case destination adds catalog structure", () => {
+		const { doc, fieldUuid } = makeCaseWriteDoc();
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		store.getState().startTracking();
+		store.getState().applyMany([
+			{
+				kind: "updateField",
+				uuid: testUuid(fieldUuid),
+				targetKind: "text",
+				patch: {
+					caseWrite: { caseType: "patient", property: "brand_new" },
+				},
+			},
+		]);
+		expect(
+			store
+				.getState()
+				.caseTypes?.[0]?.properties.some(({ name }) => name === "brand_new"),
+		).toBe(true);
+
+		store.getState().undo();
+		expect(fieldCaseWrite(store.getState().fields[fieldUuid])).toEqual({
+			caseType: "patient",
+			property: "old_value",
+		});
+		expect(
+			store
+				.getState()
+				.caseTypes?.[0]?.properties.some(({ name }) => name === "brand_new"),
+		).toBe(false);
 	});
 
 	it("undoes and redoes a module reparent with exact preorder", () => {

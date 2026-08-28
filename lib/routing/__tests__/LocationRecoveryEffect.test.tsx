@@ -38,6 +38,7 @@ vi.mock("@/lib/routing/useClientPath", async () => {
 			if (replace) window.history.replaceState(null, "", url);
 			else window.history.pushState(null, "", url);
 		},
+		getBuilderPathSegmentsSnapshot: () => mockSegments.current,
 		useBuilderPathSegments: () => mockSegments.current,
 	};
 });

@@ -12,6 +12,7 @@
  * emission boundaries.
  */
 "use client";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
 	memo,
@@ -23,10 +24,9 @@ import {
 	useTransition,
 } from "react";
 import { useCommCareConnection } from "@/components/builder/CommCareConnectionContext";
-import {
-	PublishDialog,
-	type PublishDownloadOutcome,
-	type PublishFeatureFlagOutcome,
+import type {
+	PublishDownloadOutcome,
+	PublishFeatureFlagOutcome,
 } from "@/components/builder/PublishDialog";
 import { PublishButton } from "@/components/ui/PublishButton";
 import { useReconcilerContext } from "@/lib/collab/context";
@@ -51,6 +51,11 @@ import {
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { apiFailureToastBody, describeApiFailure } from "@/lib/ui/apiFailure";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
+
+const loadPublishDialog = () => import("@/components/builder/PublishDialog");
+const PublishDialog = dynamic(() =>
+	loadPublishDialog().then((module) => module.PublishDialog),
+);
 
 /**
  * Download a Blob under `filename` via a transient object URL. Centralizes the
@@ -171,6 +176,7 @@ export const PublishPanel = memo(function PublishPanel() {
 	const reconciler = useReconcilerContext();
 	const projectToast = useProjectToast();
 	const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+	const [publishDialogMounted, setPublishDialogMounted] = useState(false);
 	/** The project space a pending open request named, held locally so it
 	 *  survives past the store request's one-shot clear and is retired on
 	 *  close (or on an ordinary manual open, which preseeds nothing). */
@@ -354,6 +360,7 @@ export const PublishPanel = memo(function PublishPanel() {
 	const handleOpenPublish = useCallback(() => {
 		const current = session.getState();
 		if (current.accessPhase === "authorized") {
+			setPublishDialogMounted(true);
 			setRequestedDomain(undefined);
 			setPublishDialogOpen(true);
 		}
@@ -374,6 +381,7 @@ export const PublishPanel = memo(function PublishPanel() {
 		const request = publishDialogRequest;
 		clearPublishDialogRequest();
 		if (session.getState().accessPhase !== "authorized") return;
+		setPublishDialogMounted(true);
 		setRequestedDomain(request.domain);
 		setPublishDialogOpen(true);
 	}, [publishDialogRequest, clearPublishDialogRequest, session]);
@@ -403,26 +411,32 @@ export const PublishPanel = memo(function PublishPanel() {
 
 	return (
 		<>
-			<PublishButton onClick={handleOpenPublish} />
+			<PublishButton
+				onClick={handleOpenPublish}
+				onPointerEnter={() => void loadPublishDialog()}
+				onFocus={() => void loadPublishDialog()}
+			/>
 			{/* Dialog stays mounted for Base UI exit animations. Stable onClose
 			 * prevents re-renders when the dialog is closed (the common case). */}
-			<PublishDialog
-				open={publishDialogOpen}
-				onClose={handleClosePublish}
-				getAppId={getAppId}
-				/* The context already answers a stable empty list when no key is
-				 * configured, so this is identity-stable across renders. */
-				availableDomains={availableDomains}
-				connectionServer={server}
-				canUploadToHq={canEdit}
-				requestedDomain={requestedDomain}
-				onOpenPublishing={handleOpenPublishing}
-				isRefreshingHqConnection={isRefreshingHqConnection}
-				onRefreshHqConnection={handleRefreshHqConnection}
-				onLoadFeatureFlags={loadFeatureFlags}
-				onDownloadJson={handleDownloadJson}
-				onDownloadCcz={handleDownloadCcz}
-			/>
+			{publishDialogMounted ? (
+				<PublishDialog
+					open={publishDialogOpen}
+					onClose={handleClosePublish}
+					getAppId={getAppId}
+					/* The context already answers a stable empty list when no key is
+					 * configured, so this is identity-stable across renders. */
+					availableDomains={availableDomains}
+					connectionServer={server}
+					canUploadToHq={canEdit}
+					requestedDomain={requestedDomain}
+					onOpenPublishing={handleOpenPublishing}
+					isRefreshingHqConnection={isRefreshingHqConnection}
+					onRefreshHqConnection={handleRefreshHqConnection}
+					onLoadFeatureFlags={loadFeatureFlags}
+					onDownloadJson={handleDownloadJson}
+					onDownloadCcz={handleDownloadCcz}
+				/>
+			) : null}
 		</>
 	);
 });

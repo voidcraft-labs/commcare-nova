@@ -10,10 +10,8 @@ import {
 } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { proseText } from "@/lib/domain/prose";
-import {
-	createInProcessXPathWorkerFactory,
-	XPathRuntime,
-} from "../../xpath/workerClient";
+import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
+import { XPathRuntime } from "../../xpath/workerClient";
 import type { XPathWorkerEvaluateRequest } from "../../xpath/workerProtocol";
 import { EngineController } from "../engineController";
 import type { ResolvedPreviewIdentity } from "../identity";
@@ -347,6 +345,90 @@ describe("EngineController async runtime", () => {
 			expect(request.instances.main).toBeUndefined();
 			expect(request.instances.secondary).toBeUndefined();
 		}
+		ctrl.dispose();
+	});
+
+	it("publishes case-write-only edits without starting a worker revision", async () => {
+		const requests: XPathWorkerEvaluateRequest[] = [];
+		const doc = docWith({
+			uuid: FIELD_UUID,
+			id: "answer",
+			kind: "hidden",
+			calculate: xp("sleep(0, 'ready')"),
+			caseWrite: { caseType: "patient", property: "case_name" },
+		});
+		doc.caseTypes = [
+			{
+				name: "patient",
+				properties: [
+					{
+						name: "case_name",
+						label: proseText("Name"),
+						data_type: "text",
+					},
+					{
+						name: "age",
+						label: proseText("Age"),
+						data_type: "text",
+					},
+				],
+			},
+		];
+		doc.modules[MODULE_UUID] = {
+			...doc.modules[MODULE_UUID],
+			caseType: "patient",
+		};
+		doc.forms[FORM_UUID] = {
+			...doc.forms[FORM_UUID],
+			type: "registration",
+		};
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		store.getState().startTracking();
+		const ctrl = new EngineController(
+			new XPathRuntime({
+				workerFactory: createInProcessXPathWorkerFactory((request) => {
+					requests.push(request);
+					return "ready";
+				}),
+			}),
+		);
+		ctrl.setDocStore(store);
+		await ctrl.activateFormAsync(FORM_UUID);
+		const entryKey = ctrl.entryKey;
+		if (entryKey === undefined) throw new Error("Expected entry");
+		requests.length = 0;
+		const before = store.getState();
+
+		store.getState().applyMany([
+			{
+				kind: "updateField",
+				uuid: FIELD_UUID,
+				targetKind: "hidden",
+				patch: { caseWrite: { caseType: "patient", property: "age" } },
+			},
+		]);
+		await ctrl.awaitSettled();
+
+		expect(store.getState().caseTypes).toBe(before.caseTypes);
+		expect(store.getState().forms[FORM_UUID]).toBe(before.forms[FORM_UUID]);
+		expect(store.getState().fieldOrder).toBe(before.fieldOrder);
+		expect(
+			requests.map((request) => ({
+				profile: request.profile,
+				source: request.source,
+			})),
+		).toEqual([]);
+		const snapshot = await ctrl.computeSubmissionMutationAsync({}, entryKey);
+		expect(snapshot?.documentState).toBe(store.getState());
+		const submittedField = snapshot?.documentState.fields[FIELD_UUID] as
+			| Extract<Field, { kind: "hidden" }>
+			| undefined;
+		expect(submittedField?.caseWrite).toEqual({
+			caseType: "patient",
+			property: "age",
+		});
+		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 		ctrl.dispose();
 	});
 

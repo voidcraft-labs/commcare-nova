@@ -227,7 +227,7 @@ export function runValidation(
 		}
 
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			if (!inModuleScope && !(scope?.formUuids?.has(formUuid) ?? false)) {
+			if (!scopeHasForm(scope, moduleUuid, formUuid)) {
 				continue;
 			}
 			errors.push(...runFormRules(doc, formUuid, moduleUuid, lookupTables));

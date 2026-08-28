@@ -168,7 +168,7 @@ vi.mock("@/lib/ui/inspector", () => ({
 	INSPECTOR_RAIL_WIDTH: 360,
 }));
 
-vi.mock("@/components/builder/inspector/activeInspector", () => ({
+vi.mock("@/components/builder/inspector/useInspectorPresence", () => ({
 	useInspectorPresence: () => ({
 		docked: mocks.inspectorActive,
 		requestClose: mocks.closeInspector,

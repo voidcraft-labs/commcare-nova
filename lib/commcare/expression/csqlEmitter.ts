@@ -83,7 +83,10 @@ import {
 	type RuntimeCsqlQuoteStyle,
 } from "../predicate/termEmitter";
 import { assertCsqlValueFunction } from "../xpath/functionCapabilities";
+import { isNativeCsqlValueExpression } from "./csqlCapabilities";
 import { emitOnDeviceExpression } from "./onDeviceEmitter";
+
+export { isNativeCsqlValueExpression } from "./csqlCapabilities";
 
 /**
  * Compile a `ValueExpression` AST to its CSQL `CsqlSegment[]` IR. The
@@ -255,35 +258,6 @@ function emitCsqlFunctionArgumentSegments(
 }
 
 /** Single source of truth for CCHQ's native CSQL value-expression grammar. */
-export function isNativeCsqlValueExpression(expr: ValueExpression): boolean {
-	switch (expr.kind) {
-		case "term":
-		case "today":
-		case "now":
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-		case "date-add":
-			return true;
-		case "arith":
-		case "concat":
-		case "coalesce":
-		case "if":
-		case "switch":
-		case "count":
-		case "format-date":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-		case "table-lookup":
-			return false;
-		default: {
-			const _exhaustive: never = expr;
-			return _exhaustive;
-		}
-	}
-}
-
 /**
  * Emit `date-add(<date>, '<interval>', <quantity>)` as a segment list.
  * CCHQ's `_date_or_datetime_add` calls `confirm_args_count(node, 3)`

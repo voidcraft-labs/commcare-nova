@@ -106,6 +106,8 @@ RUN mkdir -p public/third-party && \
     tar -czf public/third-party/java-pattern-runtime-source.tar.gz \
       scripts/java-pattern-runtime \
       lib/preview/xpath/openJdk17DoubleString.ts \
+      lib/preview/xpath/vendor/javaMathRuntime.generated.js \
+      lib/preview/xpath/vendor/javaMathRuntime.generated.d.ts \
       lib/preview/xpath/vendor/javaPatternRuntime.generated.js \
       lib/preview/xpath/vendor/javaPatternRuntime.generated.d.ts \
       lib/preview/xpath/vendor/javaPatternNames.generated.ts

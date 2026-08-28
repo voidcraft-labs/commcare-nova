@@ -48,11 +48,11 @@ import { applyUserMutation } from "./users";
  * Internal: dispatch a single mutation to the appropriate sub-reducer
  * WITHOUT rebuilding the `fieldParent` reverse index.
  *
- * Individual reducers never touch `fieldParent` themselves — the index is
- * rebuilt by the public entry points (`applyMutation` / `applyMutations`)
- * after the reducer(s) finish. That makes `applyMutations` O(N) in the
- * parent-index rebuild regardless of batch size, instead of O(N × M)
- * when every reducer triggered its own rebuild.
+ * Individual reducers never touch `fieldParent` themselves. The batch entry
+ * point rebuilds it once only when a mutation can change field ancestry;
+ * scalar edits preserve the existing immutable index. That makes structural
+ * batches O(N), rather than O(N × M), and ordinary inspector edits O(1) for
+ * parent-index maintenance.
  */
 function dispatchMutation(
 	draft: Draft<BlueprintDoc>,
@@ -181,10 +181,9 @@ function applyOne(draft: Draft<BlueprintDoc>, mut: Mutation): MutationResult {
  * Apply a single mutation to an Immer draft and return any metadata the
  * reducer produces. Every mutation returns `undefined`.
  *
- * The reference index is seeded (built from the full doc) on first
- * contact and maintained incrementally by the mutation's application;
- * after the reducer runs, the `fieldParent` reverse index is rebuilt so
- * consumers observing the post-mutation draft see consistent indexes.
+ * The reference index is seeded (built from the full doc) on first contact and
+ * maintained incrementally by the mutation's application. The batch entry
+ * point also rebuilds `fieldParent` when this mutation changes field topology.
  */
 export function applyMutation(
 	draft: Draft<BlueprintDoc>,
@@ -196,11 +195,12 @@ export function applyMutation(
 /**
  * Apply a batch of mutations to a single Immer draft.
  *
- * The `fieldParent` reverse index is rebuilt EXACTLY ONCE at the end of
- * the batch — not per mutation. This collapses an O(N × M) rebuild cost
- * (N = fields, M = mutations) into a single O(N) pass, critical when
- * agent streams land hundreds of mutations in one batch. Mid-batch reads
- * of `fieldParent` would see stale data, but no reducer reads it —
+ * When the batch changes field topology, the `fieldParent` reverse index is
+ * rebuilt EXACTLY ONCE at the end — not per mutation. This collapses an
+ * O(N × M) rebuild cost (N = fields, M = mutations) into one O(N) pass when
+ * agent streams land hundreds of mutations. Batches that cannot change field
+ * ancestry retain the index by reference and pay no document-wide walk.
+ * Mid-batch reads of `fieldParent` may be stale, but no reducer reads it;
  * structural lookups use `fieldOrder` directly.
  *
  * The reference index is the opposite: maintained PER MUTATION (see
@@ -212,6 +212,23 @@ export function applyMutations(
 	draft: Draft<BlueprintDoc>,
 	muts: readonly Mutation[],
 ): MutationResult[] {
+	const caseWriteOnlyUpdate =
+		muts.length === 1 &&
+		muts[0]?.kind === "updateField" &&
+		Object.keys(muts[0].patch).length === 1 &&
+		Object.hasOwn(muts[0].patch, "caseWrite");
+	const fieldTopologyChanged = muts.some((mutation) => {
+		switch (mutation.kind) {
+			case "removeModule":
+			case "removeForm":
+			case "addField":
+			case "removeField":
+			case "moveField":
+				return true;
+			default:
+				return false;
+		}
+	});
 	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
 	ensureReferenceIndex(draft as unknown as BlueprintDoc);
 	const results: MutationResult[] = [];
@@ -229,10 +246,20 @@ export function applyMutations(
 	// once after the complete batch: initial localization may contain one entry
 	// mutation per unit per target, so rebuilding the whole inventory after each
 	// one would turn a linear commit into quadratic work.
-	pruneOrphanTranslationEntries(draft);
-	dematerializeEnglishOnlyLocalization(draft);
-	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
-	rebuildFieldParent(draft as unknown as BlueprintDoc);
+	/* A case destination changes no translation-unit ownership or record shape.
+	 * The ordinary maintenance below is O(app) and would only recreate identical
+	 * derived state for this scalar patch. */
+	if (!caseWriteOnlyUpdate) {
+		pruneOrphanTranslationEntries(draft);
+		dematerializeEnglishOnlyLocalization(draft);
+		normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
+	}
+	/* Parent relations depend only on the five topology-changing families
+	 * above. Scalar field/form/module edits, media, logic, catalogs, ordering
+	 * outside the field tree, and localization all retain the exact index. */
+	if (fieldTopologyChanged) {
+		rebuildFieldParent(draft as unknown as BlueprintDoc);
+	}
 	devAssertReferenceIndexParity(draft as unknown as BlueprintDoc);
 	return results;
 }

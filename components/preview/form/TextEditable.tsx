@@ -15,13 +15,25 @@
  */
 
 "use client";
+import dynamic from "next/dynamic";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import type { CommitOutcome, ProseTemplate } from "@/lib/domain";
 import { useCanEdit, usePreviewing } from "@/lib/session/hooks";
 
 import type { FieldType } from "./fieldStyles";
-import { InlineTextEditor } from "./InlineTextEditor";
+
+const loadInlineTextEditor = () => import("./InlineTextEditor");
+const InlineTextEditor = dynamic(
+	() => loadInlineTextEditor().then((module) => module.InlineTextEditor),
+	{
+		loading: () => (
+			<div className="min-h-10 py-2 text-xs text-nova-text-muted" role="status">
+				Opening text editor
+			</div>
+		),
+	},
+);
 
 interface TextEditableProps {
 	/** Canonical Markdown-plus-reference template for this field. */
@@ -131,6 +143,8 @@ export function TextEditable({
 		<button
 			type="button"
 			data-text-editable
+			onPointerEnter={() => void loadInlineTextEditor()}
+			onFocus={() => void loadInlineTextEditor()}
 			onClick={handleClick}
 			onKeyDown={handleKeyDown}
 			className="nova-focusable w-full text-left bg-transparent border-none p-0 font-[inherit] rounded-lg px-[5px] py-[5px] transition-colors hover:bg-nova-violet/[0.06] cursor-pointer"

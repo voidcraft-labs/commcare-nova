@@ -1,5 +1,5 @@
 import type { SyntaxNode } from "@lezer/common";
-import { parser } from "@/lib/commcare/xpath";
+import { parser } from "@/lib/commcare/xpath/parser";
 import { toBoolean, toNumber, xpathToString } from "./coerce";
 import {
 	applyStructuralStep,

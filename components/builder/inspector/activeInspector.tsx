@@ -24,30 +24,75 @@
  */
 "use client";
 
-import { type ReactNode, useCallback } from "react";
-import { useCaseListInspector } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
-import { CaseOperationInspectorBody } from "@/components/builder/case-operations/CaseOperationInspectorBody";
+import dynamic from "next/dynamic";
+import { type ReactNode, useEffect, useSyncExternalStore } from "react";
+import { useCaseListInspector } from "@/components/builder/case-list-config/CaseListWorkspaceProvider";
 import { operationSentence } from "@/components/builder/case-operations/operationSentence";
 import { useOperationSentenceContext } from "@/components/builder/case-operations/useOperationSentenceContext";
-import { FieldInspectorBody } from "@/components/builder/editor/FieldInspectorBody";
-import { SectionInspectorBody } from "@/components/builder/editor/SectionInspectorBody";
-import { FormLinkInspectorBody } from "@/components/builder/form-links/FormLinkInspectorBody";
 import { linkLead } from "@/components/builder/form-links/linkSentence";
 import { useLinkSentenceContext } from "@/components/builder/form-links/useLinkSentenceContext";
+import {
+	getLoadedFieldInspectorBody,
+	loadFieldInspectorBody,
+	loadSectionInspectorBody,
+	subscribeLoadedFieldInspectorBody,
+} from "@/components/builder/inspector/lazyInspectorBodies";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useProjectDataInspector } from "@/components/builder/project-data/projectDataInspector";
 import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useFormLink } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
-import type { CaseOperation, FormLink } from "@/lib/domain";
+import type { CaseOperation, Field, FormLink } from "@/lib/domain";
 import { fieldRegistry } from "@/lib/domain";
 import {
-	useLocation,
 	useNavigate,
 	useSelect,
 	useSelectedField,
+	useSelectedFormLinkUuid,
+	useSelectedFormOperationUuid,
+	useSelectedFormUuid,
+	useSelectedModuleUuid,
 } from "@/lib/routing/hooks";
+
+function InspectorBodyLoading() {
+	return (
+		<div className="py-4 text-sm text-nova-text-muted" role="status">
+			Opening properties
+		</div>
+	);
+}
+const CaseOperationInspectorBody = dynamic(
+	() =>
+		import(
+			"@/components/builder/case-operations/CaseOperationInspectorBody"
+		).then((module) => module.CaseOperationInspectorBody),
+	{ loading: InspectorBodyLoading },
+);
+const FormLinkInspectorBody = dynamic(
+	() =>
+		import("@/components/builder/form-links/FormLinkInspectorBody").then(
+			(module) => module.FormLinkInspectorBody,
+		),
+	{ loading: InspectorBodyLoading },
+);
+function FieldInspectorBody({ field }: { field: Field }) {
+	const loaded = useSyncExternalStore(
+		subscribeLoadedFieldInspectorBody,
+		getLoadedFieldInspectorBody,
+		() => null,
+	);
+	useEffect(() => {
+		if (loaded === null) void loadFieldInspectorBody();
+	}, [loaded]);
+	if (loaded === null) return <InspectorBodyLoading />;
+	return <loaded.FieldInspectorBody field={field} />;
+}
+const SectionInspectorBody = dynamic(
+	() =>
+		loadSectionInspectorBody().then((module) => module.SectionInspectorBody),
+	{ loading: InspectorBodyLoading },
+);
 
 export interface ActiveInspector {
 	readonly kicker: string;
@@ -153,52 +198,6 @@ export function useActiveInspector(): ActiveInspector | null {
 	return null;
 }
 
-/**
- * Cheap presence + close for layout code (BuilderContentArea's rail width and
- * narrow-overlay logic) that must not pay to build the inspector body just to
- * ask "is anything docked?".
- */
-export function useInspectorPresence(): {
-	docked: boolean;
-	requestClose: () => void;
-} {
-	const field = useSelectedField();
-	const select = useSelect();
-	const caseList = useCaseListInspector();
-	const projectData = useProjectDataInspector();
-	const operation = useSelectedCaseOperationTarget();
-	const link = useSelectedFormLinkTarget();
-	const navigate = useNavigate();
-	const caseListClose = caseList?.onClose;
-	const projectDataClose = projectData?.onClose;
-	const docked =
-		field !== null ||
-		(caseList?.inspector ?? null) !== null ||
-		(projectData?.inspector ?? null) !== null ||
-		operation !== null ||
-		link !== null;
-	const requestClose = useCallback(() => {
-		if (field !== null) select(undefined);
-		else if (operation !== null) {
-			navigate.openFormOperations(operation.moduleUuid, operation.formUuid);
-		} else if (link !== null) {
-			navigate.openFormLinks(link.moduleUuid, link.formUuid);
-		} else {
-			caseListClose?.();
-			projectDataClose?.();
-		}
-	}, [
-		field,
-		select,
-		operation,
-		link,
-		navigate,
-		caseListClose,
-		projectDataClose,
-	]);
-	return { docked, requestClose };
-}
-
 interface SelectedCaseOperationTarget {
 	readonly moduleUuid: Uuid;
 	readonly formUuid: Uuid;
@@ -221,20 +220,19 @@ interface SelectedCaseOperationTarget {
  * to know whether a change is selected should pay for that.
  */
 function useSelectedCaseOperationTarget(): SelectedCaseOperationTarget | null {
-	const loc = useLocation();
-	const formUuid = loc.kind === "form-operations" ? loc.formUuid : undefined;
-	const operationUuid =
-		loc.kind === "form-operations" ? loc.operationUuid : undefined;
+	const moduleUuid = useSelectedModuleUuid();
+	const formUuid = useSelectedFormUuid();
+	const operationUuid = useSelectedFormOperationUuid();
 	const operation = useCaseOperation(formUuid, operationUuid);
 	if (
-		loc.kind !== "form-operations" ||
+		moduleUuid === undefined ||
 		operationUuid === undefined ||
 		formUuid === undefined ||
 		operation === undefined
 	) {
 		return null;
 	}
-	return { moduleUuid: loc.moduleUuid, formUuid, operationUuid, operation };
+	return { moduleUuid, formUuid, operationUuid, operation };
 }
 
 interface SelectedFormLinkTarget {
@@ -250,19 +248,19 @@ interface SelectedFormLinkTarget {
  * for layout code, the titled one below resolves the destination's name.
  */
 function useSelectedFormLinkTarget(): SelectedFormLinkTarget | null {
-	const loc = useLocation();
-	const formUuid = loc.kind === "form-links" ? loc.formUuid : undefined;
-	const linkUuid = loc.kind === "form-links" ? loc.linkUuid : undefined;
+	const moduleUuid = useSelectedModuleUuid();
+	const formUuid = useSelectedFormUuid();
+	const linkUuid = useSelectedFormLinkUuid();
 	const link = useFormLink(formUuid, linkUuid);
 	if (
-		loc.kind !== "form-links" ||
+		moduleUuid === undefined ||
 		linkUuid === undefined ||
 		formUuid === undefined ||
 		link === undefined
 	) {
 		return null;
 	}
-	return { moduleUuid: loc.moduleUuid, formUuid, linkUuid, link };
+	return { moduleUuid, formUuid, linkUuid, link };
 }
 
 /** The selected link plus the sentence that names it in the rail header. */

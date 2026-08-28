@@ -56,7 +56,7 @@ import {
 	collectExpressionInstances,
 	collectPredicateInstances,
 	instanceSourceFor,
-} from "./predicate";
+} from "./predicate/instances";
 import {
 	emitExcludedOwnerNodesetFilter,
 	emitNodesetFilter,

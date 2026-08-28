@@ -2,6 +2,7 @@
 import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerSettings from "@iconify-icons/tabler/settings";
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
@@ -12,7 +13,18 @@ import {
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_GLASS_CLS,
 } from "@/lib/styles";
-import { AppSettingsPanel } from "./AppSettingsPanel";
+
+const loadAppSettingsPanel = () => import("./AppSettingsPanel");
+const AppSettingsPanel = dynamic(
+	() => loadAppSettingsPanel().then((module) => module.AppSettingsPanel),
+	{
+		loading: () => (
+			<div className="min-w-64 p-4 text-sm text-nova-text-muted" role="status">
+				Opening app settings
+			</div>
+		),
+	},
+);
 
 /**
  * App-level settings popover trigger: the gear in the structure
@@ -43,6 +55,8 @@ export function AppSettingsButton() {
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
 			<Popover.Trigger
+				onPointerEnter={() => void loadAppSettingsPanel()}
+				onFocus={() => void loadAppSettingsPanel()}
 				className="nova-focusable flex items-center justify-center gap-1 min-w-11 min-h-11 rounded-xl transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] data-[popup-open]:text-nova-text data-[popup-open]:bg-white/[0.06]"
 				aria-label="App settings"
 			>

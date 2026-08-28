@@ -16,8 +16,10 @@ import {
 	useEffect,
 	useMemo,
 	useRef,
+	useSyncExternalStore,
 } from "react";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import type { ProseTemplate } from "@/lib/domain";
 import { ReferenceProvider } from "./provider";
 
 const ReferenceCtx = createContext<ReferenceProvider | null>(null);
@@ -63,8 +65,8 @@ export function ReferenceProviderWrapper({
 	);
 
 	/* Subscribe to mutation events and invalidate caches. The subscription fires
-     only when the blueprint is mutated, replaced, or the active form changes —
-     exactly when cached field/case data may be stale. */
+	 * only when a blueprint family used by reference projection is mutated or
+	 * replaced. Form-scope changes flow through currentFormUuid independently. */
 	useEffect(
 		() => subscribeMutation(() => provider.invalidate()),
 		[subscribeMutation, provider],
@@ -103,6 +105,32 @@ export function CurrentFormScope({
 /** Access the nearest ReferenceProvider. Returns null if outside a wrapper. */
 export function useReferenceProvider(): ReferenceProvider | null {
 	return useContext(ReferenceCtx);
+}
+
+/**
+ * Project one template through its form scope and subscribe to only its
+ * visible result. Provider invalidation may follow any reference-relevant
+ * blueprint mutation, but useSyncExternalStore suppresses the component
+ * update when this template's text is unchanged.
+ */
+export function useReferenceTemplateProjection(
+	template: ProseTemplate | undefined,
+	formUuid?: string,
+): string | undefined {
+	const provider = useReferenceProvider();
+	const subscribe = useCallback(
+		(listener: () => void) =>
+			provider?.subscribeInvalidation(listener) ?? (() => {}),
+		[provider],
+	);
+	const getSnapshot = useCallback(
+		() =>
+			provider === null || template === undefined
+				? undefined
+				: provider.projectTemplate(template, formUuid).text,
+		[formUuid, provider, template],
+	);
+	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 /** The form currently being edited, for in-editor chip resolution. `undefined`

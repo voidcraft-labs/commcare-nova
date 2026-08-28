@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useLayoutEffect, useMemo } from "react";
+import { memo, type ReactNode, useLayoutEffect, useMemo } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
 import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -41,6 +41,28 @@ interface CaseDatabaseRequirements {
 	readonly required: boolean;
 	readonly caseTypes: readonly string[];
 }
+
+const CaseDatabaseResourceBoundary = memo(
+	function CaseDatabaseResourceBoundary({
+		state,
+		children,
+	}: {
+		readonly state: "idle" | "loading" | "ready" | "error";
+		readonly children: ReactNode;
+	}) {
+		return (
+			<>
+				<span
+					hidden
+					aria-hidden="true"
+					data-builder-resource="case-database"
+					data-state={state}
+				/>
+				{children}
+			</>
+		);
+	},
+);
 
 /** Canonical carrier scan shared by the hook and focused contract tests. A
  * session-only form-link reference must load casedb even when no form bind
@@ -197,5 +219,11 @@ export function PreviewCaseDatabaseProvider({
 		controller.setCaseDatabaseState(controllerState);
 	}, [controller, controllerState]);
 
-	return children;
+	return (
+		<CaseDatabaseResourceBoundary
+			state={controllerState.required ? controllerState.status : "idle"}
+		>
+			{children}
+		</CaseDatabaseResourceBoundary>
+	);
 }

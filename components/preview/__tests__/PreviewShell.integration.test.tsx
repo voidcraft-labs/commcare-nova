@@ -20,7 +20,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
+import { CaseListWorkspaceControllerBridge } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
+import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config/CaseListWorkspaceProvider";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { proseText } from "@/lib/domain/prose";
@@ -70,7 +71,10 @@ vi.mock("@/lib/routing/hooks", async () => {
 	return {
 		...actual,
 		useLocation: () => currentLocation,
+		useLocationKind: () => currentLocation.kind,
 		useNavigate: () => navigateMock,
+		useSelectedModuleUuid: () =>
+			"moduleUuid" in currentLocation ? currentLocation.moduleUuid : undefined,
 	};
 });
 
@@ -155,7 +159,9 @@ function renderShell() {
 			}}
 		>
 			<BuilderLocalizationProvider>
-				<CaseListWorkspaceProvider>
+				<CaseListWorkspaceProvider
+					controllerComponent={CaseListWorkspaceControllerBridge}
+				>
 					<PreviewShell />
 				</CaseListWorkspaceProvider>
 			</BuilderLocalizationProvider>
@@ -175,7 +181,7 @@ describe("PreviewShell — case-list-authoring integration", () => {
 		});
 
 		// The three config tabs are present…
-		expect(screen.getByRole("button", { name: /Search/ })).toBeDefined();
+		expect(await screen.findByRole("button", { name: /Search/ })).toBeDefined();
 		expect(screen.getByRole("button", { name: "Results" })).toBeDefined();
 		expect(screen.getByRole("button", { name: "Details" })).toBeDefined();
 		// …the workspace carries no Preview button of its own (the
@@ -194,7 +200,7 @@ describe("PreviewShell — case-list-authoring integration", () => {
 		await act(async () => {
 			renderShell();
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Details" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Details" }));
 		expect(navigateMock.openDetailConfig).toHaveBeenCalledOnce();
 		expect(navigateMock.openDetailConfig).toHaveBeenCalledWith(MODULE_UUID);
 	});

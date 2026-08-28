@@ -12,10 +12,7 @@
 "use client";
 
 import {
-	createContext,
-	type ReactNode,
 	useCallback,
-	useContext,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -38,9 +35,10 @@ import type {
 	LookupRowValues,
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
-import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import { useNavigate } from "@/lib/routing/hooks";
 import { usePreviewing, useProjectId } from "@/lib/session/hooks";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
+import type { ProjectDataWorkspaceControllerBridgeProps } from "./ProjectDataWorkspaceLazyProvider";
 import {
 	type ConflictVerdict,
 	columnsEqual,
@@ -178,10 +176,6 @@ export interface ProjectDataWorkspace {
 	) => Promise<ProjectDataWriteOutcome>;
 }
 
-const ProjectDataWorkspaceContext = createContext<ProjectDataWorkspace | null>(
-	null,
-);
-
 function unavailableOutcome(): ProjectDataWriteOutcome {
 	return {
 		kind: "failed",
@@ -285,35 +279,31 @@ function unavailableConflictFor(
 	};
 }
 
-export function useProjectDataWorkspace(): ProjectDataWorkspace | null {
-	return useContext(ProjectDataWorkspaceContext);
-}
-
-export function ProjectDataWorkspaceProvider({
-	children,
-}: {
-	children: ReactNode;
-}) {
-	const loc = useLocation();
-	const tableId = loc.kind === "project-data" ? loc.tableId : undefined;
+/** Dynamic bridge used by the lightweight provider. It publishes the heavy
+ * controller through an external store instead of wrapping the Builder's
+ * children, so loading this chunk never remounts chat or the canvas. */
+export function ProjectDataWorkspaceControllerBridge({
+	tableId,
+	projectDataRoute,
+	workspaceStore,
+}: ProjectDataWorkspaceControllerBridgeProps) {
 	return (
 		<ActiveHost
 			tableId={tableId}
-			projectDataRoute={loc.kind === "project-data"}
-		>
-			{children}
-		</ActiveHost>
+			projectDataRoute={projectDataRoute}
+			onPublish={workspaceStore.publish}
+		/>
 	);
 }
 
 function ActiveHost({
 	tableId,
 	projectDataRoute,
-	children,
+	onPublish,
 }: {
 	tableId: LookupTableId | undefined;
 	projectDataRoute: boolean;
-	children: ReactNode;
+	onPublish: (value: ProjectDataWorkspace | null) => void;
 }) {
 	const projectId = useProjectId();
 	const previewing = usePreviewing();
@@ -1262,10 +1252,10 @@ function ActiveHost({
 			deleteConflictRow,
 		],
 	);
+	useLayoutEffect(() => {
+		onPublish(value);
+		return () => onPublish(null);
+	}, [onPublish, value]);
 
-	return (
-		<ProjectDataWorkspaceContext.Provider value={value}>
-			{children}
-		</ProjectDataWorkspaceContext.Provider>
-	);
+	return null;
 }

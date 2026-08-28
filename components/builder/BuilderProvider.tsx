@@ -12,11 +12,13 @@
  *   EditGuardProvider             select-guard predicate stack
  *   CaseListWorkspaceProvider  : the single case-list workspace controller,
  *                                 shared by the center canvas + the right rail
- *   BuilderFormEngineProvider  : form preview runtime controller
- *     SyncBridge                  wires doc store ref into session store
- *     LocationRecoveryEffect      repairs stale URL selection mid-session
- *     LoadAppHydrator             clears loading flag for existing apps
- *     {children}
+ *   BuilderFormEngineProvider  : stateful running-form controller
+ *   SyncBridge                  wires doc store ref into session store
+ *   LocationRecoveryEffect      repairs stale URL selection mid-session
+ *   PreviewCaseDatabaseProvider : Project-scoped case snapshot
+ *   PreviewLookupDataProvider   : Project-scoped lookup snapshot
+ *   LoadAppHydrator             clears loading flag for existing apps
+ *   {children}
  *
  * Lifecycle:
  * - `/` -> `/build/{id}`: provider mounts, fresh stores, loads app
@@ -27,14 +29,14 @@
 "use client";
 
 import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
-import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
+import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config/CaseListWorkspaceProvider";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { DeploymentTargetProvider } from "@/components/builder/DeploymentTargetProvider";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { BuilderLookupCatalogProvider } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
-import { ProjectDataWorkspaceProvider } from "@/components/builder/project-data/ProjectDataWorkspaceProvider";
+import { ProjectDataWorkspaceProvider } from "@/components/builder/project-data/ProjectDataWorkspaceLazyProvider";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
 import {
@@ -173,14 +175,9 @@ function BuilderProviderInner({
 						 *  consumer falls back to an idle state without it, so a
 						 *  missing mount is a permanent spinner, not a crash. */}
 						<ProjectDataWorkspaceProvider>
-							{/* ABOVE the engine provider, not below it. The engine
-							 *  provider calls `useSelectedPreviewIdentityState()` in its
-							 *  own body, so a deployment provider mounted among its
-							 *  CHILDREN is invisible to it: the identity the running app
-							 *  evaluates resolves through the context default and carries
-							 *  no `commcare_project`, while other surfaces on the same
-							 *  page resolve the real one. One page, one expression, two
-							 *  answers. */}
+							{/* ABOVE the form engine, which calls
+							 *  `useSelectedPreviewIdentityState()` in its own body, so the
+							 *  deployment context must already be established. */}
 							<DeploymentTargetProvider
 								initialProjectSpace={initialProjectSpace ?? null}
 							>

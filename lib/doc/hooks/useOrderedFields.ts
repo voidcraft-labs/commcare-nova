@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+
 /**
  * Return the ordered child UUIDs of a form or group/repeat.
  *
@@ -22,7 +24,13 @@
 
 import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/domain";
-import { useBlueprintDocEq } from "./useBlueprintDoc";
+import { useBlueprintDocEq, useBlueprintDocShallow } from "./useBlueprintDoc";
+
+/** Large forms start summarized in the structure tree. Rendering hundreds of
+ * interactive rows before the Builder can respond is both slower and less
+ * useful than showing the form-level outline first. The selected form is
+ * always expanded by AppTree. */
+export const LARGE_FORM_AUTO_COLLAPSE_THRESHOLD = 50;
 
 /**
  * Reference-stable empty array for the "parent not found" case. A
@@ -52,4 +60,35 @@ export function useOrderedFields(
 		// consumers don't churn.
 		return [...order];
 	}, sameSequenceByIdentity);
+}
+
+/** Form and nested-container uuids whose large form should start summarized.
+ * Collapsing nested groups as well as the form means opening a large form shows
+ * a useful outline instead of immediately materializing every descendant row.
+ * The projection is stable across unrelated edits. */
+export function useLargeFormInitialCollapsedUuids(): ReadonlySet<Uuid> {
+	const { forms, fieldOrder } = useBlueprintDocShallow((doc) => ({
+		forms: doc.forms,
+		fieldOrder: doc.fieldOrder,
+	}));
+	return useMemo(() => {
+		const collapsed = new Set<Uuid>();
+		for (const { uuid: formUuid } of Object.values(forms)) {
+			let count = 0;
+			const pending = [...(fieldOrder[formUuid] ?? [])];
+			const containers: Uuid[] = [formUuid];
+			while (pending.length > 0) {
+				const uuid = pending.pop();
+				if (uuid === undefined) break;
+				count += 1;
+				const children = fieldOrder[uuid] ?? [];
+				if (children.length > 0) containers.push(uuid);
+				pending.push(...children);
+			}
+			if (count >= LARGE_FORM_AUTO_COLLAPSE_THRESHOLD) {
+				for (const uuid of containers) collapsed.add(uuid);
+			}
+		}
+		return collapsed;
+	}, [fieldOrder, forms]);
 }

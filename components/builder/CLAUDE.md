@@ -88,6 +88,39 @@ The builder's state is split across three stores, each with a distinct lifecycle
 
 Under multiplayer, a fourth, non-store owner mediates persistence: the **reconciler** (`lib/collab`, mounted by `ReconcilerProvider` inside this stack for non-replay sessions). The doc store is still the display + undo source of truth, but `useAutoSave` never PUTs directly — it dispatches the human delta to the reconciler, which owns the diff base (`confirmedDoc ⊕ sentPending`), the durable stream, and 409/reload recovery. A remote peer's edit arrives as an inbound frame the reconciler folds into the store via a `beginRemoteApply` bracket; `useAutoSave`'s first gate is `remoteFrameApplyInProgress` so a server-applied change never bounces back out as a PUT. See `lib/collab/CLAUDE.md`.
 
+## Builder performance boundaries
+
+Large apps stay interactive by keeping each source of truth projected at the
+smallest consumer. URL hooks in `lib/routing` share one parsed location per
+path/topology snapshot and expose primitive module/form/field projections;
+layout, presence, providers, and tree rows must not subscribe to a complete
+`Location` when an event-time read or one identity answers the question. Doc
+hooks likewise select stable entity/ordering references, and cross-cutting
+providers put their changing context value behind a memoized leaf boundary so
+a resource refresh does not reconcile the Builder merely because its provider
+function rendered.
+
+The initial Builder graph contains the persistent shell and the screen named by
+the route, not every possible workspace. Chat, inspector bodies, Project data,
+case-list authoring, and uncommon Preview screens load at their owning boundary;
+their lightweight external-store/provider ancestry is stable from the first
+render and the heavy controller stays mounted after first use so drafts and
+scroll state survive. Do not move those imports back into `BuilderProvider` or
+replace a lazy boundary in a way that remounts its children. Large forms begin
+summarized and expand explicitly, while the virtual form list owns the mounted
+row window. Preview keeps visited screens through `Activity`, but its engine
+only rebuilds for changes that affect the active form runtime; metadata-only
+document snapshots are queued into the existing runtime so submission still
+uses the exact current document.
+
+Every user-visible performance change is checked with
+`npm run profile:react` against the production-shaped large fixture. Preserve
+semantic waits and compare component commits together with browser event
+processing and CPU traces: development wall time includes profiling overhead,
+animations, and scheduled frames, so it is not an interaction budget by
+itself. A new broad document, route, or context subscription on a persistent
+Builder ancestor needs evidence that no narrower projection can express it.
+
 ## Worker-content language lens
 
 `BuilderLocalizationProvider` is the one Builder/Preview projection from the

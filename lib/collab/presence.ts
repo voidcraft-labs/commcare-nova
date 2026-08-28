@@ -19,8 +19,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import type { PresenceEntry, PresenceFrame } from "@/lib/collab/presenceTypes";
-import { serializePath } from "@/lib/routing/location";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import { parsePathToLocation, serializePath } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
+import {
+	getBuilderPathSegmentsSnapshot,
+	subscribeBuilderPathChange,
+} from "@/lib/routing/useClientPath";
 import { useAccessPhase } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
@@ -265,11 +270,11 @@ function samePeers(a: readonly Peer[], b: readonly Peer[]): boolean {
 export function usePresence(
 	appId: string | undefined,
 	self: { userId: string; name: string | undefined },
-	location: Location,
 ): Peer[] {
 	const ctx = useReconcilerContext();
 	const accessPhase = useAccessPhase();
 	const session = useBuilderSessionApi();
+	const docApi = useBlueprintDocApi();
 	const subscribePresence = ctx?.subscribePresence;
 	// A resolved, non-empty display name — the beat waits for it (blank-name gate).
 	const name = self.name?.trim() ? self.name : undefined;
@@ -296,8 +301,21 @@ export function usePresence(
 	// The latest location + self identity, read at POST time so the heartbeat
 	// interval closes over a box, not a stale render's values. `name` is the
 	// resolved (non-empty) name — `canBeat` gates on it, so it's never blank here.
-	const beatInputRef = useRef({ location, name, color: selfColor.id });
-	beatInputRef.current = { location, name, color: selfColor.id };
+	const readLocation = useCallback(
+		() =>
+			parsePathToLocation(getBuilderPathSegmentsSnapshot(), docApi.getState()),
+		[docApi],
+	);
+	const beatInputRef = useRef({
+		location: { kind: "home" } as Location,
+		name,
+		color: selfColor.id,
+	});
+	beatInputRef.current = {
+		...beatInputRef.current,
+		name,
+		color: selfColor.id,
+	};
 
 	// Beat only with a real app id, a live stream, AND a resolved name (no blank-
 	// name POST). Any of them arriving flips this true and re-fires the effect —
@@ -365,6 +383,10 @@ export function usePresence(
 			}).catch(() => {});
 		};
 
+		beatInputRef.current = {
+			...beatInputRef.current,
+			location: readLocation(),
+		};
 		postBeat(beatInputRef.current.location);
 		const interval = setInterval(() => {
 			postBeat(beatInputRef.current.location);
@@ -377,33 +399,31 @@ export function usePresence(
 			window.removeEventListener("beforeunload", remove);
 			remove();
 		};
-	}, [appId, canBeat, sessionId, postBeat]);
+	}, [appId, canBeat, readLocation, sessionId, postBeat]);
 
-	// Prompt heartbeat on a location change, debounced so a rapid sweep POSTs
-	// once. Keyed on the SERIALIZED PATH, not the `location` object identity:
-	// `useLocation()` re-derives its object from the doc-store entity maps, so
-	// every doc mutation (a local keystroke, an SA batch, an inbound peer frame)
-	// mints a NEW Location even when the path is unchanged — an identity dep
-	// would re-arm this effect and POST a heartbeat per edit. Skips the initial
-	// render (the mount beat already carries it); the beat reads the ref for the
-	// freshest object at fire time.
-	const locationKey = serializePath(location).join("/");
-	const mountedRef = useRef(false);
+	// Prompt heartbeat on a location change without making the high-level
+	// PresenceProvider a route subscriber. Builder navigation is an external
+	// store already; subscribing here keeps the heartbeat current while a field
+	// click renders only the components whose own route projection changed.
 	useEffect(() => {
-		// `locationKey` is the re-arm trigger only — reading it keeps the dep
-		// honest; the beat reads the ref for the freshest Location object.
-		void locationKey;
 		if (!canBeat || !appId) return;
-		if (!mountedRef.current) {
-			mountedRef.current = true;
-			return;
-		}
-		const timer = setTimeout(
-			() => postBeat(beatInputRef.current.location),
-			LOCATION_HEARTBEAT_DEBOUNCE_MS,
-		);
-		return () => clearTimeout(timer);
-	}, [appId, canBeat, locationKey, postBeat]);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const unsubscribe = subscribeBuilderPathChange(() => {
+			beatInputRef.current = {
+				...beatInputRef.current,
+				location: readLocation(),
+			};
+			if (timer !== undefined) clearTimeout(timer);
+			timer = setTimeout(
+				() => postBeat(beatInputRef.current.location),
+				LOCATION_HEARTBEAT_DEBOUNCE_MS,
+			);
+		});
+		return () => {
+			unsubscribe();
+			if (timer !== undefined) clearTimeout(timer);
+		};
+	}, [appId, canBeat, postBeat, readLocation]);
 
 	const lastPeersRef = useRef<Peer[]>([]);
 	return useMemo(() => {

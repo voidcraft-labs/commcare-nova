@@ -12,13 +12,27 @@
 // Consumers (FieldEditorPanel and the inspect UI) import from here;
 // the domain layer never does.
 
+"use client";
+
+import dynamic from "next/dynamic";
+import {
+	type ComponentType,
+	createElement,
+	useEffect,
+	useSyncExternalStore,
+} from "react";
 import { CaseWriteEditor } from "@/components/builder/editor/fields/CaseWriteEditor";
-import { MediaSlotEditor } from "@/components/builder/editor/fields/MediaSlotEditor";
-import { OptionsSourceEditor } from "@/components/builder/editor/fields/OptionsSourceEditor";
+import type { MediaSlotEditor as MediaSlotEditorComponent } from "@/components/builder/editor/fields/MediaSlotEditor";
+import type { OptionsSourceEditor as OptionsSourceEditorComponent } from "@/components/builder/editor/fields/OptionsSourceEditor";
 import { RequiredEditor } from "@/components/builder/editor/fields/RequiredEditor";
 import { ALWAYS_REQUIRED_EXPRESSION } from "@/components/builder/editor/fields/requiredState";
-import { TextEditor } from "@/components/builder/editor/fields/TextEditor";
-import { XPathEditor } from "@/components/builder/editor/fields/XPathEditor";
+import type { TextEditor as TextEditorComponent } from "@/components/builder/editor/fields/TextEditor";
+import type { XPathEditor as XPathEditorComponent } from "@/components/builder/editor/fields/XPathEditor";
+import {
+	getLoadedXPathEditor,
+	loadXPathEditor,
+	subscribeLoadedXPathEditor,
+} from "@/components/builder/inspector/lazyInspectorBodies";
 import type {
 	AudioField,
 	BarcodeField,
@@ -46,7 +60,66 @@ import type {
 	VideoField,
 	XPathExpression,
 } from "@/lib/domain";
-import type { FieldEditorSchema } from "@/lib/domain/kinds";
+import type {
+	FieldEditorComponentProps,
+	FieldEditorSchema,
+	XPathExpressionKeys,
+} from "@/lib/domain/kinds";
+
+function EditorLoading() {
+	return createElement(
+		"div",
+		{
+			className: "py-2 text-xs text-nova-text-muted",
+			role: "status",
+		},
+		"Opening editor",
+	);
+}
+
+/* Rich text, XPath, media, and lookup-source controls each carry substantial
+ * editor-only dependencies. A field's identity and Saves to controls remain
+ * synchronous; these uncommon controls load only when the selected field's
+ * schema actually renders them. */
+const MediaSlotEditor = dynamic(
+	() =>
+		import("@/components/builder/editor/fields/MediaSlotEditor").then(
+			(module) => module.MediaSlotEditor,
+		),
+	{ loading: EditorLoading },
+) as typeof MediaSlotEditorComponent;
+const OptionsSourceEditor = dynamic(
+	() =>
+		import("@/components/builder/editor/fields/OptionsSourceEditor").then(
+			(module) => module.OptionsSourceEditor,
+		),
+	{ loading: EditorLoading },
+) as typeof OptionsSourceEditorComponent;
+const TextEditor = dynamic(
+	() =>
+		import("@/components/builder/editor/fields/TextEditor").then(
+			(module) => module.TextEditor,
+		),
+	{ loading: EditorLoading },
+) as typeof TextEditorComponent;
+function WarmXPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
+	props: FieldEditorComponentProps<F, K>,
+) {
+	const loaded = useSyncExternalStore(
+		subscribeLoadedXPathEditor,
+		getLoadedXPathEditor,
+		() => null,
+	);
+	useEffect(() => {
+		if (loaded === null) void loadXPathEditor();
+	}, [loaded]);
+	if (loaded === null) return createElement(EditorLoading);
+	const LoadedXPathEditor = loaded.XPathEditor as ComponentType<
+		FieldEditorComponentProps<F, K>
+	>;
+	return createElement(LoadedXPathEditor, props);
+}
+const XPathEditor = WarmXPathEditor as typeof XPathEditorComponent;
 
 // ── Shared entry factories ──────────────────────────────────────────────
 //

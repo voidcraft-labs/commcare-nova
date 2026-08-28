@@ -24,7 +24,7 @@ import {
 	findOnDeviceDateAddIssueInPredicate,
 	findOnDeviceScalarExpressionIssue,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
-import { isValidStaticGeopointCenter } from "@/lib/commcare/predicate";
+import { isValidStaticGeopointCenter } from "@/lib/commcare/predicate/geopoint";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
 import type { BlueprintDoc, Form, Module, Uuid } from "@/lib/domain";
 import { isCaseFirstModule } from "@/lib/domain";

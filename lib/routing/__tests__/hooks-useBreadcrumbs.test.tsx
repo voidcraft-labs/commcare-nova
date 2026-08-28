@@ -18,10 +18,16 @@ import { createBlueprintDocStore } from "@/lib/doc/store";
 
 /* Mock the client path hook — segments control the current location. */
 const mockSegments = { current: [] as string[] };
-vi.mock("@/lib/routing/useClientPath", () => ({
-	useBuilderPathSegments: () => mockSegments.current,
-	notifyPathChange: vi.fn(),
-}));
+vi.mock("@/lib/routing/useClientPath", async () => {
+	const actual = await vi.importActual<
+		typeof import("@/lib/routing/useClientPath")
+	>("@/lib/routing/useClientPath");
+	return {
+		...actual,
+		getBuilderPathSegmentsSnapshot: () => mockSegments.current,
+		useBuilderPathSegments: () => mockSegments.current,
+	};
+});
 
 vi.mock("next/navigation", async () => {
 	const actual =

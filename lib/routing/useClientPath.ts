@@ -115,6 +115,13 @@ function subscribe(callback: () => void): () => void {
 	};
 }
 
+/** Imperative subscription for hooks that project URL state together with
+ * document topology. Keeping this on the same listener set preserves the one
+ * `popstate` listener invariant. */
+export function subscribeBuilderPathChange(callback: () => void): () => void {
+	return subscribe(callback);
+}
+
 function getSnapshot(): string {
 	return window.location.pathname;
 }
@@ -222,6 +229,13 @@ export function useBuilderPathSegments(): string[] {
 	 * through useLocation → useSelect → useIsFieldSelected and defeats
 	 * the per-wrapper re-render isolation. */
 	return useMemo(() => extractSegments(pathname), [pathname]);
+}
+
+/** Read the current Builder sub-path without subscribing the calling
+ * component. Navigation actions use this at event time, so merely needing an
+ * `openForm` or `up` callback does not re-render a component on every click. */
+export function getBuilderPathSegmentsSnapshot(): string[] {
+	return extractSegments(getSnapshot());
 }
 
 /**

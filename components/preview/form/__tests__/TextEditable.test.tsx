@@ -24,7 +24,7 @@ vi.mock("../InlineTextEditor", () => ({
 }));
 
 describe("TextEditable", () => {
-	it("keeps a rejected draft open and explains that it was not saved", () => {
+	it("keeps a rejected draft open and explains that it was not saved", async () => {
 		const onSave = vi.fn(
 			(): CommitOutcome => ({
 				ok: false,
@@ -42,7 +42,9 @@ describe("TextEditable", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Original" }));
-		fireEvent.click(screen.getByRole("button", { name: "Commit draft" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Commit draft" }),
+		);
 
 		expect(onSave).toHaveBeenCalledWith(proseText("Changed"));
 		expect(screen.getByRole("button", { name: "Commit draft" })).toBeTruthy();

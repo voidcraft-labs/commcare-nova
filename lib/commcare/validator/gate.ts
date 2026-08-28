@@ -9,9 +9,11 @@
  *   - `classifyError(code)` — which of the five validity classes a code
  *     belongs to, typed-total over `ValidationErrorCode` so a new code
  *     without a class fails compile.
- *   - `evaluateCommit({ nextDoc, lookupContext })` — the per-commit gate:
+ *   - `evaluateCommit({ nextDoc, lookupContext })` — the absolute per-commit gate:
  *     a commit is accepted iff the complete candidate has no shape,
  *     soundness, or completeness finding.
+ *   - `evaluateScopedCommit(...)` — the same classes over a dependency
+ *     footprint, used only to preserve validity from a prior valid snapshot.
  *   - `evaluateBoundary(doc, manifest, lookupContext)` — the zero-tolerance full run for
  *     transaction boundaries (export / upload / build completion),
  *     including the asset-context media rules.
@@ -24,6 +26,7 @@ import type {
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ValidationError, ValidationErrorCode } from "./errors";
+import type { ValidationScope } from "./index";
 import { type RunValidationOptions, runValidation } from "./runner";
 
 // ── Classification ─────────────────────────────────────────────────
@@ -486,12 +489,17 @@ export interface EvaluateCommitArgs {
 	readonly lookupReferenceExtractors?: LookupReferenceExtractorRegistry;
 }
 
+export interface EvaluateScopedCommitArgs extends EvaluateCommitArgs {
+	/** The complete dependency footprint the caller proved this edit can alter. */
+	readonly scope: ValidationScope;
+}
+
 export type CommitVerdict =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly findings: ValidationError[] };
 
 /**
- * The per-commit gate: accept iff the complete candidate has no shape,
+ * The absolute per-commit gate: accept iff the complete candidate has no shape,
  * soundness, or completeness finding. There is no prior-document comparison,
  * scope narrowing, or allowance for a finding that happened to exist before
  * this commit.
@@ -505,10 +513,51 @@ export function evaluateCommit({
 	lookupContext,
 	lookupReferenceExtractors,
 }: EvaluateCommitArgs): CommitVerdict {
+	return evaluateCommitValidation({
+		nextDoc,
+		lookupContext,
+		lookupReferenceExtractors,
+	});
+}
+
+/**
+ * Evaluate the app-wide rules plus one explicitly proven entity footprint.
+ *
+ * This is not a weaker standalone boundary: its caller must know the prior
+ * document was valid and prove the mutation leaves every entity outside
+ * `scope` unchanged. `runValidation`'s scoped-run equivalence then preserves
+ * whole-document validity by induction. Export, server persistence, and any
+ * unclassified mutation continue to use `evaluateCommit`.
+ */
+export function evaluateScopedCommit({
+	nextDoc,
+	lookupContext,
+	lookupReferenceExtractors,
+	scope,
+}: EvaluateScopedCommitArgs): CommitVerdict {
+	return evaluateCommitValidation({
+		nextDoc,
+		lookupContext,
+		lookupReferenceExtractors,
+		scope,
+	});
+}
+
+function evaluateCommitValidation({
+	nextDoc,
+	lookupContext,
+	lookupReferenceExtractors,
+	scope,
+}: EvaluateCommitArgs & { readonly scope?: ValidationScope }): CommitVerdict {
 	const options: RunValidationOptions | undefined =
-		lookupReferenceExtractors === undefined
+		lookupReferenceExtractors === undefined && scope === undefined
 			? undefined
-			: { lookupReferenceExtractors };
+			: {
+					...(lookupReferenceExtractors !== undefined && {
+						lookupReferenceExtractors,
+					}),
+					...(scope !== undefined && { scope }),
+				};
 	const gating = runValidation(nextDoc, lookupContext, options).filter(
 		(err) => {
 			const cls = classifyError(err.code);
