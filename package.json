@@ -67,7 +67,7 @@
 		"@codemirror/language": "^6.12.4",
 		"@floating-ui/react": "^0.27.20",
 		"@google-cloud/cloud-sql-connector": "^1.11.3",
-		"@google-cloud/kms": "^5.7.0",
+		"@google-cloud/kms": "^6.0.0",
 		"@google-cloud/storage": "^7.22.0",
 		"@googlemaps/js-api-loader": "^2.1.1",
 		"@iconify/react": "^6.0.2",
