@@ -31,12 +31,13 @@
  * builder, landing-page flows, etc.) — no other app code should import
  * `next/navigation` directly. */
 import { useRouter } from "next/navigation";
-import { useMemo, useRef } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useConsultEditGuard } from "@/components/builder/contexts/EditGuardContext";
-import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useField, useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
-import type { Uuid } from "@/lib/doc/types";
+import type { BlueprintDocStore } from "@/lib/doc/provider";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
@@ -49,30 +50,107 @@ import {
 	PROJECT_DATA_LABEL,
 } from "@/lib/routing/types";
 import {
+	getBuilderPathSegmentsSnapshot,
 	pushBuilderHistory,
-	useBuilderPathSegments,
+	subscribeBuilderPathChange,
+	useIsBuilderFieldPathSelected,
 } from "@/lib/routing/useClientPath";
 import { useClearFocusHint } from "@/lib/session/hooks";
 
 /**
- * Reactive parse of the current URL path into a `Location`. Re-renders
- * on every path change (via `useBuilderPathSegments`'s
- * `useSyncExternalStore` subscription) and whenever the doc's entity
- * maps change (so entity disambiguation stays current).
+ * Reactive parse of the current URL path into a `Location`. Path and document
+ * changes both re-check entity disambiguation, but the cached semantic snapshot
+ * re-renders consumers only when the resolved location actually changes.
  *
  * Malformed/incomplete URLs degrade to `{ kind: "home" }` — see
  * `parsePathToLocation` for the rules.
  */
+const HOME_LOCATION: Location = { kind: "home" };
+
+interface CachedBuilderLocation {
+	readonly pathKey: string;
+	readonly moduleOrder: BlueprintDoc["moduleOrder"];
+	readonly formOrder: BlueprintDoc["formOrder"];
+	readonly fieldOrder: BlueprintDoc["fieldOrder"];
+	readonly location: Location;
+}
+
+/** One parsed location per Builder store/path/topology snapshot. Route
+ * projections are intentionally numerous; without this shared cache every
+ * subscriber independently scans `fieldOrder` to resolve the same selected
+ * field on one navigation. */
+const builderLocationCache = new WeakMap<
+	BlueprintDocStore,
+	CachedBuilderLocation
+>();
+
+function builderLocationSnapshot(docApi: BlueprintDocStore): Location {
+	const segments = getBuilderPathSegmentsSnapshot();
+	const pathKey = segments.join("/");
+	const doc = docApi.getState();
+	const cached = builderLocationCache.get(docApi);
+	if (
+		cached !== undefined &&
+		cached.pathKey === pathKey &&
+		cached.moduleOrder === doc.moduleOrder &&
+		cached.formOrder === doc.formOrder &&
+		cached.fieldOrder === doc.fieldOrder
+	) {
+		return cached.location;
+	}
+	const location = parsePathToLocation(segments, doc);
+	builderLocationCache.set(docApi, {
+		pathKey,
+		moduleOrder: doc.moduleOrder,
+		formOrder: doc.formOrder,
+		fieldOrder: doc.fieldOrder,
+		location,
+	});
+	return location;
+}
+
+/** Location semantics depend on entity topology, not on field labels, values,
+ * case writes, or any other scalar document content. All structural mutations
+ * replace at least one of these three immutable collections. */
+function subscribeBuilderLocation(
+	docApi: BlueprintDocStore,
+	onStoreChange: () => void,
+): () => void {
+	const unsubscribePath = subscribeBuilderPathChange(onStoreChange);
+	const unsubscribeDoc = docApi.subscribe(
+		(doc) => [doc.moduleOrder, doc.formOrder, doc.fieldOrder] as const,
+		onStoreChange,
+		{
+			equalityFn: (left, right) =>
+				left[0] === right[0] && left[1] === right[1] && left[2] === right[2],
+		},
+	);
+	return () => {
+		unsubscribePath();
+		unsubscribeDoc();
+	};
+}
+
 export function useLocation(): Location {
-	const segments = useBuilderPathSegments();
-	const doc = useBlueprintDocShallow((s) => ({
-		modules: s.modules,
-		forms: s.forms,
-		fields: s.fields,
-		formOrder: s.formOrder,
-		fieldOrder: s.fieldOrder,
-	}));
-	return useMemo(() => parsePathToLocation(segments, doc), [segments, doc]);
+	const docApi = useBlueprintDocApi();
+	const subscribe = useCallback(
+		(onStoreChange: () => void) =>
+			subscribeBuilderLocation(docApi, onStoreChange),
+		[docApi],
+	);
+	const getSnapshot = useCallback(
+		() => builderLocationSnapshot(docApi),
+		[docApi],
+	);
+	return useSyncExternalStore(subscribe, getSnapshot, () => HOME_LOCATION);
+}
+
+/** Read the current URL location against a live document snapshot without
+ * subscribing the caller to route changes. Event handlers use this when the
+ * route matters only at fire time; making their owning layout reactive would
+ * otherwise cascade every field-selection change through the whole Builder. */
+export function readBuilderLocation(doc: BlueprintDoc): Location {
+	return parsePathToLocation(getBuilderPathSegmentsSnapshot(), doc);
 }
 
 /**
@@ -103,8 +181,10 @@ export function useSelectedFormContext(): {
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
 	const mod = useModule(moduleUuid);
 	const form = useForm(formUuid);
-	if (!mod || !form) return null;
-	return { module: mod, form };
+	return useMemo(
+		() => (mod && form ? { module: mod, form } : null),
+		[mod, form],
+	);
 }
 
 /**
@@ -172,31 +252,139 @@ export interface NavigateActions {
  * Selection callback returned by `useSelect`.
  * Passing `undefined` clears the current selection.
  */
-export type SelectAction = (uuid: Uuid | undefined) => void;
+export type SelectAction = (
+	uuid: Uuid | undefined,
+	from?: Extract<Location, { kind: "form" }>,
+) => void;
+
+type LocationProjection = boolean | string | null | undefined;
+
+/** Subscribe to the current route and document topology, but expose only a
+ * primitive projection to React. Route listeners still receive every path
+ * notification; `useSyncExternalStore` prevents a component render when its
+ * own selected module/form/kind did not change. */
+function useLocationProjection<T extends LocationProjection>(
+	project: (location: Location) => T,
+): T {
+	const docApi = useBlueprintDocApi();
+	const subscribe = useCallback(
+		(onStoreChange: () => void) =>
+			subscribeBuilderLocation(docApi, onStoreChange),
+		[docApi],
+	);
+	const getProjectedSnapshot = useCallback(
+		() => project(builderLocationSnapshot(docApi)),
+		[docApi, project],
+	);
+	const getServerSnapshot = useCallback(
+		() => project({ kind: "home" }),
+		[project],
+	);
+	return useSyncExternalStore(
+		subscribe,
+		getProjectedSnapshot,
+		getServerSnapshot,
+	);
+}
+
+function selectedModuleUuid(location: Location): Uuid | undefined {
+	return "moduleUuid" in location ? location.moduleUuid : undefined;
+}
+
+function selectedFormUuid(location: Location): Uuid | undefined {
+	return location.kind === "form" ||
+		location.kind === "form-condition" ||
+		location.kind === "form-operations" ||
+		location.kind === "form-links"
+		? location.formUuid
+		: undefined;
+}
+
+function selectedFieldUuid(location: Location): Uuid | undefined {
+	return location.kind === "form" ? location.selectedUuid : undefined;
+}
+
+function locationKind(location: Location): Location["kind"] {
+	return location.kind;
+}
+
+function selectedProjectDataTableId(
+	location: Location,
+): LookupTableId | undefined {
+	return location.kind === "project-data" ? location.tableId : undefined;
+}
+
+function hasSelectedField(location: Location): boolean {
+	return location.kind === "form" && location.selectedUuid !== undefined;
+}
+
+function selectedFormOperationUuid(location: Location): Uuid | undefined {
+	return location.kind === "form-operations"
+		? location.operationUuid
+		: undefined;
+}
+
+function selectedFormLinkUuid(location: Location): Uuid | undefined {
+	return location.kind === "form-links" ? location.linkUuid : undefined;
+}
+
+/** The route kind without subscribing consumers to selection-only path
+ * changes within that route. */
+export function useLocationKind(): Location["kind"] {
+	return useLocationProjection(locationKind);
+}
+
+/** The selected module identity without subscribing to field-selection-only
+ * URL changes. */
+export function useSelectedModuleUuid(): Uuid | undefined {
+	return useLocationProjection(selectedModuleUuid);
+}
+
+/** The selected form identity without subscribing to field-selection-only
+ * URL changes. */
+export function useSelectedFormUuid(): Uuid | undefined {
+	return useLocationProjection(selectedFormUuid);
+}
+
+/** The selected field identity without subscribing to field entity changes. */
+export function useSelectedFieldUuid(): Uuid | undefined {
+	return useLocationProjection(selectedFieldUuid);
+}
+
+/** The open Project data table identity, stable throughout every non-Project
+ * data route and across unrelated field selections. */
+export function useSelectedProjectDataTableId(): LookupTableId | undefined {
+	return useLocationProjection(selectedProjectDataTableId);
+}
+
+/** Whether a valid field selection is present. Unlike `useSelectedField`, this
+ * remains stable while the author moves between fields, for layout consumers
+ * that only need to reserve inspector space. */
+export function useHasSelectedField(): boolean {
+	return useLocationProjection(hasSelectedField);
+}
+
+export function useSelectedFormOperationUuid(): Uuid | undefined {
+	return useLocationProjection(selectedFormOperationUuid);
+}
+
+export function useSelectedFormLinkUuid(): Uuid | undefined {
+	return useLocationProjection(selectedFormLinkUuid);
+}
 
 /**
  * `true` when a module (or any descendant screen) references this module uuid.
  * Used by `ModuleCard` in the tree sidebar for highlight state.
  *
- * Tradeoff: this hook re-renders on any URL change (not just module
- * changes), because `useLocation` subscribes to the full path. The
- * boolean return prevents child reconciliation for non-matching cards.
+ * The primitive external-store projection means a field-only URL change
+ * notifies this hook but does not re-render its module card.
  */
 export function useIsModuleSelected(uuid: Uuid): boolean {
-	const loc = useLocation();
-	return (
-		(loc.kind === "module" ||
-			loc.kind === "cases" ||
-			loc.kind === "search-config" ||
-			loc.kind === "detail-config" ||
-			loc.kind === "data-review" ||
-			loc.kind === "module-condition" ||
-			loc.kind === "form-condition" ||
-			loc.kind === "form-operations" ||
-			loc.kind === "form-links" ||
-			loc.kind === "form") &&
-		loc.moduleUuid === uuid
+	const project = useCallback(
+		(location: Location) => selectedModuleUuid(location) === uuid,
+		[uuid],
 	);
+	return useLocationProjection(project);
 }
 
 /**
@@ -205,13 +393,15 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
  * Search, Results & Details node for highlight state.
  */
 export function useIsCaseListSelected(uuid: Uuid): boolean {
-	const loc = useLocation();
-	return (
-		(loc.kind === "cases" ||
-			loc.kind === "search-config" ||
-			loc.kind === "detail-config") &&
-		loc.moduleUuid === uuid
+	const project = useCallback(
+		(location: Location) =>
+			(location.kind === "cases" ||
+				location.kind === "search-config" ||
+				location.kind === "detail-config") &&
+			location.moduleUuid === uuid,
+		[uuid],
 	);
+	return useLocationProjection(project);
 }
 
 /**
@@ -219,14 +409,11 @@ export function useIsCaseListSelected(uuid: Uuid): boolean {
  * Used by `FormCard` in the tree sidebar for highlight state.
  */
 export function useIsFormSelected(uuid: Uuid): boolean {
-	const loc = useLocation();
-	return (
-		(loc.kind === "form" ||
-			loc.kind === "form-condition" ||
-			loc.kind === "form-operations" ||
-			loc.kind === "form-links") &&
-		loc.formUuid === uuid
+	const project = useCallback(
+		(location: Location) => selectedFormUuid(location) === uuid,
+		[uuid],
 	);
+	return useLocationProjection(project);
 }
 
 /**
@@ -236,8 +423,7 @@ export function useIsFormSelected(uuid: Uuid): boolean {
  * on a selection change.
  */
 export function useIsFieldSelected(uuid: Uuid): boolean {
-	const loc = useLocation();
-	return loc.kind === "form" && loc.selectedUuid === uuid;
+	return useIsBuilderFieldPathSelected(uuid);
 }
 
 /** A single entry in the breadcrumb trail rendered by BuilderSubheader. */
@@ -459,12 +645,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
  * `this` context.
  */
 export function useNavigate(): NavigateActions {
-	const loc = useLocation();
-
-	/* Capture current location in a ref so `up()` can read it without
-	 * including `loc` in useMemo deps. */
-	const locRef = useRef(loc);
-	locRef.current = loc;
+	const docApi = useBlueprintDocApi();
 
 	return useMemo(() => {
 		/** Read the `/build/{appId}` prefix at call time.
@@ -534,12 +715,16 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
 			up: () => {
-				const parent = parentLocation(locRef.current);
+				const current = parsePathToLocation(
+					getBuilderPathSegmentsSnapshot(),
+					docApi.getState(),
+				);
+				const parent = parentLocation(current);
 				if (parent) push(parent);
 			},
 		};
-		// Intentional stable object; all state read at call time via locRef/window.location.
-	}, []);
+		// Intentional stable object; all state is read at call time.
+	}, [docApi]);
 }
 
 /**
@@ -632,14 +817,7 @@ export function parentLocation(loc: Location): Location | undefined {
 export function useSelect(): SelectAction {
 	const consultGuard = useConsultEditGuard();
 	const clearFocusHint = useClearFocusHint();
-	const loc = useLocation();
-
-	/* Ref for `loc` so the returned callback doesn't churn on every
-	 * selection change. The callback only needs the screen identity
-	 * (moduleUuid, formUuid) — not the selected field — and those
-	 * only change on screen navigation, not selection clicks. */
-	const locRef = useRef(loc);
-	locRef.current = loc;
+	const docApi = useBlueprintDocApi();
 
 	return useMemo<SelectAction>(() => {
 		const getBasePath = (): string => {
@@ -647,7 +825,10 @@ export function useSelect(): SelectAction {
 			return `/${parts.slice(0, 2).join("/")}`;
 		};
 
-		return (uuid: Uuid | undefined): void => {
+		return (
+			uuid: Uuid | undefined,
+			from?: Extract<Location, { kind: "form" }>,
+		): void => {
 			/* Honor any guard registered by an inline editor with unsaved
 			 * invalid content. The two-strike pattern (warn, then allow on
 			 * repeat) is owned by the guard predicate — this call site is
@@ -659,7 +840,17 @@ export function useSelect(): SelectAction {
 			 * would auto-focus + select the NEXT field's id-rename box on
 			 * mount, so a keystroke would rename an unrelated field. */
 			clearFocusHint();
-			const current = locRef.current;
+			/* A successful field removal invalidates its selected URL segment
+			 * before the adjacent-selection write runs. The removing action passes
+			 * its freshly-read form location so this final route write does not
+			 * have to rediscover the deleted field's parent. Ordinary callers read
+			 * the live path here. */
+			const current =
+				from ??
+				parsePathToLocation(
+					getBuilderPathSegmentsSnapshot(),
+					docApi.getState(),
+				);
 			if (current.kind !== "form") return;
 			const next: Location = {
 				kind: "form",
@@ -670,7 +861,7 @@ export function useSelect(): SelectAction {
 			const url = buildUrl(getBasePath(), next);
 			pushBuilderHistory(url, true);
 		};
-	}, [consultGuard, clearFocusHint]);
+	}, [consultGuard, clearFocusHint, docApi]);
 }
 
 /**

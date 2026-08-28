@@ -76,14 +76,15 @@ export default async function BuilderPage({
 	params: Promise<{ id: string }>;
 	searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-	const { id } = await params;
-
-	const session = await getSession();
+	const [{ id }, session] = await Promise.all([params, getSession()]);
 	if (!session) redirect("/");
-	const commcareSettings = await getCommCareSettings(session.user.id);
+	const commcareSettingsPromise = getCommCareSettings(session.user.id);
 
 	if (id === "new") {
-		const { design } = await searchParams;
+		const [{ design }, commcareSettings] = await Promise.all([
+			searchParams,
+			commcareSettingsPromise,
+		]);
 		return typeof design === "string" && design.trim().length > 0
 			? await resumedDesignPage(design, session.user.id, commcareSettings)
 			: await freshBuildPage(session, commcareSettings);
@@ -99,13 +100,14 @@ export default async function BuilderPage({
 		canEdit: boolean;
 		baseSeq: number;
 	};
+	let commcareSettings: CommCareSettingsPublic;
 	try {
-		const snapshot = await resolveAuthorizedAppSnapshot(
-			id,
-			session.user.id,
-			"view",
-		);
+		const [snapshot, settings] = await Promise.all([
+			resolveAuthorizedAppSnapshot(id, session.user.id, "view"),
+			commcareSettingsPromise,
+		]);
 		app = snapshot.app;
+		commcareSettings = settings;
 		initialAccess = {
 			projectId: snapshot.projectId,
 			role: snapshot.role,
@@ -156,21 +158,35 @@ export default async function BuilderPage({
 		actorUserId: session.user.id,
 	});
 
-	let threads: LoadedThreadMeta[] = [];
-	let initialThread: LoadedThread | null = null;
-	try {
-		threads = await listThreadMetas({ kind: "app", appId: id });
-		if (threads.length > 0) {
-			initialThread = await loadThread(
-				{ kind: "app", appId: id },
-				threads[0].thread_id,
-				session.user.id,
-			);
+	const threadHydrationPromise = (async () => {
+		let threads: LoadedThreadMeta[] = [];
+		let initialThread: LoadedThread | null = null;
+		try {
+			threads = await listThreadMetas({ kind: "app", appId: id });
+			if (threads.length > 0) {
+				initialThread = await loadThread(
+					{ kind: "app", appId: id },
+					threads[0].thread_id,
+					session.user.id,
+				);
+			}
+		} catch (err) {
+			log.error("[build-page] thread hydration failed", err, { appId: id });
+			if (app.status !== "complete") redirect("/");
 		}
-	} catch (err) {
-		log.error("[build-page] thread hydration failed", err, { appId: id });
-		if (app.status !== "complete") redirect("/");
-	}
+		return { threads, initialThread };
+	})();
+	const failedMaterializedDesignPromise =
+		app.status === "error"
+			? loadMaterializedSessionForApp(id)
+			: Promise.resolve(null);
+	const [threadHydration, previewProjectSpace, failedMaterializedDesign] =
+		await Promise.all([
+			threadHydrationPromise,
+			previewProjectSpacePromise,
+			failedMaterializedDesignPromise,
+		]);
+	const { threads, initialThread } = threadHydration;
 
 	/* An `error` app is reachable when either its hydrated thread carries a
 	 * dead live-stream marker (`loadThread` derives `resume_interrupted`) or a
@@ -180,8 +196,6 @@ export default async function BuilderPage({
 	 * apps keep the existing redirect. */
 	const buildInterrupted =
 		app.status === "error" && initialThread?.resume_interrupted === true;
-	const failedMaterializedDesign =
-		app.status === "error" ? await loadMaterializedSessionForApp(id) : null;
 	const failedMaterializedHead =
 		failedMaterializedDesign === null
 			? null
@@ -206,7 +220,6 @@ export default async function BuilderPage({
 		failedMaterializedDesign !== null;
 
 	const initialDoc = toRscSerializableDoc(app.blueprint);
-	const previewProjectSpace = await previewProjectSpacePromise;
 
 	return (
 		<BuilderProvider

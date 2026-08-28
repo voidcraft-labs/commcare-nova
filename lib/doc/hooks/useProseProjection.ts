@@ -24,10 +24,26 @@ import { useCallback } from "react";
 import type { ProseTemplate } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
-import { useBlueprintDocShallow } from "./useBlueprintDoc";
+import { useBlueprintDocEq, useBlueprintDocShallow } from "./useBlueprintDoc";
 
 /** Project a template to its current spelling against the live document. */
 export type ProseProjector = (template: ProseTemplate) => string;
+
+/**
+ * Subscribe to the rendered value of one template rather than to every
+ * document family the prose printer can read. The selector still re-checks
+ * after a relevant store publication, but React only re-renders the caller
+ * when this template's visible spelling changed.
+ */
+export function useProjectedProseTemplate(
+	template: ProseTemplate | undefined,
+): string {
+	return useBlueprintDocEq(
+		(doc) =>
+			template === undefined ? "" : projectProseTemplate(template, doc).text,
+		Object.is,
+	);
+}
 
 export function useProseProjection(): ProseProjector {
 	const doc = useBlueprintDocShallow<XPathPrintableDoc>((s) => ({

@@ -48,10 +48,13 @@ import {
 } from "@/lib/domain/predicate";
 import {
 	CaseListWorkspaceCanvas,
+	CaseListWorkspaceControllerBridge,
+} from "../CaseListConfigWorkspace";
+import {
 	CaseListWorkspaceProvider,
 	type CaseListWorkspaceTab,
 	useCaseListWorkspace,
-} from "../CaseListConfigWorkspace";
+} from "../CaseListWorkspaceProvider";
 import { searchInputRemovalDependencies } from "../searchInputRemovalDependencies";
 
 // The surfaces here spell authored prose against the document; every production
@@ -141,6 +144,13 @@ vi.mock("@/lib/routing/hooks", () => ({
 					: "detail-config",
 		moduleUuid: harness.moduleUuid,
 	}),
+	useLocationKind: () =>
+		harness.tab === "search"
+			? "search-config"
+			: harness.tab === "list"
+				? "cases"
+				: "detail-config",
+	useSelectedModuleUuid: () => harness.moduleUuid,
 }));
 vi.mock("@/lib/session/hooks", () => ({
 	useAppId: () => "app-1",
@@ -396,7 +406,9 @@ function CaseListConfigWorkspace({
 	harness.moduleUuid = moduleUuid;
 	harness.tab = tab;
 	return (
-		<CaseListWorkspaceProvider>
+		<CaseListWorkspaceProvider
+			controllerComponent={CaseListWorkspaceControllerBridge}
+		>
 			<CaseListWorkspaceCanvas />
 			<HarnessInspector />
 		</CaseListWorkspaceProvider>
@@ -620,7 +632,7 @@ describe("Search field removal", () => {
 		mutationApi.inlineUpdateModule.mockReturnValue({ ok: true });
 	});
 
-	it("authors and opens an intentional zero-input Search action", () => {
+	it("authors and opens an intentional zero-input Search action", async () => {
 		const module = makeModule([], {});
 		delete module.caseSearchConfig;
 		testState.module = module;
@@ -640,7 +652,7 @@ describe("Search field removal", () => {
 			},
 		]);
 		expect(module.caseSearchConfig).toEqual({});
-		expect(screen.getByText("Search action in use")).toBeDefined();
+		expect(await screen.findByText("Search action in use")).toBeDefined();
 	});
 
 	it("enters a newly added Search condition at the condition itself", () => {

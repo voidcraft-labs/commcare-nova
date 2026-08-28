@@ -66,9 +66,10 @@ npx playwright show-report e2e/playwright-report
 ```
 
 `scripts/smoke.sh` boots local Postgres (compose) + migrations, seeds, then runs
-Playwright, which builds and starts Next's generated standalone server through
-`scripts/start-standalone.mjs`. The launcher fails if the production build is
-missing, places `public` and `.next/static` under `.next/standalone`, and overlays
+Playwright, which builds the isolated XPath worker and starts Next's generated
+standalone server through `scripts/start-standalone.mjs`. The launcher fails if the
+production build or worker is missing, places `public` and `.next/static` under
+`.next/standalone`, and overlays
 sharp's `node_modules/@img` runtime exactly like Docker before running `server.js`.
 It uses a throwaway `BETTER_AUTH_SECRET` and dummy OAuth creds — never production
 secrets.
@@ -106,7 +107,8 @@ headed Playwright browser drives a deterministic Builder interaction:
 
 ```bash
 npm run profile:react
-npm run profile:react -- --grep "case search"  # select another profiling spec
+npm run profile:react -- --grep "cross-form hidden-field"
+NOVA_REACT_PROFILE_CASE_PROPERTIES=8 npm run profile:react -- --grep "cross-form hidden-field"
 ```
 
 It creates and recreates its own `nova_react_profile` database, uses the same
@@ -116,6 +118,12 @@ the selected spec under `e2e/react-profile/`, exports React DevTools version-5
 JSON, runs `scripts/analyze-react-profile.py`, and tears down the browser,
 server, daemon, and private state. The raw JSON and text summary land under the
 gitignored `react-profiles/` directory.
+
+The large Builder scenarios synthesize the production-shaped inventory that
+motivated the performance harness: four forms, 326 fields, dense logic, and up
+to 94 case properties, without copying authored production content. Set
+`NOVA_REACT_PROFILE_CASE_PROPERTIES` from `0` to `94` to increase that last
+dimension progressively; the default is the full 94-property shape.
 
 The dependency is intentionally not configured with its upstream `init`
 command. Nova's Next 16 integration injects the hook before hydration only for

@@ -82,6 +82,11 @@ import {
 	formSectionsRoute,
 } from "./lib/formSectionsSeed";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
+import {
+	buildReactProfileBlueprint,
+	reactProfileInitialRoute,
+	reactProfileRoute,
+} from "./lib/reactProfileSeed";
 import { buildSessionStorageState } from "./lib/session";
 
 /** Stable identifiers the tests assert against (mirrored in `authed.spec.ts`). */
@@ -463,6 +468,41 @@ async function main(): Promise<void> {
 			status: "complete",
 		},
 	);
+	const reactProfile =
+		process.env.NOVA_REACT_PROFILE === "1"
+			? await (async () => {
+					const { appId, baseSeq } = await createExplicitBlankApp(
+						SEED.userId,
+						seedProjectId,
+						randomUUID(),
+						{
+							name: "React profile large app",
+							status: "complete",
+						},
+					);
+					const fixture = buildReactProfileBlueprint(appId, {
+						casePropertyCount:
+							process.env.NOVA_REACT_PROFILE_CASE_PROPERTIES === undefined
+								? undefined
+								: Number(process.env.NOVA_REACT_PROFILE_CASE_PROPERTIES),
+					});
+					await appendSyntheticBatch({
+						appId,
+						expectedBaseSeq: baseSeq,
+						targetDoc: toPersistableDoc(fixture.doc),
+						authority: { kind: "user", actorUserId: SEED.userId },
+					});
+					return {
+						appId,
+						moduleUuid: fixture.moduleUuid,
+						initialFormUuid: fixture.initialFormUuid,
+						initialRoute: reactProfileInitialRoute(appId, fixture),
+						targetFormUuid: fixture.targetFormUuid,
+						targetFieldUuid: fixture.targetFieldUuid,
+						targetRoute: reactProfileRoute(appId, fixture),
+					};
+				})()
+			: undefined;
 	const organizationAppIds: string[] = [];
 	const organizationCaseChangeRoutes: string[] = [];
 	for (let i = 0; i < ORGANIZATION_FIXTURE_COUNT; i++) {
@@ -1074,6 +1114,7 @@ async function main(): Promise<void> {
 			{
 				...SEED,
 				openAppId,
+				reactProfile,
 				organizationAppIds,
 				organizationCaseChangeRoutes,
 				caseWorkspace,

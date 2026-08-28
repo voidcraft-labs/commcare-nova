@@ -2,7 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { RejectionCallout } from "@/components/builder/RejectionNotice";
 import { Textarea } from "@/components/shadcn/textarea";
 import type { CommitOutcome } from "@/lib/domain";
@@ -140,6 +140,22 @@ export function EditableTitle({
 		selectAll: false,
 	});
 	const shakeProps = useRejectionShake(rejectionNonce);
+	const measuredValue = readOnly || !canEdit ? value : draft;
+
+	/* Measure when this title's own text changes. The old inline ref callback
+	 * changed identity on every parent render, so React detached/reattached it
+	 * and forced a scrollWidth read + style write even when an unrelated field
+	 * committed elsewhere in the form. */
+	useLayoutEffect(() => {
+		// The measurement reads the mirror DOM, while this value is the signal
+		// that its text changed and the DOM now has a different intrinsic width.
+		void measuredValue;
+		if (!wrap) syncWidth();
+	}, [measuredValue, syncWidth, wrap]);
+
+	const setMeasureRef = useCallback((el: HTMLSpanElement | null) => {
+		measureRef.current = el;
+	}, []);
 
 	const setInputRef = useCallback(
 		(el: HTMLInputElement | HTMLTextAreaElement | null) => {
@@ -222,14 +238,7 @@ export function EditableTitle({
 	if (readOnly || !canEdit) {
 		return (
 			<>
-				<span
-					ref={(el) => {
-						measureRef.current = el;
-						syncWidth();
-					}}
-					className={MEASURE_SPAN_CLASS}
-					aria-hidden
-				>
+				<span ref={setMeasureRef} className={MEASURE_SPAN_CLASS} aria-hidden>
 					{value || "\u00A0"}
 				</span>
 				<input
@@ -250,14 +259,7 @@ export function EditableTitle({
 	return (
 		<span className="relative flex min-w-0 flex-1 items-center gap-2">
 			{/* Hidden span that mirrors the input text for pixel-accurate width measurement */}
-			<span
-				ref={(el) => {
-					measureRef.current = el;
-					syncWidth();
-				}}
-				className={MEASURE_SPAN_CLASS}
-				aria-hidden
-			>
+			<span ref={setMeasureRef} className={MEASURE_SPAN_CLASS} aria-hidden>
 				{draft || "\u00A0"}
 			</span>
 			<input

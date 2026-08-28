@@ -9,17 +9,23 @@ import { createBlueprintDocStore } from "@/lib/doc/store";
 /**
  * Tests for URL-driven location hooks.
  *
- * We mock `useBuilderPathSegments` to simulate different URL paths,
+ * We mock the client path snapshot to simulate different URL paths,
  * and provide a doc store with known entities for UUID disambiguation.
  */
 import { proseText } from "@/lib/domain/prose";
 
 /* Mock the client path hook to return controlled segments. */
 const mockSegments = { current: [] as string[] };
-vi.mock("@/lib/routing/useClientPath", () => ({
-	useBuilderPathSegments: () => mockSegments.current,
-	notifyPathChange: vi.fn(),
-}));
+vi.mock("@/lib/routing/useClientPath", async () => {
+	const actual = await vi.importActual<
+		typeof import("@/lib/routing/useClientPath")
+	>("@/lib/routing/useClientPath");
+	return {
+		...actual,
+		getBuilderPathSegmentsSnapshot: () => mockSegments.current,
+		useBuilderPathSegments: () => mockSegments.current,
+	};
+});
 
 /* Mock next/navigation — only usePathname is needed by useLocation's
  * downstream dependencies (useNavigate/useSelect). useLocation itself

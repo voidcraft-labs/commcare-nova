@@ -1,10 +1,11 @@
 /**
  * One field's local case-storage destination.
  *
- * The chooser commits only complete `{ caseType, property }` pairs. Every
- * existing and newly-authored pair is dry-run through the full mutation gate,
- * so impossible destinations stay visible with the exact reason they cannot
- * be chosen. Field ID remains independently owned by FieldIdentitySection.
+ * The chooser commits only complete `{ caseType, property }` pairs. Existing
+ * destination is checked on demand through the full mutation gate in a worker,
+ * then its exact snapshot-bound proof lets the synchronous commit gate admit it
+ * without repeating that work. Existing and newly-authored properties share
+ * the same path. Field ID remains independently owned by FieldIdentitySection.
  */
 "use client";
 
@@ -13,7 +14,14 @@ import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
-import { useCallback, useId, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { propertyDisplayLabel } from "@/components/builder/shared/primitives/propertyDisplay";
@@ -41,9 +49,10 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import type { CaseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
+import type { CaseWriteVerdictCandidate } from "@/lib/doc/caseWriteVerdictWorkerProtocol";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
-import { useCaseWriteChoices } from "@/lib/doc/hooks/useCaseWriteChoices";
+import { useCaseWriteChoiceVerdicts } from "@/lib/doc/hooks/useCaseWriteChoices";
 import {
 	type ProseProjector,
 	useProseProjection,
@@ -93,6 +102,24 @@ interface CaseWriteChoiceGroup {
 	readonly value: string;
 	readonly items: readonly CaseWriteChoice[];
 }
+
+function verdictCandidateFor(
+	choice: CaseWriteChoice,
+): CaseWriteVerdictCandidate {
+	const caseWrite = choice.kind === "clear" ? null : (choice.caseWrite ?? null);
+	return {
+		key: caseWriteVerdictKey(caseWrite),
+		caseWrite,
+	};
+}
+
+function caseWriteVerdictKey(caseWrite: AuthoredCaseWrite | null): string {
+	return caseWrite === null ? "__clear__" : JSON.stringify(caseWrite);
+}
+
+const AVAILABLE_CHOICE: CaseWriteChoiceVerdict = { ok: true };
+const CHECK_UNAVAILABLE =
+	"Nova couldn't check this destination yet. Try choosing it again.";
 
 function destinationId(caseType: string, property: string): string {
 	return JSON.stringify([caseType, property]);
@@ -170,7 +197,6 @@ export function CaseWriteEditor<F extends Field>(
 		() => orderedUserProperties({ userProperties, userPropertyOrder }),
 		[userProperties, userPropertyOrder],
 	);
-	const { choiceVerdict } = useCaseWriteChoices(field);
 	const triggerId = useId();
 	const newNameId = useId();
 	const newTypeId = useId();
@@ -182,7 +208,15 @@ export function CaseWriteEditor<F extends Field>(
 	const [creating, setCreating] = useState(false);
 	const [newCaseType, setNewCaseType] = useState("");
 	const [newName, setNewName] = useState("");
+	const [checkingNewProperty, setCheckingNewProperty] = useState(false);
 	const [rejection, setRejection] = useState<string | null>(null);
+	const selectionAttemptRef = useRef(0);
+	useEffect(
+		() => () => {
+			selectionAttemptRef.current += 1;
+		},
+		[],
+	);
 
 	const current =
 		typeof value === "object" && value !== null
@@ -240,7 +274,39 @@ export function CaseWriteEditor<F extends Field>(
 			}),
 		[effectiveCaseTypes, writableTypeNames],
 	);
-	const clearVerdict = choiceVerdict(null);
+	const verdictCandidates = useMemo<readonly CaseWriteVerdictCandidate[]>(
+		() => [
+			{ key: "__clear__", caseWrite: null },
+			...writableTypes.flatMap((caseType) =>
+				caseType.properties.map((property) => {
+					const caseWrite = destinationFor(caseType.name, property.name);
+					return { key: caseWriteVerdictKey(caseWrite), caseWrite };
+				}),
+			),
+			...workerProperties.map((property) => {
+				const caseWrite: CaseWrite = {
+					caseType: USERCASE_CASE_TYPE,
+					property: property.slug,
+				};
+				return { key: caseWriteVerdictKey(caseWrite), caseWrite };
+			}),
+		],
+		[destinationFor, workerProperties, writableTypes],
+	);
+	const { verdicts, evaluating, ensureVerdict } = useCaseWriteChoiceVerdicts(
+		field,
+		verdictCandidates,
+		open || creating,
+	);
+	/* The exact catalog scan runs off the interaction thread. A verdict that
+	 * has not arrived yet stays selectable. Choosing a row stops advisory work
+	 * before the validity-preserving commit gate checks the concrete edit. */
+	const visibleChoiceVerdict = useCallback(
+		(caseWrite: AuthoredCaseWrite | null) =>
+			verdicts.get(caseWriteVerdictKey(caseWrite)) ?? AVAILABLE_CHOICE,
+		[verdicts],
+	);
+	const clearVerdict = visibleChoiceVerdict(null);
 	const choices = useMemo<readonly CaseWriteChoice[]>(() => {
 		const result: CaseWriteChoice[] = [
 			{
@@ -263,7 +329,7 @@ export function CaseWriteEditor<F extends Field>(
 						caseType,
 						property,
 						caseWrite,
-						choiceVerdict(caseWrite),
+						visibleChoiceVerdict(caseWrite),
 						projectProse,
 					),
 				);
@@ -279,7 +345,7 @@ export function CaseWriteEditor<F extends Field>(
 				caseType: USERCASE_CASE_TYPE,
 				property: property.slug,
 			};
-			const verdict = choiceVerdict(caseWrite);
+			const verdict = visibleChoiceVerdict(caseWrite);
 			result.push({
 				id: destinationId(USERCASE_CASE_TYPE, property.slug),
 				group: "The worker's own record",
@@ -306,12 +372,12 @@ export function CaseWriteEditor<F extends Field>(
 		}
 		return result;
 	}, [
-		choiceVerdict,
 		clearVerdict,
 		destinationFor,
 		projectProse,
 		workerProperties,
 		writableTypes,
+		visibleChoiceVerdict,
 	]);
 	const groups = useMemo<readonly CaseWriteChoiceGroup[]>(() => {
 		const order: string[] = [];
@@ -332,6 +398,10 @@ export function CaseWriteEditor<F extends Field>(
 			? "__clear__"
 			: destinationId(current.caseType, current.property);
 	const selected = choices.find((choice) => choice.id === selectedId) ?? null;
+	const newPropertyError = newName.length === 0 ? null : nameError(newName);
+	const parsedNewName = authoredCasePropertyNameSchema.safeParse(newName);
+	const canCreate =
+		parsedNewName.success && newCaseType !== "" && !checkingNewProperty;
 
 	const commit = useCallback(
 		(next: AuthoredCaseWrite | undefined) => {
@@ -341,6 +411,62 @@ export function CaseWriteEditor<F extends Field>(
 		},
 		[onChange],
 	);
+	const commitChoice = useCallback(
+		(choice: CaseWriteChoice) => {
+			const landed = commit(
+				choice.kind === "clear" ? undefined : choice.caseWrite,
+			);
+			if (landed) setOpen(false);
+		},
+		[commit],
+	);
+	const chooseDestination = useCallback(
+		(choice: CaseWriteChoice) => {
+			const attempt = ++selectionAttemptRef.current;
+			void ensureVerdict(verdictCandidateFor(choice)).then((verdict) => {
+				if (selectionAttemptRef.current !== attempt) return;
+				if (verdict === undefined) {
+					setRejection(CHECK_UNAVAILABLE);
+					return;
+				}
+				if (!verdict.ok) {
+					setRejection(verdict.reason);
+					return;
+				}
+				commitChoice(choice);
+			});
+		},
+		[commitChoice, ensureVerdict],
+	);
+	const createProperty = useCallback(() => {
+		if (!parsedNewName.success || checkingNewProperty) return;
+		const caseWrite = destinationFor(newCaseType, parsedNewName.data);
+		const attempt = ++selectionAttemptRef.current;
+		setCheckingNewProperty(true);
+		void ensureVerdict({
+			key: caseWriteVerdictKey(caseWrite),
+			caseWrite,
+		}).then((verdict) => {
+			if (selectionAttemptRef.current !== attempt) return;
+			setCheckingNewProperty(false);
+			if (verdict === undefined) {
+				setRejection(CHECK_UNAVAILABLE);
+				return;
+			}
+			if (!verdict.ok) {
+				setRejection(verdict.reason);
+				return;
+			}
+			if (commit(caseWrite)) setCreating(false);
+		});
+	}, [
+		checkingNewProperty,
+		commit,
+		destinationFor,
+		ensureVerdict,
+		newCaseType,
+		parsedNewName,
+	]);
 	const beginCreate = useCallback(() => {
 		const startingType =
 			current !== undefined && writableTypeNames.includes(current.caseType)
@@ -348,26 +474,12 @@ export function CaseWriteEditor<F extends Field>(
 				: (writableTypeNames[0] ?? "");
 		setNewCaseType(startingType);
 		setNewName("");
+		setCheckingNewProperty(false);
 		setRejection(null);
 		setCreating(true);
 		setOpen(false);
 		requestAnimationFrame(() => newNameRef.current?.focus());
 	}, [current, writableTypeNames]);
-
-	const newPropertyError = newName.length === 0 ? null : nameError(newName);
-	const parsedNewName = authoredCasePropertyNameSchema.safeParse(newName);
-	const newChoiceVerdict =
-		parsedNewName.success && newCaseType !== ""
-			? choiceVerdict(destinationFor(newCaseType, parsedNewName.data))
-			: null;
-	const newChoiceError =
-		newChoiceVerdict !== null && !newChoiceVerdict.ok
-			? newChoiceVerdict.reason
-			: null;
-	const canCreate =
-		parsedNewName.success &&
-		newCaseType !== "" &&
-		newChoiceVerdict?.ok === true;
 
 	const displayLabel =
 		current === undefined
@@ -397,15 +509,14 @@ export function CaseWriteEditor<F extends Field>(
 					setQuery(details.reason === "item-press" ? "" : nextQuery);
 				}}
 				onValueChange={(choice: CaseWriteChoice | null) => {
-					if (choice === null || choice.disabledReason !== undefined) return;
+					if (choice === null || choice.disabledReason !== undefined) {
+						return;
+					}
 					if (choice.kind === "new") {
 						beginCreate();
 						return;
 					}
-					const landed = commit(
-						choice.kind === "clear" ? undefined : choice.caseWrite,
-					);
-					if (landed) setOpen(false);
+					chooseDestination(choice);
 				}}
 				autoHighlight
 				itemToStringLabel={(choice: CaseWriteChoice) => choice.label}
@@ -421,6 +532,10 @@ export function CaseWriteEditor<F extends Field>(
 							.toLocaleLowerCase()
 							.includes(normalized)
 					);
+				}}
+				onItemHighlighted={(choice: CaseWriteChoice | undefined) => {
+					if (choice === undefined || choice.kind === "new") return;
+					void ensureVerdict(verdictCandidateFor(choice));
 				}}
 			>
 				<ComboboxTrigger
@@ -475,6 +590,14 @@ export function CaseWriteEditor<F extends Field>(
 								? "Saves a link to the attached file, not the file itself"
 								: "The question name and saved case property are independent"}
 						</p>
+						{evaluating && (
+							<p
+								role="status"
+								className="mt-1 text-xs leading-relaxed text-nova-text-muted"
+							>
+								Checking availability
+							</p>
+						)}
 					</header>
 					<div className="border-y border-white/[0.06] pb-2">
 						<ComboboxInput
@@ -607,6 +730,7 @@ export function CaseWriteEditor<F extends Field>(
 						</label>
 						<Select
 							value={newCaseType}
+							disabled={checkingNewProperty}
 							onValueChange={(next) => {
 								if (next !== null) setNewCaseType(next);
 							}}
@@ -641,22 +765,17 @@ export function CaseWriteEditor<F extends Field>(
 							ref={newNameRef}
 							id={newNameId}
 							value={newName}
+							disabled={checkingNewProperty}
 							onChange={(event) => setNewName(event.target.value)}
 							onKeyDown={(event) => {
 								if (event.key === "Enter" && canCreate) {
 									event.preventDefault();
-									if (commit(destinationFor(newCaseType, parsedNewName.data))) {
-										setCreating(false);
-									}
+									createProperty();
 								}
 							}}
-							aria-invalid={
-								newPropertyError !== null || newChoiceError !== null
-							}
+							aria-invalid={newPropertyError !== null}
 							aria-describedby={`${newNameId}-help${
-								newPropertyError !== null || newChoiceError !== null
-									? ` ${newNameId}-error`
-									: ""
+								newPropertyError !== null ? ` ${newNameId}-error` : ""
 							}`}
 							placeholder="for example, preferred_language"
 							autoComplete="off"
@@ -669,13 +788,13 @@ export function CaseWriteEditor<F extends Field>(
 						>
 							Start with a letter; use letters, numbers, underscores, or hyphens
 						</p>
-						{(newPropertyError !== null || newChoiceError !== null) && (
+						{newPropertyError !== null && (
 							<p
 								id={`${newNameId}-error`}
 								role="alert"
 								className="mt-1.5 text-xs leading-relaxed text-nova-rose"
 							>
-								{newPropertyError ?? newChoiceError}
+								{newPropertyError}
 							</p>
 						)}
 					</div>
@@ -685,6 +804,8 @@ export function CaseWriteEditor<F extends Field>(
 							variant="ghost"
 							className=""
 							onClick={() => {
+								selectionAttemptRef.current += 1;
+								setCheckingNewProperty(false);
 								setCreating(false);
 								requestAnimationFrame(() => triggerRef.current?.focus());
 							}}
@@ -695,14 +816,9 @@ export function CaseWriteEditor<F extends Field>(
 							type="button"
 							className=""
 							disabled={!canCreate}
-							onClick={() => {
-								if (!parsedNewName.success) return;
-								if (commit(destinationFor(newCaseType, parsedNewName.data))) {
-									setCreating(false);
-								}
-							}}
+							onClick={createProperty}
 						>
-							Save to property
+							{checkingNewProperty ? "Checking property" : "Save to property"}
 						</Button>
 					</div>
 				</div>

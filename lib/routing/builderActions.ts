@@ -26,7 +26,7 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc } from "@/lib/doc/types";
 import { findFieldElement, flashUndoHighlight } from "@/lib/routing/domQueries";
-import { useLocation, useSelect } from "@/lib/routing/hooks";
+import { readBuilderLocation, useSelect } from "@/lib/routing/hooks";
 import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
 
 /**
@@ -83,7 +83,6 @@ export function undoRedoGateVerdict(
 export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const docStore = useContext(BlueprintDocContext);
 	const { scrollTo } = useScrollIntoView();
-	const loc = useLocation();
 	const activeFieldId = useActiveFieldId();
 	const setFocusHint = useSetFocusHint();
 	const projectToast = useProjectToast();
@@ -92,6 +91,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 		function run(action: "undo" | "redo"): void {
 			if (!docStore) return;
 			const state = docStore.getState();
+			const loc = readBuilderLocation(state);
 			const batch = action === "undo" ? state.undoBatch() : state.redoBatch();
 			if (batch === undefined) return;
 
@@ -151,7 +151,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			undo: () => run("undo"),
 			redo: () => run("redo"),
 		};
-	}, [docStore, scrollTo, loc, activeFieldId, setFocusHint, projectToast]);
+	}, [docStore, scrollTo, activeFieldId, setFocusHint, projectToast]);
 }
 
 /**
@@ -171,13 +171,13 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
  * mutation for a value we only need in the delete callback.
  */
 export function useDeleteSelectedField(): () => void {
-	const loc = useLocation();
 	const docApi = useBlueprintDocApi();
 	const select = useSelect();
 	const { removeField } = useBlueprintMutations();
 
 	return useMemo(
 		() => () => {
+			const loc = readBuilderLocation(docApi.getState());
 			if (loc.kind !== "form" || !loc.selectedUuid) return;
 			/* `flattenFieldRefs` skips hidden fields. If the selected uuid is
 			 * hidden, or stale (race with LocationRecoveryEffect), `findIndex`
@@ -193,8 +193,8 @@ export function useDeleteSelectedField(): () => void {
 			 * selection on the still-present field rather than deselecting a
 			 * field the user is looking at. */
 			if (!removeField(asUuid(loc.selectedUuid)).ok) return;
-			select(neighbor ? neighbor.uuid : undefined);
+			select(neighbor ? neighbor.uuid : undefined, loc);
 		},
-		[loc, docApi, select, removeField],
+		[docApi, select, removeField],
 	);
 }

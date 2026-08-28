@@ -27,6 +27,7 @@ const consultGuard = vi.fn(() => true);
 const mockSegments = { current: [] as string[] };
 vi.mock("@/lib/routing/useClientPath", () => ({
 	useBuilderPathSegments: () => mockSegments.current,
+	getBuilderPathSegmentsSnapshot: () => mockSegments.current,
 	notifyPathChange: vi.fn(),
 	pushBuilderHistory: (url: string, replace = false) => {
 		if (replace) window.history.replaceState(null, "", url);

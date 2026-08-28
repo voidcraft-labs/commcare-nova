@@ -936,6 +936,8 @@ describe("reconciler", () => {
 			]);
 			const batchId = h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: true, seq: 4 });
+			const projectionRevision =
+				h.docStore.getState().caseWriteProjectionRevision;
 
 			// A peer edits field B's label — disjoint. Arrives as a remote frame.
 			h.reconciler.onFrame(
@@ -958,6 +960,9 @@ describe("reconciler", () => {
 			const displayed = h.docStore.getState();
 			expect(fieldLabel(displayed, F_A)).toBe("A2");
 			expect(fieldLabel(displayed, F_B)).toBe("B2");
+			// The refold carries the peer frame's exact admitted batch. Two label
+			// edits do not make Preview rebuild its app-wide writer projection.
+			expect(displayed.caseWriteProjectionRevision).toBe(projectionRevision);
 			expect(batchId).toBeDefined();
 		});
 

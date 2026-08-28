@@ -38,7 +38,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerScan from "@iconify-icons/tabler/scan";
 import tablerSearch from "@iconify-icons/tabler/search";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { DatePicker } from "@/components/shadcn/date-picker";
 import {
@@ -66,7 +66,27 @@ import type { Predicate } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
-import { searchInputSubmissionErrors } from "@/lib/preview/engine/searchInputValidation";
+
+type SearchInputValidationModule =
+	typeof import("@/lib/preview/engine/searchInputValidation");
+
+let searchInputValidationModule:
+	| Promise<SearchInputValidationModule>
+	| undefined;
+
+/**
+ * The exact runtime validator reaches the CSQL wire compiler. Keep that server-
+ * sized dependency behind the first Search attempt: rendering or typing in a
+ * running-app search form does not need to compile a query, and the resolved
+ * module promise makes live follow-up validation synchronous apart from one
+ * already-settled microtask.
+ */
+function loadSearchInputValidation(): Promise<SearchInputValidationModule> {
+	searchInputValidationModule ??= import(
+		"@/lib/preview/engine/searchInputValidation"
+	);
+	return searchInputValidationModule;
+}
 
 // ── Public surface ──────────────────────────────────────────────────
 
@@ -132,19 +152,29 @@ export function SearchInputForm({
 	const [validationState, setValidationState] = useState({
 		scopeKey,
 		attempted: false,
+		errors: new Map<string, string>() as ReadonlyMap<string, string>,
 	});
 	const validationAttempted =
 		validationState.scopeKey === scopeKey && validationState.attempted;
-	const setValidationAttempted = (attempted: boolean) =>
-		setValidationState({ scopeKey, attempted });
+	const submissionErrors =
+		validationState.scopeKey === scopeKey
+			? validationState.errors
+			: new Map<string, string>();
+	const validationRequestRef = useRef(0);
+	const lastValidatedDraftRef = useRef<SearchInputValues | undefined>(
+		undefined,
+	);
+	const [validating, setValidating] = useState(false);
 
 	// `draft` is the form's local-typing buffer. Per-input change
 	// handlers update it synchronously so the rendered inputs stay
 	// responsive; one debounced effect emits upward.
 	const [draft, setDraft] = useState<SearchInputValues>(value);
-	const submissionErrors = useMemo(
-		() =>
-			searchInputSubmissionErrors(
+	const validateSubmission = useCallback(
+		async (candidate: SearchInputValues) => {
+			const request = ++validationRequestRef.current;
+			const { searchInputSubmissionErrors } = await loadSearchInputValidation();
+			const errors = searchInputSubmissionErrors(
 				{
 					columns: [],
 					listColumnOrder: [],
@@ -153,12 +183,38 @@ export function SearchInputForm({
 					...(filter !== undefined ? { filter } : {}),
 				},
 				caseType?.name,
-				draft,
+				candidate,
 				session,
 				typeContext,
-			),
-		[caseType?.name, draft, filter, searchInputs, session, typeContext],
+			);
+			if (request !== validationRequestRef.current) return undefined;
+			lastValidatedDraftRef.current = candidate;
+			setValidationState({
+				scopeKey,
+				attempted: errors.size > 0,
+				errors,
+			});
+			return errors;
+		},
+		[caseType?.name, filter, scopeKey, searchInputs, session, typeContext],
 	);
+
+	useEffect(
+		() => () => {
+			validationRequestRef.current += 1;
+		},
+		[],
+	);
+
+	// Once feedback is visible, keep it in step with the corrected draft. This
+	// path runs only after the worker has attempted Search; ordinary typing pays
+	// no CSQL compilation cost.
+	useEffect(() => {
+		if (!validationAttempted || lastValidatedDraftRef.current === draft) {
+			return;
+		}
+		void validateSubmission(draft);
+	}, [draft, validateSubmission, validationAttempted]);
 
 	// `lastEmittedRef` carries the value most recently treated as
 	// "already emitted" by the form. Two writes land here:
@@ -244,15 +300,16 @@ export function SearchInputForm({
 	return (
 		<search aria-label={landmarkLabel}>
 			<form
-				onSubmit={(event) => {
+				onSubmit={async (event) => {
 					event.preventDefault();
-					if (!submitAvailable) return;
-					if (submissionErrors.size > 0) {
-						setValidationAttempted(true);
-						return;
+					if (!submitAvailable || validating) return;
+					setValidating(true);
+					try {
+						const errors = await validateSubmission(draft);
+						if (errors?.size === 0) onSubmit?.(draft);
+					} finally {
+						setValidating(false);
 					}
-					setValidationAttempted(false);
-					onSubmit?.(draft);
 				}}
 			>
 				<div
@@ -284,6 +341,8 @@ export function SearchInputForm({
 					<Button
 						type="submit"
 						data-search-submit
+						disabled={validating}
+						aria-busy={validating}
 						className="mt-4 h-auto min-h-11 w-full whitespace-normal break-words rounded-md bg-pv-accent px-4 py-2.5 text-center text-sm font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 					>
 						<Icon icon={tablerSearch} width="15" height="15" />

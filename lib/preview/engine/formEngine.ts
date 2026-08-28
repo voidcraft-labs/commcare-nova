@@ -84,13 +84,13 @@ import {
 	type XPathInstance,
 } from "../xpath/runtimeValues";
 import type { EvalContext, XPathValue } from "../xpath/types";
-import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import {
 	serializeXPathWorkerHashtagValue,
 	serializeXPathWorkerValue,
 	snapshotXPathWorkerInstance,
 	xpathWorkerHashtagReferences,
-} from "../xpath/workerRuntime";
+} from "../xpath/workerProjection";
+import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import type {
 	SubmissionAnswerEntry,
 	SubmissionAttachmentReference,
@@ -2128,6 +2128,14 @@ export class FormEngine {
 	 *  affected entries to the runtime store after a setValue cascade. */
 	getAffectedPaths(path: string): string[] {
 		return this.dag.getAffected(path, this.repeatCounts);
+	}
+
+	/** Refresh the narrow document surface used only when Preview emits case
+	 * writes. A Builder case-destination edit changes no value, DAG edge, field
+	 * path, or rendered state, so rebuilding or settling the evaluator would be
+	 * wasted work; submission still has to observe the new destination exactly. */
+	refreshCaseWriteDoc(input: FormEngineInput): void {
+		this.caseWriteDoc = caseWriteDocOf(input);
 	}
 
 	/**

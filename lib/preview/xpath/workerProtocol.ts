@@ -6,7 +6,13 @@
  * not add request payloads to diagnostics.
  */
 
-export const XPATH_WORKER_PROTOCOL_VERSION = 5 as const;
+export const XPATH_WORKER_PROTOCOL_VERSION = 6 as const;
+
+/** Build identity shared by the host chunk and the independently bundled
+ * public Worker. Production receives Cloud Build's immutable UUID; local and
+ * test builds deliberately share the stable `local` identity. */
+export const XPATH_WORKER_BUILD_ID =
+	process.env.NEXT_PUBLIC_NOVA_BUILD_ID?.trim() || "local";
 
 /** A finite, non-identifying label for the surface requesting evaluation. */
 export type XPathWorkerProfile =
@@ -120,6 +126,7 @@ export interface XPathRuntimeRequest {
 
 interface XPathWorkerMessageIdentity {
 	readonly protocolVersion: typeof XPATH_WORKER_PROTOCOL_VERSION;
+	readonly buildId: string;
 	readonly requestId: number;
 	readonly entryKey: string;
 	readonly revision: number;
@@ -138,6 +145,7 @@ export interface XPathWorkerCancelRequest extends XPathWorkerMessageIdentity {
 
 export interface XPathWorkerRetireRequest {
 	readonly protocolVersion: typeof XPATH_WORKER_PROTOCOL_VERSION;
+	readonly buildId: string;
 	readonly operation: "retire";
 	readonly entryKey: string;
 	readonly revision: number;
@@ -159,9 +167,28 @@ export type XPathRuntimeErrorCode =
 	| "timeout"
 	| "worker-failed";
 
+/** Bounded worker-side failure metadata. This deliberately describes only
+ * which runtime boundary failed and the broad exception category; it never
+ * carries XPath source, instance paths, case data, or authored values. */
+export interface XPathRuntimeFailureReason {
+	readonly phase: "world" | "projection" | "evaluation";
+	readonly kind:
+		| "admission"
+		| "dom-exception"
+		| "invalid-path"
+		| "nodeset-cardinality"
+		| "range-error"
+		| "runtime-error"
+		| "type-error"
+		| "unsupported"
+		| "world-unavailable"
+		| "unknown";
+}
+
 /** Safe to surface to internal diagnostics. It never includes evaluation data. */
 export interface XPathRuntimeError {
 	readonly code: XPathRuntimeErrorCode;
+	readonly reason?: XPathRuntimeFailureReason;
 	readonly operation: "evaluate";
 	readonly entryKey: string;
 	readonly revision: number;

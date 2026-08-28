@@ -986,7 +986,7 @@ describe("FormScreen — runtime invariant containment", () => {
 			diagnostics: {
 				component: "preview-engine",
 				operation: "activate",
-				failureKind: "runtime-invariant",
+				failureKind: "xpath:evaluation-failed:evaluation:unsupported",
 			},
 		});
 		expect(report?.[0].diagnostics).not.toHaveProperty("appId");
@@ -2029,10 +2029,9 @@ describe("FormScreen — pending UX", () => {
 		const entryKey = capturedController?.entryKey;
 		if (!entryKey) throw new Error("Expected an active form entry");
 
-		const allTextboxes = await screen.findAllByRole("textbox");
-		const input = allTextboxes.find(
-			(el) => !(el as HTMLInputElement).readOnly,
-		) as HTMLInputElement;
+		const input = (await screen.findByRole("textbox", {
+			name: /Name/,
+		})) as HTMLInputElement;
 		fireEvent.change(input, { target: { value: "before submit" } });
 
 		const blockerStarted = deferred<void>();
@@ -2963,14 +2962,11 @@ describe("FormScreen — submit re-entry clears stale server error", () => {
 
 		renderFormScreen({ formUuid: REQUIRED_FORM_UUID });
 
-		/* The screen renders two `<input>`s: a readonly title input
-		 *  (the form's `EditableTitle`) and the field's editable text
-		 *  input. The non-readonly one is the field; filter to
-		 *  disambiguate `getByRole("textbox")`. */
-		const allTextboxes = await screen.findAllByRole("textbox");
-		const input = allTextboxes.find(
-			(el) => !(el as HTMLInputElement).readOnly,
-		) as HTMLInputElement;
+		/* Wait for the engine-ready field rather than resolving early against the
+		 * readonly form title while the preview initialization status is shown. */
+		const input = (await screen.findByRole("textbox", {
+			name: /Name/,
+		})) as HTMLInputElement;
 		const submit = screen.getByRole("button", { name: /^submit$/i });
 
 		/* Populate the required field → engine validate-pass → action

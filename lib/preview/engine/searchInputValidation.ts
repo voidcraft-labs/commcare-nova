@@ -1,6 +1,6 @@
 /** Running-preview validation that mirrors exported CommCare search prompts. */
 
-import { quoteLiteral } from "@/lib/commcare/predicate";
+import { quoteLiteral } from "@/lib/commcare/predicate/stringQuoting";
 import {
 	buildRuntimeCsqlPromptValidations,
 	type ComposedXPathQuery,

@@ -24,7 +24,7 @@ import type {
 	ValueExpression,
 } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate";
-import { isNativeCsqlValueExpression } from "../expression/csqlEmitter";
+import { isNativeCsqlValueExpression } from "../expression/csqlCapabilities";
 import {
 	isRepresentableCalendarDateAddQuantity,
 	isRepresentableSubcaseCountBound,

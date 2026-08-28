@@ -1,19 +1,17 @@
 import {
+	XPATH_WORKER_BUILD_ID,
 	XPATH_WORKER_PROTOCOL_VERSION,
 	type XPathRuntimeError,
 	type XPathRuntimeErrorCode,
+	type XPathRuntimeFailureReason,
 	type XPathRuntimeRequest,
 	type XPathRuntimeResult,
 	type XPathWorkerEvaluateRequest,
 	type XPathWorkerRequest,
 	type XPathWorkerResponse,
 } from "./workerProtocol";
-import {
-	createXPathWorkerDispatcher,
-	type XPathWorkerEvaluator,
-} from "./workerRuntime";
 
-interface XPathWorkerMessageEvent {
+export interface XPathWorkerMessageEvent {
 	readonly data: XPathWorkerResponse;
 }
 
@@ -37,6 +35,9 @@ export type XPathWorkerFactory = () => XPathWorkerPort;
 export interface XPathRuntimeOptions {
 	readonly workerFactory: XPathWorkerFactory;
 	readonly requestTimeoutMilliseconds?: number;
+	/** Production hard-reloads when a stable public Worker URL resolves to a
+	 * different deploy than the already-open host bundle. */
+	readonly onBuildMismatch?: () => void;
 }
 
 export interface XPathRequestOptions {
@@ -48,7 +49,7 @@ interface ActiveWorker {
 	readonly port: XPathWorkerPort;
 	readonly generation: number;
 	readonly entryKey: string;
-	readonly revision: number;
+	revision: number;
 	readonly profile: XPathRuntimeRequest["profile"];
 }
 
@@ -65,9 +66,11 @@ interface PendingRequest {
 function failure(
 	request: Pick<XPathRuntimeRequest, "entryKey" | "revision" | "profile">,
 	code: XPathRuntimeErrorCode,
+	reason?: XPathRuntimeFailureReason,
 ): XPathRuntimeResult {
 	const error: XPathRuntimeError = {
 		code,
+		...(reason === undefined ? {} : { reason }),
 		operation: "evaluate",
 		entryKey: request.entryKey,
 		revision: request.revision,
@@ -81,9 +84,7 @@ function sameScope(
 	request: XPathRuntimeRequest,
 ): boolean {
 	return (
-		active.entryKey === request.entryKey &&
-		active.revision === request.revision &&
-		active.profile === request.profile
+		active.entryKey === request.entryKey && active.profile === request.profile
 	);
 }
 
@@ -91,16 +92,19 @@ function sameScope(
 export class XPathRuntime {
 	private readonly factory: XPathWorkerFactory;
 	private readonly defaultTimeout: number | undefined;
+	private readonly onBuildMismatch: (() => void) | undefined;
 	private active: ActiveWorker | undefined;
 	private generation = 0;
 	private nextRequestId = 1;
 	private readonly pending = new Map<number, PendingRequest>();
 	private suspended = false;
 	private disposed = false;
+	private buildMismatchHandled = false;
 
 	constructor(options: XPathRuntimeOptions) {
 		this.factory = options.workerFactory;
 		this.defaultTimeout = options.requestTimeoutMilliseconds;
+		this.onBuildMismatch = options.onBuildMismatch;
 	}
 
 	request(
@@ -124,8 +128,19 @@ export class XPathRuntime {
 		) {
 			return Promise.resolve(failure(input, "invalid-request"));
 		}
-		if (this.active !== undefined && !sameScope(this.active, input)) {
-			this.retireActive("stale");
+		if (this.active !== undefined) {
+			if (!sameScope(this.active, input)) {
+				this.retireActive("stale");
+			} else if (this.active.revision !== input.revision) {
+				/* A settled form entry keeps its already-loaded worker across
+				 * revisions. If older work is still in flight, termination remains the
+				 * only reliable cancellation for synchronous Java Pattern evaluation. */
+				const hasPendingRevision = [...this.pending.values()].some(
+					(pending) => pending.generation === this.active?.generation,
+				);
+				if (hasPendingRevision) this.retireActive("stale");
+				else this.active.revision = input.revision;
+			}
 		}
 		let active = this.active;
 		if (active === undefined) {
@@ -138,6 +153,7 @@ export class XPathRuntime {
 		const request: XPathWorkerEvaluateRequest = {
 			...input,
 			protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+			buildId: XPATH_WORKER_BUILD_ID,
 			operation: "evaluate",
 			requestId: this.nextRequestId++,
 		};
@@ -148,6 +164,7 @@ export class XPathRuntime {
 						try {
 							active.port.postMessage({
 								protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+								buildId: XPATH_WORKER_BUILD_ID,
 								operation: "cancel",
 								requestId: request.requestId,
 								entryKey: request.entryKey,
@@ -243,6 +260,22 @@ export class XPathRuntime {
 		const pending = this.pending.get(response.requestId);
 		const active = this.active;
 		if (pending === undefined || active === undefined) return;
+		if (response.buildId !== XPATH_WORKER_BUILD_ID) {
+			this.settle(
+				response.requestId,
+				failure(pending.request, "protocol-mismatch"),
+			);
+			this.retireActive("worker-failed");
+			if (!this.buildMismatchHandled) {
+				this.buildMismatchHandled = true;
+				try {
+					this.onBuildMismatch?.();
+				} catch {
+					// Reload/reporting recovery is best effort; the request is already fenced.
+				}
+			}
+			return;
+		}
 		if (
 			pending.generation !== active.generation ||
 			response.protocolVersion !== XPATH_WORKER_PROTOCOL_VERSION ||
@@ -275,7 +308,7 @@ export class XPathRuntime {
 							? {}
 							: { nodesetValues: response.nodesetValues }),
 					}
-				: failure(pending.request, response.error.code),
+				: failure(pending.request, response.error.code, response.error.reason),
 		);
 	};
 
@@ -317,6 +350,7 @@ export class XPathRuntime {
 		try {
 			active.port.postMessage({
 				protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+				buildId: XPATH_WORKER_BUILD_ID,
 				operation: "retire",
 				entryKey: active.entryKey,
 				revision: active.revision,
@@ -338,66 +372,4 @@ export class XPathRuntime {
 			}
 		}
 	}
-}
-
-/**
- * Direct adapter for unit tests and non-browser harnesses. It runs the exact
- * worker dispatcher asynchronously without constructing a browser Worker.
- */
-export function createInProcessXPathWorkerFactory(
-	evaluate?: XPathWorkerEvaluator,
-): XPathWorkerFactory {
-	return () => {
-		let terminated = false;
-		const messageListeners = new Set<
-			(event: XPathWorkerMessageEvent) => void
-		>();
-		const errorListeners = new Set<() => void>();
-		const dispatcher = createXPathWorkerDispatcher({
-			evaluate,
-			postMessage: (response) => {
-				queueMicrotask(() => {
-					if (terminated) return;
-					for (const listener of messageListeners) listener({ data: response });
-				});
-			},
-		});
-		return {
-			postMessage(message) {
-				queueMicrotask(() => {
-					if (terminated) return;
-					try {
-						dispatcher.handleMessage(message);
-					} catch {
-						for (const listener of errorListeners) listener();
-					}
-				});
-			},
-			addEventListener(type, listener) {
-				if (type === "message") {
-					messageListeners.add(
-						listener as (event: XPathWorkerMessageEvent) => void,
-					);
-				} else {
-					errorListeners.add(listener as () => void);
-				}
-			},
-			removeEventListener(type, listener) {
-				if (type === "message") {
-					messageListeners.delete(
-						listener as (event: XPathWorkerMessageEvent) => void,
-					);
-				} else {
-					errorListeners.delete(listener as () => void);
-				}
-			},
-			terminate() {
-				if (terminated) return;
-				terminated = true;
-				dispatcher.retire();
-				messageListeners.clear();
-				errorListeners.clear();
-			},
-		};
-	};
 }

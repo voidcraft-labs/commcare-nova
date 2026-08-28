@@ -1,4 +1,8 @@
-import { parser } from "@/lib/commcare/xpath";
+/* Import the generated parser directly: the full public XPath barrel also
+ * re-exports validators, lowering passes, and domain schemas. A standalone
+ * browser worker cannot share those main-realm modules, so pulling the barrel
+ * here duplicates hundreds of kilobytes that evaluation never reaches. */
+import { parser } from "@/lib/commcare/xpath/parser";
 import {
 	ASYNC_XPATH_FUNCTIONS,
 	evaluateAsync,
@@ -14,18 +18,17 @@ import {
 	XPathNodeSet,
 	type XPathRuntimeValue,
 } from "./runtimeValues";
+import type { EvalContext, XPathValue } from "./types";
 import {
-	type EvalContext,
-	isXPathDate,
-	XPathDate,
-	type XPathValue,
-} from "./types";
+	deserializeXPathWorkerValue,
+	serializeXPathWorkerValue,
+} from "./workerProjection";
 import {
-	type SerializedXPathValue,
+	XPATH_WORKER_BUILD_ID,
 	XPATH_WORKER_PROTOCOL_VERSION,
 	type XPathRuntimeErrorCode,
+	type XPathRuntimeFailureReason,
 	type XPathWorkerEvaluateRequest,
-	type XPathWorkerHashtagValue,
 	type XPathWorkerInstanceSnapshot,
 	type XPathWorkerNodeAddress,
 	type XPathWorkerNodeSnapshot,
@@ -76,20 +79,6 @@ export function xpathRequiresAsyncWorker(source: string): boolean {
 
 /** Parsed hashtag tokens used to snapshot only the values one request can
  * observe. This deliberately does not regex-scan authored text. */
-export function xpathWorkerHashtagReferences(
-	source: string,
-): readonly string[] {
-	const found = new Set<string>();
-	parser.parse(source).iterate({
-		enter(node) {
-			if (node.type.name === "HashtagRef") {
-				found.add(source.slice(node.from, node.to));
-			}
-		},
-	});
-	return [...found];
-}
-
 interface XPathWorkerNodesetValues {
 	readonly kind: "nodeset-values";
 	readonly values: readonly string[];
@@ -115,83 +104,6 @@ export type XPathWorkerEvaluator = (
 export interface XPathWorkerDispatcher {
 	handleMessage(message: XPathWorkerRequest): void;
 	retire(): void;
-}
-
-export function serializeXPathWorkerValue(
-	value: XPathValue,
-): SerializedXPathValue {
-	if (!isXPathDate(value)) return value;
-	return {
-		kind: "date",
-		days: value.days,
-		timeMilliseconds: value.time?.getTime() ?? null,
-	};
-}
-
-export function deserializeXPathWorkerValue(
-	value: SerializedXPathValue,
-): XPathValue {
-	if (typeof value !== "object") return value;
-	return value.timeMilliseconds === null
-		? XPathDate.fromDays(value.days)
-		: XPathDate.fromJSDate(new Date(value.timeMilliseconds));
-}
-
-/** Preserve hashtag nodesets across structured clone instead of flattening
- * them before nodeset-aware JavaRosa functions can inspect cardinality. */
-export function serializeXPathWorkerHashtagValue(
-	reference: string,
-	value: XPathRuntimeValue,
-): XPathWorkerHashtagValue {
-	if (isXPathNodeSet(value)) {
-		return {
-			reference,
-			kind: "nodeset",
-			candidates: value.candidates.map((node) => ({
-				instanceId: node.instanceId,
-				path: node.path,
-			})),
-			validPath: value.validPath,
-		};
-	}
-	return {
-		reference,
-		kind: "scalar",
-		value: serializeXPathWorkerValue(unpackXPathRuntimeValue(value)),
-	};
-}
-
-function snapshotNode(node: XPathNode): XPathWorkerNodeSnapshot {
-	const children = node.children();
-	const attributes = node.attributes();
-	const templateChildren = (node.templateChildren?.() ?? []).filter(
-		(template) => !children.some((child) => child.name === template.name),
-	);
-	const templateAttributes = (node.templateAttributes?.() ?? []).filter(
-		(template) =>
-			!attributes.some((attribute) => attribute.name === template.name),
-	);
-	return {
-		name: node.name,
-		path: node.path,
-		kind: node.kind,
-		multiplicity: node.multiplicity,
-		value: serializeXPathWorkerValue(node.value()),
-		relevant: node.isRelevant(),
-		children: children.map(snapshotNode),
-		attributes: attributes.map(snapshotNode),
-		templateChildren: templateChildren.map(snapshotNode),
-		templateAttributes: templateAttributes.map(snapshotNode),
-		childTemplateNames: node.childTemplateNames?.(),
-		attributeTemplateNames: node.attributeTemplateNames?.(),
-	};
-}
-
-/** Project an existing Preview instance onto the structured-clone protocol. */
-export function snapshotXPathWorkerInstance(
-	instance: XPathInstance,
-): XPathWorkerInstanceSnapshot {
-	return { id: instance.id, root: snapshotNode(instance.root()) };
 }
 
 class WorkerXPathInstance implements XPathInstance {
@@ -417,9 +329,11 @@ class WorkerXPathNode implements XPathNode {
 function safeError(
 	request: XPathWorkerEvaluateRequest,
 	code: XPathRuntimeErrorCode,
+	reason?: XPathRuntimeFailureReason,
 ): XPathWorkerResponse {
 	return {
 		protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+		buildId: XPATH_WORKER_BUILD_ID,
 		operation: "evaluate",
 		requestId: request.requestId,
 		entryKey: request.entryKey,
@@ -428,12 +342,50 @@ function safeError(
 		ok: false,
 		error: {
 			code,
+			...(reason === undefined ? {} : { reason }),
 			operation: "evaluate",
 			entryKey: request.entryKey,
 			revision: request.revision,
 			profile: request.profile,
 		},
 	};
+}
+
+class XPathWorkerEvaluationFailure extends Error {
+	readonly reason: XPathRuntimeFailureReason;
+
+	constructor(reason: XPathRuntimeFailureReason, cause: unknown) {
+		super("The XPath worker evaluation failed.", { cause });
+		this.name = "XPathWorkerEvaluationFailure";
+		this.reason = reason;
+	}
+}
+
+function classifyWorkerFailure(
+	error: unknown,
+	phase: XPathRuntimeFailureReason["phase"],
+): XPathRuntimeFailureReason {
+	let kind: XPathRuntimeFailureReason["kind"] = "unknown";
+	if (error instanceof RangeError) kind = "range-error";
+	else if (error instanceof TypeError) kind = "type-error";
+	else if (error instanceof DOMException) kind = "dom-exception";
+	else if (error instanceof Error) {
+		const message = error.message;
+		if (message === "The XPath worker evaluation world is unavailable.") {
+			kind = "world-unavailable";
+		} else if (message.startsWith("XPath nodeset has more than one node")) {
+			kind = "nodeset-cardinality";
+		} else if (message.includes("path that does not exist")) {
+			kind = "invalid-path";
+		} else if (message.includes("did not pass admission")) {
+			kind = "admission";
+		} else if (message.includes("Unsupported")) {
+			kind = "unsupported";
+		} else {
+			kind = "runtime-error";
+		}
+	}
+	return { phase, kind };
 }
 
 /**
@@ -446,115 +398,126 @@ export async function evaluateXPathWorkerRequest(
 	tools: XPathWorkerEvaluationTools,
 	worldCache?: XPathWorkerEvaluationWorldCache,
 ): Promise<XPathValue | XPathWorkerNodesetValues> {
-	const requestedWorldKey = request.instances.worldKey;
-	let world = worldCache?.world;
-	if (requestedWorldKey !== undefined) {
-		if (request.instances.initializeWorld) {
-			world = {
-				key: requestedWorldKey,
-				main: request.instances.main
-					? new WorkerXPathInstance(request.instances.main)
-					: undefined,
-				secondary: new Map(
-					(request.instances.secondary ?? []).map((snapshot) => {
-						const instance = new WorkerXPathInstance(snapshot);
-						return [snapshot.id, instance] as const;
-					}),
-				),
-			};
-			if (worldCache !== undefined) worldCache.world = world;
-		} else if (world?.key !== requestedWorldKey) {
-			throw new Error("The XPath worker evaluation world is unavailable.");
+	let phase: XPathRuntimeFailureReason["phase"] = "world";
+	try {
+		const requestedWorldKey = request.instances.worldKey;
+		let world = worldCache?.world;
+		if (requestedWorldKey !== undefined) {
+			if (request.instances.initializeWorld) {
+				world = {
+					key: requestedWorldKey,
+					main: request.instances.main
+						? new WorkerXPathInstance(request.instances.main)
+						: undefined,
+					secondary: new Map(
+						(request.instances.secondary ?? []).map((snapshot) => {
+							const instance = new WorkerXPathInstance(snapshot);
+							return [snapshot.id, instance] as const;
+						}),
+					),
+				};
+				if (worldCache !== undefined) worldCache.world = world;
+			} else if (world?.key !== requestedWorldKey) {
+				throw new Error("The XPath worker evaluation world is unavailable.");
+			}
 		}
-	}
-	const main =
-		requestedWorldKey === undefined
-			? request.instances.main
-				? new WorkerXPathInstance(request.instances.main)
-				: undefined
-			: world?.main;
-	const secondary =
-		requestedWorldKey === undefined
-			? new Map(
-					(request.instances.secondary ?? []).map((snapshot) => {
-						const instance = new WorkerXPathInstance(snapshot);
-						return [snapshot.id, instance] as const;
-					}),
-				)
-			: (world?.secondary ?? new Map());
-	const pathValues = new Map(
-		(request.instances.pathValues ?? []).map(({ path, value }) => [
-			path,
-			deserializeXPathWorkerValue(value),
-		]),
-	);
-	for (const [path, value] of pathValues) main?.setValue(path, value);
-	for (const { path, relevant } of request.instances.pathRelevance ?? []) {
-		main?.setRelevant(path, relevant);
-	}
-	const resolveNode = (address: XPathWorkerNodeAddress | undefined) => {
-		if (address === undefined) return undefined;
-		const instance =
-			address.instanceId === main?.id
-				? main
-				: secondary.get(address.instanceId);
-		return instance?.node(address.path);
-	};
-	const hashtagValues = new Map(
-		(request.instances.hashtagValues ?? []).map((hashtag) => {
-			const value: XPathRuntimeValue =
-				hashtag.kind === "scalar"
-					? deserializeXPathWorkerValue(hashtag.value)
-					: new XPathNodeSet(
-							hashtag.candidates.flatMap((address) => {
-								const node = resolveNode(address);
-								return node === undefined ? [] : [node];
-							}),
-							hashtag.validPath,
-						);
-			return [hashtag.reference, value] as const;
-		}),
-	);
+		phase = "projection";
+		const main =
+			requestedWorldKey === undefined
+				? request.instances.main
+					? new WorkerXPathInstance(request.instances.main)
+					: undefined
+				: world?.main;
+		const secondary =
+			requestedWorldKey === undefined
+				? new Map(
+						(request.instances.secondary ?? []).map((snapshot) => {
+							const instance = new WorkerXPathInstance(snapshot);
+							return [snapshot.id, instance] as const;
+						}),
+					)
+				: (world?.secondary ?? new Map());
+		const pathValues = new Map(
+			(request.instances.pathValues ?? []).map(({ path, value }) => [
+				path,
+				deserializeXPathWorkerValue(value),
+			]),
+		);
+		for (const [path, value] of pathValues) main?.setValue(path, value);
+		for (const { path, relevant } of request.instances.pathRelevance ?? []) {
+			main?.setRelevant(path, relevant);
+		}
+		const resolveNode = (address: XPathWorkerNodeAddress | undefined) => {
+			if (address === undefined) return undefined;
+			const instance =
+				address.instanceId === main?.id
+					? main
+					: secondary.get(address.instanceId);
+			return instance?.node(address.path);
+		};
+		const hashtagValues = new Map(
+			(request.instances.hashtagValues ?? []).map((hashtag) => {
+				const value: XPathRuntimeValue =
+					hashtag.kind === "scalar"
+						? deserializeXPathWorkerValue(hashtag.value)
+						: new XPathNodeSet(
+								hashtag.candidates.flatMap((address) => {
+									const node = resolveNode(address);
+									return node === undefined ? [] : [node];
+								}),
+								hashtag.validPath,
+							);
+				return [hashtag.reference, value] as const;
+			}),
+		);
 
-	const context: EvalContext = {
-		...(request.instances.locale === undefined
-			? {}
-			: { locale: request.instances.locale }),
-		getValue: (path) => {
-			const direct = pathValues.get(path);
-			if (direct !== undefined) return xpathToString(direct);
-			const node = main?.node(path);
-			return node === undefined ? undefined : xpathToString(node.value());
-		},
-		resolveHashtag: (reference) =>
-			xpathToString(hashtagValues.get(reference) ?? ""),
-		resolveHashtagValue: (reference) => hashtagValues.get(reference) ?? "",
-		resolveInstance: (instanceId, path) => {
-			const instance = secondary.get(instanceId);
-			if (instance === undefined) return { kind: "unsupported" };
-			const node = instance.node(path);
-			return {
-				kind: "supported",
-				...(node === undefined ? {} : { value: xpathToString(node.value()) }),
-			};
-		},
-		...(main === undefined ? {} : { mainInstance: main }),
-		resolveXPathInstance: (instanceId) => secondary.get(instanceId),
-		contextPath: request.instances.contextPath,
-		position: request.instances.position,
-		contextNode: resolveNode(request.instances.contextNode),
-		originalContextNode: resolveNode(request.instances.originalContextNode),
-	};
-	if (request.resultMode === "nodeset-values-or-scalar") {
-		const value = await evaluateRuntimeAsync(request.source, context, tools);
-		return isXPathNodeSet(value)
-			? {
-					kind: "nodeset-values",
-					values: value.nodes.map((node) => xpathToString(node.value())),
-				}
-			: unpackXPathRuntimeValue(value);
+		const context: EvalContext = {
+			...(request.instances.locale === undefined
+				? {}
+				: { locale: request.instances.locale }),
+			getValue: (path) => {
+				const direct = pathValues.get(path);
+				if (direct !== undefined) return xpathToString(direct);
+				const node = main?.node(path);
+				return node === undefined ? undefined : xpathToString(node.value());
+			},
+			resolveHashtag: (reference) =>
+				xpathToString(hashtagValues.get(reference) ?? ""),
+			resolveHashtagValue: (reference) => hashtagValues.get(reference) ?? "",
+			resolveInstance: (instanceId, path) => {
+				const instance = secondary.get(instanceId);
+				if (instance === undefined) return { kind: "unsupported" };
+				const node = instance.node(path);
+				return {
+					kind: "supported",
+					...(node === undefined ? {} : { value: xpathToString(node.value()) }),
+				};
+			},
+			...(main === undefined ? {} : { mainInstance: main }),
+			resolveXPathInstance: (instanceId) => secondary.get(instanceId),
+			contextPath: request.instances.contextPath,
+			position: request.instances.position,
+			contextNode: resolveNode(request.instances.contextNode),
+			originalContextNode: resolveNode(request.instances.originalContextNode),
+		};
+		phase = "evaluation";
+		if (request.resultMode === "nodeset-values-or-scalar") {
+			const value = await evaluateRuntimeAsync(request.source, context, tools);
+			return isXPathNodeSet(value)
+				? {
+						kind: "nodeset-values",
+						values: value.nodes.map((node) => xpathToString(node.value())),
+					}
+				: unpackXPathRuntimeValue(value);
+		}
+		return await evaluateAsync(request.source, context, tools);
+	} catch (error) {
+		if (error instanceof XPathWorkerEvaluationFailure) throw error;
+		throw new XPathWorkerEvaluationFailure(
+			classifyWorkerFailure(error, phase),
+			error,
+		);
 	}
-	return evaluateAsync(request.source, context, tools);
 }
 
 interface XPathWorkerEvaluationWorld {
@@ -600,10 +563,18 @@ export function createXPathWorkerDispatcher(args: {
 
 	return {
 		handleMessage(message) {
+			if (retired) return;
 			if (
-				retired ||
+				message.buildId !== XPATH_WORKER_BUILD_ID ||
 				message.protocolVersion !== XPATH_WORKER_PROTOCOL_VERSION
 			) {
+				/* The public Worker URL is intentionally outside Next's hashed chunk
+				 * graph. Answer an evaluate from another build immediately with THIS
+				 * build identity so the old host can hard-reload instead of waiting for
+				 * its watchdog. Cancel/retire carry no pending result to acknowledge. */
+				if (message.operation === "evaluate") {
+					args.postMessage(safeError(message, "protocol-mismatch"));
+				}
 				return;
 			}
 			if (message.operation === "cancel") {
@@ -644,6 +615,7 @@ export function createXPathWorkerDispatcher(args: {
 							 * restart a full CPU window when evaluation resumes. */
 							args.postMessage({
 								protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+								buildId: XPATH_WORKER_BUILD_ID,
 								operation: "watchdog",
 								state: "pause",
 								requestId: request.requestId,
@@ -656,6 +628,7 @@ export function createXPathWorkerDispatcher(args: {
 							} finally {
 								args.postMessage({
 									protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+									buildId: XPATH_WORKER_BUILD_ID,
 									operation: "watchdog",
 									state: "resume",
 									requestId: request.requestId,
@@ -671,6 +644,7 @@ export function createXPathWorkerDispatcher(args: {
 					if (retired || active.get(request.requestId) !== controller) return;
 					args.postMessage({
 						protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+						buildId: XPATH_WORKER_BUILD_ID,
 						operation: "evaluate",
 						requestId: request.requestId,
 						entryKey: request.entryKey,
@@ -685,12 +659,17 @@ export function createXPathWorkerDispatcher(args: {
 							: {}),
 					});
 				})
-				.catch(() => {
+				.catch((error: unknown) => {
 					if (retired || active.get(request.requestId) !== controller) return;
+					const reason =
+						error instanceof XPathWorkerEvaluationFailure
+							? error.reason
+							: undefined;
 					args.postMessage(
 						safeError(
 							request,
 							controller.signal.aborted ? "cancelled" : "evaluation-failed",
+							controller.signal.aborted ? undefined : reason,
 						),
 					);
 				})

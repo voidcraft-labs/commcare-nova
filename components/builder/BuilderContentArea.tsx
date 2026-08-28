@@ -43,7 +43,9 @@ import { Icon } from "@iconify/react/offline";
 import tablerLayoutSidebarLeftExpand from "@iconify-icons/tabler/layout-sidebar-left-expand";
 import tablerMessageChatbot from "@iconify-icons/tabler/message-chatbot";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import dynamic from "next/dynamic";
 import {
+	memo,
 	type MouseEvent as ReactMouseEvent,
 	useCallback,
 	useEffect,
@@ -58,9 +60,8 @@ import {
 	SIDEBAR_TRANSITION,
 } from "@/components/builder/ContentFrame";
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
-import { useInspectorPresence } from "@/components/builder/inspector/activeInspector";
+import { useInspectorPresence } from "@/components/builder/inspector/useInspectorPresence";
 import { StructureSidebar } from "@/components/builder/StructureSidebar";
-import { ChatContainer } from "@/components/chat/ChatContainer";
 import { ChatRail } from "@/components/chat/ChatRail";
 import { PreviewShell } from "@/components/preview/PreviewShell";
 import { Button } from "@/components/shadcn/button";
@@ -73,11 +74,12 @@ import {
 	DrawerTitle,
 	DrawerViewport,
 } from "@/components/shadcn/drawer";
+import { Spinner } from "@/components/shadcn/spinner";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import type { DesignSessionSeed } from "@/lib/generation/designProgressWire";
-import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import { useBuilderPathSegments } from "@/lib/routing/useClientPath";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useBuilderIsReady,
@@ -147,6 +149,31 @@ const SIDEBAR_TOGGLE_OUTCOME: Record<
 	},
 };
 
+/* These persistent surfaces own their own narrow subscriptions. A layout-only
+ * change such as opening the inspector must resize the flanks without
+ * reconciling the app tree, chat transcript, or canvas as parent work. */
+const StableStructureSidebar = memo(StructureSidebar);
+const StableChatContainer = memo(
+	dynamic(
+		() =>
+			import("@/components/chat/ChatContainer").then(
+				(module) => module.ChatContainer,
+			),
+		{
+			loading: () => (
+				<div
+					className="flex h-full items-center justify-center text-nova-text-muted"
+					role="status"
+					aria-label="Opening chat"
+				>
+					<Spinner className="size-5" />
+				</div>
+			),
+		},
+	),
+);
+const StableBreadcrumbStrip = memo(BreadcrumbStrip);
+
 interface BuilderContentAreaProps {
 	/** Whether the layout is in centered mode (Idle phase). When centered,
 	 *  the preview area hides and chat takes full width. */
@@ -179,12 +206,6 @@ export function BuilderContentArea({
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
 	const hasData = useDocHasData();
-
-	/* Back navigation for PreviewShell: reads directly from URL hooks
-	 * instead of being threaded as a prop from BuilderLayout. */
-	const navigate = useNavigate();
-	const location = useLocation();
-	const canvasErrorResetKey = JSON.stringify(location);
 
 	/* Layout visibility: these only change on deliberate user interactions
 	 * (sidebar toggle, preview toggle), not on every keystroke or message. */
@@ -456,7 +477,7 @@ export function BuilderContentArea({
 						transition={sidebarTransition}
 					>
 						{!narrowLayout && structureEffectiveOpen ? (
-							<StructureSidebar />
+							<StableStructureSidebar />
 						) : (
 							<AppTreeRail onExpand={expandStructure} />
 						)}
@@ -489,14 +510,8 @@ export function BuilderContentArea({
 							 *  not the header, so the sidebars bound its width and a long
 							 *  trail collapses instead of reaching the centered Preview
 							 *  toggle. */}
-							{isReady && hasData && <BreadcrumbStrip />}
-							<ErrorBoundary resetKey={canvasErrorResetKey}>
-								{isReady && hasData ? (
-									<div className="flex-1 min-h-0">
-										<PreviewShell onBack={() => navigate.back()} />
-									</div>
-								) : null}
-							</ErrorBoundary>
+							{isReady && hasData && <StableBreadcrumbStrip />}
+							{isReady && hasData ? <RoutedBuilderCanvas /> : null}
 						</ModeFlipGlideProvider>
 
 						{/* Progress overlay */}
@@ -639,7 +654,7 @@ export function BuilderContentArea({
 							>
 								<DrawerContent className="h-full">
 									<DrawerTitle className="sr-only">App structure</DrawerTitle>
-									<StructureSidebar />
+									<StableStructureSidebar />
 								</DrawerContent>
 							</DrawerPopup>
 						</DrawerViewport>
@@ -749,7 +764,7 @@ export function BuilderContentArea({
 									{inspectorActive ? "Properties" : "Chat"}
 								</DrawerTitle>
 								<ErrorBoundary>
-									<ChatContainer
+									<StableChatContainer
 										centered={isCentered}
 										isExistingApp={isExistingApp}
 										threads={threads}
@@ -767,3 +782,17 @@ export function BuilderContentArea({
 		</div>
 	);
 }
+
+/** The route-owned error reset belongs at the canvas boundary. Keeping the
+ * subscription here prevents a field selection from reconciling both sidebars
+ * and the persistent chat tree merely to compute a new reset key. */
+const RoutedBuilderCanvas = memo(function RoutedBuilderCanvas() {
+	const pathSegments = useBuilderPathSegments();
+	return (
+		<ErrorBoundary resetKey={pathSegments.join("/")}>
+			<div className="flex-1 min-h-0">
+				<PreviewShell />
+			</div>
+		</ErrorBoundary>
+	);
+});

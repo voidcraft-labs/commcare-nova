@@ -1,11 +1,14 @@
 "use client";
 
 import {
+	type ContextType,
 	createContext,
+	memo,
 	type ReactNode,
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import type { EditorLookupTableDecl } from "@/components/builder/shared/lookupTablePresentation";
@@ -68,6 +71,64 @@ const BuilderLookupCatalogContext = createContext<BuilderLookupCatalog>({
 	kind: "unmanaged",
 	lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 });
+
+function sameCatalogValue(
+	left: BuilderLookupCatalog,
+	right: BuilderLookupCatalog,
+): boolean {
+	if (left === right) return true;
+	if (left.kind !== right.kind) return false;
+	if (left.kind === "loading" || left.kind === "unmanaged") return true;
+	if (left.kind === "error" && right.kind === "error") {
+		return left.message === right.message && left.retry === right.retry;
+	}
+	if (left.kind === "ready" && right.kind === "ready") {
+		if (
+			left.lookupContext.kind !== "available" ||
+			right.lookupContext.kind !== "available"
+		) {
+			return false;
+		}
+		// The Project revision is the lookup store's optimistic clock. Equal
+		// revisions describe the same complete definition snapshot, even when a
+		// manifest arrival causes the server action to return fresh object copies.
+		return (
+			left.lookupContext.projectId === right.lookupContext.projectId &&
+			left.lookupContext.projectRevision ===
+				right.lookupContext.projectRevision &&
+			left.retry === right.retry
+		);
+	}
+	return false;
+}
+
+const BuilderLookupCatalogBoundary = memo(
+	function BuilderLookupCatalogBoundary({
+		value,
+		commitState,
+		children,
+	}: {
+		readonly value: BuilderLookupCatalog;
+		readonly commitState: ContextType<typeof LookupCommitContext>;
+		readonly children: ReactNode;
+	}) {
+		return (
+			<>
+				<span
+					hidden
+					aria-hidden="true"
+					data-builder-resource="lookup-catalog"
+					data-state={value.kind}
+				/>
+				<LookupCommitContext.Provider value={commitState}>
+					<BuilderLookupCatalogContext.Provider value={value}>
+						{children}
+					</BuilderLookupCatalogContext.Provider>
+				</LookupCommitContext.Provider>
+			</>
+		);
+	},
+);
 
 export function BuilderLookupCatalogProvider({
 	children,
@@ -136,7 +197,7 @@ export function BuilderLookupCatalogProvider({
 		reloadToken,
 	});
 
-	const value = useMemo<BuilderLookupCatalog>(() => {
+	const calculatedValue = useMemo<BuilderLookupCatalog>(() => {
 		if (resource.state.kind === "idle" || resource.state.kind === "loading") {
 			return {
 				kind: "loading",
@@ -173,22 +234,28 @@ export function BuilderLookupCatalogProvider({
 			retry: resource.reload,
 		};
 	}, [resource.state, resource.reload]);
+	const stableValueRef = useRef(calculatedValue);
+	if (!sameCatalogValue(stableValueRef.current, calculatedValue)) {
+		stableValueRef.current = calculatedValue;
+	}
+	const value = stableValueRef.current;
 
-	const commitState =
-		value.kind === "ready"
-			? { kind: "ready" as const, lookupContext: value.lookupContext }
-			: value.kind === "unmanaged"
-				? { kind: "unmanaged" as const, lookupContext: value.lookupContext }
-				: {
-						kind: value.kind,
-						lookupContext: value.lookupContext,
-					};
+	const commitState = useMemo(
+		() =>
+			value.kind === "ready"
+				? { kind: "ready" as const, lookupContext: value.lookupContext }
+				: value.kind === "unmanaged"
+					? { kind: "unmanaged" as const, lookupContext: value.lookupContext }
+					: {
+							kind: value.kind,
+							lookupContext: value.lookupContext,
+						},
+		[value],
+	);
 	return (
-		<LookupCommitContext.Provider value={commitState}>
-			<BuilderLookupCatalogContext.Provider value={value}>
-				{children}
-			</BuilderLookupCatalogContext.Provider>
-		</LookupCommitContext.Provider>
+		<BuilderLookupCatalogBoundary value={value} commitState={commitState}>
+			{children}
+		</BuilderLookupCatalogBoundary>
 	);
 }
 

@@ -28,12 +28,11 @@ import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerId from "@iconify-icons/tabler/id";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerSearch from "@iconify-icons/tabler/search";
+import dynamic from "next/dynamic";
 import {
 	Activity,
-	createContext,
 	type ReactNode,
 	useCallback,
-	useContext,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -98,12 +97,17 @@ import {
 	type Predicate,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import type { Location } from "@/lib/routing/types";
+import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
 import { selectableSegmentCls } from "@/lib/styles";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
+import {
+	type CaseListWorkspaceControllerBridgeProps,
+	type CaseListWorkspaceTab,
+	type CaseListWorkspaceTarget,
+	useCaseListWorkspace,
+} from "./CaseListWorkspaceProvider";
 import { ColumnEditor } from "./ColumnEditor";
 import {
 	CaseListCanvas,
@@ -117,7 +121,7 @@ import {
 	caseListConfigVerdicts,
 } from "./configValidity";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
-import { SearchPanelInspectorBody } from "./inspector/SearchPanelInspectorBody";
+import type { SearchPanelInspectorBodyProps } from "./inspector/SearchPanelInspectorBody";
 import { withPreservedIdentity } from "./preserveIdentity";
 import {
 	type SearchInputRemovalDependency,
@@ -157,10 +161,21 @@ import {
 } from "./workspaceProjection";
 import type { WorkspaceSelection } from "./workspaceSelection";
 
-// ── Public types ──────────────────────────────────────────────────
+const SearchPanelInspectorBody = dynamic<SearchPanelInspectorBodyProps>(
+	() =>
+		import("./inspector/SearchPanelInspectorBody").then(
+			(module) => module.SearchPanelInspectorBody,
+		),
+	{
+		loading: () => (
+			<div className="py-4 text-sm text-nova-text-muted" role="status">
+				Opening search properties
+			</div>
+		),
+	},
+);
 
-/** Which canvas is showing: derived from the URL location kind. */
-export type CaseListWorkspaceTab = "search" | "list" | "detail";
+// ── Public types ──────────────────────────────────────────────────
 
 type SearchInputRemovalReviewSession =
 	| {
@@ -345,22 +360,6 @@ function surfaceDisplayName(
 // already have). Selection is retained per module across navigation because the
 // controller never unmounts; it resets when the module identity changes.
 
-/** The URL location kinds that open a case-list workspace, mapped to the tab. */
-function caseListTarget(
-	loc: Location,
-): { moduleUuid: Uuid; tab: CaseListWorkspaceTab } | null {
-	switch (loc.kind) {
-		case "cases":
-			return { moduleUuid: loc.moduleUuid, tab: "list" };
-		case "search-config":
-			return { moduleUuid: loc.moduleUuid, tab: "search" };
-		case "detail-config":
-			return { moduleUuid: loc.moduleUuid, tab: "detail" };
-		default:
-			return null;
-	}
-}
-
 function requireRetainedModuleUuid(moduleUuid: Uuid | undefined): Uuid {
 	if (moduleUuid === undefined) {
 		throw new Error(
@@ -370,9 +369,7 @@ function requireRetainedModuleUuid(moduleUuid: Uuid | undefined): Uuid {
 	return moduleUuid;
 }
 
-function useController(
-	target: { moduleUuid: Uuid; tab: CaseListWorkspaceTab } | null,
-) {
+function useController(target: CaseListWorkspaceTarget | null) {
 	/* Retain the last case-list module + tab so navigating away and back keeps
 	 * the selection (this controller never unmounts). Sticky `tab` also keeps the
 	 * tab-change deselect below from firing on a mere navigation away. */
@@ -494,19 +491,23 @@ function useController(
 		},
 		[],
 	);
-	useLayoutEffect(() => {
+	useEffect(() => {
 		if (
 			sel?.type === "search-condition" ||
 			pendingSearchOverviewScrollRef.current === null
 		) {
 			return;
 		}
-		const scroller = document.querySelector<HTMLElement>(
-			'[data-case-workspace-scroll-body="search"]',
-		);
-		if (scroller === null) return;
-		scroller.scrollTop = pendingSearchOverviewScrollRef.current;
-		pendingSearchOverviewScrollRef.current = null;
+		const scrollTop = pendingSearchOverviewScrollRef.current;
+		const frame = requestAnimationFrame(() => {
+			const scroller = document.querySelector<HTMLElement>(
+				'[data-case-workspace-scroll-body="search"]',
+			);
+			if (scroller === null) return;
+			scroller.scrollTop = scrollTop;
+			pendingSearchOverviewScrollRef.current = null;
+		});
+		return () => cancelAnimationFrame(frame);
 	}, [sel]);
 	const returnFromSearchCondition = useCallback(
 		(next: WorkspaceSelection) => {
@@ -1583,80 +1584,35 @@ function useController(
 
 // ── Context + provider ────────────────────────────────────────────
 
-type CaseListWorkspace = ReturnType<typeof useController>;
+export type CaseListWorkspace = ReturnType<typeof useController>;
 
-const CaseListWorkspaceContext = createContext<CaseListWorkspace | null>(null);
-
-/**
- * Read the single case-list workspace controller. Non-null for the whole life of
- * the builder (the provider always mounts it); `controller.active` is false until
- * a case-list URL is open. Consumed by the center canvas, which needs the full
- * controller: inspector-only consumers use `useCaseListInspector` so they don't
- * re-render on every controller change.
- */
-export function useCaseListWorkspace(): CaseListWorkspace | null {
-	return useContext(CaseListWorkspaceContext);
-}
-
-/**
- * The slice the right rail + layout consume: just the resolved inspector
- * descriptor and its close handler. Split from the full controller context so
- * the rail (chat) and layout don't re-render on every workspace change, while
- * the workspace is off-screen `inspector` is a stable `null`, so this value's
- * identity holds and its consumers stay put.
- */
-interface CaseListInspectorSlice {
-	readonly inspector: CaseListWorkspace["inspector"];
-	readonly onClose: CaseListWorkspace["onClose"];
-}
-
-const CaseListInspectorContext = createContext<CaseListInspectorSlice | null>(
-	null,
-);
-
-export function useCaseListInspector(): CaseListInspectorSlice | null {
-	return useContext(CaseListInspectorContext);
-}
-
-/**
- * Mounts the workspace controller ONCE, above the builder row (wired in
- * `BuilderProvider`), so the center canvas and the right-rail inspector share one
- * instance. It renders `ActiveHost` UNCONDITIONALLY: the child element type must
- * stay stable, because swapping it (e.g. gating the controller behind a
- * first-visit flag) remounts the whole `children` subtree, severing chat's live
- * run. The controller is simply inert (`active` false) until a case-list URL
- * opens, and module changes reset selection inside it.
- */
-export function CaseListWorkspaceProvider({
-	children,
-}: {
-	children: ReactNode;
-}) {
-	const loc = useLocation();
-	const target = caseListTarget(loc);
-	return <ActiveHost target={target}>{children}</ActiveHost>;
-}
-
-function ActiveHost({
+/** Publish the heavy controller through the lightweight, stable provider
+ * boundary. This component itself is loaded only after a case-list visit. */
+export function CaseListWorkspaceControllerBridge({
 	target,
-	children,
-}: {
-	target: { moduleUuid: Uuid; tab: CaseListWorkspaceTab } | null;
-	children: ReactNode;
-}) {
+	workspaceStore,
+	inspectorStore,
+}: CaseListWorkspaceControllerBridgeProps) {
 	const value = useController(target);
 	const { inspector, onClose } = value;
 	const inspectorSlice = useMemo(
 		() => ({ inspector, onClose }),
 		[inspector, onClose],
 	);
-	return (
-		<CaseListWorkspaceContext.Provider value={value}>
-			<CaseListInspectorContext.Provider value={inspectorSlice}>
-				{children}
-			</CaseListInspectorContext.Provider>
-		</CaseListWorkspaceContext.Provider>
+	useLayoutEffect(() => {
+		workspaceStore.publish(value);
+	}, [value, workspaceStore]);
+	useLayoutEffect(() => {
+		inspectorStore.publish(inspectorSlice);
+	}, [inspectorSlice, inspectorStore]);
+	useLayoutEffect(
+		() => () => {
+			workspaceStore.publish(null);
+			inspectorStore.publish(null);
+		},
+		[inspectorStore, workspaceStore],
 	);
+	return null;
 }
 
 // ── Canvas (center) ───────────────────────────────────────────────

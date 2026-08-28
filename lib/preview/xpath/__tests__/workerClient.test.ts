@@ -5,6 +5,7 @@ import {
 	type XPathWorkerPort,
 } from "../workerClient";
 import {
+	XPATH_WORKER_BUILD_ID,
 	XPATH_WORKER_PROTOCOL_VERSION,
 	type XPathRuntimeRequest,
 	type XPathWorkerRequest,
@@ -14,6 +15,9 @@ import {
 afterEach(() => vi.useRealTimers());
 
 type MessageListener = (event: { readonly data: XPathWorkerResponse }) => void;
+type OptionalBuildIdentity<T> = T extends unknown
+	? Omit<T, "buildId"> & { readonly buildId?: string }
+	: never;
 
 class ControlledWorker implements XPathWorkerPort {
 	readonly requests: XPathWorkerRequest[] = [];
@@ -49,8 +53,12 @@ class ControlledWorker implements XPathWorkerPort {
 		this.terminated = true;
 	}
 
-	respond(response: XPathWorkerResponse): void {
-		for (const listener of this.messageListeners) listener({ data: response });
+	respond(response: OptionalBuildIdentity<XPathWorkerResponse>): void {
+		const data = {
+			...response,
+			buildId: response.buildId ?? XPATH_WORKER_BUILD_ID,
+		} as XPathWorkerResponse;
+		for (const listener of this.messageListeners) listener({ data });
 	}
 }
 
@@ -93,6 +101,53 @@ function evaluateRequest(worker: ControlledWorker) {
 }
 
 describe("XPath worker client", () => {
+	it("reuses a settled worker for the next revision of the same entry", async () => {
+		const controlled = controlledFactory();
+		const runtime = new XPathRuntime({ workerFactory: controlled.factory });
+		const first = runtime.request(request());
+		const worker = controlled.workers[0];
+		if (!worker) throw new Error("Expected worker");
+		const firstRequest = evaluateRequest(worker);
+		worker.respond({
+			protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+			operation: "evaluate",
+			requestId: firstRequest.requestId,
+			entryKey: firstRequest.entryKey,
+			revision: firstRequest.revision,
+			profile: firstRequest.profile,
+			ok: true,
+			value: 2,
+		});
+		await expect(first).resolves.toMatchObject({ ok: true, value: 2 });
+
+		const second = runtime.request(request({ revision: 2 }));
+		expect(controlled.workers).toHaveLength(1);
+		expect(worker.terminated).toBe(false);
+		const secondRequest = worker.requests.find(
+			(candidate) =>
+				candidate.operation === "evaluate" && candidate.revision === 2,
+		);
+		if (secondRequest?.operation !== "evaluate") {
+			throw new Error("Expected second-revision request");
+		}
+		worker.respond({
+			protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+			operation: "evaluate",
+			requestId: secondRequest.requestId,
+			entryKey: secondRequest.entryKey,
+			revision: secondRequest.revision,
+			profile: secondRequest.profile,
+			ok: true,
+			value: 3,
+		});
+		await expect(second).resolves.toMatchObject({
+			ok: true,
+			revision: 2,
+			value: 3,
+		});
+		runtime.dispose();
+	});
+
 	it("retires the prior worker when the revision changes", async () => {
 		const controlled = controlledFactory();
 		const runtime = new XPathRuntime({ workerFactory: controlled.factory });
@@ -372,5 +427,43 @@ describe("XPath worker client", () => {
 			error: { code: "protocol-mismatch", revision: 1 },
 		});
 		expect(worker.terminated).toBe(true);
+	});
+
+	it("retires the Worker and invokes recovery when it belongs to another build", async () => {
+		const controlled = controlledFactory();
+		const recover = vi.fn();
+		const runtime = new XPathRuntime({
+			workerFactory: controlled.factory,
+			onBuildMismatch: recover,
+		});
+		const result = runtime.request(request());
+		const worker = controlled.workers[0];
+		if (!worker) throw new Error("Expected worker");
+		const sent = evaluateRequest(worker);
+		worker.respond({
+			protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+			buildId: "different-deploy",
+			operation: "evaluate",
+			requestId: sent.requestId,
+			entryKey: sent.entryKey,
+			revision: sent.revision,
+			profile: sent.profile,
+			ok: false,
+			error: {
+				code: "protocol-mismatch",
+				operation: "evaluate",
+				entryKey: sent.entryKey,
+				revision: sent.revision,
+				profile: sent.profile,
+			},
+		});
+
+		await expect(result).resolves.toMatchObject({
+			ok: false,
+			error: { code: "protocol-mismatch" },
+		});
+		expect(worker.terminated).toBe(true);
+		expect(recover).toHaveBeenCalledTimes(1);
+		runtime.dispose();
 	});
 });

@@ -10,7 +10,11 @@ import {
 	useOrderedForms,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
-import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
+import {
+	LARGE_FORM_AUTO_COLLAPSE_THRESHOLD,
+	useLargeFormInitialCollapsedUuids,
+	useOrderedFields,
+} from "@/lib/doc/hooks/useOrderedFields";
 import { useOrganizationLevels } from "@/lib/doc/hooks/useOrganizationCollections";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
@@ -260,5 +264,122 @@ describe("useOrderedFields", () => {
 			]);
 		});
 		expect(renderCount).toBe(afterAdd);
+	});
+});
+
+describe("useLargeFormInitialCollapsedUuids", () => {
+	it("includes a form once its complete field tree reaches the threshold", () => {
+		const { store, wrapper, formUuid } = setup();
+		const extraFieldCount = LARGE_FORM_AUTO_COLLAPSE_THRESHOLD - 1;
+		const extraFields = Array.from({ length: extraFieldCount }, (_, index) => ({
+			kind: "addField" as const,
+			parentUuid: formUuid,
+			field: {
+				uuid: testUuid(`large-form-field-${index}`),
+				id: `profile_${index}`,
+				kind: "text" as const,
+				label: proseText(`Profile ${index}`),
+			},
+		}));
+
+		store.getState().applyMany(extraFields.slice(0, -1));
+		const { result } = renderHook(() => useLargeFormInitialCollapsedUuids(), {
+			wrapper,
+		});
+		expect(result.current.has(formUuid)).toBe(false);
+
+		act(() => {
+			store.getState().applyMany(extraFields.slice(-1));
+		});
+		expect(result.current.has(formUuid)).toBe(true);
+	});
+
+	it("includes every nested container once a form reaches the threshold", () => {
+		const { store, wrapper, formUuid } = setup();
+		const groupUuid = testUuid("large-form-nested-group");
+		const repeatUuid = testUuid("large-form-nested-repeat");
+		store.getState().applyMany([
+			{
+				kind: "addField",
+				parentUuid: formUuid,
+				field: {
+					uuid: groupUuid,
+					id: "details",
+					kind: "group",
+					label: proseText("Details"),
+				},
+			},
+			{
+				kind: "addField",
+				parentUuid: groupUuid,
+				field: {
+					uuid: repeatUuid,
+					id: "visits",
+					kind: "repeat",
+					repeat_mode: "user_controlled",
+					label: proseText("Visits"),
+				},
+			},
+			...Array.from(
+				{ length: LARGE_FORM_AUTO_COLLAPSE_THRESHOLD - 2 },
+				(_, index) => ({
+					kind: "addField" as const,
+					parentUuid: repeatUuid,
+					field: {
+						uuid: testUuid(`nested-large-form-field-${index}`),
+						id: `nested_profile_${index}`,
+						kind: "text" as const,
+						label: proseText(`Nested profile ${index}`),
+					},
+				}),
+			),
+		]);
+
+		const { result } = renderHook(() => useLargeFormInitialCollapsedUuids(), {
+			wrapper,
+		});
+		expect(result.current).toEqual(new Set([formUuid, groupUuid, repeatUuid]));
+	});
+
+	it("keeps the projected set stable across unrelated field edits", () => {
+		const { store, wrapper, formUuid, fieldUuid } = setup();
+		store.getState().applyMany(
+			Array.from(
+				{ length: LARGE_FORM_AUTO_COLLAPSE_THRESHOLD - 1 },
+				(_, index) => ({
+					kind: "addField" as const,
+					parentUuid: formUuid,
+					field: {
+						uuid: testUuid(`stable-large-form-field-${index}`),
+						id: `stable_profile_${index}`,
+						kind: "text" as const,
+						label: proseText(`Stable profile ${index}`),
+					},
+				}),
+			),
+		);
+
+		let renderCount = 0;
+		const { result } = renderHook(
+			() => {
+				renderCount += 1;
+				return useLargeFormInitialCollapsedUuids();
+			},
+			{ wrapper },
+		);
+		expect(result.current.has(formUuid)).toBe(true);
+		const initialRenderCount = renderCount;
+
+		act(() => {
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: fieldUuid,
+					targetKind: "text",
+					patch: { label: proseText("Updated") },
+				},
+			]);
+		});
+		expect(renderCount).toBe(initialRenderCount);
 	});
 });

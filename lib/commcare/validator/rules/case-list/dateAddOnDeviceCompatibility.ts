@@ -33,7 +33,7 @@ import {
 	findOnDeviceDateAddIssueInPredicate,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
-import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate";
+import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 import type { LookupTypeIndex } from "../../lookupTypeContext";

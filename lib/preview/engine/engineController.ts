@@ -51,6 +51,7 @@ import type { BlueprintDocState } from "@/lib/doc/store";
 import {
 	type Field,
 	type Form,
+	fieldCaseWrite,
 	isCaptureFieldKind,
 	isContainer,
 	type LanguageTag,
@@ -63,8 +64,11 @@ import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
-import type { XPathWorkerInstances } from "../xpath/workerProtocol";
-import { deserializeXPathWorkerValue } from "../xpath/workerRuntime";
+import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
+import type {
+	XPathRuntimeError,
+	XPathWorkerInstances,
+} from "../xpath/workerProtocol";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
@@ -106,6 +110,9 @@ export interface EngineEntryState {
 	readonly entryKey: string | undefined;
 	readonly formUuid: Uuid | undefined;
 	readonly revision: number;
+	/** True only after the active engine has finished its initial worker pass,
+	 * published runtime state, and installed its document subscriptions. */
+	readonly ready: boolean;
 	/** True while the current entry/revision is still evaluating in its worker. */
 	readonly settling: boolean;
 	/** True while a repeat add/remove owns an indivisible topology revision.
@@ -145,12 +152,30 @@ export type EngineFaultOperation =
 export interface EngineRuntimeFault {
 	readonly formUuid: Uuid;
 	readonly operation: EngineFaultOperation;
+	/** Finite worker metadata only; never XPath source, paths, or values. */
+	readonly failureKind?: string;
 }
 
 export type EngineFaultReporter = (
 	fault: EngineRuntimeFault,
 	error: unknown,
 ) => void;
+
+class PreviewXPathRuntimeError extends Error {
+	readonly failureKind: string;
+
+	constructor(failure: XPathRuntimeError) {
+		const reason = failure.reason;
+		const failureKind = [
+			"xpath",
+			failure.code,
+			...(reason === undefined ? [] : [reason.phase, reason.kind]),
+		].join(":");
+		super(`The XPath runtime failed (${failureKind}).`);
+		this.name = "PreviewXPathRuntimeError";
+		this.failureKind = failureKind;
+	}
+}
 
 export interface RepeatCompactionEvent {
 	readonly entryKey: string;
@@ -419,6 +444,90 @@ function classifyChange(
 	return "none";
 }
 
+/**
+ * True only when a publication can change the active form's UUID-to-path
+ * projection. Most Builder writes replace one field entity while preserving
+ * its identity, kind, and every active adjacency-list reference; those writes
+ * cannot move an answer and should not rebuild two complete field trees just
+ * to rediscover that fact.
+ */
+function activeFormTopologyChanged(
+	current: BlueprintDocState,
+	previous: BlueprintDocState,
+	formUuid: Uuid,
+	trackedUuids: ReadonlySet<string>,
+): boolean {
+	if (current.fieldOrder[formUuid] !== previous.fieldOrder[formUuid]) {
+		return true;
+	}
+	for (const uuid of trackedUuids) {
+		if (current.fieldOrder[uuid] !== previous.fieldOrder[uuid]) return true;
+		const currentField = current.fields[uuid];
+		const previousField = previous.fields[uuid];
+		if (currentField === previousField) continue;
+		if (
+			currentField === undefined ||
+			previousField === undefined ||
+			currentField.id !== previousField.id ||
+			currentField.kind !== previousField.kind
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * The worker consumes only the active form projection. Case-write targets,
+ * plain authored copy, and other Builder-only field metadata are intentionally
+ * absent from that runtime contract. Keep the check conservative around every
+ * shared input, then use the same per-field classifier as the synchronous
+ * subscriptions for the one part that can change independently.
+ */
+function activeFormRuntimeChanged(
+	current: BlueprintDocState,
+	previous: BlueprintDocState,
+	formUuid: Uuid,
+	trackedUuids: ReadonlySet<string>,
+	presentationLanguage: LanguageTag | null,
+): boolean {
+	if (
+		activeFormTopologyChanged(current, previous, formUuid, trackedUuids) ||
+		current.forms[formUuid] !== previous.forms[formUuid] ||
+		current.caseTypes !== previous.caseTypes ||
+		current.userProperties !== previous.userProperties ||
+		(presentationLanguage !== null &&
+			current.localization !== previous.localization)
+	) {
+		return true;
+	}
+
+	const currentModuleUuid = findModuleForForm(current, formUuid);
+	const previousModuleUuid = findModuleForForm(previous, formUuid);
+	if (
+		currentModuleUuid !== previousModuleUuid ||
+		(currentModuleUuid !== undefined &&
+			current.modules[currentModuleUuid]?.caseType !==
+				previous.modules[currentModuleUuid]?.caseType)
+	) {
+		return true;
+	}
+
+	for (const uuid of trackedUuids) {
+		const currentField = current.fields[uuid];
+		const previousField = previous.fields[uuid];
+		if (currentField === previousField) continue;
+		if (
+			currentField === undefined ||
+			previousField === undefined ||
+			classifyChange(currentField as Field, previousField as Field) !== "none"
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
 // ── EngineController ────────────────────────────────────────────────────
 
 export class EngineController {
@@ -504,6 +613,11 @@ export class EngineController {
 	 * blueprint; a newer publication makes the pair unusable until reconciliation
 	 * installs that newer state here. */
 	private reconciledDocumentState: BlueprintDocState | undefined;
+	/** A writer-affecting publication may be followed immediately by a Zustand
+	 * metadata-only publication (for example the undo flag). Carry the dirtiness
+	 * until the newest exact document revision refreshes the submission projection
+	 * so dropping a superseded queue item cannot also drop its required work. */
+	private caseWriteProjectionDirty = false;
 
 	/** The resolved identity `#user/*` and future identity-backed reads
 	 *  evaluate against. Session-scoped — installed by the provider from
@@ -552,6 +666,7 @@ export class EngineController {
 	 * live document edit. UUID identity survives same-batch path changes; a
 	 * retired revision leaves the entry queued for its successor. */
 	private pendingDefaultFieldUuids = new Set<Uuid>();
+	private entryReady = false;
 	private settling = false;
 
 	constructor(xpathRuntime?: XPathRuntime) {
@@ -561,6 +676,7 @@ export class EngineController {
 			entryKey: undefined,
 			formUuid: undefined,
 			revision: 0,
+			ready: false,
 			settling: false,
 			topologySettling: false,
 			fault: undefined,
@@ -597,6 +713,7 @@ export class EngineController {
 		if (
 			current.entryKey === this.currentEntryKey &&
 			current.formUuid === this.activeFormUuid &&
+			current.ready === this.entryReady &&
 			current.settling === this.settling &&
 			current.topologySettling === this.atomicRevisionsPending > 0 &&
 			current.fault === this.runtimeFault &&
@@ -610,6 +727,7 @@ export class EngineController {
 				entryKey: this.currentEntryKey,
 				formUuid: this.activeFormUuid,
 				revision: current.revision + 1,
+				ready: this.entryReady,
 				settling: this.settling,
 				topologySettling: this.atomicRevisionsPending > 0,
 				fault: this.runtimeFault,
@@ -634,7 +752,13 @@ export class EngineController {
 		if (this.runtimeFault !== undefined) return;
 		this.requestedActivation = undefined;
 		this.clearActiveForm();
-		const fault = { formUuid, operation } as const;
+		const fault = {
+			formUuid,
+			operation,
+			...(error instanceof PreviewXPathRuntimeError
+				? { failureKind: error.failureKind }
+				: {}),
+		} as const;
 		this.runtimeFault = fault;
 		this.publishEntryState();
 		try {
@@ -710,9 +834,7 @@ export class EngineController {
 				throw new Error("The XPath evaluation revision was retired.");
 			}
 			if (!result.ok) {
-				throw new Error(
-					`The XPath worker refused evaluation (${result.error.code}).`,
-				);
+				throw new PreviewXPathRuntimeError(result.error);
 			}
 			if (
 				resultMode === "nodeset-values-or-scalar" &&
@@ -1303,6 +1425,7 @@ export class EngineController {
 						docStore.getState() === state
 					) {
 						this.reconciledDocumentState = state;
+						this.entryReady = true;
 					}
 					return true;
 				},
@@ -1449,11 +1572,13 @@ export class EngineController {
 		this.setupLocalizationSubscription();
 		this.setupAsyncReconciliationSubscription(formUuid);
 		this.reconciledDocumentState = s;
+		this.entryReady = true;
 		this.publishEntryState();
 	}
 
 	private clearActiveForm(): void {
 		this.retireRuntimeScope();
+		this.entryReady = false;
 		this.pendingValuePaths.clear();
 		this.pendingDefaultFieldUuids.clear();
 		for (const unsub of this.unsubscribers) unsub();
@@ -1461,6 +1586,7 @@ export class EngineController {
 		this.trackedUuids.clear();
 		this.engine = undefined;
 		this.reconciledDocumentState = undefined;
+		this.caseWriteProjectionDirty = false;
 		this.mountedCaseDatabaseSnapshot = undefined;
 		this.uuidToPath.clear();
 		this.pathToUuid.clear();
@@ -1606,6 +1732,7 @@ export class EngineController {
 			this.setValueAt(path, value);
 			return this.engine !== undefined;
 		}
+		if (!this.entryReady) return false;
 		/* Concrete repeat paths are positional. Never queue one across an
 		 * indivisible add/remove: compaction may make the same text address a
 		 * different instance. FormScreen also makes controls inert for this
@@ -2131,13 +2258,13 @@ export class EngineController {
 						generation !== this.lifecycleGeneration ||
 						this.currentEntryKey !== expectedEntryKey ||
 						revision !== this.runtimeRevision ||
-						result === undefined ||
-						!result.ok
+						result === undefined
 					) {
 						throw new Error(
 							"The after-submit XPath evaluation did not complete.",
 						);
 					}
+					if (!result.ok) throw new PreviewXPathRuntimeError(result.error);
 					return deserializeXPathWorkerValue(result.value);
 				};
 				return { completed: true, value: await run(evaluate) };
@@ -2178,6 +2305,16 @@ export class EngineController {
 		const unsub = store.subscribe((current, previous) => {
 			const engine = this.engine;
 			if (!engine) return;
+			if (
+				!activeFormTopologyChanged(
+					current,
+					previous,
+					formUuid,
+					this.trackedUuids,
+				)
+			) {
+				return;
+			}
 			this.contain("document-update", formUuid, undefined, () => {
 				const previousInput = buildEngineInput(
 					previous,
@@ -2327,7 +2464,8 @@ export class EngineController {
 	 * the callback only fires when THAT specific field was mutated.
 	 *
 	 * classifyChange determines what happened:
-	 * - "none" → zero engine work
+	 * - a case-write destination change → refresh submission metadata only
+	 * - "none" → zero evaluation work
 	 * - "kind_change" → drop the stale value at the old path, re-init the field
 	 * - "expression" → rebuild DAG, evaluate field + cascade
 	 * - "label_refs" → re-evaluate resolved labels
@@ -2348,6 +2486,14 @@ export class EngineController {
 					const formUuid = this.activeFormUuid;
 					if (formUuid === undefined) return;
 					this.contain("document-update", formUuid, undefined, () => {
+						/* Case-write targets do not participate in expression evaluation, but
+						 * they do determine the exact mutation emitted at submit time. Refresh
+						 * that narrow document surface independently so a combined patch can
+						 * still take its ordinary expression/default handler below. */
+						if (fieldCaseWrite(current) !== fieldCaseWrite(previous)) {
+							const input = this.currentEngineInput();
+							if (input !== undefined) this.engine?.refreshCaseWriteDoc(input);
+						}
 						const changeType = classifyChange(
 							current as Field,
 							previous as Field,
@@ -2522,13 +2668,46 @@ export class EngineController {
 	private setupAsyncReconciliationSubscription(formUuid: Uuid): void {
 		if (!this.docStore) return;
 		const store = this.docStore;
-		const unsub = store.subscribe(() => {
+		const unsub = store.subscribe((documentState, previousDocumentState) => {
 			const engine = this.engine;
 			const entryKey = this.currentEntryKey;
 			if (engine === undefined || entryKey === undefined) return;
-			const documentState = store.getState();
+			if (
+				documentState.caseWriteProjectionRevision !==
+				previousDocumentState.caseWriteProjectionRevision
+			) {
+				this.caseWriteProjectionDirty = true;
+			}
 			if (this.xpathRuntime === undefined) {
+				if (this.caseWriteProjectionDirty) {
+					const input = buildEngineInput(
+						documentState,
+						formUuid,
+						this.presentationLanguage,
+					);
+					if (input !== undefined) {
+						engine.refreshCaseWriteDoc(input);
+						this.caseWriteProjectionDirty = false;
+					}
+				}
 				this.reconciledDocumentState = documentState;
+				return;
+			}
+			if (
+				!activeFormRuntimeChanged(
+					documentState,
+					previousDocumentState,
+					formUuid,
+					this.trackedUuids,
+					this.presentationLanguage,
+				)
+			) {
+				this.queueRuntimeNeutralDocumentState(
+					documentState,
+					engine,
+					entryKey,
+					formUuid,
+				);
 				return;
 			}
 			this.runAsyncRevision(
@@ -2570,12 +2749,71 @@ export class EngineController {
 						this.pendingDefaultFieldUuids.delete(uuid);
 					}
 					this.syncAllPathsSelectively();
+					if (
+						this.caseWriteProjectionDirty &&
+						this.docStore?.getState() === documentState
+					) {
+						const reconciledInput = buildEngineInput(
+							documentState,
+							formUuid,
+							this.presentationLanguage,
+						);
+						if (reconciledInput !== undefined) {
+							engine.refreshCaseWriteDoc(reconciledInput);
+							this.caseWriteProjectionDirty = false;
+						}
+					}
 					this.reconciledDocumentState = documentState;
 				},
 				undefined,
 			);
 		});
 		this.unsubscribers.push(unsub);
+	}
+
+	/**
+	 * Preserve the submission's exact document revision after a Builder-only
+	 * edit without creating, aborting, or settling a worker world. Queue behind
+	 * existing work so a preceding runtime-relevant publication cannot finish
+	 * later and overwrite this newer, already-compatible document snapshot.
+	 */
+	private queueRuntimeNeutralDocumentState(
+		documentState: BlueprintDocState,
+		engine: FormEngine,
+		entryKey: string,
+		formUuid: Uuid,
+	): void {
+		const generation = this.lifecycleGeneration;
+		const previous = this.pendingWork.catch(() => undefined);
+		const task = previous.then(() => {
+			if (
+				generation === this.lifecycleGeneration &&
+				engine === this.engine &&
+				entryKey === this.currentEntryKey &&
+				this.docStore?.getState() === documentState
+			) {
+				if (this.caseWriteProjectionDirty) {
+					const input = buildEngineInput(
+						documentState,
+						formUuid,
+						this.presentationLanguage,
+					);
+					if (input !== undefined) {
+						engine.refreshCaseWriteDoc(input);
+						this.caseWriteProjectionDirty = false;
+					}
+				}
+				/* A successor value/validation revision may already be marked settling
+				 * while it waits behind this task. That later work shares this exact
+				 * document and never publishes a document revision of its own, so it
+				 * must not suppress the snapshot that unblocks submission after it. */
+				this.reconciledDocumentState = documentState;
+			}
+		});
+		this.pendingWork = task.then(
+			() => undefined,
+			() => undefined,
+		);
 	}
 
 	// ── Targeted change handlers ─────────────────────────────────────

@@ -2,14 +2,22 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-const EXPECTED_RUNTIME_SHA256 =
-	"5d9f10c5c90c129c53fa497e7a5b98b235ee1fd599b30a270021031eb33bfac3";
+const EXPECTED_PATTERN_SHA256 =
+	"5511bf0684cf102ed7bae4e5723b3791a494ed33327efc7c0f52f7dbef03c3af";
+const EXPECTED_MATH_SHA256 =
+	"58e6587531bbb815d8c6712e8e8fd9c17da83caed2d46cd546da0f40d5392d1c";
 const EXPECTED_NAMES_SHA256 =
 	"89541422e4cfce6efd42b470ea76ff03734c330e4c92301223ca555811eb4691";
 
-const artifact = fileURLToPath(
+const patternArtifact = fileURLToPath(
 	new URL(
 		"../../lib/preview/xpath/vendor/javaPatternRuntime.generated.js",
+		import.meta.url,
+	),
+);
+const mathArtifact = fileURLToPath(
+	new URL(
+		"../../lib/preview/xpath/vendor/javaMathRuntime.generated.js",
 		import.meta.url,
 	),
 );
@@ -34,11 +42,13 @@ const openJdkMathSourceDirectory = fileURLToPath(
 const doubleStringSourcePath = fileURLToPath(
 	new URL("../../lib/preview/xpath/openJdk17DoubleString.ts", import.meta.url),
 );
-const [source, namesSource, doubleStringSource] = await Promise.all([
-	readFile(artifact, "utf8"),
-	readFile(namesArtifact, "utf8"),
-	readFile(doubleStringSourcePath, "utf8"),
-]);
+const [patternSource, mathSource, namesSource, doubleStringSource] =
+	await Promise.all([
+		readFile(patternArtifact, "utf8"),
+		readFile(mathArtifact, "utf8"),
+		readFile(namesArtifact, "utf8"),
+		readFile(doubleStringSourcePath, "utf8"),
+	]);
 for (const directory of [openJdkSourceDirectory, openJdkMathSourceDirectory]) {
 	for (const filename of await readdir(directory)) {
 		if (!filename.endsWith(".java")) continue;
@@ -58,22 +68,29 @@ if (
 }
 if (
 	/\beval\s*\(|\bnew\s+Function\s*\(/.test(
-		source + namesSource + doubleStringSource,
+		patternSource + mathSource + namesSource + doubleStringSource,
 	)
 ) {
 	throw new Error("Java compatibility runtime violates Nova's CSP boundary.");
 }
 if (
-	!["find", "pow", "replaceAllLiteral"].every((name) =>
-		new RegExp(`\\bas ${name}\\b`).test(source),
-	)
+	!["find", "replaceAllLiteral"].every((name) =>
+		new RegExp(`\\bas ${name}\\b`).test(patternSource),
+	) ||
+	!/\bas pow\b/.test(mathSource)
 ) {
-	throw new Error("Java compatibility runtime exports are missing.");
+	throw new Error("Java compatibility runtime entry exports are missing.");
 }
-const bytes = Buffer.byteLength(source);
-if (bytes > 275_000) {
+const patternBytes = Buffer.byteLength(patternSource);
+if (patternBytes > 270_000) {
 	throw new Error(
-		`Java compatibility runtime exceeds the 275 KB source cap: ${bytes}`,
+		`Java Pattern runtime exceeds the 270 KB source cap: ${patternBytes}`,
+	);
+}
+const mathBytes = Buffer.byteLength(mathSource);
+if (mathBytes > 20_000) {
+	throw new Error(
+		`Java fdlibm runtime exceeds the 20 KB source cap: ${mathBytes}`,
 	);
 }
 if (!/export function openJdk17CodePointOf\(/.test(namesSource)) {
@@ -85,10 +102,16 @@ if (namesBytes > 500_000) {
 		`OpenJDK 17 character-name table exceeds the 500 KB source cap: ${namesBytes}`,
 	);
 }
-const digest = createHash("sha256").update(source).digest("hex");
-if (digest !== EXPECTED_RUNTIME_SHA256) {
+const patternDigest = createHash("sha256").update(patternSource).digest("hex");
+if (patternDigest !== EXPECTED_PATTERN_SHA256) {
 	throw new Error(
-		`Java compatibility runtime is not the reviewed reproducible artifact: ${digest}`,
+		`Java Pattern runtime is not the reviewed reproducible artifact: ${patternDigest}`,
+	);
+}
+const mathDigest = createHash("sha256").update(mathSource).digest("hex");
+if (mathDigest !== EXPECTED_MATH_SHA256) {
+	throw new Error(
+		`Java fdlibm runtime is not the reviewed reproducible artifact: ${mathDigest}`,
 	);
 }
 const namesDigest = createHash("sha256").update(namesSource).digest("hex");
@@ -98,5 +121,5 @@ if (namesDigest !== EXPECTED_NAMES_SHA256) {
 	);
 }
 console.log(
-	`java-pattern-runtime sha256=${digest} bytes=${bytes} names_sha256=${namesDigest} names_bytes=${namesBytes}`,
+	`java-pattern-runtime pattern_sha256=${patternDigest} pattern_bytes=${patternBytes} math_sha256=${mathDigest} math_bytes=${mathBytes} names_sha256=${namesDigest} names_bytes=${namesBytes}`,
 );

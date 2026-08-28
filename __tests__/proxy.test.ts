@@ -629,14 +629,16 @@ describe("proxy: matcher excludes static asset paths", () => {
 	/* The middleware never runs on excluded paths — Next applies `config.matcher`
 	 * BEFORE invoking `proxy()`, so an excluded path is served as a plain static
 	 * asset (no hostname allowlist, no CSP, no auth redirect). Reconstruct the
-	 * negative-lookahead matcher and assert what it runs on. `nova-icons` is the
+	 * negative-lookahead matcher and assert what it runs on. `nova-icons` and
+	 * the isolated XPath worker are
 	 * regression guard: without the exclusion the optimistic auth redirect 307s
 	 * every `<img src="/nova-icons/…">` and the main-host allowlist 404s it in
 	 * prod (localhost's unknown-host branch skips the allowlist, masking it). */
 	const matcher = new RegExp(`^${config.matcher[0]}$`);
 
-	it("does NOT run on built-in icons or framework static assets", () => {
+	it("does NOT run on public or framework static assets", () => {
 		expect(matcher.test("/nova-icons/household.png")).toBe(false);
+		expect(matcher.test("/xpath-worker/xpath-worker.js")).toBe(false);
 		expect(matcher.test("/_next/static/chunk.js")).toBe(false);
 		expect(matcher.test("/_next/image")).toBe(false);
 		expect(matcher.test("/favicon.ico")).toBe(false);
@@ -649,5 +651,6 @@ describe("proxy: matcher excludes static asset paths", () => {
 		// A path that merely starts with the same letters as the icons dir is
 		// NOT the excluded segment, so the proxy still runs on it.
 		expect(matcher.test("/nova-icons-admin")).toBe(true);
+		expect(matcher.test("/xpath-worker-admin")).toBe(true);
 	});
 });

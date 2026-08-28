@@ -24,12 +24,14 @@ import {
 	RTL_DEFAULT_LANGUAGE_CODES_PACKED,
 	RTL_SCRIPTS,
 } from "./displayLabels.catalog";
-import {
-	MACROLANGUAGE_CATALOG,
-	MACROLANGUAGE_OF_MEMBER,
-} from "./macrolanguages.catalog";
+import { MACROLANGUAGE_CATALOG } from "./macrolanguages.catalog";
 import { LANGUAGE_REGION_CATALOG } from "./regions.catalog";
 import { MULTI_SCRIPT_LANGUAGE_CATALOG } from "./scripts.catalog";
+
+export {
+	classicWideningTarget,
+	iso6391CodeForSet3,
+} from "./classicRuntime";
 
 function unpackCodes(packed: string): ReadonlySet<string> {
 	const codes = new Set<string>();
@@ -44,10 +46,6 @@ const livingIndividualCodes = unpackCodes(
 );
 const rtlDefaultLanguages = unpackCodes(RTL_DEFAULT_LANGUAGE_CODES_PACKED);
 const rtlScriptSet: ReadonlySet<string> = new Set(RTL_SCRIPTS);
-const iso6391BySet3 = new Map(
-	Object.entries(ISO_639_1_TO_SET3).map(([set1, set3]) => [set3, set1]),
-);
-
 const nonLivingTypeByCode = new Map<string, string>();
 for (
 	let index = 0;
@@ -210,16 +208,6 @@ export function macrolanguageMembers(
 /** A macrolanguage's English name, for the picker's code-free group notice. */
 export function macrolanguageName(code: string): string | undefined {
 	return macrolanguageByCode.get(code)?.name;
-}
-
-/** An individual member's macrolanguage, for the Classic wire-widening path. */
-export function classicWideningTarget(language: string): string | undefined {
-	return MACROLANGUAGE_OF_MEMBER[language];
-}
-
-/** The ISO 639-1 spelling Android uses for a Set 3 resource locale. */
-export function iso6391CodeForSet3(language: string): string | undefined {
-	return iso6391BySet3.get(language);
 }
 
 function toIdentity(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emitOnDeviceExpression } from "@/lib/commcare/expression";
+import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import { dateAdd, dateCoerce, literal, term } from "@/lib/domain/predicate";
 import { xpathToString } from "../coerce";
 import { evaluate } from "../evaluator";

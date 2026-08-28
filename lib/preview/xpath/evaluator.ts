@@ -1,9 +1,9 @@
 import type { SyntaxNode } from "@lezer/common";
-import { parser } from "@/lib/commcare/xpath";
 import {
 	JAVAROSA_PATH_INITIALIZERS,
 	pathInitializerStringArgument,
 } from "@/lib/commcare/xpath/functionCapabilities";
+import { parser } from "@/lib/commcare/xpath/parser";
 import { toBoolean, toNumber } from "./coerce";
 import { invokeFunction } from "./functions";
 import {

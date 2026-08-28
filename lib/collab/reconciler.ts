@@ -613,6 +613,7 @@ export function createReconciler(
 	 * exact segment in order, and let the authoritative 409/reload resolve it. */
 	function refoldDisplayed(
 		humanBatches: readonly AdmittedMutationBatch[],
+		projectionProof?: AdmittedMutationBatch,
 	): void {
 		let target: BlueprintDoc;
 		try {
@@ -636,7 +637,12 @@ export function createReconciler(
 		const store = docStore.getState();
 		store.beginRemoteApply();
 		try {
-			store.commitDoc(target);
+			/* A contiguous frame is the exact cause of this refold. Carry that
+			 * admitted batch through the replay bracket so the store can classify
+			 * Preview's writer projection in O(batch), without treating every
+			 * writer-neutral peer edit as an unknown whole-document reseed. */
+			if (projectionProof === undefined) store.commitDoc(target);
+			else store.commitDoc(target, projectionProof);
 		} finally {
 			store.endRemoteApply();
 		}
@@ -1232,7 +1238,7 @@ export function createReconciler(
 		});
 		baseSeq = frame.seq;
 		dropBatch(frame.batchId);
-		refoldDisplayed(humanBatches);
+		refoldDisplayed(humanBatches, frame.mutations);
 	}
 
 	/** A remote frame advances confirmedDoc and re-folds sentPending + the human
@@ -1247,7 +1253,7 @@ export function createReconciler(
 			applyBatch(draft, frame.mutations);
 		});
 		baseSeq = frame.seq;
-		refoldDisplayed(humanBatches);
+		refoldDisplayed(humanBatches, frame.mutations);
 	}
 
 	function dropBatch(batchId: string): void {

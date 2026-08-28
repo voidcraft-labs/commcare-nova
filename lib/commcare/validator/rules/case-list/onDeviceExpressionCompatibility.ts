@@ -16,10 +16,8 @@
  */
 
 import { findOnDeviceScalarExpressionIssue } from "@/lib/commcare/expression/onDeviceCompatibility";
-import {
-	isValidStaticGeopointCenter,
-	walkCsqlOnDeviceNodes,
-} from "@/lib/commcare/predicate";
+import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk";
+import { isValidStaticGeopointCenter } from "@/lib/commcare/predicate/geopoint";
 import {
 	descendOnDeviceCaseAnchor,
 	type OnDeviceCaseAnchor,

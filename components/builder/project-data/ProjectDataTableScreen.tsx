@@ -28,7 +28,7 @@ import type { LookupColumnId, LookupRowId } from "@/lib/domain/lookupIds";
 import type { LookupRow, LookupTableSnapshot } from "@/lib/lookup/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { ProjectDataFailure, ProjectDataLoading } from "./ProjectDataReadState";
-import { useProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
+import { useProjectDataWorkspace } from "./ProjectDataWorkspaceLazyProvider";
 import {
 	COLUMN_TYPE_LABELS,
 	cellText,

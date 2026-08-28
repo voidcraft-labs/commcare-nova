@@ -1,4 +1,4 @@
-import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { mutationCommitVerdictWithPrevalidation } from "@/lib/doc/commitVerdicts";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
@@ -61,7 +61,7 @@ export function caseWriteChoiceVerdict(
 	caseWrite: AuthoredCaseWrite | null,
 	lookupContext: LookupValidationContext,
 ): CaseWriteChoiceVerdict {
-	const verdict = mutationCommitVerdict(
+	const verdict = mutationCommitVerdictWithPrevalidation(
 		doc,
 		caseWriteCandidateMutations(doc, field, caseWrite),
 		lookupContext,

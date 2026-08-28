@@ -31,17 +31,30 @@
 
 "use client";
 
-import { createContext, type ReactNode, useContext } from "react";
+import { createContext, memo, type ReactNode, useContext } from "react";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
 import type { Peer } from "@/lib/collab/presence";
 import { usePresence } from "@/lib/collab/presence";
-import { useLocation } from "@/lib/routing/hooks";
 import { useAppId } from "@/lib/session/hooks";
 
 /** Reference-stable empty roster for consumers outside the provider. */
 const EMPTY_ROSTER: Peer[] = [];
 
 const PresenceRosterContext = createContext<Peer[]>(EMPTY_ROSTER);
+
+const PresenceRosterBoundary = memo(function PresenceRosterBoundary({
+	peers,
+	children,
+}: {
+	readonly peers: Peer[];
+	readonly children: ReactNode;
+}) {
+	return (
+		<PresenceRosterContext.Provider value={peers}>
+			{children}
+		</PresenceRosterContext.Provider>
+	);
+});
 
 export interface PresenceProviderProps {
 	/** The session user id — self-dedupe keys on it, the same id the reconciler
@@ -55,13 +68,10 @@ export function PresenceProvider({ userId, children }: PresenceProviderProps) {
 	// instant the SA mints the app, without a builder remount.
 	const appId = useAppId();
 	const { user } = useAuth();
-	const location = useLocation();
-	const peers = usePresence(appId, { userId, name: user?.name }, location);
+	const peers = usePresence(appId, { userId, name: user?.name });
 
 	return (
-		<PresenceRosterContext.Provider value={peers}>
-			{children}
-		</PresenceRosterContext.Provider>
+		<PresenceRosterBoundary peers={peers}>{children}</PresenceRosterBoundary>
 	);
 }
 

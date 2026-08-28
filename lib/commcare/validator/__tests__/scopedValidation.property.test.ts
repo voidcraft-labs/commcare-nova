@@ -1,11 +1,13 @@
 /**
- * The scoped diagnostic runner is not the commit gate: commits always validate
- * the complete candidate. This suite preserves the independent diagnostic law:
+ * The scoped runner is not an absolute boundary gate. The Builder may use it
+ * only after its mutation classifier proves the complete changed footprint on
+ * a prior valid snapshot. This suite preserves the underlying law:
  *
  *   scoped run = full run filtered to that explicit scope
  *
- * App-wide findings remain in every scoped run by definition. Module/form/deep
- * findings retain full-run order after out-of-scope findings are removed.
+ * App-wide findings remain in every scoped run by definition. Module and form
+ * footprints are independent, and their findings retain full-run order after
+ * out-of-scope findings are removed.
  */
 
 import * as fc from "fast-check";
@@ -94,6 +96,37 @@ describe("scoped validation equals a full validation filtered to scope", () => {
 		expect(
 			scoped.some((finding) => finding.location.formUuid === excludedFormUuid),
 		).toBe(false);
+	});
+
+	it("does not pull form work into an independently selected module", () => {
+		const doc = buildDoc({
+			appName: "Independent validation axes",
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Excluded",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "excluded",
+									relevant: xp("#form/missing = 'yes'"),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0] as Uuid;
+		const scope: ValidationScope = {
+			moduleUuids: new Set([moduleUuid]),
+		};
+		const scoped = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { scope });
+		expect(scoped.some((finding) => finding.location.formUuid)).toBe(false);
+		expect(validateBlueprintDeep(doc, scope)).toEqual([]);
 	});
 
 	it(

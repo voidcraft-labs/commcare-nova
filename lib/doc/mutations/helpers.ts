@@ -56,15 +56,23 @@ export function cascadeDeleteForm(
  * Returns the parent uuid and the field's current index within
  * that parent, or `undefined` if the field isn't in any order map.
  *
- * O(parents × siblings). Mutation code paths typically call this once
- * per mutation, so the cost is acceptable; if this ever shows up in
- * profiles we can maintain a reverse index on the doc.
+ * Uses the document's derived reverse index for the common case. A batch may
+ * have structurally changed an Immer draft before this helper runs, while the
+ * reverse index is rebuilt only after the whole batch, so the indexed result
+ * is verified against `fieldOrder` and the complete scan remains as the
+ * correctness fallback.
  */
 export function findFieldParent(
 	doc: BlueprintDoc,
 	uuid: Uuid,
 ): { parentUuid: Uuid; index: number } | undefined {
+	const indexedParent = doc.fieldParent?.[uuid];
+	if (indexedParent !== undefined) {
+		const index = doc.fieldOrder[indexedParent]?.indexOf(uuid) ?? -1;
+		if (index !== -1) return { parentUuid: indexedParent, index };
+	}
 	for (const [parentUuid, order] of Object.entries(doc.fieldOrder)) {
+		if (parentUuid === indexedParent) continue;
 		const index = order.indexOf(uuid);
 		if (index !== -1) {
 			return { parentUuid: asUuid(parentUuid), index };

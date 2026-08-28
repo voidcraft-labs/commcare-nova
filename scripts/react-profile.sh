@@ -96,6 +96,7 @@ fi
 echo "[react-profile] checking the pinned hardening patch"
 node scripts/harden-agent-react-devtools.mjs
 node scripts/check-node.mjs
+npm run build:xpath-worker
 
 echo "[react-profile] booting local Postgres"
 docker compose up -d --wait

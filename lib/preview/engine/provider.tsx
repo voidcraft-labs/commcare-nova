@@ -42,11 +42,7 @@ import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageCo
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
-import { createBrowserXPathRuntime } from "../xpath/browserWorkerClient";
-import {
-	createInProcessXPathWorkerFactory,
-	XPathRuntime,
-} from "../xpath/workerClient";
+import { createBrowserXPathRuntime } from "../xpath/browserXPathRuntime";
 import { EngineController, type EngineRuntimeFault } from "./engineController";
 
 /** Preserve useful originating frames without retaining an exception message
@@ -114,13 +110,9 @@ export function BuilderFormEngineProvider({
 	});
 
 	const [controller] = useState(() => {
-		const runtime =
-			typeof Worker === "undefined"
-				? new XPathRuntime({
-						workerFactory: createInProcessXPathWorkerFactory(),
-						requestTimeoutMilliseconds: 30_000,
-					})
-				: createBrowserXPathRuntime({ requestTimeoutMilliseconds: 30_000 });
+		const runtime = createBrowserXPathRuntime({
+			requestTimeoutMilliseconds: 30_000,
+		});
 		const c = new EngineController(runtime);
 		c.setFaultReporter((fault, thrown) => {
 			const safeError = sanitizedEngineFaultError(fault, thrown);
@@ -135,7 +127,7 @@ export function BuilderFormEngineProvider({
 					diagnostics: {
 						component: "preview-engine",
 						operation: fault.operation,
-						failureKind: "runtime-invariant",
+						failureKind: fault.failureKind ?? "runtime-invariant",
 					},
 				},
 				safeError,

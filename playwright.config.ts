@@ -193,8 +193,9 @@ export default defineConfig({
 					// (minified, prod React), so a build-only break is caught here; and
 					// (2) `next dev` forwards SERVER console output into the BROWSER
 					// console, where the error guard would catch benign server logs.
-					// `fumadocs-mdx` first generates the `@/.source/server` import
-					// `next build` needs (as typecheck does). The repository launcher
+					// `fumadocs-mdx` first generates the `@/.source/server` import and
+					// `build:xpath-worker` emits the isolated evaluator that `next build`
+					// deliberately keeps outside its route graph. The repository launcher
 					// prepares Next's generated standalone tree exactly like Docker:
 					// public, static, then the dlopen-only sharp @img overlay. It then
 					// runs the generated server.js; `next start` is unsupported when
@@ -206,7 +207,7 @@ export default defineConfig({
 					command:
 						process.env.SMOKE_REUSE_BUILD === "1"
 							? "node scripts/start-standalone.mjs"
-							: "npx fumadocs-mdx && npx next build && node scripts/start-standalone.mjs",
+							: "npx fumadocs-mdx && npm run build:xpath-worker && npx next build && node scripts/start-standalone.mjs",
 					url: BASE_URL,
 					// Never reuse a stray server: a dev's own `npm run dev` on :3000
 					// points at a different database with a different secret, so

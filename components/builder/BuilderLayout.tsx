@@ -27,6 +27,7 @@
  */
 "use client";
 import {
+	memo,
 	useCallback,
 	useContext,
 	useEffect,
@@ -50,11 +51,8 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { DesignSessionSeed } from "@/lib/generation/designProgressWire";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
-import {
-	useBuilderPhase,
-	usePreviewing,
-	useSetPreviewing,
-} from "@/lib/session/hooks";
+import { useBuilderPhase } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 
 /** Extra space above the scroll target so the field isn't flush with the
@@ -62,6 +60,19 @@ import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
  *  and an expanded margin when a TipTap inline editor is active. */
 const SCROLL_MARGIN = 20;
 const SCROLL_MARGIN_WITH_TOOLBAR = 60;
+
+/** Keep the shortcut manager's reactive state at a leaf. Undo/redo,
+ * preview, and access changes need fresh handlers, but none of them changes
+ * the Builder's structural shell. */
+const BuilderShortcutRegistration = memo(function BuilderShortcutRegistration({
+	onSetPreviewing,
+}: {
+	onSetPreviewing: (on: boolean) => void;
+}) {
+	const shortcuts = useBuilderShortcuts(onSetPreviewing);
+	useKeyboardShortcuts("builder-layout", shortcuts);
+	return null;
+});
 
 interface BuilderLayoutProps {
 	/** Thread-list projection: loaded by the RSC page, passed through to
@@ -88,7 +99,7 @@ interface BuilderLayoutProps {
 	initialDesignSession?: DesignSessionSeed | null;
 }
 
-export function BuilderLayout({
+export const BuilderLayout = memo(function BuilderLayout({
 	threads,
 	initialThread,
 	appGenerating,
@@ -99,6 +110,7 @@ export function BuilderLayout({
 }: BuilderLayoutProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
+	const sessionStore = useBuilderSessionApi();
 
 	// ── Flipbook scroll sync ──────────────────────────────────────────────
 	// Toggling preview preserves scroll position so the same field stays
@@ -118,14 +130,6 @@ export function BuilderLayout({
 		allUuids: string[];
 	} | null>(null);
 
-	const setPreviewing = useSetPreviewing();
-
-	/* Track the current preview flag in a ref so the stable
-	 * handleSetPreviewing callback can read it without re-creating. */
-	const previewing = usePreviewing();
-	const previewingRef = useRef(previewing);
-	previewingRef.current = previewing;
-
 	/** Capture scroll anchor before the preview toggle, then delegate
 	 *  the actual flip to the session store's atomic setPreviewing.
 	 *
@@ -144,7 +148,7 @@ export function BuilderLayout({
 			 * already run querySelectorAll + getBoundingClientRect +
 			 * setScrollAnchor, which triggers a re-render and a
 			 * useLayoutEffect that mutates scrollTop. */
-			if (on === previewingRef.current) return;
+			if (on === sessionStore.getState().previewing) return;
 
 			const scrollContainer = document.querySelector(
 				"[data-preview-scroll-container]",
@@ -169,9 +173,9 @@ export function BuilderLayout({
 				}
 			}
 
-			setPreviewing(on);
+			sessionStore.getState().setPreviewing(on);
 		},
-		[setPreviewing],
+		[sessionStore],
 	);
 
 	/* Restore scroll position after mode switch. */
@@ -332,10 +336,6 @@ export function BuilderLayout({
 
 	// ── Keyboard shortcuts ──────────────────────────────────────────────
 
-	const shortcuts = useBuilderShortcuts(handleSetPreviewing);
-
-	useKeyboardShortcuts("builder-layout", shortcuts);
-
 	// ── Navigate to first form when generation completes ──────────────
 
 	const navigate = useNavigate();
@@ -368,6 +368,7 @@ export function BuilderLayout({
 	if (phase === BuilderPhase.Loading) {
 		return (
 			<CommCareConnectionProvider settings={commcareSettings}>
+				<BuilderShortcutRegistration onSetPreviewing={handleSetPreviewing} />
 				<div className="h-full flex flex-col overflow-hidden">
 					<BuilderHeader onSetPreviewing={handleSetPreviewing} />
 					{/* Not a second lockup. The header above is already showing the mark,
@@ -383,6 +384,7 @@ export function BuilderLayout({
 
 	return (
 		<CommCareConnectionProvider settings={commcareSettings}>
+			<BuilderShortcutRegistration onSetPreviewing={handleSetPreviewing} />
 			<BuilderReferenceProvider>
 				<CaseTargetDraftProvider>
 					{/* `data-builder-tree` marks the subtree that `BuilderProvider`'s
@@ -417,4 +419,4 @@ export function BuilderLayout({
 			</BuilderReferenceProvider>
 		</CommCareConnectionProvider>
 	);
-}
+});

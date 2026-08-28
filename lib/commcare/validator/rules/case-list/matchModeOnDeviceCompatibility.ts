@@ -25,7 +25,7 @@
  * `<prompt default="...">` XPath attribute.
  */
 
-import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate";
+import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {

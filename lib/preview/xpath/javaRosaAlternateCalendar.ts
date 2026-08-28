@@ -2,7 +2,7 @@ import { parseCommCareDatePattern } from "@/lib/domain/commCareDatePattern";
 import {
 	classicWideningTarget,
 	iso6391CodeForSet3,
-} from "@/lib/domain/languageRegistry";
+} from "@/lib/domain/languageRegistry/classicRuntime";
 import type { XPathDate } from "./types";
 
 /** Pinned from CommCare Android's locale arrays at 79d8418ab2dcd984. */

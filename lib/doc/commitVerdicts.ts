@@ -12,10 +12,13 @@
  * dispatch hook (`useBlueprintMutations`) consume the same function, so
  * "rejected here, accepted there" can't drift between surfaces.
  *
- * Semantics live entirely in `evaluateCommit` — whole-document validation
- * and the gating-class filter are never re-derived here. Reducers do not
- * validate; every lifecycle path must prepare and evaluate before accepting
- * a state.
+ * Semantics live in the validator gate — the gating-class filter is never
+ * re-derived here. Absolute/server boundaries evaluate the whole document.
+ * The Builder additionally preserves validity by induction for conservatively
+ * classified mutation footprints: app-wide and lookup rules plus the complete
+ * touched form/module run, while every unclassified edit falls back to the
+ * absolute gate. Reducers do not validate; every lifecycle path must prepare
+ * and evaluate before accepting a state.
  *
  * Pure — the candidate `nextDoc` is computed via Immer `produce` over
  * the same `applyMutations` reducer every committed batch runs through.
@@ -36,9 +39,10 @@ import {
 import {
 	type CsqlRepresentabilityIssue,
 	checkCsqlRepresentability,
-	walkCsqlOnDeviceNodes,
-} from "@/lib/commcare/predicate";
+} from "@/lib/commcare/predicate/csqlRepresentability";
+import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
+import type { ValidationScope } from "@/lib/commcare/validator";
 import {
 	type ValidationError,
 	validationError,
@@ -46,6 +50,7 @@ import {
 import {
 	evaluateBoundary,
 	evaluateCommit,
+	evaluateScopedCommit,
 } from "@/lib/commcare/validator/gate";
 import { validateLookupReferences } from "@/lib/commcare/validator/lookupReferences";
 import { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
@@ -55,6 +60,7 @@ import {
 	type CasePropertyRenamePlanIssue,
 	planCasePropertyRenames,
 } from "@/lib/doc/casePropertyRenames";
+import { incrementalValidationScope } from "@/lib/doc/incrementalValidationScope";
 import {
 	type LookupValidationContext,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
@@ -68,6 +74,7 @@ import {
 	type MutationIdentityAdmissionIssue,
 	mutationIdentityAdmissionIssue,
 } from "@/lib/doc/mutationIdentityAdmission";
+import { hasMutationPrevalidation } from "@/lib/doc/mutationPrevalidation";
 import {
 	type MutationSequenceAdmissionIssue,
 	mutationSequenceAdmissionIssue,
@@ -384,7 +391,17 @@ export function prepareMutationCandidate(
 	prevDoc: BlueprintDoc,
 	mutations: AdmittedMutationBatch,
 ): PreparedMutationCandidate {
-	const identityIssue = mutationIdentityAdmissionIssue(prevDoc, mutations);
+	/* Scalar field patches neither claim identities nor alter sequence
+	 * membership. Avoid materializing both whole-document admission indexes for
+	 * the Builder's most frequent edit path. Inline option replacement remains
+	 * structural because it replaces option identities. */
+	const scalarFieldUpdate =
+		mutations.length === 1 &&
+		mutations[0]?.kind === "updateField" &&
+		!("optionsSource" in mutations[0].patch);
+	const identityIssue = scalarFieldUpdate
+		? undefined
+		: mutationIdentityAdmissionIssue(prevDoc, mutations);
 	if (identityIssue !== undefined) {
 		return {
 			mutations,
@@ -393,7 +410,9 @@ export function prepareMutationCandidate(
 			identityAdmissionIssue: identityIssue,
 		};
 	}
-	const sequenceIssue = mutationSequenceAdmissionIssue(prevDoc, mutations);
+	const sequenceIssue = scalarFieldUpdate
+		? undefined
+		: mutationSequenceAdmissionIssue(prevDoc, mutations);
 	if (sequenceIssue !== undefined) {
 		return {
 			mutations,
@@ -448,12 +467,14 @@ export function prepareMutationCandidate(
 }
 
 /**
- * Evaluate a prepared candidate without applying its mutations again. The
- * complete candidate is validated under the authoritative context object.
+ * Evaluate a prepared candidate without applying its mutations again. With no
+ * explicit scope this is the absolute gate; a supplied scope is a dependency
+ * footprint already proven by the Builder classifier.
  */
 export function evaluatePreparedMutationCandidate(
 	prepared: PreparedMutationCandidate,
 	lookupContext: LookupValidationContext,
+	options?: { readonly validationScope?: ValidationScope },
 ): MutationCommitVerdict {
 	if (prepared.identityAdmissionIssue !== undefined) {
 		const issue = prepared.identityAdmissionIssue;
@@ -536,10 +557,17 @@ export function evaluatePreparedMutationCandidate(
 		};
 	}
 
-	const verdict = evaluateCommit({
-		nextDoc: prepared.nextDoc,
-		lookupContext,
-	});
+	const verdict =
+		options?.validationScope === undefined
+			? evaluateCommit({
+					nextDoc: prepared.nextDoc,
+					lookupContext,
+				})
+			: evaluateScopedCommit({
+					nextDoc: prepared.nextDoc,
+					lookupContext,
+					scope: options.validationScope,
+				});
 	return verdict.ok
 		? {
 				ok: true,
@@ -576,6 +604,58 @@ export function mutationCommitVerdict(
 		prepareMutationCandidate(prevDoc, admitted),
 		lookupContext,
 	);
+}
+
+/**
+ * Builder gate with an exact off-thread proof fast path.
+ *
+ * A control may evaluate its exact full candidate before the author commits
+ * it. Reuse that success only while the live document and lookup context are
+ * the identical snapshots registered with the proof. Wire, identity,
+ * sequence, target, and rename admission still run on the main thread; any
+ * different batch, changed snapshot, or stale proof uses the ordinary
+ * absolute gate.
+ */
+export function mutationCommitVerdictWithPrevalidation(
+	prevDoc: BlueprintDoc,
+	mutations: unknown,
+	lookupContext: LookupValidationContext,
+): MutationCommitVerdict {
+	let admitted: AdmittedMutationBatch;
+	try {
+		admitted = admitMutationBatch(mutations);
+	} catch (error) {
+		if (!(error instanceof MutationWireCanonicalityError)) throw error;
+		return mutationWireCanonicalityRejection(prevDoc, error);
+	}
+	const prepared = prepareMutationCandidate(prevDoc, admitted);
+	const prevalidated = hasMutationPrevalidation(
+		prevDoc,
+		lookupContext,
+		admitted,
+	);
+	if (
+		prepared.identityAdmissionIssue !== undefined ||
+		prepared.sequenceAdmissionIssue !== undefined ||
+		prepared.targetAdmissionIssue === true ||
+		prepared.renamePlanIssue !== undefined
+	) {
+		// This returns the exact admission finding before reaching evaluateCommit.
+		return evaluatePreparedMutationCandidate(prepared, lookupContext);
+	}
+	if (prevalidated) {
+		return {
+			ok: true,
+			nextDoc: prepared.nextDoc,
+			results: prepared.results,
+			mutations: prepared.mutations,
+			prepared,
+		};
+	}
+	const validationScope = incrementalValidationScope(prevDoc, admitted);
+	return evaluatePreparedMutationCandidate(prepared, lookupContext, {
+		...(validationScope !== undefined && { validationScope }),
+	});
 }
 
 export function mutationWireCanonicalityRejection(

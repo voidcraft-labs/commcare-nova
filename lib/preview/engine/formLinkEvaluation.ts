@@ -68,12 +68,12 @@ import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import type { EvalContext, XPathValue } from "../xpath/types";
-import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import {
 	serializeXPathWorkerHashtagValue,
 	snapshotXPathWorkerInstance,
 	xpathWorkerHashtagReferences,
-} from "../xpath/workerRuntime";
+} from "../xpath/workerProjection";
+import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import type { PreviewSearchSessionValues } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
 import { xpathReferencesInstance } from "./xpathInstanceReferences";

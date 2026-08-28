@@ -79,7 +79,7 @@ import {
 	type AssetManifest,
 	requireAssetRef,
 } from "../multimedia/assetWirePath";
-import { emitCaseListFilter } from "../predicate";
+import { emitCaseListFilter } from "../predicate/caseListFilterEmitter";
 import {
 	idMappingDisplayXpath,
 	intervalColumnDisplayXpath,

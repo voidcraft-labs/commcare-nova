@@ -24,14 +24,10 @@ import type {
 } from "@/lib/domain";
 import { USERCASE_CASE_TYPE } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import {
-	createInProcessXPathWorkerFactory,
-	XPathRuntime,
-} from "../../xpath/workerClient";
-import {
-	deserializeXPathWorkerValue,
-	evaluateXPathWorkerRequest,
-} from "../../xpath/workerRuntime";
+import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
+import { XPathRuntime } from "../../xpath/workerClient";
+import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
+import { evaluateXPathWorkerRequest } from "../../xpath/workerRuntime";
 
 import {
 	type CaseDataByType,

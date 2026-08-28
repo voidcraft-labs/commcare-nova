@@ -8,13 +8,34 @@
  */
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import { useCanEdit } from "@/lib/session/hooks";
-import { ColumnInspectorBody } from "./ColumnInspectorBody";
 import type { ActiveInspectorDescriptor } from "./inspectorTypes";
-import { useProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
-import { RowConflictBody } from "./RowConflictBody";
-import { RowInspectorBody } from "./RowInspectorBody";
+import { useProjectDataWorkspace } from "./ProjectDataWorkspaceLazyProvider";
+
+function InspectorBodyLoading() {
+	return (
+		<div className="py-4 text-sm text-nova-text-muted" role="status">
+			Opening properties
+		</div>
+	);
+}
+const ColumnInspectorBody = dynamic(
+	() =>
+		import("./ColumnInspectorBody").then(
+			(module) => module.ColumnInspectorBody,
+		),
+	{ loading: InspectorBodyLoading },
+);
+const RowConflictBody = dynamic(
+	() => import("./RowConflictBody").then((module) => module.RowConflictBody),
+	{ loading: InspectorBodyLoading },
+);
+const RowInspectorBody = dynamic(
+	() => import("./RowInspectorBody").then((module) => module.RowInspectorBody),
+	{ loading: InspectorBodyLoading },
+);
 
 /**
  * The rail descriptor for whatever the workspace has selected, or `null`.

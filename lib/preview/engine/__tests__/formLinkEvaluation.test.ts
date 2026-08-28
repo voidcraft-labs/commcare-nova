@@ -26,12 +26,12 @@ import type {
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import { evaluate } from "../../xpath/evaluator";
-import {
-	createInProcessXPathWorkerFactory,
-	XPathRuntime,
-} from "../../xpath/workerClient";
+import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
+import { XPathRuntime } from "../../xpath/workerClient";
+import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
 import {
 	carriedCaseFor,
+	createFormLinkWorkerWorld,
 	evaluateFormLinks,
 	evaluateFormLinksAsync,
 	evaluateLinkDatum,
@@ -241,6 +241,65 @@ function linkNamed(
 }
 
 describe("form-link worker instances", () => {
+	it("evaluates a submitted case property after the request is structured-cloned", async () => {
+		const doc = buildDoc(spec());
+		const caseId = "household-1";
+		const input = inputFor(doc, {
+			caseData: new Map([
+				[
+					"household",
+					new Map([
+						["case_id", caseId],
+						["village", "south"],
+					]),
+				],
+			]),
+			caseDatabase: {
+				rows: [
+					{
+						case_id: caseId,
+						app_id: doc.appId,
+						case_type: "household",
+						owner_id: "u1",
+						status: "open",
+						opened_on: new Date("2026-08-01T00:00:00.000Z"),
+						modified_on: new Date("2026-08-02T00:00:00.000Z"),
+						closed_on: null,
+						case_name: "Household",
+						external_id: null,
+						parent_case_id: null,
+						properties: { village: "south" },
+					},
+				],
+				indices: [],
+			},
+		});
+		const runtime = new XPathRuntime({
+			workerFactory: createInProcessXPathWorkerFactory(),
+		});
+		const world = createFormLinkWorkerWorld(input, "submission-world");
+		const choice = await evaluateFormLinksAsync({
+			links: linksOf(doc, "frm-update"),
+			fallback: "module",
+			input,
+			world,
+			evaluate: async (source, instances) => {
+				const result = await runtime.request({
+					entryKey: "entry",
+					revision: 1,
+					profile: "form-link",
+					source,
+					instances,
+				});
+				if (!result.ok) throw new Error(result.error.code);
+				return deserializeXPathWorkerValue(result.value);
+			},
+		});
+
+		expect(choice).toEqual({ kind: "fallback", destination: "module" });
+		runtime.dispose();
+	});
+
 	it("resolves both the suite fixture id and XForm tag for a declared lookup", async () => {
 		const tableId = "018f0000-0000-7000-8000-000000000001" as LookupTableId;
 		const columnId = "018f0000-0000-7000-8000-0000000000c1" as LookupColumnId;

@@ -29,6 +29,7 @@ export interface StandalonePaths {
 	readonly server: string;
 	readonly publicSource: string;
 	readonly publicDestination: string;
+	readonly xpathWorkerSource: string;
 	readonly staticSource: string;
 	readonly staticDestination: string;
 	readonly sharpSource: string;
@@ -44,6 +45,12 @@ export function standalonePaths(repositoryRoot: string): StandalonePaths {
 		server: path.join(standaloneRoot, "server.js"),
 		publicSource: path.join(resolvedRoot, "public"),
 		publicDestination: path.join(standaloneRoot, "public"),
+		xpathWorkerSource: path.join(
+			resolvedRoot,
+			"public",
+			"xpath-worker",
+			"xpath-worker.js",
+		),
 		staticSource: path.join(resolvedRoot, ".next", "static"),
 		staticDestination: path.join(standaloneRoot, ".next", "static"),
 		sharpSource: path.join(resolvedRoot, "node_modules", "@img"),
@@ -84,6 +91,12 @@ export function standalonePreparationPlan(repositoryRoot: string): {
 				kind: "directory",
 				target: paths.publicSource,
 				remedy: "Restore the repository's `public` directory.",
+			},
+			{
+				label: "built XPath worker",
+				kind: "file",
+				target: paths.xpathWorkerSource,
+				remedy: "Run `npm run build:xpath-worker` first.",
 			},
 			{
 				label: "built static assets",

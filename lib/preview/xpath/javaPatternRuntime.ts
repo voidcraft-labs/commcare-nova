@@ -4,14 +4,13 @@ import {
 } from "./javaPatternBoundary";
 import {
 	find,
-	pow,
 	replaceAllLiteral,
 } from "./vendor/javaPatternRuntime.generated.js";
 
 /**
- * TeaVM compiles pinned OpenJDK 17 Pattern, Matcher, and fdlibm sources into
- * this worker-safe static ESM boundary. Never replace the regex operations
- * with JavaScript RegExp: its grammar and replacement rules are observably
+ * TeaVM compiles pinned OpenJDK 17 Pattern and Matcher sources into this
+ * worker-safe static ESM boundary. Never route user-authored regex operations
+ * through JavaScript RegExp: its grammar and replacement rules are observably
  * different from Java Pattern.
  */
 const javaPatternEngine: JavaPatternEngine = {
@@ -37,6 +36,3 @@ const javaPatternFunctions = createJavaPatternFunctions(javaPatternEngine);
 
 export const javaRosaRegex = javaPatternFunctions.regex;
 export const javaRosaReplace = javaPatternFunctions.replace;
-
-/** OpenJDK 17 fdlibm result for JavaRosa's `Math.pow` XPath function. */
-export const javaRosaPow = pow;

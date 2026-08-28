@@ -18,8 +18,14 @@ Usage:
 """
 
 import json
+import math
 import sys
 from pathlib import Path
+
+
+FRAME_BUDGET_MS = 16.7
+ATTENTION_BUDGET_MS = 50.0
+UX_RESPONSE_BUDGET_MS = 100.0
 
 
 def load_profile(path: str) -> dict:
@@ -267,8 +273,24 @@ def print_summary(root: dict, names: dict[int, str]):
     print(f"Profile Summary — {len(commits)} commits, {len(names)} components tracked")
     print(f"{'='*70}\n")
 
-    total_duration = sum(c.get("duration", 0) for c in commits)
+    durations = [float(c.get("duration", 0)) for c in commits]
+    total_duration = sum(durations)
     print(f"  Total render time: {total_duration:.1f}ms")
+
+    if durations:
+        sorted_durations = sorted(durations)
+        p95_index = max(0, math.ceil(len(sorted_durations) * 0.95) - 1)
+        over_frame = sum(duration > FRAME_BUDGET_MS for duration in durations)
+        over_attention = sum(duration > ATTENTION_BUDGET_MS for duration in durations)
+        over_response = sum(duration > UX_RESPONSE_BUDGET_MS for duration in durations)
+        print(f"  Longest commit: {max(durations):.1f}ms")
+        print(f"  P95 commit: {sorted_durations[p95_index]:.1f}ms")
+        print(
+            "  Budget counts: "
+            f">{FRAME_BUDGET_MS:.1f}ms={over_frame}, "
+            f">{ATTENTION_BUDGET_MS:.0f}ms={over_attention}, "
+            f">{UX_RESPONSE_BUDGET_MS:.0f}ms={over_response}"
+        )
 
     # List commits sorted by duration
     print(f"\n  {'Frame':>6} {'Time (ms)':>10} {'Duration':>10} {'Components':>12}")
@@ -278,8 +300,21 @@ def print_summary(root: dict, names: dict[int, str]):
         ts = commit.get("timestamp", 0)
         commit_data = analyze_commit(root, names, ci)
         n = commit_data["component_count"]
-        marker = " **" if dur > 16.7 else ""  # Flag frames over 16.7ms (60fps budget)
+        if dur > UX_RESPONSE_BUDGET_MS:
+            marker = " !!!"
+        elif dur > ATTENTION_BUDGET_MS:
+            marker = " !!"
+        elif dur > FRAME_BUDGET_MS:
+            marker = " *"
+        else:
+            marker = ""
         print(f"  {ci + 1:>6} {ts:>9.0f} {dur:>9.1f}ms {n:>12}{marker}")
+
+    print(
+        f"\n  Markers: * >{FRAME_BUDGET_MS:.1f}ms, "
+        f"!! >{ATTENTION_BUDGET_MS:.0f}ms, "
+        f"!!! >{UX_RESPONSE_BUDGET_MS:.0f}ms"
+    )
 
 
 def main():

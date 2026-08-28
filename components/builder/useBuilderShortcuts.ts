@@ -14,7 +14,7 @@ import {
 	useDeleteSelectedField,
 	useUndoRedo,
 } from "@/lib/routing/builderActions";
-import { useLocation, useSelect } from "@/lib/routing/hooks";
+import { readBuilderLocation, useSelect } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
 	useBuilderIsReady,
@@ -35,14 +35,14 @@ import type { Shortcut } from "@/lib/ui/keyboardManager";
  * Shift+ArrowUp/Shift+ArrowDown (cross-level indent/outdent),
  * Cmd+Z/Cmd+Shift+Z (undo/redo).
  *
- * All navigation and selection is URL-driven: the hook reads the current
- * location via `useLocation()`, dispatches selection via `useSelect()`, and
- * fires mutations via uuid-first `useBlueprintMutations()`. Mutation handlers
- * read the doc imperatively at fire time via `useBlueprintDocApi()`, no need
- * to subscribe to entity-map slices; the handlers only run on keystrokes, and
- * always-fresh state beats a reactive entity-map subscription here. The only
- * reactive doc values are the two undo/redo availability booleans, which let
- * those shortcuts decline when their history action cannot run.
+ * All navigation and selection is URL-driven: handlers read the current URL
+ * and document imperatively when a key fires, dispatch selection via
+ * `useSelect()`, and fire mutations via uuid-first
+ * `useBlueprintMutations()`. The Builder layout therefore does not subscribe
+ * to every field-selection path merely to keep dormant keyboard closures
+ * fresh. The only reactive doc values are the two undo/redo availability
+ * booleans, which let those shortcuts decline when their history action
+ * cannot run.
  */
 export function useBuilderShortcuts(
 	setPreviewing: (on: boolean) => void,
@@ -50,7 +50,6 @@ export function useBuilderShortcuts(
 	const isReady = useBuilderIsReady();
 	const accessPhase = useAccessPhase();
 	const canEdit = useCanEdit();
-	const loc = useLocation();
 	const select = useSelect();
 	const { setPending } = useScrollIntoView();
 	const deleteSelected = useDeleteSelectedField();
@@ -79,9 +78,8 @@ export function useBuilderShortcuts(
 			// false) when neither applies so the key falls through to a
 			// more specific registration (e.g. the case-list workspace's
 			// inspector-closing Escape) instead of being eaten: this
-			// registration re-registers on every doc mutation (the memo
-			// depends on `loc`), so it routinely sits LAST in the manager's
-			// recency order without being the most specific handler.
+			// registration may sit last in the manager's recency order without
+			// being the most specific handler.
 			{
 				key: "Escape",
 				handler: () => {
@@ -89,6 +87,7 @@ export function useBuilderShortcuts(
 						transitionPreview(false);
 						return true;
 					}
+					const loc = readBuilderLocation(docApi.getState());
 					if (loc.kind === "form" && loc.selectedUuid) {
 						select(undefined);
 						return true;
@@ -110,6 +109,7 @@ export function useBuilderShortcuts(
 				key: "Tab",
 				handler: () => {
 					if (previewing) return false;
+					const loc = readBuilderLocation(docApi.getState());
 					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const refs = flattenFieldRefs(docApi.getState(), loc.formUuid);
 					if (!refs.length) return false;
@@ -125,6 +125,7 @@ export function useBuilderShortcuts(
 				shift: true,
 				handler: () => {
 					if (previewing) return false;
+					const loc = readBuilderLocation(docApi.getState());
 					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const refs = flattenFieldRefs(docApi.getState(), loc.formUuid);
 					if (!refs.length) return false;
@@ -139,6 +140,7 @@ export function useBuilderShortcuts(
 			{
 				key: "Delete",
 				handler: () => {
+					const loc = readBuilderLocation(docApi.getState());
 					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					deleteSelected();
 					return true;
@@ -147,6 +149,7 @@ export function useBuilderShortcuts(
 			{
 				key: "Backspace",
 				handler: () => {
+					const loc = readBuilderLocation(docApi.getState());
 					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					deleteSelected();
 					return true;
@@ -157,6 +160,7 @@ export function useBuilderShortcuts(
 				key: "d",
 				meta: true,
 				handler: () => {
+					const loc = readBuilderLocation(docApi.getState());
 					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const result = duplicateField(asUuid(loc.selectedUuid));
 					/* A gate rejection was still handled by Nova (and may show a
@@ -171,6 +175,7 @@ export function useBuilderShortcuts(
 			{
 				key: "ArrowUp",
 				handler: () => {
+					const loc = readBuilderLocation(docApi.getState());
 					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const { beforeUuid } = getFieldMoveTargets(
 						docApi.getState(),
@@ -184,6 +189,7 @@ export function useBuilderShortcuts(
 			{
 				key: "ArrowDown",
 				handler: () => {
+					const loc = readBuilderLocation(docApi.getState());
 					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const { afterUuid } = getFieldMoveTargets(
 						docApi.getState(),
@@ -199,6 +205,7 @@ export function useBuilderShortcuts(
 				key: "ArrowUp",
 				shift: true,
 				handler: () => {
+					const loc = readBuilderLocation(docApi.getState());
 					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const { up } = getCrossLevelFieldMoveTargets(
 						docApi.getState(),
@@ -217,6 +224,7 @@ export function useBuilderShortcuts(
 				key: "ArrowDown",
 				shift: true,
 				handler: () => {
+					const loc = readBuilderLocation(docApi.getState());
 					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const { down } = getCrossLevelFieldMoveTargets(
 						docApi.getState(),
@@ -274,7 +282,6 @@ export function useBuilderShortcuts(
 		isReady,
 		accessPhase,
 		canEdit,
-		loc,
 		docApi,
 		setPending,
 		select,

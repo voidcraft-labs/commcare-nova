@@ -2,24 +2,25 @@
 
 This directory reproducibly compiles the regex implementation used by
 Formplayer and the portable fdlibm power implementation satisfying JavaRosa's
-`Math.pow` contract into a static ES module. The source is OpenJDK 17
+`Math.pow` contract into static ES modules. The source is OpenJDK 17
 `Pattern`, `Matcher`, `FdLibm.Pow`, and their required support from tag
 `jdk-17.0.20+8`, peeled commit
 `8cbbca61432426a3441aa08838d930ef954ea1ba`. TeaVM 0.15.0 performs the Java to
 JavaScript compilation. The result is JavaScript, not WebAssembly.
 
-The runtime exposes the operations CommCare Core invokes:
+Two runtime entries expose the operations CommCare Core invokes:
 `Pattern.compile(pattern).matcher(input).find()` and `replaceAll` after
 `Matcher.quoteReplacement`, plus the OpenJDK 17 fdlibm implementation behind
-JavaRosa's `Math.pow`. User-authored patterns execute inside Nova's
-bounded XPath worker. The finite set of patterns Nova generates itself may use
-the same engine synchronously.
+JavaRosa's `Math.pow`. User-authored patterns execute inside Nova's bounded
+XPath worker. Nova's finite machine-generated Pattern sources use a closed,
+parity-tested synchronous implementation so the Builder's main thread never
+loads the complete Pattern runtime.
 
 Run `scripts/java-pattern-runtime/build.sh` from anywhere in the checkout. The
 script pins both its Gradle/TeaVM build image and the exact linux/amd64 Temurin
 17.0.20+8 image used to generate character names by OCI digest. It regenerates
-both committed artifacts on every run. The verifier rejects dynamic-code CSP
-primitives, enforces reviewed size budgets, and pins both generated artifacts
+all committed artifacts on every run. The verifier rejects dynamic-code CSP
+primitives, enforces reviewed size budgets, and pins every generated artifact
 by SHA-256. A source or toolchain change therefore requires an explicit
 generated-artifact review.
 

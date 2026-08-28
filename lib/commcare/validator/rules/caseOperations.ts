@@ -5,14 +5,14 @@ import {
 	MAX_CASE_TYPE_LENGTH,
 	RESERVED_XFORM_NODE_PREFIX,
 } from "@/lib/commcare/constants";
-import { emitOnDeviceExpression } from "@/lib/commcare/expression";
 import {
 	findOnDeviceDateAddIssue,
 	findOnDeviceDateAddIssueInPredicate,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
+import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { emitCaseListFilter } from "@/lib/commcare/predicate";
+import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import {
 	caseOperationTargetTypeOrderViolations,
 	caseOperationWireOrderViolationDetails,

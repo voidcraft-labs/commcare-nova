@@ -473,11 +473,13 @@ export const config = {
 	 * CDN-cacheable like the other static assets is correct. `third-party`
 	 * contains the public corresponding-source archive advertised by the
 	 * OpenJDK-derived Java Pattern bundle; keeping it outside the auth proxy is
-	 * part of making that license material actually retrievable. `/api` is
+	 * part of making that license material actually retrievable. `xpath-worker`
+	 * is the generated, non-sensitive static runtime fetched only when Preview
+	 * needs an isolated XPath evaluation. `/api` is
 	 * intentionally NOT excluded so that the MCP host can intercept
 	 * `/api/mcp` in step 1; the API short-circuit in step 2 handles the
 	 * matched main-host API requests. */
 	matcher: [
-		"/((?!_next/static|_next/image|favicon.ico|nova-icons/|third-party/).*)",
+		"/((?!_next/static|_next/image|favicon.ico|nova-icons/|third-party/|xpath-worker/).*)",
 	],
 };

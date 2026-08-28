@@ -65,6 +65,8 @@ export function TreeItemRow({
 	selected = false,
 	className,
 	style,
+	onPointerEnter,
+	onFocus,
 	children,
 	...rest
 }: {
@@ -74,6 +76,8 @@ export function TreeItemRow({
 	selected?: boolean;
 	className?: string;
 	style?: React.CSSProperties;
+	onPointerEnter?: React.PointerEventHandler<HTMLButtonElement>;
+	onFocus?: React.FocusEventHandler<HTMLButtonElement>;
 	children: React.ReactNode;
 	"data-tree-field"?: string;
 }) {
@@ -84,6 +88,8 @@ export function TreeItemRow({
 				disabled={disabled}
 				aria-label={label}
 				aria-current={selected ? "page" : undefined}
+				onPointerEnter={onPointerEnter}
+				onFocus={onFocus}
 				onClick={onClick}
 				className="nova-focusable-inset absolute inset-0 z-0 size-full cursor-pointer rounded-none outline-none disabled:cursor-default"
 			/>

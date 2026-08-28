@@ -3,10 +3,12 @@ import {
 	caseDatabaseXPathInstance,
 	previewHashtagNodeSet,
 } from "../../engine/xpathInstances";
+import { createInProcessXPathWorkerFactory } from "../inProcessWorkerClient";
+import { XPathRuntime } from "../workerClient";
 import {
-	createInProcessXPathWorkerFactory,
-	XPathRuntime,
-} from "../workerClient";
+	serializeXPathWorkerHashtagValue,
+	snapshotXPathWorkerInstance,
+} from "../workerProjection";
 import type {
 	XPathRuntimeRequest,
 	XPathWorkerInstanceSnapshot,
@@ -14,8 +16,6 @@ import type {
 } from "../workerProtocol";
 import {
 	asyncXPathWorkerFunctions,
-	serializeXPathWorkerHashtagValue,
-	snapshotXPathWorkerInstance,
 	xpathRequiresAsyncWorker,
 } from "../workerRuntime";
 
@@ -567,6 +567,23 @@ describe("XPath worker runtime", () => {
 		expect(exposed).not.toContain("secret-value");
 		expect(exposed).not.toContain("/secret/path");
 		expect(exposed).not.toContain("case-id");
+		runtime.dispose();
+	});
+
+	it("reports only a bounded phase and category for evaluator failures", async () => {
+		const runtime = new XPathRuntime({
+			workerFactory: createInProcessXPathWorkerFactory(),
+		});
+
+		await expect(
+			runtime.request(request({ source: "/data/not_in_the_instance" })),
+		).resolves.toMatchObject({
+			ok: false,
+			error: {
+				code: "evaluation-failed",
+				reason: { phase: "evaluation", kind: "invalid-path" },
+			},
+		});
 		runtime.dispose();
 	});
 });

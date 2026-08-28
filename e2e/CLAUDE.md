@@ -13,9 +13,10 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **Hermetic, free, no real GCP.** The suite runs against a **local Postgres**
   (`scripts/smoke.sh`), not a real project — the same testcontainer-free local stack the
   integration tests use under `npm test`. No CI GCP project, no prod credentials, no LLM spend.
-- **Runs the production build, not `next dev`.** The managed server runs `next build`,
-  then Nova's `scripts/start-standalone.mjs`: it validates the canonical generated
-  `server.js`, places public + static assets, overlays sharp's dlopen-only `@img`
+- **Runs the production build, not `next dev`.** The managed server builds the isolated
+  XPath worker, runs `next build`, then Nova's `scripts/start-standalone.mjs`: it
+  validates the canonical generated `server.js` and XPath worker, places public +
+  static assets, overlays sharp's dlopen-only `@img`
   runtime exactly like Docker, and launches that server with signal forwarding.
   The gate therefore exercises the deployed artifact, and `next dev`'s
   server→browser log forwarding can't trip the error guard. `next start` is not a

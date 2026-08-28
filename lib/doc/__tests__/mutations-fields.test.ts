@@ -167,6 +167,51 @@ describe("updateField", () => {
 		expect(next.fields[Q("a")]?.id).toBe("name"); // Preserved
 	});
 
+	it("preserves reference identity for every untouched nested slot", () => {
+		const start = resolveDocExpressions({
+			...docWithForm(),
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age") },
+					],
+				},
+			],
+			fields: {
+				[Q("a")]: field_(Q("a"), "name", {
+					required: "true()",
+					hint: proseText("Kept by reference"),
+					caseWrite: { caseType: "patient", property: "case_name" },
+				}),
+			},
+			fieldOrder: { [F("1")]: [Q("a")] },
+		});
+		const previousField = start.fields[Q("a")] as Extract<
+			Field,
+			{ kind: "text" }
+		>;
+		const next = produce(start, (draft) => {
+			applyMutation(draft, {
+				kind: "updateField",
+				uuid: Q("a"),
+				targetKind: "text",
+				patch: { caseWrite: { caseType: "patient", property: "age" } },
+			});
+		});
+		const nextField = next.fields[Q("a")] as Extract<Field, { kind: "text" }>;
+
+		expect(nextField.required).toBe(previousField.required);
+		expect(nextField.label).toBe(previousField.label);
+		expect(nextField.hint).toBe(previousField.hint);
+		expect(nextField.caseWrite).not.toBe(previousField.caseWrite);
+		expect(nextField.caseWrite).toEqual({
+			caseType: "patient",
+			property: "age",
+		});
+	});
+
 	it("skips a stale patch when the field's kind drifted from targetKind", () => {
 		// Stale-mutation case: `targetKind` was captured against the field's
 		// kind at the time the mutation was queued, but the field has since

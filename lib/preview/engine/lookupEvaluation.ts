@@ -36,7 +36,7 @@ import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
-import { emitCaseListFilter } from "@/lib/commcare/predicate";
+import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import type { OnDeviceTermEmissionContext } from "@/lib/commcare/predicate/termEmitter";
 import type {
 	LookupColumnId,

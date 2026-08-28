@@ -86,16 +86,20 @@ export type ProseSurface = FieldProseSlotId;
  * A validation scope — which entities a scoped diagnostic run walks. App-level rules
  * always run regardless of scope (they're cheap and their findings are
  * app-anchored); module rules run for modules in `moduleUuids`; form-level
- * work (form rules, field rules, deep XPath validation) runs for every form
- * of an in-scope module plus every form named directly in `formUuids`.
+ * work (form rules, field rules, deep XPath validation) runs only for forms
+ * named in `formUuids`. The two axes are deliberately independent: a case
+ * writer can change the effective property catalog consumed by several
+ * modules without changing any form below those modules.
  *
  * An ABSENT scope means a full run. A PRESENT scope with empty/absent sets
  * is meaningful — it runs app rules only (e.g. a pure module reorder, which
  * can't change any module/form-level finding).
  *
- * The commit gate never supplies this option; it always validates the complete
- * candidate. The scoped-run ≡ full-run-filtered law is documented at
- * `runner.ts::errorWithinScope` and property-tested.
+ * Absolute commit and boundary gates never supply this option. The Builder may
+ * use it only for a conservatively classified mutation footprint over a prior
+ * valid snapshot; app-wide and lookup rules still run, and every unclassified
+ * edit falls back to the absolute gate. The scoped-run ≡ full-run-filtered law
+ * is documented at `runner.ts::errorWithinScope` and property-tested.
  */
 export interface ValidationScope {
 	readonly moduleUuids?: ReadonlySet<Uuid>;
@@ -111,19 +115,16 @@ export function scopeHasModule(
 }
 
 /**
- * Whether a scope (or no scope) admits a form's form-level work. A form is
- * in scope when its module is (module scope covers the module's whole
- * subtree) or when the form is named directly.
+ * Whether a scope (or no scope) admits a form's form-level work. Module and
+ * form footprints are independent, so a present scope admits only explicitly
+ * named forms.
  */
 export function scopeHasForm(
 	scope: ValidationScope | undefined,
-	moduleUuid: Uuid,
+	_moduleUuid: Uuid,
 	formUuid: Uuid,
 ): boolean {
-	return (
-		scopeHasModule(scope, moduleUuid) ||
-		(scope?.formUuids?.has(formUuid) ?? false)
-	);
+	return scope === undefined || (scope.formUuids?.has(formUuid) ?? false);
 }
 
 /**
@@ -384,12 +385,15 @@ export function validateBlueprintDeep(
 		const mod = doc.modules[moduleUuid];
 		// Scope filter — restrict WHICH forms are walked, never post-filter
 		// findings (the deep walk's Lezer parses are the expensive part, so
-		// skipping the walk is the point). A module fully in scope walks all
-		// its forms; otherwise only the directly-named forms are walked.
+		// skipping the walk is the point). Module-rule scope is independent;
+		// only directly named forms enter the deep walk.
 		const allForms = doc.formOrder[moduleUuid] ?? [];
-		const scopedForms = scopeHasModule(scope, moduleUuid)
-			? allForms
-			: allForms.filter((formUuid) => scope?.formUuids?.has(formUuid) ?? false);
+		const scopedForms =
+			scope === undefined
+				? allForms
+				: allForms.filter((formUuid) =>
+						scopeHasForm(scope, moduleUuid, formUuid),
+					);
 		if (scopedForms.length === 0) continue;
 
 		// The case types every form in this module can READ (own + ancestors),

@@ -11,8 +11,12 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/routing/hooks", () => ({
-	useLocation: () => state.location,
+	readBuilderLocation: () => state.location,
 	useNavigate: () => ({ replace: state.replace }),
+}));
+
+vi.mock("@/lib/doc/hooks/useBlueprintDoc", () => ({
+	useBlueprintDocApi: () => ({ getState: () => ({}) }),
 }));
 
 describe("usePreviewModeTransition", () => {

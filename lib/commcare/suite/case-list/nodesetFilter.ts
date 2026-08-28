@@ -49,7 +49,7 @@
 
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { emitCaseListFilter } from "@/lib/commcare/predicate";
+import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import {
 	effectiveFilterForEmission,

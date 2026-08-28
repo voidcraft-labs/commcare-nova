@@ -23,6 +23,10 @@ import {
 } from "@/components/builder/appTree/shared";
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import {
+	loadFieldInspectorBody,
+	loadXPathEditor,
+} from "@/components/builder/inspector/lazyInspectorBodies";
 import { useLocalizedText } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
@@ -122,6 +126,17 @@ export const FormCard = memo(function FormCard({
 						isCollapsed={isCollapsed}
 						onClick={(e) => {
 							e.stopPropagation();
+							/* Expanding a form is a strong signal that the next action will
+							 * inspect one of its questions. Start the common editor chunk while
+							 * the tree reveals the rows, rather than making the eventual click
+							 * wait for that code. Keep collapsed forms cold so Builder startup
+							 * does not pay for editors the author never opens. */
+							if (isCollapsed) {
+								void Promise.all([
+									loadFieldInspectorBody(),
+									loadXPathEditor(),
+								]).catch(() => undefined);
+							}
 							toggle(formId);
 						}}
 						hidden={locked}
@@ -183,7 +198,7 @@ export const FormCard = memo(function FormCard({
 					className="m-0 list-none p-0 pb-2"
 				>
 					<AnimatePresence mode="sync">
-						{fieldUuids.map((uuid, fieldIdx) => {
+						{fieldUuids.map((uuid) => {
 							if (searchResult && !searchResult.visibleFieldUuids.has(uuid))
 								return null;
 							return (
@@ -194,7 +209,6 @@ export const FormCard = memo(function FormCard({
 									formUuid={formId}
 									onSelect={onSelect}
 									depth={0}
-									delay={delay + fieldIdx * 0.02}
 									collapsed={collapsed}
 									toggle={toggle}
 									searchResult={searchResult}

@@ -215,6 +215,12 @@ async function flushReactMicrotasks(): Promise<void> {
 	});
 }
 
+async function flushLazyValidation(): Promise<void> {
+	await act(async () => {
+		await vi.dynamicImportSettled();
+	});
+}
+
 beforeEach(() => {
 	vi.useFakeTimers();
 });
@@ -963,7 +969,7 @@ describe("multi-input composition", () => {
 // ── Export-parity validation ──────────────────────────────────────
 
 describe("runtime CSQL quote validation", () => {
-	it("blocks an explicit-query value after submit and clears live when corrected", () => {
+	it("blocks an explicit-query value after submit and clears live when corrected", async () => {
 		const explicitInput = simpleSearchInputDef(
 			UUID_NAME,
 			"name_query",
@@ -987,6 +993,7 @@ describe("runtime CSQL quote validation", () => {
 		expect(screen.queryByRole("alert")).toBeNull();
 
 		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		await flushLazyValidation();
 		expect(onSubmit).not.toHaveBeenCalled();
 		expect(screen.getByRole("alert").textContent).toContain(
 			"This search can't use both single and double quotation marks. Remove one kind and try again",
@@ -994,15 +1001,17 @@ describe("runtime CSQL quote validation", () => {
 		expect(field.getAttribute("aria-invalid")).toBe("true");
 
 		fireEvent.change(field, { target: { value: "O'Connor" } });
+		await flushLazyValidation();
 		expect(screen.queryByRole("alert")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		await flushLazyValidation();
 		expect(onSubmit).toHaveBeenCalledTimes(1);
 		expect(Object.fromEntries(onSubmit.mock.calls[0]?.[0] ?? [])).toEqual({
 			name_query: "O'Connor",
 		});
 	});
 
-	it("does not carry attempted validation feedback into a new module scope", () => {
+	it("does not carry attempted validation feedback into a new module scope", async () => {
 		const explicitInput = simpleSearchInputDef(
 			UUID_NAME,
 			"name_query",
@@ -1023,6 +1032,7 @@ describe("runtime CSQL quote validation", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		await flushLazyValidation();
 		expect(screen.getByRole("alert")).toBeDefined();
 
 		rerender(
@@ -1041,7 +1051,7 @@ describe("runtime CSQL quote validation", () => {
 		);
 	});
 
-	it("allows both quote types on an auto-match-only prompt", () => {
+	it("allows both quote types on an auto-match-only prompt", async () => {
 		const autoMatchInput = simpleSearchInputDef(
 			UUID_NAME,
 			"case_name",
@@ -1063,13 +1073,14 @@ describe("runtime CSQL quote validation", () => {
 			target: { value: `it's "quoted"` },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		await flushLazyValidation();
 		expect(onSubmit).toHaveBeenCalledTimes(1);
 		expect(screen.queryByRole("alert")).toBeNull();
 	});
 });
 
 describe("date-range submission validation", () => {
-	it("keeps a partial pair editable but blocks Search until both dates are chosen", () => {
+	it("keeps a partial pair editable but blocks Search until both dates are chosen", async () => {
 		const rangeInput = simpleSearchInputDef(
 			UUID_REG_RANGE,
 			"reg",
@@ -1089,6 +1100,7 @@ describe("date-range submission validation", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		await flushLazyValidation();
 		expect(onSubmit).not.toHaveBeenCalled();
 		const alert = screen.getByRole("alert");
 		expect(alert.textContent).toContain(DATE_RANGE_PAIR_REQUIRED_MESSAGE);
@@ -1102,8 +1114,10 @@ describe("date-range submission validation", () => {
 		// clears the error live, then submits the same two-key draft.
 		fireEvent.click(screen.getByLabelText("Registered to"));
 		fireEvent.click(screen.getByTestId("mock-calendar-pick-dec-31"));
+		await flushLazyValidation();
 		expect(screen.queryByRole("alert")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		await flushLazyValidation();
 		expect(onSubmit).toHaveBeenCalledTimes(1);
 		expect(Object.fromEntries(onSubmit.mock.calls[0]?.[0] ?? [])).toEqual({
 			"reg:from": "2024-01-01",
@@ -1111,7 +1125,7 @@ describe("date-range submission validation", () => {
 		});
 	});
 
-	it("blocks a reversed pair with an actionable ordering message", () => {
+	it("blocks a reversed pair with an actionable ordering message", async () => {
 		const onSubmit = vi.fn<(next: SearchInputValues) => void>();
 		render(
 			<SearchInputForm
@@ -1137,6 +1151,7 @@ describe("date-range submission validation", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		await flushLazyValidation();
 		expect(onSubmit).not.toHaveBeenCalled();
 		expect(screen.getByRole("alert").textContent).toContain(
 			DATE_RANGE_ORDER_MESSAGE,

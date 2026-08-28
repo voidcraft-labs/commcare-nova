@@ -5,7 +5,7 @@
 // authoring projection and no live runtime or emitter resolves stored column
 // values through this table.
 
-import { FORMAT_DATE_PRESETS, type FormatDatePreset } from "./predicate/types";
+import type { FormatDatePreset } from "./predicate/types";
 
 export interface DateFormatPresetDefinition {
 	readonly label: string;
@@ -38,8 +38,11 @@ export const DATE_FORMAT_PRESET_DEFINITIONS: Readonly<
 	},
 };
 
+/* The definition table is already the runtime source of truth. Deriving its
+ * keys here keeps Preview formatting from importing predicate schemas merely
+ * to recognize these three ids. */
 const DATE_FORMAT_PRESET_IDS: ReadonlySet<string> = new Set(
-	FORMAT_DATE_PRESETS,
+	Object.keys(DATE_FORMAT_PRESET_DEFINITIONS),
 );
 
 export function isDateFormatPreset(value: string): value is FormatDatePreset {

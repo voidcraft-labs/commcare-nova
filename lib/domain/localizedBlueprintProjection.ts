@@ -73,13 +73,14 @@ export function projectLocalizedModule(
 	doc: BlueprintDoc,
 	language: LanguageTag,
 	uuid: Uuid,
+	unitIndex?: ReturnType<typeof translationUnitsById>,
 ): Module | undefined {
 	const module = doc.modules[uuid];
 	if (module === undefined) return undefined;
 	if (language === effectiveAppLocalization(doc.localization).sourceLanguage) {
 		return module;
 	}
-	const units = translationUnitsById(doc);
+	const units = unitIndex ?? translationUnitsById(doc);
 	const text = (id: TranslationUnitId, fallback: string): string =>
 		localizedText(units, doc, language, id, fallback);
 	const localized = structuredClone(module);
@@ -156,13 +157,14 @@ export function projectLocalizedField(
 	doc: BlueprintDoc,
 	language: LanguageTag,
 	uuid: Uuid,
+	unitIndex?: ReturnType<typeof translationUnitsById>,
 ): Field | undefined {
 	const field = doc.fields[uuid];
 	if (field === undefined) return undefined;
 	if (language === effectiveAppLocalization(doc.localization).sourceLanguage) {
 		return field;
 	}
-	const units = translationUnitsById(doc);
+	const units = unitIndex ?? translationUnitsById(doc);
 	return projectFieldWithUnits(doc, language, field, units);
 }
 

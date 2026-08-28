@@ -2,7 +2,7 @@ import { FUNCTION_REGISTRY } from "@/lib/commcare/validator/functionRegistry";
 import { JAVAROSA_PATH_INITIALIZERS } from "@/lib/commcare/xpath/functionCapabilities";
 import { toBoolean, toDate, toDouble, toNumber, xpathToString } from "./coerce";
 import { formatCommCareDate } from "./dateFormatting";
-import { javaRosaPow } from "./javaPatternRuntime";
+import { javaRosaPow } from "./javaMathRuntime";
 import { javaRosaFormatDateForCalendar } from "./javaRosaAlternateCalendar";
 import {
 	javaRosaClosestPointOnPolygon,

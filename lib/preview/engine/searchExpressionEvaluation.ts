@@ -12,7 +12,7 @@
 // here, matching a search screen before a case has been selected.
 
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
-import { emitCaseListFilter } from "@/lib/commcare/predicate";
+import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import {
 	ownRecordValue,
 	type SearchInputDef,

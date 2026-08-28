@@ -48,7 +48,7 @@ import {
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
-import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { mutationCommitVerdictWithPrevalidation } from "@/lib/doc/commitVerdicts";
 import { automationChangesForUpdate } from "@/lib/doc/diffDocsToMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
@@ -771,7 +771,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					if (announce) notifyRejectedCommit(lines);
 					return { ok: false, messages: lines };
 				}
-				const verdict = mutationCommitVerdict(
+				const verdict = mutationCommitVerdictWithPrevalidation(
 					doc,
 					projected.mutations,
 					lookupCommitState.lookupContext,

@@ -18,7 +18,6 @@
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
-import { motion } from "motion/react";
 import { memo } from "react";
 import {
 	CollapseChevron,
@@ -26,11 +25,16 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import {
+	loadFieldInspectorBody,
+	loadSectionInspectorBody,
+	loadXPathEditor,
+} from "@/components/builder/inspector/lazyInspectorBodies";
 import { useLocalizedField } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { PeerBadge, usePeerEditingColor } from "@/components/builder/PeerBadge";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
-import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import { useProjectedProseTemplate } from "@/lib/doc/hooks/useProseProjection";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
 import {
 	fieldRegistry,
@@ -39,7 +43,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { textWithChips } from "@/lib/references/LabelContent";
-import { useReferenceProvider } from "@/lib/references/ReferenceContext";
+import {
+	useReferenceProvider,
+	useReferenceTemplateProjection,
+} from "@/lib/references/ReferenceContext";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 
 export const FieldRow = memo(function FieldRow({
@@ -48,7 +55,6 @@ export const FieldRow = memo(function FieldRow({
 	formUuid,
 	onSelect,
 	depth,
-	delay,
 	collapsed,
 	toggle,
 	searchResult,
@@ -60,7 +66,6 @@ export const FieldRow = memo(function FieldRow({
 	formUuid: Uuid;
 	onSelect: TreeSelectHandler;
 	depth: number;
-	delay: number;
 	collapsed: Set<Uuid>;
 	toggle: (key: Uuid) => void;
 	searchResult: SearchResult | null;
@@ -83,14 +88,24 @@ export const FieldRow = memo(function FieldRow({
 	/** Shared provider: resolves label chips against this row's own form. */
 	const provider = useReferenceProvider();
 
-	/** Stand-in when the row renders outside a `ReferenceProviderWrapper`: the
-	 *  document still spells every reference, it just skips the provider's
-	 *  form-scope narrowing. */
-	const projectProse = useProseProjection();
-
 	/** The hue of a peer whose selection IS this field, or null, drives the
 	 *  live "editing this" ring. Called unconditionally (before the guard). */
 	const editingColor = usePeerEditingColor(uuid);
+	// `label` is absent from `hidden` and optional on `group` (empty/absent
+	// label = transparent group). The `in` narrowing alone leaves `string |
+	// undefined`, so coerce `undefined` to "": the tree row still renders
+	// for those kinds with the id-only display path below.
+	const fieldTemplate =
+		field && "label" in field && !proseTemplateIsEmpty(field.label)
+			? (field.label as ProseTemplate)
+			: undefined;
+	const fallbackProjection = useProjectedProseTemplate(
+		provider === null ? fieldTemplate : undefined,
+	);
+	const scopedProjection = useReferenceTemplateProjection(
+		fieldTemplate,
+		formUuid,
+	);
 
 	if (!field) return null;
 
@@ -102,17 +117,8 @@ export const FieldRow = memo(function FieldRow({
 		(searchResult?.forceExpand?.has(uuid) ? false : collapsed.has(uuid));
 	const labelIndices = searchResult?.matchMap?.get(uuid);
 	const idIndices = searchResult?.matchMap?.get(`${uuid}__id`);
-	// `label` is absent from `hidden` and optional on `group` (empty/absent
-	// label = transparent group). The `in` narrowing alone leaves `string |
-	// undefined`, so coerce `undefined` to "": the tree row still renders
-	// for those kinds with the id-only display path below.
-	const fieldTemplate =
-		"label" in field && !proseTemplateIsEmpty(field.label)
-			? (field.label as ProseTemplate)
-			: undefined;
 	const fieldLabel = fieldTemplate
-		? (provider?.projectTemplate(fieldTemplate, formUuid).text ??
-			projectProse(fieldTemplate))
+		? (scopedProjection ?? fallbackProjection)
 		: "";
 	const showIdMatch = !!(idIndices && fieldLabel);
 	const textIndices = labelIndices ?? (!fieldLabel ? idIndices : undefined);
@@ -123,13 +129,16 @@ export const FieldRow = memo(function FieldRow({
 			: !textIndices
 				? field.id
 				: null;
+	const preloadInspector = () => {
+		const preload =
+			field.kind === "section"
+				? loadSectionInspectorBody()
+				: Promise.all([loadFieldInspectorBody(), loadXPathEditor()]);
+		void preload.catch(() => undefined);
+	};
 
 	return (
-		<motion.li
-			initial={{ opacity: 0, x: -5 }}
-			animate={{ opacity: 1, x: 0 }}
-			transition={{ delay, duration: 0.2 }}
-		>
+		<li>
 			<TreeItemRow
 				data-tree-field={fieldPath}
 				label={displayText}
@@ -143,6 +152,8 @@ export const FieldRow = memo(function FieldRow({
 							: "cursor-pointer hover:bg-nova-violet/[0.06] text-nova-text-secondary"
 				} ${editingColor ? `ring-1 ring-inset ${editingColor.ring}` : ""}`}
 				style={{ paddingLeft: `${28 + depth * 8}px` }}
+				onPointerEnter={preloadInspector}
+				onFocus={preloadInspector}
 				onClick={(e) => {
 					e.stopPropagation();
 					onSelect({
@@ -219,7 +230,7 @@ export const FieldRow = memo(function FieldRow({
 			{/* Nested children for groups/repeats: self-recursive */}
 			{hasChildren && !isCollapsed && (
 				<ul aria-label={`${displayText} fields`} className="m-0 list-none p-0">
-					{childUuids.map((childUuid, cIdx) => (
+					{childUuids.map((childUuid) => (
 						<FieldRow
 							key={childUuid}
 							uuid={childUuid}
@@ -227,7 +238,6 @@ export const FieldRow = memo(function FieldRow({
 							formUuid={formUuid}
 							onSelect={onSelect}
 							depth={depth + 1}
-							delay={delay + (cIdx + 1) * 0.02}
 							collapsed={collapsed}
 							toggle={toggle}
 							searchResult={searchResult}
@@ -237,6 +247,6 @@ export const FieldRow = memo(function FieldRow({
 					))}
 				</ul>
 			)}
-		</motion.li>
+		</li>
 	);
 });

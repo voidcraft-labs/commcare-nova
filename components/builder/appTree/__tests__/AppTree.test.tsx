@@ -7,6 +7,14 @@ import { AppTree } from "@/components/builder/appTree/AppTree";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 
 const session = vi.hoisted(() => ({ phase: "ready" }));
+const route = vi.hoisted(() => ({
+	fieldUuid: undefined as string | undefined,
+	formUuid: undefined as string | undefined,
+}));
+const preload = vi.hoisted(() => ({
+	fieldInspector: vi.fn(() => Promise.resolve({})),
+	xpathEditor: vi.fn(() => Promise.resolve({})),
+}));
 const MODULE_UUID = "00000000-0000-4000-8000-000000000001";
 
 vi.mock("@/lib/session/hooks", () => ({
@@ -24,8 +32,23 @@ vi.mock("@/lib/doc/hooks/useEntity", () => ({
 	useModule: () => undefined,
 }));
 
+vi.mock("@/lib/doc/hooks/useOrderedFields", () => ({
+	useLargeFormInitialCollapsedUuids: () => new Set(),
+}));
+
+vi.mock("@/lib/doc/hooks/useAncestors", () => ({
+	useAncestors: () => [],
+}));
+
 vi.mock("@/lib/routing/hooks", () => ({
-	useLocation: () => ({ kind: "home" }),
+	useSelectedFieldUuid: () => route.fieldUuid,
+	useSelectedFormUuid: () => route.formUuid,
+	useSelectedModuleUuid: () => undefined,
+}));
+
+vi.mock("@/components/builder/inspector/lazyInspectorBodies", () => ({
+	loadFieldInspectorBody: preload.fieldInspector,
+	loadXPathEditor: preload.xpathEditor,
 }));
 
 vi.mock("@/lib/doc/hooks/useSearchFilter", () => ({
@@ -90,6 +113,20 @@ vi.mock("@/lib/ui/hooks/useInsertionZone", () => ({
 describe("AppTree search", () => {
 	beforeEach(() => {
 		session.phase = BuilderPhase.Ready;
+		route.fieldUuid = undefined;
+		route.formUuid = undefined;
+		preload.fieldInspector.mockClear();
+		preload.xpathEditor.mockClear();
+	});
+
+	it("starts both field-editor chunks for an explicit field route", () => {
+		route.formUuid = "00000000-0000-4000-8000-000000000002";
+		route.fieldUuid = "00000000-0000-4000-8000-000000000003";
+
+		render(<AppTree />);
+
+		expect(preload.fieldInspector).toHaveBeenCalledOnce();
+		expect(preload.xpathEditor).toHaveBeenCalledOnce();
 	});
 
 	it("uses a friendly, full-size shadcn search control", () => {

@@ -18,7 +18,7 @@
 // other checker-gated impossibility throw loudly (a bug surface,
 // never a silently-shown item).
 
-import { emitCaseListFilter } from "@/lib/commcare/predicate";
+import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import type { Predicate } from "@/lib/domain/predicate";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 import { toBoolean } from "../xpath/coerce";
