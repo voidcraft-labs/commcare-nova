@@ -68,7 +68,7 @@
 		"@floating-ui/react": "^0.27.20",
 		"@google-cloud/cloud-sql-connector": "^1.11.3",
 		"@google-cloud/kms": "^5.7.0",
-		"@google-cloud/storage": "^7.22.0",
+		"@google-cloud/storage": "^8.0.1",
 		"@googlemaps/js-api-loader": "^2.1.1",
 		"@iconify/react": "^6.0.2",
 		"@lezer/common": "^1.5.1",
