@@ -374,6 +374,7 @@ function affectsCaseWriteProjection(
 			return (
 				Object.hasOwn(mutation.patch, "caseWrite") ||
 				(mutation.targetKind === "hidden" &&
+					current.fields[mutation.uuid] !== undefined &&
 					fieldCaseWrite(current.fields[mutation.uuid]) !== undefined &&
 					(Object.hasOwn(mutation.patch, "calculate") ||
 						Object.hasOwn(mutation.patch, "default_value")))

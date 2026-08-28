@@ -293,6 +293,38 @@ describe("case-write projection watermark", () => {
 		expect(store.getState().caseWriteProjectionRevision).toBe(baseline);
 	});
 
+	it("ignores a stale hidden-field update after the displayed field was removed", () => {
+		const { doc, fieldUuid } = makeCaseWriteDoc();
+		doc.fields[fieldUuid] = {
+			uuid: testUuid(fieldUuid),
+			kind: "hidden",
+			id: "answer",
+			caseWrite: { caseType: "patient", property: "old_value" },
+		};
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		store.getState().startTracking();
+		store
+			.getState()
+			.applyMany([{ kind: "removeField", uuid: testUuid(fieldUuid) }]);
+		const baseline = store.getState().caseWriteProjectionRevision;
+
+		expect(() =>
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: testUuid(fieldUuid),
+					targetKind: "hidden",
+					patch: {
+						calculate: { parts: [{ kind: "text", text: "today()" }] },
+					},
+				},
+			]),
+		).not.toThrow();
+		expect(store.getState().fields[fieldUuid]).toBeUndefined();
+		expect(store.getState().caseWriteProjectionRevision).toBe(baseline);
+	});
+
 	it("advances for a whole-document reseed with no mutation proof", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc());
