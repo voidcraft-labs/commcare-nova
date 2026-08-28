@@ -3,12 +3,15 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import {
+	type CaseOperation,
 	collectTranslationUnits,
 	type Field,
 	makeTranslationUnitId,
+	materializableCaseTypes,
 	type Uuid,
 } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
@@ -24,6 +27,8 @@ const SECOND_FIELD_UUID = testUuid("async-second-field");
 const RESULT_FIELD_UUID = testUuid("async-result-field");
 const REPEAT_UUID = testUuid("async-repeat-field");
 const REPEAT_CHILD_UUID = testUuid("async-repeat-child-field");
+const OTHER_FORM_UUID = testUuid("async-other-form");
+const OPERATION_UUID = testUuid("async-case-operation");
 
 function docWith(...fields: Field[]): PersistableDoc {
 	return {
@@ -503,6 +508,109 @@ describe("EngineController async runtime", () => {
 		const snapshot = await ctrl.computeSubmissionMutationAsync({}, entryKey);
 		expect(snapshot?.documentState).toBe(store.getState());
 		expect(ctrl.store.getState()[RESULT_FIELD_UUID]?.value).toBe("second");
+		expect(ctrl.entryStore.getState().fault).toBeUndefined();
+		ctrl.dispose();
+	});
+
+	it("refreshes app-wide writer-derived case types before reconciling a neutral document", async () => {
+		vi.useFakeTimers();
+		const operation = {
+			uuid: OPERATION_UUID,
+			id: "type_score",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes: [{ property: "score", value: term(literal(7)) }],
+		} satisfies CaseOperation;
+		const doc = docWith(
+			{
+				uuid: FIELD_UUID,
+				id: "source",
+				kind: "text",
+				label: proseText("Source"),
+			},
+			{
+				uuid: RESULT_FIELD_UUID,
+				id: "score",
+				kind: "hidden",
+				calculate: xp("sleep(20, /data/source)"),
+				caseWrite: { caseType: "patient", property: "score" },
+			},
+			{
+				uuid: SECOND_FIELD_UUID,
+				id: "case_name",
+				kind: "hidden",
+				calculate: xp("'Patient'"),
+				caseWrite: { caseType: "patient", property: "case_name" },
+			},
+		);
+		doc.modules[MODULE_UUID] = {
+			...doc.modules[MODULE_UUID],
+			caseType: "patient",
+		};
+		doc.forms[FORM_UUID] = {
+			...doc.forms[FORM_UUID],
+			type: "registration",
+		};
+		doc.forms[OTHER_FORM_UUID] = {
+			uuid: OTHER_FORM_UUID,
+			id: "other_form",
+			name: "Other form",
+			type: "followup",
+			caseOperations: [operation],
+		};
+		doc.formOrder[MODULE_UUID] = [FORM_UUID, OTHER_FORM_UUID];
+		doc.fieldOrder[OTHER_FORM_UUID] = [];
+		doc.caseTypes = [
+			{
+				name: "patient",
+				properties: [{ name: "score", label: proseText("Score") }],
+			},
+		];
+
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		store.getState().startTracking();
+		const ctrl = new EngineController(
+			new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
+		);
+		ctrl.setDocStore(store);
+		const activation = ctrl.activateFormAsync(FORM_UUID);
+		await vi.runAllTimersAsync();
+		await expect(activation).resolves.toBe(true);
+
+		const firstEdit = ctrl.onValueChangeAsync(FIELD_UUID, "7");
+		await vi.advanceTimersByTimeAsync(0);
+		store.getState().applyMany([
+			{
+				kind: "updateForm",
+				uuid: OTHER_FORM_UUID,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update-write",
+					uuid: OPERATION_UUID,
+					property: "score",
+					patch: { value: term(literal("text score")) },
+				},
+			},
+		]);
+		expect(
+			materializableCaseTypes(store.getState())[0]?.properties.find(
+				(property) => property.name === "score",
+			)?.data_type,
+		).toBe("text");
+		const secondEdit = ctrl.onValueChangeAsync(FIELD_UUID, "8");
+		await vi.runAllTimersAsync();
+		await Promise.all([firstEdit, secondEdit]);
+
+		const entryKey = ctrl.entryKey;
+		if (entryKey === undefined) throw new Error("Expected entry");
+		const snapshot = await ctrl.computeSubmissionMutationAsync({}, entryKey);
+		expect(snapshot?.documentState).toBe(store.getState());
+		expect(snapshot?.mutation).toMatchObject({
+			kind: "registration",
+			primary: { properties: { score: "8" } },
+		});
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 		ctrl.dispose();
 	});

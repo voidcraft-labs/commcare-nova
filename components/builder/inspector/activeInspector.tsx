@@ -40,6 +40,7 @@ import {
 } from "@/components/builder/inspector/lazyInspectorBodies";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useProjectDataInspector } from "@/components/builder/project-data/projectDataInspector";
+import { Button } from "@/components/shadcn/button";
 import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useFormLink } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
@@ -97,15 +98,15 @@ function FieldInspectorBody({ field }: { field: Field }) {
 				<p className="text-nova-text-secondary">
 					Properties could not open. Try again.
 				</p>
-				<button
+				<Button
 					type="button"
-					className="font-medium text-nova-violet hover:underline"
+					variant="link"
 					onClick={() => {
 						void loadFieldInspectorBody().catch(() => undefined);
 					}}
 				>
 					Try again
-				</button>
+				</Button>
 			</div>
 		);
 	}

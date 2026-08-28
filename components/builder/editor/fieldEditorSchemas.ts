@@ -34,6 +34,7 @@ import {
 	loadXPathEditor,
 	subscribeXPathEditor,
 } from "@/components/builder/inspector/lazyInspectorBodies";
+import { Button } from "@/components/shadcn/button";
 import type {
 	AudioField,
 	BarcodeField,
@@ -129,10 +130,10 @@ function WarmXPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 				"This editor could not open. Try again.",
 			),
 			createElement(
-				"button",
+				Button,
 				{
 					type: "button",
-					className: "font-medium text-nova-violet hover:underline",
+					variant: "link",
 					onClick: () => {
 						void loadXPathEditor().catch(() => undefined);
 					},
