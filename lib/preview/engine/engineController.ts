@@ -507,81 +507,6 @@ function activeFormRuntimeChanged(
 	return false;
 }
 
-/**
- * The submission projection is narrower than the runtime projection, but it is
- * not form-local. Effective case-property types include every field writer and
- * case-operation writer in the app, so a neutral edit in another form can
- * change how the open form's value is materialized at submit time.
- *
- * Walk only entity references whose writer contribution can change. This keeps
- * ordinary name/label/copy edits O(changed entity lookup) while still covering
- * the complete input of `materializableCaseTypes`: declarations, field writers,
- * operation writers, form membership, and owning module case types.
- */
-function caseWriteProjectionChanged(
-	current: BlueprintDocState,
-	previous: BlueprintDocState,
-): boolean {
-	if (
-		current.caseTypes !== previous.caseTypes ||
-		current.userProperties !== previous.userProperties ||
-		current.fieldOrder !== previous.fieldOrder ||
-		current.formOrder !== previous.formOrder
-	) {
-		return true;
-	}
-
-	if (current.modules !== previous.modules) {
-		for (const [uuid, module] of Object.entries(current.modules)) {
-			const prior = previous.modules[uuid];
-			if (module !== prior && module.caseType !== prior?.caseType) return true;
-		}
-		for (const uuid of Object.keys(previous.modules)) {
-			if (current.modules[uuid] === undefined) return true;
-		}
-	}
-
-	if (current.forms !== previous.forms) {
-		for (const [uuid, form] of Object.entries(current.forms)) {
-			const prior = previous.forms[uuid];
-			if (form !== prior && form.caseOperations !== prior?.caseOperations) {
-				return true;
-			}
-		}
-		for (const [uuid, form] of Object.entries(previous.forms)) {
-			if (
-				current.forms[uuid] === undefined &&
-				form.caseOperations !== undefined
-			) {
-				return true;
-			}
-		}
-	}
-
-	if (current.fields !== previous.fields) {
-		for (const [uuid, field] of Object.entries(current.fields)) {
-			const prior = previous.fields[uuid];
-			if (field === prior) continue;
-			if (prior === undefined || field.kind !== prior.kind) return true;
-			if (fieldCaseWrite(field) !== fieldCaseWrite(prior)) return true;
-			if (
-				field.kind === "hidden" &&
-				prior.kind === "hidden" &&
-				fieldCaseWrite(field) !== undefined &&
-				(field.calculate !== prior.calculate ||
-					field.default_value !== prior.default_value)
-			) {
-				return true;
-			}
-		}
-		for (const uuid of Object.keys(previous.fields)) {
-			if (current.fields[uuid] === undefined) return true;
-		}
-	}
-
-	return false;
-}
-
 // ── EngineController ────────────────────────────────────────────────────
 
 export class EngineController {
@@ -2722,11 +2647,12 @@ export class EngineController {
 			const engine = this.engine;
 			const entryKey = this.currentEntryKey;
 			if (engine === undefined || entryKey === undefined) return;
-			const caseWriteChanged = caseWriteProjectionChanged(
-				documentState,
-				previousDocumentState,
-			);
-			if (caseWriteChanged) this.caseWriteProjectionDirty = true;
+			if (
+				documentState.caseWriteProjectionRevision !==
+				previousDocumentState.caseWriteProjectionRevision
+			) {
+				this.caseWriteProjectionDirty = true;
+			}
 			if (this.xpathRuntime === undefined) {
 				if (this.caseWriteProjectionDirty) {
 					const input = buildEngineInput(

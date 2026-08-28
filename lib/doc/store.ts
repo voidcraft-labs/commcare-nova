@@ -221,6 +221,13 @@ export type BlueprintDocState = BlueprintDoc & {
 	 */
 	commandQueueRevision: number;
 	/**
+	 * Monotonic, non-persisted watermark for the exact inputs of Preview's
+	 * app-wide case-write projection. The store already has the admitted mutation
+	 * batch, so it can advance this in O(batch size); runtime consumers must not
+	 * rediscover the same fact by scanning every field and form after publication.
+	 */
+	caseWriteProjectionRevision: number;
+	/**
 	 * True for exactly the synchronous window a `beginRemoteApply` bracket
 	 * is open. Read by `useAutoSave` to gate the re-PUT — a server-applied
 	 * frame must not bounce back out as a client save.
@@ -323,6 +330,7 @@ const BOOKKEEPING_KEYS = new Set([
 	"canUndo",
 	"canRedo",
 	"commandQueueRevision",
+	"caseWriteProjectionRevision",
 ]);
 
 /** How many steps back the author can reach. Bounds a long session's memory;
@@ -332,6 +340,113 @@ const HISTORY_LIMIT = 100;
 export function isDocDataKey(key: string, value: unknown): boolean {
 	if (typeof value === "function") return false;
 	return !BOOKKEEPING_KEYS.has(key);
+}
+
+/** Whether one admitted command can change the document surface consumed by
+ * `materializableCaseTypes` or by Preview's case-write inventory. Every known
+ * no-op family is explicit so a new mutation discriminator fails compilation
+ * here instead of silently under-invalidating the runtime projection. */
+function affectsCaseWriteProjection(mutation: Mutation): boolean {
+	switch (mutation.kind) {
+		case "declareCaseType":
+		case "retireCaseType":
+		case "addCaseProperty":
+		case "removeCaseProperty":
+		case "setCaseProperty":
+		case "setCaseTypeMeta":
+		case "renameCaseProperties":
+		case "addField":
+		case "removeField":
+		case "moveField":
+		case "convertField":
+		case "addForm":
+		case "removeForm":
+		case "moveForm":
+		case "removeModule":
+		case "addUserProperty":
+		case "updateUserProperty":
+		case "removeUserProperty":
+			return true;
+		case "updateField":
+			return (
+				Object.hasOwn(mutation.patch, "caseWrite") ||
+				(mutation.targetKind === "hidden" &&
+					(Object.hasOwn(mutation.patch, "calculate") ||
+						Object.hasOwn(mutation.patch, "default_value")))
+			);
+		case "updateForm":
+			return (
+				Object.hasOwn(mutation.patch, "type") ||
+				mutation.caseOperationChange !== undefined ||
+				mutation.caseOperationPatch !== undefined
+			);
+		case "updateModule":
+			return Object.hasOwn(mutation.patch, "caseType");
+		case "setAppLogo":
+		case "setAppName":
+		case "setConnectType":
+		case "addModule":
+		case "moveModule":
+		case "renameModule":
+		case "setModuleMedia":
+		case "renameForm":
+		case "setFormMedia":
+		case "addFormLink":
+		case "updateFormLink":
+		case "removeFormLink":
+		case "moveFormLink":
+		case "setFieldMedia":
+		case "addOption":
+		case "updateOption":
+		case "removeOption":
+		case "moveOption":
+		case "setCaseListMeta":
+		case "addColumn":
+		case "updateColumn":
+		case "removeColumn":
+		case "moveColumn":
+		case "addSearchInput":
+		case "updateSearchInput":
+		case "removeSearchInput":
+		case "moveSearchInput":
+		case "addLanguage":
+		case "removeLanguage":
+		case "setDefaultLanguage":
+		case "setTranslation":
+		case "reviewTranslation":
+		case "relabelSourceLanguage":
+		case "addUserType":
+		case "updateUserType":
+		case "removeUserType":
+		case "addPersona":
+		case "updatePersona":
+		case "removePersona":
+		case "addLocationProperty":
+		case "updateLocationProperty":
+		case "removeLocationProperty":
+		case "addOrganizationLevel":
+		case "updateOrganizationLevel":
+		case "removeOrganizationLevel":
+		case "addAutomation":
+		case "updateAutomation":
+		case "removeAutomation":
+		case "moveAutomation":
+		case "setAutomationSchedule":
+		case "updateAutomationSchedule":
+		case "editAutomationItem":
+			return false;
+		default: {
+			const _exhaustive: never = mutation;
+			void _exhaustive;
+			return true;
+		}
+	}
+}
+
+function batchAffectsCaseWriteProjection(
+	mutations: AdmittedMutationBatch,
+): boolean {
+	return mutations.some(affectsCaseWriteProjection);
 }
 
 /**
@@ -609,6 +724,7 @@ export function createBlueprintDocStore() {
 					canUndo: false,
 					canRedo: false,
 					commandQueueRevision: 0,
+					caseWriteProjectionRevision: 0,
 
 					// ── Mutation actions ───────────────────────────────────────
 
@@ -628,9 +744,14 @@ export function createBlueprintDocStore() {
 						const admitted = admitMutationBatch(muts);
 						const before = store.getState();
 						const queued = queueForPersistence(admitted);
+						const caseWriteProjectionChanged =
+							batchAffectsCaseWriteProjection(admitted);
 						let results: MutationResult[] = [];
 						set((draft) => {
 							if (queued) draft.commandQueueRevision += 1;
+							if (caseWriteProjectionChanged) {
+								draft.caseWriteProjectionRevision += 1;
+							}
 							// `draft` includes action methods alongside data fields,
 							// but `applyMutations` is typed for `Draft<BlueprintDoc>`.
 							// The extra action fields are structurally harmless — Immer
@@ -674,6 +795,9 @@ export function createBlueprintDocStore() {
 					): void => {
 						const before = store.getState();
 						const queued = queueForPersistence(commands);
+						const caseWriteProjectionChanged =
+							commands.length === 0 ||
+							batchAffectsCaseWriteProjection(commands);
 						if (Object.isFrozen(next)) {
 							/* `prepareMutationCandidate` already produced and froze this
 							 * exact document with Immer. Publish it directly: wrapping the
@@ -686,6 +810,10 @@ export function createBlueprintDocStore() {
 							if (queued) {
 								patch.commandQueueRevision = before.commandQueueRevision + 1;
 							}
+							if (caseWriteProjectionChanged) {
+								patch.caseWriteProjectionRevision =
+									before.caseWriteProjectionRevision + 1;
+							}
 							store.setState(patch as Partial<BlueprintDocState>);
 						} else {
 							/* Hydration/reconciler callers can supply a mutable plain doc;
@@ -693,6 +821,9 @@ export function createBlueprintDocStore() {
 							 * immutable. */
 							set((draft) => {
 								if (queued) draft.commandQueueRevision += 1;
+								if (caseWriteProjectionChanged) {
+									draft.caseWriteProjectionRevision += 1;
+								}
 								overlayDoc(draft as unknown as Record<string, unknown>, next);
 							});
 						}
@@ -788,6 +919,7 @@ export function createBlueprintDocStore() {
 							// hand-listed field-by-field assignment silently drops any
 							// top-level slot it omits; the overlay can't forget a field.
 							overlayDoc(draft as unknown as Record<string, unknown>, hydrated);
+							draft.caseWriteProjectionRevision += 1;
 							// The reference index is assigned (not merged) — the
 							// reference index stays per-boundary: `hydrated` carries no
 							// `refIndex` key, so the overlay above just blanked any prior

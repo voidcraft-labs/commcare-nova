@@ -50,12 +50,17 @@ function makeCatalogDoc(): BlueprintDoc {
 	};
 }
 
-function makeCaseWriteDoc(): { doc: BlueprintDoc; fieldUuid: string } {
+function makeCaseWriteDoc(): {
+	doc: BlueprintDoc;
+	fieldUuid: string;
+	formUuid: string;
+} {
 	const moduleUuid = testUuid("case-write-module");
 	const formUuid = testUuid("case-write-form");
 	const fieldUuid = testUuid("case-write-field");
 	return {
 		fieldUuid,
+		formUuid,
 		doc: {
 			...makeEmptyDoc({ appName: "Case writes" }),
 			caseTypes: [
@@ -221,6 +226,58 @@ describe("the command queue is current when the write is announced", () => {
 			]),
 		]);
 		expect(store.getState().commandQueueRevision).toBe(2);
+	});
+});
+
+describe("case-write projection watermark", () => {
+	it("advances from the admitted batch without scanning ordinary field edits", () => {
+		const { doc, fieldUuid, formUuid } = makeCaseWriteDoc();
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		store.getState().startTracking();
+		const baseline = store.getState().caseWriteProjectionRevision;
+
+		store.getState().applyMany([
+			{
+				kind: "updateField",
+				uuid: testUuid(fieldUuid),
+				targetKind: "text",
+				patch: { label: proseText("Updated answer") },
+			},
+		]);
+		expect(store.getState().caseWriteProjectionRevision).toBe(baseline);
+
+		store.getState().applyMany([
+			{
+				kind: "updateField",
+				uuid: testUuid(fieldUuid),
+				targetKind: "text",
+				patch: {
+					caseWrite: { caseType: "patient", property: "new_value" },
+				},
+			},
+		]);
+		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 1);
+
+		store.getState().applyMany([
+			{
+				kind: "updateForm",
+				uuid: testUuid(formUuid),
+				patch: { type: "survey" },
+			},
+		]);
+		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 2);
+	});
+
+	it("advances for a whole-document reseed with no mutation proof", () => {
+		const store = createBlueprintDocStore();
+		store.getState().load(makeEmptyDoc());
+		const baseline = store.getState().caseWriteProjectionRevision;
+		store.getState().commitDoc({
+			...makeEmptyDoc(),
+			appName: "Reseeded",
+		});
+		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 1);
 	});
 });
 
