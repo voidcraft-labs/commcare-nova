@@ -6,6 +6,14 @@ then passes only that immutable reference to the media-policy Job, blocking
 migration Job, capture-cleanup Job, and direct service deployment. Do not add
 traffic controllers, candidate services, rollout accounts, compatibility
 paths, or deploy-time maintenance gates.
+
+The required PR check named `Production build` and Cloud Build both invoke
+`scripts/rollout/build-image.sh`. PR CI supplies synthetic build-time identity
+and public configuration, builds the complete final image, and never pushes or
+deploys it. Keep that shared Dockerfile + `.dockerignore` boundary intact: a
+host-side `npm run build` cannot prove that production's filtered context
+contains every build and runner input.
+
 Each Job execution first reads the reconciled Job generation, proves its sole
 container image, service account, command, dry-run/default args, task count,
 parallelism, retry policy, and timeout match the checked-in contract, then

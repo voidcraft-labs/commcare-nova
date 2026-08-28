@@ -11,6 +11,7 @@ const packageScripts = JSON.parse(packageJson).scripts as Record<
 >;
 const dockerfile = readFileSync("Dockerfile", "utf8");
 const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+const imageBuilder = readFileSync("scripts/rollout/build-image.sh", "utf8");
 const nextConfig = readFileSync("next.config.ts", "utf8");
 const sentryClientConfig = readFileSync("instrumentation-client.ts", "utf8");
 const sentryServerConfig = readFileSync("sentry.server.config.ts", "utf8");
@@ -95,7 +96,7 @@ describe("durable deployment policy", () => {
 		);
 		expect(packageScripts.build).toContain("next build");
 		expect(dockerfile).toContain("RUN npm run build");
-		expect(ciWorkflow).toContain("run: npm run build");
+		expect(ciWorkflow).not.toContain("run: npm run build");
 		expect(dockerignore).toContain("!scripts/java-pattern-runtime/**");
 		expect(dockerignore).toContain("!scripts/build-xpath-worker.mjs");
 		expect(dockerfile).toContain(
@@ -138,6 +139,89 @@ describe("durable deployment policy", () => {
 		).toMatch(
 			/^java-pattern-runtime pattern_sha256=[a-f0-9]{64} pattern_bytes=\d+ math_sha256=[a-f0-9]{64} math_bytes=\d+ names_sha256=[a-f0-9]{64} names_bytes=\d+\n$/,
 		);
+	});
+
+	test("builds the same complete Docker image in CI and Cloud Build", () => {
+		const requiredImageEnvironment = [
+			"NOVA_IMAGE_TAG",
+			"NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
+			"NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID",
+			"NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
+			"NEXT_DEPLOYMENT_ID",
+			"NOVA_BUILD_ID",
+			"NOVA_CLOUD_RUN_REQUEST_SECONDS",
+			"NOVA_EDIT_RUN_LEASE_SECONDS",
+			"NOVA_BUILD_STALENESS_SECONDS",
+			"NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH",
+		];
+		const builderBuildArguments = [
+			"SENTRY_AUTH_TOKEN",
+			"NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
+			"NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID",
+			"NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
+			"NEXT_DEPLOYMENT_ID",
+			"NOVA_BUILD_ID",
+		];
+		const runtimeBuildArguments = [
+			"NOVA_BUILD_ID",
+			"NOVA_CLOUD_RUN_REQUEST_SECONDS",
+			"NOVA_EDIT_RUN_LEASE_SECONDS",
+			"NOVA_BUILD_STALENESS_SECONDS",
+			"NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH",
+		];
+		const expectedImageBuildCommand = [
+			"docker build \\",
+			`\t--tag "\${NOVA_IMAGE_TAG}" \\`,
+			`\t--build-arg "SENTRY_AUTH_TOKEN=\${SENTRY_AUTH_TOKEN:-}" \\`,
+			`\t--build-arg "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=\${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}" \\`,
+			`\t--build-arg "NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=\${NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID}" \\`,
+			`\t--build-arg "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=\${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}" \\`,
+			`\t--build-arg "NEXT_DEPLOYMENT_ID=\${NEXT_DEPLOYMENT_ID}" \\`,
+			`\t--build-arg "NOVA_BUILD_ID=\${NOVA_BUILD_ID}" \\`,
+			`\t--build-arg "NOVA_CLOUD_RUN_REQUEST_SECONDS=\${NOVA_CLOUD_RUN_REQUEST_SECONDS}" \\`,
+			`\t--build-arg "NOVA_EDIT_RUN_LEASE_SECONDS=\${NOVA_EDIT_RUN_LEASE_SECONDS}" \\`,
+			`\t--build-arg "NOVA_BUILD_STALENESS_SECONDS=\${NOVA_BUILD_STALENESS_SECONDS}" \\`,
+			`\t--build-arg "NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH=\${NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH}" \\`,
+			"\t-f Dockerfile \\",
+			"\t.",
+		].join("\n");
+		expect(
+			cloudBuild.match(/bash scripts\/rollout\/build-image\.sh/g),
+		).toHaveLength(1);
+		expect(
+			ciWorkflow.match(/bash scripts\/rollout\/build-image\.sh/g),
+		).toHaveLength(1);
+		expect(ciWorkflow).toContain("Build deployable image");
+		expect(imageBuilder.endsWith(`${expectedImageBuildCommand}\n`)).toBe(true);
+		expect(imageBuilder.match(/\bdocker\b/g)).toHaveLength(1);
+		expect(imageBuilder).not.toContain("buildx");
+		for (const forbiddenOption of ["--push", "--output", "--target"]) {
+			expect(imageBuilder).not.toContain(forbiddenOption);
+		}
+		for (const variable of requiredImageEnvironment) {
+			expect(imageBuilder).toMatch(new RegExp(`\\t${variable}\\n`));
+		}
+		const builderStageStart = dockerfile.indexOf("FROM build-base AS builder");
+		const runnerStageStart = dockerfile.indexOf(
+			`FROM \${NODE_IMAGE} AS runner`,
+		);
+		expect(builderStageStart).toBeGreaterThanOrEqual(0);
+		expect(runnerStageStart).toBeGreaterThan(builderStageStart);
+		const builderStage = dockerfile.slice(builderStageStart, runnerStageStart);
+		const runnerStage = dockerfile.slice(runnerStageStart);
+		const appBuildOffset = builderStage.indexOf("RUN npm run build");
+		expect(appBuildOffset).toBeGreaterThanOrEqual(0);
+		for (const variable of builderBuildArguments) {
+			const declarationOffset = builderStage.indexOf(`ARG ${variable}`);
+			expect(declarationOffset).toBeGreaterThanOrEqual(0);
+			expect(declarationOffset).toBeLessThan(appBuildOffset);
+		}
+		for (const variable of runtimeBuildArguments) {
+			expect(runnerStage).toContain(`ARG ${variable}`);
+			expect(runnerStage).toContain(`${variable}="\${${variable}}"`);
+		}
+		expect(ciWorkflow).not.toContain("docker push");
+		expect(imageBuilder).not.toContain("docker push");
 	});
 
 	test("ships the reviewed React profiler hardener into the Docker builder", () => {
@@ -222,7 +306,9 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(11);
 		expect(cloudBuild).toContain("--resolve-image");
 		expect(cloudBuild).toContain("--output=/workspace/image.env");
-		expect(cloudBuild).toContain('--build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID"');
+		expect(imageBuilder).toContain(
+			`--build-arg "NOVA_BUILD_ID=\${NOVA_BUILD_ID}"`,
+		);
 		expect(dockerfile).toMatch(
 			/NEXT_PUBLIC_NOVA_BUILD_ID="\$\{NOVA_BUILD_ID\}"/,
 		);
