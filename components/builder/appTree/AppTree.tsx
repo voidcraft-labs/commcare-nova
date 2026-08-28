@@ -91,12 +91,16 @@ export function AppTree() {
 		 * schema. Start both independent chunks together instead of discovering the
 		 * editor only after the inspector module has rendered. */
 		if (selectedFieldUuid !== undefined) {
-			void Promise.all([loadFieldInspectorBody(), loadXPathEditor()]);
+			void Promise.all([loadFieldInspectorBody(), loadXPathEditor()]).catch(
+				() => undefined,
+			);
 			return;
 		}
 		let cancelled = false;
 		const preload = () => {
-			if (!cancelled) void loadFieldInspectorBody();
+			if (!cancelled) {
+				void loadFieldInspectorBody().catch(() => undefined);
+			}
 		};
 		const idleId = window.requestIdleCallback(preload, { timeout: 1_500 });
 		return () => {

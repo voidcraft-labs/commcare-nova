@@ -129,10 +129,13 @@ export const FieldRow = memo(function FieldRow({
 			: !textIndices
 				? field.id
 				: null;
-	const preloadInspector = () =>
-		void (field.kind === "section"
-			? loadSectionInspectorBody()
-			: Promise.all([loadFieldInspectorBody(), loadXPathEditor()]));
+	const preloadInspector = () => {
+		const preload =
+			field.kind === "section"
+				? loadSectionInspectorBody()
+				: Promise.all([loadFieldInspectorBody(), loadXPathEditor()]);
+		void preload.catch(() => undefined);
+	};
 
 	return (
 		<li>

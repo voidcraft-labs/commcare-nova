@@ -51,6 +51,7 @@ import type { BlueprintDocState } from "@/lib/doc/store";
 import {
 	type Field,
 	type Form,
+	fieldCaseWrite,
 	isCaptureFieldKind,
 	isContainer,
 	type LanguageTag,
@@ -2432,7 +2433,8 @@ export class EngineController {
 	 * the callback only fires when THAT specific field was mutated.
 	 *
 	 * classifyChange determines what happened:
-	 * - "none" → zero engine work
+	 * - a case-write destination change → refresh submission metadata only
+	 * - "none" → zero evaluation work
 	 * - "kind_change" → drop the stale value at the old path, re-init the field
 	 * - "expression" → rebuild DAG, evaluate field + cascade
 	 * - "label_refs" → re-evaluate resolved labels
@@ -2453,6 +2455,14 @@ export class EngineController {
 					const formUuid = this.activeFormUuid;
 					if (formUuid === undefined) return;
 					this.contain("document-update", formUuid, undefined, () => {
+						/* Case-write targets do not participate in expression evaluation, but
+						 * they do determine the exact mutation emitted at submit time. Refresh
+						 * that narrow document surface independently so a combined patch can
+						 * still take its ordinary expression/default handler below. */
+						if (fieldCaseWrite(current) !== fieldCaseWrite(previous)) {
+							const input = this.currentEngineInput();
+							if (input !== undefined) this.engine?.refreshCaseWriteDoc(input);
+						}
 						const changeType = classifyChange(
 							current as Field,
 							previous as Field,
@@ -2712,9 +2722,12 @@ export class EngineController {
 				generation === this.lifecycleGeneration &&
 				engine === this.engine &&
 				entryKey === this.currentEntryKey &&
-				this.docStore?.getState() === documentState &&
-				!this.settling
+				this.docStore?.getState() === documentState
 			) {
+				/* A successor value/validation revision may already be marked settling
+				 * while it waits behind this task. That later work shares this exact
+				 * document and never publishes a document revision of its own, so it
+				 * must not suppress the snapshot that unblocks submission after it. */
 				this.reconciledDocumentState = documentState;
 			}
 		});

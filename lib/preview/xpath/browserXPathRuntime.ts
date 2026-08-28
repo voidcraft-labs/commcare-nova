@@ -107,6 +107,11 @@ export function createBrowserXPathRuntime(
 ): XPathRuntime {
 	return new XPathRuntime({
 		...options,
+		onBuildMismatch:
+			options.onBuildMismatch ??
+			(() => {
+				if (typeof window !== "undefined") window.location.reload();
+			}),
 		workerFactory: createLazyXPathWorker,
 	});
 }

@@ -11,6 +11,7 @@
 
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
+import { orderedCaseOperations } from "@/lib/domain";
 
 /** Structural twin of the validator scope kept on the domain side of the
  * CommCare boundary. `commitVerdicts` is the allowlisted adapter that passes
@@ -27,6 +28,17 @@ interface MutableScope {
 
 function addAllModuleRules(doc: BlueprintDoc, scope: MutableScope): void {
 	for (const moduleUuid of doc.moduleOrder) scope.moduleUuids.add(moduleUuid);
+}
+
+/** Case-operation expression types are derived against the app-wide writer
+ * catalog. Retargeting one ordinary field can therefore add a type opinion to
+ * an operation in another form even though that form's own entity is
+ * unchanged. Re-run exactly the forms that own operations; forms without an
+ * operation cannot produce a case-operation finding. */
+function addCaseOperationForms(doc: BlueprintDoc, scope: MutableScope): void {
+	for (const form of Object.values(doc.forms)) {
+		if (orderedCaseOperations(form).length > 0) scope.formUuids.add(form.uuid);
+	}
 }
 
 function owningModule(doc: BlueprintDoc, formUuid: Uuid): Uuid | undefined {
@@ -81,6 +93,7 @@ export function incrementalValidationScope(
 				 * independent from form scope, so this does not walk their forms. */
 				if (Object.hasOwn(mutation.patch, "caseWrite")) {
 					addAllModuleRules(doc, scope);
+					addCaseOperationForms(doc, scope);
 				}
 				if (!addFieldForm(doc, mutation.uuid, scope)) return undefined;
 				break;

@@ -29,9 +29,10 @@ import { ALWAYS_REQUIRED_EXPRESSION } from "@/components/builder/editor/fields/r
 import type { TextEditor as TextEditorComponent } from "@/components/builder/editor/fields/TextEditor";
 import type { XPathEditor as XPathEditorComponent } from "@/components/builder/editor/fields/XPathEditor";
 import {
-	getLoadedXPathEditor,
+	getXPathEditorServerSnapshot,
+	getXPathEditorSnapshot,
 	loadXPathEditor,
-	subscribeLoadedXPathEditor,
+	subscribeXPathEditor,
 } from "@/components/builder/inspector/lazyInspectorBodies";
 import type {
 	AudioField,
@@ -105,16 +106,42 @@ const TextEditor = dynamic(
 function WarmXPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	props: FieldEditorComponentProps<F, K>,
 ) {
-	const loaded = useSyncExternalStore(
-		subscribeLoadedXPathEditor,
-		getLoadedXPathEditor,
-		() => null,
+	const snapshot = useSyncExternalStore(
+		subscribeXPathEditor,
+		getXPathEditorSnapshot,
+		getXPathEditorServerSnapshot,
 	);
 	useEffect(() => {
-		if (loaded === null) void loadXPathEditor();
-	}, [loaded]);
-	if (loaded === null) return createElement(EditorLoading);
-	const LoadedXPathEditor = loaded.XPathEditor as ComponentType<
+		if (snapshot.status === "idle") {
+			void loadXPathEditor().catch(() => undefined);
+		}
+	}, [snapshot.status]);
+	if (snapshot.status === "idle" || snapshot.status === "loading") {
+		return createElement(EditorLoading);
+	}
+	if (snapshot.status === "error") {
+		return createElement(
+			"div",
+			{ className: "space-y-2 py-2 text-xs", role: "alert" },
+			createElement(
+				"p",
+				{ className: "text-nova-text-secondary" },
+				"This editor could not open. Try again.",
+			),
+			createElement(
+				"button",
+				{
+					type: "button",
+					className: "font-medium text-nova-violet hover:underline",
+					onClick: () => {
+						void loadXPathEditor().catch(() => undefined);
+					},
+				},
+				"Try again",
+			),
+		);
+	}
+	const LoadedXPathEditor = snapshot.module.XPathEditor as ComponentType<
 		FieldEditorComponentProps<F, K>
 	>;
 	return createElement(LoadedXPathEditor, props);

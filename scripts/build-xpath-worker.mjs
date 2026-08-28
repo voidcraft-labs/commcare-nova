@@ -7,6 +7,7 @@ const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const outputDirectory = fileURLToPath(
 	new URL("../public/xpath-worker/", import.meta.url),
 );
+const workerBuildId = process.env.NEXT_PUBLIC_NOVA_BUILD_ID?.trim() || "local";
 
 /* This directory is generated exclusively by this script. Rebuild it as one
  * asset family so the stable entry never refers to a stale hashed
@@ -27,6 +28,12 @@ await build({
 	minify: true,
 	treeShaking: true,
 	legalComments: "eof",
+	/* Next inlines this public build identity in the host graph. The Worker is
+	 * bundled by esbuild instead, so define the exact same value explicitly and
+	 * let the runtime handshake detect a rolling-deploy mismatch. */
+	define: {
+		"process.env.NEXT_PUBLIC_NOVA_BUILD_ID": JSON.stringify(workerBuildId),
+	},
 	tsconfig: `${repositoryRoot}tsconfig.json`,
 	entryNames: "[name]",
 	chunkNames: "chunks/[name]-[hash]",

@@ -350,13 +350,22 @@ describe("EngineController async runtime", () => {
 
 	it("publishes case-write-only edits without starting a worker revision", async () => {
 		const requests: XPathWorkerEvaluateRequest[] = [];
-		const doc = docWith({
-			uuid: FIELD_UUID,
-			id: "answer",
-			kind: "hidden",
-			calculate: xp("sleep(0, 'ready')"),
-			caseWrite: { caseType: "patient", property: "case_name" },
-		});
+		const doc = docWith(
+			{
+				uuid: FIELD_UUID,
+				id: "answer",
+				kind: "hidden",
+				calculate: xp("sleep(0, 'ready')"),
+				caseWrite: { caseType: "patient", property: "age" },
+			},
+			{
+				uuid: SECOND_FIELD_UUID,
+				id: "case_name",
+				kind: "hidden",
+				calculate: xp("'Patient'"),
+				caseWrite: { caseType: "patient", property: "case_name" },
+			},
+		);
 		doc.caseTypes = [
 			{
 				name: "patient",
@@ -369,6 +378,11 @@ describe("EngineController async runtime", () => {
 					{
 						name: "age",
 						label: proseText("Age"),
+						data_type: "text",
+					},
+					{
+						name: "nickname",
+						label: proseText("Nickname"),
 						data_type: "text",
 					},
 				],
@@ -405,7 +419,7 @@ describe("EngineController async runtime", () => {
 				kind: "updateField",
 				uuid: FIELD_UUID,
 				targetKind: "hidden",
-				patch: { caseWrite: { caseType: "patient", property: "age" } },
+				patch: { caseWrite: { caseType: "patient", property: "nickname" } },
 			},
 		]);
 		await ctrl.awaitSettled();
@@ -426,8 +440,69 @@ describe("EngineController async runtime", () => {
 			| undefined;
 		expect(submittedField?.caseWrite).toEqual({
 			caseType: "patient",
-			property: "age",
+			property: "nickname",
 		});
+		expect(snapshot?.mutation).toMatchObject({
+			kind: "registration",
+			primary: {
+				caseType: "patient",
+				caseName: "ready",
+				properties: { nickname: "ready" },
+			},
+		});
+		expect(snapshot?.mutation).not.toHaveProperty("primary.properties.age");
+		expect(ctrl.entryStore.getState().fault).toBeUndefined();
+		ctrl.dispose();
+	});
+
+	it("retains a neutral document snapshot while a successor value revision settles", async () => {
+		vi.useFakeTimers();
+		const store = createBlueprintDocStore();
+		store.getState().load(
+			docWith(
+				{
+					uuid: FIELD_UUID,
+					id: "answer",
+					kind: "text",
+					label: proseText("Answer"),
+				},
+				{
+					uuid: RESULT_FIELD_UUID,
+					id: "copy",
+					kind: "hidden",
+					calculate: xp("sleep(20, /data/answer)"),
+				},
+			),
+		);
+		store.getState().startTracking();
+		const ctrl = new EngineController(
+			new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
+		);
+		ctrl.setDocStore(store);
+		const activation = ctrl.activateFormAsync(FORM_UUID);
+		await vi.runAllTimersAsync();
+		await expect(activation).resolves.toBe(true);
+		const entryKey = ctrl.entryKey;
+		if (entryKey === undefined) throw new Error("Expected entry");
+
+		const firstEdit = ctrl.onValueChangeAsync(FIELD_UUID, "first");
+		await vi.advanceTimersByTimeAsync(0);
+		store.getState().applyMany([
+			{
+				kind: "updateField",
+				uuid: FIELD_UUID,
+				targetKind: "text",
+				patch: { label: proseText("Renamed answer") },
+			},
+		]);
+		const secondEdit = ctrl.onValueChangeAsync(FIELD_UUID, "second");
+		expect(ctrl.entryStore.getState().settling).toBe(true);
+		await vi.runAllTimersAsync();
+		await Promise.all([firstEdit, secondEdit]);
+
+		const snapshot = await ctrl.computeSubmissionMutationAsync({}, entryKey);
+		expect(snapshot?.documentState).toBe(store.getState());
+		expect(ctrl.store.getState()[RESULT_FIELD_UUID]?.value).toBe("second");
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 		ctrl.dispose();
 	});

@@ -1,4 +1,5 @@
 import {
+	XPATH_WORKER_BUILD_ID,
 	XPATH_WORKER_PROTOCOL_VERSION,
 	type XPathRuntimeError,
 	type XPathRuntimeErrorCode,
@@ -33,6 +34,9 @@ export type XPathWorkerFactory = () => XPathWorkerPort;
 export interface XPathRuntimeOptions {
 	readonly workerFactory: XPathWorkerFactory;
 	readonly requestTimeoutMilliseconds?: number;
+	/** Production hard-reloads when a stable public Worker URL resolves to a
+	 * different deploy than the already-open host bundle. */
+	readonly onBuildMismatch?: () => void;
 }
 
 export interface XPathRequestOptions {
@@ -85,16 +89,19 @@ function sameScope(
 export class XPathRuntime {
 	private readonly factory: XPathWorkerFactory;
 	private readonly defaultTimeout: number | undefined;
+	private readonly onBuildMismatch: (() => void) | undefined;
 	private active: ActiveWorker | undefined;
 	private generation = 0;
 	private nextRequestId = 1;
 	private readonly pending = new Map<number, PendingRequest>();
 	private suspended = false;
 	private disposed = false;
+	private buildMismatchHandled = false;
 
 	constructor(options: XPathRuntimeOptions) {
 		this.factory = options.workerFactory;
 		this.defaultTimeout = options.requestTimeoutMilliseconds;
+		this.onBuildMismatch = options.onBuildMismatch;
 	}
 
 	request(
@@ -143,6 +150,7 @@ export class XPathRuntime {
 		const request: XPathWorkerEvaluateRequest = {
 			...input,
 			protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+			buildId: XPATH_WORKER_BUILD_ID,
 			operation: "evaluate",
 			requestId: this.nextRequestId++,
 		};
@@ -153,6 +161,7 @@ export class XPathRuntime {
 						try {
 							active.port.postMessage({
 								protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+								buildId: XPATH_WORKER_BUILD_ID,
 								operation: "cancel",
 								requestId: request.requestId,
 								entryKey: request.entryKey,
@@ -248,6 +257,22 @@ export class XPathRuntime {
 		const pending = this.pending.get(response.requestId);
 		const active = this.active;
 		if (pending === undefined || active === undefined) return;
+		if (response.buildId !== XPATH_WORKER_BUILD_ID) {
+			this.settle(
+				response.requestId,
+				failure(pending.request, "protocol-mismatch"),
+			);
+			this.retireActive("worker-failed");
+			if (!this.buildMismatchHandled) {
+				this.buildMismatchHandled = true;
+				try {
+					this.onBuildMismatch?.();
+				} catch {
+					// Reload/reporting recovery is best effort; the request is already fenced.
+				}
+			}
+			return;
+		}
 		if (
 			pending.generation !== active.generation ||
 			response.protocolVersion !== XPATH_WORKER_PROTOCOL_VERSION ||
@@ -322,6 +347,7 @@ export class XPathRuntime {
 		try {
 			active.port.postMessage({
 				protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+				buildId: XPATH_WORKER_BUILD_ID,
 				operation: "retire",
 				entryKey: active.entryKey,
 				revision: active.revision,

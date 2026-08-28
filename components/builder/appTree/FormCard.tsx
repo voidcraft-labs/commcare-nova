@@ -132,7 +132,10 @@ export const FormCard = memo(function FormCard({
 							 * wait for that code. Keep collapsed forms cold so Builder startup
 							 * does not pay for editors the author never opens. */
 							if (isCollapsed) {
-								void Promise.all([loadFieldInspectorBody(), loadXPathEditor()]);
+								void Promise.all([
+									loadFieldInspectorBody(),
+									loadXPathEditor(),
+								]).catch(() => undefined);
 							}
 							toggle(formId);
 						}}

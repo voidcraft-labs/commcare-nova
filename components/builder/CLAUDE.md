@@ -121,6 +121,13 @@ animations, and scheduled frames, so it is not an interaction budget by
 itself. A new broad document, route, or context subscription on a persistent
 Builder ancestor needs evidence that no narrower projection can express it.
 
+Preview's XPath evaluator is a separately built public Worker so its OpenJDK
+runtime never enters the Builder's main-realm route graph. Its request URL and
+message handshake both carry `NEXT_PUBLIC_NOVA_BUILD_ID`; if a rolling deploy
+serves an already-open Builder a Worker from another build, the host retires
+the request and hard-reloads onto one coherent client instead of waiting for a
+timeout or mixing protocol implementations.
+
 ## Worker-content language lens
 
 `BuilderLocalizationProvider` is the one Builder/Preview projection from the

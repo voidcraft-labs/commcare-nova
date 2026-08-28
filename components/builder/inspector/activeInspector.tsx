@@ -32,10 +32,11 @@ import { useOperationSentenceContext } from "@/components/builder/case-operation
 import { linkLead } from "@/components/builder/form-links/linkSentence";
 import { useLinkSentenceContext } from "@/components/builder/form-links/useLinkSentenceContext";
 import {
-	getLoadedFieldInspectorBody,
+	getFieldInspectorBodyServerSnapshot,
+	getFieldInspectorBodySnapshot,
 	loadFieldInspectorBody,
 	loadSectionInspectorBody,
-	subscribeLoadedFieldInspectorBody,
+	subscribeFieldInspectorBody,
 } from "@/components/builder/inspector/lazyInspectorBodies";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useProjectDataInspector } from "@/components/builder/project-data/projectDataInspector";
@@ -77,16 +78,38 @@ const FormLinkInspectorBody = dynamic(
 	{ loading: InspectorBodyLoading },
 );
 function FieldInspectorBody({ field }: { field: Field }) {
-	const loaded = useSyncExternalStore(
-		subscribeLoadedFieldInspectorBody,
-		getLoadedFieldInspectorBody,
-		() => null,
+	const snapshot = useSyncExternalStore(
+		subscribeFieldInspectorBody,
+		getFieldInspectorBodySnapshot,
+		getFieldInspectorBodyServerSnapshot,
 	);
 	useEffect(() => {
-		if (loaded === null) void loadFieldInspectorBody();
-	}, [loaded]);
-	if (loaded === null) return <InspectorBodyLoading />;
-	return <loaded.FieldInspectorBody field={field} />;
+		if (snapshot.status === "idle") {
+			void loadFieldInspectorBody().catch(() => undefined);
+		}
+	}, [snapshot.status]);
+	if (snapshot.status === "idle" || snapshot.status === "loading") {
+		return <InspectorBodyLoading />;
+	}
+	if (snapshot.status === "error") {
+		return (
+			<div className="space-y-2 py-4 text-sm" role="alert">
+				<p className="text-nova-text-secondary">
+					Properties could not open. Try again.
+				</p>
+				<button
+					type="button"
+					className="font-medium text-nova-violet hover:underline"
+					onClick={() => {
+						void loadFieldInspectorBody().catch(() => undefined);
+					}}
+				>
+					Try again
+				</button>
+			</div>
+		);
+	}
+	return <snapshot.module.FieldInspectorBody field={field} />;
 }
 const SectionInspectorBody = dynamic(
 	() =>

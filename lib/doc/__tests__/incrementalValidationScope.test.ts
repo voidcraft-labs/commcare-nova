@@ -7,6 +7,8 @@ import {
 import { incrementalValidationScope } from "@/lib/doc/incrementalValidationScope";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, type Mutation } from "@/lib/doc/types";
+import type { CaseOperation, Form } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
 
 function fixture() {
 	const doc = buildDoc({
@@ -64,6 +66,116 @@ describe("incrementalValidationScope", () => {
 			moduleUuids: new Set([moduleUuid]),
 			formUuids: new Set([formUuid]),
 		});
+	});
+
+	it("rechecks operation forms whose inferred writer types a case destination can change", () => {
+		const doc = buildDoc({
+			appName: "Writer and operation dependency",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "nickname", label: "Nickname", data_type: "text" },
+						{ name: "mixed", label: "Mixed" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Author",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Edit field",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "nickname",
+									caseWrite: {
+										caseType: "patient",
+										property: "nickname",
+									},
+								}),
+							],
+						},
+					],
+				},
+				{
+					name: "Automation",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Run operation",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+		const authorModuleUuid = doc.moduleOrder[0];
+		const operationModuleUuid = doc.moduleOrder[1];
+		if (authorModuleUuid === undefined || operationModuleUuid === undefined) {
+			throw new Error("operation dependency modules missing");
+		}
+		const authorFormUuid = doc.formOrder[authorModuleUuid]?.[0];
+		const operationFormUuid = doc.formOrder[operationModuleUuid]?.[0];
+		const fieldUuid =
+			authorFormUuid === undefined
+				? undefined
+				: doc.fieldOrder[authorFormUuid]?.[0];
+		if (
+			authorFormUuid === undefined ||
+			operationFormUuid === undefined ||
+			fieldUuid === undefined
+		) {
+			throw new Error("operation dependency fixture missing");
+		}
+		const operation: CaseOperation = {
+			uuid: asUuid("00000000-0000-4000-8000-000000000077"),
+			id: "write_mixed",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes: [{ property: "mixed", value: term(literal(7)) }],
+		};
+		doc.forms[operationFormUuid] = {
+			...doc.forms[operationFormUuid],
+			caseOperations: [operation],
+		} as Form;
+		const mutations: Mutation[] = [
+			{
+				kind: "updateField",
+				uuid: fieldUuid,
+				targetKind: "text",
+				patch: {
+					caseWrite: { caseType: "patient", property: "mixed" },
+				},
+			},
+		];
+
+		expect(incrementalValidationScope(doc, mutations)).toEqual({
+			moduleUuids: new Set(doc.moduleOrder),
+			formUuids: new Set([authorFormUuid, operationFormUuid]),
+		});
+		const absolute = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		const incremental = mutationCommitVerdictWithPrevalidation(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(absolute.ok).toBe(false);
+		expect(incremental).toEqual(absolute);
+		if (!absolute.ok) {
+			expect(absolute.findings.map((finding) => finding.code)).toContain(
+				"CASE_OPERATION_EXPRESSION_TYPE",
+			);
+		}
 	});
 
 	it("unions form and module footprints across a safe batch", () => {

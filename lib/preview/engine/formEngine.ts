@@ -2130,6 +2130,14 @@ export class FormEngine {
 		return this.dag.getAffected(path, this.repeatCounts);
 	}
 
+	/** Refresh the narrow document surface used only when Preview emits case
+	 * writes. A Builder case-destination edit changes no value, DAG edge, field
+	 * path, or rendered state, so rebuilding or settling the evaluator would be
+	 * wasted work; submission still has to observe the new destination exactly. */
+	refreshCaseWriteDoc(input: FormEngineInput): void {
+		this.caseWriteDoc = caseWriteDocOf(input);
+	}
+
 	/**
 	 * Rebuild only the TriggerDag from a refreshed form input. Does NOT rebuild
 	 * the DataInstance or field states — only the dependency graph + the

@@ -111,9 +111,13 @@ describe("durable deployment policy", () => {
 		expect(readFileSync("proxy.ts", "utf8")).toContain("third-party/");
 		expect(readFileSync("proxy.ts", "utf8")).toContain("xpath-worker/");
 		expect(browserXPathWorker).toContain(
-			'new Worker("/xpath-worker/xpath-worker.js", { type: "module" })',
+			"/xpath-worker/xpath-worker.js?build=",
 		);
+		expect(browserXPathWorker).toContain("XPATH_WORKER_BUILD_ID");
 		expect(browserXPathWorker).not.toContain("new Worker(new URL(");
+		expect(readFileSync("scripts/build-xpath-worker.mjs", "utf8")).toContain(
+			'"process.env.NEXT_PUBLIC_NOVA_BUILD_ID": JSON.stringify(workerBuildId)',
+		);
 		expect(
 			readFileSync(
 				"lib/preview/xpath/vendor/javaPatternRuntime.generated.js",

@@ -24,6 +24,7 @@ import {
 	serializeXPathWorkerValue,
 } from "./workerProjection";
 import {
+	XPATH_WORKER_BUILD_ID,
 	XPATH_WORKER_PROTOCOL_VERSION,
 	type XPathRuntimeErrorCode,
 	type XPathWorkerEvaluateRequest,
@@ -330,6 +331,7 @@ function safeError(
 ): XPathWorkerResponse {
 	return {
 		protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+		buildId: XPATH_WORKER_BUILD_ID,
 		operation: "evaluate",
 		requestId: request.requestId,
 		entryKey: request.entryKey,
@@ -510,10 +512,18 @@ export function createXPathWorkerDispatcher(args: {
 
 	return {
 		handleMessage(message) {
+			if (retired) return;
 			if (
-				retired ||
+				message.buildId !== XPATH_WORKER_BUILD_ID ||
 				message.protocolVersion !== XPATH_WORKER_PROTOCOL_VERSION
 			) {
+				/* The public Worker URL is intentionally outside Next's hashed chunk
+				 * graph. Answer an evaluate from another build immediately with THIS
+				 * build identity so the old host can hard-reload instead of waiting for
+				 * its watchdog. Cancel/retire carry no pending result to acknowledge. */
+				if (message.operation === "evaluate") {
+					args.postMessage(safeError(message, "protocol-mismatch"));
+				}
 				return;
 			}
 			if (message.operation === "cancel") {
@@ -554,6 +564,7 @@ export function createXPathWorkerDispatcher(args: {
 							 * restart a full CPU window when evaluation resumes. */
 							args.postMessage({
 								protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+								buildId: XPATH_WORKER_BUILD_ID,
 								operation: "watchdog",
 								state: "pause",
 								requestId: request.requestId,
@@ -566,6 +577,7 @@ export function createXPathWorkerDispatcher(args: {
 							} finally {
 								args.postMessage({
 									protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+									buildId: XPATH_WORKER_BUILD_ID,
 									operation: "watchdog",
 									state: "resume",
 									requestId: request.requestId,
@@ -581,6 +593,7 @@ export function createXPathWorkerDispatcher(args: {
 					if (retired || active.get(request.requestId) !== controller) return;
 					args.postMessage({
 						protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
+						buildId: XPATH_WORKER_BUILD_ID,
 						operation: "evaluate",
 						requestId: request.requestId,
 						entryKey: request.entryKey,
