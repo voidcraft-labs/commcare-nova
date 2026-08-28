@@ -18,6 +18,7 @@ scripts
 !scripts/
 scripts/*
 !scripts/harden-agent-react-devtools.mjs
+!scripts/build-xpath-worker.mjs
 !scripts/migrate.ts
 !scripts/java-pattern-runtime/
 !scripts/java-pattern-runtime/**

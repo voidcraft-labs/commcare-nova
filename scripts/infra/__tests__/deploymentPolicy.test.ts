@@ -97,6 +97,7 @@ describe("durable deployment policy", () => {
 		expect(dockerfile).toContain("RUN npm run build");
 		expect(ciWorkflow).toContain("run: npm run build");
 		expect(dockerignore).toContain("!scripts/java-pattern-runtime/**");
+		expect(dockerignore).toContain("!scripts/build-xpath-worker.mjs");
 		expect(dockerfile).toContain(
 			"public/third-party/java-pattern-runtime-source.tar.gz",
 		);
