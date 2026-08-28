@@ -30,18 +30,22 @@ export function createInProcessXPathWorkerFactory(
 		const dispatcher = createXPathWorkerDispatcher({
 			evaluate,
 			postMessage: (response) => {
+				const clonedResponse = structuredClone(response);
 				queueMicrotask(() => {
 					if (terminated) return;
-					for (const listener of messageListeners) listener({ data: response });
+					for (const listener of messageListeners) {
+						listener({ data: clonedResponse });
+					}
 				});
 			},
 		});
 		const port: XPathWorkerPort = {
 			postMessage(message) {
+				const clonedMessage = structuredClone(message);
 				queueMicrotask(() => {
 					if (terminated) return;
 					try {
-						dispatcher.handleMessage(message);
+						dispatcher.handleMessage(clonedMessage);
 					} catch {
 						for (const listener of errorListeners) listener();
 					}
