@@ -11,21 +11,16 @@
  * `Headers Timeout Error` — observed live killing the design author call on
  * all three SDK attempts, ~15 minutes of guaranteed-doomed requests.
  *
- * The dispatcher rides each request via `init.dispatcher` on the global
- * fetch — NOT a swapped fetch implementation and NOT a global dispatcher —
- * so tests keep capturing calls by stubbing `globalThis.fetch`, Next's own
- * fetches keep their defaults, and every call remains cancellable through
- * its abort signal. Node 24's built-in fetch currently speaks undici's v1
- * dispatcher handler contract while npm undici 8 Agents speak v2. The
- * package's `Dispatcher1Wrapper` is the explicit compatibility bridge: it
- * adapts the built-in fetch's handlers to the package Agent without swapping
- * fetch implementations or global dispatchers. The transport test pins the
- * wrapper, the dispatcher on `init`, and both timeout and success behavior
- * against a live local server.
+ * OpenAI requests use the npm package's `fetch` and `Agent` together, so both
+ * sides speak Undici 8's dispatcher contract. This is deliberately scoped to
+ * the provider rather than installed as a global dispatcher: Next's fetches
+ * keep their defaults, while model calls receive the long timeout and remain
+ * cancellable through their abort signal. The transport test pins both timeout
+ * and success behavior against a live local server.
  */
 
 import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
-import { Agent, Dispatcher1Wrapper } from "undici";
+import { Agent, type Dispatcher, fetch as undiciFetch } from "undici";
 
 /** Transport ceiling for one model call's headers AND its inter-chunk idle
  *  gap. Generous by design: real cancellation is the caller's abort signal;
@@ -34,23 +29,32 @@ import { Agent, Dispatcher1Wrapper } from "undici";
 export const MODEL_CALL_TIMEOUT_MS = 20 * 60_000;
 
 /** Exported for the transport pin test's identity assertion only. */
-export const modelCallDispatcher = new Dispatcher1Wrapper(
-	new Agent({
-		headersTimeout: MODEL_CALL_TIMEOUT_MS,
-		bodyTimeout: MODEL_CALL_TIMEOUT_MS,
-	}),
-);
+export const modelCallDispatcher = new Agent({
+	headersTimeout: MODEL_CALL_TIMEOUT_MS,
+	bodyTimeout: MODEL_CALL_TIMEOUT_MS,
+});
 
-/** The fetch every provider instance uses: the current `globalThis.fetch`
- *  (resolved at call time, so test stubs intercept) with the long-timeout
- *  dispatcher on the init. `dispatcher` is undici's documented RequestInit
- *  extension; lib.dom's types don't know it, hence the cast. */
-export const modelCallFetch: typeof globalThis.fetch = (input, init) =>
-	globalThis.fetch(input, {
-		...init,
-		dispatcher: modelCallDispatcher,
-	} as RequestInit);
+/** The fetch every production provider instance uses. The AI SDK's fetch
+ *  contract is the DOM signature; Undici's equivalent structural types are
+ *  declared separately, so the cast is isolated at this one transport seam. */
+export function createModelCallFetch(
+	dispatcher: Dispatcher,
+): typeof globalThis.fetch {
+	return (input, init) =>
+		undiciFetch(
+			input as Parameters<typeof undiciFetch>[0],
+			{
+				...init,
+				dispatcher,
+			} as Parameters<typeof undiciFetch>[1],
+		) as unknown as Promise<Response>;
+}
 
-export function createNovaOpenAI(apiKey: string): OpenAIProvider {
-	return createOpenAI({ apiKey, fetch: modelCallFetch });
+export const modelCallFetch = createModelCallFetch(modelCallDispatcher);
+
+export function createNovaOpenAI(
+	apiKey: string,
+	transport: typeof globalThis.fetch = modelCallFetch,
+): OpenAIProvider {
+	return createOpenAI({ apiKey, fetch: transport });
 }

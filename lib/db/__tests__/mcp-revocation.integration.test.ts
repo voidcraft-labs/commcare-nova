@@ -124,7 +124,7 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 				loginPage: "/",
 				consentPage: "/consent",
 				resources: ["http://localhost:3000/api/mcp"],
-				enforcePerClientResources: false,
+				enforcePerClientResources: true,
 				clientRegistrationDefaultResources: ["http://localhost:3000/api/mcp"],
 				clientRegistrationAllowedResources: ["http://localhost:3000/api/mcp"],
 				scopes: ["openid", "profile", "email", "nova.read", "nova.write"],

@@ -3,13 +3,11 @@
  *
  * Three facts hold or long model calls die on the transport:
  *
- * 1. `modelCallFetch` places the long-timeout dispatcher on every request's
- *    init — the provider-level guarantee.
- * 2. THIS Node's fetch honors an `init.dispatcher` built from the npm
- *    `undici` package through its v1 compatibility wrapper — the platform
- *    guarantee. Node's fetch is its own bundled undici, so a missing adapter
- *    would reject the package Agent before a request; the local-server probe
- *    fails loudly instead.
+ * 1. `modelCallFetch` uses the npm Undici 8 fetch with the package Agent — the
+ *    provider-level guarantee. The local-server probe fails if either side is
+ *    replaced by Node's separately bundled dispatcher contract.
+ * 2. The package fetch honors the Agent's timeout and succeeds on an ordinary
+ *    response — the platform guarantee.
  * 3. No serving code constructs a provider around the factory — a bare
  *    `createOpenAI` gets default timeouts, which is exactly the observed
  *    failure, so the source scan keeps the constructor unique.
@@ -19,39 +17,24 @@ import { readdirSync, readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
-import { Agent, Dispatcher1Wrapper } from "undici";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { Agent } from "undici";
+import { describe, expect, it } from "vitest";
 import {
+	createModelCallFetch,
 	MODEL_CALL_TIMEOUT_MS,
 	modelCallDispatcher,
-	modelCallFetch,
 } from "@/lib/agent/openaiProvider";
 
-afterEach(() => {
-	vi.unstubAllGlobals();
-});
-
 describe("modelCallFetch", () => {
-	it("rides every request with the long-timeout dispatcher on init", async () => {
-		let captured: RequestInit | undefined;
-		vi.stubGlobal("fetch", async (_input: unknown, init?: RequestInit) => {
-			captured = init;
-			return new Response("ok");
-		});
-		const res = await modelCallFetch("https://api.example.test/v1/responses", {
-			method: "POST",
-		});
-		await res.text();
-		expect((captured as { dispatcher?: unknown } | undefined)?.dispatcher).toBe(
-			modelCallDispatcher,
-		);
+	it("owns an Undici 8 Agent with a reasoning-safe ceiling", () => {
+		expect(modelCallDispatcher).toBeInstanceOf(Agent);
 		// The ceiling exists to beat undici's 300s default; a value at or
 		// below it would reintroduce the observed death.
 		expect(MODEL_CALL_TIMEOUT_MS).toBeGreaterThan(300_000);
 	});
 });
 
-describe("node fetch + undici dispatcher", () => {
+describe("Undici 8 fetch + dispatcher", () => {
 	it("honors a package-built Agent's headersTimeout passed via init.dispatcher", async () => {
 		const pendingTimers: NodeJS.Timeout[] = [];
 		const server: Server = createServer((_req, res) => {
@@ -66,14 +49,13 @@ describe("node fetch + undici dispatcher", () => {
 			server.listen(0, "127.0.0.1", resolve),
 		);
 		const { port } = server.address() as AddressInfo;
-		const probe = new Dispatcher1Wrapper(
-			new Agent({ headersTimeout: 300, bodyTimeout: 300 }),
-		);
+		const probe = new Agent({ headersTimeout: 300, bodyTimeout: 300 });
+		const probeFetch = createModelCallFetch(probe);
 		try {
 			await expect(
-				globalThis.fetch(`http://127.0.0.1:${port}/`, {
-					dispatcher: probe,
-				} as RequestInit),
+				probeFetch(`http://127.0.0.1:${port}/`, {
+					method: "GET",
+				}),
 			).rejects.toThrow();
 		} finally {
 			for (const timer of pendingTimers) clearTimeout(timer);
@@ -93,13 +75,10 @@ describe("node fetch + undici dispatcher", () => {
 			server.listen(0, "127.0.0.1", resolve),
 		);
 		const { port } = server.address() as AddressInfo;
-		const probe = new Dispatcher1Wrapper(
-			new Agent({ headersTimeout: 10_000, bodyTimeout: 10_000 }),
-		);
+		const probe = new Agent({ headersTimeout: 10_000, bodyTimeout: 10_000 });
+		const probeFetch = createModelCallFetch(probe);
 		try {
-			const res = await globalThis.fetch(`http://127.0.0.1:${port}/`, {
-				dispatcher: probe,
-			} as RequestInit);
+			const res = await probeFetch(`http://127.0.0.1:${port}/`);
 			expect(await res.text()).toBe("ok");
 		} finally {
 			await probe.close();

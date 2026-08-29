@@ -1,4 +1,4 @@
-/** READ ONLY: preflight Better Auth 1.7's OAuth client application types. */
+/** READ ONLY: preflight Better Auth 1.7's complete OAuth client cutover. */
 
 import "dotenv/config";
 import { Command } from "commander";
@@ -21,9 +21,13 @@ const program = new Command();
 program
 	.name("scan-better-auth-oauth-clients")
 	.description(
-		"Classify OAuth clients for Better Auth 1.7 without returning redirect URIs or client identifiers.",
+		"Verify OAuth client types, scopes, protected-resource links, and retired columns for Better Auth 1.7 without returning client data.",
 	)
-	.option("--prod", "scan production through the read-only operator identity");
+	.option("--prod", "scan production through the read-only operator identity")
+	.addHelpText(
+		"after",
+		"\nA legacy-ready result is expected before deployment. After traffic drains and finalization runs, current with both legacy column fields false and rollingDeployTriggerCount 0 is the required postcondition.\n",
+	);
 program.parse();
 const options = program.opts<Options>();
 if (options.prod === true) targetProdDb();
@@ -37,7 +41,13 @@ async function main(): Promise<void> {
 			const report = await scanBetterAuthOauthClients(client);
 			await client.query("COMMIT");
 			console.log(renderBetterAuthOauthClientReport(report));
-			if (report.state === "legacy-ready" || report.state === "blocked") {
+			if (
+				report.state === "legacy-ready" ||
+				report.state === "blocked" ||
+				report.legacyPublicColumnPresent ||
+				report.legacyTypeColumnPresent ||
+				report.rollingDeployTriggerCount !== 0
+			) {
 				process.exitCode = 1;
 			}
 		} catch (error) {

@@ -22,7 +22,7 @@ const monitorCapture = vi.hoisted(() => ({
 	current: undefined as CapturedMonitor | undefined,
 }));
 
-vi.mock("@atlaskit/pragmatic-drag-and-drop/element/adapter", () => ({
+vi.mock("@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter", () => ({
 	draggable: () => () => {},
 	dropTargetForElements: () => () => {},
 	monitorForElements: (config: CapturedMonitor) => {

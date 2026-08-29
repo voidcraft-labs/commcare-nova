@@ -15,8 +15,8 @@ export const GOOGLE_ACCOUNT_ISSUER = "https://accounts.google.com";
 export const CREDENTIAL_ACCOUNT_ISSUER = "local:credential";
 
 const ACCOUNT_INDEX = "auth_account_issuer_accountId_uidx";
-const COMPATIBILITY_FUNCTION = "nova_fill_auth_account_issuer_v17";
-const COMPATIBILITY_TRIGGER = "nova_auth_account_issuer_v17";
+const ROLLING_DEPLOY_FUNCTION = "nova_fill_auth_account_issuer_v17";
+const ROLLING_DEPLOY_TRIGGER = "nova_auth_account_issuer_v17";
 
 type Queryable = Pool | PoolClient;
 
@@ -226,6 +226,7 @@ export async function migrateBetterAuthAccountIdentity(
 	const initial = await scanBetterAuthAccountIdentity(pool);
 	assertReady(initial);
 	if (initial.state === "absent") return initial;
+	if (initial.state === "current") return initial;
 
 	const client = await pool.connect();
 	try {
@@ -241,7 +242,7 @@ export async function migrateBetterAuthAccountIdentity(
 			);
 		}
 		await client.query(`
-			CREATE OR REPLACE FUNCTION public.${COMPATIBILITY_FUNCTION}()
+			CREATE OR REPLACE FUNCTION public.${ROLLING_DEPLOY_FUNCTION}()
 			RETURNS trigger
 			LANGUAGE plpgsql
 			AS $$
@@ -262,12 +263,12 @@ export async function migrateBetterAuthAccountIdentity(
 			$$
 		`);
 		await client.query(
-			`DROP TRIGGER IF EXISTS ${COMPATIBILITY_TRIGGER} ON public.auth_account`,
+			`DROP TRIGGER IF EXISTS ${ROLLING_DEPLOY_TRIGGER} ON public.auth_account`,
 		);
 		await client.query(`
-			CREATE TRIGGER ${COMPATIBILITY_TRIGGER}
+			CREATE TRIGGER ${ROLLING_DEPLOY_TRIGGER}
 			BEFORE INSERT ON public.auth_account
-			FOR EACH ROW EXECUTE FUNCTION public.${COMPATIBILITY_FUNCTION}()
+			FOR EACH ROW EXECUTE FUNCTION public.${ROLLING_DEPLOY_FUNCTION}()
 		`);
 		if (locked.state === "legacy-ready") {
 			await client.query(

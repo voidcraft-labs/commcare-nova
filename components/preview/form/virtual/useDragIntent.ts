@@ -27,7 +27,7 @@
  *     placeholder should go.
  */
 
-import { monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+import { monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
 import { extractClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { useContext, useEffect, useRef, useState } from "react";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";

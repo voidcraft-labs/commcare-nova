@@ -1,8 +1,9 @@
-// Install the two rolling-deploy trigger functions before Better Auth's own
-// migrator changes its tables. The paired scan/migrate scripts attach them to
-// the populated auth tables after their 1.7 backfills. Defining the routines
-// here keeps the exact public-routine inventory valid on fresh databases too,
-// where those auth tables do not exist until the next migration phase.
+// Install the rolling-deploy trigger functions before Better Auth's own
+// migrator changes its tables. The migration job runs while the previous 1.6
+// revision still serves, so the paired writers attach these functions after
+// the 1.7 backfills and keep inserts from that draining revision valid. The new
+// runtime itself uses Better Auth 1.7's native issuer, application-type, and
+// protected-resource contracts.
 
 import { type Kysely, sql } from "kysely";
 
@@ -25,7 +26,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 				END CASE;
 			END IF;
 			RETURN NEW;
-		END;
+		END
 		$$
 	`.execute(db);
 
@@ -54,8 +55,36 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 					RAISE EXCEPTION 'Legacy OAuth client redirect URIs have no reviewed application type';
 				END IF;
 			END IF;
+			IF NEW."clientCredentialsScopes" IS NULL THEN
+				NEW."clientCredentialsScopes" := '[]'::jsonb;
+			END IF;
 			RETURN NEW;
-		END;
+		END
+		$$
+	`.execute(db);
+
+	// PL/pgSQL resolves the 1.7 resource-link table when this function runs,
+	// after Better Auth's migrator has created it.
+	await sql`
+		CREATE OR REPLACE FUNCTION public.nova_link_oauth_client_resource_v17()
+		RETURNS trigger
+		LANGUAGE plpgsql
+		SECURITY DEFINER
+		SET search_path = pg_catalog
+		AS $$
+		BEGIN
+			INSERT INTO public.auth_oauth_client_resource
+				(id, "clientId", "resourceId", metadata, "createdAt")
+			VALUES (
+				'nova-mcp-' || md5(NEW."clientId" || '|' || 'https://mcp.commcare.app/mcp'),
+				NEW."clientId",
+				'https://mcp.commcare.app/mcp',
+				NULL,
+				now()
+			)
+			ON CONFLICT ("clientId", "resourceId") DO NOTHING;
+			RETURN NEW;
+		END
 		$$
 	`.execute(db);
 }
@@ -65,6 +94,8 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 		DO $$
 		BEGIN
 			IF to_regclass('public.auth_oauth_client') IS NOT NULL THEN
+				DROP TRIGGER IF EXISTS nova_oauth_client_resource_v17
+					ON public.auth_oauth_client;
 				DROP TRIGGER IF EXISTS nova_oauth_client_application_type_v17
 					ON public.auth_oauth_client;
 			END IF;
@@ -74,6 +105,9 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 			END IF;
 		END
 		$$
+	`.execute(db);
+	await sql`
+		DROP FUNCTION IF EXISTS public.nova_link_oauth_client_resource_v17()
 	`.execute(db);
 	await sql`
 		DROP FUNCTION IF EXISTS public.nova_fill_oauth_client_application_type_v17()

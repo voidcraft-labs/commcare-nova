@@ -41,7 +41,10 @@ import {
 } from "@/lib/db/privilegeConvergence";
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
 import { migrateBetterAuthAccountIdentity } from "@/scripts/lib/betterAuthAccountIdentity";
-import { migrateBetterAuthOauthClients } from "@/scripts/lib/betterAuthOauthClientMigration";
+import {
+	finalizeBetterAuth17OauthClients,
+	migrateBetterAuthOauthClients,
+} from "@/scripts/lib/betterAuthOauthClientMigration";
 import { runCaseStatusFilterRepair } from "@/scripts/lib/caseStatusFilterRepair";
 import { runLanguageIdentityRepair } from "@/scripts/lib/languageIdentityRepair";
 import {
@@ -54,7 +57,9 @@ async function main(): Promise<void> {
 	const args = process.argv.slice(2);
 	if (
 		args.length > 0 &&
-		(args.length !== 1 || args[0] !== "--terminate-runtime-sessions-only")
+		(args.length !== 1 ||
+			(args[0] !== "--terminate-runtime-sessions-only" &&
+				args[0] !== "--finalize-better-auth-17"))
 	) {
 		throw new Error(`Unknown migration argument(s): ${args.join(", ")}`);
 	}
@@ -75,6 +80,14 @@ async function main(): Promise<void> {
 		);
 		return;
 	}
+	if (args[0] === "--finalize-better-auth-17") {
+		const pool = await getCaseStorePool();
+		const report = await finalizeBetterAuth17OauthClients(pool);
+		console.log(
+			`[migrate] Better Auth 1.7 OAuth columns finalized; clients=${report.clientCount}; linked=${report.linkedClients}`,
+		);
+		return;
+	}
 
 	const pool = await getCaseStorePool();
 	const db = await getCaseStoreDatabase();
@@ -91,8 +104,8 @@ async function main(): Promise<void> {
 	// Better Auth 1.7 adds a required issuer identity to populated 1.6 account
 	// rows. Its generic schema migrator deliberately refuses that data decision,
 	// so converge the reviewed Google/credential identities first. The writer
-	// also installs the narrow insert trigger that keeps a still-serving 1.6
-	// revision compatible throughout the rolling deploy.
+	// also protects inserts from the still-serving 1.6 revision during the
+	// rolling deploy; the new runtime writes only the native 1.7 shape.
 	const accountIdentityPreflight = await migrateBetterAuthAccountIdentity(pool);
 	console.log(
 		`[migrate] Better Auth account identity preflight ${accountIdentityPreflight.state}; accounts=${accountIdentityPreflight.accountCount}`,
@@ -112,7 +125,7 @@ async function main(): Promise<void> {
 	);
 	const oauthClients = await migrateBetterAuthOauthClients(pool);
 	console.log(
-		`[migrate] Better Auth OAuth clients ${oauthClients.state}; clients=${oauthClients.clientCount}`,
+		`[migrate] Better Auth OAuth clients ${oauthClients.state}; clients=${oauthClients.clientCount}; linked=${oauthClients.linkedClients}`,
 	);
 
 	// Nova-owned auth tables Better Auth's migrator doesn't manage (the OAuth

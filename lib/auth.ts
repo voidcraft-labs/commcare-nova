@@ -655,10 +655,9 @@ async function createAuth() {
 			 *     so the OAuth flow reuses Nova's branded sign-in + a custom
 			 *     consent screen rather than the plugin's minimal defaults.
 			 *   - `resources` pins the token `aud` claim to the MCP resource
-			 *     URL. The same resource is assigned to every new dynamic client.
-			 *     Per-client resource enforcement stays explicitly off for the
-			 *     1.6 client population, which predates resource-link rows; consent
-			 *     and the registered resource still bound every token.
+			 *     URL. Every existing client is migrated to its native 1.7 resource
+			 *     link before this runtime serves, and every new dynamic client gets
+			 *     the same link in the plugin's registration transaction.
 			 *   - Dynamic client registration is enabled AND unauthenticated
 			 *     so Claude Code (which has no pre-shared credentials) can
 			 *     bootstrap itself. Abuse is bounded by the plugin's own
@@ -687,7 +686,7 @@ async function createAuth() {
 				loginPage: "/",
 				consentPage: "/consent",
 				resources: [MCP_RESOURCE_URL],
-				enforcePerClientResources: false,
+				enforcePerClientResources: true,
 				clientRegistrationDefaultResources: [MCP_RESOURCE_URL],
 				clientRegistrationAllowedResources: [MCP_RESOURCE_URL],
 				scopes: [...NOVA_OAUTH_SCOPES],

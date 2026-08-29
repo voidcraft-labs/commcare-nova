@@ -106,13 +106,16 @@ describe("design structured-call wire body", () => {
 
 	it("streams a store:false + STRICT json_schema request carrying the projection, reasoning options, and the abort signal", async () => {
 		let captured: CapturedRequest | null = null;
-		vi.stubGlobal("fetch", async (_url: unknown, init?: RequestInit) => {
+		const capture: typeof globalThis.fetch = async (
+			_url: RequestInfo | URL,
+			init?: RequestInit,
+		) => {
 			captured = {
 				body: JSON.parse(init?.body as string),
 				signal: init?.signal,
 			};
 			return new Response("captured", { status: 500 });
-		});
+		};
 
 		// The seam's projection of a design-shaped schema: a discriminated
 		// union (raw spelling: oneOf — the exact construct that 400'd live)
@@ -127,9 +130,10 @@ describe("design structured-call wire body", () => {
 			}),
 		);
 
-		const model = createNovaOpenAI("sk-fake-never-sent")(
-			MODEL_ROLES.designReviewer.modelId,
-		);
+		const model = createNovaOpenAI(
+			"sk-fake-never-sent",
+			capture,
+		)(MODEL_ROLES.designReviewer.modelId);
 		const controller = new AbortController();
 		await expect(
 			model.doStream({

@@ -47,7 +47,7 @@ describe("Better Auth account identity scan-then-migrate", () => {
 		);
 	});
 
-	it("backfills Google, admits the 1.7 migrator, and bridges a legacy insert", async () => {
+	it("backfills Google, admits the 1.7 migrator, and protects a rolling insert", async () => {
 		await createLegacyAccountTable();
 		await seedGoogleAccount("account-a", "google-sub-a", "user-a");
 
@@ -74,7 +74,7 @@ describe("Better Auth account identity scan-then-migrate", () => {
 		await runMigrations();
 
 		// Simulate a request that reaches the old 1.6 revision after the schema
-		// Job commits: it omits issuer, and the compatibility trigger supplies it.
+		// Job commits: it omits issuer, and the rolling-deploy trigger supplies it.
 		await seedGoogleAccount("account-b", "google-sub-b", "user-b");
 		const inserted = await dbHandle.pool.query<{
 			issuer: string;

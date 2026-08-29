@@ -1,6 +1,7 @@
 /**
- * WRITER: backfill Better Auth 1.7 OAuth application types. Dry-run by
- * default. Production execution belongs to the immutable migrate image.
+ * WRITER: converge Better Auth 1.7 OAuth clients and protected-resource links.
+ * Dry-run by default. Production execution belongs to the immutable migrate
+ * image.
  */
 
 import "dotenv/config";
@@ -24,11 +25,11 @@ const program = new Command();
 program
 	.name("migrate-better-auth-oauth-clients")
 	.description(
-		"Backfill reviewed native/web client types for Better Auth 1.7. Dry-run by default.",
+		"Backfill reviewed native/web client types, empty client-credential scopes, and MCP resource links for Better Auth 1.7. Dry-run by default.",
 	)
 	.option(
 		"--execute",
-		"write the application-type backfill and rolling-deploy trigger",
+		"write the 1.7 client backfill, protected-resource links, and rolling-deploy guards",
 	)
 	.addHelpText(
 		"after",
