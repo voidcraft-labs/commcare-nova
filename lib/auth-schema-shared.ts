@@ -23,8 +23,11 @@ export const AUTH_TABLE_NAMES = {
 	apikey: "auth_apikey",
 	oauthClient: "auth_oauth_client",
 	oauthConsent: "auth_oauth_consent",
+	oauthResource: "auth_oauth_resource",
+	oauthClientResource: "auth_oauth_client_resource",
 	oauthRefreshToken: "auth_oauth_refresh_token",
 	oauthAccessToken: "auth_oauth_access_token",
+	oauthClientAssertion: "auth_oauth_client_assertion",
 	// Organization plugin → Nova's "Projects" tenancy. Surfaced as "Projects"
 	// in the UI; the tables stay `auth_organization*` (see lib/auth/projectRoles.ts).
 	organization: "auth_organization",

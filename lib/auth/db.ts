@@ -44,8 +44,8 @@ interface AuthOAuthClientTable {
 	id: string;
 	clientId: string;
 	name: string | null;
-	/** Public DCR clients (`token_endpoint_auth_method: none`). */
-	public: boolean | null;
+	/** `none` identifies a public client with no client secret. */
+	tokenEndpointAuthMethod: string | null;
 	/** Present only for clients registered by an authenticated user. */
 	userId: string | null;
 	createdAt: Timestamp | null;

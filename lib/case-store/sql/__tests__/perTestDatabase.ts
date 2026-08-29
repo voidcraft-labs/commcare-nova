@@ -95,6 +95,14 @@ export function setupPerTestDatabase(
 		}
 		try {
 			await captured.db.destroy();
+			// Kysely initializes its driver lazily. Tests that use the exposed
+			// `pool` directly can open a connection without ever initializing
+			// `db`, in which case `db.destroy()` intentionally no-ops and leaves
+			// the shared pool alive. Close that path explicitly; when Kysely did
+			// initialize, its destroy already marks the pool ended.
+			if (!captured.pool.ended) {
+				await captured.pool.end();
+			}
 		} finally {
 			try {
 				await dropIsolatedDatabase(captured.databaseName);

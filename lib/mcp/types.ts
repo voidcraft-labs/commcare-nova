@@ -66,7 +66,7 @@ export interface ToolContext {
  *
  * Only the two claims Nova reads downstream are modeled — `sub` (the
  * authenticated user id) and `scope` (space-delimited granted scopes).
- * `aud` is pinned at the verify layer via `verifyOptions.audience` and
+ * `aud` is pinned at the verify layer via the protected handler's `audience` and
  * has no consumer inside tool code, so it isn't part of this narrowed
  * shape.
  */

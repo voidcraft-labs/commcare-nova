@@ -972,13 +972,15 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 		fireEvent.click(submit);
 
 		// The submission now validates and hashes the exact reconciled blueprint
-		// before dispatch. Leak instrumentation can take longer than Testing
-		// Library's one-second default without changing the UI readiness contract.
+		// before dispatch. A saturated full leak shard has taken about twelve
+		// seconds here, without changing the UI readiness contract, so keep this
+		// below the test's 30-second ceiling but above the observed instrumented
+		// path.
 		await waitFor(
 			() => {
 				expect(vi.mocked(submitFormAction)).toHaveBeenCalled();
 			},
-			{ timeout: 5_000 },
+			{ timeout: 15_000 },
 		);
 
 		// The envelope's close arm stamps `closed_on = now()` via the

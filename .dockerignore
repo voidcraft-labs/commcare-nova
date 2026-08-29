@@ -39,6 +39,8 @@ scripts/lib/*
 !scripts/lib/caseTypeSchemaRetirement.ts
 !scripts/lib/caseParentRelationshipRepair.ts
 !scripts/lib/caseStatusFilterRepair.ts
+!scripts/lib/betterAuthAccountIdentity.ts
+!scripts/lib/betterAuthOauthClientMigration.ts
 !scripts/lib/xpathCarrierCompatibilityRepair.ts
 !scripts/lib/xpathCompatibilityScan.ts
 !scripts/lib/languageIdentityRepair.ts

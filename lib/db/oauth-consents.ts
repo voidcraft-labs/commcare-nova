@@ -26,10 +26,10 @@ import { getAuthDb } from "../auth/db";
  * scope is the right place to construct it — the URL is the same
  * across every revoke call.
  *
- * Same JWKS the MCP route's `mcpHandler` wires up. The MCP route trusts
- * Better Auth's verify helper to enforce iss + aud + signature; the
+ * Same JWKS the MCP route's protected-request handler wires up. The MCP route
+ * trusts Better Auth's verify helper to enforce iss + aud + signature; the
  * revocation watermark path verifies independently because its trust
- * model can't piggyback on the helper (no `mcpHandler` here).
+ * model can't piggyback on that request handler here.
  */
 const AS_JWKS = createRemoteJWKSet(new URL(`${AS_ORIGIN}/api/auth/jwks`));
 
@@ -325,14 +325,20 @@ export async function cleanupStalePublicOAuthClients({
 	const cutoff = new Date(now.getTime() - olderThanDays * MS_PER_DAY);
 	const clients = await db
 		.selectFrom("auth_oauth_client")
-		.select(["id", "clientId", "public", "userId"])
+		.select(["id", "clientId", "tokenEndpointAuthMethod", "userId"])
 		.where("createdAt", "<", cutoff)
 		.limit(limit)
 		.execute();
 
 	let deleted = 0;
 	for (const client of clients) {
-		if (!client.public || client.userId || !client.clientId) continue;
+		if (
+			client.tokenEndpointAuthMethod !== "none" ||
+			client.userId ||
+			!client.clientId
+		) {
+			continue;
+		}
 
 		const [consent, refreshToken] = await Promise.all([
 			db

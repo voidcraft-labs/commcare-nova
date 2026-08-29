@@ -161,11 +161,13 @@ export function createHydratedStepWindow(
  * hydrated. A transport-internal retry mid-replay keeps the same filter
  * instance, so the window's progress spans the whole reconnect chain.
  */
-export function createHydratedStepSkipFilter(
+export function createHydratedStepSkipFilter<
+	Chunk extends UIMessageChunk = UIMessageChunk,
+>(
 	getHydratedMessages: () => readonly unknown[],
-): TransformStream<UIMessageChunk, UIMessageChunk> {
+): TransformStream<Chunk, Chunk> {
 	const passes = createHydratedStepWindow(getHydratedMessages);
-	return new TransformStream<UIMessageChunk, UIMessageChunk>({
+	return new TransformStream<Chunk, Chunk>({
 		transform(chunk, controller) {
 			if (passes(chunk)) controller.enqueue(chunk);
 		},

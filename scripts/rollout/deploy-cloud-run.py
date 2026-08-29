@@ -590,6 +590,7 @@ def _effective_execution_args(
     short_name = expected_name.rsplit("/", 1)[-1]
     exact_overrides = {
         "commcare-nova-migrate": {
+            ("migrate.cjs", "--finalize-better-auth-17"),
             ("migrate.cjs", "--terminate-runtime-sessions-only"),
         },
         "commcare-nova-capture-cleanup": {
@@ -1537,6 +1538,9 @@ def _policy_self_test() -> None:
     job_name = "projects/p/locations/r/jobs/commcare-nova-migrate"
     migrate_contract = JOB_TEMPLATE_CONTRACTS["commcare-nova-migrate"]
     assert _effective_execution_args(job_name, ()) == migrate_contract.stored_args
+    assert _effective_execution_args(
+        job_name, ("migrate.cjs", "--finalize-better-auth-17")
+    ) == ("migrate.cjs", "--finalize-better-auth-17")
     assert _effective_execution_args(
         "projects/p/locations/r/jobs/commcare-nova-legacy-preplan-repair",
         ("legacy-preplan-repair.cjs", "--execute"),
