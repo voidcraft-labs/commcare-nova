@@ -2804,16 +2804,13 @@ export async function POST(req: Request) {
 						ctx.emitConversation({ type: "attachment-prep", phase: "done" });
 					}
 
-					/* Repair deploy-crossing histories BEFORE validation: drop tool
-					 * parts naming a tool absent from THIS request's tool set (the
-					 * provider would reject the whole request: "tool not found in
-					 * tools array") AND in-flight (`input-available`) parts whose
-					 * recorded input the current schema no longer parses (a deploy
-					 * that narrowed a `.strict()` tool input mid-call:
-					 * `validateUIMessages` below would throw, fail+refund the run,
-					 * and re-poison every retry with the same history; a COMPLETED
-					 * call's input is never re-parsed and rides through). The full
-					 * contract, the drop semantics, and the
+					/* Repair deploy-crossing histories BEFORE validation: preserve
+					 * the AI SDK's native `dynamic-tool` conversion for loadable
+					 * terminal history, while dropping non-terminal missing tools and
+					 * typed parts whose recorded input/output no longer parses after a
+					 * schema change. Without that repair, validation below would
+					 * throw, fail+refund the run, and re-poison every retry with the
+					 * same history. The full contract, the drop semantics, and the
 					 * validation mirror live on `sanitizeHistoricalToolParts`. The
 					 * repair runs on EVERY turn: every request sends full history,
 					 * and resumed threads routinely carry parts recorded under
