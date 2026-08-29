@@ -245,23 +245,29 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
-      - name: Install pinned npm
+      # Generate the same image declarations Cloud Build renders. The UUID is
+      # synthetic deployment identity, not a credential, and keeps the final
+      # image contract valid without borrowing production state.
+      - name: Render CI image configuration
         run: |
-          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
-          cd "$RUNNER_TEMP"
-          npm install --global "npm@$npm_version" --ignore-scripts
-      - name: Cache npm downloads
-        uses: actions/cache@v6
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
-      - run: npm ci
-      # `npm ci` above runs Nova's exact-hash profiler hardener, then
-      # `fumadocs-mdx`, which materializes the gitignored `.source/` that
-      # `next build` imports.
-      - name: Build
-        run: npm run build
+          ci_build_id="$(cat /proc/sys/kernel/random/uuid)"
+          node scripts/rollout/render-build-config.mjs \
+            --check \
+            --build-id "$ci_build_id" \
+            --output "$RUNNER_TEMP/rollout.env"
+          echo "NOVA_CI_BUILD_ID=$ci_build_id" >> "$GITHUB_ENV"
+      # This intentionally builds the final runner stage from the filtered
+      # Docker context. Production-only values are replaced with synthetics;
+      # no image is pushed and no source maps are uploaded.
+      - name: Build deployable image
+        run: |
+          source "$RUNNER_TEMP/rollout.env"
+          export NOVA_IMAGE_TAG="commcare-nova:ci-$GITHUB_SHA"
+          export NEXT_PUBLIC_GOOGLE_MAPS_API_KEY="ci-not-a-real-google-maps-key"
+          export NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID="ac18fb2d87e44a1eb5a19883"
+          export NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+          export NEXT_DEPLOYMENT_ID="$NOVA_CI_BUILD_ID"
+          bash scripts/rollout/build-image.sh
 
   smoke:
     name: Smoke (Playwright)

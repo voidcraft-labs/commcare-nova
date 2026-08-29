@@ -146,6 +146,8 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 
 	const [
 		cloudBuild,
+		ciWorkflow,
+		imageBuilder,
 		dockerfile,
 		appStream,
 		chatStream,
@@ -153,6 +155,8 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		nodeVersion,
 	] = await Promise.all([
 		readText("cloudbuild.yaml"),
+		readText(".github/workflows/ci.yml"),
+		readText("scripts/rollout/build-image.sh"),
 		readText("Dockerfile"),
 		readText("app/api/apps/[id]/stream/route.ts"),
 		readText("app/api/chat/[streamId]/stream/route.ts"),
@@ -183,18 +187,30 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		runtimeCapabilityEnvironmentFromHash(manifest, manifestHash),
 	)) {
 		requireExactlyOnce(
-			cloudBuild,
-			`--build-arg ${key}="$$${key}"`,
-			"cloudbuild.yaml",
+			imageBuilder,
+			`--build-arg "${key}=\${${key}}"`,
+			"scripts/rollout/build-image.sh",
 			issues,
 		);
 		requireExactlyOnce(dockerfile, `ARG ${key}`, "Dockerfile", issues);
 		requireExactlyOnce(dockerfile, `${key}="\${${key}}"`, "Dockerfile", issues);
 	}
 	requireExactlyOnce(
+		imageBuilder,
+		`--build-arg "${RUNTIME_BUILD_ID_ENV_KEY}=\${${RUNTIME_BUILD_ID_ENV_KEY}}"`,
+		"scripts/rollout/build-image.sh",
+		issues,
+	);
+	requireExactlyOnce(
 		cloudBuild,
-		`--build-arg ${RUNTIME_BUILD_ID_ENV_KEY}="$$${RUNTIME_BUILD_ID_ENV_KEY}"`,
+		"bash scripts/rollout/build-image.sh",
 		"cloudbuild.yaml",
+		issues,
+	);
+	requireExactlyOnce(
+		ciWorkflow,
+		"bash scripts/rollout/build-image.sh",
+		".github/workflows/ci.yml",
 		issues,
 	);
 	requireExactlyTwice(
