@@ -890,7 +890,7 @@ describe("CaseListScreen — empty case type", () => {
 			),
 		);
 		expect(
-			screen.getByText("Your availability settings hide every case"),
+			await screen.findByText("Your availability settings hide every case"),
 		).toBeDefined();
 		expect(screen.queryByText("No cases match your search")).toBeNull();
 		expect(
