@@ -44,7 +44,7 @@ export const STARTUP_PROBE_PATH = "/warmup";
  * directly rather than the production `/mcp` rewrite.
  *
  * Derived from env + HOSTNAMES so every code path (the route handler's
- * `verifyOptions`, `oauthProvider`'s `validAudiences`, the
+ * protected-request handler, `oauthProvider`'s protected resources, the
  * protected-resource metadata route) reads a single source of truth
  * instead of constructing URL strings that drift from BETTER_AUTH_URL
  * or the externally reachable MCP path.

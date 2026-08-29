@@ -6,10 +6,10 @@
  * 1. `modelCallFetch` places the long-timeout dispatcher on every request's
  *    init — the provider-level guarantee.
  * 2. THIS Node's fetch honors an `init.dispatcher` built from the npm
- *    `undici` package — the platform guarantee. Node's fetch is its own
- *    bundled undici, so a package/runtime interface drift would silently
- *    revert every call to the 300s defaults that killed the design author
- *    live; the local-server probe fails loudly instead.
+ *    `undici` package through its v1 compatibility wrapper — the platform
+ *    guarantee. Node's fetch is its own bundled undici, so a missing adapter
+ *    would reject the package Agent before a request; the local-server probe
+ *    fails loudly instead.
  * 3. No serving code constructs a provider around the factory — a bare
  *    `createOpenAI` gets default timeouts, which is exactly the observed
  *    failure, so the source scan keeps the constructor unique.
@@ -19,7 +19,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
-import { Agent } from "undici";
+import { Agent, Dispatcher1Wrapper } from "undici";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	MODEL_CALL_TIMEOUT_MS,
@@ -66,7 +66,9 @@ describe("node fetch + undici dispatcher", () => {
 			server.listen(0, "127.0.0.1", resolve),
 		);
 		const { port } = server.address() as AddressInfo;
-		const probe = new Agent({ headersTimeout: 300, bodyTimeout: 300 });
+		const probe = new Dispatcher1Wrapper(
+			new Agent({ headersTimeout: 300, bodyTimeout: 300 }),
+		);
 		try {
 			await expect(
 				globalThis.fetch(`http://127.0.0.1:${port}/`, {
@@ -91,7 +93,9 @@ describe("node fetch + undici dispatcher", () => {
 			server.listen(0, "127.0.0.1", resolve),
 		);
 		const { port } = server.address() as AddressInfo;
-		const probe = new Agent({ headersTimeout: 10_000, bodyTimeout: 10_000 });
+		const probe = new Dispatcher1Wrapper(
+			new Agent({ headersTimeout: 10_000, bodyTimeout: 10_000 }),
+		);
 		try {
 			const res = await globalThis.fetch(`http://127.0.0.1:${port}/`, {
 				dispatcher: probe,

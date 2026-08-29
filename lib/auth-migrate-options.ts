@@ -50,10 +50,17 @@ export function authMigrateOptions(database: Pool): BetterAuthOptions {
 				schema: {
 					oauthClient: { modelName: AUTH_TABLE_NAMES.oauthClient },
 					oauthConsent: { modelName: AUTH_TABLE_NAMES.oauthConsent },
+					oauthResource: { modelName: AUTH_TABLE_NAMES.oauthResource },
+					oauthClientResource: {
+						modelName: AUTH_TABLE_NAMES.oauthClientResource,
+					},
 					oauthRefreshToken: {
 						modelName: AUTH_TABLE_NAMES.oauthRefreshToken,
 					},
 					oauthAccessToken: { modelName: AUTH_TABLE_NAMES.oauthAccessToken },
+					oauthClientAssertion: {
+						modelName: AUTH_TABLE_NAMES.oauthClientAssertion,
+					},
 				},
 			}),
 			apiKey({ schema: { apikey: { modelName: AUTH_TABLE_NAMES.apikey } } }),

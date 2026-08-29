@@ -66,7 +66,7 @@ function apiKeyUnauthorizedResponse(
  * `error="insufficient_scope"` with HTTP 403 for "the request requires
  * higher privileges than provided by the access token": distinct
  * from the 401 + `invalid_token` we use for failed authentication.
- * Aligns the API-key path with the JWT path: `mcpHandler` already
+ * Aligns the API-key path with the JWT path: the protected-request handler
  * surfaces a 403 implicitly when the token is missing scope, via
  * `verifyAccessToken` throwing a `FORBIDDEN` `APIError`.
  */
@@ -203,7 +203,7 @@ export async function handleApiKeyMcp(
 	/* Floor-scope check, locally: see the function docblock for why
 	 * this isn't delegated to `verifyApiKey({ permissions })`. 403 +
 	 * `insufficient_scope` per RFC 6750 §3, matching the JWT path's
-	 * implicit 403 from `mcpHandler`'s scope verification. */
+	 * implicit 403 from the protected handler's scope verification. */
 	for (const required of NOVA_MCP_FLOOR_SCOPES) {
 		if (!scopes.includes(required)) {
 			log.warn("[mcp/api-key] missing floor scope", {

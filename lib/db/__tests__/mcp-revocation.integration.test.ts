@@ -1,6 +1,6 @@
 /**
  * Integration test for the per-request consent lock at
- * `app/api/mcp/jwt-auth.ts::handleJwtMcp`. Mocks `mcpHandler` (to inject
+ * `app/api/mcp/jwt-auth.ts::handleJwtMcp`. Mocks the MCP request verifier (to inject
  * synthetic JWT claims via an `x-test-jwt-claims` header — signature
  * verification is the plugin's job, not ours) and `createMcpHandler` (to return
  * a sentinel 200, bypassing the JSON-RPC dispatcher). Better Auth + Postgres do
@@ -19,32 +19,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // ── Module mocks ────────────────────────────────────────────────────
 
 /**
- * Capture the `verifyOptions` argument the route passes to `mcpHandler` so a
+ * Capture the options the route passes to the MCP request verifier so a
  * separate test can assert scope enforcement is wired up. The route's docstring
  * claims "every tool inherits the scope check" — without capturing this, a
- * regression that drops `scopes` from the mcpHandler config wouldn't fail.
+ * regression that drops `requiredScopes` from the verifier config wouldn't fail.
  */
-const captured: { mcpHandlerVerifyOptions: unknown } = {
-	mcpHandlerVerifyOptions: undefined,
+const captured: { protectedRequestOptions: unknown } = {
+	protectedRequestOptions: undefined,
 };
 
-vi.mock("@better-auth/oauth-provider", async () => {
-	const actual = await vi.importActual<
-		typeof import("@better-auth/oauth-provider")
-	>("@better-auth/oauth-provider");
+vi.mock("@better-auth/mcp", async () => {
+	const actual =
+		await vi.importActual<typeof import("@better-auth/mcp")>(
+			"@better-auth/mcp",
+		);
 	return {
 		...actual,
-		mcpHandler:
+		createMcpProtectedRequestHandler:
 			(
-				verifyOptions: unknown,
+				options: unknown,
 				handler: (req: Request, jwt: JWTPayload) => Promise<Response>,
 			) =>
 			async (req: Request): Promise<Response> => {
-				captured.mcpHandlerVerifyOptions = verifyOptions;
+				captured.protectedRequestOptions = options;
 				const raw = req.headers.get("x-test-jwt-claims");
 				if (!raw) {
 					throw new Error(
-						"test setup: every request to the mocked mcpHandler must carry `x-test-jwt-claims`",
+						"test setup: every request to the mocked protected handler must carry `x-test-jwt-claims`",
 					);
 				}
 				return handler(req, JSON.parse(raw) as JWTPayload);
@@ -122,7 +123,10 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 			oauthProvider({
 				loginPage: "/",
 				consentPage: "/consent",
-				validAudiences: ["http://localhost:3000/api/mcp"],
+				resources: ["http://localhost:3000/api/mcp"],
+				enforcePerClientResources: false,
+				clientRegistrationDefaultResources: ["http://localhost:3000/api/mcp"],
+				clientRegistrationAllowedResources: ["http://localhost:3000/api/mcp"],
 				scopes: ["openid", "profile", "email", "nova.read", "nova.write"],
 				allowDynamicClientRegistration: true,
 				allowUnauthenticatedClientRegistration: true,
@@ -130,10 +134,17 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 				schema: {
 					oauthClient: { modelName: AUTH_TABLE_NAMES.oauthClient },
 					oauthConsent: { modelName: AUTH_TABLE_NAMES.oauthConsent },
+					oauthResource: { modelName: AUTH_TABLE_NAMES.oauthResource },
+					oauthClientResource: {
+						modelName: AUTH_TABLE_NAMES.oauthClientResource,
+					},
 					oauthRefreshToken: {
 						modelName: AUTH_TABLE_NAMES.oauthRefreshToken,
 					},
 					oauthAccessToken: { modelName: AUTH_TABLE_NAMES.oauthAccessToken },
+					oauthClientAssertion: {
+						modelName: AUTH_TABLE_NAMES.oauthClientAssertion,
+					},
 				},
 			}),
 		],
@@ -141,7 +152,7 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 }
 
 function mcpRequest(claims: Partial<JWTPayload>): Request {
-	// No body: the mocked mcpHandler reads only the x-test-jwt-claims header and
+	// No body: the mocked protected handler reads only the x-test-jwt-claims header and
 	// the mocked createMcpHandler ignores the request, so a request body would
 	// just be an unconsumed stream the async-leak detector flags.
 	return new Request("http://localhost:3000/api/mcp", {
@@ -215,12 +226,12 @@ describe("MCP route consent lock", () => {
 
 	// ── Configuration assertion ────────────────────────────────────
 
-	it("registers `mcpHandler` with both Nova scopes required", async () => {
+	it("registers the MCP verifier with both Nova scopes required", async () => {
 		await dispatchMcpAuthRequest(mcpRequest({ sub: "x", azp: "y" }));
 
-		expect(captured.mcpHandlerVerifyOptions).toEqual(
+		expect(captured.protectedRequestOptions).toEqual(
 			expect.objectContaining({
-				scopes: expect.arrayContaining(["nova.read", "nova.write"]),
+				requiredScopes: expect.arrayContaining(["nova.read", "nova.write"]),
 			}),
 		);
 	});
@@ -230,7 +241,8 @@ describe("MCP route consent lock", () => {
 	it("accepts a request when the user has an active consent for the calling client", async () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				client_name: "Claude Code",
 				token_endpoint_auth_method: "none",
 			},
@@ -255,7 +267,8 @@ describe("MCP route consent lock", () => {
 	it("succeeds before revoke, fails 401 after — the end-to-end revocation contract", async () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				client_name: "Claude Code",
 				token_endpoint_auth_method: "none",
 			},

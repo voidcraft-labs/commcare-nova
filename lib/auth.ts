@@ -654,9 +654,11 @@ async function createAuth() {
 			 *   - `loginPage` / `consentPage` point at Nova-owned UI routes
 			 *     so the OAuth flow reuses Nova's branded sign-in + a custom
 			 *     consent screen rather than the plugin's minimal defaults.
-			 *   - `validAudiences` pins the token `aud` claim to the MCP
-			 *     resource URL. Tokens minted for Nova cannot be replayed
-			 *     against any other audience.
+			 *   - `resources` pins the token `aud` claim to the MCP resource
+			 *     URL. The same resource is assigned to every new dynamic client.
+			 *     Per-client resource enforcement stays explicitly off for the
+			 *     1.6 client population, which predates resource-link rows; consent
+			 *     and the registered resource still bound every token.
 			 *   - Dynamic client registration is enabled AND unauthenticated
 			 *     so Claude Code (which has no pre-shared credentials) can
 			 *     bootstrap itself. Abuse is bounded by the plugin's own
@@ -684,7 +686,10 @@ async function createAuth() {
 				 * OAuth-flow users. */
 				loginPage: "/",
 				consentPage: "/consent",
-				validAudiences: [MCP_RESOURCE_URL],
+				resources: [MCP_RESOURCE_URL],
+				enforcePerClientResources: false,
+				clientRegistrationDefaultResources: [MCP_RESOURCE_URL],
+				clientRegistrationAllowedResources: [MCP_RESOURCE_URL],
 				scopes: [...NOVA_OAUTH_SCOPES],
 				allowDynamicClientRegistration: true,
 				allowUnauthenticatedClientRegistration: true,
@@ -694,16 +699,6 @@ async function createAuth() {
 				rateLimit: {
 					register: { window: 60, max: 5 },
 				},
-				/* RFC 8414 metadata is mounted at
-				 * `app/.well-known/oauth-authorization-server/route.ts`
-				 * on the main host (`proxy.ts` allowlists the path there).
-				 * The plugin's startup check fires whenever
-				 * `basePath !== "/"` — it can't HEAD-probe its own process
-				 * to confirm the route is mounted, so it nags
-				 * unconditionally. Silencing is the ack per the plugin's
-				 * own guidance ("Upon completion, clear with
-				 * silenceWarnings.oauthAuthServerConfig"). */
-				silenceWarnings: { oauthAuthServerConfig: true },
 				// `auth_`-prefix EVERY oauth-provider table — including
 				// `oauthAccessToken`, which (like the old `verification` wart) lands
 				// unprefixed if omitted. The app-owned reads in
@@ -711,10 +706,17 @@ async function createAuth() {
 				schema: {
 					oauthClient: { modelName: AUTH_TABLE_NAMES.oauthClient },
 					oauthConsent: { modelName: AUTH_TABLE_NAMES.oauthConsent },
+					oauthResource: { modelName: AUTH_TABLE_NAMES.oauthResource },
+					oauthClientResource: {
+						modelName: AUTH_TABLE_NAMES.oauthClientResource,
+					},
 					oauthRefreshToken: {
 						modelName: AUTH_TABLE_NAMES.oauthRefreshToken,
 					},
 					oauthAccessToken: { modelName: AUTH_TABLE_NAMES.oauthAccessToken },
+					oauthClientAssertion: {
+						modelName: AUTH_TABLE_NAMES.oauthClientAssertion,
+					},
 				},
 			}),
 

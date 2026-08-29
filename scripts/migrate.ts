@@ -40,6 +40,8 @@ import {
 	terminateAndAssertNoRuntimeDatabaseSessions,
 } from "@/lib/db/privilegeConvergence";
 import { runCanonicalRuntimeDatabaseProbe } from "@/lib/db/runtimeDatabaseProbe";
+import { migrateBetterAuthAccountIdentity } from "@/scripts/lib/betterAuthAccountIdentity";
+import { migrateBetterAuthOauthClients } from "@/scripts/lib/betterAuthOauthClientMigration";
 import { runCaseStatusFilterRepair } from "@/scripts/lib/caseStatusFilterRepair";
 import { runLanguageIdentityRepair } from "@/scripts/lib/languageIdentityRepair";
 import {
@@ -86,6 +88,16 @@ async function main(): Promise<void> {
 	await schemaStore.drainAllPendingIndexConvergence();
 	console.log("[migrate] case-schema expression indexes converged");
 
+	// Better Auth 1.7 adds a required issuer identity to populated 1.6 account
+	// rows. Its generic schema migrator deliberately refuses that data decision,
+	// so converge the reviewed Google/credential identities first. The writer
+	// also installs the narrow insert trigger that keeps a still-serving 1.6
+	// revision compatible throughout the rolling deploy.
+	const accountIdentityPreflight = await migrateBetterAuthAccountIdentity(pool);
+	console.log(
+		`[migrate] Better Auth account identity preflight ${accountIdentityPreflight.state}; accounts=${accountIdentityPreflight.accountCount}`,
+	);
+
 	// Better Auth's own migrator creates / updates the `auth_*` tables. It is
 	// introspection-based and idempotent (creates missing tables, adds missing
 	// columns; never drops), so it is safe to run on every deploy. Reuses the
@@ -94,6 +106,14 @@ async function main(): Promise<void> {
 	const { runMigrations } = await getMigrations(authMigrateOptions(pool));
 	await runMigrations();
 	console.log("[migrate] auth migrations applied");
+	const accountIdentity = await migrateBetterAuthAccountIdentity(pool);
+	console.log(
+		`[migrate] Better Auth account identity ${accountIdentity.state}; accounts=${accountIdentity.accountCount}`,
+	);
+	const oauthClients = await migrateBetterAuthOauthClients(pool);
+	console.log(
+		`[migrate] Better Auth OAuth clients ${oauthClients.state}; clients=${oauthClients.clientCount}`,
+	);
 
 	// Nova-owned auth tables Better Auth's migrator doesn't manage (the OAuth
 	// grant-revocation watermark). Own ledger; same shared handle.

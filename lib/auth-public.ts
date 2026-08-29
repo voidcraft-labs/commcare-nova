@@ -50,7 +50,7 @@ export type NovaApiKeyScope = (typeof NOVA_API_KEY_SCOPES)[number];
 /**
  * The two scopes every Nova MCP call requires, regardless of auth
  * path. Single source of truth for the "floor" check:
- *   - JWT path declares them in `mcpHandler`'s `scopes` config
+ *   - JWT path declares them in the protected handler's `requiredScopes` config
  *     (`app/api/mcp/jwt-auth.ts`).
  *   - API-key path checks them locally after `verifyApiKey` succeeds
  *     (`app/api/mcp/api-key-auth.ts`).

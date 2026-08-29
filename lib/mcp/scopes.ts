@@ -10,7 +10,7 @@ import type { AuthKind } from "./types";
  *   1. **Verify-layer (route-wide).** `nova.read` and `nova.write` are
  *      required as the floor on both auth paths, sourced from
  *      `lib/auth-public.ts::NOVA_MCP_FLOOR_SCOPES`. The JWT path
- *      passes them to `mcpHandler`'s `verifyAccessToken({ scopes })`
+ *      passes them to the protected-request handler's `requiredScopes`
  *      config in `app/api/mcp/jwt-auth.ts`, which produces a clean
  *      403 on failure. The API-key path checks them locally in
  *      `app/api/mcp/api-key-auth.ts::handleApiKeyMcp` after

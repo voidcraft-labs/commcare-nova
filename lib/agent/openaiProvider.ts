@@ -15,17 +15,17 @@
  * fetch — NOT a swapped fetch implementation and NOT a global dispatcher —
  * so tests keep capturing calls by stubbing `globalThis.fetch`, Next's own
  * fetches keep their defaults, and every call remains cancellable through
- * its abort signal. That shape couples the npm `undici` MAJOR to the undici
- * Node bundles for its fetch: the dispatch handler interface changes across
- * majors (an undici@8 Agent rejects Node 24's v7 handlers with
- * `UND_ERR_INVALID_ARG`), so a Node upgrade may require the dependency to
- * move in step. `__tests__/openaiProviderTransport.test.ts` pins all of it:
- * the dispatcher reaches `init`, and this Node's fetch genuinely honors a
- * package-built dispatcher's timeouts against a live local server.
+ * its abort signal. Node 24's built-in fetch currently speaks undici's v1
+ * dispatcher handler contract while npm undici 8 Agents speak v2. The
+ * package's `Dispatcher1Wrapper` is the explicit compatibility bridge: it
+ * adapts the built-in fetch's handlers to the package Agent without swapping
+ * fetch implementations or global dispatchers. The transport test pins the
+ * wrapper, the dispatcher on `init`, and both timeout and success behavior
+ * against a live local server.
  */
 
 import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
-import { Agent } from "undici";
+import { Agent, Dispatcher1Wrapper } from "undici";
 
 /** Transport ceiling for one model call's headers AND its inter-chunk idle
  *  gap. Generous by design: real cancellation is the caller's abort signal;
@@ -34,10 +34,12 @@ import { Agent } from "undici";
 export const MODEL_CALL_TIMEOUT_MS = 20 * 60_000;
 
 /** Exported for the transport pin test's identity assertion only. */
-export const modelCallDispatcher = new Agent({
-	headersTimeout: MODEL_CALL_TIMEOUT_MS,
-	bodyTimeout: MODEL_CALL_TIMEOUT_MS,
-});
+export const modelCallDispatcher = new Dispatcher1Wrapper(
+	new Agent({
+		headersTimeout: MODEL_CALL_TIMEOUT_MS,
+		bodyTimeout: MODEL_CALL_TIMEOUT_MS,
+	}),
+);
 
 /** The fetch every provider instance uses: the current `globalThis.fetch`
  *  (resolved at call time, so test stubs intercept) with the long-timeout

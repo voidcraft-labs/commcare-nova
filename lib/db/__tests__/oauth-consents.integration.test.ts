@@ -57,7 +57,10 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 			oauthProvider({
 				loginPage: "/",
 				consentPage: "/consent",
-				validAudiences: ["http://localhost:3000/api/mcp"],
+				resources: ["http://localhost:3000/api/mcp"],
+				enforcePerClientResources: false,
+				clientRegistrationDefaultResources: ["http://localhost:3000/api/mcp"],
+				clientRegistrationAllowedResources: ["http://localhost:3000/api/mcp"],
 				scopes: ["openid", "profile", "email", "nova.read", "nova.write"],
 				allowDynamicClientRegistration: true,
 				allowUnauthenticatedClientRegistration: true,
@@ -65,10 +68,17 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 				schema: {
 					oauthClient: { modelName: AUTH_TABLE_NAMES.oauthClient },
 					oauthConsent: { modelName: AUTH_TABLE_NAMES.oauthConsent },
+					oauthResource: { modelName: AUTH_TABLE_NAMES.oauthResource },
+					oauthClientResource: {
+						modelName: AUTH_TABLE_NAMES.oauthClientResource,
+					},
 					oauthRefreshToken: {
 						modelName: AUTH_TABLE_NAMES.oauthRefreshToken,
 					},
 					oauthAccessToken: { modelName: AUTH_TABLE_NAMES.oauthAccessToken },
+					oauthClientAssertion: {
+						modelName: AUTH_TABLE_NAMES.oauthClientAssertion,
+					},
 				},
 			}),
 		],
@@ -118,11 +128,37 @@ describe("oauth-consents integration", () => {
 	});
 
 	// ── listAuthorizedClients ──────────────────────────────────────
+	it("seeds and assigns the MCP protected resource on registration", async () => {
+		const created = await auth.api.registerOAuthClient({
+			body: {
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
+				token_endpoint_auth_method: "none",
+			},
+		});
+		const resource = await dbHandle.pool.query<{ identifier: string }>(
+			"SELECT identifier FROM auth_oauth_resource",
+		);
+		expect(resource.rows).toEqual([
+			{ identifier: "http://localhost:3000/api/mcp" },
+		]);
+		const link = await dbHandle.pool.query<{
+			clientId: string;
+			resourceId: string;
+		}>(`SELECT "clientId", "resourceId" FROM auth_oauth_client_resource`);
+		expect(link.rows).toEqual([
+			{
+				clientId: created.client_id,
+				resourceId: "http://localhost:3000/api/mcp",
+			},
+		]);
+	});
 
 	it("returns the real client_name written by the plugin (the bug-catching test)", async () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				client_name: "Claude Code",
 				token_endpoint_auth_method: "none",
 			},
@@ -158,7 +194,8 @@ describe("oauth-consents integration", () => {
 	it("falls back to 'An application' when the registered client has no client_name", async () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				token_endpoint_auth_method: "none",
 			},
 		});
@@ -185,7 +222,8 @@ describe("oauth-consents integration", () => {
 	it("does not leak other users' consents", async () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				client_name: "Claude Code",
 				token_endpoint_auth_method: "none",
 			},
@@ -223,7 +261,8 @@ describe("oauth-consents integration", () => {
 	it("returns true when (userId, clientId) matches", async () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				client_name: "Claude Code",
 				token_endpoint_auth_method: "none",
 			},
@@ -248,7 +287,8 @@ describe("oauth-consents integration", () => {
 	it("honors the revocation watermark by token iat (the LEFT JOIN path)", async () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				client_name: "Claude Code",
 				token_endpoint_auth_method: "none",
 			},
@@ -301,7 +341,8 @@ describe("oauth-consents integration", () => {
 	it("deletes the consent and revokes refresh tokens atomically", async () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				client_name: "Claude Code",
 				token_endpoint_auth_method: "none",
 			},
@@ -376,7 +417,8 @@ describe("oauth-consents integration", () => {
 	it("rejects when the consent belongs to a different user", async () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				client_name: "Claude Code",
 				token_endpoint_auth_method: "none",
 			},
@@ -412,14 +454,16 @@ describe("oauth-consents integration", () => {
 	it("deletes stale public clients with no grants, keeps those with a consent", async () => {
 		const orphan = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				client_name: "Orphan",
 				token_endpoint_auth_method: "none",
 			},
 		});
 		const inUse = await auth.api.registerOAuthClient({
 			body: {
-				redirect_uris: ["http://localhost:9999/cb"],
+				redirect_uris: ["http://127.0.0.1:9999/cb"],
+				application_type: "native",
 				client_name: "In use",
 				token_endpoint_auth_method: "none",
 			},

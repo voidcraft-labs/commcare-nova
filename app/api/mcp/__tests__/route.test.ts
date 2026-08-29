@@ -98,8 +98,8 @@ vi.mock("@modelcontextprotocol/server", () => ({
 }));
 
 /** Bypass JWT verification: invoke the inner handler with synthetic claims. */
-vi.mock("@better-auth/oauth-provider", () => ({
-	mcpHandler:
+vi.mock("@better-auth/mcp", () => ({
+	createMcpProtectedRequestHandler:
 		(
 			_opts: unknown,
 			inner: (req: Request, jwt: Record<string, unknown>) => Promise<Response>,
@@ -240,7 +240,7 @@ describe("POST /api/mcp (JWT path)", () => {
 		 * from the verified JWT claims. Asserting on the
 		 * `registerNovaTools` argument proves the JWT path actually ran
 		 * end-to-end, not just that the API-key path didn't. The
-		 * `mcpHandler` mock at the top of this file injects synthetic
+		 * protected-request mock at the top of this file injects synthetic
 		 * `sub` / `azp` / `iat` / `scope` claims; the route translates
 		 * those into `{ userId: "test-user", scopes: [...] }`. */
 		expect(registerNovaToolsMock).toHaveBeenCalledTimes(1);
@@ -489,7 +489,7 @@ describe("POST /api/mcp (API-key path)", () => {
 		 *
 		 * RFC 6750 §3 says missing-scope is a 403 with
 		 * `error="insufficient_scope"`, not a 401, and the JWT path
-		 * already emits 403 implicitly via `mcpHandler`'s scope check.
+		 * already emits 403 implicitly via the protected handler's scope check.
 		 * Pin both: the wire status AND the error code. */
 		verifyApiKeyMock.mockResolvedValue({
 			valid: true,
