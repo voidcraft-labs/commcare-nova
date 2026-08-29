@@ -20,13 +20,24 @@
  * mid-send client never received.
  */
 
-import type {
-	ReconnectToStreamOptions,
-	WorkflowChatTransportOptions,
-} from "@ai-sdk/workflow";
+import type { WorkflowChatTransportOptions } from "@ai-sdk/workflow";
 import { WorkflowChatTransport } from "@ai-sdk/workflow";
-import type { ChatRequestOptions, UIMessage, UIMessageChunk } from "ai";
+import type { UIMessage } from "ai";
 import { createHydratedStepSkipFilter } from "./hydratedStepFilter";
+
+/** Workflow owns an exact AI SDK dependency, so derive the override contract
+ *  from the base class that executes it instead of projecting Nova's root AI
+ *  SDK types onto the package. Its chunk union is a structural subset of the
+ *  newer root union, and the hydrated-step filter only passes or drops chunks. */
+type WorkflowReconnect<UI_MESSAGE extends UIMessage> =
+	WorkflowChatTransport<UI_MESSAGE>["reconnectToStream"];
+
+type WorkflowChunk<UI_MESSAGE extends UIMessage> =
+	NonNullable<
+		Awaited<ReturnType<WorkflowReconnect<UI_MESSAGE>>>
+	> extends ReadableStream<infer Chunk>
+		? Chunk
+		: never;
 
 export class NovaChatTransport<
 	UI_MESSAGE extends UIMessage,
@@ -44,12 +55,14 @@ export class NovaChatTransport<
 	}
 
 	override async reconnectToStream(
-		options: ReconnectToStreamOptions & ChatRequestOptions,
-	): Promise<ReadableStream<UIMessageChunk> | null> {
+		options: Parameters<WorkflowReconnect<UI_MESSAGE>>[0],
+	): ReturnType<WorkflowReconnect<UI_MESSAGE>> {
 		const stream = await super.reconnectToStream(options);
 		if (!stream) return stream;
 		return stream.pipeThrough(
-			createHydratedStepSkipFilter(this.hydratedMessages),
+			createHydratedStepSkipFilter<WorkflowChunk<UI_MESSAGE>>(
+				this.hydratedMessages,
+			),
 		);
 	}
 }
