@@ -4,38 +4,31 @@
  * A thread's history can carry assistant tool parts the CURRENT tool
  * surface no longer accepts, two ways:
  *
- *   - the part names a tool that is gone — removed or renamed by a
- *     deploy (the old singular `addCaseListColumn` / `addSearchInput` /
+ *   - a non-terminal part names a tool that is gone — removed or renamed
+ *     by a deploy (the old singular `addCaseListColumn` / `addSearchInput` /
  *     `addField`, the retired `generateScaffold` / `completeBuild` /
  *     `planAppDesign`);
- *   - the part is an IN-FLIGHT call (`input-available`) whose tool
- *     survives but whose input schema NARROWED, so the recorded input
- *     no longer parses (`generateSchema` dropped `appName`,
+ *   - a part's surviving tool has a NARROWER input or output schema, so the
+ *     recorded value no longer parses (`generateSchema` dropped `appName`,
  *     `createModule` dropped `case_type_record` — a `.strict()` schema
- *     rejects the leftover key). A COMPLETED call carrying the same
- *     stale input is a historical record — validation never re-parses
- *     it, so it rides through untouched.
+ *     rejects the leftover key).
  *
- * Either shape kills the run downstream: an unknown tool name makes the
- * provider reject the whole request ("tool not found in tools array"),
- * and a no-longer-parsing in-flight input makes `validateUIMessages`
- * throw — the run fails and refunds, and every retry re-sends the same
- * poisoned history. A build paused on `awaiting_input` is exactly the shape that
- * must SURVIVE a deploy, so both cases repair the same way: the part is
- * dropped (call + output ride one UIMessage part, so the wire keeps
- * matched pairs for the tools that remain), the surrounding assistant
- * text — where the SA narrates its design — stays, and an assistant
- * message with no parts left is dropped whole. The SA re-reads doc
- * state through its read tools when it needs what a dropped part
- * carried.
+ * AI SDK 7.0.83 validates typed terminal history as well as in-flight calls.
+ * It deliberately converts terminal calls for unavailable tools, invalid
+ * error inputs, and invalid empty inputs to `dynamic-tool` parts so their
+ * historical payload remains loadable without being exposed under the current
+ * static tool type. Preserve that native conversion. A non-terminal missing
+ * tool or a nonempty schema-invalid completed call still fails validation;
+ * drop only those parts. Call + output ride one UIMessage part, so the wire
+ * keeps matched pairs for everything that survives. Surrounding assistant
+ * text stays, and an assistant message with no parts left is dropped whole.
+ * The SA re-reads doc state through its read tools when it needs what a
+ * dropped part carried.
  *
- * The schema check is a probe through `safeValidateUIMessages` — the
- * SAME function the route's validation runs — so the two can never
- * drift on what validates (inputs parse only on `input-available`
- * parts; terminal `output-available` / `output-error` / `output-denied`
- * parts never re-parse their recorded input). The probe runs per
- * assistant message, and only a failing message pays the per-part
- * bisection.
+ * The schema check is a probe through `safeValidateUIMessages` — the SAME
+ * function the route's validation runs — so the two cannot drift on what
+ * validates or which typed parts become dynamic. The probe runs per assistant
+ * message, and only a failing message pays the per-part bisection.
  *
  * Keyed on the live tool set so the filter never drifts from it, and
  * deterministic in its inputs, so successive requests produce identical
@@ -48,9 +41,6 @@ export async function sanitizeHistoricalToolParts<M extends UIMessage>(
 	messages: M[],
 	tools: ToolSet,
 ): Promise<M[]> {
-	const activeToolPartTypes = new Set<string>(
-		Object.keys(tools).map((name) => `tool-${name}`),
-	);
 	// `safeValidateUIMessages`' tools slot is a per-name mapped type a plain
 	// `ToolSet` can't satisfy nominally; validation only ever reads each
 	// tool's `inputSchema`, so the widening is behavior-safe.
@@ -59,6 +49,14 @@ export async function sanitizeHistoricalToolParts<M extends UIMessage>(
 	>[0]["tools"];
 	const probe = (message: M) =>
 		safeValidateUIMessages({ messages: [message], tools: probeTools });
+	type MessagePart = M["parts"][number];
+	const applyNativeConversion = (
+		original: MessagePart,
+		validated: UIMessage["parts"][number] | undefined,
+	): MessagePart =>
+		validated?.type === "dynamic-tool" && original.type !== "dynamic-tool"
+			? (validated as MessagePart)
+			: original;
 
 	const out: M[] = [];
 	for (const m of messages) {
@@ -66,14 +64,17 @@ export async function sanitizeHistoricalToolParts<M extends UIMessage>(
 			out.push(m);
 			continue;
 		}
-		let parts = m.parts.filter(
-			(p) => !(p.type.startsWith("tool-") && !activeToolPartTypes.has(p.type)),
-		);
-		// Only a message still carrying tool parts can fail the schema
+		let parts = [...m.parts];
+		// Only a message carrying typed tool parts can fail the schema
 		// probe — everything else validates trivially.
 		if (parts.some((p) => p.type.startsWith("tool-"))) {
 			const whole = await probe({ ...m, parts });
-			if (!whole.success) {
+			if (whole.success) {
+				const validatedParts = whole.data[0]?.parts ?? [];
+				parts = parts.map((part, index) =>
+					applyNativeConversion(part, validatedParts[index]),
+				);
+			} else {
 				const kept: typeof parts = [];
 				for (const p of parts) {
 					if (!p.type.startsWith("tool-")) {
@@ -81,13 +82,18 @@ export async function sanitizeHistoricalToolParts<M extends UIMessage>(
 						continue;
 					}
 					const single = await probe({ ...m, parts: [p] });
-					if (single.success) kept.push(p);
+					if (single.success) {
+						kept.push(applyNativeConversion(p, single.data[0]?.parts[0]));
+					}
 				}
 				parts = kept;
 			}
 		}
 		if (parts.length === 0) continue;
-		out.push(parts.length === m.parts.length ? m : { ...m, parts });
+		const partsChanged =
+			parts.length !== m.parts.length ||
+			parts.some((part, index) => part !== m.parts[index]);
+		out.push(partsChanged ? { ...m, parts } : m);
 	}
 	return out;
 }
