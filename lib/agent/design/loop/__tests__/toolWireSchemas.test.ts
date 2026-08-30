@@ -26,6 +26,7 @@ import {
 import {
 	DESIGN_HANDLE_PATTERN,
 	designToolWireSchema,
+	inspectProjectDataInputSchema,
 } from "@/lib/agent/design/loop/tools";
 import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 
@@ -99,11 +100,48 @@ function collectionArm(schemaName: "actors" | "records") {
 }
 
 describe("design tool wire schemas", () => {
+	it("keeps Project-data inspection on stable UUIDs and the shared row-page projection", () => {
+		expect(inspectProjectDataInputSchema.safeParse({}).success).toBe(true);
+		expect(
+			inspectProjectDataInputSchema.safeParse({ cursor: "next-catalog-page" })
+				.success,
+		).toBe(true);
+		expect(
+			inspectProjectDataInputSchema.safeParse({
+				tableId: "01998765-4321-7abc-8def-0123456789ab",
+				choiceProjection: {
+					valueColumnId: "01998765-4321-7abc-8def-0123456789ac",
+					labelColumnId: "01998765-4321-7abc-8def-0123456789ad",
+				},
+				cursor: "next-page",
+			}).success,
+		).toBe(true);
+		expect(
+			inspectProjectDataInputSchema.safeParse({
+				tableId: "01998765-4321-7abc-8def-0123456789ab",
+				columnIds: ["01998765-4321-7abc-8def-0123456789ac"],
+				choiceProjection: {
+					valueColumnId: "01998765-4321-7abc-8def-0123456789ac",
+					labelColumnId: "01998765-4321-7abc-8def-0123456789ad",
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			inspectProjectDataInputSchema.safeParse({ query: "active" }).success,
+		).toBe(false);
+		expect(
+			inspectProjectDataInputSchema.safeParse({
+				tableId: { handle: "@not_a_project_uuid" },
+			}).success,
+		).toBe(false);
+	});
+
 	it.each([
 		["setDesignRoot", setDesignRootInputSchema],
 		["updateActors", designCollectionUpdateInputSchemas.actors],
 		["updateRecords", designCollectionUpdateInputSchemas.records],
 		["updateWorkflows", designCollectionUpdateInputSchemas.workflows],
+		["updateLookupTables", designCollectionUpdateInputSchemas.lookupTables],
 		["updateFindingDispositions", updateFindingDispositionsInputSchema],
 		["inspectDesign", inspectDesignInputSchema],
 	] as const)(

@@ -12,6 +12,30 @@ A data table belongs to the Project, not to the app you happen to have open.
 Every app in the Project reads the same tables and the same rows, so correcting
 a facility's name corrects it in all of them at once.
 
+## Ask Nova to make a shared table
+
+When you describe a new app in chat, tell Nova when a list should be reusable or
+maintained in one place. Nova also proposes a data table when the same set of
+values serves more than one question, case-list value, or other app surface. A
+one-off list can stay directly on its question.
+
+The table is part of the reviewed app design: its name, columns, value types,
+rows, and every place that will use it are checked together. Nothing changes in
+Project data while Nova is drafting or revising that design. Once the reviewed
+design is accepted, Nova creates the approved table before it starts building
+the app and keeps the table's stable identity for every reference.
+
+Nova can reuse a table that already exists. Because changing one affects every
+app in the Project, Nova does not alter an existing table merely because its
+name looks suitable. It describes the Project-wide change and asks for your
+approval first. If construction later stops, an accepted table remains in
+Project data and the same build resumes against that table instead of creating
+a duplicate.
+
+You can also ask Nova in chat, or an agent connected through MCP, to create,
+read, edit, reorder, replace, or remove Project data. The same access rules and
+app-reference checks used by the builder apply to those changes.
+
 ## Open Project data
 
 Project data sits in the builder's left sidebar, below the app structure. Open
@@ -45,6 +69,11 @@ gets the control its column's type calls for, a date picker for a date, a clock
 field for a time. Nova preserves text exactly, including leading or trailing
 spaces and an intentionally empty piece of text. It also keeps that distinct
 from a value that was never present.
+
+The row's properties include **Move up** and **Move down**. A column's properties
+use **Move left** and **Move right**. Save or discard an open value edit before
+moving that row or column. Reordering changes where it appears without changing
+its identity or any app reference.
 
 Times and dates stay human-readable while you edit. Nova keeps the timezone and
 fractional seconds required by storage behind the clock control, so opening and
@@ -163,6 +192,7 @@ over somebody else's data. [Publishing](/docs/publishing) has the details.
 ## Who can do what
 
 - **Read the tables**: anyone who can open the app.
-- **Edit values, add rows, add columns, and import a CSV**: edit access.
+- **Edit values, add rows, add columns, reorder rows or columns, and import a
+  CSV**: edit access.
 - **Delete a table, remove a column, change a column's type, and change the name
   a table or column uses in exports**, admin access.

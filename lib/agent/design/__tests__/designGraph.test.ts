@@ -3,12 +3,21 @@ import {
 	appDesignContractSchema,
 	constructibleFactDataShapes,
 	designConstructionIssues,
+	type ExistingLookupChoiceSource,
+	existingLookupChoicePostChangeIssues,
 	factDataShapeCarriers,
 	factDataShapeSchema,
 	workflowRecordEffectSchema,
 } from "@/lib/agent/design/contract";
+import { computeLookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
 import { casePropertyDataTypes } from "@/lib/domain/casePropertyTypes";
 import { fieldKinds } from "@/lib/domain/fields";
+import {
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	cloneContract,
 	did,
@@ -17,7 +26,38 @@ import {
 	makeContract,
 	makeNestedMenuContract,
 	makeThirteenWorkflowContract,
+	makeV2Contract,
+	messageRef,
 } from "./fixtures";
+
+const EXISTING_TABLE_ID = lookupTableIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000001",
+);
+const EXISTING_VALUE_COLUMN_ID = lookupColumnIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000002",
+);
+const EXISTING_LABEL_COLUMN_ID = lookupColumnIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000003",
+);
+const EXISTING_ROW_ONE_ID = lookupRowIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000004",
+);
+const EXISTING_ROW_TWO_ID = lookupRowIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000005",
+);
+
+function existingInspection(tableRevision = "7") {
+	return computeLookupChoiceProjectionAttestation({
+		tableRevision: tableRevision as never,
+		tableName: "Risk levels",
+		valueColumnLabel: "Value",
+		labelColumnLabel: "Label",
+		rows: [
+			{ rowId: EXISTING_ROW_ONE_ID, value: "routine", label: "Routine" },
+			{ rowId: EXISTING_ROW_TWO_ID, value: "priority", label: "Priority" },
+		],
+	});
+}
 
 function messages(value: unknown): string {
 	const result = appDesignContractSchema.safeParse(value);
@@ -74,7 +114,9 @@ describe("lean Design Contract graph", () => {
 
 	it("accepts and round-trips a task-complete contract", () => {
 		const contract = makeContract();
-		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
+		const parsed = appDesignContractSchema.parse(contract);
+		expect(parsed).toEqual(contract);
+		expect(canonicalJsonDigest(parsed)).toBe(canonicalJsonDigest(contract));
 	});
 
 	it("accepts one-tier parent-first module composition", () => {
@@ -723,6 +765,331 @@ describe("lean Design Contract graph", () => {
 
 		risk.choiceValues = ["routine", "urgent"];
 		expect(messages(contract)).toContain("either inline values");
+	});
+
+	it("authors a source-grounded v2 table by semantic identity and requires a real app use", () => {
+		const contract = cloneContract(makeV2Contract());
+		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const risk = fixtureValue(
+			contract.records[0]?.properties.find(
+				(property) => property.id === ids.factRisk,
+			),
+			"risk property",
+		);
+		delete risk.choiceValues;
+		risk.choiceSource = {
+			kind: "designed-project-lookup",
+			tableId: ids.lookupRisk,
+			valueColumnId: ids.lookupRiskValue,
+			labelColumnId: ids.lookupRiskLabel,
+		};
+		contract.lookupTables.push({
+			kind: "create",
+			id: ids.lookupRisk,
+			name: "Risk levels",
+			tag: "risk_levels",
+			purpose: "Reuse the same triage values wherever risk is shown.",
+			columns: [
+				{
+					id: ids.lookupRiskValue,
+					wireName: "value",
+					label: "Value",
+					dataType: "text",
+				},
+				{
+					id: ids.lookupRiskLabel,
+					wireName: "label",
+					label: "Label",
+					dataType: "text",
+				},
+			],
+			rows: [
+				{
+					id: ids.lookupRiskRoutine,
+					cells: [
+						{ columnId: ids.lookupRiskValue, value: "routine" },
+						{ columnId: ids.lookupRiskLabel, value: "Routine" },
+					],
+				},
+				{
+					id: ids.lookupRiskPriority,
+					cells: [
+						{ columnId: ids.lookupRiskValue, value: "priority" },
+						{ columnId: ids.lookupRiskLabel, value: "Priority" },
+					],
+				},
+			],
+			rowEvidence: {
+				sourceRefs: [messageRef()],
+				summary: "The request establishes the routine and priority values.",
+			},
+		});
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+		expect(designConstructionIssues(contract)).toEqual([]);
+
+		delete risk.choiceSource;
+		risk.choiceValues = ["routine", "priority"];
+		expect(messages(contract)).toContain("must be used");
+	});
+
+	it("refuses incomplete designed choices and name-based v2 existing references", () => {
+		const contract = cloneContract(makeV2Contract());
+		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const risk = fixtureValue(
+			contract.records[0]?.properties.find(
+				(property) => property.id === ids.factRisk,
+			),
+			"risk property",
+		);
+		delete risk.choiceValues;
+		const nameBased = {
+			...contract,
+			records: contract.records.map((record, recordIndex) =>
+				recordIndex === 0
+					? {
+							...record,
+							properties: record.properties.map((property) =>
+								property.id === ids.factRisk
+									? {
+											...property,
+											choiceSource: {
+												kind: "existing-project-lookup",
+												table: "Risk levels",
+												valueColumn: "value",
+												labelColumn: "label",
+											},
+										}
+									: property,
+							),
+						}
+					: record,
+			),
+		};
+		expect(appDesignContractSchema.safeParse(nameBased).success).toBe(false);
+
+		risk.choiceSource = {
+			kind: "existing-project-lookup",
+			tableId: EXISTING_TABLE_ID,
+			valueColumnId: EXISTING_VALUE_COLUMN_ID,
+			labelColumnId: EXISTING_LABEL_COLUMN_ID,
+			inspection: existingInspection(),
+		};
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+	});
+
+	it("requires source-backed approval and expected revision for existing-table changes", () => {
+		const contract = cloneContract(makeV2Contract());
+		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const risk = fixtureValue(
+			contract.records[0]?.properties.find(
+				(property) => property.id === ids.factRisk,
+			),
+			"risk property",
+		);
+		delete risk.choiceValues;
+		risk.choiceSource = {
+			kind: "existing-project-lookup",
+			tableId: EXISTING_TABLE_ID,
+			valueColumnId: EXISTING_VALUE_COLUMN_ID,
+			labelColumnId: EXISTING_LABEL_COLUMN_ID,
+			inspection: existingInspection(),
+		};
+		contract.lookupTables.push({
+			kind: "modify-existing",
+			id: ids.lookupRisk,
+			tableId: EXISTING_TABLE_ID,
+			expectedTableRevision: "7" as never,
+			purpose: "Keep the shared labels aligned with the approved wording.",
+			authorization: {
+				kind: "explicit-user-approval",
+				sourceRefs: [messageRef()],
+				impactSummary:
+					"The approved label edit affects every app using this Project table.",
+			},
+			operations: [
+				{
+					kind: "update-column",
+					columnId: EXISTING_LABEL_COLUMN_ID,
+					label: "Risk label",
+				},
+			],
+		});
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+
+		const raw = structuredClone(contract) as unknown as Record<string, unknown>;
+		const changes = raw.lookupTables as Array<Record<string, unknown>>;
+		delete changes[0]?.authorization;
+		expect(appDesignContractSchema.safeParse(raw).success).toBe(false);
+	});
+
+	it("requires complete constructible existing-choice evidence and protects its columns", () => {
+		const contract = cloneContract(makeV2Contract());
+		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const risk = fixtureValue(
+			contract.records[0]?.properties.find(
+				(property) => property.id === ids.factRisk,
+			),
+			"risk property",
+		);
+		delete risk.choiceValues;
+		risk.choiceSource = {
+			kind: "existing-project-lookup",
+			tableId: EXISTING_TABLE_ID,
+			valueColumnId: EXISTING_VALUE_COLUMN_ID,
+			labelColumnId: EXISTING_LABEL_COLUMN_ID,
+			inspection: {
+				...existingInspection(),
+				distinctValueCount: 1,
+				duplicateValueCount: 1,
+			},
+		};
+		expect(constructionMessages(contract)).toContain(
+			"at least two distinct real saved values",
+		);
+
+		risk.choiceSource.inspection = existingInspection();
+		contract.lookupTables.push({
+			kind: "modify-existing",
+			id: ids.lookupRisk,
+			tableId: EXISTING_TABLE_ID,
+			expectedTableRevision: "8" as never,
+			purpose: "Apply the approved shared-table correction.",
+			authorization: {
+				kind: "direct-user-request",
+				sourceRefs: [messageRef()],
+				impactSummary: "This affects every app that uses the Project table.",
+			},
+			operations: [
+				{ kind: "remove-column", columnId: EXISTING_VALUE_COLUMN_ID },
+			],
+		});
+		expect(messages(contract)).toContain(
+			"cannot remove a saved-value or label",
+		);
+		expect(constructionMessages(contract)).toContain(
+			"same inspected table revision",
+		);
+
+		const impossibleDelete = structuredClone(contract) as unknown as Record<
+			string,
+			unknown
+		>;
+		const changes = impossibleDelete.lookupTables as Array<
+			Record<string, unknown>
+		>;
+		changes[0] = { ...changes[0], operations: [{ kind: "remove-table" }] };
+		expect(appDesignContractSchema.safeParse(impossibleDelete).success).toBe(
+			false,
+		);
+	});
+
+	it("treats an existing update-row as a complete row replacement", () => {
+		const contract = cloneContract(makeV2Contract());
+		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const source: ExistingLookupChoiceSource = {
+			kind: "existing-project-lookup",
+			tableId: EXISTING_TABLE_ID,
+			valueColumnId: EXISTING_VALUE_COLUMN_ID,
+			labelColumnId: EXISTING_LABEL_COLUMN_ID,
+			inspection: existingInspection(),
+		};
+		contract.lookupTables.push({
+			kind: "modify-existing",
+			id: ids.lookupRisk,
+			tableId: EXISTING_TABLE_ID,
+			expectedTableRevision: "7" as never,
+			purpose: "Replace one shared lookup row exactly as requested.",
+			authorization: {
+				kind: "direct-user-request",
+				sourceRefs: [messageRef()],
+				impactSummary: "This replaces the complete shared row.",
+			},
+			operations: [
+				{
+					kind: "update-row",
+					rowId: EXISTING_ROW_ONE_ID,
+					cells: [
+						{
+							column: {
+								kind: "existing-column",
+								columnId: EXISTING_VALUE_COLUMN_ID,
+							},
+							value: "routine_updated",
+						},
+					],
+					rowEvidence: {
+						sourceRefs: [messageRef()],
+						summary: "The request supplies the replacement saved value.",
+					},
+				},
+			],
+		});
+		expect(
+			existingLookupChoicePostChangeIssues(
+				contract,
+				source,
+				[
+					{
+						rowId: EXISTING_ROW_ONE_ID,
+						value: "routine",
+						label: "Routine",
+					},
+					{
+						rowId: EXISTING_ROW_TWO_ID,
+						value: "priority",
+						label: "Priority",
+					},
+				],
+				["choiceSource"],
+			).map((issue) => issue.message),
+		).toContain(
+			"Every existing lookup row needs a nonblank label before this controlled choice can be built.",
+		);
+	});
+
+	it("keeps a maximum-size existing-table choice attestation bounded", () => {
+		const contract = cloneContract(makeV2Contract());
+		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const risk = fixtureValue(
+			contract.records[0]?.properties.find(
+				(property) => property.id === ids.factRisk,
+			),
+			"risk property",
+		);
+		delete risk.choiceValues;
+		const inspection = computeLookupChoiceProjectionAttestation({
+			tableRevision: "9" as never,
+			tableName: "Every facility",
+			valueColumnLabel: "Facility code",
+			labelColumnLabel: "Facility name",
+			rows: Array.from({ length: 5_000 }, (_, index) => ({
+				rowId: `018f0000-0000-7000-8000-${index.toString(16).padStart(12, "0")}`,
+				value: `facility_${index}`,
+				label: `Facility ${index}`,
+			})),
+		});
+		risk.choiceSource = {
+			kind: "existing-project-lookup",
+			tableId: EXISTING_TABLE_ID,
+			valueColumnId: EXISTING_VALUE_COLUMN_ID,
+			labelColumnId: EXISTING_LABEL_COLUMN_ID,
+			inspection,
+		};
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+		expect(JSON.stringify(risk.choiceSource).length).toBeLessThan(750);
+		expect(JSON.stringify(risk.choiceSource)).not.toContain('"rows"');
+
+		const unbounded = structuredClone(contract) as unknown as {
+			records: Array<{
+				properties: Array<{ choiceSource?: { inspection?: unknown } }>;
+			}>;
+		};
+		const rawSource = unbounded.records[0]?.properties.find(
+			(property) => property.choiceSource !== undefined,
+		)?.choiceSource;
+		if (rawSource === undefined) throw new Error("expected raw choice source");
+		rawSource.inspection = { ...inspection, rows: [] };
+		expect(appDesignContractSchema.safeParse(unbounded).success).toBe(false);
 	});
 
 	it("keeps writes, readback, and list properties on the named record", () => {

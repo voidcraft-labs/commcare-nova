@@ -38,6 +38,10 @@ import {
 	verifyArtifactEnvelope,
 } from "@/lib/agent/design/envelope";
 import {
+	designLookupMaterializationPayloadSchema,
+	projectBuildPlanLookupBindings,
+} from "@/lib/agent/design/lookupMaterializationTypes";
+import {
 	type DesignReview,
 	designReviewSchema,
 	type FindingDisposition,
@@ -51,6 +55,7 @@ import {
 	sourcePackageProofExtends,
 	toPersistedSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
+import { releaseDesignLookupProtectionsInTransaction } from "@/lib/db/designLookupMaterializations";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
@@ -74,6 +79,23 @@ export interface DesignArtifactWorkspaceFinalization {
 	readonly workspaceId: string;
 	readonly expectedRevision: number;
 	readonly artifactKind: "contract" | "revision" | "plan";
+}
+
+function contractRequiresLookupMaterialization(
+	contract: AppDesignContract,
+): boolean {
+	return (
+		contract.schemaVersion === 2 &&
+		(contract.lookupTables.length > 0 ||
+			contract.records.some((record) =>
+				record.properties.some(
+					(property) => property.choiceSource !== undefined,
+				),
+			) ||
+			contract.workflows.some((workflow) =>
+				workflow.inputs.some((input) => input.choiceSource !== undefined),
+			))
+	);
 }
 
 async function finalizeArtifactWorkspaceInTransaction(
@@ -396,6 +418,10 @@ export async function insertDesignRevision(args: {
 				.where("design_session_id", "=", parsed.designSessionId)
 				.where("status", "=", "running")
 				.execute();
+			await releaseDesignLookupProtectionsInTransaction(
+				tx,
+				parsed.designSessionId,
+			);
 		}
 		const pkg = await tx
 			.selectFrom("design_source_packages")
@@ -910,6 +936,70 @@ export async function insertDesignBuildPlan(args: {
 			throw new DesignArtifactStoreError(
 				"This plan's inputs do not include the accepted revision's digest.",
 			);
+		}
+		const acceptedContract = revisionRecordFromRow(revision).envelope.payload;
+		if (plan.schemaVersion !== acceptedContract.schemaVersion) {
+			throw new DesignArtifactStoreError(
+				"The BuildPlan schema version must match its exact accepted Design Contract.",
+			);
+		}
+		if (
+			contractRequiresLookupMaterialization(acceptedContract) &&
+			(plan.schemaVersion !== 2 || plan.lookupMaterialization === null)
+		) {
+			throw new DesignArtifactStoreError(
+				"This accepted design depends on Project data, but its BuildPlan has no durable lookup materialization receipt.",
+			);
+		}
+		if (plan.schemaVersion === 2 && plan.lookupMaterialization !== null) {
+			const receipt = await tx
+				.selectFrom("design_lookup_materializations")
+				.select([
+					"design_session_id",
+					"design_revision_id",
+					"design_revision_digest",
+					"project_id",
+					"project_revision",
+					"result_digest",
+				])
+				.select(
+					sql<string>`${sql.ref("design_lookup_materializations.mapping")}::text`.as(
+						"mapping_text",
+					),
+				)
+				.where("id", "=", plan.lookupMaterialization.receiptId)
+				.executeTakeFirst();
+			if (
+				receipt === undefined ||
+				receipt.design_session_id !== parsed.designSessionId ||
+				receipt.design_revision_id !== plan.designRevisionId ||
+				receipt.design_revision_digest !== plan.designRevisionDigest ||
+				receipt.project_id !== args.authority.expectedProjectId ||
+				receipt.result_digest !== plan.lookupMaterialization.resultDigest ||
+				String(receipt.project_revision) !==
+					plan.lookupMaterialization.projectRevision
+			) {
+				throw new DesignArtifactStoreError(
+					"The BuildPlan lookup receipt does not match its accepted revision, Project, or materialization result.",
+				);
+			}
+			const materialization = designLookupMaterializationPayloadSchema.parse(
+				parsePersistedJsonText(
+					receipt.mapping_text,
+					`design_lookup_materializations.mapping for receipt ${plan.lookupMaterialization.receiptId}`,
+				),
+			);
+			if (
+				canonicalJsonDigest(materialization) !== receipt.result_digest ||
+				canonicalJsonDigest(
+					projectBuildPlanLookupBindings(materialization.bindings),
+				) !== canonicalJsonDigest(plan.lookupMaterialization.bindings) ||
+				!parsed.inputArtifactDigests.includes(receipt.result_digest)
+			) {
+				throw new DesignArtifactStoreError(
+					"The BuildPlan does not carry the exact digest-bound lookup identity mapping produced by its receipt.",
+				);
+			}
 		}
 
 		await tx

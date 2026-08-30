@@ -2,8 +2,14 @@
 
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import { buildPlanSchema, deriveBuildPlan } from "@/lib/agent/design/buildPlan";
-import type { AppDesignContract } from "@/lib/agent/design/contract";
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import type {
+	AppDesignContract,
+	AppDesignContractV2Raw,
+} from "@/lib/agent/design/contract";
+import {
+	appDesignContractSchema,
+	appDesignContractV2BaseSchema,
+} from "@/lib/agent/design/contract";
 import type { SourceRef } from "@/lib/agent/design/evidence";
 import { asDesignId, type DesignId } from "@/lib/agent/design/ids";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
@@ -73,6 +79,11 @@ export const ids = {
 	assumption: did(130),
 	question: did(140),
 	externalSetup: did(160),
+	lookupRisk: did(190),
+	lookupRiskValue: did(191),
+	lookupRiskLabel: did(192),
+	lookupRiskRoutine: did(193),
+	lookupRiskPriority: did(194),
 	planId: "00000000-0000-4000-8000-000000000900",
 	revisionId: "00000000-0000-4000-8000-000000000901",
 } as const;
@@ -450,6 +461,79 @@ export function makeContract(): AppDesignContract {
 		],
 		openQuestions: [],
 	});
+}
+
+/** Newly-authored contracts use v2 even when they do not need Project data. */
+export function makeV2Contract(): AppDesignContract {
+	const { schemaVersion: _schemaVersion, ...v1 } = makeContract();
+	return appDesignContractSchema.parse({
+		...v1,
+		schemaVersion: 2,
+		lookupTables: [],
+	});
+}
+
+/** Reviewed v2 fixture whose controlled risk values are Project data minted
+ * only after this exact design is accepted. */
+export function makeV2LookupContract(): AppDesignContractV2Raw {
+	const contract = appDesignContractV2BaseSchema.parse(
+		structuredClone(makeV2Contract()),
+	);
+	const risk = contract.records
+		.flatMap((record) => record.properties)
+		.find((property) => property.id === ids.factRisk);
+	if (risk === undefined) throw new Error("Risk fixture property is missing.");
+	delete risk.choiceValues;
+	risk.choiceSource = {
+		kind: "designed-project-lookup",
+		tableId: ids.lookupRisk,
+		valueColumnId: ids.lookupRiskValue,
+		labelColumnId: ids.lookupRiskLabel,
+	};
+	contract.lookupTables = [
+		{
+			kind: "create",
+			id: ids.lookupRisk,
+			name: "Risk levels",
+			tag: "risk_levels",
+			purpose: "Share the controlled triage values across app surfaces.",
+			columns: [
+				{
+					id: ids.lookupRiskValue,
+					wireName: "value",
+					label: "Value",
+					dataType: "text",
+				},
+				{
+					id: ids.lookupRiskLabel,
+					wireName: "label",
+					label: "Label",
+					dataType: "text",
+				},
+			],
+			rows: [
+				{
+					id: ids.lookupRiskRoutine,
+					cells: [
+						{ columnId: ids.lookupRiskValue, value: "routine" },
+						{ columnId: ids.lookupRiskLabel, value: "Routine" },
+					],
+				},
+				{
+					id: ids.lookupRiskPriority,
+					cells: [
+						{ columnId: ids.lookupRiskValue, value: "priority" },
+						{ columnId: ids.lookupRiskLabel, value: "Priority" },
+					],
+				},
+			],
+			rowEvidence: {
+				sourceRefs: [messageRef()],
+				summary: "The request establishes the two triage levels.",
+			},
+		},
+	];
+	return appDesignContractV2BaseSchema.parse(contract);
 }
 
 export function parseContract(contract: AppDesignContract): AppDesignContract {

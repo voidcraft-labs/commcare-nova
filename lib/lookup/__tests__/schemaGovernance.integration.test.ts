@@ -175,6 +175,75 @@ async function _waitUntilBlockedBy(
 }
 
 describe("lookup schema governance", () => {
+	it("refuses accepted-design table and column dependencies without consuming their protections", async () => {
+		const table = await createTable([
+			TEXT_COLUMN,
+			{ wireName: "rank", label: "Rank", dataType: "int" },
+		]);
+		const lineage = await h.seedDesignLineage({
+			project_id: GOVERNOR.projectId,
+			owner_user_id: GOVERNOR.actorId,
+		});
+		const materializationId = crypto.randomUUID();
+		await h
+			.db()
+			.insertInto("design_lookup_materializations")
+			.values({
+				id: materializationId,
+				design_session_id: lineage.designSessionId,
+				design_revision_id: lineage.designRevisionId,
+				design_revision_digest: lineage.designRevisionDigest,
+				project_id: GOVERNOR.projectId,
+				project_revision: table.projectRevision,
+				result_digest: "a".repeat(64),
+				mapping: JSON.stringify({}),
+				created_by_run_id: "run-protection-test",
+			})
+			.execute();
+		await h
+			.db()
+			.insertInto("design_lookup_protections")
+			.values({
+				materialization_id: materializationId,
+				project_id: GOVERNOR.projectId,
+				table_id: table.id,
+				column_id: table.columns[1].id,
+			})
+			.execute();
+
+		for (const operation of [
+			{
+				kind: "remove-column" as const,
+				tableId: table.id,
+				columnId: table.columns[1].id,
+				expectedTableRevision: table.tableRevision,
+			},
+			{
+				kind: "retype-column" as const,
+				tableId: table.id,
+				columnId: table.columns[1].id,
+				dataType: "decimal" as const,
+				expectedTableRevision: table.tableRevision,
+			},
+			{
+				kind: "delete-table" as const,
+				tableId: table.id,
+				expectedTableRevision: table.tableRevision,
+			},
+		]) {
+			await expectGovernanceError(runV1Core(operation), "accepted_design");
+		}
+
+		const protections = await h
+			.db()
+			.selectFrom("design_lookup_protections")
+			.select("id")
+			.where("materialization_id", "=", materializationId)
+			.execute();
+		expect(protections).toHaveLength(1);
+		expect(await getLookupTable(GOVERNOR, table.id)).toEqual(table);
+	});
+
 	it("reports only exact blocking app ids and ignores edges to another column", async () => {
 		const table = await createTable([
 			TEXT_COLUMN,

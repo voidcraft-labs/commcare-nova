@@ -255,6 +255,13 @@ async function main(): Promise<void> {
 		 * notification. */
 		ancestryChanged: () => {},
 		rebuildPackageForDigest: async () => pkg,
+		inspectProjectData: async () => ({
+			kind: "catalog",
+			projectRevision: "0" as never,
+			tables: [],
+			complete: true,
+		}),
+		validateProjectLookupEvidence: async () => [],
 	});
 
 	const candidateFor = (kind: "contract" | "revision") =>
@@ -444,6 +451,7 @@ async function main(): Promise<void> {
 		navigation: "updateNavigation",
 		moduleCompositions: "updateModuleCompositions",
 		formCompositions: "updateFormCompositions",
+		lookupTables: "updateLookupTables",
 		externalRequirements: "updateExternalRequirements",
 		decisions: "updateDecisions",
 		assumptions: "updateAssumptions",

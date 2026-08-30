@@ -27,6 +27,10 @@ import type {
 	WorkList,
 } from "@/lib/agent/design/contract";
 import type { DesignId } from "@/lib/agent/design/ids";
+import type {
+	BuildPlanLookupMaterialization,
+	DesignLookupBinding,
+} from "@/lib/agent/design/lookupMaterializationTypes";
 import {
 	PLATFORM_CONSTRAINTS,
 	type PlatformConstraint,
@@ -48,8 +52,7 @@ export interface ConstructionChecklist {
 	}[];
 }
 
-export interface SliceExecutionBrief {
-	readonly schemaVersion: 1;
+interface SliceExecutionBriefBase {
 	readonly designRevisionId: string;
 	readonly designRevisionDigest: string;
 	readonly buildPlanId: string;
@@ -146,6 +149,21 @@ export interface SliceExecutionBrief {
 		readonly unsupported: readonly string[];
 	};
 }
+
+export type SliceExecutionBrief = SliceExecutionBriefBase &
+	(
+		| {
+				readonly schemaVersion: 1;
+				readonly lookupMaterialization?: never;
+		  }
+		| {
+				readonly schemaVersion: 2;
+				/** Exact accepted DesignId -> Project lookup UUID lowering. The
+				 * executor receives this receipt projection and choice sources below
+				 * already rewritten to those stable UUIDs. */
+				readonly lookupMaterialization: BuildPlanLookupMaterialization | null;
+		  }
+	);
 
 const MAX_BLUEPRINT_CASE_TYPE_LENGTH = 255;
 const RESERVED_BLUEPRINT_CASE_TYPE_KEYS = new Set([
@@ -278,6 +296,53 @@ function lowerCompositionLayout(
 			};
 }
 
+function requiredLookupBinding<K extends DesignLookupBinding["kind"]>(
+	bindings: ReadonlyMap<string, DesignLookupBinding>,
+	designId: DesignId,
+	kind: K,
+): Extract<DesignLookupBinding, { kind: K }> {
+	const binding = bindings.get(designId);
+	if (binding === undefined || binding.kind !== kind) {
+		throw new Error(
+			`BuildPlan lookup receipt has no ${kind} binding for accepted Design ID ${designId}.`,
+		);
+	}
+	return binding as Extract<DesignLookupBinding, { kind: K }>;
+}
+
+/** Lower v2-only temporary Design IDs before the executor sees the contract.
+ * Existing Project references already carry stable identities, and exact v1
+ * readers retain their historical name-based spelling. */
+function lowerChoiceSource(
+	source: RecordConcept["properties"][number]["choiceSource"],
+	bindings: ReadonlyMap<string, DesignLookupBinding>,
+) {
+	if (source?.kind === "existing-project-lookup" && "tableId" in source) {
+		return {
+			kind: source.kind,
+			tableId: source.tableId,
+			valueColumnId: source.valueColumnId,
+			labelColumnId: source.labelColumnId,
+		};
+	}
+	if (source?.kind !== "designed-project-lookup") return source;
+	return {
+		kind: "existing-project-lookup" as const,
+		tableId: requiredLookupBinding(bindings, source.tableId, "lookup-table")
+			.lookupId,
+		valueColumnId: requiredLookupBinding(
+			bindings,
+			source.valueColumnId,
+			"lookup-column",
+		).lookupId,
+		labelColumnId: requiredLookupBinding(
+			bindings,
+			source.labelColumnId,
+			"lookup-column",
+		).lookupId,
+	};
+}
+
 const CONSTRAINT_AREAS: Readonly<
 	Record<
 		PlatformConstraintCode,
@@ -387,6 +452,28 @@ export function deriveSliceExecutionBrief(args: {
 			`Build slice ${slice.id} has no Blueprint construction work.`,
 		);
 	}
+	if (args.contract.schemaVersion !== args.plan.schemaVersion) {
+		throw new Error(
+			"Accepted Design Contract and BuildPlan schema versions do not match.",
+		);
+	}
+	const lookupBindings = new Map(
+		(args.plan.schemaVersion === 2
+			? (args.plan.lookupMaterialization?.bindings ?? [])
+			: []
+		).map((binding) => [binding.designId, binding]),
+	);
+	const loweredWorkflow: Workflow = {
+		...workflow,
+		inputs: workflow.inputs.map((input) => ({
+			...input,
+			...(input.choiceSource === undefined
+				? {}
+				: {
+						choiceSource: lowerChoiceSource(input.choiceSource, lookupBindings),
+					}),
+		})),
+	};
 	const allRecordRealizations = deriveRecordRealizations(args.contract.records);
 	const recordKeyById = new Map(
 		allRecordRealizations.map((record) => [
@@ -655,8 +742,7 @@ export function deriveSliceExecutionBrief(args: {
 			})),
 		}),
 	);
-	return {
-		schemaVersion: 1,
+	const briefBase: SliceExecutionBriefBase = {
 		designRevisionId: args.revision.id,
 		designRevisionDigest: args.revision.digest,
 		buildPlanId: args.plan.id,
@@ -665,7 +751,7 @@ export function deriveSliceExecutionBrief(args: {
 		slice: executableSlice,
 		constructionChecklist,
 		toolProfile,
-		workflow,
+		workflow: loweredWorkflow,
 		prerequisiteWorkflows: args.contract.workflows
 			.filter((entry) => prerequisiteIds.has(entry.id))
 			.map(({ id, name, goal }) => ({ id, name, goal })),
@@ -674,11 +760,23 @@ export function deriveSliceExecutionBrief(args: {
 			.filter((record) => recordIds.has(record.id))
 			.map((record) => ({
 				...record,
-				properties: record.properties.filter(
-					(property) =>
-						ownedPropertyIds.has(property.id) ||
-						usedPropertyIds.has(property.id),
-				),
+				properties: record.properties
+					.filter(
+						(property) =>
+							ownedPropertyIds.has(property.id) ||
+							usedPropertyIds.has(property.id),
+					)
+					.map((property) => ({
+						...property,
+						...(property.choiceSource === undefined
+							? {}
+							: {
+									choiceSource: lowerChoiceSource(
+										property.choiceSource,
+										lookupBindings,
+									),
+								}),
+					})),
 			})),
 		recordRealizations: allRecordRealizations.filter((record) =>
 			recordIds.has(record.recordId),
@@ -736,6 +834,13 @@ export function deriveSliceExecutionBrief(args: {
 			),
 		},
 	};
+	return args.plan.schemaVersion === 2
+		? {
+				...briefBase,
+				schemaVersion: 2,
+				lookupMaterialization: args.plan.lookupMaterialization,
+			}
+		: { ...briefBase, schemaVersion: 1 };
 }
 
 export function briefDigest(brief: SliceExecutionBrief): string {
@@ -797,6 +902,12 @@ export function renderBriefMessage(brief: SliceExecutionBrief): string {
 		),
 		jsonSection("Actors", brief.actors),
 		jsonSection("Records and properties", brief.records),
+		brief.schemaVersion === 2 && brief.lookupMaterialization !== null
+			? section(
+					"Exact Project lookup lowering",
+					JSON.stringify(brief.lookupMaterialization),
+				)
+			: null,
 		jsonSection("Exact record lowering", brief.recordRealizations),
 		jsonSection("Lists and searches", brief.lists),
 		jsonSection("Access", brief.access),

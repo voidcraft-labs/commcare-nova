@@ -10,6 +10,7 @@ import {
 	architectureDecisionSchema,
 	assumptionSchema,
 	designActorSchema,
+	designLookupTableSchema,
 	externalRequirementSchema,
 	formCompositionSchema,
 	moduleCompositionSchema,
@@ -79,6 +80,7 @@ export const CONTRACT_COLLECTIONS = [
 	"navigation",
 	"moduleCompositions",
 	"formCompositions",
+	"lookupTables",
 	"externalRequirements",
 	"decisions",
 	"assumptions",
@@ -95,12 +97,14 @@ export type WorkspaceCollection = (typeof WORKSPACE_COLLECTIONS)[number];
  * the two can never drift. */
 export const setDesignRootInputSchema = z
 	.object({
+		schemaVersion: z.literal(2).optional(),
 		id: designIdSchema.optional(),
 		charter: appCharterSchema.optional(),
 	})
 	.strict()
 	.refine((value) => Object.keys(value).length > 0, {
-		message: "A root update must set the contract id or complete charter.",
+		message:
+			"A root update must set schema version 2, the contract id, or the complete charter.",
 	});
 
 function identityUpdateInputSchema<T extends z.ZodTypeAny>(
@@ -157,6 +161,7 @@ export const designCollectionUpdateInputSchemas = {
 	navigation: identityUpdateInputSchema(navigationIntentSchema, "id"),
 	moduleCompositions: identityUpdateInputSchema(moduleCompositionSchema, "id"),
 	formCompositions: identityUpdateInputSchema(formCompositionSchema, "id"),
+	lookupTables: identityUpdateInputSchema(designLookupTableSchema, "id"),
 	externalRequirements: identityUpdateInputSchema(
 		externalRequirementSchema,
 		"id",
@@ -225,6 +230,7 @@ const contractCollectionMutationSchema = z.discriminatedUnion("collection", [
 	identityMutationSchema("navigation", navigationIntentSchema, "id"),
 	identityMutationSchema("moduleCompositions", moduleCompositionSchema, "id"),
 	identityMutationSchema("formCompositions", formCompositionSchema, "id"),
+	identityMutationSchema("lookupTables", designLookupTableSchema, "id"),
 	identityMutationSchema(
 		"externalRequirements",
 		externalRequirementSchema,
@@ -363,7 +369,7 @@ export function initialDesignWorkspaceCandidate(
 	}
 	return baseContract === undefined
 		? {
-				schemaVersion: 1,
+				schemaVersion: 2,
 				actors: [],
 				records: [],
 				workflows: [],
@@ -372,6 +378,7 @@ export function initialDesignWorkspaceCandidate(
 				navigation: [],
 				moduleCompositions: [],
 				formCompositions: [],
+				lookupTables: [],
 				externalRequirements: [],
 				decisions: [],
 				assumptions: [],
@@ -392,7 +399,14 @@ export function replayDesignWorkspace(args: {
 	for (const operation of args.operations) {
 		if (operation.kind !== args.kind)
 			throw new Error("A workspace step belongs to a different artifact kind.");
-		if (operation.root !== undefined) Object.assign(candidate, operation.root);
+		if (operation.root !== undefined) {
+			Object.assign(candidate, operation.root);
+			if (
+				operation.root.schemaVersion === 2 &&
+				!Array.isArray(candidate.lookupTables)
+			)
+				candidate.lookupTables = [];
+		}
 		for (const collection of operation.collections)
 			applyIdentityMutation(candidate, collection as never);
 		if (operation.kind === "revision" && operation.dispositions !== undefined)

@@ -3,6 +3,7 @@
 import type { z } from "zod";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
+import { coerceLookupCell } from "@/lib/lookup/coercion";
 
 type Path = Array<string | number>;
 
@@ -18,6 +19,10 @@ function objectWithId(value: unknown): value is { readonly id: string } {
 		"id" in value &&
 		typeof value.id === "string"
 	);
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function constructionWorkflowOrder(contract: AppDesignContract): string[] {
@@ -103,6 +108,78 @@ function collectDesignIdentities(
 				identities.push({ id: value.id, path: [collection, index, "id"] });
 		});
 	}
+	const lookupTables = Array.isArray(candidate.lookupTables)
+		? candidate.lookupTables
+		: [];
+	lookupTables.forEach((value, tableIndex) => {
+		if (!isJsonObject(value) || typeof value.id !== "string") return;
+		identities.push({
+			id: value.id,
+			path: ["lookupTables", tableIndex, "id"],
+		});
+		if (value.kind === "create") {
+			const columns = Array.isArray(value.columns) ? value.columns : [];
+			columns.forEach((column, columnIndex) => {
+				if (objectWithId(column))
+					identities.push({
+						id: column.id,
+						path: ["lookupTables", tableIndex, "columns", columnIndex, "id"],
+					});
+			});
+			const rows = Array.isArray(value.rows) ? value.rows : [];
+			rows.forEach((row, rowIndex) => {
+				if (objectWithId(row))
+					identities.push({
+						id: row.id,
+						path: ["lookupTables", tableIndex, "rows", rowIndex, "id"],
+					});
+			});
+			return;
+		}
+		const operations = Array.isArray(value.operations) ? value.operations : [];
+		operations.forEach((operation, operationIndex) => {
+			if (!isJsonObject(operation)) return;
+			if (operation.kind === "add-column" && objectWithId(operation.column))
+				identities.push({
+					id: operation.column.id,
+					path: [
+						"lookupTables",
+						tableIndex,
+						"operations",
+						operationIndex,
+						"column",
+						"id",
+					],
+				});
+			if (operation.kind === "add-row" && typeof operation.rowId === "string")
+				identities.push({
+					id: operation.rowId,
+					path: [
+						"lookupTables",
+						tableIndex,
+						"operations",
+						operationIndex,
+						"rowId",
+					],
+				});
+			if (operation.kind === "replace-rows" && Array.isArray(operation.rows))
+				operation.rows.forEach((row, rowIndex) => {
+					if (objectWithId(row))
+						identities.push({
+							id: row.id,
+							path: [
+								"lookupTables",
+								tableIndex,
+								"operations",
+								operationIndex,
+								"rows",
+								rowIndex,
+								"id",
+							],
+						});
+				});
+		});
+	});
 	const formCompositions = Array.isArray(candidate.formCompositions)
 		? candidate.formCompositions
 		: [];
@@ -271,6 +348,315 @@ export function validateDesignGraph(
 				`This ${kind} id (${id}) does not exist in the contract.`,
 			);
 	};
+
+	if (contract.schemaVersion === 2) {
+		const createdTables = new Map(
+			contract.lookupTables.flatMap((table) =>
+				table.kind === "create" ? [[table.id, table] as const] : [],
+			),
+		);
+		const usedCreatedTables = new Set<string>();
+		const usedExistingTables = new Set<string>();
+		const usedExistingColumns = new Map<string, Set<string>>();
+		const checkChoiceSource = (
+			source:
+				| (typeof contract.records)[number]["properties"][number]["choiceSource"]
+				| (typeof contract.workflows)[number]["inputs"][number]["choiceSource"],
+			path: Path,
+		): void => {
+			if (source === undefined) return;
+			if (source.kind === "existing-project-lookup") {
+				if (!("tableId" in source)) {
+					issue(
+						ctx,
+						path,
+						"A version 2 design must reference an existing Project lookup table by its inspected stable table and column UUIDs.",
+					);
+					return;
+				}
+				usedExistingTables.add(source.tableId);
+				const columns =
+					usedExistingColumns.get(source.tableId) ?? new Set<string>();
+				columns.add(source.valueColumnId);
+				columns.add(source.labelColumnId);
+				usedExistingColumns.set(source.tableId, columns);
+				return;
+			}
+			const table = createdTables.get(source.tableId);
+			if (table === undefined) {
+				issue(
+					ctx,
+					[...path, "tableId"],
+					"This designed lookup table does not exist in the contract.",
+				);
+				return;
+			}
+			usedCreatedTables.add(table.id);
+			const columns = new Set(table.columns.map((column) => column.id));
+			if (!columns.has(source.valueColumnId))
+				issue(
+					ctx,
+					[...path, "valueColumnId"],
+					"The saved-value column does not belong to this designed lookup table.",
+				);
+			if (!columns.has(source.labelColumnId))
+				issue(
+					ctx,
+					[...path, "labelColumnId"],
+					"The label column does not belong to this designed lookup table.",
+				);
+		};
+
+		contract.records.forEach((record, recordIndex) => {
+			record.properties.forEach((property, propertyIndex) => {
+				checkChoiceSource(property.choiceSource, [
+					"records",
+					recordIndex,
+					"properties",
+					propertyIndex,
+					"choiceSource",
+				]);
+			});
+		});
+		contract.workflows.forEach((workflow, workflowIndex) => {
+			workflow.inputs.forEach((input, inputIndex) => {
+				checkChoiceSource(input.choiceSource, [
+					"workflows",
+					workflowIndex,
+					"inputs",
+					inputIndex,
+					"choiceSource",
+				]);
+			});
+		});
+
+		const newTags = new Map<string, number>();
+		const changedExistingTables = new Map<string, number>();
+		contract.lookupTables.forEach((table, tableIndex) => {
+			if (table.kind === "create") {
+				const priorTag = newTags.get(table.tag);
+				if (priorTag !== undefined)
+					issue(
+						ctx,
+						["lookupTables", tableIndex, "tag"],
+						`This export tag is already used by lookupTables.${priorTag}.tag.`,
+					);
+				else newTags.set(table.tag, tableIndex);
+
+				const columnById = new Map(
+					table.columns.map((column) => [column.id, column]),
+				);
+				const wireNames = new Map<string, number>();
+				table.columns.forEach((column, columnIndex) => {
+					const prior = wireNames.get(column.wireName);
+					if (prior !== undefined)
+						issue(
+							ctx,
+							["lookupTables", tableIndex, "columns", columnIndex, "wireName"],
+							`This wire name is already used by column ${prior}.`,
+						);
+					else wireNames.set(column.wireName, columnIndex);
+				});
+				table.rows.forEach((row, rowIndex) => {
+					const seenCells = new Set<string>();
+					row.cells.forEach((cell, cellIndex) => {
+						const path = [
+							"lookupTables",
+							tableIndex,
+							"rows",
+							rowIndex,
+							"cells",
+							cellIndex,
+						] as Path;
+						if (seenCells.has(cell.columnId))
+							issue(
+								ctx,
+								[...path, "columnId"],
+								"A lookup row may set each column at most once.",
+							);
+						seenCells.add(cell.columnId);
+						const column = columnById.get(cell.columnId);
+						if (column === undefined) {
+							issue(
+								ctx,
+								[...path, "columnId"],
+								"This cell column does not belong to its lookup table.",
+							);
+							return;
+						}
+						const coercion = coerceLookupCell(
+							column.dataType,
+							cell.value,
+							"typed",
+						);
+						if (!coercion.success)
+							issue(ctx, [...path, "value"], coercion.message);
+					});
+				});
+				if (!usedCreatedTables.has(table.id))
+					issue(
+						ctx,
+						["lookupTables", tableIndex, "id"],
+						"A designed Project lookup table must be used by at least one controlled-choice property or form input in this app.",
+					);
+				return;
+			}
+
+			const priorChange = changedExistingTables.get(table.tableId);
+			if (priorChange !== undefined)
+				issue(
+					ctx,
+					["lookupTables", tableIndex, "tableId"],
+					`This existing Project table already has a change intent at lookupTables.${priorChange}.`,
+				);
+			else changedExistingTables.set(table.tableId, tableIndex);
+			if (!usedExistingTables.has(table.tableId))
+				issue(
+					ctx,
+					["lookupTables", tableIndex, "tableId"],
+					"An existing Project lookup table changed by this design must also be used by the app.",
+				);
+
+			const addedColumns = new Set<string>();
+			const addedRows = new Set<string>();
+			const replaceCount = table.operations.filter(
+				(operation) => operation.kind === "replace-rows",
+			).length;
+			const hasReplace = replaceCount > 0;
+			const hasOtherRowOperation = table.operations.some((operation) =>
+				["add-row", "update-row", "move-row", "remove-row"].includes(
+					operation.kind,
+				),
+			);
+			if (hasReplace && hasOtherRowOperation)
+				issue(
+					ctx,
+					["lookupTables", tableIndex, "operations"],
+					"A whole-row replacement cannot be combined with individual row operations in one accepted design.",
+				);
+			if (replaceCount > 1)
+				issue(
+					ctx,
+					["lookupTables", tableIndex, "operations"],
+					"An accepted existing-table change may replace the complete row set only once.",
+				);
+			const expectAddedColumn = (
+				ref: { kind: string; columnId: string },
+				path: Path,
+			) => {
+				if (ref.kind === "added-column" && !addedColumns.has(ref.columnId))
+					issue(
+						ctx,
+						path,
+						"An added-column reference must name a column introduced by an earlier operation.",
+					);
+			};
+			const expectAddedRow = (
+				ref: { kind: string; rowId: string },
+				path: Path,
+			) => {
+				if (ref.kind === "added-row" && !addedRows.has(ref.rowId))
+					issue(
+						ctx,
+						path,
+						"An added-row reference must name a row introduced by an earlier operation.",
+					);
+			};
+			const checkChangedCells = (
+				cells: readonly { column: { kind: string; columnId: string } }[],
+				path: Path,
+			) => {
+				const seen = new Set<string>();
+				cells.forEach((cell, cellIndex) => {
+					const key = `${cell.column.kind}:${cell.column.columnId}`;
+					if (seen.has(key))
+						issue(
+							ctx,
+							[...path, cellIndex, "column"],
+							"A lookup row may set each column at most once.",
+						);
+					seen.add(key);
+					expectAddedColumn(cell.column, [...path, cellIndex, "column"]);
+				});
+			};
+
+			table.operations.forEach((operation, operationIndex) => {
+				const path = [
+					"lookupTables",
+					tableIndex,
+					"operations",
+					operationIndex,
+				] as Path;
+				switch (operation.kind) {
+					case "update-table":
+						if (operation.name === undefined && operation.tag === undefined)
+							issue(
+								ctx,
+								path,
+								"A table update must change its name or export tag.",
+							);
+						break;
+					case "add-column":
+						if (operation.after !== undefined)
+							expectAddedColumn(operation.after, [...path, "after"]);
+						addedColumns.add(operation.column.id);
+						break;
+					case "update-column":
+						if (
+							operation.label === undefined &&
+							operation.wireName === undefined &&
+							operation.dataType === undefined
+						)
+							issue(
+								ctx,
+								path,
+								"A column update must change its label, wire name, or data type.",
+							);
+						break;
+					case "move-column":
+						expectAddedColumn(operation.column, [...path, "column"]);
+						if (operation.after !== undefined)
+							expectAddedColumn(operation.after, [...path, "after"]);
+						break;
+					case "add-row":
+						checkChangedCells(operation.cells, [...path, "cells"]);
+						if (operation.after !== undefined)
+							expectAddedRow(operation.after, [...path, "after"]);
+						addedRows.add(operation.rowId);
+						break;
+					case "update-row":
+						checkChangedCells(operation.cells, [...path, "cells"]);
+						break;
+					case "move-row":
+						expectAddedRow(operation.row, [...path, "row"]);
+						if (operation.after !== undefined)
+							expectAddedRow(operation.after, [...path, "after"]);
+						break;
+					case "replace-rows":
+						operation.rows.forEach((row, rowIndex) => {
+							checkChangedCells(row.cells, [
+								...path,
+								"rows",
+								rowIndex,
+								"cells",
+							]);
+							addedRows.add(row.id);
+						});
+						break;
+					case "remove-column":
+						if (usedExistingColumns.get(table.tableId)?.has(operation.columnId))
+							issue(
+								ctx,
+								[...path, "columnId"],
+								"An accepted design cannot remove a saved-value or label column used by this app.",
+							);
+						break;
+					case "remove-row":
+						break;
+				}
+			});
+		});
+	}
 
 	contract.charter.includedWorkflowIds.forEach((id, index) => {
 		expect(

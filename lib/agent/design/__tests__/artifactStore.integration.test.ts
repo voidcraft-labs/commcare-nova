@@ -22,20 +22,30 @@ import {
 	readDispositions,
 	readLatestAcceptedDesignRevision,
 } from "@/lib/agent/design/artifactStore";
-import type { BuildPlan } from "@/lib/agent/design/buildPlan";
+import { type BuildPlan, deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import {
 	type DesignArtifactEnvelope,
 	sealArtifactEnvelope,
 	type UnsealedDesignArtifactEnvelope,
 } from "@/lib/agent/design/envelope";
+import { ensureAcceptedLookupMaterialization } from "@/lib/agent/design/lookupMaterialization";
+import { projectBuildPlanLookupBindings } from "@/lib/agent/design/lookupMaterializationTypes";
 import type { DesignReview } from "@/lib/agent/design/review";
 import {
 	computeSourcePackageDigest,
 	type DesignSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { did, ids, makeBuildPlan, makeContract, messageRef } from "./fixtures";
+import {
+	did,
+	ids,
+	makeBuildPlan,
+	makeContract,
+	makeV2Contract,
+	makeV2LookupContract,
+	messageRef,
+} from "./fixtures";
 
 const h = setupAppStateTestDb("design_artifacts_");
 
@@ -139,7 +149,7 @@ function draftEnvelope(
 ): DesignArtifactEnvelope<AppDesignContract> {
 	return sealArtifactEnvelope({
 		artifactType: "design-contract",
-		artifactSchemaVersion: 1,
+		artifactSchemaVersion: contract.schemaVersion,
 		artifactId: crypto.randomUUID(),
 		designSessionId: sessionId,
 		revision: 1,
@@ -180,7 +190,7 @@ function acceptedEnvelope(
 ): DesignArtifactEnvelope<AppDesignContract> {
 	return sealArtifactEnvelope({
 		artifactType: "design-contract",
-		artifactSchemaVersion: 1,
+		artifactSchemaVersion: contract.schemaVersion,
 		artifactId: crypto.randomUUID(),
 		designSessionId: sessionId,
 		revision: draft.revision + 1,
@@ -224,13 +234,18 @@ function planEnvelope(
 	};
 	return sealArtifactEnvelope({
 		artifactType: "design-build-plan",
-		artifactSchemaVersion: 1,
+		artifactSchemaVersion: payload.schemaVersion,
 		artifactId: crypto.randomUUID(),
 		designSessionId: sessionId,
 		revision: accepted.revision,
 		parentArtifactId: accepted.id,
 		sourcePackageDigest: accepted.sourcePackageDigest,
-		inputArtifactDigests: [accepted.artifactDigest],
+		inputArtifactDigests: [
+			accepted.artifactDigest,
+			...(payload.schemaVersion === 2 && payload.lookupMaterialization !== null
+				? [payload.lookupMaterialization.resultDigest]
+				: []),
+		],
 		promptVersion: "design-planner-v1",
 		producer: { provider: "openai", modelId: "gpt-test", finishReason: "stop" },
 		createdAt: new Date().toISOString(),
@@ -238,14 +253,16 @@ function planEnvelope(
 	});
 }
 
-async function persistAcceptedRevision(): Promise<{
+async function persistAcceptedRevision(
+	contract: AppDesignContract = makeContract(),
+): Promise<{
 	accepted: DesignRevisionRecord;
 	draft: DesignRevisionRecord;
 }> {
 	const pkg = makePackage();
 	await insertDesignSourcePackage({ pkg, runId: RUN_ID });
 	const draft = await insertDesignRevision({
-		envelope: draftEnvelope(pkg),
+		envelope: draftEnvelope(pkg, contract),
 		lifecycle: "draft",
 		runId: RUN_ID,
 	});
@@ -255,7 +272,7 @@ async function persistAcceptedRevision(): Promise<{
 		runId: RUN_ID,
 	});
 	const accepted = await insertDesignRevision({
-		envelope: acceptedEnvelope(draft, review.artifactDigest),
+		envelope: acceptedEnvelope(draft, review.artifactDigest, contract),
 		lifecycle: "accepted",
 		runId: RUN_ID,
 		dispositions: [],
@@ -673,5 +690,78 @@ describe("build plans", () => {
 		await expect(
 			insertDesignBuildPlan({ envelope, runId: RUN_ID }),
 		).rejects.toThrow(/derived from something else/);
+	});
+
+	it("refuses a v2 lookup plan until its exact materialization receipt is bound", async () => {
+		const contract = makeV2LookupContract();
+		const { accepted } = await persistAcceptedRevision(contract);
+		const noLookupPlan = deriveBuildPlan({
+			contract: makeV2Contract(),
+			revision: { id: accepted.id, digest: accepted.artifactDigest },
+		});
+		await expect(
+			insertDesignBuildPlan({
+				envelope: planEnvelope(accepted, noLookupPlan),
+				runId: RUN_ID,
+			}),
+		).rejects.toThrow(/no durable lookup materialization receipt/);
+	});
+
+	it("persists BuildPlan v2 only with the receipt's exact digest-bound UUID mapping", async () => {
+		const contract = makeV2LookupContract();
+		const { accepted } = await persistAcceptedRevision(contract);
+		const receipt = await ensureAcceptedLookupMaterialization({
+			designSessionId: sessionId,
+			designRevisionId: accepted.id,
+			designRevisionDigest: accepted.artifactDigest,
+			contract,
+			authority: authority(RUN_ID),
+		});
+		if (receipt === null) throw new Error("Expected a lookup receipt.");
+		const lookupMaterialization = {
+			receiptId: receipt.id,
+			resultDigest: receipt.resultDigest,
+			projectRevision: receipt.payload.projectRevision,
+			bindings: projectBuildPlanLookupBindings(receipt.payload.bindings),
+		};
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: accepted.id, digest: accepted.artifactDigest },
+			lookupMaterialization,
+		});
+		const stored = await insertDesignBuildPlan({
+			envelope: planEnvelope(accepted, plan),
+			runId: RUN_ID,
+		});
+		expect(stored.envelope.payload.schemaVersion).toBe(2);
+		expect(
+			receipt.payload.bindings.filter(
+				(binding) => binding.kind === "lookup-row",
+			),
+		).toHaveLength(2);
+		if (stored.envelope.payload.schemaVersion !== 2)
+			throw new Error("Expected a stored BuildPlan v2.");
+		expect(
+			stored.envelope.payload.lookupMaterialization?.bindings,
+		).toHaveLength(3);
+
+		const tampered = structuredClone(plan);
+		if (
+			tampered.schemaVersion !== 2 ||
+			tampered.lookupMaterialization === null
+		) {
+			throw new Error("Expected a materialized BuildPlan v2.");
+		}
+		tampered.lookupMaterialization.bindings =
+			tampered.lookupMaterialization.bindings.slice(1);
+		await expect(
+			insertDesignBuildPlan({
+				envelope: planEnvelope(accepted, {
+					...tampered,
+					id: crypto.randomUUID(),
+				}),
+				runId: RUN_ID,
+			}),
+		).rejects.toThrow(/exact digest-bound lookup identity mapping/);
 	});
 });

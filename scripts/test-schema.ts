@@ -25,12 +25,15 @@
  *     `renameCaseProperties`, `addLanguage`, `updateTranslations`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
  *     `setAppLogo`, `listMediaAssets`,
- *     `removeMediaAsset`, `uploadMediaAsset`.
+ *     `removeMediaAsset`, `uploadMediaAsset`, `getLookupTables`,
+ *     `getLookupTableRows`, `createLookupTable`, `updateLookupTable`,
+ *     `editLookupColumns`, `editLookupRows`, `replaceLookupRows`,
+ *     `removeLookupTable`.
  */
 import "dotenv/config";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, tool } from "ai";
-import { z } from "zod";
+import type { z } from "zod";
 import { addFieldsTool } from "../lib/agent/tools/addFields";
 import { addCaseListColumnsTool } from "../lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "../lib/agent/tools/case-list-config/addSearchInputs";
@@ -49,12 +52,22 @@ import { createFormTool } from "../lib/agent/tools/createForm";
 import { createModuleTool } from "../lib/agent/tools/createModule";
 import { editFieldTool } from "../lib/agent/tools/editField";
 import { generateSchemaTool } from "../lib/agent/tools/generateSchema";
+import { getLookupTablesTool } from "../lib/agent/tools/getLookupTables";
 import {
 	addLanguageInputSchema,
 	addLanguageTool,
 	updateTranslationsInputSchema,
 	updateTranslationsTool,
 } from "../lib/agent/tools/localization";
+import {
+	createLookupTableTool,
+	editLookupColumnsTool,
+	editLookupRowsTool,
+	getLookupTableRowsTool,
+	removeLookupTableTool,
+	replaceLookupRowsTool,
+	updateLookupTableTool,
+} from "../lib/agent/tools/lookupTables";
 import { attachFieldMediaTool } from "../lib/agent/tools/media/attachFieldMedia";
 import { attachOptionMediaTool } from "../lib/agent/tools/media/attachOptionMedia";
 import { listMediaAssetsTool } from "../lib/agent/tools/media/listMediaAssets";
@@ -68,6 +81,7 @@ import {
 	updateModuleInputSchema,
 	updateModuleTool,
 } from "../lib/agent/tools/updateModule";
+import { wireToolSchema } from "../lib/agent/wireSchemas";
 import { uploadMediaAssetInputSchema } from "../lib/mcp/tools/uploadMediaAsset";
 import { MODEL_ROLES, OPENAI_BASE_OPTIONS } from "../lib/models";
 
@@ -262,6 +276,66 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		prompt:
 			'Use updateTranslations for the language spa (no script, no region) with one set operation: unitId "tu1:4:demo", expectedSourceFingerprint exactly source-v1:text:"Name" (including the quotes), and the string value "Nombre".',
 	},
+	/* Project data tools — only these changed schemas need a live provider
+	 * acceptance check for the lookup-table authoring unit. Keep every prompt
+	 * self-contained: execution is a no-op, so durable identities need only be
+	 * canonical examples. */
+	{
+		name: "getLookupTables",
+		description: getLookupTablesTool.description,
+		schema: getLookupTablesTool.inputSchema,
+		prompt:
+			"Use getLookupTables to read the first page of Project data tables.",
+	},
+	{
+		name: "getLookupTableRows",
+		description: getLookupTableRowsTool.description,
+		schema: getLookupTableRowsTool.inputSchema,
+		prompt:
+			"Use getLookupTableRows for tableId 11111111-1111-4111-8111-111111111111 and project columns 22222222-2222-4222-8222-222222222222 and 33333333-3333-4333-8333-333333333333.",
+	},
+	{
+		name: "createLookupTable",
+		description: createLookupTableTool.description,
+		schema: createLookupTableTool.inputSchema,
+		prompt:
+			'Use createLookupTable to create a Regions table tagged regions with columns keyed code (wireName code, label Code, dataType text) and name (wireName name, label Name, dataType text), and one row containing code "north" and name "North".',
+	},
+	{
+		name: "updateLookupTable",
+		description: updateLookupTableTool.description,
+		schema: updateLookupTableTool.inputSchema,
+		prompt:
+			'Use updateLookupTable for tableId 11111111-1111-4111-8111-111111111111 at expectedTableRevision "4" to rename it Regions and tag it regions.',
+	},
+	{
+		name: "editLookupColumns",
+		description: editLookupColumnsTool.description,
+		schema: editLookupColumnsTool.inputSchema,
+		prompt:
+			'Use editLookupColumns for tableId 11111111-1111-4111-8111-111111111111 at expectedTableRevision "4" with one add operation: key district and column {wireName: "district", label: "District", dataType: "text"}.',
+	},
+	{
+		name: "editLookupRows",
+		description: editLookupRowsTool.description,
+		schema: editLookupRowsTool.inputSchema,
+		prompt:
+			'Use editLookupRows for tableId 11111111-1111-4111-8111-111111111111 at expectedTableRevision "7" with one add operation whose cells contain {columnId: "22222222-2222-4222-8222-222222222222", value: "north"}.',
+	},
+	{
+		name: "replaceLookupRows",
+		description: replaceLookupRowsTool.description,
+		schema: replaceLookupRowsTool.inputSchema,
+		prompt:
+			'Use replaceLookupRows for tableId 11111111-1111-4111-8111-111111111111 at expectedTableRevision "7" with one row whose cells contain {columnId: "22222222-2222-4222-8222-222222222222", value: "north"}.',
+	},
+	{
+		name: "removeLookupTable",
+		description: removeLookupTableTool.description,
+		schema: removeLookupTableTool.inputSchema,
+		prompt:
+			'Use removeLookupTable for tableId 11111111-1111-4111-8111-111111111111 at expectedTableRevision "9".',
+	},
 	/* Media tools — each new tool's input schema, exercised against the
 	 * compiler. The `Media` bundle is three optionals on a non-array
 	 * object, so the 8-optional array-item ceiling doesn't apply, but we
@@ -348,7 +422,12 @@ console.log(`Testing with ${model}...`);
 (async () => {
 	let exitCode = 0;
 	for (const test of tests) {
-		const size = JSON.stringify(z.toJSONSchema(test.schema)).length;
+		/* Exercise the exact production projection. Besides the compact AST
+		 * spelling, its input-side emission preserves transformed validators such
+		 * as lookup revisions while the original Zod schema remains the runtime
+		 * parse gate. */
+		const inputSchema = wireToolSchema(test.schema);
+		const size = JSON.stringify(inputSchema.jsonSchema).length;
 		console.log(`\n${test.name}: ${size} chars`);
 
 		const controller = new AbortController();
@@ -363,7 +442,7 @@ console.log(`Testing with ${model}...`);
 				tools: {
 					[test.name]: tool({
 						description: test.description,
-						inputSchema: test.schema,
+						inputSchema,
 						// Mirrors production (`solutionsArchitect.ts` wrappers): opt
 						// out of Responses strict-mode normalization so optionals
 						// stay omittable.

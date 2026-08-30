@@ -53,6 +53,15 @@ import {
 	updateLanguageTool,
 	updateTranslationsTool,
 } from "@/lib/agent/tools/localization";
+import {
+	createLookupTableTool,
+	editLookupColumnsTool,
+	editLookupRowsTool,
+	getLookupTableRowsTool,
+	removeLookupTableTool,
+	replaceLookupRowsTool,
+	updateLookupTableTool,
+} from "@/lib/agent/tools/lookupTables";
 import { attachFieldMediaTool } from "@/lib/agent/tools/media/attachFieldMedia";
 import { attachOptionMediaTool } from "@/lib/agent/tools/media/attachOptionMedia";
 import { listMediaAssetsTool } from "@/lib/agent/tools/media/listMediaAssets";
@@ -212,6 +221,12 @@ const PLACE_ROW_WRITE_POLICY: ToolExecutionPolicy = {
 	readSets: ["organization"],
 	capabilities: ["organization-write"],
 };
+const LOOKUP_WRITE_POLICY: ToolExecutionPolicy = {
+	effect: "mutate-external",
+	staging: "forbidden",
+	readSets: ["lookup-definition", "lookup-column", "project-scope"],
+	capabilities: ["lookup-write"],
+};
 
 export const SHARED_TOOL_REGISTRY = [
 	{
@@ -308,6 +323,60 @@ export const SHARED_TOOL_REGISTRY = [
 			readSets: ["lookup-definition", "lookup-column"],
 			capabilities: ["lookup-read"],
 		},
+	},
+	{
+		saName: "getLookupTableRows",
+		mcpName: "get_lookup_table_rows",
+		tool: getLookupTableRowsTool,
+		requires: "view",
+		policy: {
+			effect: "read-blueprint",
+			staging: "allowed",
+			readSets: ["lookup-definition", "lookup-column"],
+			capabilities: ["lookup-read"],
+		},
+	},
+	{
+		saName: "createLookupTable",
+		mcpName: "create_lookup_table",
+		tool: createLookupTableTool,
+		requires: "edit",
+		policy: LOOKUP_WRITE_POLICY,
+	},
+	{
+		saName: "updateLookupTable",
+		mcpName: "update_lookup_table",
+		tool: updateLookupTableTool,
+		requires: "edit",
+		policy: LOOKUP_WRITE_POLICY,
+	},
+	{
+		saName: "editLookupColumns",
+		mcpName: "edit_lookup_columns",
+		tool: editLookupColumnsTool,
+		requires: "edit",
+		policy: LOOKUP_WRITE_POLICY,
+	},
+	{
+		saName: "editLookupRows",
+		mcpName: "edit_lookup_rows",
+		tool: editLookupRowsTool,
+		requires: "edit",
+		policy: LOOKUP_WRITE_POLICY,
+	},
+	{
+		saName: "replaceLookupRows",
+		mcpName: "replace_lookup_rows",
+		tool: replaceLookupRowsTool,
+		requires: "edit",
+		policy: LOOKUP_WRITE_POLICY,
+	},
+	{
+		saName: "removeLookupTable",
+		mcpName: "remove_lookup_table",
+		tool: removeLookupTableTool,
+		requires: "delete",
+		policy: LOOKUP_WRITE_POLICY,
 	},
 	{
 		saName: "setFieldOptionsSource",

@@ -6,8 +6,11 @@
 // that can produce it, and so the two inspectors report a result the same way
 // rather than each inventing its own phrasing.
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import type { LookupColumnId, LookupRowId } from "@/lib/domain/lookupIds";
 import {
+	moveLookupColumnAction,
+	moveLookupRowAction,
 	removeLookupColumnAction,
 	retypeLookupColumnAction,
 	updateLookupColumnLabelAction,
@@ -67,6 +70,114 @@ export interface ColumnWrites {
 		dataType: LookupDataType,
 		expectedTableRevision: LookupRevision,
 	) => Promise<LookupGovernanceFailure | null>;
+}
+
+export type LookupMoveDirection = "earlier" | "later";
+
+export interface LookupOrderingWrites {
+	readonly moving: boolean;
+	readonly status: string | null;
+	readonly failure: string | null;
+	readonly moveColumn: (
+		columnId: LookupColumnId,
+		toIndex: number,
+		direction: LookupMoveDirection,
+		expectedTableRevision: LookupRevision,
+	) => Promise<boolean>;
+	readonly moveRow: (
+		rowId: LookupRowId,
+		toIndex: number,
+		direction: LookupMoveDirection,
+		expectedTableRevision: LookupRevision,
+	) => Promise<boolean>;
+}
+
+/**
+ * Revision-fenced row and column ordering writes for the inspector rail.
+ *
+ * A conflict is never retried: a peer may have changed the sequence, so the
+ * position the person asked for no longer means the same thing. Reload the
+ * fresh order, keep the selected UUID open, and ask them to review it.
+ */
+export function useLookupOrderingWrites(
+	table: LookupTableSnapshot,
+	reload: () => Promise<void>,
+): LookupOrderingWrites {
+	const projectId = useProjectId();
+	const [moving, setMoving] = useState(false);
+	const movingRef = useRef(false);
+	const [status, setStatus] = useState<string | null>(null);
+	const [failure, setFailure] = useState<string | null>(null);
+
+	const move = useCallback(
+		async (
+			kind: "column" | "row",
+			id: LookupColumnId | LookupRowId,
+			toIndex: number,
+			direction: LookupMoveDirection,
+			expectedTableRevision: LookupRevision,
+		): Promise<boolean> => {
+			if (projectId === undefined || movingRef.current) return false;
+			movingRef.current = true;
+			setMoving(true);
+			setStatus(null);
+			setFailure(null);
+			try {
+				const result =
+					kind === "column"
+						? await moveLookupColumnAction(projectId, {
+								tableId: table.id,
+								expectedTableRevision,
+								columnId: id,
+								toIndex,
+							})
+						: await moveLookupRowAction(projectId, {
+								tableId: table.id,
+								expectedTableRevision,
+								rowId: id,
+								toIndex,
+							});
+				if (!result.success) {
+					if (result.code === "conflict") {
+						await reload();
+						setFailure(
+							`This table changed while you were moving the ${kind}. Nova refreshed its order. Review the new position and try again.`,
+						);
+					} else {
+						setFailure(result.message);
+					}
+					return false;
+				}
+				setStatus(
+					`${kind === "column" ? "Column" : "Row"} moved ${direction}.`,
+				);
+				await reload();
+				return true;
+			} catch {
+				setFailure(
+					`Nova could not move this ${kind}. Check your connection and try again.`,
+				);
+				return false;
+			} finally {
+				movingRef.current = false;
+				setMoving(false);
+			}
+		},
+		[projectId, reload, table.id],
+	);
+
+	const moveColumn = useCallback<LookupOrderingWrites["moveColumn"]>(
+		(columnId, toIndex, direction, expectedTableRevision) =>
+			move("column", columnId, toIndex, direction, expectedTableRevision),
+		[move],
+	);
+	const moveRow = useCallback<LookupOrderingWrites["moveRow"]>(
+		(rowId, toIndex, direction, expectedTableRevision) =>
+			move("row", rowId, toIndex, direction, expectedTableRevision),
+		[move],
+	);
+
+	return { moving, status, failure, moveColumn, moveRow };
 }
 
 export function useColumnWrites(

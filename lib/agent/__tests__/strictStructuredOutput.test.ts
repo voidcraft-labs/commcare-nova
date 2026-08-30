@@ -18,8 +18,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
-import { ids, makeContract } from "@/lib/agent/design/__tests__/fixtures";
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import { ids, makeV2Contract } from "@/lib/agent/design/__tests__/fixtures";
+import { appDesignContractV2Schema } from "@/lib/agent/design/contract";
 import {
 	designReviewSchema,
 	designRevisionResultSchemaFor,
@@ -32,7 +32,7 @@ import {
 	stripNullProperties,
 } from "@/lib/agent/strictStructuredOutput";
 
-const CONTRACT = makeContract();
+const CONTRACT = makeV2Contract();
 
 function fixturePackage(): DesignSourcePackage {
 	return {
@@ -77,7 +77,7 @@ const REVIEW_BINDINGS = [
 
 /** The pipeline's model-facing schemas, by the names the phases use. */
 const PIPELINE_SCHEMAS: ReadonlyArray<[string, z.ZodType]> = [
-	["author (appDesignContractSchema)", appDesignContractSchema],
+	["author (appDesignContractV2Schema)", appDesignContractV2Schema],
 	[
 		"review (designReviewSchemaFor)",
 		designReviewSchemaFor({
@@ -175,7 +175,7 @@ describe("strictWireJsonSchema over the production pipeline schemas", () => {
 
 describe("the validation bridge", () => {
 	it("round-trips the contract fixture through parse", async () => {
-		const schema = strictStructuredSchema(appDesignContractSchema);
+		const schema = strictStructuredSchema(appDesignContractV2Schema);
 		const result = await schema.validate?.(
 			JSON.parse(JSON.stringify(CONTRACT)),
 		);
@@ -242,7 +242,7 @@ describe("the validation bridge", () => {
 	});
 
 	it("returns the ZodError itself on a failed parse (the diagnostics carrier)", async () => {
-		const schema = strictStructuredSchema(appDesignContractSchema);
+		const schema = strictStructuredSchema(appDesignContractV2Schema);
 		const result = await schema.validate?.({ objective: 42 });
 		expect(result?.success).toBe(false);
 		if (result?.success === false) {

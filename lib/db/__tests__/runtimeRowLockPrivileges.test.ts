@@ -466,11 +466,13 @@ describe("runtime row-lock privilege contract", () => {
 			"design_localization_receipts",
 			"design_localization_batch_usage_accounts",
 			"design_slice_attempt_budget_claims",
+			"design_lookup_materializations",
 			"design_identity_handles",
 			"case_schema_index_deletions",
 			"media_asset_refs",
 			"app_location_references",
 			"thread_media_refs",
+			"design_lookup_protections",
 			"app_change_fold_baselines",
 		]);
 		for (const table of RUNTIME_TABLES_WITHOUT_ROW_LOCKS) {
@@ -491,6 +493,7 @@ describe("runtime row-lock privilege contract", () => {
 			"media_asset_refs",
 			"app_location_references",
 			"thread_media_refs",
+			"design_lookup_protections",
 		]);
 		expect(RUNTIME_TABLES_WITHOUT_INSERT).toEqual([
 			"app_change_fold_baselines",

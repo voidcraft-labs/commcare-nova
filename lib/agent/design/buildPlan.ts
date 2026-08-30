@@ -16,6 +16,11 @@ import {
 	designConstructionIssues,
 } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import {
+	type BuildPlanLookupBinding,
+	type BuildPlanLookupMaterialization,
+	buildPlanLookupMaterializationSchema,
+} from "@/lib/agent/design/lookupMaterializationTypes";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 
@@ -112,7 +117,7 @@ export const buildSliceSchema = z
 	.strict();
 export type BuildSlice = z.infer<typeof buildSliceSchema>;
 
-const buildPlanBaseSchema = z
+const buildPlanV1BaseSchema = z
 	.object({
 		schemaVersion: z.literal(1),
 		designRevisionId: z.string().uuid(),
@@ -122,6 +127,28 @@ const buildPlanBaseSchema = z
 		externalActions: z.array(externalActionSchema),
 	})
 	.strict();
+export type BuildPlanV1 = z.infer<typeof buildPlanV1BaseSchema>;
+
+const buildPlanV2BaseSchema = z
+	.object({
+		schemaVersion: z.literal(2),
+		designRevisionId: z.string().uuid(),
+		designRevisionDigest: sha256HexSchema,
+		id: z.string().uuid(),
+		slices: z.array(buildSliceSchema).min(1),
+		externalActions: z.array(externalActionSchema),
+		lookupMaterialization: z.union([
+			buildPlanLookupMaterializationSchema,
+			z.null(),
+		]),
+	})
+	.strict();
+export type BuildPlanV2 = z.infer<typeof buildPlanV2BaseSchema>;
+
+const buildPlanBaseSchema = z.discriminatedUnion("schemaVersion", [
+	buildPlanV1BaseSchema,
+	buildPlanV2BaseSchema,
+]);
 export type BuildPlan = z.infer<typeof buildPlanBaseSchema>;
 
 function validatePlan(plan: BuildPlan, ctx: z.RefinementCtx): void {
@@ -527,9 +554,104 @@ function expectedElementKinds(
 	]);
 }
 
+function expectedLookupBindingKinds(
+	contract: Extract<AppDesignContract, { schemaVersion: 2 }>,
+): ReadonlyMap<string, BuildPlanLookupBinding["kind"]> {
+	const expected = new Map<string, BuildPlanLookupBinding["kind"]>();
+	for (const table of contract.lookupTables) {
+		if (table.kind === "create") {
+			expected.set(table.id, "lookup-table");
+			for (const column of table.columns)
+				expected.set(column.id, "lookup-column");
+			continue;
+		}
+		for (const operation of table.operations) {
+			switch (operation.kind) {
+				case "add-column":
+					expected.set(operation.column.id, "lookup-column");
+					break;
+				case "add-row":
+				case "replace-rows":
+					break;
+			}
+		}
+	}
+	return expected;
+}
+
 /** Contract-bound persisted-read proof. */
 export function buildPlanSchemaFor(contract: AppDesignContract) {
 	return buildPlanSchema.superRefine((plan, ctx) => {
+		if (plan.schemaVersion !== contract.schemaVersion) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["schemaVersion"],
+				message:
+					"The BuildPlan schema version must match its accepted Design Contract.",
+			});
+			return;
+		}
+		if (contract.schemaVersion === 2 && plan.schemaVersion === 2) {
+			const expectedBindings = expectedLookupBindingKinds(contract);
+			const lookupRequired =
+				contract.lookupTables.length > 0 ||
+				contract.records.some((record) =>
+					record.properties.some(
+						(property) => property.choiceSource !== undefined,
+					),
+				) ||
+				contract.workflows.some((workflow) =>
+					workflow.inputs.some((input) => input.choiceSource !== undefined),
+				);
+			if (lookupRequired && plan.lookupMaterialization === null) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["lookupMaterialization"],
+					message:
+						"Accepted lookup intent requires its durable materialization receipt before planning.",
+				});
+			}
+			if (plan.lookupMaterialization !== null) {
+				const seen = new Map<string, string>();
+				for (const [
+					index,
+					binding,
+				] of plan.lookupMaterialization.bindings.entries()) {
+					const prior = seen.get(binding.designId);
+					if (prior !== undefined) {
+						ctx.addIssue({
+							code: "custom",
+							path: ["lookupMaterialization", "bindings", index, "designId"],
+							message: `A lookup Design ID may bind exactly once; it is already bound as ${prior}.`,
+						});
+					}
+					seen.set(binding.designId, binding.kind);
+					const expectedKind = expectedBindings.get(binding.designId);
+					if (expectedKind === undefined) {
+						ctx.addIssue({
+							code: "custom",
+							path: ["lookupMaterialization", "bindings", index, "designId"],
+							message:
+								"The lookup receipt contains a Design ID that the accepted contract does not materialize.",
+						});
+					} else if (binding.kind !== expectedKind) {
+						ctx.addIssue({
+							code: "custom",
+							path: ["lookupMaterialization", "bindings", index, "kind"],
+							message: `This Design ID requires a ${expectedKind} binding, not ${binding.kind}.`,
+						});
+					}
+				}
+				for (const [designId, kind] of expectedBindings) {
+					if (seen.has(designId)) continue;
+					ctx.addIssue({
+						code: "custom",
+						path: ["lookupMaterialization", "bindings"],
+						message: `The lookup receipt is missing the ${kind} binding for accepted Design ID ${designId}.`,
+					});
+				}
+			}
+		}
 		/* These are producer invariants for plans derived from an accepted
 		 * contract, not v1 wire-format invariants. Earlier v1 producers placed
 		 * the app area on every foundation group, so the generic persisted reader
@@ -794,6 +916,7 @@ export function deriveBuildPlan(args: {
 	readonly contract: AppDesignContract;
 	readonly revision: { readonly id: string; readonly digest: string };
 	readonly planId?: string;
+	readonly lookupMaterialization?: BuildPlanLookupMaterialization | null;
 }): BuildPlan {
 	const { contract, revision } = args;
 	const constructionIssues = designConstructionIssues(contract);
@@ -1079,13 +1202,32 @@ export function deriveBuildPlan(args: {
 			role: workflowId === initial ? "materialization-root" : "ordinary",
 		};
 	});
+	const lookupRequired =
+		contract.schemaVersion === 2 &&
+		(contract.lookupTables.length > 0 ||
+			contract.records.some((record) =>
+				record.properties.some(
+					(property) => property.choiceSource !== undefined,
+				),
+			) ||
+			contract.workflows.some((workflow) =>
+				workflow.inputs.some((input) => input.choiceSource !== undefined),
+			));
+	if (lookupRequired && args.lookupMaterialization == null) {
+		throw new Error(
+			"Accepted Design Contract v2 lookup intent requires its durable Project-data materialization receipt before planning.",
+		);
+	}
 	return buildPlanSchemaFor(contract).parse({
-		schemaVersion: 1,
+		schemaVersion: contract.schemaVersion,
 		designRevisionId: revision.id,
 		designRevisionDigest: revision.digest,
 		id: args.planId ?? crypto.randomUUID(),
 		slices,
 		externalActions,
+		...(contract.schemaVersion === 2
+			? { lookupMaterialization: args.lookupMaterialization ?? null }
+			: {}),
 	});
 }
 

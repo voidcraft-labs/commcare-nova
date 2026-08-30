@@ -23,6 +23,7 @@ import type {
 	UIMessageChunk,
 } from "ai";
 import { convertToModelMessages, validateUIMessages } from "ai";
+import { z } from "zod";
 import type {
 	DesignArtifactWriteAuthority,
 	DesignBuildPlanRecord,
@@ -42,11 +43,20 @@ import {
 	renderCapabilityCatalog,
 } from "@/lib/agent/design/capabilityCatalog";
 import {
+	type AppDesignContract,
 	appDesignContractSchema,
+	type DesignConstructionIssue,
 	designConstructionQuestionRequirements,
+	type ExistingLookupChoiceSource,
+	type ExistingLookupTableDesignOperation,
+	existingLookupChoicePostChangeIssues,
 	type OpenQuestion,
 } from "@/lib/agent/design/contract";
 import type { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
+import {
+	computeLookupChoiceProjectionAttestation,
+	lookupChoiceAttestationsEqual,
+} from "@/lib/agent/design/lookupChoiceAttestation";
 import {
 	createDesignAgent,
 	DESIGN_WAIT_FOR_INPUT_TOOL,
@@ -78,8 +88,12 @@ import {
 import {
 	createDesignLoopTools,
 	createDesignToolExecutionQueue,
+	type DesignProjectDataCatalogTableSegment,
+	type DesignProjectDataInspectionResult,
+	type DesignProjectDataTable,
 	designWorkspaceLineageForGates,
 	ensureDerivedBuildPlan,
+	type InspectProjectDataInput,
 	projectDesignIdentityHandles,
 } from "@/lib/agent/design/loop/tools";
 import {
@@ -105,6 +119,16 @@ import {
 import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
 import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
+import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
+import { getAppDb } from "@/lib/db/pg";
+import { LookupError } from "@/lib/lookup/errors";
+import { lookupRevisionSchema } from "@/lib/lookup/schema";
+import {
+	readAllLookupDefinitionsInTransaction,
+	readLookupFixtureDataInTransaction,
+	readLookupTableRowsPageInTransaction,
+} from "@/lib/lookup/service";
+import type { LookupColumnId, LookupRevision } from "@/lib/lookup/types";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
@@ -880,6 +904,598 @@ export interface DesignLoopRunnerArgs {
 	readonly onRecoverableRetry?: (classified: ClassifiedError) => void;
 }
 
+/** Leaves room for the AI SDK tool-result envelope below its model-facing cap. */
+export const DESIGN_PROJECT_DATA_CATALOG_PAGE_MAX_BYTES = 70_000;
+const DESIGN_PROJECT_DATA_CATALOG_CURSOR_RESERVE_BYTES = 1_000;
+const designProjectDataCatalogCursorSchema = z
+	.object({
+		v: z.literal(1),
+		projectId: z.string().min(1),
+		projectRevision: lookupRevisionSchema,
+		tableIndex: z.number().int().nonnegative(),
+		columnOffset: z.number().int().nonnegative(),
+	})
+	.strict();
+
+function designProjectDataCatalogJsonBytes(value: unknown): number {
+	return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function decodeDesignProjectDataCatalogCursor(value: string) {
+	try {
+		return designProjectDataCatalogCursorSchema.parse(
+			JSON.parse(Buffer.from(value, "base64url").toString("utf8")),
+		);
+	} catch {
+		throw new LookupError(
+			"invalid_input",
+			"The Project-data catalog cursor is invalid. Start again without a cursor.",
+		);
+	}
+}
+
+function encodeDesignProjectDataCatalogCursor(
+	value: z.infer<typeof designProjectDataCatalogCursorSchema>,
+): string {
+	return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function pageDesignProjectDataCatalog(args: {
+	readonly projectId: string;
+	readonly projectRevision: LookupRevision;
+	readonly tables: readonly DesignProjectDataTable[];
+	readonly cursor?: string;
+}): Extract<DesignProjectDataInspectionResult, { kind: "catalog" }> {
+	const cursor =
+		args.cursor === undefined
+			? undefined
+			: decodeDesignProjectDataCatalogCursor(args.cursor);
+	if (cursor !== undefined && cursor.projectId !== args.projectId) {
+		throw new LookupError(
+			"invalid_input",
+			"The Project-data catalog cursor belongs to a different Project. Start again without a cursor.",
+		);
+	}
+	if (cursor !== undefined && cursor.projectRevision !== args.projectRevision) {
+		throw new LookupError(
+			"conflict",
+			"Project data changed while its catalog was being read. Start again without a cursor.",
+		);
+	}
+
+	let tableIndex = cursor?.tableIndex ?? 0;
+	let columnOffset = cursor?.columnOffset ?? 0;
+	if (tableIndex > args.tables.length) {
+		throw new LookupError(
+			"invalid_input",
+			"The Project-data catalog cursor is outside this catalog. Start again without a cursor.",
+		);
+	}
+	const tables: DesignProjectDataCatalogTableSegment[] = [];
+	let nextCursor: string | undefined;
+	catalogPage: while (tableIndex < args.tables.length) {
+		const table = args.tables[tableIndex];
+		if (columnOffset > table.columns.length) {
+			throw new LookupError(
+				"invalid_input",
+				"The Project-data catalog cursor is outside this table. Start again without a cursor.",
+			);
+		}
+		const { columns: _allColumns, ...base } = table;
+		const columns: DesignProjectDataTable["columns"][number][] = [];
+		for (let index = columnOffset; index < table.columns.length; index++) {
+			const candidate: DesignProjectDataCatalogTableSegment = {
+				...base,
+				...(columnOffset === 0 ? {} : { columnOffset }),
+				columnsComplete: index + 1 === table.columns.length,
+				columns: [...columns, table.columns[index]],
+			};
+			if (
+				designProjectDataCatalogJsonBytes({
+					kind: "catalog",
+					projectRevision: args.projectRevision,
+					complete: false,
+					tables: [...tables, candidate],
+				}) >
+				DESIGN_PROJECT_DATA_CATALOG_PAGE_MAX_BYTES -
+					DESIGN_PROJECT_DATA_CATALOG_CURSOR_RESERVE_BYTES
+			) {
+				if (columns.length === 0 && tables.length > 0) {
+					nextCursor = encodeDesignProjectDataCatalogCursor({
+						v: 1,
+						projectId: args.projectId,
+						projectRevision: args.projectRevision,
+						tableIndex,
+						columnOffset,
+					});
+					break catalogPage;
+				}
+				if (columns.length === 0) {
+					throw new LookupError(
+						"invalid_input",
+						"One Project-data column cannot fit safely in a design tool result.",
+					);
+				}
+				break;
+			}
+			columns.push(table.columns[index]);
+		}
+		const columnsComplete =
+			columnOffset + columns.length >= table.columns.length;
+		tables.push({
+			...base,
+			...(columnOffset === 0 ? {} : { columnOffset }),
+			columnsComplete,
+			columns,
+		});
+		if (!columnsComplete) {
+			nextCursor = encodeDesignProjectDataCatalogCursor({
+				v: 1,
+				projectId: args.projectId,
+				projectRevision: args.projectRevision,
+				tableIndex,
+				columnOffset: columnOffset + columns.length,
+			});
+			break;
+		}
+		tableIndex++;
+		columnOffset = 0;
+	}
+	return {
+		kind: "catalog",
+		projectRevision: args.projectRevision,
+		tables,
+		complete: nextCursor === undefined,
+		...(nextCursor === undefined ? {} : { nextCursor }),
+	};
+}
+
+export async function inspectAuthorizedProjectData(
+	args: Pick<
+		DesignLoopRunnerArgs,
+		"actorUserId" | "designSessionId" | "holderNonce" | "projectId" | "runId"
+	>,
+	input: InspectProjectDataInput,
+): Promise<DesignProjectDataInspectionResult> {
+	/* The design has no app row yet. Reprove its exact pre-genesis holder and
+	 * current Project edit membership on every model read, then perform the
+	 * lookup snapshot inside that SAME repeatable-read transaction. */
+	const db = await getAppDb();
+	return db
+		.transaction()
+		.setIsolationLevel("repeatable read")
+		.execute(async (tx) => {
+			await assertDesignSessionRunAuthorityInTransaction(tx, {
+				designSessionId: args.designSessionId,
+				actorUserId: args.actorUserId,
+				expectedProjectId: args.projectId,
+				holder: {
+					mode: "build",
+					runId: args.runId,
+					nonce: args.holderNonce,
+				},
+			});
+			try {
+				if (input.tableId === undefined) {
+					const snapshot = await readAllLookupDefinitionsInTransaction(
+						tx,
+						args.projectId,
+					);
+					return pageDesignProjectDataCatalog({
+						projectId: snapshot.projectId,
+						projectRevision: snapshot.projectRevision,
+						tables: snapshot.definitions.map((definition) => {
+							if (
+								definition.columnCount === undefined ||
+								definition.rowCount === undefined ||
+								definition.dataBytes === undefined ||
+								definition.rowsRevision === undefined ||
+								definition.tableRevision === undefined
+							) {
+								throw new Error(
+									"The authoritative Project-data catalog omitted authoring metadata.",
+								);
+							}
+							return {
+								id: definition.id,
+								name: definition.name,
+								tag: definition.tag,
+								columnCount: definition.columnCount,
+								rowCount: definition.rowCount,
+								dataBytes: definition.dataBytes,
+								definitionRevision: definition.definitionRevision,
+								rowsRevision: definition.rowsRevision,
+								tableRevision: definition.tableRevision,
+								columns: definition.columns,
+							};
+						}),
+						...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+					});
+				}
+				const selectedColumnIds =
+					input.choiceProjection === undefined
+						? input.columnIds
+						: [
+								...new Set([
+									input.choiceProjection.valueColumnId,
+									input.choiceProjection.labelColumnId,
+								]),
+							];
+				let choiceProjection:
+					| Extract<
+							DesignProjectDataInspectionResult,
+							{ kind: "rows" }
+					  >["choiceProjection"]
+					| undefined;
+				if (input.choiceProjection !== undefined) {
+					const projection = input.choiceProjection;
+					const definitions = await readAllLookupDefinitionsInTransaction(
+						tx,
+						args.projectId,
+					);
+					const definition = definitions.definitions.find(
+						(table) => table.id === input.tableId,
+					);
+					const valueColumn = definition?.columns.find(
+						(column) => column.id === projection.valueColumnId,
+					);
+					const labelColumn = definition?.columns.find(
+						(column) => column.id === projection.labelColumnId,
+					);
+					if (
+						definition !== undefined &&
+						valueColumn !== undefined &&
+						labelColumn !== undefined &&
+						definition.tableRevision !== undefined
+					) {
+						const fixture = await readLookupFixtureDataInTransaction(
+							tx,
+							args.projectId,
+							[input.tableId],
+						);
+						const rows = fixture.rowsByTable.get(input.tableId) ?? [];
+						choiceProjection = {
+							...projection,
+							inspection: computeLookupChoiceProjectionAttestation({
+								tableRevision: definition.tableRevision,
+								tableName: definition.name,
+								valueColumnLabel: valueColumn.label,
+								labelColumnLabel: labelColumn.label,
+								rows: rows.map((row) => ({
+									rowId: row.id,
+									value: row.values[projection.valueColumnId],
+									label: row.values[projection.labelColumnId],
+								})),
+							}),
+						};
+					}
+				}
+				const page = await readLookupTableRowsPageInTransaction(
+					tx,
+					args.projectId,
+					{
+						tableId: input.tableId,
+						...(input.query === undefined ? {} : { query: input.query }),
+						...(selectedColumnIds === undefined
+							? {}
+							: { columnIds: selectedColumnIds }),
+						...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+					},
+					{
+						resultEnvelope: (candidate) => ({
+							kind: "rows",
+							...candidate,
+							...(choiceProjection === undefined ? {} : { choiceProjection }),
+						}),
+					},
+				);
+				if (
+					input.choiceProjection !== undefined &&
+					choiceProjection === undefined
+				) {
+					throw new Error(
+						"The authoritative Project-data page omitted choice projection metadata.",
+					);
+				}
+				return {
+					kind: "rows" as const,
+					table: page.table,
+					rows: page.rows,
+					complete: page.complete,
+					...(page.nextCursor === undefined
+						? {}
+						: { nextCursor: page.nextCursor }),
+					...(choiceProjection === undefined ? {} : { choiceProjection }),
+				};
+			} catch (error) {
+				if (!(error instanceof LookupError)) throw error;
+				return {
+					kind: "error" as const,
+					error: error.message,
+					code: error.code,
+					...(error.currentRevisions === undefined
+						? {}
+						: { currentRevisions: error.currentRevisions }),
+				};
+			}
+		});
+}
+
+interface ExistingChoiceInspectionUse {
+	readonly source: ExistingLookupChoiceSource;
+	readonly path: readonly (string | number)[];
+}
+
+function existingChoiceInspectionUses(
+	contract: AppDesignContract,
+): ExistingChoiceInspectionUse[] {
+	if (contract.schemaVersion !== 2) return [];
+	return [
+		...contract.records.flatMap((record, recordIndex) =>
+			record.properties.flatMap((property, propertyIndex) =>
+				property.choiceSource?.kind === "existing-project-lookup" &&
+				"tableId" in property.choiceSource &&
+				"inspection" in property.choiceSource
+					? [
+							{
+								source: property.choiceSource,
+								path: [
+									"records",
+									recordIndex,
+									"properties",
+									propertyIndex,
+									"choiceSource",
+								],
+							},
+						]
+					: [],
+			),
+		),
+		...contract.workflows.flatMap((workflow, workflowIndex) =>
+			workflow.inputs.flatMap((input, inputIndex) =>
+				input.choiceSource?.kind === "existing-project-lookup" &&
+				"tableId" in input.choiceSource &&
+				"inspection" in input.choiceSource
+					? [
+							{
+								source: input.choiceSource,
+								path: [
+									"workflows",
+									workflowIndex,
+									"inputs",
+									inputIndex,
+									"choiceSource",
+								],
+							},
+						]
+					: [],
+			),
+		),
+	];
+}
+
+interface ExistingColumnTarget {
+	readonly columnId: LookupColumnId;
+	readonly path: readonly (string | number)[];
+}
+
+function existingColumnTargets(
+	operation: ExistingLookupTableDesignOperation,
+	path: readonly (string | number)[],
+): ExistingColumnTarget[] {
+	const targets: ExistingColumnTarget[] = [];
+	const addRef = (
+		ref:
+			| { readonly kind: "existing-column"; readonly columnId: LookupColumnId }
+			| { readonly kind: "added-column"; readonly columnId: string }
+			| undefined,
+		refPath: readonly (string | number)[],
+	) => {
+		if (ref?.kind === "existing-column")
+			targets.push({ columnId: ref.columnId, path: refPath });
+	};
+	const addCells = (
+		cells: readonly { readonly column: Parameters<typeof addRef>[0] }[],
+		cellsPath: readonly (string | number)[],
+	) => {
+		for (const [cellIndex, cell] of cells.entries())
+			addRef(cell.column, [...cellsPath, cellIndex, "column", "columnId"]);
+	};
+	switch (operation.kind) {
+		case "update-table":
+		case "move-row":
+		case "remove-row":
+			break;
+		case "add-column":
+			addRef(operation.after, [...path, "after", "columnId"]);
+			break;
+		case "update-column":
+		case "remove-column":
+			targets.push({
+				columnId: operation.columnId,
+				path: [...path, "columnId"],
+			});
+			break;
+		case "move-column":
+			addRef(operation.column, [...path, "column", "columnId"]);
+			addRef(operation.after, [...path, "after", "columnId"]);
+			break;
+		case "add-row":
+		case "update-row":
+			addCells(operation.cells, [...path, "cells"]);
+			break;
+		case "replace-rows":
+			for (const [rowIndex, row] of operation.rows.entries())
+				addCells(row.cells, [...path, "rows", rowIndex, "cells"]);
+			break;
+	}
+	return targets;
+}
+
+/** Before a draft or reviewed revision becomes immutable, bind every model-
+ * authored existing-table projection to the exact current Project generation.
+ * The reviewer then sees evidence that the server has already checked, rather
+ * than an unverifiable claim that the author inspected the table. */
+export async function validateAuthorizedProjectLookupEvidence(
+	args: Pick<
+		DesignLoopRunnerArgs,
+		"actorUserId" | "designSessionId" | "holderNonce" | "projectId" | "runId"
+	>,
+	contract: AppDesignContract,
+): Promise<DesignConstructionIssue[]> {
+	if (contract.schemaVersion !== 2) return [];
+	const uses = existingChoiceInspectionUses(contract);
+	const modifications = contract.lookupTables.flatMap((intent, intentIndex) =>
+		intent.kind === "modify-existing"
+			? [
+					{
+						intent,
+						path: ["lookupTables", intentIndex] as const,
+					},
+				]
+			: [],
+	);
+	if (uses.length === 0 && modifications.length === 0) return [];
+	const tableIds = [...new Set(uses.map(({ source }) => source.tableId))];
+	const db = await getAppDb();
+	return db
+		.transaction()
+		.setIsolationLevel("repeatable read")
+		.execute(async (tx) => {
+			await assertDesignSessionRunAuthorityInTransaction(tx, {
+				designSessionId: args.designSessionId,
+				actorUserId: args.actorUserId,
+				expectedProjectId: args.projectId,
+				holder: {
+					mode: "build",
+					runId: args.runId,
+					nonce: args.holderNonce,
+				},
+			});
+			const catalog = await readAllLookupDefinitionsInTransaction(
+				tx,
+				args.projectId,
+			);
+			const fixture =
+				tableIds.length === 0
+					? null
+					: await readLookupFixtureDataInTransaction(
+							tx,
+							args.projectId,
+							tableIds,
+						);
+			const definitions = new Map(
+				catalog.definitions.map((definition) => [definition.id, definition]),
+			);
+			const issues: DesignConstructionIssue[] = [];
+			for (const { intent, path } of modifications) {
+				const definition = definitions.get(intent.tableId);
+				if (definition === undefined) {
+					issues.push({
+						path: [...path, "tableId"],
+						message:
+							"This existing Project lookup table is no longer available. Inspect the current catalog and update the design.",
+					});
+					continue;
+				}
+				const columnIds = new Set(
+					definition.columns.map((column) => column.id),
+				);
+				for (const [operationIndex, operation] of intent.operations.entries()) {
+					for (const target of existingColumnTargets(operation, [
+						...path,
+						"operations",
+						operationIndex,
+					])) {
+						if (!columnIds.has(target.columnId))
+							issues.push({
+								path: target.path,
+								message:
+									"This stable column UUID does not belong to the existing Project lookup table being changed.",
+							});
+					}
+				}
+			}
+			for (const { source, path } of uses) {
+				const definition = definitions.get(source.tableId);
+				if (definition === undefined) {
+					issues.push({
+						path: [...path, "tableId"],
+						message:
+							"This inspected Project lookup table is no longer available. Inspect the current catalog and update the design.",
+					});
+					continue;
+				}
+				if (definition.tableRevision !== source.inspection.tableRevision) {
+					issues.push({
+						path: [...path, "inspection", "tableRevision"],
+						message:
+							"This Project lookup table changed after it was inspected. Inspect its current revision and complete rows again.",
+					});
+					continue;
+				}
+				const columnIds = new Set(
+					definition.columns.map((column) => column.id),
+				);
+				for (const [key, columnId] of [
+					["valueColumnId", source.valueColumnId],
+					["labelColumnId", source.labelColumnId],
+				] as const) {
+					if (!columnIds.has(columnId))
+						issues.push({
+							path: [...path, key],
+							message:
+								"This inspected column does not belong to the current Project lookup table.",
+						});
+				}
+				const valueColumn = definition.columns.find(
+					(column) => column.id === source.valueColumnId,
+				);
+				const labelColumn = definition.columns.find(
+					(column) => column.id === source.labelColumnId,
+				);
+				if (
+					valueColumn === undefined ||
+					labelColumn === undefined ||
+					definition.tableRevision === undefined
+				)
+					continue;
+				const actualRows = fixture?.rowsByTable.get(source.tableId) ?? [];
+				const projectedRows = actualRows.map((row) => ({
+					rowId: row.id,
+					value: row.values[source.valueColumnId],
+					label: row.values[source.labelColumnId],
+				}));
+				const actualInspection = computeLookupChoiceProjectionAttestation({
+					tableRevision: definition.tableRevision,
+					tableName: definition.name,
+					valueColumnLabel: valueColumn.label,
+					labelColumnLabel: labelColumn.label,
+					rows: projectedRows,
+				});
+				if (
+					!lookupChoiceAttestationsEqual(actualInspection, source.inspection)
+				) {
+					issues.push({
+						path: [...path, "inspection"],
+						message:
+							"This choice attestation does not match the current complete ordered Project-data projection. Inspect the saved-value and label columns again and copy the returned attestation exactly.",
+					});
+					continue;
+				}
+				issues.push(
+					...existingLookupChoicePostChangeIssues(
+						contract,
+						source,
+						projectedRows,
+						path,
+					),
+				);
+			}
+			return issues;
+		});
+}
+
 export async function runDesignAgentLoop(
 	args: DesignLoopRunnerArgs,
 ): Promise<DesignLoopOutcome> {
@@ -946,6 +1562,10 @@ export async function runDesignAgentLoop(
 				questions,
 				modelContextProtocolKeys,
 			),
+		inspectProjectData: (input: InspectProjectDataInput) =>
+			inspectAuthorizedProjectData(args, input),
+		validateProjectLookupEvidence: (contract: AppDesignContract) =>
+			validateAuthorizedProjectLookupEvidence(args, contract),
 		onReviewActivity: (deltaChars: number) => pulse("review", deltaChars),
 		...(args.onReviewerReasoning !== undefined && {
 			onReviewerReasoning: args.onReviewerReasoning,

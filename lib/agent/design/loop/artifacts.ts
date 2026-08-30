@@ -43,7 +43,7 @@ export function contractEnvelope(args: {
 }): DesignArtifactEnvelope<AppDesignContract> {
 	return sealArtifactEnvelope({
 		artifactType: "design-contract",
-		artifactSchemaVersion: 1,
+		artifactSchemaVersion: args.contract.schemaVersion,
 		artifactId: crypto.randomUUID(),
 		designSessionId: args.designSessionId,
 		revision: args.revision,
@@ -89,13 +89,19 @@ export function planEnvelope(args: {
 }): DesignArtifactEnvelope<BuildPlan> {
 	return sealArtifactEnvelope({
 		artifactType: "design-build-plan",
-		artifactSchemaVersion: 1,
+		artifactSchemaVersion: args.plan.schemaVersion,
 		artifactId: crypto.randomUUID(),
 		designSessionId: args.accepted.designSessionId,
 		revision: args.accepted.revision,
 		parentArtifactId: args.accepted.id,
 		sourcePackageDigest: args.packageDigest,
-		inputArtifactDigests: [args.accepted.artifactDigest],
+		inputArtifactDigests: [
+			args.accepted.artifactDigest,
+			...(args.plan.schemaVersion === 2 &&
+			args.plan.lookupMaterialization !== null
+				? [args.plan.lookupMaterialization.resultDigest]
+				: []),
+		],
 		promptVersion: DESIGN_PROMPT_VERSIONS.planner,
 		producer: {
 			provider: "nova",
@@ -161,6 +167,8 @@ export function changesArchitecture(
 				id: property.id,
 				dataShape: property.dataShape,
 				sensitivity: property.sensitivity,
+				choiceValues: property.choiceValues,
+				choiceSource: property.choiceSource,
 			})),
 		})),
 		workflows: contract.workflows.map((workflow) => ({
@@ -170,6 +178,8 @@ export function changesArchitecture(
 			recordEffects: workflow.recordEffects,
 		})),
 		access: contract.access,
+		lookupTables:
+			contract.schemaVersion === 2 ? contract.lookupTables : undefined,
 	});
 	return JSON.stringify(project(before)) !== JSON.stringify(project(after));
 }

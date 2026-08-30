@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "2131329422684d429a992df08abdb1bbbe1aab0cfb632975064e46772d3eaed4",
+  "catalogDigest": "f55578426c1101f637e9c1462c2e11ebdbae8bfca4ba9d9bc7fe51aaa8ca0d6c",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -169,6 +169,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "staging": "forbidden",
     },
     {
+      "effect": "mutate-external",
+      "mcpName": "create_lookup_table",
+      "saName": "createLookupTable",
+      "staging": "forbidden",
+    },
+    {
       "effect": "mutate-blueprint",
       "mcpName": "create_module",
       "saName": "createModule",
@@ -179,6 +185,18 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "mcpName": "edit_field",
       "saName": "editField",
       "staging": "allowed",
+    },
+    {
+      "effect": "mutate-external",
+      "mcpName": "edit_lookup_columns",
+      "saName": "editLookupColumns",
+      "staging": "forbidden",
+    },
+    {
+      "effect": "mutate-external",
+      "mcpName": "edit_lookup_rows",
+      "saName": "editLookupRows",
+      "staging": "forbidden",
     },
     {
       "effect": "mutate-blueprint",
@@ -214,6 +232,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "read-blueprint",
       "mcpName": "get_languages",
       "saName": "getLanguages",
+      "staging": "allowed",
+    },
+    {
+      "effect": "read-blueprint",
+      "mcpName": "get_lookup_table_rows",
+      "saName": "getLookupTableRows",
       "staging": "allowed",
     },
     {
@@ -332,6 +356,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     },
     {
       "effect": "mutate-external",
+      "mcpName": "remove_lookup_table",
+      "saName": "removeLookupTable",
+      "staging": "forbidden",
+    },
+    {
+      "effect": "mutate-external",
       "mcpName": "remove_media_asset",
       "saName": "removeMediaAsset",
       "staging": "forbidden",
@@ -389,6 +419,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "mcpName": "reorder_search_inputs",
       "saName": "reorderSearchInputs",
       "staging": "allowed",
+    },
+    {
+      "effect": "mutate-external",
+      "mcpName": "replace_lookup_rows",
+      "saName": "replaceLookupRows",
+      "staging": "forbidden",
     },
     {
       "effect": "read-blueprint",
@@ -503,6 +539,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "mcpName": "update_location_property",
       "saName": "updateLocationProperty",
       "staging": "allowed",
+    },
+    {
+      "effect": "mutate-external",
+      "mcpName": "update_lookup_table",
+      "saName": "updateLookupTable",
+      "staging": "forbidden",
     },
     {
       "effect": "mutate-blueprint",

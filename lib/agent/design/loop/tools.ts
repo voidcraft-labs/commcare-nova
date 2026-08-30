@@ -41,12 +41,16 @@ import { DESIGN_EFFORT_TIME_ESTIMATES } from "@/lib/agent/design/complexity";
 import {
 	type AppDesignContract,
 	appDesignContractSchema,
+	appDesignContractV2BaseSchema,
 	type DesignConstructionIssue,
 	designConstructionIssues,
 	designConstructionQuestionRequirements,
 	type OpenQuestion,
 } from "@/lib/agent/design/contract";
 import { DESIGN_HANDLE_PATTERN, designIdSchema } from "@/lib/agent/design/ids";
+import type { LookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
+import { ensureAcceptedLookupMaterialization } from "@/lib/agent/design/lookupMaterialization";
+import { projectBuildPlanLookupBindings } from "@/lib/agent/design/lookupMaterializationTypes";
 import {
 	changesArchitecture,
 	contractEnvelope,
@@ -83,7 +87,111 @@ import {
 	strictWireJsonSchema,
 	stripNullProperties,
 } from "@/lib/agent/strictStructuredOutput";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
+import type {
+	LookupCellValue,
+	LookupColumn,
+	LookupColumnId,
+	LookupRevision,
+	LookupRowId,
+	LookupTableId,
+} from "@/lib/lookup/types";
+
+export const inspectProjectDataInputSchema = z
+	.object({
+		tableId: lookupTableIdSchema.optional(),
+		query: z.string().trim().max(200).optional(),
+		columnIds: z.array(lookupColumnIdSchema).max(250).optional(),
+		choiceProjection: z
+			.object({
+				valueColumnId: lookupColumnIdSchema,
+				labelColumnId: lookupColumnIdSchema,
+			})
+			.strict()
+			.optional(),
+		cursor: z.string().min(1).max(4096).optional(),
+	})
+	.strict()
+	.superRefine((input, ctx) => {
+		if (
+			input.tableId === undefined &&
+			(input.query !== undefined ||
+				input.columnIds !== undefined ||
+				input.choiceProjection !== undefined)
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["tableId"],
+				message: "A query or column projection requires one stable table UUID.",
+			});
+		if (input.columnIds !== undefined && input.choiceProjection !== undefined)
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceProjection"],
+				message:
+					"Use either a generic column projection or one saved-value/label choice projection, not both.",
+			});
+	});
+export type InspectProjectDataInput = z.infer<
+	typeof inspectProjectDataInputSchema
+>;
+
+export interface DesignProjectDataTable {
+	readonly id: LookupTableId;
+	readonly name: string;
+	readonly tag: string;
+	readonly columnCount: number;
+	readonly rowCount: number;
+	readonly dataBytes: number;
+	readonly definitionRevision: LookupRevision;
+	readonly rowsRevision: LookupRevision;
+	readonly tableRevision: LookupRevision;
+	readonly columns: readonly LookupColumn[];
+}
+
+export interface DesignProjectDataCatalogTableSegment
+	extends DesignProjectDataTable {
+	/** Present when this page continues a table's ordered column list. */
+	readonly columnOffset?: number;
+	readonly columnsComplete: boolean;
+}
+
+export type DesignProjectDataInspectionResult =
+	| {
+			readonly kind: "catalog";
+			readonly projectRevision: LookupRevision;
+			readonly tables: readonly DesignProjectDataCatalogTableSegment[];
+			readonly complete: boolean;
+			readonly nextCursor?: string;
+	  }
+	| {
+			readonly kind: "rows";
+			readonly table: DesignProjectDataTable;
+			readonly rows: readonly {
+				readonly id: LookupRowId;
+				readonly cells: readonly {
+					readonly columnId: LookupColumnId;
+					readonly value: LookupCellValue;
+				}[];
+			}[];
+			readonly complete: boolean;
+			readonly nextCursor?: string;
+			readonly choiceProjection?: {
+				readonly valueColumnId: LookupColumnId;
+				readonly labelColumnId: LookupColumnId;
+				readonly inspection: LookupChoiceProjectionAttestation;
+			};
+	  }
+	| {
+			readonly kind: "error";
+			readonly error: string;
+			readonly code?: string;
+			readonly currentRevisions?: unknown;
+	  };
 
 export interface DesignLoopToolDeps {
 	readonly designSessionId: string;
@@ -106,6 +214,19 @@ export interface DesignLoopToolDeps {
 	readonly requiredQuestionsWereAnswered?: (
 		questions: readonly OpenQuestion[],
 	) => boolean | Promise<boolean>;
+	/** Authorized, read-only Project-data inspection. The runtime binding must
+	 * reprove this design session's exact holder and current Project membership
+	 * on every call, and return one revision-bound rows-free catalog page when
+	 * tableId is absent or one cursor-bound page of at most 100 ordered rows when
+	 * it is present. */
+	readonly inspectProjectData: (
+		input: InspectProjectDataInput,
+	) => Promise<DesignProjectDataInspectionResult>;
+	/** Fail-closed proof that every persisted existing-table choice projection
+	 * still matches the exact authorized Project generation. */
+	readonly validateProjectLookupEvidence: (
+		contract: AppDesignContract,
+	) => Promise<DesignConstructionIssue[]>;
 	readonly onReviewActivity?: (deltaChars: number) => void;
 	readonly onReviewerReasoning?: (text: string) => void;
 }
@@ -114,9 +235,36 @@ async function persistDerivedPlan(
 	deps: DesignLoopToolDeps,
 	accepted: NonNullable<DesignGateState["head"]>,
 ) {
+	const lookupReceipt =
+		accepted.envelope.payload.schemaVersion === 2
+			? await ensureAcceptedLookupMaterialization({
+					designSessionId: deps.designSessionId,
+					designRevisionId: accepted.id,
+					designRevisionDigest: accepted.artifactDigest,
+					contract: appDesignContractV2BaseSchema.parse(
+						accepted.envelope.payload,
+					),
+					authority: deps.authority,
+				})
+			: null;
 	const plan = deriveBuildPlan({
 		contract: accepted.envelope.payload,
 		revision: { id: accepted.id, digest: accepted.artifactDigest },
+		...(accepted.envelope.payload.schemaVersion === 2
+			? {
+					lookupMaterialization:
+						lookupReceipt === null
+							? null
+							: {
+									receiptId: lookupReceipt.id,
+									resultDigest: lookupReceipt.resultDigest,
+									projectRevision: lookupReceipt.payload.projectRevision,
+									bindings: projectBuildPlanLookupBindings(
+										lookupReceipt.payload.bindings,
+									),
+								},
+				}
+			: {}),
 	});
 	const record = await insertDesignBuildPlan({
 		envelope: planEnvelope({
@@ -267,6 +415,7 @@ const DESIGN_COLLECTION_ENTITY_KINDS = {
 	navigation: "navigation",
 	moduleCompositions: "module_composition",
 	formCompositions: "form_composition",
+	lookupTables: "lookup_table_intent",
 	externalRequirements: "external_requirement",
 	decisions: "decision",
 	assumptions: "assumption",
@@ -320,6 +469,33 @@ export function collectDesignIdentityHandleBindings(
 		for (const item of collection.upserts) {
 			if (!isJsonObject(item)) continue;
 			add(item.id, kind);
+			if (collection.collection === "lookupTables" && item.kind === "create") {
+				for (const column of Array.isArray(item.columns) ? item.columns : []) {
+					if (isJsonObject(column)) add(column.id, "lookup_column_intent");
+				}
+				for (const row of Array.isArray(item.rows) ? item.rows : []) {
+					if (isJsonObject(row)) add(row.id, "lookup_row_intent");
+				}
+			}
+			if (
+				collection.collection === "lookupTables" &&
+				item.kind === "modify-existing" &&
+				Array.isArray(item.operations)
+			) {
+				for (const operation of item.operations) {
+					if (!isJsonObject(operation)) continue;
+					if (operation.kind === "add-column" && isJsonObject(operation.column))
+						add(operation.column.id, "lookup_column_intent");
+					if (operation.kind === "add-row")
+						add(operation.rowId, "lookup_row_intent");
+					if (operation.kind === "replace-rows")
+						for (const row of Array.isArray(operation.rows)
+							? operation.rows
+							: []) {
+							if (isJsonObject(row)) add(row.id, "lookup_row_intent");
+						}
+				}
+			}
 			if (
 				collection.collection === "records" &&
 				Array.isArray(item.properties)
@@ -618,6 +794,14 @@ export function createDesignToolExecutionQueue() {
 	});
 	const reserve = (input: object, clientInputPause: boolean): void => {
 		const state = activeState;
+		if (clientInputPause) {
+			void schedule(state, async () => {
+				if (state.inputPauseRequested) return refusal();
+				state.inputPauseRequested = true;
+				return { ok: true as const, awaitingInput: true as const };
+			});
+			return;
+		}
 		let attached = false;
 		let supplyWork: ((work: () => Promise<unknown>) => void) | null = null;
 		const workReady = new Promise<() => Promise<unknown>>((resolve) => {
@@ -625,13 +809,8 @@ export function createDesignToolExecutionQueue() {
 		});
 		const result = schedule(state, async () => {
 			if (state.inputPauseRequested) return refusal();
-			if (clientInputPause) {
-				state.inputPauseRequested = true;
-				return { ok: true as const, awaitingInput: true as const };
-			}
 			return (await workReady)();
 		});
-		if (clientInputPause) return;
 		reservations.set(input, {
 			state,
 			attach<T>(work: () => Promise<T>): Promise<T | ToolError> {
@@ -973,6 +1152,24 @@ function constructionSubmissionRejection(args: {
 	};
 }
 
+async function projectLookupEvidenceRejection(args: {
+	deps: DesignLoopToolDeps;
+	toolName: DesignLoopToolName;
+	contract: AppDesignContract;
+	handleBindings: readonly DesignIdentityHandleBinding[];
+}) {
+	const issues = await args.deps.validateProjectLookupEvidence(args.contract);
+	if (issues.length === 0) return null;
+	args.deps.repair.noteSubmissionRejection(args.toolName, {
+		stage: "construction",
+		fingerprints: issues.map(constructionIssueFingerprint),
+	});
+	return {
+		error: renderDesignConstructionIssues(issues, args.handleBindings),
+		diagnostic: rejectionDiagnostic("construction", issues.length),
+	};
+}
+
 function parseStage<T>(schema: z.ZodType<T>, input: unknown) {
 	const parsed = schema.safeParse(stripNullProperties(input));
 	return parsed.success
@@ -1038,6 +1235,38 @@ function existingDesignIdentityKinds(
 		for (const member of members) {
 			if (!isJsonObject(member)) continue;
 			add(member.id, DESIGN_COLLECTION_ENTITY_KINDS[collection]);
+			if (collection === "lookupTables") {
+				if (member.kind === "create") {
+					for (const column of Array.isArray(member.columns)
+						? member.columns
+						: []) {
+						if (isJsonObject(column)) add(column.id, "lookup_column_intent");
+					}
+					for (const row of Array.isArray(member.rows) ? member.rows : []) {
+						if (isJsonObject(row)) add(row.id, "lookup_row_intent");
+					}
+				} else if (
+					member.kind === "modify-existing" &&
+					Array.isArray(member.operations)
+				) {
+					for (const operation of member.operations) {
+						if (!isJsonObject(operation)) continue;
+						if (
+							operation.kind === "add-column" &&
+							isJsonObject(operation.column)
+						)
+							add(operation.column.id, "lookup_column_intent");
+						if (operation.kind === "add-row")
+							add(operation.rowId, "lookup_row_intent");
+						if (operation.kind === "replace-rows")
+							for (const row of Array.isArray(operation.rows)
+								? operation.rows
+								: []) {
+								if (isJsonObject(row)) add(row.id, "lookup_row_intent");
+							}
+					}
+				}
+			}
 			if (collection === "records" && Array.isArray(member.properties)) {
 				for (const property of member.properties) {
 					if (isJsonObject(property)) add(property.id, "property");
@@ -1098,6 +1327,64 @@ export function designCreationIdentityIssue(
 					path: `collections.${collectionIndex}.upserts.${itemIndex}.id`,
 					value: item.id,
 				});
+				if (collection.collection === "lookupTables") {
+					if (item.kind === "create") {
+						for (const [columnIndex, column] of (Array.isArray(item.columns)
+							? item.columns
+							: []
+						).entries()) {
+							if (!isJsonObject(column)) continue;
+							declarations.push({
+								path: `collections.${collectionIndex}.upserts.${itemIndex}.columns.${columnIndex}.id`,
+								value: column.id,
+							});
+						}
+						for (const [rowIndex, row] of (Array.isArray(item.rows)
+							? item.rows
+							: []
+						).entries()) {
+							if (!isJsonObject(row)) continue;
+							declarations.push({
+								path: `collections.${collectionIndex}.upserts.${itemIndex}.rows.${rowIndex}.id`,
+								value: row.id,
+							});
+						}
+					} else if (
+						item.kind === "modify-existing" &&
+						Array.isArray(item.operations)
+					) {
+						for (const [
+							operationIndex,
+							operation,
+						] of item.operations.entries()) {
+							if (!isJsonObject(operation)) continue;
+							if (
+								operation.kind === "add-column" &&
+								isJsonObject(operation.column)
+							)
+								declarations.push({
+									path: `collections.${collectionIndex}.upserts.${itemIndex}.operations.${operationIndex}.column.id`,
+									value: operation.column.id,
+								});
+							if (operation.kind === "add-row")
+								declarations.push({
+									path: `collections.${collectionIndex}.upserts.${itemIndex}.operations.${operationIndex}.rowId`,
+									value: operation.rowId,
+								});
+							if (operation.kind === "replace-rows")
+								for (const [rowIndex, row] of (Array.isArray(operation.rows)
+									? operation.rows
+									: []
+								).entries()) {
+									if (!isJsonObject(row)) continue;
+									declarations.push({
+										path: `collections.${collectionIndex}.upserts.${itemIndex}.operations.${operationIndex}.rows.${rowIndex}.id`,
+										value: row.id,
+									});
+								}
+						}
+					}
+				}
 				if (
 					collection.collection === "records" &&
 					Array.isArray(item.properties)
@@ -1221,6 +1508,18 @@ export function createDesignLoopTools(
 	 * attaches its work to that reservation, including update -> finish -> review
 	 * chains and the client-side askQuestions terminal. */
 	const inResponseOrder = executionQueue.run;
+	const inspectProjectData = {
+		description:
+			"Inspect this app Project's current data tables before designing references or changes. Omit tableId for one bounded rows-free catalog page with stable table and column UUIDs; continue with each nextCursor until complete is true. With tableId, read one ordered page of at most 100 rows, optionally filtered by query or projected to columnIds. To continue a row read, repeat the same query and projection with its cursor. Names, tags, labels, and wire names are metadata, never identity.",
+		inputSchema: strictWireOnly(inspectProjectDataInputSchema),
+		strict: true,
+		execute: (input: unknown) =>
+			inResponseOrder(input, async () => {
+				const parsedInput = parseStage(inspectProjectDataInputSchema, input);
+				if (!parsedInput.ok) return { error: parsedInput.error };
+				return deps.inspectProjectData(parsedInput.data);
+			}),
+	};
 
 	const workspaceKind = (gates: DesignGateState): DesignArtifactKind =>
 		gates.verdicts.submitRevision.legal || gates.headReviews.length > 0
@@ -1377,6 +1676,10 @@ export function createDesignLoopTools(
 		"formCompositions",
 		"Update exact worker-facing form composition and layout.",
 	);
+	const updateLookupTables = semanticCollectionTool(
+		"lookupTables",
+		"Update reviewed Project lookup-table creation or explicitly authorized existing-table changes. New tables, columns, and rows use readable @handles; existing Project resources use only inspected stable UUIDs.",
+	);
 	const updateExternalRequirements = semanticCollectionTool(
 		"externalRequirements",
 		"Update honest requirements outside the authored app.",
@@ -1489,6 +1792,13 @@ export function createDesignLoopTools(
 				"The contract needs decisions from the user before it can be finalized.",
 		});
 		if (constructionRejection !== null) return constructionRejection;
+		const lookupEvidenceRejection = await projectLookupEvidenceRejection({
+			deps,
+			toolName: "submitContract",
+			contract: parsed.data,
+			handleBindings: state.handleBindings,
+		});
+		if (lookupEvidenceRejection !== null) return lookupEvidenceRejection;
 		const head = gates.head;
 		const draft = await insertDesignRevision({
 			envelope: contractEnvelope({
@@ -1602,6 +1912,13 @@ export function createDesignLoopTools(
 				...findingHandleBindings,
 			]);
 			if (gated.length === 0) {
+				const lookupEvidenceRejection = await projectLookupEvidenceRejection({
+					deps,
+					toolName: "requestReview",
+					contract: draft.envelope.payload,
+					handleBindings: bindings,
+				});
+				if (lookupEvidenceRejection !== null) return lookupEvidenceRejection;
 				const accepted = await insertDesignRevision({
 					envelope: contractEnvelope({
 						designSessionId: deps.designSessionId,
@@ -1704,6 +2021,13 @@ export function createDesignLoopTools(
 				"The revision needs decisions from the user before it can be accepted.",
 		});
 		if (constructionRejection !== null) return constructionRejection;
+		const lookupEvidenceRejection = await projectLookupEvidenceRejection({
+			deps,
+			toolName: "submitRevision",
+			contract: parsed.data.contract,
+			handleBindings: state.handleBindings,
+		});
+		if (lookupEvidenceRejection !== null) return lookupEvidenceRejection;
 		const sensitivityViolations = validateSensitivityNotSilentlyLowered(
 			head.envelope.payload,
 			parsed.data,
@@ -1809,6 +2133,7 @@ export function createDesignLoopTools(
 	};
 
 	return {
+		inspectProjectData,
 		setDesignRoot,
 		updateActors,
 		updateRecords,
@@ -1818,6 +2143,7 @@ export function createDesignLoopTools(
 		updateNavigation,
 		updateModuleCompositions,
 		updateFormCompositions,
+		updateLookupTables,
 		updateExternalRequirements,
 		updateDecisions,
 		updateAssumptions,

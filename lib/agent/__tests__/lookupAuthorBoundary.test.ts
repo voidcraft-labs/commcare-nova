@@ -397,12 +397,12 @@ describe("generated expression grammar", () => {
 		expect(grammar).not.toContain("operationId");
 	});
 
-	it("keeps UUID lookup guidance byte-identical across build/edit prompts", () => {
+	it("keeps UUID lookup guidance in every edit prompt", () => {
 		for (const prompt of [
 			buildSolutionsArchitectPrompt(),
 			buildSolutionsArchitectPrompt(),
 		]) {
-			expect(prompt).toContain("Project data identities");
+			expect(prompt).toContain("Project data consent and identity");
 			expect(prompt).toContain("getLookupTables");
 			expect(prompt).toContain("setFieldOptionsSource");
 			expect(prompt).toContain("tableId");

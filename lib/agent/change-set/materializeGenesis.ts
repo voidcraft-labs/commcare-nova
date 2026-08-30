@@ -28,6 +28,7 @@
  * sequence-1 baseline fold.
  */
 
+import { assertDesignLookupMaterializationCurrentInTransaction } from "@/lib/agent/design/lookupMaterialization";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { lockActorGenerationGate } from "@/lib/db/actorGenerationGate";
 import {
@@ -38,6 +39,7 @@ import {
 	writePreparedGenesisInTransaction,
 } from "@/lib/db/appGenesis";
 import { executeCanonicalCommitSidecars } from "@/lib/db/canonicalCommitSidecars";
+import { releaseDesignLookupProtectionsInTransaction } from "@/lib/db/designLookupMaterializations";
 import { type LockedSessionRow, lockSessionRow } from "@/lib/db/designSessions";
 import { designSessionReservation } from "@/lib/db/leaseView";
 import { drainPendingCaseSchemaIndexes } from "@/lib/db/materializeCaseStoreSchemas";
@@ -240,6 +242,19 @@ export async function materializeAppFromGenesis(
 						},
 					},
 				});
+				await assertDesignLookupMaterializationCurrentInTransaction(tx, {
+					designSessionId: changeSet.designSessionId,
+					designRevisionId: changeSet.designRevisionId,
+					designRevisionDigest: changeSet.designRevisionDigest,
+					projectId: changeSet.baseProjectId,
+				});
+				/* Canonical sequence-one lookup reference edges now protect every
+				 * dependency. Retire the accepted-design bridge in this same
+				 * transaction so there is never an unprotected interval. */
+				await releaseDesignLookupProtectionsInTransaction(
+					tx,
+					changeSet.designSessionId,
+				);
 
 				/* The committed-slice receipt and `open → committed` flip ride the
 				 * same closed sidecar vocabulary every canonical commit uses. */

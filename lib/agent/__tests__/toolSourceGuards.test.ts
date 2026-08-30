@@ -98,6 +98,16 @@ const RULES: readonly ForbiddenImportRule[] = [
 		allowedFiles: ["media/removeMediaAsset.ts"],
 	},
 	{
+		what: "the lookup authoring service (external writer)",
+		matches: (s) => s.includes("lookup/agentService"),
+		allowedFiles: ["getLookupTables.ts", "lookupTables.ts"],
+	},
+	{
+		what: "the lookup row service (external reader)",
+		matches: (s) => s.includes("lookup/service"),
+		allowedFiles: ["lookupTables.ts"],
+	},
+	{
 		what: "media asset metadata persistence",
 		matches: (s) => s.includes("db/mediaAssets"),
 		allowedFiles: ["media/listMediaAssets.ts", "media/removeMediaAsset.ts"],
@@ -134,6 +144,8 @@ describe("shared tool source guards", () => {
 			"organization.ts": "organization-write",
 			"automations.ts": "organization-read",
 			"media/removeMediaAsset.ts": "media-write",
+			"lookupTables.ts": "lookup-write",
+			"getLookupTables.ts": "lookup-read",
 		};
 		const byCapability = new Map<string, string[]>();
 		for (const entry of SHARED_TOOL_REGISTRY) {

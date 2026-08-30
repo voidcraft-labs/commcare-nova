@@ -150,6 +150,7 @@ function mount(
 	nextReview: () => unknown = cleanReview,
 	repair = new DesignRepairTracker(),
 	ancestry?: Pick<DesignLoopToolDeps, "loadAncestry" | "ancestryChanged">,
+	validateProjectLookupEvidence: DesignLoopToolDeps["validateProjectLookupEvidence"] = async () => [],
 ) {
 	return createDesignLoopTools({
 		designSessionId: sessionId,
@@ -172,6 +173,13 @@ function mount(
 		 * no memo to drop. */
 		ancestryChanged: ancestry?.ancestryChanged ?? (() => {}),
 		rebuildPackageForDigest: async () => null,
+		inspectProjectData: async () => ({
+			kind: "catalog",
+			projectRevision: "0" as never,
+			tables: [],
+			complete: true,
+		}),
+		validateProjectLookupEvidence,
 	} satisfies DesignLoopToolDeps);
 }
 
@@ -280,6 +288,30 @@ async function authorWholeContract(
 }
 
 describe("semantic design loop", () => {
+	it("refuses Project lookup evidence before persisting a draft", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const tools = mount(
+			pkg,
+			cleanReview,
+			new DesignRepairTracker(),
+			undefined,
+			async () => [
+				{
+					path: ["records", 0, "properties", 0, "choiceSource"],
+					message: "The inspected Project lookup projection changed.",
+				},
+			],
+		);
+		await authorWholeContract(tools, makeContract());
+		expect(await call(tools.finishDesign)).toMatchObject({
+			error: expect.stringContaining(
+				"inspected Project lookup projection changed",
+			),
+		});
+		expect(await readLatestAcceptedDesignRevision(sessionId)).toBeNull();
+	});
+
 	it("persists, reviews, accepts, and deterministically plans a clean design", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });

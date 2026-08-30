@@ -626,6 +626,17 @@ Each requires the `delete` capability and zero applicable reference edges, prove
 transactionally rather than by scan, and reaches authors through the three
 governed actions in `lib/lookup/actions.ts`.
 
+The Project-data authoring service is the common write path for the Solutions
+Architect, MCP, and reviewed-design materialization. It creates complete table
+schemas plus rows, patches table metadata, applies ordered column and row
+operation batches, replaces all rows, and removes governed resources. Every
+existing-resource write is UUID-addressed and revision-fenced; every successful
+creation returns the server-minted table, column, and row UUIDs. Reads expose a
+byte-bounded, snapshot-bound catalog with counts and revision axes plus
+snapshot-bound row pages. Catalog continuation binds the exact Project
+revision and restarts after any concurrent Project-data change. Mutable names
+and positions remain projections, never addresses.
+
 ### The Project data workspace
 
 Project data is a URL-owned builder workspace at
@@ -666,6 +677,49 @@ becomes an empty blocker list, and the UI never contradicts a refusal with
 conflict, CSV, temporal-control, and dialog mechanics; `lib/lookup/CLAUDE.md`
 is the persistence contract. `content/docs/project-data.mdx` is the
 user-facing guide.
+
+### Agent-authored Project data
+
+The reviewed Design Contract can declare complete new lookup tables and
+approved changes to existing Project tables. A declaration carries semantic
+design identities, ordered typed columns and rows, every intended app use, and,
+for an existing resource, its exact table/column/row UUIDs plus expected
+revision. New and changed row sets carry source references and a bounded summary
+of what establishes their exact values; unstated rows are never invented. The
+design author inspects bounded current Project data before choosing reuse or
+creation, and the independent reviewer checks purpose, schema, evidence, values,
+duplication, and consumers with the rest of the app. Reusing an existing table
+is read-only by default: a Project-wide mutation needs a direct user request or
+an affirmative answer to the design's explicit consequence question.
+
+Draft and revision workspaces are side-effect-free. Once an exact revision has
+a clean independent review, the server applies its Project-data intent before
+Blueprint construction in one atomic authoring batch. The write re-proves the
+live run holder, actor, Project membership and capability, accepted revision
+digest, expected table revisions, types, limits, references, and governance;
+then it records an immutable digest-bound receipt mapping every design identity
+to the actual lookup UUIDv7 identity and exact Project revision. A retry reuses
+that receipt. It never creates a duplicate, adopts a same-named table, silently
+renames a resource, or repeats an accepted edit.
+
+Temporary table and column protection edges cover the interval between that
+Project-data commit and app birth. The sequence-one genesis transaction installs
+the Blueprint's canonical lookup reference edges before it releases those
+protections, so no destructive table write can strand the accepted design.
+Superseding or discarding a pre-app design releases only the temporary
+protections; accepted Project data remains ordinary Project state rather than
+being guessed safe to delete. The build executor receives the UUID receipt and
+may only author Blueprint references. It never creates, populates, or resolves a
+lookup table by name.
+
+Follow-up chat and MCP expose the same governed operations as SA
+`getLookupTables`, `getLookupTableRows`, `createLookupTable`,
+`updateLookupTable`, `editLookupColumns`, `editLookupRows`,
+`replaceLookupRows`, and `removeLookupTable`, with their snake-case MCP names.
+Writes are `mutate-external`, forbidden in staged change-set execution, scoped
+through the app's current Project, and authorized at the transaction that writes
+the table. Structured agent row replacement is distinct from the Builder's raw
+CSV workflow; both reach the same typed persistence and byte-accounting boundary.
 
 ### Exact reference edges
 
@@ -898,8 +952,13 @@ nodeset with `current()` contextualized to the active repeat.
 
 The Solutions Architect and MCP share the canonical identity-bearing domain
 schemas: `getLookupTables` / `get_lookup_tables` returns table and column
-UUIDs alongside readable names, tags, labels, wire names, and data types —
-only the UUIDs are addresses — and `setFieldOptionsSource` /
+UUIDs alongside readable names, tags, labels, wire names, data types, counts,
+bytes, and revision axes; `getLookupTableRows` / `get_lookup_table_rows`
+returns bounded snapshot-bound row pages. The shared Project-data write family
+creates, updates, reorders, replaces, and removes tables, columns, and rows under
+the same lookup service and schema governance. Only UUIDs are durable addresses;
+creation keys live for one call and results return every minted identity.
+`setFieldOptionsSource` /
 `set_field_options_source` takes the complete canonical source and atomically
 replaces it. Mutable field paths, operation ids, Search names, worker slugs,
 lookup tags, column wire names, and positional module/form addresses reject at

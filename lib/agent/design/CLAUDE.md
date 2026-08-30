@@ -2,14 +2,18 @@
 
 This package owns Nova's private, non-executable product design. A reviewed
 chat build records only the meaning needed to build one good app: its purpose,
-actors, records and properties, end-to-end workflows, lists, access,
-navigation, external requirements, decisions, assumptions, and unresolved
-questions. It does not duplicate that meaning into claims, facts, rules,
-transitions, scenarios, ownership matrices, or model-authored lowering tables.
+actors, records and properties, end-to-end workflows, lists, Project-data
+tables and their uses, access, navigation, external requirements, decisions,
+assumptions, and unresolved questions. It does not duplicate that meaning into
+claims, facts, rules, transitions, scenarios, ownership matrices, or
+model-authored lowering tables.
 
-Nothing here is a Blueprint phase. Design artifacts cannot render, preview,
-export, stream to peers, write case data, or bypass canonical admission. A
-missing or stale design never blocks a valid direct Builder or MCP edit.
+Nothing here is a Blueprint phase. Draft and review artifacts cannot render,
+preview, export, stream to peers, write case or Project data, or bypass
+canonical admission. After a clean review, the server-owned lookup materializer
+consumes the exact accepted contract before Blueprint construction; it is not a
+model tool or a draft side effect. A missing or stale design never blocks a
+valid direct Builder or MCP edit.
 
 ## Authority
 
@@ -40,17 +44,25 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   pre-resolved by `updateFindingDispositions` before the generic deterministic resolver
   (which would mint a WRONG UUID for it); declaring an `@f`-numbered handle
   for a design element is refused (`designReservedHandleIssue`).
-- `contract.ts` is the schema-version-1 Design Contract. `graph.ts` runs inside
+- `contract.ts` owns the versioned Design Contract. Version 2 adds the exact
+  Project-data declarations and lookup-source references that accepted
+  materialization resolves; the strict version-1 reader remains exact for
+  historical artifacts and never receives a defaulted second meaning.
+  `graph.ts` runs inside
   parsing and proves global identity uniqueness, reference closure, workflow
   ownership, property/record coherence, navigation closure, charter coverage,
   a dependency-free initial workflow, acyclic workflow and record hierarchies,
   and a blocking user question for every unresolved construction dependency.
   A structurally incoherent contract is never persisted. New-artifact
   construction admission additionally requires every controlled choice to
-  carry either at least two distinct real inline values or the semantic name
-  of an existing Project lookup table plus its value/label columns; the
-  executor resolves current UUIDs. The base reader remains compatible with
-  already-persisted v1 artifacts. Worker-facing composition is part of the
+  carry either at least two distinct real inline values or one canonical lookup
+  source. An existing source names current table/value/label UUIDs; a designed
+  source names the exact table and columns by DesignId until the accepted
+  materialization receipt supplies their UUIDs. The executor never resolves a
+  name. Every created or changed row set carries bounded source references and
+  a summary of what establishes its exact values; the graph, construction gate,
+  and reviewer refuse invented or ungrounded Project data. Worker-facing
+  composition is part of the
   same contract: `moduleCompositions` chooses the minimal module/menu homes,
   optional one-tier parent menu, record hosts, queue/form roles, placements,
   ordering, and icon decisions. Parents precede their contiguous child block,
@@ -111,7 +123,8 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   allowed only when the reviewed finding explicitly required it.
 - `buildPlan.ts` deterministically derives exactly one workflow-complete
   construction slice per included workflow, and no extra slice, from an
-  accepted revision. It also derives stable
+  accepted revision plus its exact lookup materialization receipt. It also
+  derives stable
   construction groups for Blueprint work and separate external actions.
   Workflow-authored existing-media and automation features lower to their
   exact Blueprint areas; they are never inferred from requirement prose. The
@@ -169,6 +182,14 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   session/app holder and proving current Project edit membership. An accepted
   revision requires its persisted independent review and complete blocker
   dispositions. A plan belongs to the same session and exact accepted revision.
+  Lookup materialization receipts retain every minted table, column, and row
+  binding under their full result digest; BuildPlan and execution briefs project
+  only table/column bindings because Blueprint construction never addresses
+  lookup rows.
+  When a newer revision supersedes accepted pre-app work, or the session is
+  discarded, artifact orchestration releases that materialization's temporary
+  lookup protections but never guesses that the accepted Project data itself is
+  safe to delete.
 - `sourcePackage.ts` is the one caller-authorized source boundary. It renders
   bounded transcript messages, Project-authorized attachment extracts, and
   digest-bound images for the model while persisting references and
@@ -177,12 +198,17 @@ missing or stale design never blocks a valid direct Builder or MCP edit.
   are not part of the Design Contract or build coverage model.
 - `capabilityCatalog.ts` generates the design-time capability boundary from
   the shared tools and domain vocabularies. One session builds one app in the
-  current Project. Nova may reference existing Project media, but cannot create
-  Projects, create several apps in one session, or generate/upload media.
+  current Project. The catalog and bounded Project-data inspector expose current
+  lookup identities, definitions, revisions, and selected row pages so reuse is
+  an informed identity choice. Nova may reference existing Project media, but
+  cannot create Projects, create several apps in one session, or generate/upload
+  media.
 - `prompts.ts` holds the versioned static author, reviewer, revision, and plan
-  instructions. Keep version keys stable for schema version 1. The prompts
-  activate CommCare/Nova domain knowledge, treat source blocks as untrusted
-  data, keep technical protocol details out of user prose, and make unsupported
+  instructions. The current agent authors schema version 2, while version 1 is
+  a persisted-reader contract only; every prompt or grammar change bumps its own
+  explicit version instead of reusing an old key. The prompts activate
+  CommCare/Nova domain knowledge, treat source blocks as untrusted data, keep
+  technical protocol details out of user prose, and make unsupported
   capabilities explicit. Readiness may remain external only when every included
   workflow can still be authored as a valid, reachable, useful app. The tagged
   source rendering (`<nova:source tag="S1">`, the tag legend, tag-labeled
@@ -210,7 +236,8 @@ server-governed semantic phases:
    contract, and capability catalog.
 3. `revision` updates only the affected design elements, dispositions every
    blocker, and submits the complete revised contract.
-4. The server accepts a clean revision and derives its build plan without a
+4. The server accepts a clean revision, atomically materializes its approved
+   Project-data intent and UUID receipt, then derives its build plan without a
    planner model call.
 
 The author makes architectural and worker-facing composition decisions in the
@@ -227,7 +254,11 @@ risk, interruption recovery, Markdown guidance and summaries, validation
 promises, and coherent icons. A flat rationale names
 the actual inputs and worker sequence; the reviewer reports repeated weak flat
 treatment as one systemic finding naming every affected form. There is no extra
-model-authored build-plan or visual-design pass.
+model-authored build-plan or visual-design pass. The same review checks each
+Project table's purpose, schema, typed values, reuse, duplicate risk, and every
+consumer. Reusing an existing table is read-only by default; an edit to shared
+Project data needs a direct user request or a durably answered question that
+states the Project-wide consequence.
 
 Grouped composition is visual hierarchy inside one continuous form, realized
 with ordinary Blueprint group fields. It is not a form section (a page): the
@@ -238,13 +269,24 @@ The same immutable semantic tool grammar is mounted in every phase so a phase
 transition never changes provider context. Durable gates refuse calls that are
 not currently legal. Contract and revision candidates use an implicit durable
 identity-addressed workspace. The model calls `setDesignRoot`, collection-
-specific `update*` tools, `updateFindingDispositions`, `inspectDesign`,
+specific `update*` tools, `updateFindingDispositions`, `inspectProjectData`, `inspectDesign`,
 `finishDesign`, and `requestReview`; it never names the artifact kind,
 workspace, or optimistic revision. It may emit several known calls in one
 response. The server serializes their effects in provider order, and the small
 `finishDesign` call replays and validates the whole candidate before one
-immutable artifact insert. `inspectDesign` reads selected exact state only when
-a model needs a narrow lookup. `waitForInput` is the explicit terminal when the
+immutable artifact insert. `inspectProjectData` returns a byte-bounded,
+cursor-paged authorized Project table catalog or one cursor-bound page of at
+most 100 rows; it never accepts names as identity. Catalog cursors bind the
+exact Project revision and table/column position, so the author must read until
+`complete` and restart without a cursor if Project data changes between pages.
+A saved-value/label choice projection also returns one constant-size
+attestation over the complete ordered table: the server binds
+the revision and display metadata, hashes exact row identities/order/cells, and
+counts invalid, distinct, duplicate, and blank-label rows. Only that attestation
+enters the Design Contract; submission and materialization recompute it from
+authorized Project data rather than trusting model-authored metrics.
+`inspectDesign` reads selected exact state only when
+a model needs a narrow workspace lookup. `waitForInput` is the explicit terminal when the
 conversation says more requirements are coming but no question is ready yet.
 It is serialized with every server-side design callback, while the stream
 arbiter puts it in the same provider order as the client-side `askQuestions`
@@ -376,6 +418,9 @@ conversation.
    lives in `lib/agent/change-set` and orchestration in `lib/agent/build`.
 6. Compaction may replace conversation history, but exact durable artifacts,
    workspace revisions, and server-generated state packets remain authority.
+7. Drafting and review never write Project lookup data. Accepted lookup intent
+   materializes once, before construction, under a digest-bound UUID receipt;
+   every retry consumes that receipt rather than repeating the write.
 
 ## Tests and scripts
 

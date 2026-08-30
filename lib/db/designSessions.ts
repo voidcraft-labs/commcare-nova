@@ -57,6 +57,7 @@ import {
 	refundToMonthInTransaction,
 	settleAndReleaseDesignSessionRun,
 } from "./credits";
+import { releaseDesignLookupProtectionsInTransaction } from "./designLookupMaterializations";
 import {
 	designSessionReservation,
 	LEASE_COLUMNS,
@@ -939,6 +940,7 @@ export async function discardDesignSession(
 			.where("design_session_id", "=", designSessionId)
 			.where("status", "=", "open")
 			.execute();
+		await releaseDesignLookupProtectionsInTransaction(tx, designSessionId);
 		await tx
 			.updateTable("threads")
 			.set({
