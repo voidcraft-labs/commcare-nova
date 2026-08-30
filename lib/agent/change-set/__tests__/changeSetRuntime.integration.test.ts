@@ -1133,7 +1133,7 @@ describe("private staging isolation", () => {
 });
 
 describe("genesis staging", () => {
-	it("lets a historical v1 materialization-root executor catalog-read before app birth", async () => {
+	it("lets a materialization-root executor catalog-read before app birth", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
 		const proposedAppId = crypto.randomUUID();
 		const changeSet = await beginGenesisChangeSet({
@@ -1156,7 +1156,7 @@ describe("genesis staging", () => {
 
 		const read = await workspace.stageDispatch({
 			toolName: "getLookupTables",
-			requestId: "v1-root-lookup-catalog",
+			requestId: "root-lookup-catalog",
 			input: {},
 		});
 

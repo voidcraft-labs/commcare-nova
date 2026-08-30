@@ -9,27 +9,20 @@ import {
 	setDesignRootInputSchema,
 	updateFindingDispositionsInputSchema,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
-import { did, fixtureValue, makeContract, makeV2Contract } from "./fixtures";
+import { did, fixtureValue, makeContract } from "./fixtures";
 
 describe("design artifact workspaces", () => {
-	it("starts new authoring at v2 and upgrades v1 only through an explicit root operation", () => {
+	it("starts every authoring workspace with the complete current contract root", () => {
 		expect(initialDesignWorkspaceCandidate("contract")).toMatchObject({
-			schemaVersion: 2,
+			schemaVersion: 1,
 			lookupTables: [],
 		});
-		const upgraded = replayDesignWorkspace({
+		const replayed = replayDesignWorkspace({
 			kind: "revision",
 			baseContract: makeContract(),
-			operations: [
-				{
-					kind: "revision",
-					root: { schemaVersion: 2 },
-					collections: [],
-				},
-			],
+			operations: [],
 		});
-		expect(upgraded).toMatchObject({ schemaVersion: 2, lookupTables: [] });
-		expect(makeV2Contract().schemaVersion).toBe(2);
+		expect(replayed).toMatchObject({ schemaVersion: 1, lookupTables: [] });
 	});
 
 	it("replays semantic root and collection updates", () => {

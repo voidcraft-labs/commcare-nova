@@ -30,6 +30,8 @@ import { collectIdentitySchemaPointers } from "@/lib/agent/identityPointerRegist
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import type { BlueprintDoc } from "@/lib/domain";
+import { LOOKUP_UUID_V7_PATTERN } from "@/lib/domain/lookupIds";
+import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 
 /** The `{ handle }` arm every widened slot gains. */
 const HANDLE_REF_SCHEMA = {
@@ -41,6 +43,34 @@ const HANDLE_REF_SCHEMA = {
 	additionalProperties: false,
 	description:
 		"A durable handle for an entity created earlier in this accepted plan or privately in this change set.",
+} as const satisfies JSONSchema7;
+
+const EXISTING_LOOKUP_REFERENCE_SCHEMA = {
+	type: "object",
+	properties: {
+		kind: { const: "existing-project-lookup" },
+		tableId: { type: "string", pattern: LOOKUP_UUID_V7_PATTERN.source },
+		valueColumnId: { type: "string", pattern: LOOKUP_UUID_V7_PATTERN.source },
+		labelColumnId: { type: "string", pattern: LOOKUP_UUID_V7_PATTERN.source },
+	},
+	required: ["kind", "tableId", "valueColumnId", "labelColumnId"],
+	additionalProperties: false,
+	description:
+		"The exact accepted reference to an existing Project lookup source. Copy it unchanged from the execution brief.",
+} as const satisfies JSONSchema7;
+
+const DESIGNED_LOOKUP_REFERENCE_SCHEMA = {
+	type: "object",
+	properties: {
+		kind: { const: "designed-project-lookup" },
+		tableId: { type: "string", pattern: CANONICAL_UUID_PATTERN.source },
+		valueColumnId: { type: "string", pattern: CANONICAL_UUID_PATTERN.source },
+		labelColumnId: { type: "string", pattern: CANONICAL_UUID_PATTERN.source },
+	},
+	required: ["kind", "tableId", "valueColumnId", "labelColumnId"],
+	additionalProperties: false,
+	description:
+		"The exact accepted reference to a lookup source created by this design. Copy it unchanged from the execution brief; Nova resolves it privately.",
 } as const satisfies JSONSchema7;
 
 type IdentityPath = readonly string[];
@@ -65,6 +95,53 @@ function schemaVariants(value: unknown): Record<string, unknown>[] {
 			return Array.isArray(arms) ? arms.flatMap(schemaVariants) : [];
 		}),
 	];
+}
+
+function canonicalLookupSourceArm(node: Record<string, unknown>): boolean {
+	const properties = node.properties;
+	if (
+		properties === null ||
+		typeof properties !== "object" ||
+		Array.isArray(properties)
+	)
+		return false;
+	const slots = properties as Record<string, unknown>;
+	const kind = slots.kind;
+	return (
+		kind !== null &&
+		typeof kind === "object" &&
+		!Array.isArray(kind) &&
+		(kind as Record<string, unknown>).const === "lookup" &&
+		"tableId" in slots &&
+		"valueColumnId" in slots &&
+		"labelColumnId" in slots
+	);
+}
+
+/** The compiler model keeps accepted semantic lookup references. Replace the
+ * ordinary canonical carrier arm on its private wire only; the shared tool's
+ * original Zod schema remains the final parser after the workspace resolves
+ * the reference behind the server boundary. */
+function projectAcceptedLookupReferenceArms(value: unknown): number {
+	if (value === null || typeof value !== "object") return 0;
+	if (Array.isArray(value))
+		return value.reduce(
+			(count, member) => count + projectAcceptedLookupReferenceArms(member),
+			0,
+		);
+	const node = value as Record<string, unknown>;
+	if (canonicalLookupSourceArm(node)) {
+		for (const key of Object.keys(node)) delete node[key];
+		node.anyOf = [
+			structuredClone(EXISTING_LOOKUP_REFERENCE_SCHEMA),
+			structuredClone(DESIGNED_LOOKUP_REFERENCE_SCHEMA),
+		];
+		return 1;
+	}
+	return Object.values(node).reduce<number>(
+		(count, member) => count + projectAcceptedLookupReferenceArms(member),
+		0,
+	);
 }
 
 function narrowSchemaCreationPath(
@@ -296,6 +373,7 @@ export function executorWireToolSchema(
 		);
 	}
 	const projected = structuredClone(source) as JSONSchema7;
+	projectAcceptedLookupReferenceArms(projected);
 	for (const pointer of handleEligiblePointers(name, projected)) {
 		widenAtPointer(projected, pointer);
 	}

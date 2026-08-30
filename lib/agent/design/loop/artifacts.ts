@@ -97,8 +97,7 @@ export function planEnvelope(args: {
 		sourcePackageDigest: args.packageDigest,
 		inputArtifactDigests: [
 			args.accepted.artifactDigest,
-			...(args.plan.schemaVersion === 2 &&
-			args.plan.lookupMaterialization !== null
+			...(args.plan.lookupMaterialization !== null
 				? [args.plan.lookupMaterialization.resultDigest]
 				: []),
 		],
@@ -178,8 +177,7 @@ export function changesArchitecture(
 			recordEffects: workflow.recordEffects,
 		})),
 		access: contract.access,
-		lookupTables:
-			contract.schemaVersion === 2 ? contract.lookupTables : undefined,
+		lookupTables: contract.lookupTables,
 	});
 	return JSON.stringify(project(before)) !== JSON.stringify(project(after));
 }

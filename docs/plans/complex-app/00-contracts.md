@@ -445,6 +445,13 @@ DesignId-to-lookup-UUID mapping. Exact retry reuses the receipt; a digest,
 Project, authorization, or table-revision mismatch fails closed without a
 partial table, duplicate, inferred adoption, or random rename.
 
+That mapping is server execution state, not compiler vocabulary. The accepted
+semantic lookup reference is copied unchanged through the BuildPlan and slice
+brief; the change-set workspace resolves it immediately before canonical tool
+parsing and reverse-projects lookup carriers in tool results. Existing resource
+names remain available for catalog discovery, paired with the stable identities
+the design retains.
+
 That transaction also installs temporary table and column protection edges for
 every accepted Blueprint dependency. Materialization applies the same lookup,
 media, organization, runtime-schema, and export-readiness integrity as every

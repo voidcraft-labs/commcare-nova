@@ -97,14 +97,14 @@ export type WorkspaceCollection = (typeof WORKSPACE_COLLECTIONS)[number];
  * the two can never drift. */
 export const setDesignRootInputSchema = z
 	.object({
-		schemaVersion: z.literal(2).optional(),
+		schemaVersion: z.literal(1).optional(),
 		id: designIdSchema.optional(),
 		charter: appCharterSchema.optional(),
 	})
 	.strict()
 	.refine((value) => Object.keys(value).length > 0, {
 		message:
-			"A root update must set schema version 2, the contract id, or the complete charter.",
+			"A root update must set schema version 1, the contract id, or the complete charter.",
 	});
 
 function identityUpdateInputSchema<T extends z.ZodTypeAny>(
@@ -369,7 +369,7 @@ export function initialDesignWorkspaceCandidate(
 	}
 	return baseContract === undefined
 		? {
-				schemaVersion: 2,
+				schemaVersion: 1,
 				actors: [],
 				records: [],
 				workflows: [],
@@ -401,11 +401,6 @@ export function replayDesignWorkspace(args: {
 			throw new Error("A workspace step belongs to a different artifact kind.");
 		if (operation.root !== undefined) {
 			Object.assign(candidate, operation.root);
-			if (
-				operation.root.schemaVersion === 2 &&
-				!Array.isArray(candidate.lookupTables)
-			)
-				candidate.lookupTables = [];
 		}
 		for (const collection of operation.collections)
 			applyIdentityMutation(candidate, collection as never);

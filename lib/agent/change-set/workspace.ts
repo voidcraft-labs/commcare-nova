@@ -64,6 +64,10 @@ import {
 	partitionAssetRefs,
 } from "@/lib/media/builtinIconAssets";
 import {
+	type DesignLookupReferenceResolver,
+	loadDesignLookupReferenceResolver,
+} from "./designLookupReferences";
+import {
 	type ChangeSetDiagnostics,
 	computeChangeSetDiagnostics,
 	evaluateOverlayFindings,
@@ -166,6 +170,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 	private overlayDoc: BlueprintDoc;
 	private handleTable: HandleTable;
 	private accumulatedReadSet: ExternalReadDependency[];
+	private readonly designLookupReferences: DesignLookupReferenceResolver;
 	private lastSummaryFingerprints: readonly string[] = [];
 	private readonly host: ChangeSetWorkspaceHost;
 
@@ -180,6 +185,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		overlayDoc: BlueprintDoc;
 		handleTable: HandleTable;
 		accumulatedReadSet: ExternalReadDependency[];
+		designLookupReferences: DesignLookupReferenceResolver;
 	}) {
 		this.host = args.host;
 		this.changeSet = args.changeSet;
@@ -187,6 +193,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		this.overlayDoc = args.overlayDoc;
 		this.handleTable = args.handleTable;
 		this.accumulatedReadSet = args.accumulatedReadSet;
+		this.designLookupReferences = args.designLookupReferences;
 	}
 
 	/** Open (or reopen after process death) one change set's workspace by
@@ -200,6 +207,8 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			throw new ChangeSetScopeLostError("This change set no longer exists.");
 		}
 		const rehydrated = await rehydrateChangeSet(changeSet);
+		const designLookupReferences =
+			await loadDesignLookupReferenceResolver(changeSet);
 		return new ChangeSetMutationWorkspace({
 			host,
 			changeSet,
@@ -207,6 +216,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			overlayDoc: rehydrated.overlay.doc,
 			handleTable: new HandleTable(rehydrated.handles),
 			accumulatedReadSet: [...rehydrated.accumulatedReadSet],
+			designLookupReferences,
 		});
 	}
 
@@ -231,6 +241,11 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				entityKind: binding.entityKind,
 			})),
 		};
+	}
+
+	/** Keep materialized Project UUIDs outside the compiler model's world. */
+	projectDesignLookupReferences(value: unknown): unknown {
+		return this.designLookupReferences.projectOutput(value);
 	}
 
 	/** The change set's authority row as this workspace last observed it. */
@@ -275,7 +290,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			execute: async (ctx, resolvedInput) => {
 				const parsed = entry.tool.inputSchema.safeParse(
-					normalizeModelAstInput(resolvedInput),
+					normalizeModelAstInput(
+						this.designLookupReferences.resolveInput(resolvedInput),
+					),
 				);
 				if (!parsed.success) {
 					throw new ChangeSetStagingRejectedError(

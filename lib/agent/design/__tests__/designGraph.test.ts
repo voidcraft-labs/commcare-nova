@@ -26,7 +26,6 @@ import {
 	makeContract,
 	makeNestedMenuContract,
 	makeThirteenWorkflowContract,
-	makeV2Contract,
 	messageRef,
 } from "./fixtures";
 
@@ -361,18 +360,15 @@ describe("lean Design Contract graph", () => {
 		);
 	});
 
-	it("reads historical v1 contracts without composition but refuses them for new construction", () => {
-		const historical = cloneContract(makeContract()) as unknown as Record<
+	it("keeps additive collections required in the live domain schema", () => {
+		const incomplete = cloneContract(makeContract()) as unknown as Record<
 			string,
 			unknown
 		>;
-		delete historical.moduleCompositions;
-		delete historical.formCompositions;
-		const parsed = appDesignContractSchema.parse(historical);
-		expect(parsed.moduleCompositions).toEqual([]);
-		expect(parsed.formCompositions).toEqual([]);
-		expect(constructionMessages(parsed)).toContain("module composition");
-		expect(constructionMessages(parsed)).toContain("form composition");
+		delete incomplete.moduleCompositions;
+		delete incomplete.formCompositions;
+		delete incomplete.lookupTables;
+		expect(appDesignContractSchema.safeParse(incomplete).success).toBe(false);
 	});
 
 	it("requires one module owner for every accepted list and navigation entry", () => {
@@ -756,9 +752,10 @@ describe("lean Design Contract graph", () => {
 		delete risk.choiceValues;
 		risk.choiceSource = {
 			kind: "existing-project-lookup",
-			table: "Referral urgency",
-			valueColumn: "code",
-			labelColumn: "name",
+			tableId: EXISTING_TABLE_ID,
+			valueColumnId: EXISTING_VALUE_COLUMN_ID,
+			labelColumnId: EXISTING_LABEL_COLUMN_ID,
+			inspection: existingInspection(),
 		};
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
 		expect(designConstructionIssues(contract)).toEqual([]);
@@ -767,9 +764,8 @@ describe("lean Design Contract graph", () => {
 		expect(messages(contract)).toContain("either inline values");
 	});
 
-	it("authors a source-grounded v2 table by semantic identity and requires a real app use", () => {
-		const contract = cloneContract(makeV2Contract());
-		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+	it("authors a source-grounded table by semantic identity and requires a real app use", () => {
+		const contract = cloneContract(makeContract());
 		const risk = fixtureValue(
 			contract.records[0]?.properties.find(
 				(property) => property.id === ids.factRisk,
@@ -832,9 +828,8 @@ describe("lean Design Contract graph", () => {
 		expect(messages(contract)).toContain("must be used");
 	});
 
-	it("refuses incomplete designed choices and name-based v2 existing references", () => {
-		const contract = cloneContract(makeV2Contract());
-		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+	it("refuses incomplete designed choices and references without stable identities", () => {
+		const contract = cloneContract(makeContract());
 		const risk = fixtureValue(
 			contract.records[0]?.properties.find(
 				(property) => property.id === ids.factRisk,
@@ -878,8 +873,7 @@ describe("lean Design Contract graph", () => {
 	});
 
 	it("requires source-backed approval and expected revision for existing-table changes", () => {
-		const contract = cloneContract(makeV2Contract());
-		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const contract = cloneContract(makeContract());
 		const risk = fixtureValue(
 			contract.records[0]?.properties.find(
 				(property) => property.id === ids.factRisk,
@@ -923,8 +917,7 @@ describe("lean Design Contract graph", () => {
 	});
 
 	it("requires complete constructible existing-choice evidence and protects its columns", () => {
-		const contract = cloneContract(makeV2Contract());
-		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const contract = cloneContract(makeContract());
 		const risk = fixtureValue(
 			contract.records[0]?.properties.find(
 				(property) => property.id === ids.factRisk,
@@ -984,8 +977,7 @@ describe("lean Design Contract graph", () => {
 	});
 
 	it("treats an existing update-row as a complete row replacement", () => {
-		const contract = cloneContract(makeV2Contract());
-		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const contract = cloneContract(makeContract());
 		const source: ExistingLookupChoiceSource = {
 			kind: "existing-project-lookup",
 			tableId: EXISTING_TABLE_ID,
@@ -1048,8 +1040,7 @@ describe("lean Design Contract graph", () => {
 	});
 
 	it("keeps a maximum-size existing-table choice attestation bounded", () => {
-		const contract = cloneContract(makeV2Contract());
-		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const contract = cloneContract(makeContract());
 		const risk = fixtureValue(
 			contract.records[0]?.properties.find(
 				(property) => property.id === ids.factRisk,
@@ -1120,7 +1111,7 @@ describe("lean Design Contract graph", () => {
 		expect(messages(contract)).toContain("must name its allowed values");
 	});
 
-	it("keeps persisted v1 single choices readable but refuses them for new construction", () => {
+	it("keeps stored single choices readable but refuses incomplete new construction", () => {
 		const contract = cloneContract(makeContract());
 		const risk = contract.records[0]?.properties.find(
 			(property) => property.id === ids.factRisk,

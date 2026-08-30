@@ -23,14 +23,17 @@
  */
 
 import { type Kysely, sql, type Transaction } from "kysely";
+import { z } from "zod";
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import {
 	buildPlanSchema,
 	newPlanAdmissionMessages,
+	normalizeStoredBuildPlan,
 } from "@/lib/agent/design/buildPlan";
 import {
 	type AppDesignContract,
 	appDesignContractSchema,
+	normalizeStoredAppDesignContract,
 } from "@/lib/agent/design/contract";
 import {
 	type DesignArtifactEnvelope,
@@ -85,16 +88,13 @@ function contractRequiresLookupMaterialization(
 	contract: AppDesignContract,
 ): boolean {
 	return (
-		contract.schemaVersion === 2 &&
-		(contract.lookupTables.length > 0 ||
-			contract.records.some((record) =>
-				record.properties.some(
-					(property) => property.choiceSource !== undefined,
-				),
-			) ||
-			contract.workflows.some((workflow) =>
-				workflow.inputs.some((input) => input.choiceSource !== undefined),
-			))
+		contract.lookupTables.length > 0 ||
+		contract.records.some((record) =>
+			record.properties.some((property) => property.choiceSource !== undefined),
+		) ||
+		contract.workflows.some((workflow) =>
+			workflow.inputs.some((input) => input.choiceSource !== undefined),
+		)
 	);
 }
 
@@ -151,6 +151,10 @@ const contractEnvelopeSchema = designArtifactEnvelopeSchema(
 	"design-contract",
 	appDesignContractSchema,
 );
+const storedContractEnvelopeSchema = designArtifactEnvelopeSchema(
+	"design-contract",
+	z.unknown(),
+);
 const reviewEnvelopeSchema = designArtifactEnvelopeSchema(
 	"design-review",
 	designReviewSchema,
@@ -158,6 +162,10 @@ const reviewEnvelopeSchema = designArtifactEnvelopeSchema(
 const buildPlanEnvelopeSchema = designArtifactEnvelopeSchema(
 	"design-build-plan",
 	buildPlanSchema,
+);
+const storedBuildPlanEnvelopeSchema = designArtifactEnvelopeSchema(
+	"design-build-plan",
+	z.unknown(),
 );
 
 export type RevisionLifecycle = "draft" | "accepted";
@@ -650,13 +658,20 @@ async function readRevisionRowInTx(db: Db, id: string) {
 }
 
 function revisionRecordFromRow(row: RevisionRow): DesignRevisionRecord {
-	const envelope = contractEnvelopeSchema.parse(
+	const storedEnvelope = storedContractEnvelopeSchema.parse(
 		parsePersistedJsonText(
 			row.envelope_text,
 			`design_revisions.envelope for revision ${row.id}`,
 		),
 	);
-	verifyArtifactEnvelope(envelope);
+	/* Verify the exact sealed bytes before normalizing additive collections.
+	 * The normalized payload is the only domain shape consumers receive, but it
+	 * must never be mistaken for the stored envelope's digest input. */
+	verifyArtifactEnvelope(storedEnvelope);
+	const envelope: DesignArtifactEnvelope<AppDesignContract> = {
+		...storedEnvelope,
+		payload: normalizeStoredAppDesignContract(storedEnvelope.payload),
+	};
 	if (
 		envelope.artifactDigest !== row.artifact_digest ||
 		envelope.artifactId !== row.id ||
@@ -938,20 +953,15 @@ export async function insertDesignBuildPlan(args: {
 			);
 		}
 		const acceptedContract = revisionRecordFromRow(revision).envelope.payload;
-		if (plan.schemaVersion !== acceptedContract.schemaVersion) {
-			throw new DesignArtifactStoreError(
-				"The BuildPlan schema version must match its exact accepted Design Contract.",
-			);
-		}
 		if (
 			contractRequiresLookupMaterialization(acceptedContract) &&
-			(plan.schemaVersion !== 2 || plan.lookupMaterialization === null)
+			plan.lookupMaterialization === null
 		) {
 			throw new DesignArtifactStoreError(
 				"This accepted design depends on Project data, but its BuildPlan has no durable lookup materialization receipt.",
 			);
 		}
-		if (plan.schemaVersion === 2 && plan.lookupMaterialization !== null) {
+		if (plan.lookupMaterialization !== null) {
 			const receipt = await tx
 				.selectFrom("design_lookup_materializations")
 				.select([
@@ -1089,13 +1099,19 @@ async function readBuildPlanRecordInTx(
 		.where("id", "=", id)
 		.executeTakeFirst();
 	if (!row) return null;
-	const envelope = buildPlanEnvelopeSchema.parse(
+	const storedEnvelope = storedBuildPlanEnvelopeSchema.parse(
 		parsePersistedJsonText(
 			row.envelope_text,
 			`design_build_plans.envelope for plan ${id}`,
 		),
 	);
-	verifyArtifactEnvelope(envelope);
+	/* Verify the exact sealed bytes before normalizing additive plan members.
+	 * The normalized payload is the only plan shape consumers receive. */
+	verifyArtifactEnvelope(storedEnvelope);
+	const envelope: DesignArtifactEnvelope<BuildPlan> = {
+		...storedEnvelope,
+		payload: normalizeStoredBuildPlan(storedEnvelope.payload),
+	};
 	if (
 		envelope.artifactDigest !== row.artifact_digest ||
 		envelope.payload.id !== row.id

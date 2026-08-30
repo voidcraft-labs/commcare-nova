@@ -96,6 +96,16 @@ gate, and integrity services every other write uses.
   executor path: the executor explicitly supplies the same options with
   handled `optionUuid` creation slots. The executor checkpoint projects those
   symbols and never returns raw UUID binding maps.
+- `designLookupReferences.ts` is the server-owned seam between an accepted
+  design's lookup identities and the canonical Blueprint lookup carrier. The
+  BuildPlan binds an immutable materialization receipt to the change-set
+  lineage, but neither the receipt mapping nor replacement identities enter the
+  execution brief. `workspace.ts` resolves a semantic lookup source only after
+  idempotency has bound the raw model input and immediately before the shared
+  tool's original Zod parser; canonical read results reverse-project through
+  the same receipt before reaching the executor. Existing tables retain the
+  stable UUIDs discovered beside their catalog names, while tables created by
+  the design retain their DesignIds throughout model execution.
 - `readSets.ts` / `diagnostics.ts` — external read sets are captured
   automatically (lookup reads via the wrapped readers, the organization
   fence from the write's `expectedOrganizationRevision`, media identities

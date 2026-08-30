@@ -3,9 +3,9 @@ import "server-only";
 import { sql, type Transaction } from "kysely";
 import type { DesignArtifactWriteAuthority } from "@/lib/agent/design/artifactStore";
 import {
-	type AppDesignContractV2Raw,
+	type AppDesignContract,
+	appDesignContractBaseSchema,
 	appDesignContractSchema,
-	appDesignContractV2BaseSchema,
 	type ChangedLookupColumnRef,
 	type ChangedLookupRowRef,
 } from "@/lib/agent/design/contract";
@@ -97,7 +97,7 @@ function cellsForExisting(
 }
 
 function translateLookupBatch(
-	contract: AppDesignContractV2Raw,
+	contract: AppDesignContract,
 ): LookupAuthoringBatchInput | null {
 	const createTables: NonNullable<LookupAuthoringBatchInput["createTables"]> =
 		[];
@@ -266,7 +266,7 @@ function translateLookupBatch(
 	return { createTables, updateTables };
 }
 
-function collectChoiceSources(contract: AppDesignContractV2Raw) {
+function collectChoiceSources(contract: AppDesignContract) {
 	return [
 		...contract.records.flatMap((record) =>
 			record.properties.flatMap((property) =>
@@ -284,7 +284,7 @@ function collectChoiceSources(contract: AppDesignContractV2Raw) {
 async function assertExistingChoiceSourcesCurrentAndConstructible(
 	tx: Transaction<AppDatabase>,
 	projectId: string,
-	contract: AppDesignContractV2Raw,
+	contract: AppDesignContract,
 ): Promise<void> {
 	const changedTableIds = new Set(
 		contract.lookupTables.flatMap((table) =>
@@ -380,14 +380,14 @@ async function assertExistingChoiceSourcesCurrentAndConstructible(
 	}
 }
 
-function materializationRequired(contract: AppDesignContractV2Raw): boolean {
+function materializationRequired(contract: AppDesignContract): boolean {
 	return (
 		contract.lookupTables.length > 0 ||
 		collectChoiceSources(contract).length > 0
 	);
 }
 
-function materializedEvidenceRefs(contract: AppDesignContractV2Raw) {
+function materializedEvidenceRefs(contract: AppDesignContract) {
 	return contract.lookupTables.flatMap((table) => [
 		...(table.kind === "create"
 			? table.rowEvidence.sourceRefs
@@ -571,7 +571,7 @@ async function releaseSupersededLookupProtectionsInTransaction(
 }
 
 /**
- * Materialize the exact accepted v2 Project-data intent before BuildPlan
+ * Materialize the exact accepted Project-data intent before BuildPlan
  * derivation. Draft/review calls never reach this seam. The receipt's unique
  * revision key is the lost-response idempotency fence.
  */
@@ -579,7 +579,7 @@ export async function ensureAcceptedLookupMaterialization(args: {
 	readonly designSessionId: string;
 	readonly designRevisionId: string;
 	readonly designRevisionDigest: string;
-	readonly contract: AppDesignContractV2Raw;
+	readonly contract: AppDesignContract;
 	readonly authority: DesignArtifactWriteAuthority;
 }): Promise<DesignLookupMaterializationRecord | null> {
 	return withAppTx(async (tx) => {
@@ -643,7 +643,7 @@ export async function ensureAcceptedLookupMaterialization(args: {
 		}
 		/* Execute the persisted, digest-verified contract rather than trusting the
 		 * caller's equivalent projection beyond the equality proof above. */
-		const contract = appDesignContractV2BaseSchema.parse(
+		const contract = appDesignContractBaseSchema.parse(
 			acceptedEnvelope.payload,
 		);
 		if (!materializationRequired(contract)) {

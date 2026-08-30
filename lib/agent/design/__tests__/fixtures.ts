@@ -2,14 +2,8 @@
 
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import { buildPlanSchema, deriveBuildPlan } from "@/lib/agent/design/buildPlan";
-import type {
-	AppDesignContract,
-	AppDesignContractV2Raw,
-} from "@/lib/agent/design/contract";
-import {
-	appDesignContractSchema,
-	appDesignContractV2BaseSchema,
-} from "@/lib/agent/design/contract";
+import type { AppDesignContract } from "@/lib/agent/design/contract";
+import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import type { SourceRef } from "@/lib/agent/design/evidence";
 import { asDesignId, type DesignId } from "@/lib/agent/design/ids";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
@@ -441,6 +435,7 @@ export function makeContract(): AppDesignContract {
 				},
 			},
 		],
+		lookupTables: [],
 		externalRequirements: [],
 		decisions: [
 			{
@@ -463,21 +458,11 @@ export function makeContract(): AppDesignContract {
 	});
 }
 
-/** Newly-authored contracts use v2 even when they do not need Project data. */
-export function makeV2Contract(): AppDesignContract {
-	const { schemaVersion: _schemaVersion, ...v1 } = makeContract();
-	return appDesignContractSchema.parse({
-		...v1,
-		schemaVersion: 2,
-		lookupTables: [],
-	});
-}
-
-/** Reviewed v2 fixture whose controlled risk values are Project data minted
- * only after this exact design is accepted. */
-export function makeV2LookupContract(): AppDesignContractV2Raw {
-	const contract = appDesignContractV2BaseSchema.parse(
-		structuredClone(makeV2Contract()),
+/** Reviewed fixture whose controlled risk values are Project data minted only
+ * after this exact design is accepted. */
+export function makeLookupContract(): AppDesignContract {
+	const contract = appDesignContractSchema.parse(
+		structuredClone(makeContract()),
 	);
 	const risk = contract.records
 		.flatMap((record) => record.properties)
@@ -533,7 +518,7 @@ export function makeV2LookupContract(): AppDesignContractV2Raw {
 			},
 		},
 	];
-	return appDesignContractV2BaseSchema.parse(contract);
+	return appDesignContractSchema.parse(contract);
 }
 
 export function parseContract(contract: AppDesignContract): AppDesignContract {

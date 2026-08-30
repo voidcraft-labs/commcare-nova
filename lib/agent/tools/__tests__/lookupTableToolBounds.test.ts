@@ -156,7 +156,7 @@ describe("lookup shared-tool output bounds", () => {
 		).toBeLessThanOrEqual(LOOKUP_CATALOG_PAGE_MAX_BYTES);
 	});
 
-	it("lets a v1 materialization-root executor read the Project catalog before app birth", async () => {
+	it("lets a materialization-root executor read the Project catalog before app birth", async () => {
 		const lookupCatalog = vi.fn(async () => ({
 			projectId: "project-1",
 			projectRevision: REVISION,

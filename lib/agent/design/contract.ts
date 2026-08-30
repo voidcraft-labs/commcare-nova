@@ -234,17 +234,6 @@ export const designActorSchema = z
 	.strict();
 export type DesignActor = z.infer<typeof designActorSchema>;
 
-/** Historical v1 spelling. Persisted v1 envelopes keep this exact semantic
- * shape and digest; v2 never resolves a shared Project resource by name. */
-const existingLookupChoiceSourceV1Schema = z
-	.object({
-		kind: z.literal("existing-project-lookup"),
-		table: z.string().min(1),
-		valueColumn: z.string().min(1),
-		labelColumn: z.string().min(1),
-	})
-	.strict();
-
 /** Stable reference to a lookup source that already exists in the Project. */
 export const existingLookupChoiceSourceSchema = z
 	.object({
@@ -260,9 +249,8 @@ export const existingLookupChoiceSourceSchema = z
 export type ExistingLookupChoiceSource = z.infer<
 	typeof existingLookupChoiceSourceSchema
 >;
-/** Executor-facing lowering after server validation. Persisted v2 contracts
- * always use `ExistingLookupChoiceSource`; a slice brief no longer needs to
- * repeat the inspection body once DesignIds have been lowered. */
+/** Compiler-facing accepted reference after the server validates the design's
+ * inspection evidence. The stable table and column identities do not change. */
 export type ExistingLookupChoiceReference = Omit<
 	ExistingLookupChoiceSource,
 	"inspection"
@@ -354,20 +342,10 @@ function makeRecordPropertySchema<ChoiceSourceSchema extends z.ZodTypeAny>(
 		});
 }
 
-const recordPropertyV2RuntimeSchema = makeRecordPropertySchema(
+export const recordPropertySchema = makeRecordPropertySchema(
 	designLookupChoiceSourceSchema,
 );
-const recordPropertyV1Schema = makeRecordPropertySchema(
-	existingLookupChoiceSourceV1Schema,
-);
-export const recordPropertySchema = recordPropertyV2RuntimeSchema;
-type RecordPropertyV2 = z.infer<typeof recordPropertyV2RuntimeSchema>;
-export type RecordProperty = Omit<RecordPropertyV2, "choiceSource"> & {
-	choiceSource?:
-		| z.infer<typeof existingLookupChoiceSourceV1Schema>
-		| ExistingLookupChoiceReference
-		| DesignLookupChoiceSource;
-};
+export type RecordProperty = z.infer<typeof recordPropertySchema>;
 
 function makeRecordConceptSchema<PropertySchema extends z.ZodTypeAny>(
 	propertySchema: PropertySchema,
@@ -385,14 +363,9 @@ function makeRecordConceptSchema<PropertySchema extends z.ZodTypeAny>(
 		.strict();
 }
 
-const recordConceptV1Schema = makeRecordConceptSchema(recordPropertyV1Schema);
-export const recordConceptSchema = makeRecordConceptSchema(
-	recordPropertyV2RuntimeSchema,
-);
-type RecordConceptV2 = z.infer<typeof recordConceptSchema>;
-export type RecordConcept = Omit<RecordConceptV2, "properties"> & {
-	properties: RecordProperty[];
-};
+export const recordConceptSchema =
+	makeRecordConceptSchema(recordPropertySchema);
+export type RecordConcept = z.infer<typeof recordConceptSchema>;
 
 function makeWorkflowInputSchema<ChoiceSourceSchema extends z.ZodTypeAny>(
 	choiceSourceSchema: ChoiceSourceSchema,
@@ -477,20 +450,10 @@ function makeWorkflowInputSchema<ChoiceSourceSchema extends z.ZodTypeAny>(
 		});
 }
 
-const workflowInputV2RuntimeSchema = makeWorkflowInputSchema(
+export const workflowInputSchema = makeWorkflowInputSchema(
 	designLookupChoiceSourceSchema,
 );
-const workflowInputV1Schema = makeWorkflowInputSchema(
-	existingLookupChoiceSourceV1Schema,
-);
-export const workflowInputSchema = workflowInputV2RuntimeSchema;
-type WorkflowInputV2 = z.infer<typeof workflowInputV2RuntimeSchema>;
-export type WorkflowInput = Omit<WorkflowInputV2, "choiceSource"> & {
-	choiceSource?:
-		| z.infer<typeof existingLookupChoiceSourceV1Schema>
-		| ExistingLookupChoiceReference
-		| DesignLookupChoiceSource;
-};
+export type WorkflowInput = z.infer<typeof workflowInputSchema>;
 
 export const workflowDecisionSchema = z
 	.object({
@@ -589,12 +552,8 @@ function makeWorkflowSchema<InputSchema extends z.ZodTypeAny>(
 		.strict();
 }
 
-const workflowV1Schema = makeWorkflowSchema(workflowInputV1Schema);
 export const workflowSchema = makeWorkflowSchema(workflowInputSchema);
-type WorkflowV2 = z.infer<typeof workflowSchema>;
-export type Workflow = Omit<WorkflowV2, "inputs"> & {
-	inputs: WorkflowInput[];
-};
+export type Workflow = z.infer<typeof workflowSchema>;
 
 const compositionMarkdownSchema = z
 	.string()
@@ -1096,35 +1055,11 @@ export const openQuestionSchema = z
 	.strict();
 export type OpenQuestion = z.infer<typeof openQuestionSchema>;
 
-/** Exact historical v1 reader. Do not add v2 defaults or aliases here: every
- * persisted v1 envelope is digest-bound to this producer shape. */
-export const appDesignContractV1BaseSchema = z
+/** The one current Design Contract vocabulary. Project lookup intent belongs
+ * directly to this model rather than to a parallel compatibility shape. */
+export const appDesignContractBaseSchema = z
 	.object({
 		schemaVersion: z.literal(1),
-		id: designIdSchema,
-		charter: appCharterSchema,
-		actors: z.array(designActorSchema).min(1),
-		records: z.array(recordConceptV1Schema),
-		workflows: z.array(workflowV1Schema).min(1),
-		lists: z.array(workListSchema),
-		access: z.array(accessPolicySchema),
-		navigation: z.array(navigationIntentSchema),
-		moduleCompositions: z.array(moduleCompositionSchema).default([]),
-		formCompositions: z.array(formCompositionSchema).default([]),
-		externalRequirements: z.array(externalRequirementSchema),
-		decisions: z.array(architectureDecisionSchema),
-		assumptions: z.array(assumptionSchema),
-		openQuestions: z.array(openQuestionSchema),
-	})
-	.strict();
-
-export type AppDesignContractV1Raw = z.infer<
-	typeof appDesignContractV1BaseSchema
->;
-
-export const appDesignContractV2BaseSchema = z
-	.object({
-		schemaVersion: z.literal(2),
 		id: designIdSchema,
 		charter: appCharterSchema,
 		actors: z.array(designActorSchema).min(1),
@@ -1143,42 +1078,30 @@ export const appDesignContractV2BaseSchema = z
 	})
 	.strict();
 
-export type AppDesignContractV2Raw = z.infer<
-	typeof appDesignContractV2BaseSchema
->;
+export type AppDesignContract = z.infer<typeof appDesignContractBaseSchema>;
 
-/** Common consumer projections keep array methods callable across both
- * persisted versions. The raw inferred aliases above retain each version's
- * exact nested source vocabulary for migrations and v2-only materialization. */
-export type AppDesignContractV1 = Omit<
-	AppDesignContractV1Raw,
-	"records" | "workflows"
-> & {
-	records: RecordConcept[];
-	workflows: Workflow[];
-};
-export type AppDesignContractV2 = Omit<
-	AppDesignContractV2Raw,
-	"records" | "workflows"
-> & {
-	records: RecordConcept[];
-	workflows: Workflow[];
-};
+export const appDesignContractSchema =
+	appDesignContractBaseSchema.superRefine(validateDesignGraph);
 
-export const appDesignContractBaseSchema = z.discriminatedUnion(
-	"schemaVersion",
-	[appDesignContractV1BaseSchema, appDesignContractV2BaseSchema],
-);
-
-export type AppDesignContract = AppDesignContractV1 | AppDesignContractV2;
-
-export const appDesignContractV1Schema =
-	appDesignContractV1BaseSchema.superRefine(validateDesignGraph);
-export const appDesignContractV2Schema =
-	appDesignContractV2BaseSchema.superRefine(validateDesignGraph);
-export const appDesignContractSchema = appDesignContractBaseSchema.superRefine(
-	validateDesignGraph,
-) as z.ZodType<AppDesignContract>;
+/** The sole persisted-payload normalization seam. Stored contracts can
+ * predate additive collections, but every caller receives the one complete
+ * current domain model. Digest verification happens against the sealed bytes
+ * before this function is called. */
+export function normalizeStoredAppDesignContract(
+	stored: unknown,
+): AppDesignContract {
+	if (stored === null || typeof stored !== "object" || Array.isArray(stored))
+		return appDesignContractSchema.parse(stored);
+	const value = stored as Record<string, unknown>;
+	return appDesignContractSchema.parse({
+		...value,
+		moduleCompositions:
+			value.moduleCompositions === undefined ? [] : value.moduleCompositions,
+		formCompositions:
+			value.formCompositions === undefined ? [] : value.formCompositions,
+		lookupTables: value.lookupTables === undefined ? [] : value.lookupTables,
+	});
+}
 
 export interface DesignConstructionIssue {
 	readonly path: readonly (string | number)[];
@@ -1192,7 +1115,7 @@ function distinctRealChoices(values: readonly string[] | undefined): number {
 }
 
 export function existingLookupChoiceRowsAfterChanges(
-	contract: AppDesignContractV2,
+	contract: AppDesignContract,
 	source: ExistingLookupChoiceSource,
 	initialRows: readonly LookupChoiceProjectionRow[],
 ): LookupChoiceProjectionRow[] {
@@ -1324,7 +1247,7 @@ function appendChoiceAttestationIssues(
 }
 
 export function existingLookupChoicePostChangeIssues(
-	contract: AppDesignContractV2,
+	contract: AppDesignContract,
 	source: ExistingLookupChoiceSource,
 	initialRows: readonly LookupChoiceProjectionRow[],
 	path: readonly (string | number)[],
@@ -1339,29 +1262,23 @@ export function existingLookupChoicePostChangeIssues(
 	return issues;
 }
 
-/** New-artifact admission for semantics that the Blueprint field grammar must
- * be able to construct. The base v1 parser remains compatible with already-
- * persisted artifacts; finalization and deterministic plan derivation apply
- * this stricter buildability proof to every newly accepted design. */
+/** Admission for semantics that the Blueprint field grammar must be able to
+ * construct. Finalization and deterministic plan derivation apply this
+ * buildability proof to every newly accepted design. */
 export function designConstructionIssues(
 	contract: AppDesignContract,
 ): DesignConstructionIssue[] {
 	const issues: DesignConstructionIssue[] = [];
-	const designedTables =
-		contract.schemaVersion === 2
-			? new Map(
-					contract.lookupTables.flatMap((table) =>
-						table.kind === "create" ? [[table.id, table] as const] : [],
-					),
-				)
-			: new Map<string, never>();
+	const designedTables = new Map(
+		contract.lookupTables.flatMap((table) =>
+			table.kind === "create" ? [[table.id, table] as const] : [],
+		),
+	);
 	const checkLookupChoiceRows = (
 		source: RecordProperty["choiceSource"],
 		path: readonly (string | number)[],
 	): void => {
 		if (source?.kind === "existing-project-lookup" && "tableId" in source) {
-			if (contract.schemaVersion !== 2) return;
-			if (!("inspection" in source)) return;
 			const changed = contract.lookupTables.find(
 				(table) =>
 					table.kind === "modify-existing" && table.tableId === source.tableId,
@@ -1459,14 +1376,13 @@ export function designConstructionIssues(
 						"A controlled-choice property needs at least two distinct real values before it can be built.",
 				});
 			}
-			if (contract.schemaVersion === 2)
-				checkLookupChoiceRows(property.choiceSource, [
-					"records",
-					recordIndex,
-					"properties",
-					propertyIndex,
-					"choiceSource",
-				]);
+			checkLookupChoiceRows(property.choiceSource, [
+				"records",
+				recordIndex,
+				"properties",
+				propertyIndex,
+				"choiceSource",
+			]);
 		});
 	});
 	contract.workflows.forEach((workflow, workflowIndex) => {
@@ -1510,14 +1426,13 @@ export function designConstructionIssues(
 						"A controlled-choice form input needs at least two distinct real values before it can be built.",
 				});
 			}
-			if (contract.schemaVersion === 2)
-				checkLookupChoiceRows(input.choiceSource, [
-					"workflows",
-					workflowIndex,
-					"inputs",
-					inputIndex,
-					"choiceSource",
-				]);
+			checkLookupChoiceRows(input.choiceSource, [
+				"workflows",
+				workflowIndex,
+				"inputs",
+				inputIndex,
+				"choiceSource",
+			]);
 		});
 		workflow.decisions.forEach((decision, decisionIndex) => {
 			if (decision.inputPropertyIds.length === 0) {
@@ -1618,28 +1533,26 @@ export function designConstructionIssues(
 					])
 				: composition.layout.items.map((item) => item.id)),
 		]),
-		...(contract.schemaVersion === 2
-			? contract.lookupTables.flatMap((table) => [
-					table.id,
-					...(table.kind === "create"
-						? [
-								...table.columns.map((column) => column.id),
-								...table.rows.map((row) => row.id),
-							]
-						: table.operations.flatMap((operation) => {
-								switch (operation.kind) {
-									case "add-column":
-										return [operation.column.id];
-									case "add-row":
-										return [operation.rowId];
-									case "replace-rows":
-										return operation.rows.map((row) => row.id);
-									default:
-										return [];
-								}
-							})),
-				])
-			: []),
+		...contract.lookupTables.flatMap((table) => [
+			table.id,
+			...(table.kind === "create"
+				? [
+						...table.columns.map((column) => column.id),
+						...table.rows.map((row) => row.id),
+					]
+				: table.operations.flatMap((operation) => {
+						switch (operation.kind) {
+							case "add-column":
+								return [operation.column.id];
+							case "add-row":
+								return [operation.rowId];
+							case "replace-rows":
+								return operation.rows.map((row) => row.id);
+							default:
+								return [];
+						}
+					})),
+		]),
 	]);
 	/* The authored `blocking` flag is the construction gate, honoring a user
 	 * who delegated the decision: a non-blocking question is a recorded caveat
@@ -1724,28 +1637,27 @@ export function collectContractIds(
 			for (const item of composition.layout.items) ids.add(item.id);
 		}
 	}
-	if (contract.schemaVersion === 2)
-		for (const table of contract.lookupTables) {
-			ids.add(table.id);
-			if (table.kind === "create") {
-				for (const column of table.columns) ids.add(column.id);
-				for (const row of table.rows) ids.add(row.id);
-				continue;
-			}
-			for (const operation of table.operations) {
-				switch (operation.kind) {
-					case "add-column":
-						ids.add(operation.column.id);
-						break;
-					case "add-row":
-						ids.add(operation.rowId);
-						break;
-					case "replace-rows":
-						for (const row of operation.rows) ids.add(row.id);
-						break;
-				}
+	for (const table of contract.lookupTables) {
+		ids.add(table.id);
+		if (table.kind === "create") {
+			for (const column of table.columns) ids.add(column.id);
+			for (const row of table.rows) ids.add(row.id);
+			continue;
+		}
+		for (const operation of table.operations) {
+			switch (operation.kind) {
+				case "add-column":
+					ids.add(operation.column.id);
+					break;
+				case "add-row":
+					ids.add(operation.rowId);
+					break;
+				case "replace-rows":
+					for (const row of operation.rows) ids.add(row.id);
+					break;
 			}
 		}
+	}
 	for (const requirement of contract.externalRequirements)
 		ids.add(requirement.id);
 	for (const decision of contract.decisions) ids.add(decision.id);

@@ -5,6 +5,13 @@ import {
 	deriveBuildPlan,
 	newPlanAdmissionMessages,
 } from "@/lib/agent/design/buildPlan";
+import { computeLookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
+import {
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import { lookupRevisionSchema } from "@/lib/lookup/schema";
 import {
 	cloneContract,
 	did,
@@ -15,6 +22,22 @@ import {
 	makeNestedMenuContract,
 	makeThirteenWorkflowContract,
 } from "./fixtures";
+
+const EXISTING_TABLE_ID = lookupTableIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000001",
+);
+const EXISTING_VALUE_COLUMN_ID = lookupColumnIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000002",
+);
+const EXISTING_LABEL_COLUMN_ID = lookupColumnIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000003",
+);
+const EXISTING_ROW_ID = lookupRowIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000004",
+);
+const EXISTING_SECOND_ROW_ID = lookupRowIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000005",
+);
 
 function messages(
 	result: ReturnType<typeof buildPlanSchema.safeParse>,
@@ -27,6 +50,8 @@ function messages(
 describe("deterministic build planning", () => {
 	it("derives one dependency-ordered slice per workflow", () => {
 		const plan = makeBuildPlan();
+		expect(plan.schemaVersion).toBe(1);
+		expect(plan.lookupMaterialization).toBeNull();
 		expect(plan.slices.map((slice) => slice.workflowId)).toEqual([
 			ids.taskRegister,
 			ids.taskVisit,
@@ -305,10 +330,10 @@ describe("deterministic build planning", () => {
 		expect(appOwners[0]?.group.kind).toBe("workflow");
 	});
 
-	it("reads prior v1 plans while enforcing exact app ownership for new plans", () => {
+	it("keeps generic reads permissive while enforcing exact app ownership for derived plans", () => {
 		const contract = makeContract();
-		const legacyPlan = makeBuildPlan();
-		const laterGroup = legacyPlan.slices
+		const plan = makeBuildPlan();
+		const laterGroup = plan.slices
 			.slice(1)
 			.flatMap((slice) => slice.constructionGroups)
 			.find((group) => !group.blueprintAreas.includes("app"));
@@ -316,10 +341,8 @@ describe("deterministic build planning", () => {
 			throw new Error("fixture needs a later group");
 		laterGroup.blueprintAreas.push("app");
 
-		expect(buildPlanSchema.safeParse(legacyPlan).success).toBe(true);
-		expect(buildPlanSchemaFor(contract).safeParse(legacyPlan).success).toBe(
-			false,
-		);
+		expect(buildPlanSchema.safeParse(plan).success).toBe(true);
+		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(false);
 	});
 
 	it("derives media and automation areas from explicit workflow semantics", () => {
@@ -581,7 +604,7 @@ describe("deterministic build planning", () => {
 		).toThrow(/not constructible/);
 	});
 
-	it("derives construction for a specifically named existing lookup choice", () => {
+	it("derives construction for a revision-attested existing lookup choice", () => {
 		const contract = cloneContract(makeContract());
 		const risk = contract.records[0]?.properties.find(
 			(property) => property.id === ids.factRisk,
@@ -590,9 +613,27 @@ describe("deterministic build planning", () => {
 		delete risk.choiceValues;
 		risk.choiceSource = {
 			kind: "existing-project-lookup",
-			table: "Referral urgency",
-			valueColumn: "code",
-			labelColumn: "name",
+			tableId: EXISTING_TABLE_ID,
+			valueColumnId: EXISTING_VALUE_COLUMN_ID,
+			labelColumnId: EXISTING_LABEL_COLUMN_ID,
+			inspection: computeLookupChoiceProjectionAttestation({
+				tableRevision: lookupRevisionSchema.parse("7"),
+				tableName: "Referral urgency",
+				valueColumnLabel: "Code",
+				labelColumnLabel: "Name",
+				rows: [
+					{
+						rowId: EXISTING_ROW_ID,
+						value: "routine",
+						label: "Routine",
+					},
+					{
+						rowId: EXISTING_SECOND_ROW_ID,
+						value: "priority",
+						label: "Priority",
+					},
+				],
+			}),
 		};
 		const visit = contract.workflows.find(
 			(workflow) => workflow.id === ids.taskVisit,
@@ -608,6 +649,12 @@ describe("deterministic build planning", () => {
 			contract,
 			revision: { id: ids.revisionId, digest: "a".repeat(64) },
 			planId: ids.planId,
+			lookupMaterialization: {
+				receiptId: "00000000-0000-4000-8000-000000000902",
+				resultDigest: "b".repeat(64),
+				projectRevision: lookupRevisionSchema.parse("7"),
+				bindings: [],
+			},
 		});
 		const visitSlice = plan.slices.find(
 			(slice) => slice.workflowId === ids.taskVisit,

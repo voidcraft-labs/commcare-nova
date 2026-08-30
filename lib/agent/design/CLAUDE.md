@@ -44,11 +44,11 @@ valid direct Builder or MCP edit.
   pre-resolved by `updateFindingDispositions` before the generic deterministic resolver
   (which would mint a WRONG UUID for it); declaring an `@f`-numbered handle
   for a design element is refused (`designReservedHandleIssue`).
-- `contract.ts` owns the versioned Design Contract. Version 2 adds the exact
-  Project-data declarations and lookup-source references that accepted
-  materialization resolves; the strict version-1 reader remains exact for
-  historical artifacts and never receives a defaulted second meaning.
-  `graph.ts` runs inside
+- `contract.ts` owns the one Design Contract vocabulary. `schemaVersion` is
+  serialized artifact metadata, not a family of domain types or helper names.
+  Stored payloads that predate an additive collection normalize at the
+  artifact read boundary after their sealed bytes pass digest verification;
+  every other caller receives the complete current schema. `graph.ts` runs inside
   parsing and proves global identity uniqueness, reference closure, workflow
   ownership, property/record coherence, navigation closure, charter coverage,
   a dependency-free initial workflow, acyclic workflow and record hierarchies,
@@ -57,9 +57,14 @@ valid direct Builder or MCP edit.
   construction admission additionally requires every controlled choice to
   carry either at least two distinct real inline values or one canonical lookup
   source. An existing source names current table/value/label UUIDs; a designed
-  source names the exact table and columns by DesignId until the accepted
-  materialization receipt supplies their UUIDs. The executor never resolves a
-  name. Every created or changed row set carries bounded source references and
+  source names the exact table and columns by DesignId. Catalog display names
+  let the author find an existing resource; the stable identities returned
+  beside those names are what the contract retains. The accepted source
+  reference survives planning and the execution brief unchanged. A private
+  server boundary resolves a designed reference immediately before the shared
+  tool parses it and reverses canonical lookup carriers in read results, so the
+  executor never sees or manages the materialization mapping. Every created or
+  changed row set carries bounded source references and
   a summary of what establishes its exact values; the graph, construction gate,
   and reviewer refuse invented or ungrounded Project data. Worker-facing
   composition is part of the
@@ -72,9 +77,10 @@ valid direct Builder or MCP edit.
   owned by a later slice;
   `formCompositions` chooses exact workflow variants, modes, module homes,
   actors, ordered sections/items, Markdown labels/guidance/help, record
-  summaries, and justified flat or duplicated forms. Historical v1 artifacts
-  default these collections to empty, while new construction requires at least
-  one deliberate module and one complete form variant per included workflow.
+  summaries, and justified flat or duplicated forms. Stored contracts that
+  predate these additive collections normalize them to empty at the artifact
+  boundary, while new construction requires at least one deliberate module and
+  one complete form variant per included workflow.
   Actors remain semantic work context: they do not create Blueprint user
   types, personas, or worker properties unless an executable accepted
   condition/reference or explicit authored-worker request needs that
@@ -170,7 +176,10 @@ valid direct Builder or MCP edit.
   The executor admits module creation, reuse, forms, updates, and moves only
   through that exact handle and accepted placement, and `finishWorkflow`
   proves the committed module identity, parent, and sibling order before
-  sealing a slice.
+  sealing a slice. Lookup choice sources are different from these compiler-
+  derived record and module projections: the brief copies their accepted
+  semantic table and column identities exactly and tells the executor to copy
+  them unchanged.
 - `complexity.ts` deterministically assigns `compact`, `standard`, or
   `extended`. The class chooses process depth and conservative user-facing time
   estimates; it never changes Blueprint validity or authority.
@@ -183,9 +192,8 @@ valid direct Builder or MCP edit.
   revision requires its persisted independent review and complete blocker
   dispositions. A plan belongs to the same session and exact accepted revision.
   Lookup materialization receipts retain every minted table, column, and row
-  binding under their full result digest; BuildPlan and execution briefs project
-  only table/column bindings because Blueprint construction never addresses
-  lookup rows.
+  binding under their full result digest. The BuildPlan binds the exact receipt
+  to execution authority, but the execution brief does not expose that mapping.
   When a newer revision supersedes accepted pre-app work, or the session is
   discarded, artifact orchestration releases that materialization's temporary
   lookup protections but never guesses that the accepted Project data itself is
@@ -203,10 +211,9 @@ valid direct Builder or MCP edit.
   an informed identity choice. Nova may reference existing Project media, but
   cannot create Projects, create several apps in one session, or generate/upload
   media.
-- `prompts.ts` holds the versioned static author, reviewer, revision, and plan
-  instructions. The current agent authors schema version 2, while version 1 is
-  a persisted-reader contract only; every prompt or grammar change bumps its own
-  explicit version instead of reusing an old key. The prompts activate
+- `prompts.ts` holds the static author, reviewer, revision, and plan
+  instructions. Every prompt or grammar change bumps its persisted prompt
+  version instead of reusing an old key. The prompts activate
   CommCare/Nova domain knowledge, treat source blocks as untrusted data, keep
   technical protocol details out of user prose, and make unsupported
   capabilities explicit. Readiness may remain external only when every included
@@ -220,7 +227,7 @@ valid direct Builder or MCP edit.
   from conversation language. It names canonical source, runtime default,
   target metadata, each target's existing seed language, and `copy-only` versus
   `translate-with-nova`. Target dependencies form an acyclic closed graph. The
-  base schema preserves historical artifacts, while construction validation
+  artifact reader preserves stored contracts, while construction validation
   refuses `translate-with-nova` unless both language codes resolve to distinct
   members of the automatic-translation launch set. Workflow slices remain
   source-language-only; the server-owned
@@ -237,8 +244,9 @@ server-governed semantic phases:
 3. `revision` updates only the affected design elements, dispositions every
    blocker, and submits the complete revised contract.
 4. The server accepts a clean revision, atomically materializes its approved
-   Project-data intent and UUID receipt, then derives its build plan without a
-   planner model call.
+   Project-data intent and immutable receipt, then derives its build plan
+   without a planner model call. The compiler keeps the design's lookup
+   references; server-owned resolution is private to workspace dispatch.
 
 The author makes architectural and worker-facing composition decisions in the
 same durable pass. Form composition is one information hierarchy: native

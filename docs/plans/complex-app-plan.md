@@ -708,9 +708,12 @@ the Blueprint's canonical lookup reference edges before it releases those
 protections, so no destructive table write can strand the accepted design.
 Superseding or discarding a pre-app design releases only the temporary
 protections; accepted Project data remains ordinary Project state rather than
-being guessed safe to delete. The build executor receives the UUID receipt and
-may only author Blueprint references. It never creates, populates, or resolves a
-lookup table by name.
+being guessed safe to delete. The BuildPlan binds the UUID receipt to execution
+authority, while the build executor keeps the accepted semantic table and
+column references unchanged. A server-owned workspace seam resolves them only
+at canonical tool dispatch and reverses that projection for reads. Catalog
+names remain the discovery surface for existing Project data; the stable
+identities returned with those names are what the design retains.
 
 Follow-up chat and MCP expose the same governed operations as SA
 `getLookupTables`, `getLookupTableRows`, `createLookupTable`,

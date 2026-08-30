@@ -1229,7 +1229,6 @@ interface ExistingChoiceInspectionUse {
 function existingChoiceInspectionUses(
 	contract: AppDesignContract,
 ): ExistingChoiceInspectionUse[] {
-	if (contract.schemaVersion !== 2) return [];
 	return [
 		...contract.records.flatMap((record, recordIndex) =>
 			record.properties.flatMap((property, propertyIndex) =>
@@ -1343,7 +1342,6 @@ export async function validateAuthorizedProjectLookupEvidence(
 	>,
 	contract: AppDesignContract,
 ): Promise<DesignConstructionIssue[]> {
-	if (contract.schemaVersion !== 2) return [];
 	const uses = existingChoiceInspectionUses(contract);
 	const modifications = contract.lookupTables.flatMap((intent, intentIndex) =>
 		intent.kind === "modify-existing"

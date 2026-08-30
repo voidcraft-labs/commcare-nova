@@ -6,7 +6,7 @@ import {
 import {
 	did,
 	ids,
-	makeV2LookupContract,
+	makeLookupContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import {
@@ -59,23 +59,22 @@ function materialization(): BuildPlanLookupMaterialization {
 	};
 }
 
-describe("accepted lookup plan lowering", () => {
-	it("refuses to plan v2 lookup intent before its durable receipt exists", () => {
+describe("accepted lookup references", () => {
+	it("refuses to plan lookup intent before its durable receipt exists", () => {
 		expect(() =>
-			deriveBuildPlan({ contract: makeV2LookupContract(), revision: REVISION }),
+			deriveBuildPlan({ contract: makeLookupContract(), revision: REVISION }),
 		).toThrow("requires its durable Project-data materialization receipt");
 	});
 
-	it("freezes the receipt in BuildPlan v2 and lowers Design IDs to lookup UUIDs", () => {
-		const contract = makeV2LookupContract();
+	it("keeps the designed reference unchanged through the execution brief", () => {
+		const contract = makeLookupContract();
 		const lookupMaterialization = materialization();
 		const plan = deriveBuildPlan({
 			contract,
 			revision: REVISION,
 			lookupMaterialization,
 		});
-		expect(plan.schemaVersion).toBe(2);
-		if (plan.schemaVersion !== 2) throw new Error("Expected BuildPlan v2.");
+		expect(plan.schemaVersion).toBe(1);
 		expect(plan.lookupMaterialization).toEqual(lookupMaterialization);
 
 		const root = plan.slices.find(
@@ -88,23 +87,22 @@ describe("accepted lookup plan lowering", () => {
 			plan,
 			sliceId: root.id,
 		});
-		expect(brief.schemaVersion).toBe(2);
+		expect(brief.schemaVersion).toBe(1);
 		const risk = brief.records
 			.flatMap((record) => record.properties)
 			.find((property) => property.id === ids.factRisk);
-		expect(risk?.choiceSource).toEqual({
-			kind: "existing-project-lookup",
-			tableId: TABLE_ID,
-			valueColumnId: VALUE_COLUMN_ID,
-			labelColumnId: LABEL_COLUMN_ID,
-		});
-		expect(brief.lookupMaterialization?.bindings).toEqual(
-			lookupMaterialization.bindings,
+		expect(risk?.choiceSource).toEqual(
+			contract.records
+				.flatMap((record) => record.properties)
+				.find((property) => property.id === ids.factRisk)?.choiceSource,
 		);
-		expect(renderBriefMessage(brief)).toContain(TABLE_ID);
+		const rendered = renderBriefMessage(brief);
+		expect(rendered).toContain(ids.lookupRisk);
+		expect(rendered).not.toContain(TABLE_ID);
+		expect(rendered).not.toContain(lookupMaterialization.resultDigest);
 	});
 
-	it("keeps many receipt row bindings out of the plan and execution brief", () => {
+	it("keeps receipt bindings out of the execution brief", () => {
 		const fullReceiptBindings: DesignLookupBinding[] = [
 			...materialization().bindings,
 			...Array.from({ length: 5_000 }, (_, index) => ({
@@ -118,13 +116,12 @@ describe("accepted lookup plan lowering", () => {
 			...materialization(),
 			bindings: projectBuildPlanLookupBindings(fullReceiptBindings),
 		};
-		const contract = makeV2LookupContract();
+		const contract = makeLookupContract();
 		const plan = deriveBuildPlan({
 			contract,
 			revision: REVISION,
 			lookupMaterialization,
 		});
-		if (plan.schemaVersion !== 2) throw new Error("Expected BuildPlan v2.");
 		const root = plan.slices.find(
 			(slice) => slice.role === "materialization-root",
 		);
@@ -136,15 +133,15 @@ describe("accepted lookup plan lowering", () => {
 			sliceId: root.id,
 		});
 		expect(plan.lookupMaterialization?.bindings).toHaveLength(3);
-		expect(brief.lookupMaterialization?.bindings).toHaveLength(3);
 		expect(JSON.stringify(plan.lookupMaterialization).length).toBeLessThan(800);
-		expect(JSON.stringify(brief.lookupMaterialization).length).toBeLessThan(
-			800,
+		expect(JSON.stringify(brief)).not.toContain(TABLE_ID);
+		expect(JSON.stringify(brief)).not.toContain(
+			lookupMaterialization.resultDigest,
 		);
 	});
 
 	it("strips existing-lookup inspection evidence from the execution brief", () => {
-		const contract = makeV2LookupContract();
+		const contract = makeLookupContract();
 		const risk = contract.records
 			.flatMap((record) => record.properties)
 			.find((property) => property.id === ids.factRisk);
@@ -185,11 +182,11 @@ describe("accepted lookup plan lowering", () => {
 			plan,
 			sliceId: root.id,
 		});
-		const loweredRisk = brief.records
+		const referencedRisk = brief.records
 			.flatMap((record) => record.properties)
 			.find((property) => property.id === ids.factRisk);
 
-		expect(loweredRisk?.choiceSource).toEqual({
+		expect(referencedRisk?.choiceSource).toEqual({
 			kind: "existing-project-lookup",
 			tableId: TABLE_ID,
 			valueColumnId: VALUE_COLUMN_ID,
@@ -199,7 +196,7 @@ describe("accepted lookup plan lowering", () => {
 	});
 
 	it("fails closed when an accepted designed identity is absent from the receipt", () => {
-		const contract = makeV2LookupContract();
+		const contract = makeLookupContract();
 		const incomplete = materialization();
 		incomplete.bindings = incomplete.bindings.filter(
 			(binding) => binding.designId !== ids.lookupRiskLabel,

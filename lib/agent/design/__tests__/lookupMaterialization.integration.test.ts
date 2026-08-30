@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { DesignArtifactWriteAuthority } from "@/lib/agent/design/artifactStore";
 import {
-	type AppDesignContractV2Raw,
-	appDesignContractV2BaseSchema,
+	type AppDesignContract,
+	appDesignContractBaseSchema,
 } from "@/lib/agent/design/contract";
 import { sealArtifactEnvelope } from "@/lib/agent/design/envelope";
 import { computeLookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
@@ -19,8 +19,8 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	did,
 	ids,
-	makeV2Contract,
-	makeV2LookupContract,
+	makeContract,
+	makeLookupContract,
 	messageRef,
 } from "./fixtures";
 
@@ -46,12 +46,12 @@ function authority(): DesignArtifactWriteAuthority {
 	};
 }
 
-function designedLookupContract(): AppDesignContractV2Raw {
-	return makeV2LookupContract();
+function designedLookupContract(): AppDesignContract {
+	return makeLookupContract();
 }
 
 async function seedAcceptedRevision(
-	contract: AppDesignContractV2Raw = designedLookupContract(),
+	contract: AppDesignContract = designedLookupContract(),
 ): Promise<{
 	designSessionId: string;
 	designRevisionId: string;
@@ -68,7 +68,7 @@ async function seedAcceptedRevision(
 	const packageDigest = "a".repeat(64);
 	const draftEnvelope = sealArtifactEnvelope({
 		artifactType: "design-contract" as const,
-		artifactSchemaVersion: 2,
+		artifactSchemaVersion: contract.schemaVersion,
 		artifactId: crypto.randomUUID(),
 		designSessionId,
 		revision: 1,
@@ -86,7 +86,7 @@ async function seedAcceptedRevision(
 	});
 	const acceptedEnvelope = sealArtifactEnvelope({
 		artifactType: "design-contract" as const,
-		artifactSchemaVersion: 2,
+		artifactSchemaVersion: contract.schemaVersion,
 		artifactId: crypto.randomUUID(),
 		designSessionId,
 		revision: 2,
@@ -189,7 +189,7 @@ async function materialize(
 
 async function seedSuccessorAcceptedRevision(
 	prior: Awaited<ReturnType<typeof seedAcceptedRevision>>,
-	contract: AppDesignContractV2Raw,
+	contract: AppDesignContract,
 ) {
 	const previous = await h
 		.db()
@@ -201,7 +201,7 @@ async function seedSuccessorAcceptedRevision(
 	const revision = Number(previous.revision) + 1;
 	const envelope = sealArtifactEnvelope({
 		artifactType: "design-contract" as const,
-		artifactSchemaVersion: 2,
+		artifactSchemaVersion: contract.schemaVersion,
 		artifactId: crypto.randomUUID(),
 		designSessionId: prior.designSessionId,
 		revision,
@@ -335,9 +335,7 @@ describe("accepted design lookup materialization", () => {
 			expect.objectContaining({ materialization_id: second.id }),
 		]);
 
-		const noLookupContract = appDesignContractV2BaseSchema.parse(
-			makeV2Contract(),
-		);
+		const noLookupContract = appDesignContractBaseSchema.parse(makeContract());
 		const thirdLineage = await seedSuccessorAcceptedRevision(
 			secondLineage,
 			noLookupContract,

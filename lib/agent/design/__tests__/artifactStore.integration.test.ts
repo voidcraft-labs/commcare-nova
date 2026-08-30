@@ -37,13 +37,13 @@ import {
 	type DesignSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	did,
 	ids,
 	makeBuildPlan,
 	makeContract,
-	makeV2Contract,
-	makeV2LookupContract,
+	makeLookupContract,
 	messageRef,
 } from "./fixtures";
 
@@ -242,7 +242,7 @@ function planEnvelope(
 		sourcePackageDigest: accepted.sourcePackageDigest,
 		inputArtifactDigests: [
 			accepted.artifactDigest,
-			...(payload.schemaVersion === 2 && payload.lookupMaterialization !== null
+			...(payload.lookupMaterialization !== null
 				? [payload.lookupMaterialization.resultDigest]
 				: []),
 		],
@@ -662,6 +662,60 @@ describe("build plans", () => {
 		expect(read.envelope.payload.slices).toHaveLength(2);
 	});
 
+	it("normalizes an omitted additive plan member only after verifying its sealed body", async () => {
+		const { accepted } = await persistAcceptedRevision();
+		const currentPlan: BuildPlan = {
+			...makeBuildPlan(),
+			designRevisionId: accepted.id,
+			designRevisionDigest: accepted.artifactDigest,
+		};
+		const {
+			lookupMaterialization: _addedAfterThisPlanWasStored,
+			...storedPayload
+		} = currentPlan;
+		const storedEnvelope = sealArtifactEnvelope({
+			artifactType: "design-build-plan" as const,
+			artifactSchemaVersion: storedPayload.schemaVersion,
+			artifactId: crypto.randomUUID(),
+			designSessionId: sessionId,
+			revision: accepted.revision,
+			parentArtifactId: accepted.id,
+			sourcePackageDigest: accepted.sourcePackageDigest,
+			inputArtifactDigests: [accepted.artifactDigest],
+			promptVersion: "design-planner-v1",
+			producer: {
+				provider: "openai",
+				modelId: "gpt-test",
+				finishReason: "stop",
+			},
+			createdAt: new Date().toISOString(),
+			payload: storedPayload,
+		});
+		await h
+			.db()
+			.insertInto("design_build_plans")
+			.values({
+				id: storedPayload.id,
+				design_session_id: sessionId,
+				design_revision_id: accepted.id,
+				design_revision_digest: accepted.artifactDigest,
+				plan_digest: canonicalJsonDigest(storedPayload),
+				artifact_digest: storedEnvelope.artifactDigest,
+				producer_model: storedEnvelope.producer.modelId,
+				prompt_version: storedEnvelope.promptVersion,
+				created_by_run_id: RUN_ID,
+				envelope: JSON.stringify(storedEnvelope),
+			})
+			.execute();
+
+		const read = (await readDesignBuildPlan(
+			storedPayload.id,
+		)) as DesignBuildPlanRecord;
+		expect(read.envelope.payload.lookupMaterialization).toBeNull();
+		expect(read.artifactDigest).toBe(storedEnvelope.artifactDigest);
+		expect(read.planDigest).toBe(canonicalJsonDigest(storedPayload));
+	});
+
 	it("refuses a plan over a draft revision", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, runId: RUN_ID });
@@ -692,11 +746,11 @@ describe("build plans", () => {
 		).rejects.toThrow(/derived from something else/);
 	});
 
-	it("refuses a v2 lookup plan until its exact materialization receipt is bound", async () => {
-		const contract = makeV2LookupContract();
+	it("refuses a lookup plan until its exact materialization receipt is bound", async () => {
+		const contract = makeLookupContract();
 		const { accepted } = await persistAcceptedRevision(contract);
 		const noLookupPlan = deriveBuildPlan({
-			contract: makeV2Contract(),
+			contract: makeContract(),
 			revision: { id: accepted.id, digest: accepted.artifactDigest },
 		});
 		await expect(
@@ -707,8 +761,8 @@ describe("build plans", () => {
 		).rejects.toThrow(/no durable lookup materialization receipt/);
 	});
 
-	it("persists BuildPlan v2 only with the receipt's exact digest-bound UUID mapping", async () => {
-		const contract = makeV2LookupContract();
+	it("persists a BuildPlan only with the receipt's exact digest-bound identity mapping", async () => {
+		const contract = makeLookupContract();
 		const { accepted } = await persistAcceptedRevision(contract);
 		const receipt = await ensureAcceptedLookupMaterialization({
 			designSessionId: sessionId,
@@ -733,25 +787,19 @@ describe("build plans", () => {
 			envelope: planEnvelope(accepted, plan),
 			runId: RUN_ID,
 		});
-		expect(stored.envelope.payload.schemaVersion).toBe(2);
+		expect(stored.envelope.payload.schemaVersion).toBe(1);
 		expect(
 			receipt.payload.bindings.filter(
 				(binding) => binding.kind === "lookup-row",
 			),
 		).toHaveLength(2);
-		if (stored.envelope.payload.schemaVersion !== 2)
-			throw new Error("Expected a stored BuildPlan v2.");
 		expect(
 			stored.envelope.payload.lookupMaterialization?.bindings,
 		).toHaveLength(3);
 
 		const tampered = structuredClone(plan);
-		if (
-			tampered.schemaVersion !== 2 ||
-			tampered.lookupMaterialization === null
-		) {
-			throw new Error("Expected a materialized BuildPlan v2.");
-		}
+		if (tampered.lookupMaterialization === null)
+			throw new Error("Expected a materialized BuildPlan.");
 		tampered.lookupMaterialization.bindings =
 			tampered.lookupMaterialization.bindings.slice(1);
 		await expect(

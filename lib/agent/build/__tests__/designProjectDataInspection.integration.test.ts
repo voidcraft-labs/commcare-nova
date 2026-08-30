@@ -8,7 +8,7 @@ import {
 import {
 	fixtureValue,
 	ids,
-	makeV2Contract,
+	makeContract,
 	messageRef,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -315,7 +315,7 @@ describe("reviewed-design Project-data inspection", () => {
 		});
 		if (inspected.kind !== "rows" || inspected.choiceProjection === undefined)
 			throw new Error("choice attestation is missing");
-		const contract = makeV2Contract();
+		const contract = makeContract();
 		const risk = fixtureValue(
 			contract.records[0]?.properties.find(
 				(property) => property.id === ids.factRisk,
@@ -357,8 +357,7 @@ describe("reviewed-design Project-data inspection", () => {
 		});
 		if (inspected.kind !== "rows" || inspected.choiceProjection === undefined)
 			throw new Error("choice attestation is missing");
-		const contract = makeV2Contract();
-		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const contract = makeContract();
 		const risk = fixtureValue(
 			contract.records[0]?.properties.find(
 				(property) => property.id === ids.factRisk,
@@ -457,8 +456,7 @@ describe("reviewed-design Project-data inspection", () => {
 		const foreignColumnId = foreign.tables[0]?.columnIds[0]?.id;
 		if (foreignColumnId === undefined)
 			throw new Error("foreign lookup fixture is incomplete");
-		const contract = makeV2Contract();
-		if (contract.schemaVersion !== 2) throw new Error("expected v2 fixture");
+		const contract = makeContract();
 		contract.lookupTables.push({
 			kind: "modify-existing",
 			id: ids.lookupRisk,

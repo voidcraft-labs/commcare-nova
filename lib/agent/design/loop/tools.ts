@@ -40,8 +40,8 @@ import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { DESIGN_EFFORT_TIME_ESTIMATES } from "@/lib/agent/design/complexity";
 import {
 	type AppDesignContract,
+	appDesignContractBaseSchema,
 	appDesignContractSchema,
-	appDesignContractV2BaseSchema,
 	type DesignConstructionIssue,
 	designConstructionIssues,
 	designConstructionQuestionRequirements,
@@ -235,36 +235,38 @@ async function persistDerivedPlan(
 	deps: DesignLoopToolDeps,
 	accepted: NonNullable<DesignGateState["head"]>,
 ) {
-	const lookupReceipt =
-		accepted.envelope.payload.schemaVersion === 2
-			? await ensureAcceptedLookupMaterialization({
-					designSessionId: deps.designSessionId,
-					designRevisionId: accepted.id,
-					designRevisionDigest: accepted.artifactDigest,
-					contract: appDesignContractV2BaseSchema.parse(
-						accepted.envelope.payload,
-					),
-					authority: deps.authority,
-				})
-			: null;
+	const contract = appDesignContractBaseSchema.parse(accepted.envelope.payload);
+	const needsLookupMaterialization =
+		contract.lookupTables.length > 0 ||
+		contract.records.some((record) =>
+			record.properties.some((property) => property.choiceSource !== undefined),
+		) ||
+		contract.workflows.some((workflow) =>
+			workflow.inputs.some((input) => input.choiceSource !== undefined),
+		);
+	const lookupReceipt = needsLookupMaterialization
+		? await ensureAcceptedLookupMaterialization({
+				designSessionId: deps.designSessionId,
+				designRevisionId: accepted.id,
+				designRevisionDigest: accepted.artifactDigest,
+				contract,
+				authority: deps.authority,
+			})
+		: null;
 	const plan = deriveBuildPlan({
-		contract: accepted.envelope.payload,
+		contract,
 		revision: { id: accepted.id, digest: accepted.artifactDigest },
-		...(accepted.envelope.payload.schemaVersion === 2
-			? {
-					lookupMaterialization:
-						lookupReceipt === null
-							? null
-							: {
-									receiptId: lookupReceipt.id,
-									resultDigest: lookupReceipt.resultDigest,
-									projectRevision: lookupReceipt.payload.projectRevision,
-									bindings: projectBuildPlanLookupBindings(
-										lookupReceipt.payload.bindings,
-									),
-								},
-				}
-			: {}),
+		lookupMaterialization:
+			lookupReceipt === null
+				? null
+				: {
+						receiptId: lookupReceipt.id,
+						resultDigest: lookupReceipt.resultDigest,
+						projectRevision: lookupReceipt.payload.projectRevision,
+						bindings: projectBuildPlanLookupBindings(
+							lookupReceipt.payload.bindings,
+						),
+					},
 	});
 	const record = await insertDesignBuildPlan({
 		envelope: planEnvelope({
