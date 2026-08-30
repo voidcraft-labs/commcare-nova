@@ -20,6 +20,7 @@ import { proseText } from "@/lib/domain/prose";
 
 import {
 	buildAppStateMessage,
+	buildMcpAgentBuildPrompt,
 	buildSolutionsArchitectPrompt,
 	isEditableDoc,
 	markStablePrefixBoundary,
@@ -123,6 +124,34 @@ describe("buildSolutionsArchitectPrompt", () => {
 		expect(sp).toContain("`moveModule` always takes `after`");
 		expect(sp).toContain("separate from case `parent_type`");
 		expect(sp).toContain("does not author linked/shadow form reuse");
+	});
+
+	it("requires explicit consent and a fresh read before Project data writes", () => {
+		for (const prompt of [
+			buildSolutionsArchitectPrompt(),
+			buildMcpAgentBuildPrompt(),
+		]) {
+			expect(prompt).toContain(
+				"Project data is shared by every app in the Project",
+			);
+			expect(prompt).toContain(
+				"only when the user's current request explicitly asks",
+			);
+			expect(prompt).toContain(
+				"Explain before the write that the change affects every app in the Project",
+			);
+			expect(prompt).toContain(
+				"does not by itself authorize changing the underlying table",
+			);
+			expect(prompt).toContain(
+				"Never infer consent or target identity from a similar table name",
+			);
+			expect(prompt).toContain("Read before every Project data write");
+			expect(prompt).toContain("also call `getLookupTableRows`");
+			expect(prompt).toContain(
+				"use the returned revision as the write's optimistic fence",
+			);
+		}
 	});
 
 	it("keeps automation match counts on Builder Preview instead of SA reads", () => {

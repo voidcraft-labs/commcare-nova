@@ -17,13 +17,18 @@ import type {
 	ArchitectureDecision,
 	Assumption,
 	DesignActor,
+	DesignedLookupChoiceSource,
+	DesignLookupChoiceSource,
+	ExistingLookupChoiceReference,
 	ExternalRequirement,
 	FormComposition,
 	FormCompositionItem,
 	ModuleComposition,
 	NavigationIntent,
 	RecordConcept,
+	RecordProperty,
 	Workflow,
+	WorkflowInput,
 	WorkList,
 } from "@/lib/agent/design/contract";
 import type { DesignId } from "@/lib/agent/design/ids";
@@ -39,6 +44,28 @@ import {
 	deriveExecutorToolProfile,
 	type ExecutorToolProfile,
 } from "./executorToolProfile";
+
+type ExecutionChoiceReference =
+	| ExistingLookupChoiceReference
+	| DesignedLookupChoiceSource;
+type ExecutionRecordConcept = Omit<RecordConcept, "properties"> & {
+	readonly properties: readonly (Omit<RecordProperty, "choiceSource"> & {
+		readonly choiceSource?: ExecutionChoiceReference;
+	})[];
+};
+type ExecutionWorkflow = Omit<Workflow, "inputs"> & {
+	readonly inputs: readonly (Omit<WorkflowInput, "choiceSource"> & {
+		readonly choiceSource?: ExecutionChoiceReference;
+	})[];
+};
+
+function executionChoiceReference(
+	source: DesignLookupChoiceSource | undefined,
+): ExecutionChoiceReference | undefined {
+	if (source?.kind !== "existing-project-lookup") return source;
+	const { inspection: _inspection, ...reference } = source;
+	return reference;
+}
 
 export interface ConstructionChecklist {
 	readonly groupName: string;
@@ -58,14 +85,14 @@ export interface SliceExecutionBrief {
 	readonly slice: BuildSlice;
 	readonly constructionChecklist: readonly ConstructionChecklist[];
 	readonly toolProfile: ExecutorToolProfile;
-	readonly workflow: Workflow;
+	readonly workflow: ExecutionWorkflow;
 	readonly prerequisiteWorkflows: readonly Pick<
 		Workflow,
 		"id" | "name" | "goal"
 	>[];
 	readonly actors: readonly DesignActor[];
-	readonly records: readonly RecordConcept[];
-	/** Deterministic lowering from semantic record identity to the exact
+	readonly records: readonly ExecutionRecordConcept[];
+	/** Deterministic compiler mapping from semantic record identity to the exact
 	 * Blueprint case-type key every construction operation must reuse. */
 	readonly recordRealizations: readonly {
 		readonly recordId: DesignId;
@@ -665,7 +692,17 @@ export function deriveSliceExecutionBrief(args: {
 		slice: executableSlice,
 		constructionChecklist,
 		toolProfile,
-		workflow,
+		workflow: {
+			...workflow,
+			inputs: workflow.inputs.map((input) => ({
+				...input,
+				...(input.choiceSource === undefined
+					? {}
+					: {
+							choiceSource: executionChoiceReference(input.choiceSource),
+						}),
+			})),
+		},
 		prerequisiteWorkflows: args.contract.workflows
 			.filter((entry) => prerequisiteIds.has(entry.id))
 			.map(({ id, name, goal }) => ({ id, name, goal })),
@@ -674,11 +711,20 @@ export function deriveSliceExecutionBrief(args: {
 			.filter((record) => recordIds.has(record.id))
 			.map((record) => ({
 				...record,
-				properties: record.properties.filter(
-					(property) =>
-						ownedPropertyIds.has(property.id) ||
-						usedPropertyIds.has(property.id),
-				),
+				properties: record.properties
+					.filter(
+						(property) =>
+							ownedPropertyIds.has(property.id) ||
+							usedPropertyIds.has(property.id),
+					)
+					.map((property) => ({
+						...property,
+						...(property.choiceSource === undefined
+							? {}
+							: {
+									choiceSource: executionChoiceReference(property.choiceSource),
+								}),
+					})),
 			})),
 		recordRealizations: allRecordRealizations.filter((record) =>
 			recordIds.has(record.recordId),

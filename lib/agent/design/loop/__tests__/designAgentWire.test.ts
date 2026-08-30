@@ -29,6 +29,7 @@ import {
 } from "@/lib/agent/design/loop/designAgent";
 import { DesignRepairTracker } from "@/lib/agent/design/loop/gates";
 import {
+	collectDesignIdentityHandleBindings,
 	collectDesignReferenceBindings,
 	createDesignLoopTools,
 	createDesignToolExecutionQueue,
@@ -116,6 +117,7 @@ const DESIGN_TOOL_NAMES = [
 	"askQuestions",
 	"finishDesign",
 	"inspectDesign",
+	"inspectProjectData",
 	"requestReview",
 	"setDesignRoot",
 	"updateAccess",
@@ -126,6 +128,7 @@ const DESIGN_TOOL_NAMES = [
 	"updateFindingDispositions",
 	"updateFormCompositions",
 	"updateLists",
+	"updateLookupTables",
 	"updateModuleCompositions",
 	"updateNavigation",
 	"updateOpenQuestions",
@@ -214,6 +217,13 @@ async function captureDesignTurnBody(
 			},
 			ancestryChanged: () => {},
 			rebuildPackageForDigest: async () => null,
+			inspectProjectData: async () => ({
+				kind: "catalog",
+				projectRevision: "0" as never,
+				tables: [],
+				complete: true,
+			}),
+			validateProjectLookupEvidence: async () => [],
 		},
 		toolExecutionQueue,
 	);
@@ -627,6 +637,114 @@ describe("design agent Responses wire body", () => {
 		expect(
 			designCreationIdentityIssue(rawSourceUpsert, { records: [] }),
 		).toContain("raw UUID");
+
+		const lookupInput = {
+			collections: [
+				{
+					collection: "lookupTables",
+					upserts: [
+						{
+							kind: "create",
+							id: { handle: "@risk_table" },
+							columns: [{ id: { handle: "@risk_value" } }],
+							rows: [{ id: { handle: "@risk_routine" } }],
+						},
+					],
+				},
+			],
+		};
+		expect(
+			collectDesignIdentityHandleBindings(lookupInput, designSessionId).map(
+				({ handle, entityKind }) => ({ handle, entityKind }),
+			),
+		).toEqual([
+			{ handle: "@risk_table", entityKind: "lookup_table_intent" },
+			{ handle: "@risk_value", entityKind: "lookup_column_intent" },
+			{ handle: "@risk_routine", entityKind: "lookup_row_intent" },
+		]);
+		expect(
+			designCreationIdentityIssue(
+				{
+					collections: [
+						{
+							collection: "lookupTables",
+							upserts: [
+								{
+									kind: "create",
+									id: { handle: "@risk_table" },
+									columns: [{ id: did(8701) }],
+									rows: [],
+								},
+							],
+						},
+					],
+				},
+				{ lookupTables: [] },
+			),
+		).toContain("columns.0.id");
+
+		/* UUID spelling is not identity semantics. Source provenance and
+		 * inspected Project-data UUIDs keep their own domains even inside the
+		 * lookup collection. */
+		const threadId = "00000000-0000-4000-8000-000000000091";
+		const existingTableId = "01998765-4321-7abc-8def-0123456789ab";
+		const existingColumnId = "01998765-4321-7abc-8def-0123456789ac";
+		const existingRowId = "01998765-4321-7abc-8def-0123456789ad";
+		expect(
+			designCreationIdentityIssue(
+				{
+					collections: [
+						{
+							collection: "lookupTables",
+							upserts: [
+								{
+									kind: "modify-existing",
+									id: { handle: "@facility_changes" },
+									tableId: existingTableId,
+									authorization: {
+										kind: "direct-user-request",
+										sourceRefs: [
+											{
+												kind: "message",
+												threadId,
+												messageId: "request",
+												partIndex: 0,
+											},
+										],
+									},
+									operations: [
+										{
+											kind: "update-row",
+											rowId: existingRowId,
+											cells: [
+												{
+													column: {
+														kind: "existing-column",
+														columnId: existingColumnId,
+													},
+												},
+											],
+											rowEvidence: {
+												sourceRefs: [
+													{
+														kind: "message",
+														threadId,
+														messageId: "request",
+														partIndex: 0,
+													},
+												],
+											},
+										},
+									],
+								},
+							],
+							removeIds: [],
+						},
+					],
+				},
+				{ lookupTables: [] },
+			),
+		).toBeNull();
 	});
 
 	it("keeps review finding UUIDs outside the design identity namespace", () => {
@@ -713,6 +831,12 @@ describe("design agent Responses wire body", () => {
 			);
 		}
 		expect(byName.get("askQuestions")?.strict).toBe(false);
+		const projectDataTableId = byName.get("inspectProjectData")?.parameters
+			?.properties?.tableId as
+			| { pattern?: string; anyOf?: unknown[] }
+			| undefined;
+		expect(projectDataTableId?.pattern).toBeDefined();
+		expect(projectDataTableId?.anyOf).toBeUndefined();
 		expect([...byName.keys()].sort()).toEqual(DESIGN_TOOL_NAMES);
 	});
 });

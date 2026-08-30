@@ -12,6 +12,14 @@ app. An independent review checks that design before construction starts. Nova
 asks questions only when an answer materially changes the app or isn't safe to
 assume.
 
+Shared lists are part of that design. When the same facilities, products, or
+other values should serve several questions or app surfaces, Nova can design a
+[Project data table](/docs/project-data) once and point each use at it. Drafting
+and review do not change Project data. After the reviewed design is accepted,
+Nova creates the approved table and its rows before it starts constructing the
+app. If the design would change a table that other apps can already use, Nova
+explains that Project-wide effect and asks for approval first.
+
 The live status immediately above the chat box names the current phase. Nova
 also gives a conservative rough estimate based on the design's assigned effort
 level: about 30 minutes for compact designs, an hour for standard designs,
@@ -115,9 +123,9 @@ device.
 
 ## External setup
 
-Some workflows depend on work outside the app, such as loading Project data,
-providing an existing media asset, or configuring an automation in CommCare
-HQ. Nova names those prerequisites and never claims that it completed them.
+Some workflows depend on work outside the app, such as providing an existing
+media asset or configuring an automation in CommCare HQ. Nova names those
+prerequisites and never claims that it completed them.
 Preview does not pretend to run external automations. One design session builds
 one app in your current Project; if a request describes several apps, Nova asks
 which one to build first.

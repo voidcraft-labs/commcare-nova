@@ -628,12 +628,44 @@ link's `uuid`, and the link tools take that value as `linkUuid`.
 | `move_form_link` | Move `linkUuid` after `afterLinkUuid`, or pass `null` to check it first. Refuses an order that puts a conditional link after the otherwise link, or the otherwise link anywhere but last. |
 | `remove_form_link` | Remove one link by `linkUuid`. Removing the otherwise link while conditional links remain stores `post_submit` explicitly as the fallback. |
 
-## Working with Project data in expressions
+## Working with Project data
 
-Call `get_lookup_tables` before writing a lookup-backed field or expression. It
-returns rows-free table and column metadata; every table `id` and column `id` is
-its immutable UUID. Names, tags, labels, and export names are included so the
+Project data belongs to the app's Nova Project, so a change may affect several
+apps. Read before writing. `get_lookup_tables` returns table and column
+definitions without the row values, plus counts, byte use, and the current
+Project, definition, row, and table revisions. Every table `id` and column `id`
+is its immutable UUID. Names, tags, labels, and export names are included so the
 agent can explain its choice, not so it can address the resource.
+
+`get_lookup_table_rows` reads up to 100 rows at a time in authored order. Each
+page is bound to the table revision, query, and requested columns; if the table
+changes between pages, restart the read instead of combining two generations.
+Repeat the same `query` and `columnIds` with each returned cursor.
+Rows and cells use stable row and column UUIDs. A missing cell and an explicitly
+empty text value are different values and stay different across every tool.
+
+Every write other than table creation takes `expectedTableRevision`. Chain the
+returned revision into the next write, and re-read after a conflict. Adds and
+moves use `afterColumnId` or `afterRowId`; `null` means first and an omitted add
+anchor means append. Numeric positions, table tags, and column export names are
+never addresses.
+
+`create_lookup_table` creates a table, its columns, and optional initial rows in
+one transaction. Request-local column keys let initial row cells name columns
+whose UUIDs do not exist yet. The result pairs each key with its minted column
+UUID and returns each row UUID by input position, without inventing a second
+durable identity.
+`edit_lookup_columns` batches add, update, move, remove, and retype operations.
+`edit_lookup_rows` batches add, complete-row update, move, and remove operations.
+`replace_lookup_rows` replaces the complete row set and mints new row UUIDs for
+the replacement. A batch either lands completely or saves nothing.
+
+Changing a table or column export name, retyping or removing a column, and
+removing a table require admin access. Other writes require edit access. A
+referenced table or column cannot be removed, incompatible values block a
+retype, and the final column cannot be removed. A stale write returns the
+current revision, and a destructive refusal states whether an app or accepted
+design still depends on the resource; there is no force option.
 
 `set_field_options_source` replaces one single- or multiple-choice field's
 complete source. A lookup source names the table, saved-value column, and
@@ -648,7 +680,14 @@ child or sibling repeating section.
 
 | Tool | What it does |
 |---|---|
-| `get_lookup_tables` | List this app Project's data tables and columns, including their stable UUIDs and current readable/export metadata. |
+| `get_lookup_tables` | List this app Project's table definitions without row values, including stable column UUIDs, counts, byte use, and revision axes. |
+| `get_lookup_table_rows` | Read a snapshot-bound page of one table's ordered rows, optionally narrowed by text query or column projection. |
+| `create_lookup_table` | Create a complete table schema plus optional initial rows atomically and return every minted table, column, and row UUID. |
+| `update_lookup_table` | Change one table's display name or export tag at the expected table revision. |
+| `edit_lookup_columns` | Apply one atomic batch of UUID-addressed add, update, move, remove, or retype column operations. |
+| `edit_lookup_rows` | Apply one atomic batch of UUID-addressed add, whole-row update, move, or remove row operations. |
+| `replace_lookup_rows` | Replace every row atomically from structured values, returning the replacement row UUIDs. |
+| `remove_lookup_table` | Remove an unreferenced table at the expected revision. |
 | `set_field_options_source` | Replace a choice field's complete inline or lookup source, including an optional lookup row filter, addressed by `moduleUuid`, `formUuid`, and `fieldUuid`. |
 
 ## Changing cases on submission

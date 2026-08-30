@@ -26,7 +26,7 @@ const READS_BY_AREA = {
 	"case-list": ["getModule", "searchBlueprint"],
 	forms: ["getModule", "getForm", "getField", "searchBlueprint"],
 	"case-operations": ["getForm", "getCaseOperations"],
-	"lookup-references": ["getLookupTables", "getField"],
+	"lookup-references": ["getField"],
 	"media-references": ["listMediaAssets", "getField", "getForm", "getModule"],
 	automations: ["getAutomations", "getOrganization"],
 } as const satisfies Readonly<Record<BlueprintArea, readonly string[]>>;

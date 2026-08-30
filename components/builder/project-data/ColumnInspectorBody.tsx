@@ -36,6 +36,7 @@ import type {
 } from "@/lib/lookup/types";
 import { useCanDelete, useCanEdit } from "@/lib/session/hooks";
 import { DestructiveChangeDialog } from "./DestructiveChangeDialog";
+import { LookupOrderingSection } from "./LookupOrderingSection";
 import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
 import {
 	COLUMN_TYPE_LABELS,
@@ -281,6 +282,25 @@ export function ColumnInspectorBody({
 						: "Changing the type needs admin access."}
 				</p>
 			</div>
+
+			<LookupOrderingSection
+				kind="column"
+				itemId={column.id}
+				table={table}
+				workspace={workspace}
+				canEdit={canEdit}
+				disabled={
+					settingWrite !== null ||
+					pending !== null ||
+					label.dirty ||
+					wireName.dirty
+				}
+				disabledReason={
+					label.dirty || wireName.dirty
+						? "Save or restore the current text before moving this column."
+						: undefined
+				}
+			/>
 
 			{writes.failure !== null && (
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-rose">

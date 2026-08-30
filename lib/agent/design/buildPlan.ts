@@ -1,5 +1,5 @@
 /**
- * Deterministic BuildPlan v1.
+ * Deterministic BuildPlan.
  *
  * Planning is a compiler pass over an accepted lean Design Contract, not a
  * model-authored artifact. The server creates one task-complete slice per
@@ -16,6 +16,11 @@ import {
 	designConstructionIssues,
 } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import {
+	type BuildPlanLookupBinding,
+	type BuildPlanLookupMaterialization,
+	buildPlanLookupMaterializationSchema,
+} from "@/lib/agent/design/lookupMaterializationTypes";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 
@@ -120,6 +125,10 @@ const buildPlanBaseSchema = z
 		id: z.string().uuid(),
 		slices: z.array(buildSliceSchema).min(1),
 		externalActions: z.array(externalActionSchema),
+		lookupMaterialization: z.union([
+			buildPlanLookupMaterializationSchema,
+			z.null(),
+		]),
 	})
 	.strict();
 export type BuildPlan = z.infer<typeof buildPlanBaseSchema>;
@@ -216,6 +225,23 @@ function validatePlan(plan: BuildPlan, ctx: z.RefinementCtx): void {
 }
 
 export const buildPlanSchema = buildPlanBaseSchema.superRefine(validatePlan);
+
+/** The sole persisted-payload normalization seam. Stored plans can predate
+ * additive members, but every caller receives the one complete current plan.
+ * Digest verification happens against the sealed bytes before this function
+ * is called. */
+export function normalizeStoredBuildPlan(stored: unknown): BuildPlan {
+	if (stored === null || typeof stored !== "object" || Array.isArray(stored))
+		return buildPlanSchema.parse(stored);
+	const value = stored as Record<string, unknown>;
+	return buildPlanSchema.parse({
+		...value,
+		lookupMaterialization:
+			value.lookupMaterialization === undefined
+				? null
+				: value.lookupMaterialization,
+	});
+}
 
 function deriveOwnerByElement(
 	contract: AppDesignContract,
@@ -527,13 +553,109 @@ function expectedElementKinds(
 	]);
 }
 
+function expectedLookupBindingKinds(
+	contract: AppDesignContract,
+): ReadonlyMap<string, BuildPlanLookupBinding["kind"]> {
+	const expected = new Map<string, BuildPlanLookupBinding["kind"]>();
+	for (const table of contract.lookupTables) {
+		if (table.kind === "create") {
+			expected.set(table.id, "lookup-table");
+			for (const column of table.columns)
+				expected.set(column.id, "lookup-column");
+			continue;
+		}
+		for (const operation of table.operations) {
+			switch (operation.kind) {
+				case "add-column":
+					expected.set(operation.column.id, "lookup-column");
+					break;
+				case "add-row":
+				case "replace-rows":
+					break;
+			}
+		}
+	}
+	return expected;
+}
+
+function contractRequiresLookupMaterialization(
+	contract: AppDesignContract,
+): boolean {
+	return (
+		contract.lookupTables.length > 0 ||
+		contract.records.some((record) =>
+			record.properties.some((property) => property.choiceSource !== undefined),
+		) ||
+		contract.workflows.some((workflow) =>
+			workflow.inputs.some((input) => input.choiceSource !== undefined),
+		)
+	);
+}
+
 /** Contract-bound persisted-read proof. */
 export function buildPlanSchemaFor(contract: AppDesignContract) {
 	return buildPlanSchema.superRefine((plan, ctx) => {
+		const expectedBindings = expectedLookupBindingKinds(contract);
+		const lookupRequired = contractRequiresLookupMaterialization(contract);
+		if (lookupRequired && plan.lookupMaterialization === null) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["lookupMaterialization"],
+				message:
+					"Accepted lookup intent requires its durable materialization receipt before planning.",
+			});
+		}
+		if (!lookupRequired && plan.lookupMaterialization !== null) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["lookupMaterialization"],
+				message:
+					"A plan without accepted lookup intent must not carry a lookup materialization receipt.",
+			});
+		}
+		if (plan.lookupMaterialization !== null) {
+			const seen = new Map<string, string>();
+			for (const [
+				index,
+				binding,
+			] of plan.lookupMaterialization.bindings.entries()) {
+				const prior = seen.get(binding.designId);
+				if (prior !== undefined) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["lookupMaterialization", "bindings", index, "designId"],
+						message: `A lookup Design ID may bind exactly once; it is already bound as ${prior}.`,
+					});
+				}
+				seen.set(binding.designId, binding.kind);
+				const expectedKind = expectedBindings.get(binding.designId);
+				if (expectedKind === undefined) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["lookupMaterialization", "bindings", index, "designId"],
+						message:
+							"The lookup receipt contains a Design ID that the accepted contract does not materialize.",
+					});
+				} else if (binding.kind !== expectedKind) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["lookupMaterialization", "bindings", index, "kind"],
+						message: `This Design ID requires a ${expectedKind} binding, not ${binding.kind}.`,
+					});
+				}
+			}
+			for (const [designId, kind] of expectedBindings) {
+				if (seen.has(designId)) continue;
+				ctx.addIssue({
+					code: "custom",
+					path: ["lookupMaterialization", "bindings"],
+					message: `The lookup receipt is missing the ${kind} binding for accepted Design ID ${designId}.`,
+				});
+			}
+		}
 		/* These are producer invariants for plans derived from an accepted
-		 * contract, not v1 wire-format invariants. Earlier v1 producers placed
-		 * the app area on every foundation group, so the generic persisted reader
-		 * must remain permissive while newly derived plans stay exact. */
+		 * contract, not generic wire-format invariants. The generic persisted
+		 * reader remains permissive while derived plans stay exact. */
 		if (plan.slices[0]?.role !== "materialization-root") {
 			ctx.addIssue({
 				code: "custom",
@@ -794,6 +916,7 @@ export function deriveBuildPlan(args: {
 	readonly contract: AppDesignContract;
 	readonly revision: { readonly id: string; readonly digest: string };
 	readonly planId?: string;
+	readonly lookupMaterialization?: BuildPlanLookupMaterialization | null;
 }): BuildPlan {
 	const { contract, revision } = args;
 	const constructionIssues = designConstructionIssues(contract);
@@ -1079,6 +1202,12 @@ export function deriveBuildPlan(args: {
 			role: workflowId === initial ? "materialization-root" : "ordinary",
 		};
 	});
+	const lookupRequired = contractRequiresLookupMaterialization(contract);
+	if (lookupRequired && args.lookupMaterialization == null) {
+		throw new Error(
+			"Accepted lookup intent requires its durable Project-data materialization receipt before planning.",
+		);
+	}
 	return buildPlanSchemaFor(contract).parse({
 		schemaVersion: 1,
 		designRevisionId: revision.id,
@@ -1086,12 +1215,15 @@ export function deriveBuildPlan(args: {
 		id: args.planId ?? crypto.randomUUID(),
 		slices,
 		externalActions,
+		lookupMaterialization: lookupRequired
+			? (args.lookupMaterialization ?? null)
+			: null,
 	});
 }
 
-/** Environment-dependent admission policy. The v1 schema retains producer-
- * bound blocking-action timings, but this deployment may not persist one
- * until its durable receipt producer is registered. */
+/** Environment-dependent admission policy. The schema retains producer-bound
+ * blocking-action timings, but this deployment may not persist one until its
+ * durable receipt producer is registered. */
 export function newPlanAdmissionMessages(
 	plan: Pick<BuildPlan, "externalActions">,
 ): string[] {

@@ -30,6 +30,22 @@ export interface LookupScope {
 	role: string;
 }
 
+/** App-bound authority used by shared SA/MCP Project-data writers. The
+ * transaction re-resolves the app Project and current membership; `role` is
+ * deliberately absent because a caller snapshot cannot authorize a write. */
+export interface LookupAgentWriteScope {
+	appId: string;
+	projectId: string;
+	actorId: string;
+	runId: string;
+	chatRunHolder?: {
+		source: "chat";
+		mode: "build" | "edit";
+		runId: string;
+		nonce: string;
+	};
+}
+
 export interface LookupColumn {
 	id: LookupColumnId;
 	wireName: string;
@@ -37,7 +53,8 @@ export interface LookupColumn {
 	dataType: LookupDataType;
 }
 
-/** Persistence-only ordering slots. Clients submit indices, never these keys. */
+/** Persistence-only ordering slots. Browser clients submit indices and agent
+ * clients submit UUID anchors; neither surface ever submits these keys. */
 export interface StoredLookupColumn extends LookupColumn {
 	orderKey: string;
 }
@@ -100,7 +117,14 @@ export interface LookupTableDefinition {
 	id: LookupTableId;
 	name: string;
 	tag: string;
+	/** Present on authoritative authoring catalogs; optional on the narrow
+	 * compiler fixtures that need definitions only. */
+	columnCount?: number;
+	rowCount?: number;
+	dataBytes?: number;
 	definitionRevision: LookupRevision;
+	rowsRevision?: LookupRevision;
+	tableRevision?: LookupRevision;
 	columns: readonly LookupColumn[];
 }
 
@@ -142,6 +166,155 @@ export interface CreateLookupTableInput {
 	name: string;
 	tag: string;
 	columns: LookupColumnDraft[];
+}
+
+/** Stable request-local identity used while one atomic authoring batch mints
+ * the durable UUIDv7 resource. It is never persisted. */
+export type LookupAuthoringKey = string;
+
+export interface LookupAuthoringCellByColumnId {
+	columnId: LookupColumnId;
+	value: LookupCellValue;
+}
+
+export interface LookupAuthoringCellByColumnKey {
+	columnKey: LookupAuthoringKey;
+	value: LookupCellValue;
+}
+
+export type LookupAuthoringCell =
+	| LookupAuthoringCellByColumnId
+	| LookupAuthoringCellByColumnKey;
+
+export interface LookupAuthoringColumnDraft extends LookupColumnDraft {
+	key: LookupAuthoringKey;
+}
+
+export interface LookupAuthoringRowDraft {
+	key: LookupAuthoringKey;
+	cells: LookupAuthoringCell[];
+}
+
+export interface LookupAuthoringCreateTable {
+	key: LookupAuthoringKey;
+	name: string;
+	tag: string;
+	columns: LookupAuthoringColumnDraft[];
+	rows: LookupAuthoringRowDraft[];
+}
+
+export type LookupAuthoringColumnOperation =
+	| {
+			kind: "add";
+			key: LookupAuthoringKey;
+			column: LookupColumnDraft;
+			afterColumnId?: LookupColumnId | null;
+			afterColumnKey?: LookupAuthoringKey;
+	  }
+	| {
+			kind: "update";
+			columnId: LookupColumnId;
+			label?: string;
+			wireName?: string;
+	  }
+	| {
+			kind: "move";
+			columnId?: LookupColumnId;
+			columnKey?: LookupAuthoringKey;
+			afterColumnId?: LookupColumnId | null;
+			afterColumnKey?: LookupAuthoringKey;
+	  }
+	| {
+			kind: "remove";
+			columnId: LookupColumnId;
+	  }
+	| {
+			kind: "retype";
+			columnId: LookupColumnId;
+			dataType: LookupDataType;
+	  };
+
+export type LookupAuthoringRowOperation =
+	| {
+			kind: "add";
+			key: LookupAuthoringKey;
+			cells: LookupAuthoringCell[];
+			afterRowId?: LookupRowId | null;
+			afterRowKey?: LookupAuthoringKey;
+	  }
+	| {
+			kind: "update";
+			rowId: LookupRowId;
+			cells: LookupAuthoringCell[];
+	  }
+	| {
+			kind: "move";
+			rowId?: LookupRowId;
+			rowKey?: LookupAuthoringKey;
+			afterRowId?: LookupRowId | null;
+			afterRowKey?: LookupAuthoringKey;
+	  }
+	| { kind: "remove"; rowId: LookupRowId };
+
+export interface LookupAuthoringExistingTable {
+	tableId: LookupTableId;
+	expectedTableRevision: LookupRevision;
+	name?: string;
+	tag?: string;
+	delete?: boolean;
+	columnOperations?: LookupAuthoringColumnOperation[];
+	rowOperations?: LookupAuthoringRowOperation[];
+	/** Whole-row replacement is mutually exclusive with `rowOperations`. */
+	replaceRows?: LookupAuthoringRowDraft[];
+}
+
+export interface LookupAuthoringBatchInput {
+	createTables?: LookupAuthoringCreateTable[];
+	updateTables?: LookupAuthoringExistingTable[];
+}
+
+export interface LookupAuthoringIdentityReceipt {
+	key: LookupAuthoringKey;
+	id: string;
+}
+
+export interface LookupAuthoringTableReceipt {
+	key?: LookupAuthoringKey;
+	tableId: LookupTableId;
+	deleted: boolean;
+	columnIds: readonly {
+		key: LookupAuthoringKey;
+		id: LookupColumnId;
+	}[];
+	rowIds: readonly { key: LookupAuthoringKey; id: LookupRowId }[];
+	revisions?: LookupTableRevisions;
+}
+
+export interface LookupAuthoringBatchReceipt {
+	projectRevision: LookupRevision;
+	tables: readonly LookupAuthoringTableReceipt[];
+}
+
+export interface LookupRowsPageInput {
+	tableId: LookupTableId;
+	query?: string;
+	columnIds?: LookupColumnId[];
+	cursor?: string;
+}
+
+export interface LookupRowsPage {
+	table: LookupTableManifestEntry & { columns: readonly LookupColumn[] };
+	/** Exact model-facing row projection shared by the SA/MCP tool and the
+	 * reviewed-design inspector. The page byte budget measures this shape. */
+	rows: readonly {
+		id: LookupRowId;
+		cells: readonly {
+			columnId: LookupColumnId;
+			value: LookupCellValue;
+		}[];
+	}[];
+	nextCursor?: string;
+	complete: boolean;
 }
 
 export interface LookupExpectedTableRevisionInput {
@@ -231,6 +404,10 @@ export type LookupActionErrorCode =
 	| "tag_taken"
 	| "row_limit"
 	| "storage_limit"
+	| "accepted_design"
+	| "referenced"
+	| "last_column"
+	| "incompatible_values"
 	| "internal_error";
 
 export type LookupImportErrorCode = LookupActionErrorCode | "invalid_csv";
@@ -267,6 +444,7 @@ export type LookupResult<Value, Code extends string = LookupActionErrorCode> =
 export type LookupGovernanceErrorCode =
 	| LookupActionErrorCode
 	| "referenced"
+	| "accepted_design"
 	| "last_column"
 	| "incompatible_values";
 

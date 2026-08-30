@@ -43,7 +43,7 @@ export interface CatalogToolEntry {
 }
 
 export interface CapabilityCatalog {
-	readonly catalogVersion: 1;
+	readonly catalogVersion: 2;
 	/** Canonical digest over everything below — the drift tripwire. */
 	readonly catalogDigest: string;
 	readonly toolSurface: readonly CatalogToolEntry[];
@@ -57,6 +57,12 @@ export interface CapabilityCatalog {
 	readonly existingReferenceable: readonly string[];
 	readonly externalPrerequisites: readonly string[];
 	readonly unsupported: readonly string[];
+	readonly projectDataDesign: {
+		readonly newTables: "reviewed-before-build";
+		readonly existingReferences: "inspected-stable-uuid";
+		readonly existingChanges: "direct-request-or-explicit-approval";
+		readonly draftEffects: "none";
+	};
 	readonly localization: {
 		readonly manualAuthoring: "individual-living-languages";
 		readonly automaticPolicy: "all-directions-within-launch-set";
@@ -75,7 +81,7 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
 		staging: entry.policy.staging,
 	})).sort((a, b) => a.saName.localeCompare(b.saName));
 	const body = {
-		catalogVersion: 1 as const,
+		catalogVersion: 2 as const,
 		toolSurface,
 		fieldKinds: [...fieldKinds],
 		caseDataShapes: [...casePropertyDataTypes],
@@ -85,13 +91,12 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
 			projectScope: "current-project" as const,
 		},
 		existingReferenceable: [
-			"Project lookup tables and their existing columns",
+			"Project lookup tables and columns inspected by stable UUID",
 			"ready media assets already uploaded to the current Project",
 			"existing organization levels, places, workers, roles, and user properties",
 		],
 		externalPrerequisites: [
 			"uploading or recording media before Nova can attach it",
-			"loading Project reference data",
 			"provisioning workers and shared resources",
 			"CommCare HQ feature, build, release, and deployment steps that require a person",
 		],
@@ -101,7 +106,14 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
 			"recording, synthesizing, validating, or uploading audio or other media",
 			"promising runtime or deployment resources that do not already exist",
 			"placing one canonical form in several menus through linked or shadow form reuse; use separate modules, filtered lists, and deliberate workflow composition instead",
+			"guessing or name-resolving an existing Project lookup identity, or changing shared Project data without a direct request or explicit approval",
 		],
+		projectDataDesign: {
+			newTables: "reviewed-before-build" as const,
+			existingReferences: "inspected-stable-uuid" as const,
+			existingChanges: "direct-request-or-explicit-approval" as const,
+			draftEffects: "none" as const,
+		},
 		localization: {
 			manualAuthoring: "individual-living-languages" as const,
 			automaticPolicy: "all-directions-within-launch-set" as const,
@@ -138,6 +150,9 @@ export function renderCapabilityCatalog(catalog: CapabilityCatalog): string {
 	);
 	lines.push(
 		`Existing references: ${catalog.existingReferenceable.join("; ")}.`,
+	);
+	lines.push(
+		"Project lookup data: a reviewed design may define a new source-grounded table before build, then accepted-design finalization mints its stable identities. Existing tables are referenced only by inspected stable UUIDs plus a constant-size, revision-bound choice attestation whose digest and metrics Nova recomputes from the complete ordered projection before persistence; they change only after a direct request or explicit approval. Draft and review calls have no Project-data side effects.",
 	);
 	lines.push(
 		`External prerequisites: ${catalog.externalPrerequisites.join("; ")}.`,

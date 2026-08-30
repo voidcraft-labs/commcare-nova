@@ -2,6 +2,8 @@ import { LOOKUP_MAX_VALIDATION_DETAILS } from "./constants";
 import type {
 	LookupActionErrorCode,
 	LookupFailure,
+	LookupReferencingAppSummary,
+	LookupRowId,
 	LookupTableRevisions,
 	LookupValidationDetail,
 } from "./types";
@@ -39,6 +41,8 @@ export class LookupError extends Error {
 	readonly details?: LookupValidationDetail[];
 	readonly totalDetailCount?: number;
 	readonly currentRevisions?: LookupTableRevisions;
+	readonly blockingApps?: readonly LookupReferencingAppSummary[];
+	readonly incompatibleRowIds?: readonly LookupRowId[];
 
 	constructor(
 		code: LookupActionErrorCode,
@@ -48,6 +52,8 @@ export class LookupError extends Error {
 			details?: LookupValidationDetail[];
 			totalDetailCount?: number;
 			currentRevisions?: LookupTableRevisions;
+			blockingApps?: readonly LookupReferencingAppSummary[];
+			incompatibleRowIds?: readonly LookupRowId[];
 		} = {},
 	) {
 		super(message, { cause: options.cause });
@@ -56,6 +62,8 @@ export class LookupError extends Error {
 		this.details = options.details;
 		this.totalDetailCount = options.totalDetailCount;
 		this.currentRevisions = options.currentRevisions;
+		this.blockingApps = options.blockingApps;
+		this.incompatibleRowIds = options.incompatibleRowIds;
 	}
 }
 

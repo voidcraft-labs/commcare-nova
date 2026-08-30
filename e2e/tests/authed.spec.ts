@@ -4106,6 +4106,30 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 		await expect(page.getByText("District hospital")).toBeVisible();
 
+		// Ordering is an ordinary, revision-fenced table edit. Exercise both
+		// directions and restore the seed order so retries remain independent.
+		await page
+			.getByRole("button", {
+				name: new RegExp(CASE_WORKSPACE_SEED.lookupLabelColumnLabel),
+			})
+			.first()
+			.click();
+		const moveColumnLeft = page.getByRole("button", { name: "Move left" });
+		await expect(moveColumnLeft).toBeEnabled();
+		await moveColumnLeft.click();
+		await expect(
+			page.getByRole("status").filter({ hasText: "Column moved earlier." }),
+		).toBeVisible();
+		const moveColumnRight = page.getByRole("button", { name: "Move right" });
+		await expect(moveColumnRight).toBeEnabled();
+		await moveColumnRight.click();
+		await expect(
+			page.getByRole("status").filter({ hasText: "Column moved later." }),
+		).toBeVisible();
+		await page
+			.getByRole("button", { name: "Close properties", exact: true })
+			.click();
+
 		// Table identity changes in the URL synchronously. Sampling the first
 		// two animation frames catches the former A-under-B paint; browser
 		// Back/Forward then proves the same fence is not limited to button
@@ -4303,6 +4327,18 @@ test.describe("authenticated builder", () => {
 		).toBeVisible({ timeout: 20_000 });
 		await expect(page.getByRole("row")).toHaveCount(rowsBefore + 1);
 		await expect(page.getByRole("button", { name: "Save row" })).toBeVisible();
+		const moveRowUp = page.getByRole("button", { name: "Move up" });
+		await expect(moveRowUp).toBeEnabled();
+		await moveRowUp.click();
+		await expect(
+			page.getByRole("status").filter({ hasText: "Row moved earlier." }),
+		).toBeVisible();
+		const moveRowDown = page.getByRole("button", { name: "Move down" });
+		await expect(moveRowDown).toBeEnabled();
+		await moveRowDown.click();
+		await expect(
+			page.getByRole("status").filter({ hasText: "Row moved later." }),
+		).toBeVisible();
 
 		// 4. The gesture the unit is for: bind a question's choices to a column.
 		await page.goto(seed.caseWorkspace.routes.selectField);

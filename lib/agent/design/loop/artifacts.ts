@@ -43,7 +43,7 @@ export function contractEnvelope(args: {
 }): DesignArtifactEnvelope<AppDesignContract> {
 	return sealArtifactEnvelope({
 		artifactType: "design-contract",
-		artifactSchemaVersion: 1,
+		artifactSchemaVersion: args.contract.schemaVersion,
 		artifactId: crypto.randomUUID(),
 		designSessionId: args.designSessionId,
 		revision: args.revision,
@@ -89,13 +89,18 @@ export function planEnvelope(args: {
 }): DesignArtifactEnvelope<BuildPlan> {
 	return sealArtifactEnvelope({
 		artifactType: "design-build-plan",
-		artifactSchemaVersion: 1,
+		artifactSchemaVersion: args.plan.schemaVersion,
 		artifactId: crypto.randomUUID(),
 		designSessionId: args.accepted.designSessionId,
 		revision: args.accepted.revision,
 		parentArtifactId: args.accepted.id,
 		sourcePackageDigest: args.packageDigest,
-		inputArtifactDigests: [args.accepted.artifactDigest],
+		inputArtifactDigests: [
+			args.accepted.artifactDigest,
+			...(args.plan.lookupMaterialization !== null
+				? [args.plan.lookupMaterialization.resultDigest]
+				: []),
+		],
 		promptVersion: DESIGN_PROMPT_VERSIONS.planner,
 		producer: {
 			provider: "nova",
@@ -105,73 +110,6 @@ export function planEnvelope(args: {
 		createdAt: new Date().toISOString(),
 		payload: args.plan,
 	});
-}
-
-/* ------------------------------------------------------------------ */
-/* §7.3 policy predicates (unchanged from the pipeline)                */
-/* ------------------------------------------------------------------ */
-
-/** "The first revision leaves a critical finding": a CRITICAL finding whose
- *  disposition did not resolve it by change: deferred, or rejected (the
- *  agent overriding the reviewer on a critical deserves the second
- *  independent look). */
-export function leavesCriticalFinding(
-	result: DesignRevisionResult,
-	reviews: readonly DesignReview[],
-): boolean {
-	const criticalIds = new Set(
-		reviews.flatMap((review) =>
-			review.findings
-				.filter((finding) => finding.severity === "critical")
-				.map((finding) => finding.id),
-		),
-	);
-	return result.dispositions.some(
-		(disposition) =>
-			criticalIds.has(disposition.findingId) &&
-			disposition.status !== "accepted",
-	);
-}
-
-/** Count the highest-severity findings that justified revision work. Review
- * depth by itself is not evidence that a second independent pass will add
- * value; the first pass's actual findings are. */
-export function criticalFindingCount(reviews: readonly DesignReview[]): number {
-	return reviews.reduce(
-		(total, review) =>
-			total +
-			review.findings.filter((finding) => finding.severity === "critical")
-				.length,
-		0,
-	);
-}
-
-/** Whether critical corrections changed the app boundary, record model,
- * workflow effects, or access semantics enough to warrant another review. */
-export function changesArchitecture(
-	before: AppDesignContract,
-	after: AppDesignContract,
-): boolean {
-	const project = (contract: AppDesignContract) => ({
-		charter: contract.charter,
-		records: contract.records.map((record) => ({
-			id: record.id,
-			parentRecordId: record.parentRecordId,
-			properties: record.properties.map((property) => ({
-				id: property.id,
-				dataShape: property.dataShape,
-				sensitivity: property.sensitivity,
-			})),
-		})),
-		workflows: contract.workflows.map((workflow) => ({
-			id: workflow.id,
-			contextRecordId: workflow.contextRecordId,
-			prerequisiteWorkflowIds: workflow.prerequisiteWorkflowIds,
-			recordEffects: workflow.recordEffects,
-		})),
-		access: contract.access,
-	});
-	return JSON.stringify(project(before)) !== JSON.stringify(project(after));
 }
 
 /** Map each disposition to the review row whose finding it closes. Closure

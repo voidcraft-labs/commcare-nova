@@ -16,12 +16,10 @@
  * the head artifact bound: answered rounds seed claims and new messages add
  * blocks, and both move the digest deterministically.
  *
- * Rounds derive digest-INDEPENDENTLY, scoped to the open cycle: count the
- * persisted reviews attached to revisions above the session's newest
- * accepted revision. A crash and resume can never mint an extra round, a
- * question round between a review and its revision cannot either, and a
- * reopened cycle starts a fresh §7.3 budget: the budget is per reviewed
- * design, never a session-lifetime meter.
+ * A reviewed correction becomes another draft. Only a clean independent
+ * review accepts it. The session-wide provider-step and repair budgets may
+ * stop a non-converging cycle honestly, but review count never grants
+ * acceptance and never makes a review illegal.
  */
 
 import type {
@@ -44,7 +42,7 @@ export const DESIGN_LOOP_TOOL_NAMES = [
 export type DesignLoopToolName = (typeof DESIGN_LOOP_TOOL_NAMES)[number];
 
 /** Loop steps per POST. Sized so a legitimate extended-depth design (a
- *  question round, contract, review, revision, second review, revision,
+ *  question round, contract, review, correction review, further revision,
  *  plan, with talk between and one repair each) fits with headroom, and a
  *  pathological loop cannot run away. The executor's `budgets.ts` is the
  *  precedent: a deterministic cap, enforced structurally, never prompt
@@ -206,9 +204,6 @@ export interface DesignGateState {
 	readonly newestAccepted: DesignRevisionRecord | null;
 	/** Reviews of the head draft specifically. */
 	readonly headReviews: readonly DesignReviewRecord[];
-	/** Persisted reviews along the OPEN cycle (revisions above the newest
-	 *  accepted revision). */
-	readonly openCycleReviews: number;
 	readonly blockingQuestions: readonly string[];
 	readonly plan: DesignBuildPlanRecord | null;
 	/** True when this turn's newer source package deactivates a persisted plan.
@@ -228,15 +223,6 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 		[...revisions]
 			.reverse()
 			.find((revision) => revision.lifecycle === "accepted") ?? null;
-	const openCycle =
-		newestAccepted === null
-			? revisions
-			: revisions.slice(revisions.indexOf(newestAccepted) + 1);
-	const openCycleReviews = openCycle.reduce(
-		(sum, revision) =>
-			sum + (reviewsByRevisionId.get(revision.id)?.length ?? 0),
-		0,
-	);
 	const headReviews = head ? (reviewsByRevisionId.get(head.id) ?? []) : [];
 	const blockingQuestions =
 		head?.lifecycle === "accepted"
@@ -306,13 +292,6 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 					"This draft already has its persisted review. Update its affected design items and finding dispositions, then call finishDesign.",
 			};
 		}
-		if (openCycleReviews >= 2) {
-			return {
-				legal: false,
-				refusal:
-					"This design cycle has used both of its review rounds. Complete the revision with finishDesign; the server will accept it.",
-			};
-		}
 		return { legal: true };
 	})();
 
@@ -346,7 +325,6 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 		head,
 		newestAccepted,
 		headReviews,
-		openCycleReviews,
 		blockingQuestions,
 		plan: activePlan,
 		supersedesPlanExecution:

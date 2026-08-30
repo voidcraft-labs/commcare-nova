@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { Selectable, Transaction } from "kysely";
-import type { ZodType } from "zod";
+import { type ZodType, z } from "zod";
 import {
 	type AppDatabase,
 	getAppDb,
@@ -10,12 +10,14 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import {
+	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { balancedKeysBetween, deriveKeyAtIndex } from "@/lib/lookup/orderKeys";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { validateLookupRowValues } from "./coercion";
 import {
 	LOOKUP_MAX_COLUMNS,
@@ -57,6 +59,8 @@ import type {
 	LookupMutationReceipt,
 	LookupRevision,
 	LookupRow,
+	LookupRowsPage,
+	LookupRowsPageInput,
 	LookupRowValues,
 	LookupScope,
 	LookupTableManifestEntry,
@@ -188,6 +192,97 @@ function snapshotOf(args: {
 		updatedAt: toIso(args.table.updated_at),
 		...revisionsOf(args.table),
 	};
+}
+
+const LOOKUP_AUTHORING_ROW_PAGE_SIZE = 100;
+/** Leaves room for the shared-tool/MCP envelope below its 100k result cap. */
+export const LOOKUP_AUTHORING_ROW_PAGE_MAX_BYTES = 70_000;
+
+function jsonBytes(value: unknown): number {
+	return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+const lookupRowsCursorSchema = z
+	.object({
+		v: z.literal(2),
+		projectId: z.string().min(1),
+		tableId: lookupTableIdSchema,
+		tableRevision: z.string(),
+		requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+		offset: z.number().int().nonnegative().max(LOOKUP_MAX_ROWS),
+	})
+	.strict();
+
+function lookupRowsRequestDigest(input: {
+	readonly query: string;
+	readonly columnIds: readonly LookupColumnId[];
+}): string {
+	return canonicalJsonDigest(input);
+}
+
+export interface LookupRowsPageBudgetOptions {
+	/** The exact value serialized by the model-facing caller. */
+	readonly resultEnvelope?: (page: LookupRowsPage) => unknown;
+}
+
+function normalizedPageInput(input: LookupRowsPageInput): {
+	tableId: LookupTableId;
+	query: string;
+	columnIds: LookupColumnId[];
+	cursor?: string;
+} {
+	const parsed = z
+		.object({
+			tableId: lookupTableIdSchema,
+			query: z.string().trim().max(200).optional(),
+			columnIds: z
+				.array(lookupColumnIdSchema)
+				.max(LOOKUP_MAX_COLUMNS)
+				.optional(),
+			cursor: z.string().min(1).max(4096).optional(),
+		})
+		.strict()
+		.safeParse(input);
+	if (!parsed.success) {
+		throw new LookupError(
+			"invalid_input",
+			"Lookup row-page input is invalid.",
+			{
+				details: parsed.error.issues.map((issue) => ({
+					code: issue.code,
+					message: `${issue.path.join(".")}: ${issue.message}`,
+				})),
+				totalDetailCount: parsed.error.issues.length,
+			},
+		);
+	}
+	const columnIds = [...new Set(parsed.data.columnIds ?? [])].sort(
+		compareAscii,
+	);
+	return {
+		tableId: parsed.data.tableId,
+		query: (parsed.data.query ?? "").toLocaleLowerCase("en-US"),
+		columnIds,
+		...(parsed.data.cursor === undefined ? {} : { cursor: parsed.data.cursor }),
+	};
+}
+
+function decodeRowsCursor(value: string) {
+	try {
+		return lookupRowsCursorSchema.parse(
+			JSON.parse(Buffer.from(value, "base64url").toString("utf8")),
+		);
+	} catch {
+		throw new LookupError(
+			"invalid_input",
+			"The lookup row cursor is invalid. Start again without a cursor.",
+		);
+	}
+}
+
+function encodeRowsCursor(
+	value: z.infer<typeof lookupRowsCursorSchema>,
+): string {
+	return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
 }
 
 function receiptOf(
@@ -414,6 +509,44 @@ export async function getLookupDefinitions(
  * with columns from generation N+1: the exact returned snapshot feeds both the
  * editor vocabulary and the client commit gate.
  */
+export async function readAllLookupDefinitionsInTransaction(
+	tx: Transaction<AppDatabase>,
+	projectId: string,
+): Promise<LookupDefinitionsSnapshot> {
+	const tableRows = await tx
+		.selectFrom("lookup_tables")
+		.selectAll()
+		.where("project_id", "=", projectId)
+		.execute();
+	const tableIds = tableRows.map((row) => lookupTableIdSchema.parse(row.id));
+	const snapshot = await readLookupDefinitionsInTransaction(
+		tx,
+		projectId,
+		tableIds,
+	);
+	const tablesById = new Map(
+		tableRows.map((table) => [lookupTableIdSchema.parse(table.id), table]),
+	);
+	return {
+		...snapshot,
+		definitions: snapshot.definitions.map((definition) => {
+			const table = tablesById.get(definition.id);
+			if (table === undefined) {
+				throw new Error(
+					"Lookup authoring catalog lost a table in its snapshot.",
+				);
+			}
+			return {
+				...definition,
+				columnCount: table.column_count,
+				rowCount: table.row_count,
+				dataBytes: table.data_bytes,
+				...revisionsOf(table),
+			};
+		}),
+	};
+}
+
 export async function getAllLookupDefinitions(
 	scope: LookupScope,
 ): Promise<LookupDefinitionsSnapshot> {
@@ -423,17 +556,9 @@ export async function getAllLookupDefinitions(
 		.transaction()
 		.setIsolationLevel("repeatable read")
 		.setAccessMode("read only")
-		.execute(async (tx) => {
-			const tableRows = await tx
-				.selectFrom("lookup_tables")
-				.select("id")
-				.where("project_id", "=", scope.projectId)
-				.execute();
-			const tableIds = tableRows.map((row) =>
-				lookupTableIdSchema.parse(row.id),
-			);
-			return readLookupDefinitionsInTransaction(tx, scope.projectId, tableIds);
-		});
+		.execute((tx) =>
+			readAllLookupDefinitionsInTransaction(tx, scope.projectId),
+		);
 }
 
 /**
@@ -492,6 +617,163 @@ export async function getLookupTable(
 				rows,
 			});
 		});
+}
+
+/** Bounded authoring read. The opaque cursor binds the exact table revision,
+ * query, and projection, so pages can never mix table generations. */
+export async function readLookupTableRowsPageInTransaction(
+	tx: Transaction<AppDatabase>,
+	projectId: string,
+	input: LookupRowsPageInput,
+	budget: LookupRowsPageBudgetOptions = {},
+): Promise<LookupRowsPage> {
+	const normalized = normalizedPageInput(input);
+	const requestDigest = lookupRowsRequestDigest({
+		query: normalized.query,
+		columnIds: normalized.columnIds,
+	});
+	const cursor =
+		normalized.cursor === undefined
+			? undefined
+			: decodeRowsCursor(normalized.cursor);
+	if (
+		cursor !== undefined &&
+		(cursor.tableId !== normalized.tableId ||
+			cursor.projectId !== projectId ||
+			cursor.requestDigest !== requestDigest)
+	) {
+		throw new LookupError(
+			"invalid_input",
+			"The lookup row cursor belongs to a different table, query, or column projection. Start again without a cursor.",
+		);
+	}
+
+	return (async () => {
+		const table = await tx
+			.selectFrom("lookup_tables")
+			.selectAll()
+			.where("project_id", "=", projectId)
+			.where("id", "=", normalized.tableId)
+			.executeTakeFirst();
+		if (table === undefined) notFound();
+		const revisions = revisionsOf(table);
+		if (
+			cursor !== undefined &&
+			cursor.tableRevision !== revisions.tableRevision
+		) {
+			throw new LookupError(
+				"conflict",
+				"This lookup table changed while its rows were being read. Start again without a cursor.",
+				{ currentRevisions: revisions },
+			);
+		}
+		const columns = await orderedColumns(tx, projectId, normalized.tableId);
+		const columnsById = new Map(
+			columns.map((column) => [lookupColumnIdSchema.parse(column.id), column]),
+		);
+		for (const columnId of normalized.columnIds) {
+			if (!columnsById.has(columnId)) notFound();
+		}
+		const projection =
+			normalized.columnIds.length === 0
+				? columns.map((column) => lookupColumnIdSchema.parse(column.id))
+				: normalized.columnIds;
+		const rows = await orderedRows(tx, projectId, normalized.tableId);
+		const matching = rows.filter((row) => {
+			if (normalized.query.length === 0) return true;
+			const values = lookupRowValuesSchema.parse(row.values);
+			return projection.some((columnId) => {
+				const value = values[columnId];
+				return (
+					value !== undefined &&
+					String(value).toLocaleLowerCase("en-US").includes(normalized.query)
+				);
+			});
+		});
+		const offset = cursor?.offset ?? 0;
+		const projectedColumns = projection.map((columnId) => {
+			const column = columnsById.get(columnId);
+			if (column === undefined) notFound();
+			return columnOf(column);
+		});
+		const projectedTable = {
+			...manifestEntryOf(table),
+			columns: projectedColumns,
+		};
+		const pageOf = (pageRows: LookupRowsPage["rows"]): LookupRowsPage => {
+			const nextOffset = offset + pageRows.length;
+			const complete = nextOffset >= matching.length;
+			return {
+				table: projectedTable,
+				rows: pageRows,
+				complete,
+				...(complete
+					? {}
+					: {
+							nextCursor: encodeRowsCursor({
+								v: 2,
+								projectId,
+								tableId: normalized.tableId,
+								tableRevision: revisions.tableRevision,
+								requestDigest,
+								offset: nextOffset,
+							}),
+						}),
+			};
+		};
+		const fitsBudget = (page: LookupRowsPage): boolean =>
+			jsonBytes(budget.resultEnvelope?.(page) ?? page) <=
+			LOOKUP_AUTHORING_ROW_PAGE_MAX_BYTES;
+		if (!fitsBudget(pageOf([]))) {
+			throw new LookupError(
+				"invalid_input",
+				"This column projection is too large for one tool result. Request fewer columnIds, using getLookupTables to continue through the catalog.",
+			);
+		}
+		const pageRows: LookupRowsPage["rows"][number][] = [];
+		for (
+			let index = offset;
+			index < matching.length &&
+			pageRows.length < LOOKUP_AUTHORING_ROW_PAGE_SIZE;
+			index++
+		) {
+			const full = lookupRowOf(matching[index]);
+			const cells = projection.flatMap((columnId) =>
+				full.values[columnId] === undefined
+					? []
+					: [{ columnId, value: full.values[columnId] }],
+			);
+			const projected = { id: full.id, cells };
+			if (!fitsBudget(pageOf([...pageRows, projected]))) {
+				if (pageRows.length === 0) {
+					throw new LookupError(
+						"invalid_input",
+						"The first matching row is too large for one tool result. Request fewer columnIds.",
+					);
+				}
+				break;
+			}
+			pageRows.push(projected);
+		}
+		return pageOf(pageRows);
+	})();
+}
+
+export async function getLookupTableRowsPage(
+	scope: LookupScope,
+	input: LookupRowsPageInput,
+): Promise<LookupRowsPage> {
+	assertScope(scope);
+	const db = await getAppDb();
+	return db
+		.transaction()
+		.setIsolationLevel("repeatable read")
+		.setAccessMode("read only")
+		.execute((tx) =>
+			readLookupTableRowsPageInTransaction(tx, scope.projectId, input, {
+				resultEnvelope: (page) => ({ kind: "read", data: page }),
+			}),
+		);
 }
 
 export async function createLookupTable(

@@ -1133,6 +1133,41 @@ describe("private staging isolation", () => {
 });
 
 describe("genesis staging", () => {
+	it("lets a materialization-root executor catalog-read before app birth", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const proposedAppId = crypto.randomUUID();
+		const changeSet = await beginGenesisChangeSet({
+			proposedAppId,
+			projectId: PROJECT,
+			baseSnapshotDigest: emptyGenesisBase(proposedAppId).digest,
+			lineage: await lineage(),
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+		});
+		const lookupCatalog = vi.fn(async () => ({
+			projectId: PROJECT,
+			projectRevision: "9" as never,
+			definitions: [],
+		}));
+		const workspace = await ChangeSetMutationWorkspace.open(
+			{ ...host, lookupCatalog },
+			changeSet.id,
+		);
+
+		const read = await workspace.stageDispatch({
+			toolName: "getLookupTables",
+			requestId: "root-lookup-catalog",
+			input: {},
+		});
+
+		expect(read.result).toEqual({
+			kind: "read",
+			data: { projectRevision: "9", tables: [], complete: true },
+		});
+		expect(lookupCatalog).toHaveBeenCalledOnce();
+		expect(await h.readAppRow(proposedAppId)).toBe(undefined);
+	});
+
 	it("stages automation writes against the honest revision-zero place snapshot", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
 		const proposedAppId = crypto.randomUUID();

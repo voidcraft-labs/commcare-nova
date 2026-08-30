@@ -16,7 +16,7 @@ describe("reviewed-build presentation", () => {
 	});
 
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v15");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v17");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain("exact `requiredInitialResultsColumn`");
 		expect(EXECUTOR_SYSTEM).toContain("Nova supports one submenu tier");
@@ -48,7 +48,7 @@ describe("reviewed-build presentation", () => {
 			"An optional input's predicate must accept an unanswered value",
 		);
 		expect(EXECUTOR_SYSTEM).toContain(
-			"needs at least two distinct real inline choices or the specific existing Project lookup source",
+			"needs at least two distinct real inline choices or the specific Project lookup source in the accepted design",
 		);
 		expect(EXECUTOR_SYSTEM).toContain("make a form always hidden/disabled");
 		expect(EXECUTOR_SYSTEM).toContain(

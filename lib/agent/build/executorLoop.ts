@@ -92,7 +92,11 @@ import {
  */
 export type ExecutorWorkspace = Pick<
 	ChangeSetMutationWorkspace,
-	"stageDispatch" | "inspect" | "currentSnapshot" | "currentExecutionCheckpoint"
+	| "stageDispatch"
+	| "inspect"
+	| "currentSnapshot"
+	| "currentExecutionCheckpoint"
+	| "projectDesignLookupReferences"
 >;
 
 /** Caller-owned transcript for one durable slice attempt. The orchestrator
@@ -590,22 +594,22 @@ function projectToolResult(
 	value: unknown,
 	workspace: ExecutorWorkspace,
 ): unknown {
-	if (value === null || typeof value !== "object")
-		return projectBoundIdentities(value, workspace);
+	const project = (member: unknown) =>
+		workspace.projectDesignLookupReferences(
+			projectBoundIdentities(member, workspace),
+		);
+	if (value === null || typeof value !== "object") return project(value);
 	const envelope = value as {
 		kind?: unknown;
 		result?: unknown;
 		data?: unknown;
 	};
-	if (envelope.kind === "read")
-		return projectBoundIdentities(envelope.data, workspace);
-	if (envelope.kind !== "mutate")
-		return projectBoundIdentities(value, workspace);
+	if (envelope.kind === "read") return project(envelope.data);
+	if (envelope.kind !== "mutate") return project(value);
 	const inner = envelope.result;
-	if (inner === null || typeof inner !== "object")
-		return projectBoundIdentities(inner, workspace);
+	if (inner === null || typeof inner !== "object") return project(inner);
 	const { summary: _summary, ...rest } = inner as Record<string, unknown>;
-	return projectBoundIdentities(rest, workspace);
+	return project(rest);
 }
 
 function resultHasError(result: unknown): boolean {
@@ -760,7 +764,8 @@ function projectBlueprintHandles(
  * focus inventory, this carries every current field label, hint, help block,
  * expression, ordering relation, case operation, list setting, and media
  * decision. Authored entity identities project to their durable handles in
- * both map keys and reference values; external identities remain canonical. */
+ * both map keys and reference values. Accepted lookup identities project back
+ * to the same semantic references the executor received in its brief. */
 export function renderExecutorBlueprintCheckpoint(
 	workspace: ExecutorWorkspace,
 ): string {
@@ -774,7 +779,9 @@ export function renderExecutorBlueprintCheckpoint(
 			workspaceRevision: snapshot.revision,
 			canonicalBaseSequence: snapshot.canonicalSeq,
 			externalContextDigest: snapshot.externalContextDigest,
-			blueprint: projectBlueprintHandles(snapshot.doc, handleByUuid),
+			blueprint: workspace.projectDesignLookupReferences(
+				projectBlueprintHandles(snapshot.doc, handleByUuid),
+			),
 		},
 		null,
 		1,

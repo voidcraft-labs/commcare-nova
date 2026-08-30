@@ -23,14 +23,17 @@
  */
 
 import { type Kysely, sql, type Transaction } from "kysely";
+import { z } from "zod";
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import {
 	buildPlanSchema,
 	newPlanAdmissionMessages,
+	normalizeStoredBuildPlan,
 } from "@/lib/agent/design/buildPlan";
 import {
 	type AppDesignContract,
 	appDesignContractSchema,
+	normalizeStoredAppDesignContract,
 } from "@/lib/agent/design/contract";
 import {
 	type DesignArtifactEnvelope,
@@ -38,9 +41,14 @@ import {
 	verifyArtifactEnvelope,
 } from "@/lib/agent/design/envelope";
 import {
+	designLookupMaterializationPayloadSchema,
+	projectBuildPlanLookupBindings,
+} from "@/lib/agent/design/lookupMaterializationTypes";
+import {
 	type DesignReview,
 	designReviewSchema,
 	type FindingDisposition,
+	findingBlocksAcceptance,
 	findingDispositionSchema,
 } from "@/lib/agent/design/review";
 import {
@@ -51,6 +59,7 @@ import {
 	sourcePackageProofExtends,
 	toPersistedSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
+import { releaseDesignLookupProtectionsInTransaction } from "@/lib/db/designLookupMaterializations";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
@@ -74,6 +83,20 @@ export interface DesignArtifactWorkspaceFinalization {
 	readonly workspaceId: string;
 	readonly expectedRevision: number;
 	readonly artifactKind: "contract" | "revision" | "plan";
+}
+
+function contractRequiresLookupMaterialization(
+	contract: AppDesignContract,
+): boolean {
+	return (
+		contract.lookupTables.length > 0 ||
+		contract.records.some((record) =>
+			record.properties.some((property) => property.choiceSource !== undefined),
+		) ||
+		contract.workflows.some((workflow) =>
+			workflow.inputs.some((input) => input.choiceSource !== undefined),
+		)
+	);
 }
 
 async function finalizeArtifactWorkspaceInTransaction(
@@ -129,6 +152,10 @@ const contractEnvelopeSchema = designArtifactEnvelopeSchema(
 	"design-contract",
 	appDesignContractSchema,
 );
+const storedContractEnvelopeSchema = designArtifactEnvelopeSchema(
+	"design-contract",
+	z.unknown(),
+);
 const reviewEnvelopeSchema = designArtifactEnvelopeSchema(
 	"design-review",
 	designReviewSchema,
@@ -136,6 +163,10 @@ const reviewEnvelopeSchema = designArtifactEnvelopeSchema(
 const buildPlanEnvelopeSchema = designArtifactEnvelopeSchema(
 	"design-build-plan",
 	buildPlanSchema,
+);
+const storedBuildPlanEnvelopeSchema = designArtifactEnvelopeSchema(
+	"design-build-plan",
+	z.unknown(),
 );
 
 export type RevisionLifecycle = "draft" | "accepted";
@@ -349,10 +380,11 @@ export async function isCumulativeDesignSourcePackageExtensionInTransaction(
  *    whose artifact digest rides the envelope's input digests;
  *  - the stored `contract_digest` is the canonical digest of the payload.
  *
- * An ACCEPTED revision additionally requires at least one persisted review
- * of its parent draft — "reviewed" can never be asserted without the review
- * artifact — and its dispositions land in the same transaction
- * (`dispositions`, each mapped to the review that raised its finding).
+ * An ACCEPTED revision additionally requires its parent draft's exact latest
+ * review to be persisted, digest-bound into the new envelope, and free of
+ * blocking findings. Dispositions land only on revised drafts awaiting their
+ * own fresh review (`dispositions`, each mapped to the review that raised its
+ * finding); a model-authored status never grants acceptance.
  */
 export async function insertDesignRevision(args: {
 	envelope: DesignArtifactEnvelope<AppDesignContract>;
@@ -361,8 +393,9 @@ export async function insertDesignRevision(args: {
 	/** A newer source package is replacing a planned design. Retire every open
 	 * carrier from the historical plan in this same authority-locked write. */
 	supersedeUncommittedExecution?: boolean;
-	/** Required for an accepted revision: every disposition plus the review
-	 *  row ids whose findings they close. */
+	/** Revised drafts carry every disposition plus the review row ids whose
+	 *  findings they close. Accepted revisions come only from a clean review
+	 *  and therefore carry none. */
 	dispositions?: ReadonlyArray<{
 		reviewId: string;
 		disposition: FindingDisposition;
@@ -396,6 +429,10 @@ export async function insertDesignRevision(args: {
 				.where("design_session_id", "=", parsed.designSessionId)
 				.where("status", "=", "running")
 				.execute();
+			await releaseDesignLookupProtectionsInTransaction(
+				tx,
+				parsed.designSessionId,
+			);
 		}
 		const pkg = await tx
 			.selectFrom("design_source_packages")
@@ -409,6 +446,7 @@ export async function insertDesignRevision(args: {
 			);
 		}
 
+		let parent: RevisionRow | undefined;
 		if (parsed.revision === 1) {
 			if (parsed.parentArtifactId !== null) {
 				throw new DesignArtifactStoreError(
@@ -421,7 +459,7 @@ export async function insertDesignRevision(args: {
 					`Revision ${parsed.revision} must name its parent revision — only revision 1 stands alone.`,
 				);
 			}
-			const parent = await readRevisionRowInTx(tx, parsed.parentArtifactId);
+			parent = await readRevisionRowInTx(tx, parsed.parentArtifactId);
 			if (!parent || parent.design_session_id !== parsed.designSessionId) {
 				throw new DesignArtifactStoreError(
 					"This revision's parent does not exist in its session — a later state cannot exist without its exact predecessor.",
@@ -439,21 +477,58 @@ export async function insertDesignRevision(args: {
 				"An accepted revision descends from a reviewed draft; revision 1 is always a draft.",
 			);
 		}
+		if (lifecycle === "accepted") {
+			if (parent === undefined || parent.lifecycle !== "draft") {
+				throw new DesignArtifactStoreError(
+					"An accepted revision must descend directly from the draft that received its clean review.",
+				);
+			}
+			if (
+				contractDigest !== parent.contract_digest ||
+				parsed.sourcePackageDigest !== parent.source_package_digest
+			) {
+				throw new DesignArtifactStoreError(
+					"An accepted revision must preserve the exact contract and source package its parent review evaluated.",
+				);
+			}
+		}
 		if (lifecycle === "accepted" || (args.dispositions ?? []).length > 0) {
 			if (parsed.parentArtifactId === null) {
 				throw new DesignArtifactStoreError(
 					"Dispositions close a PARENT revision's reviews; revision 1 has no parent to have been reviewed.",
 				);
 			}
-			const reviews = await tx
-				.selectFrom("design_reviews")
-				.select(["id"])
+			const reviewRows = await reviewRowsQuery(tx)
 				.where("design_revision_id", "=", parsed.parentArtifactId)
+				.orderBy("review_ordinal", "asc")
 				.execute();
-			if (lifecycle === "accepted" && reviews.length === 0) {
-				throw new DesignArtifactStoreError(
-					"An accepted revision requires a persisted review of its parent draft — without the review artifact, nothing here was reviewed.",
-				);
+			const reviews = reviewRows.map(reviewRecordFromRow);
+			if (lifecycle === "accepted") {
+				const latestReview = reviews.at(-1);
+				if (latestReview === undefined) {
+					throw new DesignArtifactStoreError(
+						"An accepted revision requires a persisted review of its parent draft — without the review artifact, nothing here was reviewed.",
+					);
+				}
+				if (
+					latestReview.envelope.payload.findings.some(findingBlocksAcceptance)
+				) {
+					throw new DesignArtifactStoreError(
+						"An accepted revision requires its parent draft's latest independent review to have no blocking findings.",
+					);
+				}
+				if (
+					!parsed.inputArtifactDigests.includes(latestReview.artifactDigest)
+				) {
+					throw new DesignArtifactStoreError(
+						"An accepted revision must bind the exact clean review that grants acceptance.",
+					);
+				}
+				if ((args.dispositions ?? []).length > 0) {
+					throw new DesignArtifactStoreError(
+						"A clean review grants acceptance directly; finding dispositions belong only to a revised draft awaiting another review.",
+					);
+				}
 			}
 			const knownReviewIds = new Set(reviews.map((review) => review.id));
 			for (const entry of args.dispositions ?? []) {
@@ -624,13 +699,20 @@ async function readRevisionRowInTx(db: Db, id: string) {
 }
 
 function revisionRecordFromRow(row: RevisionRow): DesignRevisionRecord {
-	const envelope = contractEnvelopeSchema.parse(
+	const storedEnvelope = storedContractEnvelopeSchema.parse(
 		parsePersistedJsonText(
 			row.envelope_text,
 			`design_revisions.envelope for revision ${row.id}`,
 		),
 	);
-	verifyArtifactEnvelope(envelope);
+	/* Verify the exact sealed bytes before normalizing additive collections.
+	 * The normalized payload is the only domain shape consumers receive, but it
+	 * must never be mistaken for the stored envelope's digest input. */
+	verifyArtifactEnvelope(storedEnvelope);
+	const envelope: DesignArtifactEnvelope<AppDesignContract> = {
+		...storedEnvelope,
+		payload: normalizeStoredAppDesignContract(storedEnvelope.payload),
+	};
 	if (
 		envelope.artifactDigest !== row.artifact_digest ||
 		envelope.artifactId !== row.id ||
@@ -911,6 +993,65 @@ export async function insertDesignBuildPlan(args: {
 				"This plan's inputs do not include the accepted revision's digest.",
 			);
 		}
+		const acceptedContract = revisionRecordFromRow(revision).envelope.payload;
+		if (
+			contractRequiresLookupMaterialization(acceptedContract) &&
+			plan.lookupMaterialization === null
+		) {
+			throw new DesignArtifactStoreError(
+				"This accepted design depends on Project data, but its BuildPlan has no durable lookup materialization receipt.",
+			);
+		}
+		if (plan.lookupMaterialization !== null) {
+			const receipt = await tx
+				.selectFrom("design_lookup_materializations")
+				.select([
+					"design_session_id",
+					"design_revision_id",
+					"design_revision_digest",
+					"project_id",
+					"project_revision",
+					"result_digest",
+				])
+				.select(
+					sql<string>`${sql.ref("design_lookup_materializations.mapping")}::text`.as(
+						"mapping_text",
+					),
+				)
+				.where("id", "=", plan.lookupMaterialization.receiptId)
+				.executeTakeFirst();
+			if (
+				receipt === undefined ||
+				receipt.design_session_id !== parsed.designSessionId ||
+				receipt.design_revision_id !== plan.designRevisionId ||
+				receipt.design_revision_digest !== plan.designRevisionDigest ||
+				receipt.project_id !== args.authority.expectedProjectId ||
+				receipt.result_digest !== plan.lookupMaterialization.resultDigest ||
+				String(receipt.project_revision) !==
+					plan.lookupMaterialization.projectRevision
+			) {
+				throw new DesignArtifactStoreError(
+					"The BuildPlan lookup receipt does not match its accepted revision, Project, or materialization result.",
+				);
+			}
+			const materialization = designLookupMaterializationPayloadSchema.parse(
+				parsePersistedJsonText(
+					receipt.mapping_text,
+					`design_lookup_materializations.mapping for receipt ${plan.lookupMaterialization.receiptId}`,
+				),
+			);
+			if (
+				canonicalJsonDigest(materialization) !== receipt.result_digest ||
+				canonicalJsonDigest(
+					projectBuildPlanLookupBindings(materialization.bindings),
+				) !== canonicalJsonDigest(plan.lookupMaterialization.bindings) ||
+				!parsed.inputArtifactDigests.includes(receipt.result_digest)
+			) {
+				throw new DesignArtifactStoreError(
+					"The BuildPlan does not carry the exact digest-bound lookup identity mapping produced by its receipt.",
+				);
+			}
+		}
 
 		await tx
 			.insertInto("design_build_plans")
@@ -999,13 +1140,19 @@ async function readBuildPlanRecordInTx(
 		.where("id", "=", id)
 		.executeTakeFirst();
 	if (!row) return null;
-	const envelope = buildPlanEnvelopeSchema.parse(
+	const storedEnvelope = storedBuildPlanEnvelopeSchema.parse(
 		parsePersistedJsonText(
 			row.envelope_text,
 			`design_build_plans.envelope for plan ${id}`,
 		),
 	);
-	verifyArtifactEnvelope(envelope);
+	/* Verify the exact sealed bytes before normalizing additive plan members.
+	 * The normalized payload is the only plan shape consumers receive. */
+	verifyArtifactEnvelope(storedEnvelope);
+	const envelope: DesignArtifactEnvelope<BuildPlan> = {
+		...storedEnvelope,
+		payload: normalizeStoredBuildPlan(storedEnvelope.payload),
+	};
 	if (
 		envelope.artifactDigest !== row.artifact_digest ||
 		envelope.payload.id !== row.id

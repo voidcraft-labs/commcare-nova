@@ -3,6 +3,7 @@ import {
 	designCollectionUpdateInputSchemas,
 	designWorkspaceBoundError,
 	designWorkspaceCandidateSummary,
+	initialDesignWorkspaceCandidate,
 	inspectDesignWorkspaceCandidate,
 	replayDesignWorkspace,
 	setDesignRootInputSchema,
@@ -11,6 +12,19 @@ import {
 import { did, fixtureValue, makeContract } from "./fixtures";
 
 describe("design artifact workspaces", () => {
+	it("starts every authoring workspace with the complete current contract root", () => {
+		expect(initialDesignWorkspaceCandidate("contract")).toMatchObject({
+			schemaVersion: 1,
+			lookupTables: [],
+		});
+		const replayed = replayDesignWorkspace({
+			kind: "revision",
+			baseContract: makeContract(),
+			operations: [],
+		});
+		expect(replayed).toMatchObject({ schemaVersion: 1, lookupTables: [] });
+	});
+
 	it("replays semantic root and collection updates", () => {
 		const contract = makeContract();
 		const root = setDesignRootInputSchema.parse({
@@ -109,6 +123,7 @@ describe("design artifact workspaces", () => {
 			workflows: 2,
 			moduleCompositions: 1,
 			formCompositions: 2,
+			lookupTables: 0,
 		});
 		const view = inspectDesignWorkspaceCandidate({
 			kind: "contract",

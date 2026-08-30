@@ -40,18 +40,24 @@ import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { DESIGN_EFFORT_TIME_ESTIMATES } from "@/lib/agent/design/complexity";
 import {
 	type AppDesignContract,
+	appDesignContractBaseSchema,
 	appDesignContractSchema,
 	type DesignConstructionIssue,
 	designConstructionIssues,
 	designConstructionQuestionRequirements,
 	type OpenQuestion,
 } from "@/lib/agent/design/contract";
-import { DESIGN_HANDLE_PATTERN, designIdSchema } from "@/lib/agent/design/ids";
 import {
-	changesArchitecture,
+	DESIGN_HANDLE_PATTERN,
+	DESIGN_IDENTITY_SCHEMA_MARKER,
+	type DesignIdentityHandleEntityKind,
+	designIdSchema,
+} from "@/lib/agent/design/ids";
+import type { LookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
+import { ensureAcceptedLookupMaterialization } from "@/lib/agent/design/lookupMaterialization";
+import { projectBuildPlanLookupBindings } from "@/lib/agent/design/lookupMaterializationTypes";
+import {
 	contractEnvelope,
-	criticalFindingCount,
-	leavesCriticalFinding,
 	mapDispositionsToReviews,
 	planEnvelope,
 	reviewEnvelope,
@@ -83,7 +89,110 @@ import {
 	strictWireJsonSchema,
 	stripNullProperties,
 } from "@/lib/agent/strictStructuredOutput";
-import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import type {
+	LookupCellValue,
+	LookupColumn,
+	LookupColumnId,
+	LookupRevision,
+	LookupRowId,
+	LookupTableId,
+} from "@/lib/lookup/types";
+
+export const inspectProjectDataInputSchema = z
+	.object({
+		tableId: lookupTableIdSchema.optional(),
+		query: z.string().trim().max(200).optional(),
+		columnIds: z.array(lookupColumnIdSchema).max(250).optional(),
+		choiceProjection: z
+			.object({
+				valueColumnId: lookupColumnIdSchema,
+				labelColumnId: lookupColumnIdSchema,
+			})
+			.strict()
+			.optional(),
+		cursor: z.string().min(1).max(4096).optional(),
+	})
+	.strict()
+	.superRefine((input, ctx) => {
+		if (
+			input.tableId === undefined &&
+			(input.query !== undefined ||
+				input.columnIds !== undefined ||
+				input.choiceProjection !== undefined)
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["tableId"],
+				message: "A query or column projection requires one stable table UUID.",
+			});
+		if (input.columnIds !== undefined && input.choiceProjection !== undefined)
+			ctx.addIssue({
+				code: "custom",
+				path: ["choiceProjection"],
+				message:
+					"Use either a generic column projection or one saved-value/label choice projection, not both.",
+			});
+	});
+export type InspectProjectDataInput = z.infer<
+	typeof inspectProjectDataInputSchema
+>;
+
+export interface DesignProjectDataTable {
+	readonly id: LookupTableId;
+	readonly name: string;
+	readonly tag: string;
+	readonly columnCount: number;
+	readonly rowCount: number;
+	readonly dataBytes: number;
+	readonly definitionRevision: LookupRevision;
+	readonly rowsRevision: LookupRevision;
+	readonly tableRevision: LookupRevision;
+	readonly columns: readonly LookupColumn[];
+}
+
+export interface DesignProjectDataCatalogTableSegment
+	extends DesignProjectDataTable {
+	/** Present when this page continues a table's ordered column list. */
+	readonly columnOffset?: number;
+	readonly columnsComplete: boolean;
+}
+
+export type DesignProjectDataInspectionResult =
+	| {
+			readonly kind: "catalog";
+			readonly projectRevision: LookupRevision;
+			readonly tables: readonly DesignProjectDataCatalogTableSegment[];
+			readonly complete: boolean;
+			readonly nextCursor?: string;
+	  }
+	| {
+			readonly kind: "rows";
+			readonly table: DesignProjectDataTable;
+			readonly rows: readonly {
+				readonly id: LookupRowId;
+				readonly cells: readonly {
+					readonly columnId: LookupColumnId;
+					readonly value: LookupCellValue;
+				}[];
+			}[];
+			readonly complete: boolean;
+			readonly nextCursor?: string;
+			readonly choiceProjection?: {
+				readonly valueColumnId: LookupColumnId;
+				readonly labelColumnId: LookupColumnId;
+				readonly inspection: LookupChoiceProjectionAttestation;
+			};
+	  }
+	| {
+			readonly kind: "error";
+			readonly error: string;
+			readonly code?: string;
+			readonly currentRevisions?: unknown;
+	  };
 
 export interface DesignLoopToolDeps {
 	readonly designSessionId: string;
@@ -106,6 +215,19 @@ export interface DesignLoopToolDeps {
 	readonly requiredQuestionsWereAnswered?: (
 		questions: readonly OpenQuestion[],
 	) => boolean | Promise<boolean>;
+	/** Authorized, read-only Project-data inspection. The runtime binding must
+	 * reprove this design session's exact holder and current Project membership
+	 * on every call, and return one revision-bound rows-free catalog page when
+	 * tableId is absent or one cursor-bound page of at most 100 ordered rows when
+	 * it is present. */
+	readonly inspectProjectData: (
+		input: InspectProjectDataInput,
+	) => Promise<DesignProjectDataInspectionResult>;
+	/** Fail-closed proof that every persisted existing-table choice projection
+	 * still matches the exact authorized Project generation. */
+	readonly validateProjectLookupEvidence: (
+		contract: AppDesignContract,
+	) => Promise<DesignConstructionIssue[]>;
 	readonly onReviewActivity?: (deltaChars: number) => void;
 	readonly onReviewerReasoning?: (text: string) => void;
 }
@@ -114,9 +236,38 @@ async function persistDerivedPlan(
 	deps: DesignLoopToolDeps,
 	accepted: NonNullable<DesignGateState["head"]>,
 ) {
+	const contract = appDesignContractBaseSchema.parse(accepted.envelope.payload);
+	const needsLookupMaterialization =
+		contract.lookupTables.length > 0 ||
+		contract.records.some((record) =>
+			record.properties.some((property) => property.choiceSource !== undefined),
+		) ||
+		contract.workflows.some((workflow) =>
+			workflow.inputs.some((input) => input.choiceSource !== undefined),
+		);
+	const lookupReceipt = needsLookupMaterialization
+		? await ensureAcceptedLookupMaterialization({
+				designSessionId: deps.designSessionId,
+				designRevisionId: accepted.id,
+				designRevisionDigest: accepted.artifactDigest,
+				contract,
+				authority: deps.authority,
+			})
+		: null;
 	const plan = deriveBuildPlan({
-		contract: accepted.envelope.payload,
+		contract,
 		revision: { id: accepted.id, digest: accepted.artifactDigest },
+		lookupMaterialization:
+			lookupReceipt === null
+				? null
+				: {
+						receiptId: lookupReceipt.id,
+						resultDigest: lookupReceipt.resultDigest,
+						projectRevision: lookupReceipt.payload.projectRevision,
+						bindings: projectBuildPlanLookupBindings(
+							lookupReceipt.payload.bindings,
+						),
+					},
 	});
 	const record = await insertDesignBuildPlan({
 		envelope: planEnvelope({
@@ -172,13 +323,11 @@ const DESIGN_HANDLE_ARM = {
 	additionalProperties: false,
 } as const;
 
-/** A design-ID string node in the strict wire projection. A required slot
- * emits `type: "string"`; a formerly-optional slot emits the projection's
- * null-union spelling `type: ["string", "null"]`. Both carry the canonical
- * UUID regex as `pattern` (never `format` — `designIdSchema` is a `.regex()`),
- * so that exact pattern is the key. */
+/** A design-ID string node in the strict wire projection. The marker comes
+ * from `designIdSchema`, which is the shared authority for wire widening and
+ * raw-UUID admission; property-name spelling is never identity semantics. */
 function isDesignIdStringNode(node: Record<string, unknown>): boolean {
-	if (node.pattern !== CANONICAL_UUID_PATTERN.source) return false;
+	if (node[DESIGN_IDENTITY_SCHEMA_MARKER] !== true) return false;
 	return (
 		node.type === "string" ||
 		(Array.isArray(node.type) &&
@@ -202,9 +351,13 @@ function widenDesignIdsToHandles(node: unknown): unknown {
 	if (!isJsonObject(node)) return node;
 	if (isDesignIdStringNode(node)) {
 		const nullable = Array.isArray(node.type);
+		const {
+			[DESIGN_IDENTITY_SCHEMA_MARKER]: _identityMarker,
+			...providerNode
+		} = node;
 		return {
 			anyOf: [
-				nullable ? { ...node, type: "string" } : node,
+				nullable ? { ...providerNode, type: "string" } : providerNode,
 				DESIGN_HANDLE_ARM,
 				...(nullable ? [{ type: "null" }] : []),
 			],
@@ -216,6 +369,155 @@ function widenDesignIdsToHandles(node: unknown): unknown {
 			widenDesignIdsToHandles(value),
 		]),
 	);
+}
+
+function resolveLocalSchemaRef(
+	root: Record<string, unknown>,
+	ref: string,
+): Record<string, unknown> | null {
+	if (!ref.startsWith("#/")) return null;
+	let current: unknown = root;
+	for (const encoded of ref.slice(2).split("/")) {
+		if (!isJsonObject(current)) return null;
+		const key = encoded.replaceAll("~1", "/").replaceAll("~0", "~");
+		current = current[key];
+	}
+	return isJsonObject(current) ? current : null;
+}
+
+function schemaArmMatchesValue(
+	arm: Record<string, unknown>,
+	value: unknown,
+	root: Record<string, unknown>,
+): boolean {
+	const resolved =
+		typeof arm.$ref === "string"
+			? (resolveLocalSchemaRef(root, arm.$ref) ?? arm)
+			: arm;
+	if (resolved.type === "null") return value === null;
+	if (resolved.type === "string") return typeof value === "string";
+	if (resolved.type === "number" || resolved.type === "integer")
+		return typeof value === "number";
+	if (resolved.type === "boolean") return typeof value === "boolean";
+	if (resolved.type === "array") return Array.isArray(value);
+	if (resolved.type !== "object" || !isJsonObject(value)) return false;
+	if (!isJsonObject(resolved.properties)) return true;
+	const discriminators = Object.entries(resolved.properties).filter(
+		(entry): entry is [string, Record<string, unknown>] =>
+			isJsonObject(entry[1]) && "const" in entry[1],
+	);
+	return discriminators.every(([key, schema]) => value[key] === schema.const);
+}
+
+const designIdentityJsonSchemas = new WeakMap<
+	z.ZodType,
+	Record<string, unknown>
+>();
+
+function designIdentityJsonSchema(schema: z.ZodType): Record<string, unknown> {
+	const existing = designIdentityJsonSchemas.get(schema);
+	if (existing !== undefined) return existing;
+	const emitted = z.toJSONSchema(schema, { io: "input" }) as Record<
+		string,
+		unknown
+	>;
+	designIdentityJsonSchemas.set(schema, emitted);
+	return emitted;
+}
+
+/** Collect raw UUIDs only from schema-declared DesignId leaves. Union arms
+ * are selected by their literal discriminators, so a `tableId` in an
+ * existing-lookup arm remains a lookup UUID while the same spelling in a
+ * designed-source arm remains a DesignId. */
+function designIdentityOccurrencesForSchema(
+	schema: z.ZodType,
+	value: unknown,
+	path: string,
+): Array<{ path: string; value: string }> {
+	const root = designIdentityJsonSchema(schema);
+	const occurrences: Array<{ path: string; value: string }> = [];
+	const visit = (
+		node: unknown,
+		entry: unknown,
+		entryPath: string,
+		seenRefs: ReadonlySet<string>,
+	): void => {
+		if (!isJsonObject(node)) return;
+		if (node[DESIGN_IDENTITY_SCHEMA_MARKER] === true) {
+			if (typeof entry === "string" && designIdSchema.safeParse(entry).success)
+				occurrences.push({ path: entryPath, value: entry });
+			return;
+		}
+		if (typeof node.$ref === "string" && !seenRefs.has(node.$ref)) {
+			const resolved = resolveLocalSchemaRef(root, node.$ref);
+			if (resolved !== null)
+				visit(resolved, entry, entryPath, new Set([...seenRefs, node.$ref]));
+			return;
+		}
+		for (const carrier of ["oneOf", "anyOf"] as const) {
+			if (!Array.isArray(node[carrier])) continue;
+			const arms = node[carrier].filter(isJsonObject);
+			const matches = arms.filter((arm) =>
+				schemaArmMatchesValue(arm, entry, root),
+			);
+			for (const arm of matches.length === 1 ? matches : arms) {
+				visit(arm, entry, entryPath, seenRefs);
+			}
+			return;
+		}
+		if (Array.isArray(node.allOf))
+			for (const arm of node.allOf) visit(arm, entry, entryPath, seenRefs);
+		if (Array.isArray(entry) && node.items !== undefined) {
+			entry.forEach((item, index) => {
+				visit(node.items, item, `${entryPath}.${index}`, seenRefs);
+			});
+			return;
+		}
+		if (!isJsonObject(entry) || !isJsonObject(node.properties)) return;
+		for (const [key, childSchema] of Object.entries(node.properties)) {
+			if (!(key in entry)) continue;
+			visit(
+				childSchema,
+				entry[key],
+				entryPath === "" ? key : `${entryPath}.${key}`,
+				seenRefs,
+			);
+		}
+	};
+	visit(root, value, path, new Set());
+	return occurrences;
+}
+
+function stagedDesignIdentityOccurrences(
+	input: Record<string, unknown>,
+): Array<{ path: string; value: string }> {
+	const occurrences: Array<{ path: string; value: string }> = [];
+	if (isJsonObject(input.root))
+		occurrences.push(
+			...designIdentityOccurrencesForSchema(
+				setDesignRootInputSchema,
+				input.root,
+				"root",
+			),
+		);
+	if (!Array.isArray(input.collections)) return occurrences;
+	for (const [index, collection] of input.collections.entries()) {
+		if (!isJsonObject(collection) || typeof collection.collection !== "string")
+			continue;
+		const schema =
+			designCollectionUpdateInputSchemas[
+				collection.collection as keyof typeof designCollectionUpdateInputSchemas
+			];
+		if (schema === undefined) continue;
+		occurrences.push(
+			...designIdentityOccurrencesForSchema(
+				schema,
+				collection,
+				`collections.${index}`,
+			),
+		);
+	}
+	return occurrences;
 }
 
 /** The exact provider-facing JSON grammar of a handle-widened design tool.
@@ -267,11 +569,15 @@ const DESIGN_COLLECTION_ENTITY_KINDS = {
 	navigation: "navigation",
 	moduleCompositions: "module_composition",
 	formCompositions: "form_composition",
+	lookupTables: "lookup_table_intent",
 	externalRequirements: "external_requirement",
 	decisions: "decision",
 	assumptions: "assumption",
 	openQuestions: "open_question",
-} as const;
+} as const satisfies Record<
+	(typeof CONTRACT_COLLECTIONS)[number],
+	DesignIdentityHandleEntityKind
+>;
 
 function handleValue(value: unknown): string | null {
 	return isJsonObject(value) &&
@@ -288,7 +594,10 @@ export function collectDesignIdentityHandleBindings(
 ): DesignIdentityHandleBinding[] {
 	if (!isJsonObject(input)) return [];
 	const bindings: DesignIdentityHandleBinding[] = [];
-	const add = (value: unknown, entityKind: string): void => {
+	const add = (
+		value: unknown,
+		entityKind: DesignIdentityHandleEntityKind,
+	): void => {
 		const handle = handleValue(value);
 		if (handle === null) return;
 		bindings.push({
@@ -320,6 +629,33 @@ export function collectDesignIdentityHandleBindings(
 		for (const item of collection.upserts) {
 			if (!isJsonObject(item)) continue;
 			add(item.id, kind);
+			if (collection.collection === "lookupTables" && item.kind === "create") {
+				for (const column of Array.isArray(item.columns) ? item.columns : []) {
+					if (isJsonObject(column)) add(column.id, "lookup_column_intent");
+				}
+				for (const row of Array.isArray(item.rows) ? item.rows : []) {
+					if (isJsonObject(row)) add(row.id, "lookup_row_intent");
+				}
+			}
+			if (
+				collection.collection === "lookupTables" &&
+				item.kind === "modify-existing" &&
+				Array.isArray(item.operations)
+			) {
+				for (const operation of item.operations) {
+					if (!isJsonObject(operation)) continue;
+					if (operation.kind === "add-column" && isJsonObject(operation.column))
+						add(operation.column.id, "lookup_column_intent");
+					if (operation.kind === "add-row")
+						add(operation.rowId, "lookup_row_intent");
+					if (operation.kind === "replace-rows")
+						for (const row of Array.isArray(operation.rows)
+							? operation.rows
+							: []) {
+							if (isJsonObject(row)) add(row.id, "lookup_row_intent");
+						}
+				}
+			}
 			if (
 				collection.collection === "records" &&
 				Array.isArray(item.properties)
@@ -505,7 +841,10 @@ export function resolveDesignFindingHandles(
  * identity with a durable symbol is rendered back through that symbol. */
 export function projectDesignIdentityHandles(
 	value: unknown,
-	bindings: readonly DesignIdentityHandleBinding[],
+	bindings: ReadonlyArray<{
+		readonly handle: string;
+		readonly designId: string;
+	}>,
 ): unknown {
 	const byId = new Map(
 		bindings.map((binding) => [binding.designId, binding.handle] as const),
@@ -618,6 +957,14 @@ export function createDesignToolExecutionQueue() {
 	});
 	const reserve = (input: object, clientInputPause: boolean): void => {
 		const state = activeState;
+		if (clientInputPause) {
+			void schedule(state, async () => {
+				if (state.inputPauseRequested) return refusal();
+				state.inputPauseRequested = true;
+				return { ok: true as const, awaitingInput: true as const };
+			});
+			return;
+		}
 		let attached = false;
 		let supplyWork: ((work: () => Promise<unknown>) => void) | null = null;
 		const workReady = new Promise<() => Promise<unknown>>((resolve) => {
@@ -625,13 +972,8 @@ export function createDesignToolExecutionQueue() {
 		});
 		const result = schedule(state, async () => {
 			if (state.inputPauseRequested) return refusal();
-			if (clientInputPause) {
-				state.inputPauseRequested = true;
-				return { ok: true as const, awaitingInput: true as const };
-			}
 			return (await workReady)();
 		});
-		if (clientInputPause) return;
 		reservations.set(input, {
 			state,
 			attach<T>(work: () => Promise<T>): Promise<T | ToolError> {
@@ -973,6 +1315,24 @@ function constructionSubmissionRejection(args: {
 	};
 }
 
+async function projectLookupEvidenceRejection(args: {
+	deps: DesignLoopToolDeps;
+	toolName: DesignLoopToolName;
+	contract: AppDesignContract;
+	handleBindings: readonly DesignIdentityHandleBinding[];
+}) {
+	const issues = await args.deps.validateProjectLookupEvidence(args.contract);
+	if (issues.length === 0) return null;
+	args.deps.repair.noteSubmissionRejection(args.toolName, {
+		stage: "construction",
+		fingerprints: issues.map(constructionIssueFingerprint),
+	});
+	return {
+		error: renderDesignConstructionIssues(issues, args.handleBindings),
+		diagnostic: rejectionDiagnostic("construction", issues.length),
+	};
+}
+
 function parseStage<T>(schema: z.ZodType<T>, input: unknown) {
 	const parsed = schema.safeParse(stripNullProperties(input));
 	return parsed.success
@@ -1038,6 +1398,38 @@ function existingDesignIdentityKinds(
 		for (const member of members) {
 			if (!isJsonObject(member)) continue;
 			add(member.id, DESIGN_COLLECTION_ENTITY_KINDS[collection]);
+			if (collection === "lookupTables") {
+				if (member.kind === "create") {
+					for (const column of Array.isArray(member.columns)
+						? member.columns
+						: []) {
+						if (isJsonObject(column)) add(column.id, "lookup_column_intent");
+					}
+					for (const row of Array.isArray(member.rows) ? member.rows : []) {
+						if (isJsonObject(row)) add(row.id, "lookup_row_intent");
+					}
+				} else if (
+					member.kind === "modify-existing" &&
+					Array.isArray(member.operations)
+				) {
+					for (const operation of member.operations) {
+						if (!isJsonObject(operation)) continue;
+						if (
+							operation.kind === "add-column" &&
+							isJsonObject(operation.column)
+						)
+							add(operation.column.id, "lookup_column_intent");
+						if (operation.kind === "add-row")
+							add(operation.rowId, "lookup_row_intent");
+						if (operation.kind === "replace-rows")
+							for (const row of Array.isArray(operation.rows)
+								? operation.rows
+								: []) {
+								if (isJsonObject(row)) add(row.id, "lookup_row_intent");
+							}
+					}
+				}
+			}
 			if (collection === "records" && Array.isArray(member.properties)) {
 				for (const property of member.properties) {
 					if (isJsonObject(property)) add(property.id, "property");
@@ -1098,6 +1490,64 @@ export function designCreationIdentityIssue(
 					path: `collections.${collectionIndex}.upserts.${itemIndex}.id`,
 					value: item.id,
 				});
+				if (collection.collection === "lookupTables") {
+					if (item.kind === "create") {
+						for (const [columnIndex, column] of (Array.isArray(item.columns)
+							? item.columns
+							: []
+						).entries()) {
+							if (!isJsonObject(column)) continue;
+							declarations.push({
+								path: `collections.${collectionIndex}.upserts.${itemIndex}.columns.${columnIndex}.id`,
+								value: column.id,
+							});
+						}
+						for (const [rowIndex, row] of (Array.isArray(item.rows)
+							? item.rows
+							: []
+						).entries()) {
+							if (!isJsonObject(row)) continue;
+							declarations.push({
+								path: `collections.${collectionIndex}.upserts.${itemIndex}.rows.${rowIndex}.id`,
+								value: row.id,
+							});
+						}
+					} else if (
+						item.kind === "modify-existing" &&
+						Array.isArray(item.operations)
+					) {
+						for (const [
+							operationIndex,
+							operation,
+						] of item.operations.entries()) {
+							if (!isJsonObject(operation)) continue;
+							if (
+								operation.kind === "add-column" &&
+								isJsonObject(operation.column)
+							)
+								declarations.push({
+									path: `collections.${collectionIndex}.upserts.${itemIndex}.operations.${operationIndex}.column.id`,
+									value: operation.column.id,
+								});
+							if (operation.kind === "add-row")
+								declarations.push({
+									path: `collections.${collectionIndex}.upserts.${itemIndex}.operations.${operationIndex}.rowId`,
+									value: operation.rowId,
+								});
+							if (operation.kind === "replace-rows")
+								for (const [rowIndex, row] of (Array.isArray(operation.rows)
+									? operation.rows
+									: []
+								).entries()) {
+									if (!isJsonObject(row)) continue;
+									declarations.push({
+										path: `collections.${collectionIndex}.upserts.${itemIndex}.operations.${operationIndex}.rows.${rowIndex}.id`,
+										value: row.id,
+									});
+								}
+						}
+					}
+				}
 				if (
 					collection.collection === "records" &&
 					Array.isArray(item.properties)
@@ -1164,44 +1614,7 @@ export function designCreationIdentityIssue(
 		}
 	}
 	const declarationPaths = new Set(declarations.map(({ path }) => path));
-	const occurrences: Array<{ path: string; value: string }> = [];
-	const visit = (value: unknown, path: string): void => {
-		if (Array.isArray(value)) {
-			for (const [index, entry] of value.entries()) {
-				visit(entry, `${path}.${index}`);
-			}
-			return;
-		}
-		if (!isJsonObject(value)) return;
-		/* Disposition upserts and removals point into the review-finding
-		 * namespace. They are deliberately not Design Contract identities. */
-		if (path === "dispositions" || value.collection === "dispositions") return;
-		for (const [key, entry] of Object.entries(value)) {
-			const nextPath = path === "" ? key : `${path}.${key}`;
-			const identitySlot =
-				key === "id" ||
-				key === "removeIds" ||
-				key.endsWith("Id") ||
-				key.endsWith("Ids");
-			if (identitySlot) {
-				const values = Array.isArray(entry) ? entry : [entry];
-				values.forEach((identity, index) => {
-					if (
-						typeof identity === "string" &&
-						designIdSchema.safeParse(identity).success
-					) {
-						occurrences.push({
-							path: Array.isArray(entry) ? `${nextPath}.${index}` : nextPath,
-							value: identity,
-						});
-					}
-				});
-				continue;
-			}
-			visit(entry, nextPath);
-		}
-	};
-	visit(input, "");
+	const occurrences = stagedDesignIdentityOccurrences(input);
 	const unknown = occurrences.find(
 		(occurrence) =>
 			!existing.has(occurrence.value) && !declarationPaths.has(occurrence.path),
@@ -1221,6 +1634,18 @@ export function createDesignLoopTools(
 	 * attaches its work to that reservation, including update -> finish -> review
 	 * chains and the client-side askQuestions terminal. */
 	const inResponseOrder = executionQueue.run;
+	const inspectProjectData = {
+		description:
+			"Inspect this app Project's current data tables before designing references or changes. Omit tableId for one bounded rows-free catalog page with stable table and column UUIDs; continue with each nextCursor until complete is true. With tableId, read one ordered page of at most 100 rows, optionally filtered by query or projected to columnIds. To continue a row read, repeat the same query and projection with its cursor. Names, tags, labels, and wire names are metadata, never identity.",
+		inputSchema: strictWireOnly(inspectProjectDataInputSchema),
+		strict: true,
+		execute: (input: unknown) =>
+			inResponseOrder(input, async () => {
+				const parsedInput = parseStage(inspectProjectDataInputSchema, input);
+				if (!parsedInput.ok) return { error: parsedInput.error };
+				return deps.inspectProjectData(parsedInput.data);
+			}),
+	};
 
 	const workspaceKind = (gates: DesignGateState): DesignArtifactKind =>
 		gates.verdicts.submitRevision.legal || gates.headReviews.length > 0
@@ -1377,6 +1802,10 @@ export function createDesignLoopTools(
 		"formCompositions",
 		"Update exact worker-facing form composition and layout.",
 	);
+	const updateLookupTables = semanticCollectionTool(
+		"lookupTables",
+		"Update reviewed Project lookup-table creation or explicitly authorized existing-table changes. New tables, columns, and rows use readable @handles; existing Project resources use only inspected stable UUIDs.",
+	);
 	const updateExternalRequirements = semanticCollectionTool(
 		"externalRequirements",
 		"Update honest requirements outside the authored app.",
@@ -1489,6 +1918,13 @@ export function createDesignLoopTools(
 				"The contract needs decisions from the user before it can be finalized.",
 		});
 		if (constructionRejection !== null) return constructionRejection;
+		const lookupEvidenceRejection = await projectLookupEvidenceRejection({
+			deps,
+			toolName: "submitContract",
+			contract: parsed.data,
+			handleBindings: state.handleBindings,
+		});
+		if (lookupEvidenceRejection !== null) return lookupEvidenceRejection;
 		const head = gates.head;
 		const draft = await insertDesignRevision({
 			envelope: contractEnvelope({
@@ -1602,6 +2038,13 @@ export function createDesignLoopTools(
 				...findingHandleBindings,
 			]);
 			if (gated.length === 0) {
+				const lookupEvidenceRejection = await projectLookupEvidenceRejection({
+					deps,
+					toolName: "requestReview",
+					contract: draft.envelope.payload,
+					handleBindings: bindings,
+				});
+				if (lookupEvidenceRejection !== null) return lookupEvidenceRejection;
 				const accepted = await insertDesignRevision({
 					envelope: contractEnvelope({
 						designSessionId: deps.designSessionId,
@@ -1704,6 +2147,13 @@ export function createDesignLoopTools(
 				"The revision needs decisions from the user before it can be accepted.",
 		});
 		if (constructionRejection !== null) return constructionRejection;
+		const lookupEvidenceRejection = await projectLookupEvidenceRejection({
+			deps,
+			toolName: "submitRevision",
+			contract: parsed.data.contract,
+			handleBindings: state.handleBindings,
+		});
+		if (lookupEvidenceRejection !== null) return lookupEvidenceRejection;
 		const sensitivityViolations = validateSensitivityNotSilentlyLowered(
 			head.envelope.payload,
 			parsed.data,
@@ -1729,14 +2179,6 @@ export function createDesignLoopTools(
 			parsed.data,
 			gates.headReviews,
 		);
-		const criticalFindings = criticalFindingCount(reviewPayloads);
-		const secondRoundWarranted =
-			gates.openCycleReviews === 1 &&
-			(leavesCriticalFinding(parsed.data, reviewPayloads) ||
-				criticalFindings >= 2 ||
-				(criticalFindings > 0 &&
-					changesArchitecture(head.envelope.payload, parsed.data.contract)));
-		const lifecycle = secondRoundWarranted ? "draft" : "accepted";
 		const revision = await insertDesignRevision({
 			envelope: contractEnvelope({
 				designSessionId: deps.designSessionId,
@@ -1751,7 +2193,7 @@ export function createDesignLoopTools(
 				promptVersion: DESIGN_PROMPT_VERSIONS.agent,
 				finishReason: null,
 			}),
-			lifecycle,
+			lifecycle: "draft",
 			authority: deps.authority,
 			dispositions: mappedDispositions,
 			workspaceFinalization: {
@@ -1762,29 +2204,12 @@ export function createDesignLoopTools(
 		});
 		deps.ancestryChanged();
 		deps.repair.noteAccepted("submitRevision");
-		if (lifecycle === "draft") {
-			return {
-				ok: true,
-				revisionId: revision.id,
-				accepted: false,
-				message:
-					"The revision persisted and warrants a second independent look. Request it with requestReview.",
-			};
-		}
-		const blocking = revision.envelope.payload.openQuestions.filter(
-			(question) => question.blocking,
-		);
-		const plan =
-			blocking.length === 0 ? await persistDerivedPlan(deps, revision) : null;
 		return {
 			ok: true,
 			revisionId: revision.id,
-			accepted: true,
-			planId: plan?.id,
+			accepted: false,
 			message:
-				blocking.length > 0
-					? "The accepted design carries blocking open questions. Ask the user before planning."
-					: "The revision persisted as the accepted design and the server derived its build plan. Tell the user briefly that the build is starting, then stop.",
+				"The revision persisted as a new draft. Request a fresh independent review; only a review with no blocking findings can accept the design.",
 		};
 	};
 
@@ -1809,6 +2234,7 @@ export function createDesignLoopTools(
 	};
 
 	return {
+		inspectProjectData,
 		setDesignRoot,
 		updateActors,
 		updateRecords,
@@ -1818,6 +2244,7 @@ export function createDesignLoopTools(
 		updateNavigation,
 		updateModuleCompositions,
 		updateFormCompositions,
+		updateLookupTables,
 		updateExternalRequirements,
 		updateDecisions,
 		updateAssumptions,

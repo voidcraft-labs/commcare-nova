@@ -114,6 +114,40 @@ describe("design phase gates", () => {
 		expect(revisionGates.verdicts.submitContract.legal).toBe(false);
 	});
 
+	it("never turns prior review count into acceptance or blocks a fresh review", () => {
+		const first = revision({
+			id: "r1",
+			revision: 1,
+			lifecycle: "draft",
+			digest: D1,
+		});
+		const second = revision({
+			id: "r2",
+			revision: 2,
+			lifecycle: "draft",
+			digest: D1,
+		});
+		const third = revision({
+			id: "r3",
+			revision: 3,
+			lifecycle: "draft",
+			digest: D1,
+		});
+		const gates = evaluateDesignGates(
+			ancestry({
+				revisions: [first, second, third],
+				reviews: [
+					[first.id, [review(first.id)]],
+					[second.id, [review(second.id)]],
+				],
+				currentDigest: D1,
+			}),
+		);
+		expect(gates.head?.id).toBe(third.id);
+		expect(gates.verdicts.requestReview.legal).toBe(true);
+		expect(gates.verdicts.submitRevision.legal).toBe(false);
+	});
+
 	it("reopens accepted design only for newer user content", () => {
 		const accepted = revision({
 			id: "r2",

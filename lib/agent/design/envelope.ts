@@ -77,7 +77,25 @@ export function designArtifactEnvelopeSchema<T extends z.ZodTypeAny>(
 			complexity: designComplexityEvidenceSchema.optional(),
 			payload,
 		})
-		.strict();
+		.strict()
+		.superRefine((value, ctx) => {
+			const candidate = value as unknown as {
+				artifactSchemaVersion: number;
+				payload: { schemaVersion?: unknown };
+			};
+			const payloadVersion = candidate.payload.schemaVersion;
+			if (
+				typeof payloadVersion === "number" &&
+				candidate.artifactSchemaVersion !== payloadVersion
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["artifactSchemaVersion"],
+					message:
+						"The artifact envelope schema version must match its payload schema version.",
+				});
+			}
+		});
 }
 
 export interface DesignArtifactEnvelope<P> {

@@ -206,6 +206,7 @@ const RUNTIME_APPEND_ONLY_TABLES = [
 	"design_localization_receipts",
 	"design_localization_batch_usage_accounts",
 	"design_slice_attempt_budget_claims",
+	"design_lookup_materializations",
 ] as const;
 
 /** The design loop's identity-handle ledger writes rows in place: a forward
@@ -223,6 +224,7 @@ const RUNTIME_INSERT_DELETE_TABLES = [
 	"media_asset_refs",
 	"app_location_references",
 	"thread_media_refs",
+	"design_lookup_protections",
 ] as const;
 
 const RUNTIME_READ_ONLY_TABLES = ["app_change_fold_baselines"] as const;

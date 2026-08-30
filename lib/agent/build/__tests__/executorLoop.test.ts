@@ -8,7 +8,8 @@
 
 import type { ModelMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
-import { buildDoc, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { DesignLookupReferenceResolver } from "@/lib/agent/change-set/designLookupReferences";
 import type { ChangeSetDiagnostics } from "@/lib/agent/change-set/diagnostics";
 import {
 	ChangeSetScopeLostError,
@@ -25,9 +26,15 @@ import {
 } from "@/lib/agent/design/__tests__/fixtures";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import { designLookupBindingSchema } from "@/lib/agent/design/lookupMaterializationTypes";
 import type { WorkspaceSnapshot } from "@/lib/agent/workspace/types";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+	proseText,
+} from "@/lib/domain";
 import { acceptedInputRequirementIssues } from "../acceptedInputParity";
 import { budgetForSlice, type SliceExecutionBudget } from "../budgets";
 import {
@@ -41,6 +48,7 @@ import {
 	type ExecutorToolOutcomeEvent,
 	type ExecutorWorkspace,
 	recoverCommittedExecutorToolResult,
+	renderExecutorBlueprintCheckpoint,
 	runSliceExecutor,
 	type SliceCommitResult,
 } from "../executorLoop";
@@ -145,6 +153,7 @@ function fakeWorkspace(options?: {
 	readonly inspect?: () => Promise<ChangeSetDiagnostics>;
 	readonly stage?: (args: DispatchCall) => Promise<unknown>;
 	readonly beforeDispatch?: (args: DispatchCall) => void;
+	readonly projectDesignLookupReferences?: (value: unknown) => unknown;
 }): FakeWorkspace {
 	const dispatched: DispatchCall[] = [];
 	const dispatchOrder: string[] = [];
@@ -167,6 +176,9 @@ function fakeWorkspace(options?: {
 		},
 		currentExecutionCheckpoint() {
 			return { handles: accepted?.handles ?? [] };
+		},
+		projectDesignLookupReferences(value) {
+			return options?.projectDesignLookupReferences?.(value) ?? value;
 		},
 		async stageDispatch(args) {
 			const call = {
@@ -366,6 +378,77 @@ function run(args: {
 }
 
 describe("native executor surface", () => {
+	it("keeps designed lookup references stable in authoritative checkpoints", () => {
+		const tableDesignId = "00000000-0000-4000-8000-000000000101";
+		const valueDesignId = "00000000-0000-4000-8000-000000000102";
+		const labelDesignId = "00000000-0000-4000-8000-000000000103";
+		const tableId = lookupTableIdSchema.parse(
+			"018f0000-0000-7000-8000-000000000101",
+		);
+		const valueColumnId = lookupColumnIdSchema.parse(
+			"018f0000-0000-7000-8000-000000000102",
+		);
+		const labelColumnId = lookupColumnIdSchema.parse(
+			"018f0000-0000-7000-8000-000000000103",
+		);
+		const resolver = new DesignLookupReferenceResolver(
+			designLookupBindingSchema.array().parse([
+				{ kind: "lookup-table", designId: tableDesignId, lookupId: tableId },
+				{
+					kind: "lookup-column",
+					designId: valueDesignId,
+					lookupId: valueColumnId,
+				},
+				{
+					kind: "lookup-column",
+					designId: labelDesignId,
+					lookupId: labelColumnId,
+				},
+			]),
+		);
+		const doc = buildDoc({
+			appName: "Referral app",
+			modules: [
+				{
+					name: "Referrals",
+					forms: [
+						{
+							name: "Referral",
+							type: "survey",
+							fields: [
+								f({
+									kind: "single_select",
+									id: "risk",
+									label: proseText("Risk"),
+									optionsSource: {
+										kind: "lookup",
+										tableId,
+										valueColumnId,
+										labelColumnId,
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const checkpoint = renderExecutorBlueprintCheckpoint(
+			fakeWorkspace({
+				doc,
+				projectDesignLookupReferences: (value) => resolver.projectOutput(value),
+			}),
+		);
+
+		expect(checkpoint).toContain('"kind": "designed-project-lookup"');
+		expect(checkpoint).toContain(tableDesignId);
+		expect(checkpoint).toContain(valueDesignId);
+		expect(checkpoint).toContain(labelDesignId);
+		expect(checkpoint).not.toContain(tableId);
+		expect(checkpoint).not.toContain(valueColumnId);
+		expect(checkpoint).not.toContain(labelColumnId);
+	});
+
 	it("mounts the stable full grammar while passing a slice-specific allowed set", async () => {
 		const scripted = scriptedStep([
 			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },

@@ -1,5 +1,5 @@
 /**
- * The lean Design Contract v1.
+ * The lean, versioned Design Contract.
  *
  * The contract records only app semantics that a person or executor needs to
  * understand: the one-app boundary, actors, records and their properties,
@@ -14,8 +14,13 @@
  */
 
 import { z } from "zod";
+import { sourceRefSchema } from "@/lib/agent/design/evidence";
 import { validateDesignGraph } from "@/lib/agent/design/graph";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import {
+	type LookupChoiceProjectionRow,
+	lookupChoiceProjectionAttestationSchema,
+} from "@/lib/agent/design/lookupChoiceAttestation";
 import { FORM_ICON_SLUGS, MODULE_ICON_SLUGS } from "@/lib/domain/builtinIcons";
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import type { FieldKind } from "@/lib/domain/fields";
@@ -26,7 +31,22 @@ import {
 	type LanguageTag,
 	languageTag,
 } from "@/lib/domain/localization";
+import {
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { selectOptionValueSchema } from "@/lib/domain/selectOptionValue";
+import { LOOKUP_MAX_COLUMNS, LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
+import {
+	lookupCellInputSchema,
+	lookupColumnLabelSchema,
+	lookupDataTypeSchema,
+	lookupRevisionSchema,
+	lookupTableNameSchema,
+	lookupTagSchema,
+	lookupWireNameSchema,
+} from "@/lib/lookup/schema";
 import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
 
 /**
@@ -214,171 +234,225 @@ export const designActorSchema = z
 	.strict();
 export type DesignActor = z.infer<typeof designActorSchema>;
 
-/** Semantic intent to use a lookup table that already exists in the current
- * Project. Names stay human-readable in the Design Contract; the executor
- * resolves the current stable table/column identities before authoring. */
+/** Stable reference to a lookup source that already exists in the Project. */
 export const existingLookupChoiceSourceSchema = z
 	.object({
 		kind: z.literal("existing-project-lookup"),
-		table: z.string().min(1),
-		valueColumn: z.string().min(1),
-		labelColumn: z.string().min(1),
+		tableId: lookupTableIdSchema,
+		valueColumnId: lookupColumnIdSchema,
+		labelColumnId: lookupColumnIdSchema,
+		inspection: lookupChoiceProjectionAttestationSchema.describe(
+			"Constant-size, revision-bound attestation returned by inspectProjectData for the complete ordered saved-value and label projection. Copy every field exactly; never calculate or edit it.",
+		),
 	})
 	.strict();
 export type ExistingLookupChoiceSource = z.infer<
 	typeof existingLookupChoiceSourceSchema
 >;
+/** Compiler-facing accepted reference after the server validates the design's
+ * inspection evidence. The stable table and column identities do not change. */
+export type ExistingLookupChoiceReference = Omit<
+	ExistingLookupChoiceSource,
+	"inspection"
+>;
 
-export const recordPropertySchema = z
+/** Reference to a table whose stable Project identities will be minted only
+ * after this exact reviewed design is accepted. */
+export const designedLookupChoiceSourceSchema = z
 	.object({
-		id: designIdSchema,
-		name: z.string().min(1),
-		meaning: z.string().min(1),
-		dataShape: factDataShapeSchema,
-		sensitivity: z
-			.enum(["ordinary", "sensitive", "highly-sensitive"])
-			.default("ordinary"),
-		requiredWhen: z.string().min(1).optional(),
-		choiceValues: z
-			.array(selectOptionValueSchema)
-			.optional()
-			.describe(
-				"The stored values of this fact's choices, one slug each (in_progress, prefer_not_to_say); the executor derives the wording people read from them. Every later tool that writes these choices refuses a value outside that shape.",
-			),
-		choiceSource: existingLookupChoiceSourceSchema.optional(),
-	})
-	.strict()
-	.superRefine((value, ctx) => {
-		const choice =
-			value.dataShape === "single-choice" ||
-			value.dataShape === "multiple-choice";
-		if (
-			choice &&
-			(value.choiceValues?.length ?? 0) === 0 &&
-			value.choiceSource === undefined
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["choiceValues"],
-				message:
-					"A choice property must name its allowed values or an existing Project lookup source.",
-			});
-		}
-		if (
-			choice &&
-			value.choiceValues !== undefined &&
-			value.choiceSource !== undefined
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["choiceSource"],
-				message:
-					"A choice property must use either inline values or an existing Project lookup source, not both.",
-			});
-		}
-		if (
-			!choice &&
-			(value.choiceValues !== undefined || value.choiceSource !== undefined)
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["choiceValues"],
-				message:
-					"Only a choice property may declare choice values or a lookup source.",
-			});
-		}
-	});
-export type RecordProperty = z.infer<typeof recordPropertySchema>;
-
-export const recordConceptSchema = z
-	.object({
-		id: designIdSchema,
-		name: z.string().min(1),
-		purpose: z.string().min(1),
-		parentRecordId: designIdSchema.optional(),
-		relationshipMeaning: z.string().min(1).optional(),
-		lifecycleStates: z.array(z.string().min(1)),
-		properties: z.array(recordPropertySchema),
+		kind: z.literal("designed-project-lookup"),
+		tableId: designIdSchema,
+		valueColumnId: designIdSchema,
+		labelColumnId: designIdSchema,
 	})
 	.strict();
+export type DesignedLookupChoiceSource = z.infer<
+	typeof designedLookupChoiceSourceSchema
+>;
+
+export const designLookupChoiceSourceSchema = z.discriminatedUnion("kind", [
+	existingLookupChoiceSourceSchema,
+	designedLookupChoiceSourceSchema,
+]);
+export type DesignLookupChoiceSource = z.infer<
+	typeof designLookupChoiceSourceSchema
+>;
+
+function makeRecordPropertySchema<ChoiceSourceSchema extends z.ZodTypeAny>(
+	choiceSourceSchema: ChoiceSourceSchema,
+) {
+	return z
+		.object({
+			id: designIdSchema,
+			name: z.string().min(1),
+			meaning: z.string().min(1),
+			dataShape: factDataShapeSchema,
+			sensitivity: z
+				.enum(["ordinary", "sensitive", "highly-sensitive"])
+				.default("ordinary"),
+			requiredWhen: z.string().min(1).optional(),
+			choiceValues: z
+				.array(selectOptionValueSchema)
+				.optional()
+				.describe(
+					"The stored values of this fact's choices, one slug each (in_progress, prefer_not_to_say); the executor derives the wording people read from them. Every later tool that writes these choices refuses a value outside that shape.",
+				),
+			choiceSource: choiceSourceSchema.optional(),
+		})
+		.strict()
+		.superRefine((value, ctx) => {
+			const choice =
+				value.dataShape === "single-choice" ||
+				value.dataShape === "multiple-choice";
+			if (
+				choice &&
+				(value.choiceValues?.length ?? 0) === 0 &&
+				value.choiceSource === undefined
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["choiceValues"],
+					message:
+						"A choice property must name its allowed values or a Project lookup source.",
+				});
+			}
+			if (
+				choice &&
+				value.choiceValues !== undefined &&
+				value.choiceSource !== undefined
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["choiceSource"],
+					message:
+						"A choice property must use either inline values or a Project lookup source, not both.",
+				});
+			}
+			if (
+				!choice &&
+				(value.choiceValues !== undefined || value.choiceSource !== undefined)
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["choiceValues"],
+					message:
+						"Only a choice property may declare choice values or a lookup source.",
+				});
+			}
+		});
+}
+
+export const recordPropertySchema = makeRecordPropertySchema(
+	designLookupChoiceSourceSchema,
+);
+export type RecordProperty = z.infer<typeof recordPropertySchema>;
+
+function makeRecordConceptSchema<PropertySchema extends z.ZodTypeAny>(
+	propertySchema: PropertySchema,
+) {
+	return z
+		.object({
+			id: designIdSchema,
+			name: z.string().min(1),
+			purpose: z.string().min(1),
+			parentRecordId: designIdSchema.optional(),
+			relationshipMeaning: z.string().min(1).optional(),
+			lifecycleStates: z.array(z.string().min(1)),
+			properties: z.array(propertySchema),
+		})
+		.strict();
+}
+
+export const recordConceptSchema =
+	makeRecordConceptSchema(recordPropertySchema);
 export type RecordConcept = z.infer<typeof recordConceptSchema>;
 
-export const workflowInputSchema = z
-	.object({
-		handle: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
-		name: z.string().min(1),
-		purpose: z.string().min(1),
-		propertyId: designIdSchema.optional(),
-		dataShape: factDataShapeSchema.optional(),
-		requiredWhen: z.string().min(1).optional(),
-		choiceValues: z
-			.array(selectOptionValueSchema)
-			.optional()
-			.describe(
-				"The stored values of this fact's choices, one slug each (in_progress, prefer_not_to_say); the executor derives the wording people read from them. Every later tool that writes these choices refuses a value outside that shape.",
-			),
-		choiceSource: existingLookupChoiceSourceSchema.optional(),
-		validation: z
-			.object({
-				rule: z
-					.string()
-					.min(1)
-					.describe(
-						"Semantic condition that entered answers must satisfy; this is design intent, not an XPath expression.",
-					),
-				message: z
-					.string()
-					.min(1)
-					.describe("Worker-facing message shown when the answer is invalid."),
-			})
-			.strict()
-			.optional()
-			.describe(
-				"Optional data-quality intent for this input. Optional inputs must still accept an unanswered value.",
-			),
-	})
-	.strict()
-	.superRefine((value, ctx) => {
-		if (value.propertyId !== undefined) return;
-		const choice =
-			value.dataShape === "single-choice" ||
-			value.dataShape === "multiple-choice";
-		if (
-			choice &&
-			(value.choiceValues?.length ?? 0) === 0 &&
-			value.choiceSource === undefined
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["choiceValues"],
-				message:
-					"A form-only choice input must name its allowed values or an existing Project lookup source.",
-			});
-		}
-		if (
-			choice &&
-			value.choiceValues !== undefined &&
-			value.choiceSource !== undefined
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["choiceSource"],
-				message:
-					"A form-only choice input must use either inline values or an existing Project lookup source, not both.",
-			});
-		}
-		if (
-			!choice &&
-			(value.choiceValues !== undefined || value.choiceSource !== undefined)
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["choiceValues"],
-				message:
-					"Only a form-only choice input may declare choice values or a lookup source.",
-			});
-		}
-	});
+function makeWorkflowInputSchema<ChoiceSourceSchema extends z.ZodTypeAny>(
+	choiceSourceSchema: ChoiceSourceSchema,
+) {
+	return z
+		.object({
+			handle: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+			name: z.string().min(1),
+			purpose: z.string().min(1),
+			propertyId: designIdSchema.optional(),
+			dataShape: factDataShapeSchema.optional(),
+			requiredWhen: z.string().min(1).optional(),
+			choiceValues: z
+				.array(selectOptionValueSchema)
+				.optional()
+				.describe(
+					"The stored values of this fact's choices, one slug each (in_progress, prefer_not_to_say); the executor derives the wording people read from them. Every later tool that writes these choices refuses a value outside that shape.",
+				),
+			choiceSource: choiceSourceSchema.optional(),
+			validation: z
+				.object({
+					rule: z
+						.string()
+						.min(1)
+						.describe(
+							"Semantic condition that entered answers must satisfy; this is design intent, not an XPath expression.",
+						),
+					message: z
+						.string()
+						.min(1)
+						.describe(
+							"Worker-facing message shown when the answer is invalid.",
+						),
+				})
+				.strict()
+				.optional()
+				.describe(
+					"Optional data-quality intent for this input. Optional inputs must still accept an unanswered value.",
+				),
+		})
+		.strict()
+		.superRefine((value, ctx) => {
+			if (value.propertyId !== undefined) return;
+			const choice =
+				value.dataShape === "single-choice" ||
+				value.dataShape === "multiple-choice";
+			if (
+				choice &&
+				(value.choiceValues?.length ?? 0) === 0 &&
+				value.choiceSource === undefined
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["choiceValues"],
+					message:
+						"A form-only choice input must name its allowed values or a Project lookup source.",
+				});
+			}
+			if (
+				choice &&
+				value.choiceValues !== undefined &&
+				value.choiceSource !== undefined
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["choiceSource"],
+					message:
+						"A form-only choice input must use either inline values or a Project lookup source, not both.",
+				});
+			}
+			if (
+				!choice &&
+				(value.choiceValues !== undefined || value.choiceSource !== undefined)
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["choiceValues"],
+					message:
+						"Only a form-only choice input may declare choice values or a lookup source.",
+				});
+			}
+		});
+}
+
+export const workflowInputSchema = makeWorkflowInputSchema(
+	designLookupChoiceSourceSchema,
+);
 export type WorkflowInput = z.infer<typeof workflowInputSchema>;
 
 export const workflowDecisionSchema = z
@@ -453,26 +527,32 @@ export type WorkflowAcceptanceExample = z.infer<
 	typeof workflowAcceptanceExampleSchema
 >;
 
-export const workflowSchema = z
-	.object({
-		id: designIdSchema,
-		name: z.string().min(1),
-		actorIds: z.array(designIdSchema).min(1),
-		goal: z.string().min(1),
-		trigger: z.string().min(1),
-		contextRecordId: designIdSchema.optional(),
-		prerequisiteWorkflowIds: z.array(designIdSchema),
-		prerequisites: z.array(z.string().min(1)),
-		inputs: z.array(workflowInputSchema),
-		decisions: z.array(workflowDecisionSchema),
-		recordEffects: z.array(workflowRecordEffectSchema),
-		authoredFeatures: z.array(workflowAuthoredFeatureSchema),
-		readback: z.array(workflowReadbackSchema),
-		exceptions: z.array(z.string().min(1)),
-		externalRequirementIds: z.array(designIdSchema),
-		acceptanceExamples: z.array(workflowAcceptanceExampleSchema).min(1),
-	})
-	.strict();
+function makeWorkflowSchema<InputSchema extends z.ZodTypeAny>(
+	inputSchema: InputSchema,
+) {
+	return z
+		.object({
+			id: designIdSchema,
+			name: z.string().min(1),
+			actorIds: z.array(designIdSchema).min(1),
+			goal: z.string().min(1),
+			trigger: z.string().min(1),
+			contextRecordId: designIdSchema.optional(),
+			prerequisiteWorkflowIds: z.array(designIdSchema),
+			prerequisites: z.array(z.string().min(1)),
+			inputs: z.array(inputSchema),
+			decisions: z.array(workflowDecisionSchema),
+			recordEffects: z.array(workflowRecordEffectSchema),
+			authoredFeatures: z.array(workflowAuthoredFeatureSchema),
+			readback: z.array(workflowReadbackSchema),
+			exceptions: z.array(z.string().min(1)),
+			externalRequirementIds: z.array(designIdSchema),
+			acceptanceExamples: z.array(workflowAcceptanceExampleSchema).min(1),
+		})
+		.strict();
+}
+
+export const workflowSchema = makeWorkflowSchema(workflowInputSchema);
 export type Workflow = z.infer<typeof workflowSchema>;
 
 const compositionMarkdownSchema = z
@@ -619,6 +699,244 @@ export const formCompositionSchema = z
 	.strict();
 export type FormComposition = z.infer<typeof formCompositionSchema>;
 
+/** Source pointers that ground a model-authored set of lookup rows without
+ * copying source bodies into the Design Contract. */
+export const lookupRowEvidenceSchema = z
+	.object({
+		sourceRefs: z.array(sourceRefSchema).min(1).max(16),
+		summary: z
+			.string()
+			.min(1)
+			.max(1_000)
+			.describe(
+				"What these sources establish about the exact row values; never copy a source body here.",
+			),
+	})
+	.strict();
+export type LookupRowEvidence = z.infer<typeof lookupRowEvidenceSchema>;
+
+export const designedLookupCellSchema = z
+	.object({
+		columnId: designIdSchema,
+		value: lookupCellInputSchema,
+	})
+	.strict();
+export type DesignedLookupCell = z.infer<typeof designedLookupCellSchema>;
+
+export const designedLookupColumnSchema = z
+	.object({
+		id: designIdSchema,
+		wireName: lookupWireNameSchema,
+		label: lookupColumnLabelSchema,
+		dataType: lookupDataTypeSchema,
+	})
+	.strict();
+export type DesignedLookupColumn = z.infer<typeof designedLookupColumnSchema>;
+
+export const designedLookupRowSchema = z
+	.object({
+		id: designIdSchema,
+		cells: z.array(designedLookupCellSchema).max(LOOKUP_MAX_COLUMNS),
+	})
+	.strict();
+export type DesignedLookupRow = z.infer<typeof designedLookupRowSchema>;
+
+export const createLookupTableDesignSchema = z
+	.object({
+		kind: z.literal("create"),
+		id: designIdSchema,
+		name: lookupTableNameSchema,
+		tag: lookupTagSchema,
+		purpose: z.string().min(1).max(1_000),
+		columns: z.array(designedLookupColumnSchema).min(1).max(LOOKUP_MAX_COLUMNS),
+		rows: z.array(designedLookupRowSchema).max(LOOKUP_MAX_ROWS),
+		rowEvidence: lookupRowEvidenceSchema,
+	})
+	.strict();
+export type CreateLookupTableDesign = z.infer<
+	typeof createLookupTableDesignSchema
+>;
+
+/** A shared existing table may change only when the durable source package
+ * contains the direct request or the explicit approval for that Project-wide
+ * effect. Review still proves that the cited source says what this record
+ * claims; this is not a self-asserted permission bit. */
+export const existingLookupChangeAuthorizationSchema = z
+	.object({
+		kind: z.enum(["direct-user-request", "explicit-user-approval"]),
+		sourceRefs: z.array(sourceRefSchema).min(1).max(8),
+		impactSummary: z.string().min(1).max(1_000),
+	})
+	.strict();
+export type ExistingLookupChangeAuthorization = z.infer<
+	typeof existingLookupChangeAuthorizationSchema
+>;
+
+const existingLookupColumnRefSchema = z
+	.object({
+		kind: z.literal("existing-column"),
+		columnId: lookupColumnIdSchema,
+	})
+	.strict();
+const addedLookupColumnRefSchema = z
+	.object({
+		kind: z.literal("added-column"),
+		columnId: designIdSchema,
+	})
+	.strict();
+export const changedLookupColumnRefSchema = z.discriminatedUnion("kind", [
+	existingLookupColumnRefSchema,
+	addedLookupColumnRefSchema,
+]);
+export type ChangedLookupColumnRef = z.infer<
+	typeof changedLookupColumnRefSchema
+>;
+
+const existingLookupRowRefSchema = z
+	.object({ kind: z.literal("existing-row"), rowId: lookupRowIdSchema })
+	.strict();
+const addedLookupRowRefSchema = z
+	.object({ kind: z.literal("added-row"), rowId: designIdSchema })
+	.strict();
+export const changedLookupRowRefSchema = z.discriminatedUnion("kind", [
+	existingLookupRowRefSchema,
+	addedLookupRowRefSchema,
+]);
+export type ChangedLookupRowRef = z.infer<typeof changedLookupRowRefSchema>;
+
+export const changedLookupCellSchema = z
+	.object({
+		column: changedLookupColumnRefSchema,
+		value: lookupCellInputSchema,
+	})
+	.strict();
+export type ChangedLookupCell = z.infer<typeof changedLookupCellSchema>;
+
+const addLookupColumnDesignOperationSchema = z
+	.object({
+		kind: z.literal("add-column"),
+		column: designedLookupColumnSchema,
+		after: changedLookupColumnRefSchema.optional(),
+	})
+	.strict();
+const updateLookupColumnDesignOperationSchema = z
+	.object({
+		kind: z.literal("update-column"),
+		columnId: lookupColumnIdSchema,
+		label: lookupColumnLabelSchema.optional(),
+		wireName: lookupWireNameSchema.optional(),
+		dataType: lookupDataTypeSchema.optional(),
+	})
+	.strict();
+const moveLookupColumnDesignOperationSchema = z
+	.object({
+		kind: z.literal("move-column"),
+		column: changedLookupColumnRefSchema,
+		after: changedLookupColumnRefSchema.optional(),
+	})
+	.strict();
+const removeLookupColumnDesignOperationSchema = z
+	.object({
+		kind: z.literal("remove-column"),
+		columnId: lookupColumnIdSchema,
+	})
+	.strict();
+const addLookupRowDesignOperationSchema = z
+	.object({
+		kind: z.literal("add-row"),
+		rowId: designIdSchema,
+		cells: z.array(changedLookupCellSchema).max(LOOKUP_MAX_COLUMNS),
+		after: changedLookupRowRefSchema.optional(),
+		rowEvidence: lookupRowEvidenceSchema,
+	})
+	.strict();
+const updateLookupRowDesignOperationSchema = z
+	.object({
+		kind: z.literal("update-row"),
+		rowId: lookupRowIdSchema,
+		cells: z.array(changedLookupCellSchema).max(LOOKUP_MAX_COLUMNS),
+		rowEvidence: lookupRowEvidenceSchema,
+	})
+	.strict();
+const moveLookupRowDesignOperationSchema = z
+	.object({
+		kind: z.literal("move-row"),
+		row: changedLookupRowRefSchema,
+		after: changedLookupRowRefSchema.optional(),
+	})
+	.strict();
+const removeLookupRowDesignOperationSchema = z
+	.object({
+		kind: z.literal("remove-row"),
+		rowId: lookupRowIdSchema,
+	})
+	.strict();
+const replaceLookupRowsDesignOperationSchema = z
+	.object({
+		kind: z.literal("replace-rows"),
+		rows: z
+			.array(
+				z
+					.object({
+						id: designIdSchema,
+						cells: z.array(changedLookupCellSchema).max(LOOKUP_MAX_COLUMNS),
+					})
+					.strict(),
+			)
+			.max(LOOKUP_MAX_ROWS),
+		rowEvidence: lookupRowEvidenceSchema,
+	})
+	.strict();
+
+export const existingLookupTableDesignOperationSchema = z.discriminatedUnion(
+	"kind",
+	[
+		z
+			.object({
+				kind: z.literal("update-table"),
+				name: lookupTableNameSchema.optional(),
+				tag: lookupTagSchema.optional(),
+			})
+			.strict(),
+		addLookupColumnDesignOperationSchema,
+		updateLookupColumnDesignOperationSchema,
+		moveLookupColumnDesignOperationSchema,
+		removeLookupColumnDesignOperationSchema,
+		addLookupRowDesignOperationSchema,
+		updateLookupRowDesignOperationSchema,
+		moveLookupRowDesignOperationSchema,
+		removeLookupRowDesignOperationSchema,
+		replaceLookupRowsDesignOperationSchema,
+	],
+);
+export type ExistingLookupTableDesignOperation = z.infer<
+	typeof existingLookupTableDesignOperationSchema
+>;
+
+export const changeExistingLookupTableDesignSchema = z
+	.object({
+		kind: z.literal("modify-existing"),
+		id: designIdSchema,
+		tableId: lookupTableIdSchema,
+		expectedTableRevision: lookupRevisionSchema,
+		purpose: z.string().min(1).max(1_000),
+		authorization: existingLookupChangeAuthorizationSchema,
+		operations: z
+			.array(existingLookupTableDesignOperationSchema)
+			.min(1)
+			.max(128),
+	})
+	.strict();
+export type ChangeExistingLookupTableDesign = z.infer<
+	typeof changeExistingLookupTableDesignSchema
+>;
+
+export const designLookupTableSchema = z.discriminatedUnion("kind", [
+	createLookupTableDesignSchema,
+	changeExistingLookupTableDesignSchema,
+]);
+export type DesignLookupTable = z.infer<typeof designLookupTableSchema>;
+
 export const workListSchema = z
 	.object({
 		id: designIdSchema,
@@ -737,6 +1055,8 @@ export const openQuestionSchema = z
 	.strict();
 export type OpenQuestion = z.infer<typeof openQuestionSchema>;
 
+/** The one current Design Contract vocabulary. Project lookup intent belongs
+ * directly to this model rather than to a parallel compatibility shape. */
 export const appDesignContractBaseSchema = z
 	.object({
 		schemaVersion: z.literal(1),
@@ -748,8 +1068,9 @@ export const appDesignContractBaseSchema = z
 		lists: z.array(workListSchema),
 		access: z.array(accessPolicySchema),
 		navigation: z.array(navigationIntentSchema),
-		moduleCompositions: z.array(moduleCompositionSchema).default([]),
-		formCompositions: z.array(formCompositionSchema).default([]),
+		moduleCompositions: z.array(moduleCompositionSchema),
+		formCompositions: z.array(formCompositionSchema),
+		lookupTables: z.array(designLookupTableSchema),
 		externalRequirements: z.array(externalRequirementSchema),
 		decisions: z.array(architectureDecisionSchema),
 		assumptions: z.array(assumptionSchema),
@@ -762,6 +1083,26 @@ export type AppDesignContract = z.infer<typeof appDesignContractBaseSchema>;
 export const appDesignContractSchema =
 	appDesignContractBaseSchema.superRefine(validateDesignGraph);
 
+/** The sole persisted-payload normalization seam. Stored contracts can
+ * predate additive collections, but every caller receives the one complete
+ * current domain model. Digest verification happens against the sealed bytes
+ * before this function is called. */
+export function normalizeStoredAppDesignContract(
+	stored: unknown,
+): AppDesignContract {
+	if (stored === null || typeof stored !== "object" || Array.isArray(stored))
+		return appDesignContractSchema.parse(stored);
+	const value = stored as Record<string, unknown>;
+	return appDesignContractSchema.parse({
+		...value,
+		moduleCompositions:
+			value.moduleCompositions === undefined ? [] : value.moduleCompositions,
+		formCompositions:
+			value.formCompositions === undefined ? [] : value.formCompositions,
+		lookupTables: value.lookupTables === undefined ? [] : value.lookupTables,
+	});
+}
+
 export interface DesignConstructionIssue {
 	readonly path: readonly (string | number)[];
 	readonly message: string;
@@ -773,14 +1114,220 @@ function distinctRealChoices(values: readonly string[] | undefined): number {
 	).size;
 }
 
-/** New-artifact admission for semantics that the Blueprint field grammar must
- * be able to construct. The base v1 parser remains compatible with already-
- * persisted artifacts; finalization and deterministic plan derivation apply
- * this stricter buildability proof to every newly accepted design. */
+export function existingLookupChoiceRowsAfterChanges(
+	contract: AppDesignContract,
+	source: ExistingLookupChoiceSource,
+	initialRows: readonly LookupChoiceProjectionRow[],
+): LookupChoiceProjectionRow[] {
+	const rows = new Map(
+		initialRows.map((row) => [row.rowId, { ...row }] as const),
+	);
+
+	const changed = contract.lookupTables.find(
+		(table) =>
+			table.kind === "modify-existing" && table.tableId === source.tableId,
+	);
+	if (changed === undefined || changed.kind !== "modify-existing")
+		return [...rows.values()];
+
+	const projectedCells = (
+		cells: readonly ChangedLookupCell[],
+	): Pick<LookupChoiceProjectionRow, "value" | "label"> => {
+		const projected: { value?: string | number; label?: string | number } = {};
+		for (const cell of cells) {
+			if (cell.column.kind !== "existing-column") continue;
+			if (cell.column.columnId === source.valueColumnId)
+				projected.value = cell.value;
+			if (cell.column.columnId === source.labelColumnId)
+				projected.label = cell.value;
+		}
+		return projected;
+	};
+	for (const operation of changed.operations) {
+		switch (operation.kind) {
+			case "add-row":
+				rows.set(operation.rowId, {
+					rowId: operation.rowId,
+					...projectedCells(operation.cells),
+				});
+				break;
+			case "update-row": {
+				const current = rows.get(operation.rowId);
+				if (current !== undefined)
+					rows.set(operation.rowId, {
+						rowId: operation.rowId,
+						...projectedCells(operation.cells),
+					});
+				break;
+			}
+			case "remove-row":
+				rows.delete(operation.rowId);
+				break;
+			case "replace-rows":
+				rows.clear();
+				for (const row of operation.rows)
+					rows.set(row.id, {
+						rowId: row.id,
+						...projectedCells(row.cells),
+					});
+				break;
+		}
+	}
+	return [...rows.values()];
+}
+
+function appendChoiceProjectionIssues(
+	rows: readonly LookupChoiceProjectionRow[],
+	path: readonly (string | number)[],
+	issues: DesignConstructionIssue[],
+	spelling: "designed" | "existing",
+): void {
+	const article = spelling === "existing" ? "An" : "A";
+	const values: string[] = [];
+	let missingValue = false;
+	let missingLabel = false;
+	for (const row of rows) {
+		const valueText = row.value === undefined ? "" : String(row.value);
+		const labelText = row.label === undefined ? "" : String(row.label);
+		if (valueText === "" || /[\t\n\r ]/.test(valueText)) missingValue = true;
+		else values.push(valueText);
+		if (labelText.trim() === "") missingLabel = true;
+	}
+	if (missingValue)
+		issues.push({
+			path: [...path, "valueColumnId"],
+			message: `Every ${spelling} lookup row needs a nonblank, whitespace-free saved value before this controlled choice can be built.`,
+		});
+	if (missingLabel)
+		issues.push({
+			path: [...path, "labelColumnId"],
+			message: `Every ${spelling} lookup row needs a nonblank label before this controlled choice can be built.`,
+		});
+	if (new Set(values).size < 2)
+		issues.push({
+			path: [...path, "valueColumnId"],
+			message: `${article} ${spelling} lookup-backed controlled choice needs at least two distinct real saved values before it can be built.`,
+		});
+	else if (new Set(values).size !== values.length)
+		issues.push({
+			path: [...path, "valueColumnId"],
+			message: `${article} ${spelling} lookup-backed controlled choice cannot repeat a saved value across rows.`,
+		});
+}
+
+function appendChoiceAttestationIssues(
+	inspection: ExistingLookupChoiceSource["inspection"],
+	path: readonly (string | number)[],
+	issues: DesignConstructionIssue[],
+): void {
+	if (inspection.invalidValueCount > 0)
+		issues.push({
+			path: [...path, "valueColumnId"],
+			message:
+				"Every existing lookup row needs a nonblank, whitespace-free saved value before this controlled choice can be built.",
+		});
+	if (inspection.blankLabelCount > 0)
+		issues.push({
+			path: [...path, "labelColumnId"],
+			message:
+				"Every existing lookup row needs a nonblank label before this controlled choice can be built.",
+		});
+	if (inspection.distinctValueCount < 2)
+		issues.push({
+			path: [...path, "valueColumnId"],
+			message:
+				"An existing lookup-backed controlled choice needs at least two distinct real saved values before it can be built.",
+		});
+	else if (inspection.duplicateValueCount > 0)
+		issues.push({
+			path: [...path, "valueColumnId"],
+			message:
+				"An existing lookup-backed controlled choice cannot repeat a saved value across rows.",
+		});
+}
+
+export function existingLookupChoicePostChangeIssues(
+	contract: AppDesignContract,
+	source: ExistingLookupChoiceSource,
+	initialRows: readonly LookupChoiceProjectionRow[],
+	path: readonly (string | number)[],
+): DesignConstructionIssue[] {
+	const issues: DesignConstructionIssue[] = [];
+	appendChoiceProjectionIssues(
+		existingLookupChoiceRowsAfterChanges(contract, source, initialRows),
+		path,
+		issues,
+		"existing",
+	);
+	return issues;
+}
+
+/** Admission for semantics that the Blueprint field grammar must be able to
+ * construct. Finalization and deterministic plan derivation apply this
+ * buildability proof to every newly accepted design. */
 export function designConstructionIssues(
 	contract: AppDesignContract,
 ): DesignConstructionIssue[] {
 	const issues: DesignConstructionIssue[] = [];
+	const designedTables = new Map(
+		contract.lookupTables.flatMap((table) =>
+			table.kind === "create" ? [[table.id, table] as const] : [],
+		),
+	);
+	const checkLookupChoiceRows = (
+		source: RecordProperty["choiceSource"],
+		path: readonly (string | number)[],
+	): void => {
+		if (source?.kind === "existing-project-lookup" && "tableId" in source) {
+			const changed = contract.lookupTables.find(
+				(table) =>
+					table.kind === "modify-existing" && table.tableId === source.tableId,
+			);
+			if (
+				changed !== undefined &&
+				changed.kind === "modify-existing" &&
+				changed.expectedTableRevision !== source.inspection.tableRevision
+			)
+				issues.push({
+					path: [...path, "inspection", "tableRevision"],
+					message:
+						"The choice inspection and approved existing-table change must bind the same inspected table revision.",
+				});
+			const rowOperations =
+				changed?.kind === "modify-existing"
+					? changed.operations.filter((operation) =>
+							["add-row", "update-row", "remove-row", "replace-rows"].includes(
+								operation.kind,
+							),
+						)
+					: [];
+			const replacesRows = rowOperations.some(
+				(operation) => operation.kind === "replace-rows",
+			);
+			if (replacesRows)
+				issues.push(
+					...existingLookupChoicePostChangeIssues(contract, source, [], path),
+				);
+			else if (rowOperations.length === 0)
+				appendChoiceAttestationIssues(source.inspection, path, issues);
+			return;
+		}
+		if (source?.kind !== "designed-project-lookup") return;
+		const table = designedTables.get(source.tableId);
+		if (table === undefined) return;
+		appendChoiceProjectionIssues(
+			table.rows.map((row) => ({
+				rowId: row.id,
+				value: row.cells.find((cell) => cell.columnId === source.valueColumnId)
+					?.value,
+				label: row.cells.find((cell) => cell.columnId === source.labelColumnId)
+					?.value,
+			})),
+			path,
+			issues,
+			"designed",
+		);
+	};
 	const localization = contract.charter.localization;
 	if (localization !== undefined) {
 		for (const [targetIndex, target] of localization.targets.entries()) {
@@ -829,6 +1376,13 @@ export function designConstructionIssues(
 						"A controlled-choice property needs at least two distinct real values before it can be built.",
 				});
 			}
+			checkLookupChoiceRows(property.choiceSource, [
+				"records",
+				recordIndex,
+				"properties",
+				propertyIndex,
+				"choiceSource",
+			]);
 		});
 	});
 	contract.workflows.forEach((workflow, workflowIndex) => {
@@ -872,6 +1426,13 @@ export function designConstructionIssues(
 						"A controlled-choice form input needs at least two distinct real values before it can be built.",
 				});
 			}
+			checkLookupChoiceRows(input.choiceSource, [
+				"workflows",
+				workflowIndex,
+				"inputs",
+				inputIndex,
+				"choiceSource",
+			]);
 		});
 		workflow.decisions.forEach((decision, decisionIndex) => {
 			if (decision.inputPropertyIds.length === 0) {
@@ -972,6 +1533,26 @@ export function designConstructionIssues(
 					])
 				: composition.layout.items.map((item) => item.id)),
 		]),
+		...contract.lookupTables.flatMap((table) => [
+			table.id,
+			...(table.kind === "create"
+				? [
+						...table.columns.map((column) => column.id),
+						...table.rows.map((row) => row.id),
+					]
+				: table.operations.flatMap((operation) => {
+						switch (operation.kind) {
+							case "add-column":
+								return [operation.column.id];
+							case "add-row":
+								return [operation.rowId];
+							case "replace-rows":
+								return operation.rows.map((row) => row.id);
+							default:
+								return [];
+						}
+					})),
+		]),
 	]);
 	/* The authored `blocking` flag is the construction gate, honoring a user
 	 * who delegated the decision: a non-blocking question is a recorded caveat
@@ -1054,6 +1635,27 @@ export function collectContractIds(
 			}
 		} else {
 			for (const item of composition.layout.items) ids.add(item.id);
+		}
+	}
+	for (const table of contract.lookupTables) {
+		ids.add(table.id);
+		if (table.kind === "create") {
+			for (const column of table.columns) ids.add(column.id);
+			for (const row of table.rows) ids.add(row.id);
+			continue;
+		}
+		for (const operation of table.operations) {
+			switch (operation.kind) {
+				case "add-column":
+					ids.add(operation.column.id);
+					break;
+				case "add-row":
+					ids.add(operation.rowId);
+					break;
+				case "replace-rows":
+					for (const row of operation.rows) ids.add(row.id);
+					break;
+			}
 		}
 	}
 	for (const requirement of contract.externalRequirements)

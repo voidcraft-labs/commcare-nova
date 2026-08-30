@@ -89,6 +89,7 @@ export type LookupSchemaGovernanceErrorCode =
 	| "not_found"
 	| "conflict"
 	| "referenced"
+	| "accepted_design"
 	| "last_column"
 	| "incompatible_values";
 
@@ -261,6 +262,36 @@ async function exactColumnBlockers(
 	return edges.map(({ app_id: appId }) => appId);
 }
 
+async function exactAcceptedDesignProtection(
+	tx: Transaction<AppDatabase>,
+	projectId: string,
+	tableId: LookupTableId,
+	columnId?: LookupColumnId,
+): Promise<boolean> {
+	const protection = await tx
+		.selectFrom("design_lookup_protections")
+		.select("id")
+		.where("project_id", "=", projectId)
+		.where("table_id", "=", tableId)
+		.$if(columnId !== undefined, (query) =>
+			query.where((eb) =>
+				eb.or([
+					eb("column_id", "is", null),
+					eb("column_id", "=", columnId as LookupColumnId),
+				]),
+			),
+		)
+		.executeTakeFirst();
+	return protection !== undefined;
+}
+
+function rejectAcceptedDesignDependency(): never {
+	throw new LookupSchemaGovernanceError(
+		"accepted_design",
+		"An accepted app design still depends on this lookup resource while its app is being created. Finish or supersede that design before removing or retyping the resource.",
+	);
+}
+
 function rejectReferenced(blockingAppIds: readonly string[]): never {
 	throw new LookupSchemaGovernanceError(
 		"referenced",
@@ -297,6 +328,11 @@ async function deleteTable(
 	table: StoredLookupTable,
 	operation: Extract<NormalizedOperation, { kind: "delete-table" }>,
 ): Promise<DeletedLookupTableResult> {
+	if (
+		await exactAcceptedDesignProtection(tx, scope.projectId, operation.tableId)
+	) {
+		rejectAcceptedDesignDependency();
+	}
 	const blockers = await exactTableBlockers(
 		tx,
 		scope.projectId,
@@ -345,6 +381,16 @@ async function removeColumn(
 			"last_column",
 			"A lookup table must retain at least one column.",
 		);
+	}
+	if (
+		await exactAcceptedDesignProtection(
+			tx,
+			scope.projectId,
+			operation.tableId,
+			operation.columnId,
+		)
+	) {
+		rejectAcceptedDesignDependency();
 	}
 	const blockers = await exactColumnBlockers(
 		tx,
@@ -453,6 +499,16 @@ async function retypeColumn(
 			changed: false,
 			...lookupTableRevisions(table),
 		};
+	}
+	if (
+		await exactAcceptedDesignProtection(
+			tx,
+			scope.projectId,
+			operation.tableId,
+			operation.columnId,
+		)
+	) {
+		rejectAcceptedDesignDependency();
 	}
 	const blockers = await exactColumnBlockers(
 		tx,

@@ -143,6 +143,10 @@ it in friendly authoring language. Exact UUID parameters and typed payloads
 belong in the callable MCP reference, not in ordinary user guides; an internal
 identity change with no natural reader-facing explanation does not manufacture
 one. Where a vocabulary is deliberately builder-only, the unit says so and why.
+Project-scoped authored state follows the same completeness rule even when it is
+not stored in the Blueprint: Builder, SA, and MCP Project-data writes share one
+typed persistence and governance boundary, and a reviewed chat design declares
+that state before its Blueprint references are constructed.
 
 **Authored state and emitted state are distinct.** Every saved case-list column
 must remain valid even when it is hidden in both layouts and absent from sort.
@@ -374,11 +378,24 @@ canonical Blueprint revisions. Direct builder and MCP mutations remain immediate
 canonical edits and never require design metadata.
 
 The Design Contract records purpose, actors, records and properties,
-end-to-end workflows, lists, access, navigation, external requirements,
-decisions, assumptions, and unresolved questions once. It does not maintain a
-parallel claim/fact/rule/transition/scenario/ownership graph. Important or
-critical independent-review findings cite their affected sources or design
-elements; advisory observations do not create traceability work.
+end-to-end workflows, lists, Project-data tables and their uses, access,
+navigation, external requirements, decisions, assumptions, and unresolved
+questions once. A proposed table carries design identities, ordered typed
+columns and rows, source references grounding every created or changed row set,
+and its intended consumers. An existing table reference uses canonical
+Project/table/column/row identities and its current revision, never a name
+match. The contract does not maintain a parallel
+claim/fact/rule/transition/scenario/ownership graph. Important or critical
+independent-review findings cite their affected sources or design elements;
+advisory observations do not create traceability work.
+
+Design drafting, review, and revision are side-effect-free. They may inspect a
+bounded, revisioned view of current Project tables, but they do not create or
+change one. Reusing an existing table as an app reference needs no new consent;
+mutating existing Project data requires either the user's direct request or a
+durably answered design question that states the Project-wide consequence.
+Similarity of names, tags, columns, or values is never consent and never an
+adoption rule.
 
 Every holder-owned design-artifact, orchestration, or slice-attempt write
 authorizes the exact live `(run_id, holder_nonce)` carrier, holder actor, and
@@ -390,9 +407,10 @@ proves that the accepted revision and build plan belong to the same session and
 that the plan targets that revision.
 
 A build plan becomes the frozen execution authority with its accepted revision
-before construction starts. Later arbitrary user content cannot replace that
-pair, reopen design, reduce scope, or drive a different plan. Only a persisted
-pre-build question may accept an answer before the pair freezes.
+and exact Project-data materialization receipt before construction starts.
+Later arbitrary user content cannot replace that set, reopen design, reduce
+scope, or drive a different plan. Only a persisted pre-build question may accept
+an answer before it freezes.
 
 A persisted build plan is derived deterministically from the accepted
 workflows. It has exactly one workflow-complete slice per included workflow and
@@ -405,7 +423,9 @@ allows `manual-setup` and `after-slice`; new-plan insertion rejects blocking
 `before-*` timings until a typed durable receipt producer is registered, while
 the persisted schema remains able to read the full timing vocabulary. The
 orchestrator retains the fail-closed exact receipt verifier at the consumer
-boundary. Every mutation-bearing staged step names the slice-owned construction
+boundary. Accepted Design Contract lookup tables are not manual external setup:
+their registered producer runs after clean review and before plan execution.
+Every mutation-bearing staged step names the slice-owned construction
 groups it implements. Canonical commit proves complete group coverage from
 those steps,
 derives implementation coordinates from the admitted mutations, and writes the
@@ -416,12 +436,33 @@ Discarding a pre-app design abandons open change sets, supersedes running slice
 attempts, clears thread stream-holder markers, releases any unsettled hold, and
 marks the session abandoned in one transaction.
 
-Materialization applies the same lookup, media, organization, runtime-schema,
-and export-readiness integrity as every later canonical commit. Once sequence
-`1` exists, it remains reachable even if a later slice fails: the design-session
-recovery URL resolves to the authoritative app, and the app is a usable earlier
-valid revision retained for diagnosis. It remains initial-build locked and is
-never reported as complete while any planned slice is uncommitted.
+After a clean independent review, one Project-data transaction re-proves the
+live holder, actor, Project membership and role, accepted revision digest,
+expected table revisions, limits, values, and destructive governance. It applies
+the accepted new and existing-table operations as one batch and persists an
+immutable digest-bound receipt containing the exact Project revision and every
+DesignId-to-lookup-UUID mapping. Exact retry reuses the receipt; a digest,
+Project, authorization, or table-revision mismatch fails closed without a
+partial table, duplicate, inferred adoption, or random rename.
+
+That mapping is server execution state, not compiler vocabulary. The accepted
+semantic lookup reference is copied unchanged through the BuildPlan and slice
+brief; the change-set workspace resolves it immediately before canonical tool
+parsing and reverse-projects lookup carriers in tool results. Existing resource
+names remain available for catalog discovery, paired with the stable identities
+the design retains.
+
+That transaction also installs temporary table and column protection edges for
+every accepted Blueprint dependency. Materialization applies the same lookup,
+media, organization, runtime-schema, and export-readiness integrity as every
+later canonical commit. Sequence-one genesis installs the canonical app lookup
+edges before releasing the temporary edges in the same transaction. A
+superseded or discarded design releases temporary protection but never
+auto-deletes accepted Project data. Once sequence `1` exists, it remains
+reachable even if a later slice fails: the design-session recovery URL resolves
+to the authoritative app, and the app is a usable earlier valid revision
+retained for diagnosis. It remains initial-build locked and is never reported as
+complete while any planned slice is uncommitted.
 
 ### One Postgres system
 
@@ -538,12 +579,24 @@ resource exists in a Project the caller cannot see.
 
 Two lock prefixes share one global order. App commits, Project moves, and
 reference-edge writes take the app row, then lookup tables in canonical UUID
-order, then thread rows. Lookup resource writes — row and definition edits, and
-schema governance — never take an app lock at all: their complete prefix is
-Project state, then the target table, then the exact edges
+order, then thread rows. Browser Project-data writes and accepted-design
+materialization have no app dependency: their prefix is Project state, then
+target tables in canonical UUID order, then the exact edges
 (`lib/lookup/schemaGovernance.ts::applyLookupSchemaGovernanceInTransaction`).
-Because neither prefix ever holds a lock the other takes first, a table deletion
-racing an app commit serializes rather than deadlocking.
+App-bound SA/MCP lookup writes first take their exact app row `FOR SHARE`, prove
+the unchanged app-to-Project relation, current membership, and, for chat, exact
+run holder, then enter that same Project-state/table/edge prefix. No lookup path
+may hold Project or table state and later request an app lock. Because every
+app-dependent path is app-first and every app-independent path remains
+Project-first with no reverse edge, a table deletion racing an app commit
+serializes rather than deadlocking.
+
+Accepted-design Project-data materialization takes the Project state and every
+target table in canonical UUID order, then installs its temporary design
+protection edges. Destructive governance consults both canonical app edges and
+those temporary edges. Sequence-one app genesis swaps protection for canonical
+edges atomically; supersede and pre-app discard release only the temporary edge.
+No interval leaves an accepted lookup dependency unprotected.
 
 ### Case operations and submissions
 

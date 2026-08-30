@@ -794,6 +794,30 @@ export interface DesignExternalActionReceiptsTable {
 	completed_at: Timestamp;
 }
 
+/** Immutable accepted-design receipt for one atomic Project-data write. */
+export interface DesignLookupMaterializationsTable {
+	id: string;
+	design_session_id: string;
+	design_revision_id: string;
+	design_revision_digest: string;
+	project_id: string;
+	project_revision: LookupRevisionColumn;
+	result_digest: string;
+	mapping: JSONColumnType<Record<string, unknown>>;
+	created_by_run_id: string;
+	created_at: Timestamp;
+}
+
+/** Temporary destructive-governance edge before canonical app genesis. */
+export interface DesignLookupProtectionsTable {
+	id: DefaultedUuidV7Column<string>;
+	materialization_id: string;
+	project_id: string;
+	table_id: LookupTableId;
+	column_id: LookupColumnId | null;
+	created_at: Timestamp;
+}
+
 /** One immutable provider-contract generation and mutable append ordinal per
  * long-lived reviewed-design role. The item table owns model-visible bytes;
  * a linked successor is inserted only when that provider contract changes. */
@@ -1204,6 +1228,8 @@ export interface AppDatabase {
 	design_slice_attempts: DesignSliceAttemptsTable;
 	design_slice_attempt_budget_claims: DesignSliceAttemptBudgetClaimsTable;
 	design_external_action_receipts: DesignExternalActionReceiptsTable;
+	design_lookup_materializations: DesignLookupMaterializationsTable;
+	design_lookup_protections: DesignLookupProtectionsTable;
 	design_model_contexts: DesignModelContextsTable;
 	design_model_context_items: DesignModelContextItemsTable;
 	design_model_steps: DesignModelStepsTable;

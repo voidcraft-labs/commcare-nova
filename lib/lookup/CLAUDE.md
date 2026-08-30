@@ -25,8 +25,8 @@ references and emits the exact CommCare fixture wire.
 
 ## Valid writes
 
-Every public mutation parses/coerces input before entering `withAppTx`, then
-uses this lock order:
+Every mutation parses/coerces input before its lookup write, then uses this
+lookup lock order:
 
 1. create-if-missing and lock `lookup_project_state` for the Project;
 2. lock the target `lookup_tables` row, when there is one;
@@ -35,6 +35,14 @@ uses this lock order:
 5. advance the Project revision once, stamp the affected table revision axis,
    and issue the transactional lookup notification;
 6. commit.
+
+Browser actions and accepted-design materialization enter that prefix directly:
+their exact Project authority is already established and they never need an app
+lock. App-bound SA/MCP writes first take the invocation's app row `FOR SHARE`,
+prove its unchanged Project, fresh membership, and, for chat, exact run holder,
+then enter the same Project-state/table prefix. No code may hold Project state
+or a lookup table and later request an app lock. The app-bound bridge is
+app-first; the direct Project writer is Project-first with no reverse edge.
 
 The transaction body may be retried. Keep it free of non-database side effects.
 Rejected and semantic no-op writes do not advance a revision or notify. The
@@ -46,6 +54,26 @@ create/update/delete/order/replacement changes stamp `rows_revision`. Revisions
 are canonical nonnegative decimal strings within signed-int64 range on every
 application wire. Never convert one through `Number`, serialize native `bigint`,
 or compare revision strings lexically.
+
+`authoringBatch.ts::applyLookupAuthoringBatchInTransaction` is the one
+transactional composition of these writers. It can create complete tables with
+typed initial rows; patch table
+metadata; batch add, update, move, remove, or retype columns; batch add, replace,
+move, or remove rows; replace the complete row set; and remove governed tables.
+It parses the whole request and resolves request-local creation keys before the
+transaction, then revalidates values and topology after locking. Every existing
+target uses stable UUID identity and `expectedTableRevision`; every move names
+an immutable predecessor UUID, never a numeric position. A success advances the
+Project once, notifies once, and returns every minted UUID plus the resulting
+revision axes. Any operation failure rolls back the complete batch.
+
+`agentService.ts` resolves an SA/MCP app only to establish its exact current
+Project and capability. Reads require `view`; ordinary writes require `edit`;
+tag/wire-name,
+retype, remove-column, and remove-table operations retain `delete`. Chat calls
+also prove the exact run holder in the writing transaction. These tools are
+`mutate-external` with staged execution forbidden, because lookup rows are not
+Blueprint state and cannot participate in a change-set workspace.
 
 Table deletion, column removal, and column retype are reachable:
 `actions.ts` exports `deleteLookupTableAction`, `removeLookupColumnAction`, and
@@ -73,6 +101,16 @@ table edge. Authoritative app commits replace each app's complete freshly
 extracted edge sets in their own transaction; the immutable production
 registry covers every lookup carrier. Both are app-state tables, not Project
 lookup resources, and must not be exposed through this package's table/row APIs.
+
+`design_lookup_materializations` is the immutable pre-genesis receipt for one
+accepted Design Contract revision. It binds the design/session/revision digest,
+Project revision, result digest, and DesignId-to-lookup-UUID mapping.
+`design_lookup_protections` is its temporary destructive-governance edge set.
+Governance checks those edges beside canonical app edges; sequence-one genesis
+installs the app edges before releasing protection in the same transaction.
+Supersede and pre-app discard release protection only. They never delete the
+accepted table data, and an exact retry reuses the receipt rather than issuing a
+second authoring batch.
 
 `schemaGovernance.ts` is the server-only transaction authority those three
 actions call. It reuses `writerTransaction.ts`, the same
@@ -120,6 +158,18 @@ Manifest and full-table reads are authoritative snapshots, not change logs.
 Compose each from one SQL statement or a read-only `REPEATABLE READ`
 transaction. Multiple ordinary `READ COMMITTED` reads can pair data N with head
 N+1 and leave a client permanently stale.
+
+`getLookupTableRowsPage` is the bounded agent read. Its opaque cursor binds the
+table UUID, table revision, a digest of the normalized query and projected
+column UUIDs, and the next page offset; every page still executes under the
+caller's authorized Project scope. Callers repeat that query and projection on
+continuation. A changed definition or row revision returns a restart result
+instead of mixing generations. Search is case-insensitive text matching over
+the projected cells; output remains ordered by fractional key and stable row
+UUID. Never expose an order key or accept it as a cursor/address. Model-facing
+callers provide their complete serialized result envelope to the paginator so
+the byte gate includes `complete`, `nextCursor`, and any bounded inspection
+attestation rather than estimating wrapper overhead.
 
 `getLookupDefinitions(scope, tableIds)` is the rows-free validation/compiler
 read. It returns only existing requested tables in deterministic table-UUID

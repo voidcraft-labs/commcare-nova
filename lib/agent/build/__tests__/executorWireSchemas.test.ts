@@ -242,13 +242,17 @@ describe("executorWireToolSchema", () => {
 		expect(mediaHandles.length).toBeGreaterThan(0); /* fields still widen */
 
 		const lookup = schemaFor("setFieldOptionsSource");
-		const tableId = JSON.stringify(lookup).includes('"tableId"');
+		const lookupSource = JSON.stringify(lookup);
+		const tableId = lookupSource.includes('"tableId"');
 		expect(tableId).toBe(true);
-		/* No handle arm sits directly beside a lookup table/column id. */
-		const source = JSON.stringify(lookup);
-		expect(source).not.toContain('"tableId":{"anyOf"');
-		expect(source).not.toContain('"valueColumnId":{"anyOf"');
-		expect(source).not.toContain('"labelColumnId":{"anyOf"');
+		/* The compiler keeps the accepted semantic source. It neither receives a
+		 * handle nor sees the canonical carrier used after server resolution. */
+		expect(lookupSource).toContain('"const":"existing-project-lookup"');
+		expect(lookupSource).toContain('"const":"designed-project-lookup"');
+		expect(lookupSource).not.toContain('"const":"lookup"');
+		expect(lookupSource).not.toContain('"tableId":{"anyOf"');
+		expect(lookupSource).not.toContain('"valueColumnId":{"anyOf"');
+		expect(lookupSource).not.toContain('"labelColumnId":{"anyOf"');
 	});
 
 	it("adds no handle arm to the server-owned tools", () => {
@@ -268,6 +272,10 @@ describe("executorWireToolSchema", () => {
 		const chat = wireToolSchema(entry.tool.inputSchema)
 			.jsonSchema as unknown as JsonNode;
 		expect(handleArms(chat)).toHaveLength(0);
+		expect(JSON.stringify(chat)).toContain('"const":"lookup"');
+		expect(JSON.stringify(chat)).not.toContain(
+			'"const":"designed-project-lookup"',
+		);
 	});
 
 	it("projects handles while leaving resolved input validation canonical", async () => {

@@ -594,14 +594,12 @@ would silently miss; an unknown finding handle refuses naming the open set.
 Declaring an `@f`-numbered handle for a design element is refused during admission,
 so the projection can never print one symbol for two things.
 
-One second review occurs only when the first revision:
-
-- leaves critical risk unresolved;
-- follows a first review with at least two critical findings; or
-- changes architecture in response to critical feedback.
-
-Complexity alone does not trigger a second review. There is no third automatic
-review loop.
+Every corrected revision is another draft and receives a fresh independent
+review. Only a review with zero blocking findings can create an accepted
+revision. Dispositions record how the author handled the prior findings; they
+never grant acceptance. The durable session and repair budgets may stop a
+non-converging run while preserving its draft, but neither complexity nor the
+number of completed reviews can convert an unresolved blocker into acceptance.
 
 Sensitivity may be lowered only when an accepted correction explicitly names
 the affected property. A revision cannot silently downgrade sensitive data.

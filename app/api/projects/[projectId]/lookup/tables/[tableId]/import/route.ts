@@ -60,6 +60,10 @@ function statusFor(code: LookupImportErrorCode): number {
 			return 404;
 		case "conflict":
 		case "tag_taken":
+		case "accepted_design":
+		case "referenced":
+		case "last_column":
+		case "incompatible_values":
 			return 409;
 		case "row_limit":
 		case "storage_limit":

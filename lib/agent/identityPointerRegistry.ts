@@ -116,13 +116,15 @@ function classifyIdentity(
 	if (property === "tableId") return "lookup-table";
 	if (
 		property === "columnId" ||
+		property === "columnIds" ||
+		property === "afterColumnId" ||
 		property === "valueColumnId" ||
 		property === "labelColumnId" ||
 		property === "resultColumnId"
 	) {
 		return "lookup-column";
 	}
-	if (property === "rowId") return "lookup-row";
+	if (property === "rowId" || property === "afterRowId") return "lookup-row";
 	if (
 		(property === "values" || property === "valuePatch") &&
 		(tool === "create_location" || tool === "update_location")

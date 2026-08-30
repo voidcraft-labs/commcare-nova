@@ -19,6 +19,7 @@ import { Button } from "@/components/shadcn/button";
 import type { LookupColumnId } from "@/lib/domain/lookupIds";
 import type { LookupRow, LookupTableSnapshot } from "@/lib/lookup/types";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { LookupOrderingSection } from "./LookupOrderingSection";
 import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
 import {
 	captureRowEditBaseline,
@@ -178,6 +179,20 @@ export function RowInspectorBody({
 					Discard local draft
 				</Button>
 			)}
+
+			<LookupOrderingSection
+				kind="row"
+				itemId={row.id}
+				table={table}
+				workspace={workspace}
+				canEdit={canEdit}
+				disabled={dirty || saving || deleting || confirmingDelete}
+				disabledReason={
+					dirty
+						? "Save or discard your row changes before moving this row."
+						: undefined
+				}
+			/>
 
 			{failure !== null && (
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-rose">
