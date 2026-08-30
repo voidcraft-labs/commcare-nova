@@ -57,7 +57,9 @@ const existingRowSchema = z
 export const LOOKUP_TOOL_MAX_CREATED_IDENTITIES = 750;
 /** Leaves room for the shared-tool envelope below its 100k result cap. */
 export const LOOKUP_TOOL_RESULT_MAX_BYTES = 70_000;
-const RECEIPT_UUID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+/** Canonical UUIDs are always 36 unescaped JSON bytes. The budget projection
+ * needs that width, not an authored identity value. */
+const RECEIPT_IDENTITY_WIDTH = "x".repeat(36);
 const RECEIPT_REVISION = "9223372036854775807";
 const RECEIPT_REVISIONS = {
 	definitionRevision: RECEIPT_REVISION,
@@ -221,14 +223,14 @@ export const createLookupTableTool = {
 		const overflow = receiptWouldOverflow(1 + input.columns.length + rowCount, {
 			message: `Created Project data table "${input.name}" with ${input.columns.length} columns and ${rowCount} rows.`,
 			projectRevision: RECEIPT_REVISION,
-			tableId: RECEIPT_UUID,
+			tableId: RECEIPT_IDENTITY_WIDTH,
 			columns: input.columns.map((column) => ({
 				key: column.key,
-				columnId: RECEIPT_UUID,
+				columnId: RECEIPT_IDENTITY_WIDTH,
 			})),
 			rows: Array.from({ length: rowCount }, (_, index) => ({
 				index,
-				rowId: RECEIPT_UUID,
+				rowId: RECEIPT_IDENTITY_WIDTH,
 			})),
 			revisions: RECEIPT_REVISIONS,
 		});
@@ -376,10 +378,10 @@ export const editLookupColumnsTool = {
 		const overflow = receiptWouldOverflow(added.length, {
 			message: `Applied ${input.operations.length} column changes atomically.`,
 			projectRevision: RECEIPT_REVISION,
-			tableId: RECEIPT_UUID,
+			tableId: RECEIPT_IDENTITY_WIDTH,
 			createdColumns: added.map((operation) => ({
 				key: operation.key,
-				columnId: RECEIPT_UUID,
+				columnId: RECEIPT_IDENTITY_WIDTH,
 			})),
 			revisions: RECEIPT_REVISIONS,
 		});
@@ -458,10 +460,10 @@ export const editLookupRowsTool = {
 		const overflow = receiptWouldOverflow(addedCount, {
 			message: `Applied ${input.operations.length} row changes atomically.`,
 			projectRevision: RECEIPT_REVISION,
-			tableId: RECEIPT_UUID,
+			tableId: RECEIPT_IDENTITY_WIDTH,
 			createdRows: Array.from({ length: addedCount }, (_, operationIndex) => ({
 				operationIndex,
-				rowId: RECEIPT_UUID,
+				rowId: RECEIPT_IDENTITY_WIDTH,
 			})),
 			revisions: RECEIPT_REVISIONS,
 		});
@@ -517,10 +519,10 @@ export const replaceLookupRowsTool = {
 		const overflow = receiptWouldOverflow(input.rows.length, {
 			message: `Replaced the table with ${input.rows.length} rows.`,
 			projectRevision: RECEIPT_REVISION,
-			tableId: RECEIPT_UUID,
+			tableId: RECEIPT_IDENTITY_WIDTH,
 			rows: input.rows.map((_row, inputIndex) => ({
 				inputIndex,
-				rowId: RECEIPT_UUID,
+				rowId: RECEIPT_IDENTITY_WIDTH,
 			})),
 			revisions: RECEIPT_REVISIONS,
 		});
