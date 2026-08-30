@@ -36,11 +36,6 @@ import {
 import type { AppDesignContract } from "../lib/agent/design/contract";
 import { appDesignContractSchema } from "../lib/agent/design/contract";
 import { DesignGenerationContext } from "../lib/agent/design/designGenerationContext";
-import {
-	changesArchitecture,
-	criticalFindingCount,
-	leavesCriticalFinding,
-} from "../lib/agent/design/loop/artifacts";
 import { createDesignAgent } from "../lib/agent/design/loop/designAgent";
 import {
 	collectDesignIdentityHandleBindings,
@@ -416,27 +411,18 @@ async function main(): Promise<void> {
 			state.reviews,
 		);
 		if (violations.length > 0) return { error: violations.join("\n") };
-		const prior = state.contract;
 		const revision: DesignRevisionResult = parsed.data;
-		const secondReview =
-			state.openReviewCount === 1 &&
-			(leavesCriticalFinding(revision, state.reviews) ||
-				criticalFindingCount(state.reviews) >= 2 ||
-				(criticalFindingCount(state.reviews) > 0 &&
-					changesArchitecture(prior, revision.contract)));
 		state.contract = revision.contract;
-		state.lifecycle = secondReview ? "draft" : "accepted";
+		state.lifecycle = "draft";
 		state.reviews = [];
 		state.revisionOperations = [];
 		write(`contract-revision-${state.openReviewCount}.json`, revision.contract);
 		write(`dispositions-${state.openReviewCount}.json`, revision.dispositions);
-		if (!secondReview) finalizePlan();
 		return {
 			ok: true,
-			accepted: !secondReview,
-			message: secondReview
-				? "The revision warrants one more independent review."
-				: "The revision is accepted and its build plan was derived.",
+			accepted: false,
+			message:
+				"The revision is another draft. Request a fresh independent review; only a clean review accepts it.",
 		};
 	};
 

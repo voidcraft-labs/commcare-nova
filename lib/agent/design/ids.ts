@@ -14,10 +14,49 @@
 import { z } from "zod";
 import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 
+/** JSON-schema marker for the Design Contract identity domain. The design
+ * tool wire projection and raw-UUID admission both consume this same marker,
+ * then remove it before the provider sees the schema. UUID-looking values in
+ * other domains (Project lookup ids, source coordinates, media ids) never
+ * acquire design semantics merely because of their property name. */
+export const DESIGN_IDENTITY_SCHEMA_MARKER = "x-nova-design-identity";
+
+/** Current durable handle-ledger vocabulary. Historical migrations remain
+ * self-contained, while runtime reads and writes use this one contract. */
+export const DESIGN_IDENTITY_HANDLE_ENTITY_KINDS = [
+	"contract",
+	"actor",
+	"record",
+	"property",
+	"workflow",
+	"list",
+	"access",
+	"navigation",
+	"external_requirement",
+	"decision",
+	"assumption",
+	"open_question",
+	"module_composition",
+	"form_composition",
+	"composition_section",
+	"composition_item",
+	"lookup_table_intent",
+	"lookup_column_intent",
+	"lookup_row_intent",
+	"referenced",
+] as const;
+export const designIdentityHandleEntityKindSchema = z.enum(
+	DESIGN_IDENTITY_HANDLE_ENTITY_KINDS,
+);
+export type DesignIdentityHandleEntityKind = z.infer<
+	typeof designIdentityHandleEntityKindSchema
+>;
+
 export const designIdSchema = z
 	.string()
 	.regex(CANONICAL_UUID_PATTERN, "Expected a canonical lowercase RFC UUID.")
-	.brand<"DesignId">();
+	.brand<"DesignId">()
+	.meta({ [DESIGN_IDENTITY_SCHEMA_MARKER]: true });
 
 export type DesignId = z.infer<typeof designIdSchema>;
 

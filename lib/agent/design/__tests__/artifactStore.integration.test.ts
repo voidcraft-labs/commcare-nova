@@ -426,7 +426,64 @@ describe("contract revisions", () => {
 		).rejects.toThrow(/requires a persisted review/);
 	});
 
-	it("accepts through a review, lands dispositions atomically, and surfaces the latest accepted", async () => {
+	it("binds clean-review acceptance to the exact reviewed contract and source package", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, runId: RUN_ID });
+		const draft = await insertDesignRevision({
+			envelope: draftEnvelope(pkg),
+			lifecycle: "draft",
+			runId: RUN_ID,
+		});
+		const review = await insertDesignReview({
+			envelope: reviewEnvelope(draft, emptyReview()),
+			designRevisionId: draft.id,
+			runId: RUN_ID,
+		});
+
+		const changedContract = makeContract();
+		changedContract.charter.appName = "Unreviewed replacement";
+		await expect(
+			insertDesignRevision({
+				envelope: acceptedEnvelope(
+					draft,
+					review.artifactDigest,
+					changedContract,
+				),
+				lifecycle: "accepted",
+				runId: RUN_ID,
+			}),
+		).rejects.toThrow(/exact contract and source package/);
+
+		const { packageDigest: _oldDigest, ...sourceBase } = makePackage();
+		const changedSourceUnsealed = {
+			...sourceBase,
+			request: {
+				blocks: [
+					{
+						ref: messageRef(),
+						text: "Unreviewed additional requirement.",
+						truncated: false,
+					},
+				],
+			},
+		};
+		const changedSource: DesignSourcePackage = {
+			...changedSourceUnsealed,
+			packageDigest: computeSourcePackageDigest(changedSourceUnsealed),
+		};
+		await insertDesignSourcePackage({ pkg: changedSource, runId: RUN_ID });
+		await expect(
+			insertDesignRevision({
+				envelope: reseal(acceptedEnvelope(draft, review.artifactDigest), {
+					sourcePackageDigest: changedSource.packageDigest,
+				}),
+				lifecycle: "accepted",
+				runId: RUN_ID,
+			}),
+		).rejects.toThrow(/exact contract and source package/);
+	});
+
+	it("persists dispositions on a revised draft and accepts only after its clean review", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, runId: RUN_ID });
 		const draft = await insertDesignRevision({
@@ -453,9 +510,27 @@ describe("contract revisions", () => {
 			designRevisionId: draft.id,
 			runId: RUN_ID,
 		});
-		const accepted = await insertDesignRevision({
+		await expect(
+			insertDesignRevision({
+				envelope: acceptedEnvelope(draft, review.artifactDigest),
+				lifecycle: "accepted",
+				runId: RUN_ID,
+				dispositions: [
+					{
+						reviewId: review.id,
+						disposition: {
+							findingId: did(401),
+							status: "rejected",
+							rationale: "The queue name mirrors the workers' own vocabulary.",
+						},
+					},
+				],
+			}),
+		).rejects.toThrow(/latest independent review.*no blocking findings/);
+
+		const revisedDraft = await insertDesignRevision({
 			envelope: acceptedEnvelope(draft, review.artifactDigest),
-			lifecycle: "accepted",
+			lifecycle: "draft",
 			runId: RUN_ID,
 			dispositions: [
 				{
@@ -468,15 +543,28 @@ describe("contract revisions", () => {
 				},
 			],
 		});
+		expect(revisedDraft.lifecycle).toBe("draft");
+		expect(await readLatestAcceptedDesignRevision(sessionId)).toBeNull();
+
+		const cleanReview = await insertDesignReview({
+			envelope: reviewEnvelope(revisedDraft, emptyReview()),
+			designRevisionId: revisedDraft.id,
+			runId: RUN_ID,
+		});
+		const accepted = await insertDesignRevision({
+			envelope: acceptedEnvelope(revisedDraft, cleanReview.artifactDigest),
+			lifecycle: "accepted",
+			runId: RUN_ID,
+		});
 		expect(accepted.lifecycle).toBe("accepted");
-		expect(accepted.parentRevisionId).toBe(draft.id);
+		expect(accepted.parentRevisionId).toBe(revisedDraft.id);
 
 		const latest = await readLatestAcceptedDesignRevision(sessionId);
 		expect(latest?.id).toBe(accepted.id);
 
 		const dispositions = await readDispositions(review.id);
 		expect(dispositions).toHaveLength(1);
-		expect(dispositions[0]?.resultingRevisionId).toBe(accepted.id);
+		expect(dispositions[0]?.resultingRevisionId).toBe(revisedDraft.id);
 		expect(dispositions[0]?.disposition.status).toBe("rejected");
 
 		const reviews = await readDesignReviews(draft.id);

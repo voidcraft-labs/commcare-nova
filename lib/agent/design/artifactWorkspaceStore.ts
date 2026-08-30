@@ -21,6 +21,10 @@ import {
 	replayDesignWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
 import { designIdentityCollisions } from "@/lib/agent/design/graph";
+import {
+	type DesignIdentityHandleEntityKind,
+	designIdentityHandleEntityKindSchema,
+} from "@/lib/agent/design/ids";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
@@ -73,7 +77,7 @@ export interface DesignArtifactWorkspaceState {
 export interface DesignIdentityHandleBinding {
 	readonly handle: string;
 	readonly designId: string;
-	readonly entityKind: string;
+	readonly entityKind: DesignIdentityHandleEntityKind;
 }
 
 type Db = Kysely<AppDatabase> | Transaction<AppDatabase>;
@@ -413,7 +417,7 @@ async function selectHandleBindings(
 	return rows.map((binding) => ({
 		handle: binding.handle,
 		designId: binding.design_id,
-		entityKind: binding.entity_kind,
+		entityKind: designIdentityHandleEntityKindSchema.parse(binding.entity_kind),
 	}));
 }
 

@@ -73,6 +73,7 @@ import * as deploymentWorkerResources from "./20260820000000_deployment_worker_r
 import * as caseIndexTargetType from "./20260825000000_case_index_target_type";
 import * as betterAuth17RollingDeployBridge from "./20260829000000_better_auth_17_rolling_deploy_bridge";
 import * as designLookupMaterialization from "./20260829010000_design_lookup_materialization";
+import * as designLookupHandleKinds from "./20260830000000_design_lookup_handle_kinds";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -144,6 +145,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260829000000_better_auth_17_rolling_deploy_bridge":
 		betterAuth17RollingDeployBridge,
 	"20260829010000_design_lookup_materialization": designLookupMaterialization,
+	"20260830000000_design_lookup_handle_kinds": designLookupHandleKinds,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

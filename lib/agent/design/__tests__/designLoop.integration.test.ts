@@ -729,11 +729,15 @@ describe("semantic design loop", () => {
 	it("revises only affected items and dispositions after a blocking review", async () => {
 		const pkg = makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
-		const tools = mount(pkg, correctionReview);
+		let reviewCount = 0;
+		const tools = mount(pkg, () =>
+			reviewCount++ === 0 ? correctionReview() : cleanReview(),
+		);
 		const contract = makeContract();
 		const resolved = resolvedContract(contract);
 		await authorWholeContract(tools, contract);
-		await call(tools.finishDesign);
+		const initialDraft = await call(tools.finishDesign);
+		const initialDraftId = String(initialDraft.revisionId);
 		const reviewResult = await call(tools.requestReview);
 		expect(reviewResult).toMatchObject({ accepted: false });
 		expect(reviewResult.message).not.toContain("expectedRevision");
@@ -811,18 +815,25 @@ describe("semantic design loop", () => {
 		});
 		expect(await call(tools.finishDesign)).toMatchObject({
 			ok: true,
+			accepted: false,
+		});
+		expect(await readLatestAcceptedDesignRevision(sessionId)).toBeNull();
+		expect(await call(tools.requestReview)).toMatchObject({
+			ok: true,
 			accepted: true,
 		});
 		const accepted = await readLatestAcceptedDesignRevision(sessionId);
 		expect(accepted?.envelope.payload.actors).toEqual(resolved.actors);
 		if (accepted?.parentRevisionId === null || accepted === null)
 			throw new Error("accepted revision parent missing");
-		const reviews = await readDesignReviews(accepted.parentRevisionId);
-		expect(reviews).toHaveLength(1);
+		const cleanReviews = await readDesignReviews(accepted.parentRevisionId);
+		expect(cleanReviews).toHaveLength(1);
+		expect(cleanReviews[0]?.envelope.payload.findings).toEqual([]);
 		/* The wrong-uuid-mint hazard, pinned dead: the persisted disposition
 		 * names the server-minted finding identity, not a deterministic
 		 * workspace mint of the "@f1" symbol. */
-		const persistedReview = reviews[0];
+		const blockingReviews = await readDesignReviews(initialDraftId);
+		const persistedReview = blockingReviews[0];
 		const persistedFinding = persistedReview?.envelope.payload.findings[0];
 		if (persistedReview === undefined || persistedFinding === undefined)
 			throw new Error("persisted review finding missing");

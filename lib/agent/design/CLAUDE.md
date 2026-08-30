@@ -243,7 +243,10 @@ server-governed semantic phases:
    contract, and capability catalog.
 3. `revision` updates only the affected design elements, dispositions every
    blocker, and submits the complete revised contract.
-4. The server accepts a clean revision, atomically materializes its approved
+4. Only an independent review with no blocking findings accepts its exact
+   parent draft. Every correction is persisted as another draft and reviewed
+   again; session budgets may stop a non-converging cycle, but review count
+   never grants acceptance. The server then atomically materializes its approved
    Project-data intent and immutable receipt, then derives its build plan
    without a planner model call. The compiler keeps the design's lookup
    references; server-owned resolution is private to workspace dispatch.
@@ -398,12 +401,12 @@ Item-only rollover generations never hide an older provider response: terminal
 recovery searches back to the newest generation that actually completed one,
 while a genuinely newer provider response still supersedes the older terminal.
 
-`gates.ts` decides legality only from durable artifact ancestry and persisted
-review counts. A second review is required only for unresolved critical risk,
-multiple critical first-pass findings, or a critical architectural change; raw
-complexity alone is not a trigger. Answered blocking questions reopen a fresh
-reviewed design cycle only before construction freezes the accepted revision
-and plan. `packageRebuild.ts` refuses continuation when the
+`gates.ts` decides legality only from durable artifact ancestry. A reviewed
+correction always becomes another draft, and only a fresh independent review
+with zero blockers can accept it; the durable session and repair budgets stop
+non-convergence honestly rather than converting it into acceptance. Answered
+blocking questions reopen design work only before construction freezes the
+accepted revision and plan. `packageRebuild.ts` refuses continuation when the
 authorized sources cannot reproduce the bound package.
 
 Tool lifecycle diagnostics contain only opaque call identity, tool name,

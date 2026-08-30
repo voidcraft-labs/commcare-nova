@@ -682,6 +682,69 @@ describe("design agent Responses wire body", () => {
 				{ lookupTables: [] },
 			),
 		).toContain("columns.0.id");
+
+		/* UUID spelling is not identity semantics. Source provenance and
+		 * inspected Project-data UUIDs keep their own domains even inside the
+		 * lookup collection. */
+		const threadId = "00000000-0000-4000-8000-000000000091";
+		const existingTableId = "01998765-4321-7abc-8def-0123456789ab";
+		const existingColumnId = "01998765-4321-7abc-8def-0123456789ac";
+		const existingRowId = "01998765-4321-7abc-8def-0123456789ad";
+		expect(
+			designCreationIdentityIssue(
+				{
+					collections: [
+						{
+							collection: "lookupTables",
+							upserts: [
+								{
+									kind: "modify-existing",
+									id: { handle: "@facility_changes" },
+									tableId: existingTableId,
+									authorization: {
+										kind: "direct-user-request",
+										sourceRefs: [
+											{
+												kind: "message",
+												threadId,
+												messageId: "request",
+												partIndex: 0,
+											},
+										],
+									},
+									operations: [
+										{
+											kind: "update-row",
+											rowId: existingRowId,
+											cells: [
+												{
+													column: {
+														kind: "existing-column",
+														columnId: existingColumnId,
+													},
+												},
+											],
+											rowEvidence: {
+												sourceRefs: [
+													{
+														kind: "message",
+														threadId,
+														messageId: "request",
+														partIndex: 0,
+													},
+												],
+											},
+										},
+									],
+								},
+							],
+							removeIds: [],
+						},
+					],
+				},
+				{ lookupTables: [] },
+			),
+		).toBeNull();
 	});
 
 	it("keeps review finding UUIDs outside the design identity namespace", () => {

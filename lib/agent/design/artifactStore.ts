@@ -48,6 +48,7 @@ import {
 	type DesignReview,
 	designReviewSchema,
 	type FindingDisposition,
+	findingBlocksAcceptance,
 	findingDispositionSchema,
 } from "@/lib/agent/design/review";
 import {
@@ -379,10 +380,11 @@ export async function isCumulativeDesignSourcePackageExtensionInTransaction(
  *    whose artifact digest rides the envelope's input digests;
  *  - the stored `contract_digest` is the canonical digest of the payload.
  *
- * An ACCEPTED revision additionally requires at least one persisted review
- * of its parent draft — "reviewed" can never be asserted without the review
- * artifact — and its dispositions land in the same transaction
- * (`dispositions`, each mapped to the review that raised its finding).
+ * An ACCEPTED revision additionally requires its parent draft's exact latest
+ * review to be persisted, digest-bound into the new envelope, and free of
+ * blocking findings. Dispositions land only on revised drafts awaiting their
+ * own fresh review (`dispositions`, each mapped to the review that raised its
+ * finding); a model-authored status never grants acceptance.
  */
 export async function insertDesignRevision(args: {
 	envelope: DesignArtifactEnvelope<AppDesignContract>;
@@ -391,8 +393,9 @@ export async function insertDesignRevision(args: {
 	/** A newer source package is replacing a planned design. Retire every open
 	 * carrier from the historical plan in this same authority-locked write. */
 	supersedeUncommittedExecution?: boolean;
-	/** Required for an accepted revision: every disposition plus the review
-	 *  row ids whose findings they close. */
+	/** Revised drafts carry every disposition plus the review row ids whose
+	 *  findings they close. Accepted revisions come only from a clean review
+	 *  and therefore carry none. */
 	dispositions?: ReadonlyArray<{
 		reviewId: string;
 		disposition: FindingDisposition;
@@ -443,6 +446,7 @@ export async function insertDesignRevision(args: {
 			);
 		}
 
+		let parent: RevisionRow | undefined;
 		if (parsed.revision === 1) {
 			if (parsed.parentArtifactId !== null) {
 				throw new DesignArtifactStoreError(
@@ -455,7 +459,7 @@ export async function insertDesignRevision(args: {
 					`Revision ${parsed.revision} must name its parent revision — only revision 1 stands alone.`,
 				);
 			}
-			const parent = await readRevisionRowInTx(tx, parsed.parentArtifactId);
+			parent = await readRevisionRowInTx(tx, parsed.parentArtifactId);
 			if (!parent || parent.design_session_id !== parsed.designSessionId) {
 				throw new DesignArtifactStoreError(
 					"This revision's parent does not exist in its session — a later state cannot exist without its exact predecessor.",
@@ -473,21 +477,58 @@ export async function insertDesignRevision(args: {
 				"An accepted revision descends from a reviewed draft; revision 1 is always a draft.",
 			);
 		}
+		if (lifecycle === "accepted") {
+			if (parent === undefined || parent.lifecycle !== "draft") {
+				throw new DesignArtifactStoreError(
+					"An accepted revision must descend directly from the draft that received its clean review.",
+				);
+			}
+			if (
+				contractDigest !== parent.contract_digest ||
+				parsed.sourcePackageDigest !== parent.source_package_digest
+			) {
+				throw new DesignArtifactStoreError(
+					"An accepted revision must preserve the exact contract and source package its parent review evaluated.",
+				);
+			}
+		}
 		if (lifecycle === "accepted" || (args.dispositions ?? []).length > 0) {
 			if (parsed.parentArtifactId === null) {
 				throw new DesignArtifactStoreError(
 					"Dispositions close a PARENT revision's reviews; revision 1 has no parent to have been reviewed.",
 				);
 			}
-			const reviews = await tx
-				.selectFrom("design_reviews")
-				.select(["id"])
+			const reviewRows = await reviewRowsQuery(tx)
 				.where("design_revision_id", "=", parsed.parentArtifactId)
+				.orderBy("review_ordinal", "asc")
 				.execute();
-			if (lifecycle === "accepted" && reviews.length === 0) {
-				throw new DesignArtifactStoreError(
-					"An accepted revision requires a persisted review of its parent draft — without the review artifact, nothing here was reviewed.",
-				);
+			const reviews = reviewRows.map(reviewRecordFromRow);
+			if (lifecycle === "accepted") {
+				const latestReview = reviews.at(-1);
+				if (latestReview === undefined) {
+					throw new DesignArtifactStoreError(
+						"An accepted revision requires a persisted review of its parent draft — without the review artifact, nothing here was reviewed.",
+					);
+				}
+				if (
+					latestReview.envelope.payload.findings.some(findingBlocksAcceptance)
+				) {
+					throw new DesignArtifactStoreError(
+						"An accepted revision requires its parent draft's latest independent review to have no blocking findings.",
+					);
+				}
+				if (
+					!parsed.inputArtifactDigests.includes(latestReview.artifactDigest)
+				) {
+					throw new DesignArtifactStoreError(
+						"An accepted revision must bind the exact clean review that grants acceptance.",
+					);
+				}
+				if ((args.dispositions ?? []).length > 0) {
+					throw new DesignArtifactStoreError(
+						"A clean review grants acceptance directly; finding dispositions belong only to a revised draft awaiting another review.",
+					);
+				}
 			}
 			const knownReviewIds = new Set(reviews.map((review) => review.id));
 			for (const entry of args.dispositions ?? []) {

@@ -13,7 +13,7 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v19",
+	agent: "design-agent-v20",
 	reviewer: "design-reviewer-v13",
 	planner: "design-plan-v2",
 } as const;
@@ -102,8 +102,8 @@ The server keeps one append-only private context and one implicit durable design
 	   them as a decision or assumption naming what changes if they are wrong, and
    do not hold a blocking question open for it. Finalize the complete
 	   contract with finishDesign, then request its independent review.
-6. If review returns blocking design corrections or a user decision, explain the practical issue plainly, update only the affected semantic items and blocking dispositions, and finish the revision. Put independent affected-collection calls and updateFindingDispositions in the same response when their inputs are already known. Advisory findings and notes do not require revision.
-7. If the server says a second review is warranted, request it. Otherwise the accepted contract is complete and the server derives its build plan.
+6. If review returns blocking design corrections or a user decision, explain the practical issue plainly, update only the affected semantic items and blocking dispositions, and finish the revision. Put independent affected-collection calls and updateFindingDispositions in the same response when their inputs are already known. Advisory findings and notes do not require revision. A disposition records what you did; it never grants acceptance.
+7. Every corrected revision is another draft. Request its fresh independent review. Only a review with no blocking findings accepts the design and lets the server derive its build plan. If blockers remain, revise and request review again; never present the design as ready merely because it has already been reviewed.
 8. When the build is starting, tell the person what workflow comes first and give the rough time estimate returned for the design's effort level, leaning toward the longer end. Do not invent a shorter estimate.
 
 Do not expose private tool results in conversational prose. Never quote a validation error to the person. Translate a real user decision into plain language; privately correct schema or graph mistakes yourself.
