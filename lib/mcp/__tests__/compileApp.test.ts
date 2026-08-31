@@ -215,16 +215,20 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerCompileApp — happy path, json format", () => {
-	it("instructs bare MCP clients to disclose requirements before export", () => {
+	it("explains the targetless compatibility report carried with each export", () => {
 		const { server, registeredConfig } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
 		const config = registeredConfig() as { description?: string };
-		expect(config.description).toContain("call `get_app_hq_feature_flags`");
-		expect(config.description).toContain("before export");
+		expect(config.description).toContain("`not_checked`");
 		expect(config.description).toContain(
-			"not flags Nova has confirmed missing",
+			'`_meta["nova/projectSpaceCompatibility"]`',
 		);
+		expect(config.description).toContain(
+			"`nova_project_space_compatibility` text block",
+		);
+		expect(config.description).toContain("`check_project_space_compatibility`");
+		expect(config.description).not.toContain("get_app_hq_feature_flags");
 	});
 
 	it("returns the HqApplication JSON for an owned app", async () => {
@@ -317,9 +321,9 @@ describe("registerCompileApp — happy path, ccz format", () => {
 	});
 });
 
-describe("registerCompileApp — feature-flag requirements", () => {
+describe("registerCompileApp — project-space compatibility", () => {
 	it.each(["json", "ccz"] as const)(
-		"puts the model-visible %s advisory before the artifact preview",
+		"puts the model-visible %s compatibility report before the artifact preview",
 		async (format) => {
 			vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
 				fixtureLoadedBlueprint(fixtureBlueprintWithCaseSearch()),
@@ -331,28 +335,41 @@ describe("registerCompileApp — feature-flag requirements", () => {
 			registerCompileApp(server, toolCtx);
 			const out = (await capture()({ app_id: "a1", format }, {})) as {
 				content: Array<{ type: "text"; text: string }>;
+				_meta: Record<string, unknown>;
 			};
 
 			expect(out.content).toHaveLength(2);
-			const advisory = JSON.parse(out.content[0]?.text ?? "{}") as {
-				feature_flag_requirements: {
-					verification: string;
-					missing_flags: unknown[];
-					required_flags: { slug: string }[];
-					message: string;
+			const compatibilityBlock = JSON.parse(out.content[0]?.text ?? "{}") as {
+				kind: string;
+				project_space_compatibility: {
+					status: string;
+					blockers: unknown[];
+					required_capabilities: { id: string; state: string }[];
+					advisories: { id: string; state: string }[];
+					docs_url: string;
 				};
 			};
-			expect(advisory.feature_flag_requirements.verification).toBe(
-				"not_checked",
-			);
-			expect(advisory.feature_flag_requirements.missing_flags).toEqual([]);
+			expect(compatibilityBlock.kind).toBe("nova_project_space_compatibility");
+			const report = compatibilityBlock.project_space_compatibility;
+			expect(report.status).toBe("not_checked");
+			expect(report.blockers).toEqual([]);
 			expect(
-				advisory.feature_flag_requirements.required_flags.map(
-					(flag) => flag.slug,
-				),
-			).toEqual(["search_claim"]);
-			expect(advisory.feature_flag_requirements.message).toContain(
-				"support@dimagi.com",
+				report.required_capabilities.map(({ id, state }) => ({ id, state })),
+			).toEqual([{ id: "case-search", state: "not_checked" }]);
+			expect(report.advisories).toEqual([
+				expect.objectContaining({
+					id: "large-search-performance",
+					state: "not_checked",
+				}),
+			]);
+			expect(report.docs_url).toBe(
+				"https://docs.commcare.app/project-space-compatibility",
+			);
+			expect(out._meta["nova/projectSpaceCompatibility"]).toEqual(report);
+			const serialized = JSON.stringify(compatibilityBlock);
+			expect(serialized).not.toMatch(/slug|namespace|profile|toggle|setting/i);
+			expect(serialized).not.toMatch(
+				/search_claim|case_search_advanced|commcare_connect|mm_case_properties|view_form_attachments|custom_properties|NAMESPACE_|TAG_/i,
 			);
 
 			const artifact = JSON.parse(out.content[1]?.text ?? "{}") as {

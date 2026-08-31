@@ -38,22 +38,19 @@ Every case-writing field carries one complete `caseWrite: { caseType, property }
 
 CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/commcare/` (XForm emission, HQ JSON expander, validator, suite-entry derivation). The commit gate feeds `BlueprintDoc` through the validator directly — no wire-format round-trip inside the agent layer.
 
-MCP feature-flag tools return deployment follow-up without changing artifact
-validity. The MCP-only `get_app_hq_feature_flags` read reports the current
-app's requirements, app-specific reasons, inline descriptions, and public docs
-links before publish. With no domain it does not access HQ or infer HQ state;
-with an explicit connected domain it performs the same read-only preflight as
-the UI and separates confirmed missing flags from checks that were unavailable.
-It does not belong on the internal SA surface. When the app needs flags,
-`compile_app` puts the model-visible destination-unknown requirement report
-before the artifact so a large base64 payload cannot hide it from a host's
-initial preview. `upload_app_to_hq` returns the known target's post-import report,
-distinguishing confirmed `missing_flags` from `unverified_flags`. Both carry
-the central flag labels/slugs, docs URL, and `support@dimagi.com`; clients must
-relay that distinction rather than infer state. The server-fetched
-`autonomous_build` prompt gives a deliberately non-blocking FYI: use the normal
-completion message when relevant and never create a document or other channel
-solely for the notice.
+Project-space compatibility is an MCP deployment concern, not authored app
+vocabulary. The MCP-only `check_project_space_compatibility` tool requires an
+explicit connected domain and returns semantic capabilities the current app
+needs, separating confirmed missing support from checks Nova could not
+complete. It never exposes the private HQ settings used by the probe and does
+not belong on the internal SA surface. `compile_app` puts a targetless
+`not_checked` compatibility report before a large artifact so a host sees what
+the destination must support. `upload_app_to_hq` repeats the authoritative
+check before any remote write and blocks when required support is missing or
+unverified; its result carries the same report. Clients relay those semantic
+results rather than asking an author or agent to choose settings. The
+server-fetched `autonomous_build` prompt does not add a separate compatibility
+handoff: Nova owns the publish gate when a concrete target is selected.
 
 ## What lives here
 
@@ -421,8 +418,9 @@ canonical nonblank/unquoted values. The schema also enforces actual recipient co
 There is no web-user recipient; Connect content refuses the case-relative,
 case-property-email, and case-group arms HQ cannot save. The returned guide
 names Inbound SMS access for SMS Survey, and for Connect it names both the
-`COMMCARE_CONNECT` toggle and the runtime requirement that every resolved
-recipient be a CommCare mobile worker with an active PersonalID link. A timed reset property
+project-space support Nova checks before publishing and the runtime requirement
+that every resolved recipient be a CommCare mobile worker with an active
+PersonalID link. A timed reset property
 requires a rule-trigger start. Checkbox-style, case-property, and custom
 recipient kinds are singletons; concrete list targets and worker-property
 filter keys are unique. Descendant controls require a location recipient and

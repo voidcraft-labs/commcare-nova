@@ -11,7 +11,8 @@
  * Two categories of tool, two registration paths:
  *
  *   1. **MCP-only tools** (`lib/mcp/tools/*`) — `list_apps`, `get_app`,
- *      `create_app`, `delete_app`, `get_app_hq_feature_flags`, `compile_app`,
+ *      `create_app`, `delete_app`, `check_project_space_compatibility`,
+ *      `compile_app`,
  *      `upload_app_to_hq`, `get_agent_prompt`, and the Project-management
  *      set (`list_projects`, `create_project`, `invite_member`,
  *      `list_members`, `update_member_role`, `move_app`). Each owns
@@ -50,6 +51,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { registerSharedTool } from "./adapters/sharedToolAdapter";
+import { registerCheckProjectSpaceCompatibility } from "./tools/checkProjectSpaceCompatibility";
 import { registerCompileApp } from "./tools/compileApp";
 import { registerCreateApp } from "./tools/createApp";
 import { registerCreateProject } from "./tools/createProject";
@@ -60,7 +62,7 @@ import {
 } from "./tools/deploymentTools";
 import { registerGetAgentPrompt } from "./tools/getAgentPrompt";
 import { registerGetApp } from "./tools/getApp";
-import { registerGetAppHqFeatureFlags } from "./tools/getAppHqFeatureFlags";
+import { registerGetAppHqFeatureFlagsCompatibility } from "./tools/getAppHqFeatureFlagsCompatibility";
 import { registerGetHqConnection } from "./tools/getHqConnection";
 import { registerInviteMember } from "./tools/inviteMember";
 import { registerListApps } from "./tools/listApps";
@@ -99,7 +101,8 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerListApps(server, ctx);
 	registerSearchApps(server, ctx);
 	registerGetApp(server, ctx);
-	registerGetAppHqFeatureFlags(server, ctx);
+	registerCheckProjectSpaceCompatibility(server, ctx);
+	registerGetAppHqFeatureFlagsCompatibility(server, ctx);
 	registerCreateApp(server, ctx);
 	registerDeleteApp(server, ctx);
 	registerCompileApp(server, ctx);

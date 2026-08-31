@@ -84,8 +84,8 @@ export class McpInvalidInputError extends Error {
 /**
  * Errors produced by CommCare HQ connection/target gates and upload. Exported
  * so `upload_app_to_hq`'s `UPLOAD_ERROR_TAGS` record can `satisfies`-check
- * against the complete union. The domain-aware `get_app_hq_feature_flags`
- * path reuses the applicable read-only subset (`hq_not_configured` and
+ * against the complete union. `check_project_space_compatibility` reuses the
+ * applicable read-only subset (`hq_not_configured` and
  * `domain_not_authorized`) rather than inventing a second taxonomy.
  *
  * Four buckets:
@@ -105,8 +105,8 @@ export type HqToolErrorType =
 	| "domain_ambiguous";
 
 /**
- * What an UPLOAD gate can emit: every bucket above, plus two refusals only
- * a publish against an existing project space can produce.
+ * What an UPLOAD gate can emit: every bucket above, plus target-specific
+ * refusals produced by the shared publish lifecycle.
  *
  *   - `remote_app_missing` — the publish asked CommCare HQ to update the
  *     app the deployment ledger maps for this target, and HQ answered that
@@ -122,12 +122,20 @@ export type HqToolErrorType =
  *     places. Nothing was sent. Distinct from a conflict because no
  *     ownership decision resolves it: the tree changes in Nova, or the
  *     levels change on CommCare HQ.
+ *   - `project_space_incompatible` — required support is missing or could not
+ *     be verified for the selected target. No remote write began; the error
+ *     payload carries the semantic compatibility report.
+ *   - `hq_app_state_unknown` — an in-place update could not safely read the
+ *     target app's current source immediately before import, so Nova refused
+ *     to replace its profile state.
  */
 export type UploadErrorType =
 	| HqToolErrorType
 	| "remote_app_missing"
 	| "hq_resource_conflict"
-	| "hq_organization_mismatch";
+	| "hq_organization_mismatch"
+	| "project_space_incompatible"
+	| "hq_app_state_unknown";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can
@@ -146,8 +154,8 @@ export type UploadErrorType =
  *   - `"scope_missing"` — the caller's access token lacks an OAuth
  *     scope a specific tool requires (orthogonal to the route-layer
  *     `nova.read` + `nova.write` floor). The HQ tools
- *     (`get_hq_connection`, `upload_app_to_hq`, domain-aware
- *     `get_app_hq_feature_flags`) and the Project-management tools gate
+ *     (`get_hq_connection`, `upload_app_to_hq`,
+ *     `check_project_space_compatibility`) and the Project-management tools gate
  *     this way; see `assertScope` / `McpScopeError` in `./scopes`.
  *     Distinct from `HqToolErrorType` because scope failure is a
  *     token-shape problem, not a per-tool gate, and surfaces across
@@ -158,8 +166,8 @@ export type UploadErrorType =
  *     to `"not_found"`: a member legitimately knows the Project exists,
  *     so the honest answer is what's missing and who can fix it.
  *     Surfaces via `ProjectPermissionError` (`lib/projects/manage`).
- *   - `UploadErrorType` — HQ connection, target, and upload rejections,
- *     including the update-only `remote_app_missing`.
+ *   - `UploadErrorType` — HQ connection, compatibility, target-state, and
+ *     upload rejections.
  *   - `AgentErrorType` — the shared `classifyError` taxonomy used by
  *     every generic throw (network, provider, internal).
  *

@@ -121,11 +121,11 @@ vi.mock("@/lib/deployment/store", () => {
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import {
 	importApp,
-	probeHqFeatureFlags,
+	probeHqProjectSpaceCompatibility,
 	uploadAppMediaBundle,
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
-import { HQ_FEATURE_FLAG_REQUIREMENTS } from "@/lib/commcare/featureFlags";
+import { readHqAppSourceProfile } from "@/lib/commcare/hq/appSource";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import type { HqApplication } from "@/lib/commcare/types";
 import { validationError } from "@/lib/commcare/validator/errors";
@@ -142,6 +142,11 @@ import {
 import type { BlueprintDoc } from "@/lib/domain";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
+import {
+	projectSpaceAdvisoryUse,
+	projectSpaceCapabilityUse,
+	projectSpaceCompatibilityForTarget,
+} from "@/lib/publish/projectSpaceCompatibility";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
 import { SCOPES } from "../scopes";
@@ -170,8 +175,11 @@ vi.mock("@/lib/db/settings", () => ({
 }));
 vi.mock("@/lib/commcare/client", () => ({
 	importApp: vi.fn(),
-	probeHqFeatureFlags: vi.fn(),
+	probeHqProjectSpaceCompatibility: vi.fn(),
 	uploadAppMediaBundle: vi.fn(),
+}));
+vi.mock("@/lib/commcare/hq/appSource", () => ({
+	readHqAppSourceProfile: vi.fn(),
 }));
 // The bulk-zip builder needs real bytes; the tool only checks the manifest
 // is non-empty before calling it, so a stub buffer keeps it network-free.
@@ -331,7 +339,8 @@ beforeEach(() => {
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(uploadAppMediaBundle).mockReset();
-	vi.mocked(probeHqFeatureFlags).mockReset();
+	vi.mocked(probeHqProjectSpaceCompatibility).mockReset();
+	vi.mocked(readHqAppSourceProfile).mockReset();
 	vi.mocked(prepareExportBoundary).mockReset();
 	LogWriterMock.instances = [];
 
@@ -352,7 +361,15 @@ beforeEach(() => {
 		errors: [],
 		timedOut: false,
 	});
-	vi.mocked(probeHqFeatureFlags).mockResolvedValue([]);
+	vi.mocked(probeHqProjectSpaceCompatibility).mockImplementation(
+		async (_credentials, domain) => ({
+			capabilities: [],
+			advisories: [],
+			availableAdvisories: [],
+			report: projectSpaceCompatibilityForTarget(domain, [], []),
+		}),
+	);
+	vi.mocked(readHqAppSourceProfile).mockResolvedValue({ profile: {} });
 	/* Neutral export prep is transparent by default. The media-rejection test
 	 * overrides with a rejected boundary result. */
 	vi.mocked(prepareExportBoundary).mockImplementation(
@@ -374,18 +391,22 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerUploadAppToHq — happy path", () => {
-	it("instructs bare MCP clients to disclose requirements before upload", () => {
+	it("instructs bare MCP clients to check the chosen project space before upload", () => {
 		const { server, registeredConfig } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
 
 		const config = registeredConfig() as { description?: string };
-		expect(config.description).toContain("call `get_app_hq_feature_flags`");
-		expect(config.description).toContain("with that explicit domain");
 		expect(config.description).toContain(
-			"must not cause requested app features to be changed or removed",
+			"call `check_project_space_compatibility`",
 		);
-		expect(config.description).toContain("confirmed `missing_flags`");
-		expect(config.description).toContain("against the exact target");
+		expect(config.description).toContain("explicit chosen domain");
+		expect(config.description).toContain(
+			"final authoritative compatibility check",
+		);
+		expect(config.description).toContain("`project_space_incompatible`");
+		expect(config.description).toContain("a performance advisory never blocks");
+		expect(config.description).toContain("`hq_app_state_unknown`");
+		expect(config.description).not.toContain("get_app_hq_feature_flags");
 	});
 
 	it("resolves the sole space (no domain arg) and returns the HQ app id + URL", async () => {
@@ -432,10 +453,19 @@ describe("registerUploadAppToHq — happy path", () => {
 			hq_app_id: "hq-123",
 			hq_app_action: "created",
 			warnings: [],
-			feature_flag_requirements: expect.objectContaining({
+			project_space_compatibility: expect.objectContaining({
+				status: "not_needed",
+				required_capabilities: [],
+			}),
+			feature_flag_requirements: {
 				verification: "not_required",
 				required_flags: [],
-			}),
+				missing_flags: [],
+				unverified_flags: [],
+				support_email: expect.any(String),
+				docs_url: expect.any(String),
+				message: expect.any(String),
+			},
 		});
 		/* Uploading is not releasing: the state a successful publish reaches
 		 * is `uploaded`, and a client that reported it as live would be
@@ -493,24 +523,44 @@ describe("registerUploadAppToHq — happy path", () => {
 		);
 	});
 
-	it("returns flags confirmed missing by the accepted target domain", async () => {
+	it("uploads with a ready semantic report when only a performance advisory is missing", async () => {
 		const doc = fixtureBlueprint();
-		doc.connectType = "learn";
+		doc.modules = {
+			patients: {
+				uuid: "patients",
+				id: "patients",
+				name: "Patients",
+				caseType: "patient",
+				caseSearchConfig: {},
+			} as BlueprintDoc["modules"][string],
+		};
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
 			fixtureLoadedBlueprintForTest(doc),
 		);
+		const search = projectSpaceCapabilityUse("case-search", [
+			"The app searches for cases that may not already be available.",
+		]);
+		const performance = projectSpaceAdvisoryUse("large-search-performance", [
+			"The app searches for cases that may not already be available.",
+		]);
+		const capabilities = [{ capability: search, state: "available" as const }];
+		const advisories = [{ advisory: performance, state: "missing" as const }];
+		vi.mocked(probeHqProjectSpaceCompatibility).mockResolvedValueOnce({
+			capabilities,
+			advisories,
+			availableAdvisories: [],
+			report: projectSpaceCompatibilityForTarget(
+				"acme-research",
+				capabilities,
+				advisories,
+			),
+		});
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
-			appId: "hq-flags",
+			appId: "hq-search",
 			version: null,
 			warnings: [],
 		});
-		vi.mocked(probeHqFeatureFlags).mockResolvedValueOnce([
-			{
-				requirement: HQ_FEATURE_FLAG_REQUIREMENTS[2],
-				state: "missing",
-			},
-		]);
 
 		const { server, capture } = makeFakeServer();
 		registerUploadAppToHq(server, toolCtx);
@@ -518,16 +568,97 @@ describe("registerUploadAppToHq — happy path", () => {
 			content: Array<{ type: "text"; text: string }>;
 		};
 		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+			project_space_compatibility: {
+				status: string;
+				required_capabilities: { id: string; state: string }[];
+				advisories: { id: string; state: string }[];
+			};
 			feature_flag_requirements: {
-				missing_flags: { slug: string }[];
-				message: string;
+				verification: string;
+				required_flags: Array<{
+					id: string;
+					slug: string;
+					namespaces: string[];
+				}>;
+				missing_flags: unknown[];
+				unverified_flags: unknown[];
 			};
 		};
-		expect(parsed.feature_flag_requirements.missing_flags).toEqual([
-			expect.objectContaining({ slug: "commcare_connect" }),
+
+		expect(importApp).toHaveBeenCalledTimes(1);
+		expect(parsed.project_space_compatibility).toMatchObject({
+			status: "ready",
+			required_capabilities: [
+				expect.objectContaining({ id: "case-search", state: "available" }),
+			],
+			advisories: [
+				expect.objectContaining({
+					id: "large-search-performance",
+					state: "missing",
+				}),
+			],
+		});
+		expect(parsed.feature_flag_requirements).toMatchObject({
+			verification: "verified",
+			required_flags: [
+				{ id: "case-search", slug: "case-search", namespaces: [] },
+			],
+			missing_flags: [],
+			unverified_flags: [],
+		});
+		const serialized = JSON.stringify(parsed.feature_flag_requirements);
+		expect(serialized).not.toContain("large-search-performance");
+		expect(serialized).not.toMatch(
+			/search_claim|case_search_advanced|commcare_connect|mm_case_properties|view_form_attachments|custom_properties|NAMESPACE_|TAG_/i,
+		);
+	});
+
+	it("blocks before upload when required project-space support is missing", async () => {
+		const doc = fixtureBlueprint();
+		doc.connectType = "learn";
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
+			fixtureLoadedBlueprintForTest(doc),
+		);
+		const connect = projectSpaceCapabilityUse("commcare-connect", [
+			"The app uses CommCare Connect Learn.",
 		]);
-		expect(parsed.feature_flag_requirements.message).toContain(
-			"support@dimagi.com",
+		const capabilities = [{ capability: connect, state: "missing" as const }];
+		vi.mocked(probeHqProjectSpaceCompatibility).mockResolvedValueOnce({
+			capabilities,
+			advisories: [],
+			availableAdvisories: [],
+			report: projectSpaceCompatibilityForTarget(
+				"acme-research",
+				capabilities,
+				[],
+			),
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			project_space_compatibility: {
+				status: string;
+				blockers: { id: string; state: string }[];
+			};
+		};
+		expect(parsed.error_type).toBe("project_space_incompatible");
+		expect(parsed.project_space_compatibility.status).toBe("blocked");
+		expect(parsed.project_space_compatibility.blockers).toEqual([
+			expect.objectContaining({
+				id: "commcare-connect",
+				state: "missing",
+			}),
+		]);
+		expect(importApp).not.toHaveBeenCalled();
+		const serialized = JSON.stringify(parsed);
+		expect(serialized).not.toMatch(/slug|namespace|profile|toggle|setting/i);
+		expect(serialized).not.toMatch(
+			/search_claim|case_search_advanced|commcare_connect|mm_case_properties|view_form_attachments|custom_properties|NAMESPACE_|TAG_/i,
 		);
 	});
 });
@@ -947,6 +1078,37 @@ describe("registerUploadAppToHq — in-place update", () => {
 		};
 		expect(parsed.hq_app_action).toBe("updated");
 		expect(parsed.hq_app_id).toBe("hq-existing");
+	});
+
+	it("returns a typed refusal without uploading when the current HQ app source cannot be read", async () => {
+		vi.mocked(foldDeploymentAttempt).mockResolvedValueOnce(
+			mappedFoldView("hq-existing") as never,
+		);
+		vi.mocked(readHqAppSourceProfile).mockResolvedValueOnce({
+			success: false,
+			status: 502,
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			isError: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			app_id: string;
+		};
+		expect(payload).toMatchObject({
+			error_type: UPLOAD_ERROR_TAGS.hq_app_state_unknown,
+			app_id: "a1",
+		});
+		expect(payload.message).toMatch(/left that app unchanged/i);
+		expect(importApp).not.toHaveBeenCalled();
+		expect(recordRemoteResource).not.toHaveBeenCalled();
 	});
 
 	it("refuses with 'remote_app_missing' when the mapped app is gone, folding the answer as an observation", async () => {

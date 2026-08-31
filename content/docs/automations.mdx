@@ -62,11 +62,12 @@ HQ checks the threshold between cases. One case can apply several updates, so
 the final total can exceed the threshold before HQ stops; the next daily sweep
 tries again.
 
-HQ's deprecated `RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is project-wide, not a
-property of one rule, so the Builder does not offer it per automation. If a
-target project has that switch enabled, saving a case evaluates every active
-automatic-update rule for that case type. Treat that project-wide effect as a
-separate deployment decision; the daily sweep remains the recovery path.
+CommCare HQ can be configured to run automatic case updates whenever a case is
+saved. That behavior is project-wide, not a property of one rule, so the Builder
+does not offer it per automation. If it is active on the target project, saving
+a case evaluates every active automatic-update rule for that case type. Treat
+that project-wide effect as a separate deployment decision; the daily sweep
+remains the recovery path.
 
 ## Conditional alerts
 
@@ -167,8 +168,9 @@ Message templates may use case, owner, parent, host, and recipient values. HQ's
 current alert form has no representable web-user recipient. Connect messages
 and surveys also cannot target the matched case, parent case, all child cases,
 an email stored on the case, or a case group; the Builder refuses those
-combinations before save. They require the **COMMCARE_CONNECT** domain toggle,
-and every recipient resolved at run time must be a CommCare mobile worker with
+combinations before save. They require **CommCare Connect** support in the
+project space, which Nova checks before publishing, and every recipient
+resolved at run time must be a CommCare mobile worker with
 an active PersonalID link. HQ refuses explicitly selected workers without that
 link, and unresolved or non-mobile-worker recipients cannot receive Connect
 content.
@@ -205,10 +207,10 @@ When a rule mixes countable and HQ-only conditions, the screen names every
 omitted part beside the count instead of presenting a partial count as
 complete.
 
-The generated guide names their target-side prerequisites: user-configurable
-report (UCR) conditions need the `CASE_UPDATES_UCR_FILTERS` domain toggle, while
-a registered custom condition requires a CommCare HQ system administrator to
-save the automation.
+The generated guide names their target-side prerequisites: the target project
+must support user-configurable report (UCR) conditions, while a registered
+custom condition requires a CommCare HQ system administrator to save the
+automation.
 
 Preview follows HQ's value typing at this boundary: equality matches only an
 exact stored string. A stored number, boolean, object, array, null, or missing

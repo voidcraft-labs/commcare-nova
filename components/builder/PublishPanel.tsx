@@ -26,7 +26,7 @@ import {
 import { useCommCareConnection } from "@/components/builder/CommCareConnectionContext";
 import type {
 	PublishDownloadOutcome,
-	PublishFeatureFlagOutcome,
+	PublishProjectSpaceCompatibilityOutcome,
 } from "@/components/builder/PublishDialog";
 import { PublishButton } from "@/components/ui/PublishButton";
 import { useReconcilerContext } from "@/lib/collab/context";
@@ -37,10 +37,10 @@ import {
 	EXPORT_ADVISORY_HEADER,
 } from "@/lib/publish/exportAdvisories";
 import {
-	decodeHqFeatureFlagReport,
-	HQ_FEATURE_FLAG_REPORT_HEADER,
-	type HqFeatureFlagReport,
-} from "@/lib/publish/hqFeatureFlags";
+	decodeProjectSpaceCompatibilityReport,
+	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
+	type ProjectSpaceCompatibilityReport,
+} from "@/lib/publish/projectSpaceCompatibility";
 import { buildUrl } from "@/lib/routing/location";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import {
@@ -131,8 +131,8 @@ async function downloadArtifact(opts: {
 			);
 			return { ok: false };
 		}
-		const featureFlagReport = decodeHqFeatureFlagReport(
-			res.headers.get(HQ_FEATURE_FLAG_REPORT_HEADER),
+		const projectSpaceCompatibility = decodeProjectSpaceCompatibilityReport(
+			res.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
 		);
 		// What the file could not carry. Read before the body, discarded
 		// silently if it is unreadable: the bytes already arrived and no
@@ -143,7 +143,7 @@ async function downloadArtifact(opts: {
 		const blob = await res.blob();
 		if (!opts.isCurrent()) return { ok: false };
 		triggerBlobDownload(blob, opts.filename(blob));
-		return { ok: true, featureFlagReport, advisories };
+		return { ok: true, projectSpaceCompatibility, advisories };
 	} catch (error) {
 		if (
 			opts.signal.aborted ||
@@ -291,27 +291,30 @@ export const PublishPanel = memo(function PublishPanel() {
 			});
 		}, [docStore, runDownload]);
 
-	const loadFeatureFlags = useCallback(
+	const loadProjectSpaceCompatibility = useCallback(
 		async (
 			domain: string | undefined,
 			signal: AbortSignal,
-		): Promise<PublishFeatureFlagOutcome> => {
+		): Promise<PublishProjectSpaceCompatibilityOutcome> => {
 			const start = session.getState();
 			const appId = docStore?.getState().appId;
 			if (start.accessPhase !== "authorized" || !appId) {
 				return {
 					ok: false,
-					message: "Feature flag information isn't available right now",
+					message: "Project-space compatibility isn't available right now",
 				};
 			}
 			const scopeEpoch = start.scopeEpoch;
 			try {
-				const response = await fetch("/api/commcare/feature-flags", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ appId, ...(domain && { domain }) }),
-					signal,
-				});
+				const response = await fetch(
+					"/api/commcare/project-space-compatibility",
+					{
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ appId, ...(domain && { domain }) }),
+						signal,
+					},
+				);
 				const current = session.getState();
 				if (
 					signal.aborted ||
@@ -320,33 +323,33 @@ export const PublishPanel = memo(function PublishPanel() {
 				) {
 					return {
 						ok: false,
-						message: "The feature flag check was canceled",
+						message: "The compatibility check was canceled",
 					};
 				}
 				const body = (await response.json().catch(() => null)) as {
-					feature_flag_requirements?: HqFeatureFlagReport;
+					project_space_compatibility?: ProjectSpaceCompatibilityReport;
 					error?: string;
 				} | null;
-				if (!response.ok || !body?.feature_flag_requirements) {
+				if (!response.ok || !body?.project_space_compatibility) {
 					return {
 						ok: false,
 						message:
 							body?.error ??
-							"The feature flag check didn't finish. Try again in this window",
+							"Nova couldn't check whether this project space can run the app. Try again in this window",
 					};
 				}
-				return { ok: true, report: body.feature_flag_requirements };
+				return { ok: true, report: body.project_space_compatibility };
 			} catch (error) {
 				if (
 					signal.aborted ||
 					(error instanceof DOMException && error.name === "AbortError")
 				) {
-					return { ok: false, message: "The feature flag check was canceled" };
+					return { ok: false, message: "The compatibility check was canceled" };
 				}
 				return {
 					ok: false,
 					message:
-						"The feature flag check didn't finish. Try again in this window",
+						"Nova couldn't check whether this project space can run the app. Try again in this window",
 				};
 			}
 		},
@@ -432,7 +435,7 @@ export const PublishPanel = memo(function PublishPanel() {
 					onOpenPublishing={handleOpenPublishing}
 					isRefreshingHqConnection={isRefreshingHqConnection}
 					onRefreshHqConnection={handleRefreshHqConnection}
-					onLoadFeatureFlags={loadFeatureFlags}
+					onLoadProjectSpaceCompatibility={loadProjectSpaceCompatibility}
 					onDownloadJson={handleDownloadJson}
 					onDownloadCcz={handleDownloadCcz}
 				/>

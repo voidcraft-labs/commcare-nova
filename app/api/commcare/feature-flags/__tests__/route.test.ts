@@ -1,116 +1,75 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { requireSession } from "@/lib/auth-utils";
-import { probeHqFeatureFlags } from "@/lib/commcare/client";
-import { HQ_FEATURE_FLAG_REQUIREMENTS } from "@/lib/commcare/featureFlags";
-import { resolveAppAccess } from "@/lib/db/appAccess";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import { describe, expect, it, vi } from "vitest";
+import { POST as checkProjectSpaceCompatibility } from "../../project-space-compatibility/route";
 import { POST } from "../route";
 
-vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
-vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
-vi.mock("@/lib/db/settings", () => ({ getCredentialsForUpload: vi.fn() }));
-vi.mock("@/lib/commcare/client", async (importOriginal) => ({
-	...(await importOriginal<typeof import("@/lib/commcare/client")>()),
-	probeHqFeatureFlags: vi.fn(),
+vi.mock("../../project-space-compatibility/route", () => ({
+	POST: vi.fn(),
 }));
 
-function request(body: unknown) {
-	return {
-		headers: new Headers(),
-		json: async () => body,
-		arrayBuffer: async () =>
-			new TextEncoder().encode(JSON.stringify(body)).buffer as ArrayBuffer,
-	} as unknown as Parameters<typeof POST>[0];
-}
+describe("POST /api/commcare/feature-flags rollout bridge", () => {
+	it("keeps an already-loaded Builder tab operable without exposing HQ settings", async () => {
+		vi.mocked(checkProjectSpaceCompatibility).mockResolvedValueOnce(
+			Response.json({
+				project_space_compatibility: {
+					status: "blocked",
+					target_domain: "clinic-space",
+					required_capabilities: [
+						{
+							id: "case-search",
+							label: "Case search",
+							description: "Searches live case data.",
+							reasons: ["The Patients module uses Search."],
+							state: "missing",
+						},
+					],
+					blockers: [
+						{
+							id: "case-search",
+							label: "Case search",
+							description: "Searches live case data.",
+							reasons: ["The Patients module uses Search."],
+							state: "missing",
+						},
+					],
+					advisories: [],
+					support_email: "support@dimagi.com",
+					docs_url: "https://docs.commcare.app/project-space-compatibility",
+					message: "This project space needs Case search support.",
+				},
+			}),
+		);
 
-function caseSearchDoc() {
-	const { fieldParent: _fieldParent, ...persisted } = buildDoc({
-		appId: "app-1",
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				caseSearchConfig: {},
-			},
-		],
-	});
-	return persisted;
-}
+		const request = {} as Parameters<typeof POST>[0];
+		const response = await POST(request);
+		const body = await response.json();
 
-beforeEach(() => {
-	vi.mocked(requireSession).mockReset();
-	vi.mocked(resolveAppAccess).mockReset();
-	vi.mocked(getCredentialsForUpload).mockReset();
-	vi.mocked(probeHqFeatureFlags).mockReset();
-	vi.mocked(requireSession).mockResolvedValue({ user: { id: "u1" } } as never);
-	vi.mocked(resolveAppAccess).mockResolvedValue({
-		app: { blueprint: caseSearchDoc() },
-		projectId: "project-1",
-		role: "owner",
-		actorUserId: "u1",
-	} as never);
-});
-
-describe("POST /api/commcare/feature-flags", () => {
-	it("returns app requirements without claiming a domain was checked", async () => {
-		const response = await POST(request({ appId: "app-1" }));
-		const body = (await response.json()) as {
-			feature_flag_requirements: {
-				target_domain?: string;
-				required_flags: Array<{ slug: string }>;
-				message: string;
-			};
-		};
-
-		expect(response.status).toBe(200);
+		expect(checkProjectSpaceCompatibility).toHaveBeenCalledWith(request);
 		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
-		expect(body.feature_flag_requirements.target_domain).toBeUndefined();
-		expect(
-			body.feature_flag_requirements.required_flags.map((flag) => flag.slug),
-		).toEqual(["search_claim"]);
-		expect(body.feature_flag_requirements.message).toContain(
-			"requirements, not confirmed missing",
+		expect(body.feature_flag_requirements).toMatchObject({
+			verification: "verified",
+			target_domain: "clinic-space",
+			required_flags: [
+				expect.objectContaining({
+					id: "case-search",
+					slug: "case-search",
+					label: "Case search",
+				}),
+			],
+			missing_flags: [expect.objectContaining({ id: "case-search" })],
+		});
+		const serialized = JSON.stringify(body);
+		expect(serialized).not.toMatch(
+			/search_claim|case_search_advanced|commcare_connect|custom_properties|NAMESPACE_|TAG_/i,
 		);
-		expect(resolveAppAccess).toHaveBeenCalledWith("app-1", "u1", "view");
-		expect(getCredentialsForUpload).not.toHaveBeenCalled();
-		expect(probeHqFeatureFlags).not.toHaveBeenCalled();
 	});
 
-	it("checks a selected HQ project space without claiming an upload happened", async () => {
-		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
-			ok: true,
-			creds: { username: "agent", apiKey: "secret" },
-			domain: { name: "clinic-space", displayName: "Clinic Space" },
-		} as never);
-		const requirement = HQ_FEATURE_FLAG_REQUIREMENTS[0];
-		if (!requirement) throw new Error("feature-flag catalog is empty");
-		vi.mocked(probeHqFeatureFlags).mockResolvedValueOnce([
-			{ requirement, state: "missing" },
-		]);
-
-		const response = await POST(
-			request({ appId: "app-1", domain: "clinic-space" }),
+	it("passes a current-route refusal through unchanged", async () => {
+		vi.mocked(checkProjectSpaceCompatibility).mockResolvedValueOnce(
+			Response.json({ error: "Not signed in" }, { status: 401 }),
 		);
-		const body = (await response.json()) as {
-			feature_flag_requirements: {
-				target_domain?: string;
-				missing_flags: Array<{ slug: string }>;
-				message: string;
-			};
-		};
 
-		expect(body.feature_flag_requirements.target_domain).toBe("clinic-space");
-		expect(
-			body.feature_flag_requirements.missing_flags.map((flag) => flag.slug),
-		).toEqual(["search_claim"]);
-		expect(body.feature_flag_requirements.message).toContain("isn't enabled");
-		expect(body.feature_flag_requirements.message).not.toContain("published");
-		expect(getCredentialsForUpload).toHaveBeenCalledWith("u1", "clinic-space");
-		expect(probeHqFeatureFlags).toHaveBeenCalledWith(
-			expect.objectContaining({ username: "agent" }),
-			"clinic-space",
-			[requirement],
-		);
+		const response = await POST({} as Parameters<typeof POST>[0]);
+		expect(response.status).toBe(401);
+		await expect(response.json()).resolves.toEqual({ error: "Not signed in" });
 	});
 });

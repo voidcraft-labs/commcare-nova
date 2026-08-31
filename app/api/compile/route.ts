@@ -3,10 +3,10 @@ import { handleApiError } from "@/lib/apiError";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
-	encodeHqFeatureFlagReport,
-	featureFlagReportForDownload,
-	HQ_FEATURE_FLAG_REPORT_HEADER,
-} from "@/lib/commcare/featureFlags";
+	encodeProjectSpaceCompatibilityReport,
+	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
+	projectSpaceCompatibilityForDownload,
+} from "@/lib/commcare/projectSpaceCompatibility";
 import {
 	EXPORT_ADVISORY_HEADER,
 	encodeExportAdvisories,
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
 		// download filename is sanitized because `appName` is user-controlled
 		// and flows into a response header (`Content-Disposition`).
 		const appName = sanitizeFilename(doc.appName);
-		const featureFlagReport = featureFlagReportForDownload(doc);
+		const projectSpaceCompatibility = projectSpaceCompatibilityForDownload(doc);
 		// The archive is complete and correct; the advisories say what it
 		// could not carry, so they ride beside the bytes rather than
 		// replacing them.
@@ -75,8 +75,8 @@ export async function POST(req: NextRequest) {
 				"Content-Type": "application/octet-stream",
 				"Content-Disposition": `attachment; filename="${appName}.ccz"`,
 				"Content-Length": buffer.length.toString(),
-				[HQ_FEATURE_FLAG_REPORT_HEADER]:
-					encodeHqFeatureFlagReport(featureFlagReport),
+				[PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER]:
+					encodeProjectSpaceCompatibilityReport(projectSpaceCompatibility),
 				[EXPORT_ADVISORY_HEADER]: encodeExportAdvisories(advisories),
 			},
 		});

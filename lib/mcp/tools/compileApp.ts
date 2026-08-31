@@ -32,11 +32,8 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
-import {
-	featureFlagReportForDownload,
-	type HqFeatureFlagReport,
-} from "@/lib/commcare/featureFlags";
 import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
+import { projectSpaceCompatibilityForDownload } from "@/lib/commcare/projectSpaceCompatibility";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
 import { attachmentUrlTargetFor } from "@/lib/deployment/attachmentTarget";
@@ -48,6 +45,7 @@ import {
 	type ExportAdvisory,
 	exportAdvisories,
 } from "@/lib/publish/exportAdvisories";
+import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -79,7 +77,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		"compile_app",
 		{
 			description:
-				'Compile an owned app to CommCare HQ format. Before invoking this tool, call `get_app_hq_feature_flags` without a domain if the user has not already been shown the app requirements, so they can understand them before export. `format: "json"` returns the HQ JSON as text, or, when the app has media, a base64-encoded zip bundle (JSON + an HQ multimedia upload) so the media round-trips. `format: "ccz"` returns the binary archive base64-encoded. When the app uses HQ feature flags, a text block before the artifact repeats the requirements so large base64 results cannot hide them; because a downloaded artifact has no known destination, these are requirements, not flags Nova has confirmed missing.',
+				'Compile an owned app to CommCare HQ format. `format: "json"` returns the HQ JSON as text, or, when the app has media or Project data, a base64-encoded zip bundle so every companion artifact travels with it. `format: "ccz"` returns the binary archive base64-encoded. A download has no selected CommCare HQ project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile. When the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact so a large base64 result cannot hide it. Check one actual destination later with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
 			inputSchema: z.object({
 				app_id: z
 					.string()
@@ -160,11 +158,13 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					lookupWorkbook,
 				} = boundary.prepared;
 				const hasMedia = assets.size > 0;
-				const featureFlagReport = featureFlagReportForDownload(preparedDoc);
-				const featureFlagContent =
-					featureFlagAdvisoryContent(featureFlagReport);
-				const featureFlagMeta = {
-					"nova/featureFlagRequirements": featureFlagReport,
+				const projectSpaceCompatibility =
+					projectSpaceCompatibilityForDownload(preparedDoc);
+				const projectSpaceCompatibilityContent = compatibilityContent(
+					projectSpaceCompatibility,
+				);
+				const projectSpaceCompatibilityMeta = {
+					"nova/projectSpaceCompatibility": projectSpaceCompatibility,
 				};
 				/* What the artifact could not carry, said beside it rather
 				 * than instead of it: the compile succeeded and the bytes are
@@ -197,7 +197,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						const compiledAtMeta = {
 							_meta: {
 								"nova/compiledAtSeq": compiledAtSeq,
-								...featureFlagMeta,
+								...projectSpaceCompatibilityMeta,
 								...advisoryMeta,
 							},
 						};
@@ -211,7 +211,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							 * nothing to carry alongside it, gets JSON. */
 							return {
 								content: [
-									...featureFlagContent,
+									...projectSpaceCompatibilityContent,
 									...advisoryContent,
 									{ type: "text", text: JSON.stringify(hqJson) },
 								],
@@ -233,7 +233,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						);
 						return {
 							content: [
-								...featureFlagContent,
+								...projectSpaceCompatibilityContent,
 								...advisoryContent,
 								{
 									type: "text",
@@ -269,7 +269,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						});
 						return {
 							content: [
-								...featureFlagContent,
+								...projectSpaceCompatibilityContent,
 								...advisoryContent,
 								{
 									type: "text",
@@ -280,7 +280,10 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 									}),
 								},
 							],
-							_meta: { ...featureFlagMeta, ...advisoryMeta },
+							_meta: {
+								...projectSpaceCompatibilityMeta,
+								...advisoryMeta,
+							},
 						};
 					}
 					default: {
@@ -304,24 +307,24 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 	);
 }
 
-/** Separate leading advisory block keeps the requested artifact byte-identical
- * while ensuring a host's initial-result preview shows the requirements before
- * a potentially megabyte-scale artifact. */
-function featureFlagAdvisoryContent(report: HqFeatureFlagReport) {
-	if (report.required_flags.length === 0) return [];
+/** Separate leading compatibility block keeps the requested artifact
+ * byte-identical while ensuring a host's initial-result preview shows relevant
+ * destination requirements before a potentially megabyte-scale artifact. */
+function compatibilityContent(report: ProjectSpaceCompatibilityReport) {
+	if (report.status === "not_needed") return [];
 	return [
 		{
 			type: "text" as const,
 			text: JSON.stringify({
-				kind: "nova_hq_feature_flag_requirements",
-				feature_flag_requirements: report,
+				kind: "nova_project_space_compatibility",
+				project_space_compatibility: report,
 			}),
 		},
 	];
 }
 
 /** The download path's advisories, in the same leading-block shape the
- * feature-flag requirements use and for the same reason: a host's initial
+ * project-space report uses and for the same reason: a host's initial
  * result preview shows them before a potentially megabyte-scale artifact. */
 function exportAdvisoryContent(advisories: readonly ExportAdvisory[]) {
 	if (advisories.length === 0) return [];

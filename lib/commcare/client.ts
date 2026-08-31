@@ -28,10 +28,12 @@
  */
 
 import { log } from "@/lib/logger";
-import type {
-	HqFeatureFlagProbe,
-	HqFeatureFlagRequirement,
-} from "@/lib/publish/hqFeatureFlags";
+import {
+	type ProjectSpaceAdvisoryId,
+	type ProjectSpaceAdvisoryProbe,
+	type ProjectSpaceCapabilityProbe,
+	projectSpaceCompatibilityForTarget,
+} from "@/lib/publish/projectSpaceCompatibility";
 import {
 	authHeader,
 	baseUrl,
@@ -43,6 +45,14 @@ import {
 	WAF_PADDING,
 	warnAndReturnError,
 } from "./hq/http";
+/** Private compatibility inputs stay behind the CommCare boundary. They are
+ * types here so no manifest can enter a browser bundle through this client. */
+import type {
+	HqPrivateFeatureFlagRequirement,
+	HqProjectSpaceAdvisoryProbePlan,
+	HqProjectSpaceCapabilityProbePlan,
+	HqProjectSpaceCompatibilityProbePlan,
+} from "./projectSpaceCompatibility";
 
 /* The HQ wire primitives live in `./hq/http` so every driver shares one
  * base-URL catalog, one auth scheme, and one WAF padding field. They are
@@ -82,12 +92,14 @@ export type ImportResponse = ImportResult | CommCareApiError;
 /** Raw response shape from CommCare HQ's user_domains endpoint. */
 interface UserDomainsResponse {
 	meta: {
-		limit: number;
-		next: string | null;
-		offset: number;
 		total_count: number;
+		/** Current HQ uses `DoesNothingPaginator` and returns no paging fields.
+		 * Keep these optional for older compatible installations. */
+		limit?: number | null;
+		next?: string | null;
+		offset?: number;
 	};
-	objects: Array<{ domain_name: string; project_name: string }>;
+	objects: Array<{ domain_name: string; project_name: string | null }>;
 }
 
 // ── Client ─────────────────────────────────────────────────────────
@@ -99,7 +111,9 @@ interface UserDomainsResponse {
  * to domains where the user has membership. If the API key is domain-scoped,
  * only that single domain is returned.
  *
- * Paginates automatically if the user has more than 100 domains.
+ * Current HQ returns the complete set through `DoesNothingPaginator`. Older
+ * compatible installations may still include a `next` pointer, which the
+ * shared reader follows without sending credentials to another origin.
  */
 export async function listDomains(
 	creds: CommCareCredentials,
@@ -138,7 +152,13 @@ async function listDomainsMatching(
 			return logAndReturnError("listDomains failed", res);
 		}
 
-		const data = (await res.json()) as UserDomainsResponse;
+		const data: unknown = await res.json();
+		if (!isUserDomainsResponse(data)) {
+			log.warn("[commcare/project-space] invalid domain-list response shape", {
+				featureFlag,
+			});
+			return { success: false, status: 502 };
+		}
 		for (const obj of data.objects) {
 			domains.push({
 				name: obj.domain_name,
@@ -153,7 +173,7 @@ async function listDomainsMatching(
 		if (data.meta.next) {
 			const resolved = new URL(data.meta.next, base);
 			if (resolved.origin !== new URL(base).origin) {
-				log.warn("[commcare/feature-flags] rejected foreign pagination URL", {
+				log.warn("[commcare/project-space] rejected foreign pagination URL", {
 					featureFlag,
 					origin: resolved.origin,
 				});
@@ -166,7 +186,7 @@ async function listDomainsMatching(
 	}
 	if (url !== null) {
 		log.warn(
-			"[commcare/feature-flags] domain pagination exceeded safety bound",
+			"[commcare/project-space] domain pagination exceeded safety bound",
 			{
 				featureFlag,
 				pages: MAX_PAGES,
@@ -178,29 +198,79 @@ async function listDomainsMatching(
 	return domains;
 }
 
+function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return false;
+	}
+	const candidate = value as Record<string, unknown>;
+	if (
+		typeof candidate.meta !== "object" ||
+		candidate.meta === null ||
+		Array.isArray(candidate.meta) ||
+		!Array.isArray(candidate.objects)
+	) {
+		return false;
+	}
+	const meta = candidate.meta as Record<string, unknown>;
+	return (
+		typeof meta.total_count === "number" &&
+		(meta.limit === undefined ||
+			meta.limit === null ||
+			typeof meta.limit === "number") &&
+		(meta.next === undefined ||
+			meta.next === null ||
+			typeof meta.next === "string") &&
+		(meta.offset === undefined || typeof meta.offset === "number") &&
+		candidate.objects.every(
+			(item) =>
+				typeof item === "object" &&
+				item !== null &&
+				!Array.isArray(item) &&
+				typeof (item as Record<string, unknown>).domain_name === "string" &&
+				(typeof (item as Record<string, unknown>).project_name === "string" ||
+					(item as Record<string, unknown>).project_name === null),
+		)
+	);
+}
+
+export interface HqProjectSpaceCompatibilityProbeResult {
+	readonly capabilities: readonly ProjectSpaceCapabilityProbe[];
+	readonly advisories: readonly ProjectSpaceAdvisoryProbe[];
+	readonly availableAdvisories: readonly ProjectSpaceAdvisoryId[];
+	readonly report: ReturnType<typeof projectSpaceCompatibilityForTarget>;
+}
+
 /**
- * Probe every flag the app requires against one known upload target.
+ * Check the private HQ prerequisites behind the app's semantic capabilities.
  *
- * A probe is diagnostic only: each flag settles independently and every
- * transport/HQ failure becomes `unavailable`, never a throw that could undo a
- * successful app upload. The current manifest records domain-only namespaces;
- * fail closed if a future user-namespaced entry reaches this function because
- * HQ unions user + domain assignments for that shape and could produce a false
- * "enabled" result.
+ * Every private check settles to available, missing, or unverified. A required
+ * capability is missing when any exact prerequisite is confirmed missing, and
+ * unverified when none is missing but at least one check could not complete.
+ * Callers serialize only the semantic result, never the probe plan.
  */
-export async function probeHqFeatureFlags(
+export async function probeHqProjectSpaceCompatibility(
 	creds: CommCareCredentials,
 	domain: string,
-	requirements: readonly HqFeatureFlagRequirement[],
-): Promise<HqFeatureFlagProbe[]> {
-	if (requirements.length === 0) return [];
+	plan: HqProjectSpaceCompatibilityProbePlan,
+): Promise<HqProjectSpaceCompatibilityProbeResult> {
+	if (plan.capabilities.length === 0 && plan.advisories.length === 0) {
+		return {
+			capabilities: [],
+			advisories: [],
+			availableAdvisories: [],
+			report: projectSpaceCompatibilityForTarget(domain, [], []),
+		};
+	}
+	if (!isValidDomainSlug(domain)) {
+		return unverifiedProjectSpaceResult(domain, plan);
+	}
 
 	// An empty filtered response only proves a flag is missing when the same
 	// credentials can still see the target in the unfiltered endpoint. Stored
 	// domain approvals can become stale after HQ membership changes; without
 	// this guard, losing access would be misreported as every flag being off.
 	try {
-		const visibleDomains = await runBoundedFeatureFlagProbe((signal) =>
+		const visibleDomains = await runBoundedCompatibilityProbe((signal) =>
 			listDomainsMatching(creds, undefined, signal),
 		);
 		if (
@@ -208,7 +278,7 @@ export async function probeHqFeatureFlags(
 			!visibleDomains.some((candidate) => candidate.name === domain)
 		) {
 			log.warn(
-				"[commcare/feature-flags] target domain unavailable to live credentials",
+				"[commcare/project-space] target domain unavailable to live credentials",
 				{
 					domain,
 					status: Array.isArray(visibleDomains)
@@ -216,78 +286,225 @@ export async function probeHqFeatureFlags(
 						: visibleDomains.status,
 				},
 			);
-			return requirements.map((requirement) => ({
-				requirement,
-				state: "unavailable" as const,
-			}));
+			return unverifiedProjectSpaceResult(domain, plan);
 		}
 	} catch (error) {
-		log.warn("[commcare/feature-flags] live domain check threw", {
+		log.warn("[commcare/project-space] live domain check threw", {
 			domain,
 			error,
 		});
-		return requirements.map((requirement) => ({
-			requirement,
-			state: "unavailable" as const,
-		}));
+		return unverifiedProjectSpaceResult(domain, plan);
 	}
 
-	return Promise.all(
-		requirements.map(async (requirement): Promise<HqFeatureFlagProbe> => {
-			if (
-				requirement.namespaces.length !== 1 ||
-				requirement.namespaces[0] !== "domain"
-			) {
-				log.warn("[commcare/feature-flags] unsafe namespace for domain probe", {
-					domain,
-					flag: requirement.slug,
-					namespaces: requirement.namespaces,
-				});
-				return { requirement, state: "unavailable" };
-			}
+	const allPlans = [...plan.capabilities, ...plan.advisories];
+	const privateFlags = new Map<string, HqPrivateFeatureFlagRequirement>();
+	for (const item of allPlans) {
+		for (const flag of item.featureFlags) privateFlags.set(flag.id, flag);
+	}
+	const needsCaseSearchRuntime = allPlans.some((item) =>
+		item.runtimeProbes.includes("case-search"),
+	);
+	const [flagEntries, caseSearchRuntime] = await Promise.all([
+		Promise.all(
+			[...privateFlags.values()].map(
+				async (flag) =>
+					[
+						flag.id,
+						await probePrivateFeatureFlag(creds, domain, flag),
+					] as const,
+			),
+		),
+		needsCaseSearchRuntime
+			? probeCaseSearchRuntime(creds, domain)
+			: Promise.resolve(undefined),
+	]);
+	const flagResults = new Map(flagEntries);
 
-			try {
-				const enabledDomains = await runBoundedFeatureFlagProbe((signal) =>
-					listDomainsMatching(creds, requirement.slug, signal),
-				);
-				if (!Array.isArray(enabledDomains)) {
-					log.warn("[commcare/feature-flags] HQ probe unavailable", {
-						domain,
-						flag: requirement.slug,
-						status: enabledDomains.status,
-					});
-					return { requirement, state: "unavailable" };
-				}
-				return {
-					requirement,
-					state: enabledDomains.some((candidate) => candidate.name === domain)
-						? "enabled"
-						: "missing",
-				};
-			} catch (error) {
-				log.warn("[commcare/feature-flags] HQ probe threw", {
-					domain,
-					flag: requirement.slug,
-					error,
-				});
-				return { requirement, state: "unavailable" };
-			}
+	const capabilities: ProjectSpaceCapabilityProbe[] = plan.capabilities.map(
+		(item) => ({
+			capability: item.capability,
+			...aggregatePrivateProbeState(item, flagResults, caseSearchRuntime),
 		}),
 	);
+	const advisories: ProjectSpaceAdvisoryProbe[] = plan.advisories.map(
+		(item) => ({
+			advisory: item.advisory,
+			state: aggregatePrivateProbeState(item, flagResults, caseSearchRuntime)
+				.state,
+		}),
+	);
+	return {
+		capabilities,
+		advisories,
+		availableAdvisories: advisories.flatMap((item) =>
+			item.state === "available" ? [item.advisory.id] : [],
+		),
+		report: projectSpaceCompatibilityForTarget(
+			domain,
+			capabilities,
+			advisories,
+		),
+	};
 }
 
-/** A diagnostic must never hold open an already-successful HQ import. */
-export const HQ_FEATURE_FLAG_PROBE_TIMEOUT_MS = 5_000;
+type PrivateProbeState = "available" | "missing" | "unverified";
+type PrivateProbeAssessment = {
+	readonly state: PrivateProbeState;
+	readonly issue?: NonNullable<ProjectSpaceCapabilityProbe["issue"]>;
+};
 
-async function runBoundedFeatureFlagProbe<T>(
+async function probePrivateFeatureFlag(
+	creds: CommCareCredentials,
+	domain: string,
+	requirement: HqPrivateFeatureFlagRequirement,
+): Promise<PrivateProbeState> {
+	if (requirement.namespace !== "domain") {
+		log.warn("[commcare/project-space] unsafe private probe namespace", {
+			domain,
+			probe: requirement.id,
+		});
+		return "unverified";
+	}
+
+	try {
+		const enabledDomains = await runBoundedCompatibilityProbe((signal) =>
+			listDomainsMatching(creds, requirement.slug, signal),
+		);
+		if (!Array.isArray(enabledDomains)) {
+			log.warn("[commcare/project-space] private probe unavailable", {
+				domain,
+				probe: requirement.id,
+				status: enabledDomains.status,
+			});
+			return "unverified";
+		}
+		return enabledDomains.some((candidate) => candidate.name === domain)
+			? "available"
+			: "missing";
+	} catch (error) {
+		log.warn("[commcare/project-space] private probe threw", {
+			domain,
+			probe: requirement.id,
+			error,
+		});
+		return "unverified";
+	}
+}
+
+const CASE_SEARCH_DISABLED_RESPONSE =
+	"Case search is not enabled for this project";
+const CASE_SEARCH_PROBE_TYPE = "__nova_compatibility_probe__";
+
+async function probeCaseSearchRuntime(
+	creds: CommCareCredentials,
+	domain: string,
+): Promise<PrivateProbeAssessment> {
+	try {
+		return await runBoundedCompatibilityProbe(async (signal) => {
+			const query = new URLSearchParams({ case_type: CASE_SEARCH_PROBE_TYPE });
+			const url = `${baseUrl(creds)}/a/${domain}/phone/search/?${query.toString()}`;
+			const response = await fetch(url, {
+				headers: { Authorization: authHeader(creds) },
+				redirect: "manual",
+				signal,
+			});
+			if (response.status === 200 && response.redirected !== true) {
+				await response.body?.cancel();
+				return { state: "available" };
+			}
+			if (response.status === 404) {
+				const body = await response.text();
+				return {
+					state:
+						body === CASE_SEARCH_DISABLED_RESPONSE ? "missing" : "unverified",
+				};
+			}
+			if (response.status === 403) {
+				/* HQ's exact readiness path is a mobile runtime endpoint. A web
+				 * account may be allowed to edit/import apps while this separate
+				 * role permission is absent. Diagnose that recoverable distinction;
+				 * never reinterpret it as Case Search being disabled. */
+				await response.body?.cancel();
+				return {
+					state: "unverified",
+					issue: "connected-account-permission",
+				};
+			}
+			await response.body?.cancel();
+			return { state: "unverified" };
+		});
+	} catch (error) {
+		log.warn("[commcare/project-space] Case search runtime probe threw", {
+			domain,
+			error,
+		});
+		return { state: "unverified" };
+	}
+}
+
+function aggregatePrivateProbeState(
+	plan: HqProjectSpaceCapabilityProbePlan | HqProjectSpaceAdvisoryProbePlan,
+	flagResults: ReadonlyMap<string, PrivateProbeState>,
+	caseSearchRuntime: PrivateProbeAssessment | undefined,
+): PrivateProbeAssessment {
+	const states = plan.featureFlags.map(
+		(flag) => flagResults.get(flag.id) ?? "unverified",
+	);
+	if (plan.runtimeProbes.includes("case-search")) {
+		states.push(caseSearchRuntime?.state ?? "unverified");
+	}
+	if (states.includes("missing")) return { state: "missing" };
+	if (states.includes("unverified")) {
+		return {
+			state: "unverified",
+			...(caseSearchRuntime?.issue === undefined
+				? {}
+				: { issue: caseSearchRuntime.issue }),
+		};
+	}
+	return { state: "available" };
+}
+
+function unverifiedProjectSpaceResult(
+	domain: string,
+	plan: HqProjectSpaceCompatibilityProbePlan,
+): HqProjectSpaceCompatibilityProbeResult {
+	const capabilities: ProjectSpaceCapabilityProbe[] = plan.capabilities.map(
+		(item) => ({
+			capability: item.capability,
+			state: "unverified",
+		}),
+	);
+	const advisories: ProjectSpaceAdvisoryProbe[] = plan.advisories.map(
+		(item) => ({
+			advisory: item.advisory,
+			state: "unverified",
+		}),
+	);
+	return {
+		capabilities,
+		advisories,
+		availableAdvisories: [],
+		report: projectSpaceCompatibilityForTarget(
+			domain,
+			capabilities,
+			advisories,
+		),
+	};
+}
+
+/** A compatibility check must never hold open the publish preflight. */
+export const HQ_PROJECT_SPACE_COMPATIBILITY_PROBE_TIMEOUT_MS = 5_000;
+
+async function runBoundedCompatibilityProbe<T>(
 	probe: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => {
 		controller.abort(
-			new DOMException("HQ feature-flag probe timed out", "TimeoutError"),
+			new DOMException("HQ compatibility probe timed out", "TimeoutError"),
 		);
-	}, HQ_FEATURE_FLAG_PROBE_TIMEOUT_MS);
+	}, HQ_PROJECT_SPACE_COMPATIBILITY_PROBE_TIMEOUT_MS);
 	try {
 		return await probe(controller.signal);
 	} finally {

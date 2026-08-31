@@ -4,8 +4,9 @@
  * All three destinations stay in one durable modal because publish results can
  * carry important prerequisite and follow-up information. One selector changes
  * the destination-specific fields and action while shared app requirements keep
- * one stable place before every action. Connected HQ domains are probed on open,
- * selection, refresh, and upload; exact post-publish results remain in the modal.
+ * one stable place before every action. Connected project spaces are checked on
+ * open, selection, an explicit retry, and again by the server immediately before
+ * an upload; exact post-publish results remain in the modal.
  */
 
 "use client";
@@ -28,6 +29,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -75,7 +77,7 @@ import { plannedInPlaceUpdate } from "@/lib/deployment/resources";
 import type { DeploymentResourceConflict } from "@/lib/deployment/types";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
-import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
+import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
 	useAccessPhase,
 	useCanEdit,
@@ -109,14 +111,14 @@ const PUBLISH_TARGET_OPTIONS = {
 export type PublishDownloadOutcome =
 	| {
 			readonly ok: true;
-			readonly featureFlagReport?: HqFeatureFlagReport;
+			readonly projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 			/** What the file could not carry. Empty on an ordinary download. */
 			readonly advisories?: readonly ExportAdvisory[];
 	  }
 	| { readonly ok: false };
 
-export type PublishFeatureFlagOutcome =
-	| { readonly ok: true; readonly report: HqFeatureFlagReport }
+export type PublishProjectSpaceCompatibilityOutcome =
+	| { readonly ok: true; readonly report: ProjectSpaceCompatibilityReport }
 	| { readonly ok: false; readonly message: string };
 
 interface PublishDialogProps {
@@ -140,10 +142,10 @@ interface PublishDialogProps {
 	onOpenPublishing: () => void;
 	isRefreshingHqConnection: boolean;
 	onRefreshHqConnection: () => void;
-	onLoadFeatureFlags: (
+	onLoadProjectSpaceCompatibility: (
 		domain: string | undefined,
 		signal: AbortSignal,
-	) => Promise<PublishFeatureFlagOutcome>;
+	) => Promise<PublishProjectSpaceCompatibilityOutcome>;
 	onDownloadJson: () => Promise<PublishDownloadOutcome>;
 	onDownloadCcz: () => Promise<PublishDownloadOutcome>;
 }
@@ -162,7 +164,7 @@ type PublishStatus =
 			hqAppAction: "created" | "updated" | null;
 			appUrl: string;
 			warnings: string[];
-			featureFlagReport?: HqFeatureFlagReport;
+			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 			/** Null when the response carried no record to point at. */
 			target: { server: string; domain: string } | null;
 	  }
@@ -176,20 +178,43 @@ type PublishStatus =
 			/** What the publish would have written over and did not. */
 			resourceConflicts: readonly DeploymentResourceConflict[];
 			warnings: string[];
-			featureFlagReport?: HqFeatureFlagReport;
+			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 	  }
 	| {
 			type: "download-success";
 			target: "web" | "mobile";
-			featureFlagReport?: HqFeatureFlagReport;
+			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 			advisories?: readonly ExportAdvisory[];
 	  }
 	| { type: "error"; message: string; status: number; details: string[] };
 
-type FeatureFlagState =
+type ProjectSpaceCompatibilityState =
 	| { type: "loading" }
-	| { type: "ready"; report: HqFeatureFlagReport }
+	| { type: "ready"; report: ProjectSpaceCompatibilityReport }
 	| { type: "error"; message: string };
+
+function compatibilityAllowsDirectUpload(
+	state: ProjectSpaceCompatibilityState,
+	domain: string,
+): boolean {
+	return (
+		state.type === "ready" &&
+		state.report.target_domain === domain &&
+		(state.report.status === "ready" || state.report.status === "not_needed")
+	);
+}
+
+function compatibilityTargetDisplayName(
+	report: ProjectSpaceCompatibilityReport | undefined,
+	domains: readonly Domain[],
+): string | undefined {
+	const targetDomain = report?.target_domain;
+	if (!targetDomain) return undefined;
+	return (
+		domains.find((domain) => domain.name === targetDomain)?.displayName ??
+		targetDomain
+	);
+}
 
 /** The deployments this app already has, loaded when the dialog opens. */
 type ExistingDeployments =
@@ -209,7 +234,7 @@ export function PublishDialog({
 	onOpenPublishing,
 	isRefreshingHqConnection,
 	onRefreshHqConnection,
-	onLoadFeatureFlags,
+	onLoadProjectSpaceCompatibility,
 	onDownloadJson,
 	onDownloadCcz,
 }: PublishDialogProps) {
@@ -219,7 +244,7 @@ export function PublishDialog({
 	const setProjectSpace = useSetDeploymentProjectSpace();
 	const reconciler = useReconcilerContext();
 	const uploadControllerRef = useRef<AbortController | null>(null);
-	const featureFlagControllerRef = useRef<AbortController | null>(null);
+	const compatibilityControllerRef = useRef<AbortController | null>(null);
 	const operationGenerationRef = useRef(0);
 	const storeAppName = useAppName();
 	const [target, setTarget] = useState<PublishTarget>(
@@ -241,9 +266,10 @@ export function PublishDialog({
 	const [adoptResourceIds, setAdoptResourceIds] = useState<readonly string[]>(
 		[],
 	);
-	const [featureFlagState, setFeatureFlagState] = useState<FeatureFlagState>({
-		type: "loading",
-	});
+	const [compatibilityState, setCompatibilityState] =
+		useState<ProjectSpaceCompatibilityState>({
+			type: "loading",
+		});
 	const handleClose = useCallback(() => {
 		operationGenerationRef.current += 1;
 		uploadControllerRef.current?.abort();
@@ -302,12 +328,13 @@ export function PublishDialog({
 	const targetOption = PUBLISH_TARGET_OPTIONS[target];
 
 	const wasOpenRef = useRef(false);
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const justOpened = open && !wasOpenRef.current;
 		wasOpenRef.current = open;
 		if (!justOpened) return;
 		operationGenerationRef.current += 1;
 		setStatus({ type: "idle" });
+		setCompatibilityState({ type: "loading" });
 		setTarget(canUploadToHq ? "hq" : "web");
 		setAppName(storeAppName);
 		setSelectedDomain(
@@ -418,47 +445,49 @@ export function PublishDialog({
 				? "update"
 				: "create";
 
-	const featureFlagDomain =
+	const compatibilityDomain =
 		target === "hq"
 			? selectedDomain ||
 				(availableDomains.length === 1 ? availableDomains[0].name : undefined)
 			: undefined;
-	const loadFeatureFlagReport = useCallback(() => {
-		featureFlagControllerRef.current?.abort();
+	const loadProjectSpaceCompatibility = useCallback(() => {
+		compatibilityControllerRef.current?.abort();
 		const controller = new AbortController();
-		featureFlagControllerRef.current = controller;
-		setFeatureFlagState({ type: "loading" });
-		void onLoadFeatureFlags(featureFlagDomain, controller.signal).then(
-			(outcome) => {
-				if (featureFlagControllerRef.current !== controller) return;
-				featureFlagControllerRef.current = null;
-				setFeatureFlagState(
-					outcome.ok
-						? { type: "ready", report: outcome.report }
-						: { type: "error", message: outcome.message },
-				);
-			},
-		);
-	}, [featureFlagDomain, onLoadFeatureFlags]);
-	const shouldLoadFeatureFlags = target !== "hq" || Boolean(featureFlagDomain);
+		compatibilityControllerRef.current = controller;
+		setCompatibilityState({ type: "loading" });
+		void onLoadProjectSpaceCompatibility(
+			compatibilityDomain,
+			controller.signal,
+		).then((outcome) => {
+			if (compatibilityControllerRef.current !== controller) return;
+			compatibilityControllerRef.current = null;
+			setCompatibilityState(
+				outcome.ok
+					? { type: "ready", report: outcome.report }
+					: { type: "error", message: outcome.message },
+			);
+		});
+	}, [compatibilityDomain, onLoadProjectSpaceCompatibility]);
+	const shouldLoadCompatibility =
+		target !== "hq" || Boolean(compatibilityDomain);
 	useEffect(() => {
-		if (!open || !shouldLoadFeatureFlags) {
-			featureFlagControllerRef.current?.abort();
-			featureFlagControllerRef.current = null;
+		if (!open || !shouldLoadCompatibility) {
+			compatibilityControllerRef.current?.abort();
+			compatibilityControllerRef.current = null;
 			return;
 		}
-		loadFeatureFlagReport();
+		loadProjectSpaceCompatibility();
 		return () => {
-			featureFlagControllerRef.current?.abort();
-			featureFlagControllerRef.current = null;
+			compatibilityControllerRef.current?.abort();
+			compatibilityControllerRef.current = null;
 		};
-	}, [open, loadFeatureFlagReport, shouldLoadFeatureFlags]);
+	}, [open, loadProjectSpaceCompatibility, shouldLoadCompatibility]);
 
-	const invalidateFeatureFlagReport = useCallback(() => {
-		const controller = featureFlagControllerRef.current;
-		featureFlagControllerRef.current = null;
+	const invalidateCompatibilityReport = useCallback(() => {
+		const controller = compatibilityControllerRef.current;
+		compatibilityControllerRef.current = null;
 		controller?.abort();
-		setFeatureFlagState({ type: "loading" });
+		setCompatibilityState({ type: "loading" });
 	}, []);
 	const handleTargetChange = useCallback(
 		(next: PublishTarget) => {
@@ -469,28 +498,28 @@ export function PublishDialog({
 							? availableDomains[0].name
 							: undefined)
 					: undefined;
-			if (nextDomain !== featureFlagDomain) invalidateFeatureFlagReport();
+			if (nextDomain !== compatibilityDomain) invalidateCompatibilityReport();
 			operationGenerationRef.current += 1;
 			setTarget(next);
 			setStatus({ type: "idle" });
 		},
 		[
 			availableDomains,
-			featureFlagDomain,
-			invalidateFeatureFlagReport,
+			compatibilityDomain,
+			invalidateCompatibilityReport,
 			selectedDomain,
 		],
 	);
 	const handleSelectedDomainChange = useCallback(
 		(next: string) => {
-			if (next !== featureFlagDomain) invalidateFeatureFlagReport();
+			if (next !== compatibilityDomain) invalidateCompatibilityReport();
 			operationGenerationRef.current += 1;
 			setSelectedDomain(next);
 			setStatus({ type: "idle" });
 			/* A choice about acme's tables says nothing about beta's. */
 			setAdoptResourceIds([]);
 		},
-		[featureFlagDomain, invalidateFeatureFlagReport],
+		[compatibilityDomain, invalidateCompatibilityReport],
 	);
 	const handleAdoptChange = useCallback(
 		(novaResourceId: string, adopt: boolean) => {
@@ -504,12 +533,23 @@ export function PublishDialog({
 		},
 		[],
 	);
-	const handleRefreshFeatureFlags = useCallback(() => {
-		loadFeatureFlagReport();
-	}, [loadFeatureFlagReport]);
+	const handleCheckCompatibilityAgain = useCallback(() => {
+		setStatus((current) =>
+			current.type === "refused" &&
+			current.projectSpaceCompatibility?.status === "blocked"
+				? { type: "idle" }
+				: current,
+		);
+		loadProjectSpaceCompatibility();
+	}, [loadProjectSpaceCompatibility]);
 
 	const handleUpload = useCallback(async () => {
-		if (!selectedDomain || !appName.trim()) return;
+		if (
+			!selectedDomain ||
+			!appName.trim() ||
+			!compatibilityAllowsDirectUpload(compatibilityState, selectedDomain)
+		)
+			return;
 		const generation = ++operationGenerationRef.current;
 		const start = session.getState();
 		if (start.accessPhase !== "authorized" || !start.canEdit) return;
@@ -546,8 +586,23 @@ export function PublishDialog({
 			}
 			const data = (await response.json()) as Parameters<
 				typeof publishOutcome
-			>[1] & { feature_flag_requirements?: HqFeatureFlagReport };
+			>[1] & {
+				project_space_compatibility?: ProjectSpaceCompatibilityReport | null;
+			};
 			if (!isCurrent()) return;
+			const serverCompatibility = data.project_space_compatibility ?? undefined;
+			/* The publish-time probe is newer authority than the disclosure check
+			 * that enabled the button. Keep its exact answer as the browser gate so
+			 * a target that changed between those requests cannot be submitted again
+			 * until a person explicitly checks it again. A null report means an
+			 * earlier preflight refused the attempt before compatibility was checked,
+			 * so the earlier answer remains the gate for a corrected retry. */
+			if (serverCompatibility !== undefined) {
+				setCompatibilityState({
+					type: "ready",
+					report: serverCompatibility,
+				});
+			}
 
 			/* One pure decision, kept out of here because getting it wrong is
 			 * invisible in a screenshot: a refused publish must show its
@@ -587,7 +642,7 @@ export function PublishDialog({
 					hqAppAction: outcome.hqAppAction,
 					appUrl: outcome.appUrl,
 					warnings: outcome.warnings,
-					featureFlagReport: data.feature_flag_requirements,
+					projectSpaceCompatibility: serverCompatibility,
 					target:
 						record === undefined
 							? null
@@ -604,7 +659,7 @@ export function PublishDialog({
 				},
 				resourceConflicts: outcome.resourceConflicts,
 				warnings: outcome.warnings,
-				featureFlagReport: data.feature_flag_requirements,
+				projectSpaceCompatibility: serverCompatibility,
 			});
 		} catch (error) {
 			if (
@@ -627,6 +682,7 @@ export function PublishDialog({
 		}
 	}, [
 		adoptResourceIds,
+		compatibilityState,
 		selectedDomain,
 		appName,
 		getAppId,
@@ -650,7 +706,7 @@ export function PublishDialog({
 			setStatus({
 				type: "download-success",
 				target: downloadTarget,
-				featureFlagReport: outcome.featureFlagReport,
+				projectSpaceCompatibility: outcome.projectSpaceCompatibility,
 				advisories: outcome.advisories,
 			});
 		},
@@ -659,19 +715,22 @@ export function PublishDialog({
 
 	const isWorking =
 		status.type === "uploading" || status.type === "downloading";
-	const hasFeatureFlagPreflight = featureFlagState.type === "ready";
+	const compatibilityAllowsUpload = compatibilityAllowsDirectUpload(
+		compatibilityState,
+		selectedDomain,
+	);
 	const canUpload =
 		canEdit &&
 		canUploadToHq &&
 		!notConfigured &&
 		!!selectedDomain &&
 		!isWorking &&
-		hasFeatureFlagPreflight &&
+		compatibilityAllowsUpload &&
 		appName.trim().length > 0;
 	const downloadTarget = target === "mobile" ? "mobile" : "web";
 	const downloadComplete =
 		status.type === "download-success" && status.target === downloadTarget;
-	const showFeatureFlagPreflight =
+	const showCompatibilityPreflight =
 		status.type !== "landed" &&
 		status.type !== "refused" &&
 		!downloadComplete &&
@@ -783,8 +842,11 @@ export function PublishDialog({
 										}
 										tone="done"
 										warnings={status.warnings}
-										featureFlagReport={status.featureFlagReport}
-										mode="upload"
+										projectSpaceCompatibility={status.projectSpaceCompatibility}
+										projectSpaceName={compatibilityTargetDisplayName(
+											status.projectSpaceCompatibility,
+											availableDomains,
+										)}
 									>
 										{/* The app is THERE, which is not the same as ready
 										    for workers. The record says which, so the
@@ -821,10 +883,19 @@ export function PublishDialog({
 											<PublishSuccess
 												title="Nova couldn't finish publishing"
 												tone="refused"
-												blocked={status.refusal}
+												blocked={
+													status.projectSpaceCompatibility?.status === "blocked"
+														? undefined
+														: status.refusal
+												}
 												warnings={status.warnings}
-												featureFlagReport={status.featureFlagReport}
-												mode="upload"
+												projectSpaceCompatibility={
+													status.projectSpaceCompatibility
+												}
+												projectSpaceName={compatibilityTargetDisplayName(
+													status.projectSpaceCompatibility,
+													availableDomains,
+												)}
 											>
 												{/* The one refusal a person can answer from here.
 												    Everything else needs a fix elsewhere; this needs
@@ -836,6 +907,19 @@ export function PublishDialog({
 														adopted={adoptResourceIds}
 														onAdoptChange={handleAdoptChange}
 													/>
+												) : null}
+												{status.projectSpaceCompatibility?.status ===
+												"blocked" ? (
+													<div className="mt-2 flex justify-end">
+														<Button
+															type="button"
+															variant="ghost"
+															onClick={handleCheckCompatibilityAgain}
+														>
+															<Icon icon={tablerRefresh} className="size-4" />
+															Check again
+														</Button>
+													</div>
 												) : null}
 											</PublishSuccess>
 										) : null}
@@ -882,19 +966,24 @@ export function PublishDialog({
 											? "CommCare HQ app file downloaded"
 											: "Mobile app file downloaded"
 									}
-									featureFlagReport={status.featureFlagReport}
+									projectSpaceCompatibility={status.projectSpaceCompatibility}
 									advisories={status.advisories}
-									mode="download"
 								/>
 							) : null}
 
-							{showFeatureFlagPreflight && (
-								<FeatureFlagPreflight
-									state={featureFlagState}
+							{showCompatibilityPreflight && (
+								<CompatibilityPreflight
+									state={compatibilityState}
 									domainChecked={target === "hq"}
+									projectSpaceName={compatibilityTargetDisplayName(
+										compatibilityState.type === "ready"
+											? compatibilityState.report
+											: undefined,
+										availableDomains,
+									)}
 									onRefresh={
-										target === "hq" || featureFlagState.type === "error"
-											? handleRefreshFeatureFlags
+										target === "hq" || compatibilityState.type === "error"
+											? handleCheckCompatibilityAgain
 											: undefined
 									}
 								/>
@@ -968,7 +1057,7 @@ export function PublishDialog({
 							<Button
 								type="button"
 								onClick={() => handleDownload(downloadTarget)}
-								disabled={isWorking || !hasFeatureFlagPreflight}
+								disabled={isWorking}
 							>
 								{status.type === "downloading" ? (
 									<>
@@ -1150,10 +1239,10 @@ function UploadForm({
 
 				<p className="text-xs leading-relaxed text-nova-text-muted">
 					{publishPlan === "update"
-						? "Uploading updates the app an earlier publish put on this project space, keeping the same app there. This window checks its feature flags now and again after upload."
+						? "Uploading updates the app an earlier publish put on this project space, keeping the same app there. Nova checks that the project space can run this version before anything is sent."
 						: publishPlan === "create"
-							? "Uploading creates a new app in the selected project space. This window checks its feature flags now and again after upload."
-							: "This window checks the selected project space's feature flags now and again after upload."}
+							? "Uploading creates a new app in the selected project space. Nova checks that the project space can run it before anything is sent."
+							: "Nova checks that the selected project space can run this app before anything is sent."}
 				</p>
 			</div>
 
@@ -1202,26 +1291,31 @@ function UploadForm({
 	);
 }
 
-function FeatureFlagPreflight({
+function CompatibilityPreflight({
 	state,
 	domainChecked = false,
+	projectSpaceName,
 	onRefresh,
 }: {
-	state: FeatureFlagState;
+	state: ProjectSpaceCompatibilityState;
 	domainChecked?: boolean;
+	projectSpaceName?: string;
 	onRefresh?: () => void;
 }) {
 	if (state.type === "loading") {
 		return (
-			<div className="mt-3 flex items-center gap-2 rounded-lg border border-white/[0.04] bg-white/[0.03] px-3 py-2.5">
+			<div
+				role="status"
+				className="mt-3 flex items-center gap-2 rounded-lg border border-white/[0.04] bg-white/[0.03] px-3 py-2.5"
+			>
 				<Icon
 					icon={tablerLoader2}
 					className="size-4 shrink-0 animate-spin text-nova-violet-bright"
 				/>
 				<p className="text-xs text-nova-text-secondary">
 					{domainChecked
-						? "Checking feature flags for this project space"
-						: "Checking which feature flags this app needs"}
+						? "Checking whether this project space can run the app"
+						: "Checking what the app needs from a project space"}
 				</p>
 			</div>
 		);
@@ -1252,45 +1346,17 @@ function FeatureFlagPreflight({
 	}
 
 	const report = state.report;
-	const refreshLabel = "Check again";
-	if (report.required_flags.length === 0) {
-		return (
-			<div className="mt-3">
-				<div
-					role="status"
-					className="flex items-start gap-2 rounded-lg border border-nova-emerald/15 bg-nova-emerald/[0.04] px-3 py-2.5"
-				>
-					<Icon
-						icon={tablerCircleCheck}
-						className="mt-0.5 size-4 shrink-0 text-nova-emerald"
-					/>
-					<p className="text-xs leading-relaxed text-nova-text-secondary">
-						This app doesn't need any CommCare HQ feature flags
-					</p>
-				</div>
-				{onRefresh && (
-					<div className="flex justify-end">
-						<Button type="button" variant="ghost" onClick={onRefresh}>
-							<Icon icon={tablerRefresh} className="size-4" />
-							{refreshLabel}
-						</Button>
-					</div>
-				)}
-			</div>
-		);
-	}
-
 	return (
 		<div>
-			<FeatureFlagNotice
+			<ProjectSpaceCompatibilityNotice
 				report={report}
-				mode={report.target_domain ? "domain-check" : "prepublish"}
+				projectSpaceName={projectSpaceName}
 			/>
 			{onRefresh && (
 				<div className="flex justify-end">
 					<Button type="button" variant="ghost" onClick={onRefresh}>
 						<Icon icon={tablerRefresh} className="size-4" />
-						{refreshLabel}
+						Check again
 					</Button>
 				</div>
 			)}
@@ -1301,19 +1367,20 @@ function FeatureFlagPreflight({
 function PublishSuccess({
 	title,
 	warnings = [],
-	featureFlagReport,
+	projectSpaceCompatibility,
+	projectSpaceName,
 	advisories = [],
-	mode,
 	tone = "done",
 	blocked,
 	children,
 }: {
 	title: string;
 	warnings?: string[];
-	featureFlagReport?: HqFeatureFlagReport;
+	projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
+	/** Human-facing name resolved from the report's authoritative target. */
+	projectSpaceName?: string;
 	/** Only a download has these: a publish always knows its own target. */
 	advisories?: readonly ExportAdvisory[];
-	mode: "upload" | "download";
 	/** A refused publish reaches this screen too, and must not be
 	 *  celebrated: it shows the same record, without the tick. */
 	tone?: "done" | "refused";
@@ -1387,8 +1454,11 @@ function PublishSuccess({
 				</div>
 			)}
 
-			{featureFlagReport && (
-				<FeatureFlagNotice report={featureFlagReport} mode={mode} />
+			{projectSpaceCompatibility && (
+				<ProjectSpaceCompatibilityNotice
+					report={projectSpaceCompatibility}
+					projectSpaceName={projectSpaceName}
+				/>
 			)}
 
 			{children}
@@ -1466,204 +1536,155 @@ function ResourceConflictChoice({
 	);
 }
 
-function FeatureFlagNotice({
+function ProjectSpaceCompatibilityNotice({
 	report,
-	mode,
+	projectSpaceName,
 }: {
-	report: HqFeatureFlagReport;
-	mode: "upload" | "download" | "prepublish" | "domain-check";
+	report: ProjectSpaceCompatibilityReport;
+	projectSpaceName?: string;
 }) {
-	if (report.required_flags.length === 0) return null;
-	const isDomainResult = mode === "upload" || mode === "domain-check";
-	if (
-		isDomainResult &&
-		report.missing_flags.length > 0 &&
-		report.unverified_flags.length > 0
-	) {
-		const missingReport: HqFeatureFlagReport = {
-			...report,
-			verification: "verified",
-			required_flags: report.missing_flags,
-			unverified_flags: [],
-		};
-		const unverifiedReport: HqFeatureFlagReport = {
-			...report,
-			verification: "unavailable",
-			required_flags: report.unverified_flags,
-			missing_flags: [],
-		};
-		return (
-			<div>
-				<FeatureFlagNotice report={missingReport} mode={mode} />
-				<FeatureFlagNotice report={unverifiedReport} mode={mode} />
-			</div>
-		);
-	}
-	const needsAttention =
-		mode === "download" ||
-		mode === "prepublish" ||
-		report.missing_flags.length > 0 ||
-		report.unverified_flags.length > 0;
-	if (!needsAttention) {
-		const flagLabels = report.required_flags
-			.map((flag) => flag.label)
-			.join(", ");
-		return (
-			<div
-				role="status"
-				className="mt-3 flex items-start gap-2 rounded-lg border border-nova-emerald/15 bg-nova-emerald/[0.04] px-3 py-2.5"
-			>
-				<Icon
-					icon={tablerCircleCheck}
-					className="mt-0.5 size-4 shrink-0 text-nova-emerald"
-				/>
-				<div>
-					<p className="text-xs font-medium text-nova-text">
-						Feature flags are ready
-					</p>
-					<p className="mt-0.5 text-xs leading-relaxed text-nova-text-muted">
-						{flagLabels} {report.required_flags.length === 1 ? "is" : "are"}{" "}
-						enabled for this project space
-					</p>
-				</div>
-			</div>
-		);
-	}
+	const blocked = report.status === "blocked";
+	const notChecked = report.status === "not_checked";
+	const targetSubject = projectSpaceName
+		? `“${projectSpaceName}”`
+		: "This project space";
+	const targetObject = projectSpaceName
+		? `“${projectSpaceName}”`
+		: "this project space";
+	const title =
+		report.status === "not_needed"
+			? "This app doesn't need additional project-space support"
+			: report.status === "ready"
+				? "This project space can run the app"
+				: blocked
+					? report.blockers.some(
+							(capability) => capability.state === "unverified",
+						)
+						? `Nova couldn't confirm that ${targetObject} can run the app`
+						: `${targetSubject} needs more support to run the app`
+					: "Choose a project space that can run this app";
+	const capabilities = blocked
+		? report.blockers
+		: notChecked
+			? report.required_capabilities
+			: [];
+	const missingCapabilities = report.blockers.filter(
+		(capability) => capability.state === "missing",
+	);
+	const visibleAdvisories = report.advisories.filter(
+		(advisory) => advisory.state !== "available",
+	);
+	const summary = blocked
+		? `Nothing has been sent to ${targetObject}. Review what it needs below, then check again.`
+		: report.message;
 
-	const flags =
-		mode === "download" || mode === "prepublish"
-			? report.required_flags
-			: [
-					...report.missing_flags,
-					...report.unverified_flags.filter(
-						(flag) =>
-							!report.missing_flags.some((missing) => missing.id === flag.id),
-					),
-				];
-	const confirmedMissing = isDomainResult && report.missing_flags.length > 0;
-	const noticeMessage = featureFlagNoticeMessage(report, mode);
 	return (
-		<div
-			role={confirmedMissing ? "alert" : "status"}
-			className={`mt-3 rounded-lg border px-3 py-3 ${
-				confirmedMissing
-					? "border-nova-amber/25 bg-nova-amber/[0.06]"
-					: "border-nova-violet/25 bg-nova-violet/[0.05]"
-			}`}
-		>
-			<div className="flex items-start gap-2">
-				<Icon
-					icon={confirmedMissing ? tablerAlertCircle : tablerInfoCircle}
-					className={`mt-0.5 size-4 shrink-0 ${
-						confirmedMissing ? "text-nova-amber" : "text-nova-violet-bright"
-					}`}
-				/>
-				<div className="min-w-0">
-					<p className="text-xs font-semibold text-nova-text">
-						{featureFlagNoticeTitle(report, mode)}
-					</p>
-					<p className="mt-1 text-xs leading-relaxed text-nova-text-secondary">
-						{noticeMessage}
-					</p>
+		<div className="mt-3 space-y-2">
+			<div
+				role={blocked ? "alert" : "status"}
+				className={`rounded-lg border px-3 py-3 ${
+					blocked
+						? "border-nova-amber/25 bg-nova-amber/[0.06]"
+						: report.status === "ready" || report.status === "not_needed"
+							? "border-nova-emerald/15 bg-nova-emerald/[0.04]"
+							: "border-nova-violet/25 bg-nova-violet/[0.05]"
+				}`}
+			>
+				<div className="flex items-start gap-2">
+					<Icon
+						icon={
+							blocked
+								? tablerAlertCircle
+								: report.status === "ready" || report.status === "not_needed"
+									? tablerCircleCheck
+									: tablerInfoCircle
+						}
+						className={`mt-0.5 size-4 shrink-0 ${
+							blocked
+								? "text-nova-amber"
+								: report.status === "ready" || report.status === "not_needed"
+									? "text-nova-emerald"
+									: "text-nova-violet-bright"
+						}`}
+					/>
+					<div className="min-w-0">
+						<p className="text-xs font-semibold text-nova-text">{title}</p>
+						<p className="mt-1 text-xs leading-relaxed text-nova-text-secondary">
+							{summary}
+						</p>
+					</div>
 				</div>
+
+				{capabilities.length > 0 ? (
+					<ul className="mt-2 space-y-2 pl-6">
+						{capabilities.map((capability) => (
+							<li key={capability.id} className="text-xs leading-relaxed">
+								<p className="font-medium text-nova-text">{capability.label}</p>
+								<p className="text-nova-text-muted">{capability.description}</p>
+								{blocked ? (
+									<p className="text-nova-text-secondary">
+										{capability.state === "missing"
+											? `${targetSubject} doesn't support ${capability.label}.`
+											: capability.issue === "connected-account-permission"
+												? `The CommCare HQ account connected to Nova needs Mobile App Access before Nova can check ${capability.label} for ${targetObject}. Ask a project-space administrator to add that permission, then check again.`
+												: `Nova couldn't confirm whether ${targetObject} supports ${capability.label}. Check your CommCare HQ connection, then try again.`}
+									</p>
+								) : null}
+							</li>
+						))}
+					</ul>
+				) : null}
+
+				{missingCapabilities.length > 0 ? (
+					<p className="mt-2 pl-6 text-xs leading-relaxed text-nova-text-secondary">
+						Ask a project-space administrator or{" "}
+						<a
+							href={`mailto:${report.support_email}`}
+							className="text-nova-violet-bright hover:underline"
+						>
+							Dimagi Support
+						</a>{" "}
+						to make {missingCapabilities.length === 1 ? "it" : "them"}{" "}
+						available, then check again
+					</p>
+				) : null}
+				{blocked || notChecked ? (
+					<a
+						href={report.docs_url}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="mt-2 inline-flex items-center gap-1 pl-6 text-xs font-medium text-nova-violet-bright hover:underline"
+					>
+						Learn about project-space compatibility
+						<Icon icon={tablerExternalLink} className="size-3" />
+					</a>
+				) : null}
 			</div>
-			<ul className="mt-2 space-y-2 pl-6">
-				{flags.map((flag) => (
-					<li key={flag.id} className="text-xs leading-relaxed">
-						<div className="flex flex-wrap items-baseline gap-x-1.5">
-							<span className="font-medium text-nova-text">{flag.label}</span>
-							<a
-								href={flag.docs_url}
-								target="_blank"
-								rel="noopener noreferrer"
-								className="inline-flex items-center gap-1 text-nova-violet-bright hover:underline"
-							>
-								Learn more
-								<Icon icon={tablerExternalLink} className="size-3" />
-								<span className="sr-only"> about {flag.label}</span>
-							</a>
-						</div>
-						<p className="text-nova-text-muted">{flag.description}</p>
-					</li>
-				))}
-			</ul>
-			<p className="mt-2 pl-6 text-xs text-nova-text-secondary">
-				{confirmedMissing ? (
-					<>
-						To have {flags.length === 1 ? "this flag" : "these flags"} enabled,
-						contact{" "}
-					</>
-				) : (
-					<>
-						If {flags.length === 1 ? "this flag needs" : "any flags need"} to be
-						enabled, contact{" "}
-					</>
-				)}
-				<a
-					href={`mailto:${report.support_email}`}
-					className="text-nova-violet-bright hover:underline"
+
+			{visibleAdvisories.map((advisory) => (
+				<div
+					key={advisory.id}
+					role="status"
+					className="rounded-lg border border-nova-amber/20 bg-nova-amber/[0.06] px-3 py-2.5"
 				>
-					{report.support_email}
-				</a>{" "}
-				and include{" "}
-				{report.target_domain ? (
-					<>the “{report.target_domain}” project space</>
-				) : (
-					"the destination project space"
-				)}
-			</p>
+					<div className="flex items-start gap-2">
+						<Icon
+							icon={tablerInfoCircle}
+							className="mt-0.5 size-4 shrink-0 text-nova-amber"
+						/>
+						<div>
+							<p className="text-xs font-medium text-nova-text">
+								{advisory.title}
+							</p>
+							<p className="mt-1 text-xs leading-relaxed text-nova-text-secondary">
+								{advisory.message}
+							</p>
+						</div>
+					</div>
+				</div>
+			))}
 		</div>
 	);
-}
-
-function featureFlagNoticeMessage(
-	report: HqFeatureFlagReport,
-	mode: "upload" | "download" | "prepublish" | "domain-check",
-): string {
-	if (mode === "download" || mode === "prepublish") {
-		return "The destination project space hasn't been checked. It needs the feature flags below before workers use the app. If they aren't enabled, workers might not see these features or might get an error.";
-	}
-
-	const target = report.target_domain
-		? `the “${report.target_domain}” project space`
-		: "this project space";
-	const hasMissing = report.missing_flags.length > 0;
-	const hasUnverified = report.unverified_flags.length > 0;
-	if (hasMissing && hasUnverified) {
-		const message = `Some feature flags below aren't enabled for ${target}, and CommCare HQ couldn't check the others. If any aren't enabled, workers might not see those features or might get an error.`;
-		return mode === "upload" ? `Your app was uploaded. ${message}` : message;
-	}
-	if (hasMissing) {
-		const subject =
-			report.missing_flags.length === 1
-				? "The feature flag below isn't"
-				: "The feature flags below aren't";
-		const message = `${subject} enabled for ${target}`;
-		const consequence =
-			report.missing_flags.length === 1
-				? "Workers might not see this feature or might get an error until it's enabled."
-				: "Workers might not see these features or might get an error until they're enabled.";
-		return mode === "upload"
-			? `Your app was uploaded, but ${message.toLowerCase()}. ${consequence}`
-			: `${message}. ${consequence}`;
-	}
-	const message = `CommCare HQ couldn't confirm whether the feature flags below are enabled for ${target}. If they aren't enabled, workers might not see those features or might get an error.`;
-	return mode === "upload" ? `Your app was uploaded. ${message}` : message;
-}
-
-function featureFlagNoticeTitle(
-	report: HqFeatureFlagReport,
-	mode: "upload" | "download" | "prepublish" | "domain-check",
-): string {
-	if (mode === "download" || mode === "prepublish") {
-		return "This app uses CommCare HQ feature flags";
-	}
-	if (report.missing_flags.length > 0) {
-		return report.unverified_flags.length > 0
-			? "Some feature flags need attention"
-			: "Feature flags aren't enabled";
-	}
-	return "Feature flag check incomplete";
 }
 
 function NotConfigured({

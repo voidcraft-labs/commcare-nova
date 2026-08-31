@@ -74,7 +74,10 @@ let tools: Array<{
 	name: string;
 	description?: string;
 	_meta?: Record<string, unknown>;
-	inputSchema?: { properties?: Record<string, unknown> };
+	inputSchema?: {
+		properties?: Record<string, unknown>;
+		required?: string[];
+	};
 }>;
 
 beforeAll(async () => {
@@ -136,15 +139,29 @@ describe("result-size declarations over the wire", () => {
 		expect(tool?.inputSchema?.properties).toHaveProperty("cursor");
 	});
 
-	it("registers the read-only app feature-flag inspection tool", () => {
-		const tool = tools.find((t) => t.name === "get_app_hq_feature_flags");
-		expect(tool?.description ?? "").toContain("does not compile or upload");
-		expect(tool?.description ?? "").toContain(
-			"without claiming any flag is off",
+	it("registers the read-only project-space compatibility check", () => {
+		const tool = tools.find(
+			(t) => t.name === "check_project_space_compatibility",
 		);
-		expect(tool?.description ?? "").toContain("confirmed `missing_flags`");
 		expect(tool?.description ?? "").toContain(
-			"must never cause an agent to remove, undo, or avoid",
+			"does not compile, upload, or change",
+		);
+		expect(tool?.description ?? "").toContain("friendly required capabilities");
+		expect(tool?.description ?? "").toContain(
+			"Required support that is missing or could not be verified blocks",
+		);
+		expect(tool?.description ?? "").toContain("an advisory never does");
+		expect(tool?.inputSchema?.required).toEqual(
+			expect.arrayContaining(["app_id", "domain"]),
+		);
+		const rolloutBridge = tools.find(
+			(candidate) => candidate.name === "get_app_hq_feature_flags",
+		);
+		expect(rolloutBridge?.description ?? "").toContain(
+			"Compatibility bridge for released Nova clients",
+		);
+		expect(rolloutBridge?.description ?? "").toContain(
+			"never private CommCare HQ settings or slugs",
 		);
 	});
 });

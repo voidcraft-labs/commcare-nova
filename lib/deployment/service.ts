@@ -4,11 +4,11 @@ import {
 	type CommCareApiError,
 	type CommCareCredentials,
 	importApp,
-	probeHqFeatureFlags,
 	uploadAppMediaBundle,
 } from "@/lib/commcare/client";
+import { hasEffectiveSearch } from "@/lib/commcare/derivedProfile";
 import { expandDoc } from "@/lib/commcare/expander";
-import { requiredHqFeatureFlags } from "@/lib/commcare/featureFlags";
+import { readHqAppSourceProfile } from "@/lib/commcare/hq/appSource";
 import type { HqLocationPush } from "@/lib/commcare/hq/locations";
 import { patchHqLocations } from "@/lib/commcare/hq/locations";
 import {
@@ -19,6 +19,11 @@ import {
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
+import {
+	type DerivedProfileTargetState,
+	projectNewAppProfileForTarget,
+	projectUpdatedAppProfileForTarget,
+} from "@/lib/commcare/targetProfile";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -29,8 +34,7 @@ import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
-import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
-import { featureFlagReportForUpload } from "@/lib/publish/hqFeatureFlags";
+import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import { DeploymentError } from "./errors";
 import { observeDeployment } from "./observe";
 import type { LocationPushPlan, LookupPushPlan } from "./preflight";
@@ -89,7 +93,7 @@ interface PublishOutcomeShared {
 	readonly artifact: SetupArtifact;
 	/** Non-fatal things that happened after the app itself landed. */
 	readonly warnings: readonly string[];
-	readonly featureFlags: HqFeatureFlagReport | null;
+	readonly projectSpaceCompatibility: ProjectSpaceCompatibilityReport | null;
 	/** The app's page on CommCare HQ, once there is one. */
 	readonly hqAppUrl: string | null;
 }
@@ -458,7 +462,7 @@ export async function publishAppToHq(
 						})
 					: await setupArtifactFor(input.scope, deployment, input.doc),
 			warnings: [],
-			featureFlags: preflight.featureFlags,
+			projectSpaceCompatibility: preflight.projectSpaceCompatibility,
 			hqAppUrl:
 				deployment === null
 					? null
@@ -515,7 +519,7 @@ export async function publishAppToHq(
 				locations,
 			),
 			warnings: [],
-			featureFlags: preflight.featureFlags,
+			projectSpaceCompatibility: preflight.projectSpaceCompatibility,
 			hqAppUrl: hqAppUrlFor(
 				input.server,
 				input.domain,
@@ -598,23 +602,100 @@ export async function publishAppToHq(
 	/* The naming has to travel with the app, not just with the data. A
 	 * lookup-backed select compiles to an `instance(...)` reference whichever
 	 * mode is emitting, and `buildXForm` refuses without it. */
-	const hqJson = expandDoc(prepared.doc, {
+	const generatedHqJson = expandDoc(prepared.doc, {
 		assets: prepared.assets,
 		attachmentTarget: prepared.attachmentTarget,
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
 	});
-	const result = await importApp(
-		creds,
-		domain,
-		input.appName,
-		hqJson,
-		updateTarget?.remoteId,
-	);
+	const derivedProfileTargetState: DerivedProfileTargetState = (() => {
+		if (!hasEffectiveSearch(prepared.doc)) return "not-needed";
+		const advisory = preflight.projectSpaceCompatibility.advisories.find(
+			(item) => item.id === "large-search-performance",
+		);
+		return advisory?.state === "available" || advisory?.state === "missing"
+			? advisory.state
+			: "unverified";
+	})();
+	let hqJson = generatedHqJson;
+	let preImportFailure: CommCareApiError | undefined;
+	if (updateTarget === null) {
+		hqJson = projectNewAppProfileForTarget(
+			generatedHqJson,
+			derivedProfileTargetState,
+		).application;
+	} else {
+		/* This read intentionally sits immediately before import. HQ shallow-
+		 * replaces the complete `profile` field when it is present, so Nova
+		 * cannot safely update one derived key from a stale or invented bag. */
+		const source = await readHqAppSourceProfile(
+			creds,
+			domain,
+			updateTarget.remoteId,
+		);
+		if ("success" in source) {
+			if (source.status === 404) {
+				/* The source endpoint is authoritative about the same mapped app
+				 * import would update. Route its 404 through the existing missing-app
+				 * observation below so the next publish creates a fresh app instead
+				 * of retrying this deleted id forever. */
+				preImportFailure = source;
+			} else {
+				const permissions = source.status === 401 || source.status === 403;
+				const failure: DeploymentFailure = {
+					code: "hq_app_state_unknown",
+					message: permissions
+						? `Nova couldn't read the current app on “${domain}”, so it left that app unchanged. Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again.`
+						: `Nova couldn't safely read the current app on “${domain}”, so it left that app unchanged. Check that the app still opens in CommCare HQ, then publish again.`,
+					details: [],
+				};
+				deployment = await foldDeploymentAttempt(
+					input.scope,
+					target,
+					"upload",
+					{
+						status: "failed",
+						at: new Date().toISOString(),
+						failure,
+					},
+				);
+				return {
+					landed: false,
+					refusal: { phase: "upload", failure, resourceConflicts: [] },
+					deployment,
+					checks: preflight.checks,
+					artifact: await setupArtifactFor(
+						input.scope,
+						deployment,
+						input.doc,
+						locations,
+					),
+					warnings: [],
+					projectSpaceCompatibility: preflight.projectSpaceCompatibility,
+					hqAppUrl: hqAppUrlFor(input.server, domain, updateTarget.remoteId),
+				};
+			}
+		} else {
+			hqJson = projectUpdatedAppProfileForTarget(
+				generatedHqJson,
+				source.profile,
+				derivedProfileTargetState,
+			).application;
+		}
+	}
+	const result =
+		preImportFailure ??
+		(await importApp(
+			creds,
+			domain,
+			input.appName,
+			hqJson,
+			updateTarget?.remoteId,
+		));
 	if (!result.success) {
 		if (updateTarget !== null && result.status === 404) {
-			/* The update asked CommCare HQ to overwrite the mapped app, and
-			 * the 404 is an authoritative answer ABOUT THE TARGET: that app
-			 * is gone — the same answer observation's versions read gives.
+			/* The source read or update import named the mapped app, and the
+			 * 404 is an authoritative answer ABOUT THE TARGET: that app is gone
+			 * — the same answer observation's versions read gives.
 			 * So it folds as an observation against the mapping this publish
 			 * read, not as an attempt outcome (which deliberately writes
 			 * nothing on a reached target). The pushed-at token keeps a slow
@@ -651,7 +732,7 @@ export async function publishAppToHq(
 					locations,
 				),
 				warnings: [],
-				featureFlags: preflight.featureFlags,
+				projectSpaceCompatibility: preflight.projectSpaceCompatibility,
 				hqAppUrl: null,
 			};
 		}
@@ -681,7 +762,7 @@ export async function publishAppToHq(
 				locations,
 			),
 			warnings: [],
-			featureFlags: preflight.featureFlags,
+			projectSpaceCompatibility: preflight.projectSpaceCompatibility,
 			hqAppUrl: null,
 		};
 	}
@@ -710,14 +791,6 @@ export async function publishAppToHq(
 		action: hqAppAction,
 	});
 
-	// The target is known now, so start the flag probe alongside media
-	// rather than adding its latency to an already-successful publish.
-	const flagProbes = probeHqFeatureFlags(
-		creds,
-		domain,
-		requiredHqFeatureFlags(prepared.doc),
-	);
-
 	const warnings = [...result.warnings];
 	if (prepared.assets.size > 0) {
 		warnings.push(
@@ -744,7 +817,7 @@ export async function publishAppToHq(
 			locations,
 		),
 		warnings,
-		featureFlags: featureFlagReportForUpload(domain, await flagProbes),
+		projectSpaceCompatibility: preflight.projectSpaceCompatibility,
 		hqAppUrl: hqAppUrlFor(input.server, domain, result.appId),
 	};
 }

@@ -6,11 +6,11 @@ description: What happens when you publish an app, how to turn it into something
 Publishing sends your app to a CommCare HQ project space. Nova remembers where
 it went, so you can come back at any time and see how far along it is.
 
-Getting an app into workers' hands takes five steps, and Nova does the first two.
-The other three happen on CommCare HQ, because it only lets a signed-in person
-do them.
+Getting an app into workers' hands takes six stages. Nova completes the first
+three, you make and release a version on CommCare HQ, and Nova confirms the
+released app is ready for workers.
 
-## The five steps
+## The six stages
 
 | Step | Who does it |
 | --- | --- |
@@ -36,14 +36,18 @@ above the form, with a link across to Publishing for the full picture.
 
 ### Checked
 
-Before anything leaves Nova, it checks two things that would stop the publish
-working: that your API key can reach the project space you picked, and that the
-app itself has nothing outstanding. If either fails, nothing is sent and Nova
-tells you which one it was.
+Before anything leaves Nova, it checks three things that would stop the publish
+working: that your API key can reach the project space you picked, that the app
+itself has nothing outstanding, and that the project space supports the app
+features that need destination support. If any required support is missing, or
+Nova cannot confirm it, nothing is sent. The result names the capability and
+the next step.
 
-It also reports things you should know about but that do not stop the publish,
-like a feature flag your project space does not have yet, or a persona missing
-worker information that CommCare HQ will ask for later.
+Nova also reports useful guidance that does not stop the publish. For example,
+the project space may be able to run the app while large Search results open
+more slowly, or a persona may be missing worker information that CommCare HQ
+will ask for later. Read [Project-space compatibility](/docs/project-space-compatibility)
+for the complete check.
 
 ### Data in place
 
@@ -90,6 +94,11 @@ Publishing again **updates this same app in place**, name included, so the
 project space keeps one app that tracks what you build in Nova. The one
 exception: if the app was deleted on CommCare HQ since Nova put it there, Nova
 tells you so when you try, and publishing once more creates a fresh one.
+
+Immediately before an update, Nova reads the current CommCare HQ app and keeps
+destination-specific behavior it does not own. If that app cannot be read
+safely, Nova leaves the existing HQ app unchanged instead of guessing what to
+keep.
 
 Nova never deletes anything on CommCare HQ. So when a publish stops pointing at
 something it put there before, whether that is an app it replaced or a lookup

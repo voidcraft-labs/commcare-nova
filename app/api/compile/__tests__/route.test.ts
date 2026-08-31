@@ -18,9 +18,9 @@ import { requireSession } from "@/lib/auth-utils";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
-	decodeHqFeatureFlagReport,
-	HQ_FEATURE_FLAG_REPORT_HEADER,
-} from "@/lib/commcare/featureFlags";
+	decodeProjectSpaceCompatibilityReport,
+	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
+} from "@/lib/commcare/projectSpaceCompatibility";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
@@ -255,6 +255,11 @@ describe("POST /api/compile — inline archive return", () => {
 			}),
 		);
 		expect(compileCcz).toHaveBeenCalledTimes(1);
+		expect(
+			decodeProjectSpaceCompatibilityReport(
+				res.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
+			)?.status,
+		).toBe("not_needed");
 	});
 
 	it("threads the loaded `mutation_seq` into compileCcz as `compiledAtSeq`", async () => {
@@ -276,18 +281,18 @@ describe("POST /api/compile — inline archive return", () => {
 		);
 	});
 
-	it("returns unverified destination requirements without changing CCZ bytes", async () => {
+	it("returns unchecked destination compatibility without changing CCZ bytes", async () => {
 		loadsDoc(docWithCaseSearch());
 		const res = await POST(reqWith({ appId: "a1" }));
-		const report = decodeHqFeatureFlagReport(
-			res.headers.get(HQ_FEATURE_FLAG_REPORT_HEADER),
+		const report = decodeProjectSpaceCompatibilityReport(
+			res.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
 		);
-		expect(report?.verification).toBe("not_checked");
-		expect(report?.missing_flags).toEqual([]);
-		expect(report?.required_flags).toEqual([
-			expect.objectContaining({ slug: "search_claim" }),
+		expect(report?.status).toBe("not_checked");
+		expect(report?.blockers).toEqual([]);
+		expect(report?.required_capabilities).toEqual([
+			expect.objectContaining({ id: "case-search", state: "not_checked" }),
 		]);
-		expect(report?.message).toContain("support@dimagi.com");
+		expect(report?.message).toContain("Choose a project space");
 		expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("ccz-bytes");
 	});
 });

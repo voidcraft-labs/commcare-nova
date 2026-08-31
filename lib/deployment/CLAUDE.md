@@ -255,9 +255,13 @@ undefined slug arrives as loose data — real, unvalidated, and unfilterable. Wh
 it DOES refuse is a field it marks required with no value in Nova's bag, which
 takes the whole batch down.
 
-Feature flags are never blocking, by standing product contract. A flag
-report is deployment information; refusing to publish over one would let a
-target's configuration edit the app.
+Project-space compatibility is derived from what the app actually uses. A
+missing or unverified required capability blocks before Nova writes any remote
+resource, because the imported app would not run as authored. The Search
+performance capability is different: it is advisory and controls only whether
+Nova adds its derived optimization, never whether the app may be published.
+Public deployment surfaces name semantic app capabilities, not the private HQ
+settings used to establish support.
 
 ## Ownership, and why superseded rows are kept
 
@@ -493,9 +497,10 @@ the strength of Nova having nothing to say.
 ## Surfaces
 
 Builder (the App setup Publishing section and the publish dialog) and MCP
-(`get_deployment`, `refresh_deployment`, `provision_workers`).
+(`check_project_space_compatibility`, `get_deployment`, `refresh_deployment`,
+`provision_workers`).
 **Deliberately not the Solutions Architect** — the same standing decision
-that keeps `get_app_hq_feature_flags` off that surface. A deployment is
+that keeps project-space compatibility checks off that surface. A deployment is
 durable state about somebody else's server, not authored vocabulary an
 agent designing an app should reason about.
 

@@ -259,7 +259,7 @@ export function buildAutomationSetupGuide(
 		)
 	) {
 		caveats.push(
-			"The target HQ project must have the CASE_UPDATES_UCR_FILTERS domain toggle enabled before its automation editor exposes user-configurable report (UCR) filter conditions.",
+			"The target CommCare HQ project must support user-configurable report (UCR) filter conditions before its automation editor offers them. Ask a project-space administrator or Dimagi Support to make that support available.",
 		);
 	}
 	if (
@@ -294,7 +294,7 @@ export function buildAutomationSetupGuide(
 		caveats.push(
 			"Case-update rules require the Data Cleanup privilege (Pro or higher). HQ’s hourly task runs each project once daily at auto_case_update_hour, midnight UTC by default.",
 			"HQ’s default halt threshold is 10,000 updates per project, case type, and database partition unless the project’s auto_case_update_limit overrides it. HQ checks the threshold between cases; one case can apply several updates, so the final total can exceed the threshold before HQ stops. The next daily sweep tries again.",
-			"HQ’s deprecated RUN_AUTO_CASE_UPDATES_ON_SAVE setting is project-wide, not part of this rule. If enabled for the target project, saving a case evaluates every active automatic-update rule for that case type; review that project-wide effect separately.",
+			"CommCare HQ can be configured to run automatic case updates whenever a case is saved. That behavior is project-wide, not part of this rule; if it is active on the target project, review the effect separately.",
 		);
 		return {
 			title: `${automation.name}: automatic case update rule`,
@@ -488,7 +488,7 @@ export function buildAutomationSetupGuide(
 		contentKinds.includes("connect-survey")
 	) {
 		caveats.push(
-			"Connect content requires the COMMCARE_CONNECT domain toggle. Every recipient the rule resolves at run time must be a CommCare mobile worker (CommCareUser) with an active PersonalID link; HQ refuses an explicitly selected worker without that link, and unresolved or non-mobile-worker recipients cannot receive the content.",
+			"Connect content requires CommCare Connect support in the target project space, which Nova checks before publishing. Every recipient the rule resolves at run time must be a CommCare mobile worker (CommCareUser) with an active PersonalID link; HQ refuses an explicitly selected worker without that link, and unresolved or non-mobile-worker recipients cannot receive the content.",
 		);
 	}
 	caveats.push(

@@ -49,7 +49,6 @@ import {
 } from "@/lib/agent/prompts";
 import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
 import type { BlueprintDoc } from "@/lib/domain";
-import { AUTONOMOUS_FEATURE_FLAG_GUIDANCE } from "@/lib/publish/hqFeatureFlags";
 
 /**
  * Wire enum for the three modes the MCP surface accepts at the
@@ -119,11 +118,7 @@ and answers it, then you resume.`,
 You run without user interaction. Commit to a reasonable default for
 every ambiguous design choice and report your decisions in the final
 summary. Do NOT attempt to ask the user questions, the AskUserQuestion
-tool is not available to you in this mode.
-
-### Publishing FYI
-
-${AUTONOMOUS_FEATURE_FLAG_GUIDANCE}`,
+tool is not available to you in this mode.`,
 } as const;
 
 /**

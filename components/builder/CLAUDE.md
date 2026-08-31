@@ -197,7 +197,7 @@ identity does not re-arm the lock after `buildUnfinished` is released.
 ## Publishing
 
 **The dialog publishes; App setup's Publishing section manages.** The one
-publish flow — destination select, feature-flag preflight, the publish
+publish flow — destination select, project-space compatibility check, the publish
 itself, and the landed outcome — lives in `PublishDialog`. Everything a
 publish leaves behind — the full record per project space, Check status,
 workers, setup notes, and publishing again — lives in the Publishing
@@ -281,20 +281,22 @@ the dialog preseeded to that target (`preseededDomainSelection`). Opening
 Publishing from the dialog navigates with `pushBuilderHistory` directly, never
 `useNavigate`, whose `useLocation` subscription would re-render this
 memo-isolated pair on every selection change and doc edit.
-Show feature-flag information before the action, never for the first time after
-the user commits: file options show exact app requirements with unknown domain
-state, while HQ probes the selected project space on open/selection and on an
-explicit Refresh. A preflight that does not return a report keeps its publish
-action disabled and offers an in-place retry. Keep publish outcomes in this
-durable modal too: direct
-upload re-probes after import and reports flags Nova confirmed missing (or could
-not verify) for the exact target; download success retains the artifact's exact
-requirements. Viewers may use the file options but never receive the direct HQ
-option. The dialog consumes the shared report from
-`lib/publish/hqFeatureFlags.ts`; do not re-detect app features or copy the flag
-catalog into React. Every actionable flag notice names `support@dimagi.com`, the
-target project space when known, and links to the public feature-flag guide in a
-new tab.
+Show project-space compatibility before the action, never for the first time
+after the user commits. File options have no selected project space, so they
+show which app capabilities need support and say Nova has not checked the
+destination. Direct HQ upload checks the selected project space on open, on a
+destination change, and on **Check again**. A required capability that is
+missing or could not be checked disables direct upload and offers that retry;
+the large-Search performance advisory never disables it. The server repeats
+the authoritative check before any remote write, so a stale browser result can
+never publish into an incompatible target. Its compatibility report replaces
+the earlier browser result: a newly blocked target disables Upload and stays
+blocked until **Check again** returns a fresh ready report. Viewers may use the
+file options but never receive the direct HQ option. The dialog consumes the
+shared semantic report from `lib/publish/projectSpaceCompatibility.ts`; do not
+re-detect app features, copy the private catalog into React, or expose literal
+HQ setting names. Every blocked notice names the target project space and links
+to the public project-space compatibility guide in a new tab.
 
 Access is live, not mount-captured. Any reload/gap/typed write-authority response
 immediately pauses editing, masks the Project workspace, clears registered
@@ -483,9 +485,8 @@ An alert using a registered custom recipient or custom content handler also
 names HQ's system-administrator save requirement; registration alone is not
 presented as sufficient for a project administrator.
 Content-specific caveats are equally exact: SMS Survey names Inbound SMS access,
-and Connect names the `COMMCARE_CONNECT` toggle plus the requirement that every
-runtime recipient resolve to a CommCare mobile worker with an active PersonalID
-link.
+and Connect names project-space support plus the requirement that every runtime
+recipient resolve to a CommCare mobile worker with an active PersonalID link.
 
 The HQ route is emitted as an actionable template (`/a/<domain>/data/edit/automatic_updates/`
 or `/a/<domain>/messaging/conditional/`) beside its breadcrumb. The deprecated

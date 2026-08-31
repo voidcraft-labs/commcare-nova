@@ -152,6 +152,11 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	/** The app itself has findings that must be fixed before it can go out. */
 	"app_not_ready",
 	/**
+	 * The target project space is missing support the app requires, or Nova
+	 * could not confirm that support. No remote write starts in this state.
+	 */
+	"project_space_incompatible",
+	/**
 	 * CommCare HQ would not say what the target already holds, so Nova
 	 * stopped rather than push over something it cannot account for.
 	 */
@@ -171,6 +176,11 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	"hq_rejected_resource_push",
 	/** CommCare HQ refused the upload. */
 	"hq_rejected_upload",
+	/**
+	 * Nova could not safely read the current HQ app source before an in-place
+	 * update, so it refused to replace the target-owned profile configuration.
+	 */
+	"hq_app_state_unknown",
 	/** The app Nova published is no longer on the target project space. */
 	"remote_app_missing",
 	/** The released build did not serve the profile a device installs from. */

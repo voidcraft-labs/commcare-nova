@@ -531,17 +531,33 @@ export interface HqModule {
 }
 
 /**
+ * CommCare HQ's complete profile bag on an existing app source.
+ *
+ * Nova creates only `custom_properties`, but the direct-update path carries
+ * every validated foreign/future member through unchanged while overlaying
+ * Nova's narrowly owned keys.
+ */
+export interface HqApplicationProfile {
+	[key: string]: unknown;
+	/**
+	 * HQ persists this inside an unschematized DictProperty. Nova-authored
+	 * values are strings, but a target app may already contain any JSON value;
+	 * the update overlay must preserve those foreign values byte-for-value
+	 * rather than narrowing the bag to what Nova itself emits.
+	 */
+	custom_properties?: Record<string, unknown>;
+}
+
+/**
  * The HQ app document Nova emits, listing ONLY fields Nova authors.
  *
- * Target-owned settings and state — `cloudcare_enabled`, `profile`,
- * `case_sharing`, `secure_submissions`, the build/release metadata, and
- * the rest of HQ's app Settings page attributes — are deliberately
- * absent. HQ's create path supplies its own schema defaults for a
- * missing field (each was previously emitted at exactly that default),
- * and the in-place update's overlay merge retains a field absent from
- * source, so omitting them keeps the project's HQ-side configuration
- * standing across republishes. The rule lives at
- * `hqShells.ts::applicationShell`.
+ * Target-owned settings and state — `cloudcare_enabled`, `case_sharing`,
+ * `secure_submissions`, the build/release metadata, and the rest of HQ's App
+ * Settings fields — are deliberately absent. `profile` is the narrow
+ * exception: a newly generated app may carry Nova-owned derived custom
+ * properties, while the direct-update path overlays those keys onto the
+ * complete profile it just read from HQ. The rule lives at
+ * `hqShells.ts::applicationShell` and `derivedProfile.ts`.
  */
 export interface HqApplication {
 	doc_type: "Application";
@@ -553,6 +569,12 @@ export interface HqApplication {
 	/** Per-language app_strings overrides. */
 	translations: Record<string, Record<string, string>>;
 	auto_gps_capture: boolean;
+	/**
+	 * Newly generated HQ JSON includes this only when Nova derives a profile
+	 * optimization from the app. On direct updates it may instead hold the
+	 * complete target profile after Nova overlays only its owned custom keys.
+	 */
+	profile?: HqApplicationProfile;
 	/**
 	 * Present only when the app has a Nova-authored logo: an empty
 	 * `logo_refs` on the update path would remove a logo uploaded on

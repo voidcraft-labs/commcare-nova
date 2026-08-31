@@ -33,7 +33,7 @@ import { provisionWorkers } from "./workers";
  * The browser's refresh surface for deployments.
  *
  * Publishing itself stays on `/api/commcare/upload`, because it is one
- * long request whose warnings and feature-flag report the dialog already
+ * long request whose warnings and compatibility report the dialog already
  * consumes. What is here is what a publish cannot answer: where the app
  * already stands when the dialog opens, and what CommCare HQ has done
  * since. Both outlive the request that created the record.

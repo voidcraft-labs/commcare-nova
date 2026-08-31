@@ -9,14 +9,15 @@ Callers must authorize and hydrate the app first, then pass the resulting exact
 Project access, document, and mutation sequence to `prepareExportBoundary`.
 Nothing may expand, compile, import, or upload before the result is `ok: true`.
 
-Feature-flag reporting is follow-up metadata, not another export verdict.
-After the boundary passes, JSON/CCZ callers derive the destination-unknown
+Project-space compatibility metadata is not another artifact-validity verdict.
+After the boundary passes, JSON/CCZ callers derive a targetless `not_checked`
 report from the same exact document and attach it without changing artifact
-bytes. Direct HQ callers begin the known-domain probe only after HQ accepts the
-import; probe failures can yield `unverified_flags` but can never turn a valid
-artifact or completed upload into a failure. Detection lives in
-`lib/commcare/featureFlags.ts` and the public report contract lives in
-`lib/publish/hqFeatureFlags.ts`, not in this boundary.
+bytes. Direct HQ publishing checks the concrete target before any remote write;
+missing or unverified required support is a deployment refusal, while the
+large-Search performance advisory only controls a derived optimization. Private
+probe mechanics live in `lib/commcare/projectSpaceCompatibility.ts` and the
+public semantic report lives in `lib/publish/projectSpaceCompatibility.ts`, not
+in this boundary.
 
 The boundary structurally extracts the complete lookup target set and reads
 one snapshot even when that set is empty, on every mode:

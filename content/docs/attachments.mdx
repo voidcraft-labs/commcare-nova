@@ -48,9 +48,11 @@ Two things are worth knowing before you rely on the link:
   rather than trying to show the file in a case list.
 - **Following the link needs access to the project space.** It resolves to a
   CommCare HQ address, so whoever opens it has to be signed in there. A
-  mobile worker without the Submission History permission needs the
-  `view_form_attachments` feature flag turned on for the project space. Email
-  support@dimagi.com and name the project space to ask for it.
+  mobile worker without the Submission History permission needs the project
+  space to support **Links to captured files**. Nova checks that capability
+  before a direct publish. If the support is missing or cannot be confirmed,
+  nothing is sent and the Publish window explains the next step. See
+  [Project-space compatibility](/docs/project-space-compatibility).
 
 ## Saving the file itself
 
@@ -59,10 +61,11 @@ it exists for projects that already rely on it. CommCare stores the file on
 the case rather than a link to it, which sounds like the better deal and is
 not:
 
-- **The project space needs the Multimedia Case Properties setting.** Without
+- **The project space needs support for attachments saved to cases.** Without
   it CommCare accepts the submission and discards the file without saying
-  anything. Dimagi is retiring this setting, so it will not be turned on for
-  new projects.
+  anything. Nova checks for that support before a direct publish. Dimagi is
+  retiring this capability, so it is generally unavailable for new project
+  spaces.
 - **Nothing in the app can show it.** Neither Web Apps nor the Android app
   displays a case attachment, and the property holds no value, so no case-list
   column can read it. Nova won't let you add one that would sit empty on every

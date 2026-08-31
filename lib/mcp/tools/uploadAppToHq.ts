@@ -57,7 +57,11 @@
  *                                 resolution, before the HQ network call;
  *                                 the message carries each rule's
  *                                 actionable text.
- *   6. `hq_resource_conflict`:    the project space already holds a lookup
+ *   6. `project_space_incompatible`: the project space is missing support the
+ *                                 app requires, or Nova could not confirm it.
+ *                                 Nothing was sent; the semantic report names
+ *                                 every blocker and its next step.
+ *   7. `hq_resource_conflict`:    the project space already holds a lookup
  *                                 table or a place this app's data would
  *                                 land on, and Nova did not make it.
  *                                 Nothing was sent. Change the name in
@@ -66,17 +70,20 @@
  *                                 ones over. Never resolved by guessing:
  *                                 a shared name is not evidence of
  *                                 ownership.
- *   7. `hq_organization_mismatch`: the app's places do not fit the levels
+ *   8. `hq_organization_mismatch`: the app's places do not fit the levels
  *                                 the project space defines, so CommCare
  *                                 HQ would refuse them. Nothing was sent,
  *                                 and no adoption resolves it: the message
  *                                 names each place and what has to change,
  *                                 in Nova or on CommCare HQ.
- *   8. `remote_app_missing`:      the in-place update found the mapped HQ
+ *   9. `hq_app_state_unknown`:    Nova could not safely read the current HQ
+ *                                 app source immediately before an in-place
+ *                                 update, so it left that app unchanged.
+ *  10. `remote_app_missing`:      the in-place update found the mapped HQ
  *                                 app deleted there. Nothing was changed;
  *                                 calling again creates a fresh app and
  *                                 supersedes the dead mapping.
- *   9. `hq_upload_failed`:        `importApp` returned a non-success
+ *  11. `hq_upload_failed`:        `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
  *                                 returned 5xx), or CommCare HQ would not
  *                                 take the app's lookup tables or places.
@@ -109,6 +116,8 @@ import {
 	publishAppToHq,
 } from "@/lib/deployment/service";
 import type { DeploymentResourceConflict } from "@/lib/deployment/types";
+import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import { legacyFeatureFlagCompatibilityReport } from "@/lib/publish/projectSpaceCompatibilityLegacy";
 import { initMcpCall } from "../context";
 import {
 	McpInvalidInputError,
@@ -151,6 +160,10 @@ export const UPLOAD_ERROR_TAGS = {
 	hq_resource_conflict: "hq_resource_conflict",
 	/** The app's organization does not fit the target's levels. */
 	hq_organization_mismatch: "hq_organization_mismatch",
+	/** Required target support is missing or could not be verified. */
+	project_space_incompatible: "project_space_incompatible",
+	/** The current HQ app source could not be read safely for an update. */
+	hq_app_state_unknown: "hq_app_state_unknown",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
 
 /**
@@ -220,6 +233,29 @@ function makeConflictError(
 	};
 }
 
+/** Compatibility refusals carry the semantic report as structured data so a
+ * client can relay the app capability and next step without parsing prose. */
+function makeCompatibilityError(
+	message: string,
+	appId: string,
+	report: ProjectSpaceCompatibilityReport,
+): McpToolErrorResult {
+	return {
+		isError: true,
+		content: [
+			{
+				type: "text",
+				text: JSON.stringify({
+					error_type: UPLOAD_ERROR_TAGS.project_space_incompatible,
+					message,
+					app_id: appId,
+					project_space_compatibility: report,
+				}),
+			},
+		],
+	};
+}
+
 /**
  * Register the `upload_app_to_hq` tool on an `McpServer`.
  *
@@ -237,7 +273,7 @@ export function registerUploadAppToHq(
 		"upload_app_to_hq",
 		{
 			description:
-				"Upload an owned app to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking the user to confirm or invoking this tool, call `get_app_hq_feature_flags` with that explicit domain and relay its `feature_flag_requirements`, including confirmed `missing_flags` and any `unverified_flags`; this is informational and must not cause requested app features to be changed or removed. Pass the same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). The first upload to a project space creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` in the result says which happened. If the linked HQ app was deleted there, the call refuses with `remote_app_missing`; uploading again then creates a fresh one. On success, `feature_flag_requirements` repeats an authoritative post-upload check against the exact target and includes support@dimagi.com guidance. The diagnostic never blocks an otherwise successful upload.",
+				"Upload an owned app to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. A success returns the same checked `project_space_compatibility` report and the durable deployment state.",
 			inputSchema: z.object({
 				app_id: z
 					.string()
@@ -254,7 +290,7 @@ export function registerUploadAppToHq(
 					.string()
 					.optional()
 					.describe(
-						"Optional target project space (domain slug). Must be one the user's API key can reach. See `get_hq_connection`'s `available_domains`. Omit only when the key reaches a single space; a multi-space key requires it.",
+						"Optional target project-space identifier. Must be one the user's API key can reach. See `get_hq_connection`'s `available_domains`. Omit only when the key reaches a single space; a multi-space key requires it.",
 					),
 				adopt_resources: z
 					.array(z.string())
@@ -438,6 +474,27 @@ export function registerUploadAppToHq(
 								appId,
 							);
 						}
+						if (failure.code === "project_space_incompatible") {
+							if (outcome.projectSpaceCompatibility === null) {
+								return makeGateError(
+									UPLOAD_ERROR_TAGS.hq_upload_failed,
+									"Nova couldn't complete the project space compatibility check. Try publishing again.",
+									appId,
+								);
+							}
+							return makeCompatibilityError(
+								failure.message,
+								appId,
+								outcome.projectSpaceCompatibility,
+							);
+						}
+						if (failure.code === "hq_app_state_unknown") {
+							return makeGateError(
+								UPLOAD_ERROR_TAGS.hq_app_state_unknown,
+								failure.message,
+								appId,
+							);
+						}
 						/* The mapped HQ app is gone. The generic upload-failed
 						 * envelope would tell the caller the upload broke when the
 						 * truth is the target vanished; this tag says what actually
@@ -488,6 +545,12 @@ export function registerUploadAppToHq(
 					const record = outcome.deployment.deployment;
 					const remote = activeRemoteApp(outcome.deployment);
 					const hqAppId = remote?.remoteId ?? null;
+					const legacyCompatibility =
+						outcome.projectSpaceCompatibility === null
+							? null
+							: legacyFeatureFlagCompatibilityReport(
+									outcome.projectSpaceCompatibility,
+								);
 					call.current?.progress.notify(
 						"upload_complete",
 						`Uploaded. HQ app id ${hqAppId ?? "unknown"}`,
@@ -502,7 +565,12 @@ export function registerUploadAppToHq(
 						hq_app_action: outcome.hqAppAction,
 						url: outcome.hqAppUrl,
 						warnings: outcome.warnings,
-						feature_flag_requirements: outcome.featureFlags,
+						project_space_compatibility: outcome.projectSpaceCompatibility,
+						/* Rollout bridge for the released plugin. Values are projected from
+						 * semantic capabilities and contain no private HQ setting names. */
+						...(legacyCompatibility === null
+							? {}
+							: { feature_flag_requirements: legacyCompatibility }),
 						deployment_state: record.state,
 						deployment: describeDeployment(
 							outcome.deployment,
@@ -531,7 +599,7 @@ export function registerUploadAppToHq(
 							hq_app_id: hqAppId,
 							url: outcome.hqAppUrl,
 							warnings: outcome.warnings,
-							feature_flag_requirements: outcome.featureFlags,
+							project_space_compatibility: outcome.projectSpaceCompatibility,
 						},
 					});
 

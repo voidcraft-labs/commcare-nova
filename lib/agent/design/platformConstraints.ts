@@ -45,7 +45,6 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
 	"GAP_SESSION_ENDPOINTS_DEEP_LINKS",
-	"GAP_MULTI_SELECT_RELATED_CASES",
 ] as const;
 
 export type PlatformConstraintCode = (typeof PLATFORM_CONSTRAINT_CODES)[number];
@@ -184,13 +183,5 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"Session endpoints and shareable deep links resolved against the selected HQ server are a deliberate target gap.",
 		sourceAnchor: "docs/plans/complex-app/session-endpoints-and-deep-links.md",
 		gapUnitFile: "session-endpoints-and-deep-links.md",
-	},
-	GAP_MULTI_SELECT_RELATED_CASES: {
-		code: "GAP_MULTI_SELECT_RELATED_CASES",
-		statement:
-			"Related-case display and downstream profile compatibility remain deliberate target gaps. A case list may let workers choose a bounded set of cases for one follow-up or close form.",
-		sourceAnchor:
-			"docs/plans/complex-app/multi-select-related-cases-and-profile.md",
-		gapUnitFile: "multi-select-related-cases-and-profile.md",
 	},
 };

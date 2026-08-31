@@ -330,7 +330,6 @@ const CONSTRAINT_AREAS: Readonly<
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: ["navigation", "users", "case-list"],
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: ["forms", "case-operations"],
 	GAP_SESSION_ENDPOINTS_DEEP_LINKS: ["navigation"],
-	GAP_MULTI_SELECT_RELATED_CASES: ["case-list", "forms"],
 };
 
 function checklistRequirement(

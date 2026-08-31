@@ -241,16 +241,21 @@ export function applicationShell(
 		autoGpsCapture?: boolean;
 		langs?: string[];
 		translations?: Record<string, Record<string, string>>;
+		profileCustomProperties?: Readonly<Record<string, string>>;
 	},
 ): HqApplication {
-	/* Only fields Nova AUTHORS go on the wire. CommCare HQ's import is an
+	/* Only fields Nova AUTHORS go on a new-app wire document. CommCare HQ's import is an
 	 * overlay merge on the update path (`models/applications.py::
 	 * _merge_source_into_app`): every field present in the source
 	 * overwrites the HQ app's value, and a field absent from the source is
 	 * retained. So target-owned settings and state — `cloudcare_enabled`,
-	 * `profile`, `case_sharing`, `secure_submissions`, the build/release
+	 * `case_sharing`, `secure_submissions`, the build/release
 	 * metadata, and the rest of HQ's app Settings page attributes — are
-	 * deliberately NOT emitted. Each was previously sent at exactly HQ's
+	 * deliberately NOT emitted. `profile` is the narrow exception: this shell
+	 * may carry only the custom properties derived in `derivedProfile.ts`; the
+	 * update path replaces that partial bag with its safe overlay onto the
+	 * current target profile before import. Every other omitted field was
+	 * previously sent at exactly HQ's
 	 * own schema default, so create behaves identically (couch `wrap`
 	 * supplies the same default, and `_create_app_from_doc` sets
 	 * `cloudcare_enabled` itself from the domain's Web Apps privilege),
@@ -275,6 +280,12 @@ export function applicationShell(
 		multimedia_map: {},
 		translations: options?.translations ?? {},
 		auto_gps_capture: options?.autoGpsCapture ?? false,
+		...(options?.profileCustomProperties &&
+			Object.keys(options.profileCustomProperties).length > 0 && {
+				profile: {
+					custom_properties: { ...options.profileCustomProperties },
+				},
+			}),
 		add_ons: {
 			advanced_itemsets: true,
 			calc_xpaths: true,

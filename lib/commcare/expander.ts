@@ -31,6 +31,7 @@ import {
 	formShell,
 	moduleShell,
 } from "@/lib/commcare";
+import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import { genHexId, genShortId } from "@/lib/commcare/ids";
 import { commCareLocalization } from "@/lib/commcare/localization";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
@@ -467,8 +468,12 @@ export function expandDoc(
 
 	const appNameUnit = makeTranslationUnitId("app", "name");
 	const appNameByLanguage = localization.textMap(appNameUnit);
+	const derivedProfile = derivedProfileProperties(doc);
 	const app = applicationShell(doc.appName, modules, attachments, {
 		...(doc.connectType && { autoGpsCapture: true }),
+		...(Object.keys(derivedProfile).length > 0 && {
+			profileCustomProperties: derivedProfile,
+		}),
 		langs: [...localization.languages],
 		translations: Object.fromEntries(
 			localization.languages.map((language) => [

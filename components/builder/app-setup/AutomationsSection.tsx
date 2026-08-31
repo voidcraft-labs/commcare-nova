@@ -2447,7 +2447,7 @@ function SetupOnlyEditor({
 						label={`Exact setup note ${index + 1}`}
 						hint={
 							criterion.kind === "ucr-filter"
-								? "The target project needs the CASE_UPDATES_UCR_FILTERS domain toggle"
+								? "The target project needs support for user-configurable report (UCR) filters"
 								: "A system administrator must save this registered criterion"
 						}
 					>
