@@ -154,8 +154,14 @@ describe("result-size declarations over the wire", () => {
 		expect(tool?.inputSchema?.required).toEqual(
 			expect.arrayContaining(["app_id", "domain"]),
 		);
-		expect(
-			tools.some((candidate) => candidate.name === "get_app_hq_feature_flags"),
-		).toBe(false);
+		const rolloutBridge = tools.find(
+			(candidate) => candidate.name === "get_app_hq_feature_flags",
+		);
+		expect(rolloutBridge?.description ?? "").toContain(
+			"Compatibility bridge for released Nova clients",
+		);
+		expect(rolloutBridge?.description ?? "").toContain(
+			"never private CommCare HQ settings or slugs",
+		);
 	});
 });

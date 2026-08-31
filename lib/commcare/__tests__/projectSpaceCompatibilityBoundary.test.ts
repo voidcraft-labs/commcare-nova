@@ -24,6 +24,15 @@ const RETIRED_PUBLIC_NAMES = [
 	"X-Nova-Hq-Feature-Flag-Report",
 ] as const;
 
+/** Explicit rollout shims for pre-deploy browser bundles and the released
+ * plugin. They may retain the former transport names, but the private-token
+ * scan still applies to them so no HQ setting can leak through the bridge. */
+const ROLLOUT_COMPATIBILITY_FILES = new Set([
+	"app/api/commcare/feature-flags/route.ts",
+	"lib/mcp/tools/getAppHqFeatureFlagsCompatibility.ts",
+	"lib/publish/projectSpaceCompatibilityLegacy.ts",
+]);
+
 function extension(path: string): string {
 	const dot = path.lastIndexOf(".");
 	return dot < 0 ? "" : path.slice(dot);
@@ -66,6 +75,7 @@ describe("project-space compatibility public boundary", () => {
 		for (const root of PUBLIC_ROOTS) {
 			for (const path of publicSourceFiles(join(process.cwd(), root))) {
 				const source = readFileSync(path, "utf8");
+				const sourcePath = relative(process.cwd(), path);
 				for (const token of privateTokens) {
 					if (privateTokenPattern(token).test(source)) {
 						violations.push(
@@ -74,10 +84,11 @@ describe("project-space compatibility public boundary", () => {
 					}
 				}
 				for (const retiredName of RETIRED_PUBLIC_NAMES) {
-					if (source.includes(retiredName)) {
-						violations.push(
-							`${relative(process.cwd(), path)} retains ${retiredName}`,
-						);
+					if (
+						source.includes(retiredName) &&
+						!ROLLOUT_COMPATIBILITY_FILES.has(sourcePath)
+					) {
+						violations.push(`${sourcePath} retains ${retiredName}`);
 					}
 				}
 			}

@@ -16,7 +16,13 @@ describe("readHqAppSourceProfile", () => {
 		const profile = {
 			features: { users: { active: true } },
 			properties: { foreign: { value: "standing" } },
-			custom_properties: { foreign: "kept" },
+			custom_properties: {
+				foreign: "kept",
+				nullable: null,
+				numeric: 3,
+				enabled: true,
+				nested: { source: "hq" },
+			},
 		};
 		const fetchMock = vi
 			.spyOn(globalThis, "fetch")
@@ -39,10 +45,6 @@ describe("readHqAppSourceProfile", () => {
 		["missing profile", {}],
 		["non-object profile", { profile: [] }],
 		["non-object custom properties", { profile: { custom_properties: [] } }],
-		[
-			"non-string custom property",
-			{ profile: { custom_properties: { foreign: 42 } } },
-		],
 	])("refuses a %s rather than treating it as empty", async (_name, source) => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response(JSON.stringify(source), { status: 200 }),

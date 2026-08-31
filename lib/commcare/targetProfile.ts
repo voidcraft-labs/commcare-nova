@@ -40,9 +40,12 @@ function generatedProperties(
 ): Readonly<Record<string, string>> {
 	const generated = application.profile?.custom_properties ?? {};
 	return Object.fromEntries(
-		NOVA_OWNED_DERIVED_PROFILE_PROPERTY_KEYS.flatMap((key) =>
-			Object.hasOwn(generated, key) ? [[key, generated[key]]] : [],
-		),
+		NOVA_OWNED_DERIVED_PROFILE_PROPERTY_KEYS.flatMap((key) => {
+			const value = generated[key];
+			return Object.hasOwn(generated, key) && typeof value === "string"
+				? [[key, value]]
+				: [];
+		}),
 	);
 }
 

@@ -62,6 +62,7 @@ import {
 } from "./tools/deploymentTools";
 import { registerGetAgentPrompt } from "./tools/getAgentPrompt";
 import { registerGetApp } from "./tools/getApp";
+import { registerGetAppHqFeatureFlagsCompatibility } from "./tools/getAppHqFeatureFlagsCompatibility";
 import { registerGetHqConnection } from "./tools/getHqConnection";
 import { registerInviteMember } from "./tools/inviteMember";
 import { registerListApps } from "./tools/listApps";
@@ -101,6 +102,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerSearchApps(server, ctx);
 	registerGetApp(server, ctx);
 	registerCheckProjectSpaceCompatibility(server, ctx);
+	registerGetAppHqFeatureFlagsCompatibility(server, ctx);
 	registerCreateApp(server, ctx);
 	registerDeleteApp(server, ctx);
 	registerCompileApp(server, ctx);

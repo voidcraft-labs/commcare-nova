@@ -86,13 +86,7 @@ export async function readHqAppSourceProfile(
 	}
 
 	const customProperties = source.profile.custom_properties;
-	if (
-		customProperties !== undefined &&
-		(!isRecord(customProperties) ||
-			Object.values(customProperties).some(
-				(value) => typeof value !== "string",
-			))
-	) {
+	if (customProperties !== undefined && !isRecord(customProperties)) {
 		log.error(
 			"[commcare] app source custom profile properties are malformed",
 			undefined,

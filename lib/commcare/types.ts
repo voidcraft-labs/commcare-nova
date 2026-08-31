@@ -539,7 +539,13 @@ export interface HqModule {
  */
 export interface HqApplicationProfile {
 	[key: string]: unknown;
-	custom_properties?: Record<string, string>;
+	/**
+	 * HQ persists this inside an unschematized DictProperty. Nova-authored
+	 * values are strings, but a target app may already contain any JSON value;
+	 * the update overlay must preserve those foreign values byte-for-value
+	 * rather than narrowing the bag to what Nova itself emits.
+	 */
+	custom_properties?: Record<string, unknown>;
 }
 
 /**

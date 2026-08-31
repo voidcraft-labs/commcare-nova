@@ -69,6 +69,9 @@ describe("target profile projection", () => {
 				properties: { foreign: { value: "standing" } },
 				custom_properties: {
 					foreign: "kept",
+					foreignNumber: 7,
+					foreignBoolean: false,
+					foreignNull: null,
 					"cc-index-case-search-results": "no",
 				},
 			},
@@ -81,6 +84,9 @@ describe("target profile projection", () => {
 			properties: { foreign: { value: "standing" } },
 			custom_properties: {
 				foreign: "kept",
+				foreignNumber: 7,
+				foreignBoolean: false,
+				foreignNull: null,
 				"cc-index-case-search-results": "yes",
 			},
 		});
@@ -116,6 +122,9 @@ describe("target profile projection", () => {
 			{
 				custom_properties: {
 					foreign: "kept",
+					foreignNumber: 7,
+					foreignBoolean: false,
+					foreignNull: null,
 					"cc-index-case-search-results": "yes",
 				},
 			},
@@ -124,7 +133,12 @@ describe("target profile projection", () => {
 
 		expect(projected.profileChanged).toBe(true);
 		expect(projected.application.profile).toEqual({
-			custom_properties: { foreign: "kept" },
+			custom_properties: {
+				foreign: "kept",
+				foreignNumber: 7,
+				foreignBoolean: false,
+				foreignNull: null,
+			},
 		});
 	});
 

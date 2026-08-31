@@ -22,6 +22,11 @@ import { loadAppBlueprint } from "../loadApp";
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
+export interface CheckProjectSpaceCompatibilityArgs {
+	readonly app_id: string;
+	readonly domain: string;
+}
+
 function makeHqGateError(
 	errorType: Extract<
 		HqToolErrorType,
@@ -65,58 +70,63 @@ export function registerCheckProjectSpaceCompatibility(
 					),
 			}),
 		},
-		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
-			const appId = args.app_id;
-			try {
-				// This read reaches a third-party system. Gate it before ownership so
-				// a credential without HQ access learns nothing about the app id.
-				assertScope(ctx, SCOPES.hqRead, "check_project_space_compatibility");
-				const loaded = await loadAppBlueprint(appId, ctx.userId);
-				const credentials = await getCredentialsForUpload(
-					ctx.userId,
-					args.domain,
-				);
-				if (!credentials.ok) {
-					if (credentials.error === "not_configured") {
-						return makeHqGateError(
-							"hq_not_configured",
-							"CommCare HQ is not configured. Add your HQ credentials in Settings before checking a project space.",
-							appId,
-						);
-					}
-					const reachable = credentials.available
-						.map((domain) => domain.name)
-						.join(", ");
-					return makeHqGateError(
-						"domain_not_authorized",
-						`Your stored CommCare HQ API key can't reach the “${args.domain}” project space. It reaches: ${reachable}. Pass one of those as \`domain\`, or update your key in Settings.`,
-						appId,
-					);
-				}
-
-				const compatibility = await probeHqProjectSpaceCompatibility(
-					credentials.creds,
-					credentials.domain.name,
-					projectSpaceCompatibilityProbePlan(loaded.doc),
-				);
-				return {
-					content: [
-						{
-							type: "text",
-							text: JSON.stringify({
-								app_id: appId,
-								app_name: loaded.app.app_name,
-								project_space_compatibility: compatibility.report,
-							}),
-						},
-					],
-				};
-			} catch (err) {
-				return toMcpErrorResult(err, {
-					appId,
-					userId: ctx.userId,
-				});
-			}
-		},
+		(args) => checkProjectSpaceCompatibility(args, ctx),
 	);
+}
+
+/** Shared handler used by the current tool and the temporary released-client
+ * bridge. Keeping the compatibility decision here gives both names identical
+ * scope, ownership, target-resolution, and live-probe behavior. */
+export async function checkProjectSpaceCompatibility(
+	args: CheckProjectSpaceCompatibilityArgs,
+	ctx: ToolContext,
+): Promise<McpToolSuccessResult | McpToolErrorResult> {
+	const appId = args.app_id;
+	try {
+		// This read reaches a third-party system. Gate it before ownership so
+		// a credential without HQ access learns nothing about the app id.
+		assertScope(ctx, SCOPES.hqRead, "check_project_space_compatibility");
+		const loaded = await loadAppBlueprint(appId, ctx.userId);
+		const credentials = await getCredentialsForUpload(ctx.userId, args.domain);
+		if (!credentials.ok) {
+			if (credentials.error === "not_configured") {
+				return makeHqGateError(
+					"hq_not_configured",
+					"CommCare HQ is not configured. Add your HQ credentials in Settings before checking a project space.",
+					appId,
+				);
+			}
+			const reachable = credentials.available
+				.map((domain) => domain.name)
+				.join(", ");
+			return makeHqGateError(
+				"domain_not_authorized",
+				`Your stored CommCare HQ API key can't reach the “${args.domain}” project space. It reaches: ${reachable}. Pass one of those as \`domain\`, or update your key in Settings.`,
+				appId,
+			);
+		}
+
+		const compatibility = await probeHqProjectSpaceCompatibility(
+			credentials.creds,
+			credentials.domain.name,
+			projectSpaceCompatibilityProbePlan(loaded.doc),
+		);
+		return {
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify({
+						app_id: appId,
+						app_name: loaded.app.app_name,
+						project_space_compatibility: compatibility.report,
+					}),
+				},
+			],
+		};
+	} catch (err) {
+		return toMcpErrorResult(err, {
+			appId,
+			userId: ctx.userId,
+		});
+	}
 }
