@@ -1004,7 +1004,7 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 		fireEvent.click(submit);
 
 		// The submission now validates and hashes the exact reconciled blueprint
-		// before dispatch. A saturated full leak shard has taken about twelve
+		// before dispatch. A saturated full leak shard has taken about twenty-two
 		// seconds here, without changing the UI readiness contract, so keep this
 		// below the test's 30-second ceiling but above the observed instrumented
 		// path.
@@ -1012,7 +1012,7 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 			() => {
 				expect(vi.mocked(submitFormAction)).toHaveBeenCalled();
 			},
-			{ timeout: 15_000 },
+			{ timeout: 25_000 },
 		);
 
 		// The envelope's close arm stamps `closed_on = now()` via the
