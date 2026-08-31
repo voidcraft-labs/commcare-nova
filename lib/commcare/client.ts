@@ -323,13 +323,14 @@ export async function probeHqProjectSpaceCompatibility(
 	const capabilities: ProjectSpaceCapabilityProbe[] = plan.capabilities.map(
 		(item) => ({
 			capability: item.capability,
-			state: aggregatePrivateProbeState(item, flagResults, caseSearchRuntime),
+			...aggregatePrivateProbeState(item, flagResults, caseSearchRuntime),
 		}),
 	);
 	const advisories: ProjectSpaceAdvisoryProbe[] = plan.advisories.map(
 		(item) => ({
 			advisory: item.advisory,
-			state: aggregatePrivateProbeState(item, flagResults, caseSearchRuntime),
+			state: aggregatePrivateProbeState(item, flagResults, caseSearchRuntime)
+				.state,
 		}),
 	);
 	return {
@@ -347,6 +348,10 @@ export async function probeHqProjectSpaceCompatibility(
 }
 
 type PrivateProbeState = "available" | "missing" | "unverified";
+type PrivateProbeAssessment = {
+	readonly state: PrivateProbeState;
+	readonly issue?: NonNullable<ProjectSpaceCapabilityProbe["issue"]>;
+};
 
 async function probePrivateFeatureFlag(
 	creds: CommCareCredentials,
@@ -393,7 +398,7 @@ const CASE_SEARCH_PROBE_TYPE = "__nova_compatibility_probe__";
 async function probeCaseSearchRuntime(
 	creds: CommCareCredentials,
 	domain: string,
-): Promise<PrivateProbeState> {
+): Promise<PrivateProbeAssessment> {
 	try {
 		return await runBoundedCompatibilityProbe(async (signal) => {
 			const query = new URLSearchParams({ case_type: CASE_SEARCH_PROBE_TYPE });
@@ -405,40 +410,59 @@ async function probeCaseSearchRuntime(
 			});
 			if (response.status === 200 && response.redirected !== true) {
 				await response.body?.cancel();
-				return "available";
+				return { state: "available" };
 			}
 			if (response.status === 404) {
 				const body = await response.text();
-				return body === CASE_SEARCH_DISABLED_RESPONSE
-					? "missing"
-					: "unverified";
+				return {
+					state:
+						body === CASE_SEARCH_DISABLED_RESPONSE ? "missing" : "unverified",
+				};
+			}
+			if (response.status === 403) {
+				/* HQ's exact readiness path is a mobile runtime endpoint. A web
+				 * account may be allowed to edit/import apps while this separate
+				 * role permission is absent. Diagnose that recoverable distinction;
+				 * never reinterpret it as Case Search being disabled. */
+				await response.body?.cancel();
+				return {
+					state: "unverified",
+					issue: "connected-account-permission",
+				};
 			}
 			await response.body?.cancel();
-			return "unverified";
+			return { state: "unverified" };
 		});
 	} catch (error) {
 		log.warn("[commcare/project-space] Case search runtime probe threw", {
 			domain,
 			error,
 		});
-		return "unverified";
+		return { state: "unverified" };
 	}
 }
 
 function aggregatePrivateProbeState(
 	plan: HqProjectSpaceCapabilityProbePlan | HqProjectSpaceAdvisoryProbePlan,
 	flagResults: ReadonlyMap<string, PrivateProbeState>,
-	caseSearchRuntime: PrivateProbeState | undefined,
-): PrivateProbeState {
+	caseSearchRuntime: PrivateProbeAssessment | undefined,
+): PrivateProbeAssessment {
 	const states = plan.featureFlags.map(
 		(flag) => flagResults.get(flag.id) ?? "unverified",
 	);
 	if (plan.runtimeProbes.includes("case-search")) {
-		states.push(caseSearchRuntime ?? "unverified");
+		states.push(caseSearchRuntime?.state ?? "unverified");
 	}
-	if (states.includes("missing")) return "missing";
-	if (states.includes("unverified")) return "unverified";
-	return "available";
+	if (states.includes("missing")) return { state: "missing" };
+	if (states.includes("unverified")) {
+		return {
+			state: "unverified",
+			...(caseSearchRuntime?.issue === undefined
+				? {}
+				: { issue: caseSearchRuntime.issue }),
+		};
+	}
+	return { state: "available" };
 }
 
 function unverifiedProjectSpaceResult(

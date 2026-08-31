@@ -289,12 +289,14 @@ destination change, and on **Check again**. A required capability that is
 missing or could not be checked disables direct upload and offers that retry;
 the large-Search performance advisory never disables it. The server repeats
 the authoritative check before any remote write, so a stale browser result can
-never publish into an incompatible target. Viewers may use the file options but
-never receive the direct HQ option. The dialog consumes the shared semantic
-report from `lib/publish/projectSpaceCompatibility.ts`; do not re-detect app
-features, copy the private catalog into React, or expose literal HQ setting
-names. Every blocked notice names the target project space and links to the
-public project-space compatibility guide in a new tab.
+never publish into an incompatible target. Its compatibility report replaces
+the earlier browser result: a newly blocked target disables Upload and stays
+blocked until **Check again** returns a fresh ready report. Viewers may use the
+file options but never receive the direct HQ option. The dialog consumes the
+shared semantic report from `lib/publish/projectSpaceCompatibility.ts`; do not
+re-detect app features, copy the private catalog into React, or expose literal
+HQ setting names. Every blocked notice names the target project space and links
+to the public project-space compatibility guide in a new tab.
 
 Access is live, not mount-captured. Any reload/gap/typed write-authority response
 immediately pauses editing, masks the Project workspace, clears registered

@@ -259,6 +259,39 @@ describe("project-space compatibility reports", () => {
 		expect(report.message).toContain("Nothing has been sent");
 	});
 
+	it("keeps a connected-account permission failure semantic and actionable", () => {
+		const patient = module({ caseSearchConfig: {} });
+		const uses = requiredProjectSpaceCapabilities(
+			doc({ modules: { [patient.uuid]: patient } }),
+		);
+		const report = projectSpaceCompatibilityForTarget(
+			"clinic-space",
+			[
+				{
+					capability: uses[0],
+					state: "unverified",
+					issue: "connected-account-permission",
+				},
+			],
+			[],
+		);
+
+		expect(report.blockers).toMatchObject([
+			{
+				id: "case-search",
+				state: "unverified",
+				issue: "connected-account-permission",
+			},
+		]);
+		expect(report.message).toContain("Mobile App Access");
+		expect(report.message).not.toContain("access_mobile_endpoints");
+		expect(
+			decodeProjectSpaceCompatibilityReport(
+				encodeProjectSpaceCompatibilityReport(report),
+			),
+		).toEqual(report);
+	});
+
 	it("keeps a missing optimization advisory non-blocking", () => {
 		const patient = module({ caseSearchConfig: {} });
 		const plan = projectSpaceCompatibilityProbePlan(

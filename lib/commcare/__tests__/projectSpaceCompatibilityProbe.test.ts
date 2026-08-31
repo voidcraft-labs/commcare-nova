@@ -176,6 +176,43 @@ describe("probeHqProjectSpaceCompatibility", () => {
 		expect(result.capabilities[0]?.state).toBe("unverified");
 	});
 
+	it("diagnoses the separate connected-account permission on a Search 403", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((url: string) => {
+				const parsed = new URL(url);
+				if (parsed.pathname.endsWith("/phone/search/")) {
+					return Promise.resolve(response(403, "Forbidden"));
+				}
+				return Promise.resolve(response(200, domains(["clinic-space"])));
+			}),
+		);
+
+		const result = await probeHqProjectSpaceCompatibility(
+			CREDS,
+			"clinic-space",
+			searchPlan(),
+		);
+
+		expect(result.capabilities).toMatchObject([
+			{
+				capability: { id: "case-search" },
+				state: "unverified",
+				issue: "connected-account-permission",
+			},
+		]);
+		expect(result.report.blockers).toMatchObject([
+			{
+				id: "case-search",
+				state: "unverified",
+				issue: "connected-account-permission",
+			},
+		]);
+		expect(result.report.message).toContain("Mobile App Access");
+		expect(result.report.message).not.toContain("access_mobile_endpoints");
+		expect(result.report.status).toBe("blocked");
+	});
+
 	it("does not accept an unexpected successful Search status", async () => {
 		const fetchMock = vi.fn((url: string) => {
 			const parsed = new URL(url);

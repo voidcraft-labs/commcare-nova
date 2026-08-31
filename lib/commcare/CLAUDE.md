@@ -75,13 +75,16 @@ write. Domain-only settings use the `UserDomainsResource` filter. A
 negative result is missing only after the unfiltered endpoint proves the target
 is still visible; transport, shape, namespace, and unknown-setting failures are
 unverified. Case search has an additional qualified read against the mobile
-Search endpoint, which is API-key compatible and checks both its base toggle
-and `CaseSearchConfig.enabled`; only its exact configured-off 404 is missing,
-and no result body is retained or logged. Advanced Search adds its private child
-setting to the SAME public Case search capability. Missing or unverified
-required capabilities block before writes. The large-search performance check
-is advisory: it controls only whether Nova can add its derived Search
-optimization and never blocks publishing or removes Search.
+Search endpoint, which checks both its base toggle and `CaseSearchConfig.enabled`.
+HQ accepts an API key there but separately requires the connected web account's
+Mobile App Access permission; a 403 is therefore a permission-specific
+unverified result, never evidence that Search is missing. Only the exact
+configured-off 404 is missing, and no result body is retained or logged.
+Advanced Search adds its private child setting to the SAME public Case search
+capability. Missing or unverified required capabilities block before writes.
+The large-search performance check is advisory: it controls only whether Nova
+can add its derived Search optimization and never blocks publishing or removes
+Search.
 
 JSON and CCZ have no target project space, so compatibility is `not_checked`.
 The weekly `commcare-hq-feature-flags` workflow runs

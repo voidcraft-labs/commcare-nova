@@ -522,6 +522,12 @@ export function PublishDialog({
 		[],
 	);
 	const handleCheckCompatibilityAgain = useCallback(() => {
+		setStatus((current) =>
+			current.type === "refused" &&
+			current.projectSpaceCompatibility?.status === "blocked"
+				? { type: "idle" }
+				: current,
+		);
 		loadProjectSpaceCompatibility();
 	}, [loadProjectSpaceCompatibility]);
 
@@ -572,6 +578,16 @@ export function PublishDialog({
 				project_space_compatibility?: ProjectSpaceCompatibilityReport;
 			};
 			if (!isCurrent()) return;
+			/* The publish-time probe is newer authority than the disclosure check
+			 * that enabled the button. Keep its exact answer as the browser gate so
+			 * a target that changed between those requests cannot be submitted again
+			 * until a person explicitly checks it again. */
+			if (data.project_space_compatibility !== undefined) {
+				setCompatibilityState({
+					type: "ready",
+					report: data.project_space_compatibility,
+				});
+			}
 
 			/* One pure decision, kept out of here because getting it wrong is
 			 * invisible in a screenshot: a refused publish must show its
@@ -868,6 +884,19 @@ export function PublishDialog({
 														adopted={adoptResourceIds}
 														onAdoptChange={handleAdoptChange}
 													/>
+												) : null}
+												{status.projectSpaceCompatibility?.status ===
+												"blocked" ? (
+													<div className="mt-2 flex justify-end">
+														<Button
+															type="button"
+															variant="ghost"
+															onClick={handleCheckCompatibilityAgain}
+														>
+															<Icon icon={tablerRefresh} className="size-4" />
+															Check again
+														</Button>
+													</div>
 												) : null}
 											</PublishSuccess>
 										) : null}
@@ -1545,7 +1574,9 @@ function ProjectSpaceCompatibilityNotice({
 									<p className="text-nova-text-secondary">
 										{capability.state === "missing"
 											? `This project space doesn't support ${capability.label}.`
-											: `Nova couldn't confirm whether this project space supports ${capability.label}. Check your CommCare HQ connection, then try again.`}
+											: capability.issue === "connected-account-permission"
+												? `The CommCare HQ account connected to Nova needs Mobile App Access before Nova can check ${capability.label}. Ask a project-space administrator to add that permission, then check again.`
+												: `Nova couldn't confirm whether this project space supports ${capability.label}. Check your CommCare HQ connection, then try again.`}
 									</p>
 								) : null}
 							</li>

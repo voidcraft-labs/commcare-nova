@@ -25,7 +25,10 @@ The result is one of four clear states:
 - **Not ready.** The project space is missing required support. Nova names the
   app capability and waits, so nothing is sent.
 - **Couldn't confirm.** Nova could not verify required support. Nothing is sent.
-  Check the CommCare HQ connection, then try again.
+  Nova names what prevented the check. Usually the next step is to check the
+  CommCare HQ connection. Case search may instead need **Mobile App Access** on
+  the CommCare HQ account connected to Nova; a project-space administrator can
+  add that permission.
 
 Nova checks again as part of every direct publish. A result from an earlier
 check is useful guidance, but it cannot become stale permission to write to a

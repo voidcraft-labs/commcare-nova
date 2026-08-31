@@ -7,9 +7,10 @@
  * This intentionally reads source instead of importing CommCare HQ: the audit
  * runs in Nova CI without bootstrapping HQ's Python/Django environment. It
  * checks the toggle declaration (symbol, slug, tag, namespaces) plus at least
- * one runtime/authoring gate for each setting. It also pins the API-key-safe
- * Case Search readiness path. A GA/tag change or removed gate therefore
- * becomes an actionable scheduled failure instead of tribal knowledge.
+ * one runtime/authoring gate for each setting. It also pins the exact Case
+ * Search readiness path and its separate Mobile App Access permission. A
+ * GA/tag change or removed gate therefore becomes an actionable scheduled
+ * failure instead of tribal knowledge.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -81,6 +82,35 @@ if (!existsSync(caseSearchProbePath)) {
 		if (!source.includes(expected)) {
 			failures.push(
 				`Case Search compatibility probe changed in ${manifest.source.caseSearchProbePath}: ${JSON.stringify(expected)}`,
+			);
+		}
+	}
+}
+
+for (const [pathKey, evidenceKey, description] of [
+	[
+		"caseSearchPermissionPath",
+		"caseSearchPermissionEvidence",
+		"Case Search probe permission",
+	],
+	[
+		"caseSearchPermissionUiPath",
+		"caseSearchPermissionUiEvidence",
+		"Case Search permission UI",
+	],
+]) {
+	const path = resolve(hqRoot, manifest.source[pathKey]);
+	if (!existsSync(path)) {
+		failures.push(
+			`${description} source disappeared: ${manifest.source[pathKey]}`,
+		);
+		continue;
+	}
+	const source = readFileSync(path, "utf8");
+	for (const expected of manifest.source[evidenceKey]) {
+		if (!source.includes(expected)) {
+			failures.push(
+				`${description} changed in ${manifest.source[pathKey]}: ${JSON.stringify(expected)}`,
 			);
 		}
 	}

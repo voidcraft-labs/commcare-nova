@@ -20,6 +20,16 @@
 			"@mobile_auth",
 			"@toggles.SYNC_SEARCH_CASE_CLAIM.required_decorator(plain_message=CASE_SEARCH_DISABLED_MSG)",
 			"if not case_search_enabled_for_domain(domain):"
+		],
+		"caseSearchPermissionPath": "corehq/apps/ota/decorators.py",
+		"caseSearchPermissionEvidence": [
+			"def require_mobile_access(fn):",
+			"HqPermissions.access_mobile_endpoints"
+		],
+		"caseSearchPermissionUiPath": "corehq/apps/users/templates/users/edit_role.html",
+		"caseSearchPermissionUiEvidence": [
+			"Mobile App Access",
+			"role.permissions.access_mobile_endpoints"
 		]
 	},
 	"flags": [

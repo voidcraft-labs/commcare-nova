@@ -87,8 +87,13 @@ export type ProjectSpaceCapabilityState =
 	| "missing"
 	| "unverified";
 
+/** Why an otherwise reachable project space could not be checked. Public and
+ * semantic: clients can offer the right recovery without seeing HQ internals. */
+export type ProjectSpaceCompatibilityIssue = "connected-account-permission";
+
 export interface ProjectSpaceCapabilityCheck extends ProjectSpaceCapabilityUse {
 	readonly state: ProjectSpaceCapabilityState;
+	readonly issue?: ProjectSpaceCompatibilityIssue;
 }
 
 export interface ProjectSpaceAdvisoryCheck extends ProjectSpaceAdvisoryUse {
@@ -99,6 +104,7 @@ export interface ProjectSpaceAdvisoryCheck extends ProjectSpaceAdvisoryUse {
 export interface ProjectSpaceCapabilityProbe {
 	readonly capability: ProjectSpaceCapabilityUse;
 	readonly state: Exclude<ProjectSpaceCapabilityState, "not_checked">;
+	readonly issue?: ProjectSpaceCompatibilityIssue;
 }
 
 export interface ProjectSpaceAdvisoryProbe {
@@ -182,7 +188,11 @@ export function projectSpaceCompatibilityForTarget(
 	}
 
 	const requiredCapabilities: ProjectSpaceCapabilityCheck[] =
-		capabilityProbes.map(({ capability, state }) => ({ ...capability, state }));
+		capabilityProbes.map(({ capability, state, issue }) => ({
+			...capability,
+			state,
+			...(issue === undefined ? {} : { issue }),
+		}));
 	const blockers = requiredCapabilities.filter(
 		(capability) =>
 			capability.state === "missing" || capability.state === "unverified",
@@ -208,9 +218,22 @@ export function projectSpaceCompatibilityForTarget(
 			);
 		}
 		if (unverified.length > 0) {
-			parts.push(
-				`Nova couldn't confirm ${friendlyList(unverified.map((item) => item.label))}. Nothing has been sent. Check your CommCare HQ connection, then try again.`,
+			const permissionBlocked = unverified.filter(
+				(item) => item.issue === "connected-account-permission",
 			);
+			const otherwiseUnverified = unverified.filter(
+				(item) => item.issue !== "connected-account-permission",
+			);
+			if (permissionBlocked.length > 0) {
+				parts.push(
+					`Nova couldn't confirm ${friendlyList(permissionBlocked.map((item) => item.label))} because the connected CommCare HQ account does not have Mobile App Access. Nothing has been sent. Ask a project-space administrator to add that permission to the connected account, then check again.`,
+				);
+			}
+			if (otherwiseUnverified.length > 0) {
+				parts.push(
+					`Nova couldn't confirm ${friendlyList(otherwiseUnverified.map((item) => item.label))}. Nothing has been sent. Check your CommCare HQ connection, then try again.`,
+				);
+			}
 		}
 		message = parts.join(" ");
 	}
@@ -292,6 +315,9 @@ const CAPABILITY_STATES = new Set<ProjectSpaceCapabilityState>([
 	"missing",
 	"unverified",
 ]);
+const COMPATIBILITY_ISSUES = new Set<ProjectSpaceCompatibilityIssue>([
+	"connected-account-permission",
+]);
 const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"case-search",
 	"commcare-connect",
@@ -329,7 +355,12 @@ function isCapabilityCheck(
 		value.description === definition.description &&
 		isStringList(value.reasons) &&
 		typeof value.state === "string" &&
-		CAPABILITY_STATES.has(value.state as ProjectSpaceCapabilityState)
+		CAPABILITY_STATES.has(value.state as ProjectSpaceCapabilityState) &&
+		(value.issue === undefined ||
+			(typeof value.issue === "string" &&
+				COMPATIBILITY_ISSUES.has(
+					value.issue as ProjectSpaceCompatibilityIssue,
+				)))
 	);
 }
 

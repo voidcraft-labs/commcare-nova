@@ -127,6 +127,27 @@ function blockedReport(domain: string): ProjectSpaceCompatibilityReport {
 	};
 }
 
+function permissionBlockedReport(
+	domain: string,
+): ProjectSpaceCompatibilityReport {
+	const blocker = {
+		...caseSearch,
+		state: "unverified" as const,
+		issue: "connected-account-permission" as const,
+	};
+	return {
+		status: "blocked",
+		target_domain: domain,
+		required_capabilities: [blocker],
+		blockers: [blocker],
+		advisories: [],
+		support_email: PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
+		docs_url: PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
+		message:
+			"Nova couldn't confirm Case search because the connected CommCare HQ account does not have Mobile App Access.",
+	};
+}
+
 function compatibilityPreflight(domain?: string) {
 	return Promise.resolve({
 		ok: true as const,
@@ -417,6 +438,27 @@ describe("PublishDialog", () => {
 		);
 	});
 
+	it("explains the connected-account permission needed to check Case search", async () => {
+		renderDialog({
+			onLoadProjectSpaceCompatibility: vi.fn(async (domain?: string) => ({
+				ok: true as const,
+				report: permissionBlockedReport(domain ?? "project-space"),
+			})),
+		});
+
+		const alert = await screen.findByRole("alert");
+		expect(alert.textContent).toContain(
+			"The CommCare HQ account connected to Nova needs Mobile App Access before Nova can check Case search",
+		);
+		expect(alert.textContent).toContain(
+			"Ask a project-space administrator to add that permission, then check again",
+		);
+		expect(alert.textContent).not.toContain("access_mobile_endpoints");
+		expect(
+			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
+		).toBe(true);
+	});
+
 	it("never lets a performance advisory disable direct upload", async () => {
 		const ready = readyReport("project-space");
 		const report: ProjectSpaceCompatibilityReport = {
@@ -502,7 +544,22 @@ describe("PublishDialog", () => {
 		});
 	});
 
-	it("shows one compatibility alert when the upload preflight refuses", async () => {
+	it("adopts a server-blocked compatibility result until a retry succeeds", async () => {
+		type CompatibilityOutcome = Awaited<
+			ReturnType<typeof compatibilityPreflight>
+		>;
+		let resolveRetry: ((outcome: CompatibilityOutcome) => void) | undefined;
+		const onLoadProjectSpaceCompatibility = vi
+			.fn()
+			.mockImplementationOnce((domain?: string) =>
+				compatibilityPreflight(domain),
+			)
+			.mockImplementationOnce(
+				() =>
+					new Promise<CompatibilityOutcome>((resolve) => {
+						resolveRetry = resolve;
+					}),
+			);
 		mocks.fetch.mockResolvedValueOnce(
 			new Response(
 				JSON.stringify({
@@ -523,7 +580,7 @@ describe("PublishDialog", () => {
 				{ status: 200, headers: { "Content-Type": "application/json" } },
 			),
 		);
-		renderDialog();
+		renderDialog({ onLoadProjectSpaceCompatibility });
 		const upload = await screen.findByRole("button", { name: "Upload" });
 		await waitFor(() => expect(upload.hasAttribute("disabled")).toBe(false));
 
@@ -533,6 +590,19 @@ describe("PublishDialog", () => {
 		expect(alerts).toHaveLength(1);
 		expect(alerts[0]?.textContent).toContain("Case search");
 		expect(alerts[0]?.textContent).not.toContain("Duplicate refusal detail");
+		expect(upload.hasAttribute("disabled")).toBe(true);
+
+		fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+		expect(
+			screen.getByText("Checking whether this project space can run the app"),
+		).toBeTruthy();
+		expect(upload.hasAttribute("disabled")).toBe(true);
+		await act(async () => {
+			resolveRetry?.(await compatibilityPreflight("project-space"));
+		});
+
+		await waitFor(() => expect(upload.hasAttribute("disabled")).toBe(false));
+		expect(onLoadProjectSpaceCompatibility).toHaveBeenCalledTimes(2);
 	});
 
 	it("ignores a download completion from a closed dialog after it reopens", async () => {
