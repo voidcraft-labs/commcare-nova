@@ -141,7 +141,7 @@
 	"devDependencies": {
 		"@base-ui/react": "^1.7.0",
 		"@biomejs/biome": "2.5.10",
-		"@iconify-icons/tabler": "^1.2.95",
+		"@iconify-icons/tabler": "^2.0.0",
 		"@lezer/generator": "^1.8.0",
 		"@modelcontextprotocol/client": "^2.0.0",
 		"@playwright/test": "^1.62.1",
